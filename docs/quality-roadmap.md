@@ -32,6 +32,19 @@ The RP2040's 10 KB was the JVM's resolution caches growing through an infallible
 `imagedemo` ERROR, which predated the round, was an unaligned papk ASSETS section:
 `bugs-rp2040-imagedemo-2026-09-15.md`.
 
+**2026-09-16 sweep.** Checked against `09e7a8b3`. Two premises on this page changed in the last
+week and each entry that leans on them carries a dated note: the JVM run lock (`d1a09765`,
+`designs/jvm-run-lock-2026-09.md`) now enforces "one interpreting task at a time" with a kernel
+mutex rather than with `configUSE_TIME_SLICING 0` plus one priority tier, and the bench holds a
+`testbench_rp2040` slot (since 2026-09-09) beside `pico_touch_kit` and `pico_enviro_mon_w`. Still
+open and unchanged: the GC-stress sim variant, clean-worktree nightlies (cron still runs the
+shared checkout), the region-percentage size gate, the strict memdiag nightly, the scenario
+runner, lifecycle/store unit tests, the Kotlin contention test, the sensor mailbox, screenshot
+and sensor injection in the sim, module docs, the LVGL event-registry wrapper, `Value` 8 B, the
+two-worker pool, every memory-diagnostics follow-up (the `pdb sysmon` cap is still
+`MAX_TASKS = 12`), the sim pthread leak (still `freertos-rust-pd` 0.2.3), NET-1, NET-9 and the
+Compose-like layer.
+
 ## Regression automation
 
 ### Handle sanitizer + GC-stress variant in the nightly sim run
@@ -146,6 +159,14 @@ covered nightly. term/loop/hw rows may name the boards or MCUs they need in the 
 (`jucdemo` and `jsondemo` are tagged `rp2350`), so an rp2040 slot is one config line and one
 more probe away; the rows that cannot fit it get tagged from that first run's evidence.
 
+*2026-09-16:* **the rp2040 gap is closed.** `testbench_rp2040` has had its own slot since
+2026-09-09 and runs in every 4 AM fleet night; `bench/parity/history.csv` carries its rows, and it
+was the board that found the papk alignment HardFault, the 10,240 B resolution-cache abort and
+the orphaned-data volume fill (`qa-2026-09-13-followups.md` §3, §11). The fleet is now
+`pico_touch_kit`, `pico_enviro_mon_w` (which also takes `testbench_rp2350` and
+`testbench_rp2350w` firmware) and `testbench_rp2040`; there is no dedicated XPT2046
+`testbench_rp2350` slot any more, so rows that need that panel only run on the rp2040.
+
 ## Test coverage
 
 ### Method-level native registry cross-check (stage 2) — **LANDED 2026-07-26**
@@ -239,6 +260,12 @@ the minifb buffer; optionally 2–3 coarse checks in sim-run ("not blank after b
 pixels). A blank-screen regression passes every log-token test today. **Tradeoff:** skip
 golden-image diffing — every LVGL/theme/font bump would invalidate all baselines; coarse checks
 only.
+
+*2026-09-16:* a related tool exists: the `parity-fbhash` feature logs a CRC32 of every band at the
+`flush_cb` seam on the sim and on devices, and proved the RGB565_SWAPPED change byte-identical
+(`designs/rgb565-swapped-render-2026-09.md` §7). It suits deterministic apps (`graphicsbench`),
+not ones whose animation follows the wall clock (`qa_ui`). The screenshot dump itself is still
+not built.
 
 ### Scriptable sensor/peripheral injection in sim
 
@@ -414,6 +441,12 @@ buys fairness nothing in-tree currently needs — no shipped app has a compute-b
 thread — at a tax on the hottest loop in the system. The honest trigger is an app that actually
 starves, not the tidiness of having it.
 
+*2026-09-16:* the premise moved. Since the JVM run lock (`d1a09765`) a Java task holds a kernel
+mutex while it interprets and releases it only at blocking points, so a plain `task_yield()` at a
+safepoint would hand the core to a sibling that immediately blocks on the mutex. A safepoint now
+has to be `jvm_run_lock::unlocked()` around the yield — still cheap, still outside any
+`AtomicSection`, and still to be gated on `benchmark` as above.
+
 ### Cross-thread field visibility has no `volatile` and no fences
 
 Opened 2026-08-31 by the concurrency-parity work (merged `a34a639`). Java threads are real
@@ -449,6 +482,10 @@ Step (1) is done and this entry is a documentation gap; steps (2) and (3) stand 
 *2026-09-02:* step (2) is also done — `ARCHITECTURE.md`'s invariant table (same commit,
 `4a56a96`) records that `volatile` is ignored and no barriers are emitted. Only step (3)
 remains, and X1's conclusion means it is explicitly *not* to be paid.
+
+*2026-09-16:* the JVM run lock (`d1a09765`) makes this safe independently of core pinning: only
+the task holding the mutex interprets, and a hand-over is a blocking point with a full context
+save, so even a second interpreting core would not observe a torn field. Step (3) stays unpaid.
 
 ### ~~`IO_IRQ_BANK0` runs on both cores and services the button queue from core 1~~ — FIXED 2026-09-02
 
@@ -579,7 +616,7 @@ positional + `key()` reconciler that re-runs affected subtree builders on state 
 `View` setters only for changed properties. Java-first: it does not need Kotlin; Kotlin only adds
 DSL sugar (trailing lambdas, receivers). Backend gaps: `ViewGroup.addView` is append-only with no
 reorder (needs `lv_obj_move_to_index` in `lvgl_ffi.rs`, or subtree rebuilds), and a post-callback
-`Recomposer.flush()` dispatch site in `picodroid-core/src/lifecycle.rs`. Estimated 20–30 classes /
+`Recomposer.flush()` dispatch site in `crates/picodroid-core/src/lifecycle.rs`. Estimated 20–30 classes /
 1.5–2.5k LOC, 35–60 KB flash (ship inside the PAPK, or E1-gate it — RP2040 has ~40 KB of program
 flash left), ~9 KB retained + ~8 KB transient per rebuild for a picoenvmon-sized UI (33 views),
 ~10 ms per full recompose on device. Jetpack Compose proper is ruled out — see
@@ -588,3 +625,7 @@ flash left), ~9 KB retained + ~8 KB transient per rebuild for a picoenvmon-sized
 apps will actually use. **Tradeoff:** every screen written imperatively in the meantime is a screen
 to port later; but designing the DSL before Kotlin lands would either freeze a Java-shaped API or
 block on the Kotlin toolchain.
+
+*2026-09-16:* the gate is lifted — the Kotlin roadmap closed (all eight sessions, S8 = `a6bbcc1`),
+so this is now simply unscheduled. Note that `ViewGroup` keeps a Java-side child list since
+`a97321ee`, which is half of the reorder support the reconciler needs.

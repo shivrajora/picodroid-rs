@@ -40,7 +40,7 @@ version:
 | Lambdas & SAM conversion | `invokedynamic`, capturing and non-capturing; `fun interface` |
 | Null safety | `?.`, `?:`, `!!`, smart casts (`!!` calls the shim's `Intrinsics`) |
 | String templates | compile to `StringBuilder` chains |
-| Data classes, sealed classes + `when`, enums | `Enum.valueOf(String)` is the one gap — use `values()` + `name()` |
+| Data classes, sealed classes + `when`, enums | `values()`, `valueOf(String)`, `name()`, `ordinal()` |
 | Objects, companions, interface defaults | every `companion object` is its own class — see frugality below |
 | Extension / infix / default & named args / varargs | including mixed spread calls (`f(1, *xs)`) |
 | Scope functions, `lazy`, `Pair`, destructuring | |
@@ -77,7 +77,6 @@ runtime `NoSuchMethod`), never silently:
 | `@Synchronized` methods are not synchronized | `synchronized(lock) {}` blocks work |
 | Arrays are capped at 65,535 elements | allocation beyond that fails |
 | `toArray` returns a fresh array | never the backing store |
-| Boxed accessors do not convert | `(n as java.lang.Integer).toFloat()`-style cross-conversions return the raw value |
 | `Character` predicates are ASCII-only | `isDigit`, `isLetter`, case mapping |
 
 The repo's `examples/gcstress_kt` exercises the collector under exactly the

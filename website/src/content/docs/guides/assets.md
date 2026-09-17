@@ -121,6 +121,8 @@ For scaled rendering to be anti-aliased, `LV_DRAW_SW_SUPPORT_RGB565A8` must be e
 
 Bundled assets land outside the framework class set, so they don't change the **shrink map**. v1.1 PAPKs run unchanged on v1.0 firmware **only if they don't reference an asset** — the firmware will skip the ASST section. PAPKs that call `setImageSource` need v1.1 firmware (any picodroid release ≥ v0.8.0).
 
+A PAPK packed before sections were aligned (2026-09-15) can place an image's pixels at an odd address. The firmware skips such an image instead of drawing it and logs `[assets] <name> skipped: pixel data is not 2-byte aligned`; re-pack the app to fix it.
+
 The `papk-info` tool prints both the manifest and the asset table:
 
 ```bash
@@ -129,8 +131,8 @@ cargo run -p papk-info -- build/apks/imagedemo.papk
 
 ## Internals (for the curious)
 
-- The ASST section is a `[u32 count]` followed by one record per asset: `[u16 name_len][name bytes][u16 width][u16 height][u8 cf][u8 reserved0][u16 stride (0 = derive from width + cf)][u32 data_len]`, each record padded to a 4-byte boundary before and after its pixel data.
-- The firmware-side resolver lives in `platforms/rp/src/system/picodroid/graphics/assets.rs` and registers each entry with LVGL's image cache as `lv_img_dsc_t` pointers into XIP flash.
+- The ASST section is a `[u32 count]` followed by one record per asset: `[u16 name_len][name bytes][u16 width][u16 height][u8 cf][u8 reserved0][u16 stride (0 = derive from width + cf)][u32 data_len]`, each record padded to a 4-byte boundary before and after its pixel data. Every PAPK section also starts on a 4-byte boundary in the file, so pixel data sits at an aligned flash address — LVGL reads it in place as 16-bit words, and a Cortex-M0+ (RP2040) hard-faults on an unaligned halfword read.
+- The firmware-side resolver lives in `crates/picodroid-core/src/graphics/assets.rs` and registers each entry with LVGL's image cache as `lv_img_dsc_t` pointers into XIP flash.
 - There is no asset-section byte cap in the packer — the only enforced image limit is a per-axis maximum of 65535 px. The real ceiling is the app region the PAPK is installed into, shared with its classes and manifest and with every other installed app, so keep `assets/` modest (a few hundred KiB at most) to leave room for code.
 - Re-pack any PAPK that was built before v1.1 if you start using `setImageSource` — `pdb install` will reject the older format with `FrameworkVersionMismatch`.
 

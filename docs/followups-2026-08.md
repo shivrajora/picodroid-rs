@@ -1,6 +1,9 @@
 # Open Follow-ups — post GC-race fix (2026-08-17)
 
-**Status: items 1-6 closed; item 7 (GC-pacing measurements) is partly open.**
+**Status: items 1, 2, 4, 5 and 6 closed; item 3 (log the edit-mode key drop) is open; item 7
+(GC-pacing measurements) is partly open; §8's hardware tickets are unfiled.** (Corrected
+2026-09-16: the line used to say items 1-6, but item 3 was never done — `events.rs` still has no
+log line on the edit-mode consumption path, checked at `09e7a8b3`.)
 
 Everything left open after the picoenvmon soak/corruption investigation
 (`picoenvmon-qa.md` 2026-08-17 sections; fix `0c1326d`), other than the
@@ -70,7 +73,7 @@ trap; ~5 lines); (b) per-thread `sb_stack` keyed by task id; (c) rewrite
 the offending Java to finish strings before blocking. Do (a) first and let
 the soak say whether (b)/(c) are needed.
 
-## 3. Edit-mode key consumption is invisible (driver false-FAILs)
+## 3. Edit-mode key consumption is invisible (driver false-FAILs) — OPEN
 
 The Settings NumberPicker edit mode (`graphics/lvgl/edit_mode.rs`,
 consulted in `events.rs:494-501`) can consume a key entirely — no Java
@@ -152,6 +155,10 @@ stays per-board or becomes byte-weighted, and the interpreter fold cost.
   programmed. IAQ tile/LED cosmetic.
 - Pressure ~3600 hPa (raw `press=356850`): physically implausible,
   pre-existing driver/compensation artifact.
+
+*2026-09-16:* both still open — `drivers/bme688` has not changed since the
+`crates/` move, and it still programs no heater profile (`res_heat_0` /
+`gas_wait_0`).
 
 Both predate the networking work; both keep tripping people reading soak
 logs. File as their own items so soak triage can keep ignoring them.

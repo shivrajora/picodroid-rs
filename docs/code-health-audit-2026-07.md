@@ -1,7 +1,8 @@
 # Code-Health Audit — 2026-07-24
 
-**Status: P0 and P1 closed, P2 open** — the progress notes at the head of Section 9 say what
-landed and when.
+**Status: P0 and P1 closed, P2 open** (14 and 17 done, 12/13/15/16 partial, 11 untouched as of
+2026-09-16) — the progress notes at the head of Section 9 say what landed and when, and the
+re-checks at its end say where each P2 item stands.
 
 Full-repo audit on four axes: **test coverage**, **modularization**, **reusability**, and
 **API contracts**. Read-only — no fixes applied; the prioritized backlog at the end is the
@@ -515,6 +516,35 @@ Verified against the tree, not against this list's own wording:
   (`jvm/src/interpreter/tests/synchronized.rs`, concurrency-parity WP2); the
   facade tests, `invoke_*` consolidation and `map_store`/`iter_store` tests are
   still untouched.
+
+### P2 status re-check — 2026-09-16
+
+Against `09e7a8b3`, by looking at the tree:
+
+- **11 — untouched, and bigger.** `crates/picodroid-core/src/lifecycle.rs` is
+  2,184 lines with no `#[test]`. Its prerequisite, the sim scenario tests, is
+  still a `quality-roadmap.md` entry; the pdb-driven HIL rows
+  (`pdb-launch`, `pdb-settings-uninstall`) are the nearest thing to a net.
+- **12 — partial, and regressing.** `crates/jvm/src/object_heap/mod.rs` has
+  grown to 1,956 lines (from ~1,516); the QA round's formatter and OOM fixes
+  landed in it.
+- **13 — partial.** The QA round added interpreter-level host suites
+  (`interpreter/tests/qa_collections.rs`, `qa_oom.rs`) and a capped test
+  allocator (`4aea25e4`), which exercise the collection stores through
+  bytecode. Still missing: `crates/jvm/src/lib.rs` facade tests (0 tests; the
+  five `invoke_*` variants remain), and direct `map_store.rs`/`iter_store.rs`
+  unit tests (0 each).
+- **14 — done.** The littlefs "fork" is now vendored in-tree
+  (`third_party/littlefs-rust{,-core}`, with `rp2040-hal` beside it), and the
+  root `Cargo.toml` `[patch]` comments name the upstream version and the patch.
+  No separate FORK.md; the comments are the record.
+- **15 — partial.** READMEs exist only for `crates/jvm` and `crates/compat`;
+  still none for `crates/picodroid-core`, `platforms/rp`, `tools/pdb`,
+  `crates/pdb-protocol` or `crates/papk-format`.
+- **16 — partial.** `build.sh`, `build-apk.sh` and `flash.sh` are still on bare
+  `set -e`; `lib.sh` still parses TOML with `grep`/`sed`; `hil-run.sh` is now
+  1,479 lines (725 at the last check).
+- **17 — done** (unchanged).
 
 ## Appendix: invariants verified directly during this audit
 

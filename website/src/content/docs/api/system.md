@@ -160,7 +160,7 @@ public class MyApp {
 
 ### Priority
 
-`Thread.MIN_PRIORITY` (1), `NORM_PRIORITY` (5) and `MAX_PRIORITY` (10) exist and `setPriority`/`getPriority` round-trip them, but the value is **advisory**: every task that interprets Java — the UI thread, every `Thread`, the background executor pool — runs at the single JVM tier (FreeRTOS priority 15), below real-time native tasks (21–30) and above background native services (1–10). The shared JVM heap is lock-free on the strength of "a running JVM task keeps the core until it blocks", and a Java thread one notch above the UI thread would preempt it at any instruction. Android itself only treats `setPriority` as a scheduling hint; here the hint is recorded and not applied.
+`Thread.MIN_PRIORITY` (1), `NORM_PRIORITY` (5) and `MAX_PRIORITY` (10) exist and `setPriority`/`getPriority` round-trip them, but the value is **advisory**: every task that interprets Java — the UI thread, every `Thread`, the background executor pool — runs at the single JVM tier (FreeRTOS priority 15), below real-time native tasks (21–30) and above background native services (1–10). The shared JVM heap has no locks of its own: one task interprets Java at a time, holding a kernel mutex (the JVM run lock) that it gives up only at a blocking point — a sleep, a wait, a queue, a socket, `Thread.yield`. A Java thread one notch above the UI thread would preempt it at any instruction, only to block on that mutex. Android itself only treats `setPriority` as a scheduling hint; here the hint is recorded and not applied.
 
 Each call to `t.start()` creates a dedicated FreeRTOS task with a 4096-word stack. When `MyRunnable.run()` returns, the task self-deletes and its stack is reclaimed automatically.
 

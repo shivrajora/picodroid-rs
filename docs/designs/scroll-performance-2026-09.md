@@ -847,3 +847,46 @@ whose first step is a bench measurement rather than a code change.
 - What does GP11 actually do across a gesture on this module — pulse or level,
   which polarity, and is there an edge on release? Decides whether S8 is an
   interrupt-driven sampler or an interrupt-accelerated polled one.
+
+## Amendments
+
+### 2026-09-16 — S2 landed as WP7; the byte swap is gone; what is still open
+
+Checked against `09e7a8b3`. Overrides §8 where they disagree.
+
+- **S2 is built, by another route.** Scheduling-audit WP7 (`d8563ae3`, the
+  re-land of `719d43e7`, plus `9d090232`; 2026-09-15) feeds `lv_tick_inc` from
+  `tick_source::step_ms()`: one period while the loop keeps up, the tick's
+  measured lateness when that is more — deliberately not a raw wall-clock
+  delta, because a 15 ms step against the 16 ms refresh period would skip a
+  frame per millisecond of jitter (the S3 finding). A source guard pins
+  `lv_tick_inc` to its one caller in `graphics/lvgl/lifecycle.rs` and rejects a
+  literal step. **Not measured on this board**: the "next 10 ms" §5 S4 expected
+  from S2 and from the loop's ordering after `lv_timer_handler` has no number
+  yet. Re-run the §1 probe on the Set-time screen before choosing the next item.
+- **§2's RGB565 swap is retired, not optimised.** LVGL v9.6.0 (`97635c48`)
+  deprecates `LV_COLOR_16_SWAP`, and `09e7a8b3` renders straight into
+  `LV_COLOR_FORMAT_RGB565_SWAPPED` (`rgb565-swapped-render-2026-09.md`). The
+  ~3 ms/frame swap before `flush_cb` is gone, but RGB565 *images* now pay a
+  per-pixel swap while blending, and the change cost +6.5 KB flash. It was not
+  timed (that doc §7.4). §2's conclusion — the swap is not where the frame goes —
+  stands.
+- **LVGL moved under this doc.** Line references into `third_party/lvgl` are
+  v9.5 line numbers; v9.6 moves the public headers to `include/lvgl/`.
+  `lv_buttonmatrix.c`'s `draw_main` still has no clip rejection in v9.6.0, so
+  S6b's third bullet is unchanged.
+
+Open, in the order §8 would now take them:
+
+1. **Measure S2** on `pico_touch_kit` (scroll frame and entry paint).
+2. **S6b — the entry paint** (529 ms on the Set-time screen at S4; 205–245 ms in the measurements since the taller bands, `band-height-120-2026-09.md` and `psram-lvgl-fluid-scroll-2026-09.md` §1): the app-side day
+   stepper instead of `lv_calendar` is the cheapest; the warm-up profile and
+   `draw_main` clip rejection (a vendored-LVGL patch) are the framework ones.
+3. **S7 — tearing**: the TE-pin schematic question is unanswered; the ST7796
+   init sequence still sends no TEON.
+4. **S8 — GP11's behaviour** across a gesture is unmeasured, so
+   `touch_sampler.rs` still polls every `IDLE_POLL_MS = 50` idle.
+5. **§9's SPI clock question**: `clock_divisors` still floors `scr` to 0 for
+   the board's `spi_freq = 62500000`, so the panel runs at 75 MHz.
+6. **§7 Stage 5 / the pre-rendered page**: see
+   `psram-lvgl-fluid-scroll-2026-09.md`'s amendment.

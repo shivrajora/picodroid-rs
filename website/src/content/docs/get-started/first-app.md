@@ -265,8 +265,8 @@ for the Kotlin-specific subset, divergences, and idioms.
 | Switch statements | `switch`/`case` on integer and other supported types |
 | Static fields | `static` field declarations and access via `getstatic`/`putstatic` |
 | Null checks | Null reference detection (`ifnull`/`ifnonnull`) |
-| Threading | `new Thread(runnable).start()` — spawns a FreeRTOS task per thread, pinned to core 0; stack reclaimed when `run()` returns; priority set via `setPriority(1–10)` before `start()` |
-| Lambdas | `() -> expr`, `(x) -> expr` — non-capturing and capturing lambdas, method references (`Class::method`), callbacks; compiled via `invokedynamic` |
+| Threading | `new Thread(runnable).start()` — spawns a FreeRTOS task per thread, pinned to core 0; stack reclaimed when `run()` returns; `setPriority(1–10)` is recorded but advisory — every Java thread runs at one JVM tier (see [Thread](/api/system/#picodroidconcurrentthread)) |
+| Lambdas | `() -> expr`, `(x) -> expr` — non-capturing and capturing lambdas, method references (`Class::method`, `String::length`, `Integer::valueOf`, `Foo::new`), callbacks; compiled via `invokedynamic` |
 | Anonymous classes | `new Interface() { ... }` — anonymous inner classes implementing interfaces, with local variable capture |
 | Static initializers | `static { ... }` blocks, `static` field initializers, cross-class `<clinit>` chaining; each class initializer runs exactly once on first use |
 | Synchronized blocks | `synchronized (lock) { ... }` — `monitorenter`/`monitorexit` bytecodes, reentrant locking on the same object |
@@ -284,7 +284,7 @@ for the Kotlin-specific subset, divergences, and idioms.
 | ArrayList | `new ArrayList()`, `add`, `get`, `size`, `isEmpty`, `set`, `remove(int)`, `clear`, `contains` — dynamic list backed by heap |
 | HashMap / HashSet | `java.util.HashMap` and `HashSet` — `put`, `get`, `containsKey`, `remove`, `size`, key iteration; works with autoboxed keys |
 | Iterator / for-each | `Iterable` / `Iterator` and the enhanced `for (T x : collection)` loop — backed by `ArrayList`, `HashMap`, `HashSet` |
-| Enums | Java `enum` declarations — `values()`, `name()`, `ordinal()`, and `switch` over enum constants |
+| Enums | Java `enum` declarations — `values()`, `valueOf(String)`, `name()`, `ordinal()`, and `switch` over enum constants |
 | Autoboxing | `Integer`, `Boolean`, `Long`, `Float`, `Double` — `valueOf` / `intValue` etc.; enables storing primitives in `ArrayList<Integer>` etc. |
 | String (extended) | `split`, `replace`, `concat`, `toCharArray`, `hashCode` in addition to the predicates / search / transform methods listed above |
 | Sorting / list utilities | `Arrays.sort` / `Arrays.toString` (stable mergesort over `Comparable[]`), `Collections.sort` / `Collections.reverse` over `java.util.List` (`ArrayList` implements it), `java.lang.Comparable<T>` |

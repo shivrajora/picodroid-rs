@@ -9,6 +9,13 @@ open P1 — was found and fixed on 2026-09-15**; it was an SPI transfer that nev
 completion and was waited out silently for five seconds at a time, not a lost executor post.
 Section 9 records the regression coverage every fix of the round now has.
 
+**Status 2026-09-16:** items 1, 2, 4, 5, 6 and 7 are closed and item 8 is documentation. Item 3
+has one site left, the touch kit's 7,680 B, still unnamed. Smaller residues, none of them
+blocking: which cause drops the SPI byte in item 1, and why the RP2040 does not show it; an
+automated check for `SharedPreferences.commit()` at the quota (§10); `qa_thr` restricted off the
+W board for want of heap (§11); and two unreproduced one-offs to watch in the nightly — the touch
+kit's empty RTT capture and the RP2040's `pdb-install[shrink]` reboot missing its PING window (§11).
+
 ## 1. `qa_life` stalls on the Pico 2 W slot — **found and fixed 2026-09-15** (P1)
 
 **It was never the main-executor post.** The UI task was sitting inside an SPI native, in
@@ -228,10 +235,10 @@ native path is a reset waiting for a big enough app. The source scan that keeps 
 growing is **in** (`f5b78132`, `native_handler/alloc_scan.rs`): it counts the whole-buffer
 allocation shapes per file under `crates/jvm/src/native` and `native_handler/` against a
 committed baseline (42 sites in seven files) and fails on growth or on an unaccepted
-improvement. The two device findings above (7680 bytes on the touch kit, 10 KB on the
-RP2040) are still open and still need the heap census to name.
+improvement. Of the two device findings above, the RP2040's 10 KB is named and fixed
+(2026-09-15); the touch kit's 7680 bytes is still open and still needs the heap census to name.
 
-## 4. RP2040 negative-fraction casts floor framework-wide (P2)
+## 4. RP2040 negative-fraction casts floor framework-wide — **done 2026-09-14** (P2)
 
 J22 fixed the JVM's `f2i`/`f2l`/`d2i`/`d2l` and the box accessors, but the cause is the HAL:
 rp2040-hal maps `__aeabi_f2iz`/`f2lz`/`d2iz`/`d2lz` to the bootrom's `float_to_int` family,
@@ -258,7 +265,7 @@ both link the one `__aeabi_f2iz`. `platforms/rp/src/main.rs` checks `black_box(-
 at boot on the RP2040 and logs `[float] f2i floors …` as an error if a HAL upgrade ever drops
 the patch. The fixed image's `benchmark` numbers are recorded in the session notes below.
 
-## 5. A foreign LittleFS geometry should format, not fail to mount (P3)
+## 5. A foreign LittleFS geometry should format, not fail to mount — **done** (P3)
 
 When the Pico 2 W slot booted a touch-kit image (see 6), its LittleFS region was left
 formatted for that board's geometry; the testbench firmware then boots with
@@ -271,7 +278,7 @@ blank chip. Cheap; the `bootcount` example plus a power cycle verifies it.
 `[fs] mount failed: foreign superblock (geometry or version); formatting the volume` warn;
 host tests cover a clean remount (keeps files) and a foreign block count (formats).
 
-## 6. Harness: same-family boards must not run `hil-run.sh` in parallel from one worktree (P3)
+## 6. Harness: same-family boards must not run `hil-run.sh` in parallel from one worktree — **done** (P3)
 
 Two `hil-run.sh` invocations for boards of one MCU family share
 `target/<triple>/release/picodroid`, so one board can be flashed with the other's image (the
@@ -284,7 +291,7 @@ same-family run holds the ELF), so the nightly's safety extends to one-off runs.
 **Done** (`fb0d1094`): with a fleet config a bare run defaults to the nightly's
 `build/hil/<slot>/{target,apks}`; the item-2 runs above went on both RP2350 slots at once.
 
-## 7. `IllegalFormat*` exception names (P3)
+## 7. `IllegalFormat*` exception names — **done** (P3)
 
 The formatter now distinguishes the cases (J19c) but throws the family's base class,
 `IllegalFormatException`, for a precision on an integral conversion. Java throws

@@ -71,10 +71,10 @@ PICODROID_APK_PATH=build/apks/helloworld.papk cargo clippy --target thumbv8m.mai
 PICODROID_APK_PATH=build/apks/helloworld.papk cargo clippy --target "$(rustc -vV | awk '/^host:/ { print $2 }')" --no-default-features --features sim,board-testbench-rp2350 -- --deny=warnings
 ```
 
-Or just run the full pre-commit suite which handles all of this:
+The local pre-commit hook does not run clippy (only the source guards and formatters); GitHub CI runs these legs for every board on every push, and `./scripts/pre-commit --full` adds the `pico_enviro_mon_w` and `legacy-handle-cast` legs:
 
 ```bash
-./scripts/pre-commit
+./scripts/pre-commit --full
 ```
 
 ## UART / COM port issues with pdb

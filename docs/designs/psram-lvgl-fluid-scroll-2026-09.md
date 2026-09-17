@@ -356,3 +356,28 @@ lands and the pre-rendered page becomes the next thing worth having.
 Step 3 is the one to do next, whatever else is decided. It is an afternoon, and
 spending weeks on steps 6-8 to unlock a style cache that turns out not to matter
 is the expensive version of this mistake.
+
+## Amendments
+
+### 2026-09-16 — the §7 order table, re-read
+
+The table in §7 predates most of what it orders. Row by row, against
+`09e7a8b3`:
+
+| # | Step | State |
+|---|---|---|
+| 1 | S3 | done (2026-09-11) |
+| 2 | S2: honest `lv_tick_inc` | **done 2026-09-15** as scheduling-audit WP7 (`d8563ae3` + `9d090232`); not yet measured on the touch kit |
+| 3 | S6 measurement | done 2026-09-11 — no hot spot, style cache no gain (scroll doc §5) |
+| 4 | S5 RAM-neutral variant | superseded by row 8 |
+| 5 | S4 hardware vertical scroll | done 2026-09-12 |
+| 6 | PSRAM Stages 1–3 | done 2026-09-12 |
+| 7 | Stage 4: pool to PSRAM + SRAM draw-buffer handler | built 2026-09-12 (`lv_draw_buf_sram.c`); measured at 10 % of the frame, so `lv_mem_in_psram = false` on `pico_touch_kit` |
+| 8 | S5 async flush + double buffering | done 2026-09-12 — two 60-row buffers funded from the arena, not from PSRAM |
+| 9 | Pre-rendered page in PSRAM | **open**, not started |
+
+"Step 3 is the one to do next" is void. What is open from this plan: step 9,
+Stage 5 (loaded class bytes in PSRAM, which needs the sub-allocator Stage 2 did
+not build), and giving the PSRAM a tenant that pays — the pool was the first
+candidate and lost. The frame-cost items that do not need PSRAM are tracked in
+the scroll doc's 2026-09-16 amendment.

@@ -117,7 +117,7 @@ activity_stack_depth = 16
 pending_op_queue     = 16
 ```
 
-Doubles two fixed-size buffers in the platform native handler. Each entry is small (≤ 24 bytes), so the RAM cost is roughly 200 extra bytes — well under what the freed heap gains from avoiding silent `false`-returning enqueue failures during a heavy lifecycle burst.
+Doubles two fixed-size buffers in the platform native handler. Each entry is small (≤ 24 bytes), so the RAM cost is roughly 200 extra bytes — a small price for not having `startActivity` / `finish` / `startService` throw `IllegalStateException` ("too many pending Activity/Service transitions in one frame") during a heavy lifecycle burst.
 
 ## Limits and pitfalls
 

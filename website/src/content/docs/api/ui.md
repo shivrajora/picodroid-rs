@@ -611,7 +611,7 @@ img.setTint(Color.RED);     // multiplies the source by the given color
 img.clearTint();
 ```
 
-Anti-aliased scale and rotation rendering depends on LVGL 9.5.0's `LV_DRAW_SW_SUPPORT_RGB565A8` (enabled in `lv_conf.h`). Without it scaled images render aliased — see [Advanced configuration → lv_conf.h](/reference/advanced-config/#lv_confh).
+Anti-aliased scale and rotation rendering depends on LVGL 9.6.0's `LV_DRAW_SW_SUPPORT_RGB565A8` (enabled in `lv_conf.h`). Without it scaled images render aliased — see [Advanced configuration → lv_conf.h](/reference/advanced-config/#lv_confh).
 
 ### `picodroid.widget.ProgressBar`
 

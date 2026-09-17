@@ -15,7 +15,7 @@ What doesn't work (yet), as of v0.14.0. Items here are confirmed and tracked —
 
 ## Concurrency
 
-- **Equal-priority threads do not round-robin.** Every task that interprets Java runs at one FreeRTOS priority with time slicing off — that is what makes the shared heap safe without locks — so a thread yields only when it blocks. A compute-bound thread therefore starves its siblings until it calls `sleep`, `join`, `wait`, or blocking I/O. A safepoint-yield fix is designed but ungated on performance; see `docs/quality-roadmap.md`.
+- **Equal-priority threads do not round-robin.** Only one task interprets Java at a time: every Java task runs at one FreeRTOS priority with time slicing off, and since 2026-09-15 holds a kernel mutex (the JVM run lock) that it gives up only where it blocks — that is what keeps the shared heap safe without per-object locks — so a thread yields only when it blocks. A compute-bound thread therefore starves its siblings until it calls `sleep`, `join`, `wait`, or blocking I/O. A safepoint-yield fix is designed but ungated on performance; see `docs/quality-roadmap.md`.
 - **`Thread.setPriority` is advisory.** The value is stored and reported back, never applied, for the same reason.
 - **`volatile` is ignored and the interpreter emits no memory barriers.** Correct only while a single core interprets Java, which is the invariant every JVM-adjacent task is pinned to. As of 2026-08-31 it is enforced rather than remembered: `platforms/rp/src/task_affinity.rs` is the only way the RP family creates a task — it names the core and makes create+pin scheduler-atomic — and its source scan fails `scripts/test.sh` for any spawn that bypasses it. What remains is `volatile` itself, which parses and is ignored — tracked in `docs/quality-roadmap.md` (THR-04 / X1 in `docs/parity-audit.md` records the trace).
 - **`java.util.concurrent` is excluded on `testbench_rp2040`.** The board drops the `picodroid.concurrent` pool, `Future`, atomic and latch classes to stay inside its flash budget, so an app using them fails to resolve there rather than failing at runtime. `Thread`, `synchronized` and `Object.wait`/`notify` are available on every board.
@@ -31,7 +31,7 @@ What doesn't work (yet), as of v0.14.0. Items here are confirmed and tracked —
 
 ## Platform
 
-- **RP2040 flash is tight.** A `--release` RP2040 image sits at 85% of the 896 K program region (783,547 of 917,248 bytes; it was 98% before the C moved to `-Os`), and a committed size ratchet gates any growth. `scripts/build.sh` handles this (it disables LTO on RP2040, which paradoxically shrinks the image); a raw `cargo build --release` for RP2040 can overflow FLASH at link time.
+- **RP2040 flash is tight.** A `--release` `testbench_rp2040` image sits at 91% of the 896 K program region (836,604 of 917,248 bytes for `helloworld` at the 2026-09-16 size baseline; it was 98% before the C moved to `-Os`), and a committed size ratchet gates any growth. `scripts/build.sh` handles this (it disables LTO on RP2040, which paradoxically shrinks the image); a raw `cargo build --release` for RP2040 can overflow FLASH at link time.
 - **BME688 gas resistance is constant on hardware.** The gas sensor's heater profile is never programmed, so gas/IAQ readings sit at a fixed value on the device (temperature, humidity, and pressure are fine). Affects the picoenvmon IAQ tile cosmetically.
 
 ## Where these are tracked

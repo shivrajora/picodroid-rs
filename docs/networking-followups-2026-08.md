@@ -59,6 +59,11 @@ Submission is deliberately left manual.
 The error-status logging patch is not bundled (log-volume change on every
 port; propose separately if the first PR lands).
 
+*2026-09-16:* still unsubmitted. The fork now tracks upstream v2.0.0
+(`cee4d9e0`, MIT-licensed), which does not contain the fix; the prepared
+branch needs a rebase that `git merge-tree` reports as clean. Details in the
+handover's amendment.
+
 ## NET-4: PIO gSPI transport — DONE 2026-08-14
 
 Implemented in Rust as `platforms/rp/src/hal/rp/pio_spi.rs` (PIO0 SM0 + DMA
@@ -144,8 +149,9 @@ category with two rows (`netdemo`, `http_get`) built as `testbench_rp2350w`
 firmware. `hil-run.sh` reads `.wifi-creds.env` into the firmware build,
 bakes the host's LAN IP into the app, and runs the echo (7000) and HTTP
 (8000) servers itself (`lib.sh::start_net_listeners`); `sim-run.sh` runs the
-same rows against loopback. Details and the pattern correction are in
-`docs/nightly-networking-handover.md`. The 2026-08-15 status follows.
+same rows against loopback (landed 2026-09-04; the executed handover doc was deleted
+2026-09-16 — `git log --all -- docs/nightly-networking-handover.md` recovers it). The
+2026-08-15 status follows.
 
 
 Landed:
@@ -166,7 +172,7 @@ Still open for on-device nightly rows: WiFi creds supplied to the nightly
 via environment (never checked in), listeners on the HIL host, and ~~hil-run
 board parameterization~~. Full execution plan (with the load-bearing fact
 that the attached HIL board is physically a Pico 2 W, verified
-2026-08-15): `docs/nightly-networking-handover.md`.
+2026-08-15) was the since-deleted `docs/nightly-networking-handover.md`.
 
 **2026-08-28 (`40411ec`): the board-parameterization third is closed.**
 `hil-run.sh` takes `--board` (`:47`, help at `:63`) and the 2026-08-30 bug bash
@@ -211,6 +217,13 @@ WPA2 verified unaffected on HW.
   exception-taxonomy section in `website/.../api/networking.md`.
 
 ## NET-10: dashboard page loads hang after the first byte (RST-on-close) — OPEN 2026-09-07
+
+*Status 2026-09-16: still open, untouched.* No commit since `67d0703e` touches
+the close path — `FreeRTOS_shutdown` appears nowhere in `crates/` or
+`platforms/` — and the `pdb sysmon` task cap that blocks observing it is still
+`MAX_TASKS = 12`. The W slot's firmware has moved underneath it (WP5's gSPI
+DMA completion by interrupt, the JVM run lock, cyw43-driver v2.0.0), so re-run
+the curl repro below before starting on the fix candidates.
 
 Found while verifying the serve-loop fix (`fix/dashboard-stall`, 2026-09-04).
 On the W board about 1 page load in 40 delivers its headers within 0.4 s and

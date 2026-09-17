@@ -109,6 +109,27 @@ so the host stays board-agnostic — a keycode with no matching button returns
 `ERR (no such key)`, and `tap`/`swipe` on a board with no touchscreen returns
 `ERR (no touch panel)`. On success the command prints nothing and exits `0`.
 
+### Diagnostics builds (mem-diag, sched-diag)
+
+Two opt-in cargo features compile in monitors that report once a second; with the feature off, none of their code is in the binary.
+
+| Feature | Watches | Simulator | Firmware |
+|---|---|---|---|
+| `mem-diag` | Heap growth, churn, fragmentation; offensive checks for corruption | `./scripts/sim.sh --app <app> --mem-diag` | `PICODROID_EXTRA_FEATURES=mem-diag ./scripts/flash.sh -b <board> -a <app>` |
+| `sched-diag` | A real-time task holding its core (`HOG`), a starved task (`STARVE`), sleep-polling (`POLL`), a delay that burns cycles (`BUSYDELAY`), a long `spin_until!` (`SPIN`) | `./scripts/sim.sh --app <app> --sched-diag` | `PICODROID_EXTRA_FEATURES=sched-diag ./scripts/flash.sh -b <board> -a <app>` |
+
+On the RP2040 both are manual opt-ins: each adds flash the program region may not have room for. Output formats and knobs are in [`docs/memory-diagnostics.md`](https://github.com/shivrajora/picodroid-rs/blob/main/docs/memory-diagnostics.md) and [`docs/scheduling-diagnostics.md`](https://github.com/shivrajora/picodroid-rs/blob/main/docs/scheduling-diagnostics.md).
+
+### HardFault
+
+A firmware fault logs the stacked exception frame over RTT before it halts:
+
+```text
+[fault] HardFault pc=0x10012345 lr=0x10011f21 r0=... r1=... r2=... r3=... r12=... xpsr=...
+```
+
+Resolve `pc` and `lr` against the ELF that was flashed: `arm-none-eabi-addr2line -e target/thumbv6m-none-eabi/debug/picodroid -i 0x10012345`. The RP2040's Cortex-M0+ has no fault status registers, so these two addresses are the whole record. One catch: probe-rs (0.31) catches hard faults by default and halts at the vector *before* the handler runs, so the line appears only under `probe-rs run --no-catch-hardfault`. With the catch on, the backtrace probe-rs prints names whatever symbol precedes the `HardFault` handler in the image — not where the fault happened.
+
 ### GDB
 
 GDB debugging is a two-terminal workflow. First, start probe-rs as a GDB server (it listens on `localhost:1337` by default):
@@ -172,10 +193,13 @@ There is a **silent variant**: a listener kept alive only by its native map (a `
 
 ### Out of memory / heap exhaustion
 
-There is **no `OutOfMemoryError`** in Picodroid and no `OutOfMemory` error variant in the JVM. Allocation failure is handled in two different ways depending on what you allocate:
+Heap exhaustion throws a catchable `java.lang.OutOfMemoryError`, as on Android — but only after a collection has had its chance:
 
-- **Array allocations** (`new int[]`, `new T[]`, multi-dimensional) degrade gracefully: on failure the interpreter rewinds, flags an emergency GC, and re-executes the opcode after collecting. If the GC frees enough, your allocation succeeds and you never see an error.
-- **Object allocations** (`new SomeClass()`) do **not** retry. If the threshold GC didn't pre-empt the shortage, the failure surfaces as a fatal error tagged `StackOverflow` — that is the JVM's catch-all for "couldn't allocate", not a stack-depth problem. Treat a surprising `StackOverflow` during object construction as object-heap exhaustion.
+- **Bytecode allocations** (`new SomeClass()`, `new int[]`, `new T[]`, multi-dimensional) rewind on failure, flag an emergency GC, and re-execute the opcode after collecting. If the GC frees enough, your allocation succeeds and you never see an error; if it frees nothing, the opcode throws `OutOfMemoryError`.
+- **Allocations inside the runtime's own builtins** — boxing (`Integer.valueOf`), interning, a growing `ArrayList` / `HashMap` / `StringBuilder`, `String.format` — retry the same way: the call rewinds, the heap is collected, and the call runs again. The collection is left as it was when the error is thrown.
+- **Allocations inside a framework native** (a widget, a file, a peripheral) throw `OutOfMemoryError` without a retry, since the native may already have acted.
+
+The error object comes from a reserve the heap sets aside while it still can, so even an allocation that leaves no room for the exception itself is catchable. Catching it is a last resort, not a strategy: release what you hold (clear a cache, drop a list) before retrying.
 
 GC runs after an opcode once allocations cross the threshold (`GC_ALLOC_THRESHOLD`, default 256) or the emergency flag is set. Tuning that threshold and the heap sizes is documented in [JVM tunables](/reference/jvm-tunables/); the hard ceilings (heap sizes, object/string/array caps) live in [Limits](/reference/limits/). Don't fight OOM by guessing — read those two pages for the actual knobs.
 
@@ -221,7 +245,7 @@ if (!ok) {
 
 It returns `false` when the listener or sensor argument is not a valid object, when the sensor's type can't be read, or when **all 8 registration slots are already in use** (the cap is 8 concurrent registrations). Re-registering the same `(listener, sensorType)` pair returns `true` and just refreshes the rate. A common trap is `getDefaultSensor(type)` returning `null` because the board has no matching `[[sensor]]` entry — see [registerListener returns false / sensor event never fires](/guides/troubleshooting/#registerlistener-returns-false--sensor-event-never-fires) in Troubleshooting. The sensor API is covered in [Sensors](/api/sensors/).
 
-**A lifecycle/service op was silently dropped.** Activity and Service transitions go through an internal pending-op queue with a fixed depth. When that queue is full, the op is **dropped with no log at all** — despite some internal comments suggesting otherwise, there is no overflow log on this path. If a service callback or transition is intermittently missing under heavy churn, suspect queue overflow and reduce the rate of pending transitions. (The separate `MainExecutor`/`BackgroundExecutor` queues *do* log `queue full, dropped` — that is a different queue.)
+**A lifecycle/service op was refused.** Activity and Service transitions go through an internal pending-op queue with a fixed depth per frame (`[jvm] pending_op_queue` in `board.toml`, default 8). When that queue is full, the call that would enqueue one more (`startActivity`, `finish`, `startService`, `stopService`, …) throws `IllegalStateException` (`too many pending Activity/Service transitions in one frame`). If a transition is missing, look for that exception in the log; raise the knob or spread the calls over frames. (The separate `MainExecutor`/`BackgroundExecutor` queues still drop a Runnable with a `queue full, dropped` warning — that is a different queue.)
 
 **The listener was GC-swept.** A View, dialog, compound-button, or `EditText` listener whose only owner is a native map gets collected on the first GC and stops firing a few seconds in, with no error. This is the silent variant of the [NoSuchMethod playbook](#nosuchmethod--input-dies-after-a-while) — keep a Java field reference to the widget. See [Embedded gotchas](/guides/embedded-gotchas/).
 

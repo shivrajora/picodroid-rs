@@ -69,21 +69,21 @@ Plans and backlogs with items still open. Check the doc for the current row befo
 | [qa-2026-09-13-followups.md](qa-2026-09-13-followups.md) | nearly closed | Items 1 and 2 both closed 2026-09-15 — the `qa_life` stall was an SPI completion wait, and the generational handle table is now every board's default; items 3–8 landed 2026-09-14. §11's `imagedemo` ERROR and item 3's RP2040 10 KB are both fixed (2026-09-15); the touch kit's 7680 B is the last infallible native allocation. |
 | [bugs-rp2040-imagedemo-2026-09-15.md](bugs-rp2040-imagedemo-2026-09-15.md) | fixed | Unaligned papk asset pixels HardFaulted the RP2040 on any scaled image. Read it for the probe-rs `catch_hardfault` trap that hid the faulting PC for six nights. |
 | [networking-followups-2026-08.md](networking-followups-2026-08.md) | open | NET-10 (dashboard loads hang, RST-on-close) open since 2026-09-07; NET-1 and NET-9 leftovers remain. NET-2/4/5/6/7/8 done. |
-| [upstream-cyw43-bsscfg-pr.md](upstream-cyw43-bsscfg-pr.md) | open, manual | NET-3. The patch is prepared; refreshing against upstream, pushing and opening the PR are deliberately left to a human. |
+| [upstream-cyw43-bsscfg-pr.md](upstream-cyw43-bsscfg-pr.md) | open, manual | NET-3. The patch is prepared; pushing and opening the PR are deliberately left to a human. Upstream v2.0.0 (tracked since 2026-09-16) still lacks the fix, and the branch merges cleanly onto it — see the amendment. |
 | [scheduling-audit-2026-09.md](scheduling-audit-2026-09.md) | mostly landed | The 2026-09-12 busy-wait audit and its offensive-guard design. Status table at the top: WP0 is open; everything else landed, WP7 (tick timebase) on its second landing, 2026-09-15. |
 | [scheduling-audit-handover-2026-09.md](scheduling-audit-handover-2026-09.md) | open | The pick-up-cold companion to the above: what is left, with the WP7 investigation record. WP7 re-landed 2026-09-15 once the SPI stall under it and its own RTC-alarm gate bug were fixed. |
-| [code-health-audit-2026-07.md](code-health-audit-2026-07.md) | P2 open | Four-axis repo audit (coverage, modularization, reusability, API contracts), 2026-07-24. §9 backlog: P0 and P1 closed, P2 items 11–17 open. |
-| [designs/flash-budget-2026-09.md](designs/flash-budget-2026-09.md) | open levers | Where the flash bytes go after the string work. `opt-level = "s"` is measured at −23.8 % and unadopted pending a HIL benchmark; C at `-Os` and the `c::` consts landed. |
-| [designs/scroll-performance-2026-09.md](designs/scroll-performance-2026-09.md) | partly landed | S1, S3, S4 and S5 landed (a Set-time scroll frame went 109 ms → 24 ms); S6 measured and found nothing; the rest are ranked and open. |
+| [code-health-audit-2026-07.md](code-health-audit-2026-07.md) | P2 open | Four-axis repo audit (coverage, modularization, reusability, API contracts), 2026-07-24. §9 backlog: P0 and P1 closed; of P2, 14 and 17 are done, 12, 13, 15 and 16 partial, 11 untouched (re-checked 2026-09-16). |
+| [designs/flash-budget-2026-09.md](designs/flash-budget-2026-09.md) | open levers | Where the flash bytes go after the string work. C at `-Os` and the `c::` consts landed; profile-wide `opt-level = "s"` was benchmarked on 2026-09-08 and rejected (+29 % interpreter time). LVGL config, float formatting, SDK tree-shake, `no-pdb` and a shared string table remain. |
+| [designs/scroll-performance-2026-09.md](designs/scroll-performance-2026-09.md) | partly landed | S1, S3, S4 and S5 landed (a Set-time scroll frame went 109 ms → 24 ms), and S2 arrived as scheduling WP7 on 2026-09-15 (unmeasured on the touch kit); S6 measured and found nothing. S6b (entry paint / DatePicker), S7 (tearing) and S8's GP11 measurement are open. |
 | [designs/rgb565-swapped-render-2026-09.md](designs/rgb565-swapped-render-2026-09.md) | built | LVGL renders straight into RGB565_SWAPPED; LV_COLOR_16_SWAP, which v10 removes, is gone. +6.5 KB flash, not faster; band bytes proven identical in sim and on the RP2350, RP2040 and pico_touch_kit. |
 | [designs/psram-lvgl-fluid-scroll-2026-09.md](designs/psram-lvgl-fluid-scroll-2026-09.md) | partly landed | Stages 1–4 built 2026-09-12. §4.1 measured the LVGL pool in PSRAM and left it switched off — read it before flipping the key. |
-| [designs/app-store-roadmap-2026-09.md](designs/app-store-roadmap-2026-09.md) | partly landed | S0, S2 (queries), S6 (launcher) and S7 arrived via the multi-app work. Image signing, the streaming install `Session` and a store itself are not built. |
+| [designs/app-store-roadmap-2026-09.md](designs/app-store-roadmap-2026-09.md) | partly landed | S0, S1 (as a dynamic region), S2 (queries + uninstall), S6 (launcher + settings) and S7 arrived via the multi-app work. S3 signing, S4 network install and the streaming `Session`, S5 TLS, S8 the store and S9 permissions are not built. |
 | [designs/picoclock-roadmap.md](designs/picoclock-roadmap.md) | open | Everything unstarted except R1 (AlarmManager), kept for what it left behind. |
-| [followups-2026-08.md](followups-2026-08.md) | nearly closed | Post GC-race backlog. Items 1–6 closed; item 7 (GC-pacing measurements) partly open. |
+| [followups-2026-08.md](followups-2026-08.md) | nearly closed | Post GC-race backlog. Items 1, 2, 4, 5 and 6 closed; item 3 (log the edit-mode key drop) is open, item 7 (GC-pacing measurements) partly open, §8's two BME688 tickets unfiled. |
 | [designs/value-slot-8b.md](designs/value-slot-8b.md) | designed, not started | `Value` 16 B → 8 B behind a `Slot` storage type — the largest memory lever left. Feasibility verdict, saving, risks, stages. |
-| [designs/psram-rp2350b-2026-09.md](designs/psram-rp2350b-2026-09.md) | designed, not started | 8 MB PSRAM on the RP2350B. Its "nothing urgent" verdict is partly superseded — scroll profiling since found RAM to be the binding constraint. |
+| [designs/psram-rp2350b-2026-09.md](designs/psram-rp2350b-2026-09.md) | partly built | 8 MB PSRAM on the RP2350B. Stages 1–4 built 2026-09-12 as an opt-in, with the LVGL pool measured and left in SRAM; Stage 5 (class bytes in PSRAM) not started. |
 | [designs/meshtastic-roadmap-2026-08.md](designs/meshtastic-roadmap-2026-08.md) | not started | Nine sessions toward a board and app that are on-air compatible with stock Meshtastic. |
-| [designs/edge-llm-roadmap-2026-08.md](designs/edge-llm-roadmap-2026-08.md) | not started | A language model on the MCU, across three tracks; track B would add a `platforms/stm32` family. |
+| [designs/edge-llm-roadmap-2026-08.md](designs/edge-llm-roadmap-2026-08.md) | not started | A language model on the MCU, across three tracks; track B would add a `platforms/stm32` family. Most of A1 (the Pico Plus 2 W board, PSRAM bring-up, 16 MB layout) now exists as `pico_touch_kit` — see the amendment. |
 
 ## Landed designs
 
@@ -157,7 +157,6 @@ Closed. History, evidence and repro recipes — useful when a similar symptom re
 | [perf-memory-handover-2026-08.md](perf-memory-handover-2026-08.md) | The handover that started that campaign — everything perf- or memory-relevant left open by the WiFi showcase. |
 | [picoenvmon-soak-plan-2026-08.md](picoenvmon-soak-plan-2026-08.md) | Partly superseded. §4's signal-triage table and §5's expected-noise list are still the reference; the execution premise is not. |
 | [picoenvmon-soak-handover-2026-08.md](picoenvmon-soak-handover-2026-08.md) | The runbook to actually use for a picoenvmon soak. |
-| [nightly-networking-handover.md](nightly-networking-handover.md) | **Landed 2026-09-04.** Making the 4 AM on-device nightly exercise the WiFi stack, so a network regression turns an email red. |
 
 ## Adding a doc
 
@@ -172,6 +171,9 @@ Closed. History, evidence and repro recipes — useful when a similar symptom re
 - When reality diverges from a design, **append an amendment** rather than editing the body —
   the divergence is usually the most valuable thing in the doc.
 - Superseding a doc? Leave it in place, add a "superseded by" line at the top, and point the
-  successor back at it. Nothing here is deleted; source comments and the website link to these
-  paths by name.
+  successor back at it. Source comments and the website link to these paths — and to the finding
+  ids inside them (`PEM-3`, `HAL-05`, …) — by name.
+- A doc may be deleted only when its work is closed **and** nothing outside `docs/` cites its path
+  or its ids (`git grep` both). Fix the remaining in-`docs/` links in the same commit; git history
+  keeps the text.
 - Then add a row to this index.

@@ -576,3 +576,40 @@ Gotchas, two new:
 - As before: `touch picodroid-core/build.rs`, use the freshest
   `picodroid-core-*/out/framework_classes_shrunk` under the *target* triple,
   and ignore `.text` string hits.
+
+## Amendments
+
+### 2026-09-16 — where the budget stands a week after §8's last update
+
+- **§0's first TL;DR row is superseded by §8 row 1b**: profile-wide
+  `opt-level = "s"` was benchmarked on 2026-09-08 and rejected (−166.9 KB
+  `.text` for +29 % on the interpreter sections). `"z"` was never benchmarked
+  and would be slower still. The C-only `-Os` row landed on both MCUs.
+- **The rp2040 has spent a third of what `-Os` bought.** The size ratchet
+  (`bench/parity/ratchet.toml`, release helloworld) read 802,679 B for
+  `testbench_rp2040` at `773dc9a` and reads **836,604 B** at `09e7a8b3`
+  (+33,925 B), leaving **80,644 B** under the 917,248 B program region.
+  `testbench_rp2350` reads 1,013,112 B. Attributed growth from the commit
+  trailers of the last two days alone:
+
+  | Change | rp2040 flash | rp2350 flash | RAM |
+  |---|---:|---:|---:|
+  | LVGL v9.6.0 (`97635c48`, accepted in `09e7a8b3`) | +5,044 | +5,056 | +28 B |
+  | Render into RGB565_SWAPPED (`09e7a8b3`) | +6,552 | +6,432 | — |
+  | Generational handle table on every board (`998793fd`) | +2,448 | +3,056 | +1,032 / +1,024 B |
+  | JVM run lock + single-app orphan sweep (`d1a09765`) | +2,716 | +1,568 | +8 B |
+  | WP7 tick timebase (`d8563ae3` + `9d090232`) | +144 | +604 | +8 B |
+  | Unattributed main growth accepted alongside (SPI short-read, HardFault frame log, fallible caches) | +733 + 729 | +1,405 + 1,409 | — |
+
+  The `legacy-handle-cast` opt-out recovers the table's bytes for one release
+  only; it is not a lever.
+- **§6.5's LVGL row interacts with RGB565_SWAPPED.** `lv_conf.h` now enables
+  `LV_DRAW_SW_SUPPORT_RGB565_SWAPPED` *and* keeps `RGB565` (every papk image is
+  RGB565 and the swapped blender needs that source switch) and `RGB565A8`;
+  `ARGB8888` stays on as "needed internally for blending". Re-measure §6.5's
+  components against v9.6.0 before quoting ~20–35 KB.
+
+Open levers, unchanged in substance: §8 rows 3 (`Flash:` still sums
+`TEXT + DATA` in `lib.sh::print_memory_usage`), 4 (LVGL config), 5
+(`format_shortest` float layout), 6 (app-driven SDK tree-shake + derived
+`LV_USE_*`), 7 (`no-pdb` product feature) and 9 (shared string table).

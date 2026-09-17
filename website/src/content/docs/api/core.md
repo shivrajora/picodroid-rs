@@ -61,17 +61,14 @@ String msg = String.format("Score: %d (%.1f%%)", 42, 87.5);  // "Score: 42 (87.5
 ```
 
 `String.format` supports the conversions `%s %d %x %X %o %c %b %f %e %g %n %%` with the flags
-`-` `0` `+` `(space)` `,` `#`, plus width and precision (e.g. `%-8s`, `%08.2f`).
+`-` `0` `+` `(space)` `,` `#`, plus width and precision (e.g. `%-8s`, `%08.2f`). Floating conversions round
+HALF_UP, as Java's `Formatter` does (`%.2f` of `1.005` is `"1.01"`). A bad format throws the
+`IllegalFormatException` subclass Java names: `MissingFormatArgumentException`,
+`IllegalFormatPrecisionException` (a precision on `%d` `%x` `%o` `%c`),
+`IllegalFormatConversionException` or `UnknownFormatConversionException`.
 
 `String.join(delimiter, …)` takes varargs, a `String[]`, or an `ArrayList<String>`
 (`Iterable`); the elements must be `String` or `null`.
-
-> **StringBuilder interaction:** `+` string concatenation compiles to a compiler-generated `StringBuilder` that shares the JVM's single internal buffer. If you build a `StringBuilder` manually and then log `"prefix=" + sb.toString()`, the compiler's `StringBuilder` will clear the buffer before `sb.toString()` is evaluated. Capture the result first:
->
-> ```java
-> String result = sb.toString();   // snapshot the buffer
-> Log.i(TAG, "prefix=" + result);  // safe to concatenate now
-> ```
 
 ## `java.lang.StringBuilder`
 
@@ -354,7 +351,7 @@ Multiple resources in one `try` close in reverse-declaration order. See [`exampl
 
 ## Enums
 
-Java `enum` declarations are supported. Each enum constant is a singleton; `values()`, `name()`, `ordinal()`, and `switch (myEnum)` all work.
+Java `enum` declarations are supported. Each enum constant is a singleton; `values()`, `valueOf(String)`, `name()`, `ordinal()`, and `switch (myEnum)` all work. `valueOf` throws `IllegalArgumentException` for a name that is not a constant, as in Java.
 
 ```java
 public enum Direction { NORTH, EAST, SOUTH, WEST }
@@ -362,6 +359,7 @@ public enum Direction { NORTH, EAST, SOUTH, WEST }
 Direction d = Direction.NORTH;
 String name = d.name();        // "NORTH"
 int    ord  = d.ordinal();     // 0
+Direction w = Direction.valueOf("WEST");
 for (Direction dir : Direction.values()) {
     Log.i("TAG", dir.name());
 }
@@ -416,9 +414,10 @@ try {
 }
 ```
 
-The message passed to a constructor is captured by the runtime and shown when a throw goes
-uncaught. **v1 caveats:** there is no `getMessage()` / `getCause()` accessor and no stack-trace API
-yet — the message is for runtime diagnostics, not programmatic inspection. See
+The message and cause passed to a constructor are captured by the runtime: `getMessage()`,
+`getCause()`, `addSuppressed()` and `getSuppressed()` read them back, and an uncaught throw prints
+them. **Caveat:** there is no stack-trace API (`getStackTrace()` / `printStackTrace()`) — the trace
+is printed by the runtime when a throw goes uncaught. See
 [`examples/exceptiondemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/exceptiondemo).
 
 ## `java.util.Random`

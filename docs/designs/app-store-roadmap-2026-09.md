@@ -317,12 +317,12 @@ Alternatives considered:
 | Session | Title | Status |
 |---------|-------|--------|
 | S0 | Package identity in the manifest | DONE 2026-09-07 as multi-app M0 (A2) |
-| S1 | Multi-slot flash layout and package index (RP2350) | IN PROGRESS as multi-app M1 — dynamic region, no index (A2) |
-| S2 | PackageManager and PackageInstaller | queries DONE 2026-09-07 as multi-app M2 (A2); uninstall in M3; the streaming `Session` waits for S4 |
+| S1 | Multi-slot flash layout and package index (RP2350) | DONE 2026-09-07 as multi-app M1 — dynamic region, no index (A2, A3) |
+| S2 | PackageManager and PackageInstaller | queries DONE 2026-09-07 as multi-app M2; uninstall DONE in M3 (A2, A3); the streaming `Session` waits for S4 |
 | S3 | CRC + Ed25519 signatures, streaming verify | NOT STARTED |
 | S4 | Network `InstallTransport` over HTTP `Range` | NOT STARTED |
 | S5 | TLS 1.3 client (position 2) | NOT STARTED |
-| S6 | Launcher and store as firmware system apps | launcher DONE 2026-09-07 as multi-app M2 (A2); settings in M3, no store yet |
+| S6 | Launcher and store as firmware system apps | launcher DONE 2026-09-07 as multi-app M2; settings DONE in M3 (A2, A3); no store yet |
 | S7 | Cross-package launch and task stack | DONE 2026-09-07 as multi-app M2 — exit returns home, no task stack (A2) |
 | S8 | Store protocol (protobuf) and reference server | NOT STARTED |
 | S9 | Permissions | NOT STARTED |
@@ -424,3 +424,23 @@ diverges from the body here in these ways:
 
 S3, S4, S5, S8 and S9 are unchanged and still start from this document,
 on top of the multi-app runtime.
+
+### A3 (2026-09-16) — the multi-app half is done; what is left is this doc's own
+
+`multi-app-2026-09.md` closed M0–M3 (2026-09-07 to 2026-09-09) and released as
+shrink map v0.22.0, so the §5 rows it owned are marked done: S0, S1 (the
+dynamic region), S2's queries and uninstall, S6's launcher and settings, S7,
+and the deferred per-package storage (`/data/<package>` with a per-app cap,
+`Context.getFilesDir`/`openFileOutput`, wiped on uninstall; `c50422d1`). Since
+then, orphaned app data is swept on single-app boards too (`6414b6be`), and the
+simulator speaks the real installer over `pdb` (`09d0b1bd`).
+
+Not started, and still executed from the body of this document: **S3**
+(per-section CRC32 is still written as 0 by `papk-format`'s writer; no `SIGN`
+section, no key ring), **S4** (network `InstallTransport` and the streaming
+`PackageInstaller.Session`), **S5** (TLS; A1's ~83 KB flash estimate stands),
+**S8** (store protocol, reference server, store client as a third system app),
+**S9** (permissions), and the deferred **firmware OTA** and **device
+attestation**. One format note for S3: since `4a7be984` every papk section is
+4-byte aligned with zero padding the reader skips, so a signature over "every
+other section's bytes" must say whether the padding is covered.

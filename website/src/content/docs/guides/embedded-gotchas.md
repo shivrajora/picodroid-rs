@@ -245,35 +245,21 @@ button.setOnKeyListener((v, event) -> { advance(); return true; });
 
 Why: the wake path drains both edges of the wake press before resuming the tick source. Tune or disable the timeout via `idle_timeout_ms` in `board.toml` (default 60000 ms, `0` disables). See [system limits](/reference/limits/).
 
-## StringBuilder is a LIFO stack — finish builders in reverse order
+## StringBuilder is byte-oriented and small
 
-Symptom: appends land on the wrong builder when two are open at once.
+Symptom: a non-ASCII `char` appended to a `StringBuilder` comes out as one wrong byte, or a call such as `sb.insert(0, x)` is rejected by the build's API contract check.
 
-StringBuilder is implemented natively as a stack of buffers, not per-instance. You may **nest** a builder inside an unfinished one, but you must not **interleave** two live builders: finish (call `toString()` on) builders in reverse order of creation.
-
-```java
-// WRONG: two builders open at once; the older append lands on the wrong (top) buffer.
-StringBuilder outer = new StringBuilder();
-outer.append("a=");
-StringBuilder inner = new StringBuilder();   // pushes a new top buffer
-outer.append(x);                             // BUG: appends to inner's buffer, not outer's
-inner.append(y);
-String s = inner.toString();
-String t = outer.toString();
-```
+Every `StringBuilder` owns its own buffer, so any number of builders can be open and interleaved. The surface is `append` (String, int, long, float, double, boolean, char, Object, `CharSequence`), `length`, `charAt` and `toString`.
 
 ```java
-// RIGHT: fully consume the inner builder before resuming the outer (strict nesting).
-StringBuilder outer = new StringBuilder();
-outer.append("a=");
-StringBuilder inner = new StringBuilder();
-inner.append(y);
-String innerStr = inner.toString();          // pops inner; outer is the top again
-outer.append(x).append(innerStr);
-String t = outer.toString();
+// WRONG: no insert / deleteCharAt / reverse / setLength.
+sb.insert(0, prefix);
+
+// RIGHT: build in order, or concatenate the pieces.
+String s = prefix + sb.toString();
 ```
 
-Why: all `append`/`length`/`charAt` operate on the top of the buffer stack; `<init>` pushes, `toString()` pops. Nesting is fine because the inner is pushed and popped within the outer's lifetime; interleaving is not. Also note `append(char)` emits a single byte (no multi-byte Unicode), `append(float)`/`append(double)` format to ≤6 significant digits, and there is no `insert`, `deleteCharAt`, `reverse`, or `setLength`.
+Why: the buffer holds bytes, not UTF-16 chars — `append(char)` emits a single byte (no multi-byte Unicode), and `charAt` returns the byte at that position. A buffer the heap cannot grow throws `OutOfMemoryError` from `append`.
 
 ## A bound-only Service dies when its Activity leaves
 

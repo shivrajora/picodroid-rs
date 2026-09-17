@@ -101,3 +101,30 @@ invisibly. Propose it only if the first PR lands and the maintainers seem
 receptive; expect pushback on log volume (offering it gated behind
 `CYW43_VERBOSE_DEBUG` is the likely compromise). Not bundled with the first
 PR on purpose: the bsscfg fix should not be held hostage to a logging debate.
+
+## Amendment — 2026-09-16: the fork now tracks upstream v2.0.0
+
+`cee4d9e0` moved `third_party/cyw43-driver` to `4d0e896` ("Merge upstream
+v2.0.0 into picodroid"): upstream `georgerobotics/cyw43-driver` v2.0.0
+(`bed438f`, 2026-09-10) merged under the four `PICODROID` patches, which are
+all still present in `src/cyw43_ll.c` (the bsscfg one is now near line 2043).
+Read the Context section's "`055d642` plus one squashed commit" as history.
+What that changes for this PR, checked in the submodule on 2026-09-16:
+
+- **Still needed.** v2.0.0's `cyw43_ll_bus_init` still does
+  `memset(buf + 18 + 4, 0xff, 19)` with no write to the 4-byte index before it
+  (`git show v2.0.0:src/cyw43_ll.c`, "Clear all async events").
+- **Pre-flight step 1 now has a non-empty answer.** `055d642..v2.0.0` touches
+  `src/cyw43_ll.c` in five commits (RSN/WPA IE parsing, `cyw43_write_bytes`
+  size, SDIO CMD53, the split chipset blob, the licence change), so rebase
+  before pushing. `git merge-tree --write-tree --merge-base=055d642 v2.0.0
+  d03e19c` reports a clean merge, so the rebase should be mechanical; the
+  branch `upstream-bsscfg-event-msgs` itself is still at `d03e19c` on
+  `055d642`. The local `upstream/main` remote-tracking ref equals v2.0.0 as of
+  the bump — fetch again before rebasing.
+- **Licence.** v2.0.0 relicenses the driver to MIT and drops `LICENSE.RP`
+  (`NOTICE` and `LICENSING.md` followed in `cee4d9e0`). A contribution is now
+  plainly MIT; step 2's CLA/CONTRIBUTING check still applies — the tree has a
+  `.github/workflows` directory but no CONTRIBUTING file.
+- **After it merges** is unchanged; the build guard it names lives at
+  `crates/build_support/network.rs`.

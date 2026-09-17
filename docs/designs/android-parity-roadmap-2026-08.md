@@ -250,7 +250,8 @@ Residuals: an arm without a `BUILTIN_METHODS` row is not machine-checked
 (it surfaces as a contract failure naming the row to add; the X-macro of
 `method-level-native-registry.md` Phase 2 is the structural fix); descriptor
 lists are trusted, not cross-checked; an interface member is accepted when
-*any* implementor serves it; `Enum.valueOf(Class,String)` and
+*any* implementor serves it; `Enum.valueOf(Class,String)` (served by the
+interpreter since 2026-09-14, `711226ef`) and
 `Locale.ROOT/US` are tolerated static shapes; boardless builds (pre-commit,
 CI `assemblePapk`) check only the `java/**` contract.
 
@@ -269,7 +270,7 @@ too.
 | T1.5 | Input & sensor fills | N | open |
 | T1.6 | `Gpio` input | N | **partial** (`getValue`/`DIRECTION_IN` shipped 2026-09-02; edge callback open) |
 | T1.7 | `java.util.Objects`, `String.join` | B/S-small | **DONE** 2026-09-02 |
-| T1.8 | Persistence fills | N | **partial** (`File` name/parent/mkdirs/createNewFile, prefs float shipped 2026-09-02) |
+| T1.8 | Persistence fills | N | **partial** (`File` name/parent/mkdirs/createNewFile, prefs float shipped 2026-09-02; `File.list`/`listFiles` and the `Context` file API shipped 2026-09-08; `Intent` long/float/double extras and `getStringSet` open) |
 | T1.9 | `EditText.setInputType` + password masking | N/S-small | **partial** (see below) |
 
 **Shipped 2026-09-02 — the Tier 1 core set.** `TextView.getText()` (and
@@ -288,10 +289,11 @@ clears it.
 
 **High priority — next (deferred 2026-09-02, in this order):**
 
-1. `File.list()` / `listFiles()` — needs a `HalFs::read_dir` on the trait,
-   facade, `set_hal_fs!` shim, the sim and the LittleFS impl.
-2. `Context.getFilesDir()` / `openFileInput` / `openFileOutput` / `deleteFile`
-   / `fileList()` — thin Java over `picodroid.io.*`.
+1. ~~`File.list()` / `listFiles()`~~ — **shipped 2026-09-08** with multi-app
+   M3a (`c50422d1`).
+2. ~~`Context.getFilesDir()` / `openFileInput` / `openFileOutput` / `deleteFile`
+   / `fileList()`~~ — **shipped 2026-09-08** (`c50422d1`), sandboxed under
+   `/data/<package>`.
 3. `TextView.setTextSize(float)` / `(int unit, float)`, `append`, `setGravity`
    — `append` is pure Java, the other two are LVGL-side natives.
 4. `Gpio` edge callback — a `dispatch_sites.rs` row plus a GC-root provider
@@ -524,7 +526,8 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
   plus `setContentView(int)`,
   `LayoutInflater.inflate(int, ViewGroup, boolean)`, the generic
   `<T extends View> T findViewById(int)`, and `ViewGroup.getChildAt` (which
-  today throws, gated on exactly this milestone). (C) `res/drawable/` →
+  ~~today throws, gated on exactly this milestone~~ works since 2026-09-14,
+  `a97321ee`, from a Java-side child list rather than a reverse map). (C) `res/drawable/` →
   `ImageView.setImageResource(int)`. (D) AttributeSet and styles later.
 - **T3.3 — `java.io` stream hierarchy.** `InputStream`/`OutputStream` as
   abstract builtins; re-parent the `File*` and `Http*` streams;
@@ -605,3 +608,43 @@ added here has to earn that budget on the smallest board or arrive E1-gated.
   ~1 M bytecodes/s. A Compose-*like* declarative layer over the retained
   `View` tree is feasible and is deferred in `docs/quality-roadmap.md`
   § Framework direction, behind `docs/designs/kotlin-roadmap-2026-08.md`.
+
+## Amendments
+
+### 2026-09-16 — status sweep against `09e7a8b3`
+
+What reached the Java surface since the table was last touched (2026-09-09),
+checked against `sdk/java` and the commits named:
+
+- **T1.8:** `File.list()`/`listFiles()` and `Context.getFilesDir`/
+  `openFileInput`/`openFileOutput`/`deleteFile`/`fileList` shipped with multi-app
+  M3a (`c50422d1`, 2026-09-08), so items 1 and 2 of the "High priority — next"
+  list are done. Still open in T1.8: `Intent` long/float/double extras and
+  `getStringSet`/`putStringSet`.
+- **`ViewGroup.getChildAt`/`getChildCount`** work (`a97321ee`, 2026-09-14): a
+  Java-side child list, not the `lv_obj_t* → ObjectRef` map §"Why now" said it
+  needed, and `addView` of a released view throws. T3.2(B) is no longer its gate.
+- **Language/runtime, from the 2026-09-13 QA round** (`qa-2026-09-13.md`):
+  `Enum.valueOf(Class, String)` (`711226ef`); method references to builtin,
+  virtual and constructor targets (`eba21165` — `Foo::new` used to be rejected
+  as `REF_newInvokeSpecial`); heap exhaustion is a catchable `OutOfMemoryError`
+  in natives, collections and builders (`58f16fc5`, `6da931fc`, `49ed4b3e`);
+  the four `IllegalFormat*` subclasses (`e5d5b88c`); `Integer.valueOf` box
+  caching, user `equals` in `HashMap`/`HashSet`/`ArrayList`, `list.sort(null)`,
+  and ~20 smaller `String`/`String.format`/boxing fixes.
+- **Widget semantics from the same round:** `RadioButton.setChecked` keeps its
+  group in sync, `SeekBar.setMax` clamps, `setText`/`getText`/`setHint` are no
+  longer cut at 127 bytes, `AlertDialog.dismiss()` is idempotent.
+- **New API outside the T-table:** `picodroid.app.AlarmManager` +
+  `PendingIntent` (`32a271a8`, `designs/alarm-manager-2026-09.md`) and
+  `picodroid.media.ToneGenerator` (`90947047`), both 2026-09-11.
+
+Unchanged and still open: T1.3 (none of its list exists — no
+`View.getParent`/`getContext`, `removeViewAt`, `indexOfChild`,
+`ListView.setSelection`, `ArrayAdapter.remove/insert/getPosition`,
+`AlertDialog.setCancelable`/`setOnDismissListener`, `Toast.setGravity`);
+T1.4's `setTextSize` (the board has one font size), `TextView.setGravity`,
+`append` and `EditText.setSelection`; T1.5 in full; T1.6's edge callback; T1.9's
+password masking; T2.8 pickers-as-dialogs; T3.1 Bundle; T3.2 resources/XML
+layouts; T3.3 `java.io` streams; T3.4 `getView`/convertView; T3.5 Canvas; E3
+phase 2 (restricted compile classpath).

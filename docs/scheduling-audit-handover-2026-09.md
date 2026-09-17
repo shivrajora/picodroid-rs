@@ -74,6 +74,22 @@ ratchet moved with it: WP7 is RP2040 +144 B flash / +8 B RAM, RP2350
 since `d1a09765`, attributed in its message. Still open: WP0, the WP7 timer
 half, WP9's ring, the G6 HIL rows, and the two bench items.
 
+**Status check, 2026-09-16 (against `09e7a8b3`).** No scheduling-audit code
+landed after session 5. Of the bench items below: the touch kit's harness
+problems are fixed (`cycle=probe` in `fleet.conf`; the settings-uninstall tap
+aims at the dialog button's middle since `e984798a`), and WP4 *has* run on the
+kit — its first run found the GT911 stale-buffer bug (scroll doc S8) — but the
+GP11 edge measurement §3 asks for, and the `IDLE_POLL_MS` raise it would allow,
+are still not done. The `blinky pdb launch` stall on the W slot is
+unexplained. LVGL is on v9.6.0 since `97635c48`; the WP7 note below about
+LVGL 9.5's timer pausing was not re-checked against it. The monitor has run on a
+device once (one blinky row, 2026-09-14), and the run lock (`d1a09765`) landed
+after it: a Java
+task waiting on that mutex is Blocked, not Ready, so `STARVE` (which counts
+Ready time) no longer sees one Java thread starving another, on either target —
+see the note in `scheduling-diagnostics.md`. Still open: WP0, the WP7 timer half, WP9's ring, the G6 HIL
+rows, the GP11 measurement and the W-slot `pdb launch` stall.
+
 Two things the next session inherits that are **not** code debt:
 
 - **The `blinky pdb launch` row fails on the `pico_enviro_mon_w` slot with

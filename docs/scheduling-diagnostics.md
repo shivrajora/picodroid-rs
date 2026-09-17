@@ -148,7 +148,11 @@ the ready/preempted distinction, which only the trace hooks provide.
   task); a `HOG` names a real-time task holding the core.
 - **A Java thread never seems to get time.** Run the app under
   `--sched-diag` in the simulator and look for `STARVE`: the named task is
-  Ready and a peer at its priority is not blocking.
+  Ready and a peer at its priority is not blocking. *Since 2026-09-15 this
+  finds only non-Java tasks at the JVM tier:* a Java thread waiting for
+  another to block waits on the JVM run lock (`d1a09765`,
+  `docs/designs/jvm-run-lock-2026-09.md`), which makes it Blocked, not
+  Ready — see "Not covered" below.
 - **A soak.** `PICODROID_SCHEDDIAG_STRICT=1 ./scripts/sim.sh --app <app>
   --sched-diag`: the first finding aborts the run with the report printed.
 - **Is the detector alive?** `PICODROID_SCHEDDIAG_SELFTEST=1` must print
@@ -217,4 +221,12 @@ between toggles, no findings, no lost windows.
   the core woke. That question belongs to the tick-timebase work (WP7 in
   the audit) and tickless idle, which this monitor is a prerequisite for
   measuring.
+- **Java-on-Java starvation, since the JVM run lock.** Every Java task
+  (UI task, `Thread.start` children, the background pool) takes the run
+  lock before interpreting, so a sibling held off by a compute-bound Java
+  loop sits Blocked on that mutex and the `STARVE` rule, which counts Ready
+  time, never fires for it. The symptom now looks like a `HOG`-free window
+  with the JVM task busy. Watching time spent waiting on the run lock is
+  the missing rule. *(Noted 2026-09-16, from the source; not yet seen in a
+  capture.)*
 - **Interrupt time** is charged to whichever task was running.

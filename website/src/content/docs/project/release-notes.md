@@ -7,6 +7,104 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**LVGL v9.6.0, rendering straight into the panels' byte order; cyw43-driver v2.0.0 under MIT**
+
+- LVGL moves from v9.5.0 to v9.6.0, the last v9 release. It renumbers `lv_event_code_t` again
+  (`LV_EVENT_DELETE` 42 to 48, `VALUE_CHANGED` 35 to 39, `INVALIDATE_AREA` 54 to 60, among
+  others) and `LV_IMAGE_ALIGN_COVER` (14 to 15), and moves its public headers to
+  `include/lvgl/`; the hand-pinned constants were re-read from a C probe compiled against the
+  new headers, and the header-parsing guards follow the move. `lv_conf.h` is off the names
+  v9.6 deprecates and pins `LV_USE_CHECK_ARG` off, which v9.6 turns on when Kconfig is absent.
+- The panels take RGB565 big-endian. LVGL used to render little-endian and byte-swap every band
+  before the flush (`LV_COLOR_16_SWAP`, deprecated in v9.6 and gone in v10); it now renders
+  into `LV_COLOR_FORMAT_RGB565_SWAPPED` directly. The flush receives the same bytes: the
+  per-band CRC sequence of `graphicsbench` is identical before and after in the simulator on
+  three boards, and on `testbench_rp2040`, `testbench_rp2350` and `pico_touch_kit`. It is not a
+  speed change — the old swap was ~3 ms of a ~109 ms touch-board frame, and RGB565 images now
+  pay a swap per pixel while blending.
+- Flash: +5,044 B (RP2040) and +5,056 B (RP2350) for v9.6.0, +6,552 B and +6,432 B for the
+  swapped blender; +28 B of RAM, all v9.6.0.
+- The cyw43-driver fork now carries upstream v2.0.0 (was v1.1.1) under its gSPI bring-up
+  fixes. v2.0.0 relicenses the driver to MIT and drops `LICENSE.RP`, so the Raspberry Pi
+  silicon clause no longer applies; `NOTICE` and [licensing](/project/licensing/) follow. The
+  Pico 2 W passes `netdemo` and `http_get` on the bench.
+
+**One Java task interprets at a time, held by a kernel mutex**
+
+- The shared JVM heap relies on Java tasks changing places only where one blocks. That was a
+  property of the scheduler configuration — one priority, time slicing off — and FreeRTOS
+  broke it: when a higher-priority task wakes and blocks again, the kernel resumes the *next*
+  ready task of the interrupted tier, so two Java tasks swapped at whatever instruction one of
+  them was on. The simulator's new `pdb` task did that a hundred times a second and
+  `threadstress` failed (`InvalidReference`, `OutOfMemoryError` with 230 KB free); on a board
+  the tick timer, the sensor sampler and the USB bridge do the same, more rarely.
+- Every Java life — the UI task, each `Thread.start` child, each background-pool item — now
+  holds a recursive kernel mutex, released around every blocking wait (sleeps, monitor waits,
+  queues, sockets, `Thread.yield`). A task the kernel rotates in blocks on the mutex instead of
+  running Java, so what a Java thread observes is unchanged. The flip side: a native that
+  blocks for long without releasing it now stalls every Java thread, not just its own.
+  `docs/designs/jvm-run-lock-2026-09.md` has the rules for new blocking code.
+- The "View touched off the UI thread" warning fires only for a `View` or `Display` native;
+  a worker calling `Thread.currentThread()` or `SystemClock.sleep()` no longer trips it.
+- Flash: `testbench_rp2040` +2,716 B (with the storage sweep below), `testbench_rp2350`
+  +1,568 B.
+
+**The UI clocks advance by measured time, and alarms are polled only when one can be due**
+
+- The UI tick fed LVGL, toasts and property animations a literal 16 ms per tick, so a late
+  tick — a 200 ms frame coalesces the ticks posted meanwhile into one — advanced them by one
+  period and everything ran slow on a slow board. The tick now advances by a period while the
+  loop keeps up and by its measured lateness when that is more, staying within a period of the
+  wall clock; `animdemo`'s end action lands at wall-clock time. `Display.update()` keeps its
+  fixed one-period step, so an app pumping its own frames still counts them.
+- `AlarmManager` keeps the earliest armed trigger per clock, and the tick asks that first —
+  two comparisons — instead of scanning the alarm table every 16 ms. Idle GC waits 2 s of
+  measured time rather than 125 ticks.
+- This change was reverted on 2026-09-13 and re-landed with its bug fixed: the gate judged an
+  `RTC_WAKEUP` trigger against the clock's offset rather than the wall clock, so on a board
+  whose clock was never set an RTC alarm could be held back for good. After the fix
+  `alarmdemo` fires 124 / 126 ms late on the Pico 2 W slot (115 / 128 ms before the change).
+- Flash: RP2040 +144 B and +8 B of RAM, RP2350 +604 B.
+
+**A shared-bus touch read no longer freezes the UI for five seconds**
+
+- On a board whose XPT2046 shares the display's SPI bus, a full-duplex transfer could end with
+  the controller finished but the received-byte count one short, and no interrupt left to
+  come. The driver waited out its whole 5,000 ms cap, silently, on the UI task — and, under
+  the run lock above, froze every Java thread with it. This was the `qa_life` stall on the
+  Pico 2 W testbench, the last open P1 of the 2026-09-13 QA round; `testbench_rp2040` had been
+  paying the same five seconds without failing a row.
+- The wait also accepts the controller's own account of being done (everything shifted out,
+  shifter idle, RX FIFO empty). What is lost then is one touch sample, reported once per boot.
+  `qa_life` passes 6/6 on the slot that stalled. `pico_touch_kit` (GT911 on I2C) and the
+  Enviro boards (no touch) never reach this path.
+
+**The RP2040 stops resetting where it should throw, and stops filling its volume**
+
+- **Scaled images.** `imagedemo` HardFaulted on `testbench_rp2040` at its first scaled image:
+  LVGL reads asset pixels in place from flash, and nothing aligned a PAPK's sections, so an
+  image could land at an odd address — which a Cortex-M0+ answers with a HardFault, where the
+  RP2350 and the simulator read it happily. `papk-pack` now aligns every section to 4 bytes (at
+  most 3 bytes per section; older readers take the new files unchanged). A PAPK packed before
+  this change still installs, but an image whose pixels sit at an odd address is skipped on
+  every board with `[assets] <name> skipped: pixel data is not 2-byte aligned` instead of
+  being drawn; rebuild and reinstall the app to get it back.
+- **Out-of-memory resets.** The JVM's method and field resolution caches grew with a plain
+  `Vec::push` — on a full heap, a single 10,240-byte request that reset the board where `qa_ui`
+  expected an `OutOfMemoryError`. They now simply decline to memoise when the heap refuses,
+  at the cost of one re-resolve. The object and array heaps place their slots fallibly too, so
+  a slot-table chunk the heap cannot hold is an allocation failure the caller collects and
+  retries on, not an abort; the infallible slot `push` is test-only now.
+- **Orphaned app data.** A single-app board never swept `/data/<package>` directories, so every
+  app flashed onto it left one behind — an 8 KB LittleFS metadata pair each — until the
+  RP2040's 128 KB volume was full and every `mkdir` failed. Every board now removes, at boot,
+  the data of any package that is not installed. On a single-app board that means **flashing a
+  different app deletes the previous app's files and preferences**; reflashing the same app
+  keeps them.
+- A HardFault on an RP board now logs the stacked frame (`pc`, `lr`, `r0`-`r3`, `r12`,
+  `xpsr`); resolve it with `arm-none-eabi-addr2line`. probe-rs 0.31 halts at the fault vector
+  by default, so the line appears only under `probe-rs run --no-catch-hardfault`.
+
 **Forty correctness fixes from a QA round, and the exceptions that name their case (map v0.26.0, package 0.26.0)**
 
 - Seven self-checking apps (`examples/qa_*`) were written against the served API surface and
@@ -40,7 +138,7 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
   left in the native arms so the list cannot grow unnoticed.
 - UI and lifecycle. Text is no longer cut at 127 bytes; `SeekBar.setMax` clamps and
   `setProgress` reads back at once; `ViewGroup.getChildAt` answers, and a view that `removeView`
-  freed gives up its handle, so the boards without a generational handle table can no longer
+  freed gives up its handle, so a board still on the raw-pointer handle cast can no longer
   re-parent a freed widget. `RadioButton.setChecked` keeps its group in sync, a second
   `AlertDialog.dismiss()` is safe, a full click-listener table or pending-op queue throws
   `IllegalStateException` instead of silently dropping the click or the transition, and an
@@ -65,8 +163,10 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
   class the simulator could not reproduce by construction. Every handle now carries the
   generation of its table slot, so a stale or forged one resolves to null and the call no-ops.
 - It costs 2.4 KB of flash on the RP2040 and 3.0 KB on the RP2350, plus ~1 KB of RAM for the
-  table, and it is on for every board with no switch to throw. The old cast survives one
-  release behind the `legacy-handle-cast` feature, in case a board needs it back.
+  table, and it is on for every board with nothing to enable; the RP2040's first hardware run of
+  the table passed `bugbash_ui`, `callbacktest`, `dialogdemo` and `animdemo`. The old cast
+  survives one release behind the opt-out `legacy-handle-cast` feature, in case a board needs
+  it back.
 
 **The simulator is a `pdb` device**
 
@@ -87,6 +187,40 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
   kernel's own trace and tick hooks, which are compiled in only when the feature is on. Nothing
   of it exists in a normal build. `docs/scheduling-diagnostics.md` has the output format and
   what each report means.
+
+**No task spins where it could sleep**
+
+- A full-tree audit of busy-waits, sleep-polls and blocking (`docs/scheduling-audit-2026-09.md`,
+  findings F1-F20) and the fixes it ranked. **WiFi:** every 1 ms wait in the cyw43 driver was a
+  nop spin — up to 500 ms per ioctl and 3 s at bring-up, with the driver mutex held — and now
+  sleeps on the kernel; each gSPI frame waits on the DMA completion interrupt instead of
+  spinning up to ~450 µs. **Installs** erase a PAPK run one sector at a time: a 512 KB run used
+  to mask interrupts in one ~6 s window, overflowing the CYW43's RX FIFO and timing out open
+  TCP connections.
+- **Displays and touch.** Panel and touch settling delays (ST7789 ~350 ms and ST7796 ~540 ms
+  at init, 120 ms on every screen wake, 76 ms in the GT911 reset) sleep on the kernel instead
+  of burning the UI task's core. The GT911 is read when its interrupt line fires (at most every
+  10 ms while a finger is down, a 50 ms safety net when idle) rather than a hundred times a
+  second, and a stale report buffer now means "nothing new" rather than a release: a drag on
+  the touch board used to arrive as press/release pairs, so a `ScrollView` stuck at its limit
+  and a picker stepped against the gesture. An XPT2046 sample is one 30-byte transfer instead
+  of ten, I2C skips the controller disable when the target is unchanged, and small SPI
+  transfers take the bus lock, so a Java `SpiDevice` on the display's bus cannot write into a
+  band in flight.
+- **Threads and the debug bridge.** Any number of `Thread.join` callers wake when the thread
+  ends (a fifth joiner used to poll every 20 ms). `SystemClock.setCurrentTimeMillis` can no
+  longer livelock the UI task on the wall-clock seqlock. `pdb` blocks for USB completions with
+  a 500 ms timeout, where a host that stopped reading left it spinning and the JVM never ran
+  again; a thread stopped by an install inside a `synchronized` block unwinds quietly instead
+  of throwing `IllegalMonitorStateException`. A UART `write` longer than the 32-byte FIFO
+  sleeps a tick per retry instead of spinning ~1 ms per byte at 9600 baud, and drops a byte
+  (logged once per boot) only when the line has not drained for 100 ms.
+- Both idle tasks execute `wfi` instead of tight-looping. In the simulator, child threads are
+  drained by notification and `ServerSocket.accept` with a timeout blocks in `poll(2)`.
+- Guards: `platforms/rp/src/spin_guard.rs` rejects any busy-wait that is not written with
+  `spin_until!` or excused by a `spin-ok:` marker, with the counts pinned (14 excused, no debt
+  left); a config test asserts the idle hooks and the cyw43 wait gates. The `rtt-lossy` feature
+  makes defmt's RTT channel non-blocking for timing work with a probe attached.
 
 **The touch board scrolls with its panel, not with a repaint**
 
@@ -109,6 +243,19 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
   `set_vertical_scroll_start`; a board may force the path off with `hw_vscroll = false` in
   `[display]`. `docs/designs/scroll-performance-2026-09.md` §5 S4 has the design and the
   measurements, and what is left in a scroll frame now.
+
+**The touch board renders the next band while the panel takes the previous one**
+
+- The flush is asynchronous on the RP family: a band's SPI transfer is handed to DMA and LVGL
+  renders the next band meanwhile, collecting the transfer before it reuses the buffer. A board
+  takes a second draw buffer with `[display] draw_buffers = 2`, which the build refuses where
+  the touch controller shares the display's SPI bus. `pico_touch_kit` ships `band_height = 60`
+  with two buffers — the same 76,800 B as the single 120-row band below. Measured on the board:
+  a clock-face full repaint 64 to 51 ms, the Set-time entry paint 230 to 229 ms, a
+  hardware-scrolled frame 12.4 to 12.1 ms.
+- Two `HalDisplay` methods with defaults, `write_pixels_start` and `write_pixels_wait`; a family
+  without a completion signal keeps them and flushes synchronously, as the simulator does.
+  Flash: `testbench_rp2040` +304 B, `testbench_rp2350` +320 B.
 
 **The touch board paints half again as many frames**
 
@@ -178,6 +325,17 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
   names in, so the shrunk-image check is clean again; the member floor stays at v0.17.0, so
   PAPKs shrunk with v0.17.0 through v0.24.0 still install. `Build.VERSION.RELEASE` reads
   `0.25.0`. Everything else under Unreleased ships in the same package.
+
+**`LinearLayout.setGravity` reaches the far edge; two apps for the touch board**
+
+- `setGravity(Gravity.RIGHT)` and `Gravity.BOTTOM` decoded as START, because Android's two
+  ends of an axis share a bit and the decoder tested the shared bit first, so no
+  `LinearLayout` could align its children at its right or bottom edge. The main axis now follows
+  the layout's orientation, as on Android (call `setGravity` after `setOrientation`), and the
+  cross axis follows the other field instead of staying centred. +112 B on both boards.
+- New `examples/picoclock` (a clock face, alarms, a Set-time screen and a ring screen with
+  snooze and stop, over the EP-0172 carrier's buzzer and LED) and `examples/calculator` (a
+  four-function keypad) for `pico_touch_kit`.
 
 **The touchscreen is read on its own clock, not the frame's**
 
@@ -352,9 +510,10 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 **Contributor tooling**
 
-- **`scripts/pre-commit` runs in two tiers.** The hook's default tier is scoped to what changed and trimmed to the checks CI does not already run (a docs-only commit takes seconds); `--full` is the unscoped gate to run before pushing. `--list` prints the stages, `--serial` streams one lane at a time, and each cargo lane owns its `CARGO_TARGET_DIR` so the lanes run in parallel. Editing anything under `scripts/` promotes the run to `--full`. See [Contributing](/project/contributing/#pre-commit-hook).
-- **One board, several sessions: the device lock.** `flash.sh`, `power-cycle.sh`, `pdb.sh`, `parity-bench.sh --hil` and `hil-run.sh` take a machine-wide lease through `scripts/device-lock.sh` before touching the probe. A free board is acquired for your session automatically and released when that session ends; a busy one makes the script exit 75 with the holder's name, and `device-lock.sh acquire --wait` queues FIFO. The nightly HIL run waits up to an hour, then records a SKIP instead of colliding. See [Troubleshooting](/guides/troubleshooting/#device-lock-busy----held-by--exit-code-75).
-- **`build-apk.sh --keep-lines`** keeps `LineNumberTable` and `SourceFile` through `--strip-debug` for a `line-numbers` firmware (the device scripts pass it for debug-profile builds), and **`scripts/check-shrunk-image.sh <elf> [<app-package/>]`** proves a linked `--shrink --shrink-app` image spells no original name; `pre-commit --full` runs it.
+- **`scripts/pre-commit` builds nothing.** The hook runs the source guards (shadow-twin, cfg hygiene, `apply_jvm_env`) and whichever of `cargo fmt`, the Java and Kotlin formatters and markdown lint the change implicates — seconds. A `scripts/` change adds the `hil-tests.conf` drift check and the device-lock test. Tests, per-board clippy, the example APKs and the sim smoke are CI's job (which gains a `guards` job running the same text guards), and the binary-size ratchet moved to the 3 AM `sim-run.sh` as a `size-ratchet` lane. `--full` is the release-cut gate and keeps only the legs nothing else runs: the `legacy-handle-cast` clippy leg, the `mem-diag` / `sched-diag` firmware builds, `pico_enviro_mon_w` clippy, the shrunk-image check and the size ratchet on both boards. `--list` prints the stages and `--serial` streams one lane at a time. See [Contributing](/project/contributing/#pre-commit-hook).
+- **One board, several sessions: the device lock.** `flash.sh`, `power-cycle.sh`, `pdb.sh`, `parity-bench.sh --hil` and `hil-run.sh` take a lease on one board through `scripts/device-lock.sh` before touching its probe; a bench described by `~/.config/picodroid/fleet.conf` holds several boards, one lease each, and `--board` picks one (without the file, a single board is assumed). A free board is acquired for your session automatically and released when that session ends; a busy one makes the script exit 75 with the holder's name, and `device-lock.sh acquire --wait` queues FIFO. The nightly HIL run waits up to an hour, then records a SKIP instead of colliding. See [Troubleshooting](/guides/troubleshooting/#device-lock-busy----held-by--exit-code-75).
+- **`build-apk.sh --keep-lines`** keeps `LineNumberTable` and `SourceFile` through `--strip-debug` for a `line-numbers` firmware (the device scripts pass it for debug-profile builds), and **`scripts/check-shrunk-image.sh <elf> [<app-package/>]`** proves a linked `--shrink --shrink-app` image spells no original name; `pre-commit --full` and CI run it. Until 2026-09-14 its scans could not fail locally (a `strings | grep -q` pipeline under `pipefail` read a match as a pass); they grep a dump now.
+- **A HardFault's stacked frame is logged** on RP boards, and **`rtt-lossy`** makes RTT non-blocking for timing work with a probe attached; both are described in the entries above.
 
 **Porting a new MCU family**
 

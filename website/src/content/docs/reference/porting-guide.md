@@ -733,16 +733,21 @@ Compile-time `pub const`s sourced from this section, all optional. See [JVM tuna
 
 ## Verification
 
-After implementing your port, run the full pre-commit suite:
+After implementing your port, run the sim smoke and the local checks:
 
 ```bash
 # Sim smoke test (verifies picodroid business logic is not broken)
 ./scripts/sim.sh --app helloworld
 perl -e 'alarm 5; exec @ARGV' ./scripts/sim.sh --app blinky
 
-# Full suite: formatting, clippy (all targets), build, tests
+# Source guards (shadow twins, cfg hygiene) and formatters -- builds nothing
 ./scripts/pre-commit
+
+# Host tests, including the porting checklist guard
+./scripts/test.sh
 ```
+
+Clippy for every board, the debug and release builds and the example APKs run in GitHub CI on push.
 
 `cargo test -p picodroid-core` includes the checklist guard: if you add a
 seam trait or registration macro to core, it fails until this page and

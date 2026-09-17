@@ -11,12 +11,13 @@ LVGL is vendored in `third_party/lvgl/` and configured via [`crates/picodroid-co
 
 | Symbol | Picodroid value | Why |
 |---|---|---|
-| `LV_COLOR_DEPTH` | `16` | RGB565 framebuffers — matches ST7789 + minifb. |
-| `LV_DRAW_SW_SUPPORT_RGB565A8` | `1` | Anti-aliased scaled / rotated images via `ImageView.setScale`. Without it scaled images render aliased — see [LVGL release notes for 9.5.0](https://github.com/lvgl/lvgl/releases/tag/v9.5.0). |
+| `LV_COLOR_FORMAT_DEFAULT` | `LV_COLOR_FORMAT_RGB565_SWAPPED` | 16-bit framebuffers rendered big-endian, the byte order the ST7789 / ST7796 panels take over SPI, so a band goes to the panel unswapped. Replaces the old `LV_COLOR_DEPTH 16` + `LV_COLOR_16_SWAP 1` pair, which LVGL 9.6 deprecates. |
+| `LV_DRAW_SW_SUPPORT_RGB565` | `1` | Nothing renders into plain RGB565, but every bundled image is RGB565 and the swapped blender only accepts an RGB565 source under this switch. |
+| `LV_DRAW_SW_SUPPORT_RGB565A8` | `1` | Anti-aliased scaled / rotated images via `ImageView.setScale`. Without it scaled images render aliased — see [LVGL release notes for 9.6.0](https://github.com/lvgl/lvgl/releases/tag/v9.6.0). |
 | `LV_USE_LODEPNG` / `LV_USE_LIBPNG` | `0` | Both PNG decoders disabled — PNG is decoded at PAPK-pack time, never on-device. See [Bundled image assets](/guides/assets/). |
-| `LV_FONT_MONTSERRAT_*` | tuned per-board | Only the sizes the framework actually renders are pulled in. |
+| `LV_FONT_MONTSERRAT_*` | `14` only | The framework renders one font size on every board, so only Montserrat 14 is pulled in. |
 
-Bumping LVGL: vendor at `third_party/lvgl`, then re-vet `lv_conf.h` against `third_party/lvgl/src/lv_conf_template.h`. Anything new defaults to upstream behavior.
+Bumping LVGL: vendor at `third_party/lvgl`, then re-vet `lv_conf.h` against `third_party/lvgl/lv_conf_template.h`. Anything new defaults to upstream behavior.
 
 ## `.actrc`
 

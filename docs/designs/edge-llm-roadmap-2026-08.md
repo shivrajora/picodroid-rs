@@ -511,3 +511,21 @@ table. Soak: 1 h `aichat` + nav under `--mem-diag` on both boards.
 ## AMENDMENTS
 
 Append here as execution diverges; amendments override the body above.
+
+### 2026-09-16 — most of A1 exists already, as `pico_touch_kit`
+
+No session of this roadmap has run, but the board work for Track A arrived by
+another route. `platforms/rp/boards/pico_touch_kit` (2026-09-10) is a Pimoroni
+Pico Plus 2 W on a 52Pi EP-0172 carrier: MCU `rp2350b` with `flash_kb = 16384`,
+the RM2 radio on the pins this doc names (`has_network`, `cyw43`), and — from
+the scroll work — PSRAM brought up at boot by `platforms/rp/src/hal/rp/psram.rs`
+from `psram_kb = 8192` / `psram_origin = 0x11000000` / `psram_cs_pin = 47` in
+`mcus/rp/rp2350b.toml`, with the XIP-window rule in `with_xip_disabled!` and
+the porting guide (`psram-lvgl-fluid-scroll-2026-09.md`,
+`psram-rp2350b-2026-09.md`). Read A1 as: a display-less `pico_plus2w` board
+file (or reuse of `pico_touch_kit`), plus the parts that do not exist — a
+`MODEL` flash region and a PSRAM sub-allocator for the workspace (the PSRAM
+docs deliberately built none; the only tenant offered so far is the LVGL pool,
+off by default). Two findings from that work bear on A2/A3: PSRAM shares the
+XIP cache with flash, and moving even the LVGL pool there cost 10 % of a frame,
+so KV-cache-in-PSRAM throughput must be measured, not assumed.

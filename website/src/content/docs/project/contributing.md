@@ -61,7 +61,6 @@ soaks and the binary-size ratchet — and the 4 AM `hil-fleet.sh` runs it on
 every bench board.
 
 Useful flags:
-Useful flags:
 
 | Flag | Effect |
 | --- | --- |

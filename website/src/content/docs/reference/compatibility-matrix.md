@@ -19,7 +19,7 @@ counterpart's name, so the API reads the same; you just import `picodroid.*`
 |---|---|
 | **Full** | API surface and semantics match Android closely enough to port unchanged. |
 | **Partial** | Present, but a subset of methods/overloads or a documented behavior difference. |
-| **Renamed** | Same shape, but only reachable as `picodroid.*` (or via the android alias) — not a real Android class. |
+| **Renamed** | Same shape, but only reachable as `picodroid.*` — not a real Android class. |
 | **Unsupported** | No equivalent; use the listed alternative. |
 
 ## By package

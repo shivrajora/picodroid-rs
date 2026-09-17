@@ -1195,3 +1195,19 @@ floor are the framework's (a lighter theme, a dispatch that does not walk a
 the asset table per launcher row (memoising the asset bytes in the entry
 would take ~24 B more each); `rename` is not charged to the quota;
 `intern_dyn` copies a string per string native.
+
+### A6 (2026-09-16) — §6's deferred list, a week on
+
+- **Sim install of the running package** is possible now, through the front
+  door rather than through `sim-ctrl`: since `09d0b1bd` the simulator is a
+  `pdb` device with the real park handshake, so `pdb -s sim install` parks the
+  JVM task, installs and warm-reboots the sim exactly as a board does
+  (`sim-pdb-endpoint-2026-09.md` §2). `sim-ctrl apps install` still refuses the
+  running package; nothing needs it to stop.
+- **Orphaned `/data/<package>` directories** are swept on single-app boards too
+  (`6414b6be`, 2026-09-15): `sweep_orphans` had been `has_multi_app`-only, and
+  the RP2040 testbench's 128 KB LittleFS filled with 8 KB metadata pairs from
+  every app ever flashed.
+- Not re-checked and still listed as open in §6: the overlapping-slide window,
+  intent extras across packages, the Settings boot-app override, and store /
+  signatures / TLS / permissions / OTA (now `app-store-roadmap-2026-09.md` A3).

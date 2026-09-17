@@ -95,7 +95,7 @@ On a multi-app board (`max_installed_apps` above 1) the framework bounds what an
 
 The accounting is LittleFS's own currency: a file costs its size rounded up to 4 KB blocks, and every directory costs an 8 KB metadata pair — the app's own `/data/<package>` included, so an empty app already holds 8 KB the moment it first writes. Reads, deletes and truncates are never refused, and a refused write leaves the file as it was. Both keys are board.toml settings ([porting guide](/reference/porting-guide/)). A single-app board keeps neither rule.
 
-Data goes with its package: `pdb uninstall` and `PackageInstaller.uninstall` remove `/data/<package>`, and at boot a multi-app device sweeps any `/data/*` directory that names no installed or system package (an uninstall cut short by a power loss, an app removed by reflashing). The simulator sweeps only when it models a device's directory (`sim.sh --system-apps`); a plain `sim.sh --app X` run installs X alone and keeps the other apps' data, so switching apps in the simulator loses nothing.
+Data goes with its package: `pdb uninstall` and `PackageInstaller.uninstall` remove `/data/<package>`, and at boot every board sweeps any `/data/*` directory that names no installed or system package (an uninstall cut short by a power loss, an app removed by reflashing). On a single-app board the only package is the one flashed, so flashing a different app deletes the previous app's `/data/<package>` on the next boot. The simulator sweeps only when it models a device's directory (`sim.sh --system-apps`); a plain `sim.sh --app X` run installs X alone and keeps the other apps' data, so switching apps in the simulator loses nothing.
 
 ### `picodroid.os.StatFs`
 
