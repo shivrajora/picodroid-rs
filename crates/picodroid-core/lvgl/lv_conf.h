@@ -12,27 +12,17 @@
 /*====================
    COLOR SETTINGS
  *====================*/
-/* v9.6.0 replaced LV_COLOR_DEPTH with LV_COLOR_FORMAT_DEFAULT, which names the
- * format instead of counting its bits (a "16" was ambiguous between RGB565 and
- * RGB565_SWAPPED). LV_COLOR_DEPTH is now derived from it and still readable. */
-#define LV_COLOR_FORMAT_DEFAULT LV_COLOR_FORMAT_RGB565
-
-/* Byte-swap for big-endian SPI displays (ST7789). Deprecated in v9.6.0 in
- * favour of rendering natively into LV_COLOR_FORMAT_RGB565_SWAPPED, which
- * would drop the full-buffer swap lv_refr.c does before every flush_cb — a
- * real win for the scroll path, but it changes what the panel drivers and the
- * hw_vscroll / PSRAM buffers are handed, so it wants its own change and its
- * own HIL run. Kept on the v8 path for now; it still works in v9.6 and is
- * removed in v10.0. LV_COLOR_16_SWAP_DISABLE_WARNING silences the #warning
- * lv_refr.c raises on every build until then. */
-#define LV_COLOR_16_SWAP 1
-#define LV_COLOR_16_SWAP_DISABLE_WARNING 1
-
-/* v9.6.0 links the RGB565_SWAPPED blenders whenever LV_USE_DRAW_SW is set and
- * Kconfig is absent — which is us. Nothing reaches them while the swap happens
- * in lv_refr.c, so pin them off rather than pay for them, same reasoning as
- * LV_DRAW_SW_SUPPORT_ARGB8888_PREMULTIPLIED below. */
-#define LV_DRAW_SW_SUPPORT_RGB565_SWAPPED 0
+/* The panels (ST7789, ST7796) take RGB565 big-endian over SPI, so LVGL renders
+ * straight into the byte-swapped format and flush_cb hands the band on as is.
+ *
+ * This used to be LV_COLOR_DEPTH 16 + LV_COLOR_16_SWAP 1: render little-endian,
+ * then lv_refr.c byte-swapped every band in place before flush_cb. v9.6.0
+ * deprecated that and v10 removes it. The bytes flush_cb receives are the same
+ * either way -- the fbhash sequences of graphicsbench are identical before and
+ * after on three boards (docs/designs/rgb565-swapped-render-2026-09.md §7).
+ * This is not a speed change worth mentioning: the old swap measured ~3 ms of a
+ * ~109 ms frame, and RGB565 images now pay a per-pixel swap as they blend. */
+#define LV_COLOR_FORMAT_DEFAULT LV_COLOR_FORMAT_RGB565_SWAPPED
 
 /*=========================
    STDLIB WRAPPER SETTINGS
@@ -104,7 +94,13 @@
 
 #define LV_USE_DRAW_SW 1
 #if LV_USE_DRAW_SW == 1
-    /* RGB565 for display; RGB565A8 required for transform path (e.g. scaled ImageView) */
+    /* The render target (LV_COLOR_FORMAT_DEFAULT above). */
+    #define LV_DRAW_SW_SUPPORT_RGB565_SWAPPED 1
+    /* Nothing renders into plain RGB565 any more, but every papk image is RGB565,
+     * and the swapped blender only takes an RGB565 source under this switch
+     * (lv_draw_sw_blend_to_rgb565_swapped.c). It also links the RGB565 target
+     * blender; the two cannot be split. RGB565A8 is the transform path's
+     * intermediate (e.g. a scaled ImageView), blended as RGB565 + mask. */
     #define LV_DRAW_SW_SUPPORT_RGB565       1
     #define LV_DRAW_SW_SUPPORT_RGB565A8     1
     #define LV_DRAW_SW_SUPPORT_RGB888       0

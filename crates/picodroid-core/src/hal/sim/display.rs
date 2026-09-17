@@ -177,7 +177,7 @@ pub fn write_pixels(data: &[u8]) {
         let mut col = x0;
 
         while i + 1 < data.len() {
-            // LV_COLOR_16_SWAP=1: bytes arrive big-endian
+            // LVGL renders LV_COLOR_FORMAT_RGB565_SWAPPED: bytes arrive big-endian
             let raw = u16::from_be_bytes([data[i], data[i + 1]]);
             let r = ((raw >> 11) & 0x1F) as u32;
             let g = ((raw >> 5) & 0x3F) as u32;

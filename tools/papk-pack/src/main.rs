@@ -672,10 +672,11 @@ fn collect_assets(dir: &Path) -> Result<Vec<Asset>, String> {
 /// Decode a PNG file into an LVGL-native RGB565 (little-endian per pixel) buffer.
 ///
 /// Per-pixel layout: `[low_byte, high_byte]` of the 16-bit value
-/// `(R5 << 11) | (G6 << 5) | B5`. The framebuffer's `LV_COLOR_16_SWAP=1`
-/// configuration handles the eventual byte swap on the SPI write to the
-/// ST7789, so the source data stays in the standard little-endian form
-/// LVGL refers to as `LV_COLOR_FORMAT_RGB565`.
+/// `(R5 << 11) | (G6 << 5) | B5`. LVGL renders into big-endian
+/// `LV_COLOR_FORMAT_RGB565_SWAPPED` for the SPI panels and swaps each image
+/// pixel as it blends, so the source data stays in the standard little-endian
+/// form LVGL refers to as `LV_COLOR_FORMAT_RGB565`. Don't bake swapped assets
+/// without reading docs/designs/rgb565-swapped-render-2026-09.md §4.3.
 fn decode_png_to_rgb565(path: &Path, name: String) -> Result<Asset, String> {
     let img = image::open(path).map_err(|e| format!("{e}"))?;
     let rgba = img.to_rgba8();
