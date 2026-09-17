@@ -26,7 +26,10 @@ RP2040's ROM float-to-int flooring beyond the JVM, LittleFS formatting on a geom
 per-slot target directories for one-off `hil-run.sh`, and the `IllegalFormat*` class names.
 
 **2026-09-15 update.** With `qa_life` and the handle table closed above, the only item left
-is **one** infallible allocation — the touch kit's 7,680 bytes.
+is **one** infallible allocation — the touch kit's 7,680 bytes. **Closed 2026-09-16:** it was
+the lambda registry (`ObjectHeap::register_lambda`) doubling from 64 to 128 entries under
+`qa_thr`'s burst of 64 `execute(() -> …)` posts; it and the iterator registry reserve
+fallibly now, and `invokedynamic` throws `OutOfMemoryError` instead.
 The RP2040's 10 KB was the JVM's resolution caches growing through an infallible
 `Vec::push`, with `ChunkedSlots::push` a second one found beside it. The same round's
 `imagedemo` ERROR, which predated the round, was an unaligned papk ASSETS section:
@@ -41,8 +44,8 @@ open and unchanged: the GC-stress sim variant, clean-worktree nightlies (cron st
 shared checkout), the region-percentage size gate, the strict memdiag nightly, the scenario
 runner, lifecycle/store unit tests, the Kotlin contention test, the sensor mailbox, screenshot
 and sensor injection in the sim, module docs, the LVGL event-registry wrapper, `Value` 8 B, the
-two-worker pool, every memory-diagnostics follow-up (the `pdb sysmon` cap is still
-`MAX_TASKS = 12`), the sim pthread leak (still `freertos-rust-pd` 0.2.3), NET-1, NET-9 and the
+two-worker pool, every memory-diagnostics follow-up (the `pdb sysmon` cap was raised to
+24 on 2026-09-16; the rest stand), the sim pthread leak (still `freertos-rust-pd` 0.2.3), NET-1, NET-9 and the
 Compose-like layer.
 
 ## Regression automation
@@ -351,18 +354,19 @@ slowly-deepening stack is caught alongside heap growth (FreeRTOS overflow method
 fires after the fact). **Tradeoff:** `uxTaskGetSystemState` suspends the scheduler
 briefly every window — keep it to every Nth window or device-idle windows.
 
-### `pdb sysmon` shows no task table on the W board (task cap 12)
+### `pdb sysmon` shows no task table on the W board (task cap 12) — DONE 2026-09-16
 
-`pdb-protocol::sysmon::MAX_TASKS` is 12 and the device hands an array of that size to
+`pdb-protocol::sysmon::MAX_TASKS` was 12 and the device hands an array of that size to
 `uxTaskGetSystemState` (`platforms/rp/src/pdb/platform.rs`). FreeRTOS returns **zero** entries
 when the array is smaller than the task count, so on `pico_enviro_mon_w` (14 tasks: cyw43,
-IP-task and the app's network thread on top of the testbench's 10) the table is silently
-empty — the "beyond this the table is truncated" comment is wrong. Found 2026-09-07 while
-measuring the background-pool stack for `fix/dashboard-stall` (measured with a temporary cap of
-20). Fix: size the device-side array generously (32 × 40 B on the pdb task's stack) and
-truncate to `MAX_TASKS` when copying, or raise `MAX_TASKS` to 20 (wire size grows by
-`8 × ENTRY_LEN` = 224 B; bump the protocol version). **Tradeoff:** a bigger cap costs RAM on both
-ends per sample; array-then-truncate costs nothing on the wire but still hides tasks past 12.
+IP-task and the app's network thread on top of the testbench's 10) the table was silently
+empty — the "beyond this the table is truncated" comment was wrong. Found 2026-09-07 while
+measuring the background-pool stack for `fix/dashboard-stall`. Resolved by raising
+`MAX_TASKS` to 24 (the wire is self-describing — the header carries the count and the host
+sizes its read from the frame length — so no protocol-version bump): +336 B in the previous
+sample kept for CPU rates, +480 B of locals on the debug-bridge task's stack. Both sysmon
+sources now `warn` when the live task count exceeds the cap, so the next board to outgrow
+it says so instead of printing nothing.
 
 ### Device per-class allocation histogram
 

@@ -188,16 +188,22 @@ pub(crate) fn dispatch_view(
                 Some(idx) => idx,
                 None => return Some(Err(JvmError::StackOverflow)),
             };
-            ctx.objects.iter_register(
-                iter_obj,
-                IteratorState {
-                    source,
-                    position: 0,
-                    owner: recv,
-                    expected_len: ctx.objects.map_len(buf_idx),
-                    last_returned: None,
-                },
-            );
+            if ctx
+                .objects
+                .iter_register(
+                    iter_obj,
+                    IteratorState {
+                        source,
+                        position: 0,
+                        owner: recv,
+                        expected_len: ctx.objects.map_len(buf_idx),
+                        last_returned: None,
+                    },
+                )
+                .is_err()
+            {
+                return Some(Err(JvmError::StackOverflow));
+            }
             Some(Ok(Some(Value::ObjectRef(iter_obj))))
         }
         m::size => Some(Ok(Some(Value::Int(ctx.objects.map_len(buf_idx) as i32)))),

@@ -415,10 +415,18 @@ impl SysmonSource for SimSysmon {
             [const { core::mem::MaybeUninit::uninit() }; MAX_TASKS];
         let mut total_run_time: u32 = 0;
 
+        // SAFETY: a plain kernel accessor.
+        let n = unsafe { uxTaskGetNumberOfTasks() } as usize;
+        if n > MAX_TASKS {
+            // The kernel fills nothing when the array is short (the device
+            // source warns the same way).
+            eprintln!(
+                "[sim] pdb sysmon: {n} tasks exceed MAX_TASKS={MAX_TASKS}; table will be empty"
+            );
+        }
         // SAFETY: `buf` is MAX_TASKS entries of the layout above, and the
         // count passed is clamped to that.
         let count = unsafe {
-            let n = uxTaskGetNumberOfTasks() as usize;
             uxTaskGetSystemState(
                 buf.as_mut_ptr().cast(),
                 n.min(MAX_TASKS) as libc::c_ulong,

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-use super::ObjectHeap;
+use super::{reserve_fallible, Exhausted, ObjectHeap};
 
 /// Source collection type for an iterator.
 #[derive(Clone, Copy)]
@@ -40,8 +40,12 @@ impl ObjectHeap {
     // ── Iterator state ──────────────────────────────────────────────────────
 
     /// Associate an iterator state with an existing heap object.
-    pub fn iter_register(&mut self, obj_idx: u16, state: IteratorState) {
+    /// [`Exhausted`] when the registry cannot grow (the same doubling shape
+    /// as the lambda registry); nothing is recorded then.
+    pub fn iter_register(&mut self, obj_idx: u16, state: IteratorState) -> Result<(), Exhausted> {
+        reserve_fallible(&mut self.iter_states, 1)?;
         self.iter_states.push((obj_idx, state));
+        Ok(())
     }
 
     /// Look up the iterator state for an object, if any.

@@ -108,10 +108,20 @@ impl SysmonSource for FreeRtosSysmon {
             [const { MaybeUninit::uninit() }; MAX_TASKS];
         let mut total_run_time: u32 = 0;
 
+        // SAFETY: plain FreeRTOS accessor.
+        let n = unsafe { uxTaskGetNumberOfTasks() } as usize;
+        if n > MAX_TASKS {
+            // The kernel fills nothing when the array is short, so the host
+            // would see an empty table with no hint why. Say why.
+            defmt::warn!(
+                "sysmon: {} tasks exceed pdb-protocol MAX_TASKS={}; table will be empty",
+                n,
+                MAX_TASKS
+            );
+        }
         // SAFETY: `buf` is MAX_TASKS entries of the layout above, and the
         // count passed is clamped to that.
         let count = unsafe {
-            let n = uxTaskGetNumberOfTasks() as usize;
             uxTaskGetSystemState(
                 buf.as_mut_ptr().cast(),
                 n.min(MAX_TASKS) as FreeRtosUBaseType,

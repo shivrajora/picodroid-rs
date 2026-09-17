@@ -216,14 +216,48 @@ WPA2 verified unaffected on HW.
   SDK throws clauses, the `netexception` sim-roster example, and the
   exception-taxonomy section in `website/.../api/networking.md`.
 
-## NET-10: dashboard page loads hang after the first byte (RST-on-close) — OPEN 2026-09-07
+## NET-10: dashboard page loads hang after the first byte (RST-on-close) — FIXED 2026-09-16
 
-*Status 2026-09-16: still open, untouched.* No commit since `67d0703e` touches
-the close path — `FreeRTOS_shutdown` appears nowhere in `crates/` or
-`platforms/` — and the `pdb sysmon` task cap that blocks observing it is still
-`MAX_TASKS = 12`. The W slot's firmware has moved underneath it (WP5's gSPI
-DMA completion by interrupt, the JVM run lock, cyw43-driver v2.0.0), so re-run
-the curl repro below before starting on the fix candidates.
+*Fix:* fix candidate (1) below, in `crates/picodroid-core/src/hal/freertos_tcp/mod.rs`
+(`HalNet::close`). `FreeRTOS_shutdown(SHUT_RDWR)` first; when it returns 0 (only an
+established TCP socket does) the socket is drained with a 50 ms receive timeout
+until `recv` answers `-ENOTCONN` — FreeRTOS+TCP parks a socket in `eCLOSE_WAIT`
+once its FIN is sent, ACKed and answered — or a 3.5 s bound expires; then
+`FreeRTOS_closesocket` as before. The bound follows +TCP's retransmit clock (initial
+SRTT 500 ms, doubling per resend: first resend of a lost last segment at ~1 s, second
+~2 s later), because a closed socket retransmits nothing. Listeners, UDP sockets and sockets the peer
+already closed fail the `shutdown` and take the old path unchanged. The FIN is a
+normal segment and is retransmitted; the RST never was. The `pdb sysmon` task cap
+was raised to 24 in the same change (docs/quality-roadmap.md).
+
+*Verified 2026-09-17 on `pico_enviro_mon_w` with the curl repro below, same
+session, same AP.* Baseline (old close path, 90 s from the join): 68 loads, 66
+ended in a RST (curl exit 56), 2 hung 25 s after delivering the full 756-byte
+body (exit 28) — the lost-RST case. With the fix: 959 loads over four runs (45 s,
+180 s, 300 s steady-state and 90 s from the join), every one exit 0 with a clean
+FIN, slowest 0.64 s, no hangs — except the one described under NET-11. `pdb
+sysmon` on the same board now lists all 15 tasks (pdb task 1181 of 2048 words
+free with the larger table).
+
+## NET-11: a dashboard load during the boot housekeeping job loses its body — OPEN 2026-09-17
+
+Found while verifying NET-10. A load made within about a second of `net: up`,
+i.e. while the boot-time NTP + weather job is in flight on the background
+executor, delivers its headers (first byte 0.2–0.35 s) and never its body. On the
+old close path the load ends as headers + RST, 0 bytes of body (curl exit 56,
+`size_download` 0); with the graceful close the client instead waits out its own
+timeout (exit 28, 25 s), so the graceful close changes the symptom, not the
+cause. Reproduced 2 of 2 on each firmware; 0 of 3 when the first load is made
+40 s after the join. Every later load, including those overlapping the 5-minute
+housekeeping re-runs, is clean. No `http: connection error` line reaches the
+log, so the stack accepted the body; either it was never transmitted or the
+retransmits (which the 3.5 s drain leaves time for) were dropped too. Suspects:
+the outbound weather connect and the inbound accept sharing the cyw43 link
+during association/DHCP settle, or the `+TCP` network-buffer pool under two
+simultaneous connections. Repro: `power-cycle.sh --board pico_enviro_mon_w`,
+`until ping -c1 -W1 <ip>; do sleep 2; done`, then one `curl -s -m 25 -o
+/dev/null -w "%{http_code} %{exitcode} %{time_starttransfer} %{time_total}
+%{size_download}\n" http://<ip>:8080/` immediately versus after `sleep 40`.
 
 Found while verifying the serve-loop fix (`fix/dashboard-stall`, 2026-09-04).
 On the W board about 1 page load in 40 delivers its headers within 0.4 s and

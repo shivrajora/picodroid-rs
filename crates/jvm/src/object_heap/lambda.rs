@@ -1,12 +1,22 @@
 // SPDX-License-Identifier: GPL-3.0-only
-use super::{LambdaProxy, ObjectHeap};
+use super::{reserve_fallible, Exhausted, LambdaProxy, ObjectHeap};
 
 impl ObjectHeap {
     // ── Lambda proxy support ──────────────────────────────────────────────────
 
-    /// Associate a lambda proxy with an existing heap object.
-    pub fn register_lambda(&mut self, obj_idx: u16, proxy: LambdaProxy) {
+    /// Associate a lambda proxy with an existing heap object. [`Exhausted`]
+    /// when the registry cannot grow; nothing is recorded then, and the
+    /// proxy object at `obj_idx` is ordinary garbage for the next sweep.
+    ///
+    /// Fallible because this table doubles: at 60 bytes an entry the step
+    /// from 64 to 128 registered lambdas is one contiguous 7,680-byte
+    /// request, which on the touch kit's full heap was the last board reset
+    /// of the 2026-09-13 QA round (`qa_thr`'s `frameworkExecutors`, a burst
+    /// of 64 `execute(() -> …)` posts).
+    pub fn register_lambda(&mut self, obj_idx: u16, proxy: LambdaProxy) -> Result<(), Exhausted> {
+        reserve_fallible(&mut self.lambda_proxies, 1)?;
         self.lambda_proxies.push((obj_idx, proxy));
+        Ok(())
     }
 
     /// Whether any lambda proxy exists at all.

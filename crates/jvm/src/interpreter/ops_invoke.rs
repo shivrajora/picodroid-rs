@@ -664,6 +664,9 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         // more allocation on a path the heap may already have refused.
         let capture_count = helpers::count_args(factory_desc);
         let stack_len = frame.stack.len();
+        // Stored as 8 B slots (a captured `long` is two). Reserved fallibly:
+        // the copy is one more allocation on a path the heap may already
+        // have refused (see `register_lambda` below).
         let captures: Vec<Slot> = if capture_count > 0 {
             let start = stack_len
                 .checked_sub(capture_count)
@@ -688,15 +691,19 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             .alloc(static_name)
             .ok_or(JvmError::StackOverflow)?;
 
-        // 8. Register lambda metadata
-        self.objects.register_lambda(
-            obj_idx,
-            LambdaProxy {
-                target,
-                captures,
-                sam_name,
-            },
-        );
+        // 8. Register lambda metadata. A registry that cannot grow is the
+        // crate's allocation-failure signal (a catchable OutOfMemoryError
+        // upstairs); the proxy object just allocated is garbage then.
+        self.objects
+            .register_lambda(
+                obj_idx,
+                LambdaProxy {
+                    target,
+                    captures,
+                    sam_name,
+                },
+            )
+            .map_err(|_| JvmError::StackOverflow)?;
 
         // 9. Push the proxy object reference
         frame.push(Value::ObjectRef(obj_idx))?;

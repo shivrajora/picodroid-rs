@@ -11,9 +11,18 @@
 //! field that moves fails here rather than printing nonsense task names on
 //! someone's terminal.
 
-/// Most tasks reported in one response. Beyond this the table is truncated;
-/// the header still carries the real count.
-pub const MAX_TASKS: usize = 12;
+/// Most tasks reported in one response.
+///
+/// Not a soft cap: FreeRTOS's `uxTaskGetSystemState` fills *nothing* when the
+/// array it is handed is smaller than the live task count, so a board with
+/// more tasks than this shows an empty table, not a truncated one (the
+/// 2026-09-07 W-board finding: 14 tasks against a cap of 12). Keep it above
+/// the busiest board's count with headroom — `pico_enviro_mon_w` runs 14
+/// (the testbench's 10 plus cyw43, the IP task and the app's network thread)
+/// and each `Thread.start` adds one. The device-side sources warn when the
+/// count exceeds it. Cost per entry: 28 B on the wire and in the previous
+/// sample kept for CPU rates, 40 B on the debug-bridge task's stack.
+pub const MAX_TASKS: usize = 24;
 
 /// Bytes of header before the per-task table.
 pub const HEADER_LEN: usize = 20;
