@@ -2,10 +2,16 @@
 
 These `.papk` files were produced by the **pre-refactor** `papk-pack` CLI
 (repo state: commit `7234d0b`, 2026-07-25) and are the byte-for-byte ground
-truth for `papk-format`'s parser and `PapkBuilder` writer. Do NOT regenerate
-them casually — the whole point is that they pin the on-disk layout emitted
-by the original writer. If the format ever changes intentionally, cut new
-fixtures with a new minor/major version and keep these for the old version.
+truth for `papk-format`'s parser. Do NOT regenerate them casually — the whole
+point is that they pin the on-disk layout emitted by the original writer, and
+they are what proves the reader still takes the papks already installed on
+devices. If the format ever changes intentionally, cut new fixtures with a new
+minor/major version and keep these for the old version.
+
+Since 2026-09-15 the writer 4-byte aligns every section start, so it no longer
+reproduces these files byte for byte. The three rebuild tests — two in
+`golden.rs`, one in `papk-pack`'s `pack_integration` — compare section header
+plus data per section instead, and require the new offsets to be aligned.
 
 ## Inputs (checked in alongside)
 

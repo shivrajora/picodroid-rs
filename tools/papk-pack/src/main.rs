@@ -941,12 +941,49 @@ mod pack_integration {
 
         // These are the exact inputs that produced the pre-refactor golden
         // fixture (see fixtures/README.md), so the CLI mapping must still
-        // reproduce it byte-for-byte — a stale build/apks/*.papk stays
-        // reproducible.
+        // reproduce it — a stale build/apks/*.papk stays reproducible. This
+        // was a byte-for-byte comparison until the writer started 4-byte
+        // aligning every section (2026-09-15, papk-format/src/write.rs), so
+        // it is now "every section identical, only its offset moved"; the
+        // fixture stays exactly as papk-pack produced it, which is also the
+        // proof that the reader still takes the unaligned papks already
+        // installed on devices.
         let golden = fs::read(fixtures.join("minimal.papk")).expect("fixture minimal.papk");
-        assert_eq!(papk, golden);
+        assert_same_sections(&papk, &golden);
 
         fs::remove_dir_all(&work).ok();
+    }
+
+    /// Assert `built` carries the same sections as `fixture`, allowing only
+    /// the file-header offset words and the zero padding between sections to
+    /// differ — and that every section in `built` starts 4-byte aligned.
+    fn assert_same_sections(built: &[u8], fixture: &[u8]) {
+        let b = papk_format::Papk::parse(built).expect("built papk must parse");
+        let f = papk_format::Papk::parse(fixture).expect("fixture papk must parse");
+        let bh = b.file_header();
+        let fh = f.file_header();
+        assert_eq!(bh.version_major, fh.version_major);
+        assert_eq!(bh.version_minor, fh.version_minor);
+        assert_eq!(bh.section_count, fh.section_count);
+
+        assert_eq!(b.manifest_section().unwrap(), f.manifest_section().unwrap());
+        assert_eq!(b.classes_section().unwrap(), f.classes_section().unwrap());
+        assert_eq!(b.assets_section().unwrap(), f.assets_section().unwrap());
+
+        let sections = [
+            ("MANIFEST", bh.manifest_offset),
+            ("CLASSES", bh.classes_offset),
+            ("ASSETS", bh.assets_offset),
+        ];
+        for (name, off) in sections {
+            assert_eq!(off % 4, 0, "{name} starts at {off}, which is not 4-aligned");
+        }
+        // Everything the offsets skipped over is alignment padding, nothing else.
+        assert!(
+            built.len() - fixture.len() < 4 * sections.len(),
+            "built grew by {} bytes, more than section alignment padding",
+            built.len() - fixture.len()
+        );
     }
 
     fn fixture_args(work: &Path) -> Args {
@@ -1036,7 +1073,29 @@ mod pack_integration {
         assert_eq!(parsed.manifest_value(b"x-note"), Some("kept"));
         let entry = parsed.classes().unwrap().next().unwrap();
         assert_eq!(entry.data, class_bytes.as_slice());
-        assert_eq!(again.len(), bytes.len() + 1);
+
+        // Nothing but the manifest moved: the CLASSES and ASSETS sections come
+        // through untouched, and the manifest carries exactly the one extra
+        // byte of "fixture2". The file grows by that byte rounded up to the
+        // writer's 4-byte section alignment, so between 1 and 4 bytes.
+        let before = papk_format::Papk::parse(&bytes).unwrap();
+        assert_eq!(
+            parsed.classes_section().unwrap(),
+            before.classes_section().unwrap()
+        );
+        assert_eq!(
+            parsed.assets_section().unwrap(),
+            before.assets_section().unwrap()
+        );
+        assert_eq!(
+            parsed.manifest_section().unwrap().1.len(),
+            before.manifest_section().unwrap().1.len() + 1
+        );
+        let grew = again.len() - bytes.len();
+        assert!(
+            (1..=4).contains(&grew),
+            "a one-byte package rename grew the file by {grew} bytes"
+        );
     }
 
     #[test]
