@@ -216,14 +216,20 @@ WPA2 verified unaffected on HW.
   SDK throws clauses, the `netexception` sim-roster example, and the
   exception-taxonomy section in `website/.../api/networking.md`.
 
-## NET-10: dashboard page loads hang after the first byte (RST-on-close) — OPEN 2026-09-07
+## NET-10: dashboard page loads hang after the first byte (RST-on-close) — FIXED 2026-09-16
 
-*Status 2026-09-16: still open, untouched.* No commit since `67d0703e` touches
-the close path — `FreeRTOS_shutdown` appears nowhere in `crates/` or
-`platforms/` — and the `pdb sysmon` task cap that blocks observing it is still
-`MAX_TASKS = 12`. The W slot's firmware has moved underneath it (WP5's gSPI
-DMA completion by interrupt, the JVM run lock, cyw43-driver v2.0.0), so re-run
-the curl repro below before starting on the fix candidates.
+*Fix:* fix candidate (1) below, in `crates/picodroid-core/src/hal/freertos_tcp/mod.rs`
+(`HalNet::close`). `FreeRTOS_shutdown(SHUT_RDWR)` first; when it returns 0 (only an
+established TCP socket does) the socket is drained with a 50 ms receive timeout
+until `recv` answers `-ENOTCONN` — FreeRTOS+TCP parks a socket in `eCLOSE_WAIT`
+once its FIN is sent, ACKed and answered — or a 3.5 s bound expires; then
+`FreeRTOS_closesocket` as before. The bound follows +TCP's retransmit clock (initial
+SRTT 500 ms, doubling per resend: first resend of a lost last segment at ~1 s, second
+~2 s later), because a closed socket retransmits nothing. Listeners, UDP sockets and sockets the peer
+already closed fail the `shutdown` and take the old path unchanged. The FIN is a
+normal segment and is retransmitted; the RST never was. The `pdb sysmon` task cap
+was raised to 24 in the same change (docs/quality-roadmap.md). Verification: the
+curl repro below on the W board, before and after — see the status line under it.
 
 Found while verifying the serve-loop fix (`fix/dashboard-stall`, 2026-09-04).
 On the W board about 1 page load in 40 delivers its headers within 0.4 s and

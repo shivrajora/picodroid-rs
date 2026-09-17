@@ -159,6 +159,10 @@ extern "C" {
 
     fn FreeRTOS_closesocket(socket: *mut c_void) -> i32;
 
+    /// `0` only for an established TCP socket; the FIN itself goes out from
+    /// the IP task, asynchronously.
+    fn FreeRTOS_shutdown(socket: *mut c_void, how: i32) -> i32;
+
     fn FreeRTOS_setsockopt(
         socket: *mut c_void,
         level: i32,
@@ -235,6 +239,50 @@ const FREERTOS_INVALID_SOCKET: *mut c_void = usize::MAX as *mut c_void;
 /// True for both failure encodings a socket-returning call can produce.
 fn socket_invalid(sock: *mut c_void) -> bool {
     sock == FREERTOS_INVALID_SOCKET || sock.is_null()
+}
+
+/// `FreeRTOS_shutdown`'s `how`; the stack ignores the value, so the full
+/// shutdown is named for what it means.
+const FREERTOS_SHUT_RDWR: i32 = 2;
+
+/// Longest a graceful close waits for the FIN handshake before
+/// `closesocket` takes over.
+///
+/// Sized from FreeRTOS+TCP's retransmit clock, not the LAN round trip: a
+/// window starts with a smoothed RTT of 500 ms (`FreeRTOS_TCP_WIN.c`,
+/// `lSRTT = l500ms`) and a segment is resent after `2^count × SRTT`, so on
+/// a short connection the first retransmit of a lost last segment or FIN
+/// comes at ~1 s and the second ~2 s after that. Once `closesocket` runs the
+/// socket is gone and nothing is retransmitted, so a bound under a second
+/// would make the graceful close only as good as the RST it replaces
+/// whenever the last segment is lost. 3.5 s covers two retransmits. A peer
+/// that answers normally ends the drain within a round trip; only a peer
+/// that received the FIN and keeps its end open pays the full bound, once.
+const CLOSE_DRAIN_MAX_MS: u32 = 3_500;
+
+/// Receive timeout used while draining, so the bound above is honoured to
+/// within one poll even though every `recv` blocks in the kernel.
+const CLOSE_DRAIN_POLL_MS: u32 = 50;
+
+/// Wait for a shut-down socket's FIN handshake to finish, discarding
+/// whatever the peer still sends.
+///
+/// FreeRTOS+TCP moves a socket to `eCLOSE_WAIT` once its FIN is sent and
+/// ACKed and the peer's FIN has arrived; from then on `recv` answers
+/// `-ENOTCONN` (or `-ENOMEM` after a buffer failure), which is what ends the
+/// loop. `0` is a timeout, positive is data still arriving. Not a spin:
+/// every iteration blocks in the kernel for the poll interval.
+fn drain_until_closed(sock: *mut c_void) {
+    let mut scratch = [0u8; 64];
+    let started = now_ms();
+    <FreeRtosTcpNet as HalNet>::set_recv_timeout(sock, CLOSE_DRAIN_POLL_MS);
+    while now_ms().wrapping_sub(started) < CLOSE_DRAIN_MAX_MS {
+        // SAFETY: FFI on a socket handle the caller still owns.
+        let ret = unsafe { FreeRTOS_recv(sock, scratch.as_mut_ptr(), scratch.len(), 0) };
+        if ret < 0 {
+            break;
+        }
+    }
 }
 
 /// Swap bytes for network byte order (big-endian) port number.
@@ -332,8 +380,26 @@ impl HalNet for FreeRtosTcpNet {
     }
 
     /// Close a socket.
+    ///
+    /// A connected TCP socket is closed *gracefully*: `FreeRTOS_shutdown`
+    /// queues a FIN, and the socket is drained until the stack reports the
+    /// handshake complete (`-ENOTCONN`: FIN sent, ACKed and answered) or the
+    /// bound expires, before `FreeRTOS_closesocket` frees it. Calling
+    /// `closesocket` on an established socket aborts it with a RST instead;
+    /// a RST is sent once and never retransmitted, so a lost RST or a lost
+    /// last data segment left the peer waiting until its own timeout
+    /// (NET-10: ~1 dashboard load in 40 hung after the first byte, and every
+    /// load ended with curl exit 56). A FIN is retransmitted like any other
+    /// segment. `shutdown` returns non-zero for anything not established
+    /// (listeners, UDP, peer-closed or never-connected sockets), and those
+    /// take the plain path they always did.
     fn close(sock: *mut c_void) {
+        // SAFETY: FFI on a socket handle the caller owns and does not use
+        // again.
         unsafe {
+            if FreeRTOS_shutdown(sock, FREERTOS_SHUT_RDWR) == 0 {
+                drain_until_closed(sock);
+            }
             FreeRTOS_closesocket(sock);
         }
     }
