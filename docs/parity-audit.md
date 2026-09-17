@@ -62,7 +62,7 @@ G-graphics, X-cross-cutting).
 | OBJ-01 | `Option<JvmObject>` = **24 B host / 12 B device** (V1-measured; `Box<[Value]>` fat pointer). Object-slot chunks (`ChunkedSlots`, 64/chunk): 1536 B host vs 768 B device | IPB | Sim's real memory per object is 2× device's; under an arena (M1) sim would OOM earlier than device | S2 | V (V1) | M5 (reporting) / M6 (deletion) |
 | OBJ-02 | `Frame` = **80 B host / 40 B device** (V1) — per-call-stack-entry cost doubles in sim | IPB | Same as OBJ-01 for deep call stacks | S2 | V (V1) | M5/M6 |
 | OBJ-03 | `StringTable.ptrs: Vec<*const u8>` — 8 B/entry host vs 4 B device (`jvm/src/heap.rs:21`) | IPB | Same, for string-heavy apps | S3 | V | M5/M6 |
-| OBJ-04 | `Value` = 16 B, references = u16 indices into side tables — **identical on all targets** (V1: 16/16/16) | IS | None — this is the load-bearing good design; JVM references never carry pointer width | — | V (V1) | — |
+| OBJ-04 | `Value` = 16 B in transit, stored as an 8 B `Slot` (a `long`/`double` is two, JVMS §2.6.1; since 2026-09-17), references = u16 indices into side tables — **identical on all targets** (V1: 16/16/16, `Slot` 8/8/8 by compile-time assert) | IS | None — this is the load-bearing good design; JVM references never carry pointer width | — | V (V1) | — |
 | OBJ-05 | `Option<JvmArray>` = 40 B, `ArrayData` = 36 B on *all three* targets (V1) — inline `[i32;8]`/arena offsets, no pointers | IS | None | — | V (V1) | — |
 | OBJ-06 | `ObjectHeap::live_bytes()` / `ArrayHeap::live_bytes()` use host `size_of` (`object_heap/mod.rs:515`, `array_heap.rs:248`) → `Runtime.usedMemory()` reports host-inflated numbers in sim | ACC | An app tuning against `usedMemory()` in sim sees ~2× per-object cost vs device | S2 | V | M5 |
 
@@ -455,6 +455,7 @@ reverted):
 | `ArrayData` | 36 | 36 | 36 |
 | `Frame` | **40** | 40 | **80** |
 | `Value` | 16 | 16 | 16 |
+| `Slot` (fields arena, list/map buffers, lambda captures; since 2026-09-17) | 8 | 8 | 8 |
 
 **V2 — sim cap bisection** (headless, `sim.sh -l`): picoenvmon (enviro board) boots at
 ≥98 KB, OOMs at ≤96 KB → boot floor ≈ 97 KB raw-counter. benchmark (testbench) completes

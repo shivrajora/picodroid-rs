@@ -523,12 +523,12 @@ reverted. That is the honest ledger.
   anyone quotes a number.
 - **F4 (framework class tree-shaking)** is real but a large change, and flash
   is no longer tight enough to justify it.
-- **`Value` 16 B → 8 B** remains the largest memory lever in the codebase.
-  Evaluated and designed 2026-09-03 — `designs/value-slot-8b.md`: two-slot
-  longs behind an 8 B `Slot` storage type, the 16 B `Value` kept as the
-  transit type so opcodes and natives do not change. Expected ~20 KB on the
-  enviro boards and a few KB elsewhere. Deferred; tracked in
-  `quality-roadmap.md` (Memory footprint).
+- **`Value` 16 B → 8 B** was the largest memory lever in the codebase.
+  Designed 2026-09-03 and landed 2026-09-17 — `designs/value-slot-8b.md`:
+  two-slot longs behind an 8 B `Slot` storage type, the 16 B `Value` kept as
+  the transit type so opcodes and natives did not change. ~20 KB on the
+  enviro boards' boot reservation, ~40 % per object; the measured before and
+  after is in the design doc's "As built".
 
 ---
 

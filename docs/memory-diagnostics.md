@@ -116,8 +116,9 @@ Watches two floors per window: the **post-GC JVM live floor** and the
 **native used floor**. Arms after the first Activity's `onCreate` completes
 (construction growth is legitimate) plus 2 settle windows, then trips when,
 over the last **8** windows, ≥ 7 deltas are rising AND the rise across the
-ring and above the armed baseline both exceed **4096 B** (one fields-arena
-growth step). A single-step rise that then stays flat (a lazily-built cache)
+ring and above the armed baseline both exceed **4096 B** (two fields-arena
+growth steps of 256 × 8 B slots; one step of 16 B `Value`s before
+2026-09-17). A single-step rise that then stays flat (a lazily-built cache)
 never trips; a persisting leak re-trips every 8 windows.
 
 The **native** sentinel additionally re-baselines on every Activity push and

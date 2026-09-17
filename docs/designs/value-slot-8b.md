@@ -1,12 +1,14 @@
 # `Value` 16 B → 8 B: two-slot longs behind a `Slot` storage type
 
-**Status: evaluated and designed 2026-09-03, not started.** Tracked in
-`../quality-roadmap.md` (Memory footprint). Origin: the
+**Status: built 2026-09-16/17 on `feat/value-slot-8b`, stages 1–4 as
+designed** — see "As built" at the end for what differed and what was
+measured. Tracked in `../quality-roadmap.md` (Memory footprint). Origin: the
 `perf-campaign-2026-08.md` "what is left" bullet, which called this the
 largest memory lever left and asked for a design doc. This is that doc: the
 feasibility verdict, the design, the expected saving, the risks, and the
 stages to build it. Every code fact below was verified against the tree on
-2026-09-03; line numbers are from that day.
+2026-09-03; line numbers are from that day (the `jvm/` paths are
+`crates/jvm/` since the root re-layout).
 
 ## Short answer
 
@@ -315,3 +317,109 @@ the benchmark deltas in the design doc.
 5. Hardware: `benchmark` sections on `testbench_rp2350`, and a picoenvmon
    navigate-and-serve soak on an enviro board. A torn long read across tasks
    is the one hazard the sim cannot show.
+
+## As built (2026-09-16/17, `feat/value-slot-8b`)
+
+Stages 1 to 4 landed, with one deliberate departure. What differed, then
+the measurements.
+
+### What differed from the design
+
+- **Frames keep the 16 B `Value`.** The design put `Vec<Slot>` under the
+  operand stack and locals too, and that was built and measured first.
+  In the release sim `benchmark` it cost one tag switch per stack move:
+  `int_arithmetic` 90 → 132 ms, `array_operations` 140 → 202 ms, the
+  long/double sections +65 % (the "with `Slot` frames" column below). The
+  design's own estimate of the frame saving is under a kilobyte on a
+  10-deep chain, so the frames went back to `Value`: `Frame`, `ops_stack`
+  (its `is_cat2` shuffles), `count_args` and the whole invoke path are as
+  they were, and the interpreter's hot loop did not change. `Slot` lives
+  where the bytes are — the fields arena, the ArrayList/HashMap buffers
+  and lambda captures — and a `Value` is converted at that boundary only
+  (`getfield`/`putfield`, a list or map access, a lambda call).
+- **The mark stack and the compaction scratch had to become fallible.**
+  Not in the design. The collector's `work: Vec<GcRef>` and both arena
+  compactions (`compact_fields_arena`, `ArrayHeap::compact_arena`) grew
+  with infallible pushes. Under the `qa_oom` test's 8 KB budget, 8 B field
+  slots let enough boxes live for the mark stack to cross a doubling and
+  abort the test binary with `memory allocation of 512 bytes failed` — on
+  a device that is a board reset from inside the routine meant to relieve
+  the pressure. `gc::WorkStack` reserves fallibly; a refused growth makes
+  `collect` give up before the sweep (nothing freed, nothing wrongly
+  freed, the caller sees an exhausted heap and throws OutOfMemoryError);
+  a compaction whose scratch cannot grow skips the cycle. Regression test:
+  `gc::tests::a_heap_too_full_for_the_mark_stack_makes_the_collection_give_up`.
+- **`java/util/Random` was a sixth hand-numbered table.** It has no class
+  file; its seed (`long`) sat at slot 0 and the cached gaussian
+  (`double`) at slot 1 — the seed's high half. Now `SEED = 0`,
+  `GAUSSIAN = 2`, and `default_field_count_for_native` sizes the instance
+  at four slots. The PWM peripheral's native-only `double`s moved the same
+  way (`pio/fields.rs`).
+- **Test churn was smaller than feared.** The eleven `Random` native tests
+  were the only failures the renumbering produced, and the new
+  `native_field_tables_tests` would have named every one of the
+  `picodroid-core` tables had they been missed.
+
+### Measured: heap
+
+Debug sim (`scripts/sim.sh`, opt-level 3 with debug assertions),
+`testbench_rp2350` at its 408 KB cap; `[sim] heap: peak` and the
+`post-onCreate` current figure. Base is `54fd015a`.
+
+| App | Peak before | Peak after | Δ | post-onCreate before | after | Δ |
+|---|---|---|---|---|---|---|
+| helloworld | 115,624 B | 114,888 B | -736 B | 114,536 B | 112,488 B | -2,048 B |
+| gcstress | 194,432 B | 178,800 B | -15,632 B | 188,376 B | 173,864 B | -14,512 B |
+| heapstress | 149,480 B | 144,568 B | -4,912 B | 146,832 B | 141,712 B | -5,120 B |
+| langsuite | 273,760 B | 271,752 B | -2,008 B | 248,520 B | 246,448 B | -2,072 B |
+| benchmark | 296,432 B | 309,936 B | +13,504 B | 231,432 B | 235,616 B | +4,184 B |
+
+benchmark's peak *rises*: its `array_operations` section fills whatever
+the cap leaves (the `[sim] OOM: tried … B` retries are its normal path),
+so the array arena grows further before the cap-driven collection — the
+freed object bytes are spent on arrays. Its `post-onCreate` figure, which
+is what the objects cost, is the one to read.
+
+picoenvmon on `pico_enviro_mon_w`, headless, `--mem-diag`, 5 s windows:
+
+| Figure | Before | After | Δ |
+|---|---|---|---|
+| `post-jvm-new` phase delta (includes the 2,560-slot fields reservation) | +159,760 B | +139,280 B | -20,480 B |
+| Peak through framework load | 203,576 B | 183,096 B | -20,480 B |
+| `[memmon]` `obj=` live object bytes, last three windows | 4,024–4,156 B | 2,632–2,764 B | about -34 % |
+| `[memmon]` `nused=` native used, last window | 343,232 B | 322,712 B | -20,520 B |
+| `[memmon]` `nmin=` min-ever-free | 62,560 B | 83,096 B | +20,536 B |
+
+The enviro reservation was the headline and it is exactly the 20 KB the
+design promised; the per-object saving on top is what the live census
+shows. `fields_cap=2560` is unchanged (the tunable counts slots), so the
+boards bank the 20 KB rather than reserve more.
+
+### Measured: time
+
+Release sim (`scripts/sim.sh -r`), `benchmark` sections, three runs per
+side on an otherwise idle host, medians in ms. The last column is the
+abandoned `Slot`-frames build, kept as the reason frames stayed `Value`.
+
+| Section | Before | After | Δ | with `Slot` frames |
+|---|---|---|---|---|
+| int_arithmetic | 90 | 88 | -2 % | 132 |
+| long_arithmetic | 36 | 35 | -3 % | 60 |
+| float_arithmetic | 56 | 54 | -4 % | 70 |
+| double_arithmetic | 51 | 49 | -4 % | 84 |
+| method_dispatch | 226 | 230 | +2 % | 244 |
+| interface_dispatch | 57 | 58 | +2 % | 66 |
+| object_allocation | 201 | 202 | +0 % | 196 |
+| array_operations | 140 | 141 | +1 % | 202 |
+| string_operations | 126 | 125 | -1 % | 120 |
+| control_flow | 43 | 40 | -7 % | 46 |
+| TOTAL | 1038 | 1030 | -1 % | 1222 |
+
+### Not done here
+
+- Hardware `benchmark` sections and a picoenvmon soak on an enviro board
+  (verify step 5): the 4 AM `hil-fleet.sh` runs `benchmark` on
+  `testbench_rp2350` and records `bench/parity/history.csv`; the first
+  nightly after the merge is the device number.
+- The RP2040 flash delta: the size ratchet in `./scripts/pre-commit --full`
+  reports it; the 3 AM sim nightly runs the ratchet.

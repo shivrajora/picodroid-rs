@@ -302,20 +302,19 @@ CONTRIBUTING checklist.
 
 ## Memory footprint
 
-### `Value` 16 B → 8 B via a two-slot `Slot` storage type *(deferred, design done 2026-09-03)*
+### `Value` 16 B → 8 B via a two-slot `Slot` storage type *(landed 2026-09-17)*
 
-Split `long`/`double` into two 4-byte halves (the JVM-spec category-2 layout) and store
-frames, the object fields arena and the ArrayList/HashMap buffers as an 8-byte `Slot`,
-keeping the 16-byte `Value` as the transit type so the opcode handlers and all ~400 native
-arms stay untouched (~12 files in `jvm/` change). Objects shrink ~40 %; the enviro boards'
-boot-claimed fields arena drops 40 → 20 KB (~11 % of picoenvmon's peak heap); arrays,
-strings and class metadata are unaffected, so this is the largest lever *left*, not a large
-one. Full evaluation, design and staging: `designs/value-slot-8b.md`. **Tradeoff:**
-long/double opcodes do two extra slot moves each (the sim benchmark sections will show it;
-the device total stays under the 4 % measurability floor), ~1–3 KB flash risk on RP2040
-from the inlined tag check, and five hand-numbered native field-slot tables shift by one
-after every `long`/`double` field — they need a class-file-driven test before anything else.
-Measure with `--mem-diag` first: S5 showed a complete, correct change can still return 0 B.
+Done, with one departure: `long`/`double` are two 4-byte halves (the JVM-spec category-2
+layout) and the object fields arena, the ArrayList/HashMap buffers and lambda captures hold
+an 8-byte `Slot`; the 16-byte `Value` stays the transit type *and the frame type* — `Slot`
+frames were built first and cost the release sim benchmark's integer sections ~45 % for
+under a kilobyte of frames, so the interpreter's hot loop is untouched. Objects are ~40 %
+smaller and the enviro boards' boot-claimed fields arena is 20 KB instead of 40 KB. The
+hand-numbered native field-slot tables are now checked against the class files by
+`native_field_tables_tests` in `picodroid-core`, and the GC's mark stack and compaction
+scratch grow fallibly (the smaller objects let a full heap reach a growth step the old
+infallible push aborted on). Measurements and what differed from the design:
+`designs/value-slot-8b.md`, "As built".
 
 ### Background pool: two 6 KiB workers instead of four on `pico_enviro_mon_w`
 
