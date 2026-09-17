@@ -23,8 +23,9 @@ public class MotionEvent {
   private long eventTime;
 
   // Screen-absolute coordinates (Android's getRawX/getRawY). Declared AFTER
-  // eventTime so the action/x/y/eventTime field slots (0-3) the native
-  // dispatcher writes by index stay put; rawX/rawY are slots 4/5.
+  // eventTime so the action/x/y/eventTime field slots (0-4; the long takes
+  // two) the native dispatcher writes by index stay put; rawX/rawY are
+  // slots 5/6 (crates/picodroid-core/src/graphics/fields.rs).
   private int rawX;
   private int rawY;
 

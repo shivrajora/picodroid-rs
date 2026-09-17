@@ -49,7 +49,7 @@ const TYPE_GAS_RESISTANCE: i32 = 0x10001;
 
 // ── Sensor Java field indices ───────────────────────────────────────────────
 
-mod fields {
+pub(crate) mod fields {
     pub const TYPE: usize = 0;
     pub const NAME: usize = 1;
     pub const VENDOR: usize = 2;
@@ -58,11 +58,14 @@ mod fields {
     pub const MIN_DELAY: usize = 5;
 }
 
-mod event_fields {
+pub(crate) mod event_fields {
     pub const SENSOR: usize = 0;
     pub const VALUES: usize = 1;
     pub const ACCURACY: usize = 2;
+    /// A `long`: slots 3 and 4.
     pub const TIMESTAMP: usize = 3;
+    /// Slots the recycled event is allocated with.
+    pub const SLOTS: usize = TIMESTAMP + 2;
 }
 
 // ── Static state ────────────────────────────────────────────────────────────
@@ -305,10 +308,7 @@ pub fn register_listener(
             // values[0] and timestamp, so per-event delivery is allocation-
             // free. Rooted via visit_gc_roots until unregisterListener.
             let event_obj = objects
-                .alloc_with_field_count(
-                    c::picodroid_hardware_SensorEvent,
-                    event_fields::TIMESTAMP + 1,
-                )
+                .alloc_with_field_count(c::picodroid_hardware_SensorEvent, event_fields::SLOTS)
                 .ok_or(JvmError::StackOverflow)?;
             let values_arr = arrays
                 .alloc(pico_jvm::array_heap::ATYPE_FLOAT, 1)

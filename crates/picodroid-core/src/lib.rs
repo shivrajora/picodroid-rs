@@ -191,3 +191,19 @@ mod graphics_gravity_tests;
 #[cfg(test)]
 #[path = "net/http_head.rs"]
 mod net_http_head_tests;
+// The picodroid.graphics and picodroid.net field-slot tables, so
+// `native_field_tables_tests` can check them against the class files
+// (`graphics::fields` and `net` are `cfg(not(test))`).
+#[cfg(test)]
+#[path = "graphics/fields.rs"]
+mod graphics_fields_tests;
+// The picodroid.net field-slot table, so `native_field_tables_tests` can
+// check it against the class files (`net` itself is `cfg(not(test))`).
+#[cfg(test)]
+#[path = "net/fields.rs"]
+mod net_fields_tests;
+// The hand-numbered native field tables against the embedded class files:
+// a `long`/`double` field takes two slots, so every constant after one
+// moves — nothing but this test would notice.
+#[cfg(test)]
+mod native_field_tables_tests;

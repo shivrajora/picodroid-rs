@@ -1580,7 +1580,7 @@ fn ensure_recycled_motion_event(
         return Some(idx);
     }
     let class = c::picodroid_view_MotionEvent;
-    let n_fields = crate::graphics::fields::motion_event::RAW_Y + 1;
+    let n_fields = crate::graphics::fields::motion_event::SLOTS;
     let idx = match heap.objects.alloc_with_field_count(class, n_fields) {
         Some(i) => i,
         None => {
@@ -2080,7 +2080,7 @@ fn ensure_recycled_key_event(
         return Some(idx);
     }
     let class = c::picodroid_view_KeyEvent;
-    let n_fields = crate::graphics::fields::key_event::KEY_CODE + 1;
+    let n_fields = crate::graphics::fields::key_event::SLOTS;
     let idx = match heap.objects.alloc_with_field_count(class, n_fields) {
         Some(i) => i,
         None => {

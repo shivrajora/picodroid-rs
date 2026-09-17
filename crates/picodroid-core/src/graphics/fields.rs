@@ -3,7 +3,10 @@
 ///
 /// Slot numbering follows the JVM `field_slot()` convention: superclass fields
 /// come first (root-to-leaf), so `View.nativeHandle` is always slot 0 for
-/// every widget subclass.
+/// every widget subclass, and a `long` or `double` field takes two slots, so
+/// the field after one starts one higher than its declaration index. Every
+/// constant here is checked against the class files by
+/// `native_field_tables_tests`.
 pub mod view {
     /// `lv_obj_t*` cast to `i32` (declared in `View.java`).
     pub const NATIVE_HANDLE: usize = 0;
@@ -26,18 +29,21 @@ pub mod motion_event {
     /// View-relative X / Y (Android's getX/getY).
     pub const X: usize = 1;
     pub const Y: usize = 2;
-    /// Tick-clock millis. This JVM uses one slot per field regardless of
-    /// type, so a `long` field gets the next sequential slot.
+    /// Tick-clock millis: a `long`, so slots 3 and 4.
     pub const EVENT_TIME: usize = 3;
     /// Screen-absolute X / Y (Android's getRawX/getRawY). Declared after
     /// eventTime in MotionEvent.java so these slots come last.
-    pub const RAW_X: usize = 4;
-    pub const RAW_Y: usize = 5;
+    pub const RAW_X: usize = 5;
+    pub const RAW_Y: usize = 6;
+    /// Slots the recycled instance is allocated with.
+    pub const SLOTS: usize = RAW_Y + 1;
 }
 
 pub mod key_event {
     pub const ACTION: usize = 0;
     pub const KEY_CODE: usize = 1;
+    /// Slots the recycled instance is allocated with.
+    pub const SLOTS: usize = KEY_CODE + 1;
 }
 
 /// `picodroid.app.AlertDialog` is **not** a View subclass — slot numbering

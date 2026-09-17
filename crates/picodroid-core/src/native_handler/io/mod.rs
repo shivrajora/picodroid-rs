@@ -28,8 +28,9 @@ use pico_jvm::{
     NativeContext,
 };
 
-// ── field slot layouts (must match Java field declaration order) ───────────
-mod fields {
+// ── field slot layouts (must match Java field declaration order; checked by
+// `native_field_tables_tests`) ────────────────────────────────────────────
+pub(crate) mod fields {
     pub mod file {
         pub const PATH: usize = 0;
     }
