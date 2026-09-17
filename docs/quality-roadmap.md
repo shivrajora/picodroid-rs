@@ -26,7 +26,10 @@ RP2040's ROM float-to-int flooring beyond the JVM, LittleFS formatting on a geom
 per-slot target directories for one-off `hil-run.sh`, and the `IllegalFormat*` class names.
 
 **2026-09-15 update.** With `qa_life` and the handle table closed above, the only item left
-is **one** infallible allocation — the touch kit's 7,680 bytes.
+is **one** infallible allocation — the touch kit's 7,680 bytes. **Closed 2026-09-16:** it was
+the lambda registry (`ObjectHeap::register_lambda`) doubling from 64 to 128 entries under
+`qa_thr`'s burst of 64 `execute(() -> …)` posts; it and the iterator registry reserve
+fallibly now, and `invokedynamic` throws `OutOfMemoryError` instead.
 The RP2040's 10 KB was the JVM's resolution caches growing through an infallible
 `Vec::push`, with `ChunkedSlots::push` a second one found beside it. The same round's
 `imagedemo` ERROR, which predated the round, was an unaligned papk ASSETS section:

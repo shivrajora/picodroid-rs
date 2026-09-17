@@ -1924,6 +1924,62 @@ mod growth_tests {
         assert!(heap.alloc(c::java_lang_Object).is_some());
     }
 
+    // The last infallible allocation of the 2026-09-13 QA round: the lambda
+    // registry doubled through a plain push, and on the touch kit the step
+    // from 64 to 128 entries (7,680 bytes) reset the board from a burst of
+    // `execute(() -> ...)` posts. A registry the heap cannot grow must
+    // refuse, so `invokedynamic` can throw OutOfMemoryError instead.
+    #[test]
+    fn a_lambda_the_registry_cannot_hold_is_refused_not_aborted() {
+        let proxy = || LambdaProxy {
+            target: LambdaTarget::Java {
+                class_idx: 0,
+                method_idx: 0,
+            },
+            captures: Vec::new(),
+            sam_name: b"run",
+        };
+        let mut heap = ObjectHeap::new();
+        // Warm the registry so the next growth step is the allocation under test.
+        for i in 0..4 {
+            heap.register_lambda(i, proxy()).expect("warm-up");
+        }
+        let refused = crate::test_alloc::with_budget(16, || {
+            (4..1024u16).any(|i| heap.register_lambda(i, proxy()).is_err())
+        });
+        assert!(refused, "an exhausted heap must refuse, not abort");
+        // The refusal leaves the registry usable, and the refused entry absent.
+        let n = heap.lambda_proxies.len() as u16;
+        assert!(heap.get_lambda(n).is_none());
+        heap.register_lambda(n, proxy())
+            .expect("usable after a refusal");
+        assert!(heap.get_lambda(n).is_some());
+    }
+
+    // The iterator registry has the same shape and the same fix.
+    #[test]
+    fn an_iterator_the_registry_cannot_hold_is_refused_not_aborted() {
+        let state = || iter_store::IteratorState {
+            source: iter_store::IterSource::List(0),
+            position: 0,
+            owner: 0,
+            expected_len: 0,
+            last_returned: None,
+        };
+        let mut heap = ObjectHeap::new();
+        for i in 0..4 {
+            heap.iter_register(i, state()).expect("warm-up");
+        }
+        let refused = crate::test_alloc::with_budget(16, || {
+            (4..1024u16).any(|i| heap.iter_register(i, state()).is_err())
+        });
+        assert!(refused, "an exhausted heap must refuse, not abort");
+        let n = heap.iter_states.len() as u16;
+        heap.iter_register(n, state())
+            .expect("usable after a refusal");
+        assert!(heap.iter_get(n).is_some());
+    }
+
     // J-fix aeb8ecc1: clear() hands the buffer back, so an app that clears
     // after an OutOfMemoryError actually recovers the arena.
     #[test]

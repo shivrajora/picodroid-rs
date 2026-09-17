@@ -9,8 +9,9 @@ open P1 — was found and fixed on 2026-09-15**; it was an SPI transfer that nev
 completion and was waited out silently for five seconds at a time, not a lost executor post.
 Section 9 records the regression coverage every fix of the round now has.
 
-**Status 2026-09-16:** items 1, 2, 4, 5, 6 and 7 are closed and item 8 is documentation. Item 3
-has one site left, the touch kit's 7,680 B, still unnamed. Smaller residues, none of them
+**Status 2026-09-16:** items 1, 2, 3, 4, 5, 6 and 7 are closed and item 8 is documentation. Item
+3's last site, the touch kit's 7,680 B, was named and fixed on 2026-09-16 (the lambda registry
+doubling under a burst of `execute(() -> …)` posts). Smaller residues, none of them
 blocking: which cause drops the SPI byte in item 1, and why the RP2040 does not show it; an
 automated check for `SharedPreferences.commit()` at the quota (§10); `qa_thr` restricted off the
 W board for want of heap (§11); and two unreproduced one-offs to watch in the nightly — the touch
@@ -173,17 +174,37 @@ RP2350 — because the control run also shows 729 B (rp2040) and 1,409 B (rp2350
 landed after the last accept (`d1a09765`) and was waiting for tonight's nightly to find. RAM
 matched the baseline exactly in cast mode, so all of the RAM growth is the table.
 
-## 3. Unchecked allocations left in native paths (P2 — a board reset each)
+## 3. Unchecked allocations left in native paths (P2 — a board reset each) — **closed 2026-09-16**
 
 J23–J26 made the formatter, file streams, frames and interning fallible; three infallible
-sites remained, each a reset instead of an `OutOfMemoryError`. Two are closed now (the
-RP2040's 10 KB and the LittleFS cache), plus one found on the way
-(`ChunkedSlots::push`); the touch kit's 7680 bytes is the one still open:
+sites remained, each a reset instead of an `OutOfMemoryError`. All three are closed now (the
+RP2040's 10 KB, the LittleFS cache and the touch kit's 7680 bytes), plus one found on the way
+(`ChunkedSlots::push`):
 
 - **Touch kit, 7680 bytes** on the path a background-pool worker takes into Java under a full
   heap (`qa_thr` on `pico_touch_kit` without the conf restriction). It is not the frame or the
-  task stack. A device heap census (`docs/memory-diagnostics.md`, `--mem-diag` on the sim
-  first) is the way to name it.
+  task stack — **named and fixed 2026-09-16: the lambda registry**
+  (`object_heap/lambda.rs`, `ObjectHeap::register_lambda`). Every `invokedynamic` recorded its
+  proxy with a plain `Vec::push` into `lambda_proxies`; at 60 bytes an entry the doubling from
+  64 to 128 registered lambdas is exactly one contiguous **7,680-byte** request. `qa_thr`'s
+  `frameworkExecutors` section posts 64 `execute(() -> …)` lambdas in a burst on a heap the
+  earlier sections had already filled (every `Thread.start` there fails with a clean
+  `OutOfMemoryError("unable to create native thread")`), and the 65th lambda tipped it over:
+  `memory allocation of 7680 bytes failed` → `panic_probe`'s `udf`. Not a background-pool
+  path at all, then — the pool workers were merely what still ran Java at that point.
+  `register_lambda` (and `iter_register`, the same shape) now go through `reserve_fallible`
+  and answer `Exhausted`; `invokedynamic` turns that into the allocation-failure signal, the
+  catchable `OutOfMemoryError`, and the captures copy on the same path reserves fallibly too.
+  Two `with_budget` tests in `object_heap/mod.rs` pin both registries.
+
+  How it was named: the RP2040 recipe (the `#[global_allocator]` wrapper that stashes thumb
+  return addresses for any request ≥ 4 KB, no logging inside `alloc`) — with one RP2350
+  difference. probe-rs catches the `udf` as an exception and exits before the `HardFault`
+  handler prints anything, so the stash was read out of the halted board instead:
+  `arm-none-eabi-nm` for the statics' addresses, then
+  `probe-rs read --chip RP235x --probe <touch kit's probe> b32 <addr> <n>`, and
+  `arm-none-eabi-addr2line -f -C -i` on the words gave `finish_grow` ← `Vec::push` ←
+  `register_lambda` ← `op_invokedynamic` on the first try. No heap census needed.
 - **RP2040, 10 KB** in `qa_ui`'s focus section once the containers section has exhausted the
   heap (`qa_ui` is restricted to the RP2350 boards in `hil-tests.conf` for this reason) —
   **done 2026-09-15**, see below.
@@ -235,8 +256,9 @@ native path is a reset waiting for a big enough app. The source scan that keeps 
 growing is **in** (`f5b78132`, `native_handler/alloc_scan.rs`): it counts the whole-buffer
 allocation shapes per file under `crates/jvm/src/native` and `native_handler/` against a
 committed baseline (42 sites in seven files) and fails on growth or on an unaccepted
-improvement. Of the two device findings above, the RP2040's 10 KB is named and fixed
-(2026-09-15); the touch kit's 7680 bytes is still open and still needs the heap census to name.
+improvement. Both device findings above are named and fixed: the RP2040's 10 KB on
+2026-09-15, the touch kit's 7680 bytes on 2026-09-16. Neither lived under the scanned trees
+(`interpreter/`, `object_heap/`), which is the scan's known gap.
 
 ## 4. RP2040 negative-fraction casts floor framework-wide — **done 2026-09-14** (P2)
 
@@ -410,7 +432,8 @@ every box — aborted the firmware once the heap was full, which on a device is 
 Found by the first out-of-memory test written against a fixed heap. `place_in_slot` and
 `intern_class` are now fallible and roll the field span back on refusal; the callers already
 handled `None`. It is a *different* site from the two item 3 still lists (a slot chunk is ~768
-bytes, not the touch kit's 7,680 or the RP2040's 10 KB), so item 3 stays open.
+bytes, not the touch kit's 7,680 or the RP2040's 10 KB), so item 3 stayed open at the time
+(both closed since, see §3).
 Cost: +288 B flash on `testbench_rp2040`, +320 B on `testbench_rp2350`, no RAM.
 
 **A lane added to `pre-commit` could be silently skipped.** `PARALLEL_LANES` was a hand-written

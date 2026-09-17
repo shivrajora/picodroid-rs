@@ -66,7 +66,7 @@ Plans and backlogs with items still open. Check the doc for the current row befo
 
 | Doc | Status | Left to do |
 |---|---|---|
-| [qa-2026-09-13-followups.md](qa-2026-09-13-followups.md) | nearly closed | Items 1 and 2 both closed 2026-09-15 — the `qa_life` stall was an SPI completion wait, and the generational handle table is now every board's default; items 3–8 landed 2026-09-14. §11's `imagedemo` ERROR and item 3's RP2040 10 KB are both fixed (2026-09-15); the touch kit's 7680 B is the last infallible native allocation. |
+| [qa-2026-09-13-followups.md](qa-2026-09-13-followups.md) | nearly closed | Items 1 and 2 both closed 2026-09-15 — the `qa_life` stall was an SPI completion wait, and the generational handle table is now every board's default; items 3–8 landed 2026-09-14. §11's `imagedemo` ERROR and item 3's RP2040 10 KB are both fixed (2026-09-15), and item 3's last site, the touch kit's 7680 B (the lambda registry doubling), on 2026-09-16. |
 | [bugs-rp2040-imagedemo-2026-09-15.md](bugs-rp2040-imagedemo-2026-09-15.md) | fixed | Unaligned papk asset pixels HardFaulted the RP2040 on any scaled image. Read it for the probe-rs `catch_hardfault` trap that hid the faulting PC for six nights. |
 | [networking-followups-2026-08.md](networking-followups-2026-08.md) | open | NET-10 (dashboard loads hang, RST-on-close) open since 2026-09-07; NET-1 and NET-9 leftovers remain. NET-2/4/5/6/7/8 done. |
 | [upstream-cyw43-bsscfg-pr.md](upstream-cyw43-bsscfg-pr.md) | open, manual | NET-3. The patch is prepared; pushing and opening the PR are deliberately left to a human. Upstream v2.0.0 (tracked since 2026-09-16) still lacks the fix, and the branch merges cleanly onto it — see the amendment. |
