@@ -13,6 +13,15 @@ fs_kb = 512
 # framework_class_excludes in the porting guide for what "off" drops.
 has_json = true
 
+# LVGL's pool at the 48 KB the Enviro boards and testbench_rp2040 run their
+# full UI on, not lv_conf.h's 64 KB default. The core-0 main stack is what
+# .data + .bss leave of RAM; with the 64 KB pool this board linked 9,216 B
+# in release and exactly the 8,192 B floor in debug (2026-09-17, once the
+# build read the linked figure instead of size(1)), so the next static byte
+# would have failed the link. 48 KB buys 16 KB of margin over the floor the
+# linker script asserts (build_support/flash_layout.rs).
+lv_mem_kb = 48
+
 [display]
 driver = "st7789"
 spi_id = 1

@@ -589,7 +589,9 @@ list_boards() {
 # Prints flash/RAM usage for a given ELF. Requires FLASH_MAX, RAM_MAX, SIZE_TOOL.
 # Minimum RAM every firmware image must leave for the core-0 main stack (boot,
 # then all core-0 interrupts). See print_memory_usage. 8 KB: the release W
-# images ran soaks on 4.7 KB, the debug W image faulted at 4.4 KB.
+# images ran soaks on 4.7 KB, the debug W image faulted at 4.4 KB. The linker
+# script enforces the same number on every build (build_support/flash_layout.rs
+# MAIN_STACK_FLOOR_BYTES); keep the two equal.
 MAIN_STACK_FLOOR_BYTES=8192
 
 print_memory_usage() {
@@ -618,7 +620,28 @@ print_memory_usage() {
   # the network boards were down to 4.4 KB when their debug image stopped
   # booting (2026-09-04) — so a build that leaves less than the floor fails
   # here, in every script that builds firmware, instead of on the board.
-  local headroom=$(( RAM_MAX - ram ))
+  #
+  # Read it off the link, not off size(1): `.data` here is executable (the
+  # RAM-resident flash routines), so Berkeley size files it under text and
+  # RAM_MAX - (data + bss) overstated the stack by ~10 KB on the touch kit —
+  # 11,816 B reported, 2,048 B linked, and the boot-time LittleFS sweep
+  # overflowed it (HIL nightly 2026-09-17). flip-link places the stack at
+  # the bottom of RAM and defines `_stack_end`/`_stack_start` as its bounds,
+  # so their difference is the whole stack. The linker script itself asserts
+  # the same floor (build_support/flash_layout.rs `__main_stack_floor`);
+  # this is the report.
+  local nm_tool="${SIZE_TOOL%size}nm"
+  local stack_start stack_end headroom
+  if command -v "$nm_tool" &>/dev/null; then
+    stack_start=$("$nm_tool" "$elf" | awk '$3 == "_stack_start" { print $1 }')
+    stack_end=$("$nm_tool" "$elf" | awk '$3 == "_stack_end" { print $1 }')
+  fi
+  if [[ -n "$stack_start" && -n "$stack_end" ]]; then
+    headroom=$(( 0x$stack_start - 0x$stack_end ))
+  else
+    headroom=$(( RAM_MAX - ram ))
+    echo "  (no $nm_tool: main-stack headroom estimated from size(1), which omits executable .data)"
+  fi
   printf "  Main stack headroom: %d bytes (floor %d)\n" "$headroom" "$MAIN_STACK_FLOOR_BYTES"
   echo ""
   if (( headroom < MAIN_STACK_FLOOR_BYTES )); then

@@ -48,23 +48,31 @@ core_count = 2
 # Injected into the FreeRTOS C build AND the sim's default heap cap
 # (build_support/freertos.rs / platforms/rp/build.rs::emit_heap_config).
 #
-# 344 KB, not the A variant's 408: this descriptor funds the touch board's
+# 336 KB, not the A variant's 408: this descriptor funds the touch board's
 # draw bands (board.toml `band_height` and `draw_buffers`: two 60-row
 # buffers, 76,800 B of .bss against the default's 12,800). The core-0 main
-# stack is whatever .data + .bss leave of
-# the 520 KB and the arena is most of .bss, so the 64,000 B the buffer grew
-# came out of here — 65,536 B, which leaves the build's main-stack headroom
-# at 13,536 B over the 8,192 floor scripts/lib.sh enforces, a little more
-# than before. The margin was measured rather than reasoned about: picoclock
-# peaks at ~276 KB of arena with the radio up, the launcher and settings
-# sweep no deeper, so 352 KB leaves ~76 KB (22 %), and joining WiFi costs
+# stack is whatever .data + .bss leave of the 520 KB and the arena is most
+# of .bss, so the 64,000 B the buffer grew came out of here — 65,536 B.
+#
+# 2026-09-17: 344 → 336 KB. At 344 KB the linked stack was 2,048 B, not the
+# 13,536 B the build had printed: size(1) files this image's executable
+# `.data` (the RAM-resident flash routines, ~8.6 KB) under text, so the
+# headroom report overstated the stack by that much. The boot-time LittleFS
+# sweep of the previous app's data needs a measured 2,052 B (painted-stack
+# high-water, bootcount → prefs_demo), and the HIL nightly of 2026-09-17
+# lost every row after the first app that wrote a file. 336 KB links a
+# 10,240 B stack over the 8,192 B floor that the linker script now asserts
+# (build_support/flash_layout.rs `__main_stack_floor`; lib.sh prints the
+# linked figure). The arena margin is still measured, not reasoned about:
+# picoclock peaks at ~276 KB with the radio up, the launcher and settings
+# sweep no deeper, so 336 KB leaves ~60 KB (18 %), and joining WiFi costs
 # under 1 KB of it (docs/designs/band-height-120-2026-09.md §5). The two
 # RP2350 descriptors no longer build identically; that was a convenience,
 # not a contract. The other way to fund the band is the module's PSRAM —
 # board.toml `lv_mem_in_psram` moves the 64 KB LVGL pool there and this can
 # go back to 408 — at a measured 10 % of the frame, which is why that board
 # leaves it off.
-heap_kb = 344
+heap_kb = 336
 size_tool = "arm-none-eabi-size"
 # Every C object built for this MCU (LVGL, the FreeRTOS kernel and shim, the
 # network stack and the WiFi driver) compiles at -Os instead of following

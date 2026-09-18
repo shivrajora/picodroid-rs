@@ -16,6 +16,15 @@ has_json = true
 has_network = true
 network_type = "cyw43"
 
+# LVGL's pool at the 48 KB the Enviro boards and testbench_rp2040 run their
+# full UI on, not lv_conf.h's 64 KB default. The core-0 main stack is what
+# .data + .bss leave of RAM, and this board's radio statics (cyw43 state,
+# network buffers, DNS cache) on top of the 408 KB arena left it 3,072 B in
+# the release image once the build read the linked figure instead of size(1)
+# (2026-09-17; the same day's touch-kit fault). 48 KB links 19,456 B, over
+# the 8,192 B floor the linker script asserts (build_support/flash_layout.rs).
+lv_mem_kb = 48
+
 [display]
 driver = "st7789"
 spi_id = 1

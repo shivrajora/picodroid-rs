@@ -55,6 +55,13 @@
  *   past the RAM start locks the core: the fault handler cannot push its own
  *   frame). 8 KB back gives every RP2350 board >= 12 KB; scripts/lib.sh
  *   enforces MAIN_STACK_FLOOR_BYTES from now on.
+ * - 2026-09-17: that report read size(1), which files an executable `.data`
+ *   (the RAM-resident flash routines) under text, so it overstated the stack
+ *   by ~8-10 KB per board; the RP2350B descriptor (rp2350b.toml) had linked
+ *   a 2,048 B stack while printing 11,816 B, and the boot-time LittleFS
+ *   sweep overflowed it. The linker script now asserts the 8 KB floor on the
+ *   linked stack itself (build_support/flash_layout.rs `__main_stack_floor`),
+ *   whichever script or CI job builds; rp2350b.toml went 344 → 336 KB.
  *
  * If you push this higher, re-measure `arm-none-eabi-size` first: total
  * static RAM must stay well below LENGTH(RAM). Measured 2026-07-18 on

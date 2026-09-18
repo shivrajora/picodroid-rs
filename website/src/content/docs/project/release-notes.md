@@ -7,6 +7,27 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**The main-stack floor is enforced by the link, and it was measuring the wrong thing**
+
+- Every firmware build has printed its core-0 main-stack headroom and failed below 8 KB
+  since 2026-09-04, but the figure came from `arm-none-eabi-size`, which files an executable
+  `.data` (the RAM-resident flash routines) under text. It overstated the stack by 8 to
+  10 KB per board: the touch kit printed 11,816 B and linked 2,048 B. The boot-time sweep
+  of a previous app's LittleFS data needs 2,052 B (measured with a painted stack), so the
+  HIL nightly of 2026-09-17 lost every touch-kit row after the first app that wrote a
+  file, each one faulting straight after its `boot:` line.
+- The generated linker script now asserts `_stack_start - _stack_end >= 8 KB`
+  (`__main_stack_floor`), so the link itself refuses such an image whichever script or CI
+  job built it; the build's headroom line reads the same linked figure. The RP2350B
+  descriptor (`pico_touch_kit`) gives the JVM arena 336 KB instead of 344 KB, which links
+  a 10,240 B stack.
+- The same assertion caught `testbench_rp2350w`, whose release image had linked a 3,072 B
+  stack under the radio's statics, and `testbench_rp2350` sat at 9,216 B in release and
+  exactly 8,192 B in debug. Both boards' LVGL pools drop to the 48 KB the Enviro boards and
+  `testbench_rp2040` already run on: 19,456 B and 25,600 B (24,576 B debug), and 16,384 B
+  less static RAM on the ratchet. The others were already above the floor:
+  `testbench_rp2040` 11,264 B, `pico_enviro_mon_w` 19,456 B, `pico_enviro_mon` 24,576 B.
+
 **LVGL v9.6.0, rendering straight into the panels' byte order; cyw43-driver v2.0.0 under MIT**
 
 - LVGL moves from v9.5.0 to v9.6.0, the last v9 release. It renumbers `lv_event_code_t` again

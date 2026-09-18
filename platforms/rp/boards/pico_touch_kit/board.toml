@@ -77,14 +77,18 @@ idle_timeout_ms = 0
 # (docs/designs/psram-lvgl-fluid-scroll-2026-09.md §4, band-height-120-2026-09.md §9).
 lv_mem_in_psram = false
 
-# Deliberately no lv_mem_kb: the 64 KB default, the same as testbench_rp2350w.
+# Deliberately no lv_mem_kb: lv_conf.h's 64 KB default (the other boards trim it to 48).
 # LV_USE_STDLIB_MALLOC is LV_STDLIB_BUILTIN, so the pool is a static array in
 # .bss and every kilobyte comes straight off the core-0 main stack — the budget
-# that MAIN_STACK_FLOOR_BYTES guards and that the W boards' debug images
-# already faulted on once. Raise it only against a measured need, and re-check
-# the headroom the build prints. The 120-row draw band below was exactly such
-# a need, and its 64,000 B came out of the JVM arena (mcus/rp/rp2350b.toml
-# `heap_kb`), the only other tenant of .bss big enough to fund it.
+# the linker script's `__main_stack_floor` refuses to breach (8,192 B;
+# build_support/flash_layout.rs), that the W boards' debug images faulted on
+# once, and that this board's boot-time LittleFS sweep overflowed at 2,048 B
+# (HIL nightly 2026-09-17). Raise it only against a measured need, and re-check
+# the headroom the build prints — read off the link since 2026-09-17, not off
+# size(1), which omitted the executable .data. The 120-row draw band below was
+# exactly such a need, and its 64,000 B came out of the JVM arena
+# (mcus/rp/rp2350b.toml `heap_kb`), the only other tenant of .bss big enough to
+# fund it; the sweep took another 8 KB of the arena the same way.
 
 # Deliberately no [jvm] block. pico_enviro_mon_w is the only board that sets
 # one, and scripts/pre-commit keeps its clippy leg last because those keys are

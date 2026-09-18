@@ -229,6 +229,14 @@ pub fn boardless() -> FlashLayout {
     compute(&mcu, None, "<boardless defaults>")
 }
 
+/// Minimum RAM every firmware image must leave for the core-0 main stack
+/// (boot, then all core-0 interrupts): `render_memory_x` makes the link
+/// fail below it. 8 KB — the release W images ran soaks on 4.7 KB, the
+/// debug W image faulted at 4.4 KB (2026-09-04), and the touch kit's
+/// boot-time LittleFS sweep overflowed 2,048 B (2026-09-17). Keep
+/// `MAIN_STACK_FLOOR_BYTES` in scripts/lib.sh equal to this.
+pub const MAIN_STACK_FLOOR_BYTES: u64 = 8192;
+
 impl FlashLayout {
     /// The `MEMORY {}` block plus the filesystem symbols, to prepend to the
     /// MCU linker script's SECTIONS tail.
@@ -271,6 +279,19 @@ impl FlashLayout {
             );
         }
         s += "}\n\n__fs_start = ORIGIN(FS_FLASH);\n__fs_end   = ORIGIN(FS_FLASH) + LENGTH(FS_FLASH);\n\n";
+        s += &format!(
+            "/* The core-0 main stack (boot, then every core-0 interrupt) is what .data + .bss\n   \
+             leave of RAM: flip-link puts it below .data, so `_stack_start - _stack_end` is its\n   \
+             whole size, in the plain link and in flip-link's second pass alike. Static growth\n   \
+             erodes it silently — the touch kit was down to 2,048 B when the boot-time LittleFS\n   \
+             sweep overflowed it (HIL nightly 2026-09-17) — so the link itself refuses an image\n   \
+             below the floor, whichever script or CI job built it. Fund it from heap_kb\n   \
+             (mcus/<family>/<mcu>.toml) or lv_mem_kb. scripts/lib.sh prints the same number. */\n\
+             __main_stack_floor = {MAIN_STACK_FLOOR_BYTES:#x};\n\
+             ASSERT(_stack_start - _stack_end >= __main_stack_floor, \"\n\
+             ERROR(picodroid): the core-0 main stack is below the __main_stack_floor of {MAIN_STACK_FLOOR_BYTES} bytes.\n\
+             .data + .bss leave too little RAM; lower heap_kb in the MCU toml or lv_mem_kb in board.toml.\");\n\n"
+        );
         s
     }
 
@@ -420,6 +441,20 @@ mod tests {
         );
         assert!(x.contains("__fs_start = ORIGIN(FS_FLASH);"));
         assert!(x.contains("__fs_end   = ORIGIN(FS_FLASH) + LENGTH(FS_FLASH);"));
+    }
+
+    /// Every rendered script carries the main-stack floor as a link-time
+    /// assertion, so a build path that skips scripts/lib.sh (HIL, CI's
+    /// cargo build) still refuses an image whose statics ate the stack.
+    #[test]
+    fn the_main_stack_floor_is_a_link_time_assertion() {
+        let x = compute(&rp2350(), None, "rp2350.toml").render_memory_x();
+        assert!(x.contains("__main_stack_floor = 0x2000;"), "{x}");
+        assert!(
+            x.contains("ASSERT(_stack_start - _stack_end >= __main_stack_floor,"),
+            "{x}"
+        );
+        assert_eq!(MAIN_STACK_FLOOR_BYTES, 8192);
     }
 
     /// And rp2350.x: FLASH 2816K @0x10000000, FS 256K @0x102C0000, slot 1M @0x10300000.
