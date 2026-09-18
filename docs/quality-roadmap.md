@@ -331,6 +331,30 @@ were +16 KiB and pulled the `sim.sh -l 360` pre-flight from 24.2 KB to 7.7 KB mi
 the HIL boot-budget assertion follows. **Tradeoff:** fewer workers means less parallelism for a
 future app that posts more than two long jobs at once.
 
+### Exception side tables still grow through an infallible push
+
+The last three `ObjectHeap` side tables keyed by object index still grow with a plain
+`Vec::push`, the shape that reset the RP2040 (10 KB, resolution caches) and the touch kit
+(7,680 B, the lambda registry) in the 2026-09-13 QA round: `exception_messages`
+(`register_exception_message`), `suppressed` (`add_suppressed`, which also pushes into each
+owner's inner list and allocates a fresh one per owner) and `exception_causes`
+(`register_exception_cause`), all in `crates/jvm/src/object_heap/mod.rs`. Entries are small
+(4 B for messages and causes, 16 B plus the inner list for suppressed on a 32-bit target), so a
+doubling step only reaches the multi-KB range with around a thousand live Throwables. That
+takes an app that keeps exceptions around, but it is a board reset rather than an
+`OutOfMemoryError` when it happens, and it happens on a heap that is already full.
+
+The fix is the one `register_lambda` and `iter_register` got: grow through `reserve_fallible`
+and return `Exhausted`. What differs is the caller. These are written on the *throw* path,
+18 call sites across the natives and the interpreter, so turning a refusal into a fresh
+`OutOfMemoryError` would replace the exception being thrown. The better answer is to degrade:
+drop the message, the cause or the suppressed entry and throw the original Throwable without
+it. Pin each table with a `with_budget` test beside `growth_tests`. The alloc-scan ratchet in
+`native_handler/alloc_scan.rs` does not cover `crates/jvm/src/object_heap/`, which is how
+these and the lambda registry went unnoticed; widening the scan to that tree would keep the
+next one out. **Tradeoff:** a degraded Throwable loses its message or cause exactly when the
+app is out of memory, which is when a developer most wants it, but that beats a reset.
+
 ## Memory-diagnostics follow-ups
 
 (The `mem-diag` feature — monitor, growth sentinel, offensive checks, histogram — landed
