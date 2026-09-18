@@ -67302,3 +67302,17 @@ utc,commit,env,board,app,mode,split,metric,value
 2026-09-09T02:00:39Z,73665a4-d19f1ec,hil,testbench_rp2350,benchmark,no-shrink,train,test_object_allocation_ms,25649
 2026-09-09T02:00:39Z,73665a4-d19f1ec,hil,testbench_rp2350,benchmark,no-shrink,train,test_string_operations_ms,20672
 2026-09-09T02:00:39Z,73665a4-d19f1ec,hil,testbench_rp2350,benchmark,no-shrink,train,wall_ms,202852
+2026-09-17T20:00:00Z,0168f06e,size,testbench_rp2040,helloworld,no-shrink,holdout,bss,245800
+2026-09-17T20:00:00Z,0168f06e,size,testbench_rp2040,helloworld,no-shrink,holdout,data,4
+2026-09-17T20:00:00Z,0168f06e,size,testbench_rp2040,helloworld,no-shrink,holdout,flash_bytes,841184
+2026-09-17T20:00:00Z,0168f06e,size,testbench_rp2040,helloworld,no-shrink,holdout,flash_headroom_bytes,76064
+2026-09-17T20:00:00Z,0168f06e,size,testbench_rp2040,helloworld,no-shrink,holdout,ram_bytes,245804
+2026-09-17T20:00:00Z,0168f06e,size,testbench_rp2040,helloworld,no-shrink,holdout,ram_headroom_bytes,16340
+2026-09-17T20:00:00Z,0168f06e,size,testbench_rp2040,helloworld,no-shrink,holdout,text,841180
+2026-09-17T20:00:00Z,0168f06e,size,testbench_rp2350,helloworld,no-shrink,holdout,bss,515708
+2026-09-17T20:00:00Z,0168f06e,size,testbench_rp2350,helloworld,no-shrink,holdout,data,4
+2026-09-17T20:00:00Z,0168f06e,size,testbench_rp2350,helloworld,no-shrink,holdout,flash_bytes,1007432
+2026-09-17T20:00:00Z,0168f06e,size,testbench_rp2350,helloworld,no-shrink,holdout,flash_headroom_bytes,1089720
+2026-09-17T20:00:00Z,0168f06e,size,testbench_rp2350,helloworld,no-shrink,holdout,ram_bytes,515712
+2026-09-17T20:00:00Z,0168f06e,size,testbench_rp2350,helloworld,no-shrink,holdout,ram_headroom_bytes,16768
+2026-09-17T20:00:00Z,0168f06e,size,testbench_rp2350,helloworld,no-shrink,holdout,text,1007428
