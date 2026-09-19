@@ -271,15 +271,30 @@ impl ObjectHeap {
 
     /// Associate a message string (StringTable index) with a Throwable object.
     /// Captured by `Throwable.<init>(String, ...)` native dispatchers.
-    pub fn register_exception_message(&mut self, obj_idx: u16, msg_idx: u16) {
+    ///
+    /// [`Exhausted`] when the table cannot grow; nothing is recorded then.
+    /// The three exception side tables (this one, `suppressed`,
+    /// `exception_causes`) double like the lambda registry, and an
+    /// infallible push on a full heap is a board reset. Their writers are on
+    /// the throw path, so a refusal must not become an `OutOfMemoryError`
+    /// that replaces the exception being thrown: callers drop the entry and
+    /// throw the original Throwable without its message, cause or
+    /// suppressed entry.
+    pub fn register_exception_message(
+        &mut self,
+        obj_idx: u16,
+        msg_idx: u16,
+    ) -> Result<(), Exhausted> {
         // Replace if an entry exists (e.g. an explicit super("...") chain).
         for entry in self.exception_messages.iter_mut() {
             if entry.0 == obj_idx {
                 entry.1 = msg_idx;
-                return;
+                return Ok(());
             }
         }
+        reserve_fallible(&mut self.exception_messages, 1)?;
         self.exception_messages.push((obj_idx, msg_idx));
+        Ok(())
     }
 
     /// Look up the message StringTable index for a Throwable object.
@@ -297,14 +312,23 @@ impl ObjectHeap {
 
     /// Append a suppressed exception to `owner`'s list. Storage behind
     /// `Throwable.addSuppressed` — see the `suppressed` field docs.
-    pub fn add_suppressed(&mut self, owner: u16, throwable: u16) {
+    /// [`Exhausted`] when either the owner's list or the table cannot grow;
+    /// `owner`'s list is unchanged then (see
+    /// [`Self::register_exception_message`] for what callers do with it).
+    pub fn add_suppressed(&mut self, owner: u16, throwable: u16) -> Result<(), Exhausted> {
         for (o, list) in self.suppressed.iter_mut() {
             if *o == owner {
+                reserve_fallible(list, 1)?;
                 list.push(throwable);
-                return;
+                return Ok(());
             }
         }
-        self.suppressed.push((owner, alloc::vec![throwable]));
+        reserve_fallible(&mut self.suppressed, 1)?;
+        let mut list = Vec::new();
+        reserve_fallible(&mut list, 1)?;
+        list.push(throwable);
+        self.suppressed.push((owner, list));
+        Ok(())
     }
 
     /// The suppressed-exception list recorded for `owner` (empty when none).
@@ -322,15 +346,18 @@ impl ObjectHeap {
     }
 
     /// Record `cause` as `owner`'s cause (`Throwable.getCause()`). Replaces
-    /// any existing entry, mirroring `register_exception_message`.
-    pub fn register_exception_cause(&mut self, owner: u16, cause: u16) {
+    /// any existing entry, and refuses with [`Exhausted`] when the table
+    /// cannot grow, mirroring [`Self::register_exception_message`].
+    pub fn register_exception_cause(&mut self, owner: u16, cause: u16) -> Result<(), Exhausted> {
         for entry in self.exception_causes.iter_mut() {
             if entry.0 == owner {
                 entry.1 = cause;
-                return;
+                return Ok(());
             }
         }
+        reserve_fallible(&mut self.exception_causes, 1)?;
         self.exception_causes.push((owner, cause));
+        Ok(())
     }
 
     /// Look up the cause recorded for `owner`, if any.
@@ -1321,10 +1348,10 @@ mod tests {
         let mut heap = ObjectHeap::new();
         let obj = heap.alloc(c::java_lang_RuntimeException).unwrap();
         assert_eq!(heap.get_exception_message(obj), None);
-        heap.register_exception_message(obj, 7);
+        heap.register_exception_message(obj, 7).unwrap();
         assert_eq!(heap.get_exception_message(obj), Some(7));
         // Re-registering replaces the existing entry.
-        heap.register_exception_message(obj, 11);
+        heap.register_exception_message(obj, 11).unwrap();
         assert_eq!(heap.get_exception_message(obj), Some(11));
         heap.free_exception_message(obj);
         assert_eq!(heap.get_exception_message(obj), None);
@@ -2039,6 +2066,80 @@ mod growth_tests {
         heap.iter_register(n, state())
             .expect("usable after a refusal");
         assert!(heap.iter_get(n).is_some());
+    }
+
+    // The exception side tables doubled through a plain push as well: the
+    // last infallible `ObjectHeap` growth after the 2026-09-13 QA round. A
+    // refusal leaves the table as it was, so the caller can throw the
+    // Throwable without the entry.
+    #[test]
+    fn an_exception_message_the_table_cannot_hold_is_refused_not_aborted() {
+        let mut heap = ObjectHeap::new();
+        for i in 0..4 {
+            heap.register_exception_message(i, i).expect("warm-up");
+        }
+        let n = crate::test_alloc::with_budget(16, || {
+            (4..1024u16).find(|&i| heap.register_exception_message(i, i).is_err())
+        })
+        .expect("an exhausted heap must refuse, not abort");
+        assert_eq!(heap.get_exception_message(n), None);
+        assert_eq!(heap.get_exception_message(n - 1), Some(n - 1));
+        heap.register_exception_message(n, n)
+            .expect("usable after a refusal");
+        assert_eq!(heap.get_exception_message(n), Some(n));
+    }
+
+    #[test]
+    fn an_exception_cause_the_table_cannot_hold_is_refused_not_aborted() {
+        let mut heap = ObjectHeap::new();
+        for i in 0..4 {
+            heap.register_exception_cause(i, i + 1).expect("warm-up");
+        }
+        let n = crate::test_alloc::with_budget(16, || {
+            (4..1024u16).find(|&i| heap.register_exception_cause(i, i + 1).is_err())
+        })
+        .expect("an exhausted heap must refuse, not abort");
+        assert_eq!(heap.get_exception_cause(n), None);
+        assert_eq!(heap.get_exception_cause(n - 1), Some(n));
+        heap.register_exception_cause(n, n + 1)
+            .expect("usable after a refusal");
+        assert_eq!(heap.get_exception_cause(n), Some(n + 1));
+    }
+
+    // `suppressed` grows in two places: the table, one entry per owner, and
+    // each owner's own list.
+    #[test]
+    fn a_suppressed_owner_the_table_cannot_hold_is_refused_not_aborted() {
+        let mut heap = ObjectHeap::new();
+        for owner in 0..4 {
+            heap.add_suppressed(owner, 1000).expect("warm-up");
+        }
+        let n = crate::test_alloc::with_budget(16, || {
+            (4..1024u16).find(|&owner| heap.add_suppressed(owner, 1000).is_err())
+        })
+        .expect("an exhausted heap must refuse, not abort");
+        assert!(heap.suppressed_list(n).is_empty());
+        assert_eq!(heap.suppressed_list(n - 1), &[1000]);
+        heap.add_suppressed(n, 1000)
+            .expect("usable after a refusal");
+        assert_eq!(heap.suppressed_list(n), &[1000]);
+    }
+
+    #[test]
+    fn a_suppressed_entry_the_owner_list_cannot_hold_is_refused_not_aborted() {
+        let mut heap = ObjectHeap::new();
+        for t in 0..4 {
+            heap.add_suppressed(7, t).expect("warm-up");
+        }
+        let n = crate::test_alloc::with_budget(16, || {
+            (4..1024u16).find(|&t| heap.add_suppressed(7, t).is_err())
+        })
+        .expect("an exhausted heap must refuse, not abort");
+        // Everything before the refusal is kept, in order, and nothing after.
+        let kept: Vec<u16> = (0..n).collect();
+        assert_eq!(heap.suppressed_list(7), kept.as_slice());
+        heap.add_suppressed(7, n).expect("usable after a refusal");
+        assert_eq!(heap.suppressed_list(7).last(), Some(&n));
     }
 
     // J-fix aeb8ecc1: clear() hands the buffer back, so an app that clears
