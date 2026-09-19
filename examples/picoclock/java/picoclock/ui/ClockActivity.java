@@ -8,6 +8,7 @@ import picoclock.AlarmStore;
 import picoclock.Clock;
 import picoclock.ClockApp;
 import picodroid.content.Intent;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.view.View;
 import picodroid.widget.FrameLayout;
@@ -38,8 +39,8 @@ public class ClockActivity extends BaseActivity {
   private int lastMinute = -1;
 
   @Override
-  public void onCreate() {
-    super.onCreate();
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     FrameLayout root = Ui.screen();
     root.addView(Ui.header(this, "Clock", null));
 

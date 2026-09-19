@@ -2,6 +2,7 @@
 package callbacktest;
 
 import picodroid.app.Activity;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.view.View;
 import picodroid.widget.AdapterView;
@@ -30,7 +31,8 @@ import picodroid.widget.ToggleButton;
  */
 public class CallbackTestActivity extends Activity {
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     // Force display init. getDisplay() lazily brings up the LVGL engine; widget
     // constructors below parent to the screen and crash if it's still null.
     getDisplay();

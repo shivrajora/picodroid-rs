@@ -26,18 +26,6 @@ public class Activity extends Context {
    *     {@code null} — a fresh launch.
    */
   protected void onCreate(Bundle savedInstanceState) {
-    onCreate();
-  }
-
-  /**
-   * The pre-Bundle spelling of {@link #onCreate(Bundle)}, which calls it by default so that an
-   * Activity overriding only this one keeps working. It has no Android counterpart and never sees
-   * the saved state.
-   *
-   * @deprecated override {@link #onCreate(Bundle)}.
-   */
-  @Deprecated
-  public void onCreate() {
     // Subclass overrides
   }
 
@@ -75,9 +63,9 @@ public class Activity extends Context {
   public native void recreate();
 
   // The framework enters the three Bundle callbacks through these, never by name on the app's
-  // class: a native-side lookup is flat (it sees only methods the named class itself declares) and
-  // blind to descriptors (onCreate() vs onCreate(Bundle)), where an invokevirtual from here walks
-  // the hierarchy and picks the overload.
+  // class: a native-side lookup is flat (it sees only methods the named class itself declares, so
+  // it misses an override on an app's base Activity) and blind to descriptors, where an
+  // invokevirtual from here walks the hierarchy and matches the signature.
 
   final void performCreate(Bundle savedInstanceState) {
     onCreate(savedInstanceState);

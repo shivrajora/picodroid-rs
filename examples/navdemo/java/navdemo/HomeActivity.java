@@ -4,6 +4,7 @@ package navdemo;
 import picodroid.app.Activity;
 import picodroid.content.Intent;
 import picodroid.graphics.Color;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.widget.Button;
 import picodroid.widget.LinearLayout;
@@ -14,7 +15,8 @@ public class HomeActivity extends Activity {
   private boolean probeLaunched = false;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     Log.i("NavDemo", "Home.onCreate");
     // Launched by NavDemoApp via an explicit Intent, so getIntent() is non-null
     // (it is null only for a manifest `activity=` boot with no app-side launch).

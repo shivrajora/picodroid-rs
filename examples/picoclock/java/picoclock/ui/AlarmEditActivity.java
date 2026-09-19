@@ -7,6 +7,7 @@ import picoclock.AlarmStore;
 import picoclock.ClockApp;
 import picodroid.content.Intent;
 import picodroid.graphics.drawable.GradientDrawable;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.view.View;
 import picodroid.widget.Button;
@@ -50,8 +51,8 @@ public class AlarmEditActivity extends BaseActivity {
   private final Button[] dayButtons = new Button[7];
 
   @Override
-  public void onCreate() {
-    super.onCreate();
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     Intent intent = getIntent();
     int id = intent == null ? 0 : intent.getIntExtra(EXTRA_ID, 0);
     alarm = store.get(id);

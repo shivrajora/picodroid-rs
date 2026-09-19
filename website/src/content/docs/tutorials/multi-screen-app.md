@@ -72,7 +72,8 @@ public class HomeActivity extends Activity {
   private Button aboutButton;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     Log.i(TAG, "onCreate");
     getDisplay();
 
@@ -143,7 +144,8 @@ public class CounterActivity extends Activity {
   private Button incrementButton;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     Log.i(TAG, "onCreate");
     getDisplay();
 
@@ -196,7 +198,8 @@ public class AboutActivity extends Activity {
   private Button backButton;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     Log.i(TAG, "onCreate");
     getDisplay();
 

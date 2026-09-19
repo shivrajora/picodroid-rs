@@ -12,6 +12,7 @@ import picodroid.hardware.Sensor
 import picodroid.hardware.SensorEvent
 import picodroid.hardware.SensorEventListener
 import picodroid.hardware.SensorManager
+import picodroid.os.Bundle
 import picodroid.os.IBinder
 import picodroid.util.Log
 import picodroid.widget.Button
@@ -54,8 +55,8 @@ class HomeActivity : Activity() {
             }
         }
 
-    override fun onCreate() {
-        super.onCreate()
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
         mode = intent?.getStringExtra("mode") ?: "idle"
         val root = LinearLayout().apply { setOrientation(LinearLayout.VERTICAL) }
         status = TextView().also { it.setText("mode=$mode limit=${prefs.getInt("limit", 60)}") }

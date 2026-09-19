@@ -18,6 +18,7 @@ import picodroid.widget.ImageView;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.ScrollView;
 import picodroid.widget.TextView;
+import picodroid.os.Bundle;
 
 /**
  * The home screen of a multi-app board: one row per installed app, icon and label. Tap a row, or
@@ -57,7 +58,8 @@ public class LauncherActivity extends Activity {
   private boolean stopped;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     // Not "onCreate": a --shrink image must not spell a served member name, and
     // check-shrunk-image.sh cannot tell a log literal from a leaked one.
     Log.i(TAG, "creating");

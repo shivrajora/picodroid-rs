@@ -3,6 +3,7 @@ package pickerdemo;
 
 import picodroid.app.Activity;
 import picodroid.graphics.Color;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.widget.Button;
 import picodroid.widget.DatePicker;
@@ -15,7 +16,8 @@ public class PickerDemoActivity extends Activity {
   private static final String TAG = "PickerDemo";
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     getDisplay();
     Log.i(TAG, "Display ready");
 

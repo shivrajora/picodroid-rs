@@ -10,6 +10,7 @@ import picodroid.content.pm.PackageInfo;
 import picodroid.content.pm.PackageManager;
 import picodroid.util.Log;
 import picodroid.view.View;
+import picodroid.os.Bundle;
 
 /**
  * Apps: one row per installed app (system apps stay out; they cannot be uninstalled). A tap on a
@@ -27,7 +28,8 @@ public class AppsActivity extends Activity {
   private String[] labels;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     render();
   }
 

@@ -5,6 +5,7 @@ import picodroid.app.Activity;
 import picodroid.concurrent.Executors;
 import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
+import picodroid.os.Bundle;
 import picodroid.os.IBinder;
 import picodroid.util.Log;
 import picodroid.widget.Button;
@@ -34,7 +35,8 @@ public class MainActivity extends Activity {
   }
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     Log.i(TAG, "Main.onCreate");
     LinearLayout root = new LinearLayout();
     root.setOrientation(LinearLayout.VERTICAL);

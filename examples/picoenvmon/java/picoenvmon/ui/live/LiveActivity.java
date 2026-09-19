@@ -7,6 +7,7 @@ import picodroid.content.ServiceConnection;
 import picodroid.graphics.Theme;
 import picodroid.graphics.drawable.GradientDrawable;
 import picodroid.hardware.Sensor;
+import picodroid.os.Bundle;
 import picodroid.os.IBinder;
 import picodroid.util.Log;
 import picodroid.view.View;
@@ -46,7 +47,8 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
   private final TextView[] tileValues = new TextView[NUM_TILES];
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     Log.i(EnvApp.TAG, "Live.onCreate");
     getDisplay();
 

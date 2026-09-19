@@ -5,6 +5,7 @@ import picodroid.app.Activity;
 import picodroid.concurrent.Executors;
 import picodroid.concurrent.Thread;
 import picodroid.content.Context;
+import picodroid.os.Bundle;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
 
@@ -31,7 +32,8 @@ public class Main extends Activity {
   static long tPosted = 0;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     self = this;
     Log.i(TAG, "start");
     hop();

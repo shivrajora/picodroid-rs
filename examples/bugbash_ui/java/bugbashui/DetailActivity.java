@@ -3,13 +3,15 @@ package bugbashui;
 
 import picodroid.app.Activity;
 import picodroid.content.Intent;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 
 public class DetailActivity extends Activity {
   static int creates = 0;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     creates++;
     Log.i("BugBashUi", "Detail.onCreate #" + creates);
     Intent i = getIntent();

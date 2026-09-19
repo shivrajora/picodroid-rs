@@ -12,6 +12,7 @@ import picodroid.os.StatFs;
 import picodroid.util.Log;
 import picodroid.view.View;
 import picodroid.widget.TextView;
+import picodroid.os.Bundle;
 
 /**
  * Storage: the volume, then every package's app and data bytes. The header row goes back.
@@ -34,7 +35,8 @@ public class StorageActivity extends Activity {
   private boolean alive;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     alive = true;
     stats = (StorageStatsManager) getSystemService(STORAGE_STATS_SERVICE);
     column = new Column(this, "< Storage", v -> finish());

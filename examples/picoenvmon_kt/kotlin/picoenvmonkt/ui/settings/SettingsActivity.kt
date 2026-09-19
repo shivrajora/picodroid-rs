@@ -5,6 +5,7 @@ import javax.inject.Inject
 import picodroid.content.SharedPreferences
 import picodroid.graphics.Theme
 import picodroid.graphics.drawable.GradientDrawable
+import picodroid.os.Bundle
 import picodroid.util.Log
 import picodroid.view.View
 import picodroid.widget.Button
@@ -34,7 +35,9 @@ class SettingsActivity : NavActivity() {
     private var humField: NumberPicker? = null
     private var luxField: NumberPicker? = null
 
-    override fun onCreate() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+
+        super.onCreate(savedInstanceState)
         Log.i(TAG, "Settings.onCreate")
         getDisplay()
 

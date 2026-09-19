@@ -5,6 +5,7 @@ import javax.inject.Inject;
 import picodroid.content.SharedPreferences;
 import picodroid.graphics.Theme;
 import picodroid.graphics.drawable.GradientDrawable;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.view.View;
 import picodroid.widget.Button;
@@ -36,7 +37,8 @@ public class SettingsActivity extends NavActivity {
   private NumberPicker luxField;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     Log.i(EnvApp.TAG, "Settings.onCreate");
     getDisplay();
 

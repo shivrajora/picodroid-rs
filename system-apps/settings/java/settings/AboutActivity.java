@@ -7,13 +7,15 @@ import picodroid.os.Runtime;
 import picodroid.os.StatFs;
 import picodroid.util.Log;
 import picodroid.view.View;
+import picodroid.os.Bundle;
 
 /** About: the board, its MCU, the release, the volume and the heap. The header row goes back. */
 public class AboutActivity extends Activity {
   private Column column;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     column = new Column(this, "< About", v -> finish());
     column.fill(
         null,

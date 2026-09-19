@@ -3,6 +3,7 @@ package navdemo;
 
 import picodroid.app.Activity;
 import picodroid.graphics.Color;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.widget.Button;
 import picodroid.widget.LinearLayout;
@@ -10,7 +11,8 @@ import picodroid.widget.TextView;
 
 public class DetailActivity extends Activity {
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     Log.i("NavDemo", "Detail.onCreate");
     // The launching Intent (extras included) is available for our lifetime.
     Log.i("NavDemo", "Detail origin=" + getIntent().getStringExtra("origin"));

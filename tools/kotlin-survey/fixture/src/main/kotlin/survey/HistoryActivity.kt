@@ -2,6 +2,7 @@
 package survey
 
 import picodroid.app.Activity
+import picodroid.os.Bundle
 import picodroid.util.Log
 import picodroid.widget.ListView
 import picodroid.widget.TextView
@@ -18,8 +19,8 @@ class HistoryActivity : Activity() {
     private var done = false
     private var service: SensorService? = null
 
-    override fun onCreate() {
-        super.onCreate()
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
         val n = fill()
         val list = ListView()
         for (i in 0 until n) list.addItem(samples[i].fmt1())

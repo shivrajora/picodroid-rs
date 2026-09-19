@@ -543,9 +543,9 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
     an override declared on an app's *base* Activity class. The
     trampoline's `invokevirtual` does both. The other lifecycle callbacks
     still go by flat name and still have the base-class blind spot.
-  - `onCreate()` stays, deprecated: the default `onCreate(Bundle)` calls it,
-    so the ~150 existing Activities run unchanged. Migrating them is
-    mechanical and not done.
+  - `onCreate()` stayed at first as a deprecated bridge (the default
+    `onCreate(Bundle)` called it); T3.1-E below migrated every Activity and
+    removed it.
   - `cut-app` had a latent bug this exposed: it renamed any app member
     missing from the release map, including an override of an SDK method
     declared *since* that map was cut (`onSaveInstanceState` → `EZ`, while
@@ -570,9 +570,24 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
     nightly can exercise it. Prerequisite: the stack identifies a for-result
     caller by entry, not `obj_ref`, and by-`obj_ref` lookups skip destroyed
     entries.
-  - **T3.1-E — migrate the ~150 Activities** from the deprecated `onCreate()`
-    to `onCreate(Bundle)` (mechanical; docs and tutorials with them), then
-    decide whether the bridge goes.
+  - ~~**T3.1-E — migrate the Activities** from `onCreate()` to
+    `onCreate(Bundle)`, then decide whether the bridge goes.~~ **DONE
+    2026-09-19; the bridge went.** The "~150" was every `onCreate()` in the
+    tree: 83 of those are `Application`s and 9 are `Service`s, whose no-arg
+    `onCreate()` *is* the Android shape and stays. 63 Activities moved (54
+    Java, 9 Kotlin, the two `tools/kotlin-survey` fixtures among them) to
+    `protected void onCreate(Bundle)` + `super.onCreate(savedInstanceState)`,
+    and 13 website snippets with them. The bridge was removed rather than
+    kept: it had no Android counterpart, and keeping it meant two spellings
+    in every tutorial. The cost of removing it is one silent failure mode —
+    an out-of-tree Activity that declares `onCreate()` *without* `@Override`
+    still compiles and is then never called — so `verifyApiContract` gained
+    a retired-callbacks table (`ApiContract.RETIRED_CALLBACKS`): an app class
+    below `picodroid/app/Activity` declaring `onCreate()V` fails the build
+    with the replacement spelled out. Also fixed here: `qa_life` still used
+    the four `Intent` index accessors T3.1 deleted (`extraCount`/`extraKey`/
+    `isIntExtra`/`extraInt`), which broke the every-APK CI build on main;
+    it now reads `getExtras()`.
   - **T3.1-F — trampolines for the remaining lifecycle callbacks**
     (`onStart`/`onResume`/`onPause`/`onStop`/`onDestroy`/`onRestart`/
     `onActivityResult`/`onBackPressed`): they still dispatch by flat name and

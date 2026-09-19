@@ -3,6 +3,7 @@ package swipedemo;
 
 import picodroid.app.Activity;
 import picodroid.graphics.Color;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.view.View;
 import picodroid.widget.LinearLayout;
@@ -15,7 +16,8 @@ public class SwipeDemoActivity extends Activity {
   private int refreshCount = 0;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     getDisplay();
     Log.i(TAG, "Display ready");
 

@@ -6,6 +6,7 @@ import picodroid.graphics.Color;
 import picodroid.graphics.Display;
 import picodroid.media.AudioManager;
 import picodroid.media.ToneGenerator;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.view.View;
 import picodroid.widget.Button;
@@ -34,7 +35,8 @@ public class ToneDemoActivity extends Activity {
   private ToneGenerator tones;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     // Bring LVGL up before constructing widgets, as the other UI examples do.
     Display display = getDisplay();
 

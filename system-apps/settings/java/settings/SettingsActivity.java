@@ -5,6 +5,7 @@ import picodroid.app.Activity;
 import picodroid.content.Intent;
 import picodroid.util.Log;
 import picodroid.view.View;
+import picodroid.os.Bundle;
 
 /**
  * The settings app's root (multi-app M3): About, Apps and Storage, one row each. The header row is
@@ -22,7 +23,8 @@ public class SettingsActivity extends Activity {
   private boolean built;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     column = new Column(this, "Settings", v -> finish());
     column.fill(null, i -> row(i), () -> ready());
   }

@@ -3,6 +3,7 @@ package keydemo;
 
 import picodroid.app.Activity;
 import picodroid.graphics.Color;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.view.KeyEvent;
 import picodroid.view.OnKeyListener;
@@ -16,7 +17,8 @@ public class KeyDemoActivity extends Activity implements OnKeyListener {
   private TextView status;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     // Force display init before constructing any widgets.
     getDisplay();
 

@@ -3,6 +3,7 @@ package picoenvmonkt.ui.network
 
 import javax.inject.Inject
 import picodroid.graphics.Theme
+import picodroid.os.Bundle
 import picodroid.util.Log
 import picodroid.widget.Button
 import picodroid.widget.LinearLayout
@@ -37,7 +38,9 @@ class NetworkActivity : NavActivity(), NetworkManager.Listener {
     private var timeLine: TextView? = null
     private var weatherLine: TextView? = null
 
-    override fun onCreate() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+
+        super.onCreate(savedInstanceState)
         Log.i(TAG, "Network.onCreate")
         getDisplay()
 

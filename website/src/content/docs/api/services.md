@@ -266,6 +266,7 @@ Picodroid ships a compile-time DI framework in the Dagger/Hilt shape. Annotate c
 ```java
 import javax.inject.Inject;
 import javax.inject.Singleton;
+import picodroid.os.Bundle;
 
 @Singleton
 public class SensorRepository {
@@ -283,7 +284,8 @@ public class HomeActivity extends Activity {
   @Inject Formatter formatter;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     // repo and formatter are already populated
   }
 }

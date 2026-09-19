@@ -272,6 +272,7 @@ object ApiContract {
             refs.map { "${it.fromClass}.${it.fromMember.substringBefore('(')}" }.distinct().sorted().joinToString()
 
         private fun describe(r: Ref): String = when {
+            r.kind == "override" -> "${r.owner}.${r.name}${r.desc}  [override]"
             r.kind !in MEMBER_KINDS -> "${r.owner}  [${r.kind}]"
             r.kind.startsWith("get") || r.kind.startsWith("put") -> "${r.owner}.${r.name} : ${r.desc}"
             else -> "${r.owner}.${r.name}${r.desc}"
@@ -402,6 +403,32 @@ object ApiContract {
                 else -> {}
             }
         }
+        // Overrides of callbacks the SDK no longer declares. javac accepts one
+        // that lacks @Override as a brand-new method, and the framework would
+        // then never call it: the screen stays blank with nothing logged.
+        for (c in index.values) {
+            val supers = appSupertypes(c)
+            for (d in RETIRED_CALLBACKS) {
+                if (d.below in supers && (d.name to d.desc) in c.methods) {
+                    misses += Miss(
+                        Ref("override", d.below, d.name, d.desc, c.name, d.name + d.desc, "", ""),
+                        "callback retired: the framework never calls it",
+                        d.hint,
+                    )
+                }
+            }
+        }
         return Report(app.size, misses, excluded, board)
     }
+
+    /** A method an app class below [below] must not declare, because nothing calls it any more. */
+    private class RetiredCallback(val below: String, val name: String, val desc: String, val hint: String)
+
+    private val RETIRED_CALLBACKS = listOf(
+        RetiredCallback(
+            "picodroid/app/Activity", "onCreate", "()V",
+            "override `protected void onCreate(Bundle savedInstanceState)` (import picodroid.os.Bundle) " +
+                "and call super.onCreate(savedInstanceState); Application and Service keep the no-arg onCreate()",
+        ),
+    )
 }

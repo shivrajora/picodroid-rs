@@ -4,6 +4,7 @@ package executordemo;
 import picodroid.app.Activity;
 import picodroid.concurrent.Executor;
 import picodroid.concurrent.Executors;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
@@ -17,7 +18,8 @@ import picodroid.widget.TextView;
  */
 public class ExecutorDemoActivity extends Activity {
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     getDisplay();
 
     LinearLayout root = new LinearLayout();

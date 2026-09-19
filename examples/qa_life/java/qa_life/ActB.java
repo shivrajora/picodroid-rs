@@ -3,11 +3,13 @@ package qa_life;
 
 import picodroid.app.Activity;
 import picodroid.content.Intent;
+import picodroid.os.Bundle;
 
 /** Reports a result and finishes from inside onCreate. */
 public class ActB extends Activity {
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     T.log("B.onCreate");
     Intent in = getIntent();
     T.check("B intent extra", in != null && in.getIntExtra("q", -1) == 9);

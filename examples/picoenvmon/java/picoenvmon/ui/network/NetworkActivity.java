@@ -3,6 +3,7 @@ package picoenvmon.ui.network;
 
 import javax.inject.Inject;
 import picodroid.graphics.Theme;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.widget.Button;
 import picodroid.widget.LinearLayout;
@@ -36,7 +37,8 @@ public class NetworkActivity extends NavActivity implements NetworkManager.Liste
   private TextView weatherLine;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     Log.i(EnvApp.TAG, "Network.onCreate");
     getDisplay();
 

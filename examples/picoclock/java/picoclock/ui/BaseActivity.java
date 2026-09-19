@@ -3,6 +3,7 @@ package picoclock.ui;
 
 import picoclock.AlarmService;
 import picodroid.content.Intent;
+import picodroid.os.Bundle;
 
 /**
  * The binding every screen shares: a connection to {@link AlarmService}, claimed in {@code
@@ -31,7 +32,8 @@ public abstract class BaseActivity extends picodroid.app.Activity implements Ala
   private boolean resumed;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     bindService(new Intent(AlarmService.class), link);
   }
 

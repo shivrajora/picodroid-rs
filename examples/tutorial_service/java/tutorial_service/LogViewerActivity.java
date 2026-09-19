@@ -5,6 +5,7 @@ import picodroid.app.Activity;
 import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
 import picodroid.graphics.Color;
+import picodroid.os.Bundle;
 import picodroid.os.IBinder;
 import picodroid.util.Log;
 import picodroid.widget.ArrayAdapter;
@@ -38,7 +39,8 @@ public class LogViewerActivity extends Activity implements ServiceConnection {
   private final long[] samples = new long[UptimeLogService.CAPACITY];
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     Log.i(TAG, "onCreate");
     getDisplay();
 

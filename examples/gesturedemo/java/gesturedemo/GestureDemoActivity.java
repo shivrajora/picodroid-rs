@@ -3,6 +3,7 @@ package gesturedemo;
 
 import picodroid.app.Activity;
 import picodroid.graphics.Color;
+import picodroid.os.Bundle;
 import picodroid.view.GestureDetector;
 import picodroid.view.MotionEvent;
 import picodroid.widget.LinearLayout;
@@ -12,7 +13,8 @@ public class GestureDemoActivity extends Activity {
   private TextView status;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     GestureActivityComponent c = new GestureActivityComponent();
     GestureAppComponent app = c.appComponent();
 
