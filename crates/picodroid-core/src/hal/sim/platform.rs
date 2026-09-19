@@ -124,6 +124,9 @@ macro_rules! register_sim_platform {
                 fn task_notify(t: RawTask) {
                     rtos::task_notify(t)
                 }
+                fn task_notify_from_isr(t: RawTask) -> bool {
+                    rtos::task_notify_from_isr(t)
+                }
                 fn task_wait_notification(t: Timeout) -> bool {
                     rtos::task_wait_notification(t)
                 }
@@ -154,6 +157,9 @@ macro_rules! register_sim_platform {
                 fn sem_give(s: RawSem) {
                     rtos::sem_give(s)
                 }
+                fn sem_give_from_isr(s: RawSem) -> bool {
+                    rtos::sem_give_from_isr(s)
+                }
                 fn sem_take(s: RawSem, t: Timeout) -> bool {
                     rtos::sem_take(s, t)
                 }
@@ -171,6 +177,12 @@ macro_rules! register_sim_platform {
                 }
                 fn delay_ms(ms: u32) {
                     rtos::delay_ms(ms)
+                }
+                fn delay_until_anchor() -> u32 {
+                    rtos::delay_until_anchor()
+                }
+                fn delay_until(last_wake_ms: &mut u32, period_ms: u32) {
+                    rtos::delay_until(last_wake_ms, period_ms)
                 }
             }
 

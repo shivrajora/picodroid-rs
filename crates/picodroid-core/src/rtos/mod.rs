@@ -166,6 +166,20 @@ pub unsafe trait Rtos {
     /// not a value: two notifiers racing must not collapse into one wake.
     fn task_notify(t: RawTask);
 
+    /// [`Rtos::task_notify`] from interrupt context. Returns whether the wake
+    /// readied a task of higher priority than the one interrupted.
+    ///
+    /// The implementation requests the context switch itself, so the return
+    /// is information, not an obligation: a handler that wakes several tasks
+    /// may use it to stop early, and most ignore it.
+    ///
+    /// "Interrupt context" is the platform's: a handler whose priority allows
+    /// kernel calls, or — where the ring an ISR feeds is also fed by a task
+    /// (scripted input) — that task with the interrupt masked. The hosted
+    /// kernel has no interrupts at all; there it is any kernel task. It is
+    /// never a thread the kernel does not own.
+    fn task_notify_from_isr(t: RawTask) -> bool;
+
     /// Block until the calling task's notification count is non-zero, then
     /// clear it and return true. False means `t` elapsed first.
     ///
@@ -200,6 +214,11 @@ pub unsafe trait Rtos {
 
     fn sem_binary_create() -> RawSem;
     fn sem_give(s: RawSem);
+    /// [`Rtos::sem_give`] from interrupt context; the context and the return
+    /// are [`Rtos::task_notify_from_isr`]'s. A no-op returning false when `s`
+    /// is 0, so a handler that can fire before its semaphore exists needs no
+    /// guard of its own.
+    fn sem_give_from_isr(s: RawSem) -> bool;
     fn sem_take(s: RawSem, t: Timeout) -> bool;
 
     /// Start the periodic UI tick, or unpause it if already started.
@@ -218,6 +237,21 @@ pub unsafe trait Rtos {
 
     /// Block the calling task.
     fn delay_ms(ms: u32);
+
+    /// The kernel's own clock, in milliseconds: the first `last_wake_ms` of a
+    /// [`Rtos::delay_until`] loop. Wraps; only ever compared with itself.
+    ///
+    /// Deliberately not the HAL's monotonic clock. A deadline is kept on the
+    /// clock the kernel wakes tasks by, and a stamp taken from another one is
+    /// off by whatever the two have drifted apart.
+    fn delay_until_anchor() -> u32;
+
+    /// Block the calling task until `*last_wake_ms + period_ms`, then advance
+    /// `*last_wake_ms` by the period — a fixed-rate loop, where
+    /// [`Rtos::delay_ms`] after the work is a fixed *gap* and drifts by the
+    /// work's duration every lap. Returns at once, still advancing the stamp,
+    /// when the deadline has already passed.
+    fn delay_until(last_wake_ms: &mut u32, period_ms: u32);
 }
 
 extern "Rust" {
@@ -228,6 +262,7 @@ extern "Rust" {
     fn __pd_rtos_task_current() -> RawTask;
     fn __pd_rtos_scheduler_running() -> bool;
     fn __pd_rtos_task_notify(t: RawTask);
+    fn __pd_rtos_task_notify_from_isr(t: RawTask) -> bool;
     fn __pd_rtos_task_wait_notification(t: Timeout) -> bool;
     fn __pd_rtos_queue_create_ptr(depth: usize) -> RawQueue;
     fn __pd_rtos_queue_send_ptr(q: RawQueue, val: usize, t: Timeout) -> bool;
@@ -238,12 +273,15 @@ extern "Rust" {
     fn __pd_rtos_mutex_recursive_delete(m: RawMutex);
     fn __pd_rtos_sem_binary_create() -> RawSem;
     fn __pd_rtos_sem_give(s: RawSem);
+    fn __pd_rtos_sem_give_from_isr(s: RawSem) -> bool;
     fn __pd_rtos_sem_take(s: RawSem, t: Timeout) -> bool;
     fn __pd_rtos_tick_timer_start(period_ms: u32, cb: fn());
     fn __pd_rtos_tick_timer_pause();
     fn __pd_rtos_tick_timer_resume();
     fn __pd_rtos_tick_timer_stop();
     fn __pd_rtos_delay_ms(ms: u32);
+    fn __pd_rtos_delay_until_anchor() -> u32;
+    fn __pd_rtos_delay_until(last_wake_ms: &mut u32, period_ms: u32);
 }
 
 /// Spawn a task running `body`. See [`Rtos::spawn`]; `false` means the
@@ -274,6 +312,14 @@ pub fn scheduler_running() -> bool {
 /// Wake `t`. See [`Rtos::task_notify`]; a no-op when `t` is 0.
 pub fn task_notify(t: RawTask) {
     unsafe { __pd_rtos_task_notify(t) }
+}
+/// Wake `t` from interrupt context. See [`Rtos::task_notify_from_isr`]; true
+/// means a higher-priority task was readied.
+///
+/// Touches no run lock, like [`task_notify`]: it does not block, and an
+/// interrupt holds no lock to give up.
+pub fn task_notify_from_isr(t: RawTask) -> bool {
+    unsafe { __pd_rtos_task_notify_from_isr(t) }
 }
 /// Block until notified. See [`Rtos::task_wait_notification`]; false means
 /// the timeout elapsed.
@@ -316,6 +362,10 @@ pub fn sem_binary_create() -> RawSem {
 pub fn sem_give(s: RawSem) {
     unsafe { __pd_rtos_sem_give(s) }
 }
+/// Give `s` from interrupt context. See [`Rtos::sem_give_from_isr`].
+pub fn sem_give_from_isr(s: RawSem) -> bool {
+    unsafe { __pd_rtos_sem_give_from_isr(s) }
+}
 pub fn sem_take(s: RawSem, t: Timeout) -> bool {
     let _run = crate::jvm_run_lock::unlocked_for(t);
     unsafe { __pd_rtos_sem_take(s, t) }
@@ -337,6 +387,21 @@ pub fn delay_ms(ms: u32) {
     // yield hands the core to can take it.
     let _run = crate::jvm_run_lock::unlocked();
     unsafe { __pd_rtos_delay_ms(ms) }
+}
+/// The first `last_wake_ms` of a [`delay_until`] loop. See
+/// [`Rtos::delay_until_anchor`].
+pub fn delay_until_anchor() -> u32 {
+    unsafe { __pd_rtos_delay_until_anchor() }
+}
+/// Sleep to the next `period_ms` boundary after `*last_wake_ms`. See
+/// [`Rtos::delay_until`].
+pub fn delay_until(last_wake_ms: &mut u32, period_ms: u32) {
+    // A kernel asserts on a zero increment; a zero period is a yield.
+    if period_ms == 0 {
+        return delay_ms(0);
+    }
+    let _run = crate::jvm_run_lock::unlocked();
+    unsafe { __pd_rtos_delay_until(last_wake_ms, period_ms) }
 }
 
 /// Register the platform's [`Rtos`] implementation.
@@ -380,6 +445,10 @@ macro_rules! set_rtos {
                 <$t as $crate::rtos::Rtos>::task_notify(t)
             }
             #[no_mangle]
+            extern "Rust" fn __pd_rtos_task_notify_from_isr(t: RawTask) -> bool {
+                <$t as $crate::rtos::Rtos>::task_notify_from_isr(t)
+            }
+            #[no_mangle]
             extern "Rust" fn __pd_rtos_task_wait_notification(t: Timeout) -> bool {
                 <$t as $crate::rtos::Rtos>::task_wait_notification(t)
             }
@@ -420,6 +489,10 @@ macro_rules! set_rtos {
                 <$t as $crate::rtos::Rtos>::sem_give(s)
             }
             #[no_mangle]
+            extern "Rust" fn __pd_rtos_sem_give_from_isr(s: RawSem) -> bool {
+                <$t as $crate::rtos::Rtos>::sem_give_from_isr(s)
+            }
+            #[no_mangle]
             extern "Rust" fn __pd_rtos_sem_take(s: RawSem, t: Timeout) -> bool {
                 <$t as $crate::rtos::Rtos>::sem_take(s, t)
             }
@@ -442,6 +515,14 @@ macro_rules! set_rtos {
             #[no_mangle]
             extern "Rust" fn __pd_rtos_delay_ms(ms: u32) {
                 <$t as $crate::rtos::Rtos>::delay_ms(ms)
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_rtos_delay_until_anchor() -> u32 {
+                <$t as $crate::rtos::Rtos>::delay_until_anchor()
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_rtos_delay_until(last_wake_ms: &mut u32, period_ms: u32) {
+                <$t as $crate::rtos::Rtos>::delay_until(last_wake_ms, period_ms)
             }
         };
     };

@@ -36,7 +36,7 @@ design that makes the property enforced rather than remembered.
 | WP11 hot-path polish (F18) | **landed** 2026-09-13 (`select_target`: the I²C target register is its own cache; XPT2046 sample = one 30-byte interrupt-driven transfer; SPI polled paths under `spi_lock`, pending DMA writes collected only by their starter). The handover's bus-hold API was not needed — no XPT2046 board has a touch task; see the handover doc |
 | WP9 UART TX (F14) | **half landed** 2026-09-13 (`wait_tx_room`: a tick's sleep per retry, 100 ms drop bound, one warning per boot). The TX ring + `UARTx_IRQ` still waits for a board that ships a serial app |
 | G3 delay-type guard, G4 `sched-diag` monitor, G6 soak lanes | **landed** 2026-09-14 (`crates/picodroid-core/src/sched_diag.rs`, fed by the kernel's trace and tick hooks under `PICODROID_SCHED_DIAG` in both `FreeRTOSConfig.h`s, printed from the idle task; `RpDelay` and `cyw43_port.c` count BUSYDELAY, `spin_until!` reports SPIN; `scripts/test-scheddiag.sh` + a `sim-run.sh` lane; `docs/scheduling-diagnostics.md`). The HIL `loop`/`net` rows of G6 wait for a bench session — the device image is compile-checked (`build_rp2350w_scheddiag` in `--full`), not soaked |
-| WP0 | open — see the plan below and the handover doc |
+| WP0 ISR-safe seam primitives (F20) | **landed** 2026-09-18 (`rtos::sem_give_from_isr`, `rtos::task_notify_from_isr` — both request the switch themselves and return "higher-priority task woken"; `rtos::delay_until` + `delay_until_anchor` on the kernel's own clock. `gpio.rs` names no kernel crate any more — button and touch wakes are seam semaphores, pinned by `task_affinity::the_gpio_isr_wakes_tasks_through_the_seam`. The display-sleep wait now gives up the JVM run lock like every other blocking seam call. The simulator arm calls the kernel directly: the POSIX port's `TickType_t` is 64-bit and `freertos_rust` types it `u32`, so that crate's `vTaskDelayUntil` wrapper corrupts the stamp on a host. size: testbench_rp2040 +200 B, testbench_rp2350 +48 B). Not bench-validated: button wake from display sleep and the GT911 wake want one HIL pass |
 
 **Hardware validation, 2026-09-12 (W-board slot, `pico_enviro_mon_w`):** `netdemo` `net` row
 PASS on `testbench_rp2350w` firmware with F1/F9/F15 in the image (firmware load, join, DHCP
@@ -340,6 +340,7 @@ task_wait_notification, u32 + ptr queues, **recursive** mutex only, **binary** s
 timer singleton, delay_ms. Gaps that explain hand-rolled polls below: no `delay_until`, no event
 groups, no counting semaphore, **no ISR-safe give/notify** (so `gpio.rs:354-358` reaches around the
 seam with raw `freertos_rust::give_from_isr`, and the USB ISR can only set an `AtomicBool`).
+(WP0, 2026-09-18, closed the `delay_until` and ISR-safe give/notify gaps.)
 
 ### High
 - **R-H1 Unbounded spin on a USB ISR flag, priority 21, core 0.** `platforms/rp/src/hal/rp/pdb_usb/mod.rs:528-532`

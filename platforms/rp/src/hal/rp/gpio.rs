@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
-use core::cell::UnsafeCell;
-use freertos_rust::{Duration, InterruptContext, Semaphore};
+use core::sync::atomic::{AtomicUsize, Ordering};
 // The seam's own types, not local copies: shared code names these, and the
 // converters `glue.rs` used to carry between two identical enums are gone.
 use picodroid_core::hal::event_ring::GpioEventRing;
 use picodroid_core::hal::types::{EdgeTrigger, GpioEvent, Pull};
+// The kernel through the seam, ISR side included (scheduling audit WP0): this
+// file names no kernel crate.
+use picodroid_core::rtos::{self, RawSem, Timeout};
 
 // ── Output ───────────────────────────────────────────────────────────────────
 
@@ -153,12 +155,7 @@ pub fn init_gpio_irq() {
 
     // Allocate the wake semaphore the first time we install GPIO IRQs.
     // Subsequent calls leave it in place (binary semaphore, signal-latching).
-    unsafe {
-        if (*BUTTON_WAKE_SEM.0.get()).is_none() {
-            let sem = Semaphore::new_binary().expect("BUTTON_WAKE_SEM alloc");
-            *BUTTON_WAKE_SEM.0.get() = Some(sem);
-        }
-    }
+    BUTTON_WAKE_SEM.ensure("BUTTON_WAKE_SEM alloc");
 
     unsafe {
         let nvic_ipr = 0xE000_E400 as *mut u8;
@@ -290,17 +287,10 @@ extern "C" fn IO_IRQ_BANK0() {
             let edge_low = (ints >> (shift + 2)) & 1 != 0;
             let edge_high = (ints >> (shift + 3)) & 1 != 0;
             #[cfg(has_touch)]
-            if (edge_low || edge_high)
-                && pin == TOUCH_IRQ_PIN.load(core::sync::atomic::Ordering::Acquire)
-            {
+            if (edge_low || edge_high) && pin == TOUCH_IRQ_PIN.load(Ordering::Acquire) {
                 // The panel, not a button: wake the sampler and leave the
                 // button ring alone.
-                unsafe {
-                    if let Some(sem) = (*TOUCH_WAKE_SEM.0.get()).as_ref() {
-                        let mut ctx = InterruptContext::new();
-                        sem.give_from_isr(&mut ctx);
-                    }
-                }
+                rtos::sem_give_from_isr(TOUCH_WAKE_SEM.get());
                 continue;
             }
             if edge_low {
@@ -361,16 +351,16 @@ fn now_us() -> u32 {
 static EVENTS: GpioEventRing<64> = GpioEventRing::new();
 
 /// ISR context (or task context with the ISR masked — see `inject`).
+///
+/// Out of line: once the wake was a plain seam call, LLVM inlined this at
+/// both edges and unrolled the handler's pin loop around it (+732 B of
+/// RP2040 flash for one handler).
+#[inline(never)]
 fn enqueue_gpio_event(pin: u8, rising: bool) {
     if EVENTS.enqueue(pin, rising, now_us()) {
         // Wake any task blocked in `wait_for_button_event()`. Latches if
         // nothing is currently waiting (binary semaphore).
-        unsafe {
-            if let Some(sem) = (*BUTTON_WAKE_SEM.0.get()).as_ref() {
-                let mut ctx = InterruptContext::new();
-                sem.give_from_isr(&mut ctx);
-            }
-        }
+        rtos::sem_give_from_isr(BUTTON_WAKE_SEM.get());
     }
 }
 
@@ -399,19 +389,41 @@ pub fn has_pending_event() -> bool {
 
 // ── Wake semaphore (signalled from IO_IRQ_BANK0 ISR) ─────────────────────────
 
-struct SemCell(UnsafeCell<Option<Semaphore>>);
-unsafe impl Sync for SemCell {}
+/// A seam semaphore the ISR gives. Zero until created, and the seam's gives
+/// ignore a zero handle, so an edge that beats the creation is dropped rather
+/// than dereferenced.
+struct SemCell(AtomicUsize);
 
-static BUTTON_WAKE_SEM: SemCell = SemCell(UnsafeCell::new(None));
+impl SemCell {
+    const fn new() -> Self {
+        Self(AtomicUsize::new(0))
+    }
+
+    fn get(&self) -> RawSem {
+        self.0.load(Ordering::Acquire)
+    }
+
+    /// Create the semaphore on first use. Task context, one caller at a
+    /// time (board init, then the UI task), so load-then-store is enough —
+    /// and thumbv6m has no compare-exchange to offer.
+    fn ensure(&self, what: &str) {
+        if self.get() == 0 {
+            let sem = rtos::sem_binary_create();
+            assert!(sem != 0, "{}", what);
+            self.0.store(sem, Ordering::Release);
+        }
+    }
+}
+
+static BUTTON_WAKE_SEM: SemCell = SemCell::new();
 
 /// Block the calling task until the next GPIO edge IRQ enqueues an event.
 /// Returns immediately if a signal was latched while the task wasn't waiting.
 /// No-op if `init_gpio_irq()` has not been called yet.
 pub fn wait_for_button_event() {
-    unsafe {
-        if let Some(sem) = (*BUTTON_WAKE_SEM.0.get()).as_ref() {
-            let _ = sem.take(Duration::infinite());
-        }
+    let sem = BUTTON_WAKE_SEM.get();
+    if sem != 0 {
+        let _ = rtos::sem_take(sem, Timeout::Forever);
     }
 }
 
@@ -426,7 +438,7 @@ pub fn wait_for_button_event() {
 // of this — nor the semaphore take it would link — exists.
 
 #[cfg(has_touch)]
-static TOUCH_WAKE_SEM: SemCell = SemCell(UnsafeCell::new(None));
+static TOUCH_WAKE_SEM: SemCell = SemCell::new();
 /// `0xFF` until armed; no GPIO has that number.
 #[cfg(has_touch)]
 static TOUCH_IRQ_PIN: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0xFF);
@@ -437,13 +449,8 @@ static TOUCH_IRQ_PIN: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU
 /// bus, so its sampler task never runs and its PENIRQ would wake nobody.
 #[cfg(touch_gt911)]
 pub fn arm_touch_irq(pin: u8) {
-    unsafe {
-        if (*TOUCH_WAKE_SEM.0.get()).is_none() {
-            let sem = Semaphore::new_binary().expect("TOUCH_WAKE_SEM alloc");
-            *TOUCH_WAKE_SEM.0.get() = Some(sem);
-        }
-    }
-    TOUCH_IRQ_PIN.store(pin, core::sync::atomic::Ordering::Release);
+    TOUCH_WAKE_SEM.ensure("TOUCH_WAKE_SEM alloc");
+    TOUCH_IRQ_PIN.store(pin, Ordering::Release);
     init_gpio_irq();
     enable_edge_irq(pin, EdgeTrigger::Both);
 }
@@ -452,14 +459,12 @@ pub fn arm_touch_irq(pin: u8) {
 /// the interrupt. A plain sleep while nothing is armed.
 #[cfg(has_touch)]
 pub fn wait_touch_irq(timeout_ms: u32) -> bool {
-    unsafe {
-        match (*TOUCH_WAKE_SEM.0.get()).as_ref() {
-            Some(sem) => sem.take(Duration::ms(timeout_ms)).is_ok(),
-            None => {
-                freertos_rust::CurrentTask::delay(Duration::ms(timeout_ms));
-                false
-            }
+    match TOUCH_WAKE_SEM.get() {
+        0 => {
+            rtos::delay_ms(timeout_ms);
+            false
         }
+        sem => rtos::sem_take(sem, Timeout::Ms(timeout_ms)),
     }
 }
 
@@ -467,11 +472,7 @@ pub fn wait_touch_irq(timeout_ms: u32) -> bool {
 /// lifted, which moves no real pin.
 #[cfg(has_touch)]
 pub fn kick_touch_irq() {
-    unsafe {
-        if let Some(sem) = (*TOUCH_WAKE_SEM.0.get()).as_ref() {
-            sem.give();
-        }
-    }
+    rtos::sem_give(TOUCH_WAKE_SEM.get());
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

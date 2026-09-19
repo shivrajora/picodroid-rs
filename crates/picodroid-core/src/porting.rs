@@ -76,8 +76,9 @@
 //!    [`board_cfg`]. LVGL is compiled by *this* crate's build script — never
 //!    by a family. Logging is [`pd_info!`] and friends: defmt on device,
 //!    `eprintln` on the host, so link a defmt sink. A wait of a millisecond
-//!    or more goes to the kernel (a semaphore an interrupt gives, a task
-//!    notification, `delay_ms`); the few register waits that must stay
+//!    or more goes to the kernel (a semaphore an interrupt gives with
+//!    `rtos::sem_give_from_isr`, a task notification, `delay_ms`, or
+//!    `rtos::delay_until` for a fixed rate); the few register waits that must stay
 //!    spins — a DMA abort retiring, a block leaving reset — are written
 //!    with [`spin_until!`], which names and caps each one and returns
 //!    [`SpinTimeout`] instead of hanging (`docs/scheduling-audit-2026-09.md`).

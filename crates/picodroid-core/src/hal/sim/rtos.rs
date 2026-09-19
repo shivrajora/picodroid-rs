@@ -280,6 +280,12 @@ pub fn task_notify(t: RawTask) {
     notif.ready.notify_one();
 }
 
+/// See [`sem_give_from_isr`].
+pub fn task_notify_from_isr(t: RawTask) -> bool {
+    task_notify(t);
+    false
+}
+
 pub fn task_wait_notification(t: Timeout) -> bool {
     SELF_NOTIF.with(|notif| {
         let mut count = notif
@@ -428,6 +434,13 @@ pub fn sem_give(s: RawSem) {
     sem.ready.notify_one();
 }
 
+/// No interrupts and no priorities here: the give is the give, and "a
+/// higher-priority task was readied" is never true of host threads.
+pub fn sem_give_from_isr(s: RawSem) -> bool {
+    sem_give(s);
+    false
+}
+
 pub fn sem_take(s: RawSem, t: Timeout) -> bool {
     if s == 0 {
         return false;
@@ -533,6 +546,28 @@ pub fn delay_ms(ms: u32) {
     } else {
         std::thread::sleep(Duration::from_millis(ms as u64));
     }
+}
+
+/// Milliseconds since the first call — this backing's "tick count".
+pub fn delay_until_anchor() -> u32 {
+    static EPOCH: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    EPOCH
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_millis() as u32
+}
+
+/// The kernel's `vTaskDelayUntil` contract over a host sleep: the stamp
+/// advances by exactly one period whether or not the deadline had passed.
+pub fn delay_until(last_wake_ms: &mut u32, period_ms: u32) {
+    let target = last_wake_ms.wrapping_add(period_ms);
+    // Signed distance, so a wrapped stamp and a missed deadline both read
+    // correctly.
+    let ahead = target.wrapping_sub(delay_until_anchor()) as i32;
+    if ahead > 0 {
+        std::thread::sleep(Duration::from_millis(ahead as u64));
+    }
+    *last_wake_ms = target;
 }
 
 /// Whether the calling thread is a kernel task. This backing has no kernel —

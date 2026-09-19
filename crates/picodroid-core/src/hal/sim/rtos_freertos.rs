@@ -315,6 +315,30 @@ pub fn task_notify(t: RawTask) {
     task.notify(freertos_rust::TaskNotification::Increment);
 }
 
+/// The POSIX port has no interrupts: its "ISR" is a kernel task standing in
+/// for one (scripted input, a modelled peripheral), and the port's
+/// yield-from-ISR is a plain task yield. A thread the kernel does not own may
+/// not call this — see the module's one invariant — and is refused loudly.
+fn assert_isr_stand_in(what: &str) {
+    assert!(
+        current_thread_is_task(),
+        "{what} from a thread the kernel does not own: the hosted kernel's \
+         interrupt context is a kernel task"
+    );
+}
+
+pub fn task_notify_from_isr(t: RawTask) -> bool {
+    if t == 0 {
+        return false;
+    }
+    assert_isr_stand_in("task_notify_from_isr");
+    // SAFETY: see `task_notify`. Identical to the device arm.
+    let task = unsafe { Task::from_raw_handle(t as *const core::ffi::c_void) };
+    let mut ctx = freertos_rust::InterruptContext::new();
+    let _ = task.notify_from_isr(&mut ctx, freertos_rust::TaskNotification::Increment);
+    ctx.higher_priority_task_woken() != 0
+}
+
 pub fn task_wait_notification(t: Timeout) -> bool {
     freertos_rust::CurrentTask::take_notification(true, to_duration(t)) != 0
 }
@@ -398,6 +422,18 @@ pub fn sem_give(s: RawSem) {
     sem.give();
 }
 
+pub fn sem_give_from_isr(s: RawSem) -> bool {
+    if s == 0 {
+        return false;
+    }
+    assert_isr_stand_in("sem_give_from_isr");
+    // SAFETY: see `queue_send`.
+    let sem = unsafe { &*(s as *const Semaphore) };
+    let mut ctx = freertos_rust::InterruptContext::new();
+    sem.give_from_isr(&mut ctx);
+    ctx.higher_priority_task_woken() != 0
+}
+
 pub fn sem_take(s: RawSem, t: Timeout) -> bool {
     if s == 0 {
         return false;
@@ -455,6 +491,39 @@ pub fn tick_timer_stop() {
 
 pub fn delay_ms(ms: u32) {
     freertos_rust::CurrentTask::delay(Duration::ms(ms));
+}
+
+/// The POSIX port's `TickType_t` (`portmacro.h`: `unsigned long`) — 64 bits
+/// on the hosts the simulator runs on, where `freertos_rust` types a tick as
+/// `u32`. By value that only truncates; through a *pointer* it does not, so
+/// the crate's `vTaskDelayUntil` wrapper reads and writes eight bytes of a
+/// four-byte stamp here (measured: the deadline is garbage and the call
+/// never sleeps). Hence the kernel's own entry points, in its own width.
+type HostTick = core::ffi::c_ulong;
+
+extern "C" {
+    fn xTaskGetTickCount() -> HostTick;
+    fn xTaskDelayUntil(previous_wake: *mut HostTick, increment: HostTick) -> core::ffi::c_long;
+}
+
+// 1 kHz tick, as on the device: a tick count is a millisecond count.
+pub fn delay_until_anchor() -> u32 {
+    // SAFETY: FFI into the kernel; reads a counter.
+    (unsafe { xTaskGetTickCount() }) as u32
+}
+
+pub fn delay_until(last_wake_ms: &mut u32, period_ms: u32) {
+    // SAFETY: FFI into the kernel from a task; `stamp` outlives the call.
+    unsafe {
+        // Widen the seam's 32-bit stamp onto the kernel's clock: the signed
+        // distance from now, so a stamp behind (a missed deadline) or ahead
+        // of the count both land where the caller meant.
+        let now = xTaskGetTickCount();
+        let behind = (now as u32).wrapping_sub(*last_wake_ms) as i32;
+        let mut stamp = now.wrapping_sub(behind as HostTick);
+        xTaskDelayUntil(&mut stamp, period_ms as HostTick);
+        *last_wake_ms = stamp as u32;
+    }
 }
 
 /// What the hosted kernel gives the scheduling monitor

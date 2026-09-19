@@ -267,7 +267,17 @@ failed only because its flash never happened (the board still ran the
 previous shrink image and rejected the no-shrink PAPK) — those rows passed
 on the re-run. The `instr_rx_*` gdb readback was not done.
 
-### WP0 — ISR-safe seam primitives — small, unblocks shared IRQ-driven waits
+### WP0 — ISR-safe seam primitives — LANDED 2026-09-18
+
+Landed as planned below, plus `delay_until_anchor` (the first stamp has to
+come from the kernel's clock, not the HAL's) and `gpio.rs` moved onto the
+seam. Two things worth knowing: the simulator arm of `delay_until` cannot use
+`freertos_rust`'s wrapper (64-bit `TickType_t` on the POSIX port behind a
+`u32` pointer — it never slept and wrote past the stamp), and the RP2040 cost
+was +792 B until `enqueue_gpio_event` went `inline(never)` (LLVM unrolled the
+handler's pin loop around the now-cheap call); +200 B after. Owed: one HIL
+pass for the button wake from display sleep and the touch kit's GT911 wake.
+The original plan:
 
 `crates/picodroid-core/src/rtos/mod.rs` has no `sem_give_from_isr` /
 `task_notify_from_isr` and no `delay_until`; family code reaches around it
@@ -430,7 +440,10 @@ question. With an edge confirmed at touch-down, raise `IDLE_POLL_MS` toward
   worth doing until the indev is event-driven.
 - WP9's TX ring + `UARTx_IRQ`: `write_byte` no longer spins (§1), but it
   still blocks the writer a tick at a time; the ring waits for a serial app.
-- WP0 (ISR-safe seam primitives): WP5 stayed family code and used
+- WP0 (ISR-safe seam primitives): **landed 2026-09-18** with `gpio.rs` as
+  the consumer (see WP0 above); `pio_spi.rs` (WP5) and `dma.rs` still give
+  their semaphores through `freertos_rust` and can follow. Before that: WP5
+  stayed family code and used
   `freertos_rust` directly, like `gpio.rs`; still no shared consumer. The
   scheduling monitor did not create one either: its hooks are called *by*
   the kernel and it prints from the idle task, so nothing in it needs an

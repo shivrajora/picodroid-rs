@@ -447,6 +447,28 @@ mod tests {
         }
     }
 
+    /// The GPIO handler wakes its tasks through the seam's ISR-side calls
+    /// (`docs/scheduling-audit-2026-09.md` WP0). It is the family's reference
+    /// for an IRQ → task wake, so the kernel crate creeping back in here is
+    /// what the next driver would copy.
+    #[test]
+    fn the_gpio_isr_wakes_tasks_through_the_seam() {
+        let gpio = read_stripped(&crate_root().join("src/hal/rp/gpio.rs"));
+        assert!(
+            gpio.contains("rtos::sem_give_from_isr("),
+            "src/hal/rp/gpio.rs: expected the ISR to give its wake semaphores with \
+             `rtos::sem_give_from_isr` — the layout changed, not the code?"
+        );
+        for banned in ["freertos_rust", "InterruptContext", "give_from_isr(&mut"] {
+            assert!(
+                !gpio.contains(banned),
+                "src/hal/rp/gpio.rs names `{banned}`: wake tasks through \
+                 `picodroid_core::rtos` (`sem_give_from_isr`, `task_notify_from_isr`), \
+                 whose device arm in `glue.rs` owns the yield-from-ISR"
+            );
+        }
+    }
+
     /// The block of `FreeRTOSConfig.h` between `#ifdef PICODROID_SCHED_DIAG`
     /// and its `#endif`, whitespace-normalised.
     fn sched_diag_block(path: &Path) -> String {

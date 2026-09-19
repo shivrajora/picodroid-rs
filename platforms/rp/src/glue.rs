@@ -475,6 +475,19 @@ mod rtos_impl {
             task.notify(freertos_rust::TaskNotification::Increment);
         }
 
+        fn task_notify_from_isr(t: RawTask) -> bool {
+            if t == 0 {
+                return false;
+            }
+            // SAFETY: as `task_notify`.
+            let task = unsafe { Task::from_raw_handle(t as *const core::ffi::c_void) };
+            // Dropping the context is the port's yield-from-ISR: it pends
+            // the switch when the wake asked for one.
+            let mut ctx = freertos_rust::InterruptContext::new();
+            let _ = task.notify_from_isr(&mut ctx, freertos_rust::TaskNotification::Increment);
+            ctx.higher_priority_task_woken() != 0
+        }
+
         fn task_wait_notification(t: Timeout) -> bool {
             // `clear = true`: the seam's contract is "look again", not a
             // credit counter — see `Rtos::task_wait_notification`. A zero
@@ -557,6 +570,17 @@ mod rtos_impl {
             sem.give();
         }
 
+        fn sem_give_from_isr(s: RawSem) -> bool {
+            if s == 0 {
+                return false;
+            }
+            let sem = unsafe { &*(s as *const Semaphore) };
+            // See `task_notify_from_isr` for the context's drop.
+            let mut ctx = freertos_rust::InterruptContext::new();
+            sem.give_from_isr(&mut ctx);
+            ctx.higher_priority_task_woken() != 0
+        }
+
         fn sem_take(s: RawSem, t: Timeout) -> bool {
             if s == 0 {
                 return false;
@@ -614,6 +638,24 @@ mod rtos_impl {
 
         fn delay_ms(ms: u32) {
             freertos_rust::CurrentTask::delay(Duration::ms(ms));
+        }
+
+        // The tick is 1 kHz (`configTICK_RATE_HZ`), so a tick count is a
+        // millisecond count and the seam's stamp is the kernel's own.
+        fn delay_until_anchor() -> u32 {
+            freertos_rust::FreeRtosUtils::get_tick_count()
+        }
+
+        fn delay_until(last_wake_ms: &mut u32, period_ms: u32) {
+            use freertos_rust::DurationTicks;
+            // SAFETY: FFI into the kernel from a task; the stamp is a live
+            // `&mut` for the call.
+            unsafe {
+                freertos_rust::freertos_rs_vTaskDelayUntil(
+                    last_wake_ms,
+                    Duration::ms(period_ms).to_ticks(),
+                );
+            }
         }
     }
 }

@@ -368,6 +368,9 @@ unsafe impl Rtos for TestRtos {
     fn task_notify(t: RawTask) {
         sim_rtos::task_notify(t)
     }
+    fn task_notify_from_isr(t: RawTask) -> bool {
+        sim_rtos::task_notify_from_isr(t)
+    }
     fn task_wait_notification(t: Timeout) -> bool {
         sim_rtos::task_wait_notification(t)
     }
@@ -402,6 +405,9 @@ unsafe impl Rtos for TestRtos {
     fn sem_give(s: RawSem) {
         sim_rtos::sem_give(s)
     }
+    fn sem_give_from_isr(s: RawSem) -> bool {
+        sim_rtos::sem_give_from_isr(s)
+    }
     fn sem_take(s: RawSem, t: Timeout) -> bool {
         sim_rtos::sem_take(s, t)
     }
@@ -411,6 +417,14 @@ unsafe impl Rtos for TestRtos {
     fn tick_timer_resume() {}
     fn tick_timer_stop() {}
     fn delay_ms(_ms: u32) {}
+    fn delay_until_anchor() -> u32 {
+        sim_rtos::delay_until_anchor()
+    }
+    /// Like `delay_ms`, a test does not sleep: the stamp advances, which is
+    /// the half of the contract a caller can observe.
+    fn delay_until(last_wake_ms: &mut u32, period_ms: u32) {
+        *last_wake_ms = last_wake_ms.wrapping_add(period_ms);
+    }
 }
 
 crate::set_rtos!(TestRtos);
@@ -569,6 +583,11 @@ mod tests {
         );
         rtos::task_notify(0); // no task context: must be a no-op, not a crash
 
+        // The ISR-side wake lands in the same count as the task-side one.
+        rtos::task_notify_from_isr(me);
+        assert!(rtos::task_wait_notification(Timeout::None));
+        assert!(!rtos::task_notify_from_isr(0), "no task: no-op, no switch");
+
         // Recursion depth must be tracked: Java monitors re-enter.
         let m = rtos::mutex_recursive_create().expect("stub mutex");
         assert!(rtos::mutex_recursive_lock(m, Timeout::Forever));
@@ -581,6 +600,37 @@ mod tests {
         rtos::sem_give(s);
         assert!(rtos::sem_take(s, Timeout::None), "give then take succeeds");
         assert!(!rtos::sem_take(s, Timeout::None), "binary, so not re-armed");
+        // An ISR's give latches like a task's, and stays binary.
+        rtos::sem_give_from_isr(s);
+        rtos::sem_give_from_isr(s);
+        assert!(rtos::sem_take(s, Timeout::None));
+        assert!(!rtos::sem_take(s, Timeout::None));
+        // A handler can fire before its semaphore exists.
+        assert!(!rtos::sem_give_from_isr(0));
+
+        // The stamp advances by exactly the period, deadline met or missed,
+        // and a zero period is a yield that leaves it alone.
+        let mut wake = rtos::delay_until_anchor();
+        let start = wake;
+        rtos::delay_until(&mut wake, 10);
+        rtos::delay_until(&mut wake, 10);
+        assert_eq!(wake, start.wrapping_add(20));
+        rtos::delay_until(&mut wake, 0);
+        assert_eq!(wake, start.wrapping_add(20));
+        // The host backing itself does sleep: to the deadline, and not at all
+        // past one.
+        use super::sim_rtos;
+        let mut host = sim_rtos::delay_until_anchor();
+        let began = std::time::Instant::now();
+        sim_rtos::delay_until(&mut host, 20);
+        assert!(began.elapsed() >= std::time::Duration::from_millis(18));
+        let mut missed = sim_rtos::delay_until_anchor().wrapping_sub(1_000);
+        let began = std::time::Instant::now();
+        sim_rtos::delay_until(&mut missed, 10);
+        assert!(began.elapsed() < std::time::Duration::from_millis(10));
+        let mut wrapping = u32::MAX - 3;
+        rtos::delay_until(&mut wrapping, 10);
+        assert_eq!(wrapping, 6);
         rtos::tick_timer_start(16, || {});
         rtos::tick_timer_pause();
         rtos::tick_timer_resume();
