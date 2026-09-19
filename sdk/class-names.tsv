@@ -185,6 +185,7 @@ picodroid/net/Socket
 picodroid/net/URL
 picodroid/os/Build
 picodroid/os/Build$VERSION
+picodroid/os/Bundle
 picodroid/os/IBinder
 picodroid/os/Runtime
 picodroid/os/StatFs

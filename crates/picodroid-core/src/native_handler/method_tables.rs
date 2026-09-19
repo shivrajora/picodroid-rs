@@ -462,6 +462,7 @@ pub const APP_SERVICES_HANDLED: &[Row] = &[
 pub const CORE_HANDLED: &[Row] = &[
     // picodroid/app/Activity
     ("picodroid/app/Activity", "finish", "()V"),
+    ("picodroid/app/Activity", "recreate", "()V"),
     (
         "picodroid/app/Activity",
         "getIntent",

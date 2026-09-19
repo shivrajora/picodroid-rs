@@ -328,6 +328,7 @@ F	enabled
 F	endAction
 F	error
 F	eventTime
+F	extras
 F	fillColor
 F	fixedLength
 F	flags
@@ -440,7 +441,6 @@ F	strVals
 F	strokeColor
 F	strokeWidth
 F	tag
-F	tags
 F	target
 F	targetClassName
 F	text
@@ -453,6 +453,7 @@ F	type
 F	types
 F	uartId
 F	url
+F	vals
 F	value
 F	value0
 F	value1
@@ -539,6 +540,7 @@ M	compareAndSet
 M	connect
 M	contains
 M	containsCrLf
+M	containsKey
 M	convert
 M	copyOf
 M	cos
@@ -571,9 +573,7 @@ M	execute
 M	exists
 M	exit0
 M	exp
-M	extraCount
-M	extraInt
-M	extraKey
+M	extras
 M	fileList
 M	filePath
 M	fill
@@ -629,8 +629,11 @@ M	getBlockCountLong
 M	getBlockSizeLong
 M	getBoolean
 M	getBooleanExtra
+M	getBundle
+M	getBundleExtra
 M	getByAddress
 M	getByName
+M	getByteArray
 M	getCacheBytes
 M	getCheckedRadioButtonId
 M	getChildAt
@@ -657,6 +660,7 @@ M	getDuration
 M	getEllipsize
 M	getErrorStream
 M	getEventTime
+M	getExtras
 M	getFilesDir
 M	getFloat
 M	getFreeBlocksLong
@@ -672,6 +676,7 @@ M	getInputStream
 M	getInstalledPackages
 M	getInstance
 M	getInt
+M	getIntArray
 M	getIntExtra
 M	getInteger
 M	getIntent
@@ -688,6 +693,7 @@ M	getLayoutParams
 M	getLeft
 M	getLength
 M	getLong
+M	getLongExtra
 M	getLongVersionCode
 M	getMaxLines
 M	getMaxValue
@@ -731,6 +737,7 @@ M	getSharedPreferences
 M	getStartDelay
 M	getStep
 M	getString
+M	getStringArray
 M	getStringExtra
 M	getSystemService
 M	getTag
@@ -784,7 +791,6 @@ M	isFile
 M	isFocusable
 M	isFocused
 M	isIndeterminate
-M	isIntExtra
 M	isInterrupted
 M	isNull
 M	isNullSentinel
@@ -808,7 +814,6 @@ M	load
 M	loadIcon
 M	loadLabel
 M	locate
-M	locateOrAppend
 M	log
 M	log10
 M	longValue
@@ -974,7 +979,9 @@ M	onReady
 M	onRebind
 M	onRefresh
 M	onRestart
+M	onRestoreInstanceState
 M	onResume
+M	onSaveInstanceState
 M	onSensorChanged
 M	onServiceConnected
 M	onServiceDisconnected
@@ -1013,24 +1020,34 @@ M	path
 M	peakMemory
 M	performCheckedChange
 M	performClick
+M	performCreate
 M	performItemClick
 M	performItemSelected
 M	performLongClick
 M	performLongClickNative
 M	performProgressChange
+M	performRestoreInstanceState
+M	performSaveInstanceState
 M	performTrackingTouch
 M	pollTouch
 M	pow
 M	put
+M	putAll
 M	putBoolean
+M	putBundle
+M	putByteArray
+M	putDouble
 M	putExtra
+M	putExtras
 M	putFloat
 M	putInt
+M	putIntArray
 M	putLong
 M	putOpt
 M	putRaw
 M	putRawAt
 M	putString
+M	putStringArray
 M	queryStatsForPackage
 M	queue
 M	quote
@@ -1040,6 +1057,7 @@ M	readInt32
 M	readInt32LE
 M	readValue
 M	receive
+M	recreate
 M	recv
 M	refreshFromAdapter
 M	registerListener
@@ -1190,6 +1208,7 @@ M	showFps
 M	shutdown
 M	shutdownNow
 M	sin
+M	size
 M	sleep
 M	sleep0
 M	slot

@@ -31,15 +31,18 @@ public class MyApp extends Application {
 
 ## `picodroid.app.Activity`
 
-Base class for display screens. Subclass it, override `onCreate()`, build a widget tree, and call `setContentView()`.
+Base class for display screens. Subclass it, override `onCreate(Bundle)`, build a widget tree, and call `setContentView()`.
 
 ```java
 import picodroid.app.Activity;
+import picodroid.os.Bundle;
 import picodroid.view.View;
 import picodroid.debug.DisplayDebug;
 
 public class MyActivity extends Activity {
-    public void onCreate() {
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
         DisplayDebug.calibrate();     // optional: run touch calibration (debug helper)
         // ... build widget tree ...
         setContentView(rootView);     // render the widget tree
@@ -53,7 +56,8 @@ The full Android-style lifecycle is dispatched by the runtime. Override only the
 
 | Callback | When |
 |----------|------|
-| `onCreate()` | Once, after instantiation. Build the UI tree here. |
+| `onCreate(Bundle savedInstanceState)` | Once, after instantiation. Build the UI tree here. The argument is `null` on a fresh launch, and the Bundle filled by `onSaveInstanceState` when the Activity is being [re-created](#saved-instance-state). |
+| `onCreate()` | Deprecated pre-Bundle spelling, with no Android counterpart. The default `onCreate(Bundle)` calls it, so existing Activities that override only this one keep working. |
 | `onStart()` | After `onCreate`, and on every return to the foreground. |
 | `onResume()` | Immediately after `onStart`; the Activity is now interactive. |
 | `onPause()` | When another Activity is being launched on top. |
@@ -62,6 +66,33 @@ The full Android-style lifecycle is dispatched by the runtime. Override only the
 | `onBackPressed()` | BACK-key default action — calls `finish()`. Override and don't `super.onBackPressed()` to suppress (e.g. show a confirm dialog). |
 
 The content view installed in `onCreate` (or `onResume`) is **preserved across pause** — when this Activity returns to the foreground, the saved widget tree is restored automatically. Rebuilding the tree from `onResume` is still supported; the new root replaces the saved one.
+
+### Saved instance state
+
+`recreate()` destroys the foreground Activity and starts a new instance of it in the same back-stack slot, the Android way of rebuilding a screen from scratch. State crosses over in a [`Bundle`](#picodroidosbundle):
+
+| Callback / method | When |
+|-------------------|------|
+| `recreate()` | Ask for the re-creation; it happens after the current callback returns. Foreground Activity only. |
+| `onSaveInstanceState(Bundle outState)` | On the old instance, after `onStop` and before `onDestroy`. Put what the next instance needs into `outState`. Not called when the Activity is finishing. |
+| `onRestoreInstanceState(Bundle savedInstanceState)` | On the new instance, after `onStart` and before `onResume`, with the same Bundle `onCreate` received. Never called on a fresh launch. |
+
+Full order: old `onPause → onStop → onSaveInstanceState → onDestroy`, then new `onCreate(saved) → onStart → onRestoreInstanceState(saved) → onResume`. `getIntent()` and a pending `startActivityForResult` launch carry over to the new instance; a `setResult` made by the old one does not.
+
+```java
+@Override
+protected void onSaveInstanceState(Bundle outState) {
+    outState.putInt("count", count);
+}
+
+@Override
+protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
+    count = savedInstanceState == null ? 0 : savedInstanceState.getInt("count");
+}
+```
+
+Two differences from Android. The default `onSaveInstanceState` saves nothing — there are no view ids to key a view hierarchy's state by, so an `EditText`'s text is yours to save. And the framework never destroys a covered Activity behind your back: a paused Activity keeps its instance and its view tree, so `recreate()` is the only path that delivers a non-null Bundle. See [`examples/bundledemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/bundledemo).
 
 ### Back stack
 
@@ -77,6 +108,36 @@ The content view installed in `onCreate` (or `onResume`) is **preserved across p
 | `getDisplay()` | Returns the `Display` singleton. |
 
 See [`examples/navdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/navdemo) for a multi-Activity back-stack demo and [`examples/dialogdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/dialogdemo) for an `onBackPressed` override pattern.
+
+## `picodroid.os.Bundle`
+
+A String-keyed map of typed values, mirroring `android.os.Bundle`: the carrier for Intent extras and for saved instance state.
+
+```java
+import picodroid.os.Bundle;
+
+Bundle b = new Bundle();
+b.putInt("count", 3);
+b.putString("name", "pico");
+int count = b.getInt("count");            // 3
+long missing = b.getLong("nope", -1L);    // -1: absent key gives the default
+String wrong = b.getString("count");      // null: so does a value of another type
+
+startActivity(new Intent(DetailActivity.class).putExtras(b));
+// in DetailActivity:
+Bundle extras = getIntent().getExtras();  // a copy, or null when there are none
+```
+
+| Method | Description |
+|--------|-------------|
+| `putBoolean` / `putInt` / `putLong` / `putFloat` / `putDouble` / `putString` | Store a value under a key, replacing any previous one (of any type). |
+| `putIntArray` / `putByteArray` / `putStringArray` / `putBundle` | Arrays and nested Bundles, stored by reference. |
+| `getInt(key)` / `getInt(key, default)` and the same pair for every scalar type | Typed read. An absent key or a value of another type returns the default (`0`, `false`, `null`, or the one given) — never throws. |
+| `getIntArray` / `getByteArray` / `getStringArray` / `getBundle` / `get` | Reference reads; `null` when absent or mistyped. `get` returns primitives boxed. |
+| `containsKey` / `remove` / `clear` / `size` / `isEmpty` / `keySet` | Map housekeeping. `keySet()` is a fresh set in insertion order. |
+| `putAll(Bundle)` / `new Bundle(Bundle)` | Shallow copy of another Bundle's mappings. |
+
+`Intent` exposes the same store: `putExtra(String, int/long/boolean/String/Bundle)`, `getIntExtra` / `getLongExtra` / `getBooleanExtra` / `getStringExtra` / `getBundleExtra`, `hasExtra`, `putExtras(Bundle)` and `getExtras()`. There is no `Parcelable` or `Serializable`.
 
 ## `picodroid.graphics.Display`
 

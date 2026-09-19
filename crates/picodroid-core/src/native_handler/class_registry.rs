@@ -231,7 +231,7 @@ mod tests {
     /// Runs under both shrink modes (scripts/test.sh): loaded names are
     /// The `Intent` field slots the native `startActivity` reads by index
     /// (`graphics/fields.rs::intent`): `targetClassName` is slot 0 and
-    /// `packageName` slot 6, last, after the five extras fields. Declaration
+    /// `packageName` slot 2, last, after the extras `Bundle`. Declaration
     /// order is slot order, so `Intent.java` must keep both where they are.
     #[test]
     fn intent_field_slots_match_fields_rs() {
@@ -251,11 +251,11 @@ mod tests {
             .collect();
         assert_eq!(
             names.len(),
-            7,
-            "Intent declares seven instance fields: {names:?}"
+            3,
+            "Intent declares three instance fields: {names:?}"
         );
         assert_eq!(names[0], m::targetClassName, "{names:?}");
-        assert_eq!(names[6], m::packageName, "{names:?}");
+        assert_eq!(names[2], m::packageName, "{names:?}");
     }
 
     /// un-shrunk before the registry lookup, exactly like the runtime path.

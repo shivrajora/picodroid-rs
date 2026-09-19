@@ -86,12 +86,19 @@ pub const SERVICE_ON_REBIND: usize = 39;
 // bridge: `run()` by invokevirtual (subclass overrides work), the uncaught
 // path, and the registry hand-back in `finally`.
 pub const THREAD_RUN: usize = 40;
+// The Bundle callbacks go through `final` trampolines on Activity rather than
+// by name on the app's class: the flat, descriptor-blind native lookup can
+// tell neither `onCreate()` from `onCreate(Bundle)` nor find an override a
+// base Activity class declares, and the trampoline's invokevirtual does both.
+// `ACTIVITY_ON_CREATE` above is that trampoline too.
+pub const ACTIVITY_SAVE_INSTANCE_STATE: usize = 41;
+pub const ACTIVITY_RESTORE_INSTANCE_STATE: usize = 42;
 // A fired alarm is handed back to Java here: `AlarmManager.fireAlarm` builds
 // the Intent and starts the Activity, so a framework delivery takes the same
 // path an app's own `startActivity` does. Last, and multi-app only, which is
 // where `AlarmManager` ships; the indices above it stay put either way.
 #[cfg(has_multi_app)]
-pub const ALARM_FIRE: usize = 41;
+pub const ALARM_FIRE: usize = 43;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -108,7 +115,7 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     // through the interpreter's invokeinterface path.
     (c::picodroid_concurrent_Executors, m::dispatchRunnable),
     (c::picodroid_app_AlertDialog, m::fireButtonClick),
-    (c::picodroid_app_Activity, m::onCreate),
+    (c::picodroid_app_Activity, m::performCreate),
     (c::picodroid_app_Activity, m::onStart),
     (c::picodroid_app_Activity, m::onResume),
     (c::picodroid_app_Activity, m::onPause),
@@ -140,6 +147,8 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     (c::picodroid_app_Activity, m::onActivityResult),
     (c::picodroid_app_Service, m::onRebind),
     (c::picodroid_concurrent_Thread, m::runWrapper),
+    (c::picodroid_app_Activity, m::performSaveInstanceState),
+    (c::picodroid_app_Activity, m::performRestoreInstanceState),
     #[cfg(has_multi_app)]
     (c::picodroid_app_AlarmManager, m::fireAlarm),
 ];

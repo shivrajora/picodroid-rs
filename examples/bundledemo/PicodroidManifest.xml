@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest package="bundledemo" version="1.0">
+    <application application="bundledemo/BundleDemoApp" />
+</manifest>

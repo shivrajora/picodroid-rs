@@ -53,6 +53,10 @@ pub enum PendingActivityOp {
     /// `finish(); finish();` (Android's `mFinished` idempotence) pops one
     /// Activity, not the caller *and* its parent.
     Pop { finishing: u16 },
+    /// `Activity.recreate()` — destroy `target` (saving its instance state)
+    /// and start a new instance in the same stack entry. Ignored unless
+    /// `target` is still the top when the op is drained.
+    Recreate { target: u16 },
     /// A `startActivity` whose Intent names another package (multi-app
     /// boards): leave this app. The target is recorded in
     /// `crate::packages` (`request_launch`); the lifecycle loop answers
@@ -135,6 +139,12 @@ struct ActivityStackEntry {
     /// Result Intent set via `setResult(int, Intent)`. Rooted by the GC
     /// visitor below until delivered on pop.
     result_intent_ref: Option<u16>,
+    /// The `Bundle` a re-creation carries from this entry's old instance
+    /// (`onSaveInstanceState`) to its new one (`onCreate(Bundle)`,
+    /// `onRestoreInstanceState`). `Some` only while `handle_recreate_op`
+    /// runs; rooted by the GC visitor below, being reachable from neither
+    /// instance.
+    saved_state_ref: Option<u16>,
 }
 
 /// Fixed-capacity LIFO of Activity entries. Push fails soft (returns
@@ -184,9 +194,30 @@ impl ActivityStack {
             // without calling setResult.
             result_code: 0,
             result_intent_ref: None,
+            saved_state_ref: None,
         });
         self.len += 1;
         true
+    }
+
+    /// Hand the top entry to a new instance of its Activity (`recreate()`).
+    /// The launch Intent and the for-result launch metadata carry over, as
+    /// they belong to the launch, not the instance; the result is
+    /// per-instance and goes back to Android's RESULT_CANCELED default.
+    pub fn replace_top(&mut self, new_ref: u16) {
+        if let Some(e) = self.entries[..self.len].last_mut().and_then(Option::as_mut) {
+            e.obj_ref = new_ref;
+            e.root_handle = 0;
+            e.result_code = 0;
+            e.result_intent_ref = None;
+        }
+    }
+
+    /// Root (or, with `None`, drop) the top entry's saved-state Bundle.
+    pub fn set_top_saved_state(&mut self, bundle_ref: Option<u16>) {
+        if let Some(e) = self.entries[..self.len].last_mut().and_then(Option::as_mut) {
+            e.saved_state_ref = bundle_ref;
+        }
     }
 
     /// Record a result on the Activity identified by `obj_ref` (`setResult`).
@@ -287,6 +318,19 @@ impl ActivityStack {
             .flatten()
             .filter_map(|e| e.result_intent_ref)
     }
+
+    pub fn top_saved_state(&self) -> Option<u16> {
+        self.entries[..self.len].last()?.as_ref()?.saved_state_ref
+    }
+
+    /// Live entries' saved-state Bundle refs, for the GC visit-roots path:
+    /// mid-recreate the Bundle is held by this entry alone.
+    pub fn iter_saved_states(&self) -> impl Iterator<Item = u16> + '_ {
+        self.entries[..self.len]
+            .iter()
+            .flatten()
+            .filter_map(|e| e.saved_state_ref)
+    }
 }
 
 impl Default for ActivityStack {
@@ -348,6 +392,12 @@ impl PendingOpQueue {
         })
     }
 
+    pub fn has_pending_recreate_for(&self, target: u16) -> bool {
+        self.entries[..self.len].iter().flatten().any(|op| {
+            matches!(op, PendingOp::Activity(PendingActivityOp::Recreate { target: t }) if *t == target)
+        })
+    }
+
     /// Take the oldest queued op. Returns `None` when empty.
     pub fn take_next(&mut self) -> Option<PendingOp> {
         if self.len == 0 {
@@ -374,6 +424,7 @@ impl PendingOpQueue {
                     }
                 }
                 PendingOp::Activity(PendingActivityOp::Pop { .. })
+                | PendingOp::Activity(PendingActivityOp::Recreate { .. })
                 | PendingOp::Activity(PendingActivityOp::Launch) => {}
                 PendingOp::Service(svc) => match *svc {
                     PendingServiceOp::Start { intent_ref, .. } => {
@@ -440,6 +491,54 @@ mod tests {
         let mut s = ActivityStack::new();
         assert!(s.push(7, A, None, None, 0));
         assert_eq!(s.current(), Some((7, A)));
+    }
+
+    #[test]
+    fn replace_top_keeps_the_launch_and_resets_the_instance() {
+        // recreate(): the Intent and the for-result launch belong to the
+        // launch and carry over; the root view and the result belonged to
+        // the old instance and do not.
+        let mut s = ActivityStack::new();
+        s.push(1, A, None, None, 0);
+        s.push(2, B, Some(50), Some(9), 1);
+        s.set_current_root_handle(77);
+        s.set_result(2, -1, Some(51));
+        s.replace_top(3);
+        assert_eq!(s.current(), Some((3, B)));
+        assert_eq!(s.intent_of(3), Some(50));
+        assert_eq!(s.intent_of(2), None);
+        assert_eq!(s.current_root_handle(), 0);
+        assert_eq!(s.top_result(), Some((9, 1, 0, None)));
+        assert_eq!(s.iter_result_intents().count(), 0);
+    }
+
+    #[test]
+    fn saved_state_is_rooted_on_the_top_entry_until_dropped() {
+        let mut s = ActivityStack::new();
+        s.set_top_saved_state(Some(5)); // empty stack: nowhere to put it
+        assert_eq!(s.top_saved_state(), None);
+        s.push(1, A, None, None, 0);
+        s.push(2, B, None, None, 0);
+        s.set_top_saved_state(Some(60));
+        assert_eq!(s.top_saved_state(), Some(60));
+        assert_eq!(s.iter_saved_states().collect::<Vec<_>>(), [60]);
+        // It rides through the instance swap, which is when it is needed.
+        s.replace_top(3);
+        assert_eq!(s.top_saved_state(), Some(60));
+        s.set_top_saved_state(None);
+        assert_eq!(s.iter_saved_states().count(), 0);
+    }
+
+    #[test]
+    fn has_pending_recreate_for_collapses_repeats() {
+        let mut q = PendingOpQueue::new();
+        assert!(!q.has_pending_recreate_for(7));
+        assert!(q.enqueue(PendingOp::Activity(PendingActivityOp::Recreate {
+            target: 7
+        })));
+        assert!(q.has_pending_recreate_for(7));
+        assert!(!q.has_pending_recreate_for(8));
+        assert!(!q.has_pending_pop_for(7));
     }
 
     #[test]

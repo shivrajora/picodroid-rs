@@ -338,6 +338,22 @@ impl PicodroidNativeHandler {
         self.activity_stack.pop()
     }
 
+    /// `recreate()`: the top entry now belongs to `new_ref`, a new instance
+    /// of the same Activity class.
+    pub fn replace_top_activity(&mut self, new_ref: u16) {
+        self.activity_stack.replace_top(new_ref);
+    }
+
+    /// Root (`Some`) or drop (`None`) the top entry's saved-state Bundle.
+    pub fn set_top_saved_state(&mut self, bundle_ref: Option<u16>) {
+        self.activity_stack.set_top_saved_state(bundle_ref);
+    }
+
+    /// The top entry's saved-state Bundle, `Some` only mid-recreate.
+    pub fn top_saved_state(&self) -> Option<u16> {
+        self.activity_stack.top_saved_state()
+    }
+
     /// Saved content-view handle of the top entry, or `0` if the stack
     /// is empty / the top Activity has not yet called `setContentView`.
     pub fn current_root_handle(&self) -> i32 {
@@ -382,6 +398,10 @@ impl PicodroidNativeHandler {
         // delivered to the caller's onActivityResult on pop.
         for intent_ref in self.activity_stack.iter_result_intents() {
             visit(Value::ObjectRef(intent_ref));
+        }
+        // ...and the saved-state Bundle of an entry that is mid-recreate.
+        for bundle_ref in self.activity_stack.iter_saved_states() {
+            visit(Value::ObjectRef(bundle_ref));
         }
         // Pending ops: the Service `intent` / `conn` / `owner_activity`
         // references and the Activity Push `intent_ref` must survive until
@@ -626,6 +646,26 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                 if !self.pending_ops.has_pending_pop_for(this)
                     && !self.enqueue_op(PendingOp::Activity(PendingActivityOp::Pop {
                         finishing: this,
+                    }))
+                {
+                    return Some(Err(queue_full(ctx)));
+                }
+                Some(Ok(None))
+            }
+            (_, m::recreate) => {
+                // args[0] = this. Same shape as finish(): one queued op per
+                // Activity, and an Activity off the stack is ignored.
+                let this = match ctx.args.first() {
+                    Some(Value::ObjectRef(o)) => *o,
+                    _ => 0,
+                };
+                if !self.activity_stack.iter().any(|(r, _)| r == this) {
+                    crate::pd_warn!("recreate() on an Activity that is not on the stack; ignored");
+                    return Some(Ok(None));
+                }
+                if !self.pending_ops.has_pending_recreate_for(this)
+                    && !self.enqueue_op(PendingOp::Activity(PendingActivityOp::Recreate {
+                        target: this,
                     }))
                 {
                     return Some(Err(queue_full(ctx)));

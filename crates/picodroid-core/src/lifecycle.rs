@@ -149,8 +149,9 @@ pub(crate) fn run_application(
                 activity_push = Some((class_name, intent_ref));
                 break;
             }
-            PendingOp::Activity(PendingActivityOp::Pop { .. }) => {
-                // No stack yet — nothing to pop.
+            PendingOp::Activity(PendingActivityOp::Pop { .. })
+            | PendingOp::Activity(PendingActivityOp::Recreate { .. }) => {
+                // No stack yet — nothing to pop or re-create.
             }
             PendingOp::Activity(PendingActivityOp::Launch) => {
                 // Leaving before any Activity ran: nothing to drive, so the
@@ -565,16 +566,97 @@ fn bootstrap_activity(
     // Give this Activity its own keypad focus group before onCreate so its
     // focusable widgets join the right group (see events::push_activity_group).
     crate::graphics::lvgl::events::push_activity_group();
-    for site in [
+    start_activity_instance(jvm, initial_class, initial_ref, None, heap, handler)
+}
+
+/// Drive a new Activity instance to the foreground: `onCreate(saved)` →
+/// `onStart` → (`onRestoreInstanceState(saved)`) → `onResume`. `saved` is the
+/// previous instance's Bundle on a re-creation and `None` on a fresh launch,
+/// which hands `onCreate` a null and skips the restore callback — Android's
+/// contract for both.
+#[cfg(not(test))]
+fn start_activity_instance(
+    jvm: &mut Jvm,
+    class: &'static str,
+    obj_ref: u16,
+    saved: Option<u16>,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
+) -> LifecycleControl {
+    use pico_jvm::types::Value;
+    let saved_arg = saved.map_or(Value::Null, Value::ObjectRef);
+    if invoke_trampoline(
+        jvm,
         dispatch_sites::ACTIVITY_ON_CREATE,
-        dispatch_sites::ACTIVITY_ON_START,
+        obj_ref,
+        saved_arg,
+        heap,
+        handler,
+    )
+    .is_break()
+        || invoke_lifecycle(
+            jvm,
+            class,
+            dispatch_sites::ACTIVITY_ON_START,
+            obj_ref,
+            heap,
+            handler,
+        )
+        .is_break()
+    {
+        return LifecycleControl::Break;
+    }
+    if saved.is_some()
+        && invoke_trampoline(
+            jvm,
+            dispatch_sites::ACTIVITY_RESTORE_INSTANCE_STATE,
+            obj_ref,
+            saved_arg,
+            heap,
+            handler,
+        )
+        .is_break()
+    {
+        return LifecycleControl::Break;
+    }
+    invoke_lifecycle(
+        jvm,
+        class,
         dispatch_sites::ACTIVITY_ON_RESUME,
-    ] {
-        if invoke_lifecycle(jvm, initial_class, site, initial_ref, heap, handler).is_break() {
-            return LifecycleControl::Break;
+        obj_ref,
+        heap,
+        handler,
+    )
+}
+
+/// Invoke one of Activity's `final` Bundle trampolines (`performCreate`, …)
+/// with its single argument. Looked up on `picodroid/app/Activity` itself —
+/// nothing can override a final method — and the trampoline's invokevirtual
+/// then finds the app's override wherever in the hierarchy it is declared.
+#[cfg(not(test))]
+fn invoke_trampoline(
+    jvm: &mut Jvm,
+    site: usize,
+    obj_ref: u16,
+    arg: pico_jvm::types::Value,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
+) -> LifecycleControl {
+    match jvm.invoke_instance_with_args_returning(
+        dispatch_class(site),
+        dispatch_method(site),
+        obj_ref,
+        &[arg],
+        heap,
+        handler,
+    ) {
+        Ok(_) => LifecycleControl::Continue,
+        Err(JvmError::Interrupted) => LifecycleControl::Break,
+        Err(e) => {
+            log_error!("Activity lifecycle error: {}", e);
+            LifecycleControl::Continue
         }
     }
-    LifecycleControl::Continue
 }
 
 /// Walk the activity stack top-down on shutdown, invoking the full Android
@@ -868,14 +950,8 @@ fn handle_push_op(
     // New top gets its own keypad focus group before onCreate, isolating its
     // focus from the parent's (which is parked with its focus intact).
     crate::graphics::lvgl::events::push_activity_group();
-    for site in [
-        dispatch_sites::ACTIVITY_ON_CREATE,
-        dispatch_sites::ACTIVITY_ON_START,
-        dispatch_sites::ACTIVITY_ON_RESUME,
-    ] {
-        if invoke_lifecycle(jvm, new_class, site, new_ref, heap, handler).is_break() {
-            return LifecycleControl::Break;
-        }
+    if start_activity_instance(jvm, new_class, new_ref, None, heap, handler).is_break() {
+        return LifecycleControl::Break;
     }
     // New top is now fully resumed — stop the previous one. Order matches
     // Android: `prev.onStop` lands AFTER `new.onResume`.
@@ -910,10 +986,6 @@ fn handle_pop_op(
     heap: &mut SharedJvmHeap,
     handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) -> LifecycleControl {
-    use crate::graphics::display;
-    use crate::graphics::gfx::Handle;
-    use crate::graphics::lvgl::with_gfx;
-
     let (top_ref, top_class) = match handler.current_activity() {
         Some(t) => t,
         None => return LifecycleControl::Continue, // already empty
@@ -922,14 +994,76 @@ fn handle_pop_op(
     // Snapshot the finishing Activity's result BEFORE the pop (it lives on the
     // entry being removed). Delivered to the uncovered caller below.
     let pending_result = handler.top_activity_result();
+    if destroy_top_instance(jvm, top_class, top_ref, false, heap, handler).is_break() {
+        return LifecycleControl::Break;
+    }
+    pop_and_resume_parent(jvm, pending_result, heap, handler)
+}
+
+/// Take the top Activity instance from resumed to destroyed and free what it
+/// owned — content view, dialogs, Service bindings — leaving its stack entry
+/// in place for the caller to pop (`finish`) or hand to a new instance
+/// (`recreate`). `save_state` asks for `onSaveInstanceState` between `onStop`
+/// and `onDestroy` (where Android P and later put it) into a fresh Bundle
+/// rooted on the entry; a finishing Activity is never asked, as on Android.
+#[cfg(not(test))]
+fn destroy_top_instance(
+    jvm: &mut Jvm,
+    top_class: &'static str,
+    top_ref: u16,
+    save_state: bool,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
+) -> LifecycleControl {
+    use crate::graphics::display;
+    use crate::graphics::gfx::Handle;
+    use crate::graphics::lvgl::with_gfx;
+
     for site in [
         dispatch_sites::ACTIVITY_ON_PAUSE,
         dispatch_sites::ACTIVITY_ON_STOP,
-        dispatch_sites::ACTIVITY_ON_DESTROY,
     ] {
         if invoke_lifecycle(jvm, top_class, site, top_ref, heap, handler).is_break() {
             return LifecycleControl::Break;
         }
+    }
+    if save_state {
+        // `Bundle()` has an empty body, so the defaults are the constructed
+        // object. An allocation failure degrades to a re-creation with no
+        // saved state, which the app sees as a fresh launch.
+        let bundle = heap
+            .objects
+            .alloc_with_defaults(crate::shrink_names::c::picodroid_os_Bundle, jvm.classes());
+        if bundle.is_none() {
+            crate::pd_warn!("recreate: no memory for the saved-state Bundle");
+        }
+        handler.set_top_saved_state(bundle);
+        if let Some(b) = bundle {
+            if invoke_trampoline(
+                jvm,
+                dispatch_sites::ACTIVITY_SAVE_INSTANCE_STATE,
+                top_ref,
+                pico_jvm::types::Value::ObjectRef(b),
+                heap,
+                handler,
+            )
+            .is_break()
+            {
+                return LifecycleControl::Break;
+            }
+        }
+    }
+    if invoke_lifecycle(
+        jvm,
+        top_class,
+        dispatch_sites::ACTIVITY_ON_DESTROY,
+        top_ref,
+        heap,
+        handler,
+    )
+    .is_break()
+    {
+        return LifecycleControl::Break;
     }
     // Free the destroyed activity's content view BEFORE popping the entry,
     // so the popped entry's saved root_handle (which tracks CURRENT_ROOT_ID
@@ -950,6 +1084,19 @@ fn handle_pop_op(
     // Runs after the Activity's own onDestroy so the Activity can still call
     // unbindService itself.
     crate::service_lifecycle::unbind_owned_by(top_ref, jvm, heap, handler);
+    LifecycleControl::Continue
+}
+
+/// Pop the (already destroyed) top entry and bring the Activity beneath it
+/// back to the foreground, delivering `pending_result` if that Activity is
+/// the one that asked for it.
+#[cfg(not(test))]
+fn pop_and_resume_parent(
+    jvm: &mut Jvm,
+    pending_result: Option<(i32, u16, i32, Option<u16>)>,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
+) -> LifecycleControl {
     handler.pop_activity();
     // Tear down the popped Activity's keypad focus group and reactivate the
     // parent's (with its focus intact) — done after its view tree was deleted
@@ -1011,6 +1158,54 @@ fn handle_pop_op(
     LifecycleControl::Continue
 }
 
+/// Handle `PendingActivityOp::Recreate` — `Activity.recreate()`: destroy the
+/// top instance with its state saved, then start a new instance of the same
+/// class in the same stack entry (launch Intent and for-result metadata
+/// carry over) with that state. The Bundle lives on the entry from
+/// `onSaveInstanceState` to the new instance's `onResume` and nowhere after.
+#[cfg(not(test))]
+fn handle_recreate_op(
+    jvm: &mut Jvm,
+    target: u16,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
+) -> LifecycleControl {
+    let (top_ref, top_class) = match handler.current_activity() {
+        Some(t) if t.0 == target => t,
+        // Covered or finished since it asked: a parked Activity keeps its
+        // instance here, so there is nothing to re-create it for.
+        _ => {
+            crate::pd_warn!("recreate(): not the foreground Activity any more; ignored");
+            return LifecycleControl::Continue;
+        }
+    };
+    crate::pd_info!("activity: recreate {}", top_class);
+    if destroy_top_instance(jvm, top_class, top_ref, true, heap, handler).is_break() {
+        return LifecycleControl::Break;
+    }
+    let saved = handler.top_saved_state();
+    let Some(new_ref) = instantiate_component(jvm, top_class, heap, handler) else {
+        // Nothing to put in the entry: finish it instead, as a plain pop.
+        log_error!(
+            "recreate: failed to instantiate {}; finishing it",
+            top_class
+        );
+        let pending_result = handler.top_activity_result();
+        return pop_and_resume_parent(jvm, pending_result, heap, handler);
+    };
+    // Straight into the entry: from here the stack roots the new instance.
+    handler.replace_top_activity(new_ref);
+    // A fresh keypad focus group for the new view tree; the old one emptied
+    // when its tree was deleted.
+    crate::graphics::lvgl::events::pop_activity_group();
+    crate::graphics::lvgl::events::push_activity_group();
+    let control = start_activity_instance(jvm, top_class, new_ref, saved, heap, handler);
+    handler.set_top_saved_state(None);
+    #[cfg(feature = "mem-diag")]
+    crate::mem_diag::note_activity_transition();
+    control
+}
+
 /// Process a single Activity or Service transition, invoking the canonical
 /// Android lifecycle callback sequence. See the doc comment on
 /// [`run_activity`] for the v1 view-preservation caveat.
@@ -1042,6 +1237,9 @@ fn process_pending_op(
             handler,
         ),
         PendingOp::Activity(PendingActivityOp::Pop { .. }) => handle_pop_op(jvm, heap, handler),
+        PendingOp::Activity(PendingActivityOp::Recreate { target }) => {
+            handle_recreate_op(jvm, target, heap, handler)
+        }
         // Leave for another package: the loop exits through
         // `teardown_activity` (every Activity gets onPause, onStop and
         // onDestroy) and the supervisor runs `packages::next_image()`.
