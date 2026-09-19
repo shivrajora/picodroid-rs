@@ -368,8 +368,12 @@ F	longValsHi
 F	longValsLo
 F	mChildCount
 F	mChildren
+F	mContentView
+F	mContext
 F	mGroup
+F	mLayout
 F	mLineMode
+F	mPos
 F	maxRange
 F	maxValue
 F	message
@@ -422,6 +426,7 @@ F	requestCode
 F	resolution
 F	result
 F	rotationTo
+F	sInstance
 F	scaleXTo
 F	scaleYTo
 F	sensor
@@ -573,6 +578,8 @@ M	fileList
 M	filePath
 M	fill
 M	findButton
+M	findViewById
+M	findViewTraversal
 M	finish
 M	fireActionClick
 M	fireAlarm
@@ -597,6 +604,7 @@ M	fireTouch
 M	fireTrackingTouch
 M	floor
 M	flush
+M	from
 M	gcCount
 M	gcFreed
 M	gcTimeNanos
@@ -627,10 +635,12 @@ M	getCacheBytes
 M	getCheckedRadioButtonId
 M	getChildAt
 M	getChildCount
+M	getColor
 M	getConnectTimeout
 M	getContentLength
 M	getContentText
 M	getContentTitle
+M	getContext
 M	getCount
 M	getData
 M	getDataBytes
@@ -638,6 +648,9 @@ M	getDataDir
 M	getDay
 M	getDefaultSensor
 M	getDefaultUncaughtExceptionHandler
+M	getDimension
+M	getDimensionPixelOffset
+M	getDimensionPixelSize
 M	getDisplay
 M	getDouble
 M	getDuration
@@ -660,6 +673,7 @@ M	getInstalledPackages
 M	getInstance
 M	getInt
 M	getIntExtra
+M	getInteger
 M	getIntent
 M	getInterpolation
 M	getIpAddress
@@ -669,6 +683,7 @@ M	getJSONArray
 M	getJSONObject
 M	getKeyCode
 M	getLaunchIntentForPackage
+M	getLayoutInflater
 M	getLayoutParams
 M	getLeft
 M	getLength
@@ -705,6 +720,7 @@ M	getReadTimeout
 M	getRequestMethod
 M	getRequestProperty
 M	getResolution
+M	getResources
 M	getResponseCode
 M	getResponseMessage
 M	getRotation
@@ -747,6 +763,7 @@ M	iconAt
 M	incrementAndGet
 M	indeterminate
 M	indexOf
+M	inflate
 M	infoAt
 M	initStream
 M	intValue
@@ -921,9 +938,12 @@ M	nativeTotalBytes
 M	nativeUninstall
 M	nativeVersionCode
 M	nativeVersionName
+M	nativeWord
 M	newFixedThreadPool
 M	newSingleThreadExecutor
+M	next
 M	nextPoolId
+M	node
 M	nonNull
 M	notify
 M	notifyDataSetChanged
@@ -1085,6 +1105,7 @@ M	setHardwareFlowControl
 M	setHint
 M	setId
 M	setImageDrawable
+M	setImageResource
 M	setImageSource
 M	setIncludeFontPadding
 M	setInputType
@@ -1188,6 +1209,7 @@ M	stopSelf
 M	stopSelfResult
 M	stopService
 M	stopTone
+M	string
 M	submit
 M	tan
 M	tmpPath
@@ -1210,6 +1232,7 @@ M	track
 M	transfer
 M	translationX
 M	translationY
+M	truncateAt
 M	typeMismatch
 M	unbindService
 M	uncaughtException

@@ -55,6 +55,8 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
     c::picodroid_content_ServiceConnection,
     c::picodroid_content_pm_PackageManager,
     c::picodroid_content_pm_PackageInstaller,
+    c::picodroid_content_res_Resources,
+    c::picodroid_view_LayoutInflater,
     c::picodroid_view_View,
     c::picodroid_view_ViewGroup,
     c::picodroid_view_MotionEvent,
@@ -128,16 +130,6 @@ pub const API_HINTS: &[(&str, &str, &str)] = &[
         "use Executors.mainExecutor().execute(Runnable)",
     ),
     (
-        c::picodroid_app_Activity,
-        "findViewById",
-        "no resource IDs — keep your View references, or use View.setTag/getTag",
-    ),
-    (
-        c::picodroid_view_View,
-        "findViewById",
-        "no resource IDs — keep your View references, or use setTag/getTag",
-    ),
-    (
         c::picodroid_view_View,
         "post",
         "use Executors.mainExecutor().execute(Runnable)",
@@ -146,21 +138,6 @@ pub const API_HINTS: &[(&str, &str, &str)] = &[
         c::picodroid_view_View,
         "postDelayed",
         "no Handler — use ViewPropertyAnimator timers or Executors.mainExecutor()",
-    ),
-    (
-        c::picodroid_app_Activity,
-        "getLayoutInflater",
-        "no XML layouts — build Views programmatically",
-    ),
-    (
-        c::picodroid_app_Activity,
-        "getResources",
-        "no Resources — bundle files under assets/ and use the generated AssetConstants",
-    ),
-    (
-        c::picodroid_content_Context,
-        "getResources",
-        "no Resources — bundle files under assets/ and use the generated AssetConstants",
     ),
     (
         c::picodroid_content_Context,
@@ -211,6 +188,17 @@ mod tests {
             None
         );
         assert_eq!(api_hint(c::picodroid_widget_TextView, m::setText), None);
+        // Likewise the resource system (T3.2): these are real methods now.
+        assert_eq!(
+            api_hint(c::picodroid_content_Context, m::getResources),
+            None
+        );
+        assert_eq!(
+            api_hint(c::picodroid_app_Activity, m::getLayoutInflater),
+            None
+        );
+        assert_eq!(api_hint(c::picodroid_app_Activity, m::findViewById), None);
+        assert_eq!(api_hint(c::picodroid_view_View, m::findViewById), None);
     }
 
     /// A hint that names a non-existent picodroid class can never fire (the

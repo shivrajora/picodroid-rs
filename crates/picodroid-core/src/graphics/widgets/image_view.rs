@@ -33,6 +33,29 @@ pub fn image_view_set_src(
     Ok(None)
 }
 
+/// `ImageView.setImageResource(int resId)` — `R.drawable.*` names an ASSETS
+/// entry (`res/drawable/<file>`) through the resource table. Unlike the
+/// by-name setter a miss throws, as on Android: an id comes from `R`, so a
+/// miss is a package built wrong, not a typo to shrug at.
+pub fn image_view_set_resource(
+    ctx: &mut pico_jvm::NativeContext<'_>,
+) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(ctx.args, ctx.objects)?;
+    let res_id = match ctx.args.get(1) {
+        Some(Value::Int(v)) => *v,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    match crate::resources::drawable_name(res_id).and_then(assets::lookup) {
+        Some(dsc) => {
+            lvgl_image_view::set_src(id, dsc);
+            Ok(None)
+        }
+        None => Err(crate::native_handler::res::not_found(
+            ctx, "Drawable", res_id,
+        )),
+    }
+}
+
 /// `ImageView.setScaleType(int scaleType)`
 pub fn image_view_set_scale_type(
     args: &[Value],

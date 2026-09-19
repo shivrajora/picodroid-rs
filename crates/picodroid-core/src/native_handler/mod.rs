@@ -26,6 +26,7 @@ mod net;
 mod net_stub;
 pub(crate) mod os;
 mod pio;
+pub(crate) mod res;
 #[cfg(not(test))]
 mod sensors;
 mod threads;
@@ -451,6 +452,9 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             return result;
         }
         if let result @ Some(_) = os::dispatch(class_name, method_name, ctx) {
+            return result;
+        }
+        if let result @ Some(_) = res::dispatch(class_name, method_name, ctx) {
             return result;
         }
         if let result @ Some(_) = threads::dispatch(class_name, method_name, ctx) {

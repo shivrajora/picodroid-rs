@@ -4,6 +4,7 @@ package picodroid.app;
 import picodroid.content.Context;
 import picodroid.content.Intent;
 import picodroid.graphics.Display;
+import picodroid.view.LayoutInflater;
 import picodroid.view.View;
 
 public class Activity extends Context {
@@ -15,6 +16,9 @@ public class Activity extends Context {
 
   /** First user-definable result code. Matches Android. */
   public static final int RESULT_FIRST_USER = 1;
+
+  /** The root last passed to {@link #setContentView}, for {@link #findViewById}. */
+  private View mContentView;
 
   /** Called once when the Activity is first created. Build the UI tree here. */
   public void onCreate() {
@@ -122,7 +126,27 @@ public class Activity extends Context {
   public native Intent getIntent();
 
   public void setContentView(View root) {
+    mContentView = root;
     Display.getInstance().setContentView(root);
+  }
+
+  /** Mirrors Android: inflates {@code R.layout.*} and makes it this Activity's content. */
+  public void setContentView(int layoutResID) {
+    setContentView(getLayoutInflater().inflate(layoutResID, null));
+  }
+
+  /** Mirrors Android: an inflater that creates views with this Activity as their context. */
+  public LayoutInflater getLayoutInflater() {
+    return LayoutInflater.from(this);
+  }
+
+  /**
+   * Mirrors Android: the view with {@code android:id="@+id/…"} (or {@link View#setId}) {@code id}
+   * in this Activity's content, or {@code null}.
+   */
+  @SuppressWarnings("TypeParameterUnusedInFormals") // Android's signature, since API 26
+  public <T extends View> T findViewById(int id) {
+    return mContentView == null ? null : mContentView.<T>findViewById(id);
   }
 
   public Display getDisplay() {
