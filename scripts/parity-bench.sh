@@ -196,16 +196,19 @@ if $DO_SIZE; then
       SIZE_FAILED=1
       continue
     fi
-    # print_memory_usage exported TEXT/DATA/BSS; resolve_board exported the
-    # ceilings. The log carries both, so headroom stays derivable later
-    # without re-reading a linker script.
-    flash=$(( TEXT + DATA ))
+    # print_memory_usage exported TEXT/DATA/BSS and the program-region figure
+    # (FLASH_BYTES: size(1)'s text + data less what links into the app region);
+    # resolve_board exported the ceilings. The log carries all of it, so
+    # flash_bytes and headroom stay derivable later without re-reading a
+    # linker script or the ELF.
+    flash=$FLASH_BYTES
     ram=$(( DATA + BSS ))
     {
       # Several boards share one run directory, so the filename cannot encode
       # the identity; the log declares it instead.
       echo "#bench board=$board app=$APP mode=no-shrink"
       "$SIZE_TOOL" "$ELF"
+      echo "#app_region_bytes=$APP_REGION_BYTES"
       echo "#program_flash_max=$PROGRAM_FLASH_MAX"
       echo "#ram_max=$RAM_MAX"
     } > "$SIZE_RUN_DIR/$board.size.log"

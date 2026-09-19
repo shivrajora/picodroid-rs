@@ -35,7 +35,7 @@ CSV_PATH = REPO / "bench" / "parity" / "history.csv"
 # real change and must be named in the commit message.
 DETERMINISTIC = {
     "insns", "allocs", "gcs", "bands", "fbytes",
-    "flash_bytes", "ram_bytes", "text", "data", "bss",
+    "flash_bytes", "ram_bytes", "text", "data", "bss", "app_region_bytes",
     "classes_parsed", "classes_total", "apk_bytes",
     "oom_count", "gc_count",
 }

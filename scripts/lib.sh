@@ -594,6 +594,15 @@ list_boards() {
 # MAIN_STACK_FLOOR_BYTES); keep the two equal.
 MAIN_STACK_FLOOR_BYTES=8192
 
+# Bytes an ELF links into the app region (PAPK_FLASH) rather than the program
+# region: the `.papk_flash_init` section build_support/papk.rs emits (the
+# boot-meta sector plus the embedded PAPK). 0 for an image without one.
+app_region_bytes() {
+  "$SIZE_TOOL" -A "$1" | awk '$1 == ".papk_flash_init" { n += $2 } END { print n + 0 }'
+}
+
+# Exports TEXT/DATA/BSS (size(1) as printed), APP_REGION_BYTES and FLASH_BYTES,
+# the program-region figure, for callers that log them (parity-bench.sh).
 print_memory_usage() {
   local elf="$1"
   if ! command -v "$SIZE_TOOL" &>/dev/null; then
@@ -607,11 +616,22 @@ print_memory_usage() {
   echo "$size_output"
 
   read -r TEXT DATA BSS <<< "$(echo "$size_output" | awk 'NR==2 {print $1, $2, $3}')"
-  local flash=$(( TEXT + DATA ))
+  # size(1) folds every allocated read-only section into `text`, the embedded
+  # PAPK included, but the linker places that one in PAPK_FLASH: counted here
+  # it charged the app's bytes to the program region, the budget this line
+  # gates (docs/designs/flash-budget-2026-09.md §3). Leave it out, and report
+  # it against its own region.
+  APP_REGION_BYTES=$(app_region_bytes "$elf")
+  FLASH_BYTES=$(( TEXT + DATA - APP_REGION_BYTES ))
+  local flash=$FLASH_BYTES
   local ram=$(( DATA + BSS ))
 
   printf "  Flash: %d / %d bytes (%d%% of program region; chip total %d)\n" \
     "$flash" "$PROGRAM_FLASH_MAX" "$(( flash * 100 / PROGRAM_FLASH_MAX ))" "$FLASH_MAX"
+  if (( APP_REGION_BYTES > 0 )); then
+    printf "  App region: %d / %d bytes (embedded PAPK + boot-meta sector; not in Flash:)\n" \
+      "$APP_REGION_BYTES" "$(( APP_REGION_KB * 1024 ))"
+  fi
   printf "  RAM:   %d / %d bytes (%d%%)\n" "$ram" "$RAM_MAX" "$(( ram * 100 / RAM_MAX ))"
   # What .data + .bss leave of RAM is the core-0 main stack: the boot path,
   # then every core-0 interrupt for the life of the firmware (flip-link puts

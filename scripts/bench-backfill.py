@@ -63,6 +63,10 @@ SIZE_ROW_RE = re.compile(
 # Ceilings the size lane records alongside, so headroom is derivable later
 # without re-reading the linker script.
 CEILING_RE = re.compile(r"^#(program_flash_max|ram_max)=(\d+)$")
+# What the image links into the app region (PAPK_FLASH). size(1) counts it in
+# `text`; flash_bytes is the program region, so it comes back out. Logs from
+# before 2026-09-19 lack the line and keep the old text + data sum.
+APP_REGION_RE = re.compile(r"^#app_region_bytes=(\d+)$")
 
 RUN_ID_RE = re.compile(
     r"^(\d{4}-\d{2}-\d{2})_(\d{2})h(\d{2})m(\d{2})s_"
@@ -190,6 +194,10 @@ def parse_log(path, env):
         if m:
             ceilings[m.group(1)] = int(m.group(2))
             continue
+        m = APP_REGION_RE.match(line)
+        if m:
+            out["app_region_bytes"] = int(m.group(1))
+            continue
         if env == "size":
             m = SIZE_ROW_RE.match(line)
             if m:
@@ -252,6 +260,8 @@ def parse_log(path, env):
     # Headroom is what actually decides whether a change can land at 96% full,
     # so derive it here rather than making every reader re-parse a linker
     # script.
+    if "flash_bytes" in out:
+        out["flash_bytes"] -= out.get("app_region_bytes", 0)
     if "program_flash_max" in ceilings and "flash_bytes" in out:
         out["flash_headroom_bytes"] = ceilings["program_flash_max"] - out["flash_bytes"]
     if "ram_max" in ceilings and "ram_bytes" in out:

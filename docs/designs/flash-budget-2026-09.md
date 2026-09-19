@@ -97,7 +97,8 @@ address linked into `FLASH` is `.gnu.sgstubs` at `0x100d9340`, i.e.
 correction is only ~4.9 KB (`helloworld.papk` + the meta sector), so the
 896 K ceiling numbers stand, but the headroom there is ~48 KB rather than
 ~43 KB. Worth teaching `lib.sh` to subtract the `PAPK_FLASH` sections so the
-gate measures what the linker enforces.
+gate measures what the linker enforces (done 2026-09-19, §8 row 3; size
+figures before that date include the PAPK).
 
 ## 4. Java name text still in the image (59,129 B, 6.3 %)
 
@@ -538,7 +539,7 @@ and the heap-census work, not here.
 | 1a | C at `-Os` (`c_opt_level` in the MCU toml, `config::apply_c_opt_level`) — **landed 2026-09-08**, rp2040 in `773dc9a`, rp2350 plus frame pointers the same day | −92,928 B rp2350, −19,132 B rp2040 (§6.1 status) | UI render speed, unmeasured | done |
 | 1b | Benchmark profile-wide `opt-level = "s"` on HIL; adopt if the JVM `benchmark` delta is acceptable — **measured 2026-09-08, rejected**: −166.9 KB `.text` for +29 % on the interpreter sections (§6.1 status) | — | JVM speed: three times the 10 % budget | not taken |
 | 2 | `c::` class consts; retire `shrink_class`/`unshrink_class`; emit `PICODROID_NATIVE_CLASSES` via them — **landed 2026-09-02** (47bc221, map v0.17.0) | −27,154 B measured | — | done: `build_support/names.rs` + every arm on `c::`/`m::`/`d::` |
-| 3 | Teach `lib.sh`/ratchet to exclude `PAPK_FLASH` from `Flash:` | 0 B, correct gate | none | small |
+| 3 | Teach `lib.sh`/ratchet to exclude `PAPK_FLASH` from `Flash:` — **landed 2026-09-19**: `lib.sh::app_region_bytes` takes `.papk_flash_init` out of `Flash:`, the size lane logs `#app_region_bytes=` and `bench-backfill.py` takes it out of `flash_bytes`; `ratchet.toml` rebased by −4,928 B on both testbench boards (rp2040 836,968 of 917,248, 80,280 B free) | 0 B, correct gate | — | done |
 | 4 | LVGL: ARGB8888 blend, blur, shadow off; font without kerning | ~18 KB | low–medium, visual check | `lv_conf.h` + font convert |
 | 5 | `java_float_layout` via `format_shortest` | ~8 KB | low, conformance tests exist | `object_heap/mod.rs` |
 | 6 | App-driven SDK tree-shake + derived `LV_USE_*` | ~20 KB + ~19 KB | medium — root discipline, `pdb install` guard | build.rs + board/app cfg |
@@ -609,7 +610,6 @@ Gotchas, two new:
   `ARGB8888` stays on as "needed internally for blending". Re-measure §6.5's
   components against v9.6.0 before quoting ~20–35 KB.
 
-Open levers, unchanged in substance: §8 rows 3 (`Flash:` still sums
-`TEXT + DATA` in `lib.sh::print_memory_usage`), 4 (LVGL config), 5
+Open levers, unchanged in substance: §8 rows 4 (LVGL config), 5
 (`format_shortest` float layout), 6 (app-driven SDK tree-shake + derived
 `LV_USE_*`), 7 (`no-pdb` product feature) and 9 (shared string table).
