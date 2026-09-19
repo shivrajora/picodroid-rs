@@ -241,7 +241,12 @@ fn run(path: &Path) -> Result<(), String> {
         other => format!("File header: {other}"),
     })?;
     println!();
-    println!("File Header  ({FILE_HEADER_LEN} bytes @ {:#x})", 0);
+    let header_len = if hdr.version_minor >= papk_format::VERSION_MINOR_RESOURCES {
+        papk_format::FILE_HEADER_LEN_V1_2
+    } else {
+        FILE_HEADER_LEN
+    };
+    println!("File Header  ({header_len} bytes @ {:#x})", 0);
     println!("  magic           \"PAPK\"");
     println!(
         "  version         {}.{}",
@@ -263,6 +268,12 @@ fn run(path: &Path) -> Result<(), String> {
         );
     } else {
         println!("  assets_off      —  (no ASSETS section)");
+    }
+    if hdr.resources_offset != 0 {
+        println!(
+            "  resources_off   {:#x}  ({})",
+            hdr.resources_offset, hdr.resources_offset
+        );
     }
 
     // ── Full parse ───────────────────────────────────────────────────────────
@@ -354,6 +365,29 @@ fn run(path: &Path) -> Result<(), String> {
                 "  {} assets · {} of pixel data",
                 assets.len(),
                 fmt_size(total_pixels),
+            );
+        }
+    }
+
+    // ── Resources section (optional, v1.2+) ──────────────────────────────────
+    if let Some((res_hdr, data)) = papk
+        .resources_section()
+        .map_err(|e| format!("RESOURCES section: {e}"))?
+    {
+        println!();
+        println!(
+            "Resources  ({} bytes @ {:#x})  tag \"{}\"",
+            res_hdr.length,
+            hdr.resources_offset,
+            tag_name(res_hdr.tag),
+        );
+        let table = papk_format::res::ResTable::parse(data)
+            .map_err(|e| format!("RESOURCES section: {e}"))?;
+        for (ty, count) in table.types() {
+            let name = papk_format::res::type_name(ty).unwrap_or("?");
+            println!(
+                "  {name:<9} {count:>4}   {:#010x}..",
+                papk_format::res::res_id(ty, 0)
             );
         }
     }
