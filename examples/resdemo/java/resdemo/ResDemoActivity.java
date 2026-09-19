@@ -3,6 +3,7 @@ package resdemo;
 
 import picodroid.app.Activity;
 import picodroid.content.res.Resources;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.view.LayoutInflater;
 import picodroid.view.View;
@@ -27,7 +28,8 @@ public class ResDemoActivity extends Activity {
   private int taps;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     Resources res = getResources();
     check("getString", "Hello from res/values".equals(res.getString(R.string.greeting)));
     check("Context.getString", "Res Demo".equals(getString(R.string.app_name)));

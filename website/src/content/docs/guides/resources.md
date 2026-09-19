@@ -9,7 +9,8 @@ the PAPK and generates an `R` class next to your sources, so this works as it do
 ```java
 public class MainActivity extends Activity {
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     setContentView(R.layout.activity_main);
 
     TextView title = findViewById(R.id.title);
