@@ -503,7 +503,7 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
   - `getAlpha()` stays field-backed (exact floats, no per-View heap); the
     animator writes the alpha *target* into it on `start()`. The other
     getters read LVGL (exact in the units written: 0.1°, 1/256).
-  `Activity.onCreate(Bundle)` still joins once Bundle exists (T3.1). Not done,
+  `Activity.onCreate(Bundle)` joined with T3.1 (2026-09-19). Not done,
   same pattern available: `EditText extends TextView`, `CompoundButton extends
   Button`, hoisting `startActivity` onto `Context`.
 - **T2.8 — `DatePickerDialog`/`TimePickerDialog`.** Thin S-classes over
@@ -511,10 +511,78 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
 
 ## Tier 3 — large milestones
 
-- **T3.1 — Bundle + instance state.** (A) `picodroid.os.Bundle`, a
-  native-backed typed map, plus `Intent.putExtras`/`getExtras`. (B)
-  `onCreate(Bundle)`. (C) `onSaveInstanceState`/restore across the 8-deep
-  activity stack.
+- **T3.1 — Bundle + instance state. DONE 2026-09-19 (A, B, and C through
+  `recreate()`).** (A) `picodroid.os.Bundle` — boolean/int/long/float/double/
+  String, `int[]`/`byte[]`/`String[]`, nested Bundles, Android's
+  mismatch-gives-the-default rule, `keySet`/`putAll`/copy constructor — and
+  `Intent.putExtras`/`getExtras` (a copy, as on Android) plus `putExtra(long)`/
+  `putExtra(Bundle)`/`getLongExtra`/`getBundleExtra`. (B) `protected void
+  onCreate(Bundle)`. (C) `onSaveInstanceState`/`onRestoreInstanceState` and
+  `Activity.recreate()`: old `onPause → onStop → onSaveInstanceState →
+  onDestroy`, new `onCreate(saved) → onStart → onRestoreInstanceState →
+  onResume`, in the same stack entry, so the launch Intent and a pending
+  for-result launch carry over at any stack depth. `examples/bundledemo` is
+  the conformance app (nightly row, all three shrink modes).
+  *What differed from the plan:*
+  - Bundle is **Java-side, not native-backed**: a lazily allocated
+    `String[]`/`Object[]` pair with boxed primitives, so the getters
+    type-check with `instanceof` and need no tag array. A native store would
+    have needed the JSON pool's machinery (wrapper-death hook, GC-pacer
+    charging) *and* GC roots for nested Bundles and arrays, to save a class
+    file. `Intent` lost its own five-field extras table to it (which paid
+    for its five new methods: `Intent.class` stayed at 3.0 KB),
+    `fields::intent::PACKAGE` moved from slot 6 to 2, and `PendingIntent`
+    reads extras through `getExtras()`/`keySet()` instead of the four index
+    accessors Intent used to expose for it. RP2040 release flash, measured:
+    836,968 → 843,504 (+6,536 B; 73.7 KB of the program region left).
+  - The three Bundle callbacks are entered through `final` trampolines on
+    Activity (`performCreate`, `performSaveInstanceState`,
+    `performRestoreInstanceState`; `DISPATCH_SITES` rows), not by name on
+    the app's class. The native lookup is flat and descriptor-blind: it
+    could not tell `onCreate()` from `onCreate(Bundle)`, and it never found
+    an override declared on an app's *base* Activity class. The
+    trampoline's `invokevirtual` does both. The other lifecycle callbacks
+    still go by flat name and still have the base-class blind spot.
+  - `onCreate()` stays, deprecated: the default `onCreate(Bundle)` calls it,
+    so the ~150 existing Activities run unchanged. Migrating them is
+    mechanical and not done.
+  - `cut-app` had a latent bug this exposed: it renamed any app member
+    missing from the release map, including an override of an SDK method
+    declared *since* that map was cut (`onSaveInstanceState` → `EZ`, while
+    the framework still called the verbatim name). Names in
+    `member-names.tsv`/`api-contract.tsv` are no longer candidates. The
+    Gradle `cutAppShrinkMap` task does not list the shrinker as an input, so
+    a stale per-app map survives a tool change until the app's `build/` goes.
+  *Not done:* the framework never destroys a *covered* Activity, so
+  `recreate()` is the only producer of a non-null Bundle. Reclaiming parked
+  Activities under LVGL-pool pressure (and an Android-style "don't keep
+  activities" switch to test it) is the natural follow-up; it needs the
+  stack to identify a for-result caller by entry rather than by `obj_ref`,
+  which a destroyed entry no longer has. The default `onSaveInstanceState`
+  saves no view state (no view ids until T3.2), and nothing is carried
+  across a cross-package re-entry (app-store roadmap S7), where the heap is
+  reset.
+- **T3.1 follow-ups (pending).**
+  - **T3.1-D — reclaim covered Activities.** Destroy a parked Activity
+    (`onSaveInstanceState` → `onDestroy`, free its view tree) under LVGL-pool
+    or heap pressure and re-create it from its Bundle when uncovered, plus an
+    Android-style "don't keep activities" switch (sim env / pdb) so the
+    nightly can exercise it. Prerequisite: the stack identifies a for-result
+    caller by entry, not `obj_ref`, and by-`obj_ref` lookups skip destroyed
+    entries.
+  - **T3.1-E — migrate the ~150 Activities** from the deprecated `onCreate()`
+    to `onCreate(Bundle)` (mechanical; docs and tutorials with them), then
+    decide whether the bridge goes.
+  - **T3.1-F — trampolines for the remaining lifecycle callbacks**
+    (`onStart`/`onResume`/`onPause`/`onStop`/`onDestroy`/`onRestart`/
+    `onActivityResult`/`onBackPressed`): they still dispatch by flat name and
+    miss an override declared on an app's base Activity class.
+  - **T3.1-G — default view-state save/restore** by view id, once T3.2 gives
+    views ids.
+  - **T3.1-H — state across a cross-package re-entry** (app-store S7): needs
+    a Bundle serialized outside the JVM heap, which is reset there.
+  - **Tooling:** make `cutAppShrinkMap` (and `packPapk`) track the
+    `class-shrink`/`papk-pack` sources as inputs so a tool change re-cuts.
 - **T3.2 — resource system + `R.*` + XML layouts.** The largest remaining
   Android-parity gap, and the one that supersedes the `API_HINTS` entries
   steering people away from `findViewById`/`getResources`/
@@ -552,7 +620,8 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
    stub-retirement plus a hygiene test, not new SDK classes)
 5. T2.4 line-number stack traces
 6. ~~T2.6 JSON~~ (done 2026-09-04) + ~~T2.3 Thread parity~~ (done)
-7. T3.1 Bundle → `onCreate(Bundle)` → save/restore
+7. ~~T3.1 Bundle → `onCreate(Bundle)` → save/restore~~ (done 2026-09-19;
+   follow-ups T3.1-D…H pending, D first)
 8. T2.5 upcall → T3.4 convertView recycling
 9. T3.2 resource system (A → B → C)
 10. T3.3 `java.io`

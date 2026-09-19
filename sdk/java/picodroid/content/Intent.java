@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.content;
 
+import picodroid.os.Bundle;
+
 /**
  * Description of an operation to be performed: launch an Activity, start or bind a Service. An
- * Intent identifies the target component by class and optionally carries primitive extras that the
- * recipient reads back.
+ * Intent identifies the target component by class and optionally carries extras (a {@link Bundle})
+ * that the recipient reads back.
  *
  * <p>Picodroid supports only explicit Intents: a {@code Class<?>} target in this app, or on a
  * multi-app board a package name ({@link #setPackage}) that launches another installed app.
@@ -24,14 +26,8 @@ public final class Intent {
    */
   private String targetClassName;
 
-  // Extras: linear key/value table, allocated lazily. tags[i] == 0 → int,
-  // 1 → String, 2 → boolean. intVals[i] holds int / packed boolean; strVals[i]
-  // holds String for tag 1 and is null otherwise.
-  private String[] keys;
-  private int[] intVals;
-  private String[] strVals;
-  private byte[] tags;
-  private int n;
+  /** The extras, allocated on the first put. The typed {@code *Extra} methods are views of it. */
+  private Bundle extras;
 
   /**
    * Package to launch instead of a class in this app (multi-app boards). Declared last: the
@@ -84,125 +80,73 @@ public final class Intent {
   }
 
   public Intent putExtra(String key, int value) {
-    int i = locateOrAppend(key);
-    tags[i] = 0;
-    intVals[i] = value;
-    strVals[i] = null;
+    extras().putInt(key, value);
+    return this;
+  }
+
+  public Intent putExtra(String key, long value) {
+    extras().putLong(key, value);
     return this;
   }
 
   public Intent putExtra(String key, String value) {
-    int i = locateOrAppend(key);
-    tags[i] = 1;
-    strVals[i] = value;
+    extras().putString(key, value);
     return this;
   }
 
   public Intent putExtra(String key, boolean value) {
-    int i = locateOrAppend(key);
-    tags[i] = 2;
-    intVals[i] = value ? 1 : 0;
-    strVals[i] = null;
+    extras().putBoolean(key, value);
     return this;
   }
 
+  public Intent putExtra(String key, Bundle value) {
+    extras().putBundle(key, value);
+    return this;
+  }
+
+  /** Add every mapping of {@code extras} to this Intent's extras. */
+  public Intent putExtras(Bundle extras) {
+    extras().putAll(extras);
+    return this;
+  }
+
+  /**
+   * A copy of this Intent's extras, or {@code null} when it has none. Mirrors {@code
+   * android.content.Intent#getExtras()}, the copy included: changing the returned Bundle does not
+   * change the Intent.
+   */
+  public Bundle getExtras() {
+    return extras == null ? null : new Bundle(extras);
+  }
+
   public int getIntExtra(String key, int defaultValue) {
-    int i = locate(key);
-    if (i < 0 || tags[i] != 0) {
-      return defaultValue;
-    }
-    return intVals[i];
+    return extras == null ? defaultValue : extras.getInt(key, defaultValue);
+  }
+
+  public long getLongExtra(String key, long defaultValue) {
+    return extras == null ? defaultValue : extras.getLong(key, defaultValue);
   }
 
   public String getStringExtra(String key) {
-    int i = locate(key);
-    if (i < 0 || tags[i] != 1) {
-      return null;
-    }
-    return strVals[i];
+    return extras == null ? null : extras.getString(key);
   }
 
   public boolean getBooleanExtra(String key, boolean defaultValue) {
-    int i = locate(key);
-    if (i < 0 || tags[i] != 2) {
-      return defaultValue;
-    }
-    return intVals[i] != 0;
+    return extras == null ? defaultValue : extras.getBoolean(key, defaultValue);
+  }
+
+  public Bundle getBundleExtra(String key) {
+    return extras == null ? null : extras.getBundle(key);
   }
 
   public boolean hasExtra(String key) {
-    return locate(key) >= 0;
+    return extras != null && extras.containsKey(key);
   }
 
-  /**
-   * How many extras this Intent carries. Framework-internal, as {@link #getTargetClassName} is:
-   * {@code picodroid.app.PendingIntent} flattens the table through these accessors, there being no
-   * package-private route between {@code picodroid.content} and {@code picodroid.app}.
-   */
-  public int extraCount() {
-    return n;
-  }
-
-  /** The key of extra {@code i}, where {@code i} is below {@link #extraCount}. */
-  public String extraKey(int i) {
-    return keys[i];
-  }
-
-  /**
-   * Whether extra {@code i} holds an {@code int}, as opposed to a String or a boolean. A predicate
-   * rather than a tag constant on purpose: this class may declare no more fields, static ones
-   * included, because the framework addresses {@code packageName} by its slot and every field
-   * declared here shifts it.
-   */
-  public boolean isIntExtra(int i) {
-    return tags[i] == 0;
-  }
-
-  /** The value of extra {@code i}, as stored: an int, or a boolean packed as 0 or 1. */
-  public int extraInt(int i) {
-    return intVals[i];
-  }
-
-  private int locate(String key) {
-    for (int i = 0; i < n; i++) {
-      if (keys[i].equals(key)) {
-        return i;
-      }
+  private Bundle extras() {
+    if (extras == null) {
+      extras = new Bundle();
     }
-    return -1;
-  }
-
-  private int locateOrAppend(String key) {
-    int i = locate(key);
-    if (i >= 0) {
-      return i;
-    }
-    if (keys == null || n == keys.length) {
-      grow();
-    }
-    keys[n] = key;
-    int idx = n;
-    n++;
-    return idx;
-  }
-
-  private void grow() {
-    int newCap = (keys == null) ? 4 : keys.length * 2;
-    String[] nk = new String[newCap];
-    int[] niv = new int[newCap];
-    String[] nsv = new String[newCap];
-    byte[] nt = new byte[newCap];
-    if (keys != null) {
-      for (int i = 0; i < n; i++) {
-        nk[i] = keys[i];
-        niv[i] = intVals[i];
-        nsv[i] = strVals[i];
-        nt[i] = tags[i];
-      }
-    }
-    keys = nk;
-    intVals = niv;
-    strVals = nsv;
-    tags = nt;
+    return extras;
   }
 }

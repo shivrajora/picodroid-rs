@@ -4,6 +4,7 @@ package picodroid.app;
 import picodroid.content.Context;
 import picodroid.content.Intent;
 import picodroid.graphics.Display;
+import picodroid.os.Bundle;
 import picodroid.view.View;
 
 public class Activity extends Context {
@@ -16,9 +17,78 @@ public class Activity extends Context {
   /** First user-definable result code. Matches Android. */
   public static final int RESULT_FIRST_USER = 1;
 
-  /** Called once when the Activity is first created. Build the UI tree here. */
+  /**
+   * Called when the Activity is starting. Build the UI tree here. Mirrors {@code
+   * android.app.Activity#onCreate(Bundle)}.
+   *
+   * @param savedInstanceState the Bundle this Activity's previous instance filled in {@link
+   *     #onSaveInstanceState} when the framework is re-creating it (see {@link #recreate}), else
+   *     {@code null} — a fresh launch.
+   */
+  protected void onCreate(Bundle savedInstanceState) {
+    onCreate();
+  }
+
+  /**
+   * The pre-Bundle spelling of {@link #onCreate(Bundle)}, which calls it by default so that an
+   * Activity overriding only this one keeps working. It has no Android counterpart and never sees
+   * the saved state.
+   *
+   * @deprecated override {@link #onCreate(Bundle)}.
+   */
+  @Deprecated
   public void onCreate() {
     // Subclass overrides
+  }
+
+  /**
+   * Called before the framework destroys this Activity in order to re-create it (see {@link
+   * #recreate}), after {@link #onStop}. Put whatever the next instance needs into {@code outState};
+   * it comes back as the argument of {@link #onCreate(Bundle)} and {@link #onRestoreInstanceState}.
+   * Not called for an Activity that is finishing: nothing will be re-created, so there is nothing
+   * to save for. Mirrors {@code android.app.Activity#onSaveInstanceState(Bundle)}, except that the
+   * default saves nothing — there are no view ids to key a view hierarchy's state by.
+   */
+  protected void onSaveInstanceState(Bundle outState) {
+    // Subclass overrides
+  }
+
+  /**
+   * Called after {@link #onStart} on a re-created Activity, with the Bundle its previous instance
+   * saved; never called on a fresh launch, so {@code savedInstanceState} is never {@code null}.
+   * Restoring here instead of in {@link #onCreate(Bundle)} is a matter of taste. Mirrors {@code
+   * android.app.Activity#onRestoreInstanceState(Bundle)}.
+   */
+  protected void onRestoreInstanceState(Bundle savedInstanceState) {
+    // Subclass overrides
+  }
+
+  /**
+   * Destroy this Activity and start a new instance of it in its place, carrying the saved instance
+   * state over: this instance gets onPause → onStop → onSaveInstanceState → onDestroy and its
+   * content view is freed, then the new one gets onCreate(saved) → onStart →
+   * onRestoreInstanceState(saved) → onResume. The Intent, and a pending {@code
+   * startActivityForResult} launch, carry over. Takes effect after the current callback returns.
+   * Mirrors {@code android.app.Activity#recreate()}; only the foreground Activity can be
+   * re-created.
+   */
+  public native void recreate();
+
+  // The framework enters the three Bundle callbacks through these, never by name on the app's
+  // class: a native-side lookup is flat (it sees only methods the named class itself declares) and
+  // blind to descriptors (onCreate() vs onCreate(Bundle)), where an invokevirtual from here walks
+  // the hierarchy and picks the overload.
+
+  final void performCreate(Bundle savedInstanceState) {
+    onCreate(savedInstanceState);
+  }
+
+  final void performSaveInstanceState(Bundle outState) {
+    onSaveInstanceState(outState);
+  }
+
+  final void performRestoreInstanceState(Bundle savedInstanceState) {
+    onRestoreInstanceState(savedInstanceState);
   }
 
   /**

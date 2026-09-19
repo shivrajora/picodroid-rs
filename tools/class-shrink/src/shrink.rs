@@ -534,7 +534,9 @@ fn invalid(msg: String) -> io::Error {
 ///
 /// Members: names declared by an app class, longer than two characters,
 /// not `<init>`-style, not in the base map (SDK overrides such as `onCreate`
-/// already rename in lockstep), not kept, and not spelled by a kept class.
+/// already rename in lockstep), not in `reserve_names` (an SDK name the base
+/// map lacks is spelled verbatim by the framework, and so must an override of
+/// it be), not kept, and not spelled by a kept class.
 /// Targets resume the base map's counter and skip everything the app tree,
 /// the reserve trees, `reserve_names`, the keep list and the base map spell.
 pub fn cut_app(
@@ -674,10 +676,17 @@ pub fn cut_app(
         .max()
         .unwrap_or(0);
     let mut added = 0usize;
+    // An SDK name the base map does not carry is one the framework spells
+    // verbatim — declared since that release was cut, or too short to map.
+    // An app member of that name may be an override (`onSaveInstanceState`
+    // before its first release cut), so it stays verbatim too; renaming it
+    // would silently detach the override from the framework's call.
+    let sdk_names: BTreeSet<&str> = opts.reserve_names.iter().map(String::as_str).collect();
     for name in candidates {
         if keep.is_member_kept(&name)
             || map.members.contains_key(&name)
             || kept_spelled.contains(&name)
+            || sdk_names.contains(name.as_str())
         {
             continue;
         }
@@ -1232,14 +1241,21 @@ mod tests {
                 &[
                     ("setText", "()V"), // base-mapped override: not a candidate
                     ("refresh", "()V"), // candidate
-                    ("id", "()V"),      // too short
+                    // Declared by the SDK since the base map was cut: the
+                    // framework calls it by this spelling, so it must keep it.
+                    ("onSaveInstanceState", "()V"),
+                    ("id", "()V"), // too short
                     ("<init>", "()V"),
                 ],
             ),
         );
         let mut base = ShrinkMap::new();
         base.members.insert("setText".into(), "f".into());
-        let reserve = vec!["g".to_string(), "PI".to_string()];
+        let reserve = vec![
+            "g".to_string(),
+            "PI".to_string(),
+            "onSaveInstanceState".to_string(),
+        ];
         let opts = AppCut {
             reserve_dirs: &[],
             reserve_names: &reserve,

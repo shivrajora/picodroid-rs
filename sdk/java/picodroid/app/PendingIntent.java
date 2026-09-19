@@ -3,6 +3,7 @@ package picodroid.app;
 
 import picodroid.content.Context;
 import picodroid.content.Intent;
+import picodroid.os.Bundle;
 
 /**
  * A description of an Activity to start later, held by {@link AlarmManager} on behalf of this app.
@@ -87,29 +88,33 @@ public final class PendingIntent {
     if (intent.getPackage() != null) {
       throw new IllegalArgumentException("a PendingIntent cannot target another package");
     }
-    int n = intent.extraCount();
+    Bundle extras = intent.getExtras();
+    int n = extras == null ? 0 : extras.size();
     if (n > MAX_EXTRAS) {
       throw new IllegalArgumentException("at most " + MAX_EXTRAS + " extras, not " + n);
     }
-    for (int i = 0; i < n; i++) {
-      if (!intent.isIntExtra(i)) {
-        throw new IllegalArgumentException("extra '" + intent.extraKey(i) + "' is not an int");
-      }
-      if (intent.extraKey(i).length() > MAX_KEY_LENGTH) {
-        throw new IllegalArgumentException(
-            "extra key longer than " + MAX_KEY_LENGTH + ": '" + intent.extraKey(i) + "'");
+    String[] keys = new String[MAX_EXTRAS];
+    int[] vals = new int[MAX_EXTRAS];
+    if (extras != null) {
+      int i = 0;
+      for (String key : extras.keySet()) {
+        if (!(extras.get(key) instanceof Integer)) {
+          throw new IllegalArgumentException("extra '" + key + "' is not an int");
+        }
+        if (key.length() > MAX_KEY_LENGTH) {
+          throw new IllegalArgumentException(
+              "extra key longer than " + MAX_KEY_LENGTH + ": '" + key + "'");
+        }
+        keys[i] = key;
+        vals[i] = extras.getInt(key);
+        i++;
       }
     }
     if ((flags & FLAG_NO_CREATE) != 0) {
       return null;
     }
     return new PendingIntent(
-        requestCode,
-        intent.getTargetClassName(),
-        n > 0 ? intent.extraKey(0) : null,
-        n > 0 ? intent.extraInt(0) : 0,
-        n > 1 ? intent.extraKey(1) : null,
-        n > 1 ? intent.extraInt(1) : 0);
+        requestCode, intent.getTargetClassName(), keys[0], vals[0], keys[1], vals[1]);
   }
 
   /** Removes the alarm set with this operation, if one is still armed. */
