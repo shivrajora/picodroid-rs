@@ -101,6 +101,7 @@ export default defineConfig({
             { label: 'Debugging', slug: 'guides/debugging' },
             { label: 'Troubleshooting', slug: 'guides/troubleshooting' },
             { label: 'Bundled image assets', slug: 'guides/assets' },
+            { label: 'Resources, R and XML layouts', slug: 'guides/resources' },
             { label: 'Theming', slug: 'guides/theming' },
           ],
         },

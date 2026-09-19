@@ -515,7 +515,9 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
   native-backed typed map, plus `Intent.putExtras`/`getExtras`. (B)
   `onCreate(Bundle)`. (C) `onSaveInstanceState`/restore across the 8-deep
   activity stack.
-- **T3.2 — resource system + `R.*` + XML layouts.** The largest remaining
+- **T3.2 — resource system + `R.*` + XML layouts.** **(A)–(C) done
+  2026-09-19** — see the amendment at the bottom for what was built and
+  where it diverges from this paragraph. The largest remaining
   Android-parity gap, and the one that supersedes the `API_HINTS` entries
   steering people away from `findViewById`/`getResources`/
   `getLayoutInflater`. (A) `res/values/` → Gradle-generated app-side
@@ -554,7 +556,8 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
 6. ~~T2.6 JSON~~ (done 2026-09-04) + ~~T2.3 Thread parity~~ (done)
 7. T3.1 Bundle → `onCreate(Bundle)` → save/restore
 8. T2.5 upcall → T3.4 convertView recycling
-9. T3.2 resource system (A → B → C)
+9. ~~T3.2 resource system (A → B → C)~~ (done 2026-09-19; D — styles and
+   `AttributeSet` — remains)
 10. T3.3 `java.io`
 
 ## Not doing, and why
@@ -648,3 +651,59 @@ T1.4's `setTextSize` (the board has one font size), `TextView.setGravity`,
 password masking; T2.8 pickers-as-dialogs; T3.1 Bundle; T3.2 resources/XML
 layouts; T3.3 `java.io` streams; T3.4 `getView`/convertView; T3.5 Canvas; E3
 phase 2 (restricted compile classpath).
+
+## Amendment 2026-09-19 — T3.2 (A)–(C) landed
+
+`res/values`, `res/layout` and `res/drawable` compile into the PAPK; apps get
+a generated `R`, `Context.getResources()`, `setContentView(int)`,
+`LayoutInflater`, `findViewById` and `ImageView.setImageResource(int)`.
+App-developer documentation is `website/src/content/docs/guides/resources.md`;
+`examples/resdemo` checks every call and logs `ResDemo PASS`.
+
+Where the pieces live:
+
+- **Container.** PAPK v1.2: a fourth section, `RESR`, found through a 4-byte
+  file-header extension that is written — with `version_minor = 2` — only when
+  an app has resources. Every other PAPK stays byte-identical to v1.1, and a
+  v1.1 reader handed a v1.2 file reads its three sections from the same slots.
+  The table and the layout word stream are specified in
+  `crates/papk-format/src/res.rs`, which also holds the zero-copy reader and
+  the writer.
+- **Compiler.** `tools/papk-pack/src/res.rs`, in Rust rather than in the
+  Gradle plugin as the paragraph above assumed: the format's reader, writer
+  and compiler then share one crate and round-trip in unit tests. Gradle runs
+  it twice over the same `res/` — `papk-pack gen-r` before `compileJava`
+  (`GenerateRTask`), `papk-pack --res-dir` at `packPapk` — and ids come from
+  sorted names, so `R.java` and the table agree by construction. Both tasks
+  declare the compiler's sources as inputs, which closes the "stale PAPK after
+  a packer change" gap for apps with resources.
+- **Zero-cost `R`.** `R`'s fields are `static final int`, inlined by javac;
+  `compileJava` deletes `R*.class` from its output, so `R` is never packed.
+- **Runtime.** `crates/picodroid-core/src/resources.rs` is one slice into the
+  package in flash. `Resources` is five natives over it
+  (`native_handler/res.rs`). `LayoutInflater` is Java: it walks the word
+  stream through a single native, `nativeWord(layout, index)`, and builds
+  views with their ordinary constructors, so Java-side state (`id`,
+  `visibility`, the `ViewGroup` child list, `LayoutParams`) is correct by the
+  same code paths as a hand-built tree. A native inflater was rejected for
+  that reason: `ObjectHeap::alloc` does not run `<init>`. Only strings are
+  resolved at inflation; colours, dimensions and references are numbers by
+  then.
+- **Flash.** Four SDK classes on every board — `Resources` (747 B stripped),
+  `Resources$NotFoundException` (240 B), `InflateException` (175 B) and
+  `LayoutInflater`. The inflater's element/attribute codes are literal `case`
+  labels named in comments, not `static final` fields, which saves ~2 KB; a
+  papk-pack test (`codes_match_the_java_sdk`) reads those comments and holds
+  them to `papk_format::res::layout`, along with the `Gravity`, `InputType`
+  and `ImageView.SCALE_*` numbers the compiler bakes into layouts.
+- **Deliberate limits.** No configurations (qualified directories are a build
+  error); the framework widgets and a fixed attribute set only; unknown
+  attributes are a build *warning* and dropped, so pasted Android layouts
+  build; custom views, `<include>`/`<merge>`, styles, `AttributeSet`, string
+  arrays, plurals and `getString(int, Object...)` are not there (D).
+  `inflate(id, null)` keeps the root's explicit `layout_width/height` via
+  `setSize`, where Android drops them, so `setContentView(R.layout.x)` honours
+  a sized root.
+- **`API_HINTS`** for `findViewById`, `getResources` and `getLayoutInflater`
+  are deleted, with a test that they stay deleted.
+

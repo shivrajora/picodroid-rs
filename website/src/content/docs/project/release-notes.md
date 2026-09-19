@@ -7,6 +7,24 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**Resources, `R` and XML layouts**
+
+- An app may carry an Android-style `res/` directory: `res/values` (`string`, `color`, `dimen`,
+  `integer`, `bool`), `res/layout` and `res/drawable`. Gradle generates `R` and compiles the tree
+  into a new RESOURCES section of the PAPK (format v1.2); no XML is parsed on the device, and the
+  `R` classes are left out of the package, so resources cost an app only their table. New API:
+  `Context.getResources()` / `getString(int)` / `getColor(int)`, `Resources`,
+  `Activity.setContentView(int)`, `getLayoutInflater()`, `LayoutInflater`,
+  `findViewById` on `Activity` and `View`, and `ImageView.setImageResource(int)`. See the
+  [resources guide](/guides/resources/) and `examples/resdemo`.
+- An app without `res/` builds a byte-identical PAPK, and firmware from before this change runs a
+  v1.2 PAPK unchanged (it never looks at the new section).
+- **`MATCH_PARENT` now means the parent's size.** `setSize` and `LayoutParams` translated it to a
+  constant left over from an older LVGL coordinate encoding — in effect a width of two million
+  pixels, clipped by the parent. Left-aligned content looked right; a centred or weighted child of
+  a `MATCH_PARENT` container sat far off screen, and `getWidth()` returned the raw number. It is
+  now LVGL's own `LV_PCT(100)`. Layouts that leaned on the old behaviour will shift.
+
 **The main-stack floor is enforced by the link, and it was measuring the wrong thing**
 
 - Every firmware build has printed its core-0 main-stack headroom and failed below 8 KB
