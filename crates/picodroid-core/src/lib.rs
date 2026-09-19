@@ -87,6 +87,7 @@ pub mod notification;
 #[cfg(not(test))]
 pub mod os;
 pub mod pd_log;
+pub mod resources;
 // Shape guards for the 2026-09-13 QA fixes that live in `cfg(not(test))`
 // modules — the sim's `qa_*` apps cover the behaviour, these keep the shape.
 #[cfg(test)]

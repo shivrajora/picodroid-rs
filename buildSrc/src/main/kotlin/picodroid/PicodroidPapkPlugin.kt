@@ -331,6 +331,48 @@ class PicodroidPapkPlugin : Plugin<Project> {
             compileJava.configure { dependsOn(genAssets) }
         }
 
+        // Per-app `res/` directory, opt-in the same way: values, layouts and
+        // drawables compiled by papk-pack into the PAPK's RESOURCES section,
+        // and an R.java generated from the same tree before compileJava
+        // (third generated srcDir, same shape as AssetConstants above).
+        val appResDir = target.projectDir.resolve("res")
+        // Both resource tasks re-run when the compiler changes: ids and the
+        // table format are whatever that code says they are.
+        val resCompilerSources = target.fileTree(repoRoot) {
+            include("tools/papk-pack/src/**", "tools/papk-pack/Cargo.toml")
+            include("crates/papk-format/src/**", "crates/papk-format/Cargo.toml")
+        }
+        if (appResDir.isDirectory) {
+            val genR = target.tasks.register("generateR", GenerateRTask::class.java) {
+                resDir.set(appResDir)
+                packageName.set(manifest.packageName)
+                compilerSources.from(resCompilerSources)
+                outputDir.set(target.layout.buildDirectory.dir("generated/picodroid-r"))
+                this.hostTarget.set(hostTarget)
+                repoRootPath.set(repoRoot.absolutePath)
+            }
+            javaExt.sourceSets.getByName("main").java.srcDir(genR.flatMap { it.outputDir })
+            compileJava.configure {
+                dependsOn(genR)
+                // R's fields are compile-time constants, inlined at every use:
+                // no packed class refers to R, so R itself stays out of the
+                // PAPK and resources cost the app nothing but their table.
+                val rDir = manifest.packageName.replace('.', '/')
+                doLast {
+                    destinationDirectory.get().asFile.resolve(rDir)
+                        .listFiles { f -> f.name == "R.class" || (f.name.startsWith("R$") && f.name.endsWith(".class")) }
+                        ?.forEach { it.delete() }
+                }
+            }
+            // kotlinc resolves R from R.java as a Java source root. The Kotlin
+            // source set cannot supply it — its `**/*.kt` include filters the
+            // .java file away — so the directory goes to the tasks directly.
+            target.tasks.withType(KotlinCompile::class.java).configureEach {
+                dependsOn(genR)
+                source(genR.flatMap { it.outputDir })
+            }
+        }
+
         // Networking examples opt in (`picodroidNetTest { enabled = true }`)
         // to a generated NetTestConfig.java carrying the build-time test-host
         // target — committed default is loopback; the HIL flow or a dev
@@ -369,6 +411,10 @@ class PicodroidPapkPlugin : Plugin<Project> {
             manifest.application?.let { application.set(it) }
             if (appAssetsDir.isDirectory) {
                 assetsDir.set(appAssetsDir)
+            }
+            if (appResDir.isDirectory) {
+                resDir.set(appResDir)
+                packerSources.from(resCompilerSources)
             }
             if (shrinkMapFile != null) wireActiveMap(this.shrinkMapFile)
             outputFile.set(target.layout.buildDirectory.file("papk/${target.name}.papk"))

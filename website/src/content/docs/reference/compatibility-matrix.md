@@ -41,12 +41,13 @@ counterpart's name, so the API reads the same; you just import `picodroid.*`
 
 | API | Status | Notes / alternative |
 |---|---|---|
-| `View` | Partial | Geometry/visibility/enabled/tag/id, `setTranslationX/Y`, `setRotation`, `setScaleX/Y` + getters (`getX() == getLeft() + getTranslationX()`), `OnClickListener`, `OnLongClickListener` + `performLongClick`, `OnTouchListener`, `OnKeyListener`. No `findViewById` (no resource IDs — keep references or use `setTag`/`getTag`); no `post`/`postDelayed` (use `Executors.mainExecutor()` or animation timers). |
+| `View` | Partial | Geometry/visibility/enabled/tag/id, `setTranslationX/Y`, `setRotation`, `setScaleX/Y` + getters (`getX() == getLeft() + getTranslationX()`), `OnClickListener`, `OnLongClickListener` + `performLongClick`, `OnTouchListener`, `OnKeyListener`. `findViewById` (depth first, over `setId` / `android:id`). No `post`/`postDelayed` (use `Executors.mainExecutor()` or animation timers). |
 | `ViewGroup` / `ViewPropertyAnimator` | Partial | `animate()` with `alpha`, `x/y`, `translationX/Y`, `rotation`, `scaleX/Y`, `setDuration`, `setStartDelay`, `setInterpolator` (the four built-in curves), `withEndAction` — to-only, as on Android. Rotation/scale render through an off-screen layer of the view's size; keep transformed views small. |
 | `MotionEvent` | Partial | `getX`/`getY` are **view-relative**, `getRawX`/`getRawY` are screen-absolute, matching Android. **Coordinates are `int`, not `float`** (no FPU). |
 | `GestureDetector` | Partial | `OnGestureListener` + `SimpleOnGestureListener`; slop/fling use raw coordinates. |
 | `KeyEvent` | Partial | D-pad / button codes, plus `KEYCODE_BACK` and `KEYCODE_HOME`. Both are handled by the framework before an app sees them: BACK falls through the soft keyboard, a showing dialog, the focused View and finally `onBackPressed`, which an app may override; HOME goes straight to the launcher and cannot be intercepted, as on Android. Which physical buttons exist is `board.toml`'s business. |
-| `LayoutInflater`, XML layouts, `Menu` | Unsupported | No resource/XML layout system — build View trees programmatically. |
+| `LayoutInflater` | Partial | `from`, `inflate(int, ViewGroup)`, `inflate(int, ViewGroup, boolean)`, and `Activity.setContentView(int)` / `getLayoutInflater()`. Layouts are compiled to binary at build time; the framework widgets and a fixed attribute set only — no custom views, `<include>`/`<merge>`, styles or `AttributeSet`. See [resources](/guides/resources/). |
+| `Menu` | Unsupported | No menu resources or options menu. |
 
 ### android.widget
 
@@ -78,7 +79,7 @@ counterpart's name, so the API reads the same; you just import `picodroid.*`
 | API | Status | Notes / alternative |
 |---|---|---|
 | `Intent` | Partial | Explicit (class-targeted) intents + extras. No implicit intents / `IntentFilter` resolution. |
-| `Context` | Partial | `getMainExecutor`, `getDisplay`, service access. No `getSystemService` (services are exposed directly), no `getResources` (bundle files under `assets/` → generated `AssetConstants`), no `registerReceiver` (no `BroadcastReceiver`). |
+| `Context` | Partial | `getMainExecutor`, `getDisplay`, service access. No `getSystemService` (services are exposed directly), `getResources`, `getString(int)`, `getColor(int)`. No `registerReceiver` (no `BroadcastReceiver`). |
 | `SharedPreferences` / `Editor` | Partial | Backed by LittleFS. `getString`/`getInt`/`getLong`/`getFloat`/`getBoolean`, `getAll`, `contains`, and the matching `put*`, `remove`, `clear`, `commit`, `apply` (synchronous). No `getStringSet`/`putStringSet`, no `OnSharedPreferenceChangeListener`. |
 | `DialogInterface` | Full | `OnClickListener`, `OnDismissListener`, `OnMultiChoiceClickListener`, button constants. |
 
@@ -165,11 +166,13 @@ failure to a report while experimenting.
 ## Cross-cutting divergences
 
 - **Coordinates and sizes are `int` px.** There is no `float` `MotionEvent`
-  coordinate, and no density-independent units — no `dp`/`sp`, no
-  `getResources().getDisplayMetrics()`. Lay out in pixels.
-- **No resources system.** No `R` class, no `res/` directory, no XML layouts,
-  drawables, or strings. Bundle binary assets under `assets/` and reference
-  them through the generated `AssetConstants` (see [assets](/guides/assets/)).
+  coordinate and one display density: `dp` and `sp` in a resource file are
+  accepted and mean one pixel each. No `getResources().getDisplayMetrics()`.
+- **Resources have no configurations.** `res/values`, `res/layout` and
+  `res/drawable` compile into the PAPK with a generated `R` class (see
+  [resources](/guides/resources/)), but there is one display, density and
+  locale: qualified directories (`values-night/`, `drawable-hdpi/`) are a
+  build error, and styles, themes, plurals and string arrays do not exist.
 - **No `Handler`/`Looper`.** The main loop is an executor-driven dispatcher;
   use `Executors.mainExecutor()` and animation timers.
 - **Custom `Interpolator`s fall back to linear.** Standard interpolators

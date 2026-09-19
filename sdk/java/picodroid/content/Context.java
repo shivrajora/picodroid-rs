@@ -6,6 +6,7 @@ import picodroid.app.AlarmManager;
 import picodroid.app.NotificationManager;
 import picodroid.app.usage.StorageStatsManager;
 import picodroid.content.pm.PackageManager;
+import picodroid.content.res.Resources;
 import picodroid.hardware.SensorManager;
 import picodroid.io.File;
 import picodroid.io.FileInputStream;
@@ -74,6 +75,24 @@ public class Context {
   /** The package manager: what this device has installed and can launch. */
   public PackageManager getPackageManager() {
     return PackageManager.getInstance();
+  }
+
+  /**
+   * Mirrors Android: this app's compiled {@code res/} tree — {@code
+   * getResources().getString(R.string.app_name)}.
+   */
+  public Resources getResources() {
+    return Resources.getInstance();
+  }
+
+  /** Mirrors Android: shorthand for {@code getResources().getString(id)}. */
+  public final String getString(int id) {
+    return getResources().getString(id);
+  }
+
+  /** Mirrors Android: shorthand for {@code getResources().getColor(id)}. */
+  public final int getColor(int id) {
+    return getResources().getColor(id);
   }
 
   /** This app's package name, as its manifest declares it. */

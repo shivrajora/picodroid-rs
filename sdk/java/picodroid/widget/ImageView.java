@@ -47,6 +47,15 @@ public class ImageView extends View {
   public native void setImageSource(String path);
 
   /**
+   * Mirrors Android: shows {@code R.drawable.*} — a PNG under {@code res/drawable/}, decoded to the
+   * display's pixel format at build time.
+   *
+   * @throws picodroid.content.res.Resources.NotFoundException if {@code resId} is not a drawable
+   *     resource of this app
+   */
+  public native void setImageResource(int resId);
+
+  /**
    * Show a Drawable: the {@link picodroid.graphics.drawable.BitmapDrawable} the package manager
    * returns for another app's icon, or any Drawable that can paint a view.
    */

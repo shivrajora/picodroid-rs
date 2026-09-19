@@ -411,8 +411,8 @@ public class View {
   }
 
   /**
-   * Set this view's identifier. Mirrors {@code android.view.View#setId(int)}; picodroid has no R
-   * resource compiler, so apps define their own ID constants.
+   * Set this view's identifier. Mirrors {@code android.view.View#setId(int)}. A layout's {@code
+   * android:id="@+id/title"} calls this with the generated {@code R.id.title}.
    */
   public void setId(int id) {
     this.id = id;
@@ -421,6 +421,25 @@ public class View {
   /** Returns this view's identifier, or {@link #NO_ID}. Mirrors Android. */
   public int getId() {
     return id;
+  }
+
+  /**
+   * Mirrors Android: this view if its id is {@code id}, else the first match among its descendants
+   * (depth first), else {@code null}. {@link #NO_ID} never matches.
+   */
+  @SuppressWarnings("TypeParameterUnusedInFormals") // Android's signature, since API 26
+  public final <T extends View> T findViewById(int id) {
+    if (id == NO_ID) {
+      return null;
+    }
+    @SuppressWarnings("unchecked")
+    T found = (T) findViewTraversal(id);
+    return found;
+  }
+
+  /** Mirrors Android's hook of the same name; {@link ViewGroup} extends the search to children. */
+  protected View findViewTraversal(int id) {
+    return id == this.id ? this : null;
   }
 
   /** Attach an arbitrary tag object. Mirrors {@code android.view.View#setTag(Object)}. */

@@ -7,6 +7,10 @@ Picodroid PAPK format **v1.1** adds an `ASST` ("asset") section that carries pre
 
 This guide covers the manifest format, the build pipeline, and the runtime API.
 
+For images referenced by id — `R.drawable.logo`, `android:src="@drawable/logo"` — put them under
+`res/drawable/` instead; see [resources](/guides/resources/). They are stored in the same ASSETS
+section, under the name `res/drawable/<file>`.
+
 ## Manifest format
 
 In your app's directory (e.g. `examples/imagedemo/`), declare the assets next to the Java sources:

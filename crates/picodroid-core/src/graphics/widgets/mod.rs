@@ -71,8 +71,8 @@ pub use edit_text::{
 };
 pub use frame_layout::frame_layout_native_create;
 pub use image_view::{
-    image_view_native_create, image_view_set_scale, image_view_set_scale_type, image_view_set_src,
-    image_view_set_tint,
+    image_view_native_create, image_view_set_resource, image_view_set_scale,
+    image_view_set_scale_type, image_view_set_src, image_view_set_tint,
 };
 pub use keyboard::{
     drain_editor_action, drain_ready_queue as drain_keyboard_ready_queue, lookup_keyboard_obj,

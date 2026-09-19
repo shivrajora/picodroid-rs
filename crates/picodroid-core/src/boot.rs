@@ -260,6 +260,7 @@ pub fn run_app(apk_data: &[u8]) {
     crate::graphics::lvgl::events::reset_activity_groups();
     crate::graphics::lvgl::handle_table::reset();
     crate::graphics::assets::clear();
+    crate::resources::clear();
     // Sensor registrations hold u16 heap refs from the previous app; they
     // must not survive into the reset heap (visit_gc_roots would walk them).
     // Also publishes all-disabled demand so the sampler parks between apps.
@@ -366,6 +367,10 @@ pub fn run_app(apk_data: &[u8]) {
     // `ImageView.setImageSource("name.png")` resolves at runtime. Empty for
     // legacy v1.0 papks and any v1.1 papk built without `--assets-dir`.
     crate::graphics::assets::init_from_papk(&apk);
+    // Likewise its RESOURCES section, behind `Context.getResources()`,
+    // `LayoutInflater` and `ImageView.setImageResource`. Absent without a
+    // `res/` tree.
+    crate::resources::init_from_papk(&apk);
 
     #[cfg(feature = "sim")]
     let start = std::time::Instant::now();

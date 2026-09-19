@@ -9,8 +9,9 @@
 //! # Format overview
 //!
 //! A PAPK file is a flat binary container with a 24-byte file header followed
-//! by a MANIFEST section, a CLASSES section, and (optionally, in v1.1+) an
-//! ASSETS section.  All integers are little-endian.
+//! by a MANIFEST section, a CLASSES section, (optionally, in v1.1+) an
+//! ASSETS section and (optionally, in v1.2+) a RESOURCES section.  All
+//! integers are little-endian.
 //!
 //! **Every section starts on a 4-byte boundary**, zero-padded from the end of
 //! the previous one. The reader takes each section's offset from the file
@@ -29,14 +30,25 @@
 //! File header (24 bytes):
 //!   [0..4]   magic:           b"PAPK"
 //!   [4..2]   version_major:   u16 LE  (currently 1)
-//!   [6..2]   version_minor:   u16 LE  (0 = no assets, 1 = ASSETS section may exist)
+//!   [6..2]   version_minor:   u16 LE  (0 = no assets, 1 = ASSETS section may exist,
+//!                                      2 = the header has the v1.2 extension)
 //!   [8..4]   section_count:   u32 LE
 //!   [12..4]  manifest_offset: u32 LE  (offset to MANIFEST section header)
 //!   [16..4]  classes_offset:  u32 LE  (offset to CLASSES section header)
 //!   [20..4]  assets_offset:   u32 LE  (offset to ASSETS section header, 0 = absent)
 //!
+//! File header extension (4 more bytes, present iff version_minor >= 2):
+//!   [24..4]  resources_offset: u32 LE (offset to RESOURCES section header, 0 = absent)
+//!
+//! The writer emits the extension — and minor 2 — only for a PAPK that has a
+//! RESOURCES section, so every other PAPK stays byte-identical to v1.1. A
+//! v1.1 reader handed a v1.2 file takes its three offsets from the same slots
+//! as ever and simply never sees the resources. A reader must gate on
+//! `version_minor` before it looks at [24..28]: in a v1.1 file those bytes
+//! are the MANIFEST section's tag.
+//!
 //! Section header (16 bytes):
-//!   [0..4]   tag:      u32 LE  ("MANI", "CLSS", or "ASST")
+//!   [0..4]   tag:      u32 LE  ("MANI", "CLSS", "ASST" or "RESR")
 //!   [4..4]   length:   u32 LE  (byte count of section data, NOT including header)
 //!   [8..4]   crc32:    u32 LE  (0 = unchecked in v1)
 //!   [12..4]  reserved: u32 LE  = 0
@@ -65,6 +77,9 @@
 //!     [pad 0..3 bytes so data starts at 4-byte offset within the section]
 //!     [pixel bytes (data_size bytes; LVGL-native, not encoded)]
 //!     [pad 0..3 bytes so next record starts at 4-byte offset within the section]
+//!
+//! RESOURCES section data (v1.2+):
+//!   see the [`res`] module.
 //!
 //! Between sections:
 //!   [pad 0..3 zero bytes so the next section header starts 4-byte aligned]
@@ -96,6 +111,7 @@
 extern crate alloc;
 
 pub mod flash_image;
+pub mod res;
 
 mod scan;
 pub use scan::{
@@ -118,10 +134,16 @@ pub const SUPPORTED_VERSION_MAJOR: u16 = 1;
 /// `version_major` the writer emits.
 pub const VERSION_MAJOR: u16 = 1;
 /// `version_minor` the writer emits (1 since the `framework-map-version`
-/// manifest key / ASSETS section were introduced).
+/// manifest key / ASSETS section were introduced) for a PAPK without a
+/// RESOURCES section.
 pub const VERSION_MINOR: u16 = 1;
+/// `version_minor` of a PAPK whose file header carries the v1.2 extension
+/// (`resources_offset`). Emitted only when there is a RESOURCES section.
+pub const VERSION_MINOR_RESOURCES: u16 = 2;
 /// Byte length of the fixed file header.
 pub const FILE_HEADER_LEN: usize = 24;
+/// Byte length of the file header with the v1.2 extension.
+pub const FILE_HEADER_LEN_V1_2: usize = 28;
 /// Byte length of each section header.
 pub const SECTION_HEADER_LEN: usize = 16;
 /// Section tag for the MANIFEST section (`b"MANI"` as a LE u32).
@@ -130,6 +152,8 @@ pub const TAG_MANIFEST: u32 = u32::from_le_bytes(*b"MANI");
 pub const TAG_CLASSES: u32 = u32::from_le_bytes(*b"CLSS");
 /// Section tag for the ASSETS section (`b"ASST"` as a LE u32).
 pub const TAG_ASSETS: u32 = u32::from_le_bytes(*b"ASST");
+/// Section tag for the RESOURCES section (`b"RESR"` as a LE u32).
+pub const TAG_RESOURCES: u32 = u32::from_le_bytes(*b"RESR");
 
 /// Well-known manifest keys — ends the `b"framework-map-version"` string
 /// literals scattered across four crates.
@@ -213,6 +237,20 @@ pub struct FileHeader {
     pub classes_offset: u32,
     /// Offset of the ASSETS section header; `0` = absent (v1.0 `reserved`).
     pub assets_offset: u32,
+    /// Offset of the RESOURCES section header; `0` = absent, and always `0`
+    /// below v1.2, whose header has no such field.
+    pub resources_offset: u32,
+}
+
+/// `resources_offset` of a header whose magic and 24-byte length are already
+/// checked: `0` unless the file declares the v1.2 extension and is long
+/// enough to hold it.
+fn read_resources_offset(data: &[u8]) -> u32 {
+    if read_u16_le(data, 6) >= VERSION_MINOR_RESOURCES && data.len() >= FILE_HEADER_LEN_V1_2 {
+        read_u32_le(data, 24)
+    } else {
+        0
+    }
 }
 
 impl FileHeader {
@@ -236,6 +274,7 @@ impl FileHeader {
             manifest_offset: read_u32_le(data, 12),
             classes_offset: read_u32_le(data, 16),
             assets_offset: read_u32_le(data, 20),
+            resources_offset: read_resources_offset(data),
         })
     }
 }
@@ -396,6 +435,9 @@ pub struct Papk<'a> {
     /// Offset to the ASSETS section header, or 0 if the section is absent
     /// (legacy v1.0 papks).
     assets_offset: usize,
+    /// Offset to the RESOURCES section header, or 0 if absent (any papk
+    /// below v1.2, and every app without a `res/` tree).
+    resources_offset: usize,
 }
 
 impl<'a> Papk<'a> {
@@ -422,6 +464,7 @@ impl<'a> Papk<'a> {
         // in v1.0, where it was always written as 0. So legacy papks parse
         // without surprise.
         let assets_offset = read_u32_le(data, 20) as usize;
+        let resources_offset = read_resources_offset(data) as usize;
 
         // Basic bounds check: both offsets must be within file and have room
         // for the 16-byte section header. `checked_add` so a hostile offset
@@ -445,12 +488,20 @@ impl<'a> Papk<'a> {
         {
             return Err(PapkError::Truncated);
         }
+        if resources_offset != 0
+            && resources_offset
+                .checked_add(SECTION_HEADER_LEN)
+                .is_none_or(|end| end > data.len())
+        {
+            return Err(PapkError::Truncated);
+        }
 
         Ok(Self {
             data,
             manifest_offset,
             classes_offset,
             assets_offset,
+            resources_offset,
         })
     }
 
@@ -487,6 +538,7 @@ impl<'a> Papk<'a> {
             manifest_offset: read_u32_le(self.data, 12),
             classes_offset: read_u32_le(self.data, 16),
             assets_offset: read_u32_le(self.data, 20),
+            resources_offset: self.resources_offset as u32,
         }
     }
 
@@ -507,6 +559,23 @@ impl<'a> Papk<'a> {
             return Ok(None);
         }
         section_at(self.data, self.assets_offset, TAG_ASSETS).map(Some)
+    }
+
+    /// Returns the RESOURCES section header and its data slice, or `None` if
+    /// the papk has no RESOURCES section.
+    pub fn resources_section(&self) -> Result<Option<(SectionHeader, &'a [u8])>, PapkError> {
+        if self.resources_offset == 0 {
+            return Ok(None);
+        }
+        section_at(self.data, self.resources_offset, TAG_RESOURCES).map(Some)
+    }
+
+    /// The app's compiled resource table, or `None` if it has no `res/` tree.
+    pub fn resources(&self) -> Result<Option<res::ResTable<'a>>, PapkError> {
+        match self.resources_section()? {
+            Some((_, data)) => res::ResTable::parse(data).map(Some),
+            None => Ok(None),
+        }
     }
 
     /// Returns the `main-class` value from the MANIFEST section, or `None` if
