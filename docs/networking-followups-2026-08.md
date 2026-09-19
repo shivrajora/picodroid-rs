@@ -239,25 +239,63 @@ FIN, slowest 0.64 s, no hangs — except the one described under NET-11. `pdb
 sysmon` on the same board now lists all 15 tasks (pdb task 1181 of 2048 words
 free with the larger table).
 
-## NET-11: a dashboard load during the boot housekeeping job loses its body — OPEN 2026-09-17
+## NET-11: the first dashboard load after a reboot loses its body — CLOSED 2026-09-19, bench artifact
 
-Found while verifying NET-10. A load made within about a second of `net: up`,
-i.e. while the boot-time NTP + weather job is in flight on the background
-executor, delivers its headers (first byte 0.2–0.35 s) and never its body. On the
-old close path the load ends as headers + RST, 0 bytes of body (curl exit 56,
-`size_download` 0); with the graceful close the client instead waits out its own
-timeout (exit 28, 25 s), so the graceful close changes the symptom, not the
-cause. Reproduced 2 of 2 on each firmware; 0 of 3 when the first load is made
-40 s after the join. Every later load, including those overlapping the 5-minute
-housekeeping re-runs, is clean. No `http: connection error` line reaches the
-log, so the stack accepted the body; either it was never transmitted or the
-retransmits (which the 3.5 s drain leaves time for) were dropped too. Suspects:
-the outbound weather connect and the inbound accept sharing the cyw43 link
-during association/DHCP settle, or the `+TCP` network-buffer pool under two
-simultaneous connections. Repro: `power-cycle.sh --board pico_enviro_mon_w`,
-`until ping -c1 -W1 <ip>; do sleep 2; done`, then one `curl -s -m 25 -o
-/dev/null -w "%{http_code} %{exitcode} %{time_starttransfer} %{time_total}
-%{size_download}\n" http://<ip>:8080/` immediately versus after `sleep 40`.
+*Not a firmware bug, and not the housekeeping job.* Opened 2026-09-17 while verifying NET-10
+as "a load during the boot-time NTP + weather job gets its headers and never its body".
+Investigated from scratch 2026-09-19 on `pico_enviro_mon_w` (main f717b80b, debug build, about
+250 power cycles).
+
+*What the hang is.* A CPU halt over SWD in the middle of a hang (nothing instrumented before
+it) shows the socket `eESTABLISHED` with `bUserShutdown` set, every body byte segmented and
+transmitted, each segment already sent three times (original, +0.9 s, +2.6 s; SRTT 438 ms, the
+next resend due at about 6.1 s), the ARP cache and the header template holding the client's
+correct MAC, `instr_tx_fail` 0 and the heap never under 140 KB free. The 3.5 s close drain then
+expires and `closesocket` drops the connection without a FIN or RST, which is why the client
+waits out its own timeout. The app logs nothing because nothing failed on the device.
+
+*Cause.* The bench host was attached to the dashboard LAN twice: `wlp82s0` (192.168.1.215) and
+the wired `enp81s0` (10.0.0.1/24, the BACnet bench network) share one L2 segment, and with the
+Linux defaults `arp_ignore=0` / `arp_announce=0` the host answers an ARP request for any of its
+addresses on every interface (ARP flux). Only the first connection after a Pico reboot is
+exposed, because only then is the Pico's ARP cache empty and it has to broadcast. A capture on
+both NICs shows the sequence: the broadcast reaches the wired NIC first and is answered with the
+wired MAC, so the ping reply, the SYN-ACK and the first ACK go to the wired NIC; 17 ms later the
+same broadcast arrives over WiFi and is answered with the WiFi MAC, the Pico's entry flips, the
+63-byte header goes to the WiFi MAC and arrives, and the three body segments with both
+retransmissions of each arrive on neither NIC. One TCP flow that changes destination MAC
+mid-stream is dropped inside the LAN (the gateway pins a flow to the port it first saw it on —
+inferred, the gateway is a black box). Loads whose ARP replies arrive in the other order, or
+after the entry has settled, are clean, which is why it looked random and why it looked tied to
+the first seconds after `net: up`.
+
+*Numbers.* Load at the first ping reply, host defaults: 22 hangs in 90 boots. First load 1.5 s
+later, squarely inside the NTP + weather job: 0 in 26. Host with `arp_ignore=1`,
+`arp_announce=2`: 0 in 29, one ARP reply per boot and every frame on `wlp82s0`; defaults
+restored: hung again on the third boot. Probe-reset boots and every instrumented firmware (a few
+microseconds in `close()`, RTT debug prints, an in-RAM event recorder) never hung: the window is
+the millisecond ordering of two ARP replies against the page's segments, and any of those shifts
+it.
+
+*Bench rule.* A host that tests a board over the network must answer ARP on one interface only:
+`sysctl net.ipv4.conf.all.arp_ignore=1 net.ipv4.conf.all.arp_announce=2` (persist it under
+`/etc/sysctl.d/`), or keep its other NICs off the board's segment. Until then the first
+connection after a board reboot is suspect in any curl loop run "from the join", NET-10's
+included.
+
+*Left as they are.* FreeRTOS+TCP taking the newest ARP reply is ordinary behaviour. The 3.5 s
+drain does what NET-10 sized it for (two retransmits); a path that stays dead longer than that
+ends as a silent close, and a RST sent into the same dead path would not arrive either.
+
+*Seen on the side:* the join failures recorded as NET-12 below.
+
+*Tooling that worked:* `probe-rs gdb` plus `gdb-multiarch -batch` (`set language c`; walk
+`xBoundTCPSocketsList`, print `u.xTCP.bits`, the tx stream's head/mid/tail, each wait-queue
+segment's `ucTransmitCount`, `xARPCache`) halts within a second and perturbs nothing beforehand;
+host-side, `tcpdump -e` on each NIC separately (`-i any` hides the destination MAC) and the
+per-interface `rx_packets` counters.
+
+### NET-10, original report (2026-09-04)
 
 Found while verifying the serve-loop fix (`fix/dashboard-stall`, 2026-09-04).
 On the W board about 1 page load in 40 delivers its headers within 0.4 s and
@@ -284,6 +322,20 @@ buffer to drain before closing. Repro: `curl -s -m 25 -o /dev/null -w
 http://<board>:8080/` in a 0.3 s loop for 2 min; a hang reads `200 28 0.3 25.0`.
 `pdb sysmon` cannot help on this board until its task cap is fixed
 (docs/quality-roadmap.md, "`pdb sysmon` shows no task table on the W board").
+
+## NET-12: the board sometimes never joins WiFi after a power cycle — OPEN 2026-09-19
+
+Seen while chasing NET-11 on `pico_enviro_mon_w` (main f717b80b, debug build): 8 of about 250
+power cycles never answered a ping within 90 s. The log shows `net: down` a few seconds after
+`wifi: join ... requested`, then the app's `net: still no network after 30s`, and no `net: up`
+afterwards; one such boot stayed down 11 minutes until a probe reset brought it back, so the
+retry path did not recover by itself. The next power cycle always joined. Nothing else is known:
+whether the join request fails, the driver never retries, or the AP refuses the association has
+not been looked at, and neither has whether a probe-reset boot (chip not power-cycled) shows it.
+The ARP fix for NET-11 does not touch it: 1 of the 30 boots run with that fix in place failed
+the same way. First step: catch one with RTT attached at `DEFMT_LOG=debug` and read the cyw43
+join-state word and link status (recipes in the validation notes below); `scratchpad`-style
+harness = power cycle, ping with a 90 s limit, keep the RTT log of the boots that time out.
 
 ## Validation environment (for whoever picks these up)
 
