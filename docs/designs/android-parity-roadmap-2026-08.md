@@ -563,13 +563,29 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
   across a cross-package re-entry (app-store roadmap S7), where the heap is
   reset.
 - **T3.1 follow-ups (pending).**
-  - **T3.1-D — reclaim covered Activities.** Destroy a parked Activity
-    (`onSaveInstanceState` → `onDestroy`, free its view tree) under LVGL-pool
-    or heap pressure and re-create it from its Bundle when uncovered, plus an
-    Android-style "don't keep activities" switch (sim env / pdb) so the
-    nightly can exercise it. Prerequisite: the stack identifies a for-result
-    caller by entry, not `obj_ref`, and by-`obj_ref` lookups skip destroyed
-    entries.
+  - **T3.1-D — reclaim covered Activities. DONE 2026-09-19.** A covered
+    Activity is destroyed (`onSaveInstanceState` → `onDestroy`, parked view
+    tree freed, Service bindings dropped) and its stack entry kept — launch
+    Intent, for-result metadata, the Bundle. Uncovering it starts a new
+    instance: `onCreate(saved)` → `onStart` → `onRestoreInstanceState` →
+    (`onActivityResult`) → `onResume`, no `onRestart`. Checked at both ends
+    of every push, oldest entry first, while the LVGL pool has under 1/8
+    free or the native heap under 1/16 — late on purpose, since most apps
+    save nothing and a re-created screen loses what was not saved. "Don't
+    keep activities" reclaims every Activity as soon as it is covered:
+    `PICODROID_DONT_KEEP_ACTIVITIES=1`, read at start by the simulator and
+    baked in at build time on a device (`lifecycle::set_dont_keep_activities`
+    is the runtime setter a pdb verb would call; no verb yet).
+    `examples/reclaimdemo` is the conformance app; its `test.env` turns the
+    switch on for its nightly row (`lib.sh::app_test_env`, new: sim-run
+    applies it at run time, hil-run at firmware build time). Each stack
+    entry has a token that outlives its instance; a for-result launch
+    records the caller's token when it is queued, `getIntent`/`setResult`/
+    `finish`/`recreate` and the GC's instance roots skip a destroyed entry,
+    and a result Intent on its way to a re-created caller is rooted on the
+    stack meanwhile. *Not done:* pressure is only looked at on a push, so an
+    allocation failing mid-screen does not trigger a reclaim; the pressure
+    path has no test of its own (the switch drives the same code).
   - **T3.1-E — migrate the ~150 Activities** from the deprecated `onCreate()`
     to `onCreate(Bundle)` (mechanical; docs and tutorials with them), then
     decide whether the bridge goes.

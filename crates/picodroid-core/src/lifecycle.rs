@@ -283,6 +283,10 @@ fn inject_members(
 /// snapshotted into A's stack entry; when B finishes, A's saved view is
 /// restored before `onStart`/`onResume`. Apps can build UIs in `onCreate`
 /// and need not rebuild from `onResume`.
+///
+/// Unless memory runs short (or "don't keep activities" is on): then a
+/// covered Activity is destroyed with its state saved and re-created from
+/// that Bundle when it is uncovered — see [`reclaim_covered_activities`].
 #[cfg(not(test))]
 pub(crate) fn run_activity(
     jvm: &mut Jvm,
@@ -311,6 +315,8 @@ pub(crate) fn run_activity(
     // `display::get_instance` is idempotent — second-and-later activity
     // launches just return the cached singleton.
     let _ = display::get_instance(&mut heap.objects);
+
+    init_dont_keep_activities();
 
     if bootstrap_activity(
         jvm,
@@ -566,20 +572,25 @@ fn bootstrap_activity(
     // Give this Activity its own keypad focus group before onCreate so its
     // focusable widgets join the right group (see events::push_activity_group).
     crate::graphics::lvgl::events::push_activity_group();
-    start_activity_instance(jvm, initial_class, initial_ref, None, heap, handler)
+    start_activity_instance(jvm, initial_class, initial_ref, None, None, heap, handler)
 }
 
 /// Drive a new Activity instance to the foreground: `onCreate(saved)` →
-/// `onStart` → (`onRestoreInstanceState(saved)`) → `onResume`. `saved` is the
-/// previous instance's Bundle on a re-creation and `None` on a fresh launch,
-/// which hands `onCreate` a null and skips the restore callback — Android's
-/// contract for both.
+/// `onStart` → (`onRestoreInstanceState(saved)`) → (`onActivityResult`) →
+/// `onResume`. `saved` is the previous instance's Bundle on a re-creation and
+/// `None` on a fresh launch, which hands `onCreate` a null and skips the
+/// restore callback — Android's contract for both. `result` is a for-result
+/// child's answer to a caller that was reclaimed meanwhile: the new instance
+/// gets it where Android delivers it, after the restore and before
+/// `onResume`.
 #[cfg(not(test))]
+#[allow(clippy::too_many_arguments)]
 fn start_activity_instance(
     jvm: &mut Jvm,
     class: &'static str,
     obj_ref: u16,
     saved: Option<u16>,
+    result: Option<ActivityResult>,
     heap: &mut SharedJvmHeap,
     handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) -> LifecycleControl {
@@ -619,11 +630,46 @@ fn start_activity_instance(
     {
         return LifecycleControl::Break;
     }
+    if let Some(result) = result {
+        if deliver_result(jvm, class, obj_ref, result, heap, handler).is_break() {
+            return LifecycleControl::Break;
+        }
+    }
     invoke_lifecycle(
         jvm,
         class,
         dispatch_sites::ACTIVITY_ON_RESUME,
         obj_ref,
+        heap,
+        handler,
+    )
+}
+
+/// `(request_code, result_code, result Intent)` for `onActivityResult`.
+#[cfg(not(test))]
+type ActivityResult = (i32, i32, Option<u16>);
+
+/// Call `onActivityResult` on the Activity that asked for `result`.
+#[cfg(not(test))]
+fn deliver_result(
+    jvm: &mut Jvm,
+    class: &'static str,
+    obj_ref: u16,
+    (request_code, result_code, result_intent): ActivityResult,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
+) -> LifecycleControl {
+    use pico_jvm::types::Value;
+    invoke_lifecycle_with_args(
+        jvm,
+        class,
+        dispatch_sites::ACTIVITY_ON_ACTIVITY_RESULT,
+        obj_ref,
+        &[
+            Value::Int(request_code),
+            Value::Int(result_code),
+            result_intent.map_or(Value::Null, Value::ObjectRef),
+        ],
         heap,
         handler,
     )
@@ -676,14 +722,22 @@ fn teardown_activity(
     use crate::graphics::lvgl::with_gfx;
 
     let mut popped = 0usize;
-    while let Some((act_ref, act_class, root)) = handler.pop_activity() {
+    loop {
+        // A reclaimed entry already had its onDestroy, and has no instance
+        // to call anything on.
+        let reclaimed = handler.top_activity_destroyed();
+        let Some((act_ref, act_class, root)) = handler.pop_activity() else {
+            break;
+        };
         popped += 1;
-        for site in [
-            dispatch_sites::ACTIVITY_ON_PAUSE,
-            dispatch_sites::ACTIVITY_ON_STOP,
-            dispatch_sites::ACTIVITY_ON_DESTROY,
-        ] {
-            let _ = invoke_lifecycle(jvm, act_class, site, act_ref, heap, handler);
+        if !reclaimed {
+            for site in [
+                dispatch_sites::ACTIVITY_ON_PAUSE,
+                dispatch_sites::ACTIVITY_ON_STOP,
+                dispatch_sites::ACTIVITY_ON_DESTROY,
+            ] {
+                let _ = invoke_lifecycle(jvm, act_class, site, act_ref, heap, handler);
+            }
         }
         // Free the saved root for parked entries. The topmost entry's view
         // is in CURRENT_ROOT_ID rather than its slot (it's still visible
@@ -907,10 +961,15 @@ fn handle_push_op(
     new_class: &'static str,
     new_intent: Option<u16>,
     request_code: Option<i32>,
-    caller_ref: u16,
+    caller: u16,
     heap: &mut SharedJvmHeap,
     handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) -> LifecycleControl {
+    // Make room first: the new screen is about to be built out of whatever
+    // the covered ones can give back.
+    if reclaim_covered_activities(jvm, heap, handler).is_break() {
+        return LifecycleControl::Break;
+    }
     // Framework owns instantiation: allocate the Activity and run its
     // no-arg constructor before the lifecycle callbacks.
     let new_ref = match instantiate_component(jvm, new_class, heap, handler) {
@@ -938,7 +997,7 @@ fn handle_push_op(
         }
         park_top_view(handler);
     }
-    if !handler.push_activity(new_ref, new_class, new_intent, request_code, caller_ref) {
+    if !handler.push_activity(new_ref, new_class, new_intent, request_code, caller) {
         log_error!("activity stack overflow on push: {}", new_class);
         // Rollback: unpark prev's view so it isn't left hidden forever.
         if prev.is_some() {
@@ -950,7 +1009,7 @@ fn handle_push_op(
     // New top gets its own keypad focus group before onCreate, isolating its
     // focus from the parent's (which is parked with its focus intact).
     crate::graphics::lvgl::events::push_activity_group();
-    if start_activity_instance(jvm, new_class, new_ref, None, heap, handler).is_break() {
+    if start_activity_instance(jvm, new_class, new_ref, None, None, heap, handler).is_break() {
         return LifecycleControl::Break;
     }
     // New top is now fully resumed — stop the previous one. Order matches
@@ -968,6 +1027,12 @@ fn handle_push_op(
         {
             return LifecycleControl::Break;
         }
+    }
+    // The previous top is now stopped, which makes it a reclaim candidate:
+    // at once under "don't keep activities", and otherwise if building the
+    // new screen left memory short.
+    if reclaim_covered_activities(jvm, heap, handler).is_break() {
+        return LifecycleControl::Break;
     }
     // Native heap use legitimately steps with the new screen's construction;
     // re-baseline the native growth sentinel so it watches for steady-state
@@ -1106,36 +1171,25 @@ fn pop_and_resume_parent(
     // in onCreate get their tree back without rebuilding; apps that rebuild
     // in onResume will replace it (the saved root will be deleted by
     // set_content_view's prev-delete branch).
+    // The result goes to the uncovered entry only if that entry is the one
+    // that asked — matched by stack-entry token, which a reclaimed caller
+    // keeps — so a deeper finish (A→B→C, C finishes to B) never misdelivers
+    // A's result to C.
+    let caller_token = handler.top_activity_token();
+    let result: Option<ActivityResult> = pending_result
+        .filter(|&(_, caller, _, _)| caller == caller_token)
+        .map(|(request_code, _, result_code, intent)| (request_code, result_code, intent));
+    if handler.top_activity_destroyed() {
+        return recreate_uncovered(jvm, result, heap, handler);
+    }
     if let Some((new_top_ref, new_top_class)) = handler.current_activity() {
         restore_top_view(handler);
         // Result delivery (AOSP order): deliverResults precedes
         // performResume→performRestart, so onActivityResult lands AFTER
-        // restore_top_view but BEFORE onRestart. Guarded by caller_ref ==
-        // the uncovered Activity, so a deeper finish (A→B→C, C finishes to B)
-        // never misdelivers A's result to C.
-        if let Some((request_code, caller_ref, result_code, result_intent)) = pending_result {
-            if caller_ref == new_top_ref {
-                let intent_arg = match result_intent {
-                    Some(r) => pico_jvm::types::Value::ObjectRef(r),
-                    None => pico_jvm::types::Value::Null,
-                };
-                if invoke_lifecycle_with_args(
-                    jvm,
-                    new_top_class,
-                    dispatch_sites::ACTIVITY_ON_ACTIVITY_RESULT,
-                    new_top_ref,
-                    &[
-                        pico_jvm::types::Value::Int(request_code),
-                        pico_jvm::types::Value::Int(result_code),
-                        intent_arg,
-                    ],
-                    heap,
-                    handler,
-                )
-                .is_break()
-                {
-                    return LifecycleControl::Break;
-                }
+        // restore_top_view but BEFORE onRestart.
+        if let Some(result) = result {
+            if deliver_result(jvm, new_top_class, new_top_ref, result, heap, handler).is_break() {
+                return LifecycleControl::Break;
             }
         }
         // Android's stopped->foreground edge: onRestart precedes onStart when
@@ -1155,6 +1209,198 @@ fn pop_and_resume_parent(
     // judge against a stale baseline.
     #[cfg(feature = "mem-diag")]
     crate::mem_diag::note_activity_transition();
+    LifecycleControl::Continue
+}
+
+/// The top entry was reclaimed while it was covered and has just been
+/// uncovered: start a new instance in it from the Bundle its old one saved,
+/// `onCreate(saved)` → `onStart` → `onRestoreInstanceState` → (`result`) →
+/// `onResume`. No `onRestart`: this instance was never stopped.
+#[cfg(not(test))]
+fn recreate_uncovered(
+    jvm: &mut Jvm,
+    result: Option<ActivityResult>,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
+) -> LifecycleControl {
+    let Some((_, class)) = handler.current_activity() else {
+        return LifecycleControl::Continue;
+    };
+    crate::pd_info!("activity: re-create {} (was reclaimed)", class);
+    // The entry that held the result Intent is gone, and the constructor and
+    // three callbacks run before it is handed over.
+    handler.set_delivery_intent(result.and_then(|r| r.2));
+    let Some(new_ref) = instantiate_component(jvm, class, heap, handler) else {
+        // Nothing to put in the entry: finish it too, and carry on down.
+        log_error!(
+            "failed to re-create reclaimed Activity {}; finishing it",
+            class
+        );
+        handler.set_delivery_intent(None);
+        handler.set_top_saved_state(None);
+        let pending_result = handler.top_activity_result();
+        return pop_and_resume_parent(jvm, pending_result, heap, handler);
+    };
+    let saved = handler.top_saved_state();
+    handler.replace_top_activity(new_ref);
+    // A fresh keypad focus group for the new view tree, as in recreate(): the
+    // entry's old one emptied when its tree was deleted.
+    crate::graphics::lvgl::events::pop_activity_group();
+    crate::graphics::lvgl::events::push_activity_group();
+    let control = start_activity_instance(jvm, class, new_ref, saved, result, heap, handler);
+    handler.set_top_saved_state(None);
+    handler.set_delivery_intent(None);
+    #[cfg(feature = "mem-diag")]
+    crate::mem_diag::note_activity_transition();
+    control
+}
+
+// ── Reclaiming covered Activities (T3.1-D) ───────────────────────────────────
+
+/// Android's developer option "Don't keep activities": destroy every
+/// Activity as soon as it is covered, so the save/re-create path runs on
+/// every navigation instead of only when memory is short.
+static DONT_KEEP_ACTIVITIES: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+
+/// Turn "don't keep activities" on or off. Takes effect at the next push.
+pub fn set_dont_keep_activities(on: bool) {
+    DONT_KEEP_ACTIVITIES.store(on, core::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn dont_keep_activities() -> bool {
+    DONT_KEEP_ACTIVITIES.load(core::sync::atomic::Ordering::Relaxed)
+}
+
+/// Seed the switch from `PICODROID_DONT_KEEP_ACTIVITIES` (anything but empty
+/// or `0` is on): read when the simulator starts, and baked in at build time
+/// on a device. Leaves a value set some other way alone when the variable is
+/// absent.
+#[cfg(not(test))]
+fn init_dont_keep_activities() {
+    #[cfg(feature = "sim")]
+    let var = std::env::var("PICODROID_DONT_KEEP_ACTIVITIES").ok();
+    #[cfg(not(feature = "sim"))]
+    let var = option_env!("PICODROID_DONT_KEEP_ACTIVITIES");
+    if let Some(v) = var {
+        let on = !matches!(v.trim(), "" | "0");
+        set_dont_keep_activities(on);
+        if on {
+            crate::pd_info!("activity: don't keep activities is ON");
+        }
+    }
+}
+
+/// Reclaim below this much of the LVGL pool free (1/N of its size). A
+/// covered Activity's view tree is parked in that pool, hidden but whole.
+const POOL_PRESSURE_DIVISOR: usize = 8;
+/// Reclaim below this much of the native heap free (1/N of its size) — the
+/// heap the JVM's object storage grows in.
+const HEAP_PRESSURE_DIVISOR: usize = 16;
+
+/// Is either arena short enough that a covered Activity should give its
+/// memory back? Deliberately late: a re-created Activity loses whatever its
+/// `onSaveInstanceState` did not save, and most apps save nothing, so this
+/// is for the push that would otherwise fail, not for keeping memory tidy.
+#[cfg(not(test))]
+fn under_memory_pressure() -> bool {
+    let (pool_free, pool_total) = crate::graphics::lvgl::pool_free_bytes();
+    if pool_free < pool_total / POOL_PRESSURE_DIVISOR {
+        return true;
+    }
+    let native = crate::host::native_heap_stats();
+    let native_total = native.used_bytes + native.free_bytes;
+    native.free_bytes < native_total / HEAP_PRESSURE_DIVISOR
+}
+
+/// Destroy covered Activities, oldest first, while "don't keep activities"
+/// is on or memory is short. Each gets `onSaveInstanceState` → `onDestroy`
+/// (it is already paused and stopped), its parked view tree is freed, and
+/// its stack entry stays — token, launch Intent, for-result metadata and the
+/// Bundle — for [`recreate_uncovered`]. The foreground Activity is never
+/// touched.
+#[cfg(not(test))]
+fn reclaim_covered_activities(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
+) -> LifecycleControl {
+    for index in 0..handler.activity_depth().saturating_sub(1) {
+        if handler.covered_activity(index).is_none() {
+            continue; // already reclaimed
+        }
+        if !dont_keep_activities() && !under_memory_pressure() {
+            break;
+        }
+        if reclaim_covered(jvm, index, heap, handler).is_break() {
+            return LifecycleControl::Break;
+        }
+        // The instance and its widgets' Java side are garbage only once
+        // collected, and the pressure test above reads the heap.
+        heap.collect_now(handler);
+    }
+    LifecycleControl::Continue
+}
+
+/// Destroy the covered Activity at stack `index` with its state saved.
+#[cfg(not(test))]
+fn reclaim_covered(
+    jvm: &mut Jvm,
+    index: usize,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
+) -> LifecycleControl {
+    use crate::graphics::gfx::Handle;
+    use crate::graphics::lvgl::with_gfx;
+
+    let Some((obj_ref, class, root)) = handler.covered_activity(index) else {
+        return LifecycleControl::Continue;
+    };
+    crate::pd_info!("activity: reclaim {}", class);
+    // As in `destroy_top_instance`: no Bundle degrades to a re-creation with
+    // no saved state, which the app sees as a fresh launch.
+    let bundle = heap
+        .objects
+        .alloc_with_defaults(crate::shrink_names::c::picodroid_os_Bundle, jvm.classes());
+    if bundle.is_none() {
+        crate::pd_warn!("reclaim: no memory for the saved-state Bundle");
+    }
+    // Rooted on the entry before any Java runs.
+    handler.set_saved_state_at(index, bundle);
+    if let Some(b) = bundle {
+        if invoke_trampoline(
+            jvm,
+            dispatch_sites::ACTIVITY_SAVE_INSTANCE_STATE,
+            obj_ref,
+            pico_jvm::types::Value::ObjectRef(b),
+            heap,
+            handler,
+        )
+        .is_break()
+        {
+            return LifecycleControl::Break;
+        }
+    }
+    if invoke_lifecycle(
+        jvm,
+        class,
+        dispatch_sites::ACTIVITY_ON_DESTROY,
+        obj_ref,
+        heap,
+        handler,
+    )
+    .is_break()
+    {
+        return LifecycleControl::Break;
+    }
+    // The parked view tree. Its dialogs went when it was covered
+    // (`park_top_view`); its keypad focus group empties with the tree and
+    // stays in the group stack until the entry is uncovered or popped.
+    if root != 0 {
+        with_gfx(|g| g.delete(Handle::from_java(root)));
+    }
+    crate::service_lifecycle::unbind_owned_by(obj_ref, jvm, heap, handler);
+    handler.mark_activity_destroyed(index);
     LifecycleControl::Continue
 }
 
@@ -1199,7 +1445,7 @@ fn handle_recreate_op(
     // when its tree was deleted.
     crate::graphics::lvgl::events::pop_activity_group();
     crate::graphics::lvgl::events::push_activity_group();
-    let control = start_activity_instance(jvm, top_class, new_ref, saved, heap, handler);
+    let control = start_activity_instance(jvm, top_class, new_ref, saved, None, heap, handler);
     handler.set_top_saved_state(None);
     #[cfg(feature = "mem-diag")]
     crate::mem_diag::note_activity_transition();
@@ -1226,13 +1472,13 @@ fn process_pending_op(
             class_name,
             intent_ref,
             request_code,
-            caller_ref,
+            caller,
         }) => handle_push_op(
             jvm,
             class_name,
             intent_ref,
             request_code,
-            caller_ref,
+            caller,
             heap,
             handler,
         ),

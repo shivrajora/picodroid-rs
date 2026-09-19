@@ -1236,6 +1236,12 @@ run_test() {
       extra_env+=("$cred")
     done < <(grep -E '^PICODROID_WIFI_(SSID|PASS|AUTH)=' "$NET_CREDS_FILE")
   fi
+  # The app's own test environment (examples/<app>/test.env), baked in here:
+  # the device reads such switches through option_env!.
+  local app_env_line
+  while IFS= read -r app_env_line; do
+    extra_env+=("$app_env_line")
+  done < <(app_test_env "$app")
   if ! hil_build_firmware "$apk_path" "$mode" "" "$build_log" ${extra_env[@]+"${extra_env[@]}"}; then
     hil_log "  BUILD FAILED (firmware)"
     echo "ERROR $tag (firmware build failed)" >> "$RESULTS_FILE"

@@ -92,7 +92,11 @@ protected void onCreate(Bundle savedInstanceState) {
 }
 ```
 
-Two differences from Android. The default `onSaveInstanceState` saves nothing — there are no view ids to key a view hierarchy's state by, so an `EditText`'s text is yours to save. And the framework never destroys a covered Activity behind your back: a paused Activity keeps its instance and its view tree, so `recreate()` is the only path that delivers a non-null Bundle. See [`examples/bundledemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/bundledemo).
+One difference from Android: the default `onSaveInstanceState` saves nothing — there are no view ids to key a view hierarchy's state by, so an `EditText`'s text is yours to save. See [`examples/bundledemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/bundledemo).
+
+The framework can also destroy a **covered** Activity to get its memory back. A covered Activity normally keeps its instance and its hidden view tree; when a `startActivity` finds the LVGL pool or the heap nearly full, the Activities underneath are destroyed oldest first — `onSaveInstanceState → onDestroy` (they are already stopped) — and each is re-created when the user comes back to it: `onCreate(saved) → onStart → onRestoreInstanceState(saved) → onResume`, with no `onRestart`. `getIntent()` is unchanged, and a `startActivityForResult` answer still arrives, on the new instance, between `onRestoreInstanceState` and `onResume`. Fields you did not save are gone, so an Activity that can be covered should save what it cannot rebuild.
+
+To test that, turn on the equivalent of Android's *Don't keep activities* developer option, which destroys every Activity the moment it is covered: run the simulator with `PICODROID_DONT_KEEP_ACTIVITIES=1`, or set that variable when building device firmware. See [`examples/reclaimdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/reclaimdemo).
 
 ### Back stack
 

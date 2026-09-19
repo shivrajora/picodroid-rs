@@ -175,7 +175,14 @@ run_test() {
   # silently never ran, in the nightly and in CI.
   sim_log "  Running (${timeout}s timeout)..."
   local exit_code=0
-  if ! PICODROID_APK_PATH="$apk_path" PICODROID_SIM_HEADLESS=1 \
+  # The app's own test environment (examples/<app>/test.env), if it has one.
+  local -a app_env=()
+  local app_env_line
+  while IFS= read -r app_env_line; do
+    app_env+=("$app_env_line")
+  done < <(app_test_env "$app")
+  if ! env ${app_env[@]+"${app_env[@]}"} \
+       PICODROID_APK_PATH="$apk_path" PICODROID_SIM_HEADLESS=1 \
        PICODROID_HANDLE_SANITIZER="${PICODROID_HANDLE_SANITIZER:-1}" \
        PICODROID_PARITY_STRICT="${PICODROID_PARITY_STRICT:-1}" \
        timeout "$timeout" "$bin" > "$log_file" 2>&1 < /dev/null; then

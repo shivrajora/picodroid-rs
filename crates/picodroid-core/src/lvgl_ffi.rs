@@ -452,6 +452,21 @@ pub type lv_event_cb_t = Option<unsafe extern "C" fn(e: *mut lv_event_t)>;
 // Excluded under `cfg(test)` so the constants + drift-check tests below
 // compile on the host without linking against LVGL.
 
+/// `lv_mem_monitor_t` (include/lvgl/stdlib/lv_mem.h): six `size_t`s and two
+/// percentages.
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct lv_mem_monitor_t {
+    pub total_size: usize,
+    pub free_cnt: usize,
+    pub free_size: usize,
+    pub free_biggest_size: usize,
+    pub used_cnt: usize,
+    pub max_used: usize,
+    pub used_pct: u8,
+    pub frag_pct: u8,
+}
+
 #[cfg(not(test))]
 extern "C" {
     // Core
@@ -463,6 +478,9 @@ extern "C" {
     #[cfg(lv_mem_in_psram)]
     pub fn picodroid_lv_draw_buf_pool_fallbacks() -> u32;
     pub fn lv_tick_inc(tick_period: u32);
+    // Walks the TLSF pool: a few hundred blocks, for the rare caller that
+    // needs the pool's free level (lifecycle's reclaim policy).
+    pub fn lv_mem_monitor(mon_p: *mut lv_mem_monitor_t);
     pub fn lv_timer_handler() -> u32;
 
     // Display

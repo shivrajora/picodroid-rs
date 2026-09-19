@@ -232,10 +232,10 @@ impl PicodroidNativeHandler {
         class_name: &'static str,
         intent_ref: Option<u16>,
         request_code: Option<i32>,
-        caller_ref: u16,
+        caller: u16,
     ) -> bool {
         self.activity_stack
-            .push(obj_ref, class_name, intent_ref, request_code, caller_ref)
+            .push(obj_ref, class_name, intent_ref, request_code, caller)
     }
 
     /// `Activity.setResult` — record the result on the calling Activity's
@@ -258,7 +258,7 @@ impl PicodroidNativeHandler {
         &mut self,
         ctx: &mut NativeContext<'_>,
         request_code: Option<i32>,
-        caller_ref: u16,
+        caller: u16,
     ) -> Result<Option<Value>, JvmError> {
         let Some(Value::ObjectRef(intent_ref)) = ctx.args.get(1) else {
             return Ok(None);
@@ -306,7 +306,7 @@ impl PicodroidNativeHandler {
                                 class_name: static_name,
                                 intent_ref: Some(intent_ref),
                                 request_code,
-                                caller_ref,
+                                caller,
                             }));
                         if !queued {
                             return Err(queue_full(ctx));
@@ -322,7 +322,7 @@ impl PicodroidNativeHandler {
         Ok(None)
     }
 
-    /// The top Activity's pending-result tuple `(request_code, caller_ref,
+    /// The top Activity's pending-result tuple `(request_code, caller token,
     /// result_code, result_intent_ref)`, or `None` when it wasn't launched
     /// for-result. Read by `handle_pop_op` before popping.
     pub fn top_activity_result(&self) -> Option<(i32, u16, i32, Option<u16>)> {
@@ -348,9 +348,50 @@ impl PicodroidNativeHandler {
         self.activity_stack.set_top_saved_state(bundle_ref);
     }
 
-    /// The top entry's saved-state Bundle, `Some` only mid-recreate.
+    /// The top entry's saved-state Bundle: `Some` mid-recreate, and on a
+    /// reclaimed entry that was just uncovered.
     pub fn top_saved_state(&self) -> Option<u16> {
         self.activity_stack.top_saved_state()
+    }
+
+    /// Entries on the stack, reclaimed ones included.
+    pub fn activity_depth(&self) -> usize {
+        self.activity_stack.depth()
+    }
+
+    /// Stack-entry token of the top Activity (0 = empty stack): what a
+    /// for-result launch records as its caller.
+    pub fn top_activity_token(&self) -> u16 {
+        self.activity_stack.top_token()
+    }
+
+    /// True when the top entry's instance was reclaimed while covered and
+    /// has not been re-created yet.
+    pub fn top_activity_destroyed(&self) -> bool {
+        self.activity_stack.top_destroyed()
+    }
+
+    /// The covered, still-live entry at `index` (0 = bottom): `(obj_ref,
+    /// class_name, parked root handle)`.
+    pub fn covered_activity(&self, index: usize) -> Option<(u16, &'static str, i32)> {
+        self.activity_stack.covered(index)
+    }
+
+    /// Root (`Some`) or drop (`None`) the saved-state Bundle of the entry at
+    /// `index`.
+    pub fn set_saved_state_at(&mut self, index: usize, bundle_ref: Option<u16>) {
+        self.activity_stack.set_saved_state_at(index, bundle_ref);
+    }
+
+    /// The instance of the covered entry at `index` has been destroyed.
+    pub fn mark_activity_destroyed(&mut self, index: usize) {
+        self.activity_stack.mark_destroyed(index);
+    }
+
+    /// Root (`Some`) or drop (`None`) a result Intent that has to outlive
+    /// the re-creation of the caller it is for.
+    pub fn set_delivery_intent(&mut self, intent_ref: Option<u16>) {
+        self.activity_stack.set_delivery_intent(intent_ref);
     }
 
     /// Saved content-view handle of the top entry, or `0` if the stack
@@ -398,9 +439,14 @@ impl PicodroidNativeHandler {
         for intent_ref in self.activity_stack.iter_result_intents() {
             visit(Value::ObjectRef(intent_ref));
         }
-        // ...and the saved-state Bundle of an entry that is mid-recreate.
+        // ...and the saved-state Bundle of an entry that is mid-recreate or
+        // reclaimed.
         for bundle_ref in self.activity_stack.iter_saved_states() {
             visit(Value::ObjectRef(bundle_ref));
+        }
+        // ...and a result Intent waiting for its caller to be re-created.
+        if let Some(intent_ref) = self.activity_stack.delivery_intent() {
+            visit(Value::ObjectRef(intent_ref));
         }
         // Pending ops: the Service `intent` / `conn` / `owner_activity`
         // references and the Activity Push `intent_ref` must survive until
@@ -579,16 +625,18 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             (_, m::startActivity) => Some(self.enqueue_activity_push(ctx, None, 0)),
             (_, m::startActivityForResult) => {
                 // args[0] = this (Activity), args[1] = Intent, args[2] = int requestCode.
-                // The receiver is the caller that will get onActivityResult.
-                let caller_ref = match ctx.args.first() {
-                    Some(Value::ObjectRef(r)) => *r,
+                // The receiver is the caller that will get onActivityResult,
+                // recorded as its stack entry's token: the instance may be
+                // reclaimed and re-created before the result comes back.
+                let caller = match ctx.args.first() {
+                    Some(Value::ObjectRef(r)) => self.activity_stack.token_of(*r),
                     _ => 0,
                 };
                 let request_code = match ctx.args.get(2) {
                     Some(Value::Int(c)) => *c,
                     _ => 0,
                 };
-                Some(self.enqueue_activity_push(ctx, Some(request_code), caller_ref))
+                Some(self.enqueue_activity_push(ctx, Some(request_code), caller))
             }
             (_, m::setResult) => {
                 // args[0] = this (Activity), args[1] = int resultCode,

@@ -203,6 +203,16 @@ fn property_code(p: ViewProperty) -> i32 {
 #[cfg(not(test))]
 static mut GFX: LvglGfx = LvglGfx::new();
 
+/// The LVGL pool's `(free, total)` bytes. UI task only, like every LVGL call.
+#[cfg(not(test))]
+pub fn pool_free_bytes() -> (usize, usize) {
+    let mut mon = crate::lvgl_ffi::lv_mem_monitor_t::default();
+    // SAFETY: `mon` is a valid out-parameter; LVGL is initialised before any
+    // Activity runs, and this is the UI task.
+    unsafe { crate::lvgl_ffi::lv_mem_monitor(&mut mon) };
+    (mon.free_size, mon.total_size)
+}
+
 /// Run a closure with mutable access to the global graphics backend.
 ///
 /// Single-threaded by contract: only the UI task may touch the widget tree

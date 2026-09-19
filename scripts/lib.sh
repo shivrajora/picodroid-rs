@@ -20,6 +20,18 @@ timestamp_log() {
 # Check if all expected patterns are found in a log file.
 # Args: log_file "pattern1;pattern2;..."
 # Prints missing patterns to stdout; returns 0 if all found, 1 if any missing.
+# Print the KEY=VALUE lines of examples/<app>/test.env (comments and blank
+# lines dropped), one per line; nothing when the app has no such file. The
+# test runners add them to the row's environment: sim-run at run time, hil-run
+# at firmware build time (the device reads them through option_env!). For a
+# framework switch a conformance app needs on, e.g. reclaimdemo's
+# PICODROID_DONT_KEEP_ACTIVITIES=1.
+app_test_env() {
+  local file="$REPO_ROOT/examples/$1/test.env"
+  [[ -f "$file" ]] || return 0
+  grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$file" || true
+}
+
 check_patterns() {
   local log_file="$1"
   local patterns="$2"

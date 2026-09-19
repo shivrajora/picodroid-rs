@@ -42,9 +42,11 @@ pub enum PendingActivityOp {
         /// `startActivity`. Carried onto the new stack entry.
         #[cfg_attr(test, allow(dead_code))]
         request_code: Option<i32>,
-        /// obj_ref of the launching Activity (0 for an Application-level
+        /// Stack-entry token of the launching Activity
+        /// ([`ActivityStack::token_of`], resolved when the launch is queued;
+        /// 0 for an Application-level
         /// boot launch). The result delivery guard checks this on pop.
-        caller_ref: u16,
+        caller: u16,
     },
     /// `Activity.finish()` — pop the current top off the stack. If the
     /// stack is left empty, [`run_activity`] returns and the app exits.
@@ -112,7 +114,17 @@ pub const MAX_PENDING_OPS: usize = PENDING_OP_QUEUE_DEPTH;
 
 #[derive(Copy, Clone)]
 struct ActivityStackEntry {
+    /// This entry's identity for as long as it is on the stack: unlike
+    /// `obj_ref` it survives the instance being destroyed and re-created
+    /// (`recreate()`, a reclaim). Never 0.
+    token: u16,
+    /// The live instance; meaningless while `destroyed`.
     obj_ref: u16,
+    /// The framework destroyed this covered entry's instance to get its
+    /// memory back (`mark_destroyed`); `saved_state_ref` holds what
+    /// `onSaveInstanceState` wrote, and uncovering the entry re-creates the
+    /// Activity from it. By-`obj_ref` lookups and the GC roots skip it.
+    destroyed: bool,
     class_name: &'static str,
     /// Intent that launched this Activity (`getIntent()`'s return value);
     /// `None` for the boot Activity. Rooted by the GC visitor below.
@@ -129,10 +141,12 @@ struct ActivityStackEntry {
     /// `onActivityResult` when this Activity finishes. `None` for a plain
     /// `startActivity`.
     request_code: Option<i32>,
-    /// obj_ref of the Activity that launched this one with a request code.
-    /// The result is delivered only when this caller is the one uncovered on
-    /// pop (the A→B→C guard — B finishing must not deliver to C).
-    caller_ref: u16,
+    /// Token of the entry whose Activity launched this one with a request
+    /// code — a token, not an obj_ref, so the caller is still found after it
+    /// was reclaimed and re-created. The result is delivered only when this
+    /// caller is the one uncovered on pop (the A→B→C guard — B finishing
+    /// must not deliver to C).
+    caller: u16,
     /// Result code set via `setResult` (default `RESULT_CANCELED` == 0, the
     /// Android default for a finished Activity that never called setResult).
     result_code: i32,
@@ -141,9 +155,9 @@ struct ActivityStackEntry {
     result_intent_ref: Option<u16>,
     /// The `Bundle` a re-creation carries from this entry's old instance
     /// (`onSaveInstanceState`) to its new one (`onCreate(Bundle)`,
-    /// `onRestoreInstanceState`). `Some` only while `handle_recreate_op`
-    /// runs; rooted by the GC visitor below, being reachable from neither
-    /// instance.
+    /// `onRestoreInstanceState`). `Some` while `handle_recreate_op` runs and
+    /// for as long as the entry is `destroyed`; rooted by the GC visitor
+    /// below, being reachable from neither instance.
     saved_state_ref: Option<u16>,
 }
 
@@ -154,6 +168,13 @@ struct ActivityStackEntry {
 pub struct ActivityStack {
     entries: [Option<ActivityStackEntry>; MAX_ACTIVITY_STACK],
     len: usize,
+    /// Source of entry tokens. Wraps past 0; a collision needs 65,535 pushes
+    /// while one entry stays on the stack, and costs a misdelivered result.
+    next_token: u16,
+    /// A result Intent between the pop of the entry that set it and its
+    /// delivery to a caller that has to be re-created first — Java runs in
+    /// between, and nothing else holds the Intent. Rooted by the GC visitor.
+    delivery_intent_ref: Option<u16>,
 }
 
 impl ActivityStack {
@@ -161,6 +182,8 @@ impl ActivityStack {
         Self {
             entries: [None; MAX_ACTIVITY_STACK],
             len: 0,
+            next_token: 1,
+            delivery_intent_ref: None,
         }
     }
 
@@ -178,18 +201,25 @@ impl ActivityStack {
         class_name: &'static str,
         intent_ref: Option<u16>,
         request_code: Option<i32>,
-        caller_ref: u16,
+        caller: u16,
     ) -> bool {
         if self.len >= MAX_ACTIVITY_STACK {
             return false;
         }
+        let token = self.next_token;
+        self.next_token = match self.next_token.wrapping_add(1) {
+            0 => 1,
+            t => t,
+        };
         self.entries[self.len] = Some(ActivityStackEntry {
+            token,
             obj_ref,
+            destroyed: false,
             class_name,
             intent_ref,
             root_handle: 0,
             request_code,
-            caller_ref,
+            caller,
             // RESULT_CANCELED — Android's default when an Activity finishes
             // without calling setResult.
             result_code: 0,
@@ -200,13 +230,99 @@ impl ActivityStack {
         true
     }
 
-    /// Hand the top entry to a new instance of its Activity (`recreate()`).
+    /// Live entries: the ones a by-`obj_ref` lookup may match.
+    fn live(&self) -> impl Iterator<Item = &ActivityStackEntry> + '_ {
+        self.entries[..self.len]
+            .iter()
+            .flatten()
+            .filter(|e| !e.destroyed)
+    }
+
+    /// Number of entries, destroyed ones included.
+    pub fn depth(&self) -> usize {
+        self.len
+    }
+
+    /// Token of the live entry whose instance is `obj_ref`, or 0.
+    pub fn token_of(&self, obj_ref: u16) -> u16 {
+        self.live()
+            .find(|e| e.obj_ref == obj_ref)
+            .map_or(0, |e| e.token)
+    }
+
+    /// Token of the top entry, or 0 on an empty stack.
+    pub fn top_token(&self) -> u16 {
+        self.entries[..self.len]
+            .last()
+            .and_then(Option::as_ref)
+            .map_or(0, |e| e.token)
+    }
+
+    /// True when the top entry's instance was reclaimed while it was covered
+    /// — only between the pop that uncovered it and its re-creation.
+    pub fn top_destroyed(&self) -> bool {
+        self.entries[..self.len]
+            .last()
+            .and_then(Option::as_ref)
+            .is_some_and(|e| e.destroyed)
+    }
+
+    /// The covered, still-live entry at `index` (0 = bottom) as `(obj_ref,
+    /// class_name, parked root_handle)`. `None` for the top entry, which is
+    /// in the foreground, and for one already reclaimed.
+    pub fn covered(&self, index: usize) -> Option<(u16, &'static str, i32)> {
+        if index + 1 >= self.len {
+            return None;
+        }
+        let e = self.entries[index].as_ref().filter(|e| !e.destroyed)?;
+        Some((e.obj_ref, e.class_name, e.root_handle))
+    }
+
+    /// Root (or drop) the saved-state Bundle of the entry at `index`.
+    pub fn set_saved_state_at(&mut self, index: usize, bundle_ref: Option<u16>) {
+        if let Some(e) = self.entries[..self.len]
+            .get_mut(index)
+            .and_then(Option::as_mut)
+        {
+            e.saved_state_ref = bundle_ref;
+        }
+    }
+
+    /// The instance of the entry at `index` is gone (reclaimed). The entry
+    /// keeps its place, token, launch Intent, for-result metadata and saved
+    /// state; the result is per-instance and goes with the instance, as in
+    /// `replace_top`.
+    pub fn mark_destroyed(&mut self, index: usize) {
+        if let Some(e) = self.entries[..self.len]
+            .get_mut(index)
+            .and_then(Option::as_mut)
+        {
+            e.destroyed = true;
+            e.obj_ref = 0;
+            e.root_handle = 0;
+            e.result_code = 0;
+            e.result_intent_ref = None;
+        }
+    }
+
+    /// Root (or drop) a result Intent on its way to a re-created caller.
+    pub fn set_delivery_intent(&mut self, intent_ref: Option<u16>) {
+        self.delivery_intent_ref = intent_ref;
+    }
+
+    pub fn delivery_intent(&self) -> Option<u16> {
+        self.delivery_intent_ref
+    }
+
+    /// Hand the top entry to a new instance of its Activity (`recreate()`, or
+    /// the re-creation of a reclaimed entry).
     /// The launch Intent and the for-result launch metadata carry over, as
     /// they belong to the launch, not the instance; the result is
     /// per-instance and goes back to Android's RESULT_CANCELED default.
     pub fn replace_top(&mut self, new_ref: u16) {
         if let Some(e) = self.entries[..self.len].last_mut().and_then(Option::as_mut) {
             e.obj_ref = new_ref;
+            e.destroyed = false;
             e.root_handle = 0;
             e.result_code = 0;
             e.result_intent_ref = None;
@@ -227,36 +343,29 @@ impl ActivityStack {
         if let Some(entry) = self.entries[..self.len]
             .iter_mut()
             .flatten()
-            .find(|e| e.obj_ref == obj_ref)
+            .find(|e| !e.destroyed && e.obj_ref == obj_ref)
         {
             entry.result_code = code;
             entry.result_intent_ref = intent_ref;
         }
     }
 
-    /// The top entry's result delivery info `(request_code, caller_ref,
+    /// The top entry's result delivery info `(request_code, caller token,
     /// result_code, result_intent_ref)`, or `None` when the top wasn't
     /// launched for-result. Read before `pop` so `handle_pop_op` can deliver
     /// `onActivityResult` to the uncovered caller.
     pub fn top_result(&self) -> Option<(i32, u16, i32, Option<u16>)> {
         let entry = self.entries[..self.len].last()?.as_ref()?;
-        entry.request_code.map(|rc| {
-            (
-                rc,
-                entry.caller_ref,
-                entry.result_code,
-                entry.result_intent_ref,
-            )
-        })
+        entry
+            .request_code
+            .map(|rc| (rc, entry.caller, entry.result_code, entry.result_intent_ref))
     }
 
     /// The Intent that launched the Activity identified by `obj_ref`, for
     /// `getIntent()`. Searches the whole stack: a paused Activity below the
     /// top may legitimately call getIntent from a callback.
     pub fn intent_of(&self, obj_ref: u16) -> Option<u16> {
-        self.entries[..self.len]
-            .iter()
-            .flatten()
+        self.live()
             .find(|e| e.obj_ref == obj_ref)
             .and_then(|e| e.intent_ref)
     }
@@ -292,11 +401,10 @@ impl ActivityStack {
     }
 
     /// Iterate over the live stack entries' `(obj_ref, class_name)` pairs
-    /// from bottom to top — used by the GC visit-roots path.
+    /// from bottom to top — used by the GC visit-roots path. A reclaimed
+    /// entry has no instance and is skipped.
     pub fn iter(&self) -> impl Iterator<Item = (u16, &'static str)> + '_ {
-        self.entries[..self.len]
-            .iter()
-            .filter_map(|e| e.as_ref().map(|x| (x.obj_ref, x.class_name)))
+        self.live().map(|x| (x.obj_ref, x.class_name))
     }
 
     /// Live entries' retained Intent refs, for the GC visit-roots path —
@@ -323,8 +431,9 @@ impl ActivityStack {
         self.entries[..self.len].last()?.as_ref()?.saved_state_ref
     }
 
-    /// Live entries' saved-state Bundle refs, for the GC visit-roots path:
-    /// mid-recreate the Bundle is held by this entry alone.
+    /// Entries' saved-state Bundle refs, for the GC visit-roots path:
+    /// mid-recreate, and for as long as an entry stays reclaimed, the Bundle
+    /// is held by the entry alone.
     pub fn iter_saved_states(&self) -> impl Iterator<Item = u16> + '_ {
         self.entries[..self.len]
             .iter()
@@ -500,7 +609,8 @@ mod tests {
         // the old instance and do not.
         let mut s = ActivityStack::new();
         s.push(1, A, None, None, 0);
-        s.push(2, B, Some(50), Some(9), 1);
+        let a = s.token_of(1);
+        s.push(2, B, Some(50), Some(9), a);
         s.set_current_root_handle(77);
         s.set_result(2, -1, Some(51));
         s.replace_top(3);
@@ -508,8 +618,60 @@ mod tests {
         assert_eq!(s.intent_of(3), Some(50));
         assert_eq!(s.intent_of(2), None);
         assert_eq!(s.current_root_handle(), 0);
-        assert_eq!(s.top_result(), Some((9, 1, 0, None)));
+        assert_eq!(s.top_result(), Some((9, a, 0, None)));
         assert_eq!(s.iter_result_intents().count(), 0);
+    }
+
+    /// T3.1-D: a reclaimed entry keeps its place and identity, drops out of
+    /// every by-obj_ref lookup and of the instance roots, and comes back
+    /// through `replace_top`.
+    #[test]
+    fn a_reclaimed_entry_keeps_its_token_and_leaves_the_obj_ref_lookups() {
+        let mut s = ActivityStack::new();
+        s.push(10, A, Some(70), None, 0);
+        let a = s.token_of(10);
+        assert_ne!(a, 0);
+        s.push(20, B, None, Some(5), a);
+        // The top is in the foreground: never a reclaim candidate.
+        assert_eq!(s.covered(1), None);
+        s.set_current_root_handle(0);
+        assert_eq!(s.covered(0), Some((10, A, 0)));
+
+        s.set_saved_state_at(0, Some(60));
+        s.mark_destroyed(0);
+        assert_eq!(s.covered(0), None, "reclaimed once");
+        assert_eq!(s.token_of(10), 0);
+        assert_eq!(s.intent_of(10), None);
+        assert_eq!(s.iter().collect::<Vec<_>>(), [(20, B)]);
+        assert_eq!(s.iter_saved_states().collect::<Vec<_>>(), [60]);
+        assert_eq!(
+            s.iter_intents().collect::<Vec<_>>(),
+            [70],
+            "launch Intent stays"
+        );
+        s.set_result(0, -1, None); // obj_ref 0 must not match the dead entry
+
+        // B finishes: its caller is still identified, by token.
+        let (_, caller, _, _) = s.top_result().unwrap();
+        s.pop();
+        assert!(s.top_destroyed());
+        assert_eq!(caller, s.top_token());
+        assert_eq!(s.top_saved_state(), Some(60));
+
+        s.replace_top(11);
+        assert!(!s.top_destroyed());
+        assert_eq!(s.token_of(11), a, "same entry, new instance");
+        assert_eq!(s.intent_of(11), Some(70));
+    }
+
+    #[test]
+    fn tokens_are_never_zero_across_the_wrap() {
+        let mut s = ActivityStack::new();
+        s.next_token = u16::MAX;
+        s.push(1, A, None, None, 0);
+        s.push(2, B, None, None, 0);
+        assert_eq!(s.token_of(1), u16::MAX);
+        assert_eq!(s.token_of(2), 1);
     }
 
     #[test]
@@ -655,13 +817,13 @@ mod tests {
             class_name: A,
             intent_ref: None,
             request_code: None,
-            caller_ref: 0,
+            caller: 0,
         }));
         q.enqueue(PendingOp::Activity(PendingActivityOp::Push {
             class_name: B,
             intent_ref: None,
             request_code: None,
-            caller_ref: 0,
+            caller: 0,
         }));
         q.enqueue(PendingOp::Activity(PendingActivityOp::Pop { finishing: 0 }));
         match q.take_next() {
@@ -711,7 +873,7 @@ mod tests {
             class_name: A,
             intent_ref: None,
             request_code: None,
-            caller_ref: 0,
+            caller: 0,
         }));
         q.enqueue(PendingOp::Service(PendingServiceOp::Stop { class_name: B }));
         q.enqueue(PendingOp::Activity(PendingActivityOp::Pop { finishing: 0 }));
@@ -738,7 +900,7 @@ mod tests {
             class_name: A,
             intent_ref: None,
             request_code: None,
-            caller_ref: 0,
+            caller: 0,
         }));
         q.enqueue(PendingOp::Activity(PendingActivityOp::Pop { finishing: 0 }));
         let mut visited: alloc::vec::Vec<u16> = alloc::vec::Vec::new();
