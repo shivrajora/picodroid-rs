@@ -42,14 +42,24 @@ pub(in crate::graphics) fn set_pos(h: Handle, x: i32, y: i32) {
 /// `View.WRAP_CONTENT (-2)` at the FFI boundary so layouts can size themselves to their children.
 const LV_SIZE_CONTENT: i32 = (1 << 30) - 1;
 
-/// LVGL `LV_PCT(100) = LV_COORD_MAX - 1000 + 100 = (1<<21) - 901`. Mirrors Java
-/// `ViewGroup.LayoutParams.MATCH_PARENT (-1)` at the FFI boundary.
-const LV_SIZE_MATCH_PARENT: i32 = (1 << 21) - 901;
+/// Java `ViewGroup.LayoutParams.MATCH_PARENT (-1)` is LVGL's `LV_PCT(100)`,
+/// asked of LVGL itself (`lv_pct` is the macro as an exported function)
+/// rather than spelled here. It was a constant until 2026-09-19 —
+/// `(1<<21) - 901`, `LV_PCT(100)` of an LVGL whose coordinates were 22 bits
+/// wide — and under the vendored LVGL (type bits at 29) that value is no
+/// special coordinate at all but a plain width of 2,096,251 px. Nothing
+/// crashed: the parent clipped the child, left-aligned content still drew in
+/// the right place, and only centred or weighted children (parked a million
+/// pixels to the right) and `getWidth()` told the truth. `resdemo`'s geometry
+/// checks are what caught it.
+fn match_parent() -> i32 {
+    unsafe { lv_pct(100) }
+}
 
 fn translate_dim(v: i32) -> i32 {
     match v {
         -2 => LV_SIZE_CONTENT,
-        -1 => LV_SIZE_MATCH_PARENT,
+        -1 => match_parent(),
         other => other,
     }
 }
