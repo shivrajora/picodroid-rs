@@ -26,7 +26,7 @@ pub fn throw_named_exception(
     match objects.alloc(class) {
         Some(idx) => {
             if let Some(midx) = strings.intern_dyn(msg.as_bytes()) {
-                objects.register_exception_message(idx, midx);
+                let _ = objects.register_exception_message(idx, midx);
             }
             JvmError::Exception(idx)
         }

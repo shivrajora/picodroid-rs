@@ -83,7 +83,7 @@ fn gc_traces_suppressed_through_live_owner() {
 
     let owner = objects.alloc(c::java_lang_RuntimeException).unwrap();
     let suppressed = objects.alloc(c::java_lang_RuntimeException).unwrap();
-    objects.add_suppressed(owner, suppressed);
+    objects.add_suppressed(owner, suppressed).unwrap();
 
     // Only the owner is rooted; the suppressed Throwable is reachable
     // solely through the side table — exactly the post-try-with-resources
@@ -115,7 +115,7 @@ fn gc_drops_suppressed_table_with_owner() {
 
     let owner = objects.alloc(c::java_lang_RuntimeException).unwrap();
     let suppressed = objects.alloc(c::java_lang_RuntimeException).unwrap();
-    objects.add_suppressed(owner, suppressed);
+    objects.add_suppressed(owner, suppressed).unwrap();
 
     let frames = [];
     let freed = collect(
@@ -145,7 +145,7 @@ fn gc_traces_exception_message_through_live_owner() {
     // the message side table once the construction expression is done.
     let owner = objects.alloc(c::java_lang_RuntimeException).unwrap();
     let msg = strings.intern_dyn(b"dynamic message").unwrap();
-    objects.register_exception_message(owner, msg);
+    objects.register_exception_message(owner, msg).unwrap();
 
     let frame = Frame::new(0, 0, &[Value::ObjectRef(owner)], 4, 4).unwrap();
     let frames = [frame];

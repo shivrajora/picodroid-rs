@@ -1629,7 +1629,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             .alloc(c::java_lang_IllegalArgumentException)
             .ok_or(JvmError::StackOverflow)?;
         if let Some(m) = self.strings.intern_dyn_owned(msg) {
-            self.objects.register_exception_message(e, m);
+            let _ = self.objects.register_exception_message(e, m);
         }
         Err(JvmError::Exception(e))
     }

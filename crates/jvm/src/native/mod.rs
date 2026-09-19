@@ -826,7 +826,9 @@ const BUILTIN_DISPATCH: &[(&str, u32, BuiltinDispatchFn)] = &[
 /// and the cause in the ObjectHeap side tables so `getMessage()` /
 /// `getCause()` and `UncaughtException` can surface them. The cause-only
 /// form leaves the message unset where Java would set it to
-/// `cause.toString()` — a documented shortcut.
+/// `cause.toString()` — a documented shortcut. A side table the heap cannot
+/// grow drops the entry: the Throwable is built, and later thrown, without
+/// its message or cause rather than replaced by an `OutOfMemoryError`.
 fn capture_throwable_message(ctx: &mut NativeContext<'_>) {
     let Some(Value::ObjectRef(obj_idx)) = ctx.args.first().copied() else {
         return;
@@ -834,16 +836,16 @@ fn capture_throwable_message(ctx: &mut NativeContext<'_>) {
     let desc = ctx.descriptor;
     if desc.starts_with(crate::names::d::p_String) {
         if let Some(Value::Reference(msg_idx)) = ctx.args.get(1).copied() {
-            ctx.objects.register_exception_message(obj_idx, msg_idx);
+            let _ = ctx.objects.register_exception_message(obj_idx, msg_idx);
         }
         if desc.starts_with(crate::names::d::p_String_Throwable) {
             if let Some(Value::ObjectRef(cause)) = ctx.args.get(2).copied() {
-                ctx.objects.register_exception_cause(obj_idx, cause);
+                let _ = ctx.objects.register_exception_cause(obj_idx, cause);
             }
         }
     } else if desc.starts_with(crate::names::d::p_Throwable) {
         if let Some(Value::ObjectRef(cause)) = ctx.args.get(1).copied() {
-            ctx.objects.register_exception_cause(obj_idx, cause);
+            let _ = ctx.objects.register_exception_cause(obj_idx, cause);
         }
     }
 }
@@ -872,6 +874,9 @@ pub(super) fn throw_named(ctx: &mut NativeContext<'_>, class: &'static str) -> J
 }
 
 /// `Throwable.addSuppressed(Throwable)`: record in the ObjectHeap side table.
+/// try-with-resources calls this while the primary exception is in flight,
+/// so a table the heap cannot grow drops the entry and returns normally: an
+/// `OutOfMemoryError` here would replace the exception being rethrown.
 fn throwable_add_suppressed(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
     let Some(Value::ObjectRef(owner)) = ctx.args.first().copied() else {
         return Err(JvmError::InvalidReference);
@@ -881,7 +886,7 @@ fn throwable_add_suppressed(ctx: &mut NativeContext<'_>) -> Result<Option<Value>
             Err(throw_named(ctx, c::java_lang_IllegalArgumentException))
         }
         Some(Value::ObjectRef(t)) => {
-            ctx.objects.add_suppressed(owner, t);
+            let _ = ctx.objects.add_suppressed(owner, t);
             Ok(None)
         }
         Some(Value::Null) | None => Err(throw_named(ctx, c::java_lang_NullPointerException)),

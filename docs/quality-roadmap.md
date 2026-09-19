@@ -331,29 +331,31 @@ were +16 KiB and pulled the `sim.sh -l 360` pre-flight from 24.2 KB to 7.7 KB mi
 the HIL boot-budget assertion follows. **Tradeoff:** fewer workers means less parallelism for a
 future app that posts more than two long jobs at once.
 
-### Exception side tables still grow through an infallible push
+### Exception side tables grow fallibly *(landed 2026-09-18)*
 
-The last three `ObjectHeap` side tables keyed by object index still grow with a plain
-`Vec::push`, the shape that reset the RP2040 (10 KB, resolution caches) and the touch kit
-(7,680 B, the lambda registry) in the 2026-09-13 QA round: `exception_messages`
-(`register_exception_message`), `suppressed` (`add_suppressed`, which also pushes into each
-owner's inner list and allocates a fresh one per owner) and `exception_causes`
-(`register_exception_cause`), all in `crates/jvm/src/object_heap/mod.rs`. Entries are small
-(4 B for messages and causes, 16 B plus the inner list for suppressed on a 32-bit target), so a
-doubling step only reaches the multi-KB range with around a thousand live Throwables. That
-takes an app that keeps exceptions around, but it is a board reset rather than an
-`OutOfMemoryError` when it happens, and it happens on a heap that is already full.
-
-The fix is the one `register_lambda` and `iter_register` got: grow through `reserve_fallible`
-and return `Exhausted`. What differs is the caller. These are written on the *throw* path,
-18 call sites across the natives and the interpreter, so turning a refusal into a fresh
-`OutOfMemoryError` would replace the exception being thrown. The better answer is to degrade:
-drop the message, the cause or the suppressed entry and throw the original Throwable without
-it. Pin each table with a `with_budget` test beside `growth_tests`. The alloc-scan ratchet in
-`native_handler/alloc_scan.rs` does not cover `crates/jvm/src/object_heap/`, which is how
-these and the lambda registry went unnoticed; widening the scan to that tree would keep the
-next one out. **Tradeoff:** a degraded Throwable loses its message or cause exactly when the
+`exception_messages`, `suppressed` and `exception_causes` in `crates/jvm/src/object_heap/mod.rs`
+were the last `ObjectHeap` tables keyed by object index that grew with a plain `Vec::push`.
+That is the shape that reset the RP2040 (10 KB, resolution caches) and the touch kit (7,680 B,
+the lambda registry) in the 2026-09-13 QA round. Now `register_exception_message`,
+`register_exception_cause` and `add_suppressed` grow through `reserve_fallible` and return
+`Exhausted`. `add_suppressed` does this for both the table and each owner's own list. The
+callers are on the throw path, so a refusal does not become an `OutOfMemoryError` that would
+replace the exception being thrown. Instead the entry is dropped and the original Throwable is
+thrown without its message, cause or suppressed entry. The `<clinit>` wrap is the one
+exception: an `ExceptionInInitializerError` whose cause cannot be recorded would lose the
+original, so it counts as a failed wrap and the original is delivered unwrapped, as when the
+wrapper cannot be allocated. `growth_tests` pins each table with a `with_budget` test.
+`object_heap_tables_reserve_before_they_grow` in `native_handler/alloc_scan.rs` now fails
+any `self.<table>` growth under `crates/jvm/src/object_heap/` that its function did not
+reserve first. **Tradeoff:** a degraded Throwable loses its message or cause exactly when the
 app is out of memory, which is when a developer most wants it, but that beats a reset.
+
+The scan covers only `object_heap/`. Other long-lived JVM tables still push infallibly, but
+they grow per class or per nesting level, not per object: `StaticFieldStore`'s `initialized`
+and `entries`, `ClassObjectCache::entries`, and `GcState`'s `parked_frames` and
+`shadow_roots`. The two synthesized exception messages (the `<clinit>` wrapper's, and
+`Enum.valueOf`'s "No enum constant") are built in a `Vec::with_capacity` on the same throw
+path.
 
 ## Memory-diagnostics follow-ups
 

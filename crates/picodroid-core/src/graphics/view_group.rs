@@ -35,7 +35,7 @@ pub fn add_view(
         if let Some(m) = strings.intern_dyn(
             b"addView: this view was released by removeView; picodroid frees a removed view, create a new one",
         ) {
-            objects.register_exception_message(idx, m);
+            let _ = objects.register_exception_message(idx, m);
         }
         return Err(JvmError::Exception(idx));
     }

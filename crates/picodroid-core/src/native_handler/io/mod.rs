@@ -91,7 +91,7 @@ fn throw_io(ctx: &mut NativeContext<'_>, msg: &str) -> JvmError {
     match ctx.objects.alloc(c::java_io_IOException) {
         Some(idx) => {
             if let Some(midx) = ctx.strings.intern_dyn(msg.as_bytes()) {
-                ctx.objects.register_exception_message(idx, midx);
+                let _ = ctx.objects.register_exception_message(idx, midx);
             }
             JvmError::Exception(idx)
         }

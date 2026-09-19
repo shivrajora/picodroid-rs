@@ -318,7 +318,7 @@ pub fn register_click_listener(
         if let Some(m) = strings.intern_dyn(
             b"setOnClickListener: the click-listener table is full; close or drop views that no longer need a listener",
         ) {
-            objects.register_exception_message(idx, m);
+            let _ = objects.register_exception_message(idx, m);
         }
         return Err(JvmError::Exception(idx));
     }

@@ -132,7 +132,7 @@ pub(super) fn throw_exception(
     match ctx.objects.alloc(class) {
         Some(idx) => {
             if let Some(midx) = ctx.strings.intern_dyn(msg.as_bytes()) {
-                ctx.objects.register_exception_message(idx, midx);
+                let _ = ctx.objects.register_exception_message(idx, midx);
             }
             JvmError::Exception(idx)
         }

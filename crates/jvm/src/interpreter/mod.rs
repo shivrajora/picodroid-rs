@@ -360,8 +360,14 @@ fn handle_exception<H: NativeMethodHandler>(
             let exc_class = ex.objects.class_name(obj_idx).unwrap_or("");
             let is_error = helpers::is_instance_of(ex.classes, exc_class, c::java_lang_Error);
             if !is_error {
-                if let Some(wrapper) = ex.objects.alloc(c::java_lang_ExceptionInInitializerError) {
-                    ex.objects.register_exception_cause(wrapper, obj_idx);
+                // The cause is the original exception, so a wrapper that
+                // cannot record it would lose it: that counts as a failed
+                // wrap, like a failed allocation.
+                let wrapper = ex
+                    .objects
+                    .alloc(c::java_lang_ExceptionInInitializerError)
+                    .filter(|&w| ex.objects.register_exception_cause(w, obj_idx).is_ok());
+                if let Some(wrapper) = wrapper {
                     // Synthesize "<original class>: <msg>" so uncaught traces
                     // stay readable without calling getCause().
                     let mut msg: Vec<u8> = Vec::with_capacity(exc_class.len() + 32);
@@ -373,7 +379,7 @@ fn handle_exception<H: NativeMethodHandler>(
                         }
                     }
                     if let Some(midx) = ex.strings.intern_dyn_owned(msg) {
-                        ex.objects.register_exception_message(wrapper, midx);
+                        let _ = ex.objects.register_exception_message(wrapper, midx);
                     }
                     // `crossed_clinit` searched from `unwind_floor`, which is
                     // itself `>= floor`, so this can never cut below the floor.
@@ -382,7 +388,7 @@ fn handle_exception<H: NativeMethodHandler>(
                     obj_idx = wrapper;
                     continue;
                 }
-                // Allocation failed mid-unwind (OOM): propagate the original
+                // The wrap failed mid-unwind (OOM): propagate the original
                 // unwrapped rather than lose the exception entirely.
             }
         }

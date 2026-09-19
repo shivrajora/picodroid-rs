@@ -714,7 +714,7 @@ impl NativeMethodHandler for NetFailHandler {
                 return Some(Err(JvmError::StackOverflow));
             };
             if let Some(midx) = ctx.strings.intern_dyn(b"Connection refused") {
-                ctx.objects.register_exception_message(idx, midx);
+                let _ = ctx.objects.register_exception_message(idx, midx);
             }
             return Some(Err(JvmError::Exception(idx)));
         }
