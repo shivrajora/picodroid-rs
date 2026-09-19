@@ -13,8 +13,13 @@
 //! identity flags override its manifest — how the HIL harness mints fixtures
 //! that differ only in package name — and `--pad-asset <bytes>` appends a
 //! synthetic asset so a fixture reaches a size (filling the app region).
+//!
+//! `--res-dir <dir>` compiles an Android-style `res/` tree into the RESOURCES
+//! section (see the `res` module), and `papk-pack gen-r` writes the matching
+//! `R.java` from the same tree before the app is compiled.
 
 mod classcheck;
+mod res;
 
 use std::fs;
 use std::io;
@@ -61,6 +66,11 @@ struct Args {
     /// `--pad-asset <bytes>`: append a synthetic asset so the output reaches
     /// at least this size.
     pad_asset: Option<usize>,
+    /// `--res-dir`: an app's `res/` tree, compiled into `resources`.
+    res_dir: Option<PathBuf>,
+    /// RESOURCES section data — compiled from `res_dir`, or copied from the
+    /// `--repack` input. Empty means no section.
+    resources: Vec<u8>,
 }
 
 /// Sections copied from a `--repack` input: the classes and assets verbatim,
@@ -69,6 +79,7 @@ struct RepackSource {
     classes: Vec<(String, Vec<u8>)>,
     assets: Vec<Asset>,
     extras: Vec<(String, String)>,
+    resources: Vec<u8>,
 }
 
 /// The well-known manifest values of a `--repack` input, each the default
@@ -157,11 +168,17 @@ fn load_repack_source(bytes: &[u8]) -> Result<(RepackSource, RepackManifest), St
         };
         *slot = Some(value);
     }
+    let resources = papk
+        .resources_section()
+        .map_err(|e| format!("RESOURCES section: {e}"))?
+        .map(|(_, data)| data.to_vec())
+        .unwrap_or_default();
     Ok((
         RepackSource {
             classes,
             assets,
             extras,
+            resources,
         },
         manifest,
     ))
@@ -188,6 +205,7 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
     let mut icon = None;
     let mut repack: Option<PathBuf> = None;
     let mut pad_asset: Option<usize> = None;
+    let mut res_dir: Option<PathBuf> = None;
 
     let mut i = 1;
     while i < args.len() {
@@ -278,6 +296,12 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
                     args.get(i).ok_or("--shrink-map requires a value")?,
                 ));
             }
+            "--res-dir" => {
+                i += 1;
+                res_dir = Some(PathBuf::from(
+                    args.get(i).ok_or("--res-dir requires a value")?,
+                ));
+            }
             "--help" | "-h" => {
                 print_usage();
                 std::process::exit(0);
@@ -292,10 +316,14 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
     // Under --repack the input supplies every value no flag overrides.
     let mut source = None;
     if let Some(path) = &repack {
-        if classes_dir.is_some() || assets_dir.is_some() || shrink_map.is_some() {
+        if classes_dir.is_some()
+            || assets_dir.is_some()
+            || shrink_map.is_some()
+            || res_dir.is_some()
+        {
             return Err(
-                "--repack takes its classes and assets from the input; drop --classes-dir, \
-                 --assets-dir and --shrink-map"
+                "--repack takes its classes, assets and resources from the input; drop \
+                 --classes-dir, --assets-dir, --res-dir and --shrink-map"
                     .into(),
             );
         }
@@ -346,6 +374,8 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
             label,
             icon,
             pad_asset,
+            res_dir,
+            resources: Vec::new(),
         },
         source,
     ))
@@ -387,7 +417,7 @@ fn print_usage() {
          \x20 --framework-map-version <semver> \\\n\
          \x20 [--version-code <n>] [--label <text>] [--icon <asset.png>] \\\n\
          \x20 --classes-dir <dir> | --repack <in.papk> \\\n\
-         \x20 [--assets-dir <dir>] \\\n\
+         \x20 [--assets-dir <dir>] [--res-dir <dir>] \\\n\
          \x20 [--shrink-map <map.toml>] \\\n\
          \x20 [--pad-asset <bytes>] \\\n\
          \x20 --output <file.papk>\n\
@@ -395,6 +425,9 @@ fn print_usage() {
          At least one of --main-class, --activity, or --application must be provided.\n\
          --assets-dir is optional; PNG files in the directory are decoded into\n\
          LVGL-native RGB565 and bundled in the ASSETS (ASST) section.\n\
+         --res-dir is an Android-style res/ tree (values, layout, drawable), compiled\n\
+         into the RESOURCES (RESR) section; `papk-pack gen-r --res-dir <dir> --package\n\
+         <java.package> --out-dir <dir>` writes the matching R.java.\n\
          --shrink-map names the class-shrink map --classes-dir was rewritten with,\n\
          so the entry-point check matches descriptors in their shrunk spelling and\n\
          an app-shrunk (cut-app) map renames the manifest entry class itself.\n\
@@ -754,12 +787,43 @@ fn build_papk(
             data: &a.data,
         });
     }
+    builder.resources(&args.resources);
     builder.build()
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
+/// Compile `--res-dir` into `args.resources` and decode its drawables into
+/// `assets`, next to the `assets/` images and sorted with them.
+fn compile_resources(args: &mut Args, assets: &mut Vec<Asset>) -> Result<(), String> {
+    let Some(dir) = args.res_dir.as_deref() else {
+        return Ok(());
+    };
+    if !dir.is_dir() {
+        return Err(format!("--res-dir '{}' is not a directory", dir.display()));
+    }
+    let compiled = res::compile(dir)?;
+    for w in &compiled.warnings {
+        eprintln!("Warning: {w}");
+    }
+    for (name, path) in &compiled.drawables {
+        assets.push(decode_png_to_rgb565(path, name.clone())?);
+    }
+    assets.sort_by(|a, b| a.name.cmp(&b.name));
+    args.resources = compiled.table;
+    Ok(())
+}
+
 fn main() {
+    let argv: Vec<String> = std::env::args().collect();
+    if argv.get(1).map(String::as_str) == Some("gen-r") {
+        if let Err(e) = res::gen_r_main(&argv[2..]) {
+            eprintln!("Error: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     let (mut args, source) = match parse_args() {
         Ok(a) => a,
         Err(e) => {
@@ -772,7 +836,10 @@ fn main() {
     let (classes, mut assets, extras) = match source {
         // --repack: sections come from the input; they were validated (and
         // possibly shrunk) when it was packed, so no entry-point check here.
-        Some(src) => (src.classes, src.assets, src.extras),
+        Some(src) => {
+            args.resources = src.resources;
+            (src.classes, src.assets, src.extras)
+        }
         None => {
             let classes_dir = args
                 .classes_dir
@@ -835,6 +902,11 @@ fn main() {
                 }
                 None => Vec::new(),
             };
+            let mut assets = assets;
+            if let Err(msg) = compile_resources(&mut args, &mut assets) {
+                eprintln!("Error: {msg}");
+                std::process::exit(1);
+            }
             (classes, assets, Vec::new())
         }
     };
@@ -924,6 +996,8 @@ mod pack_integration {
             label: None,
             icon: None,
             pad_asset: None,
+            res_dir: None,
+            resources: Vec::new(),
         };
 
         let classes = collect_classes(args.classes_dir.as_deref().unwrap()).unwrap();
@@ -1004,6 +1078,8 @@ mod pack_integration {
             label: None,
             icon: None,
             pad_asset: None,
+            res_dir: None,
+            resources: Vec::new(),
         }
     }
 
