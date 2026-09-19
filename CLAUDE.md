@@ -26,7 +26,7 @@ After a change under `crates/`, `platforms/`, `sdk/` or `system-apps/`:
 ./scripts/sim.sh --app helloworld
 ```
 
-Confirm `[HelloWorld] Hello, World!` appears. Docs, example-app and script-only edits need no smoke. Every other app (`benchmark`, `blinky`, the `qa_*` suites, …) runs in the 3 AM sim nightly, and GitHub CI runs a 17-app sim smoke on every push.
+Confirm `[HelloWorld] Hello, World!` appears. Docs, example-app and script-only edits need no smoke. Every other app (`benchmark`, `blinky`, the `qa_*` suites, …) runs in the 3 AM sim nightly, and GitHub CI runs a 18-app sim smoke on every push.
 
 ### 2. Pre-commit
 

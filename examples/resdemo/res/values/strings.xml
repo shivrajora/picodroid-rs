@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Res Demo</string>
+    <string name="greeting">Hello from res/values</string>
+    <string name="count_label">Taps</string>
+    <string name="row_text">An inflated row</string>
+</resources>
