@@ -17,7 +17,7 @@
 # Everything else is deliberately NOT here. .github/workflows/ci_checks.yml
 # runs the board clippy legs, rp2040+rp2350 in debug and release, test.sh in
 # both shrink modes, every example APK and its API contract, both formatters,
-# the same source guards (scripts/check-source-guards.sh) and a 18-app sim
+# the same source guards (scripts/check-source-guards.sh) and a 15-app sim
 # smoke that includes the three langsuites; the 3 AM sim-run.sh runs the whole
 # hil-tests.conf matrix (the qa_* apps, benchmark, blinky, the mem-diag /
 # sched-diag soaks, the size ratchet) and the 4 AM hil-fleet.sh runs it on

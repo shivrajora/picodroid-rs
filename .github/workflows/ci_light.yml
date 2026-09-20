@@ -1,0 +1,55 @@
+name: CI Light
+
+# The cheap checks that must see every commit, docs-only ones included --
+# ci_checks.yml skips those. Each job here finishes in about a minute.
+on: [push, pull_request]
+
+concurrency:
+  group: ci-light-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  docs-site:
+    name: Docs site
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - run: npm ci
+        working-directory: website
+      # Builds without BASE on purpose: starlight-links-validator only runs in
+      # that mode (see astro.config.mjs), so this is the job that catches a
+      # broken internal link. The deploy workflow's BASE build does not.
+      - name: Build site and validate internal links
+        run: npm run build
+        working-directory: website
+  guards:
+    name: Source guards
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: scripts/lint-md/package-lock.json
+      # The text-only invariants the local pre-commit hook enforces, run here
+      # too so a bypassed hook (--no-verify, a merge) still meets them: no
+      # shadow twin under both src trees and no not(feature = "family-rp")
+      # cfg gate (scripts/check-source-guards.sh), the [jvm] board.toml
+      # parser, markdown lint, and the device-lock state machine every bench
+      # script depends on.
+      - run: bash scripts/check-source-guards.sh
+      - run: bash scripts/test-jvm-env.sh
+      - run: npm ci
+        working-directory: scripts/lint-md
+      - run: bash scripts/lint-md.sh
+      - run: bash scripts/test-device-lock.sh

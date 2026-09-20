@@ -1,0 +1,66 @@
+name: Rust Nightly Reference Build
+
+# The `building` job of ci_checks.yml on nightly Rust: an early warning of what
+# the next stable will break, never a gate. Weekly, because a per-push run told
+# us nothing a weekly one does not. Keep the steps in step with `building`.
+on:
+  schedule:
+    - cron: '0 12 * * 1'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  building:
+    name: Building (nightly Rust)
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macOS-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install ARM toolchain and JDK (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi default-jdk-headless libudev-dev
+      - name: Install ARM toolchain (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install --cask gcc-arm-embedded || true
+          VERSION=$(ls /Applications/ArmGNUToolchain | head -1)
+          echo "/Applications/ArmGNUToolchain/$VERSION/arm-none-eabi/bin" >> $GITHUB_PATH
+      - uses: actions/setup-java@v4
+        if: runner.os == 'macOS'
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: thumbv6m-none-eabi,thumbv8m.main-none-eabihf
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.os }}-nightly
+      # No-ops when the cached ~/.cargo/bin already holds the binary.
+      - run: cargo install flip-link
+      # Build via scripts/build.sh so device firmware images pick up the
+      # debug-profile flash-gate (debug-assertions/overflow-checks off, ~40 KB)
+      # that keeps the RP2040 image under its 896K FLASH ceiling. build.sh
+      # builds the helloworld APK itself before linking the firmware.
+      # TestBench RP2040
+      - run: bash scripts/build.sh --board testbench_rp2040 --app helloworld
+      - run: bash scripts/build.sh --board testbench_rp2040 --app helloworld --release
+      # TestBench RP2350
+      - run: bash scripts/build.sh --board testbench_rp2350 --app helloworld
+      - run: bash scripts/build.sh --board testbench_rp2350 --app helloworld --release
+      # Unconditional shrinking's contract (docs/designs/unconditional-shrink-2026-09.md):
+      # a --shrink --shrink-app image spells no original Java class, descriptor
+      # or served member name, nor the app's own package. Same check as the
+      # local `./scripts/pre-commit --full` shrink_image stage.
+      - run: bash scripts/build.sh --board testbench_rp2350 --app helloworld --release --shrink --shrink-app
+      - run: bash scripts/check-shrunk-image.sh target/thumbv8m.main-none-eabihf/release/picodroid helloworld/

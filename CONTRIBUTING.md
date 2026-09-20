@@ -53,8 +53,9 @@ release.
 Everything else is CI's job, so pushing does not wait for `--full`.
 `.github/workflows/ci_checks.yml` runs every board's clippy, both boards in
 debug and release, `test.sh` in both shrink modes, every example APK and its
-API contract, both formatters, the same source guards, and a 17-app sim smoke
-covering all three langsuites. The 3 AM `sim-run.sh` nightly runs the whole
+API contract, both formatters, and a 15-app sim smoke covering all three
+langsuites; `ci_light.yml` runs the same source guards, the markdown lint and
+the docs-site link check, docs-only commits included. The 3 AM `sim-run.sh` nightly runs the whole
 `hil-tests.conf` matrix in both shrink modes — the `qa_*` apps, the diagnostics
 soaks and the binary-size ratchet — and the 4 AM `hil-fleet.sh` runs it on
 every bench board.

@@ -26,7 +26,7 @@ After a change under `crates/`, `platforms/`, `sdk/` or `system-apps/`:
 ./scripts/sim.sh --app helloworld
 ```
 
-Confirm `[HelloWorld] Hello, World!` appears. Docs, example-app and script-only edits need no smoke. Every other app (`benchmark`, `blinky`, the `qa_*` suites, …) runs in the 3 AM sim nightly, and GitHub CI runs a 18-app sim smoke on every push.
+Confirm `[HelloWorld] Hello, World!` appears. Docs, example-app and script-only edits need no smoke. Every other app (`benchmark`, `blinky`, the `qa_*` suites, …) runs in the 3 AM sim nightly, and GitHub CI runs a 15-app sim smoke, in four parallel shards, on every push.
 
 ### 2. Pre-commit
 
@@ -36,7 +36,7 @@ Confirm `[HelloWorld] Hello, World!` appears. Docs, example-app and script-only 
 
 Must end with `==> All checks passed.` It takes seconds and builds nothing: the shadow-twin and cfg-hygiene guards, `apply_jvm_env`, and whichever of `cargo fmt`, Java/Kotlin formatting and markdown lint the changed files implicate. A `scripts/` change adds the `hil-tests.conf` drift check and the device-lock test.
 
-Then push. Do not wait for anything longer locally. GitHub CI (~55 min) runs clippy for every board, both boards in debug and release, the tests in both shrink modes, every example APK, the same source guards and the sim smoke; the 3 AM `sim-run.sh` runs the whole `hil-tests.conf` matrix in both shrink modes (the `qa_*` apps, the diagnostics soaks, the binary-size ratchet) and the 4 AM `hil-fleet.sh` runs it on hardware. After a push, `gh run list --limit 3` shows CI; nightly results arrive by email and under `build/sim/results/` and `build/hil/results/`.
+Then push. Do not wait for anything longer locally. GitHub CI (~20 min) runs clippy for every board, both boards in debug and release, the tests in both shrink modes, every example APK, the same source guards and the sim smoke; the 3 AM `sim-run.sh` runs the whole `hil-tests.conf` matrix in both shrink modes (the `qa_*` apps, the diagnostics soaks, the binary-size ratchet) and the 4 AM `hil-fleet.sh` runs it on hardware. After a push, `gh run list --limit 3` shows CI; nightly results arrive by email and under `build/sim/results/` and `build/hil/results/`.
 
 ```bash
 ./scripts/pre-commit --full   # before cutting a release

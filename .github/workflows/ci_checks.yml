@@ -1,6 +1,26 @@
 name: CI Checks
 
-on: [push, pull_request]
+# Docs-only changes skip this workflow: nothing here compiles or reads
+# markdown, docs/ or website/. Their checks (markdown lint, the docs-site
+# link validator, the source guards) live in ci_light.yml, which always runs.
+on:
+  push:
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'website/**'
+  pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'website/**'
+
+# A newer push to the same branch supersedes the run in flight. head_ref puts
+# a PR's push and pull_request events in one group, so a PR branch is built
+# once, not twice.
+concurrency:
+  group: ci-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -8,21 +28,17 @@ env:
 jobs:
   building:
     name: Building
-    continue-on-error: ${{ matrix.experimental || false }}
+    timeout-minutes: 45
     strategy:
       matrix:
-        # All generated code should be running on stable now
-        rust: [nightly, stable]
-        include:
-          # Nightly is only for reference and allowed to fail
-          - rust: nightly
-            experimental: true
+        # Stable only. The reference build on nightly Rust runs weekly, in
+        # rust_nightly.yml.
         os:
           - ubuntu-latest
           - macOS-latest
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: Install ARM toolchain and JDK (Ubuntu)
@@ -39,13 +55,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ matrix.rust }}
           targets: thumbv6m-none-eabi,thumbv8m.main-none-eabihf
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.os }}-${{ matrix.rust }}
+          key: ${{ matrix.os }}-stable
       # No-ops when the cached ~/.cargo/bin already holds the binary.
       - run: cargo install flip-link
       # Build via scripts/build.sh so device firmware images pick up the
@@ -66,9 +81,10 @@ jobs:
       - run: bash scripts/check-shrunk-image.sh target/thumbv8m.main-none-eabihf/release/picodroid helloworld/
   testing:
     name: Testing
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: Install ARM toolchain and JDK
@@ -93,9 +109,10 @@ jobs:
       - run: bash scripts/test.sh
   linting:
     name: Linting
+    timeout-minutes: 40
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: Install ARM toolchain and JDK
@@ -144,7 +161,7 @@ jobs:
   #   name: Binary-size ratchet
   #   runs-on: ubuntu-latest
   #   steps:
-  #     - uses: actions/checkout@v3
+  #     - uses: actions/checkout@v4
   #       with:
   #         submodules: recursive
   #     - name: Install ARM toolchain and JDK
@@ -180,9 +197,10 @@ jobs:
   #       run: python3 scripts/bench-report.py --ratchet
   examples:
     name: Compile All Example APKs
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -211,14 +229,31 @@ jobs:
       - name: Kotlin shim contract
         run: ./gradlew :kotlin-shim:contractCheck --console=plain
   sim-smoke:
-    name: Sim Smoke Tests
+    name: Sim Smoke Tests (${{ matrix.shard }})
+    timeout-minutes: 45
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Four shards of eight lanes each (an app is two lanes, one per shrink
+        # mode; picoenvmon is four -- both enviro boards). A lane is ~1.5 min,
+        # nearly all of it relinking the sim around the app's APK, so serially
+        # this job was over an hour. Add an app to the shortest shard.
+        include:
+          - shard: boot
+            apps: helloworld classlit picoenvmon
+          - shard: lang
+            apps: langsuite langsuite_kt langsuite_kt_stdlib injectdemo_kt
+          - shard: memory
+            apps: gcstress heapstress clinitdemo tracedemo
+          - shard: framework
+            apps: callbacktest prefs_demo jsondemo resdemo
     env:
       # Abort loudly on any use-after-delete handle lookup (off by default;
       # see platforms/rp/.../lvgl/handle_table.rs).
       PICODROID_HANDLE_SANITIZER: '1'
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: Install JDK
@@ -230,20 +265,22 @@ jobs:
       # job closes the push -> 3 AM detection window for the JVM, GC-stress,
       # stdlib (langsuite), widget-callback dispatch, <clinit>, prefs/storage
       # and heap-pressure paths, and (resdemo) the resource compiler, the
-      # generated R and the layout inflater. picoenvmon (and its Kotlin twin
-      # picoenvmon_kt) ride the enviro-board smoke lanes inside sim-run.sh
-      # (parity-audit LVG-01/BRD-01) so the shipping board's LVGL config is
-      # CI-simulated.
+      # generated R and the layout inflater. picoenvmon rides the enviro-board
+      # smoke lanes inside sim-run.sh (parity-audit LVG-01/BRD-01) so the
+      # shipping board's LVGL config is CI-simulated. The Kotlin twins hellokt,
+      # gcstress_kt and picoenvmon_kt are nightly-only: the Kotlin langsuites
+      # and injectdemo_kt carry the Kotlin path here.
       - name: Run sim smoke subset
         run: |
-          for app in helloworld hellokt gcstress gcstress_kt langsuite langsuite_kt langsuite_kt_stdlib injectdemo_kt callbacktest picoenvmon picoenvmon_kt prefs_demo clinitdemo heapstress classlit tracedemo jsondemo resdemo; do
+          for app in ${{ matrix.apps }}; do
             bash scripts/sim-run.sh --app "$app" --no-email
           done
   formatting:
     name: Formatting
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
@@ -253,9 +290,10 @@ jobs:
       - run: cargo fmt -- --check
   java-formatting:
     name: Java + Kotlin Formatting
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -264,45 +302,3 @@ jobs:
         run: bash scripts/format_java.sh check
       - name: Check Kotlin formatting
         run: bash scripts/format_kotlin.sh check
-  docs-site:
-    name: Docs site
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: website/package-lock.json
-      - run: npm ci
-        working-directory: website
-      # Builds without BASE on purpose: starlight-links-validator only runs in
-      # that mode (see astro.config.mjs), so this is the job that catches a
-      # broken internal link. The deploy workflow's BASE build does not.
-      - name: Build site and validate internal links
-        run: npm run build
-        working-directory: website
-  guards:
-    name: Source guards
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: recursive
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: scripts/lint-md/package-lock.json
-      # The text-only invariants the local pre-commit hook enforces, run here
-      # too so a bypassed hook (--no-verify, a merge) still meets them: no
-      # shadow twin under both src trees and no not(feature = "family-rp")
-      # cfg gate (scripts/check-source-guards.sh), the [jvm] board.toml
-      # parser, markdown lint, and the device-lock state machine every bench
-      # script depends on.
-      - run: bash scripts/check-source-guards.sh
-      - run: bash scripts/test-jvm-env.sh
-      - run: npm ci
-        working-directory: scripts/lint-md
-      - run: bash scripts/lint-md.sh
-      - run: bash scripts/test-device-lock.sh
