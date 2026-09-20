@@ -572,7 +572,7 @@ fn bootstrap_activity(
     // Give this Activity its own keypad focus group before onCreate so its
     // focusable widgets join the right group (see events::push_activity_group).
     crate::graphics::lvgl::events::push_activity_group();
-    start_activity_instance(jvm, initial_class, initial_ref, None, None, heap, handler)
+    start_activity_instance(jvm, initial_ref, None, None, heap, handler)
 }
 
 /// Drive a new Activity instance to the foreground: `onCreate(saved)` →
@@ -587,7 +587,6 @@ fn bootstrap_activity(
 #[allow(clippy::too_many_arguments)]
 fn start_activity_instance(
     jvm: &mut Jvm,
-    class: &'static str,
     obj_ref: u16,
     saved: Option<u16>,
     result: Option<ActivityResult>,
@@ -607,7 +606,6 @@ fn start_activity_instance(
     .is_break()
         || invoke_lifecycle(
             jvm,
-            class,
             dispatch_sites::ACTIVITY_ON_START,
             obj_ref,
             heap,
@@ -631,13 +629,12 @@ fn start_activity_instance(
         return LifecycleControl::Break;
     }
     if let Some(result) = result {
-        if deliver_result(jvm, class, obj_ref, result, heap, handler).is_break() {
+        if deliver_result(jvm, obj_ref, result, heap, handler).is_break() {
             return LifecycleControl::Break;
         }
     }
     invoke_lifecycle(
         jvm,
-        class,
         dispatch_sites::ACTIVITY_ON_RESUME,
         obj_ref,
         heap,
@@ -653,7 +650,6 @@ type ActivityResult = (i32, i32, Option<u16>);
 #[cfg(not(test))]
 fn deliver_result(
     jvm: &mut Jvm,
-    class: &'static str,
     obj_ref: u16,
     (request_code, result_code, result_intent): ActivityResult,
     heap: &mut SharedJvmHeap,
@@ -662,7 +658,6 @@ fn deliver_result(
     use pico_jvm::types::Value;
     invoke_lifecycle_with_args(
         jvm,
-        class,
         dispatch_sites::ACTIVITY_ON_ACTIVITY_RESULT,
         obj_ref,
         &[
@@ -675,16 +670,19 @@ fn deliver_result(
     )
 }
 
-/// Invoke one of Activity's `final` Bundle trampolines (`performCreate`, …)
-/// with its single argument. Looked up on `picodroid/app/Activity` itself —
-/// nothing can override a final method — and the trampoline's invokevirtual
-/// then finds the app's override wherever in the hierarchy it is declared.
+/// Invoke one of Activity's `final` trampolines (`performCreate`,
+/// `performStart`, …) with its arguments. Looked up on
+/// `picodroid/app/Activity` itself — nothing can override a final method —
+/// and the trampoline's invokevirtual then finds the app's override wherever
+/// in the hierarchy it is declared, or Activity's default if there is none.
+/// A by-name call on the app's class would do neither: the native lookup is
+/// flat, so an override on an app's base Activity was silently never called.
 #[cfg(not(test))]
-fn invoke_trampoline(
+fn invoke_lifecycle_with_args(
     jvm: &mut Jvm,
     site: usize,
     obj_ref: u16,
-    arg: pico_jvm::types::Value,
+    args: &[pico_jvm::types::Value],
     heap: &mut SharedJvmHeap,
     handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) -> LifecycleControl {
@@ -692,7 +690,7 @@ fn invoke_trampoline(
         dispatch_class(site),
         dispatch_method(site),
         obj_ref,
-        &[arg],
+        args,
         heap,
         handler,
     ) {
@@ -703,6 +701,31 @@ fn invoke_trampoline(
             LifecycleControl::Continue
         }
     }
+}
+
+/// [`invoke_lifecycle_with_args`] for a callback that takes none.
+#[cfg(not(test))]
+fn invoke_lifecycle(
+    jvm: &mut Jvm,
+    site: usize,
+    obj_ref: u16,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
+) -> LifecycleControl {
+    invoke_lifecycle_with_args(jvm, site, obj_ref, &[], heap, handler)
+}
+
+/// [`invoke_lifecycle_with_args`] for the one-argument Bundle callbacks.
+#[cfg(not(test))]
+fn invoke_trampoline(
+    jvm: &mut Jvm,
+    site: usize,
+    obj_ref: u16,
+    arg: pico_jvm::types::Value,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
+) -> LifecycleControl {
+    invoke_lifecycle_with_args(jvm, site, obj_ref, &[arg], heap, handler)
 }
 
 /// Walk the activity stack top-down on shutdown, invoking the full Android
@@ -726,7 +749,7 @@ fn teardown_activity(
         // A reclaimed entry already had its onDestroy, and has no instance
         // to call anything on.
         let reclaimed = handler.top_activity_destroyed();
-        let Some((act_ref, act_class, root)) = handler.pop_activity() else {
+        let Some((act_ref, _, root)) = handler.pop_activity() else {
             break;
         };
         popped += 1;
@@ -736,7 +759,7 @@ fn teardown_activity(
                 dispatch_sites::ACTIVITY_ON_STOP,
                 dispatch_sites::ACTIVITY_ON_DESTROY,
             ] {
-                let _ = invoke_lifecycle(jvm, act_class, site, act_ref, heap, handler);
+                let _ = invoke_lifecycle(jvm, site, act_ref, heap, handler);
             }
         }
         // Free the saved root for parked entries. The topmost entry's view
@@ -812,7 +835,7 @@ fn dispatch_widget_events(
 #[cfg(not(test))]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub(crate) enum LifecycleControl {
-    /// Method ran (or was a no-op fallback); continue the loop.
+    /// Method ran (or was the framework default); continue the loop.
     Continue,
     /// JVM cooperative interrupt — caller should return immediately.
     Break,
@@ -822,89 +845,6 @@ pub(crate) enum LifecycleControl {
 impl LifecycleControl {
     pub(crate) fn is_break(self) -> bool {
         matches!(self, LifecycleControl::Break)
-    }
-}
-
-/// Invoke a lifecycle method on `subclass`, falling back to the default
-/// no-op declared on `picodroid/app/Activity` if the subclass doesn't
-/// override it.
-///
-/// `fallback_idx` is the [`DISPATCH_SITES`] index for the
-/// `(picodroid/app/Activity, methodName)` pair — used both as the
-/// fallback class for the second attempt AND as the source of the
-/// method-name string for the first attempt.
-#[cfg(not(test))]
-fn invoke_lifecycle(
-    jvm: &mut Jvm,
-    subclass: &'static str,
-    fallback_idx: usize,
-    obj_ref: u16,
-    heap: &mut SharedJvmHeap,
-    handler: &mut crate::native_handler::PicodroidNativeHandler,
-) -> LifecycleControl {
-    let method = dispatch_method(fallback_idx);
-    // First attempt: the receiver's runtime subclass. find_method_by_name
-    // is a flat lookup, so this only succeeds if the subclass declares
-    // the method itself (i.e. overrides the framework default).
-    match jvm.invoke_instance(subclass, method, obj_ref, heap, handler) {
-        Ok(()) => return LifecycleControl::Continue,
-        Err(JvmError::MethodNotFound) => { /* fall through to the framework default */ }
-        Err(JvmError::Interrupted) => return LifecycleControl::Break,
-        Err(e) => {
-            log_error!("Activity lifecycle error: {}", e);
-            return LifecycleControl::Continue;
-        }
-    }
-    let fallback_class = dispatch_class(fallback_idx);
-    match jvm.invoke_instance(fallback_class, method, obj_ref, heap, handler) {
-        Ok(()) => LifecycleControl::Continue,
-        Err(JvmError::Interrupted) => LifecycleControl::Break,
-        Err(e) => {
-            log_error!("Activity lifecycle fallback error: {}", e);
-            LifecycleControl::Continue
-        }
-    }
-}
-
-/// Like [`invoke_lifecycle`] but for a callback taking extra arguments
-/// (onActivityResult). Same subclass-first / framework-default fallback.
-#[cfg(not(test))]
-fn invoke_lifecycle_with_args(
-    jvm: &mut Jvm,
-    subclass: &'static str,
-    fallback_idx: usize,
-    obj_ref: u16,
-    extra_args: &[pico_jvm::types::Value],
-    heap: &mut SharedJvmHeap,
-    handler: &mut crate::native_handler::PicodroidNativeHandler,
-) -> LifecycleControl {
-    let method = dispatch_method(fallback_idx);
-    match jvm
-        .invoke_instance_with_args_returning(subclass, method, obj_ref, extra_args, heap, handler)
-    {
-        Ok(_) => return LifecycleControl::Continue,
-        Err(JvmError::MethodNotFound) => { /* fall through to framework default */ }
-        Err(JvmError::Interrupted) => return LifecycleControl::Break,
-        Err(e) => {
-            log_error!("Activity lifecycle error: {}", e);
-            return LifecycleControl::Continue;
-        }
-    }
-    let fallback_class = dispatch_class(fallback_idx);
-    match jvm.invoke_instance_with_args_returning(
-        fallback_class,
-        method,
-        obj_ref,
-        extra_args,
-        heap,
-        handler,
-    ) {
-        Ok(_) => LifecycleControl::Continue,
-        Err(JvmError::Interrupted) => LifecycleControl::Break,
-        Err(e) => {
-            log_error!("Activity lifecycle fallback error: {}", e);
-            LifecycleControl::Continue
-        }
     }
 }
 
@@ -982,10 +922,9 @@ fn handle_push_op(
     // Capture the previous top before pushing — needed for the trailing
     // onStop call after the new top is fully resumed.
     let prev = handler.current_activity();
-    if let Some((prev_ref, prev_class)) = prev {
+    if let Some((prev_ref, _)) = prev {
         if invoke_lifecycle(
             jvm,
-            prev_class,
             dispatch_sites::ACTIVITY_ON_PAUSE,
             prev_ref,
             heap,
@@ -1009,15 +948,14 @@ fn handle_push_op(
     // New top gets its own keypad focus group before onCreate, isolating its
     // focus from the parent's (which is parked with its focus intact).
     crate::graphics::lvgl::events::push_activity_group();
-    if start_activity_instance(jvm, new_class, new_ref, None, None, heap, handler).is_break() {
+    if start_activity_instance(jvm, new_ref, None, None, heap, handler).is_break() {
         return LifecycleControl::Break;
     }
     // New top is now fully resumed — stop the previous one. Order matches
     // Android: `prev.onStop` lands AFTER `new.onResume`.
-    if let Some((prev_ref, prev_class)) = prev {
+    if let Some((prev_ref, _)) = prev {
         if invoke_lifecycle(
             jvm,
-            prev_class,
             dispatch_sites::ACTIVITY_ON_STOP,
             prev_ref,
             heap,
@@ -1059,7 +997,7 @@ fn handle_pop_op(
     // Snapshot the finishing Activity's result BEFORE the pop (it lives on the
     // entry being removed). Delivered to the uncovered caller below.
     let pending_result = handler.top_activity_result();
-    if destroy_top_instance(jvm, top_class, top_ref, false, heap, handler).is_break() {
+    if destroy_top_instance(jvm, top_ref, false, heap, handler).is_break() {
         return LifecycleControl::Break;
     }
     pop_and_resume_parent(jvm, pending_result, heap, handler)
@@ -1074,7 +1012,6 @@ fn handle_pop_op(
 #[cfg(not(test))]
 fn destroy_top_instance(
     jvm: &mut Jvm,
-    top_class: &'static str,
     top_ref: u16,
     save_state: bool,
     heap: &mut SharedJvmHeap,
@@ -1088,7 +1025,7 @@ fn destroy_top_instance(
         dispatch_sites::ACTIVITY_ON_PAUSE,
         dispatch_sites::ACTIVITY_ON_STOP,
     ] {
-        if invoke_lifecycle(jvm, top_class, site, top_ref, heap, handler).is_break() {
+        if invoke_lifecycle(jvm, site, top_ref, heap, handler).is_break() {
             return LifecycleControl::Break;
         }
     }
@@ -1120,7 +1057,6 @@ fn destroy_top_instance(
     }
     if invoke_lifecycle(
         jvm,
-        top_class,
         dispatch_sites::ACTIVITY_ON_DESTROY,
         top_ref,
         heap,
@@ -1182,13 +1118,13 @@ fn pop_and_resume_parent(
     if handler.top_activity_destroyed() {
         return recreate_uncovered(jvm, result, heap, handler);
     }
-    if let Some((new_top_ref, new_top_class)) = handler.current_activity() {
+    if let Some((new_top_ref, _)) = handler.current_activity() {
         restore_top_view(handler);
         // Result delivery (AOSP order): deliverResults precedes
         // performResume→performRestart, so onActivityResult lands AFTER
         // restore_top_view but BEFORE onRestart.
         if let Some(result) = result {
-            if deliver_result(jvm, new_top_class, new_top_ref, result, heap, handler).is_break() {
+            if deliver_result(jvm, new_top_ref, result, heap, handler).is_break() {
                 return LifecycleControl::Break;
             }
         }
@@ -1199,7 +1135,7 @@ fn pop_and_resume_parent(
             dispatch_sites::ACTIVITY_ON_START,
             dispatch_sites::ACTIVITY_ON_RESUME,
         ] {
-            if invoke_lifecycle(jvm, new_top_class, site, new_top_ref, heap, handler).is_break() {
+            if invoke_lifecycle(jvm, site, new_top_ref, heap, handler).is_break() {
                 return LifecycleControl::Break;
             }
         }
@@ -1247,7 +1183,7 @@ fn recreate_uncovered(
     // entry's old one emptied when its tree was deleted.
     crate::graphics::lvgl::events::pop_activity_group();
     crate::graphics::lvgl::events::push_activity_group();
-    let control = start_activity_instance(jvm, class, new_ref, saved, result, heap, handler);
+    let control = start_activity_instance(jvm, new_ref, saved, result, heap, handler);
     handler.set_top_saved_state(None);
     handler.set_delivery_intent(None);
     #[cfg(feature = "mem-diag")]
@@ -1383,7 +1319,6 @@ fn reclaim_covered(
     }
     if invoke_lifecycle(
         jvm,
-        class,
         dispatch_sites::ACTIVITY_ON_DESTROY,
         obj_ref,
         heap,
@@ -1426,7 +1361,7 @@ fn handle_recreate_op(
         }
     };
     crate::pd_info!("activity: recreate {}", top_class);
-    if destroy_top_instance(jvm, top_class, top_ref, true, heap, handler).is_break() {
+    if destroy_top_instance(jvm, top_ref, true, heap, handler).is_break() {
         return LifecycleControl::Break;
     }
     let saved = handler.top_saved_state();
@@ -1445,7 +1380,7 @@ fn handle_recreate_op(
     // when its tree was deleted.
     crate::graphics::lvgl::events::pop_activity_group();
     crate::graphics::lvgl::events::push_activity_group();
-    let control = start_activity_instance(jvm, top_class, new_ref, saved, None, heap, handler);
+    let control = start_activity_instance(jvm, new_ref, saved, None, heap, handler);
     handler.set_top_saved_state(None);
     #[cfg(feature = "mem-diag")]
     crate::mem_diag::note_activity_transition();
@@ -2236,10 +2171,9 @@ fn dispatch_key_events(
         //    that want to suppress finish() can override `onBackPressed`
         //    to a no-op (or show a confirm dialog).
         if !consumed && keycode == KEYCODE_BACK && action == ACTION_UP {
-            if let Some((act_ref, act_class)) = handler.current_activity() {
+            if let Some((act_ref, _)) = handler.current_activity() {
                 let _ = invoke_lifecycle(
                     jvm,
-                    act_class,
                     dispatch_sites::ACTIVITY_ON_BACK_PRESSED,
                     act_ref,
                     heap,

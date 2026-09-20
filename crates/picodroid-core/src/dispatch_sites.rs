@@ -30,9 +30,8 @@ pub const SPINNER: usize = 5;
 pub const VIEW_KEY: usize = 6;
 pub const EXECUTORS_DISPATCH: usize = 7;
 pub const ALERT_DIALOG: usize = 8;
-// Activity lifecycle fallbacks — used when an Activity subclass doesn't
-// declare the lifecycle method and the framework loop must fall back to
-// the default (no-op) impl on `picodroid/app/Activity`.
+// Activity lifecycle callbacks. Every one is a `final` `perform*` trampoline
+// on `picodroid/app/Activity` (see the note at ACTIVITY_SAVE_INSTANCE_STATE).
 pub const ACTIVITY_ON_CREATE: usize = 9;
 pub const ACTIVITY_ON_START: usize = 10;
 pub const ACTIVITY_ON_RESUME: usize = 11;
@@ -86,11 +85,11 @@ pub const SERVICE_ON_REBIND: usize = 39;
 // bridge: `run()` by invokevirtual (subclass overrides work), the uncaught
 // path, and the registry hand-back in `finally`.
 pub const THREAD_RUN: usize = 40;
-// The Bundle callbacks go through `final` trampolines on Activity rather than
-// by name on the app's class: the flat, descriptor-blind native lookup can
-// tell neither `onCreate()` from `onCreate(Bundle)` nor find an override a
+// The Activity callbacks go through `final` trampolines on Activity rather
+// than by name on the app's class: the flat, descriptor-blind native lookup
+// can tell neither `onCreate()` from `onCreate(Bundle)` nor find an override a
 // base Activity class declares, and the trampoline's invokevirtual does both.
-// `ACTIVITY_ON_CREATE` above is that trampoline too.
+// Every `ACTIVITY_*` site above is such a trampoline too.
 pub const ACTIVITY_SAVE_INSTANCE_STATE: usize = 41;
 pub const ACTIVITY_RESTORE_INSTANCE_STATE: usize = 42;
 // A fired alarm is handed back to Java here: `AlarmManager.fireAlarm` builds
@@ -116,12 +115,12 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     (c::picodroid_concurrent_Executors, m::dispatchRunnable),
     (c::picodroid_app_AlertDialog, m::fireButtonClick),
     (c::picodroid_app_Activity, m::performCreate),
-    (c::picodroid_app_Activity, m::onStart),
-    (c::picodroid_app_Activity, m::onResume),
-    (c::picodroid_app_Activity, m::onPause),
-    (c::picodroid_app_Activity, m::onStop),
-    (c::picodroid_app_Activity, m::onDestroy),
-    (c::picodroid_app_Activity, m::onBackPressed),
+    (c::picodroid_app_Activity, m::performStart),
+    (c::picodroid_app_Activity, m::performResume),
+    (c::picodroid_app_Activity, m::performPause),
+    (c::picodroid_app_Activity, m::performStop),
+    (c::picodroid_app_Activity, m::performDestroy),
+    (c::picodroid_app_Activity, m::performBackPressed),
     (c::picodroid_view_View, m::fireTouch),
     (c::picodroid_widget_Keyboard, m::fireReady),
     (c::picodroid_app_Service, m::onCreate),
@@ -138,13 +137,13 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     (c::picodroid_widget_ListView, m::fireItemClick),
     (c::picodroid_view_View, m::fireFocusChange),
     (c::picodroid_widget_NumberPicker, m::fireStep),
-    (c::picodroid_app_Activity, m::onRestart),
+    (c::picodroid_app_Activity, m::performRestart),
     (c::picodroid_widget_SeekBar, m::fireTrackingTouch),
     (c::picodroid_widget_EditText, m::fireTextChanged),
     (c::picodroid_widget_CompoundButton, m::fireCheckedChanged),
     (c::picodroid_app_AlertDialog, m::fireItemClick),
     (c::picodroid_view_View, m::fireLongClick),
-    (c::picodroid_app_Activity, m::onActivityResult),
+    (c::picodroid_app_Activity, m::performActivityResult),
     (c::picodroid_app_Service, m::onRebind),
     (c::picodroid_concurrent_Thread, m::runWrapper),
     (c::picodroid_app_Activity, m::performSaveInstanceState),

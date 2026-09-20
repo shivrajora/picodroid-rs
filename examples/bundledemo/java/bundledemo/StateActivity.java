@@ -6,15 +6,11 @@ import picodroid.os.Bundle;
 
 /**
  * First instance: bumps its counter and asks to be re-created. Second instance: checks what came
- * back, reports the counter as its result, and finishes.
+ * back, reports the counter as its result, and finishes. Declares only some of its callbacks; the
+ * rest are on {@link BaseStateActivity}.
  */
 public class StateActivity extends BaseStateActivity {
   private boolean restored;
-
-  @Override
-  public void onStart() {
-    mark("start");
-  }
 
   @Override
   public void onResume() {
@@ -35,16 +31,6 @@ public class StateActivity extends BaseStateActivity {
   }
 
   @Override
-  public void onPause() {
-    mark("pause");
-  }
-
-  @Override
-  public void onStop() {
-    mark("stop");
-  }
-
-  @Override
   protected void onSaveInstanceState(Bundle outState) {
     mark("save");
     BundleDemoApp.check("outState starts empty", outState != null && outState.isEmpty());
@@ -61,10 +47,5 @@ public class StateActivity extends BaseStateActivity {
     BundleDemoApp.check("nested state", nested != null && "kept".equals(nested.getString("note")));
     BundleDemoApp.check("same state as onCreate", savedInstanceState.getInt("count") == count);
     restored = true;
-  }
-
-  @Override
-  public void onDestroy() {
-    mark("destroy");
   }
 }

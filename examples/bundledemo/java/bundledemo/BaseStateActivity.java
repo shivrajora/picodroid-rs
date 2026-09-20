@@ -5,8 +5,9 @@ import picodroid.app.Activity;
 import picodroid.os.Bundle;
 
 /**
- * Declares {@code onCreate(Bundle)} for a subclass that does not: the framework must find an
- * override on a base class, which a by-name lookup on the leaf class alone would miss.
+ * Declares {@code onCreate(Bundle)}, {@code onStart}, {@code onPause}, {@code onStop} and {@code
+ * onDestroy} for a subclass that does not: the framework must find an override on a base class,
+ * which a by-name lookup on the leaf class alone would miss.
  */
 public abstract class BaseStateActivity extends Activity {
   static final StringBuilder trace = new StringBuilder();
@@ -28,5 +29,25 @@ public abstract class BaseStateActivity extends Activity {
     } else {
       count = savedInstanceState.getInt("count");
     }
+  }
+
+  @Override
+  public void onStart() {
+    mark("start");
+  }
+
+  @Override
+  public void onPause() {
+    mark("pause");
+  }
+
+  @Override
+  public void onStop() {
+    mark("stop");
+  }
+
+  @Override
+  public void onDestroy() {
+    mark("destroy");
   }
 }

@@ -604,10 +604,20 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
     the four `Intent` index accessors T3.1 deleted (`extraCount`/`extraKey`/
     `isIntExtra`/`extraInt`), which broke the every-APK CI build on main;
     it now reads `getExtras()`.
-  - **T3.1-F — trampolines for the remaining lifecycle callbacks**
+  - ~~**T3.1-F — trampolines for the remaining lifecycle callbacks**
     (`onStart`/`onResume`/`onPause`/`onStop`/`onDestroy`/`onRestart`/
     `onActivityResult`/`onBackPressed`): they still dispatch by flat name and
-    miss an override declared on an app's base Activity class.
+    miss an override declared on an app's base Activity class.~~ **DONE
+    2026-09-19.** Eight more `final` `perform*` trampolines on `Activity`,
+    and their `DISPATCH_SITES` rows now name them; `lifecycle.rs` makes one
+    call on `picodroid/app/Activity` instead of trying the app's class by
+    name and falling back. `bundledemo` moved `onStart`/`onPause`/`onStop`/
+    `onDestroy` and the launcher's `onActivityResult`/`onRestart` onto base
+    classes; against the old dispatch it fails. `onBackPressed` has no
+    conformance row (it needs an injected BACK key) but takes the same path.
+    The eight names are unmapped until the next shrink-map cut. `Service`
+    callbacks still dispatch by flat name — same blind spot, not in scope
+    here.
   - **T3.1-G — default view-state save/restore** by view id, once T3.2 gives
     views ids.
   - **T3.1-H — state across a cross-package re-entry** (app-store S7): needs
@@ -654,7 +664,7 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
 5. T2.4 line-number stack traces
 6. ~~T2.6 JSON~~ (done 2026-09-04) + ~~T2.3 Thread parity~~ (done)
 7. ~~T3.1 Bundle → `onCreate(Bundle)` → save/restore~~ (done 2026-09-19;
-   follow-ups T3.1-D…H pending, D first)
+   follow-ups D, E, F done; G, H pending)
 8. T2.5 upcall → T3.4 convertView recycling
 9. ~~T3.2 resource system (A → B → C)~~ (done 2026-09-19; D — styles and
    `AttributeSet` — remains)

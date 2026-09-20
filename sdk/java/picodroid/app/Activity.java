@@ -66,7 +66,7 @@ public class Activity extends Context {
    */
   public native void recreate();
 
-  // The framework enters the three Bundle callbacks through these, never by name on the app's
+  // The framework enters every lifecycle callback through these, never by name on the app's
   // class: a native-side lookup is flat (it sees only methods the named class itself declares, so
   // it misses an override on an app's base Activity) and blind to descriptors, where an
   // invokevirtual from here walks the hierarchy and matches the signature.
@@ -81,6 +81,38 @@ public class Activity extends Context {
 
   final void performRestoreInstanceState(Bundle savedInstanceState) {
     onRestoreInstanceState(savedInstanceState);
+  }
+
+  final void performStart() {
+    onStart();
+  }
+
+  final void performResume() {
+    onResume();
+  }
+
+  final void performRestart() {
+    onRestart();
+  }
+
+  final void performPause() {
+    onPause();
+  }
+
+  final void performStop() {
+    onStop();
+  }
+
+  final void performDestroy() {
+    onDestroy();
+  }
+
+  final void performBackPressed() {
+    onBackPressed();
+  }
+
+  final void performActivityResult(int requestCode, int resultCode, Intent data) {
+    onActivityResult(requestCode, resultCode, data);
   }
 
   /**

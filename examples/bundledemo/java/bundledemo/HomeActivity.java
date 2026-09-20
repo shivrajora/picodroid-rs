@@ -1,19 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package bundledemo;
 
-import picodroid.app.Activity;
 import picodroid.content.Intent;
 import picodroid.os.Bundle;
 import picodroid.util.Log;
 
 /** Boot Activity: launches StateActivity for a result and judges what comes back. */
-public class HomeActivity extends Activity {
-  static final int REQ = 9;
-
-  /** What StateActivity's two instances must go through, in order. */
-  private static final String EXPECTED =
-      "1:create(null) 1:start 1:resume 1:pause 1:stop 1:save 1:destroy "
-          + "2:create(saved) 2:start 2:restore 2:resume 2:pause 2:stop 2:destroy ";
+public class HomeActivity extends BaseHomeActivity {
+  private boolean launched;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -26,14 +20,14 @@ public class HomeActivity extends Activity {
   }
 
   @Override
-  protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-    String trace = BaseStateActivity.trace.toString();
-    Log.i(BundleDemoApp.TAG, "trace: " + trace);
-    BundleDemoApp.check("trace", EXPECTED.equals(trace));
-    // The for-result launch survived the re-creation: the second instance's result arrives here.
-    BundleDemoApp.check("request code", requestCode == REQ);
-    BundleDemoApp.check("result code", resultCode == RESULT_OK);
-    BundleDemoApp.check("result data", data != null && data.getIntExtra("count", -1) == 42);
+  public void onResume() {
+    if (!launched) {
+      launched = true; // the first resume, before StateActivity covers this one
+      return;
+    }
+    // Both arrive through callbacks only BaseHomeActivity declares.
+    BundleDemoApp.check("onActivityResult on the base class", gotResult);
+    BundleDemoApp.check("onRestart on the base class", restarted);
     if (BundleDemoApp.failures == 0) {
       Log.i(BundleDemoApp.TAG, "=== PASSED ===");
     } else {
