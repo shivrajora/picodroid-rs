@@ -7,6 +7,44 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**Saved instance state, and Activities the framework may reclaim (map v0.27.0, package 0.27.0)**
+
+- `picodroid.os.Bundle` arrives, and with it Android's instance-state contract:
+  `onCreate(Bundle savedInstanceState)`, `onSaveInstanceState(Bundle outState)`,
+  `onRestoreInstanceState(Bundle)` and `Activity.recreate()`. A `Bundle` is a typed string-keyed
+  map — `putInt` / `putLong` / `putFloat` / `putDouble` / `putBoolean` / `putString` / `putBundle`
+  and the `int[]` / `byte[]` / `String[]` arrays, each `get` with an optional default, plus
+  `size` / `isEmpty` / `containsKey` / `remove` / `clear` / `keySet` / `putAll` and a copy
+  constructor. An `Intent`'s extras are one `Bundle` now, reachable as `getExtras` /
+  `putExtras` / `getBundleExtra` / `putBundle`. See `examples/bundledemo`.
+- **Breaking — `onCreate()` takes a `Bundle`.** The no-arg `onCreate()` an `Activity` used to
+  override is gone rather than deprecated, because an override that no longer matches would
+  compile and simply never run. Every `Activity` declares
+  `protected void onCreate(Bundle savedInstanceState)` and calls
+  `super.onCreate(savedInstanceState)`; the build rejects an app `Activity` that still declares
+  the no-arg form (`ApiContract.RETIRED_CALLBACKS`). `Application` and `Service` keep their
+  no-arg `onCreate()` — that is their Android shape too. The 63 in-tree Activities and the
+  guides are migrated. Also removed: `Intent`'s `extraCount` / `extraKey` / `extraInt` /
+  `isIntExtra`, which the `Bundle` accessors replace.
+- **A covered Activity can now be destroyed and rebuilt from its Bundle.** Until this release
+  the framework never reclaimed one, so a saved `Bundle` only ever came back through
+  `recreate()`. An Activity covered by another is now released — oldest first, at both ends of a
+  push — while the LVGL pool has less than an eighth of its bytes free or the native heap less
+  than a sixteenth, and is re-created on the way back out (`onCreate(saved)` → `onStart` →
+  `onRestoreInstanceState` → result → `onResume`, with no `onRestart`). Build or run with
+  `PICODROID_DONT_KEEP_ACTIVITIES=1` to reclaim on every push regardless of pressure, which is
+  how to find an Activity that keeps its state in fields instead of its `Bundle`. Each stack
+  entry carries a token that outlives the instance, so a `startActivityForResult` result still
+  reaches a caller that was destroyed and rebuilt while the callee was up. Pressure is sampled
+  only when an Activity is pushed; an allocation that fails mid-screen does not trigger a
+  reclaim. See `examples/reclaimdemo`.
+- Map v0.27.0, cut on `main` after the merge, folds in the 5 classes this package added —
+  `Bundle`, `LayoutInflater`, `InflateException`, `Resources` and `Resources$NotFoundException`
+  — and 44 member names, so the shrunk-image check is clean again. The member floor stays at
+  v0.17.0, so PAPKs shrunk with v0.17.0 through v0.26.0 still install.
+  `Build.VERSION.RELEASE` reads `0.27.0`. Everything else under Unreleased ships in the same
+  package.
+
 **Resources, `R` and XML layouts**
 
 - An app may carry an Android-style `res/` directory: `res/values` (`string`, `color`, `dimen`,

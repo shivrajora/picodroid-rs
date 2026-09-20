@@ -48,7 +48,7 @@ version greater than the firmware's is rejected with
 
 ## Active maps
 
-Twenty-six release maps are committed today, `v0.1.0` through `v0.26.0`:
+Twenty-seven release maps are committed today, `v0.1.0` through `v0.27.0`:
 
 | Map | Covers |
 |-----|--------|
@@ -78,6 +78,7 @@ Twenty-six release maps are committed today, `v0.1.0` through `v0.26.0`:
 | `sdk/shrink-maps/v0.24.0.toml` | Adds the **alarm** surface (+2 classes, 257 → 259: `picodroid.app.AlarmManager`, `picodroid.app.PendingIntent`) and 29 members (1180 → 1209: the four clock constants, the six `PendingIntent` flags, `getActivity` / `requestCode` and the flattened extras, `fireAlarm` and the `native*` bindings, plus `ALARM_SERVICE`, `elapsedRealtime`, `Intent.setClassName` and `KEYCODE_HOME`). `member-floor` stays `0.17.0`; every v0.23.0 mapping copied verbatim. |
 | `sdk/shrink-maps/v0.25.0.toml` | Adds the **tone** surface (+2 classes, 259 → 261: `picodroid.media.ToneGenerator`, `picodroid.media.AudioManager`) and 45 members (1209 → 1254: the sixteen `TONE_DTMF_*`, ten `TONE_SUP_*` and five `TONE_PROP_*` constants, the eight `STREAM_*` types, `MAX_SEQUENCE_LENGTH`, and `startTone` / `startToneSequence` / `stopTone` / `release` / `nativeInit`). `member-floor` stays `0.17.0`; every v0.24.0 mapping copied verbatim. |
 | `sdk/shrink-maps/v0.26.0.toml` | Adds the **format-exception** family (+4 classes, 261 → 265: `java.util.IllegalFormatConversionException`, `IllegalFormatPrecisionException`, `MissingFormatArgumentException`, `UnknownFormatConversionException`) and 12 members (1254 → 1266: the released-view API — `isReleased` / `checkNotReleased` / `mChildren` / `mChildCount` / `nativeAddView` / `nativeRemoveView` / `nativeRemoveAllViews` — the radio-group sync `mGroup` / `setCheckedSilently` / `onButtonChecked` / `nativeSetChecked`, and the preferences `writeInPlace`). `member-floor` stays `0.17.0`; every v0.25.0 mapping copied verbatim. |
+| `sdk/shrink-maps/v0.27.0.toml` | Adds the **saved-instance-state and resources** surface (+5 classes, 265 → 270: `picodroid.os.Bundle`, `picodroid.content.res.Resources`, `Resources$NotFoundException`, `picodroid.view.LayoutInflater`, `InflateException`) and 44 members (1266 → 1310). The `Bundle` accessors and the lifecycle hooks that carry one — `getBundle` / `getByteArray` / `getIntArray` / `getStringArray` / `getExtras` / `putAll` / `putBundle` / `putByteArray` / `putDouble` / `putExtras` / `putIntArray` / `putStringArray` / `extras` / `vals`, `onSaveInstanceState` / `onRestoreInstanceState`, `performCreate` / `performSaveInstanceState` / `performRestoreInstanceState`, `recreate`, and `Intent.getBundleExtra` / `getLongExtra`. The resource lookups — `getResources` / `getColor` / `getInteger` / `getDimension` / `getDimensionPixelOffset` / `getDimensionPixelSize`, with `sInstance` / `string` / `from`. The inflater — `inflate` / `getContext` / `getLayoutInflater` / `mContentView` / `mContext` / `mLayout` / `mPos` / `node` / `nativeWord` / `truncateAt`, plus `findViewById` / `findViewTraversal` and `ImageView.setImageResource`. `member-floor` stays `0.17.0`; every v0.26.0 mapping copied verbatim. |
 
 ## Scope
 
