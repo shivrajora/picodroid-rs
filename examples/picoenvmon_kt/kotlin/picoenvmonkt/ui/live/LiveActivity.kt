@@ -7,6 +7,7 @@ import picodroid.content.ServiceConnection
 import picodroid.graphics.Theme
 import picodroid.graphics.drawable.GradientDrawable
 import picodroid.hardware.Sensor
+import picodroid.os.Bundle
 import picodroid.os.IBinder
 import picodroid.util.Log
 import picodroid.view.View
@@ -44,7 +45,9 @@ class LiveActivity : NavActivity(), ServiceConnection, SmoothedSensorListener {
     private val tileRoots = arrayOfNulls<LinearLayout>(READING_COUNT)
     private val tileValues = arrayOfNulls<TextView>(READING_COUNT)
 
-    override fun onCreate() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+
+        super.onCreate(savedInstanceState)
         Log.i(TAG, "Live.onCreate")
         getDisplay()
 

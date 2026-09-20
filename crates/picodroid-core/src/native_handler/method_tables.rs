@@ -632,6 +632,7 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/widget/FrameLayout", "nativeCreate", "()I"),
     // picodroid/widget/ImageView
     ("picodroid/widget/ImageView", "nativeCreate", "()I"),
+    ("picodroid/widget/ImageView", "setImageResource", "(I)V"),
     ("picodroid/widget/ImageView", "setImageSource", "(Ljava/lang/String;)V"),
     ("picodroid/widget/ImageView", "setScale", "(I)V"),
     ("picodroid/widget/ImageView", "setScaleType", "(I)V"),
@@ -862,6 +863,22 @@ pub const MEDIA_HANDLED: &[Row] = &[
     ("picodroid/media/ToneGenerator", "stopTone", "()V"),
 ];
 
+/// `native_handler/res.rs`
+pub const RES_HANDLED: &[Row] = &[
+    // picodroid/content/res/Resources
+    ("picodroid/content/res/Resources", "getBoolean", "(I)Z"),
+    ("picodroid/content/res/Resources", "getColor", "(I)I"),
+    ("picodroid/content/res/Resources", "getDimension", "(I)F"),
+    ("picodroid/content/res/Resources", "getInteger", "(I)I"),
+    (
+        "picodroid/content/res/Resources",
+        "getString",
+        "(I)Ljava/lang/String;",
+    ),
+    // picodroid/view/LayoutInflater
+    ("picodroid/view/LayoutInflater", "nativeWord", "(II)I"),
+];
+
 pub const ALL_HANDLED: &[&[Row]] = &[
     PIO_HANDLED,
     IO_HANDLED,
@@ -869,6 +886,7 @@ pub const ALL_HANDLED: &[&[Row]] = &[
     MEDIA_HANDLED,
     NET_HANDLED,
     OS_HANDLED,
+    RES_HANDLED,
     CONCURRENT_HANDLED,
     THREADS_HANDLED,
     SENSORS_HANDLED,

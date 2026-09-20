@@ -3,6 +3,7 @@ package keyboarddemo;
 
 import picodroid.app.Activity;
 import picodroid.graphics.Color;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.view.inputmethod.EditorInfo;
 import picodroid.widget.Button;
@@ -15,7 +16,8 @@ public class KeyboardDemoActivity extends Activity {
   private TextView echo;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     getDisplay();
     Log.i("KeyboardDemo", "ready");
 

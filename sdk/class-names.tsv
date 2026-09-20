@@ -146,6 +146,8 @@ picodroid/content/pm/PackageInfo
 picodroid/content/pm/PackageInstaller
 picodroid/content/pm/PackageManager
 picodroid/content/pm/PackageManager$NameNotFoundException
+picodroid/content/res/Resources
+picodroid/content/res/Resources$NotFoundException
 picodroid/debug/DisplayDebug
 picodroid/di/ActivitySingletonComponent
 picodroid/di/ApplicationComponent
@@ -204,7 +206,9 @@ picodroid/view/GestureDetector
 picodroid/view/GestureDetector$OnGestureListener
 picodroid/view/GestureDetector$SimpleOnGestureListener
 picodroid/view/Gravity
+picodroid/view/InflateException
 picodroid/view/KeyEvent
+picodroid/view/LayoutInflater
 picodroid/view/MotionEvent
 picodroid/view/OnKeyListener
 picodroid/view/OnSwipeListener

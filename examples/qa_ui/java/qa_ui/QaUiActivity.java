@@ -9,6 +9,7 @@ import picodroid.concurrent.Executors;
 import picodroid.concurrent.Thread;
 import picodroid.graphics.Color;
 import picodroid.graphics.Display;
+import picodroid.os.Bundle;
 import picodroid.os.Runtime;
 import picodroid.os.SystemClock;
 import picodroid.text.TextWatcher;
@@ -96,7 +97,8 @@ public class QaUiActivity extends Activity {
   private final int[] spinnerSelected = new int[] {-1};
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     Log.i(TAG, "=== QaUi start ===");
     getDisplay();
     section("display", () -> display());

@@ -16,10 +16,12 @@ import picodroid.hardware.Sensor;
 import picodroid.hardware.SensorEvent;
 import picodroid.hardware.SensorEventListener;
 import picodroid.hardware.SensorManager;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 
 public class TempActivity extends Activity implements SensorEventListener {
-    public void onCreate() {
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
         SensorManager mgr = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
         Sensor temp = mgr.getDefaultSensor(Sensor.TYPE_AMBIENT_TEMPERATURE);
         mgr.registerListener(this, temp, SensorManager.SENSOR_DELAY_NORMAL);

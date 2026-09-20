@@ -6,6 +6,7 @@ import picodroid.content.Context;
 import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
 import picodroid.content.SharedPreferences;
+import picodroid.os.Bundle;
 import picodroid.os.IBinder;
 import picodroid.util.Log;
 
@@ -44,7 +45,8 @@ public class ActA extends Activity {
       };
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     T.log("A.onCreate");
     Intent in = getIntent();
     T.check("A intent non-null", in != null);
@@ -63,18 +65,20 @@ public class ActA extends Activity {
       T.check("missing boolean default", in.getBooleanExtra("missing", true));
       T.check("wrong-type int default", in.getIntExtra("s", 5) == 5);
       T.check("wrong-type string null", in.getStringExtra("n") == null);
-      T.check("extraCount received", in.extraCount() == 8);
-      boolean enumOk = true;
+      Bundle extras = in.getExtras();
+      T.check("extras count received", extras != null && extras.size() == 8);
+      boolean enumOk = extras != null;
       int ints = 0;
-      for (int i = 0; i < in.extraCount(); i++) {
-        String k = in.extraKey(i);
-        if (k == null || !in.hasExtra(k)) {
-          enumOk = false;
-        }
-        if (in.isIntExtra(i)) {
-          ints++;
-          if (in.extraInt(i) != in.getIntExtra(k, -1)) {
+      if (extras != null) {
+        for (String k : extras.keySet()) {
+          if (k == null || !in.hasExtra(k)) {
             enumOk = false;
+          }
+          if (extras.get(k) instanceof Integer) {
+            ints++;
+            if (extras.getInt(k) != in.getIntExtra(k, -1)) {
+              enumOk = false;
+            }
           }
         }
       }

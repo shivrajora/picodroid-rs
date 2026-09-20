@@ -3,6 +3,7 @@ package imagedemo;
 
 import picodroid.app.Activity;
 import picodroid.graphics.Color;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.widget.ImageView;
 import picodroid.widget.LinearLayout;
@@ -11,7 +12,8 @@ import picodroid.widget.TextView;
 /** Smoke test for bundled image assets in the papk. */
 public class ImageDemoActivity extends Activity {
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     // AssetConstants is generated at build time from this app's assets/ dir;
     // AssetConstants.LOGO == "logo.png" (compile-checked, no stringly-typed
     // asset name to typo).

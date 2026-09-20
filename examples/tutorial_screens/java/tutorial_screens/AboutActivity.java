@@ -3,6 +3,7 @@ package tutorial_screens;
 
 import picodroid.app.Activity;
 import picodroid.graphics.Color;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.widget.Button;
 import picodroid.widget.LinearLayout;
@@ -19,7 +20,8 @@ public class AboutActivity extends Activity {
   private Button backButton;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     Log.i(TAG, "onCreate");
     getDisplay();
 

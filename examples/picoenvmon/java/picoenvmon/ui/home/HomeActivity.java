@@ -3,6 +3,7 @@ package picoenvmon.ui.home;
 
 import picodroid.content.Intent;
 import picodroid.graphics.Theme;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.widget.ArrayAdapter;
 import picodroid.widget.LinearLayout;
@@ -36,7 +37,8 @@ public class HomeActivity extends NavActivity {
   private ListView menu;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     Log.i(EnvApp.TAG, "Home.onCreate");
     getDisplay();
 

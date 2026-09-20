@@ -6,6 +6,7 @@ import picoclock.AlarmStore;
 import picoclock.Clock;
 import picoclock.ClockApp;
 import picodroid.content.Intent;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.view.View;
 import picodroid.widget.FrameLayout;
@@ -52,8 +53,8 @@ public class RingActivity extends BaseActivity {
   private boolean rung;
 
   @Override
-  public void onCreate() {
-    super.onCreate();
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
 
     Intent intent = getIntent();
     id = intent == null ? -1 : intent.getIntExtra(EXTRA_ALARM_ID, -1);

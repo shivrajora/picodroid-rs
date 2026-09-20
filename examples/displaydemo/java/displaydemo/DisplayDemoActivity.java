@@ -6,6 +6,7 @@ import picodroid.debug.DisplayDebug;
 import picodroid.graphics.Color;
 import picodroid.graphics.Theme;
 import picodroid.graphics.drawable.GradientDrawable;
+import picodroid.os.Bundle;
 import picodroid.pio.Gpio;
 import picodroid.pio.PeripheralManager;
 import picodroid.util.Log;
@@ -25,7 +26,8 @@ import picodroid.widget.ToggleButton;
 
 public class DisplayDemoActivity extends Activity {
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     getDisplay();
     DisplayDebug.calibrate();
     DisplayDebug.showFps();

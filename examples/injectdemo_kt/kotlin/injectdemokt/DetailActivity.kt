@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package injectdemokt
 
+import picodroid.os.Bundle
 import picodroid.util.Log
 import picodroid.widget.TextView
 
@@ -9,7 +10,8 @@ import picodroid.widget.TextView
  * (A `lateinit` read that was never injected throws, so the token line is still a proof.)
  */
 class DetailActivity : BaseActivity() {
-    override fun onCreate() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
         Log.i(TAG, "Detail clock#${clock.id} inherited=true")
         getDisplay()
         val text = TextView()

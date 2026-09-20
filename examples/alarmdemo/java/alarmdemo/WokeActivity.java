@@ -2,6 +2,7 @@
 package alarmdemo;
 
 import picodroid.app.Activity;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.view.Gravity;
 import picodroid.widget.LinearLayout;
@@ -13,7 +14,8 @@ import picodroid.widget.TextView;
  */
 public class WokeActivity extends Activity {
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     AlarmDemoApp.woken = true;
     int id = getIntent().getIntExtra(AlarmDemoApp.EXTRA_ID, -1);
 

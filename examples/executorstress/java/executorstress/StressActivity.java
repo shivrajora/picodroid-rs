@@ -3,6 +3,7 @@ package executorstress;
 
 import picodroid.app.Activity;
 import picodroid.concurrent.Executors;
+import picodroid.os.Bundle;
 import picodroid.os.Runtime;
 import picodroid.util.Log;
 
@@ -44,7 +45,8 @@ public class StressActivity extends Activity {
   }
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     for (int i = 0; i < TASKS; i++) {
       post(i);
     }

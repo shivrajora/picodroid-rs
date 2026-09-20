@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="background">#102030</color>
+    <color name="accent">#FFB300</color>
+    <color name="title">@color/accent</color>
+    <dimen name="gap">8dp</dimen>
+    <dimen name="logo">64dp</dimen>
+    <dimen name="hairline">0.5dp</dimen>
+    <integer name="max_taps">10</integer>
+    <bool name="show_logo">true</bool>
+</resources>

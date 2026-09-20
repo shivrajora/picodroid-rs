@@ -3,6 +3,7 @@ package picoenvmonkt.ui.home
 
 import picodroid.content.Intent
 import picodroid.graphics.Theme
+import picodroid.os.Bundle
 import picodroid.util.Log
 import picodroid.widget.ArrayAdapter
 import picodroid.widget.ListView
@@ -39,7 +40,9 @@ class HomeActivity : NavActivity() {
     // item-click listener map — defense-in-depth against the unfielded-callback-view sweep.
     private var menu: ListView? = null
 
-    override fun onCreate() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+
+        super.onCreate(savedInstanceState)
         Log.i(TAG, "Home.onCreate")
         getDisplay()
 

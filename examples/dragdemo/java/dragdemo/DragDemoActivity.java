@@ -3,6 +3,7 @@ package dragdemo;
 
 import picodroid.app.Activity;
 import picodroid.graphics.Color;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.view.MotionEvent;
 import picodroid.view.OnTouchListener;
@@ -20,7 +21,8 @@ public class DragDemoActivity extends Activity {
   private int moveCount;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     getDisplay();
 
     // FrameLayout root so the tile can live at an absolute position.

@@ -3,6 +3,7 @@ package injectdemo;
 
 import javax.inject.Inject;
 import picodroid.content.Intent;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.widget.TextView;
 
@@ -12,7 +13,8 @@ public class HomeActivity extends BaseActivity {
   private boolean pushed;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     Log.i(
         InjectDemoApp.TAG,
         "Home clock#"

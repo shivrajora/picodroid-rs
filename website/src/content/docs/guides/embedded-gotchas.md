@@ -37,7 +37,8 @@ Symptom: the Activity runs, no exception is thrown, but the display shows nothin
 ```java
 // WRONG: onCreate builds a tree but never installs it.
 @Override
-public void onCreate() {
+protected void onCreate(Bundle savedInstanceState) {
+  super.onCreate(savedInstanceState);
   LinearLayout root = new LinearLayout(this);
   root.addView(new TextView(this));
   // ...screen stays blank.
@@ -47,7 +48,8 @@ public void onCreate() {
 ```java
 // RIGHT: install the root view.
 @Override
-public void onCreate() {
+protected void onCreate(Bundle savedInstanceState) {
+  super.onCreate(savedInstanceState);
   LinearLayout root = new LinearLayout(this);
   root.addView(new TextView(this));
   setContentView(root);
@@ -65,7 +67,8 @@ The framework now roots listener-bound Views (key, touch, swipe, click, dialog, 
 ```java
 // FRAGILE: the only reference to this ListView lives in a native listener map.
 @Override
-public void onCreate() {
+protected void onCreate(Bundle savedInstanceState) {
+  super.onCreate(savedInstanceState);
   ListView menu = new ListView();
   menu.setOnItemClickListener((parent, view, position, id) ->
       startActivity(new Intent(DESTINATIONS[position])));
@@ -78,7 +81,8 @@ public void onCreate() {
 private ListView menu;
 
 @Override
-public void onCreate() {
+protected void onCreate(Bundle savedInstanceState) {
+  super.onCreate(savedInstanceState);
   menu = new ListView();
   menu.setOnItemClickListener((parent, view, position, id) ->
       startActivity(new Intent(DESTINATIONS[position])));

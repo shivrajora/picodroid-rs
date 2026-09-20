@@ -6,6 +6,7 @@ import picodroid.app.AlertDialog
 import picodroid.content.Intent
 import picodroid.content.ServiceConnection
 import picodroid.graphics.Theme
+import picodroid.os.Bundle
 import picodroid.os.IBinder
 import picodroid.util.Log
 import picodroid.widget.ArrayAdapter
@@ -44,7 +45,9 @@ class HistoryActivity : NavActivity(), ServiceConnection {
     private var sampleCount = 0
     private var firstShown = 0
 
-    override fun onCreate() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+
+        super.onCreate(savedInstanceState)
         Log.i(TAG, "History.onCreate")
         getDisplay()
 

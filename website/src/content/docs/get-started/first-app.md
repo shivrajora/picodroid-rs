@@ -116,11 +116,13 @@ package myapp;
 import picodroid.app.Activity;
 import picodroid.debug.DisplayDebug;
 import picodroid.graphics.Color;
+import picodroid.os.Bundle;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
 
 public class MyActivity extends Activity {
-    public void onCreate() {
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
         DisplayDebug.calibrate();
 
         LinearLayout root = new LinearLayout();
@@ -145,11 +147,13 @@ Beyond `onCreate()`, `Activity` exposes the full Android lifecycle: `onStart` / 
 
 ```java
 import picodroid.content.Intent;
+import picodroid.os.Bundle;
 import picodroid.view.View;
 import picodroid.widget.Button;
 
 public class HomeActivity extends Activity {
-    public void onCreate() {
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
         Button btn = new Button("Open detail");
         btn.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { startActivity(new Intent(DetailActivity.class)); }

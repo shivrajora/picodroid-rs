@@ -5,6 +5,7 @@ import picodroid.app.Activity;
 import picodroid.content.Context;
 import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
+import picodroid.os.Bundle;
 import picodroid.os.IBinder;
 
 /** Binds the service, writes a preference, then finishes without unbinding. */
@@ -31,10 +32,12 @@ public class ActC extends Activity {
       };
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     T.log("C.onCreate");
     Intent in = getIntent();
-    T.check("C intent present and empty", in != null && in.extraCount() == 0 && !in.hasExtra("n"));
+    T.check(
+        "C intent present and empty", in != null && in.getExtras() == null && !in.hasExtra("n"));
     T.check("C getStringExtra missing null", in == null || in.getStringExtra("nothing") == null);
     T.check("C package name", "qa_life".equals(getPackageName()));
     bindService(new Intent(Svc.class), conn);

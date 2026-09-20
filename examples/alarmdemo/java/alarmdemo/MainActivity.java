@@ -6,6 +6,7 @@ import picodroid.concurrent.Executors;
 import picodroid.concurrent.Thread;
 import picodroid.content.Intent;
 import picodroid.content.pm.PackageManager;
+import picodroid.os.Bundle;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
 import picodroid.view.Gravity;
@@ -24,7 +25,8 @@ public class MainActivity extends Activity {
   private static final int LEAVE_AFTER_MS = 1500;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     LinearLayout page = new LinearLayout();
     page.setOrientation(LinearLayout.VERTICAL);
     page.setGravity(Gravity.CENTER);

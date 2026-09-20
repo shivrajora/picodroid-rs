@@ -8,6 +8,7 @@ import picoclock.ClockApp;
 import picodroid.concurrent.Executors;
 import picodroid.content.Intent;
 import picodroid.graphics.drawable.GradientDrawable;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.widget.FrameLayout;
 import picodroid.widget.LinearLayout;
@@ -54,8 +55,8 @@ public class AlarmListActivity extends BaseActivity {
   private int generation;
 
   @Override
-  public void onCreate() {
-    super.onCreate();
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     FrameLayout root = Ui.screen();
     root.addView(Ui.header(this, "Alarms", v -> finish()));
 

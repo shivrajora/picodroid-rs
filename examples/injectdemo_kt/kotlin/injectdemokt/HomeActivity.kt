@@ -3,6 +3,7 @@ package injectdemokt
 
 import javax.inject.Inject
 import picodroid.content.Intent
+import picodroid.os.Bundle
 import picodroid.util.Log
 import picodroid.widget.TextView
 
@@ -11,7 +12,9 @@ class HomeActivity : BaseActivity() {
 
     private var pushed = false
 
-    override fun onCreate() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+
+        super.onCreate(savedInstanceState)
         Log.i(
             TAG,
             "Home clock#${clock.id} same=${clock === greeter.clock} fresh=${greeter !== appGreeter}",

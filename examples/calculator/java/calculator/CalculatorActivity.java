@@ -5,6 +5,7 @@ import picodroid.app.Activity;
 import picodroid.graphics.Color;
 import picodroid.graphics.Theme;
 import picodroid.graphics.drawable.GradientDrawable;
+import picodroid.os.Bundle;
 import picodroid.text.TextUtils;
 import picodroid.util.Log;
 import picodroid.view.Gravity;
@@ -78,7 +79,8 @@ public class CalculatorActivity extends Activity {
   private Button clearKey;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     int width = getDisplay().getWidth();
     int height = getDisplay().getHeight();
     int contentWidth = width - 2 * PAD;

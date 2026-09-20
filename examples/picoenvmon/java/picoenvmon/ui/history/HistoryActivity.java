@@ -6,6 +6,7 @@ import picodroid.app.AlertDialog;
 import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
 import picodroid.graphics.Theme;
+import picodroid.os.Bundle;
 import picodroid.os.IBinder;
 import picodroid.util.Log;
 import picodroid.widget.ArrayAdapter;
@@ -44,7 +45,8 @@ public class HistoryActivity extends NavActivity implements ServiceConnection {
   private int firstShown;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     Log.i(EnvApp.TAG, "History.onCreate");
     getDisplay();
 

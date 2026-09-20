@@ -4,6 +4,7 @@ package dialogdemo;
 import picodroid.app.Activity;
 import picodroid.app.AlertDialog;
 import picodroid.graphics.Color;
+import picodroid.os.Bundle;
 import picodroid.widget.Button;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
@@ -11,7 +12,8 @@ import picodroid.widget.Toast;
 
 public class DialogDemoActivity extends Activity {
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     DialogActivityComponent c = new DialogActivityComponent();
 
     // Force display init before constructing any widgets — see KeyDemoActivity

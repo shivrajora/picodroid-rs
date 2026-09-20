@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package injectdemo;
 
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.widget.TextView;
 
@@ -9,7 +10,8 @@ import picodroid.widget.TextView;
  */
 public class DetailActivity extends BaseActivity {
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     Log.i(InjectDemoApp.TAG, "Detail clock#" + clock.id() + " inherited=" + (clock != null));
     getDisplay();
     TextView text = new TextView();

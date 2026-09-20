@@ -2,6 +2,7 @@
 package picodroid
 
 import org.gradle.api.DefaultTask
+import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
@@ -66,6 +67,20 @@ abstract class PapkPackTask : DefaultTask() {
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val shrinkMapFile: RegularFileProperty
 
+    /** The app's `res/` tree, compiled into the RESOURCES section. */
+    @get:InputDirectory
+    @get:Optional
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val resDir: DirectoryProperty
+
+    /**
+     * The resource compiler's sources, set together with [resDir]: the table
+     * must be rebuilt by the same code that generated the app's `R.java`.
+     */
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val packerSources: ConfigurableFileCollection
+
     @get:OutputFile
     abstract val outputFile: RegularFileProperty
 
@@ -103,6 +118,7 @@ abstract class PapkPackTask : DefaultTask() {
         label.orNull?.let { args += listOf("--label", it) }
         icon.orNull?.let { args += listOf("--icon", it) }
         assetsDir.orNull?.let { args += listOf("--assets-dir", it.asFile.absolutePath) }
+        resDir.orNull?.let { args += listOf("--res-dir", it.asFile.absolutePath) }
         shrinkMapFile.orNull?.let { args += listOf("--shrink-map", it.asFile.absolutePath) }
 
         val pb = ProcessBuilder(args).directory(repoRoot)

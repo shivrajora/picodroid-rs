@@ -3,6 +3,7 @@ package navdemo;
 
 import picodroid.app.Activity;
 import picodroid.content.Intent;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 
 /**
@@ -12,7 +13,8 @@ import picodroid.util.Log;
  */
 public class ResultProbeActivity extends Activity {
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     Log.i("NavDemo", "Probe.onCreate");
     setResult(RESULT_OK, new Intent(ResultProbeActivity.class).putExtra("answer", 42));
     finish();

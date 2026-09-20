@@ -29,8 +29,9 @@
 use alloc::vec::Vec;
 
 use crate::{
-    keys, FILE_HEADER_LEN, MAGIC, SECTION_HEADER_LEN, TAG_ASSETS, TAG_CLASSES, TAG_MANIFEST,
-    VERSION_MAJOR, VERSION_MINOR,
+    keys, FILE_HEADER_LEN, FILE_HEADER_LEN_V1_2, MAGIC, SECTION_HEADER_LEN, TAG_ASSETS,
+    TAG_CLASSES, TAG_MANIFEST, TAG_RESOURCES, VERSION_MAJOR, VERSION_MINOR,
+    VERSION_MINOR_RESOURCES,
 };
 
 /// The app's entry point — exactly one of the three manifest entry keys.
@@ -120,6 +121,7 @@ pub struct PapkBuilder<'a> {
     extras: Vec<(&'a str, &'a str)>,
     classes: Vec<(&'a str, &'a [u8])>,
     assets: Vec<AssetSpec<'a>>,
+    resources: Option<&'a [u8]>,
 }
 
 impl<'a> PapkBuilder<'a> {
@@ -129,7 +131,15 @@ impl<'a> PapkBuilder<'a> {
             extras: Vec::new(),
             classes: Vec::new(),
             assets: Vec::new(),
+            resources: None,
         }
+    }
+
+    /// Set the RESOURCES section data (built by
+    /// [`crate::res::ResTableBuilder`]). An empty slice means no section.
+    pub fn resources(&mut self, data: &'a [u8]) -> &mut Self {
+        self.resources = (!data.is_empty()).then_some(data);
+        self
     }
 
     /// Append an extra manifest entry (future keys). Emitted after the fixed
@@ -170,8 +180,15 @@ impl<'a> PapkBuilder<'a> {
         let classes_len = u32::try_from(classes_data.len()).map_err(|_| BuildError::TooLarge)?;
         let assets_len = u32::try_from(assets_data.len()).map_err(|_| BuildError::TooLarge)?;
 
-        // File header is 24 bytes. MANIFEST section starts immediately after.
-        let manifest_offset = FILE_HEADER_LEN as u32;
+        // File header is 24 bytes — 28 with the v1.2 extension, which only a
+        // PAPK with a RESOURCES section carries, so every other PAPK stays
+        // byte-identical to v1.1. MANIFEST starts immediately after.
+        let header_len = if self.resources.is_some() {
+            FILE_HEADER_LEN_V1_2
+        } else {
+            FILE_HEADER_LEN
+        };
+        let manifest_offset = header_len as u32;
         let classes_offset = section_after(manifest_offset, manifest_len)?;
         // 0 means "no ASSETS section". Legacy parsers see zero in the slot
         // they formerly read as `reserved` and behave unchanged.
@@ -180,18 +197,32 @@ impl<'a> PapkBuilder<'a> {
         } else {
             section_after(classes_offset, classes_len)?
         };
-        let section_count: u32 = if self.assets.is_empty() { 2 } else { 3 };
+        let resources_offset = match self.resources {
+            None => 0u32,
+            Some(_) if self.assets.is_empty() => section_after(classes_offset, classes_len)?,
+            Some(_) => section_after(assets_offset, assets_len)?,
+        };
+        let section_count =
+            2 + u32::from(!self.assets.is_empty()) + u32::from(self.resources.is_some());
+        let version_minor = if self.resources.is_some() {
+            VERSION_MINOR_RESOURCES
+        } else {
+            VERSION_MINOR
+        };
 
         let mut file = Vec::new();
 
-        // File header (24 bytes)
+        // File header (24 bytes, or 28)
         file.extend_from_slice(MAGIC);
         file.extend_from_slice(&VERSION_MAJOR.to_le_bytes());
-        file.extend_from_slice(&VERSION_MINOR.to_le_bytes());
+        file.extend_from_slice(&version_minor.to_le_bytes());
         file.extend_from_slice(&section_count.to_le_bytes());
         file.extend_from_slice(&manifest_offset.to_le_bytes());
         file.extend_from_slice(&classes_offset.to_le_bytes());
         file.extend_from_slice(&assets_offset.to_le_bytes());
+        if self.resources.is_some() {
+            file.extend_from_slice(&resources_offset.to_le_bytes());
+        }
 
         // MANIFEST section
         push_section_header(&mut file, TAG_MANIFEST, manifest_len);
@@ -207,6 +238,14 @@ impl<'a> PapkBuilder<'a> {
             pad_to(&mut file, assets_offset);
             push_section_header(&mut file, TAG_ASSETS, assets_len);
             file.extend_from_slice(&assets_data);
+        }
+
+        // RESOURCES section (optional)
+        if let Some(resources) = self.resources {
+            let resources_len = u32::try_from(resources.len()).map_err(|_| BuildError::TooLarge)?;
+            pad_to(&mut file, resources_offset);
+            push_section_header(&mut file, TAG_RESOURCES, resources_len);
+            file.extend_from_slice(resources);
         }
 
         Ok(file)
@@ -360,6 +399,66 @@ mod tests {
             version_code: None,
             label: None,
             icon: None,
+        }
+    }
+
+    /// A PAPK without resources is byte-for-byte what v1.1 wrote; one with
+    /// resources grows the header by 4 bytes, says so in `version_minor`, and
+    /// still reads through the three v1.1 offset slots.
+    #[test]
+    fn resources_section_round_trips_and_leaves_v1_1_alone() {
+        let mut table = crate::res::ResTableBuilder::new();
+        let hello = table.push_string("Hello").unwrap();
+        let main = table.push_layout(alloc::vec![7, 8, 9]).unwrap();
+        let table = table.build().unwrap();
+
+        for with_asset in [false, true] {
+            for class_len in 1..=5usize {
+                let class_bytes = alloc::vec![0xCAu8; class_len];
+                let mut plain = PapkBuilder::new(spec());
+                plain.class("t/Main", &class_bytes);
+                let mut b = PapkBuilder::new(spec());
+                b.class("t/Main", &class_bytes);
+                if with_asset {
+                    for b in [&mut plain, &mut b] {
+                        b.asset(AssetSpec {
+                            name: "a.png",
+                            width: 1,
+                            height: 1,
+                            cf: 0x12,
+                            stride: 0,
+                            data: &[1, 2],
+                        });
+                    }
+                }
+                b.resources(&table);
+                // An empty table is no section at all.
+                plain.resources(&[]);
+
+                let plain = plain.build().unwrap();
+                assert_eq!(&plain[6..8], &VERSION_MINOR.to_le_bytes());
+                assert_eq!(&plain[12..16], &(FILE_HEADER_LEN as u32).to_le_bytes());
+                let p = Papk::parse(&plain).unwrap();
+                assert!(p.resources().unwrap().is_none());
+                assert_eq!(p.file_header().resources_offset, 0);
+
+                let file = b.build().unwrap();
+                let p = Papk::parse(&file).unwrap();
+                let h = p.file_header();
+                assert_eq!(h.version_minor, VERSION_MINOR_RESOURCES);
+                assert_eq!(h.manifest_offset as usize, FILE_HEADER_LEN_V1_2);
+                assert_eq!(h.section_count, 3 + u32::from(with_asset));
+                assert_eq!(h.resources_offset % 4, 0);
+                assert_eq!(p.classes().unwrap().count(), 1);
+                assert_eq!(p.assets().unwrap().is_some(), with_asset);
+                let (sh, data) = p.resources_section().unwrap().unwrap();
+                assert_eq!(sh.tag, TAG_RESOURCES);
+                assert_eq!(data, &table[..]);
+                let t = p.resources().unwrap().unwrap();
+                assert_eq!(t.string(hello), Some(&b"Hello"[..]));
+                assert_eq!(t.layout(main).unwrap().word(2), Some(9));
+                assert!(crate::validate_structure(&file).is_ok());
+            }
         }
     }
 

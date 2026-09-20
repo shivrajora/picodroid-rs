@@ -138,6 +138,20 @@ public abstract class ViewGroup extends View {
    * parent sizing; {@link #WRAP_CONTENT} maps to {@code LV_SIZE_CONTENT}; positive integers are
    * absolute pixels.
    */
+  @Override
+  protected View findViewTraversal(int id) {
+    if (id == getId()) {
+      return this;
+    }
+    for (int i = 0; i < mChildCount; i++) {
+      View found = mChildren[i].findViewTraversal(id);
+      if (found != null) {
+        return found;
+      }
+    }
+    return null;
+  }
+
   public static class LayoutParams {
     public static final int MATCH_PARENT = -1;
     public static final int WRAP_CONTENT = -2;

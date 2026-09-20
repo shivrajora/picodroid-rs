@@ -32,14 +32,14 @@ public class QaLifeApp extends Application {
             .putExtra("f2", false)
             .putExtra("long", sb.toString())
             .putExtra("k.with-odd_chars/", "v");
-    T.check("extraCount", i.extraCount() == 8);
+    T.check("extras count", i.getExtras().size() == 8);
     T.check("hasExtra", i.hasExtra("n") && i.hasExtra("empty") && !i.hasExtra("zz"));
     T.check("getIntExtra before start", i.getIntExtra("n", 0) == 42);
     T.check(
         "target class name",
         i.getTargetClassName() != null && i.getTargetClassName().contains("ActA"));
     i.putExtra("n", 43);
-    T.check("putExtra replaces", i.getIntExtra("n", 0) == 43 && i.extraCount() == 8);
+    T.check("putExtra replaces", i.getIntExtra("n", 0) == 43 && i.getExtras().size() == 8);
     startActivity(i);
   }
 }

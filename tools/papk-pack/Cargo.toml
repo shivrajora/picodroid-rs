@@ -13,6 +13,9 @@ path = "src/main.rs"
 # Host-only PNG decode for `--assets-dir`. Trimmed to the PNG codec to keep
 # `cargo build` fast; this dependency NEVER enters the firmware build graph.
 image = { version = "0.25", default-features = false, features = ["png"] }
+# Host-only XML reader for `--res-dir` (res/values, res/layout). Like `image`,
+# it never enters the firmware build graph: the device reads a binary table.
+xml-rs = "0.8"
 papk-format = { path = "../../crates/papk-format", features = ["write"] }
 # Reads the active shrink map for `--shrink-map` (entry-point check on shrunk classes).
 class-shrink = { path = "../class-shrink" }

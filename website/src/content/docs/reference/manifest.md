@@ -152,11 +152,13 @@ directly.
 package myapp;
 
 import picodroid.app.Activity;
+import picodroid.os.Bundle;
 import picodroid.widget.TextView;
 
 public class MainActivity extends Activity {
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     TextView root = new TextView();
     root.setText("Hello");
     setContentView(root);

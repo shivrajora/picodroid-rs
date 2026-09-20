@@ -3,6 +3,7 @@ package snackbardemo;
 
 import picodroid.app.Activity;
 import picodroid.graphics.Color;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.widget.Button;
 import picodroid.widget.LinearLayout;
@@ -15,7 +16,8 @@ public class SnackbarDemoActivity extends Activity {
   private int undoCount = 0;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     getDisplay();
     Log.i(TAG, "Display ready");
 

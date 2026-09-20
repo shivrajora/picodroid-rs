@@ -5,6 +5,7 @@ import javax.inject.Inject;
 import picoclock.AlarmStore;
 import picoclock.Clock;
 import picoclock.ClockApp;
+import picodroid.os.Bundle;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
 import picodroid.view.View;
@@ -79,8 +80,8 @@ public class SetTimeActivity extends BaseActivity {
   private int offsetMinutes;
 
   @Override
-  public void onCreate() {
-    super.onCreate();
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     offsetMinutes = store.offsetMinutes();
 
     long utc = System.currentTimeMillis();

@@ -6,10 +6,7 @@ import picodroid.content.Intent;
 import picodroid.os.Bundle;
 import picodroid.util.Log;
 
-/**
- * Boot Activity. Deliberately the deprecated no-argument {@code onCreate()}: an Activity written
- * before {@code onCreate(Bundle)} existed must keep working through the bridge.
- */
+/** Boot Activity: launches StateActivity for a result and judges what comes back. */
 public class HomeActivity extends Activity {
   static final int REQ = 9;
 
@@ -19,9 +16,9 @@ public class HomeActivity extends Activity {
           + "2:create(saved) 2:start 2:restore 2:resume 2:pause 2:stop 2:destroy ";
 
   @Override
-  @SuppressWarnings("deprecation")
-  public void onCreate() {
-    Log.i(BundleDemoApp.TAG, "Home.onCreate (legacy no-arg)");
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
+    Log.i(BundleDemoApp.TAG, "Home.onCreate saved=" + (savedInstanceState != null));
     Bundle extras = new Bundle();
     extras.putString("who", "home");
     extras.putInt("seed", 40);

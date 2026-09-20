@@ -57,7 +57,6 @@ The full Android-style lifecycle is dispatched by the runtime. Override only the
 | Callback | When |
 |----------|------|
 | `onCreate(Bundle savedInstanceState)` | Once, after instantiation. Build the UI tree here. The argument is `null` on a fresh launch, and the Bundle filled by `onSaveInstanceState` when the Activity is being [re-created](#saved-instance-state). |
-| `onCreate()` | Deprecated pre-Bundle spelling, with no Android counterpart. The default `onCreate(Bundle)` calls it, so existing Activities that override only this one keep working. |
 | `onStart()` | After `onCreate`, and on every return to the foreground. |
 | `onResume()` | Immediately after `onStart`; the Activity is now interactive. |
 | `onPause()` | When another Activity is being launched on top. |
@@ -66,6 +65,10 @@ The full Android-style lifecycle is dispatched by the runtime. Override only the
 | `onBackPressed()` | BACK-key default action — calls `finish()`. Override and don't `super.onBackPressed()` to suppress (e.g. show a confirm dialog). |
 
 The content view installed in `onCreate` (or `onResume`) is **preserved across pause** — when this Activity returns to the foreground, the saved widget tree is restored automatically. Rebuilding the tree from `onResume` is still supported; the new root replaces the saved one.
+
+:::caution[Migrating from `onCreate()`]
+Activities used to override a no-argument `onCreate()`. It is gone: override `protected void onCreate(Bundle savedInstanceState)` and call `super.onCreate(savedInstanceState)`. The build rejects an Activity that still declares the old one (`api contract: … callback retired`), because without `@Override` it would compile and then never be called. `Application.onCreate()` and `Service.onCreate()` are unchanged — they take no argument on Android either.
+:::
 
 ### Saved instance state
 
@@ -105,6 +108,10 @@ To test that, turn on the equivalent of Android's *Don't keep activities* develo
 | `startActivity(Intent intent)` | Push the Activity named by `new Intent(TargetActivity.class)` onto the stack. Triggers this.onPause → newActivity.{onCreate,onStart,onResume} → this.onStop. |
 | `finish()` | Pop this Activity. Triggers onPause → onStop → onDestroy on this Activity, and onStart/onResume on the one below. If the stack is empty after the pop, the app exits. |
 | `setContentView(View root)` | Sets the root of the widget tree and renders it to the display. |
+| `setContentView(int layoutResID)` | Inflates `R.layout.*` and makes it the content. See [resources](/guides/resources/). |
+| `<T extends View> T findViewById(int id)` | The view with that `android:id` / `setId` in the content, depth first, or `null`. Also on every `View`. |
+| `getLayoutInflater()` | A `LayoutInflater` for this Activity: `inflate(R.layout.row, parent, false)`. |
+| `getResources()` | The app's compiled `res/` tree: `getString`, `getColor`, `getDimension`, `getInteger`, `getBoolean`. `getString(int)` and `getColor(int)` are also on `Context`. |
 | `getDisplay()` | Returns the `Display` singleton. |
 
 See [`examples/navdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/navdemo) for a multi-Activity back-stack demo and [`examples/dialogdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/dialogdemo) for an `onBackPressed` override pattern.
@@ -1120,6 +1127,7 @@ package counter;
 import picodroid.app.Activity;
 import picodroid.debug.DisplayDebug;
 import picodroid.graphics.Color;
+import picodroid.os.Bundle;
 import picodroid.view.View;
 import picodroid.widget.Button;
 import picodroid.widget.LinearLayout;
@@ -1128,7 +1136,8 @@ import picodroid.widget.TextView;
 public class CounterActivity extends Activity {
     private int count = 0;
 
-    public void onCreate() {
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
         DisplayDebug.calibrate();
 
         LinearLayout root = new LinearLayout();

@@ -3,6 +3,7 @@ package animdemo;
 
 import picodroid.app.Activity;
 import picodroid.graphics.Color;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.view.animation.AccelerateDecelerateInterpolator;
 import picodroid.widget.Button;
@@ -14,7 +15,8 @@ public class AnimDemoActivity extends Activity {
   private TextView tile;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     getDisplay();
 
     // FrameLayout root so the animated tile can live at an absolute

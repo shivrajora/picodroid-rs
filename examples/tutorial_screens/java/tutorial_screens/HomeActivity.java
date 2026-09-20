@@ -4,6 +4,7 @@ package tutorial_screens;
 import picodroid.app.Activity;
 import picodroid.content.Intent;
 import picodroid.graphics.Color;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.widget.Button;
 import picodroid.widget.LinearLayout;
@@ -23,7 +24,8 @@ public class HomeActivity extends Activity {
   private Button aboutButton;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     Log.i(TAG, "onCreate");
     getDisplay();
 

@@ -3,6 +3,7 @@ package ellipsizedemo;
 
 import picodroid.app.Activity;
 import picodroid.graphics.Color;
+import picodroid.os.Bundle;
 import picodroid.text.TextUtils;
 import picodroid.util.Log;
 import picodroid.view.View;
@@ -35,7 +36,8 @@ public class EllipsizeDemoActivity extends Activity {
   private int failures;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     getDisplay();
     root = new LinearLayout();
     root.setOrientation(LinearLayout.VERTICAL);

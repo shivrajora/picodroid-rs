@@ -8,6 +8,7 @@ import picodroid.hardware.Sensor;
 import picodroid.hardware.SensorEvent;
 import picodroid.hardware.SensorEventListener;
 import picodroid.hardware.SensorManager;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
@@ -18,7 +19,8 @@ public class SensorDemoActivity extends Activity implements SensorEventListener 
   private TextView tempLabel;
 
   @Override
-  public void onCreate() {
+  protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     getDisplay();
 
     LinearLayout root = new LinearLayout();
