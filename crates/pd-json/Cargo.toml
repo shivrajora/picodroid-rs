@@ -1,0 +1,10 @@
+[package]
+name = "pd-json"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "Bounded no_std + alloc JSON tree for small heaps: parser, capped node pool with identity semantics, serializer."
+readme = "README.md"
+
+[lib]
+path = "src/lib.rs"

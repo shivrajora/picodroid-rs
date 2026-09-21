@@ -6,6 +6,7 @@ members = [
     "crates/http-head",
     "crates/jvm",
     "crates/papk-format",
+    "crates/pd-json",
     "crates/pdb-protocol",
     "crates/picodroid-core",
     "crates/test_support",

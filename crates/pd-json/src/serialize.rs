@@ -121,7 +121,7 @@ pub fn quote_into(s: &[u8], out: &mut Vec<u8>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::json::parse::parse;
+    use crate::parse::parse;
 
     fn round_trip(text: &str) -> String {
         let mut pool = Pool::new();

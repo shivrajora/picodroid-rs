@@ -80,6 +80,9 @@ pdb-protocol  = { path = "../pdb-protocol" }
 # The simulator allocator's device-heap model (hal/sim/allocator.rs); host-only,
 # pulled in by `sim` and, for this crate's own tests, as a dev-dependency.
 heap4         = { path = "../heap4", optional = true }
+# JSON tree behind picodroid.json (json/mod.rs wraps its pool); unused and
+# dropped at link time on a board without `has_json`.
+pd-json       = { path = "../pd-json" }
 # HTTP/1.1 head + chunked-transfer parsing for net/http_connection.rs.
 http-head     = { path = "../http-head" }
 # Runtime dep since graphics/assets.rs moved here: it reads the APK's ASST

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! The global JSON node pool.
+//! The JSON node pool.
 //!
 //! # Ownership: wrappers are the roots
 //!
@@ -33,15 +33,13 @@
 //!
 //! # Concurrency
 //!
-//! JSON natives run on any JVM task, so every access goes through
-//! [`with_pool`], which holds an `AtomicSection` (scheduler suspended) for
-//! the duration — the same discipline as `monitor_store`. Nothing inside
-//! blocks; a parse of a few KB is comparable to one GC.
+//! A [`Pool`] is plain data: the caller owns the instance and whatever
+//! exclusion it needs. picodroid keeps one global pool behind a
+//! scheduler-atomic section (`picodroid-core/src/json/mod.rs::pool::with_pool`)
+//! because its JSON natives run on any JVM task. Nothing here blocks; a parse
+//! of a few KB is comparable to one GC.
 
 use alloc::{string::String, vec, vec::Vec};
-use core::cell::UnsafeCell;
-
-use pico_jvm::atomic_section::AtomicSection;
 
 use super::{Node, NodeIdx};
 
@@ -69,24 +67,6 @@ pub struct Pool {
     live: usize,
     payload: usize,
     last_error: Option<String>,
-}
-
-struct PoolCell(UnsafeCell<Pool>);
-
-// SAFETY: every access goes through `with_pool`, which holds an
-// `AtomicSection` for the whole closure — see the module docs.
-unsafe impl Sync for PoolCell {}
-
-static POOL: PoolCell = PoolCell(UnsafeCell::new(Pool::new()));
-
-/// Run `f` against the global pool inside a scheduler-atomic section.
-/// Never nest calls: the closure holds the one `&mut`.
-pub fn with_pool<R>(f: impl FnOnce(&mut Pool) -> R) -> R {
-    let _atomic = AtomicSection::enter();
-    // SAFETY: the section keeps every other JVM task off the CPU, and
-    // callers never nest `with_pool`, so this is the only live reference.
-    let pool = unsafe { &mut *POOL.0.get() };
-    f(pool)
 }
 
 impl Default for Pool {
@@ -502,13 +482,5 @@ mod tests {
         pool.clear();
         assert_eq!(pool.node_count(), 0);
         pool.alloc(Node::Null).unwrap();
-    }
-
-    #[test]
-    fn global_pool_round_trips() {
-        with_pool(|p| p.clear());
-        let n = with_pool(|p| p.alloc(Node::Int(5)).unwrap());
-        assert_eq!(with_pool(|p| p.kind(n)), super::super::K_INT);
-        with_pool(|p| p.clear());
     }
 }

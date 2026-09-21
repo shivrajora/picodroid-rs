@@ -317,7 +317,7 @@ impl Parser<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::json::K_NULL;
+    use crate::K_NULL;
 
     const OPEN_METEO: &[u8] = "{\"latitude\":37.56252,\"longitude\":-122.307274,\
         \"generationtime_ms\":0.1697540283203125,\"utc_offset_seconds\":0,\"timezone\":\"GMT\",\
