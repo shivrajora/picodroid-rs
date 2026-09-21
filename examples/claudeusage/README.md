@@ -1,0 +1,95 @@
+# claudeusage
+
+A desk display for Claude usage limits: the 5-hour session, the weekly cap, per-model caps, burn
+rate, and token history. Built for the `pico_display2_w` board (Pimoroni Pico Display Pack 2.0 on a
+Pico 2 W) and runs on any networked board or in the simulator.
+
+Picodroid has no TLS, so the device does not talk to Anthropic. A small bridge runs on the PC where
+you use Claude Code and serves the numbers over plain HTTP on your LAN. Your OAuth token stays on
+the PC; the device only ever receives percentages, reset times and token counts.
+
+## Run the bridge
+
+```bash
+python3 examples/claudeusage/bridge/claude_usage_bridge.py          # real data, port 8787
+python3 examples/claudeusage/bridge/claude_usage_bridge.py --once   # print one payload and exit
+python3 examples/claudeusage/bridge/claude_usage_bridge.py --demo   # synthetic data
+```
+
+It needs Python 3.8+ and nothing else. It reads `~/.claude/.credentials.json` (written by Claude
+Code when you sign in) and the transcripts under `~/.claude/projects/`. Allow inbound TCP 8787 from
+your LAN if the PC runs a firewall.
+
+The limits come from an undocumented endpoint that rate limits hard; the bridge asks it once every
+three minutes. The "API value" on the History screen is an estimate from public per-token prices,
+not a bill.
+
+## Run in the simulator
+
+```bash
+python3 examples/claudeusage/bridge/claude_usage_bridge.py --demo &
+./scripts/sim.sh --board pico_display2_w --app claudeusage
+```
+
+Keys `1` `2` `3` `4` are buttons A B X Y. The bridge address defaults to `127.0.0.1`.
+
+## Run on the board
+
+The bridge's address is baked in at build time, next to the WiFi credentials:
+
+```bash
+env $(grep -v '^#' .wifi-creds.env | xargs) PICODROID_NET_TEST_HOST=192.168.1.20 \
+  ./scripts/flash.sh --board pico_display2_w --app claudeusage
+```
+
+Give the PC a fixed address (a DHCP reservation) so it stays where the display expects it.
+
+## Buttons
+
+With the display landscape, A is top-left, B bottom-left, X top-right, Y bottom-right. Each corner
+of the screen shows the hint for the button beside it.
+
+| Button | Action |
+|---|---|
+| A | previous screen |
+| B | next screen |
+| X | sync now |
+| Y | back to Limits; on Limits, toggle `auto`, which cycles the screens every 10 s |
+
+Screens: **Limits**, **Models**, **Burn rate**, **History**.
+
+The white tick on a limit bar marks how far through the window you are. Fill past the tick means
+you are using the limit faster than it replenishes.
+
+## When the PC is off
+
+The header dot is green while data is live, amber when the last poll failed but the numbers are
+still recent, and red once they are stale (about two and a half minutes). Stale numbers are dimmed
+and the footer says why and for how long:
+
+| Footer | Meaning |
+|---|---|
+| `PC offline` | nothing answers at the bridge's address: the PC is off, asleep, or the address is wrong |
+| `Bridge down` | the PC answers but refuses the connection: start the bridge |
+| `No reply` | the bridge accepted the connection and said nothing |
+| `Login expired` / `No credentials` | run `claude` on the PC to sign in again |
+| `Rate limited` | Anthropic is rate limiting the bridge; it recovers by itself |
+| `WiFi down` | the display lost the access point |
+
+Reset countdowns keep running while offline. If a window resets while the display cannot sync, its
+percentage is replaced by `--%`, since the old figure is then known to be wrong. Until the first
+successful sync after power-on, a status screen shows the problem, the bridge address being tried
+and the retry countdown.
+
+## Demo failure modes
+
+```bash
+curl 'localhost:8787/demo?fail=auth'     # auth | rate | creds | garbage | http500 | hang | nodata | none
+curl 'localhost:8787/demo?reset=30'      # the session window resets 30 s from now
+```
+
+## Numeral sprites
+
+The SDK renders one font size, so the large figures are images: `tools/gen_digits.py` renders them
+into `assets/` (needs Pillow and the Ubuntu font). They are drawn onto the card colour because PAPK
+assets carry no alpha; regenerate them if `Palette.CARD` changes.

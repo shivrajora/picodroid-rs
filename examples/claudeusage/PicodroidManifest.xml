@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest package="claudeusage" version="1.0">
+    <application application="claudeusage/ClaudeUsageApp" label="Claude Usage" />
+</manifest>
