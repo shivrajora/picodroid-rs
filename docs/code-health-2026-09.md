@@ -158,8 +158,8 @@ Ranked by value over cost.
    `graphics/lvgl`'s did, most of the 14 `#[path]` shims in `lib.rs` become
    unnecessary.
 4. More in-place tests now that `graphics/lvgl` compiles under test:
-   `time_picker` 12/24 h wrap and minute stepping, `number_picker`
-   clamp/wrap/step, `hw_scroll::is_valid`.
+   `number_picker` clamp/wrap/step and `hw_scroll::is_valid` (`time_picker`'s
+   12/24 h conversion is covered).
 5. `net/http_connection.rs::parse_response_head` and the chunk stepping →
    `http-head`; `hardware/sensors/sampler.rs::Sampler::service` over a
    timeline with the fake I2C bus in `pd-drivers`; `service_lifecycle.rs`

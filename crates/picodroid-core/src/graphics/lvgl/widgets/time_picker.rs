@@ -518,3 +518,48 @@ fn twentyfour_to_12(hour_24: i32) -> (u32, bool) {
         _ => ((h - 12) as u32, true), // 13..23 = 1..11 PM
     }
 }
+
+// Pure arithmetic only: LVGL is linked into the test binary, not initialised.
+#[cfg(test)]
+mod tests {
+    use super::{twelve_hour_to_24, twentyfour_to_12};
+
+    /// Midnight and noon are where a 12-hour clock goes wrong: both show
+    /// "12", which is roller index 0, and differ only in AM/PM.
+    #[test]
+    fn midnight_and_noon_are_both_twelve_on_the_roller() {
+        assert_eq!(twentyfour_to_12(0), (0, false));
+        assert_eq!(twentyfour_to_12(12), (0, true));
+        assert_eq!(twelve_hour_to_24(0, false), 0);
+        assert_eq!(twelve_hour_to_24(0, true), 12);
+    }
+
+    #[test]
+    fn the_hours_either_side_of_the_boundaries() {
+        assert_eq!(twentyfour_to_12(11), (11, false));
+        assert_eq!(twentyfour_to_12(13), (1, true));
+        assert_eq!(twentyfour_to_12(23), (11, true));
+        assert_eq!(twelve_hour_to_24(11, false), 11);
+        assert_eq!(twelve_hour_to_24(1, true), 13);
+        assert_eq!(twelve_hour_to_24(11, true), 23);
+    }
+
+    /// Switching a picker between 12- and 24-hour mode must never move the
+    /// time it shows.
+    #[test]
+    fn every_hour_survives_the_round_trip() {
+        for hour in 0..24 {
+            let (idx, pm) = twentyfour_to_12(hour);
+            assert!(idx < 12, "hour {hour} -> roller index {idx}");
+            assert_eq!(twelve_hour_to_24(idx as i32, pm), hour);
+        }
+    }
+
+    #[test]
+    fn out_of_range_inputs_clamp_instead_of_wrapping() {
+        assert_eq!(twentyfour_to_12(-5), (0, false));
+        assert_eq!(twentyfour_to_12(99), (11, true));
+        assert_eq!(twelve_hour_to_24(-1, false), 0);
+        assert_eq!(twelve_hour_to_24(40, true), 23);
+    }
+}
