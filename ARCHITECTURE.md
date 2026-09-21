@@ -47,7 +47,7 @@ in `platforms/rp/` is this family and nothing else.
 | [`gc_roots.rs`](crates/picodroid-core/src/gc_roots.rs) | Root-provider registry (see the GC rule below) | `[picodroid]` |
 | [`drivers`](crates/pd-drivers/src/) | Re-export of the `pd-drivers` crate: `embedded-hal` drivers (ST7789, ST7796, XPT2046, GT911, BME688, LTR559) | `[reusable]` |
 | [`mem_diag.rs`](crates/picodroid-core/src/mem_diag.rs) | Memory monitor | `[picodroid]` |
-| [`lvgl_ffi.rs`](crates/picodroid-core/src/lvgl_ffi.rs) | Hand-written LVGL C bindings | `[hardware]` |
+| [`lvgl_ffi`](crates/pd-lvgl-sys/src/lib.rs) | Re-export of the `pd-lvgl-sys` crate: hand-written LVGL C bindings plus the LVGL C build (`build.rs`, `lvgl/lv_conf.h`) | `[reusable]` |
 | [`shrink_names.rs`](crates/picodroid-core/src/shrink_names.rs) | `include!` of the build-generated `c::` / `m::` / `d::` name constants ([`crates/build_support/names.rs`](crates/build_support/names.rs)); nothing translates a name back at run time | `[picodroid]` |
 
 ### `platforms/rp/src/` — this family only

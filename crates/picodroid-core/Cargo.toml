@@ -35,12 +35,12 @@ freertos-tcp = []
 # crate's build.rs can resolve the same board.toml and generate the neutral
 # config (JVM sizing, sensor/button tables, display dims) from it.
 # Marker features only: no code gates on them, build.rs reads the env var.
-board-testbench-rp2040  = []
-board-testbench-rp2350  = []
-board-testbench-rp2350w = []
-board-pico-enviro-mon   = []
-board-pico-enviro-mon-w = []
-board-pico-touch-kit    = []
+board-testbench-rp2040  = ["pd-lvgl-sys/board-testbench-rp2040"]
+board-testbench-rp2350  = ["pd-lvgl-sys/board-testbench-rp2350"]
+board-testbench-rp2350w = ["pd-lvgl-sys/board-testbench-rp2350w"]
+board-pico-enviro-mon   = ["pd-lvgl-sys/board-pico-enviro-mon"]
+board-pico-enviro-mon-w = ["pd-lvgl-sys/board-pico-enviro-mon-w"]
+board-pico-touch-kit    = ["pd-lvgl-sys/board-pico-touch-kit"]
 # Board capability features — activated by the binary crate's board features and
 # forwarded here so picodroid-core can emit the matching rustc-cfgs.
 # Each new board capability (sensor, network link kind, etc.) needs a feature
@@ -80,6 +80,8 @@ pdb-protocol  = { path = "../pdb-protocol" }
 # The simulator allocator's device-heap model (hal/sim/allocator.rs); host-only,
 # pulled in by `sim` and, for this crate's own tests, as a dev-dependency.
 heap4         = { path = "../heap4", optional = true }
+# LVGL bindings + the LVGL C build; re-exported as `picodroid_core::lvgl_ffi`.
+pd-lvgl-sys   = { path = "../pd-lvgl-sys" }
 # The PAPK installer; install/mod.rs binds it to `packages` and the
 # framework-map version.
 pd-install    = { path = "../pd-install" }

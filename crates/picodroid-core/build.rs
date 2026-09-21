@@ -14,7 +14,7 @@
 //! each platform's build.rs — one implementation, two OUT_DIRs.
 //! See `docs/designs/shared-core-extraction.md` §3.D.
 
-use build_support::{board_cfg, config, freertos_host, lvgl, names, papk};
+use build_support::{board_cfg, config, freertos_host, names, papk};
 
 fn main() {
     let out = &std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
@@ -73,30 +73,10 @@ fn main() {
         emit_capability_cfgs_from_features();
     }
 
-    // LVGL's C sources are compiled here rather than by the platform crate,
-    // because this crate now contains code that calls `lv_*`. Without it,
-    // `cargo test -p picodroid-core` would fail to link — and independent
-    // testability is most of the reason for extracting the framework.
-    //
-    // The platform crate must NOT also compile LVGL: `cc` static libs
-    // propagate to the final binary through the dependency, so two builders
-    // would mean duplicate symbols. Ownership moved in one commit for
-    // exactly that reason.
-    //
-    // Board overrides (`lv_dpi`, `lv_mem_kb`) come from the same board.toml
-    // resolution above; boardless builds get lv_conf.h's defaults.
-    let lvgl_board_props = board.as_ref().map(|b| b.cfg.props.clone());
-    // The MCU toml may pin the C optimisation level for its target
-    // (`c_opt_level`; the rp2040 compiles its C at -Os).
-    let lvgl_mcu = board.as_ref().map(|b| b.mcu().1);
-    lvgl::build(
-        out,
-        &lvgl_board_props,
-        lvgl_mcu.as_ref(),
-        root,
-        &manifest_dir.join("lvgl"),
-        board_cfg::hw_vscroll(&board),
-    );
+    // LVGL's C sources are compiled by the `pd-lvgl-sys` crate, which holds
+    // the bindings. It resolves the same board through the same
+    // `build_support` calls, and its static lib reaches every binary that
+    // links this crate — `cargo test -p picodroid-core` included.
 
     // The simulator's kernel: the real FreeRTOS + POSIX port, compiled for the
     // host. Owned here for the same reason LVGL is — this crate holds the code

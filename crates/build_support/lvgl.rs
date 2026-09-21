@@ -21,8 +21,8 @@ fn parse_int(props: &HashMap<String, String>, key: &str) -> Option<u64> {
 /// `repo_root` must be the absolute path to the repository root so that
 /// `third_party/lvgl` can be located regardless of which
 /// `platforms/<family>/` directory the build.rs runs from. `conf_dir` is the
-/// directory holding `lv_conf.h` — the calling crate's own `lvgl/`, beside
-/// the other C configs it owns (`freertos-host/`, `net-freertos-tcp/`).
+/// directory holding `lv_conf.h` and the C helpers compiled with it — the
+/// calling crate's own `lvgl/` (that crate is `pd-lvgl-sys`).
 pub fn build(
     _out: &Path,
     board_cfg: &Option<HashMap<String, String>>,
@@ -131,7 +131,7 @@ pub fn build(
     }
 
     // ARM gcc defaults to -fshort-enums, making C enums 1 byte when values
-    // fit.  Our Rust FFI (lvgl_ffi.rs) mirrors this with u8 typedefs.  On
+    // fit.  Our Rust FFI (pd-lvgl-sys) mirrors this with u8 typedefs.  On
     // x86_64 (sim builds) enums are 4 bytes by default, which breaks struct
     // layout (e.g. lv_indev_data_t.state lands at the wrong offset).  Force
     // -fshort-enums on non-ARM targets so the C and Rust layouts match.

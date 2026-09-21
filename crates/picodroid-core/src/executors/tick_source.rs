@@ -26,7 +26,7 @@
 
 use crate::rtos;
 
-/// The tick cadence. `LV_DEF_REFR_PERIOD` in `lvgl/lv_conf.h` must equal it
+/// The tick cadence. `LV_DEF_REFR_PERIOD` in `pd-lvgl-sys/lvgl/lv_conf.h` must equal it
 /// (guarded below), and it is the one step `Display.update()` takes.
 pub(crate) const TICK_PERIOD_MS: u32 = 16;
 
@@ -264,16 +264,16 @@ mod refresh_period_guard {
 
     use super::source_scan::read_stripped;
 
-    /// `LV_DEF_REFR_PERIOD` as `lvgl/lv_conf.h` declares it. Read as text
+    /// `LV_DEF_REFR_PERIOD` as `pd-lvgl-sys/lvgl/lv_conf.h` declares it. Read as text
     /// because the value is a C preprocessor define: there is nothing to call
     /// from a host test, and the C side is not compiled for one.
     fn configured_refresh_period() -> u32 {
-        let conf = Path::new(env!("CARGO_MANIFEST_DIR")).join("lvgl/lv_conf.h");
+        let conf = Path::new(env!("CARGO_MANIFEST_DIR")).join("../pd-lvgl-sys/lvgl/lv_conf.h");
         let text = read_stripped(&conf);
         let after = text
             .split("#define LV_DEF_REFR_PERIOD")
             .nth(1)
-            .expect("lvgl/lv_conf.h defines no LV_DEF_REFR_PERIOD");
+            .expect("pd-lvgl-sys/lvgl/lv_conf.h defines no LV_DEF_REFR_PERIOD");
         after
             .split_whitespace()
             .next()
@@ -292,7 +292,7 @@ mod refresh_period_guard {
         assert_eq!(
             configured_refresh_period(),
             super::TICK_PERIOD_MS,
-            "LV_DEF_REFR_PERIOD in lvgl/lv_conf.h must equal TICK_PERIOD_MS, \
+            "LV_DEF_REFR_PERIOD in pd-lvgl-sys/lvgl/lv_conf.h must equal TICK_PERIOD_MS, \
              or every frame waits for the next whole tick"
         );
     }
@@ -311,10 +311,6 @@ mod refresh_period_guard {
         let mut tick_inc_sites = Vec::new();
         for path in files {
             let rel = super::source_scan::rel(&src, &path);
-            // The `extern "C"` declaration is not a call.
-            if rel == "lvgl_ffi.rs" {
-                continue;
-            }
             let text = read_stripped(&path);
             for needle in [".tick(", "lifecycle::tick(", "lv_tick_inc("] {
                 for (at, _) in text.match_indices(needle) {

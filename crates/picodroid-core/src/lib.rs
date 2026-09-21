@@ -49,7 +49,7 @@ pub mod storage;
 pub mod input_inject;
 #[cfg(not(test))]
 pub mod lifecycle;
-pub mod lvgl_ffi;
+pub use pd_lvgl_sys as lvgl_ffi;
 #[cfg(all(feature = "mem-diag", not(test)))]
 pub mod mem_diag;
 // The scheduling monitor: fed by the kernel's trace and tick hooks, prints

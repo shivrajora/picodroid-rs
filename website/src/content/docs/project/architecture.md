@@ -102,7 +102,7 @@ Since the family-neutral extraction the tree is two-layered: `platforms/rp/` hol
 | [`pio/`](https://github.com/shivrajora/picodroid-rs/tree/main/crates/picodroid-core/src/pio/) | Peripheral I/O natives (GPIO, I2C, SPI, UART, PWM, ADC) |
 | [`executors/`](https://github.com/shivrajora/picodroid-rs/tree/main/crates/picodroid-core/src/executors/) | Java executors: main-thread FIFO + background worker pool |
 | [`monitor_store.rs`](https://github.com/shivrajora/picodroid-rs/blob/main/crates/picodroid-core/src/monitor_store.rs) | Reentrant monitor store backing Java `synchronized` |
-| [`lvgl_ffi.rs`](https://github.com/shivrajora/picodroid-rs/blob/main/crates/picodroid-core/src/lvgl_ffi.rs) | Hand-written LVGL C bindings |
+| [`lvgl_ffi`](https://github.com/shivrajora/picodroid-rs/blob/main/crates/pd-lvgl-sys/src/lib.rs) | Re-export of the `pd-lvgl-sys` crate: hand-written LVGL C bindings plus the LVGL C build |
 | [`install/`](https://github.com/shivrajora/picodroid-rs/tree/main/crates/picodroid-core/src/install/) | PAPK install orchestration (transport-agnostic: validate, park, erase, stream, verify, commit) |
 | [`fs/`](https://github.com/shivrajora/picodroid-rs/tree/main/crates/picodroid-core/src/fs/) | LittleFS mounted once, reached through a serial worker |
 | [`hal/sim/`](https://github.com/shivrajora/picodroid-rs/tree/main/crates/picodroid-core/src/hal/sim/) | Shared simulator HAL — the host implementation of the hardware surface |

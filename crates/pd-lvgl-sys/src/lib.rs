@@ -1,10 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Hand-written FFI bindings for LVGL v9.6.0.
+//! Hand-written FFI bindings for LVGL v9.6.0, plus the build of the vendored
+//! LVGL C sources they bind (`build.rs`, `lvgl/lv_conf.h`).
 //!
 //! Only the subset of functions needed by picodroid is declared here.
 //! Opaque LVGL types (lv_display_t, lv_obj_t, etc.) are represented as
 //! `core::ffi::c_void` behind raw pointers.
+//!
+//! The crate declares `links = "lvgl"`: exactly one crate in a build may
+//! compile LVGL, because a `cc` static lib reaches the final binary through
+//! the dependency and a second builder means duplicate symbols.
+//! picodroid-core re-exports this crate as `picodroid_core::lvgl_ffi`.
 
+#![cfg_attr(not(test), no_std)]
 #![allow(non_camel_case_types)]
 
 use core::ffi::c_void;
@@ -1090,7 +1097,7 @@ mod tests {
                 rust_const, header_ord,
                 "{}: Rust FFI ({}) drifted from vendored header ({}). \
                  The LVGL enum is implicit-ordinal — a single inserted variant \
-                 shifts everything below it. Re-sync lvgl_ffi.rs to match the \
+                 shifts everything below it. Re-sync pd-lvgl-sys/src/lib.rs to match the \
                  vendored lv_event.h before this slips into a runtime bug.",
                 name, rust_const, header_ord
             );

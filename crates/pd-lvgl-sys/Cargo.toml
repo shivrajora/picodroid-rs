@@ -1,0 +1,29 @@
+[package]
+name = "pd-lvgl-sys"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "Hand-written no_std FFI bindings for LVGL v9.6 and the build of the vendored LVGL C sources, configured per board."
+readme = "README.md"
+build = "build.rs"
+# One LVGL per link: a second crate compiling it would be a duplicate-symbol
+# error at best, so make it a Cargo error instead.
+links = "lvgl"
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+# Which board.toml configures the C build (`lv_dpi`, `lv_mem_kb`,
+# `lv_mem_in_psram`, the hardware-scroll helper, the MCU's C opt level).
+# Forwarded by picodroid-core's features of the same names; with none set the
+# build uses lv_conf.h's defaults.
+board-testbench-rp2040  = []
+board-testbench-rp2350  = []
+board-testbench-rp2350w = []
+board-pico-enviro-mon   = []
+board-pico-enviro-mon-w = []
+board-pico-touch-kit    = []
+
+[build-dependencies]
+picodroid-build-support = { path = "../build_support" }
