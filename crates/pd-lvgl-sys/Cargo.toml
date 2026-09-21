@@ -23,6 +23,7 @@ board-testbench-rp2350  = []
 board-testbench-rp2350w = []
 board-pico-enviro-mon   = []
 board-pico-enviro-mon-w = []
+board-pico-display2-w = []
 board-pico-touch-kit    = []
 
 [build-dependencies]

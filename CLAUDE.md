@@ -48,7 +48,7 @@ Then push. Do not wait for anything longer locally. GitHub CI (~20 min) runs cli
 a time and streams to stdout, which is what to use when a parallel run fails and
 you want readable output. Per-run logs are kept under `build/pre-commit/`.
 
-WiFi-enabled device builds (`testbench_rp2350w`, `pico_enviro_mon_w`, `pico_touch_kit`) take `PICODROID_WIFI_SSID` / `PICODROID_WIFI_PASS` at build time; local credentials live in the gitignored `.wifi-creds.env` at the repo root. `hil-run.sh` reads that file itself for the `net` rows of `hil-tests.conf` and SKIPs them when it is missing.
+WiFi-enabled device builds (`testbench_rp2350w`, `pico_enviro_mon_w`, `pico_display2_w`, `pico_touch_kit`) take `PICODROID_WIFI_SSID` / `PICODROID_WIFI_PASS` at build time; local credentials live in the gitignored `.wifi-creds.env` at the repo root. `hil-run.sh` reads that file itself for the `net` rows of `hil-tests.conf` and SKIPs them when it is missing.
 
 ## Shared bench: one lease per board
 

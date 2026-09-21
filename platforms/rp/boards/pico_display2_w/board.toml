@@ -1,0 +1,86 @@
+# Board: PicoDisplay2-W — Pimoroni Pico Display Pack 2.0 (2.0" 320x240 IPS,
+# ST7789) on a Raspberry Pi Pico 2 W (RP2350 + CYW43439 WiFi).
+#
+# The pack shares the Pimoroni pack pinout the Enviro+ boards use: display on
+# SPI0 (GP16-20), buttons A/B/X/Y on GP12-15. Its RGB LED sits on GP6/GP7/GP8
+# (common anode, driven by the app through picodroid.pio PWM). The CYW43 pins
+# (WL_ON=GP23, WL_D=GP24, WL_CS=GP25, WL_CLK=GP29, fixed in
+# src/hal/rp/port/cyw43_configport.h) are on-module and collide with none of
+# them. No touch panel and no sensors.
+#
+# Mounted landscape with the USB connector on the left: A is top-left, B
+# bottom-left, X top-right, Y bottom-right.
+mcu = "rp2350"
+
+# Multi-app (docs/designs/multi-app-2026-09.md D1/D2): the app region holds
+# up to eight installed apps as self-describing runs, LittleFS grows to
+# 512 KB for per-app storage, and the program image keeps 2048 KB.
+# FLASH 2048K @0x10000000 | FS_FLASH 512K @0x10200000 | PAPK_FLASH 1536K @0x10280000
+max_installed_apps = 8
+app_region_kb = 1536
+fs_kb = 512
+has_json = true
+has_network = true
+network_type = "cyw43"
+# 320x240 over a 2.0" diagonal.
+lv_dpi = 200
+# 48 KB, not lv_conf.h's 64 KB default: the W boards' radio statics leave the
+# core-0 main stack short otherwise (see testbench_rp2350w/board.toml).
+lv_mem_kb = 48
+# An always-on desk display: never sleep the panel on idle.
+idle_timeout_ms = 0
+
+# FreeRTOS+TCP heap tuning, as on pico_enviro_mon_w: this board's apps make
+# small HTTP-client exchanges, never bulk transfers.
+# (The board.toml prop parser is line-based — keep comments off value lines.)
+net_buffer_descriptors = 8
+net_tcp_rx_bytes = 2048
+net_tcp_tx_bytes = 2048
+net_tcp_win_segs = 8
+
+[display]
+driver = "st7789"
+spi_id = 0
+spi_freq = 62500000
+# The pack routes SPI0 SCK/MOSI to GP18/GP19, not the chip-default GP2/GP3.
+spi_sck = 18
+spi_mosi = 19
+pin_dc = 16
+pin_cs = 17
+pin_bl = 20
+# pin_rst omitted — the pack ties RST high in hardware; build.rs emits PIN_RST = None.
+width = 320
+height = 240
+# Landscape. UNVERIFIED on hardware (2026-09-20): 0x60 is what the other
+# 320x240 ST7789 boards use; if the image comes up rotated 180 degrees use
+# 0xA0, if mirrored 0x70 / 0xE0.
+madctl = 0x60
+band_height = 20
+scroll_limit = 30
+
+# Hardware buttons (A/B/X/Y → GP12-15), same semantic mapping as the Enviro+
+# boards: PREV→UP, NEXT→DOWN, ENTER→CENTER, ESC→BACK.
+[[button]]
+pin = 12
+lv_key = "PREV"
+keycode = 19
+
+[[button]]
+pin = 13
+lv_key = "NEXT"
+keycode = 20
+
+[[button]]
+pin = 14
+lv_key = "ENTER"
+keycode = 23
+
+[[button]]
+pin = 15
+lv_key = "ESC"
+keycode = 4
+
+# A pool worker doing DNS + HTTP + JSON parse measured 4,712 B deep on
+# pico_enviro_mon_w; the 4 KB default overflows. Same 6 KB as that board.
+[background_pool]
+stack_bytes = 6144
