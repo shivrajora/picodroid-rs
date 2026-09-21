@@ -3,7 +3,7 @@
 **Status: landed 2026-09-15** (`d1a09765`).
 
 One interpreting task at a time, enforced by a kernel mutex instead of by scheduler
-configuration. Module: `crates/picodroid-core/src/jvm_run_lock.rs`.
+configuration. Module: `crates/pd-rtos/src/run_lock.rs` (until 2026-09-20 `crates/picodroid-core/src/jvm_run_lock.rs`; still reachable as `picodroid_core::jvm_run_lock`).
 
 ## The contract, and how it was kept
 

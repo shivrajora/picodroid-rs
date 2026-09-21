@@ -6,7 +6,7 @@
 //! background-pool workers — change places only at blocking points: a
 //! sleep, a monitor wait, a queue the task drains, a socket. Until now that
 //! was a property of the scheduler configuration (equal priorities, time
-//! slicing off) plus [`pico_jvm::atomic_section`] around the compound heap
+//! slicing off) plus `pico_jvm::atomic_section` around the compound heap
 //! mutations, and it held only as long as nothing else made the kernel pick
 //! a *different* ready task at the JVM tier. Anything does: when a
 //! higher-priority task wakes and blocks again, FreeRTOS resumes the *next*
@@ -21,20 +21,23 @@
 //!
 //! This module makes the contract structural. A task takes the lock before
 //! it interprets ([`Held`]) and gives it up around every blocking wait
-//! ([`unlocked`], applied inside the `rtos` seam wrappers and the network
-//! facade, so no caller has to remember). A task the kernel rotates in
+//! ([`unlocked`], applied inside this crate's seam wrappers and
+//! picodroid-core's network facade, so no caller has to remember). That is
+//! also why the lock is a module of the RTOS crate and not a hook someone
+//! registers: a hook that was never installed would be a lock that is
+//! silently absent, and heap safety must not depend on boot order. A task the kernel rotates in
 //! while another holds the lock blocks on the mutex — it is not in the
 //! ready list, so it never touches the heap — and the holder resumes. What
 //! a Java thread observes is unchanged: it always ran until it blocked.
 //!
-//! Rules: never take the lock inside an [`pico_jvm::atomic_section`] (the
+//! Rules: never take the lock inside a `pico_jvm::atomic_section` (the
 //! kernel is suspended there), and never block while holding it other than
 //! through a wrapper that releases it. With no kernel (`cargo test`) every
 //! operation here is a no-op.
 
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::rtos::{self, RawMutex, RawTask, Timeout};
+use crate::{self as rtos, RawMutex, RawTask, Timeout};
 
 /// The kernel mutex, or 0 before [`init`].
 static LOCK: AtomicUsize = AtomicUsize::new(0);
@@ -42,7 +45,7 @@ static LOCK: AtomicUsize = AtomicUsize::new(0);
 static HOLDER: AtomicUsize = AtomicUsize::new(0);
 
 /// Create the lock. Call once, before the first task exists; both boots do
-/// so from `rtos::freertos::install_heap_atomic_hooks`.
+/// so from picodroid-core's `rtos::freertos::install_heap_atomic_hooks`.
 pub fn init() {
     if LOCK.load(Ordering::Acquire) != 0 {
         return;

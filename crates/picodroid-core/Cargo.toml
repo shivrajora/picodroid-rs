@@ -80,6 +80,8 @@ pdb-protocol  = { path = "../pdb-protocol" }
 # The simulator allocator's device-heap model (hal/sim/allocator.rs); host-only,
 # pulled in by `sim` and, for this crate's own tests, as a dev-dependency.
 heap4         = { path = "../heap4", optional = true }
+# The `Rtos` seam and the JVM run lock; re-exported as `rtos` / `jvm_run_lock`.
+pd-rtos       = { path = "../pd-rtos" }
 # LVGL bindings + the LVGL C build; re-exported as `picodroid_core::lvgl_ffi`.
 pd-lvgl-sys   = { path = "../pd-lvgl-sys" }
 # The PAPK installer; install/mod.rs binds it to `packages` and the

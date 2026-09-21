@@ -1,0 +1,10 @@
+[package]
+name = "pd-rtos"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "no_std RTOS seam: an Rtos trait (tasks, queues, mutexes, semaphores, tick timer, delays) bound at link time by set_rtos!, plus a run lock released around every blocking wait."
+readme = "README.md"
+
+[lib]
+path = "src/lib.rs"

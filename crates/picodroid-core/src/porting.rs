@@ -173,7 +173,7 @@ mod tests {
     /// Other traits in this crate (driver buses, root providers) are internal.
     const SEAM_FILES: &[&str] = &[
         "hal/traits.rs",
-        "rtos/mod.rs",
+        "../../pd-rtos/src/lib.rs",
         "host.rs",
         "pdb/mod.rs",
         "pdb/sysmon.rs",
@@ -193,7 +193,7 @@ mod tests {
     }
 
     /// Every `pub trait` in the seam files, plus every `#[macro_export]`
-    /// macro anywhere in this crate.
+    /// macro anywhere in this crate or in `pd-rtos`.
     fn seam_items() -> BTreeSet<String> {
         let mut items = BTreeSet::new();
         for file in SEAM_FILES {
@@ -215,6 +215,8 @@ mod tests {
         }
         let mut files = Vec::new();
         sources(&src(), &["rs"], None, &mut files);
+        // `set_rtos!` is exported by the seam's own crate.
+        sources(&src().join("../../pd-rtos/src"), &["rs"], None, &mut files);
         for file in files {
             let text = read_stripped(&file);
             let mut lines = text.lines().peekable();

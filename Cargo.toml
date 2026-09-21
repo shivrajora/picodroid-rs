@@ -10,6 +10,7 @@ members = [
     "crates/pd-install",
     "crates/pd-json",
     "crates/pd-lvgl-sys",
+    "crates/pd-rtos",
     "crates/pdb-protocol",
     "crates/picodroid-core",
     "crates/test_support",

@@ -66,7 +66,10 @@ pub mod json;
 // Board-gated by the `[audio]` section in board.toml. The tone table and the
 // sequencer under it are pure `alloc` with host tests, like `json`; only the
 // driver beneath them reaches the HAL, and it carries its own `cfg(not(test))`.
-pub mod jvm_run_lock;
+pub use pd_rtos::run_lock as jvm_run_lock;
+// `set_rtos!` is `#[macro_export]`ed by pd-rtos; families name it through
+// this crate like every other registration macro.
+pub use pd_rtos::set_rtos;
 #[cfg(any(has_audio, test))]
 pub mod media;
 pub mod monitor_store;
