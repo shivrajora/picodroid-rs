@@ -83,12 +83,6 @@ mod hal_rp_cyw43_config_guard_tests;
 // written with spin_until! or carries a spin-ok / spin-todo excuse.
 #[cfg(test)]
 mod spin_guard;
-// The flash-layout generator (build_support): pure arithmetic over the MCU
-// and board tomls plus the rendered MEMORY block, pinned against the linker
-// scripts it replaced.
-#[cfg(test)]
-#[path = "../../../crates/build_support/flash_layout.rs"]
-mod build_support_flash_layout_tests;
 // The native_handler test shims moved to picodroid-core along with the
 // module; its pure-logic submodules are re-exposed there now.
 

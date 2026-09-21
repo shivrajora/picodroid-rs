@@ -17,7 +17,7 @@
 //! the single failure mode this project has been burned by most often.
 
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Every `pub fn visit_*roots` defined under `src_root`, as `(module, fn)`.
 pub fn defined_providers(src_root: &Path) -> BTreeSet<(String, String)> {
