@@ -175,17 +175,8 @@ mod device {
     struct HalI2c {
         bus_id: u8,
     }
-    #[cfg(sensor_bme688)]
-    impl crate::drivers::bme688::I2cBus for HalI2c {
-        fn write(&mut self, addr: u8, data: &[u8]) -> i32 {
-            crate::hal::i2c::write_slice(self.bus_id, addr, data)
-        }
-        fn read(&mut self, addr: u8, buf: &mut [u8]) -> i32 {
-            crate::hal::i2c::read_slice(self.bus_id, addr, buf)
-        }
-    }
-    #[cfg(sensor_ltr559)]
-    impl crate::drivers::ltr559::I2cBus for HalI2c {
+    #[cfg(any(sensor_bme688, sensor_ltr559))]
+    impl crate::drivers::I2cBus for HalI2c {
         fn write(&mut self, addr: u8, data: &[u8]) -> i32 {
             crate::hal::i2c::write_slice(self.bus_id, addr, data)
         }

@@ -83,7 +83,7 @@ const KNOWN_LV_KEYS: &[&str] = &["PREV", "NEXT", "ENTER", "ESC", "NONE"];
 
 /// Display controllers a `[display] driver` may name. Each emits a
 /// `display_<driver>` cfg that gates the driver module in
-/// `picodroid-core/src/drivers/` and the concrete type in the family's display
+/// `crates/pd-drivers/src/` and the concrete type in the family's display
 /// facade. Adding a row here without a driver module fails to compile at the
 /// facade, which is the intent.
 pub const KNOWN_DISPLAY_DRIVERS: &[&str] = &["st7789", "st7796"];

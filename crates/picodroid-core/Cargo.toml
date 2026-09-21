@@ -80,6 +80,9 @@ pdb-protocol  = { path = "../pdb-protocol" }
 # The simulator allocator's device-heap model (hal/sim/allocator.rs); host-only,
 # pulled in by `sim` and, for this crate's own tests, as a dev-dependency.
 heap4         = { path = "../heap4", optional = true }
+# Panel, touch and sensor drivers, generic over embedded-hal; re-exported as
+# `picodroid_core::drivers`.
+pd-drivers    = { path = "../pd-drivers" }
 # JSON tree behind picodroid.json (json/mod.rs wraps its pool); unused and
 # dropped at link time on a board without `has_json`.
 pd-json       = { path = "../pd-json" }

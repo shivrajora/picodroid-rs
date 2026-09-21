@@ -19,7 +19,7 @@ pub mod board_cfg;
 #[cfg(not(test))]
 pub mod boot;
 pub mod dispatch_sites;
-pub mod drivers;
+pub use pd_drivers as drivers;
 pub mod executors;
 pub mod framework_classes;
 // LittleFS, opt-in per family. See the feature's note in Cargo.toml.

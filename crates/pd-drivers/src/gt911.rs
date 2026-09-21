@@ -2,9 +2,9 @@
 //! Goodix GT911 capacitive touch controller driver.
 //!
 //! Generic over `I2cBus` so the same code runs against a family HAL and the
-//! simulator's fake bus, matching the pattern in [`crate::drivers::ltr559`].
+//! simulator's fake bus, matching the pattern in [`crate::ltr559`].
 //!
-//! Unlike the resistive [`crate::drivers::xpt2046`], this part reports finished
+//! Unlike the resistive [`crate::xpt2046`], this part reports finished
 //! pixel coordinates: the controller does its own sampling, filtering and
 //! scaling, so there is no calibration to invert, no median filter to run and
 //! no `cal_*` bounds in board.toml. What the driver does is the I2C framing
@@ -15,12 +15,7 @@
 use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::OutputPin;
 
-/// Minimal I2C bus trait for the GT911 driver. Both methods return a negative
-/// value on a bus error, matching `HalI2c::write_slice` / `read_slice`.
-pub trait I2cBus {
-    fn write(&mut self, addr: u8, data: &[u8]) -> i32;
-    fn read(&mut self, addr: u8, buf: &mut [u8]) -> i32;
-}
+pub use crate::I2cBus;
 
 /// What the controller reports about itself at [`Gt911::init`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

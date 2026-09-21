@@ -372,9 +372,16 @@ mod tests {
             &mut files,
         );
         let core = repo_root().join("crates/picodroid-core/src");
-        for dir in ["drivers", "hal", "os", "install"] {
+        for dir in ["hal", "os", "install"] {
             sources(&core.join(dir), &["rs", "c", "h"], None, &mut files);
         }
+        // The panel/touch/sensor drivers, a crate of their own.
+        sources(
+            &repo_root().join("crates/pd-drivers/src"),
+            &["rs", "c", "h"],
+            None,
+            &mut files,
+        );
         files.retain(|p| {
             let s = p.to_string_lossy();
             // The simulator is host code; hal/spin.rs defines the macro.
@@ -391,7 +398,7 @@ mod tests {
             "hal/rp/dma.rs",
             "hal/rp/pio_spi.rs",
             "port/net/cyw43_port.c",
-            "drivers/st7789.rs",
+            "pd-drivers/src/st7789.rs",
         ] {
             assert!(
                 files.iter().any(|p| p.to_string_lossy().ends_with(must)),

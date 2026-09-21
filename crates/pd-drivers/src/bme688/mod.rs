@@ -22,11 +22,7 @@ pub struct Reading {
     pub gas_ohm: u32,
 }
 
-/// Minimal I2C bus trait for the BME688 driver.
-pub trait I2cBus {
-    fn write(&mut self, addr: u8, data: &[u8]) -> i32;
-    fn read(&mut self, addr: u8, buf: &mut [u8]) -> i32;
-}
+pub use crate::I2cBus;
 
 #[derive(Debug)]
 pub enum Bme688Error {

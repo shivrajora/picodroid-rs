@@ -101,7 +101,7 @@ Verify: `cargo test -p mesh-protocol` under `./scripts/test.sh`; decrypt of the 
 
 Highest-risk hardware unknown; everything after it is software.
 
-- `picodroid-core/src/drivers/sx1262.rs` — pure chip driver generic over embedded-hal-style traits (`st7789.rs`/`xpt2046.rs` precedent): standby/config, sync word, frequency, buffer R/W, TX, continuous RX, IRQ status read/clear, RSSI/SNR, **init-without-hard-reset path** (GP15 policy). Host unit tests with a fake SPI asserting exact command bytes (`FakeXptSpi` precedent).
+- `crates/pd-drivers/src/sx1262.rs` — pure chip driver generic over embedded-hal-style traits (`st7789.rs`/`xpt2046.rs` precedent): standby/config, sync word, frequency, buffer R/W, TX, continuous RX, IRQ status read/clear, RSSI/SNR, **init-without-hard-reset path** (GP15 policy). Host unit tests with a fake SPI asserting exact command bytes (`FakeXptSpi` precedent).
 - New `hal::lora` seam in `picodroid-core/src/hal/` (device impl only this session).
 - `platforms/rp/src/hal/rp/lora.rs` — wiring: `RpSpiBus::handle(1)` + third `SpiFreqSwitch` frequency, `RpOutputPin` CS, `RpInputPin` BUSY, DIO1 GPIO IRQ -> task-notify on core 1.
 - Temporary debug "sniffer" task (becomes Session 5's radio task skeleton): configures LongFast, RXes continuously, logs header + `mesh-protocol`-decrypted payload + RSSI/SNR.
@@ -186,7 +186,7 @@ Triage rule: anything affecting stock-node behavior toward us is fix-now; our-co
 
 - Template board: `platforms/rp/boards/testbench_rp2350w/board.toml`. Parser/codegen: `build_support/config.rs`, `build_support/board_cfg.rs`.
 - Async-event + recycling pattern to clone: `picodroid-core/src/hardware/sensors/{sampler,mailbox,mod}.rs`; drain hook in `picodroid-core/src/lifecycle.rs`.
-- Driver precedents: `picodroid-core/src/drivers/{st7789,xpt2046}.rs` (+ `SpiFreqSwitch` in `drivers/mod.rs`); device wiring `platforms/rp/src/hal/rp/{spi_bus,output_pin,input_pin,gpio}.rs`; DIO1 IRQ model = cyw43 hostwake in `gpio.rs`.
+- Driver precedents: `crates/pd-drivers/src/{st7789,xpt2046}.rs` (+ `SpiFreqSwitch` in its `lib.rs`); device wiring `platforms/rp/src/hal/rp/{spi_bus,output_pin,input_pin,gpio}.rs`; DIO1 IRQ model = cyw43 hostwake in `gpio.rs`.
 - Native exposure: `picodroid-core/src/native_handler/{class_registry,method_tables,mod}.rs`, `picodroid-core/src/dispatch_sites.rs`, `picodroid-core/src/gc_root_registration.rs` (EXPECTED_PROVIDERS).
 - Design-doc house style: `docs/designs/net-typed-exceptions.md`; binary-format crate precedent: `pdb-protocol/`.
 - Pin map on the new board: SPI1 GP10/11/12 shared; display DC=8 CS=9 BL=13 RST=15; touch CS=16 IRQ=17; LoRa CS=3 BUSY=2 DIO1=20 (RESET=GP15 shared — see GP15 policy); cyw43 GP23/24/25/29.

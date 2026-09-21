@@ -1,0 +1,13 @@
+[package]
+name = "pd-drivers"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "no_std embedded-hal drivers: ST7789 / ST7796 panels, XPT2046 and GT911 touch controllers, BME688 and LTR559 sensors."
+readme = "README.md"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+embedded-hal = "1.0"

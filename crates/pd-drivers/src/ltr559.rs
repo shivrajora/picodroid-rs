@@ -2,13 +2,9 @@
 //! LTR-559ALS-01 ambient-light + proximity sensor driver.
 //!
 //! Generic over `I2cBus` so the same code works against the RP2040/RP2350 HAL
-//! and the sim stub. Mirrors the structural pattern in [`crate::drivers::bme688`].
+//! and the sim stub. Mirrors the structural pattern in [`crate::bme688`].
 
-/// Minimal I2C bus trait for the LTR559 driver.
-pub trait I2cBus {
-    fn write(&mut self, addr: u8, data: &[u8]) -> i32;
-    fn read(&mut self, addr: u8, buf: &mut [u8]) -> i32;
-}
+pub use crate::I2cBus;
 
 #[derive(Debug)]
 pub enum Ltr559Error {
