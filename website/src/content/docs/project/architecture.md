@@ -94,7 +94,7 @@ Since the family-neutral extraction the tree is two-layered: `platforms/rp/` hol
 | Module | Purpose |
 |---|---|
 | [`native_handler/`](https://github.com/shivrajora/picodroid-rs/tree/main/crates/picodroid-core/src/native_handler/) | `pico-jvm` native dispatch (chain-of-responsibility per domain; `class_registry.rs`, `method_tables.rs`) |
-| [`lifecycle.rs`](https://github.com/shivrajora/picodroid-rs/blob/main/crates/picodroid-core/src/lifecycle.rs) | Application/Activity lifecycle, widget event dispatch |
+| [`lifecycle/`](https://github.com/shivrajora/picodroid-rs/tree/main/crates/picodroid-core/src/lifecycle/) | Application/Activity lifecycle: the run loops (`mod.rs`), the back stack (`activity_stack.rs`), widget event dispatch (`widget_events.rs`), touch/key input (`input.rs`), alarm delivery (`alarm_events.rs`) |
 | [`graphics/`](https://github.com/shivrajora/picodroid-rs/tree/main/crates/picodroid-core/src/graphics/) | Widget set: backend-neutral surface + LVGL implementation |
 | [`drivers`](https://github.com/shivrajora/picodroid-rs/tree/main/crates/pd-drivers/src/) | Re-export of the `pd-drivers` crate: chip-agnostic device drivers over `embedded-hal` (ST7789, ST7796, XPT2046, GT911, BME688, LTR559) |
 | [`net/`](https://github.com/shivrajora/picodroid-rs/tree/main/crates/picodroid-core/src/net/) | `picodroid.net` native implementations (sockets, HTTP, `NetworkInfo`) |

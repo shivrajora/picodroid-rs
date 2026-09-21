@@ -74,7 +74,7 @@ mod seam_guard {
         files.retain(|p| !skipped(p));
         files.sort();
         for must in [
-            "lifecycle.rs",
+            "src/lifecycle/mod.rs",
             "threads.rs",
             "executors/main_queue.rs",
             "sim_boot.rs",

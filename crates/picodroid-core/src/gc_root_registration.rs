@@ -99,7 +99,7 @@ pub fn register_all() {
     // intents; bound services hold their connection objects. None of these
     // is reachable from a Java field once native code is the only holder.
     register(crate::hardware::sensors::visit_gc_roots);
-    register(crate::lifecycle::visit_gc_roots);
+    register(crate::lifecycle::input::visit_gc_roots);
     register(crate::service_lifecycle::visit_gc_roots);
 }
 

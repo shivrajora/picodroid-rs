@@ -51,7 +51,7 @@ mod tests {
     // in an Activity-less app saw `Thread.currentThread()` named "main".
     #[test]
     fn run_application_records_the_ui_task_before_on_create() {
-        let body = function_body(&src("lifecycle.rs"), "run_application");
+        let body = function_body(&src("lifecycle/mod.rs"), "run_application");
         let note = body
             .find("note_ui_task()")
             .expect("run_application must record the UI task (QA 2026-09-13)");
@@ -70,7 +70,7 @@ mod tests {
     // posted steps stopped with nothing in the log to say why.
     #[test]
     fn a_failed_main_queue_runnable_is_logged() {
-        let body = function_body(&src("lifecycle.rs"), "run_activity");
+        let body = function_body(&src("lifecycle/mod.rs"), "run_activity");
         assert!(
             body.contains("mainExecutor Runnable error"),
             "run_activity must log an exception escaping a main-queue \
