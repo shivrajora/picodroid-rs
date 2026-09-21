@@ -357,3 +357,95 @@ pub fn emit_names(out: &Path, root: &Path, targets: &Targets<'_>, shrink_active:
     fs::write(out.join("names.rs"), body)
         .unwrap_or_else(|e| panic!("cannot write {}/names.rs: {e}", out.display()));
 }
+
+// Inline, not a `tests.rs` beside this file: `crates/jvm/build.rs`
+// `#[path]`-includes this module, and a child module of a `#[path]`-included
+// file resolves against a directory named after the includer's alias.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn shrink(name: &str) -> Option<String> {
+        match name {
+            "java/lang/String" => Some("b/AQ".to_string()),
+            "picodroid/view/View" => Some("a/AB".to_string()),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn descriptors_rewrite_every_class_reference_and_nothing_else() {
+        assert_eq!(
+            rewrite_descriptor("(Ljava/lang/String;)V", &shrink),
+            "(Lb/AQ;)V"
+        );
+        assert_eq!(
+            rewrite_descriptor(
+                "(ILpicodroid/view/View;[Ljava/lang/String;J)Ljava/lang/String;",
+                &shrink
+            ),
+            "(ILa/AB;[Lb/AQ;J)Lb/AQ;"
+        );
+        // Primitives only: untouched.
+        assert_eq!(rewrite_descriptor("(IJZ)D", &shrink), "(IJZ)D");
+    }
+
+    /// An unmapped class keeps its name -- and an `L` *inside* a class name
+    /// (`java/util/List`, `LinkedList`) is part of that name, not the start
+    /// of another reference.
+    #[test]
+    fn unmapped_classes_and_inner_capital_ls_survive() {
+        assert_eq!(
+            rewrite_descriptor(
+                "(Ljava/util/LinkedList;Ljava/lang/String;)Ljava/util/List;",
+                &shrink
+            ),
+            "(Ljava/util/LinkedList;Lb/AQ;)Ljava/util/List;"
+        );
+    }
+
+    #[test]
+    fn a_truncated_descriptor_is_passed_through_not_panicked_on() {
+        assert_eq!(
+            rewrite_descriptor("(Ljava/lang/String", &shrink),
+            "(Ljava/lang/String"
+        );
+    }
+
+    #[test]
+    fn class_refs_finds_each_reference_once() {
+        assert_eq!(
+            class_refs("(Ljava/util/List;[Ljava/lang/String;I)Lpicodroid/view/View;"),
+            ["java/util/List", "java/lang/String", "picodroid/view/View"]
+        );
+        assert!(class_refs("(IJ)V").is_empty());
+    }
+
+    #[test]
+    fn class_idents_flatten_packages_and_nesting() {
+        assert_eq!(
+            class_ident("picodroid/app/AlertDialog$Builder"),
+            "picodroid_app_AlertDialog_Builder"
+        );
+    }
+
+    #[test]
+    fn member_idents_escape_keywords_and_skip_what_rust_cannot_name() {
+        assert_eq!(rust_ident_for("toString").as_deref(), Some("toString"));
+        assert_eq!(rust_ident_for("type").as_deref(), Some("r#type"));
+        assert_eq!(rust_ident_for("await").as_deref(), Some("r#await"));
+        // The four keywords that cannot be raw identifiers.
+        assert_eq!(rust_ident_for("self").as_deref(), Some("self_"));
+        assert_eq!(rust_ident_for("super").as_deref(), Some("super_"));
+        for unnameable in [
+            "",
+            "<init>",
+            "<clinit>",
+            "lambda$run$0",
+            "9lives",
+            "has-dash",
+        ] {
+            assert_eq!(rust_ident_for(unnameable), None, "{unnameable}");
+        }
+    }
+}

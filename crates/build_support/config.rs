@@ -122,8 +122,10 @@ pub fn parse_str_list(val: &str) -> Vec<String> {
 }
 
 fn strip_quotes(val: &str) -> String {
-    if (val.starts_with('"') && val.ends_with('"'))
-        || (val.starts_with('\'') && val.ends_with('\''))
+    // `len() >= 2`: a lone quote character both starts and ends with itself.
+    if val.len() >= 2
+        && ((val.starts_with('"') && val.ends_with('"'))
+            || (val.starts_with('\'') && val.ends_with('\'')))
     {
         val[1..val.len() - 1].to_string()
     } else {
@@ -815,4 +817,187 @@ pub fn emit_touch_config(out: &Path, touch: &Option<HashMap<String, String>>) {
 
     let path = out.join("touch_config.rs");
     fs::write(&path, code.as_bytes()).unwrap_or_else(|e| panic!("write touch_config.rs: {e}"));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Write `text` as a board.toml in a fresh temp dir and parse it.
+    fn parse(tag: &str, text: &str) -> BoardConfig {
+        let dir =
+            std::env::temp_dir().join(format!("pd-build-support-{}-{tag}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("board.toml");
+        fs::write(&path, text).unwrap();
+        let cfg = parse_board_toml(&path.to_string_lossy());
+        let _ = fs::remove_dir_all(&dir);
+        cfg
+    }
+
+    #[test]
+    fn str_lists_split_on_either_separator_and_drop_blanks() {
+        assert_eq!(parse_str_list("a;b, c ,,;"), ["a", "b", "c"]);
+        assert!(parse_str_list("  ").is_empty());
+    }
+
+    #[test]
+    fn quotes_are_stripped_only_as_a_matched_pair() {
+        assert_eq!(strip_quotes("\"rp2350\""), "rp2350");
+        assert_eq!(strip_quotes("'rp2350'"), "rp2350");
+        assert_eq!(strip_quotes("\"\""), "");
+        assert_eq!(strip_quotes("\"half"), "\"half");
+        assert_eq!(strip_quotes("plain"), "plain");
+        // A lone quote starts and ends with itself; it must not slice [1..0].
+        assert_eq!(strip_quotes("\""), "\"");
+        assert_eq!(strip_quotes("'"), "'");
+    }
+
+    #[test]
+    fn ints_parse_as_decimal_or_hex() {
+        assert_eq!(parse_int_value(" 0x76 "), 0x76);
+        assert_eq!(parse_int_value("0X23"), 0x23);
+        assert_eq!(parse_int_value("15"), 15);
+        assert_eq!(parse_i32_value("-4"), -4);
+        assert_eq!(parse_i32_value("0x1F"), 31);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid int value")]
+    fn an_int_that_overflows_its_field_is_refused() {
+        parse_int_value("256");
+    }
+
+    #[test]
+    fn every_section_lands_in_its_own_table() {
+        let cfg = parse(
+            "sections",
+            r#"
+# comment
+mcu = "rp2350"
+idle_timeout_ms = 0
+
+[display]
+driver = "st7796"
+width = 320
+
+[touch]
+driver = 'gt911'
+
+[audio]
+pin = 9
+
+[background_pool]
+workers = 2
+
+[jvm]
+heap_kb = 416
+"#,
+        );
+        assert_eq!(cfg.props["mcu"], "rp2350");
+        assert_eq!(cfg.props["idle_timeout_ms"], "0");
+        assert_eq!(cfg.display.as_ref().unwrap()["driver"], "st7796");
+        assert_eq!(cfg.display.as_ref().unwrap()["width"], "320");
+        assert_eq!(cfg.touch.as_ref().unwrap()["driver"], "gt911");
+        assert_eq!(cfg.audio.as_ref().unwrap()["pin"], "9");
+        assert_eq!(cfg.background_pool.as_ref().unwrap()["workers"], "2");
+        assert_eq!(cfg.jvm.as_ref().unwrap()["heap_kb"], "416");
+        // A section key never leaks into the top-level table.
+        assert!(!cfg.props.contains_key("driver"));
+        assert!(cfg.sensors.is_empty() && cfg.buttons.is_empty());
+    }
+
+    #[test]
+    fn a_board_with_no_tables_has_none() {
+        let cfg = parse("bare", "mcu = \"rp2040\"\n");
+        assert!(cfg.display.is_none() && cfg.touch.is_none() && cfg.jvm.is_none());
+    }
+
+    /// Each `[[sensor]]` / `[[button]]` entry is flushed when the next header
+    /// arrives -- including a header of the *other* array, and the end of
+    /// the file. An entry that was not flushed would vanish silently.
+    #[test]
+    fn array_entries_are_flushed_at_every_kind_of_boundary() {
+        let cfg = parse(
+            "arrays",
+            r#"
+[[sensor]]
+kind = "bme688"
+bus = "i2c0"
+addr = 0x76
+
+[[sensor]]
+kind = "ltr559"
+bus = "i2c0"
+addr = 0x23
+
+[[button]]
+pin = 12
+lv_key = "PREV"
+keycode = 19
+
+[display]
+driver = "st7789"
+
+[[button]]
+pin = 15
+lv_key = "NONE"
+keycode = 4
+"#,
+        );
+        let sensors: Vec<_> = cfg
+            .sensors
+            .iter()
+            .map(|s| (s.kind.as_str(), s.addr))
+            .collect();
+        assert_eq!(sensors, [("bme688", 0x76), ("ltr559", 0x23)]);
+        let buttons: Vec<_> = cfg
+            .buttons
+            .iter()
+            .map(|b| (b.pin, b.lv_key.as_str(), b.keycode))
+            .collect();
+        assert_eq!(buttons, [(12, "PREV", 19), (15, "NONE", 4)]);
+        assert_eq!(cfg.display.as_ref().unwrap()["driver"], "st7789");
+    }
+
+    #[test]
+    fn keys_under_an_unknown_section_are_ignored_not_misfiled() {
+        let cfg = parse(
+            "unknown",
+            "mcu = \"rp2350\"\n[future]\nmcu = \"nope\"\n[display]\nwidth = 240\n",
+        );
+        assert_eq!(cfg.props["mcu"], "rp2350");
+        assert_eq!(cfg.display.as_ref().unwrap()["width"], "240");
+    }
+
+    #[test]
+    #[should_panic(expected = "unknown sensor kind")]
+    fn an_unknown_sensor_kind_is_refused() {
+        parse(
+            "badsensor",
+            "[[sensor]]\nkind = \"sht31\"\nbus = \"i2c0\"\naddr = 0x44\n",
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "missing 'keycode'")]
+    fn a_button_without_a_keycode_is_refused() {
+        parse("badbutton", "[[button]]\npin = 3\nlv_key = \"ENTER\"\n");
+    }
+
+    #[test]
+    fn draw_buffers_defaults_to_one_and_accepts_two() {
+        let mut d = HashMap::new();
+        assert_eq!(draw_buffers(&d), 1);
+        d.insert("draw_buffers".to_string(), " 2 ".to_string());
+        assert_eq!(draw_buffers(&d), 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "draw_buffers must be 1 or 2")]
+    fn three_draw_buffers_is_refused() {
+        let mut d = HashMap::new();
+        d.insert("draw_buffers".to_string(), "3".to_string());
+        draw_buffers(&d);
+    }
 }
