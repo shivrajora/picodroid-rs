@@ -2,6 +2,7 @@
 members = [
     "crates/build_support",
     "crates/compat",
+    "crates/http-head",
     "crates/jvm",
     "crates/papk-format",
     "crates/pdb-protocol",

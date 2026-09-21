@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Pure byte-level helpers for the HTTP/1.1 request and response head.
 //!
-//! Split out of [`super::http_connection`] so the parsing rules carry host
-//! unit tests: `net` is `cfg(not(test))` (it reaches the network HAL), so
-//! anything tested from inside it compiles but never runs. This module has no
-//! HAL, JVM, or `super::` dependencies and is re-exposed as a test shim in
-//! `lib.rs` — see the shim comment there before adding anything non-pure.
+//! Split out of picodroid-core's `net::http_connection` so the parsing rules
+//! carry host unit tests: `net` is `cfg(not(test))` (it reaches the network
+//! HAL), so anything tested from inside it compiles but never runs. This
+//! crate has no HAL, JVM or transport dependencies — keep it that way.
+
+#![cfg_attr(not(test), no_std)]
+
+extern crate alloc;
 
 /// Offset of the first byte *after* the `\r\n\r\n` that ends a message head,
 /// searching from `from`.

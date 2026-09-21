@@ -186,12 +186,6 @@ mod graphics_line_mode_tests;
 #[cfg(test)]
 #[path = "graphics/lvgl/widgets/gravity.rs"]
 mod graphics_gravity_tests;
-// HTTP head parsing. `net` is board-gated *and* `cfg(not(test))`, so its
-// status-line/header rules would otherwise be the untested kind this shim
-// list exists to prevent.
-#[cfg(test)]
-#[path = "net/http_head.rs"]
-mod net_http_head_tests;
 // The picodroid.graphics and picodroid.net field-slot tables, so
 // `native_field_tables_tests` can check them against the class files
 // (`graphics::fields` and `net` are `cfg(not(test))`).

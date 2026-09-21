@@ -5,9 +5,9 @@ pub mod datagram_socket;
 pub mod fields;
 pub mod helpers;
 pub mod http_connection;
-/// Pure head-parsing helpers. Tested via the `#[path]` shim in `lib.rs` —
-/// `net` itself is `cfg(not(test))`, so tests written inside it never run.
-pub mod http_head;
+/// Pure head-parsing helpers, in their own crate so their tests run — `net`
+/// itself is `cfg(not(test))`, so tests written inside it never do.
+pub use ::http_head;
 pub mod http_table;
 pub mod inet_address;
 pub mod network_info;

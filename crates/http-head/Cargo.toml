@@ -1,0 +1,10 @@
+[package]
+name = "http-head"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "no_std byte-level parser for the HTTP/1.1 message head: status line, header lines, and a streaming chunked-transfer decoder."
+readme = "README.md"
+
+[lib]
+path = "src/lib.rs"

@@ -77,6 +77,8 @@ compat        = { path = "../compat", version = "0.1" }
 # The install stream's integrity check is a PDBP concern: its hasher is seeded
 # with the CMD_INSTALL byte, and the host computes the same value.
 pdb-protocol  = { path = "../pdb-protocol" }
+# HTTP/1.1 head + chunked-transfer parsing for net/http_connection.rs.
+http-head     = { path = "../http-head" }
 # Runtime dep since graphics/assets.rs moved here: it reads the APK's ASST
 # section to build LVGL image descriptors.
 papk-format   = { path = "../papk-format" }
