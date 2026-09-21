@@ -191,9 +191,36 @@ fn wait_for_debounced_touch() -> (u16, u16) {
 
 #[cfg(not(feature = "sim"))]
 fn apply_calibration(pts: &[(u16, u16); 4]) {
-    let w = hal::display::WIDTH as i32 - 1;
-    let h = hal::display::HEIGHT as i32 - 1;
-    let m = CAL_MARGIN;
+    let (x_min, x_max, y_min, y_max) = fit_calibration(
+        pts,
+        hal::display::WIDTH as i32,
+        hal::display::HEIGHT as i32,
+        CAL_MARGIN,
+    );
+    hal::touch::set_calibration(x_min, x_max, y_min, y_max);
+}
+
+/// The raw-ADC range that maps onto the full panel, from four crosshair
+/// samples taken `margin` pixels in from each corner, in the order top-left,
+/// top-right, bottom-right, bottom-left.
+///
+/// Each edge is the mean of its two corners, then pushed outwards by the
+/// margin's share of the measured span -- the crosshairs sit inside the
+/// panel, the calibration describes its edges. Results clamp to the 12-bit
+/// ADC range. An inverted axis (left reads higher than right) comes out with
+/// `min > max`, which is how the touch driver learns the axis is flipped.
+// The simulator has no resistive panel to calibrate; its test build still
+// runs the tests below.
+#[cfg(any(test, not(feature = "sim")))]
+fn fit_calibration(
+    pts: &[(u16, u16); 4],
+    width: i32,
+    height: i32,
+    margin: i32,
+) -> (u16, u16, u16, u16) {
+    let w = width - 1;
+    let h = height - 1;
+    let m = margin;
 
     let raw_x_left = (pts[0].0 as i32 + pts[3].0 as i32) / 2;
     let raw_x_right = (pts[1].0 as i32 + pts[2].0 as i32) / 2;
@@ -208,5 +235,47 @@ fn apply_calibration(pts: &[(u16, u16); 4]) {
     let cal_y_min = (raw_y_top - m * (raw_y_bottom - raw_y_top) / span_y).clamp(0, 4095) as u16;
     let cal_y_max = (raw_y_bottom + m * (raw_y_bottom - raw_y_top) / span_y).clamp(0, 4095) as u16;
 
-    hal::touch::set_calibration(cal_x_min, cal_x_max, cal_y_min, cal_y_max);
+    (cal_x_min, cal_x_max, cal_y_min, cal_y_max)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fit_calibration;
+
+    /// A 241 x 321 panel with a 20 px margin has crosshair spans of exactly
+    /// 200 and 280, so the expected edges are whole numbers.
+    const W: i32 = 241;
+    const H: i32 = 321;
+    const M: i32 = 20;
+
+    #[test]
+    fn edges_are_extrapolated_outwards_by_the_margins_share() {
+        // x: 1000..3000 over a 200 px span = 10 counts/px -> +-200 for 20 px.
+        // y: 800..3600 over a 280 px span = 10 counts/px -> +-200.
+        let pts = [(1000, 800), (3000, 800), (3000, 3600), (1000, 3600)];
+        assert_eq!(fit_calibration(&pts, W, H, M), (800, 3200, 600, 3800));
+    }
+
+    #[test]
+    fn each_edge_is_the_mean_of_its_two_corners() {
+        // Left edge sampled at 980 and 1020, top edge at 780 and 820: a panel
+        // mounted slightly skewed still gets the axis-aligned best fit.
+        let pts = [(980, 780), (3000, 820), (3000, 3600), (1020, 3600)];
+        let (x_min, _, y_min, _) = fit_calibration(&pts, W, H, M);
+        assert_eq!((x_min, y_min), (800, 600));
+    }
+
+    #[test]
+    fn an_inverted_axis_comes_out_with_min_above_max() {
+        let pts = [(3000, 800), (1000, 800), (1000, 3600), (3000, 3600)];
+        let (x_min, x_max, y_min, y_max) = fit_calibration(&pts, W, H, M);
+        assert_eq!((x_min, x_max), (3200, 800));
+        assert!(y_min < y_max);
+    }
+
+    #[test]
+    fn extrapolation_clamps_to_the_adc_range() {
+        let pts = [(50, 40), (4050, 40), (4050, 4060), (50, 4060)];
+        assert_eq!(fit_calibration(&pts, W, H, M), (0, 4095, 0, 4095));
+    }
 }

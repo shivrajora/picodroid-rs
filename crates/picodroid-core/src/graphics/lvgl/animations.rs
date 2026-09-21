@@ -614,3 +614,126 @@ pub fn get_property(handle: i32, property: i32) -> f32 {
     };
     from_units(property, units)
 }
+
+// Pure arithmetic only: LVGL is linked into the test binary but never
+// initialised, so nothing here may touch a slot, a handle or an `lv_*` call.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ALL: [i32; 4] = [
+        INTERP_LINEAR,
+        INTERP_ACCELERATE,
+        INTERP_DECELERATE,
+        INTERP_ACCEL_DECEL,
+    ];
+
+    #[test]
+    fn every_curve_starts_at_zero_and_ends_at_one() {
+        for interp in ALL {
+            assert_eq!(ease(interp, 0), 0, "interp {interp}");
+            assert_eq!(ease(interp, EASE_SCALE), EASE_SCALE, "interp {interp}");
+        }
+    }
+
+    #[test]
+    fn every_curve_is_monotonic_and_stays_in_range() {
+        for interp in ALL {
+            let mut prev = 0;
+            for p in 0..=EASE_SCALE {
+                let v = ease(interp, p);
+                assert!(
+                    (0..=EASE_SCALE).contains(&v),
+                    "interp {interp} p {p} -> {v}"
+                );
+                assert!(v >= prev, "interp {interp} goes backwards at p {p}");
+                prev = v;
+            }
+        }
+    }
+
+    #[test]
+    fn midpoints_have_the_shape_their_names_promise() {
+        let half = EASE_SCALE / 2;
+        assert_eq!(ease(INTERP_LINEAR, half), half);
+        assert_eq!(ease(INTERP_ACCELERATE, half), EASE_SCALE / 4); // t^2
+        assert_eq!(ease(INTERP_DECELERATE, half), EASE_SCALE * 3 / 4); // 1-(1-t)^2
+        assert_eq!(ease(INTERP_ACCEL_DECEL, half), half); // symmetric
+                                                          // Slow start, fast finish -- and the mirror image.
+        let quarter = EASE_SCALE / 4;
+        assert!(ease(INTERP_ACCEL_DECEL, quarter) < quarter);
+        assert!(ease(INTERP_ACCEL_DECEL, 3 * quarter) > 3 * quarter);
+    }
+
+    #[test]
+    fn an_unknown_interpolator_is_linear() {
+        assert_eq!(ease(99, 1234), 1234);
+        assert_eq!(ease(-1, 1234), 1234);
+    }
+
+    #[test]
+    fn rounding_is_half_away_from_zero() {
+        assert_eq!(round_i32(2.5), 3);
+        assert_eq!(round_i32(-2.5), -3);
+        assert_eq!(round_i32(2.49), 2);
+        assert_eq!(round_i32(-0.4), 0);
+    }
+
+    #[test]
+    fn alpha_is_clamped_to_the_opacity_range() {
+        assert_eq!(to_units(PROPERTY_ALPHA, 0.0), 0);
+        assert_eq!(to_units(PROPERTY_ALPHA, 1.0), 255);
+        assert_eq!(to_units(PROPERTY_ALPHA, 0.5), 128);
+        assert_eq!(to_units(PROPERTY_ALPHA, 1.7), 255);
+        assert_eq!(to_units(PROPERTY_ALPHA, -0.3), 0);
+    }
+
+    #[test]
+    fn rotation_is_tenths_of_a_degree_and_scale_is_lvgl_fixed_point() {
+        assert_eq!(to_units(PROPERTY_ROTATION, 90.0), 900);
+        assert_eq!(to_units(PROPERTY_ROTATION, -45.5), -455);
+        assert_eq!(to_units(PROPERTY_SCALE_X, 1.0), LV_SCALE_NONE as i32);
+        assert_eq!(to_units(PROPERTY_SCALE_Y, 0.5), LV_SCALE_NONE as i32 / 2);
+        // A negative scale has no LVGL meaning; it floors at zero.
+        assert_eq!(to_units(PROPERTY_SCALE_X, -2.0), 0);
+    }
+
+    #[test]
+    fn positions_pass_through_rounded() {
+        assert_eq!(to_units(PROPERTY_X, 12.4), 12);
+        assert_eq!(to_units(PROPERTY_TRANSLATION_Y, -12.6), -13);
+    }
+
+    #[test]
+    fn units_round_trip_for_every_property() {
+        for (property, value) in [
+            (PROPERTY_ALPHA, 1.0),
+            (PROPERTY_X, -17.0),
+            (PROPERTY_TRANSLATION_X, 40.0),
+            (PROPERTY_ROTATION, 12.5),
+            (PROPERTY_SCALE_X, 1.5),
+            (PROPERTY_SCALE_Y, 0.25),
+        ] {
+            let back = from_units(property, to_units(property, value));
+            assert!(
+                (back - value).abs() < 0.01,
+                "property {property}: {value} -> {back}"
+            );
+        }
+    }
+
+    #[test]
+    fn only_rotation_and_scale_are_transforms() {
+        for property in [PROPERTY_ROTATION, PROPERTY_SCALE_X, PROPERTY_SCALE_Y] {
+            assert!(is_transform(property));
+        }
+        for property in [
+            PROPERTY_ALPHA,
+            PROPERTY_X,
+            PROPERTY_Y,
+            PROPERTY_TRANSLATION_X,
+        ] {
+            assert!(!is_transform(property));
+        }
+    }
+}
