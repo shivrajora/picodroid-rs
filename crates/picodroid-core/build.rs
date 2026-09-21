@@ -1,7 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Suppress dead-code / unused warnings from the imported build_support modules.
-// picodroid-core only calls a subset of their functions.
-#![allow(dead_code, unused_imports, unused_variables)]
 //! picodroid-core build script.
 //!
 //! Emits `framework_classes.rs` / `names.rs`, plus every
@@ -13,33 +10,11 @@
 //! the `board-*` feature the binary crate forwarded, so `cargo build -p
 //! picodroid` keeps working with no env vars while this crate stays
 //! independently buildable (boardless builds fall back to safe defaults).
-//! Generators live in `build_support/board_cfg.rs`, shared with each
-//! platform's build.rs — one implementation, two OUT_DIRs.
+//! Generators live in the `build_support` crate (`board_cfg.rs`), shared with
+//! each platform's build.rs — one implementation, two OUT_DIRs.
 //! See `docs/designs/shared-core-extraction.md` §3.D.
 
-#[path = "../build_support/config.rs"]
-mod config;
-
-#[path = "../build_support/board_cfg.rs"]
-mod board_cfg;
-
-#[path = "../build_support/flash_layout.rs"]
-mod flash_layout;
-
-#[path = "../build_support/jvm_defaults.rs"]
-mod jvm_defaults;
-
-#[path = "../build_support/freertos_host.rs"]
-mod freertos_host;
-
-#[path = "../build_support/lvgl.rs"]
-mod lvgl;
-
-#[path = "../build_support/papk.rs"]
-mod papk;
-
-#[path = "../build_support/names.rs"]
-mod names;
+use build_support::{board_cfg, config, freertos_host, lvgl, names, papk};
 
 fn main() {
     let out = &std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());

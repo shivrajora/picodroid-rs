@@ -1,7 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// The build_support modules are shared with picodroid-core/build.rs; each
-// caller uses a subset, so unused items here are expected.
-#![allow(dead_code, unused_imports, unused_variables)]
 //! Build-script orchestrator. Submodules under `build_support/` own each
 //! concern (config discovery, board-derived codegen, FreeRTOS compile, LVGL
 //! compile, networking, PAPK/APK embedding). This file wires them together.
@@ -12,34 +9,10 @@
 //! one generator, two OUT_DIRs. Only pin-bearing artifacts and the C builds
 //! are emitted here. See `docs/designs/shared-core-extraction.md` §3.D.
 
-#[path = "../../crates/build_support/config.rs"]
-mod config;
-
-#[path = "../../crates/build_support/board_cfg.rs"]
-mod board_cfg;
-
-#[path = "../../crates/build_support/boards.rs"]
-mod boards;
-
-#[path = "../../crates/build_support/flash_layout.rs"]
-mod flash_layout;
-
-#[path = "../../crates/build_support/freertos.rs"]
-mod freertos;
-
-// No `mod lvgl`: LVGL's C sources are compiled by picodroid-core/build.rs,
-// and the resulting static lib reaches this binary through the dependency.
-// See the note at the bottom of `main`.
-
-#[path = "../../crates/build_support/network.rs"]
-mod network;
-
-#[path = "../../crates/build_support/papk.rs"]
-mod papk;
-
-#[path = "../../crates/build_support/jvm_defaults.rs"]
-mod jvm_defaults;
-
+// No `lvgl`: LVGL's C sources are compiled by picodroid-core/build.rs, and the
+// resulting static lib reaches this binary through the dependency. See the
+// note at the bottom of `main`.
+use build_support::{board_cfg, boards, config, flash_layout, freertos, network, papk};
 use std::env;
 use std::path::PathBuf;
 

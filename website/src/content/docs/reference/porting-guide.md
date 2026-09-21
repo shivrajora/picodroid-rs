@@ -331,8 +331,10 @@ checklist. `platforms/rp/src/boot_tasks.rs` is the reference:
 ### `build.rs`
 
 Copy `platforms/rp/build.rs` and change the family-specific middle. It
-`#[path]`-includes the shared `crates/build_support/{config,board_cfg,boards,
-freertos,network,papk,jvm_defaults}.rs` and must call, in order:
+build-depends on the shared `picodroid-build-support` crate
+(`crates/build_support`, feature `freertos-device` for the kernel build;
+modules `config`, `board_cfg`, `boards`, `freertos`, `network`, `papk`,
+`jvm_defaults`) and must call, in order:
 `board_cfg::resolve`, `boards::emit_board_imports`, your memory-layout and
 kernel build, `board_cfg::emit_neutral(out, &board, Pins::Owned)`,
 `config::emit_display_config`, `config::emit_touch_config`,

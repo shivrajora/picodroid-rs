@@ -125,10 +125,6 @@ freertos-rust = { version = "0.2.3", package = "freertos-rust-pd", optional = tr
 # crate (it is only legal in a binary), but it forwards to core's instance.
 
 [build-dependencies]
-# Used to compile FreeRTOS-Kernel C source directly
-cc = "1.0"
-freertos-cargo-build = { version = "0.2.3", package = "freertos-cargo-build-pd" }
-papk-format = { path = "../../crates/papk-format" }
-# Shrinker library (host-only). Applied to framework .class files whenever a
-# committed shrink map covers the current picodroid package version.
-class-shrink = { path = "../../tools/class-shrink" }
+# Board-derived codegen, flash layout, the FreeRTOS kernel and network C
+# builds, and PAPK embedding.
+picodroid-build-support = { path = "../../crates/build_support", features = ["freertos-device"] }

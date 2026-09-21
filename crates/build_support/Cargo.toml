@@ -1,0 +1,24 @@
+[package]
+name = "picodroid-build-support"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "Build-script library shared by picodroid-core and each platform crate: board.toml parsing, board-derived codegen, flash layout, C builds, PAPK embedding."
+
+[lib]
+name = "build_support"
+path = "lib.rs"
+
+[features]
+# The device FreeRTOS kernel build (`freertos.rs`). Only a platform crate
+# compiles the kernel, so only it pays for `freertos-cargo-build`.
+freertos-device = ["dep:freertos-cargo-build"]
+
+[dependencies]
+cc = "1.0"
+freertos-cargo-build = { version = "0.2.3", package = "freertos-cargo-build-pd", optional = true }
+papk-format = { path = "../papk-format" }
+# Shrinker library (host-only). Applied to framework .class files whenever a
+# committed shrink map covers the current picodroid package version.
+class-shrink = { path = "../../tools/class-shrink" }

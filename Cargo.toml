@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/build_support",
     "crates/compat",
     "crates/jvm",
     "crates/papk-format",
