@@ -25,6 +25,8 @@
 //! trace captured from a real RP2350 (docs/parity-audit.md Appendix A) —
 //! every logged `free/min_ever` pair must match bit-for-bit.
 
+#![cfg_attr(not(test), no_std)]
+
 /// `xHeapStructSize` on the 32-bit device: `sizeof(BlockLink_t)` (8) already
 /// 8-aligned.
 pub const HEAP_STRUCT_SIZE: u32 = 8;

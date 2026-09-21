@@ -1,0 +1,10 @@
+[package]
+name = "heap4"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "Bit-faithful no_std Rust port of FreeRTOS heap_4 with 32-bit block arithmetic, for reproducing a 32-bit device heap (fragmentation included) on a 64-bit host."
+readme = "README.md"
+
+[lib]
+path = "src/lib.rs"

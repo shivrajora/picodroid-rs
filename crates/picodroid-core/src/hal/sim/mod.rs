@@ -42,7 +42,7 @@ pub mod display;
 // test build — the kernel is linked there too, it simply never runs.
 pub mod freertos_heap_shim;
 pub mod gpio;
-pub mod heap4;
+pub use ::heap4;
 pub mod i2c;
 pub mod input_pin;
 pub mod output_pin;
