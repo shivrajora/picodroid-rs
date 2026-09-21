@@ -13,6 +13,7 @@ use crate::{
 };
 use alloc::vec::Vec;
 
+mod coll_fastpath;
 mod helpers;
 mod ops_arrays;
 mod ops_constants;
@@ -20,6 +21,7 @@ mod ops_control;
 mod ops_convert;
 mod ops_exceptions;
 mod ops_fields;
+mod ops_indy;
 mod ops_invoke;
 mod ops_locals;
 mod ops_math;

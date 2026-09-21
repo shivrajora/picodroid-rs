@@ -128,7 +128,12 @@ fn dispatcher_source(class: &str) -> &'static str {
 /// with no row) is not checked here; it surfaces as a contract failure.
 #[test]
 fn builtin_method_rows_name_real_arms() {
-    let interpreter = include_str!("../../interpreter/ops_invoke.rs");
+    // The interpreter's invoke path is three files; an arm may be in any.
+    let interpreter = concat!(
+        include_str!("../../interpreter/ops_invoke.rs"),
+        include_str!("../../interpreter/ops_indy.rs"),
+        include_str!("../../interpreter/coll_fastpath.rs"),
+    );
     let mut missing = alloc::vec::Vec::new();
     for &(class, rows) in BUILTIN_METHODS {
         let source = dispatcher_source(class);
