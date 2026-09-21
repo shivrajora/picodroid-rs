@@ -44,6 +44,7 @@ pub struct InstallOptions {
 }
 
 /// What we learned about the device from its PING greeting.
+#[derive(Debug)]
 pub struct DeviceInfo {
     pub version: String,
     pub max_papk: usize,
@@ -452,5 +453,88 @@ pub fn ping(port_name: &str) {
             eprintln!("error: {e}");
             process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pdb_protocol::greeting::{
+        encode, encode_with_apps, GREETING_MAX, LEGACY_GREETING_LEN, VERSION_FIELD_LEN,
+    };
+
+    fn greeting(max_papk: u32, fmv: &str) -> Vec<u8> {
+        let mut buf = [0u8; GREETING_MAX];
+        let n = encode(max_papk, fmv.as_bytes(), &mut buf);
+        buf[..n].to_vec()
+    }
+
+    #[test]
+    fn a_single_app_greeting_decodes_to_device_info() {
+        let info = parse_ping_payload(&greeting(1_048_576, "0.27.0")).unwrap();
+        assert!(info.version.starts_with(VERSION_PREFIX), "{}", info.version);
+        assert_eq!(info.max_papk, 1_048_576);
+        assert_eq!(info.framework_map_version, "0.27.0");
+        assert!(info.apps.is_none());
+        assert_eq!(info.apps_summary(), "single-app");
+    }
+
+    #[test]
+    fn a_multi_app_greeting_carries_the_directory_and_summarises_in_kb() {
+        let apps = AppsInfo {
+            max: 8,
+            installed: 3,
+            largest_free: 1024 * 1024,
+            total_free: 1428 * 1024,
+        };
+        let mut buf = [0u8; GREETING_MAX];
+        let n = encode_with_apps(1 << 20, b"0.0.0", &apps, &mut buf);
+        let info = parse_ping_payload(&buf[..n]).unwrap();
+        assert_eq!(info.apps, Some(apps));
+        assert_eq!(
+            info.apps_summary(),
+            "apps 3/8, free 1428 KB (largest 1024 KB)"
+        );
+    }
+
+    /// A pre-2.1 firmware answers with the bare 18-byte greeting. It is
+    /// refused with reflash instructions, not decoded with an empty version
+    /// that every install would then "match".
+    #[test]
+    fn legacy_firmware_is_refused_with_reflash_instructions() {
+        let mut legacy = vec![0u8; LEGACY_GREETING_LEN];
+        legacy[..LEGACY_VERSION.len()].copy_from_slice(LEGACY_VERSION.as_bytes());
+        let err = parse_ping_payload(&legacy).unwrap_err();
+        assert!(err.contains("Reflash firmware via SWD"), "{err}");
+    }
+
+    #[test]
+    fn something_that_is_not_picodroid_is_not_trusted() {
+        let mut g = greeting(4096, "0.27.0");
+        g[..VERSION_FIELD_LEN].fill(0);
+        g[..9].copy_from_slice(b"otherfw/1");
+        let err = parse_ping_payload(&g).unwrap_err();
+        assert!(err.contains("unrecognized firmware greeting"), "{err}");
+    }
+
+    #[test]
+    fn every_truncation_is_an_error_with_a_reason() {
+        let g = greeting(4096, "0.27.0");
+        for cut in 0..g.len() {
+            let err =
+                parse_ping_payload(&g[..cut]).expect_err("a truncated greeting must not decode");
+            assert!(
+                err.contains("too short") || err.contains("missing") || err.contains("truncated"),
+                "cut at {cut}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_version_that_is_not_utf8_is_refused() {
+        let mut g = greeting(4096, "0.27.0");
+        let last = g.len() - 1;
+        g[last] = 0xFF;
+        assert!(parse_ping_payload(&g).unwrap_err().contains("not UTF-8"));
     }
 }

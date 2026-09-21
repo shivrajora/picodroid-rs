@@ -1303,4 +1303,118 @@ mod tests {
         assert_eq!(group["MATCH_PARENT"], MATCH_PARENT as i64);
         assert_eq!(group["WRAP_CONTENT"], WRAP_CONTENT as i64);
     }
+
+    // ── The value grammar ────────────────────────────────────────────────
+    // Wrong here is silent: a colour or a dimension that parses to the wrong
+    // number ships in every app's resource table and nothing fails.
+
+    #[test]
+    fn colours_expand_every_android_shorthand_to_argb() {
+        assert_eq!(parse_color("#fff"), Some(0xffff_ffff));
+        assert_eq!(parse_color("#1a2"), Some(0xff11_aa22));
+        assert_eq!(parse_color("#8fff"), Some(0x88ff_ffff));
+        assert_eq!(parse_color("#336699"), Some(0xff33_6699));
+        assert_eq!(parse_color("#80336699"), Some(0x8033_6699));
+        assert_eq!(parse_color("#ABCDEF"), parse_color("#abcdef"));
+    }
+
+    #[test]
+    fn malformed_colours_are_refused_not_guessed() {
+        for bad in [
+            "336699",
+            "#",
+            "#12",
+            "#12345",
+            "#1234567",
+            "#123456789",
+            "#ggg",
+            "# fff",
+        ] {
+            assert_eq!(parse_color(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn dimensions_need_a_known_unit() {
+        assert_eq!(parse_dimen("12dp"), Ok(12.0));
+        assert_eq!(parse_dimen("12dip"), Ok(12.0));
+        assert_eq!(parse_dimen("1.5sp"), Ok(1.5));
+        assert_eq!(parse_dimen("-4px"), Ok(-4.0));
+        assert!(parse_dimen("12").unwrap_err().contains("needs a unit"));
+        assert!(parse_dimen("12pt").unwrap_err().contains("not supported"));
+        assert!(parse_dimen("dp").unwrap_err().contains("not a dimension"));
+        assert!(parse_dimen("1-2dp")
+            .unwrap_err()
+            .contains("not a dimension"));
+    }
+
+    #[test]
+    fn integers_are_decimal_or_hex_and_hex_wraps_like_java() {
+        assert_eq!(parse_int("42"), Some(42));
+        assert_eq!(parse_int("-7"), Some(-7));
+        assert_eq!(parse_int("0x10"), Some(16));
+        // 0xFFFFFFFF is -1 as a Java int, which is what R values are.
+        assert_eq!(parse_int("0XFFFFFFFF"), Some(-1));
+        assert_eq!(parse_int("0x1FFFFFFFF"), None);
+        assert_eq!(parse_int("4.5"), None);
+        assert_eq!(parse_int(""), None);
+    }
+
+    #[test]
+    fn booleans_are_exactly_true_or_false() {
+        assert_eq!(parse_bool("true"), Some(true));
+        assert_eq!(parse_bool("false"), Some(false));
+        assert_eq!(parse_bool("True"), None);
+        assert_eq!(parse_bool("1"), None);
+    }
+
+    #[test]
+    fn unquoted_strings_collapse_whitespace_and_quoted_ones_keep_it() {
+        // Collapsing happens before unescaping, so an escaped newline survives.
+        assert_eq!(unescape_string(r"  two   words\n ").unwrap(), "two words\n");
+        assert_eq!(
+            unescape_string("\"  kept   as is  \"").unwrap(),
+            "  kept   as is  "
+        );
+    }
+
+    #[test]
+    fn string_escapes_follow_android() {
+        assert_eq!(
+            unescape_string(r"line\nbreak\ttab").unwrap(),
+            "line\nbreak\ttab"
+        );
+        assert_eq!(
+            unescape_string(r"it\'s \@literal \?too \\").unwrap(),
+            "it's @literal ?too \\"
+        );
+        assert_eq!(unescape_string(r"\u00e9").unwrap(), "\u{e9}");
+        assert!(unescape_string(r"\u00")
+            .unwrap_err()
+            .contains("bad \\u escape"));
+        assert!(unescape_string(r"\ud800")
+            .unwrap_err()
+            .contains("bad \\u escape"));
+        assert!(unescape_string(r"\q")
+            .unwrap_err()
+            .contains("unknown escape"));
+        assert!(unescape_string("oops\\")
+            .unwrap_err()
+            .contains("trailing backslash"));
+    }
+
+    #[test]
+    fn references_split_type_and_name_and_flatten_dots() {
+        assert_eq!(
+            parse_ref("@string/app_name"),
+            Some(("string", "app_name".to_string()))
+        );
+        assert_eq!(
+            parse_ref("@+id/ok.button"),
+            Some(("id", "ok_button".to_string()))
+        );
+        assert_eq!(parse_ref("@color/"), Some(("color", String::new())));
+        assert_eq!(parse_ref("string/app_name"), None);
+        assert_eq!(parse_ref("@noslash"), None);
+    }
 }
