@@ -525,7 +525,7 @@ pub const BOOT_LAUNCHER: &str = "launcher";
 ///
 /// Only an ARM firmware for a multi-app board embeds anything. It reads
 /// `PICODROID_SYSTEM_APKS`, a colon-separated list of `.papk` paths that
-/// `scripts/lib.sh::build_system_apks` exports (empty on a single-app
+/// `scripts/build-lib.sh::build_system_apks` exports (empty on a single-app
 /// board), and `PICODROID_BOOT` (`app`, `launcher` or a package name). Each
 /// image must be a valid PAPK with a `package-name`, built for this
 /// firmware's framework-map-version — a launcher that would fail

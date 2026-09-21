@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke test for `scripts/lib.sh::apply_jvm_env` — verifies that the `[jvm]`
+# Smoke test for `scripts/board-lib.sh::apply_jvm_env` — verifies that the `[jvm]`
 # block in a board.toml is parsed into the right `PICODROID_JVM_*` env vars
 # (and that platform-side keys are correctly NOT exported as env vars, since
 # the platform build.rs reads them directly from board.toml).

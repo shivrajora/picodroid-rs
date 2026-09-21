@@ -45,7 +45,7 @@ rp2040-hal = { path = "third_party/rp2040-hal" }
 # at 3 (docs/designs/flash-budget-2026-09.md §6.1). The size lever that did
 # land is on the C side: `c_opt_level` in platforms/rp/mcus/rp/<mcu>.toml
 # compiles LVGL, the kernel and the network stack at -Os without frame
-# pointers, independent of these profiles. scripts/lib.sh::build_firmware
+# pointers, independent of these profiles. scripts/build-lib.sh::build_firmware
 # layers the per-profile `--config` overrides (debug-assertions,
 # overflow-checks, the rp2040 LTO rule) on top; the simulator and `cargo
 # test` see the stock profiles.

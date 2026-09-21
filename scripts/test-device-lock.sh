@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# State-machine test for scripts/device-lock.sh and lib.sh::require_device_lock.
+# State-machine test for scripts/device-lock.sh and lock-lib.sh::require_device_lock.
 #
 # Runs against a private lock directory with `sleep` processes standing in for
 # sessions, so it never touches the real lease in /tmp/picodroid-device-lock
@@ -174,7 +174,7 @@ lock_as A acquire >/dev/null
 check "waiter gives up with 75" rc_is 75 lock_as B acquire --wait 1
 check "no ticket left behind" queue_empty
 
-# 14/15. lib.sh::require_device_lock (A still holds)
+# 14/15. lock-lib.sh::require_device_lock (A still holds)
 check "require_device_lock refuses B with 75" rc_is 75 lib_req B flash.sh
 check "PICODROID_DEVICE_LOCK=0 bypasses" rc_is 0 env PICODROID_DEVICE_LOCK=0 SCRIPT_DIR="$SCRIPT_DIR" bash -c \
   'source "$SCRIPT_DIR/lib.sh"; require_device_lock' flash.sh
@@ -356,7 +356,7 @@ env -u PICODROID_DEVICE_LOCK_KEEP_PROBE PICODROID_FLEET_CONF="$FLEET" \
 sleep 0.2
 check "release --slot b kills the SER_B probe-rs" bash -c "! kill -0 $fb 2>/dev/null"
 
-# 20. lib.sh::require_device_lock picks the slot (fleet mode)
+# 20. lock-lib.sh::require_device_lock picks the slot (fleet mode)
 # flib_req NAME script args... -> require_device_lock through lib.sh, fleet on
 flib_req() { PICODROID_FLEET_CONF="$FLEET" lib_req "$@"; }
 # flib_env NAME args... -> the variables require_device_lock exports, as "SLOT PROBE"

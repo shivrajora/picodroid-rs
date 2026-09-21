@@ -5,7 +5,7 @@
 # worktrees, a terminal, the 4 AM hil-fleet cron). Whoever holds the lease may
 # flash, power-cycle or talk pdb to that board; everyone else fails fast with
 # exit 75 or queues with `acquire --wait` and is handed the board in FIFO
-# order. Every device script calls lib.sh::require_device_lock, which
+# order. Every device script calls lock-lib.sh::require_device_lock, which
 # auto-acquires when the board is free -- so in the common case nothing has
 # to be done by hand except `release` when you are finished.
 #

@@ -761,7 +761,7 @@ pub fn emit_jvm_state_config(out: &Path, board: &Option<ResolvedBoard>) {
 
 /// Emit `cargo:rustc-env=PICODROID_JVM_*` for the three knobs that belong to
 /// the `pico-jvm` crate, so a direct `cargo build` against a board (without
-/// going through `scripts/lib.sh::resolve_board`) still picks them up.
+/// going through `scripts/board-lib.sh::resolve_board`) still picks them up.
 ///
 /// Only the platform crate calls this: the JVM crate is compiled before its
 /// dependents, so these affect the *next* build. The wrapper scripts are the
