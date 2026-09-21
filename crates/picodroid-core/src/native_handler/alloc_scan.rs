@@ -124,7 +124,10 @@ mod tests {
         let mut current: Vec<(String, usize)> = Vec::new();
         for path in &files {
             let name = path.file_name().unwrap().to_str().unwrap();
-            if HOST_ONLY.contains(&name) {
+            // A `tests/` directory is a test module split by topic; its files
+            // are named for what they test (`tests/string.rs`), not `tests.rs`.
+            let in_tests_dir = path.components().any(|c| c.as_os_str() == "tests");
+            if HOST_ONLY.contains(&name) || in_tests_dir {
                 continue;
             }
             let text = read_stripped(path);
