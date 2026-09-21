@@ -177,9 +177,9 @@ mod tests {
         "host.rs",
         "pdb/mod.rs",
         "pdb/sysmon.rs",
-        "install/orchestrator.rs",
-        "install/transport.rs",
-        "install/region.rs",
+        "../../pd-install/src/orchestrator.rs",
+        "../../pd-install/src/transport.rs",
+        "../../pd-install/src/region.rs",
         "fs/mod.rs",
     ];
 

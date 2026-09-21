@@ -73,12 +73,14 @@ check_cfg_gates() {
   # `|| true` because the expected count is now 0: grep exits 1 when it matches
   # nothing, and under `set -euo pipefail` that would abort on the very state
   # this check is supposed to accept.
+  # Every workspace crate, not only picodroid-core: code lifted out of core
+  # into a crate of its own (pd-drivers, pd-install, ...) is still shared code.
   local gates
-  gates=$({ grep -rn 'not(feature = "family-rp")' \
-    "$REPO_ROOT/platforms/rp/src" "$REPO_ROOT/crates/picodroid-core/src" || true; } | wc -l | tr -d ' ')
+  gates=$({ grep -rn --include='*.rs' 'not(feature = "family-rp")' \
+    "$REPO_ROOT/platforms/rp/src" "$REPO_ROOT/crates" || true; } | wc -l | tr -d ' ')
   [[ "$gates" == "0" ]] && return 0
-  grep -rn 'not(feature = "family-rp")' \
-    "$REPO_ROOT/platforms/rp/src" "$REPO_ROOT/crates/picodroid-core/src" || true
+  grep -rn --include='*.rs' 'not(feature = "family-rp")' \
+    "$REPO_ROOT/platforms/rp/src" "$REPO_ROOT/crates" || true
   echo ""
   echo "ERROR: expected 0 'not(feature = \"family-rp\")' cfg gates,"
   echo "       found $gates. Sim builds activate family-rp, so this"

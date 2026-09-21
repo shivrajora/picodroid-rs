@@ -375,13 +375,15 @@ mod tests {
         for dir in ["hal", "os", "install"] {
             sources(&core.join(dir), &["rs", "c", "h"], None, &mut files);
         }
-        // The panel/touch/sensor drivers, a crate of their own.
-        sources(
-            &repo_root().join("crates/pd-drivers/src"),
-            &["rs", "c", "h"],
-            None,
-            &mut files,
-        );
+        // The drivers and the installer, crates of their own.
+        for krate in ["pd-drivers", "pd-install"] {
+            sources(
+                &repo_root().join("crates").join(krate).join("src"),
+                &["rs", "c", "h"],
+                None,
+                &mut files,
+            );
+        }
         files.retain(|p| {
             let s = p.to_string_lossy();
             // The simulator is host code; hal/spin.rs defines the macro.

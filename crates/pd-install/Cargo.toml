@@ -1,0 +1,24 @@
+[package]
+name = "pd-install"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "Streaming, CRC-checked installer for PAPK app images into a NOR flash region: validate, place, erase, stream, verify, commit -- generic over transport, flash, core parking and the package directory."
+readme = "README.md"
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+# `mem_region`: an in-memory NOR region (erase -> 0xFF, program only clears
+# bits, double-program panics) plus a byte-vector transport and a no-op
+# coordinator. For host tests and simulators; needs std.
+mem-region = []
+
+[dependencies]
+compat       = { path = "../compat", version = "0.1" }
+papk-format  = { path = "../papk-format" }
+pdb-protocol = { path = "../pdb-protocol" }
+
+[dev-dependencies]
+papk-format = { path = "../papk-format", features = ["write"] }

@@ -3,6 +3,7 @@ use core::cell::UnsafeCell;
 
 use papk_format::flash_image::META_SIZE;
 
+use super::directory::{run_sectors, PackageDirectory, Plan, PlanError};
 use super::transport::{InstallError, InstallTransport, ReadError};
 
 /// CRC tag byte for install frames. Included in the CRC computation so the
@@ -147,9 +148,18 @@ pub fn run_install(
     transport: &mut impl InstallTransport,
     coordinator: &mut impl CoreCoordinator,
     flash: &mut impl PapkFlash,
+    directory: &mut impl PackageDirectory,
+    fw_map_version: &str,
     papk_len: u32,
 ) {
-    if install(transport, coordinator, flash, papk_len) {
+    if install(
+        transport,
+        coordinator,
+        flash,
+        directory,
+        fw_map_version,
+        papk_len,
+    ) {
         flash.trigger_reset()
     }
 }
@@ -171,6 +181,8 @@ pub fn install(
     transport: &mut impl InstallTransport,
     coordinator: &mut impl CoreCoordinator,
     flash: &mut impl PapkFlash,
+    directory: &mut impl PackageDirectory,
+    fw_map_version: &str,
     papk_len: u32,
 ) -> bool {
     if papk_len == 0 {
@@ -216,7 +228,7 @@ pub fn install(
         &peek_buf[..peeked],
         papk_format::keys::FRAMEWORK_MAP_VERSION,
     );
-    if compat::check(papk_fmv, crate::framework_map::FRAMEWORK_MAP_VERSION).is_err() {
+    if compat::check(papk_fmv, fw_map_version).is_err() {
         transport.report_error(InstallError::Incompat);
         coordinator.release();
         coordinator.cancel_park_request();
@@ -231,7 +243,7 @@ pub fn install(
         &peek_buf[..peeked],
         papk_format::keys::PACKAGE_NAME,
     );
-    let plan = match place(flash, package, papk_len as usize) {
+    let plan = match place(flash, directory, package, papk_len as usize) {
         Ok(plan) => plan,
         Err(e) => {
             transport.report_error(e);
@@ -268,7 +280,7 @@ pub fn install(
         // Only now: until the new run committed, the old one was the app.
         unsafe { flash.erase_run(first, sectors) };
     }
-    crate::packages::rescan_region(flash);
+    directory.rescan(flash);
     // Core 0 is still parked in its RAM spin loop.  Report success first so
     // the host sees completion; the caller then resets both cores.
     transport.report_success();
@@ -277,48 +289,39 @@ pub fn install(
 
 /// Where the run goes: the directory's plan, compacting the region first
 /// when the free space is there but not in one piece.
-fn place(
+fn place<D: PackageDirectory>(
     flash: &mut impl PapkFlash,
+    directory: &mut D,
     package: Option<&str>,
     papk_len: usize,
-) -> Result<crate::packages::Plan, InstallError> {
-    use crate::packages::plan_install;
+) -> Result<Plan, InstallError> {
     let max_apps = flash.max_installed_apps();
-    let plan = plan_install(package, papk_len, max_apps)?;
-    if !plan.compact_first {
+    let plan = directory.plan_install(package, papk_len, max_apps)?;
+    // A single-app plan never asks for compaction, and a single-app
+    // firmware carries no compactor: the constant folds the retry away.
+    if !plan.compact_first || !D::CAN_COMPACT {
         return Ok(plan);
     }
-    // A single-app plan never asks for compaction, and a single-app
-    // firmware carries no compactor.
-    #[cfg(not(has_multi_app))]
-    {
-        let _ = flash;
-        Ok(plan)
+    directory.compact(flash);
+    let plan = directory.plan_install(package, papk_len, max_apps)?;
+    if plan.compact_first {
+        // Compaction packed everything and it still does not fit in one
+        // piece — only possible with an old copy in the way, which the
+        // caller cannot be asked to remove mid-install.
+        let (largest_free, total_free) = directory.free_space();
+        return Err(InstallError::NoRoom {
+            need: run_sectors(papk_len),
+            largest_free,
+            total_free,
+            installed: directory.installed_count(),
+            max: max_apps as u32,
+        });
     }
-    #[cfg(has_multi_app)]
-    {
-        crate::packages::compact(flash);
-        let plan = plan_install(package, papk_len, max_apps)?;
-        if plan.compact_first {
-            // Compaction packed everything and it still does not fit in one
-            // piece — only possible with an old copy in the way, which the
-            // caller cannot be asked to remove mid-install.
-            let (largest_free, total_free) = crate::packages::free_space();
-            return Err(InstallError::NoRoom {
-                need: crate::packages::run_sectors(papk_len),
-                largest_free,
-                total_free,
-                installed: crate::packages::installed_count(),
-                max: max_apps as u32,
-            });
-        }
-        Ok(plan)
-    }
+    Ok(plan)
 }
 
-impl From<crate::packages::PlanError> for InstallError {
-    fn from(e: crate::packages::PlanError) -> Self {
-        use crate::packages::PlanError;
+impl From<PlanError> for InstallError {
+    fn from(e: PlanError) -> Self {
         match e {
             PlanError::TooLarge => InstallError::TooLarge,
             PlanError::NoPackageName => InstallError::NoPackageName,
@@ -346,10 +349,18 @@ pub fn run_uninstall(
     transport: &mut impl InstallTransport,
     coordinator: &mut impl CoreCoordinator,
     flash: &mut impl PapkFlash,
+    directory: &mut impl PackageDirectory,
     first_sector: u32,
     sectors: u32,
 ) {
-    if uninstall(transport, coordinator, flash, first_sector, sectors) {
+    if uninstall(
+        transport,
+        coordinator,
+        flash,
+        directory,
+        first_sector,
+        sectors,
+    ) {
         flash.trigger_reset()
     }
 }
@@ -360,6 +371,7 @@ pub fn uninstall(
     transport: &mut impl InstallTransport,
     coordinator: &mut impl CoreCoordinator,
     flash: &mut impl PapkFlash,
+    directory: &mut impl PackageDirectory,
     first_sector: u32,
     sectors: u32,
 ) -> bool {
@@ -371,7 +383,7 @@ pub fn uninstall(
         return false;
     }
     unsafe { flash.erase_run(first_sector, sectors) };
-    crate::packages::rescan_region(flash);
+    directory.rescan(flash);
     transport.report_success();
     true
 }
@@ -469,14 +481,59 @@ mod tests {
     use super::*;
     use alloc::vec::Vec;
 
-    /// `PAGE_BUF` and the package directory are process-wide statics —
-    /// deliberately, so a 256-byte staging buffer does not sit on the debug
-    /// bridge's stack. On device the single-core install path is their only
-    /// writer; in a test binary the harness runs tests on parallel threads,
-    /// so they take the directory's lock. The alternative, making the buffer
-    /// a local, would change what runs on the device to suit the tests.
+    /// `PAGE_BUF` is a process-wide static — deliberately, so a 256-byte
+    /// staging buffer does not sit on the debug bridge's stack. On device the
+    /// single-core install path is its only writer; in a test binary the
+    /// harness runs tests on parallel threads, so they take this lock. The
+    /// alternative, making the buffer a local, would change what runs on the
+    /// device to suit the tests.
     fn lock() -> std::sync::MutexGuard<'static, ()> {
-        crate::packages::test_support::lock()
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The single-app placement rule over a region nothing is installed in,
+    /// which is what every test below starts from: one run at sector 0, the
+    /// boot app. The real directory's placement — upgrades, eviction,
+    /// multi-app gaps, compaction — is pinned where the real directory is,
+    /// in picodroid-core's `packages` tests, which drive this same `install`
+    /// against `MemRegion`.
+    struct TestDirectory {
+        region_sectors: u32,
+    }
+
+    impl PackageDirectory for TestDirectory {
+        const CAN_COMPACT: bool = false;
+
+        fn rescan(&mut self, flash: &impl PapkFlash) {
+            self.region_sectors = (flash.region_len() / META_SIZE) as u32;
+        }
+        fn plan_install(
+            &mut self,
+            _package: Option<&str>,
+            papk_len: usize,
+            _max_apps: usize,
+        ) -> Result<Plan, PlanError> {
+            let need = run_sectors(papk_len);
+            if papk_len == 0 || need > self.region_sectors {
+                return Err(PlanError::TooLarge);
+            }
+            Ok(Plan {
+                first_sector: 0,
+                erase_before: (0, need),
+                evict_after: None,
+                flags: papk_format::flash_image::FLAG_BOOT_DEFAULT,
+                seq: 1,
+                compact_first: false,
+            })
+        }
+        fn compact(&mut self, _flash: &mut impl PapkFlash) {}
+        fn free_space(&self) -> (u32, u32) {
+            (0, 0)
+        }
+        fn installed_count(&self) -> u32 {
+            0
+        }
     }
 
     /// What the orchestrator did, in order. Ordering is the property most of
@@ -666,9 +723,10 @@ mod tests {
             fail_page,
             written: Vec::new(),
         };
-        crate::packages::rescan_region(&f);
+        let mut d = TestDirectory { region_sectors: 0 };
+        d.rescan(&f);
         let reset = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            run_install(&mut t, &mut c, &mut f, papk_len);
+            run_install(&mut t, &mut c, &mut f, &mut d, FW, papk_len);
         }))
         .is_err();
         Run {
@@ -678,11 +736,11 @@ mod tests {
         }
     }
 
-    /// The version this test binary's firmware claims. `test.sh` runs the
-    /// suite in both shrink modes, so it is the `"0.0.0"` no-shrink sentinel
-    /// in one pass and a real version in the other — the tests derive their
-    /// PAPK versions from it rather than hardcoding either.
-    const FW: &str = crate::framework_map::FRAMEWORK_MAP_VERSION;
+    /// The framework-map version these tests install against. The firmware's
+    /// real one (the `"0.0.0"` no-shrink sentinel in one `test.sh` pass, a
+    /// release version in the other) is exercised end to end by
+    /// picodroid-core's `packages` tests.
+    const FW: &str = "1.2.3";
 
     /// A version `compat::check` always refuses against [`FW`], in either
     /// mode. The rule that makes this work is the asymmetric one: exactly one

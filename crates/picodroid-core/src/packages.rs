@@ -35,8 +35,11 @@ use papk_format::Papk;
 use crate::board_cfg::flash::BOOT_PACKAGE;
 use crate::board_cfg::system_apks::{BOOT_APP, BOOT_LAUNCHER, LAUNCHER_PACKAGE};
 use crate::install::PapkFlash;
+// The installer owns the plan vocabulary; re-exported so the directory's API
+// reads as it always has.
 #[cfg(has_multi_app)]
 use crate::install::PAGES_PER_SECTOR;
+pub use crate::install::{run_sectors, Plan, PlanError};
 
 pub use crate::board_cfg::flash::MAX_INSTALLED_APPS;
 
@@ -208,12 +211,6 @@ static DIR: DirCell = DirCell(UnsafeCell::new(Dir {
 
 fn dir() -> &'static mut Dir {
     unsafe { &mut *DIR.0.get() }
-}
-
-/// Sectors a run for an image of `len` bytes occupies: the meta sector plus
-/// the image rounded up to whole sectors.
-pub fn run_sectors(len: usize) -> u32 {
-    1 + len.div_ceil(SECTOR) as u32
 }
 
 // ── Scanning ────────────────────────────────────────────────────────────────
@@ -783,35 +780,6 @@ pub(crate) fn reset_for_test() {
 }
 
 // ── Placement ───────────────────────────────────────────────────────────────
-
-/// Where an install goes, and what to erase around it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Plan {
-    pub first_sector: u32,
-    /// `(first_sector, sectors)` to erase before streaming: the target run,
-    /// widened over an old copy it replaces in place.
-    pub erase_before: (u32, u32),
-    /// An old copy to erase after the new run commits (an upgrade beside it).
-    pub evict_after: Option<(u32, u32)>,
-    pub flags: u32,
-    pub seq: u32,
-    /// Free space suffices but no gap does: compact, then plan again.
-    pub compact_first: bool,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PlanError {
-    TooLarge,
-    NoPackageName,
-    SystemPackage,
-    NoRoom {
-        need: u32,
-        largest_free: u32,
-        total_free: u32,
-        installed: u32,
-        max: u32,
-    },
-}
 
 /// Decide where a PAPK of `papk_len` bytes for `package` goes (D5).
 ///
