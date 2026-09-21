@@ -47,8 +47,7 @@
 //! event, and paying a `spin-todo` down means lowering one.
 
 #[cfg(test)]
-#[path = "../../../crates/test_support/source_scan.rs"]
-mod source_scan;
+use test_support::source_scan;
 
 #[cfg(test)]
 mod tests {

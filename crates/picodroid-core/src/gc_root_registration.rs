@@ -111,8 +111,7 @@ pub fn register_all() {
 /// only an unasserted constant would put most of the silent-sweep surface
 /// outside any check.
 #[cfg(test)]
-#[path = "../../test_support/gc_root_scan.rs"]
-mod gc_root_scan;
+use test_support::gc_root_scan;
 
 #[cfg(test)]
 mod tests {

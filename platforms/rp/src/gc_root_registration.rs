@@ -77,8 +77,7 @@ pub fn register_all() {
 ///
 /// Shared with `picodroid-core`'s identical guard, so the two cannot drift.
 #[cfg(test)]
-#[path = "../../../crates/test_support/gc_root_scan.rs"]
-mod gc_root_scan;
+use test_support::gc_root_scan;
 
 #[cfg(test)]
 mod tests {

@@ -109,8 +109,7 @@ where
 }
 
 #[cfg(test)]
-#[path = "../../../crates/test_support/source_scan.rs"]
-mod source_scan;
+use test_support::source_scan;
 
 /// Source scan — see the module docs for what it enforces and why it reads
 /// text: the spawn sites live in `boot_tasks.rs` and `glue.rs::rtos_impl`,

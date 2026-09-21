@@ -31,8 +31,7 @@
 pub mod freertos;
 
 #[cfg(test)]
-#[path = "../../../test_support/source_scan.rs"]
-mod source_scan;
+use test_support::source_scan;
 
 use alloc::boxed::Box;
 

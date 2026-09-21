@@ -159,8 +159,7 @@ pub use crate::threads::wake_all_parked;
 pub use crate::{pd_debug, pd_error, pd_info, pd_trace, pd_warn};
 
 #[cfg(test)]
-#[path = "../../test_support/source_scan.rs"]
-mod source_scan;
+use test_support::source_scan;
 
 /// The checklist cannot drift from the code, or the guide from the checklist.
 #[cfg(test)]

@@ -111,6 +111,8 @@ panic-probe = { version = "1", features = ["print-defmt"] }
 # `picodroid_core::hal::sim` simply does not exist in the test build.
 [dev-dependencies]
 picodroid-core = { path = "../../crates/picodroid-core", features = ["sim"] }
+# Source-scan helpers behind the text-based guard tests.
+picodroid-test-support = { path = "../../crates/test_support" }
 
 # Host-side FreeRTOS, for the simulator. Same fork, same version and same
 # package as the ARM declaration above, so host and device drive one set of

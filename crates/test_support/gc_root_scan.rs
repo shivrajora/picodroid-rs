@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Source scan backing each crate's GC-root completeness guard.
 //!
-//! `#[path]`-included by both `platforms/rp/src/gc_root_registration.rs` and
+//! Used by both `platforms/rp/src/gc_root_registration.rs` and
 //! `picodroid-core/src/gc_root_registration.rs`, so the two guards cannot
 //! drift from each other — the same hazard `build_support/board_cfg.rs`
 //! exists to avoid on the build-script side.
@@ -19,24 +19,10 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            rust_sources(&path, out);
-        } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
-            out.push(path);
-        }
-    }
-}
-
 /// Every `pub fn visit_*roots` defined under `src_root`, as `(module, fn)`.
 pub fn defined_providers(src_root: &Path) -> BTreeSet<(String, String)> {
     let mut files = Vec::new();
-    rust_sources(src_root, &mut files);
+    crate::source_scan::sources(src_root, &["rs"], None, &mut files);
     let mut found = BTreeSet::new();
     for file in files {
         let Ok(text) = std::fs::read_to_string(&file) else {

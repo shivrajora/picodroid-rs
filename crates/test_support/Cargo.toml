@@ -1,0 +1,11 @@
+[package]
+name = "picodroid-test-support"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "Host-only source-scan helpers behind the workspace's text-based guard tests."
+
+[lib]
+name = "test_support"
+path = "lib.rs"

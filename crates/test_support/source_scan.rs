@@ -1,19 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Source-scan helpers shared by every text-based guard in the workspace.
 //!
-//! `#[path]`-included — like `gc_root_scan.rs` beside it — by
-//! `platforms/rp/src/task_affinity.rs` (the core-placement rules),
-//! `picodroid-core/src/rtos/mod.rs` (the seam guard) and
-//! `picodroid-core/src/porting.rs` (the checklist guard), so the walker and
-//! the comment stripper exist once. Each includer uses a subset, hence the
-//! allow below.
+//! Used by `platforms/rp/src/task_affinity.rs` (the core-placement rules),
+//! `picodroid-core/src/rtos/mod.rs` (the seam guard),
+//! `picodroid-core/src/porting.rs` (the checklist guard) and the other scans,
+//! so the walker and the comment stripper exist once.
 //!
 //! Why guards read *text*: what they enforce lives on both sides of a `cfg`
 //! (`cfg(not(test))` device code, `cfg(test)` scans), so under `cargo test`
 //! there is nothing to call. The source is the one thing both configurations
 //! share.
-
-#![allow(dead_code)]
 
 use std::path::{Path, PathBuf};
 

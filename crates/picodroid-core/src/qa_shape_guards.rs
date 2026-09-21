@@ -13,8 +13,7 @@
 
 /// Text-scan helpers, shared with the other guards in the workspace.
 #[cfg(test)]
-#[path = "../../test_support/source_scan.rs"]
-mod source_scan;
+use test_support::source_scan;
 
 #[cfg(test)]
 mod tests {

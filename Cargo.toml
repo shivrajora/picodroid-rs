@@ -6,6 +6,7 @@ members = [
     "crates/papk-format",
     "crates/pdb-protocol",
     "crates/picodroid-core",
+    "crates/test_support",
     "platforms/rp",
     "tools/class-shrink",
     "tools/papk-info",

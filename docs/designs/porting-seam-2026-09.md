@@ -792,6 +792,10 @@ and pins that it saw `lifecycle.rs`, `threads.rs`, `main_queue.rs` and
 `#[path]` inside a `#[path]`-included file resolves against a directory
 named after the module, which is the fallback §3.J allowed for.
 
+*2026-09-20:* `crates/test_support` is now a real crate (a dev-dependency of
+`picodroid-core` and `platforms/rp`), so the includes and that duplicated
+walker are gone; `gc_root_scan` calls `source_scan::sources`.
+
 **Both scans were sabotaged before this landed**, per the lesson B6/B8
 recorded three times. A `vTaskDelay(1)` planted in `lifecycle.rs` failed
 the seam guard with `lifecycle.rs: vTaskDelay`; a `"Task::new()"` planted
