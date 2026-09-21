@@ -4,6 +4,12 @@
 2026-09-16) — the progress notes at the head of Section 9 say what landed and when, and the
 re-checks at its end say where each P2 item stands.
 
+**2026-09-20:** P2-11 (`lifecycle.rs` split) and P2-12 (`object_heap/mod.rs`
+split) are closed, and P2-15 moved (every new crate has a README) — see
+[`code-health-2026-09.md`](code-health-2026-09.md), which also carries the
+current backlog. P2-13 (jvm facade tests) and P2-16 (bash hardening) are
+still open; `lifecycle/activity_stack.rs` still has no unit tests.
+
 Full-repo audit on four axes: **test coverage**, **modularization**, **reusability**, and
 **API contracts**. Read-only — no fixes applied; the prioritized backlog at the end is the
 input for follow-up sessions.

@@ -14,6 +14,15 @@ These crates have no picodroid-specific knowledge and could be picked up by a di
 | `papk-format` | [`crates/papk-format/`](crates/papk-format/) | PAPK container format: `no_std` zero-copy parser + streaming scanners, `alloc`-gated writer (feature `write`). Single source of truth for the on-disk layout; consumed by firmware, build scripts, and every host tool. |
 | `compat` | [`crates/compat/`](crates/compat/) | PAPK ↔ firmware version compatibility check. `no_std`. Shared by device + host. See [`crates/compat/README.md`](crates/compat/README.md). |
 | `class-shrink` | [`tools/class-shrink/`](tools/class-shrink/) | Build-time Java class/method name shrinker. Host-only (uses `std`). See [`tools/class-shrink/README.md`](tools/class-shrink/README.md). |
+| `pdb-protocol` | [`crates/pdb-protocol/`](crates/pdb-protocol/) | The debug bridge's wire format: commands, CRC, greeting, sysmon, keycodes. `no_std`, no dependencies; shared by the device and the host tool. |
+| `pd-rtos` | [`crates/pd-rtos/`](crates/pd-rtos/) | The kernel seam: an `Rtos` trait (tasks, queues, mutexes, semaphores, tick timer, delays) bound at link time by `set_rtos!`, plus a run lock released around every blocking wait. `no_std`, no dependencies, no FreeRTOS. |
+| `pd-install` | [`crates/pd-install/`](crates/pd-install/) | Streaming, CRC-checked installer for app images into a NOR flash region, generic over transport, flash, core parking and the package directory. `no_std`; feature `mem-region` adds an in-memory NOR model for host tests. |
+| `pd-lvgl-sys` | [`crates/pd-lvgl-sys/`](crates/pd-lvgl-sys/) | Hand-written `no_std` LVGL v9.6 bindings plus the build of the vendored C sources (`links = "lvgl"`), configured per board. |
+| `pd-drivers` | [`crates/pd-drivers/`](crates/pd-drivers/) | `embedded-hal` drivers: ST7789 / ST7796 panels, XPT2046 and GT911 touch, BME688 and LTR559 sensors. `no_std`, one dependency. |
+| `pd-json` | [`crates/pd-json/`](crates/pd-json/) | Bounded `no_std` + `alloc` JSON tree: parser, capped node pool with identity semantics and owner-driven pruning, serializer. No global state. |
+| `http-head` | [`crates/http-head/`](crates/http-head/) | `no_std` HTTP/1.1 head parsing and a streaming chunked-transfer decoder. No I/O, no dependencies. |
+| `heap4` | [`crates/heap4/`](crates/heap4/) | Bit-faithful Rust port of FreeRTOS `heap_4` that keeps 32-bit block arithmetic on a 64-bit host, for host-side OOM and fragmentation parity. `no_std`. |
+| `picodroid-build-support` | [`crates/build_support/`](crates/build_support/) | Build-script library: board.toml parsing, board-derived codegen, flash layout, the C builds, PAPK embedding. Host-only. Reusable in the narrow sense — by another family's `build.rs`. |
 
 Two host-side Gradle projects sit next to the crates and are equally free of picodroid-specific runtime knowledge: [`sdk/inject/annotations`](sdk/inject/annotations/) (JSR-330 `javax.inject.Inject` / `Singleton` / `Scope`, `SOURCE` retention) and [`sdk/inject/compiler`](sdk/inject/compiler/) (the javac annotation processor that turns them into plain `Foo_Factory` / `Foo_MembersInjector` classes). `buildSrc`'s `picodroid-papk` plugin wires both into every Java app; the only runtime counterpart is a ~40-line probe in `crates/picodroid-core/src/lifecycle/mod.rs` that calls the generated leaf injector after a component's `<init>`. Design: [`docs/designs/inject-annotations-2026-08.md`](docs/designs/inject-annotations-2026-08.md).
 
@@ -66,7 +75,7 @@ in `platforms/rp/` is this family and nothing else.
 | [`packagemanager/`](platforms/rp/src/packagemanager/) | `PapkSlotFlash` over the flash primitives, and the linker section probe-rs writes; the install orchestration and slot arithmetic are core's | `[picodroid]` |
 | [`boards/`](platforms/rp/src/boards/) | Per-board feature glue (memory layout, capability cfgs) | `[picodroid]` |
 
-`[reusable]` candidates are well-layered enough to lift into another project but currently live here because there's only one consumer. If a second consumer materialises, promote them to standalone crates.
+`[reusable]` candidates are well-layered enough to lift into another project. The 2026-09 code-health round promoted the ones whose extraction was cheap and size-neutral to standalone crates (`pd-rtos`, `pd-install`, `pd-lvgl-sys`, `pd-drivers`, `pd-json`, `http-head`, `heap4`) rather than waiting for a second consumer; picodroid-core re-exports each under its old module path. What is left — `hal/`, `hal/sim/`, `executors/`, and the `graphics/lvgl/` engine above `pd-lvgl-sys` — is entangled in ways that cost flash or need a `pd-hal` crate first; see `docs/code-health-2026-09.md`.
 
 ## Boundaries that should not be crossed
 
