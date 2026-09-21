@@ -178,17 +178,6 @@ mod native_alloc_scan_tests;
 #[cfg(test)]
 #[path = "native_handler/member_names.rs"]
 mod native_member_names_tests;
-// TextView's line mode (setSingleLine / setEllipsize / setMaxLines → an LVGL
-// long mode and a line cap): pure, but under the cfg(not(test)) graphics tree.
-#[cfg(test)]
-#[path = "graphics/lvgl/widgets/line_mode.rs"]
-mod graphics_line_mode_tests;
-// LinearLayout.setGravity's bitmask → flex alignment: pure, and under the same
-// cfg(not(test)) graphics tree. Android's two ends of an axis share a bit, so
-// the decoding is the kind that looks right and silently is not.
-#[cfg(test)]
-#[path = "graphics/lvgl/widgets/gravity.rs"]
-mod graphics_gravity_tests;
 // The picodroid.graphics and picodroid.net field-slot tables, so
 // `native_field_tables_tests` can check them against the class files
 // (`graphics::fields` and `net` are `cfg(not(test))`).

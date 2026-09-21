@@ -33,16 +33,14 @@
 //! `PICODROID_HANDLE_SANITIZER` (default-on in `scripts/sim.sh`) turns any
 //! stale lookup into a loud abort with a backtrace.
 
-#[cfg(not(test))]
 use crate::lvgl_ffi::lv_obj_t;
 
 // FFI seam for `cargo test`: the table logic is pure and pointer-width
 // independent; only the delete-hook *installation* touches LVGL, and that
-// path is exercised end-to-end by the sim suite. Under test, `lv_obj_t` is
-// an opaque local type and tests drive invalidation directly.
-#[cfg(test)]
-#[allow(non_camel_case_types)]
-pub enum lv_obj_t {}
+// path is exercised end-to-end by the sim suite. Under test the hook is a
+// no-op and tests drive invalidation directly. `lv_obj_t` is the real binding
+// type in both builds, so modules that pass these pointers on to LVGL
+// (`events`) compile under test too.
 
 // ── Legacy 32-bit cast (no invalidation) — the `legacy-handle-cast` hatch ───
 

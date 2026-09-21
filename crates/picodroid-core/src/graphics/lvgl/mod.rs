@@ -11,31 +11,24 @@ use core::sync::atomic::{AtomicBool, Ordering};
 #[cfg_attr(test, allow(unused_imports))]
 use super::gfx::{Gfx, Handle, Reparent, ViewProperty, Visibility};
 
-// `lvgl_ffi`'s `extern "C"` block is `cfg(not(test))`, so its drift-check
-// tests can run without linking LVGL. Every module that calls an LVGL
-// function follows the same gate; the ones below it are host-testable
-// because they touch only `LV_KEY_*` constants or stub the FFI under test
-// (see `handle_table`'s opaque `lv_obj_t`).
-#[cfg(not(test))]
+// Every module here compiles under `cargo test`. They were `cfg(not(test))`
+// while the bindings were a module of this crate, whose `extern "C"` block is
+// itself `cfg(not(test))` so its drift checks run without LVGL; as the
+// `pd-lvgl-sys` crate the bindings are an ordinary dependency of this crate's
+// test build, declarations and linked library included. Tests here must still
+// call only pure functions -- LVGL is linked, not initialised.
 pub mod animations;
-#[cfg(not(test))]
 pub mod calibration;
-#[cfg(not(test))]
 pub mod drawable;
-#[cfg(not(test))]
 pub mod events;
-#[cfg(not(test))]
 pub mod fps_overlay;
 // Scrolling with the panel's own frame memory, on the boards whose panel can
 // (`board_cfg::hw_vscroll`); its arithmetic is host-testable on its own.
-#[cfg(all(not(test), hw_vscroll))]
+#[cfg(hw_vscroll)]
 pub mod hw_scroll;
 pub mod hw_scroll_math;
-#[cfg(not(test))]
 pub mod lifecycle;
-#[cfg(not(test))]
 pub mod view_ops;
-#[cfg(not(test))]
 pub mod widgets;
 
 pub mod edit_mode;
