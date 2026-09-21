@@ -32,6 +32,10 @@
 # Apps:    apps list | apps install <file.papk> | apps uninstall <package>
 #          (the package directory; served on the JVM task at the next tick.
 #          A verb naming the running app stops it first, then runs.)
+# Network: net up | net down — the simulated link, on a board with a network
+#          (e.g. --board pico_enviro_mon_w). Down: NetworkInfo.isConnected()
+#          is false and new connects / sends / lookups fail. Boot with the
+#          link down: PICODROID_SIM_NET=down ./scripts/sim.sh ...
 # Memory:  memstats — one [memmon] snapshot (+histogram if enabled); needs a
 #          sim built with --mem-diag (docs/memory-diagnostics.md)
 #          heapcensus — live-set census: bytes by class / array type / dyn
@@ -66,6 +70,7 @@ Commands (forwarded verbatim to the sim):
   input back
   input tap <x> <y>
   input swipe <x1> <y1> <x2> <y2> [ms]
+  net up|down  (simulated link; boards with a network, e.g. pico_enviro_mon_w)
   memstats     ([memmon] snapshot; sim must be built with --mem-diag)
   heapcensus   (live-set census by class/atype/strings; same build requirement)
   apps list                      (the package directory: sector, package, version, size)

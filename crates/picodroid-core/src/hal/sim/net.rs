@@ -14,6 +14,8 @@
 use core::ffi::c_void;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 use std::os::fd::AsRawFd;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Once;
 use std::time::Duration;
 
 pub use crate::hal::types::{NetError, NetErrorKind};
@@ -108,6 +110,9 @@ pub fn tcp_socket() -> Result<*mut c_void, NetError> {
 }
 
 pub fn tcp_connect(sock: *mut c_void, addr: u32, port: u16) -> Result<(), NetError> {
+    if !link_up() {
+        return Err(link_down());
+    }
     let s = unsafe { deref_socket(sock) };
     match s {
         SimSocket::TcpClient(ref mut opt, ref pending) => {
@@ -276,6 +281,9 @@ pub fn udp_socket(local_port: u16) -> Result<*mut c_void, NetError> {
 }
 
 pub fn udp_sendto(sock: *mut c_void, buf: &[u8], addr: u32, port: u16) -> Result<usize, NetError> {
+    if !link_up() {
+        return Err(link_down());
+    }
     let s = unsafe { deref_socket(sock) };
     match s {
         SimSocket::Udp(ref udp) => {
@@ -368,15 +376,66 @@ pub fn set_recv_timeout(sock: *mut c_void, timeout_ms: u32) {
     }
 }
 
-/// Check if the network stack is up (always true in sim).
-pub fn is_network_up() -> bool {
-    true
+// ── Link state ───────────────────────────────────────────────────────────────
+
+/// Simulated link state. The host's network is always there, so "the WiFi
+/// join failed / dropped" is a switch: `PICODROID_SIM_NET=down` boots with the
+/// link down, and the control channel's `net up|down` flips it at runtime.
+static LINK_UP: AtomicBool = AtomicBool::new(true);
+static LINK_INIT: Once = Once::new();
+
+fn link_up() -> bool {
+    LINK_INIT.call_once(|| {
+        if std::env::var("PICODROID_SIM_NET").is_ok_and(|v| v.eq_ignore_ascii_case("down")) {
+            LINK_UP.store(false, Ordering::Relaxed);
+            println!("[sim] net: link down at boot (PICODROID_SIM_NET=down)");
+        }
+    });
+    LINK_UP.load(Ordering::Relaxed)
 }
 
-/// Get the assigned IP address (127.0.0.1 in sim).
+/// Take the simulated link up or down (control channel `net up|down`).
+///
+/// Down means what a lost join means to an app: [`is_network_up`] is false,
+/// the address is 0.0.0.0, and new connects, sends and lookups fail. Sockets
+/// already connected keep flowing — the sim does not emulate a mid-stream
+/// stall.
+pub fn set_link_up(up: bool) {
+    link_up(); // settle the boot-time env read first, so it cannot undo this
+    LINK_UP.store(up, Ordering::Relaxed);
+    println!("[sim] net: link {}", if up { "up" } else { "down" });
+}
+
+/// What a link-down send/connect fails with.
+const fn link_down() -> NetError {
+    NetError::new(NetErrorKind::Unreachable, -1)
+}
+
+/// Check if the network stack is up (true unless the link was taken down —
+/// see [`set_link_up`]).
+pub fn is_network_up() -> bool {
+    link_up()
+}
+
+/// Get the assigned IP address: the host's outbound IPv4 address, which is
+/// where a listening socket (bound to 0.0.0.0) is reachable from the LAN.
+/// 127.0.0.1 on a host with no route; 0.0.0.0 while the link is down.
 pub fn get_ip_address() -> u32 {
-    // 127.0.0.1 in host byte order (MSB = first octet)
-    0x7F000001
+    if !link_up() {
+        return 0;
+    }
+    // Connecting a UDP socket sends nothing; it only makes the kernel pick
+    // the source address it would route from.
+    let host = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).and_then(|s| {
+        s.connect((Ipv4Addr::new(192, 0, 2, 1), 9))
+            .and(s.local_addr())
+    });
+    match host {
+        Ok(std::net::SocketAddr::V4(v4)) if !v4.ip().is_unspecified() => {
+            u32::from_be_bytes(v4.ip().octets())
+        }
+        _ => 0x7F000001,
+    }
 }
 
 /// Resolve a hostname to a packed IPv4 address (MSB = first octet).
@@ -385,6 +444,9 @@ pub fn get_ip_address() -> u32 {
 /// handles either.  Returns the first IPv4 result; failure to resolve
 /// (including an IPv6-only hostname) is `HostLookup`.
 pub fn dns_resolve(hostname: &str) -> Result<u32, NetError> {
+    if !link_up() {
+        return Err(NetError::new(NetErrorKind::HostLookup, -1));
+    }
     // Port 0 is fine — we only care about the address.
     let addrs = (hostname, 0u16)
         .to_socket_addrs()

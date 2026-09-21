@@ -23,9 +23,8 @@ import picoenvmon.util.TimeFormat;
  * <p>Callbacks arrive via {@link NetworkManager.Listener} on the main executor, so all widget
  * mutation here happens on the main thread.
  *
- * <p>Sim caveat: the simulator's {@code NetworkInfo.getIpAddress()} is hardcoded to 127.0.0.1, so
- * the URL line reads {@code http://127.0.0.1:8080/} even though the server binds 0.0.0.0 and is
- * LAN-reachable via the host's real address.
+ * <p>In the simulator {@code NetworkInfo.getIpAddress()} is the host's own LAN address, so the URL
+ * line is the one to open from another machine (the server binds 0.0.0.0).
  */
 public class NetworkActivity extends NavActivity implements NetworkManager.Listener {
 
