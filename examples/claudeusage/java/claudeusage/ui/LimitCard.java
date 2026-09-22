@@ -23,15 +23,19 @@ final class LimitCard {
     card = Ui.card(parent, y, HEIGHT);
   }
 
-  /** Second build step: everything inside the card. */
-  void fill() {
+  /** Build steps two and three: everything inside the card, in two halves. */
+  void fillText() {
     int inner = Ui.CARD_WIDTH - 2 * Ui.CARD_PAD;
     Ui.label(card, caption, Ui.CARD_PAD, 7, Palette.MUTED);
     reset =
         new Line(Ui.labelRight(card, "", 120, 7, inner - 108, Palette.MUTED), "", Palette.MUTED);
-    number = new BigNumber(card, Ui.CARD_PAD, 26);
     detail =
         new Line(Ui.labelRight(card, "", 120, 46, inner - 108, Palette.FAINT), "", Palette.FAINT);
+  }
+
+  void fillGauge() {
+    int inner = Ui.CARD_WIDTH - 2 * Ui.CARD_PAD;
+    number = new BigNumber(card, Ui.CARD_PAD, 26);
     bar = new BarView(card, Ui.CARD_PAD, 75, inner, 9, true);
   }
 

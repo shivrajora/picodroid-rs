@@ -68,9 +68,13 @@ public class MainActivity extends Activity implements OnKeyListener, UsageReposi
   private boolean pageIsStatus;
   private int pageIndex = PAGE_LIMITS;
   private int buildToken;
+  private int builtToken;
   private boolean auto;
   private int autoSeconds;
   private boolean destroyed;
+  private long tickMinute = -1;
+  private int tickState = -1;
+  private boolean tickFresh;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -204,16 +208,36 @@ public class MainActivity extends Activity implements OnKeyListener, UsageReposi
     return s != null && s.hasLimits();
   }
 
+  /**
+   * Replaces the page over several UI ticks: tearing down the old tree, repainting the chrome and
+   * starting the new page each cost the RP2350 tens of milliseconds, and together in one tick they
+   * overran the slow-handler budget on every page turn.
+   */
   private void showPage() {
     final int token = ++buildToken;
-    discardPage();
-    pageIsStatus = !hasData();
-    page = pageIsStatus ? new StatusPage() : create(pageIndex);
     pageBuilt = false;
+    Executors.mainExecutor().execute(() -> replacePage(token));
+  }
+
+  private void replacePage(int token) {
+    if (token != buildToken || destroyed) {
+      return;
+    }
+    discardPage();
+    Executors.mainExecutor().execute(() -> startPage(token));
+  }
+
+  private void startPage(int token) {
+    if (token != buildToken || destroyed) {
+      return;
+    }
+    pageIsStatus = !hasData();
+    builtToken = token;
+    page = pageIsStatus ? new StatusPage() : create(pageIndex);
     page.root.setAlpha(0f);
     root.addView(page.root);
     Log.i(TAG, "page -> " + page.title());
-    refreshChrome();
+    refreshPageChrome();
     Executors.mainExecutor().execute(() -> continueBuild(token));
   }
 
@@ -227,6 +251,11 @@ public class MainActivity extends Activity implements OnKeyListener, UsageReposi
       page = null;
     }
     pageBuilt = false;
+  }
+
+  /** Between showPage() and the new page existing; a failed build leaves no swap in flight. */
+  private boolean swapInFlight() {
+    return buildToken != builtToken;
   }
 
   private static Page create(int index) {
@@ -275,20 +304,47 @@ public class MainActivity extends Activity implements OnKeyListener, UsageReposi
       turnPage(1);
       return;
     }
-    refresh();
+    // A full repaint builds a dozen strings just to find that none changed, which costs the
+    // RP2350 some 55 ms: over the slow-handler budget, every second. Everything on the data
+    // screens is minute-grained, so repaint only when the minute, the link or the freshness moved.
+    long minute = System.currentTimeMillis() / 60_000L;
+    int state = repo.linkState();
+    boolean fresh = repo.isFresh();
+    if (pageIsStatus || minute != tickMinute || state != tickState || fresh != tickFresh) {
+      tickMinute = minute;
+      tickState = state;
+      tickFresh = fresh;
+      refresh();
+    }
   }
 
   private void refresh() {
     if (destroyed) {
       return;
     }
-    if (page == null || pageIsStatus == hasData()) {
+    if ((page == null && !swapInFlight()) || (page != null && pageIsStatus == hasData())) {
+      refreshChrome(); // the page turn itself only repaints the title and dots
       showPage(); // first data arrived, or the last build failed
       return;
     }
     refreshChrome();
     if (pageBuilt) {
       page.update(repo, System.currentTimeMillis());
+    }
+  }
+
+  /** The part of the chrome a page turn changes; cheap enough to share a tick with the turn. */
+  private void refreshPageChrome() {
+    title.show(page != null ? page.title() : "", Palette.TEXT);
+    homeHint.show(
+        pageIndex == PAGE_LIMITS || pageIsStatus ? "auto" : "home",
+        auto && pageIndex == PAGE_LIMITS ? Palette.CLAY : Palette.FAINT);
+    int activeDot = pageIsStatus ? -1 : pageIndex;
+    if (activeDot != shownPageDot) {
+      for (int i = 0; i < PAGE_COUNT; i++) {
+        Ui.fill(pageDots[i], i == activeDot ? Palette.CLAY : Palette.TRACK, 3);
+      }
+      shownPageDot = activeDot;
     }
   }
 
@@ -299,13 +355,10 @@ public class MainActivity extends Activity implements OnKeyListener, UsageReposi
     int state = repo.linkState();
     long now = System.currentTimeMillis();
 
-    title.show(page != null ? page.title() : "", Palette.TEXT);
+    refreshPageChrome();
     plan.show(s != null && !pageIsStatus ? s.plan.toUpperCase() : "", Palette.CLAY);
     clock.show(s != null ? TimeFormat.hm(now) : "", Palette.MUTED);
     syncHint.show("sync", repo.isSyncing() ? Palette.CLAY : Palette.FAINT);
-    homeHint.show(
-        pageIndex == PAGE_LIMITS || pageIsStatus ? "auto" : "home",
-        auto && pageIndex == PAGE_LIMITS ? Palette.CLAY : Palette.FAINT);
 
     // Green: live. Amber: live numbers, but the last attempt failed. Red: not live.
     int dot = fresh ? (state == LinkState.OK ? Palette.GOOD : Palette.WARN) : Palette.BAD;
@@ -315,14 +368,6 @@ public class MainActivity extends Activity implements OnKeyListener, UsageReposi
     if (dot != shownStatusColor) {
       Ui.fill(statusDot, dot, 4);
       shownStatusColor = dot;
-    }
-
-    int activeDot = pageIsStatus ? -1 : pageIndex;
-    if (activeDot != shownPageDot) {
-      for (int i = 0; i < PAGE_COUNT; i++) {
-        Ui.fill(pageDots[i], i == activeDot ? Palette.CLAY : Palette.TRACK, 3);
-      }
-      shownPageDot = activeDot;
     }
 
     if (pageIsStatus) {

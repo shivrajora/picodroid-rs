@@ -12,9 +12,8 @@ The app works around all of these; none blocks it. They are ordered by how much 
 polished UI, with the three defects found during simulator QA first because they are bugs rather than
 missing features.
 
-Everything below was observed on the simulator (`./scripts/sim.sh --board pico_display2_w`). The
-board had not been connected when this was written, so hardware-only behaviour is called out where
-it is unknown.
+Everything below was observed on the simulator (`./scripts/sim.sh --board pico_display2_w`)
+unless it says hardware.
 
 ## Defects
 
@@ -47,8 +46,13 @@ to carry their own `Instant` deadline because the 1 kHz SIGALRM tick defeats ker
 connect path may need the same treatment (non-blocking connect plus a deadline-tracked poll).
 
 **Why it matters.** "The PC is switched off" is this app's main failure mode, and the sim
-misreports how long each attempt blocks. Hardware takes a different path (FreeRTOS+TCP blocks on
-an event group), so check the real connect timeout on the board when it is connected.
+misreports how long each attempt blocks.
+
+**Hardware (2026-09-21, `pico_display2_w`): not affected.** With the bridge address set to an
+unused address on the same subnet, every attempt failed promptly with `NoRouteToHostException`
+(ARP gets no answer), the app showed `PC offline`, and six retries held the 15 s cadence to within
+the 3 s sampling. An address behind a router, where the SYN is simply dropped and the 4 s connect
+timeout itself has to fire, was not tried.
 
 **App-side mitigation (done, verified in the stalled runs).** UI ticks come from their own thread
 rather than the poll thread, and a fetch still running after 12 s is presented as `PC offline`, so

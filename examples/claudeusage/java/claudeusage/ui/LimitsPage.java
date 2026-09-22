@@ -24,13 +24,19 @@ final class LimitsPage extends Page {
         session = new LimitCard(root, 2, "5-hour session", SESSION_SECONDS);
         return true;
       case 1:
-        session.fill();
+        session.fillText();
         return true;
       case 2:
+        session.fillGauge();
+        return true;
+      case 3:
         weekly = new LimitCard(root, 2 + LimitCard.HEIGHT + 4, "Weekly, all models", WEEK_SECONDS);
         return true;
+      case 4:
+        weekly.fillText();
+        return true;
       default:
-        weekly.fill();
+        weekly.fillGauge();
         return false;
     }
   }
