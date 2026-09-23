@@ -182,7 +182,8 @@ inlined by javac, would trade the resource-backed palette (item 15) for cache en
   ~30 ms) now repaints the page in the tick after the chrome and only when the snapshot,
   freshness or minute changed; the page-turn start tick now constructs the page only, with the
   chrome repaint and first update in later ticks. One warning remains, 51 to 74 ms on the first
-  tick after a page swap, and it stays there when that tick is emptied down to one log line, so
-  the time is taken from the main task by the redraw of the swapped page region (render plus
-  SPI flush), not by the app; one stall per button press, left open. The boot-time
+  tick after a page swap, and it stays there when that tick is emptied down to one log line.
+  The redraw cannot be the cause (it runs as its own main-queue task, outside the timed span);
+  the instrumented run showed every tick of a swap over budget, not just the first. Tracked as
+  **D4, top priority, in `claudeusage-gaps-roadmap-2026-09.md`**, with the candidate causes. The boot-time
   `pending-op drain` of ~90 ms is the Service start plus bind, one-off.
