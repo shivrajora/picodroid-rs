@@ -23,16 +23,16 @@ final class MeterRow {
     figure = new Line(Ui.labelRight(ctx, card, "", 246, y, 46, p.text), "", p.text);
   }
 
-  void show(String label, int pct, int color, int deep, boolean stale) {
+  void show(String label, int pct, int color, boolean stale) {
     name.show(label, stale ? p.muted : p.text);
     bar.setVisible(true);
-    bar.show(pct, color, deep, -1, stale);
+    bar.show(pct, color, -1, stale);
     figure.show(pct < 0 ? dash : pct + "%", stale ? p.muted : p.text);
   }
 
   void clear() {
     name.show("", p.text);
-    bar.show(-1, p.good, p.goodDeep, -1, false);
+    bar.show(-1, p.good, -1, false);
     bar.setVisible(false);
     figure.show("", p.text);
   }

@@ -48,7 +48,7 @@ The last column says what round 1 did: **closed**, **kept** (with the reason), o
 | 14 | Screen size hard-coded as `Ui.WIDTH`/`Ui.HEIGHT`. | App choice | partly closed: the chrome is `match_parent`; page constants remain for the reason in 13. |
 | 15 | Colours, strings and dimensions inline in Java. | App choice | **closed**: `res/values/colors.xml`, `strings.xml`, `dimens.xml`; `Palette` is resolved once from `Resources`; every user-visible string goes through `R.string`. |
 | 16 | Right/centre-aligned labels are a `TextView` wrapped in a gravity-set `LinearLayout`. | SDK-forced (no `TextView.setGravity`) | open |
-| 17 | Progress bars are nested `FrameLayout`s with `GradientDrawable`s. | SDK-forced (no styled `ProgressBar`, no `Canvas`) | open |
+| 17 | Progress bars are nested `FrameLayout`s with `GradientDrawable`s. | SDK-forced (no styled `ProgressBar`, no `Canvas`) | **closed** 2026-09-23: `ProgressBar` tints per instance (gap G3); `BarView` is one `ProgressBar` plus the marker tick. |
 | 18 | Bar charts are arrays of `FrameLayout` boxes. | SDK-forced (no `Canvas`) | open |
 | 19 | Large numerals are PNG sprites in `ImageView`s. | SDK-forced (one font size) | open |
 | 20 | Sprites loaded from `assets/` by string path. | App choice | **closed**: `res/drawable/d0.png`… with `R.drawable.*` and `setImageResource`. |
@@ -133,7 +133,8 @@ Ordered by how much Android shape each would buy back here.
    `style` attribute, or honouring `android:background` as "flat"), so an inflated chrome needs no
    post-inflate flattening.
 4. `Handler` / `View.postDelayed` or an equivalent one-shot timer on the main thread (item 30).
-5. A styled `ProgressBar` or a minimal `Canvas` (items 17, 18; gaps G3, G4).
+5. A minimal `Canvas` (item 18; gap G4). The styled `ProgressBar` (item 17; gap G3) landed
+   2026-09-23.
 6. `ConnectivityManager` with a `NetworkCallback` (item 36).
 7. A `BuildConfig` block (item 43; gaps G7).
 8. `java.time` or at least `DateFormat`/`DateUtils` (item 44).

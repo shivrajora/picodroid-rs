@@ -14,14 +14,10 @@ final class Palette {
   final int muted;
   final int faint;
   final int clay;
-  final int clayDeep;
   final int barPast;
   final int good;
-  final int goodDeep;
   final int warn;
-  final int warnDeep;
   final int bad;
-  final int badDeep;
 
   /** LED colours as 0xRRGGBB; off while usage is comfortable or the data is stale. */
   final int ledWarn;
@@ -41,14 +37,10 @@ final class Palette {
     muted = res.getColor(R.color.muted);
     faint = res.getColor(R.color.faint);
     clay = res.getColor(R.color.clay);
-    clayDeep = res.getColor(R.color.clay_deep);
     barPast = res.getColor(R.color.bar_past);
     good = res.getColor(R.color.good);
-    goodDeep = res.getColor(R.color.good_deep);
     warn = res.getColor(R.color.warn);
-    warnDeep = res.getColor(R.color.warn_deep);
     bad = res.getColor(R.color.bad);
-    badDeep = res.getColor(R.color.bad_deep);
     ledWarn = res.getColor(R.color.led_warn) & 0xFFFFFF;
     ledBad = res.getColor(R.color.led_bad) & 0xFFFFFF;
     warnFrom = res.getInteger(R.integer.warn_from);
@@ -68,9 +60,5 @@ final class Palette {
 
   int severity(int pct) {
     return pct >= badFrom ? bad : (pct >= warnFrom ? warn : good);
-  }
-
-  int severityDeep(int pct) {
-    return pct >= badFrom ? badDeep : (pct >= warnFrom ? warnDeep : goodDeep);
   }
 }

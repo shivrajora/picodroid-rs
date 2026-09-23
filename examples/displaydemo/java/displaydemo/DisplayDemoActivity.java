@@ -107,7 +107,7 @@ public class DisplayDemoActivity extends Activity {
     seekBar.setOnSeekBarChangeListener(
         (bar, v, fromUser) -> {
           seekLabel.setText("SeekBar: " + v);
-          progress.setProgress(v);
+          progress.setProgress(v, true);
         });
     root.addView(seekBar);
 

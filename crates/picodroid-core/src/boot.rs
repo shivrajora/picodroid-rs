@@ -233,7 +233,6 @@ pub fn run_app(apk_data: &[u8]) {
         );
     }
     crate::graphics::widgets::reset_button_state();
-    crate::graphics::widgets::reset_progress_bar_state();
     crate::graphics::widgets::reset_toggle_button_state();
     crate::graphics::widgets::reset_switch_state();
     crate::graphics::widgets::reset_seek_bar_state();

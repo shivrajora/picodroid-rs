@@ -65,7 +65,7 @@ final class LimitCard {
     boolean expired = stale && resetEpochS > 0 && leftMs <= 0;
     if (pct < 0 || expired) {
       number.showPercent(-1, stale);
-      bar.show(-1, p.good, p.goodDeep, -1, false);
+      bar.show(-1, p.good, -1, false);
       reset.show(expired ? windowHasReset : "", p.muted);
       detail.show(expired ? waitingForSync : notReported, p.faint);
       return;
@@ -76,7 +76,7 @@ final class LimitCard {
       elapsed = gone <= 0 ? 0 : (gone >= windowSeconds ? 100 : (int) (gone * 100L / windowSeconds));
     }
     number.showPercent(pct, stale);
-    bar.show(pct, p.severity(pct), p.severityDeep(pct), elapsed, stale);
+    bar.show(pct, p.severity(pct), elapsed, stale);
     reset.show(
         leftMs > 0 ? String.format(resetsIn, TimeFormat.duration(leftMs)) : resetting, p.muted);
     if (elapsed < 0) {

@@ -54,7 +54,9 @@
         android:id="@+id/progress"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:progress="30" />
+        android:progress="30"
+        android:max="60"
+        android:progressTint="#FF00AA00" />
 
     <LinearLayout
         android:id="@+id/rows"

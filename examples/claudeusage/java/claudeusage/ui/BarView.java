@@ -2,26 +2,27 @@
 package claudeusage.ui;
 
 import picodroid.content.Context;
-import picodroid.graphics.drawable.GradientDrawable;
+import picodroid.content.res.ColorStateList;
 import picodroid.view.View;
 import picodroid.view.ViewGroup;
 import picodroid.widget.FrameLayout;
+import picodroid.widget.ProgressBar;
 
 /**
- * A rounded progress bar with a per-instance colour, which the SDK's ProgressBar cannot do, and an
- * optional pace marker: a thin tick at "how far through the window we are". Fill past the tick
- * means the limit is being used faster than the window replenishes it.
+ * A rounded progress bar with a per-instance severity colour, and an optional pace marker: a thin
+ * tick at "how far through the window we are". Fill past the tick means the limit is being used
+ * faster than the window replenishes it.
  */
 final class BarView {
-  private final FrameLayout track;
-  private final FrameLayout fill;
+  /** {@link Ui#DIM} as a tint alpha: a stale bar keeps its track, only the fill fades. */
+  private static final int DIM_ALPHA = (int) (Ui.DIM * 255);
+
+  private final ProgressBar bar;
   private final FrameLayout marker;
   private final int x;
   private final int y;
   private final int width;
-  private final int height;
 
-  private int shownPct = -2;
   private int shownColor;
   private int shownMarker = -2;
   private boolean shownDim;
@@ -39,12 +40,11 @@ final class BarView {
     this.x = x;
     this.y = y;
     this.width = width;
-    this.height = height;
-    track = Ui.box(ctx, x, y, width, height, p.track, height / 2);
-    parent.addView(track);
-    fill = Ui.box(ctx, 0, 0, height, height, p.good, height / 2);
-    fill.setVisibility(View.INVISIBLE);
-    track.addView(fill);
+    bar = new ProgressBar(ctx);
+    bar.setSize(width, height);
+    bar.setPosition(x, y);
+    bar.setProgressBackgroundTintList(ColorStateList.valueOf(p.track));
+    parent.addView(bar);
     if (withMarker) {
       marker = Ui.box(ctx, x, y - 3, 2, height + 6, p.text, 1);
       marker.setVisibility(View.INVISIBLE);
@@ -57,33 +57,24 @@ final class BarView {
   /** Hide the whole bar, track included: an unused row should be blank, not an empty gauge. */
   void setVisible(boolean visible) {
     if (visible != shownVisible) {
-      track.setVisibility(visible ? View.VISIBLE : View.INVISIBLE);
+      bar.setVisibility(visible ? View.VISIBLE : View.INVISIBLE);
       shownVisible = visible;
     }
   }
 
   /**
    * @param pct 0..100, or negative for "unknown" (an empty track)
-   * @param color the bright end of the fill, {@code deep} the dark end
+   * @param color the fill colour
    * @param markerPct 0..100 for the pace tick, negative to hide it
    */
-  void show(int pct, int color, int deep, int markerPct, boolean dim) {
-    if (pct != shownPct || color != shownColor) {
-      if (pct <= 0) {
-        fill.setVisibility(View.INVISIBLE);
-      } else {
-        int w = width * pct / 100;
-        fill.setSize(w < height ? height : w, height);
-        if (color != shownColor || shownPct <= 0) {
-          fill.setBackground(
-              new GradientDrawable()
-                  .setCornerRadius(height / 2)
-                  .setGradient(color, deep, GradientDrawable.Orientation.TOP_BOTTOM));
-        }
-        fill.setVisibility(View.VISIBLE);
-      }
-      shownPct = pct;
+  void show(int pct, int color, int markerPct, boolean dim) {
+    // show() runs every second: the widget skips an unchanged value itself; the tint is diffed here
+    // because every style set redraws the bar.
+    bar.setProgress(pct < 0 ? 0 : pct, true);
+    if (color != shownColor || dim != shownDim) {
+      bar.setProgressTintList(ColorStateList.valueOf(color).withAlpha(dim ? DIM_ALPHA : 0xFF));
       shownColor = color;
+      shownDim = dim;
     }
     if (marker != null && markerPct != shownMarker) {
       if (markerPct < 0) {
@@ -94,10 +85,6 @@ final class BarView {
         marker.setVisibility(View.VISIBLE);
       }
       shownMarker = markerPct;
-    }
-    if (dim != shownDim) {
-      fill.setAlpha(dim ? Ui.DIM : 1f);
-      shownDim = dim;
     }
   }
 }

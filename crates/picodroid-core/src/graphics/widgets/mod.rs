@@ -97,7 +97,7 @@ pub use number_picker::{
 };
 pub use progress_bar::{
     progress_bar_native_create, progress_bar_native_create_indeterminate,
-    progress_bar_set_progress, progress_bar_set_tint, reset_progress_bar_state,
+    progress_bar_set_progress, progress_bar_set_range, progress_bar_set_tint,
 };
 pub use radio_button::{drain_rb_checked_change_queue, lookup_rb_checked_change_obj};
 pub use radio_button::{

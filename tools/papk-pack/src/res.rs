@@ -645,6 +645,12 @@ impl LayoutCompiler<'_> {
             "checked" => one(a::CHECKED, v.word(TYPE_BOOL, text, from)?),
             "progress" => one(a::PROGRESS, v.word(TYPE_INTEGER, text, from)?),
             "max" => one(a::MAX, v.word(TYPE_INTEGER, text, from)?),
+            "min" => one(a::MIN, v.word(TYPE_INTEGER, text, from)?),
+            "progressTint" => one(a::PROGRESS_TINT, v.word(TYPE_COLOR, text, from)?),
+            "progressBackgroundTint" => {
+                one(a::PROGRESS_BACKGROUND_TINT, v.word(TYPE_COLOR, text, from)?)
+            }
+            "indeterminateTint" => one(a::INDETERMINATE_TINT, v.word(TYPE_COLOR, text, from)?),
             "inputType" => one(a::INPUT_TYPE, parse_flags(INPUT_TYPE, text, from)?),
             "textOn" => one(a::TEXT_ON, self.string_id(text, from)?),
             "textOff" => one(a::TEXT_OFF, self.string_id(text, from)?),
@@ -683,6 +689,9 @@ impl LayoutCompiler<'_> {
             let from = format!("{file}: <{}> {name}=\"{text}\"", el.name);
             words.extend(self.attr(name, text, &from)?);
         }
+        // Android reads `min`/`max` before `progress` whatever the XML order;
+        // the inflater applies words in stream order, so put the range first.
+        words.sort_by_key(|(code, _)| !matches!(*code, layout::attr::MIN | layout::attr::MAX));
         let attr_count = u8::try_from(words.len())
             .map_err(|_| format!("{file}: <{}> has too many attributes", el.name))?;
         let is_group = matches!(
@@ -1099,6 +1108,35 @@ mod tests {
         // textSize is reported, tools:context is not.
         assert_eq!(c.warnings.len(), 1, "{:?}", c.warnings);
         assert!(c.warnings[0].contains("textSize"));
+    }
+
+    #[test]
+    fn range_attributes_precede_progress_whatever_the_xml_order() {
+        use layout::{attr as a, class as k, node_header};
+        const BAR: &str = r##"<?xml version="1.0" encoding="utf-8"?>
+<ProgressBar xmlns:android="http://schemas.android.com/apk/res/android"
+    android:progress="150"
+    android:progressTint="#FF00AA00"
+    android:min="10"
+    android:max="200" />
+"##;
+        let dir = tree(&[("values/values.xml", VALUES), ("layout/bar.xml", BAR)]);
+        let c = compile(&dir).unwrap();
+        let t = ResTable::parse(&c.table).unwrap();
+        let l = t.layout(id_of(&c, TYPE_LAYOUT, "bar")).unwrap();
+        let words: Vec<u32> = (0..l.len()).map(|i| l.word(i).unwrap()).collect();
+        // Android reads min/max before progress; the inflater applies words in
+        // order, so the compiler moves them first (the rest keep XML order).
+        #[rustfmt::skip]
+        let expected = vec![
+            node_header(k::PROGRESS_BAR, 4, 0),
+            a::MIN, 10,
+            a::MAX, 200,
+            a::PROGRESS, 150,
+            a::PROGRESS_TINT, 0xFF00_AA00,
+        ];
+        assert_eq!(words, expected);
+        assert!(c.warnings.is_empty(), "{:?}", c.warnings);
     }
 
     #[test]
