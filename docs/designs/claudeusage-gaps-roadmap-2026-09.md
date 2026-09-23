@@ -1,6 +1,6 @@
 # Platform gaps found building `claudeusage`
 
-**Status: open list, nothing started (2026-09-21).**
+**Status: open list, nothing started (2026-09-21). D4 added 2026-09-23 as the top priority.**
 
 `examples/claudeusage` is a desk display for Claude usage limits on a new board, `pico_display2_w`
 (Pimoroni Pico Display Pack 2.0 on a Pico 2 W). It was built to look like a modern product rather
@@ -16,6 +16,60 @@ Everything below was observed on the simulator (`./scripts/sim.sh --board pico_d
 unless it says hardware.
 
 ## Defects
+
+### D4. Every tick of a page swap overruns the slow-handler budget on the RP2350 — **highest priority**
+
+**Status: open (2026-09-23).** Added after the hardware run of the Android-shape round
+(`claudeusage-android-shape-2026-09.md`, commit `79369105`). Listed first because every button
+press stalls input and the 1 Hz ticker for 50 to 175 ms across roughly ten consecutive ticks, and
+because two of the three candidate causes are runtime-wide, not this app's.
+
+**Measured** (debug firmware, `pico_display2_w`, live bridge, keys injected with
+`./scripts/pdb.sh --board pico_display2_w input keyevent 20`):
+
+- One `slow handler: Runnable took 51..74 ms` per page turn, on the tick right after the swap.
+  The warning is rate-limited to one per second (`lifecycle/mod.rs::warn_if_slow`), so one line
+  per turn is the floor, not the count.
+- With `SystemClock.elapsedRealtimeNanos()` around each posted step of a turn, from inside Java:
+  discard 20 to 30 ms; start (construct the page, log, chrome) 46 to 55 ms; each build step (one
+  to eight LVGL objects) 19 to 175 ms, typically 50 to 90; finish (first `update`, fade) 60 to
+  100 ms. The simulator runs the same steps in single-digit milliseconds.
+- Emptying the first tick after the swap down to one `Log.i` (2.5 ms measured inside Java) still
+  produced the 51 to 74 ms warning on that tick. GC is not it: `Runtime.gcCount()` did not move
+  across a turn and total GC time was 10 ms over four turns.
+
+**Not the cause: the redraw.** `g.tick()` (render plus SPI flush) runs on the same main task as
+its own `MainTask::LvglTick` and is excluded from the timed spans, so it cannot sit inside a
+Runnable's span. The note in the Android-shape doc and in commit `79369105` blaming "the redraw
+of the swapped region" was wrong and is withdrawn here.
+
+**Candidates, in the order to test:**
+
+0. **A/B against the pre-round app.** `217f071c` reported the old app under budget after its
+   own tick-splitting. Flash `d72d6dae^` (`examples/claudeusage` before the Android-shape round)
+   and turn pages: if the warnings are gone, the regression is the round's extra classes and
+   members, which points at candidate 1.
+1. **Declined resolution caches, so every call re-resolves.** The method and field caches
+   (`crates/jvm/src/interpreter/helpers.rs::cache_push`) decline to grow when the doubling block
+   is refused; on the RP2350 that block is 10,240 B, and the sim soak of this app showed exactly
+   that refusal from the third page on (`project_jvm_cache_push_fallible`). Once declined, every
+   invocation of a method not already cached walks the class list again, per call, which is the
+   shape of "the same Java is ten times slower on device than in the sim, and a nearly empty tick
+   costs 50 ms". Test: a defmt counter of declined pushes and cache misses, or a run with a
+   larger initial capacity; if the build steps drop, the fix is chunked or bounded caches.
+2. **FreeRTOS rotation inflating wall-clock spans.** When a higher-priority task (cyw43 network,
+   SPI, pdb) wakes and blocks, the kernel resumes the *next* equal-priority task, not the one it
+   interrupted (`jvm_run_lock` design note), so the main task's Runnable waits for the ticker or
+   poll thread's slice. Test: `PICODROID_EXTRA_FEATURES=sched-diag ./scripts/flash.sh …`
+   (`docs/scheduling-diagnostics.md`) and `./scripts/pdb.sh sysmon` while turning pages, with
+   WiFi idle versus mid-fetch.
+3. **LVGL object creation itself.** Each `Ui.box`/`label` is one object with a fresh style set,
+   each right- or centre-aligned label two; the eight-bar build steps of `BurnPage` cost 90 ms.
+   If 1 and 2 are clear, the answer is fewer objects (G3, G4), not finer slicing.
+
+**Repro.** `env $(grep -v '^#' .wifi-creds.env | xargs) PICODROID_NET_TEST_HOST=<PC address>
+./scripts/flash.sh --board pico_display2_w --app claudeusage` in the background, wait for
+`sync ok`, then `./scripts/pdb.sh --board pico_display2_w input keyevent 20` and watch the RTT log.
 
 ### D1. Sim: a connect timeout to an unreachable host fires late, sometimes very late
 
