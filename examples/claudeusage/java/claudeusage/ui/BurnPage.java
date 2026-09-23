@@ -6,8 +6,11 @@ import claudeusage.data.UsageService;
 import claudeusage.data.UsageSnapshot;
 import claudeusage.util.TimeFormat;
 import picodroid.content.Context;
+import picodroid.view.Gravity;
 import picodroid.view.View;
 import picodroid.widget.FrameLayout;
+import picodroid.widget.LinearLayout;
+import picodroid.widget.TextView;
 
 /** How fast the session is filling, when it would run out, and the last hour's trend. */
 final class BurnPage extends Page {
@@ -22,16 +25,25 @@ final class BurnPage extends Page {
   /** Below this many minutes to the limit the projection turns red. */
   private static final int ETA_URGENT_MIN = 30;
 
+  /** The rate row: the big number and its unit, bottom-aligned so the unit follows the number. */
+  private static final int RATE_Y = 30;
+
+  private static final int UNIT_GAP = 8;
+
+  /**
+   * Lifts the 14 px unit so its baseline meets the number's: the display face's box ends 11 px
+   * below the baseline (12 px of descent, 1 trimmed), the unit's 3 px.
+   */
+  private static final int UNIT_BASELINE_LIFT = 8;
+
   private FrameLayout rateCard;
   private FrameLayout trendCard;
-  private BigNumber rate;
-  private FrameLayout unitHolder;
+  private Line rate;
   private Line eta;
   private Line reset;
   private Line now;
   private final FrameLayout[] bars = new FrameLayout[BARS];
   private final int[] shown = new int[BARS];
-  private int unitX = -1;
 
   private final String noLiveData;
   private final String limitReached;
@@ -64,13 +76,32 @@ final class BurnPage extends Page {
       case 0:
         rateCard = Ui.card(ctx, root, 2, CARD_HEIGHT, p.card);
         Ui.label(ctx, rateCard, ctx.getString(R.string.burn_title), Ui.CARD_PAD, 7, p.muted);
-        rate = new BigNumber(ctx, rateCard, Ui.CARD_PAD, 30);
         return true;
       case 1:
-        // The unit follows the number, whose width changes, so it lives in a movable holder.
-        unitHolder = Ui.group(ctx, Ui.CARD_PAD + 90, 50, 70, Ui.LINE_HEIGHT, p.card);
-        rateCard.addView(unitHolder);
-        Ui.label(ctx, unitHolder, ctx.getString(R.string.burn_unit), 0, 0, p.muted);
+        // The number and its unit share a row, so the unit follows the number's width.
+        LinearLayout rateRow =
+            Ui.row(
+                ctx,
+                Ui.CARD_PAD,
+                RATE_Y,
+                Ui.CARD_WIDTH - 2 * Ui.CARD_PAD,
+                Ui.DISPLAY_BOX,
+                Gravity.LEFT | Gravity.BOTTOM);
+        rateRow.setSpacing(UNIT_GAP);
+        TextView number = new TextView(ctx);
+        number.setTextColor(p.text);
+        number.setSingleLine();
+        number.setTextSize(Ui.DISPLAY_SIZE);
+        number.setIncludeFontPadding(false);
+        rateRow.addView(number);
+        rate = new Line(number, "", p.text);
+        TextView unit = new TextView(ctx);
+        unit.setText(ctx.getString(R.string.burn_unit));
+        unit.setTextColor(p.muted);
+        unit.setSingleLine();
+        unit.setPadding(0, 0, 0, UNIT_BASELINE_LIFT);
+        rateRow.addView(unit);
+        rateCard.addView(rateRow);
         eta = right(rateCard, 32);
         reset = right(rateCard, 54);
         return true;
@@ -110,12 +141,8 @@ final class BurnPage extends Page {
     }
     boolean stale = !repo.isFresh();
 
-    int width = rate.showSigned(stale ? -1 : s.ratePerHour, false);
-    int x = Ui.CARD_PAD + width + 8;
-    if (x != unitX) {
-      unitHolder.setPosition(x, 50);
-      unitX = x;
-    }
+    int perHour = stale ? -1 : s.ratePerHour;
+    rate.show(perHour < 0 ? "--" : "+" + perHour, p.text);
 
     if (stale) {
       eta.show(noLiveData, p.faint);

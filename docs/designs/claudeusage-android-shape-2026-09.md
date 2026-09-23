@@ -50,9 +50,9 @@ The last column says what round 1 did: **closed**, **kept** (with the reason), o
 | 16 | Right/centre-aligned labels are a `TextView` wrapped in a gravity-set `LinearLayout`. | SDK-forced (no `TextView.setGravity`) | open |
 | 17 | Progress bars are nested `FrameLayout`s with `GradientDrawable`s. | SDK-forced (no styled `ProgressBar`, no `Canvas`) | **closed** 2026-09-23: `ProgressBar` tints per instance (gap G3), so `BarView` is one `ProgressBar`; the Limits gauges are `CircularProgressIndicator` rings (gap G2). |
 | 18 | Bar charts are arrays of `FrameLayout` boxes. | SDK-forced (no `Canvas`) | open |
-| 19 | Large numerals are PNG sprites in `ImageView`s. | SDK-forced (one font size) | open |
+| 19 | Large numerals are PNG sprites in `ImageView`s. | SDK-forced (one font size) | closed 2026-09-23: `TextView.setTextSize(64)` |
 | 20 | Sprites loaded from `assets/` by string path. | App choice | **closed**: `res/drawable/d0.png`… with `R.drawable.*` and `setImageResource`. |
-| 21 | Sprites pre-composited onto the card colour. | SDK-forced (assets lose alpha) | open |
+| 21 | Sprites pre-composited onto the card colour. | SDK-forced (assets lose alpha) | closed 2026-09-23: no sprites left |
 | 22 | `GradientDrawable` used as a fluent builder and re-allocated per colour change. | SDK-shape / App choice | kept: the SDK drawable is a builder that applies on `setBackground`; there is no mutate-in-place path. |
 | 23 | Widgets built with no-arg constructors. | App choice | **closed**: every widget takes the `Context`. |
 | 24 | `animate().alpha().setDuration().start()`. | cosmetic | kept |

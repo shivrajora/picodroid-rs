@@ -93,11 +93,13 @@ curl 'localhost:8787/demo?fail=auth'     # auth | rate | creds | garbage | http5
 curl 'localhost:8787/demo?reset=30'      # the session window resets 30 s from now
 ```
 
-## Numeral sprites
+## Large figures
 
-The SDK renders one font size, so the large figures are images: `tools/gen_digits.py` renders them
-into `res/drawable/` (needs Pillow and the Ubuntu font). They are drawn onto the card colour because
-PAPK assets carry no alpha; regenerate them if `@color/card` in `res/values/colors.xml` changes.
+The percentages and the burn rate are ordinary `TextView`s at `Ui.DISPLAY_SIZE` (64 px), the
+display face of the board's `text_sizes` ladder (`platforms/rp/mcus/rp/rp2350.toml`).
+`TextView.setTextSize` snaps to the nearest compiled face and `setIncludeFontPadding(false)` trims
+the leading, so the digits sit where the layout puts them and take any colour. Until 2026-09-23
+they were pre-rendered sprites drawn onto the card colour.
 
 ## Layout
 

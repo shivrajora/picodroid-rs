@@ -2,7 +2,6 @@
 <!-- A warm dark theme around Claude's clay orange. -->
 <resources>
     <color name="background">#0F0E0D</color>
-    <!-- Keep in step with CARD in tools/gen_digits.py: the numeral sprites are drawn onto it. -->
     <color name="card">#1C1A18</color>
     <color name="track">#2E2A26</color>
     <color name="text">#F0EEE6</color>

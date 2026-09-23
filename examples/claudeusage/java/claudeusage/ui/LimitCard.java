@@ -6,6 +6,7 @@ import claudeusage.util.TimeFormat;
 import picodroid.content.Context;
 import picodroid.view.ViewGroup;
 import picodroid.widget.FrameLayout;
+import picodroid.widget.TextView;
 
 /**
  * One usage window: a ring gauge with the reset countdown inside it, the big percentage in the
@@ -17,13 +18,12 @@ final class LimitCard {
   static final int HEIGHT = Ui.PAGE_HEIGHT - 4;
 
   // Card-relative geometry, pixel art for the 320x240 panel. The ring's rounded caps end 4 px
-  // above the numeral sprites, which are opaque card-coloured rectangles and must not overlap it.
+  // above the top of the big number's digits.
   private static final int CAPTION_Y = 4;
   private static final int RING_X = 23;
   private static final int RING_Y = 24;
   private static final int RING_DIAMETER = 104;
   private static final int RING_STROKE = 10;
-  private static final int CENTRE_X = WIDTH / 2;
   private static final int INNER_X = 33;
   private static final int INNER_WIDTH = 84;
   private static final int LINE1_Y = 57;
@@ -40,7 +40,9 @@ final class LimitCard {
   private Line resetsLabel;
   private Line countdown;
   private Line detail;
-  private BigNumber number;
+  private TextView number;
+  private String numberText = "";
+  private boolean numberDim;
   private RingView ring;
 
   // Resolved once: show() runs every second.
@@ -81,12 +83,26 @@ final class LimitCard {
             Ui.labelCentred(ctx, card, "", INNER_X, LINE2_Y, INNER_WIDTH, p.muted), "", p.muted);
   }
 
-  /** Build step four: the pace line and the big number (its glyphs arrive on first show). */
+  /** Build step four: the pace line and the big number. */
   void fillFooter() {
     detail =
         new Line(
             Ui.labelCentred(ctx, card, "", DETAIL_X, DETAIL_Y, DETAIL_WIDTH, p.faint), "", p.faint);
-    number = new BigNumber(ctx, card, CENTRE_X, NUMBER_Y, true);
+    number = Ui.labelCentred(ctx, card, "", 0, NUMBER_Y, WIDTH, Ui.DISPLAY_BOX, p.text);
+    number.setTextSize(Ui.DISPLAY_SIZE);
+    number.setIncludeFontPadding(false);
+  }
+
+  /** The big percentage: re-set only when it changes, dimmed while stale. */
+  private void showNumber(String text, boolean dim) {
+    if (!text.equals(numberText)) {
+      number.setText(text);
+      numberText = text;
+    }
+    if (dim != numberDim) {
+      number.setAlpha(dim ? Ui.DIM : 1f);
+      numberDim = dim;
+    }
   }
 
   void show(int pct, long resetEpochS, long nowMs, boolean stale) {
@@ -94,7 +110,7 @@ final class LimitCard {
     // Offline across a reset: the old percentage is now known to be wrong, so stop showing it.
     boolean expired = stale && resetEpochS > 0 && leftMs <= 0;
     if (pct < 0 || expired) {
-      number.showPercent(-1, stale);
+      showNumber("--%", stale);
       ring.show(-1, p.good, -1, false);
       resetsLabel.show("", p.faint);
       countdown.show("", p.muted);
@@ -106,7 +122,7 @@ final class LimitCard {
       long gone = windowSeconds - leftMs / 1000L;
       elapsed = gone <= 0 ? 0 : (gone >= windowSeconds ? 100 : (int) (gone * 100L / windowSeconds));
     }
-    number.showPercent(pct, stale);
+    showNumber(pct + "%", stale);
     ring.show(pct, p.severity(pct), elapsed, stale);
     if (leftMs > 0) {
       resetsLabel.show(resetsIn, p.faint);

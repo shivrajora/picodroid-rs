@@ -29,6 +29,15 @@ final class Ui {
   /** Stale numbers are dimmed to this, so they never read as live. */
   static final float DIM = 0.35f;
 
+  /** The display face: the one figure per page that has to read across the room. */
+  static final int DISPLAY_SIZE = 64;
+
+  /**
+   * A {@link #DISPLAY_SIZE} label's box with the font padding trimmed: the face's 66 px line less
+   * the 7 px of leading above its digits and 1 px of descent. The digits fill it from the top.
+   */
+  static final int DISPLAY_BOX = 58;
+
   /** GradientDrawable carries the colour's alpha through to the background opacity. */
   static final int TRANSPARENT = 0x00000000;
 
@@ -90,24 +99,44 @@ final class Ui {
   /** A label whose text ends at {@code x + width}, whatever its length. */
   static TextView labelRight(
       Context ctx, ViewGroup parent, String text, int x, int y, int width, int color) {
-    return aligned(ctx, parent, text, x, y, width, color, Gravity.RIGHT);
+    return aligned(ctx, parent, text, x, y, width, LINE_HEIGHT, color, Gravity.RIGHT);
   }
 
   static TextView labelCentred(
       Context ctx, ViewGroup parent, String text, int x, int y, int width, int color) {
-    return aligned(ctx, parent, text, x, y, width, color, Gravity.CENTER_HORIZONTAL);
+    return aligned(ctx, parent, text, x, y, width, LINE_HEIGHT, color, Gravity.CENTER_HORIZONTAL);
   }
 
-  private static TextView aligned(
-      Context ctx, ViewGroup parent, String text, int x, int y, int width, int color, int gravity) {
+  /** A centred label in a row {@code height} tall, for a face taller than {@link #LINE_HEIGHT}. */
+  static TextView labelCentred(
+      Context ctx, ViewGroup parent, String text, int x, int y, int width, int height, int color) {
+    return aligned(ctx, parent, text, x, y, width, height, color, Gravity.CENTER_HORIZONTAL);
+  }
+
+  /** A transparent horizontal row that places its children by {@code gravity}. */
+  static LinearLayout row(Context ctx, int x, int y, int width, int height, int gravity) {
     LinearLayout row = new LinearLayout(ctx);
     row.setOrientation(LinearLayout.HORIZONTAL);
-    row.setSize(width, LINE_HEIGHT);
+    row.setSize(width, height);
     row.setPosition(x, y);
     row.setPadding(0, 0, 0, 0);
     row.setSpacing(0);
-    row.setGravity(gravity | Gravity.CENTER_VERTICAL);
+    row.setGravity(gravity);
     row.setBackground(new GradientDrawable().setColor(TRANSPARENT).setCornerRadius(0));
+    return row;
+  }
+
+  private static TextView aligned(
+      Context ctx,
+      ViewGroup parent,
+      String text,
+      int x,
+      int y,
+      int width,
+      int height,
+      int color,
+      int gravity) {
+    LinearLayout row = row(ctx, x, y, width, height, gravity | Gravity.CENTER_VERTICAL);
     TextView t = new TextView(ctx);
     t.setText(text);
     t.setTextColor(color);

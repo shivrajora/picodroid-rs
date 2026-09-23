@@ -40,7 +40,8 @@ because two of the three candidate causes are runtime-wide, not this app's.
 
 **Measured 2026-09-23, ring-gauge round (`pico_display2_w`, probes inside `LimitsPage.update`).**
 The Limits page's first `update` after a swap costs ~100 ms in both the bar and the ring
-versions: 27 to 35 ms per card is `BigNumber` creating its glyph `ImageView`s on first show,
+versions: 27 to 35 ms per card is `BigNumber` creating its glyph `ImageView`s on first show
+(gone since the figures became `TextView`s on 2026-09-23; re-measure),
 the bar 6 to 11 ms, the ring 4 to 8 ms, the text lines 5 to 6 ms. With bars the swap tick's own
 51 to 74 ms warning fired first and the update's was swallowed by the one-per-second rate limit;
 with rings the two land in one tick, so a single `Runnable took 114 ms` shows the whole cost.
@@ -166,7 +167,8 @@ Two apps have now built their own numerals.
 ASCII-only Montserrat faces at 20, 28 and 64 px (`scripts/gen-fonts.sh`), compiled per board from
 a `text_sizes` key (the RP2350 default; the RP2040 keeps 14). 64 px draws 44 px digits, the
 height of the sprites. A size snaps to the nearest compiled face; `getLineHeight()` says which.
-The app's sprites go with the follow-up commit that moves `BigNumber` onto a `TextView`.
+The app's sprites, `BigNumber` and `tools/gen_digits.py` went with the follow-up commit that
+put the figures on `TextView`s (`Ui.DISPLAY_SIZE`).
 
 ### G2. No arc or ring gauge — closed 2026-09-23
 
@@ -209,7 +211,7 @@ not bars) is not expressible at all.
 
 PAPK assets are RGB565 with alpha discarded. Sprites must be drawn onto the exact colour they will
 sit on and cannot be placed over a gradient or a second card colour. The numeral sprites
-hard-code `Palette.CARD`, in one colour.
+hard-coded `Palette.CARD`, in one colour, until the figures became `TextView`s (2026-09-23).
 
 **Ask:** an RGB565A8 (or A8-only, tintable) asset format. A8 glyph masks would also cover most of
 G1 for apps that ship their own numerals.
