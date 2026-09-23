@@ -61,7 +61,7 @@ pub use circular_progress_indicator::{
     circular_progress_indicator_native_create, circular_progress_indicator_set_angles,
     circular_progress_indicator_set_indicator_color,
     circular_progress_indicator_set_indicator_direction, circular_progress_indicator_set_progress,
-    circular_progress_indicator_set_track_color,
+    circular_progress_indicator_set_range, circular_progress_indicator_set_track_color,
     circular_progress_indicator_set_track_corner_radius,
     circular_progress_indicator_set_track_thickness,
 };
@@ -107,7 +107,7 @@ pub use number_picker::{
 };
 pub use progress_bar::{
     progress_bar_native_create, progress_bar_native_create_indeterminate,
-    progress_bar_set_progress, progress_bar_set_tint, reset_progress_bar_state,
+    progress_bar_set_progress, progress_bar_set_range, progress_bar_set_tint,
 };
 pub use radio_button::{drain_rb_checked_change_queue, lookup_rb_checked_change_obj};
 pub use radio_button::{

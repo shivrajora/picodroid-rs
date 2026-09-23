@@ -309,6 +309,7 @@ F	checkedId
 F	checkedItems
 F	checkedMask
 F	clearRequested
+F	color
 F	colorBackground
 F	colorOnPrimary
 F	colorOutline
@@ -353,6 +354,7 @@ F	i2cId
 F	id
 F	imageHandle
 F	indeterminate
+F	indeterminateTint
 F	indicatorColor
 F	indicatorDirection
 F	indicatorSize
@@ -382,10 +384,12 @@ F	mGroup
 F	mLayout
 F	mLineMode
 F	mPos
+F	max
 F	maxRange
 F	maxValue
 F	message
 F	method
+F	min
 F	minDelay
 F	minValue
 F	multiChoiceListener
@@ -422,6 +426,8 @@ F	positiveListener
 F	positiveText
 F	priority
 F	progress
+F	progressBackgroundTint
+F	progressTint
 F	protocol
 F	queue
 F	queued
@@ -514,6 +520,7 @@ M	append
 M	appendHeader
 M	apply
 M	applyLineMode
+M	applyTint
 M	applyTo
 M	argb
 M	arraycopy
@@ -651,6 +658,7 @@ M	getCheckedRadioButtonId
 M	getChildAt
 M	getChildCount
 M	getColor
+M	getColorForState
 M	getConnectTimeout
 M	getContentLength
 M	getContentText
@@ -661,6 +669,7 @@ M	getData
 M	getDataBytes
 M	getDataDir
 M	getDay
+M	getDefaultColor
 M	getDefaultSensor
 M	getDefaultUncaughtExceptionHandler
 M	getDimension
@@ -684,6 +693,7 @@ M	getHost
 M	getHostAddress
 M	getHour
 M	getId
+M	getIndeterminateTintList
 M	getIndicatorColor
 M	getIndicatorDirection
 M	getIndicatorSize
@@ -710,9 +720,11 @@ M	getLength
 M	getLong
 M	getLongExtra
 M	getLongVersionCode
+M	getMax
 M	getMaxLines
 M	getMaxValue
 M	getMaximumRange
+M	getMin
 M	getMinDelay
 M	getMinValue
 M	getMinute
@@ -733,6 +745,8 @@ M	getPath
 M	getPort
 M	getPriority
 M	getProgress
+M	getProgressBackgroundTintList
+M	getProgressTintList
 M	getProtocol
 M	getRawAddress
 M	getRawX
@@ -788,6 +802,7 @@ M	hide
 M	i
 M	iconAt
 M	incrementAndGet
+M	incrementProgressBy
 M	indeterminate
 M	indexOf
 M	inflate
@@ -817,6 +832,7 @@ M	isNullSentinel
 M	isQueued
 M	isReleased
 M	isShutdown
+M	isStateful
 M	isTerminated
 M	join
 M	join0
@@ -954,9 +970,11 @@ M	nativeSetNode
 M	nativeSetNull
 M	nativeSetProgress
 M	nativeSetProperty
+M	nativeSetRange
 M	nativeSetString
 M	nativeSetText
 M	nativeSetTextarea
+M	nativeSetTint
 M	nativeSetTrackColor
 M	nativeSetTrackCornerRadius
 M	nativeSetTrackThickness
@@ -1161,6 +1179,7 @@ M	setImageDrawable
 M	setImageResource
 M	setImageSource
 M	setIncludeFontPadding
+M	setIndeterminateTintList
 M	setIndicatorColor
 M	setIndicatorDirection
 M	setIndicatorSize
@@ -1174,6 +1193,7 @@ M	setMax
 M	setMaxLines
 M	setMaxValue
 M	setMessage
+M	setMin
 M	setMinValue
 M	setMode
 M	setMultiChoiceItems
@@ -1204,6 +1224,9 @@ M	setPosition
 M	setPositiveButton
 M	setPriority
 M	setProgress
+M	setProgressBackgroundTintList
+M	setProgressInternal
+M	setProgressTintList
 M	setPwmDutyCycle
 M	setPwmFrequencyHz
 M	setReadTimeout
@@ -1308,6 +1331,7 @@ M	validName
 M	valueOf
 M	values
 M	w
+M	withAlpha
 M	withEndAction
 M	worker
 M	wrap

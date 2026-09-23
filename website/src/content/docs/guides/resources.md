@@ -127,8 +127,8 @@ Create those views in Java and `addView` them into an inflated container.
 | `CheckBox`, `RadioButton` | `text`, `checked` |
 | `Switch`, `ToggleButton` | `checked`; `textOn`, `textOff` on `ToggleButton` |
 | `ImageView` | `src` (`@drawable/…`), `scaleType` (`fitCenter`, `centerCrop`, `fitXY`, `center`), `tint` |
-| `ProgressBar`, `SeekBar` | `progress`; `max` on `SeekBar`; `tint` on `ProgressBar` |
-| `CircularProgressIndicator` | `progress`, plus Material's `indicatorColor`, `trackColor`, `trackThickness`, `indicatorSize` (Android Studio writes them with the `app:` prefix) and picodroid's `startAngle`, `sweepAngle` (degrees) |
+| `ProgressBar`, `SeekBar` | `progress`, `max`; `min`, `progressTint`, `progressBackgroundTint`, `indeterminateTint` on `ProgressBar` (`tint` is the older spelling of `indeterminateTint`). `min` and `max` are applied before `progress` whatever the XML order, as on Android. |
+| `CircularProgressIndicator` | `ProgressBar`'s `progress`, `min`, `max`, `progressTint` (the indicator) and `progressBackgroundTint` (the track), plus Material's `indicatorColor`, `trackColor`, `trackThickness`, `indicatorSize` (Android Studio writes them with the `app:` prefix) and picodroid's `startAngle`, `sweepAngle` (degrees) |
 
 An attribute the framework has no setter for — `textSize` (there is [one font
 size](/guides/embedded-gotchas/)), `layout_margin`, `onClick` — is **reported as a build warning

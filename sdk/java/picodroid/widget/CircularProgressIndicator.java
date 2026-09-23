@@ -2,6 +2,7 @@
 package picodroid.widget;
 
 import picodroid.content.Context;
+import picodroid.content.res.ColorStateList;
 import picodroid.graphics.Theme;
 
 /**
@@ -54,6 +55,23 @@ public class CircularProgressIndicator extends ProgressBar {
   }
 
   private static native int nativeCreate(int indicatorArgb, int trackArgb);
+
+  /**
+   * {@link ProgressBar}'s tint lists apply to a ring too, as Material's do: the progress tint is
+   * the indicator colour and the progress-background tint the track colour; {@code null} returns
+   * each to its theme default.
+   */
+  @Override
+  public void setProgressTintList(ColorStateList tint) {
+    super.setProgressTintList(tint);
+    setIndicatorColor(tint == null ? Theme.colorPrimary : tint.getDefaultColor());
+  }
+
+  @Override
+  public void setProgressBackgroundTintList(ColorStateList tint) {
+    super.setProgressBackgroundTintList(tint);
+    setTrackColor(tint == null ? Theme.colorOutline : tint.getDefaultColor());
+  }
 
   /** The colour of the progress arc, {@code 0xAARRGGBB}. */
   public void setIndicatorColor(int argb) {

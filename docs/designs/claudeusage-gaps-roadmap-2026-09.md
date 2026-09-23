@@ -1,6 +1,6 @@
 # Platform gaps found building `claudeusage`
 
-**Status: open list (2026-09-21). D4 added 2026-09-23 as the top priority; G2 closed 2026-09-23.**
+**Status: open list; G2 and G3 closed 2026-09-23, nothing else started. D4 added 2026-09-23 as the top priority.**
 
 `examples/claudeusage` is a desk display for Claude usage limits on a new board, `pico_display2_w`
 (Pimoroni Pico Display Pack 2.0 on a Pico 2 W). It was built to look like a modern product rather
@@ -161,18 +161,23 @@ was no SDK widget for it, and the app used bars throughout.
 **Landed:** `picodroid.widget.CircularProgressIndicator`, Material Components' ring as a
 `ProgressBar` subclass over `lv_arc` (colour, stroke, size, direction, corner radius with
 Material's names; `startAngle`/`sweepAngle` in `Canvas.drawArc` terms as the one picodroid
-extension; inflatable from XML). Range is `ProgressBar`'s `setMax`/`setMin`, which G3 delivers.
+extension; inflatable from XML). Range is `ProgressBar`'s `setMax`/`setMin`, which G3 delivered the same day.
 The app's Limits page is two 270° gauges side by side, the pace marker a thin overlay arc.
 
 ### G3. `ProgressBar` cannot be styled per instance
 
-Determinate bars take their colour from the theme (`setTint` only affects the indeterminate
-spinner), the range is fixed at 0..100 with no `setMax`, and there is no animated `setProgress`.
-A severity-coloured bar is therefore impossible with the SDK widget; the app builds `ui/BarView`
-from two `FrameLayout`s.
+**Closed 2026-09-23.** `ProgressBar` gained Android's range and tint API — `setMax` / `getMax`,
+`setMin` / `getMin`, `setProgress(int, boolean animate)`, `incrementProgressBy`, and
+`setProgressTintList` / `setProgressBackgroundTintList` / `setIndeterminateTintList` over a new
+single-colour `picodroid.content.res.ColorStateList` — and layouts take `min`, `max`,
+`progressTint`, `progressBackgroundTint` and `indeterminateTint`. `ui/BarView` is now one
+`ProgressBar` plus the pace-marker tick. Not modelled: state sets in `ColorStateList`,
+`setProgressDrawable` (so the bright-to-deep gradient the old bars had is gone: tints are flat),
+`setSecondaryProgress`.
 
-**Ask:** `setProgressTintList` / `setProgressBackgroundTintList` equivalents, `setMax`,
-`setProgress(int, boolean animate)`.
+Was: determinate bars took their colour from the theme (`setTint` only affected the indeterminate
+spinner), the range was fixed at 0..100 with no `setMax`, and there was no animated `setProgress`,
+so the app built `ui/BarView` from two `FrameLayout`s.
 
 ### G4. No chart and no custom drawing
 

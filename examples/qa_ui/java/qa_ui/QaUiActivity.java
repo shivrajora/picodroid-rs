@@ -7,6 +7,7 @@ import picodroid.app.Notification;
 import picodroid.app.NotificationManager;
 import picodroid.concurrent.Executors;
 import picodroid.concurrent.Thread;
+import picodroid.content.res.ColorStateList;
 import picodroid.graphics.Color;
 import picodroid.graphics.Display;
 import picodroid.os.Bundle;
@@ -415,15 +416,58 @@ public class QaUiActivity extends Activity {
     Log.i(TAG, "performProgressChange delivered synchronously=" + (seekChanged[0] == 1));
     ProgressBar pb = new ProgressBar(this);
     root.addView(pb);
+    check("progress bar range defaults", pb.getMin() == 0 && pb.getMax() == 100);
     pb.setProgress(42);
     check("progress bar value", pb.getProgress() == 42 && !pb.isIndeterminate());
-    pb.setProgress(0);
-    check("progress bar zero", pb.getProgress() == 0);
+    pb.setProgress(150);
+    check("progress clamps to max", pb.getProgress() == 100);
+    pb.setMax(50);
+    check("setMax pulls the progress down", pb.getMax() == 50 && pb.getProgress() == 50);
+    pb.setMin(20);
+    pb.setProgress(5);
+    check("progress clamps to min", pb.getMin() == 20 && pb.getProgress() == 20);
+    pb.setMin(60);
+    check("setMin caps at max", pb.getMin() == 50 && pb.getProgress() == 50);
+    pb.setMin(0);
+    pb.setMax(100);
+    pb.setProgress(10, true);
+    check("animated progress reads back at once", pb.getProgress() == 10);
+    pb.incrementProgressBy(15);
+    check("incrementProgressBy", pb.getProgress() == 25);
+    pb.incrementProgressBy(-100);
+    check("increment clamps", pb.getProgress() == 0);
+    ColorStateList green = ColorStateList.valueOf(Color.GREEN);
+    check(
+        "ColorStateList",
+        green.getDefaultColor() == Color.GREEN
+            && !green.isStateful()
+            && green.getColorForState(null, Color.RED) == Color.GREEN
+            && green.withAlpha(0x80).getDefaultColor() == 0x8000FF00);
+    pb.setProgressTintList(green);
+    pb.setProgressBackgroundTintList(ColorStateList.valueOf(0x40FFFFFF));
+    check(
+        "progress tints round-trip",
+        pb.getProgressTintList() == green
+            && pb.getProgressBackgroundTintList().getDefaultColor() == 0x40FFFFFF);
+    pb.setProgressTintList(null);
+    pb.setProgressBackgroundTintList(null);
+    check(
+        "null clears the tints",
+        pb.getProgressTintList() == null && pb.getProgressBackgroundTintList() == null);
     pb.setTint(Color.GREEN);
+    check(
+        "setTint is the indeterminate tint",
+        pb.getIndeterminateTintList().getDefaultColor() == Color.GREEN);
     root.removeView(pb);
     ProgressBar ind = ProgressBar.indeterminate();
     root.addView(ind);
-    check("indeterminate", ind.isIndeterminate());
+    ind.setProgress(30);
+    ind.setProgressTintList(green);
+    ind.setIndeterminateTintList(ColorStateList.valueOf(Color.RED));
+    ind.setIndeterminateTintList(null);
+    check(
+        "indeterminate",
+        ind.isIndeterminate() && ind.getProgress() == 0 && ind.getProgressTintList() == green);
     root.removeView(ind);
     // The ring gauge is a ProgressBar over lv_arc: progress goes through the inherited
     // setter (dispatched by runtime class), the geometry through Material's names.

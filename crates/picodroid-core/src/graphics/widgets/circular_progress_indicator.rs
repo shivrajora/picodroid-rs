@@ -29,13 +29,26 @@ pub fn circular_progress_indicator_native_create(
     Ok(Some(Value::Int(lvgl_ring::create(indicator, track))))
 }
 
-/// `ProgressBar.nativeSetProgress(int value)` on a ring receiver.
+/// `ProgressBar.nativeSetProgress(int value, boolean animate)` on a ring
+/// receiver; the arc has no animated setter, so `animate` is ignored.
 pub fn circular_progress_indicator_set_progress(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
     let id = extract_native_handle(args, objects)?;
     lvgl_ring::set_value(id, arg_int(args, 1)?);
+    Ok(None)
+}
+
+/// `ProgressBar.nativeSetRange(int min, int max, int progress)` on a ring
+/// receiver; `progress` is the value Java holds after clamping to the range.
+pub fn circular_progress_indicator_set_range(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    lvgl_ring::set_range(id, arg_int(args, 1)?, arg_int(args, 2)?);
+    lvgl_ring::set_value(id, arg_int(args, 3)?);
     Ok(None)
 }
 

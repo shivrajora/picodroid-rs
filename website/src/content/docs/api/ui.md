@@ -680,32 +680,45 @@ Scale, tint, and aspect controls (Tier C):
 img.setScaleType(ImageView.SCALE_FIT_CENTER);  // or SCALE_FIT_XY, SCALE_CENTER
 img.setScale(150);          // 100 = 1.0× — uses LVGL transforms
 img.setTint(Color.RED);     // multiplies the source by the given color
-img.clearTint();
 ```
 
 Anti-aliased scale and rotation rendering depends on LVGL 9.6.0's `LV_DRAW_SW_SUPPORT_RGB565A8` (enabled in `lv_conf.h`). Without it scaled images render aliased — see [Advanced configuration → lv_conf.h](/reference/advanced-config/#lv_confh).
 
 ### `picodroid.widget.ProgressBar`
 
-A horizontal progress bar.
+A horizontal progress bar with Android's range and tint API.
 
 ```java
+import picodroid.content.res.ColorStateList;
 import picodroid.widget.ProgressBar;
 
 ProgressBar bar = new ProgressBar();
 bar.setSize(200, 20);
-bar.setProgress(75);   // 0–100
+bar.setMax(250);                  // the range is [getMin(), getMax()], 0..100 by default
+bar.setProgress(75);              // instant, clamped to the range
+bar.setProgress(120, true);       // animated over 80 ms, as on Android
+bar.incrementProgressBy(10);
+bar.setProgressTintList(ColorStateList.valueOf(Color.GREEN));            // the fill
+bar.setProgressBackgroundTintList(ColorStateList.valueOf(0x40FFFFFF));  // the track; alpha honoured
+bar.setProgressTintList(null);    // back to the theme colour
 ```
+
+`getProgress()` returns the value last set (the target while an animation runs), and `setMax` /
+`setMin` pull a progress outside the new range back into it, as on Android. `ColorStateList` is a
+single colour — `valueOf(int)`, `getDefaultColor()`, `withAlpha(int)` — with no state sets.
 
 For an **indeterminate** spinner (no progress value, just an animation while work is happening), use the static factory:
 
 ```java
 ProgressBar spinner = ProgressBar.indeterminate();
 spinner.setSize(48, 48);
+spinner.setIndeterminateTintList(ColorStateList.valueOf(Color.RED));  // the arc; Theme.colorPrimary by default
 // Add to layout; remove or hide when work completes.
 ```
 
-`indeterminate()` returns a `ProgressBar` backed by `lv_spinner` and ignores `setProgress`.
+`indeterminate()` returns a `ProgressBar` backed by `lv_spinner` and ignores `setProgress`; the mode
+is fixed at construction. A tint set on the flavour that is not showing is kept for its getter but
+not drawn. `setTint(int)` is a deprecated alias of `setIndeterminateTintList`.
 
 ### `picodroid.widget.CircularProgressIndicator`
 

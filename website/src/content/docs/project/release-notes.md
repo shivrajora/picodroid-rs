@@ -16,8 +16,26 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
   not a full circle. Inflatable from XML as `<CircularProgressIndicator>` with Material's
   attribute names. `examples/claudeusage` draws its Limits page with two of them, and
   `examples/displaydemo` shows one beside the bar.
-- `ProgressBar`'s handle constructor is `protected` and its progress native is package-private,
-  so a subclass over another LVGL widget can adopt it; no app-visible change.
+- `ProgressBar`'s handle constructor is `protected` and its natives are package-private, so a
+  subclass over another LVGL widget can adopt it; the ring's `setProgressTintList` and
+  `setProgressBackgroundTintList` colour its indicator and track. No other app-visible change.
+
+**`ProgressBar` styled per instance, Android-shaped**
+
+- [`ProgressBar`](/api/ui/#picodroidwidgetprogressbar) gains Android's range and tint API:
+  `setMax` / `getMax`, `setMin` / `getMin`, `setProgress(int, boolean animate)` (80 ms, as
+  Android's), `incrementProgressBy`, and `setProgressTintList` / `setProgressBackgroundTintList` /
+  `setIndeterminateTintList` with their getters, taking the new single-colour
+  `picodroid.content.res.ColorStateList` (`ColorStateList.valueOf(color)`, `withAlpha`). `null`
+  returns a part to the theme colour. Layouts take `min`, `max`, `progressTint`,
+  `progressBackgroundTint` and `indeterminateTint` on `<ProgressBar>`, applied with `min` / `max`
+  before `progress` whatever the XML order.
+- `setProgress(int)` is now instant, as on Android. It was nominally animated, but LVGL's theme
+  gives the bar a 0 ms animation, so nothing visible changes; ask for motion with
+  `setProgress(value, true)`.
+- `ProgressBar.setTint(int)` is deprecated in favour of `setIndeterminateTintList` and keeps
+  working. `examples/claudeusage` draws its limit and model bars with `ProgressBar` instead of
+  nested `FrameLayout`s.
 
 **Saved instance state, and Activities the framework may reclaim (map v0.27.0, package 0.27.0)**
 

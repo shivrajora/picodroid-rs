@@ -146,6 +146,7 @@ picodroid/content/pm/PackageInfo
 picodroid/content/pm/PackageInstaller
 picodroid/content/pm/PackageManager
 picodroid/content/pm/PackageManager$NameNotFoundException
+picodroid/content/res/ColorStateList
 picodroid/content/res/Resources
 picodroid/content/res/Resources$NotFoundException
 picodroid/debug/DisplayDebug

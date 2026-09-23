@@ -63,6 +63,12 @@ public class ResDemoActivity extends Activity {
     check("checked", armed != null && armed.isChecked());
     ProgressBar progress = findViewById(R.id.progress);
     check("progress", progress != null && progress.getProgress() == 30);
+    check("max from xml", progress != null && progress.getMax() == 60);
+    check(
+        "progressTint from xml",
+        progress != null
+            && progress.getProgressTintList() != null
+            && progress.getProgressTintList().getDefaultColor() == 0xFF00AA00);
     CircularProgressIndicator ring = findViewById(R.id.ring);
     check(
         "ring attributes",

@@ -671,8 +671,9 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     // picodroid/widget/ProgressBar
     ("picodroid/widget/ProgressBar", "nativeCreate", "()I"),
     ("picodroid/widget/ProgressBar", "nativeCreateIndeterminate", "(I)I"),
-    ("picodroid/widget/ProgressBar", "nativeSetProgress", "(I)V"),
-    ("picodroid/widget/ProgressBar", "setTint", "(I)V"),
+    ("picodroid/widget/ProgressBar", "nativeSetProgress", "(IZ)V"),
+    ("picodroid/widget/ProgressBar", "nativeSetRange", "(III)V"),
+    ("picodroid/widget/ProgressBar", "nativeSetTint", "(IIZ)V"),
     // picodroid/widget/RadioButton
     ("picodroid/widget/RadioButton", "isChecked", "()Z"),
     ("picodroid/widget/RadioButton", "nativeCreate", "()I"),

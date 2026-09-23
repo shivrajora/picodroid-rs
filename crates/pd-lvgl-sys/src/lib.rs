@@ -327,6 +327,9 @@ pub const LV_STYLE_TEXT_LINE_SPACE: lv_style_prop_t = 103;
 /// Read back by `LinearLayout.setGravity` to learn which axis the layout's flow
 /// makes the main one; `lv_obj_set_flex_flow` writes it.
 pub const LV_STYLE_FLEX_FLOW: lv_style_prop_t = 160;
+/// Removed per part by `ProgressBar` when an instance tint is cleared.
+pub const LV_STYLE_BG_OPA: lv_style_prop_t = 72;
+pub const LV_STYLE_BG_COLOR: lv_style_prop_t = 73;
 /// `transform_scale_*` value meaning "unscaled" (`lv_style.h` `LV_SCALE_NONE`).
 pub const LV_SCALE_NONE: i32 = 256;
 /// `lv_draw_rect.h`: special radius value meaning "fully rounded" — the
@@ -556,6 +559,13 @@ extern "C" {
         style: *const c_void,
         selector: lv_style_selector_t,
     );
+    /// Drop one property of `obj`'s own (local) style for `selector`, so the
+    /// theme's value shows again. Returns whether it was set.
+    pub fn lv_obj_remove_local_style_prop(
+        obj: *mut lv_obj_t,
+        prop: lv_style_prop_t,
+        selector: lv_style_selector_t,
+    ) -> bool;
     /// A null transition descriptor turns the theme's animated style changes
     /// off for that part.
     pub fn lv_obj_set_style_transition(
@@ -701,6 +711,7 @@ extern "C" {
     // Bar widget
     pub fn lv_bar_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
     pub fn lv_bar_set_value(obj: *mut lv_obj_t, value: i32, anim: lv_anim_enable_t);
+    pub fn lv_bar_set_range(obj: *mut lv_obj_t, min: i32, max: i32);
 
     // Spinner widget — indeterminate counterpart of lv_bar; animates a
     // rotating arc whose duration and sweep are configurable. Used by the
@@ -849,6 +860,13 @@ extern "C" {
     // Opacity style
     pub fn lv_obj_set_style_opa(obj: *mut lv_obj_t, value: u8, selector: lv_style_selector_t);
     pub fn lv_obj_set_style_bg_opa(obj: *mut lv_obj_t, value: u8, selector: lv_style_selector_t);
+    /// Duration `LV_ANIM_ON` setters (`lv_bar_set_value`, ...) animate over;
+    /// the property default is 0 ms.
+    pub fn lv_obj_set_style_anim_duration(
+        obj: *mut lv_obj_t,
+        value: u32,
+        selector: lv_style_selector_t,
+    );
     pub fn lv_obj_set_style_bg_image_src(
         obj: *mut lv_obj_t,
         src: *const c_void,
@@ -1337,6 +1355,8 @@ mod tests {
             (LV_STYLE_TEXT_FONT, "LV_STYLE_TEXT_FONT"),
             (LV_STYLE_TEXT_LINE_SPACE, "LV_STYLE_TEXT_LINE_SPACE"),
             (LV_STYLE_FLEX_FLOW, "LV_STYLE_FLEX_FLOW"),
+            (LV_STYLE_BG_OPA, "LV_STYLE_BG_OPA"),
+            (LV_STYLE_BG_COLOR, "LV_STYLE_BG_COLOR"),
         ] {
             let header_val = lookup_ordinal(body, "LV_STYLE_", name)
                 .unwrap_or_else(|| panic!("{name} not found in vendored lv_style.h"));

@@ -213,8 +213,12 @@ pub mod layout {
         /// String resource ids.
         pub const TEXT_ON: u32 = 30;
         pub const TEXT_OFF: u32 = 31;
-        // 32-35 are taken by ProgressBar's min and tint attributes, in flight on
-        // another branch when the ring gauge's were assigned.
+        /// Integer. Applied before `PROGRESS` whatever the XML order (with `MAX`).
+        pub const MIN: u32 = 32;
+        /// ARGB.
+        pub const PROGRESS_TINT: u32 = 33;
+        pub const PROGRESS_BACKGROUND_TINT: u32 = 34;
+        pub const INDETERMINATE_TINT: u32 = 35;
         /// ARGB.
         pub const INDICATOR_COLOR: u32 = 36;
         pub const TRACK_COLOR: u32 = 37;
@@ -258,6 +262,10 @@ pub mod layout {
             ("INPUT_TYPE", INPUT_TYPE),
             ("TEXT_ON", TEXT_ON),
             ("TEXT_OFF", TEXT_OFF),
+            ("MIN", MIN),
+            ("PROGRESS_TINT", PROGRESS_TINT),
+            ("PROGRESS_BACKGROUND_TINT", PROGRESS_BACKGROUND_TINT),
+            ("INDETERMINATE_TINT", INDETERMINATE_TINT),
             ("INDICATOR_COLOR", INDICATOR_COLOR),
             ("TRACK_COLOR", TRACK_COLOR),
             ("TRACK_THICKNESS", TRACK_THICKNESS),

@@ -2,6 +2,7 @@
 package picodroid.view;
 
 import picodroid.content.Context;
+import picodroid.content.res.ColorStateList;
 import picodroid.content.res.Resources;
 import picodroid.text.TextUtils;
 import picodroid.widget.Button;
@@ -327,6 +328,8 @@ public class LayoutInflater {
       case 28: // ATTR_MAX
         if (v instanceof SeekBar) {
           ((SeekBar) v).setMax(value);
+        } else if (v instanceof ProgressBar) {
+          ((ProgressBar) v).setMax(value);
         }
         break;
       case 29: // ATTR_INPUT_TYPE
@@ -342,6 +345,26 @@ public class LayoutInflater {
       case 31: // ATTR_TEXT_OFF
         if (v instanceof ToggleButton) {
           ((ToggleButton) v).setTextOff(string(value));
+        }
+        break;
+      case 32: // ATTR_MIN
+        if (v instanceof ProgressBar) {
+          ((ProgressBar) v).setMin(value);
+        }
+        break;
+      case 33: // ATTR_PROGRESS_TINT
+        if (v instanceof ProgressBar) {
+          ((ProgressBar) v).setProgressTintList(ColorStateList.valueOf(value));
+        }
+        break;
+      case 34: // ATTR_PROGRESS_BACKGROUND_TINT
+        if (v instanceof ProgressBar) {
+          ((ProgressBar) v).setProgressBackgroundTintList(ColorStateList.valueOf(value));
+        }
+        break;
+      case 35: // ATTR_INDETERMINATE_TINT
+        if (v instanceof ProgressBar) {
+          ((ProgressBar) v).setIndeterminateTintList(ColorStateList.valueOf(value));
         }
         break;
       case 36: // ATTR_INDICATOR_COLOR

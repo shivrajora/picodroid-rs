@@ -86,12 +86,12 @@ final class ModelsPage extends Page {
 
     // Row 0 is always the all-models cap, so the card is never empty on a plan without per-model
     // caps; the rest are whatever the account reports.
-    caps[0].show(all, s.weeklyPct, p.severity(s.weeklyPct), p.severityDeep(s.weeklyPct), stale);
+    caps[0].show(all, s.weeklyPct, p.severity(s.weeklyPct), stale);
     for (int i = 1; i < caps.length; i++) {
       int m = i - 1;
       if (m < s.modelCount) {
         int pct = s.modelPct[m];
-        caps[i].show(s.modelName[m], pct, p.severity(pct), p.severityDeep(pct), stale);
+        caps[i].show(s.modelName[m], pct, p.severity(pct), stale);
       } else {
         caps[i].clear();
       }
@@ -106,7 +106,7 @@ final class ModelsPage extends Page {
 
     for (int i = 0; i < mix.length; i++) {
       if (i < s.mixCount) {
-        mix[i].show(s.mixName[i], s.mixPct[i], p.clay, p.clayDeep, false);
+        mix[i].show(s.mixName[i], s.mixPct[i], p.clay, false);
       } else {
         mix[i].clear();
       }

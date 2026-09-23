@@ -164,7 +164,8 @@ impl GraphicsBackend for LvglBackend {
                 Some(widgets::progress_bar_native_create_indeterminate(ctx.args))
             }
             m::nativeSetProgress => Some(widgets::progress_bar_set_progress(ctx.args, ctx.objects)),
-            m::setTint => Some(widgets::progress_bar_set_tint(ctx.args, ctx.objects)),
+            m::nativeSetRange => Some(widgets::progress_bar_set_range(ctx.args, ctx.objects)),
+            m::nativeSetTint => Some(widgets::progress_bar_set_tint(ctx.args, ctx.objects)),
             _ => None,
         }
     }
@@ -177,13 +178,18 @@ impl GraphicsBackend for LvglBackend {
         match method {
             m::nativeCreate => Some(widgets::circular_progress_indicator_native_create(ctx.args)),
             // Inherited from ProgressBar and routed here by the receiver's runtime
-            // class, so the lv_bar setters never see the ring's lv_arc. The
-            // indeterminate tint has nothing to colour on a determinate ring.
+            // class, so the lv_bar setters never see the ring's lv_arc. The tint
+            // lists are applied by the Java overrides through the ring's own
+            // colour natives, so the bar's tint native has nothing left to do.
             m::nativeSetProgress => Some(widgets::circular_progress_indicator_set_progress(
                 ctx.args,
                 ctx.objects,
             )),
-            m::setTint => Some(Ok(None)),
+            m::nativeSetRange => Some(widgets::circular_progress_indicator_set_range(
+                ctx.args,
+                ctx.objects,
+            )),
+            m::nativeSetTint => Some(Ok(None)),
             m::nativeSetIndicatorColor => Some(
                 widgets::circular_progress_indicator_set_indicator_color(ctx.args, ctx.objects),
             ),
