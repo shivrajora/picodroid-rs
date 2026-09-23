@@ -92,6 +92,9 @@ public class MainActivity extends Activity implements OnKeyListener, UsageServic
   private int shownStatusColor;
   private int shownPageDot = -1;
   private String hintAuto;
+  private String hintSync;
+  private String planText = "";
+  private UsageSnapshot planOf;
   private String hintHome;
   private String bannerAuto;
   private String bannerUpdated;
@@ -99,6 +102,11 @@ public class MainActivity extends Activity implements OnKeyListener, UsageServic
 
   private Page page;
   private boolean pageBuilt;
+  private boolean pageUpdatePending;
+  private boolean dotsPending;
+  private UsageSnapshot updatedSnapshot;
+  private boolean updatedFresh;
+  private long updatedMinute = -1;
   private boolean pageIsStatus;
   private int pageIndex = PAGE_LIMITS;
   private int buildToken;
@@ -120,6 +128,7 @@ public class MainActivity extends Activity implements OnKeyListener, UsageServic
     fadeMs = res.getInteger(R.integer.fade_ms);
     hintAuto = getString(R.string.hint_auto);
     hintHome = getString(R.string.hint_home);
+    hintSync = getString(R.string.hint_sync);
     bannerAuto = getString(R.string.banner_auto);
     bannerUpdated = getString(R.string.banner_updated);
     bannerStale = getString(R.string.banner_stale);
@@ -157,7 +166,7 @@ public class MainActivity extends Activity implements OnKeyListener, UsageServic
     title = new Line(findViewById(R.id.title), palette.text);
     plan = new Line(findViewById(R.id.plan), palette.clay);
     clock = new Line(findViewById(R.id.clock), palette.muted);
-    syncHint = new Line(findViewById(R.id.hint_sync), getString(R.string.hint_sync), palette.faint);
+    syncHint = new Line(findViewById(R.id.hint_sync), hintSync, palette.faint);
     homeHint = new Line(findViewById(R.id.hint_home), hintAuto, palette.faint);
     banner = new Line(findViewById(R.id.banner), palette.muted);
 
@@ -326,8 +335,15 @@ public class MainActivity extends Activity implements OnKeyListener, UsageServic
     page = pageIsStatus ? new StatusPage(this, palette, repo.bridgeAddress()) : create(pageIndex);
     page.root.setAlpha(0f);
     pageHost.addView(page.root);
-    Log.i(TAG, "page -> " + getString(page.titleRes()));
-    refreshPageChrome();
+    // Constructing a page resolves its strings; the chrome repaint takes the next tick.
+    Executors.mainExecutor().execute(() -> announcePage(token));
+  }
+
+  private void announcePage(int token) {
+    if (token != buildToken || destroyed || page == null) {
+      return;
+    }
+    Log.i(TAG, "page -> " + page.title);
     Executors.mainExecutor().execute(() -> continueBuild(token));
   }
 
@@ -370,7 +386,26 @@ public class MainActivity extends Activity implements OnKeyListener, UsageServic
         Executors.mainExecutor().execute(() -> continueBuild(token));
         return;
       }
+      // The first update takes its own tick: with the last build step it overran the budget.
+      Executors.mainExecutor().execute(() -> finishPage(token));
+    } catch (OutOfMemoryError | RuntimeException e) {
+      // A half-built page would stay invisible for good. Drop it; the next tick builds it again,
+      // by which time the collector has had a chance to run.
+      Log.w(TAG, "page build failed: " + e);
+      discardPage();
+    }
+  }
+
+  private void finishPage(int token) {
+    if (token != buildToken || destroyed || page == null || repo == null) {
+      return;
+    }
+    try {
       pageBuilt = true;
+      updatedSnapshot = repo.snapshot();
+      updatedFresh = repo.isFresh();
+      updatedMinute = System.currentTimeMillis() / 60_000L;
+      refreshPageChrome();
       page.update(repo, System.currentTimeMillis());
       page.root.animate().alpha(1f).setDuration(fadeMs).start();
     } catch (OutOfMemoryError | RuntimeException e) {
@@ -421,24 +456,63 @@ public class MainActivity extends Activity implements OnKeyListener, UsageServic
       return;
     }
     refreshChrome();
-    if (pageBuilt) {
-      page.update(repo, System.currentTimeMillis());
+    if (pageBuilt && !pageUpdatePending) {
+      // The chrome (~20 ms on the RP2350) and the page (~30 ms) would overrun the slow-handler
+      // budget together, so the page takes the next tick.
+      pageUpdatePending = true;
+      final int token = builtToken;
+      Executors.mainExecutor().execute(() -> updatePage(token));
     }
+  }
+
+  private void updatePage(int token) {
+    pageUpdatePending = false;
+    if (destroyed || repo == null || page == null || !pageBuilt || token != buildToken) {
+      return;
+    }
+    UsageSnapshot s = repo.snapshot();
+    boolean fresh = repo.isFresh();
+    long now = System.currentTimeMillis();
+    long minute = now / 60_000L;
+    if (s == updatedSnapshot && fresh == updatedFresh && minute == updatedMinute) {
+      return; // everything on the data screens is minute-grained; nothing to repaint
+    }
+    updatedSnapshot = s;
+    updatedFresh = fresh;
+    updatedMinute = minute;
+    page.update(repo, now);
   }
 
   /** The part of the chrome a page turn changes; cheap enough to share a tick with the turn. */
   private void refreshPageChrome() {
-    title.show(page != null ? getString(page.titleRes()) : "", palette.text);
+    title.show(page != null ? page.title : "", palette.text);
     homeHint.show(
         pageIndex == PAGE_LIMITS || pageIsStatus ? hintAuto : hintHome,
         auto && pageIndex == PAGE_LIMITS ? palette.clay : palette.faint);
     int activeDot = pageIsStatus ? -1 : pageIndex;
-    if (activeDot != shownPageDot) {
-      for (int i = 0; i < PAGE_COUNT; i++) {
-        Ui.fill(pageDots[i], i == activeDot ? palette.clay : palette.track, 3);
-      }
-      shownPageDot = activeDot;
+    if (activeDot != shownPageDot && !dotsPending) {
+      // Each fill costs the RP2350 some 4 ms inside the flex row, so the dots take their own tick.
+      dotsPending = true;
+      Executors.mainExecutor().execute(this::movePageDot);
     }
+  }
+
+  private void movePageDot() {
+    dotsPending = false;
+    if (destroyed) {
+      return;
+    }
+    int activeDot = pageIsStatus ? -1 : pageIndex;
+    if (activeDot == shownPageDot) {
+      return;
+    }
+    if (shownPageDot >= 0) {
+      Ui.fill(pageDots[shownPageDot], palette.track, 3);
+    }
+    if (activeDot >= 0) {
+      Ui.fill(pageDots[activeDot], palette.clay, 3);
+    }
+    shownPageDot = activeDot;
   }
 
   /** Header, footer and LED: everything outside the page. */
@@ -449,9 +523,13 @@ public class MainActivity extends Activity implements OnKeyListener, UsageServic
     long now = System.currentTimeMillis();
 
     refreshPageChrome();
-    plan.show(s != null && !pageIsStatus ? s.plan.toUpperCase() : "", palette.clay);
+    if (s != planOf) {
+      planOf = s; // one upper-casing per snapshot, not per refresh
+      planText = s == null ? "" : s.plan.toUpperCase();
+    }
+    plan.show(!pageIsStatus ? planText : "", palette.clay);
     clock.show(s != null ? TimeFormat.hm(now) : "", palette.muted);
-    syncHint.show(getString(R.string.hint_sync), repo.isSyncing() ? palette.clay : palette.faint);
+    syncHint.show(hintSync, repo.isSyncing() ? palette.clay : palette.faint);
 
     // Green: live. Amber: live numbers, but the last attempt failed. Red: not live.
     int dot = fresh ? (state == LinkState.OK ? palette.good : palette.warn) : palette.bad;

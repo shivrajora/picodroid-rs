@@ -174,4 +174,14 @@ inlined by javac, would trade the resource-backed palette (item 15) for cache en
   `[ClaudeUsage] ui ready`, `fetch: refused` and `state -> …` still appear, which is what
   `hil-tests.conf` greps. Old and new both ran 30 AUTO page turns over 8 minutes; see the section
   above for the one difference.
-- Hardware: not yet run; the board itself is still awaiting first bring-up (see the gaps roadmap).
+- Hardware (2026-09-22/23, `pico_display2_w` on the bench, live bridge at the PC's WiFi
+  address): joins WiFi, syncs every 60 s, all four screens turn on B, X syncs at once, Y toggles
+  AUTO with the preference write off the main thread; AUTO survives a power cycle. Two
+  slow-handler findings, both fixed in the app: the sync-time refresh (chrome ~20 ms + page
+  ~30 ms) now repaints the page in the tick after the chrome and only when the snapshot,
+  freshness or minute changed; the page-turn start tick now constructs the page only, with the
+  chrome repaint and first update in later ticks. One warning remains, 51 to 74 ms on the first
+  tick after a page swap, and it stays there when that tick is emptied down to one log line, so
+  the time is taken from the main task by the redraw of the swapped page region (render plus
+  SPI flush), not by the app; one stall per button press, left open. The boot-time
+  `pending-op drain` of ~90 ms is the Service start plus bind, one-off.

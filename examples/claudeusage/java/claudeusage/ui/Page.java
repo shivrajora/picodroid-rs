@@ -18,12 +18,16 @@ abstract class Page {
   protected final Palette p;
   final FrameLayout root;
 
+  /** The header title, resolved once: the chrome repaints it on every refresh. */
+  final String title;
+
   protected int step;
 
   Page(Context ctx, Palette p) {
     this.ctx = ctx;
     this.p = p;
     root = Ui.group(ctx, 0, 0, Ui.WIDTH, Ui.PAGE_HEIGHT, p.background);
+    title = ctx.getString(titleRes());
   }
 
   /** The header title's string resource. */
