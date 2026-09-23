@@ -234,6 +234,7 @@ picodroid/widget/ArrayAdapter
 picodroid/widget/BaseAdapter
 picodroid/widget/Button
 picodroid/widget/CheckBox
+picodroid/widget/CircularProgressIndicator
 picodroid/widget/CompoundButton
 picodroid/widget/CompoundButton$OnCheckedChangeListener
 picodroid/widget/DatePicker

@@ -29,6 +29,8 @@ F	CENTER_HORIZONTAL
 F	CENTER_VERTICAL
 F	CYAN
 F	DAYS
+F	DEFAULT_INDICATOR_SIZE
+F	DEFAULT_TRACK_THICKNESS
 F	DIR
 F	DIRECTION_IN
 F	DIRECTION_OUT_INITIALLY_HIGH
@@ -81,6 +83,8 @@ F	IME_ACTION_PREVIOUS
 F	IME_ACTION_SEARCH
 F	IME_ACTION_SEND
 F	IME_ACTION_UNSPECIFIED
+F	INDICATOR_DIRECTION_CLOCKWISE
+F	INDICATOR_DIRECTION_COUNTERCLOCKWISE
 F	INSTANCE
 F	INTERP_ACCELERATE
 F	INTERP_ACCEL_DECEL
@@ -349,6 +353,9 @@ F	i2cId
 F	id
 F	imageHandle
 F	indeterminate
+F	indicatorColor
+F	indicatorDirection
+F	indicatorSize
 F	instance
 F	intVals
 F	interpolatorCode
@@ -433,6 +440,7 @@ F	scaleYTo
 F	sensor
 F	shutdown
 F	spiId
+F	startAngle
 F	startDelayMs
 F	started
 F	state
@@ -440,6 +448,7 @@ F	step
 F	strVals
 F	strokeColor
 F	strokeWidth
+F	sweepAngle
 F	tag
 F	target
 F	targetClassName
@@ -447,6 +456,9 @@ F	text
 F	timeChangedListener
 F	timestamp
 F	title
+F	trackColor
+F	trackCornerRadius
+F	trackThickness
 F	translationXTo
 F	translationYTo
 F	type
@@ -672,6 +684,9 @@ M	getHost
 M	getHostAddress
 M	getHour
 M	getId
+M	getIndicatorColor
+M	getIndicatorDirection
+M	getIndicatorSize
 M	getInputStream
 M	getInstalledPackages
 M	getInstance
@@ -734,17 +749,22 @@ M	getScaleX
 M	getScaleY
 M	getSelectedItemPosition
 M	getSharedPreferences
+M	getStartAngle
 M	getStartDelay
 M	getStep
 M	getString
 M	getStringArray
 M	getStringExtra
+M	getSweepAngle
 M	getSystemService
 M	getTag
 M	getTargetClassName
 M	getText
 M	getTop
 M	getTotalBytes
+M	getTrackColor
+M	getTrackCornerRadius
+M	getTrackThickness
 M	getTranslationX
 M	getTranslationY
 M	getType
@@ -912,6 +932,7 @@ M	nativeResponseMessage
 M	nativeSet
 M	nativeSetAction
 M	nativeSetAlpha
+M	nativeSetAngles
 M	nativeSetBackground
 M	nativeSetBool
 M	nativeSetChecked
@@ -923,6 +944,8 @@ M	nativeSetFlexGrow
 M	nativeSetFocusable
 M	nativeSetImageSrc
 M	nativeSetIncludeFontPadding
+M	nativeSetIndicatorColor
+M	nativeSetIndicatorDirection
 M	nativeSetInt
 M	nativeSetLineMode
 M	nativeSetLong
@@ -934,6 +957,9 @@ M	nativeSetProperty
 M	nativeSetString
 M	nativeSetText
 M	nativeSetTextarea
+M	nativeSetTrackColor
+M	nativeSetTrackCornerRadius
+M	nativeSetTrackThickness
 M	nativeSetVisibility
 M	nativeShow
 M	nativeStart
@@ -1039,6 +1065,7 @@ M	performStop
 M	performTrackingTouch
 M	pollTouch
 M	pow
+M	pushAngles
 M	put
 M	putAll
 M	putBoolean
@@ -1134,6 +1161,9 @@ M	setImageDrawable
 M	setImageResource
 M	setImageSource
 M	setIncludeFontPadding
+M	setIndicatorColor
+M	setIndicatorDirection
+M	setIndicatorSize
 M	setInputType
 M	setInterpolator
 M	setIs24HourView
@@ -1193,10 +1223,12 @@ M	setSize
 M	setSoTimeout
 M	setSpacing
 M	setSpeed
+M	setStartAngle
 M	setStartDelay
 M	setStep
 M	setStopBits
 M	setStroke
+M	setSweepAngle
 M	setTag
 M	setText
 M	setTextColor
@@ -1206,6 +1238,9 @@ M	setTime
 M	setTimeout
 M	setTint
 M	setTitle
+M	setTrackColor
+M	setTrackCornerRadius
+M	setTrackThickness
 M	setTranslationX
 M	setTranslationY
 M	setUncaughtExceptionHandler

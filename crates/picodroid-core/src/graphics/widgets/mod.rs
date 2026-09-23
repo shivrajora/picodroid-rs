@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Native method implementations for all widget classes:
-//! `TextView`, `Button`, `LinearLayout`, `ProgressBar`, `Switch`, `ToggleButton`, `ListView`,
+//! `TextView`, `Button`, `LinearLayout`, `ProgressBar`, `CircularProgressIndicator`, `Switch`,
+//! `ToggleButton`, `ListView`,
 //! `ImageView`, `SeekBar`, `CheckBox`, `ScrollView`, `FrameLayout`, `Spinner`, `EditText`,
 //! `Toast`, `AlertDialog`, `Snackbar`.
 
@@ -8,6 +9,7 @@ mod alert_dialog;
 mod animator;
 mod button;
 mod check_box;
+mod circular_progress_indicator;
 mod date_picker;
 mod drawable;
 mod edit_text;
@@ -55,6 +57,14 @@ pub use check_box::{
     reset_check_box_state,
 };
 pub use check_box::{drain_cb_checked_change_queue, lookup_cb_checked_change_obj};
+pub use circular_progress_indicator::{
+    circular_progress_indicator_native_create, circular_progress_indicator_set_angles,
+    circular_progress_indicator_set_indicator_color,
+    circular_progress_indicator_set_indicator_direction, circular_progress_indicator_set_progress,
+    circular_progress_indicator_set_track_color,
+    circular_progress_indicator_set_track_corner_radius,
+    circular_progress_indicator_set_track_thickness,
+};
 pub use date_picker::{
     date_picker_get_day, date_picker_get_month, date_picker_get_year, date_picker_native_create,
     date_picker_register_listener, date_picker_set_date, reset_date_picker_state,

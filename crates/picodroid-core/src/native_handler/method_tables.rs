@@ -609,6 +609,14 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/widget/CheckBox", "nativeCreate", "()I"),
     ("picodroid/widget/CheckBox", "setChecked", "(Z)V"),
     ("picodroid/widget/CheckBox", "setText", "(Ljava/lang/String;)V"),
+    // picodroid/widget/CircularProgressIndicator
+    ("picodroid/widget/CircularProgressIndicator", "nativeCreate", "(II)I"),
+    ("picodroid/widget/CircularProgressIndicator", "nativeSetAngles", "(II)V"),
+    ("picodroid/widget/CircularProgressIndicator", "nativeSetIndicatorColor", "(I)V"),
+    ("picodroid/widget/CircularProgressIndicator", "nativeSetIndicatorDirection", "(I)V"),
+    ("picodroid/widget/CircularProgressIndicator", "nativeSetTrackColor", "(I)V"),
+    ("picodroid/widget/CircularProgressIndicator", "nativeSetTrackCornerRadius", "(I)V"),
+    ("picodroid/widget/CircularProgressIndicator", "nativeSetTrackThickness", "(I)V"),
     // picodroid/widget/CompoundButton
     ("picodroid/widget/CompoundButton", "nativeRegisterCheckedChangeListener", "()V"),
     ("picodroid/widget/CompoundButton", "performCheckedChange", "()V"),

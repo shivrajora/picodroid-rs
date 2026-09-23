@@ -1,6 +1,6 @@
 # Platform gaps found building `claudeusage`
 
-**Status: open list, nothing started (2026-09-21). D4 added 2026-09-23 as the top priority.**
+**Status: open list (2026-09-21). D4 added 2026-09-23 as the top priority; G2 closed 2026-09-23.**
 
 `examples/claudeusage` is a desk display for Claude usage limits on a new board, `pico_display2_w`
 (Pimoroni Pico Display Pack 2.0 on a Pico 2 W). It was built to look like a modern product rather
@@ -151,12 +151,18 @@ Two apps have now built their own numerals.
 **Ask:** one or two more sizes, even a digits-and-punctuation subset at 28 and 48 px, plus
 `setTextSize`. Subset fonts keep the flash cost to a few KB each.
 
-### G2. No arc or ring gauge
+### G2. No arc or ring gauge — closed 2026-09-23
 
 Ring gauges are the signature look of the ESP32 usage monitors, and LVGL has `lv_arc`. There
-is no SDK widget for it. The app uses bars throughout.
+was no SDK widget for it, and the app used bars throughout.
 
 **Ask:** an arc widget (progress, range, colour, stroke width, start and sweep angles).
+
+**Landed:** `picodroid.widget.CircularProgressIndicator`, Material Components' ring as a
+`ProgressBar` subclass over `lv_arc` (colour, stroke, size, direction, corner radius with
+Material's names; `startAngle`/`sweepAngle` in `Canvas.drawArc` terms as the one picodroid
+extension; inflatable from XML). Range is `ProgressBar`'s `setMax`/`setMin`, which G3 delivers.
+The app's Limits page is two 270° gauges side by side, the pace marker a thin overlay arc.
 
 ### G3. `ProgressBar` cannot be styled per instance
 

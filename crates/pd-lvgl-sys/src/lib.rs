@@ -244,6 +244,15 @@ pub const LV_LABEL_LONG_MODE_SCROLL: lv_label_long_mode_t = 2;
 pub const LV_LABEL_LONG_MODE_SCROLL_CIRCULAR: lv_label_long_mode_t = 3;
 pub const LV_LABEL_LONG_MODE_CLIP: lv_label_long_mode_t = 4;
 
+/// Arc fill direction (third_party/lvgl/include/lvgl/widgets/lv_arc.h
+/// `lv_arc_mode_t`), implicit ordinals; plain C enum → 1 byte under
+/// `-fshort-enums`. Guarded by `lv_arc_mode_constants_match_vendored_header`.
+/// `CircularProgressIndicator.setIndicatorDirection` maps CLOCKWISE onto NORMAL
+/// and COUNTERCLOCKWISE onto REVERSE; SYMMETRICAL (1) has no Android meaning.
+pub type lv_arc_mode_t = u8;
+pub const LV_ARC_MODE_NORMAL: lv_arc_mode_t = 0;
+pub const LV_ARC_MODE_REVERSE: lv_arc_mode_t = 2;
+
 /// `LV_COORD_MAX = (1 << LV_COORD_TYPE_SHIFT) - 1` (lv_area.h): the default of the
 /// `max_height` style, so setting it lifts a cap. Guarded by
 /// `lv_coord_max_matches_vendored_header`.
@@ -289,6 +298,9 @@ pub type lv_style_selector_t = u32;
 pub const LV_PART_MAIN: lv_style_selector_t = 0x000000;
 pub const LV_PART_SCROLLBAR: lv_style_selector_t = 0x010000;
 pub const LV_PART_INDICATOR: lv_style_selector_t = 0x020000;
+/// The draggable handle of `lv_arc`/`lv_slider`; `CircularProgressIndicator`
+/// removes the theme's style for it to draw a plain ring.
+pub const LV_PART_KNOB: lv_style_selector_t = 0x030000;
 
 /// A bare part id (no state bits), as `lv_obj_get_style_prop` takes it.
 pub type lv_part_t = u32;
@@ -696,6 +708,20 @@ extern "C" {
     pub fn lv_spinner_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
     pub fn lv_spinner_set_anim_params(obj: *mut lv_obj_t, t_ms: u32, angle_deg: u32);
 
+    // Arc widget — the determinate ring behind `CircularProgressIndicator`.
+    // Angles are `lv_value_precise_t`, which is `int32_t` because lv_conf.h
+    // sets `LV_USE_FLOAT 0` (guarded by `lv_use_float_is_off`): flipping it
+    // would silently change these signatures to `float`.
+    pub fn lv_arc_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
+    /// The track's span, `start`..`end` clockwise from 3 o'clock; LVGL wraps
+    /// either past 360 (so a full circle is exactly `0, 360`).
+    pub fn lv_arc_set_bg_angles(obj: *mut lv_obj_t, start: i32, end: i32);
+    /// Added to every angle at draw time; normalised into [0, 360).
+    pub fn lv_arc_set_rotation(obj: *mut lv_obj_t, rotation: i32);
+    pub fn lv_arc_set_mode(obj: *mut lv_obj_t, mode: lv_arc_mode_t);
+    pub fn lv_arc_set_value(obj: *mut lv_obj_t, value: i32);
+    pub fn lv_arc_set_range(obj: *mut lv_obj_t, min: i32, max: i32);
+
     // Switch widget
     pub fn lv_switch_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
 
@@ -960,6 +986,9 @@ extern "C" {
         value: bool,
         selector: lv_style_selector_t,
     );
+    /// Opacity of one part's arc (`LV_OPA_COVER` = 255): how a Java colour's
+    /// alpha byte reaches the ring, `lv_color_t` carrying none.
+    pub fn lv_obj_set_style_arc_opa(obj: *mut lv_obj_t, value: u8, selector: lv_style_selector_t);
 
     // Slider widget
     pub fn lv_slider_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
@@ -1154,6 +1183,9 @@ mod tests {
         include_str!("../../../third_party/lvgl/include/lvgl/core/lv_style.h");
     const LV_LABEL_HEADER: &str =
         include_str!("../../../third_party/lvgl/include/lvgl/widgets/lv_label.h");
+    const LV_ARC_HEADER: &str =
+        include_str!("../../../third_party/lvgl/include/lvgl/widgets/lv_arc.h");
+    const LV_CONF: &str = include_str!("../lvgl/lv_conf.h");
 
     /// Slice one enum body out of a header that may contain several enums:
     /// find the closing anchor (e.g. `"} lv_key_t"`) and walk back to the
@@ -1431,6 +1463,7 @@ mod tests {
         for (rust_const, name) in [
             (LV_PART_MAIN, "LV_PART_MAIN"),
             (LV_PART_INDICATOR, "LV_PART_INDICATOR"),
+            (LV_PART_KNOB, "LV_PART_KNOB"),
         ] {
             let header_val = lookup_assigned_value(body, name)
                 .unwrap_or_else(|| panic!("{name} not found/parsable in vendored lv_obj_style.h"));
@@ -1480,6 +1513,36 @@ mod tests {
                  corrupted rendering."
             );
         }
+    }
+
+    #[test]
+    fn lv_arc_mode_constants_match_vendored_header() {
+        let body = enum_body(LV_ARC_HEADER, "} lv_arc_mode_t").expect("lv_arc_mode_t not found");
+        for (rust_const, name) in [
+            (LV_ARC_MODE_NORMAL, "LV_ARC_MODE_NORMAL"),
+            (LV_ARC_MODE_REVERSE, "LV_ARC_MODE_REVERSE"),
+        ] {
+            let header_val = lookup_ordinal(body, "LV_ARC_MODE_", name)
+                .unwrap_or_else(|| panic!("{name} not found in vendored lv_arc.h"));
+            assert_eq!(
+                u32::from(rust_const),
+                header_val,
+                "{name}: Rust FFI drifted from vendored lv_arc.h — this enum is \
+                 implicit-ordinal, so one inserted variant flips the ring's fill \
+                 direction."
+            );
+        }
+    }
+
+    /// The arc angle externs are `i32` only while `LV_USE_FLOAT` is off:
+    /// `lv_value_precise_t` becomes `float` otherwise (lv_types.h).
+    #[test]
+    fn lv_use_float_is_off() {
+        assert_eq!(
+            lookup_define(LV_CONF, "LV_USE_FLOAT"),
+            Some(0),
+            "LV_USE_FLOAT changed: the lv_arc angle externs must switch to f32"
+        );
     }
 
     #[test]

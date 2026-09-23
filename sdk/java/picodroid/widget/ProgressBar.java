@@ -40,7 +40,11 @@ public class ProgressBar extends View {
     return bar;
   }
 
-  private ProgressBar(int nativeHandle) {
+  /**
+   * Adopts a widget a subclass created — {@link CircularProgressIndicator} passes its {@code
+   * lv_arc} here so the LVGL bar is never built for it.
+   */
+  protected ProgressBar(int nativeHandle) {
     super(nativeHandle);
   }
 
@@ -57,7 +61,10 @@ public class ProgressBar extends View {
     nativeSetProgress(value);
   }
 
-  private native void nativeSetProgress(int value);
+  // Package-private, not private: a private native compiles to invokespecial, which the
+  // runtime dispatches by this class, so a subclass over another LVGL widget (the ring
+  // gauge's lv_arc) would receive lv_bar calls. invokevirtual routes by the receiver's class.
+  native void nativeSetProgress(int value);
 
   /**
    * Mirrors {@code android.widget.ProgressBar#getProgress()}: returns the most recent {@link

@@ -707,6 +707,40 @@ spinner.setSize(48, 48);
 
 `indeterminate()` returns a `ProgressBar` backed by `lv_spinner` and ignores `setProgress`.
 
+### `picodroid.widget.CircularProgressIndicator`
+
+A determinate ring gauge: the progress is an arc over a circular track. It is Material Components'
+`CircularProgressIndicator` (a `ProgressBar` subclass) with the same method names, folded into
+`picodroid.widget` like `Snackbar`, and backed by LVGL's `lv_arc`.
+
+```java
+import picodroid.widget.CircularProgressIndicator;
+
+CircularProgressIndicator ring = new CircularProgressIndicator(this);
+ring.setIndicatorSize(72);          // diameter in px; the view is square
+ring.setTrackThickness(8);          // stroke of both the track and the arc
+ring.setIndicatorColor(Color.GREEN);
+ring.setTrackColor(0xFF2E2A26);
+ring.setProgress(42);               // ProgressBar's API, 0..100
+```
+
+Material's knobs: `setIndicatorColor(int)`, `setTrackColor(int)` (a colour's alpha is honoured, so
+`Color.TRANSPARENT` hides the track), `setTrackThickness(int)`, `setIndicatorSize(int)`,
+`setIndicatorDirection(INDICATOR_DIRECTION_CLOCKWISE | INDICATOR_DIRECTION_COUNTERCLOCKWISE)` and
+`setTrackCornerRadius(int)` (any positive radius rounds the caps, `0` squares them; rounded by
+default), each with its getter.
+
+Two picodroid extensions, for gauges that are not a full circle, in `Canvas.drawArc` terms — degrees,
+0 at 3 o'clock, clockwise: `setStartAngle(float)` and `setSweepAngle(float)` (0..360, clamped).
+The defaults, 270 and 360, draw a full ring filling from 12 o'clock; a dashboard dial open at the
+bottom is `setStartAngle(135); setSweepAngle(270)`. Angles are rounded to whole degrees.
+
+Divergences from Material: determinate only (for a spinner use `ProgressBar.indeterminate()`);
+one indicator colour, so `getIndicatorColor()` returns an `int`; no `indicatorInset`;
+`indicatorSize` is the intrinsic size and explicit layout dimensions win over it. Inflatable from
+XML as `<CircularProgressIndicator>` with `indicatorColor`, `trackColor`, `trackThickness`,
+`indicatorSize`, `startAngle` and `sweepAngle` (see [resources](/guides/resources/)).
+
 ### `picodroid.widget.ListView`
 
 A scrollable list. Add plain text items directly, or back it with an `Adapter` for data-driven

@@ -52,6 +52,11 @@ pub trait GraphicsBackend {
         method: &str,
         ctx: &mut NativeContext<'_>,
     ) -> DispatchResult;
+    fn dispatch_circular_progress_indicator(
+        &mut self,
+        method: &str,
+        ctx: &mut NativeContext<'_>,
+    ) -> DispatchResult;
     fn dispatch_switch(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult;
     fn dispatch_toggle_button(
         &mut self,

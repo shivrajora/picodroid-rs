@@ -77,6 +77,7 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
     c::picodroid_widget_Button,
     c::picodroid_widget_LinearLayout,
     c::picodroid_widget_ProgressBar,
+    c::picodroid_widget_CircularProgressIndicator,
     c::picodroid_widget_Switch,
     c::picodroid_widget_ListView,
     c::picodroid_widget_NumberPicker,

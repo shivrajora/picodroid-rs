@@ -19,6 +19,7 @@ import picodroid.view.ViewGroup;
 import picodroid.widget.ArrayAdapter;
 import picodroid.widget.Button;
 import picodroid.widget.CheckBox;
+import picodroid.widget.CircularProgressIndicator;
 import picodroid.widget.EditText;
 import picodroid.widget.FrameLayout;
 import picodroid.widget.LinearLayout;
@@ -424,6 +425,40 @@ public class QaUiActivity extends Activity {
     root.addView(ind);
     check("indeterminate", ind.isIndeterminate());
     root.removeView(ind);
+    // The ring gauge is a ProgressBar over lv_arc: progress goes through the inherited
+    // setter (dispatched by runtime class), the geometry through Material's names.
+    CircularProgressIndicator ring = new CircularProgressIndicator(this);
+    root.addView(ring);
+    ring.setProgress(42);
+    check("ring progress", ring.getProgress() == 42 && !ring.isIndeterminate());
+    ring.setIndicatorColor(Color.GREEN);
+    ring.setTrackColor(0xFF444444);
+    ring.setTrackThickness(6);
+    ring.setIndicatorSize(64);
+    ring.setStartAngle(135f);
+    ring.setSweepAngle(270f);
+    ring.setIndicatorDirection(CircularProgressIndicator.INDICATOR_DIRECTION_COUNTERCLOCKWISE);
+    ring.setTrackCornerRadius(0);
+    check(
+        "ring geometry",
+        ring.getIndicatorSize() == 64
+            && ring.getWidth() == 64
+            && ring.getHeight() == 64
+            && ring.getTrackThickness() == 6
+            && ring.getStartAngle() == 135f
+            && ring.getSweepAngle() == 270f);
+    check(
+        "ring style",
+        ring.getIndicatorColor() == Color.GREEN
+            && ring.getTrackColor() == 0xFF444444
+            && ring.getIndicatorDirection()
+                == CircularProgressIndicator.INDICATOR_DIRECTION_COUNTERCLOCKWISE
+            && ring.getTrackCornerRadius() == 0);
+    ring.setTint(Color.RED); // indeterminate-only on Android: a no-op on a ring
+    ring.setSweepAngle(400f); // LVGL clamps to a full circle; the request is kept
+    ring.setProgress(0);
+    check("ring zero", ring.getProgress() == 0 && ring.getSweepAngle() == 400f);
+    root.removeView(ring);
   }
 
   void adapters() {

@@ -169,6 +169,45 @@ impl GraphicsBackend for LvglBackend {
         }
     }
 
+    fn dispatch_circular_progress_indicator(
+        &mut self,
+        method: &str,
+        ctx: &mut NativeContext<'_>,
+    ) -> DispatchResult {
+        match method {
+            m::nativeCreate => Some(widgets::circular_progress_indicator_native_create(ctx.args)),
+            // Inherited from ProgressBar and routed here by the receiver's runtime
+            // class, so the lv_bar setters never see the ring's lv_arc. The
+            // indeterminate tint has nothing to colour on a determinate ring.
+            m::nativeSetProgress => Some(widgets::circular_progress_indicator_set_progress(
+                ctx.args,
+                ctx.objects,
+            )),
+            m::setTint => Some(Ok(None)),
+            m::nativeSetIndicatorColor => Some(
+                widgets::circular_progress_indicator_set_indicator_color(ctx.args, ctx.objects),
+            ),
+            m::nativeSetTrackColor => Some(widgets::circular_progress_indicator_set_track_color(
+                ctx.args,
+                ctx.objects,
+            )),
+            m::nativeSetTrackThickness => Some(
+                widgets::circular_progress_indicator_set_track_thickness(ctx.args, ctx.objects),
+            ),
+            m::nativeSetIndicatorDirection => Some(
+                widgets::circular_progress_indicator_set_indicator_direction(ctx.args, ctx.objects),
+            ),
+            m::nativeSetTrackCornerRadius => Some(
+                widgets::circular_progress_indicator_set_track_corner_radius(ctx.args, ctx.objects),
+            ),
+            m::nativeSetAngles => Some(widgets::circular_progress_indicator_set_angles(
+                ctx.args,
+                ctx.objects,
+            )),
+            _ => None,
+        }
+    }
+
     fn dispatch_switch(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult {
         match method {
             m::nativeCreate => Some(widgets::switch_native_create()),

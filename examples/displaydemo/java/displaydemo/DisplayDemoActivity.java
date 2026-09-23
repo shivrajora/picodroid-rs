@@ -14,6 +14,7 @@ import picodroid.view.View;
 import picodroid.widget.AdapterView;
 import picodroid.widget.Button;
 import picodroid.widget.CheckBox;
+import picodroid.widget.CircularProgressIndicator;
 import picodroid.widget.ImageView;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.ProgressBar;
@@ -102,12 +103,22 @@ public class DisplayDemoActivity extends Activity {
     progress.setSize(200, 12);
     root.addView(progress);
 
+    // The same value as a ring gauge: a three-quarter dial, open at the bottom.
+    CircularProgressIndicator ring = new CircularProgressIndicator();
+    ring.setIndicatorSize(56);
+    ring.setTrackThickness(6);
+    ring.setIndicatorColor(Color.CYAN);
+    ring.setStartAngle(135f);
+    ring.setSweepAngle(270f);
+    root.addView(ring);
+
     SeekBar seekBar = new SeekBar(100);
     seekBar.setSize(200, 20);
     seekBar.setOnSeekBarChangeListener(
         (bar, v, fromUser) -> {
           seekLabel.setText("SeekBar: " + v);
           progress.setProgress(v);
+          ring.setProgress(v);
         });
     root.addView(seekBar);
 
@@ -123,6 +134,7 @@ public class DisplayDemoActivity extends Activity {
     root.addView(busy);
 
     progress.setProgress(40);
+    ring.setProgress(40);
     busy.setProgress(99); // ignored: indeterminate
     Log.i(
         "DisplayDemo",

@@ -30,6 +30,7 @@ fn is_view(class_name: &str) -> bool {
             | c::picodroid_widget_AdapterView
             | c::picodroid_widget_LinearLayout
             | c::picodroid_widget_ProgressBar
+            | c::picodroid_widget_CircularProgressIndicator
             | c::picodroid_widget_Switch
             | c::picodroid_widget_ToggleButton
             | c::picodroid_widget_ListView
@@ -126,6 +127,9 @@ fn dispatch_with<B: GraphicsBackend>(
         c::picodroid_widget_Button => be.dispatch_button(method_name, ctx),
         c::picodroid_widget_LinearLayout => be.dispatch_linear_layout(method_name, ctx),
         c::picodroid_widget_ProgressBar => be.dispatch_progress_bar(method_name, ctx),
+        c::picodroid_widget_CircularProgressIndicator => {
+            be.dispatch_circular_progress_indicator(method_name, ctx)
+        }
         c::picodroid_widget_Switch => be.dispatch_switch(method_name, ctx),
         c::picodroid_widget_ToggleButton => be.dispatch_toggle_button(method_name, ctx),
         c::picodroid_widget_ListView => be.dispatch_list_view(method_name, ctx),

@@ -7,6 +7,18 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**Ring gauges: `CircularProgressIndicator`**
+
+- `picodroid.widget.CircularProgressIndicator` arrives: Material Components' determinate ring, a
+  `ProgressBar` subclass over LVGL's `lv_arc`, with `setIndicatorColor`, `setTrackColor`,
+  `setTrackThickness`, `setIndicatorSize`, `setIndicatorDirection` and `setTrackCornerRadius`,
+  plus picodroid's `setStartAngle` / `setSweepAngle` (`Canvas.drawArc` degrees) for dials that are
+  not a full circle. Inflatable from XML as `<CircularProgressIndicator>` with Material's
+  attribute names. `examples/claudeusage` draws its Limits page with two of them, and
+  `examples/displaydemo` shows one beside the bar.
+- `ProgressBar`'s handle constructor is `protected` and its progress native is package-private,
+  so a subclass over another LVGL widget can adopt it; no app-visible change.
+
 **Saved instance state, and Activities the framework may reclaim (map v0.27.0, package 0.27.0)**
 
 - `picodroid.os.Bundle` arrives, and with it Android's instance-state contract:
