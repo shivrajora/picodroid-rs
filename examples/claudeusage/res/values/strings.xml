@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Claude Usage</string>
+
+    <!-- Corner hints, one per button. -->
+    <string name="hint_prev">prev</string>
+    <string name="hint_next">next</string>
+    <string name="hint_sync">sync</string>
+    <string name="hint_auto">auto</string>
+    <string name="hint_home">home</string>
+
+    <string name="page_limits">Limits</string>
+    <string name="page_models">Models</string>
+    <string name="page_burn">Burn rate</string>
+    <string name="page_history">History</string>
+    <string name="page_status">Claude usage</string>
+
+    <!-- Footer banner. -->
+    <string name="banner_auto">auto  -  %s</string>
+    <string name="banner_updated">updated %s</string>
+    <string name="banner_stale">%s - %s</string>
+
+    <!-- Link states, at most 14 characters: they share the footer with a duration. -->
+    <string name="link_joining">Joining WiFi</string>
+    <string name="link_ok">Connected</string>
+    <string name="link_no_wifi">WiFi down</string>
+    <string name="link_pc_off">PC offline</string>
+    <string name="link_bridge_down">Bridge down</string>
+    <string name="link_no_reply">No reply</string>
+    <string name="link_login_expired">Login expired</string>
+    <string name="link_rate_limited">Rate limited</string>
+    <string name="link_no_credentials">No credentials</string>
+    <string name="link_claude_error">Claude error</string>
+    <string name="link_bridge_error">Bridge error</string>
+
+    <!-- One line of what to do about it, on the status screen. -->
+    <string name="advice_joining">Waiting for the network</string>
+    <string name="advice_no_wifi">Check the access point</string>
+    <string name="advice_pc_off">Is the PC on and awake?</string>
+    <string name="advice_bridge_down">Start claude_usage_bridge.py</string>
+    <string name="advice_no_reply">The bridge is not answering</string>
+    <string name="advice_sign_in">Run claude on the PC to sign in</string>
+    <string name="advice_rate_limited">Anthropic is rate limiting</string>
+    <string name="advice_upstream">The bridge cannot reach Claude</string>
+    <string name="advice_bad_data">Unexpected reply from the bridge</string>
+
+    <!-- Status screen. -->
+    <string name="status_bridge">Bridge  %s</string>
+    <string name="status_retry_hint">X  retry now</string>
+    <string name="status_contacting">Contacting bridge</string>
+    <string name="status_retrying_in">Retrying in %ds</string>
+    <string name="status_retrying">Retrying</string>
+
+    <!-- Limits. -->
+    <string name="card_session">5-hour session</string>
+    <string name="card_weekly">Weekly, all models</string>
+    <string name="resets_in">resets in %s</string>
+    <string name="resetting">resetting</string>
+    <string name="window_has_reset">window has reset</string>
+    <string name="waiting_for_sync">waiting for sync</string>
+    <string name="not_reported">not reported</string>
+    <string name="ahead_of_pace">ahead of pace</string>
+    <string name="window_gone">%d%% of window gone</string>
+
+    <!-- Models. -->
+    <string name="models_weekly_limit">Weekly limit</string>
+    <string name="models_all">All</string>
+    <string name="models_no_caps">no per-model caps</string>
+    <string name="models_tokens_week">Tokens, last 7 days</string>
+    <string name="models_share">share of tokens</string>
+    <string name="no_transcripts">no transcripts yet</string>
+
+    <!-- Burn rate. -->
+    <string name="burn_title">Session burn rate</string>
+    <string name="burn_unit">% / hour</string>
+    <string name="burn_trend">Session, last hour</string>
+    <string name="burn_no_live_data">no live data</string>
+    <string name="burn_limit_reached">limit reached</string>
+    <string name="burn_idle">idle</string>
+    <string name="burn_resets_first">resets before limit</string>
+    <string name="burn_limit_in">limit in ~%s</string>
+    <string name="burn_now">now %d%%</string>
+
+    <!-- History. -->
+    <string name="history_tokens_today">tokens today</string>
+    <string name="history_api_value">API value</string>
+    <string name="history_messages">messages</string>
+    <string name="history_last_week">Last 7 days</string>
+    <string name="history_peak">peak %s</string>
+    <string name="history_estimate">~%s</string>
+
+    <string name="dash">--</string>
+</resources>

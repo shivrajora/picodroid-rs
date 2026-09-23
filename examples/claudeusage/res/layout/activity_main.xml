@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The chrome: a header, the page host and a footer. Each corner carries the hint for the button
+  beside it (A top-left, B bottom-left, X top-right, Y bottom-right). Pages are built in code, a
+  few views per tick, into @id/page_host.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="@dimen/none"
+    android:background="@color/background">
+
+    <LinearLayout
+        android:id="@+id/header"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/header_height"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="@dimen/none"
+        android:background="@color/background">
+
+        <TextView
+            android:id="@+id/hint_prev"
+            android:layout_width="@dimen/corner_width"
+            android:layout_height="wrap_content"
+            android:paddingLeft="@dimen/margin"
+            android:singleLine="true"
+            android:text="@string/hint_prev"
+            android:textColor="@color/faint" />
+
+        <TextView
+            android:id="@+id/title"
+            android:layout_width="@dimen/title_width"
+            android:layout_height="wrap_content"
+            android:singleLine="true"
+            android:textColor="@color/text" />
+
+        <TextView
+            android:id="@+id/plan"
+            android:layout_width="@dimen/plan_width"
+            android:layout_height="wrap_content"
+            android:singleLine="true"
+            android:textColor="@color/clay" />
+
+        <LinearLayout
+            android:id="@+id/clock_box"
+            android:layout_width="@dimen/clock_width"
+            android:layout_height="@dimen/line_height"
+            android:orientation="horizontal"
+            android:gravity="right|center_vertical"
+            android:padding="@dimen/none"
+            android:background="@color/background">
+
+            <TextView
+                android:id="@+id/clock"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:singleLine="true"
+                android:textColor="@color/muted" />
+        </LinearLayout>
+
+        <FrameLayout
+            android:id="@+id/dot_box"
+            android:layout_width="@dimen/dot_slot_width"
+            android:layout_height="@dimen/status_dot"
+            android:paddingLeft="@dimen/margin"
+            android:paddingRight="@dimen/margin"
+            android:background="@color/background">
+
+            <FrameLayout
+                android:id="@+id/status_dot"
+                android:layout_width="@dimen/status_dot"
+                android:layout_height="@dimen/status_dot"
+                android:padding="@dimen/none"
+                android:background="@color/faint" />
+        </FrameLayout>
+
+        <LinearLayout
+            android:id="@+id/sync_box"
+            android:layout_width="@dimen/hint_width"
+            android:layout_height="@dimen/line_height"
+            android:orientation="horizontal"
+            android:gravity="right|center_vertical"
+            android:paddingRight="@dimen/margin"
+            android:background="@color/background">
+
+            <TextView
+                android:id="@+id/hint_sync"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:singleLine="true"
+                android:text="@string/hint_sync"
+                android:textColor="@color/faint" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <FrameLayout
+        android:id="@+id/page_host"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/page_height"
+        android:padding="@dimen/none"
+        android:background="@color/background">
+
+        <!-- Keys reach Java only through a focused view; this invisible one holds the focus. -->
+        <Button
+            android:id="@+id/key_catcher"
+            android:layout_width="@dimen/hairline"
+            android:layout_height="@dimen/hairline"
+            android:focusable="true"
+            android:alpha="0" />
+    </FrameLayout>
+
+    <LinearLayout
+        android:id="@+id/footer"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/footer_height"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="@dimen/none"
+        android:background="@color/background">
+
+        <TextView
+            android:id="@+id/hint_next"
+            android:layout_width="@dimen/corner_width"
+            android:layout_height="wrap_content"
+            android:paddingLeft="@dimen/margin"
+            android:singleLine="true"
+            android:text="@string/hint_next"
+            android:textColor="@color/faint" />
+
+        <LinearLayout
+            android:id="@+id/page_dots"
+            android:layout_width="@dimen/page_dots_width"
+            android:layout_height="@dimen/page_dot"
+            android:orientation="horizontal"
+            android:padding="@dimen/none"
+            android:background="@color/background">
+
+            <FrameLayout
+                android:id="@+id/page_dot_0"
+                android:layout_width="@dimen/page_dot"
+                android:layout_height="@dimen/page_dot"
+                android:padding="@dimen/none"
+                android:background="@color/track" />
+
+            <FrameLayout
+                android:id="@+id/page_dot_1"
+                android:layout_width="@dimen/page_dot"
+                android:layout_height="@dimen/page_dot"
+                android:padding="@dimen/none"
+                android:background="@color/track" />
+
+            <FrameLayout
+                android:id="@+id/page_dot_2"
+                android:layout_width="@dimen/page_dot"
+                android:layout_height="@dimen/page_dot"
+                android:padding="@dimen/none"
+                android:background="@color/track" />
+
+            <FrameLayout
+                android:id="@+id/page_dot_3"
+                android:layout_width="@dimen/page_dot"
+                android:layout_height="@dimen/page_dot"
+                android:padding="@dimen/none"
+                android:background="@color/track" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/banner_box"
+            android:layout_width="@dimen/banner_width"
+            android:layout_height="@dimen/line_height"
+            android:orientation="horizontal"
+            android:gravity="center_horizontal|center_vertical"
+            android:padding="@dimen/none"
+            android:background="@color/background">
+
+            <TextView
+                android:id="@+id/banner"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:singleLine="true"
+                android:textColor="@color/muted" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/home_box"
+            android:layout_width="@dimen/hint_width"
+            android:layout_height="@dimen/line_height"
+            android:orientation="horizontal"
+            android:gravity="right|center_vertical"
+            android:paddingLeft="@dimen/hint_pad"
+            android:paddingRight="@dimen/margin"
+            android:background="@color/background">
+
+            <TextView
+                android:id="@+id/hint_home"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:singleLine="true"
+                android:text="@string/hint_auto"
+                android:textColor="@color/faint" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

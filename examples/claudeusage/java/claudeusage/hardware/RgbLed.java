@@ -9,9 +9,10 @@ import picodroid.util.Log;
  * The Display Pack 2.0's RGB LED: common-anode on GP6 / GP7 / GP8, so PWM duty is inverted (100 %
  * is dark). GP6 and GP7 share PWM slice 3, GP8 is on slice 4; one frequency suits all three.
  *
- * <p>Optional hardware: on a board without these pins {@link #open} returns a dummy.
+ * <p>Optional hardware: on a board without these pins {@link #open} returns a dummy. Close it when
+ * the screen goes away, as any peripheral.
  */
-public final class RgbLed {
+public final class RgbLed implements AutoCloseable {
   private static final String TAG = "RgbLed";
   private static final double PWM_FREQ_HZ = 1000.0;
 
@@ -54,6 +55,18 @@ public final class RgbLed {
     red.setPwmDutyCycle(duty((rgb >> 16) & 0xFF));
     green.setPwmDutyCycle(duty((rgb >> 8) & 0xFF));
     blue.setPwmDutyCycle(duty(rgb & 0xFF));
+  }
+
+  /** Dark, then the channels are released. */
+  @Override
+  public void close() {
+    if (red == null) {
+      return;
+    }
+    setColor(0);
+    red.close();
+    green.close();
+    blue.close();
   }
 
   private static double duty(int v) {

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package claudeusage.data;
 
-import claudeusage.ClaudeUsageApp;
-import claudeusage.NetTestConfig;
 import java.io.IOException;
 import java.net.ConnectException;
 import java.net.SocketTimeoutException;
@@ -19,14 +17,9 @@ import picodroid.util.Log;
  * UI can say what is wrong rather than just "offline".
  */
 public final class UsageFetcher {
-  private static final String TAG = ClaudeUsageApp.TAG;
+  private static final String TAG = UsageService.TAG;
 
   public static final int PORT = 8787;
-
-  /** Shown on the status screen so a wrong address is obvious. */
-  public static final String ADDRESS = NetTestConfig.HOST + ":" + PORT;
-
-  private static final String URL_TEXT = "http://" + ADDRESS + "/u";
 
   /**
    * No timeout means forever on this platform. Short on purpose: a PC that is switched off answers
@@ -37,15 +30,19 @@ public final class UsageFetcher {
   /** The bridge caps its reply at 700 bytes; anything that fills this buffer is not ours. */
   private static final int MAX_REPLY_BYTES = 1024;
 
+  /**
+   * Shared by construction: one fetch runs at a time, on the poll thread. A fresh buffer per poll
+   * would be churn the RP2350 heap does not need.
+   */
   private static final byte[] BUF = new byte[MAX_REPLY_BYTES];
 
   private UsageFetcher() {}
 
   /** Fills {@code out} and returns {@link LinkState#OK} or {@link LinkState#UPSTREAM}, else why. */
-  static int fetch(UsageSnapshot out) {
+  static LinkState fetch(String url, UsageSnapshot out) {
     HttpURLConnection conn = null;
     try {
-      conn = new URL(URL_TEXT).openConnection();
+      conn = new URL(url).openConnection();
       conn.setConnectTimeout(TIMEOUT_MS);
       conn.setReadTimeout(TIMEOUT_MS);
       conn.connect();

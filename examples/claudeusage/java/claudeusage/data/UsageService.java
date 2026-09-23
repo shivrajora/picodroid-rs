@@ -1,28 +1,40 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package claudeusage.data;
 
-import claudeusage.ClaudeUsageApp;
+import claudeusage.NetTestConfig;
 import claudeusage.util.TimeFormat;
+import picodroid.app.Service;
 import picodroid.concurrent.Executors;
 import picodroid.concurrent.Thread;
+import picodroid.content.Intent;
+import picodroid.content.SharedPreferences;
 import picodroid.net.NetworkInfo;
+import picodroid.os.IBinder;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
 
 /**
- * Owns the two background threads. One polls the bridge. The other nudges the UI once a second so
- * countdowns and the staleness display keep moving; it is separate so that a fetch that blocks, or
- * never returns, cannot freeze the screen on numbers that look live.
+ * The started-and-bound Service that owns the numbers and the two background threads. One polls the
+ * bridge. The other nudges the UI once a second so countdowns and the staleness display keep
+ * moving; it is separate so that a fetch that blocks, or never returns, cannot freeze the screen on
+ * numbers that look live.
  *
- * <p>App-scoped rather than a Service, as picoenvmon's NetworkManager is: there is one process and
- * the numbers should be warm whichever screen is showing.
+ * <p>Started so the numbers stay warm whichever screen is showing; bound so the Activity can read
+ * them through the {@link LocalBinder}. The bridge's address is a preference, {@link
+ * #KEY_BRIDGE_HOST}, defaulting to the build-time host.
  *
  * <p>Threading: the poll thread never touches the fields the UI reads. It hands each result to the
  * main thread in a posted Runnable, and everything below the "main thread" banner is confined to
- * it. The two flags that cross are volatile.
+ * it. The flags that cross are volatile; the poll thread idles on {@link #lock}.
  */
-public final class UsageRepository implements Runnable {
-  private static final String TAG = ClaudeUsageApp.TAG;
+public final class UsageService extends Service {
+  public static final String TAG = "ClaudeUsage";
+
+  /** The preferences file the app's settings live in. */
+  public static final String PREFS = "settings";
+
+  /** Host or address of the bridge; the port is {@link UsageFetcher#PORT}. */
+  public static final String KEY_BRIDGE_HOST = "bridge_host";
 
   /**
    * The bridge itself only asks Anthropic every three minutes; this just keeps {@code age} fresh.
@@ -43,7 +55,6 @@ public final class UsageRepository implements Runnable {
   /** Limits the bridge itself has not refreshed for this long count as stale too. */
   private static final int UPSTREAM_STALE_S = 900;
 
-  private static final int SLICE_MS = 250;
   private static final int TICK_MS = 1000;
 
   /**
@@ -66,25 +77,28 @@ public final class UsageRepository implements Runnable {
     void onTick();
   }
 
-  private static final UsageRepository INSTANCE = new UsageRepository();
-
-  public static UsageRepository get() {
-    return INSTANCE;
+  public static class LocalBinder implements IBinder {
+    public UsageService service;
   }
 
-  private UsageRepository() {}
+  private final LocalBinder binder = new LocalBinder();
 
   // ── Crossing threads ───────────────────────────────────────────────────────
 
+  /** The poll thread waits on this between attempts; a refresh request or destroy wakes it. */
+  private final Object lock = new Object();
+
+  private volatile boolean running;
   private volatile boolean refreshRequested;
   private volatile boolean listening;
-  private boolean started;
+  private String address;
+  private String url;
 
   // ── Main thread only ───────────────────────────────────────────────────────
 
   private Listener listener;
   private UsageSnapshot snapshot;
-  private int linkState = LinkState.JOINING;
+  private LinkState linkState = LinkState.JOINING;
   private String linkErr = "";
   private boolean syncing;
   private long syncStartedElapsedMs;
@@ -108,14 +122,43 @@ public final class UsageRepository implements Runnable {
         }
       };
 
-  public void start() {
-    if (started) {
-      return;
-    }
-    started = true;
-    new Thread(this).start();
-    new Thread(this::tickLoop).start();
+  // ── Lifecycle ──────────────────────────────────────────────────────────────
+
+  @Override
+  public void onCreate() {
+    super.onCreate();
+    binder.service = this;
+    SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+    address = prefs.getString(KEY_BRIDGE_HOST, NetTestConfig.HOST) + ":" + UsageFetcher.PORT;
+    url = "http://" + address + "/u";
+    running = true;
+    new Thread(this::pollLoop, "usage-poll").start();
+    new Thread(this::tickLoop, "usage-tick").start();
+    Log.i(TAG, "service up, bridge " + address);
   }
+
+  @Override
+  public int onStartCommand(Intent intent, int flags, int startId) {
+    return START_STICKY;
+  }
+
+  @Override
+  public IBinder onBind(Intent intent) {
+    return binder;
+  }
+
+  @Override
+  public void onDestroy() {
+    listener = null;
+    listening = false;
+    running = false;
+    synchronized (lock) {
+      lock.notifyAll();
+    }
+    super.onDestroy();
+  }
+
+  // ── Client API (main thread) ───────────────────────────────────────────────
 
   public void setListener(Listener l) {
     listener = l;
@@ -125,6 +168,14 @@ public final class UsageRepository implements Runnable {
   /** X button: fetch now rather than at the next poll. */
   public void refreshNow() {
     refreshRequested = true;
+    synchronized (lock) {
+      lock.notifyAll();
+    }
+  }
+
+  /** Shown on the status screen so a wrong address is obvious. */
+  public String bridgeAddress() {
+    return address;
   }
 
   public UsageSnapshot snapshot() {
@@ -132,7 +183,7 @@ public final class UsageRepository implements Runnable {
   }
 
   /** The link state to present: an overdue fetch counts as an unreachable PC. */
-  public int linkState() {
+  public LinkState linkState() {
     if (syncing && SystemClock.elapsedRealtime() - syncStartedElapsedMs > SYNC_OVERDUE_MS) {
       return LinkState.PC_OFF;
     }
@@ -200,11 +251,11 @@ public final class UsageRepository implements Runnable {
     }
   }
 
-  private void applyResult(int state, UsageSnapshot fresh, int retryMs) {
+  private void applyResult(LinkState state, UsageSnapshot fresh, int retryMs) {
     syncing = false;
     nextAttemptElapsedMs = SystemClock.elapsedRealtime() + retryMs;
     if (state != linkState) {
-      Log.i(TAG, "state -> " + LinkState.name(state));
+      Log.i(TAG, "state -> " + state.name());
     }
     linkState = state;
     linkErr = fresh != null ? fresh.err : "";
@@ -238,9 +289,9 @@ public final class UsageRepository implements Runnable {
     }
   }
 
-  private void applyLinkOnly(int state) {
+  private void applyLinkOnly(LinkState state) {
     if (state != linkState) {
-      Log.i(TAG, "state -> " + LinkState.name(state));
+      Log.i(TAG, "state -> " + state.name());
       linkState = state;
       linkErr = "";
       if (listener != null) {
@@ -260,9 +311,9 @@ public final class UsageRepository implements Runnable {
   // ── Ticker thread ──────────────────────────────────────────────────────────
 
   private void tickLoop() {
-    while (true) {
+    while (running) {
       SystemClock.sleep(TICK_MS);
-      if (listening) {
+      if (running && listening) {
         Executors.mainExecutor().execute(tick);
       }
     }
@@ -270,13 +321,12 @@ public final class UsageRepository implements Runnable {
 
   // ── Poll thread ────────────────────────────────────────────────────────────
 
-  @Override
-  public void run() {
+  private void pollLoop() {
     int failures = 0;
     boolean everConnected = false;
-    while (true) {
+    while (running) {
       if (!NetworkInfo.isConnected()) {
-        final int state = everConnected ? LinkState.NO_WIFI : LinkState.JOINING;
+        final LinkState state = everConnected ? LinkState.NO_WIFI : LinkState.JOINING;
         Executors.mainExecutor().execute(() -> applyLinkOnly(state));
         idle(everConnected ? 5000 : 500);
         continue;
@@ -286,7 +336,7 @@ public final class UsageRepository implements Runnable {
       Executors.mainExecutor().execute(this::applySyncing);
 
       final UsageSnapshot fresh = new UsageSnapshot();
-      final int state = UsageFetcher.fetch(fresh);
+      final LinkState state = UsageFetcher.fetch(url, fresh);
       final boolean gotReply = state == LinkState.OK || state == LinkState.UPSTREAM;
       failures = state == LinkState.OK ? 0 : failures + 1;
       final int wait =
@@ -298,13 +348,21 @@ public final class UsageRepository implements Runnable {
     }
   }
 
-  /** Sleeps up to {@code ms}, cutting short on a refresh request. */
+  /** Waits up to {@code ms}, cut short by a refresh request or the Service going away. */
   private void idle(int ms) {
-    for (int slept = 0; slept < ms; slept += SLICE_MS) {
-      if (refreshRequested) {
-        return;
+    long until = SystemClock.elapsedRealtime() + ms;
+    synchronized (lock) {
+      while (running && !refreshRequested) {
+        long left = until - SystemClock.elapsedRealtime();
+        if (left <= 0) {
+          return;
+        }
+        try {
+          lock.wait(left);
+        } catch (InterruptedException e) {
+          return;
+        }
       }
-      SystemClock.sleep(SLICE_MS);
     }
   }
 }

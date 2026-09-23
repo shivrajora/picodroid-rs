@@ -1,29 +1,35 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package claudeusage.ui;
 
-import claudeusage.ClaudeUsageApp;
+import claudeusage.R;
 import claudeusage.data.LinkState;
-import claudeusage.data.UsageRepository;
+import claudeusage.data.UsageService;
 import claudeusage.data.UsageSnapshot;
 import claudeusage.hardware.RgbLed;
 import claudeusage.util.TimeFormat;
 import picodroid.app.Activity;
 import picodroid.concurrent.Executors;
-import picodroid.graphics.drawable.GradientDrawable;
+import picodroid.content.Intent;
+import picodroid.content.ServiceConnection;
+import picodroid.content.res.Resources;
 import picodroid.os.Bundle;
+import picodroid.os.IBinder;
 import picodroid.util.Log;
 import picodroid.view.KeyEvent;
 import picodroid.view.OnKeyListener;
 import picodroid.view.View;
 import picodroid.widget.Button;
 import picodroid.widget.FrameLayout;
+import picodroid.widget.LinearLayout;
 
 /**
- * The one Activity. Four screens live in it as pages rather than as Activities of their own: one
- * key listener, one header and footer, and a page switch is a fade instead of a lifecycle.
+ * The one Activity, declared in the manifest as the entry point. Four screens live in it as pages
+ * rather than as Activities of their own: one key listener, one header and footer, and a page
+ * switch is a fade instead of a lifecycle. The chrome is {@code res/layout/activity_main.xml}.
  *
- * <p>Buttons, with the display landscape (A top-left, B bottom-left, X top-right, Y bottom-right);
- * each corner of the screen carries the hint for the button beside it:
+ * <p>The numbers come from {@link UsageService}, started here so they stay warm and bound while the
+ * screen is on. Buttons, with the display landscape (A top-left, B bottom-left, X top-right, Y
+ * bottom-right); each corner of the screen carries the hint for the button beside it:
  *
  * <ul>
  *   <li>A previous screen, B next screen (both wrap)
@@ -34,23 +40,46 @@ import picodroid.widget.FrameLayout;
  * Y never leaves the app: this is an appliance, and BACK falling through to finish() would drop it
  * to a launcher nobody asked for.
  */
-public class MainActivity extends Activity implements OnKeyListener, UsageRepository.Listener {
-  private static final String TAG = ClaudeUsageApp.TAG;
+public class MainActivity extends Activity implements OnKeyListener, UsageService.Listener {
+  private static final String TAG = UsageService.TAG;
 
   private static final int PAGE_LIMITS = 0;
   private static final int PAGE_COUNT = 4;
-  private static final int AUTO_SECONDS = 10;
-  private static final int FADE_MS = 180;
 
-  /** LED colours, deliberately dim. Off while usage is comfortable or the data is stale. */
-  private static final int LED_WARN = 0x281400;
+  private static final String STATE_PAGE = "page";
+  private static final String STATE_AUTO = "auto";
 
-  private static final int LED_BAD = 0x300000;
+  /** AUTO is a setting: it survives a power cycle. */
+  private static final String KEY_AUTO = "auto";
 
-  private final UsageRepository repo = UsageRepository.get();
+  private static final int[] PAGE_DOT_IDS = {
+    R.id.page_dot_0, R.id.page_dot_1, R.id.page_dot_2, R.id.page_dot_3
+  };
+
+  private final ServiceConnection connection =
+      new ServiceConnection() {
+        @Override
+        public void onServiceConnected(IBinder binder) {
+          repo = ((UsageService.LocalBinder) binder).service;
+          repo.setListener(MainActivity.this);
+          refresh();
+        }
+
+        @Override
+        public void onServiceDisconnected() {
+          repo = null;
+        }
+      };
+
+  /** Null until the Service is bound; every callback that reads it arrives after that. */
+  private UsageService repo;
+
+  private Palette palette;
+  private int autoPeriod;
+  private int fadeMs;
   private RgbLed led;
 
-  private FrameLayout root;
+  private FrameLayout pageHost;
   private Button keyCatcher;
   private Line title;
   private Line plan;
@@ -62,6 +91,11 @@ public class MainActivity extends Activity implements OnKeyListener, UsageReposi
   private final FrameLayout[] pageDots = new FrameLayout[PAGE_COUNT];
   private int shownStatusColor;
   private int shownPageDot = -1;
+  private String hintAuto;
+  private String hintHome;
+  private String bannerAuto;
+  private String bannerUpdated;
+  private String bannerStale;
 
   private Page page;
   private boolean pageBuilt;
@@ -73,82 +107,123 @@ public class MainActivity extends Activity implements OnKeyListener, UsageReposi
   private int autoSeconds;
   private boolean destroyed;
   private long tickMinute = -1;
-  private int tickState = -1;
+  private LinkState tickState;
   private boolean tickFresh;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    getDisplay();
+    Resources res = getResources();
+    palette = new Palette(res);
+    palette.applyTheme();
+    autoPeriod = res.getInteger(R.integer.auto_seconds);
+    fadeMs = res.getInteger(R.integer.fade_ms);
+    hintAuto = getString(R.string.hint_auto);
+    hintHome = getString(R.string.hint_home);
+    bannerAuto = getString(R.string.banner_auto);
+    bannerUpdated = getString(R.string.banner_updated);
+    bannerStale = getString(R.string.banner_stale);
     led = RgbLed.open();
 
-    root = Ui.group(0, 0, Ui.WIDTH, Ui.HEIGHT, Palette.BACKGROUND);
-    buildHeader();
-    buildFooter();
+    setContentView(R.layout.activity_main);
+    bindChrome();
 
-    // Keys reach Java only through a focused view, so this invisible one holds the focus.
-    keyCatcher = new Button("");
-    keyCatcher.setSize(1, 1);
-    keyCatcher.setPosition(0, 0);
-    keyCatcher.setAlpha(0f);
-    keyCatcher.setBackground(
-        new GradientDrawable().setColor(Palette.BACKGROUND).setCornerRadius(0));
-    keyCatcher.setOnKeyListener(this);
-    root.addView(keyCatcher);
+    if (savedInstanceState != null) {
+      pageIndex = savedInstanceState.getInt(STATE_PAGE, PAGE_LIMITS);
+      auto = savedInstanceState.getBoolean(STATE_AUTO, false);
+    } else {
+      auto = getSharedPreferences(UsageService.PREFS, MODE_PRIVATE).getBoolean(KEY_AUTO, false);
+    }
 
-    setContentView(root);
-    keyCatcher.requestFocus();
-
-    showPage();
+    startService(new Intent(UsageService.class));
     Log.i(TAG, "ui ready");
   }
 
-  private void buildHeader() {
-    Ui.label(root, "prev", Ui.MARGIN, 4, Palette.FAINT);
-    title = new Line(Ui.label(root, "", 50, 4, Palette.TEXT), "", Palette.TEXT);
-    plan = new Line(Ui.label(root, "", 150, 4, Palette.CLAY), "", Palette.CLAY);
-    clock = new Line(Ui.labelRight(root, "", 196, 4, 48, Palette.MUTED), "", Palette.MUTED);
-    statusDot = Ui.box(252, 9, 8, 8, Palette.FAINT, 4);
-    shownStatusColor = Palette.FAINT;
-    root.addView(statusDot);
-    syncHint =
-        new Line(Ui.labelRight(root, "sync", 268, 4, 44, Palette.FAINT), "sync", Palette.FAINT);
-  }
+  /** Finds the chrome and strips the theme border from its containers. */
+  private void bindChrome() {
+    int bg = palette.background;
+    Ui.flat(findViewById(R.id.root), bg);
+    Ui.flat(findViewById(R.id.header), bg);
+    Ui.flat(findViewById(R.id.clock_box), bg);
+    Ui.flat(findViewById(R.id.dot_box), bg);
+    Ui.flat(findViewById(R.id.sync_box), bg);
+    Ui.flat(findViewById(R.id.footer), bg);
+    Ui.flat(findViewById(R.id.page_dots), bg);
+    Ui.flat(findViewById(R.id.banner_box), bg);
+    Ui.flat(findViewById(R.id.home_box), bg);
+    pageHost = findViewById(R.id.page_host);
+    Ui.flat(pageHost, bg);
 
-  private void buildFooter() {
-    int y = Ui.HEIGHT - Ui.FOOTER_HEIGHT + 3;
-    Ui.label(root, "next", Ui.MARGIN, y, Palette.FAINT);
+    title = new Line(findViewById(R.id.title), palette.text);
+    plan = new Line(findViewById(R.id.plan), palette.clay);
+    clock = new Line(findViewById(R.id.clock), palette.muted);
+    syncHint = new Line(findViewById(R.id.hint_sync), getString(R.string.hint_sync), palette.faint);
+    homeHint = new Line(findViewById(R.id.hint_home), hintAuto, palette.faint);
+    banner = new Line(findViewById(R.id.banner), palette.muted);
+
+    statusDot = findViewById(R.id.status_dot);
+    shownStatusColor = palette.faint;
+    Ui.fill(statusDot, palette.faint, 4);
+    LinearLayout dots = findViewById(R.id.page_dots);
+    dots.setSpacing(getResources().getDimensionPixelSize(R.dimen.page_dot_gap));
     for (int i = 0; i < PAGE_COUNT; i++) {
-      pageDots[i] = Ui.box(50 + i * 11, y + 6, 6, 6, Palette.TRACK, 3);
-      root.addView(pageDots[i]);
+      pageDots[i] = findViewById(PAGE_DOT_IDS[i]);
+      Ui.fill(pageDots[i], palette.track, 3);
     }
-    banner = new Line(Ui.labelCentred(root, "", 98, y, 166, Palette.MUTED), "", Palette.MUTED);
-    homeHint =
-        new Line(Ui.labelRight(root, "auto", 268, y, 44, Palette.FAINT), "auto", Palette.FAINT);
+
+    keyCatcher = findViewById(R.id.key_catcher);
+    keyCatcher.setOnKeyListener(this);
+    keyCatcher.requestFocus();
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
   @Override
+  public void onStart() {
+    super.onStart();
+    bindService(new Intent(UsageService.class), connection);
+  }
+
+  @Override
   public void onResume() {
     super.onResume();
-    repo.setListener(this);
-    refresh();
+    if (repo != null) {
+      repo.setListener(this);
+      refresh();
+    }
   }
 
   @Override
   public void onPause() {
-    repo.setListener(null);
+    if (repo != null) {
+      repo.setListener(null);
+    }
     super.onPause();
+  }
+
+  @Override
+  public void onStop() {
+    if (repo != null) {
+      repo.setListener(null);
+      repo = null;
+    }
+    unbindService(connection);
+    super.onStop();
   }
 
   @Override
   public void onDestroy() {
     destroyed = true;
     buildToken++;
-    repo.setListener(null);
-    led.setColor(0);
+    led.close();
     super.onDestroy();
+  }
+
+  @Override
+  protected void onSaveInstanceState(Bundle outState) {
+    super.onSaveInstanceState(outState);
+    outState.putInt(STATE_PAGE, pageIndex);
+    outState.putBoolean(STATE_AUTO, auto);
   }
 
   @Override
@@ -160,7 +235,7 @@ public class MainActivity extends Activity implements OnKeyListener, UsageReposi
 
   @Override
   public boolean onKey(View v, KeyEvent event) {
-    if (event.getAction() != KeyEvent.ACTION_DOWN) {
+    if (event.getAction() != KeyEvent.ACTION_DOWN || repo == null) {
       return true;
     }
     int code = event.getKeyCode();
@@ -183,6 +258,7 @@ public class MainActivity extends Activity implements OnKeyListener, UsageReposi
           auto = !auto;
           autoSeconds = 0;
           Log.i(TAG, auto ? "auto on" : "auto off");
+          saveAuto(auto);
           refreshChrome();
         } else {
           pageIndex = PAGE_LIMITS;
@@ -195,6 +271,20 @@ public class MainActivity extends Activity implements OnKeyListener, UsageReposi
     return true;
   }
 
+  /**
+   * Off the main thread: the SDK's {@code apply()} writes LittleFS synchronously, and that write
+   * alone overran the slow-handler budget in the sim.
+   */
+  private void saveAuto(final boolean on) {
+    Executors.backgroundExecutor()
+        .execute(
+            () ->
+                getSharedPreferences(UsageService.PREFS, MODE_PRIVATE)
+                    .edit()
+                    .putBoolean(KEY_AUTO, on)
+                    .apply());
+  }
+
   private void turnPage(int by) {
     pageIndex = (pageIndex + by + PAGE_COUNT) % PAGE_COUNT;
     autoSeconds = 0;
@@ -204,7 +294,7 @@ public class MainActivity extends Activity implements OnKeyListener, UsageReposi
   // ── Pages ──────────────────────────────────────────────────────────────────
 
   private boolean hasData() {
-    UsageSnapshot s = repo.snapshot();
+    UsageSnapshot s = repo == null ? null : repo.snapshot();
     return s != null && s.hasLimits();
   }
 
@@ -228,15 +318,15 @@ public class MainActivity extends Activity implements OnKeyListener, UsageReposi
   }
 
   private void startPage(int token) {
-    if (token != buildToken || destroyed) {
+    if (token != buildToken || destroyed || repo == null) {
       return;
     }
     pageIsStatus = !hasData();
     builtToken = token;
-    page = pageIsStatus ? new StatusPage() : create(pageIndex);
+    page = pageIsStatus ? new StatusPage(this, palette, repo.bridgeAddress()) : create(pageIndex);
     page.root.setAlpha(0f);
-    root.addView(page.root);
-    Log.i(TAG, "page -> " + page.title());
+    pageHost.addView(page.root);
+    Log.i(TAG, "page -> " + getString(page.titleRes()));
     refreshPageChrome();
     Executors.mainExecutor().execute(() -> continueBuild(token));
   }
@@ -247,7 +337,7 @@ public class MainActivity extends Activity implements OnKeyListener, UsageReposi
    */
   private void discardPage() {
     if (page != null) {
-      root.removeView(page.root);
+      pageHost.removeView(page.root);
       page = null;
     }
     pageBuilt = false;
@@ -258,21 +348,21 @@ public class MainActivity extends Activity implements OnKeyListener, UsageReposi
     return buildToken != builtToken;
   }
 
-  private static Page create(int index) {
+  private Page create(int index) {
     switch (index) {
       case 1:
-        return new ModelsPage();
+        return new ModelsPage(this, palette);
       case 2:
-        return new BurnPage();
+        return new BurnPage(this, palette);
       case 3:
-        return new HistoryPage();
+        return new HistoryPage(this, palette);
       default:
-        return new LimitsPage();
+        return new LimitsPage(this, palette);
     }
   }
 
   private void continueBuild(int token) {
-    if (token != buildToken || destroyed || page == null) {
+    if (token != buildToken || destroyed || page == null || repo == null) {
       return; // a newer page took over, or the screen is gone
     }
     try {
@@ -282,7 +372,7 @@ public class MainActivity extends Activity implements OnKeyListener, UsageReposi
       }
       pageBuilt = true;
       page.update(repo, System.currentTimeMillis());
-      page.root.animate().alpha(1f).setDuration(FADE_MS).start();
+      page.root.animate().alpha(1f).setDuration(fadeMs).start();
     } catch (OutOfMemoryError | RuntimeException e) {
       // A half-built page would stay invisible for good. Drop it; the next tick builds it again,
       // by which time the collector has had a chance to run.
@@ -291,7 +381,7 @@ public class MainActivity extends Activity implements OnKeyListener, UsageReposi
     }
   }
 
-  // ── Repository callbacks (main thread) ─────────────────────────────────────
+  // ── Service callbacks (main thread) ────────────────────────────────────────
 
   @Override
   public void onUsageChanged() {
@@ -300,7 +390,10 @@ public class MainActivity extends Activity implements OnKeyListener, UsageReposi
 
   @Override
   public void onTick() {
-    if (auto && !pageIsStatus && repo.isFresh() && ++autoSeconds >= AUTO_SECONDS) {
+    if (repo == null) {
+      return;
+    }
+    if (auto && !pageIsStatus && repo.isFresh() && ++autoSeconds >= autoPeriod) {
       turnPage(1);
       return;
     }
@@ -308,7 +401,7 @@ public class MainActivity extends Activity implements OnKeyListener, UsageReposi
     // RP2350 some 55 ms: over the slow-handler budget, every second. Everything on the data
     // screens is minute-grained, so repaint only when the minute, the link or the freshness moved.
     long minute = System.currentTimeMillis() / 60_000L;
-    int state = repo.linkState();
+    LinkState state = repo.linkState();
     boolean fresh = repo.isFresh();
     if (pageIsStatus || minute != tickMinute || state != tickState || fresh != tickFresh) {
       tickMinute = minute;
@@ -319,7 +412,7 @@ public class MainActivity extends Activity implements OnKeyListener, UsageReposi
   }
 
   private void refresh() {
-    if (destroyed) {
+    if (destroyed || repo == null) {
       return;
     }
     if ((page == null && !swapInFlight()) || (page != null && pageIsStatus == hasData())) {
@@ -335,14 +428,14 @@ public class MainActivity extends Activity implements OnKeyListener, UsageReposi
 
   /** The part of the chrome a page turn changes; cheap enough to share a tick with the turn. */
   private void refreshPageChrome() {
-    title.show(page != null ? page.title() : "", Palette.TEXT);
+    title.show(page != null ? getString(page.titleRes()) : "", palette.text);
     homeHint.show(
-        pageIndex == PAGE_LIMITS || pageIsStatus ? "auto" : "home",
-        auto && pageIndex == PAGE_LIMITS ? Palette.CLAY : Palette.FAINT);
+        pageIndex == PAGE_LIMITS || pageIsStatus ? hintAuto : hintHome,
+        auto && pageIndex == PAGE_LIMITS ? palette.clay : palette.faint);
     int activeDot = pageIsStatus ? -1 : pageIndex;
     if (activeDot != shownPageDot) {
       for (int i = 0; i < PAGE_COUNT; i++) {
-        Ui.fill(pageDots[i], i == activeDot ? Palette.CLAY : Palette.TRACK, 3);
+        Ui.fill(pageDots[i], i == activeDot ? palette.clay : palette.track, 3);
       }
       shownPageDot = activeDot;
     }
@@ -352,18 +445,18 @@ public class MainActivity extends Activity implements OnKeyListener, UsageReposi
   private void refreshChrome() {
     UsageSnapshot s = repo.snapshot();
     boolean fresh = repo.isFresh();
-    int state = repo.linkState();
+    LinkState state = repo.linkState();
     long now = System.currentTimeMillis();
 
     refreshPageChrome();
-    plan.show(s != null && !pageIsStatus ? s.plan.toUpperCase() : "", Palette.CLAY);
-    clock.show(s != null ? TimeFormat.hm(now) : "", Palette.MUTED);
-    syncHint.show("sync", repo.isSyncing() ? Palette.CLAY : Palette.FAINT);
+    plan.show(s != null && !pageIsStatus ? s.plan.toUpperCase() : "", palette.clay);
+    clock.show(s != null ? TimeFormat.hm(now) : "", palette.muted);
+    syncHint.show(getString(R.string.hint_sync), repo.isSyncing() ? palette.clay : palette.faint);
 
     // Green: live. Amber: live numbers, but the last attempt failed. Red: not live.
-    int dot = fresh ? (state == LinkState.OK ? Palette.GOOD : Palette.WARN) : Palette.BAD;
+    int dot = fresh ? (state == LinkState.OK ? palette.good : palette.warn) : palette.bad;
     if (state == LinkState.JOINING) {
-      dot = Palette.CLAY;
+      dot = palette.clay;
     }
     if (dot != shownStatusColor) {
       Ui.fill(statusDot, dot, 4);
@@ -371,24 +464,27 @@ public class MainActivity extends Activity implements OnKeyListener, UsageReposi
     }
 
     if (pageIsStatus) {
-      banner.show("", Palette.MUTED);
+      banner.show("", palette.muted);
     } else if (fresh && state == LinkState.OK) {
       // AUTO is toggled from Limits only, so say it is on wherever the cycle has got to.
-      banner.show(
-          (auto ? "auto  -  " : "updated ") + TimeFormat.hm(repo.lastGoodWallMs()), Palette.MUTED);
+      String at = TimeFormat.hm(repo.lastGoodWallMs());
+      banner.show(String.format(auto ? bannerAuto : bannerUpdated, at), palette.muted);
     } else {
       long since = repo.sinceLastGoodMs();
-      String what = LinkState.shortText(state, repo.linkErr());
+      String what = getString(state.shortText(repo.linkErr()));
       // While still fresh this is one missed poll: say so quietly. Once stale, say it in clay.
       banner.show(
-          since >= 60_000L ? what + " - " + TimeFormat.duration(since) : what,
-          fresh ? Palette.MUTED : Palette.CLAY);
+          since >= 60_000L ? String.format(bannerStale, what, TimeFormat.duration(since)) : what,
+          fresh ? palette.muted : palette.clay);
     }
 
     int ledColor = 0;
     if (fresh && s != null) {
       int worst = s.sessionPct > s.weeklyPct ? s.sessionPct : s.weeklyPct;
-      ledColor = worst >= Palette.BAD_FROM ? LED_BAD : (worst >= Palette.WARN_FROM ? LED_WARN : 0);
+      ledColor =
+          worst >= palette.badFrom
+              ? palette.ledBad
+              : (worst >= palette.warnFrom ? palette.ledWarn : 0);
     }
     led.setColor(ledColor);
   }

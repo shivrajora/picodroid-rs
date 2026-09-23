@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package claudeusage.ui;
 
-import claudeusage.data.UsageRepository;
+import claudeusage.R;
+import claudeusage.data.UsageService;
 import claudeusage.data.UsageSnapshot;
+import picodroid.content.Context;
 
 /** The home screen: the 5-hour session and the weekly cap. */
 final class LimitsPage extends Page {
@@ -12,16 +14,20 @@ final class LimitsPage extends Page {
   private LimitCard session;
   private LimitCard weekly;
 
+  LimitsPage(Context ctx, Palette p) {
+    super(ctx, p);
+  }
+
   @Override
-  String title() {
-    return "Limits";
+  int titleRes() {
+    return R.string.page_limits;
   }
 
   @Override
   boolean buildNext() {
     switch (step++) {
       case 0:
-        session = new LimitCard(root, 2, "5-hour session", SESSION_SECONDS);
+        session = new LimitCard(ctx, p, root, 2, R.string.card_session, SESSION_SECONDS);
         return true;
       case 1:
         session.fillText();
@@ -30,7 +36,9 @@ final class LimitsPage extends Page {
         session.fillGauge();
         return true;
       case 3:
-        weekly = new LimitCard(root, 2 + LimitCard.HEIGHT + 4, "Weekly, all models", WEEK_SECONDS);
+        weekly =
+            new LimitCard(
+                ctx, p, root, 2 + LimitCard.HEIGHT + 4, R.string.card_weekly, WEEK_SECONDS);
         return true;
       case 4:
         weekly.fillText();
@@ -42,7 +50,7 @@ final class LimitsPage extends Page {
   }
 
   @Override
-  void update(UsageRepository repo, long nowMs) {
+  void update(UsageService repo, long nowMs) {
     UsageSnapshot s = repo.snapshot();
     if (s == null) {
       return;

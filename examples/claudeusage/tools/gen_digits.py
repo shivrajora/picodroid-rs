@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Render the big-numeral sprites in ../assets.
+"""Render the big-numeral sprites in ../res/drawable.
 
 The SDK renders one font size, so the large percentages are composed from
 pre-rendered glyph images (see ui/BigNumber.java). PAPK assets are RGB565 with
@@ -24,7 +24,7 @@ SCALE = 4  # supersample, then downscale: smoother edges than FreeType at size
 
 
 def main():
-    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets")
+    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "res", "drawable")
     font = ImageFont.truetype(FONT, PX * SCALE)
     try:
         font.set_variation_by_axes([100, 700])

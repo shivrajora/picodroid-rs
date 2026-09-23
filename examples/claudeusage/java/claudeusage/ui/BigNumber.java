@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package claudeusage.ui;
 
+import claudeusage.R;
+import picodroid.content.Context;
 import picodroid.view.View;
 import picodroid.view.ViewGroup;
 import picodroid.widget.ImageView;
@@ -17,20 +19,33 @@ final class BigNumber {
   private static final int DASH_WIDTH = 17;
   private static final int SLOTS = 5;
 
-  private static final String[] DIGITS = {
-    "d0.png", "d1.png", "d2.png", "d3.png", "d4.png", "d5.png", "d6.png", "d7.png", "d8.png",
-    "d9.png"
+  private static final int[] DIGITS = {
+    R.drawable.d0,
+    R.drawable.d1,
+    R.drawable.d2,
+    R.drawable.d3,
+    R.drawable.d4,
+    R.drawable.d5,
+    R.drawable.d6,
+    R.drawable.d7,
+    R.drawable.d8,
+    R.drawable.d9
   };
 
+  private final Context ctx;
   private final ImageView[] slots = new ImageView[SLOTS];
-  private final String[] shown = new String[SLOTS];
+
+  /** The drawable each slot shows; 0 while it is hidden. */
+  private final int[] shown = new int[SLOTS];
+
   private final ViewGroup parent;
   private final int x;
   private final int y;
   private String shownText = "";
   private boolean shownDim;
 
-  BigNumber(ViewGroup parent, int x, int y) {
+  BigNumber(Context ctx, ViewGroup parent, int x, int y) {
+    this.ctx = ctx;
     this.parent = parent;
     this.x = x;
     this.y = y;
@@ -52,16 +67,16 @@ final class BigNumber {
       int cx = x;
       for (int i = 0; i < SLOTS; i++) {
         if (i >= text.length()) {
-          if (slots[i] != null && shown[i] != null) {
+          if (slots[i] != null && shown[i] != 0) {
             slots[i].setVisibility(View.INVISIBLE);
-            shown[i] = null;
+            shown[i] = 0;
           }
           continue;
         }
         char c = text.charAt(i);
-        String glyph = glyph(c);
+        int glyph = glyph(c);
         if (slots[i] == null) {
-          slots[i] = new ImageView();
+          slots[i] = new ImageView(ctx);
           parent.addView(slots[i]);
           if (shownDim) {
             slots[i].setAlpha(Ui.DIM);
@@ -69,8 +84,8 @@ final class BigNumber {
         }
         // Glyphs differ in width, so a slot's position depends on what precedes it.
         slots[i].setPosition(cx, y);
-        if (!glyph.equals(shown[i])) {
-          slots[i].setImageSource(glyph);
+        if (glyph != shown[i]) {
+          slots[i].setImageResource(glyph);
           slots[i].setVisibility(View.VISIBLE);
           shown[i] = glyph;
         }
@@ -96,11 +111,11 @@ final class BigNumber {
     return w;
   }
 
-  private static String glyph(char c) {
+  private static int glyph(char c) {
     if (c >= '0' && c <= '9') {
       return DIGITS[c - '0'];
     }
-    return c == '%' ? "pct.png" : (c == '+' ? "plus.png" : "dash.png");
+    return c == '%' ? R.drawable.pct : (c == '+' ? R.drawable.plus : R.drawable.dash);
   }
 
   private static int width(char c) {

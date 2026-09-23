@@ -149,6 +149,11 @@ no practical way to type an address into `SharedPreferences`.
 **Ask:** a `buildConfigField`-style Gradle block generating `BuildConfig` constants from properties
 or environment variables. mDNS / DNS-SD would remove the need for an address at all.
 
+*Amendment 2026-09-22:* the app now reads the host from the `bridge_host` key of its `settings`
+preferences, with `NetTestConfig.HOST` as the default, so an installed unit can be repointed
+without a rebuild (`pdb`, or a future settings screen). The `BuildConfig` ask stands for the
+default. See `claudeusage-android-shape-2026-09.md`.
+
 ### G8. Keys need a focused widget
 
 There is no `Activity.onKeyDown`; keys reach Java only through `View.setOnKeyListener` on the

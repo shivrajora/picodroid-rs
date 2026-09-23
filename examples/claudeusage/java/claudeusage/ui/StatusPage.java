@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package claudeusage.ui;
 
+import claudeusage.R;
 import claudeusage.data.LinkState;
-import claudeusage.data.UsageFetcher;
-import claudeusage.data.UsageRepository;
+import claudeusage.data.UsageService;
+import picodroid.content.Context;
 import picodroid.widget.FrameLayout;
 
 /**
@@ -12,6 +13,7 @@ import picodroid.widget.FrameLayout;
  * wrong address is the likeliest first-boot problem.
  */
 final class StatusPage extends Page {
+  private final String bridgeAddress;
   private FrameLayout card;
   private FrameLayout dot;
   private Line headline;
@@ -19,9 +21,21 @@ final class StatusPage extends Page {
   private Line retry;
   private int shownDot;
 
+  private final String contacting;
+  private final String retryingIn;
+  private final String retrying;
+
+  StatusPage(Context ctx, Palette p, String bridgeAddress) {
+    super(ctx, p);
+    this.bridgeAddress = bridgeAddress;
+    contacting = ctx.getString(R.string.status_contacting);
+    retryingIn = ctx.getString(R.string.status_retrying_in);
+    retrying = ctx.getString(R.string.status_retrying);
+  }
+
   @Override
-  String title() {
-    return "Claude usage";
+  int titleRes() {
+    return R.string.page_status;
   }
 
   @Override
@@ -29,42 +43,51 @@ final class StatusPage extends Page {
     int inner = Ui.CARD_WIDTH;
     switch (step++) {
       case 0:
-        card = Ui.card(root, 2, Ui.PAGE_HEIGHT - 4);
-        dot = Ui.box(Ui.CARD_WIDTH / 2 - 6, 24, 12, 12, Palette.CLAY, 6);
-        shownDot = Palette.CLAY;
+        card = Ui.card(ctx, root, 2, Ui.PAGE_HEIGHT - 4, p.card);
+        dot = Ui.box(ctx, Ui.CARD_WIDTH / 2 - 6, 24, 12, 12, p.clay, 6);
+        shownDot = p.clay;
         card.addView(dot);
         return true;
       case 1:
-        headline = centred(48, Palette.TEXT, inner);
-        advice = centred(70, Palette.MUTED, inner);
+        headline = centred(48, p.text, inner);
+        advice = centred(70, p.muted, inner);
         return true;
       default:
-        Ui.labelCentred(card, "Bridge  " + UsageFetcher.ADDRESS, 0, 108, inner, Palette.MUTED);
-        retry = centred(130, Palette.CLAY, inner);
-        Ui.labelCentred(card, "X  retry now", 0, 156, inner, Palette.FAINT);
+        Ui.labelCentred(
+            ctx,
+            card,
+            String.format(ctx.getString(R.string.status_bridge), bridgeAddress),
+            0,
+            108,
+            inner,
+            p.muted);
+        retry = centred(130, p.clay, inner);
+        Ui.labelCentred(
+            ctx, card, ctx.getString(R.string.status_retry_hint), 0, 156, inner, p.faint);
         return false;
     }
   }
 
   private Line centred(int y, int color, int width) {
-    return new Line(Ui.labelCentred(card, "", 0, y, width, color), "", color);
+    return new Line(Ui.labelCentred(ctx, card, "", 0, y, width, color), "", color);
   }
 
   @Override
-  void update(UsageRepository repo, long nowMs) {
-    int state = repo.linkState();
+  void update(UsageService repo, long nowMs) {
+    LinkState state = repo.linkState();
     String err = repo.linkErr();
-    headline.show(LinkState.shortText(state, err), Palette.TEXT);
-    advice.show(LinkState.advice(state, err), Palette.MUTED);
+    headline.show(ctx.getString(state.shortText(err)), p.text);
+    int adviceRes = state.advice(err);
+    advice.show(adviceRes == 0 ? "" : ctx.getString(adviceRes), p.muted);
     if (repo.isSyncing()) {
-      retry.show("Contacting bridge", Palette.CLAY);
+      retry.show(contacting, p.clay);
     } else if (state == LinkState.JOINING || state == LinkState.NO_WIFI) {
-      retry.show("", Palette.CLAY);
+      retry.show("", p.clay);
     } else {
       int wait = repo.secondsToNextAttempt();
-      retry.show(wait > 0 ? "Retrying in " + wait + "s" : "Retrying", Palette.CLAY);
+      retry.show(wait > 0 ? String.format(retryingIn, wait) : retrying, p.clay);
     }
-    int color = state == LinkState.JOINING ? Palette.CLAY : Palette.BAD;
+    int color = state == LinkState.JOINING ? p.clay : p.bad;
     if (color != shownDot) {
       Ui.fill(dot, color, 6);
       shownDot = color;

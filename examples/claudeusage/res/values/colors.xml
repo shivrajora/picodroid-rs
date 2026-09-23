@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A warm dark theme around Claude's clay orange. -->
+<resources>
+    <color name="background">#0F0E0D</color>
+    <!-- Keep in step with CARD in tools/gen_digits.py: the numeral sprites are drawn onto it. -->
+    <color name="card">#1C1A18</color>
+    <color name="track">#2E2A26</color>
+    <color name="text">#F0EEE6</color>
+    <color name="muted">#8A857C</color>
+    <color name="faint">#57524B</color>
+    <color name="clay">#D97757</color>
+    <color name="clay_deep">#9C4F36</color>
+    <!-- History bars for days that are over. -->
+    <color name="bar_past">#5C4A40</color>
+    <color name="good">#7BC47F</color>
+    <color name="good_deep">#4E8A55</color>
+    <color name="warn">#E8B04B</color>
+    <color name="warn_deep">#B07A24</color>
+    <color name="bad">#E5534B</color>
+    <color name="bad_deep">#A5332D</color>
+    <!-- The RGB LED, deliberately dim: it is bright at arm's length. -->
+    <color name="led_warn">#281400</color>
+    <color name="led_bad">#300000</color>
+</resources>

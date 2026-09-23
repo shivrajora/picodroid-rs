@@ -35,14 +35,16 @@ Keys `1` `2` `3` `4` are buttons A B X Y. The bridge address defaults to `127.0.
 
 ## Run on the board
 
-The bridge's address is baked in at build time, next to the WiFi credentials:
+The bridge's default address is baked in at build time, next to the WiFi credentials:
 
 ```bash
 env $(grep -v '^#' .wifi-creds.env | xargs) PICODROID_NET_TEST_HOST=192.168.1.20 \
   ./scripts/flash.sh --board pico_display2_w --app claudeusage
 ```
 
-Give the PC a fixed address (a DHCP reservation) so it stays where the display expects it.
+Give the PC a fixed address (a DHCP reservation) so it stays where the display expects it. An
+installed unit can be repointed without a rebuild: the `bridge_host` key in the app's `settings`
+preferences overrides the build-time host (there is no screen to type it on yet; `pdb` can set it).
 
 ## Buttons
 
@@ -54,7 +56,7 @@ of the screen shows the hint for the button beside it.
 | A | previous screen |
 | B | next screen |
 | X | sync now |
-| Y | back to Limits; on Limits, toggle `auto`, which cycles the screens every 10 s |
+| Y | back to Limits; on Limits, toggle `auto`, which cycles the screens every 10 s (remembered across power cycles) |
 
 Screens: **Limits**, **Models**, **Burn rate**, **History**.
 
@@ -91,5 +93,14 @@ curl 'localhost:8787/demo?reset=30'      # the session window resets 30 s from n
 ## Numeral sprites
 
 The SDK renders one font size, so the large figures are images: `tools/gen_digits.py` renders them
-into `assets/` (needs Pillow and the Ubuntu font). They are drawn onto the card colour because PAPK
-assets carry no alpha; regenerate them if `Palette.CARD` changes.
+into `res/drawable/` (needs Pillow and the Ubuntu font). They are drawn onto the card colour because
+PAPK assets carry no alpha; regenerate them if `@color/card` in `res/values/colors.xml` changes.
+
+## Layout
+
+The app is one Activity, declared in `PicodroidManifest.xml`, over a started-and-bound
+`UsageService` that polls the bridge. The header and footer are `res/layout/activity_main.xml`;
+colours, strings and thresholds live in `res/values/`. The four screens are built in code, a few
+views per tick, because inflating a whole screen in one tick overruns the RP2350's UI budget.
+`docs/designs/claudeusage-android-shape-2026-09.md` lists every remaining departure from Android
+idiom and why.

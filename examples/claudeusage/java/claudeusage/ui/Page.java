@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package claudeusage.ui;
 
-import claudeusage.data.UsageRepository;
+import claudeusage.data.UsageService;
+import picodroid.content.Context;
 import picodroid.widget.FrameLayout;
 
 /**
@@ -13,15 +14,24 @@ import picodroid.widget.FrameLayout;
  * page invisible meanwhile, then fades it in.
  */
 abstract class Page {
-  final FrameLayout root = Ui.group(0, Ui.PAGE_Y, Ui.WIDTH, Ui.PAGE_HEIGHT, Palette.BACKGROUND);
+  protected final Context ctx;
+  protected final Palette p;
+  final FrameLayout root;
 
   protected int step;
 
-  abstract String title();
+  Page(Context ctx, Palette p) {
+    this.ctx = ctx;
+    this.p = p;
+    root = Ui.group(ctx, 0, 0, Ui.WIDTH, Ui.PAGE_HEIGHT, p.background);
+  }
+
+  /** The header title's string resource. */
+  abstract int titleRes();
 
   /** Adds the next few views. Returns true while there is more to build. */
   abstract boolean buildNext();
 
-  /** Repaint from the repository. Called once built, then every second; must diff. */
-  abstract void update(UsageRepository repo, long nowMs);
+  /** Repaint from the service. Called once built, then every second; must diff. */
+  abstract void update(UsageService repo, long nowMs);
 }

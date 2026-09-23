@@ -15,7 +15,7 @@ public final class TimeFormat {
     if (daySec < 0) {
       daySec += 86_400L;
     }
-    return two((int) (daySec / 3600)) + ":" + two((int) ((daySec % 3600) / 60));
+    return String.format("%02d:%02d", (int) (daySec / 3600), (int) ((daySec % 3600) / 60));
   }
 
   /** "3d 4h", "2h 14m", "14m", "<1m": two units at most, so it stays short at any scale. */
@@ -27,10 +27,10 @@ public final class TimeFormat {
     long hours = minutes / 60;
     long days = hours / 24;
     if (days > 0) {
-      return days + "d " + (hours % 24) + "h";
+      return String.format("%dd %dh", days, hours % 24);
     }
     if (hours > 0) {
-      return hours + "h " + (minutes % 60) + "m";
+      return String.format("%dh %dm", hours, minutes % 60);
     }
     return minutes + "m";
   }
@@ -41,15 +41,11 @@ public final class TimeFormat {
       return thousands + "K";
     }
     int hundredths = thousands / 10; // of a million
-    return (hundredths / 100) + "." + two(hundredths % 100) + "M";
+    return String.format("%d.%02dM", hundredths / 100, hundredths % 100);
   }
 
   /** Cents as "$12.30". */
   public static String dollars(int cents) {
-    return "$" + (cents / 100) + "." + two(cents % 100);
-  }
-
-  private static String two(int v) {
-    return v < 10 ? "0" + v : String.valueOf(v);
+    return String.format("$%d.%02d", cents / 100, cents % 100);
   }
 }

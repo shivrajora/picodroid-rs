@@ -1,42 +1,76 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package claudeusage.ui;
 
-/** A warm dark theme around Claude's clay orange. */
-public final class Palette {
-  public static final int BACKGROUND = 0xFF0F0E0D;
+import claudeusage.R;
+import picodroid.content.res.Resources;
+import picodroid.graphics.Theme;
 
-  /** Keep in step with CARD in tools/gen_digits.py: the numeral sprites are drawn onto it. */
-  public static final int CARD = 0xFF1C1A18;
+/** The app's colours and thresholds, resolved once from {@code res/values}. */
+final class Palette {
+  final int background;
+  final int card;
+  final int track;
+  final int text;
+  final int muted;
+  final int faint;
+  final int clay;
+  final int clayDeep;
+  final int barPast;
+  final int good;
+  final int goodDeep;
+  final int warn;
+  final int warnDeep;
+  final int bad;
+  final int badDeep;
 
-  public static final int TRACK = 0xFF2E2A26;
-  public static final int TEXT = 0xFFF0EEE6;
-  public static final int MUTED = 0xFF8A857C;
-  public static final int FAINT = 0xFF57524B;
-  public static final int CLAY = 0xFFD97757;
-  public static final int CLAY_DEEP = 0xFF9C4F36;
+  /** LED colours as 0xRRGGBB; off while usage is comfortable or the data is stale. */
+  final int ledWarn;
 
-  /** History bars for days that are over. */
-  public static final int BAR_PAST = 0xFF5C4A40;
+  final int ledBad;
 
-  public static final int GOOD = 0xFF7BC47F;
-  public static final int GOOD_DEEP = 0xFF4E8A55;
-  public static final int WARN = 0xFFE8B04B;
-  public static final int WARN_DEEP = 0xFFB07A24;
-  public static final int BAD = 0xFFE5534B;
-  public static final int BAD_DEEP = 0xFFA5332D;
+  /** Below this a limit is comfortable; from {@link #badFrom} it is nearly gone. */
+  final int warnFrom;
 
-  /** Below this a limit is comfortable; above {@link #BAD_FROM} it is nearly gone. */
-  public static final int WARN_FROM = 60;
+  final int badFrom;
 
-  public static final int BAD_FROM = 85;
-
-  private Palette() {}
-
-  public static int severity(int pct) {
-    return pct >= BAD_FROM ? BAD : (pct >= WARN_FROM ? WARN : GOOD);
+  Palette(Resources res) {
+    background = res.getColor(R.color.background);
+    card = res.getColor(R.color.card);
+    track = res.getColor(R.color.track);
+    text = res.getColor(R.color.text);
+    muted = res.getColor(R.color.muted);
+    faint = res.getColor(R.color.faint);
+    clay = res.getColor(R.color.clay);
+    clayDeep = res.getColor(R.color.clay_deep);
+    barPast = res.getColor(R.color.bar_past);
+    good = res.getColor(R.color.good);
+    goodDeep = res.getColor(R.color.good_deep);
+    warn = res.getColor(R.color.warn);
+    warnDeep = res.getColor(R.color.warn_deep);
+    bad = res.getColor(R.color.bad);
+    badDeep = res.getColor(R.color.bad_deep);
+    ledWarn = res.getColor(R.color.led_warn) & 0xFFFFFF;
+    ledBad = res.getColor(R.color.led_bad) & 0xFFFFFF;
+    warnFrom = res.getInteger(R.integer.warn_from);
+    badFrom = res.getInteger(R.integer.bad_from);
   }
 
-  public static int severityDeep(int pct) {
-    return pct >= BAD_FROM ? BAD_DEEP : (pct >= WARN_FROM ? WARN_DEEP : GOOD_DEEP);
+  /** The framework widgets' defaults, so a Button or a border matches the app. */
+  void applyTheme() {
+    Theme.colorBackground = background;
+    Theme.colorSurface = card;
+    Theme.colorPrimary = clay;
+    Theme.colorOnPrimary = background;
+    Theme.colorText = text;
+    Theme.colorTextSecondary = muted;
+    Theme.colorOutline = track;
+  }
+
+  int severity(int pct) {
+    return pct >= badFrom ? bad : (pct >= warnFrom ? warn : good);
+  }
+
+  int severityDeep(int pct) {
+    return pct >= badFrom ? badDeep : (pct >= warnFrom ? warnDeep : goodDeep);
   }
 }

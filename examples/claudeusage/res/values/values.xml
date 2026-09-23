@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The chrome around the pages. The display is 320x240. -->
+    <dimen name="header_height">26dp</dimen>
+    <dimen name="footer_height">24dp</dimen>
+    <dimen name="page_height">190dp</dimen>
+    <dimen name="margin">8dp</dimen>
+    <dimen name="line_height">18dp</dimen>
+    <dimen name="corner_width">50dp</dimen>
+    <dimen name="title_width">100dp</dimen>
+    <dimen name="plan_width">46dp</dimen>
+    <dimen name="clock_width">48dp</dimen>
+    <dimen name="dot_slot_width">24dp</dimen>
+    <dimen name="status_dot">8dp</dimen>
+    <dimen name="page_dot">6dp</dimen>
+    <dimen name="page_dot_gap">5dp</dimen>
+    <dimen name="page_dots_width">48dp</dimen>
+    <dimen name="hint_width">52dp</dimen>
+    <dimen name="banner_width">166dp</dimen>
+    <dimen name="hint_pad">4dp</dimen>
+    <dimen name="none">0dp</dimen>
+    <dimen name="hairline">1dp</dimen>
+
+    <!-- Below warn_from a limit is comfortable; from bad_from it is nearly gone. -->
+    <integer name="warn_from">60</integer>
+    <integer name="bad_from">85</integer>
+    <!-- AUTO cycles the screens this often. -->
+    <integer name="auto_seconds">10</integer>
+    <integer name="fade_ms">180</integer>
+</resources>

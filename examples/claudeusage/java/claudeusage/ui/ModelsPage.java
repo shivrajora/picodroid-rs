@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package claudeusage.ui;
 
-import claudeusage.data.UsageRepository;
+import claudeusage.R;
+import claudeusage.data.UsageService;
 import claudeusage.data.UsageSnapshot;
 import claudeusage.util.TimeFormat;
+import picodroid.content.Context;
 import picodroid.widget.FrameLayout;
 
 /** Per-model weekly caps, where the plan has them, and which models the week's tokens went to. */
@@ -18,25 +20,41 @@ final class ModelsPage extends Page {
   private final MeterRow[] caps = new MeterRow[UsageSnapshot.MAX_MODELS];
   private final MeterRow[] mix = new MeterRow[UsageSnapshot.MAX_MODELS];
 
+  private final String all;
+  private final String noCaps;
+  private final String resetsIn;
+  private final String noTranscripts;
+  private final String share;
+
+  ModelsPage(Context ctx, Palette p) {
+    super(ctx, p);
+    all = ctx.getString(R.string.models_all);
+    noCaps = ctx.getString(R.string.models_no_caps);
+    resetsIn = ctx.getString(R.string.resets_in);
+    noTranscripts = ctx.getString(R.string.no_transcripts);
+    share = ctx.getString(R.string.models_share);
+  }
+
   @Override
-  String title() {
-    return "Models";
+  int titleRes() {
+    return R.string.page_models;
   }
 
   @Override
   boolean buildNext() {
     switch (step++) {
       case 0:
-        capsCard = Ui.card(root, 2, CARD_HEIGHT);
-        Ui.label(capsCard, "Weekly limit", Ui.CARD_PAD, 7, Palette.MUTED);
+        capsCard = Ui.card(ctx, root, 2, CARD_HEIGHT, p.card);
+        Ui.label(
+            ctx, capsCard, ctx.getString(R.string.models_weekly_limit), Ui.CARD_PAD, 7, p.muted);
         capsNote = note(capsCard);
         return true;
       case 1:
         rows(capsCard, caps);
         return true;
       case 2:
-        mixCard = Ui.card(root, 2 + CARD_HEIGHT + 4, CARD_HEIGHT);
-        Ui.label(mixCard, "Tokens, last 7 days", Ui.CARD_PAD, 7, Palette.MUTED);
+        mixCard = Ui.card(ctx, root, 2 + CARD_HEIGHT + 4, CARD_HEIGHT, p.card);
+        Ui.label(ctx, mixCard, ctx.getString(R.string.models_tokens_week), Ui.CARD_PAD, 7, p.muted);
         mixNote = note(mixCard);
         return true;
       default:
@@ -45,21 +63,21 @@ final class ModelsPage extends Page {
     }
   }
 
-  private static Line note(FrameLayout card) {
+  private Line note(FrameLayout card) {
     return new Line(
-        Ui.labelRight(card, "", 150, 7, Ui.CARD_WIDTH - 150 - Ui.CARD_PAD, Palette.FAINT),
+        Ui.labelRight(ctx, card, "", 150, 7, Ui.CARD_WIDTH - 150 - Ui.CARD_PAD, p.faint),
         "",
-        Palette.FAINT);
+        p.faint);
   }
 
-  private static void rows(FrameLayout card, MeterRow[] into) {
+  private void rows(FrameLayout card, MeterRow[] into) {
     for (int i = 0; i < into.length; i++) {
-      into[i] = new MeterRow(card, FIRST_ROW_Y + i * MeterRow.HEIGHT);
+      into[i] = new MeterRow(ctx, p, card, FIRST_ROW_Y + i * MeterRow.HEIGHT);
     }
   }
 
   @Override
-  void update(UsageRepository repo, long nowMs) {
+  void update(UsageService repo, long nowMs) {
     UsageSnapshot s = repo.snapshot();
     if (s == null) {
       return;
@@ -68,35 +86,31 @@ final class ModelsPage extends Page {
 
     // Row 0 is always the all-models cap, so the card is never empty on a plan without per-model
     // caps; the rest are whatever the account reports.
-    caps[0].show(
-        "All",
-        s.weeklyPct,
-        Palette.severity(s.weeklyPct),
-        Palette.severityDeep(s.weeklyPct),
-        stale);
+    caps[0].show(all, s.weeklyPct, p.severity(s.weeklyPct), p.severityDeep(s.weeklyPct), stale);
     for (int i = 1; i < caps.length; i++) {
       int m = i - 1;
       if (m < s.modelCount) {
         int pct = s.modelPct[m];
-        caps[i].show(s.modelName[m], pct, Palette.severity(pct), Palette.severityDeep(pct), stale);
+        caps[i].show(s.modelName[m], pct, p.severity(pct), p.severityDeep(pct), stale);
       } else {
         caps[i].clear();
       }
     }
     long leftMs = s.weeklyReset > 0 ? s.weeklyReset * 1000L - nowMs : -1;
     if (s.modelCount == 0) {
-      capsNote.show("no per-model caps", Palette.FAINT);
+      capsNote.show(noCaps, p.faint);
     } else {
-      capsNote.show(leftMs > 0 ? "resets in " + TimeFormat.duration(leftMs) : "", Palette.FAINT);
+      capsNote.show(
+          leftMs > 0 ? String.format(resetsIn, TimeFormat.duration(leftMs)) : "", p.faint);
     }
 
     for (int i = 0; i < mix.length; i++) {
       if (i < s.mixCount) {
-        mix[i].show(s.mixName[i], s.mixPct[i], Palette.CLAY, Palette.CLAY_DEEP, false);
+        mix[i].show(s.mixName[i], s.mixPct[i], p.clay, p.clayDeep, false);
       } else {
         mix[i].clear();
       }
     }
-    mixNote.show(s.mixCount == 0 ? "no transcripts yet" : "share of tokens", Palette.FAINT);
+    mixNote.show(s.mixCount == 0 ? noTranscripts : share, p.faint);
   }
 }

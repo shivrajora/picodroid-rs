@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package claudeusage.ui;
 
+import picodroid.content.Context;
 import picodroid.graphics.drawable.GradientDrawable;
 import picodroid.view.View;
 import picodroid.view.ViewGroup;
@@ -26,18 +27,26 @@ final class BarView {
   private boolean shownDim;
   private boolean shownVisible = true;
 
-  BarView(ViewGroup parent, int x, int y, int width, int height, boolean withMarker) {
+  BarView(
+      Context ctx,
+      Palette p,
+      ViewGroup parent,
+      int x,
+      int y,
+      int width,
+      int height,
+      boolean withMarker) {
     this.x = x;
     this.y = y;
     this.width = width;
     this.height = height;
-    track = Ui.box(x, y, width, height, Palette.TRACK, height / 2);
+    track = Ui.box(ctx, x, y, width, height, p.track, height / 2);
     parent.addView(track);
-    fill = Ui.box(0, 0, height, height, Palette.GOOD, height / 2);
+    fill = Ui.box(ctx, 0, 0, height, height, p.good, height / 2);
     fill.setVisibility(View.INVISIBLE);
     track.addView(fill);
     if (withMarker) {
-      marker = Ui.box(x, y - 3, 2, height + 6, Palette.TEXT, 1);
+      marker = Ui.box(ctx, x, y - 3, 2, height + 6, p.text, 1);
       marker.setVisibility(View.INVISIBLE);
       parent.addView(marker);
     } else {

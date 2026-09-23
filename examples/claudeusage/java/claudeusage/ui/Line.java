@@ -18,6 +18,12 @@ final class Line {
     this.color = color;
   }
 
+  /** An inflated label: whatever it shows now (the widget default is "Text"), it starts blank. */
+  Line(TextView view, int color) {
+    this(view, "", color);
+    view.setText("");
+  }
+
   void show(String newText, int newColor) {
     if (!newText.equals(text)) {
       view.setText(newText);
