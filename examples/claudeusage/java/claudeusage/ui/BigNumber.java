@@ -41,14 +41,23 @@ final class BigNumber {
   private final ViewGroup parent;
   private final int x;
   private final int y;
+
+  /** Whether {@code x} is the text's centre rather than its left edge. */
+  private final boolean centred;
+
   private String shownText = "";
   private boolean shownDim;
 
   BigNumber(Context ctx, ViewGroup parent, int x, int y) {
+    this(ctx, parent, x, y, false);
+  }
+
+  BigNumber(Context ctx, ViewGroup parent, int x, int y, boolean centred) {
     this.ctx = ctx;
     this.parent = parent;
     this.x = x;
     this.y = y;
+    this.centred = centred;
   }
 
   /** "42%", or "--%" when {@code value} is negative. Returns the width drawn. */
@@ -64,7 +73,7 @@ final class BigNumber {
   private int show(String text, boolean dim) {
     if (!text.equals(shownText)) {
       shownText = text;
-      int cx = x;
+      int cx = centred ? x - widthOf(text) / 2 : x;
       for (int i = 0; i < SLOTS; i++) {
         if (i >= text.length()) {
           if (slots[i] != null && shown[i] != 0) {

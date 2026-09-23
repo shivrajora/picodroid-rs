@@ -8,36 +8,21 @@ import picodroid.view.ViewGroup;
 import picodroid.widget.FrameLayout;
 
 /**
- * A rounded progress bar with a per-instance colour, which the SDK's ProgressBar cannot do, and an
- * optional pace marker: a thin tick at "how far through the window we are". Fill past the tick
- * means the limit is being used faster than the window replenishes it.
+ * A rounded progress bar with a per-instance colour and a vertical gradient, which the SDK's
+ * ProgressBar cannot do. The Models page's meters; the Limits page uses {@link RingView}.
  */
 final class BarView {
   private final FrameLayout track;
   private final FrameLayout fill;
-  private final FrameLayout marker;
-  private final int x;
-  private final int y;
   private final int width;
   private final int height;
 
   private int shownPct = -2;
   private int shownColor;
-  private int shownMarker = -2;
   private boolean shownDim;
   private boolean shownVisible = true;
 
-  BarView(
-      Context ctx,
-      Palette p,
-      ViewGroup parent,
-      int x,
-      int y,
-      int width,
-      int height,
-      boolean withMarker) {
-    this.x = x;
-    this.y = y;
+  BarView(Context ctx, Palette p, ViewGroup parent, int x, int y, int width, int height) {
     this.width = width;
     this.height = height;
     track = Ui.box(ctx, x, y, width, height, p.track, height / 2);
@@ -45,13 +30,6 @@ final class BarView {
     fill = Ui.box(ctx, 0, 0, height, height, p.good, height / 2);
     fill.setVisibility(View.INVISIBLE);
     track.addView(fill);
-    if (withMarker) {
-      marker = Ui.box(ctx, x, y - 3, 2, height + 6, p.text, 1);
-      marker.setVisibility(View.INVISIBLE);
-      parent.addView(marker);
-    } else {
-      marker = null;
-    }
   }
 
   /** Hide the whole bar, track included: an unused row should be blank, not an empty gauge. */
@@ -65,9 +43,8 @@ final class BarView {
   /**
    * @param pct 0..100, or negative for "unknown" (an empty track)
    * @param color the bright end of the fill, {@code deep} the dark end
-   * @param markerPct 0..100 for the pace tick, negative to hide it
    */
-  void show(int pct, int color, int deep, int markerPct, boolean dim) {
+  void show(int pct, int color, int deep, boolean dim) {
     if (pct != shownPct || color != shownColor) {
       if (pct <= 0) {
         fill.setVisibility(View.INVISIBLE);
@@ -84,16 +61,6 @@ final class BarView {
       }
       shownPct = pct;
       shownColor = color;
-    }
-    if (marker != null && markerPct != shownMarker) {
-      if (markerPct < 0) {
-        marker.setVisibility(View.INVISIBLE);
-      } else {
-        int mx = x + width * (markerPct > 100 ? 100 : markerPct) / 100 - 1;
-        marker.setPosition(mx < x ? x : mx, y - 3);
-        marker.setVisibility(View.VISIBLE);
-      }
-      shownMarker = markerPct;
     }
     if (dim != shownDim) {
       fill.setAlpha(dim ? Ui.DIM : 1f);

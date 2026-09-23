@@ -7,56 +7,86 @@ import picodroid.content.Context;
 import picodroid.view.ViewGroup;
 import picodroid.widget.FrameLayout;
 
-/** One usage window: big percentage, reset countdown, and a bar with a pace marker. */
+/**
+ * One usage window: a ring gauge with the reset countdown inside it, the big percentage in the
+ * ring's open bottom, and a pace line under that. Two of these sit side by side on the Limits page.
+ */
 final class LimitCard {
-  static final int HEIGHT = 92;
+  static final int GAP = 4;
+  static final int WIDTH = (Ui.CARD_WIDTH - GAP) / 2;
+  static final int HEIGHT = Ui.PAGE_HEIGHT - 4;
+
+  // Card-relative geometry, pixel art for the 320x240 panel. The ring's rounded caps end 4 px
+  // above the numeral sprites, which are opaque card-coloured rectangles and must not overlap it.
+  private static final int CAPTION_Y = 4;
+  private static final int RING_X = 23;
+  private static final int RING_Y = 24;
+  private static final int RING_DIAMETER = 104;
+  private static final int RING_STROKE = 10;
+  private static final int CENTRE_X = WIDTH / 2;
+  private static final int INNER_X = 33;
+  private static final int INNER_WIDTH = 84;
+  private static final int LINE1_Y = 57;
+  private static final int LINE2_Y = 77;
+  private static final int NUMBER_Y = 118;
+  private static final int DETAIL_X = 4;
+  private static final int DETAIL_WIDTH = WIDTH - 2 * DETAIL_X;
+  private static final int DETAIL_Y = 165;
 
   private final Context ctx;
   private final Palette p;
   private final FrameLayout card;
-  private final int captionRes;
   private final long windowSeconds;
-  private Line reset;
+  private Line resetsLabel;
+  private Line countdown;
   private Line detail;
   private BigNumber number;
-  private BarView bar;
+  private RingView ring;
 
   // Resolved once: show() runs every second.
   private final String resetsIn;
   private final String resetting;
   private final String windowHasReset;
-  private final String waitingForSync;
   private final String notReported;
   private final String aheadOfPace;
   private final String windowGone;
 
-  LimitCard(Context ctx, Palette p, ViewGroup parent, int y, int captionRes, long windowSeconds) {
+  /** Build step one: the card and its caption. */
+  LimitCard(Context ctx, Palette p, ViewGroup parent, int x, int captionRes, long windowSeconds) {
     this.ctx = ctx;
     this.p = p;
-    this.captionRes = captionRes;
     this.windowSeconds = windowSeconds;
-    card = Ui.card(ctx, parent, y, HEIGHT, p.card);
-    resetsIn = ctx.getString(R.string.resets_in);
+    card = Ui.card(ctx, parent, x, 2, WIDTH, HEIGHT, p.card);
+    Ui.labelCentred(ctx, card, ctx.getString(captionRes), 0, CAPTION_Y, WIDTH, p.muted);
+    resetsIn = ctx.getString(R.string.resets_in_label);
     resetting = ctx.getString(R.string.resetting);
     windowHasReset = ctx.getString(R.string.window_has_reset);
-    waitingForSync = ctx.getString(R.string.waiting_for_sync);
     notReported = ctx.getString(R.string.not_reported);
     aheadOfPace = ctx.getString(R.string.ahead_of_pace);
     windowGone = ctx.getString(R.string.window_gone);
   }
 
-  /** Build steps two and three: everything inside the card, in two halves. */
-  void fillText() {
-    int inner = Ui.CARD_WIDTH - 2 * Ui.CARD_PAD;
-    Ui.label(ctx, card, ctx.getString(captionRes), Ui.CARD_PAD, 7, p.muted);
-    reset = new Line(Ui.labelRight(ctx, card, "", 120, 7, inner - 108, p.muted), "", p.muted);
-    detail = new Line(Ui.labelRight(ctx, card, "", 120, 46, inner - 108, p.faint), "", p.faint);
+  /** Build step two: the gauge and its pace tick. */
+  void fillRing() {
+    ring = new RingView(ctx, p, card, RING_X, RING_Y, RING_DIAMETER, RING_STROKE, true);
   }
 
-  void fillGauge() {
-    int inner = Ui.CARD_WIDTH - 2 * Ui.CARD_PAD;
-    number = new BigNumber(ctx, card, Ui.CARD_PAD, 26);
-    bar = new BarView(ctx, p, card, Ui.CARD_PAD, 75, inner, 9, true);
+  /** Build step three: the two lines inside the ring. */
+  void fillCentre() {
+    resetsLabel =
+        new Line(
+            Ui.labelCentred(ctx, card, "", INNER_X, LINE1_Y, INNER_WIDTH, p.faint), "", p.faint);
+    countdown =
+        new Line(
+            Ui.labelCentred(ctx, card, "", INNER_X, LINE2_Y, INNER_WIDTH, p.muted), "", p.muted);
+  }
+
+  /** Build step four: the pace line and the big number (its glyphs arrive on first show). */
+  void fillFooter() {
+    detail =
+        new Line(
+            Ui.labelCentred(ctx, card, "", DETAIL_X, DETAIL_Y, DETAIL_WIDTH, p.faint), "", p.faint);
+    number = new BigNumber(ctx, card, CENTRE_X, NUMBER_Y, true);
   }
 
   void show(int pct, long resetEpochS, long nowMs, boolean stale) {
@@ -65,9 +95,10 @@ final class LimitCard {
     boolean expired = stale && resetEpochS > 0 && leftMs <= 0;
     if (pct < 0 || expired) {
       number.showPercent(-1, stale);
-      bar.show(-1, p.good, p.goodDeep, -1, false);
-      reset.show(expired ? windowHasReset : "", p.muted);
-      detail.show(expired ? waitingForSync : notReported, p.faint);
+      ring.show(-1, p.good, -1, false);
+      resetsLabel.show("", p.faint);
+      countdown.show("", p.muted);
+      detail.show(expired ? windowHasReset : notReported, p.faint);
       return;
     }
     int elapsed = -1;
@@ -76,9 +107,14 @@ final class LimitCard {
       elapsed = gone <= 0 ? 0 : (gone >= windowSeconds ? 100 : (int) (gone * 100L / windowSeconds));
     }
     number.showPercent(pct, stale);
-    bar.show(pct, p.severity(pct), p.severityDeep(pct), elapsed, stale);
-    reset.show(
-        leftMs > 0 ? String.format(resetsIn, TimeFormat.duration(leftMs)) : resetting, p.muted);
+    ring.show(pct, p.severity(pct), elapsed, stale);
+    if (leftMs > 0) {
+      resetsLabel.show(resetsIn, p.faint);
+      countdown.show(TimeFormat.duration(leftMs), p.muted);
+    } else {
+      resetsLabel.show("", p.faint);
+      countdown.show(resetting, p.muted);
+    }
     if (elapsed < 0) {
       detail.show("", p.faint);
     } else if (pct > elapsed + 10 && pct >= p.warnFrom) {

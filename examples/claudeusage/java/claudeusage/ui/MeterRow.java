@@ -19,20 +19,20 @@ final class MeterRow {
     this.p = p;
     dash = ctx.getString(R.string.dash);
     name = new Line(Ui.label(ctx, card, "", Ui.CARD_PAD, y, p.text), "", p.text);
-    bar = new BarView(ctx, p, card, 84, y + 5, 156, 8, false);
+    bar = new BarView(ctx, p, card, 84, y + 5, 156, 8);
     figure = new Line(Ui.labelRight(ctx, card, "", 246, y, 46, p.text), "", p.text);
   }
 
   void show(String label, int pct, int color, int deep, boolean stale) {
     name.show(label, stale ? p.muted : p.text);
     bar.setVisible(true);
-    bar.show(pct, color, deep, -1, stale);
+    bar.show(pct, color, deep, stale);
     figure.show(pct < 0 ? dash : pct + "%", stale ? p.muted : p.text);
   }
 
   void clear() {
     name.show("", p.text);
-    bar.show(-1, p.good, p.goodDeep, -1, false);
+    bar.show(-1, p.good, p.goodDeep, false);
     bar.setVisible(false);
     figure.show("", p.text);
   }

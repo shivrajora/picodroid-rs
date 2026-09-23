@@ -33,7 +33,9 @@ public final class UsageService extends Service {
   /** The preferences file the app's settings live in. */
   public static final String PREFS = "settings";
 
-  /** Host or address of the bridge; the port is {@link UsageFetcher#PORT}. */
+  /**
+   * Host or address of the bridge, with an optional {@code :port}; else {@link UsageFetcher#PORT}.
+   */
   public static final String KEY_BRIDGE_HOST = "bridge_host";
 
   /**
@@ -129,7 +131,10 @@ public final class UsageService extends Service {
     super.onCreate();
     binder.service = this;
     SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-    address = prefs.getString(KEY_BRIDGE_HOST, NetTestConfig.HOST) + ":" + UsageFetcher.PORT;
+    String host = prefs.getString(KEY_BRIDGE_HOST, NetTestConfig.HOST);
+    // A host may carry its own port ("192.168.1.5:8790"): a dev PC whose live bridge already
+    // owns 8787 runs a demo bridge for the simulator beside it.
+    address = host.indexOf(':') >= 0 ? host : host + ":" + UsageFetcher.PORT;
     url = "http://" + address + "/u";
     running = true;
     new Thread(this::pollLoop, "usage-poll").start();

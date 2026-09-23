@@ -6,7 +6,7 @@ import claudeusage.data.UsageService;
 import claudeusage.data.UsageSnapshot;
 import picodroid.content.Context;
 
-/** The home screen: the 5-hour session and the weekly cap. */
+/** The home screen: the 5-hour session and the weekly cap, as two ring gauges side by side. */
 final class LimitsPage extends Page {
   private static final long SESSION_SECONDS = 5L * 3600L;
   private static final long WEEK_SECONDS = 7L * 86_400L;
@@ -27,24 +27,35 @@ final class LimitsPage extends Page {
   boolean buildNext() {
     switch (step++) {
       case 0:
-        session = new LimitCard(ctx, p, root, 2, R.string.card_session, SESSION_SECONDS);
+        session = new LimitCard(ctx, p, root, Ui.MARGIN, R.string.card_session, SESSION_SECONDS);
         return true;
       case 1:
-        session.fillText();
+        session.fillRing();
         return true;
       case 2:
-        session.fillGauge();
+        session.fillCentre();
         return true;
       case 3:
-        weekly =
-            new LimitCard(
-                ctx, p, root, 2 + LimitCard.HEIGHT + 4, R.string.card_weekly, WEEK_SECONDS);
+        session.fillFooter();
         return true;
       case 4:
-        weekly.fillText();
+        weekly =
+            new LimitCard(
+                ctx,
+                p,
+                root,
+                Ui.MARGIN + LimitCard.WIDTH + LimitCard.GAP,
+                R.string.card_weekly,
+                WEEK_SECONDS);
+        return true;
+      case 5:
+        weekly.fillRing();
+        return true;
+      case 6:
+        weekly.fillCentre();
         return true;
       default:
-        weekly.fillGauge();
+        weekly.fillFooter();
         return false;
     }
   }

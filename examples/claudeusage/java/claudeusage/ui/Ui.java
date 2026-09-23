@@ -53,7 +53,12 @@ final class Ui {
   }
 
   static FrameLayout card(Context ctx, ViewGroup parent, int y, int height, int color) {
-    FrameLayout f = box(ctx, MARGIN, y, CARD_WIDTH, height, color, 12);
+    return card(ctx, parent, MARGIN, y, CARD_WIDTH, height, color);
+  }
+
+  static FrameLayout card(
+      Context ctx, ViewGroup parent, int x, int y, int width, int height, int color) {
+    FrameLayout f = box(ctx, x, y, width, height, color, 12);
     parent.addView(f);
     return f;
   }

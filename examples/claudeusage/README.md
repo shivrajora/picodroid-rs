@@ -45,6 +45,8 @@ env $(grep -v '^#' .wifi-creds.env | xargs) PICODROID_NET_TEST_HOST=192.168.1.20
 Give the PC a fixed address (a DHCP reservation) so it stays where the display expects it. An
 installed unit can be repointed without a rebuild: the `bridge_host` key in the app's `settings`
 preferences overrides the build-time host (there is no screen to type it on yet; `pdb` can set it).
+Either form may carry a port, `192.168.1.20:8790`, for a PC whose live bridge already owns 8787
+and runs a `--demo --port 8790` one beside it for the simulator.
 
 ## Buttons
 
@@ -60,8 +62,9 @@ of the screen shows the hint for the button beside it.
 
 Screens: **Limits**, **Models**, **Burn rate**, **History**.
 
-The white tick on a limit bar marks how far through the window you are. Fill past the tick means
-you are using the limit faster than it replenishes.
+Each limit is a ring gauge. The white tick on the ring marks how far through the window you are:
+fill past the tick means you are using the limit faster than it replenishes. The countdown inside
+the ring is the time to the window's reset.
 
 ## When the PC is off
 

@@ -55,12 +55,13 @@
     <string name="card_session">5-hour session</string>
     <string name="card_weekly">Weekly, all models</string>
     <string name="resets_in">resets in %s</string>
+    <!-- Inside a ring: the label on one line, the countdown on the next. -->
+    <string name="resets_in_label">resets in</string>
     <string name="resetting">resetting</string>
     <string name="window_has_reset">window has reset</string>
-    <string name="waiting_for_sync">waiting for sync</string>
     <string name="not_reported">not reported</string>
     <string name="ahead_of_pace">ahead of pace</string>
-    <string name="window_gone">%d%% of window gone</string>
+    <string name="window_gone">window %d%% gone</string>
 
     <!-- Models. -->
     <string name="models_weekly_limit">Weekly limit</string>
