@@ -14,7 +14,9 @@ import picodroid.os.Bundle;
 import picodroid.os.Runtime;
 import picodroid.os.SystemClock;
 import picodroid.text.TextWatcher;
+import picodroid.util.DisplayMetrics;
 import picodroid.util.Log;
+import picodroid.util.TypedValue;
 import picodroid.view.View;
 import picodroid.view.ViewGroup;
 import picodroid.widget.ArrayAdapter;
@@ -78,6 +80,13 @@ public class QaUiActivity extends Activity {
   private LinearLayout root;
   private final TextView[] rows = new TextView[5];
   private TextView sized;
+  // Text-size fixtures: set in phase 1, measured after layout in phase 2.
+  private TextView small;
+  private TextView big;
+  private TextView capped;
+  private TextView oneLine;
+  private Button smallBtn;
+  private Button bigBtn;
   private TextView animated;
   private final int[] endFired = new int[1];
   private final int[] dialogItem = new int[] {-1};
@@ -107,6 +116,7 @@ public class QaUiActivity extends Activity {
     section("tree", () -> tree());
     section("visibilityEnabled", () -> visibilityEnabled());
     section("text", () -> text());
+    section("textSize", () -> textSize());
     section("clicks", () -> clicks());
     section("compound", () -> compound());
     section("radio", () -> radio());
@@ -270,6 +280,86 @@ public class QaUiActivity extends Activity {
     root.addView(b);
     check("Button is a TextView", ((TextView) b).getText().length() == 400);
     root.removeView(b);
+  }
+
+  /**
+   * setTextSize: round trips, the face ladder, the units. The snapping checks assume the RP2350
+   * boards' ladder (14, 20, 28 and 64 px), which is where qa_ui runs; heights verify in phase 2.
+   */
+  void textSize() {
+    small = new TextView(this);
+    small.setText("small");
+    root.addView(small);
+    check("default text size", small.getTextSize() == 14f);
+    int lh14 = small.getLineHeight();
+    check("default line height", lh14 == 16);
+
+    big = new TextView(this);
+    big.setText("big");
+    big.setTextSize(28);
+    root.addView(big);
+    check("setTextSize round trip", big.getTextSize() == 28f);
+    int lh28 = big.getLineHeight();
+    check("bigger face has a taller line", lh28 > lh14);
+    big.setTextSize(28);
+    check("same size is a no-op", big.getTextSize() == 28f && big.getLineHeight() == lh28);
+
+    TextView probe = new TextView(this);
+    probe.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 20f);
+    check("dip is a pixel", probe.getTextSize() == 20f);
+    int lh20 = probe.getLineHeight();
+    check("20 sits between 14 and 28", lh20 > lh14 && lh20 < lh28);
+    probe.setTextSize(23);
+    check("23 snaps down to 20", probe.getTextSize() == 23f && probe.getLineHeight() == lh20);
+    probe.setTextSize(24);
+    check("24 ties up to 28", probe.getLineHeight() == lh28);
+    probe.setTextSize(TypedValue.COMPLEX_UNIT_PX, 200);
+    check("beyond the ladder is the largest face", probe.getLineHeight() > lh28);
+    probe.setTextSize(0);
+    check("zero is the smallest face", probe.getLineHeight() == lh14);
+
+    smallBtn = new Button(this, "btn");
+    bigBtn = new Button(this, "btn");
+    bigBtn.setTextSize(28);
+    check("Button setTextSize", bigBtn.getTextSize() == 28f && bigBtn.getLineHeight() == lh28);
+    check("Button default line height", smallBtn.getLineHeight() == lh14);
+    root.addView(smallBtn);
+    root.addView(bigBtn);
+
+    DisplayMetrics dm = getResources().getDisplayMetrics();
+    check(
+        "display metrics size",
+        dm.widthPixels == getDisplay().getWidth() && dm.heightPixels == getDisplay().getHeight());
+    check(
+        "one density",
+        dm.density == 1f
+            && dm.scaledDensity == 1f
+            && dm.densityDpi == DisplayMetrics.DENSITY_DEFAULT);
+    check(
+        "px dip sp identity",
+        TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_PX, 7f, dm) == 7f
+            && TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 7f, dm) == 7f
+            && TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 7f, dm) == 7f);
+    check(
+        "pt in mm nominal at 160 dpi",
+        Math.abs(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_PT, 72f, dm) - 160f) < 0.01f
+            && TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_IN, 1f, dm) == 160f
+            && Math.abs(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_MM, 25.4f, dm) - 160f)
+                < 0.01f);
+    check("unknown unit is zero", TypedValue.applyDimension(99, 7f, dm) == 0f);
+
+    // A single-line cap is a box height measured from the face when the mode was set; a later
+    // size change must re-measure it, or the label stays one 14 px line tall under 28 px glyphs.
+    capped = new TextView(this);
+    capped.setSize(200, 90);
+    capped.setSingleLine();
+    capped.setText("a single line that is far longer than the box it sits in, so it is cut");
+    capped.setTextSize(28);
+    root.addView(capped);
+    oneLine = new TextView(this);
+    oneLine.setText("x");
+    oneLine.setTextSize(28);
+    root.addView(oneLine);
   }
 
   void clicks() {
@@ -802,6 +892,11 @@ public class QaUiActivity extends Activity {
         "column stacks without overlap",
         rows[1].getTop() >= rows[0].getTop() + rows[0].getHeight());
     check("root at origin", root.getLeft() == 0 && root.getTop() == 0);
+    check("bigger face is taller after layout", big.getHeight() > small.getHeight());
+    check(
+        "single-line cap follows the face",
+        capped.getHeight() == oneLine.getHeight() && capped.getHeight() < 90);
+    check("content-sized button grows with its face", bigBtn.getHeight() > smallBtn.getHeight());
     rows[0].setTranslationX(8f);
     check("getX includes translation", rows[0].getX() == rows[0].getLeft() + 8f);
     check("getY without translation", rows[0].getY() == rows[0].getTop());

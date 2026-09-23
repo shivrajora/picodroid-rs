@@ -27,10 +27,18 @@ F	CANCELLED
 F	CENTER
 F	CENTER_HORIZONTAL
 F	CENTER_VERTICAL
+F	COMPLEX_UNIT_DIP
+F	COMPLEX_UNIT_IN
+F	COMPLEX_UNIT_MM
+F	COMPLEX_UNIT_PT
+F	COMPLEX_UNIT_PX
+F	COMPLEX_UNIT_SP
 F	CYAN
 F	DAYS
 F	DEFAULT_INDICATOR_SIZE
+F	DEFAULT_TEXT_SIZE
 F	DEFAULT_TRACK_THICKNESS
+F	DENSITY_DEFAULT
 F	DIR
 F	DIRECTION_IN
 F	DIRECTION_OUT_INITIALLY_HIGH
@@ -55,6 +63,7 @@ F	FLAG_ONE_SHOT
 F	FLAG_SYSTEM
 F	FLAG_UPDATE_CURRENT
 F	FLING_MIN_PX
+F	FONT_PAD_OFF
 F	GONE
 F	GREEN
 F	HARDWARE
@@ -324,6 +333,8 @@ F	data
 F	dataBytes
 F	dateChangedListener
 F	defaultHandler
+F	density
+F	densityDpi
 F	doOutput
 F	downEvent
 F	duration
@@ -349,6 +360,7 @@ F	headerCount
 F	headerNames
 F	headerValues
 F	height
+F	heightPixels
 F	host
 F	i2cId
 F	id
@@ -383,7 +395,9 @@ F	mContext
 F	mGroup
 F	mLayout
 F	mLineMode
+F	mMetrics
 F	mPos
+F	mTextSize
 F	max
 F	maxRange
 F	maxValue
@@ -443,6 +457,7 @@ F	rotationTo
 F	sInstance
 F	scaleXTo
 F	scaleYTo
+F	scaledDensity
 F	sensor
 F	shutdown
 F	spiId
@@ -485,11 +500,14 @@ F	watcherCount
 F	watchers
 F	weight
 F	width
+F	widthPixels
 F	workers
 F	x
 F	xTo
+F	xdpi
 F	y
 F	yTo
+F	ydpi
 M	$values
 M	abs
 M	accept
@@ -519,6 +537,7 @@ M	app
 M	append
 M	appendHeader
 M	apply
+M	applyDimension
 M	applyLineMode
 M	applyTint
 M	applyTo
@@ -676,6 +695,7 @@ M	getDimension
 M	getDimensionPixelOffset
 M	getDimensionPixelSize
 M	getDisplay
+M	getDisplayMetrics
 M	getDouble
 M	getDuration
 M	getEllipsize
@@ -717,6 +737,7 @@ M	getLayoutInflater
 M	getLayoutParams
 M	getLeft
 M	getLength
+M	getLineHeight
 M	getLong
 M	getLongExtra
 M	getLongVersionCode
@@ -774,6 +795,7 @@ M	getSystemService
 M	getTag
 M	getTargetClassName
 M	getText
+M	getTextSize
 M	getTop
 M	getTotalBytes
 M	getTrackColor
@@ -795,6 +817,7 @@ M	grow
 M	has
 M	hasExtra
 M	hasFocus
+M	hasLineMode
 M	hasSystemFeature
 M	hash
 M	hashCode
@@ -886,6 +909,7 @@ M	nativeDisconnect
 M	nativeDismiss
 M	nativeDoubleValue
 M	nativeFreeBytes
+M	nativeGetLineHeight
 M	nativeGetProperty
 M	nativeHardware
 M	nativeHeaderField
@@ -973,6 +997,7 @@ M	nativeSetProperty
 M	nativeSetRange
 M	nativeSetString
 M	nativeSetText
+M	nativeSetTextSize
 M	nativeSetTextarea
 M	nativeSetTint
 M	nativeSetTrackColor
@@ -1257,10 +1282,12 @@ M	setText
 M	setTextColor
 M	setTextOff
 M	setTextOn
+M	setTextSize
 M	setTime
 M	setTimeout
 M	setTint
 M	setTitle
+M	setToDefaults
 M	setTrackColor
 M	setTrackCornerRadius
 M	setTrackThickness

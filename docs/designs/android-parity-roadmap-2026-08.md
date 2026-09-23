@@ -294,8 +294,9 @@ clears it.
 2. ~~`Context.getFilesDir()` / `openFileInput` / `openFileOutput` / `deleteFile`
    / `fileList()`~~ — **shipped 2026-09-08** (`c50422d1`), sandboxed under
    `/data/<package>`.
-3. `TextView.setTextSize(float)` / `(int unit, float)`, `append`, `setGravity`
-   — `append` is pure Java, the other two are LVGL-side natives.
+3. ~~`TextView.setTextSize(float)` / `(int unit, float)`~~ — **shipped 2026-09-23** over a
+   per-board ladder of generated Montserrat faces (`text_sizes`; nearest-face snapping);
+   `append`, `setGravity` — `append` is pure Java, `setGravity` an LVGL-side native.
 4. `Gpio` edge callback — a `dispatch_sites.rs` row plus a GC-root provider
    for the retained listener (`EXPECTED_PROVIDERS` bump).
 
@@ -335,7 +336,10 @@ matches Android exactly and keeps the universal `getText().toString()` idiom
 working either way. Shipped 2026-09-09: `setSingleLine`,
 `setEllipsize(TextUtils.TruncateAt)` and `setMaxLines` with their getters,
 over LVGL's label long modes and a `max_height` cap of N lines
-(`docs/designs/multi-app-2026-09.md`, A5); `setTextSize`, `setGravity` and
+(`docs/designs/multi-app-2026-09.md`, A5). Shipped 2026-09-23: `setTextSize`
+(both overloads), `getTextSize`, `getLineHeight`, with `TypedValue` and
+`DisplayMetrics`, over a per-board ladder of generated Montserrat faces
+(`docs/designs/claudeusage-gaps-roadmap-2026-09.md`, G1); `setGravity` and
 `append` remain.
 
 **T1.5 — input & sensors.** `MotionEvent.ACTION_CANCEL`;
@@ -756,8 +760,8 @@ Unchanged and still open: T1.3 (none of its list exists — no
 `View.getParent`/`getContext`, `removeViewAt`, `indexOfChild`,
 `ListView.setSelection`, `ArrayAdapter.remove/insert/getPosition`,
 `AlertDialog.setCancelable`/`setOnDismissListener`, `Toast.setGravity`);
-T1.4's `setTextSize` (the board has one font size), `TextView.setGravity`,
-`append` and `EditText.setSelection`; T1.5 in full; T1.6's edge callback; T1.9's
+T1.4's `TextView.setGravity`, `append` and `EditText.setSelection`
+(`setTextSize` shipped 2026-09-23); T1.5 in full; T1.6's edge callback; T1.9's
 password masking; T2.8 pickers-as-dialogs; T3.1 Bundle; T3.2 resources/XML
 layouts; T3.3 `java.io` streams; T3.4 `getView`/convertView; T3.5 Canvas; E3
 phase 2 (restricted compile classpath).

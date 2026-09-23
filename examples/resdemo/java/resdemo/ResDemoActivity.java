@@ -55,6 +55,7 @@ public class ResDemoActivity extends Activity {
     TextView title = findViewById(R.id.title);
     check("findViewById", title != null && title.getId() == R.id.title);
     check("text from @string", title != null && "Res Demo".equals(title.getText().toString()));
+    check("textSize from @dimen", title != null && title.getTextSize() == 20f);
     check("missing id is null", findViewById(R.id.row_label) == null);
 
     final Button tap = findViewById(R.id.tap);

@@ -47,8 +47,17 @@ pub type lv_obj_t = c_void;
 pub type lv_event_t = c_void;
 pub type lv_event_dsc_t = c_void;
 pub type lv_group_t = c_void;
-/// Opaque `lv_font_t`; only ever handed back to LVGL (`lv_font_get_line_height`).
+/// Opaque `lv_font_t`; only ever handed back to LVGL (`lv_font_get_line_height`,
+/// `lv_obj_set_style_text_font`).
 pub type lv_font_t = c_void;
+
+/// One row of the face table in `lvgl/pd_fonts.c`: a compiled face and its pixel size. The
+/// pointer comes first so the layout is the same on ARM32 and x86_64.
+#[repr(C)]
+pub struct pd_font_t {
+    pub font: *const lv_font_t,
+    pub px: u8,
+}
 
 // ---------------------------------------------------------------------------
 // Concrete types
@@ -704,6 +713,11 @@ extern "C" {
     pub fn lv_label_get_long_mode(obj: *const lv_obj_t) -> lv_label_long_mode_t;
     /// Line height of a font from `lv_obj_get_style_prop(.., LV_STYLE_TEXT_FONT).ptr`.
     pub fn lv_font_get_line_height(font: *const lv_font_t) -> i32;
+    /// The faces this build compiled (`lvgl/pd_fonts.c`), ascending by size; `count` receives
+    /// the row count. Never empty: the default face is always the first row.
+    pub fn pd_font_table(count: *mut usize) -> *const pd_font_t;
+    /// Blank rows between a face's line top and its digit tops (`lvgl/pd_fonts.c`); 0 for null.
+    pub fn pd_font_top_leading(font: *const lv_font_t) -> i32;
 
     // Button widget
     pub fn lv_button_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
@@ -799,6 +813,11 @@ extern "C" {
     pub fn lv_obj_set_style_text_color(
         obj: *mut lv_obj_t,
         value: lv_color_t,
+        selector: lv_style_selector_t,
+    );
+    pub fn lv_obj_set_style_text_font(
+        obj: *mut lv_obj_t,
+        value: *const lv_font_t,
         selector: lv_style_selector_t,
     );
 
@@ -1794,5 +1813,89 @@ mod tests {
         assert_eq!(eval_c_const("(1u << 20)"), Some(1 << 20));
         assert_eq!(eval_c_const("LV_OBJ_FLAG_LAYOUT_1"), None);
         assert_eq!(eval_c_const("(A | B)"), None);
+    }
+
+    /// `lvgl/pd_fonts.c` is the one list of faces `TextView.setTextSize` can snap to. Hold its
+    /// rows to the generated files in `lvgl/fonts/` and to `scripts/gen-fonts.sh`'s `SIZES`, so
+    /// a face cannot be generated and forgotten, or listed and missing, or listed out of order
+    /// (the runtime assumes an ascending table).
+    #[test]
+    fn pd_fonts_table_matches_the_generated_faces() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let read = |rel: &str| {
+            std::fs::read_to_string(root.join(rel)).unwrap_or_else(|e| panic!("{rel}: {e}"))
+        };
+        let table = read("lvgl/pd_fonts.c");
+        let guarded: Vec<u32> = table
+            .lines()
+            .filter_map(|l| {
+                l.trim()
+                    .strip_prefix("#if PD_FONT_MONTSERRAT_")?
+                    .trim()
+                    .parse()
+                    .ok()
+            })
+            .collect();
+        assert!(!guarded.is_empty(), "pd_fonts.c lists no generated face");
+        assert!(
+            table.contains("{ &lv_font_montserrat_14, 14 },"),
+            "the 14 px row is missing"
+        );
+        for &px in &guarded {
+            assert!(
+                table.contains(&format!("{{ &pd_font_montserrat_{px}, {px} }},")),
+                "pd_fonts.c guards {px} px but has no table row for it"
+            );
+            assert!(
+                table.contains(&format!("PD_ROW_{px}\n")),
+                "pd_fonts.c defines a row for {px} px but never places it"
+            );
+        }
+        let mut sorted = guarded.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(
+            guarded, sorted,
+            "pd_fonts.c rows must ascend by size, once each"
+        );
+
+        let mut files: Vec<u32> = std::fs::read_dir(root.join("lvgl/fonts"))
+            .expect("lvgl/fonts")
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter_map(|n| {
+                n.strip_prefix("pd_font_montserrat_")?
+                    .strip_suffix(".c")?
+                    .parse()
+                    .ok()
+            })
+            .collect();
+        files.sort_unstable();
+        assert_eq!(
+            files, sorted,
+            "lvgl/fonts/ and pd_fonts.c list different sizes"
+        );
+        for &px in &files {
+            let face = read(&format!("lvgl/fonts/pd_font_montserrat_{px}.c"));
+            assert!(
+                face.contains(&format!("#if PD_FONT_MONTSERRAT_{px}\n")),
+                "pd_font_montserrat_{px}.c was not generated with the guard pd_fonts.c expects"
+            );
+        }
+
+        let script = read("../../scripts/gen-fonts.sh");
+        let sizes = script
+            .lines()
+            .find_map(|l| l.strip_prefix("SIZES=\""))
+            .expect("scripts/gen-fonts.sh: SIZES=\"...\"");
+        let mut script_sizes: Vec<u32> = sizes
+            .trim_end_matches('"')
+            .split_whitespace()
+            .map(|s| s.parse().unwrap())
+            .collect();
+        script_sizes.sort_unstable();
+        assert_eq!(
+            script_sizes, sorted,
+            "scripts/gen-fonts.sh SIZES and pd_fonts.c differ"
+        );
     }
 }

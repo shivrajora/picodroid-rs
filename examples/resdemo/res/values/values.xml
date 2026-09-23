@@ -6,6 +6,7 @@
     <dimen name="gap">8dp</dimen>
     <dimen name="logo">64dp</dimen>
     <dimen name="hairline">0.5dp</dimen>
+    <dimen name="title_size">20sp</dimen>
     <integer name="max_taps">10</integer>
     <bool name="show_logo">true</bool>
 </resources>

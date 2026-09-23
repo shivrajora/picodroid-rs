@@ -918,6 +918,41 @@ pub fn hw_vscroll(board: &Option<ResolvedBoard>) -> bool {
     madctl & 0xA0 == 0
 }
 
+/// The pixel sizes of the faces this board compiles for `TextView.setTextSize`,
+/// from the `text_sizes` key (`;`-separated, e.g. `"14;20;28;64"`): the
+/// board's own value, else its MCU's, else 14 alone. 14 is LVGL's stock
+/// Montserrat and the theme font, so it is always present; every other size
+/// is a face `scripts/gen-fonts.sh` generated into `crates/pd-lvgl-sys/lvgl/fonts/`,
+/// which `lvgl::build` compiles in (and checks exists) and `pd_fonts.c` lists.
+/// Sorted ascending, without duplicates.
+pub fn text_sizes(board: &Option<ResolvedBoard>) -> Vec<u8> {
+    let raw = board.as_ref().and_then(|b| {
+        b.cfg
+            .props
+            .get("text_sizes")
+            .cloned()
+            .or_else(|| b.mcu().1.get("text_sizes").cloned())
+    });
+    let Some(raw) = raw else {
+        return vec![14];
+    };
+    let mut sizes: Vec<u8> = config::parse_str_list(&raw)
+        .iter()
+        .map(|s| {
+            s.parse::<u8>().unwrap_or_else(|e| {
+                panic!("text_sizes = \"{raw}\": `{s}` is not a pixel size: {e}")
+            })
+        })
+        .collect();
+    sizes.sort_unstable();
+    sizes.dedup();
+    assert!(
+        sizes.contains(&14),
+        "text_sizes = \"{raw}\" must include 14, the default face every label starts in"
+    );
+    sizes
+}
+
 /// Emit the `has_touch` cfg without the pin-bearing `touch_config.rs`.
 pub fn emit_touch_cfg(board: &Option<ResolvedBoard>) {
     println!("cargo:rustc-check-cfg=cfg(has_touch)");

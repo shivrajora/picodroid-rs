@@ -221,6 +221,11 @@
 /*==================
  *   FONT USAGE
  *===================*/
+/* Montserrat 14 is the theme's face and LV_FONT_DEFAULT; it is the only stock
+ * face compiled. The larger faces TextView.setTextSize can snap to are not
+ * these: a board's `text_sizes` key compiles ASCII-only subsets from
+ * fonts/ (scripts/gen-fonts.sh), which pd_fonts.c lists and which cost about
+ * half the flash of a stock face at the same size. */
 #define LV_FONT_MONTSERRAT_8  0
 #define LV_FONT_MONTSERRAT_10 0
 #define LV_FONT_MONTSERRAT_12 0
@@ -244,6 +249,9 @@
 #define LV_FONT_MONTSERRAT_48 0
 
 #define LV_FONT_MONTSERRAT_28_COMPRESSED 0
+/* Upstream's lv_font_montserrat_14_aligned.c enables itself when this is
+ * undefined; nothing here references the symbol, so keep it out of the build. */
+#define LV_FONT_MONTSERRAT_14_ALIGNED 0
 #define LV_FONT_DEJAVU_16_PERSIAN_HEBREW 0
 #define LV_FONT_SIMSUN_14_CJK            0
 #define LV_FONT_SIMSUN_16_CJK            0

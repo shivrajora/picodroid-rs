@@ -123,6 +123,14 @@ impl GraphicsBackend for LvglBackend {
                 ctx.args,
                 ctx.objects,
             )),
+            m::nativeSetTextSize => Some(widgets::text_view_native_set_text_size(
+                ctx.args,
+                ctx.objects,
+            )),
+            m::nativeGetLineHeight => Some(widgets::text_view_native_get_line_height(
+                ctx.args,
+                ctx.objects,
+            )),
             _ => None,
         }
     }

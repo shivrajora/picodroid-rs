@@ -589,6 +589,7 @@ You don't edit `board.toml` to write an app, but it determines what your app can
 | `network_type` | string | no | Required when `has_network = true`. Must be a row of `build_support::board_cfg::KNOWN_NETWORK_TYPES` (`"cyw43"` = wifi today); the build emits `network_<type>` and `network_link_<kind>` and checks the kind against the forwarded `picodroid-core/network-<kind>` feature. |
 | `lv_dpi` | int | no | Override LVGL's reported DPI (default 130). Used for small-screen boards. |
 | `lv_mem_kb` | int | no | LVGL render-pool size in KiB (default 64). |
+| `text_sizes` | string | no | The pixel sizes of the Montserrat faces `TextView.setTextSize` can snap to, `;`-separated; the MCU toml's value applies when unset (`14;20;28;64` on the RP2350s, `14` on the RP2040). 14 is required; every other size must exist as a generated face in `crates/pd-lvgl-sys/lvgl/fonts/` (`scripts/gen-fonts.sh`). Flash per face: [Limits](/reference/limits/). |
 | `lv_mem_in_psram` | bool | no | Put the LVGL pool in the module's PSRAM instead of `.bss` (the MCU toml must declare `psram_kb`). Frees the pool's size from the main-stack budget; render targets stay in SRAM. Device builds only — the simulator keeps its `.bss` pool. |
 | `idle_timeout_ms` | int | no | Idle time before the display sleeps (default 60000; `0` disables sleep). Only takes effect on boards with `[[button]]` entries. |
 | `handle_slots` | int | no | Size of the LVGL object handle table (default 256). Must be a power of two between 32 and 4096. |

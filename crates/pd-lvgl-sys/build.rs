@@ -28,9 +28,11 @@ fn main() {
     // Board overrides (`lv_dpi`, `lv_mem_kb`) come from board.toml; boardless
     // builds get lv_conf.h's defaults. The MCU toml may pin the C
     // optimisation level for its target (`c_opt_level`; the rp2040 compiles
-    // its C at -Os).
+    // its C at -Os) and carries the default face ladder (`text_sizes`) a
+    // board may override.
     let board_props = board.as_ref().map(|b| b.cfg.props.clone());
     let mcu = board.as_ref().map(|b| b.mcu().1);
+    let text_sizes = board_cfg::text_sizes(&board);
     lvgl::build(
         out,
         &board_props,
@@ -38,5 +40,6 @@ fn main() {
         root,
         &manifest_dir.join("lvgl"),
         hw_vscroll,
+        &text_sizes,
     );
 }

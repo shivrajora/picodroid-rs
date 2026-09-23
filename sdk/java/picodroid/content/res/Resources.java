@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.content.res;
 
+import picodroid.util.DisplayMetrics;
+
 /**
  * The app's compiled {@code res/} tree, addressed by the ids of its generated {@code R} class.
  * Mirrors {@code android.content.res.Resources}; obtain it from {@link
@@ -16,6 +18,8 @@ package picodroid.content.res;
  */
 public final class Resources {
   private static Resources sInstance;
+
+  private DisplayMetrics mMetrics;
 
   private Resources() {}
 
@@ -87,6 +91,18 @@ public final class Resources {
    * @throws NotFoundException if {@code id} is not a boolean resource of this app
    */
   public native boolean getBoolean(int id);
+
+  /**
+   * Mirrors Android: the display's size and density. One density, so {@link DisplayMetrics#density}
+   * is 1 and a {@code dp} is a pixel; see {@link DisplayMetrics}.
+   */
+  public DisplayMetrics getDisplayMetrics() {
+    if (mMetrics == null) {
+      mMetrics = new DisplayMetrics();
+      mMetrics.setToDefaults();
+    }
+    return mMetrics;
+  }
 
   /** Mirrors Android: thrown when a requested resource id does not exist. */
   public static class NotFoundException extends RuntimeException {

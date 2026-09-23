@@ -22,7 +22,9 @@ fn parse_int(props: &HashMap<String, String>, key: &str) -> Option<u64> {
 /// `third_party/lvgl` can be located regardless of which
 /// `platforms/<family>/` directory the build.rs runs from. `conf_dir` is the
 /// directory holding `lv_conf.h` and the C helpers compiled with it — the
-/// calling crate's own `lvgl/` (that crate is `pd-lvgl-sys`).
+/// calling crate's own `lvgl/` (that crate is `pd-lvgl-sys`). `text_sizes` is
+/// the board's face ladder (`board_cfg::text_sizes`): every size but 14 names
+/// a generated face under `conf_dir/fonts/` that is compiled in.
 pub fn build(
     _out: &Path,
     board_cfg: &Option<HashMap<String, String>>,
@@ -30,6 +32,7 @@ pub fn build(
     repo_root: &Path,
     conf_dir: &Path,
     hw_vscroll: bool,
+    text_sizes: &[u8],
 ) {
     let lvgl_src = repo_root.join("third_party/lvgl/src");
     if !lvgl_src.exists() {
@@ -129,6 +132,34 @@ pub fn build(
         build.file(&helper);
         println!("cargo:rerun-if-changed={}", helper.display());
     }
+
+    // The faces `TextView.setTextSize` can snap to. 14 is LVGL's stock
+    // Montserrat, on in lv_conf.h; every other size is an ASCII-only face
+    // scripts/gen-fonts.sh generated beside lv_conf.h, compiled in here and
+    // switched on for pd_fonts.c's table, which is what the Rust side reads.
+    // The device and its simulator get the same ladder.
+    let fonts_dir = conf_dir.join("fonts");
+    for &px in text_sizes {
+        if px == 14 {
+            continue;
+        }
+        let face = fonts_dir.join(format!("pd_font_montserrat_{px}.c"));
+        assert!(
+            face.exists(),
+            "text_sizes lists {px} px but {} does not exist: run scripts/gen-fonts.sh",
+            face.display()
+        );
+        build.define(&format!("PD_FONT_MONTSERRAT_{px}"), "1");
+        build.file(&face);
+        println!("cargo:rerun-if-changed={}", face.display());
+    }
+    let table = conf_dir.join("pd_fonts.c");
+    build.file(&table);
+    println!("cargo:rerun-if-changed={}", table.display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        conf_dir.join("pd_fonts.h").display()
+    );
 
     // ARM gcc defaults to -fshort-enums, making C enums 1 byte when values
     // fit.  Our Rust FFI (pd-lvgl-sys) mirrors this with u8 typedefs.  On

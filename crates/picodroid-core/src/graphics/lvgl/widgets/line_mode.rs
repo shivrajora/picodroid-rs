@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! The `TextView` line mode — `setSingleLine` / `setEllipsize` / `setMaxLines` — as LVGL sees
-//! it: a label long mode and a cap on the lines the box may hold. Pure, so it is unit-tested
-//! through the shim in `lib.rs` although the graphics tree is `cfg(not(test))`; `text_view.rs`
-//! applies the result.
+//! it: a label long mode and a cap on the lines the box may hold. Pure and unit-tested in place;
+//! `text_view.rs` applies the result.
 
 use crate::lvgl_ffi::*;
 

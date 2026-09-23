@@ -228,6 +228,8 @@ pub mod layout {
         /// f32 bits, degrees.
         pub const START_ANGLE: u32 = 40;
         pub const SWEEP_ANGLE: u32 = 41;
+        /// f32 bits, pixels (`TextView.setTextSize(COMPLEX_UNIT_PX, ..)`).
+        pub const TEXT_SIZE: u32 = 42;
 
         /// `(constant name in LayoutInflater.java, code)`.
         pub const ALL: &[(&str, u32)] = &[
@@ -272,6 +274,7 @@ pub mod layout {
             ("INDICATOR_SIZE", INDICATOR_SIZE),
             ("START_ANGLE", START_ANGLE),
             ("SWEEP_ANGLE", SWEEP_ANGLE),
+            ("TEXT_SIZE", TEXT_SIZE),
         ];
     }
 

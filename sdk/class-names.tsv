@@ -202,7 +202,9 @@ picodroid/text/InputType
 picodroid/text/TextUtils
 picodroid/text/TextUtils$TruncateAt
 picodroid/text/TextWatcher
+picodroid/util/DisplayMetrics
 picodroid/util/Log
+picodroid/util/TypedValue
 picodroid/view/GestureDetector
 picodroid/view/GestureDetector$OnGestureListener
 picodroid/view/GestureDetector$SimpleOnGestureListener

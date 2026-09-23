@@ -122,7 +122,7 @@ Create those views in Java and `addView` them into an inflated container.
 |---|---|
 | Any view | `id`, `layout_width`, `layout_height` (`match_parent`, `wrap_content`, a dimension), `layout_weight`, `layout_gravity`, `padding`, `paddingLeft/Top/Right/Bottom`, `paddingStart/End`, `paddingHorizontal/Vertical`, `background` (a colour), `visibility`, `enabled`, `focusable`, `alpha` |
 | `LinearLayout`, `RadioGroup` | `orientation`, `gravity` |
-| `TextView`, `Button` | `text`, `textColor`, `singleLine`, `maxLines`, `ellipsize` |
+| `TextView`, `Button` | `text`, `textColor`, `textSize` (a dimension, `sp` = `px`; snaps to the board's nearest compiled face), `singleLine`, `maxLines`, `ellipsize` |
 | `EditText` | `text`, `hint`, `inputType` (`text`, `number`, `phone`, `datetime`, `textUri`, `textEmailAddress`, `textPassword`, `numberSigned`, `numberDecimal`) |
 | `CheckBox`, `RadioButton` | `text`, `checked` |
 | `Switch`, `ToggleButton` | `checked`; `textOn`, `textOff` on `ToggleButton` |
@@ -130,8 +130,8 @@ Create those views in Java and `addView` them into an inflated container.
 | `ProgressBar`, `SeekBar` | `progress`, `max`; `min`, `progressTint`, `progressBackgroundTint`, `indeterminateTint` on `ProgressBar` (`tint` is the older spelling of `indeterminateTint`). `min` and `max` are applied before `progress` whatever the XML order, as on Android. |
 | `CircularProgressIndicator` | `ProgressBar`'s `progress`, `min`, `max`, `progressTint` (the indicator) and `progressBackgroundTint` (the track), plus Material's `indicatorColor`, `trackColor`, `trackThickness`, `indicatorSize` (Android Studio writes them with the `app:` prefix) and picodroid's `startAngle`, `sweepAngle` (degrees) |
 
-An attribute the framework has no setter for — `textSize` (there is [one font
-size](/guides/embedded-gotchas/)), `layout_margin`, `onClick` — is **reported as a build warning
+An attribute the framework has no setter for — `textStyle`, `fontFamily`, `layout_margin`,
+`onClick` — is **reported as a build warning
 and dropped**, so a layout pasted from an Android project builds and tells you what it lost. A
 value that does not parse, an undefined reference, or an unknown element is a build error that names
 the file and the attribute.

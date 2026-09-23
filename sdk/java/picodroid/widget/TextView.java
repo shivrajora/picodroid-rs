@@ -2,7 +2,9 @@
 package picodroid.widget;
 
 import picodroid.content.Context;
+import picodroid.content.res.Resources;
 import picodroid.text.TextUtils;
+import picodroid.util.TypedValue;
 import picodroid.view.View;
 
 public class TextView extends View {
@@ -12,6 +14,13 @@ public class TextView extends View {
   /** Bit of {@link #mLineMode} set by {@link #setSingleLine}. */
   private static final int SINGLE_LINE = 0x8;
 
+  /**
+   * Bit of {@link #mLineMode} set by {@link #setIncludeFontPadding setIncludeFontPadding(false)}.
+   * Not a line mode: it rides in the same slot so a text-size change can re-apply it, since the
+   * trimmed leading is measured from the face.
+   */
+  private static final int FONT_PAD_OFF = 0x10;
+
   /** {@link #setMaxLines}'s count sits above this shift in {@link #mLineMode}; 0 = no limit. */
   private static final int MAX_LINES_SHIFT = 8;
 
@@ -19,10 +28,19 @@ public class TextView extends View {
   private static final int MAX_LINES_LIMIT = 0xFFFF;
 
   /**
+   * The size of the default face in pixels: what a fresh label reports from {@link #getTextSize}.
+   */
+  private static final float DEFAULT_TEXT_SIZE = 14f;
+
+  /**
    * The line mode — the ellipsize kind, the single-line flag and the max-lines count — packed into
-   * one field so it costs a label one slot. Zero is the default: wrap, no ellipsis, no limit.
+   * one field so it costs a label one slot, with the {@link #FONT_PAD_OFF} flag beside them. Zero
+   * is the default: wrap, no ellipsis, no limit, font padding kept.
    */
   private int mLineMode;
+
+  /** The size last set by {@link #setTextSize}, in pixels; the face in use may differ. */
+  private float mTextSize = DEFAULT_TEXT_SIZE;
 
   public TextView() {
     super(nativeCreate());
@@ -55,13 +73,70 @@ public class TextView extends View {
   public native void setTextColor(int argb);
 
   /**
+   * Mirrors Android's {@code TextView.setTextSize(float)}: the text size in scaled pixels, which
+   * are pixels here (see {@link picodroid.util.DisplayMetrics}). Default 14, the size of the face
+   * every label starts in.
+   *
+   * <p>Divergence: the faces are bitmaps, one per size the board compiles — its {@code text_sizes}
+   * ladder, 14, 20, 28 and 64 on the RP2350 boards and 14 alone on the RP2040 — so the text renders
+   * in the compiled face nearest the size asked for, a tie going to the larger. {@link
+   * #getTextSize} returns the size asked for, as on Android; {@link #getLineHeight} reports the
+   * face in use. A single-line or max-lines limit and {@link #setIncludeFontPadding} follow the new
+   * face.
+   */
+  public void setTextSize(float size) {
+    setTextSize(TypedValue.COMPLEX_UNIT_SP, size);
+  }
+
+  /**
+   * Mirrors Android's {@code TextView.setTextSize(int, float)}: {@code size} in one of {@link
+   * TypedValue}'s {@code COMPLEX_UNIT_*} units, converted to pixels by {@link
+   * TypedValue#applyDimension}. See {@link #setTextSize(float)} for how a size becomes a face.
+   */
+  public void setTextSize(int unit, float size) {
+    float px = TypedValue.applyDimension(unit, size, Resources.getInstance().getDisplayMetrics());
+    if (px == mTextSize) {
+      return;
+    }
+    mTextSize = px;
+    nativeSetTextSize(px);
+    // The trimmed leading and the line cap are both measured from the face, so both follow it;
+    // the pads first, because the cap includes them.
+    if ((mLineMode & FONT_PAD_OFF) != 0) {
+      nativeSetIncludeFontPadding(false);
+    }
+    if (hasLineMode()) {
+      applyLineMode();
+    }
+  }
+
+  /** Mirrors Android: the size set by {@link #setTextSize}, in pixels; 14 until one is set. */
+  public float getTextSize() {
+    return mTextSize;
+  }
+
+  /**
+   * Mirrors Android's {@code TextView.getLineHeight()}: the height of one line of text in the face
+   * in use, in pixels — 16 for the default face. The way to learn which face {@link #setTextSize}
+   * landed on.
+   */
+  public int getLineHeight() {
+    return nativeGetLineHeight();
+  }
+
+  private native void nativeSetTextSize(float px);
+
+  private native int nativeGetLineHeight();
+
+  /**
    * Mirrors Android's {@code TextView.setIncludeFontPadding(boolean)}. When {@code false}, strips
    * the font's top side-bearing whitespace so the label box hugs the glyphs, balancing the visible
    * gap above and below the label inside a {@link LinearLayout}. Default {@code true}.
    */
   public void setIncludeFontPadding(boolean include) {
+    mLineMode = include ? mLineMode & ~FONT_PAD_OFF : mLineMode | FONT_PAD_OFF;
     nativeSetIncludeFontPadding(include);
-    if (mLineMode != 0) {
+    if (hasLineMode()) {
       applyLineMode();
     }
   }
@@ -85,7 +160,7 @@ public class TextView extends View {
     if (singleLine) {
       mLineMode |= SINGLE_LINE;
     } else {
-      mLineMode &= ELLIPSIZE_MASK;
+      mLineMode &= ELLIPSIZE_MASK | FONT_PAD_OFF;
     }
     applyLineMode();
   }
@@ -156,9 +231,14 @@ public class TextView extends View {
   @Override
   public void setPadding(int left, int top, int right, int bottom) {
     super.setPadding(left, top, right, bottom);
-    if (mLineMode != 0) {
+    if (hasLineMode()) {
       applyLineMode();
     }
+  }
+
+  /** Whether any line mode is set — the {@link #FONT_PAD_OFF} flag is not one. */
+  private boolean hasLineMode() {
+    return (mLineMode & ~FONT_PAD_OFF) != 0;
   }
 
   private void applyLineMode() {

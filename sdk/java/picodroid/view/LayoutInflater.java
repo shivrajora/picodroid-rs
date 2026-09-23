@@ -5,6 +5,7 @@ import picodroid.content.Context;
 import picodroid.content.res.ColorStateList;
 import picodroid.content.res.Resources;
 import picodroid.text.TextUtils;
+import picodroid.util.TypedValue;
 import picodroid.widget.Button;
 import picodroid.widget.CheckBox;
 import picodroid.widget.CircularProgressIndicator;
@@ -35,7 +36,7 @@ import picodroid.widget.ToggleButton;
  *
  * <p>The elements that can be inflated are the framework widgets named in {@code create}. A custom
  * view class cannot: there is no reflection to construct it with. Attributes the framework has no
- * setter for ({@code textSize}, {@code layout_margin}, …) are reported and dropped at build time.
+ * setter for ({@code layout_margin}, {@code textStyle}, …) are reported and dropped at build time.
  */
 public class LayoutInflater {
   // The element (CLASS_*) and attribute (ATTR_*) codes of the layout word stream appear below as
@@ -395,6 +396,11 @@ public class LayoutInflater {
       case 41: // ATTR_SWEEP_ANGLE
         if (v instanceof CircularProgressIndicator) {
           ((CircularProgressIndicator) v).setSweepAngle(Float.intBitsToFloat(value));
+        }
+        break;
+      case 42: // ATTR_TEXT_SIZE
+        if (v instanceof TextView) {
+          ((TextView) v).setTextSize(TypedValue.COMPLEX_UNIT_PX, Float.intBitsToFloat(value));
         }
         break;
       default:

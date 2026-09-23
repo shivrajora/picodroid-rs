@@ -622,6 +622,7 @@ impl LayoutCompiler<'_> {
             "alpha" => one(a::ALPHA, self.float(text, from)?),
             "text" => one(a::TEXT, self.string_id(text, from)?),
             "textColor" => one(a::TEXT_COLOR, v.word(TYPE_COLOR, text, from)?),
+            "textSize" => one(a::TEXT_SIZE, v.word(TYPE_DIMEN, text, from)?),
             "hint" => one(a::HINT, self.string_id(text, from)?),
             "singleLine" => one(a::SINGLE_LINE, v.word(TYPE_BOOL, text, from)?),
             "maxLines" => one(a::MAX_LINES, v.word(TYPE_INTEGER, text, from)?),
@@ -1058,14 +1059,16 @@ mod tests {
         android:layout_height="wrap_content"
         android:text="@string/app_name"
         android:textColor="@color/accent"
-        android:textSize="18sp" />
+        android:textSize="18sp"
+        android:layout_margin="4dp" />
     <Button
         android:id="@+id/ok"
         android:layout_width="0dp"
         android:layout_height="40dp"
         android:layout_weight="1"
         android:gravity="center_vertical|right"
-        android:text="OK" />
+        android:text="OK"
+        android:textSize="@dimen/gap" />
     <Button android:text="OK" />
 </LinearLayout>"##;
 
@@ -1094,27 +1097,29 @@ mod tests {
             a::LAYOUT_HEIGHT, -1i32 as u32,
             a::ORIENTATION, 1,
             a::PADDING_LEFT, 12, a::PADDING_TOP, 12, a::PADDING_RIGHT, 12, a::PADDING_BOTTOM, 12,
-            node_header(k::TEXT_VIEW, 5, 0),
+            node_header(k::TEXT_VIEW, 6, 0),
             a::ID, title,
             a::LAYOUT_WIDTH, -2i32 as u32,
             a::LAYOUT_HEIGHT, -2i32 as u32,
             a::TEXT, app_name,
             a::TEXT_COLOR, 0xFF33_66CC,
-            node_header(k::BUTTON, 6, 0),
+            a::TEXT_SIZE, 18.0f32.to_bits(),
+            node_header(k::BUTTON, 7, 0),
             a::ID, ok,
             a::LAYOUT_WIDTH, 0,
             a::LAYOUT_HEIGHT, 40,
             a::LAYOUT_WEIGHT, 1.0f32.to_bits(),
             a::GRAVITY, 0x15,
             a::TEXT, ok_text,
+            a::TEXT_SIZE, 12.0f32.to_bits(),
             node_header(k::BUTTON, 1, 0),
             a::TEXT, ok_text,
         ];
         assert_eq!(words, expected);
 
-        // textSize is reported, tools:context is not.
+        // layout_margin is reported, tools:context is not.
         assert_eq!(c.warnings.len(), 1, "{:?}", c.warnings);
-        assert!(c.warnings[0].contains("textSize"));
+        assert!(c.warnings[0].contains("layout_margin"));
     }
 
     #[test]

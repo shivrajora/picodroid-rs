@@ -70,6 +70,30 @@ pub fn text_view_native_set_include_font_padding(
     Ok(None)
 }
 
+/// `TextView.nativeSetTextSize(float px)` — the size in pixels, snapped to a compiled face on the
+/// LVGL side; a `Button` receiver lands here too (see `label_of`).
+pub fn text_view_native_set_text_size(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let px = match args.get(1) {
+        Some(Value::Float(v)) => *v,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    lvgl_text_view::set_text_size(id, px);
+    Ok(None)
+}
+
+/// `TextView.nativeGetLineHeight()` — one line of the face in use, in pixels.
+pub fn text_view_native_get_line_height(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    Ok(Some(Value::Int(lvgl_text_view::line_height(id))))
+}
+
 /// `TextView.nativeSetLineMode(int ellipsize, int maxLines, boolean singleLine)` — the Java
 /// side's packed line mode; a `Button` receiver lands here too (see `label_of`).
 pub fn text_view_native_set_line_mode(

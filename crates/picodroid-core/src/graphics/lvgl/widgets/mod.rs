@@ -28,6 +28,7 @@ pub mod snackbar;
 pub mod spinner;
 pub mod swipe_refresh_layout;
 pub mod switch;
+pub mod text_size;
 pub mod text_view;
 pub mod time_picker;
 pub mod toast;

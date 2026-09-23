@@ -128,7 +128,7 @@ The last column says what round 1 did: **closed**, **kept** (with the reason), o
 Ordered by how much Android shape each would buy back here.
 
 1. `Activity.onKeyDown` / `onKeyUp` as the fallback when no view consumes a key (item 10; gaps G8).
-2. `TextView.setGravity` and `setTextSize` (items 16, 19; gaps G1).
+2. `TextView.setGravity` (item 16). `setTextSize` shipped 2026-09-23 (item 19; gaps G1).
 3. A borderless, padding-free container option for inflated `LinearLayout`/`FrameLayout` (a
    `style` attribute, or honouring `android:background` as "flat"), so an inflated chrome needs no
    post-inflate flattening.

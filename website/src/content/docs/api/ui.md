@@ -538,7 +538,14 @@ label.setSingleLine();
 label.setEllipsize(TextUtils.TruncateAt.END);
 // Or at most two lines, the second cut.
 label.setMaxLines(2);
+
+// Bigger text: 28 sp, or any TypedValue unit.
+label.setTextSize(28);
+label.setTextSize(TypedValue.COMPLEX_UNIT_PX, 64);
+int lineHeight = label.getLineHeight();   // the face actually in use
 ```
+
+`setTextSize(float)`, `setTextSize(int unit, float)`, `getTextSize()` and `getLineHeight()` mirror Android, with one divergence: the faces are bitmaps, one per size the board compiles, so the text renders in the compiled face **nearest** the size asked for (a tie goes to the larger). The RP2350 boards compile Montserrat at 14, 20, 28 and 64 px; the RP2040 testbench compiles 14 alone, so every size snaps to it there. `getTextSize()` returns the size that was set, as on Android; `getLineHeight()` tells you which face you got (16 px for the default 14). There is one density — `px`, `dp` and `sp` are the same pixel — so `TypedValue.applyDimension` is an identity for those three and nominal (160 dpi) for `PT`, `IN` and `MM`; see `picodroid.util.TypedValue` and `DisplayMetrics`, which `Resources.getDisplayMetrics()` hands out. The ladder is board configuration (`text_sizes` in the MCU or board toml, see [Advanced configuration](/reference/advanced-config/)); `android:textSize` in a layout does the same thing at inflation.
 
 `setSingleLine()`, `setSingleLine(boolean)`, `setEllipsize(TextUtils.TruncateAt)`, `getEllipsize()`, `setMaxLines(int)` and `getMaxLines()` mirror Android over LVGL's label long modes:
 
@@ -549,7 +556,7 @@ label.setMaxLines(2);
 
 ### `picodroid.widget.Button`
 
-A clickable button with a text label. Extends `TextView`, so `setText`, `getText`, `setTextColor` and the line-mode setters (`setSingleLine`, `setEllipsize`, `setMaxLines`, which act on the button's label) are the TextView methods and a `Button` can be passed wherever a `TextView` is expected.
+A clickable button with a text label. Extends `TextView`, so `setText`, `getText`, `setTextColor`, `setTextSize` and the line-mode setters (`setSingleLine`, `setEllipsize`, `setMaxLines`, which act on the button's label) are the TextView methods and a `Button` can be passed wherever a `TextView` is expected. A content-sized button grows with its text size.
 
 ```java
 import picodroid.view.View;

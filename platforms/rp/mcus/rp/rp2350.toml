@@ -27,6 +27,14 @@ size_tool = "arm-none-eabi-size"
 # and the JVM are untouched (docs/designs/flash-budget-2026-09.md §6.1).
 # Render throughput is the cost. Read by build_support/config.rs::apply_c_opt_level.
 c_opt_level = "s"
+# The faces TextView.setTextSize can snap to (build_support/board_cfg.rs::
+# text_sizes; a board.toml `text_sizes` overrides this). 14 is LVGL's stock
+# Montserrat and the theme font; every other size is an ASCII-only face from
+# scripts/gen-fonts.sh. The 2 MB program region affords the whole ladder:
+# body, title, headline and a display size whose digits read across a room,
+# at about 11, 17 and 68 KB of flash (release, 2026-09-23; the breakdown is
+# in website/src/content/docs/reference/limits.md).
+text_sizes = "14;20;28;64"
 freertos_port = "ThirdParty/Community-Supported-Ports/GCC/RP2350_ARM_NTZ/non_secure"
 pico_shim = "src/hal/rp/port/pico_shim_rp2350.c"
 

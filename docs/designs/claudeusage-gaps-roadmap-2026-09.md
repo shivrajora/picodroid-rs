@@ -160,6 +160,14 @@ Two apps have now built their own numerals.
 **Ask:** one or two more sizes, even a digits-and-punctuation subset at 28 and 48 px, plus
 `setTextSize`. Subset fonts keep the flash cost to a few KB each.
 
+**Done 2026-09-23** (branch `textview-textsize`): `TextView.setTextSize(float)` /
+`(int unit, float)`, `getTextSize()`, `getLineHeight()`, `TypedValue`, `DisplayMetrics`,
+`android:textSize`. Not a digits-only subset — a general `setTextSize` must render letters — but
+ASCII-only Montserrat faces at 20, 28 and 64 px (`scripts/gen-fonts.sh`), compiled per board from
+a `text_sizes` key (the RP2350 default; the RP2040 keeps 14). 64 px draws 44 px digits, the
+height of the sprites. A size snaps to the nearest compiled face; `getLineHeight()` says which.
+The app's sprites go with the follow-up commit that moves `BigNumber` onto a `TextView`.
+
 ### G2. No arc or ring gauge — closed 2026-09-23
 
 Ring gauges are the signature look of the ESP32 usage monitors, and LVGL has `lv_arc`. There

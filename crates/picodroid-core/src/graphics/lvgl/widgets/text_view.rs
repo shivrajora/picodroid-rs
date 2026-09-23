@@ -131,13 +131,7 @@ pub(in crate::graphics) fn set_line_mode(id: i32, kind: i32, max_lines: i32, sin
 fn box_height_for(label: *mut lv_obj_t, lines: i32) -> i32 {
     let num =
         |prop: lv_style_prop_t| unsafe { lv_obj_get_style_prop(label, LV_PART_MAIN, prop).num };
-    let font = unsafe { lv_obj_get_style_prop(label, LV_PART_MAIN, LV_STYLE_TEXT_FONT).ptr }
-        as *const lv_font_t;
-    let line_height = if font.is_null() {
-        0
-    } else {
-        unsafe { lv_font_get_line_height(font) }
-    };
+    let line_height = line_height_of(label);
     if line_height <= 0 {
         return LV_COORD_MAX;
     }
@@ -146,6 +140,62 @@ fn box_height_for(label: *mut lv_obj_t, lines: i32) -> i32 {
         + (lines - 1) * num(LV_STYLE_TEXT_LINE_SPACE)
         + pads
         + 2 * num(LV_STYLE_BORDER_WIDTH)
+}
+
+/// The face a label draws with: its `LV_STYLE_TEXT_FONT`, inherited from the theme until
+/// `set_text_size` sets one.
+fn font_of(label: *mut lv_obj_t) -> *const lv_font_t {
+    unsafe {
+        lv_obj_get_style_prop(label, LV_PART_MAIN, LV_STYLE_TEXT_FONT).ptr as *const lv_font_t
+    }
+}
+
+/// The line height of a label's face; 0 when there is none to measure by.
+fn line_height_of(label: *mut lv_obj_t) -> i32 {
+    let font = font_of(label);
+    if font.is_null() {
+        0
+    } else {
+        unsafe { lv_font_get_line_height(font) }
+    }
+}
+
+/// `TextView.nativeSetTextSize`: the compiled face nearest `px` (`text_size::nearest`) on the
+/// label — a `Button` receiver lands here too, hence `label_of`. The face table is whatever the
+/// C build compiled for this board (`pd_fonts.c`), so the ladder is asked for, never assumed.
+/// `LV_STYLE_TEXT_FONT` carries LVGL's layout-update flag: the label, and a content-sized button
+/// around it, re-lay out on the next frame by themselves.
+pub(in crate::graphics) fn set_text_size(id: i32, px: f32) {
+    let label = label_of(id);
+    if label.is_null() {
+        return;
+    }
+    let mut count = 0usize;
+    let table = unsafe { pd_font_table(&mut count) };
+    if table.is_null() || count == 0 {
+        return;
+    }
+    let faces = unsafe { core::slice::from_raw_parts(table, count) };
+    // The ladder is a handful of faces; a fixed buffer keeps the pick allocation-free.
+    let mut sizes = [0u8; 16];
+    let n = count.min(sizes.len());
+    for (size, face) in sizes.iter_mut().zip(faces) {
+        *size = face.px;
+    }
+    let Some(i) = super::text_size::nearest(&sizes[..n], px) else {
+        return;
+    };
+    unsafe { lv_obj_set_style_text_font(label, faces[i].font, 0) };
+}
+
+/// `TextView.nativeGetLineHeight`: one line of the face in use, in pixels; 0 for a stale handle.
+pub(in crate::graphics) fn line_height(id: i32) -> i32 {
+    let label = label_of(id);
+    if label.is_null() {
+        0
+    } else {
+        line_height_of(label)
+    }
 }
 
 pub(in crate::graphics) fn set_text_color(id: i32, argb: u32) {
@@ -160,14 +210,24 @@ pub(in crate::graphics) fn set_text_color(id: i32, argb: u32) {
 /// Mirrors Android `TextView.setIncludeFontPadding(boolean)`. `lv_label` content-sizes to the
 /// font's full `line_height`, which leaves a few pixels of top side-bearing whitespace inside the
 /// box; with `include = false` we apply negative top/bottom pad so the label height hugs the
-/// glyphs and reads as balanced inside a flex column. Tuned for LVGL's bundled Montserrat font.
+/// glyphs and reads as balanced inside a flex column. The top trim is the face's own leading
+/// above its digits (`pd_font_top_leading`: 3 px for Montserrat 14, 7 px for the 64 px face —
+/// not proportional, so it is measured, never scaled; a trim past the glyph tops would clip them),
+/// the bottom trim the 1 px of descent the 14 px tuning gave up. The Java side re-applies it after
+/// a size change. On the label itself (`label_of`), where the line cap reads the pads.
 pub(in crate::graphics) fn set_include_font_padding(id: i32, include: bool) {
-    const TOP_LEADING_PX: i32 = 3;
     const BOTTOM_LEADING_PX: i32 = 1;
-    let pad_top = if include { 0 } else { -TOP_LEADING_PX };
+    let label = label_of(id);
+    if label.is_null() {
+        return;
+    }
+    let pad_top = if include {
+        0
+    } else {
+        -unsafe { pd_font_top_leading(font_of(label)) }
+    };
     let pad_bot = if include { 0 } else { -BOTTOM_LEADING_PX };
     unsafe {
-        let label = handle_table::lookup(id);
         lv_obj_set_style_pad_top(label, pad_top, 0);
         lv_obj_set_style_pad_bottom(label, pad_bot, 0);
     }

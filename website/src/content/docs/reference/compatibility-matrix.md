@@ -54,6 +54,7 @@ counterpart's name, so the API reads the same; you just import `picodroid.*`
 | API | Status | Notes / alternative |
 |---|---|---|
 | `TextView`, `Button`, `LinearLayout`, `ImageView`, `Switch`, `CheckBox`, `ToggleButton`, `RadioButton`/`RadioGroup`, `ProgressBar`, `SeekBar`, `Toast`, `Spinner`, `NumberPicker`, `EditText`, `ListView` | Partial–Full | Core widgets present. See specific divergences below. |
+| `TextView.setTextSize` / `getTextSize` / `getLineHeight` | Partial | Both `setTextSize` overloads and every `TypedValue.COMPLEX_UNIT_*`. The faces are bitmaps, so a size snaps to the **nearest compiled face** (14, 20, 28, 64 px on the RP2350 boards; 14 alone on the RP2040 testbench) — `getLineHeight()` reports the face in use, `getTextSize()` the size set. One density: `px` = `dp` = `sp`. No `setTypeface`, `setTextScaleX` or autosizing. |
 | `TextView.setSingleLine` / `setEllipsize` / `setMaxLines` | Partial | Over LVGL's label long modes: the ellipsis is ASCII `...`, `START`/`MIDDLE` render like `END`, `MARQUEE` scrolls circularly whether or not the view is selected, and a single-line / max-lines view is **at most that many lines tall** — a taller explicit height shrinks to the limit. |
 | `ProgressBar` | Partial | `setMax` / `setMin`, `setProgress(int, boolean animate)`, `incrementProgressBy` and the progress, progress-background and indeterminate tint lists are present. A `ColorStateList` is one colour (no state sets); `setProgressBackgroundTintList` and `View.setBackgroundColor` colour the same LVGL part; no `setSecondaryProgress`, `setProgressDrawable`, `setInterpolator` or tint mode. `indeterminate()` is **creation-time only** — `setIndeterminate(boolean)` after construction is unsupported (LVGL can't morph bar↔spinner). |
 | `CircularProgressIndicator` (Material Components, in `picodroid.widget`) | Partial | Determinate only; one indicator colour (`getIndicatorColor()` returns `int`); no `indicatorInset`. Adds `setStartAngle` / `setSweepAngle` (`Canvas.drawArc` convention), which have **no Material counterpart**. |
@@ -66,6 +67,8 @@ counterpart's name, so the API reads the same; you just import `picodroid.*`
 | API | Status | Notes / alternative |
 |---|---|---|
 | `Log` (`v`/`d`/`i`/`w`/`e`) | Full | Maps to defmt levels on device; the simulator prints every level as `[Tag] msg`. Filter by tag/level with `pdb logcat --stdin`. |
+| `TypedValue.COMPLEX_UNIT_*` / `applyDimension` | Partial | The six units and the conversion; nothing else of `TypedValue` (no `TYPE_*`, no `getDimension`). One density, so `PX`, `DIP` and `SP` are identities and `PT` / `IN` / `MM` are nominal at 160 dpi. |
+| `DisplayMetrics` | Partial | `widthPixels`, `heightPixels`, `density` (1), `densityDpi` (160), `scaledDensity` (1), `xdpi` / `ydpi` (160, nominal), `setToDefaults()`; from `Resources.getDisplayMetrics()`. |
 
 ### android.graphics
 
@@ -168,7 +171,8 @@ failure to a report while experimenting.
 
 - **Coordinates and sizes are `int` px.** There is no `float` `MotionEvent`
   coordinate and one display density: `dp` and `sp` in a resource file are
-  accepted and mean one pixel each. No `getResources().getDisplayMetrics()`.
+  accepted and mean one pixel each, and `getResources().getDisplayMetrics()`
+  reports `density` 1 at 160 dpi.
 - **Resources have no configurations.** `res/values`, `res/layout` and
   `res/drawable` compile into the PAPK with a generated `R` class (see
   [resources](/guides/resources/)), but there is one display, density and

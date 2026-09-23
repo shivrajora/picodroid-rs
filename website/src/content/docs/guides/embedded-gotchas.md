@@ -176,7 +176,7 @@ Why: this is an empirical, per-board limit driven by `lv_mem_kb`, not an API-enf
 
 Symptom: an em-dash or ellipsis shows up as a `□` tofu box on screen.
 
-The only bundled font is LVGL Montserrat 14, and its glyph subset has neither the em-dash `—` (U+2014) nor the ellipsis `…` (U+2026). The degree sign `°` (U+00B0) is present.
+Every bundled face is a Montserrat subset — the 14 px theme face and the larger sizes `TextView.setTextSize` can snap to — and none has the em-dash `—` (U+2014) or the ellipsis `…` (U+2026). The degree sign `°` (U+00B0) and the bullet `•` (U+2022) are present at every size.
 
 ```java
 // WRONG: these codepoints render as tofu boxes.
