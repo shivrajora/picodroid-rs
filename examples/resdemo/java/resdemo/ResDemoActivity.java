@@ -10,6 +10,7 @@ import picodroid.view.View;
 import picodroid.view.ViewGroup;
 import picodroid.widget.Button;
 import picodroid.widget.CheckBox;
+import picodroid.widget.CircularProgressIndicator;
 import picodroid.widget.ImageView;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.ProgressBar;
@@ -62,6 +63,15 @@ public class ResDemoActivity extends Activity {
     check("checked", armed != null && armed.isChecked());
     ProgressBar progress = findViewById(R.id.progress);
     check("progress", progress != null && progress.getProgress() == 30);
+    CircularProgressIndicator ring = findViewById(R.id.ring);
+    check(
+        "ring attributes",
+        ring != null
+            && ring.getProgress() == 60
+            && ring.getIndicatorColor() == 0xFF00FFFF
+            && ring.getTrackThickness() == 6
+            && ring.getStartAngle() == 90f
+            && ring.getSweepAngle() == 270f);
     ImageView logo = findViewById(R.id.logo);
     check("drawable", logo != null);
 
@@ -102,6 +112,9 @@ public class ResDemoActivity extends Activity {
     View greeting = findViewById(R.id.greeting);
     check("padding", greeting != null && greeting.getWidth() == root.getWidth() - 2 * 8 - 2 * 2);
     check("wrap_content bar keeps its height", progress != null && progress.getHeight() > 0);
+    check(
+        "wrap_content ring keeps its size",
+        ring != null && ring.getWidth() == 48 && ring.getHeight() == 48);
     check(
         "weighted width",
         tap != null

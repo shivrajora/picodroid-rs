@@ -111,7 +111,7 @@ cycles are a build error. An id of the wrong type, or one that does not exist, t
 
 **Elements:** `LinearLayout`, `FrameLayout`, `ScrollView`, `RadioGroup`, `TextView`, `Button`,
 `ImageView`, `EditText`, `CheckBox`, `Switch`, `ToggleButton`, `RadioButton`, `ProgressBar`,
-`SeekBar`, `Spinner`, `ListView`. A custom view class cannot be inflated — there is no reflection
+`CircularProgressIndicator`, `SeekBar`, `Spinner`, `ListView`. A custom view class cannot be inflated — there is no reflection
 to construct it with — and `<include>` / `<merge>` are not supported yet; both are build errors.
 Create those views in Java and `addView` them into an inflated container.
 
@@ -128,6 +128,7 @@ Create those views in Java and `addView` them into an inflated container.
 | `Switch`, `ToggleButton` | `checked`; `textOn`, `textOff` on `ToggleButton` |
 | `ImageView` | `src` (`@drawable/…`), `scaleType` (`fitCenter`, `centerCrop`, `fitXY`, `center`), `tint` |
 | `ProgressBar`, `SeekBar` | `progress`; `max` on `SeekBar`; `tint` on `ProgressBar` |
+| `CircularProgressIndicator` | `progress`, plus Material's `indicatorColor`, `trackColor`, `trackThickness`, `indicatorSize` (Android Studio writes them with the `app:` prefix) and picodroid's `startAngle`, `sweepAngle` (degrees) |
 
 An attribute the framework has no setter for — `textSize` (there is [one font
 size](/guides/embedded-gotchas/)), `layout_margin`, `onClick` — is **reported as a build warning

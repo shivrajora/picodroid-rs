@@ -134,6 +134,7 @@ pub mod layout {
         pub const TOGGLE_BUTTON: u8 = 14;
         pub const SPINNER: u8 = 15;
         pub const LIST_VIEW: u8 = 16;
+        pub const CIRCULAR_PROGRESS_INDICATOR: u8 = 17;
 
         /// `(XML element name, code)`.
         pub const ALL: &[(&str, u8)] = &[
@@ -153,6 +154,7 @@ pub mod layout {
             ("ToggleButton", TOGGLE_BUTTON),
             ("Spinner", SPINNER),
             ("ListView", LIST_VIEW),
+            ("CircularProgressIndicator", CIRCULAR_PROGRESS_INDICATOR),
         ];
     }
 
@@ -211,6 +213,17 @@ pub mod layout {
         /// String resource ids.
         pub const TEXT_ON: u32 = 30;
         pub const TEXT_OFF: u32 = 31;
+        // 32-35 are taken by ProgressBar's min and tint attributes, in flight on
+        // another branch when the ring gauge's were assigned.
+        /// ARGB.
+        pub const INDICATOR_COLOR: u32 = 36;
+        pub const TRACK_COLOR: u32 = 37;
+        /// Pixels.
+        pub const TRACK_THICKNESS: u32 = 38;
+        pub const INDICATOR_SIZE: u32 = 39;
+        /// f32 bits, degrees.
+        pub const START_ANGLE: u32 = 40;
+        pub const SWEEP_ANGLE: u32 = 41;
 
         /// `(constant name in LayoutInflater.java, code)`.
         pub const ALL: &[(&str, u32)] = &[
@@ -245,6 +258,12 @@ pub mod layout {
             ("INPUT_TYPE", INPUT_TYPE),
             ("TEXT_ON", TEXT_ON),
             ("TEXT_OFF", TEXT_OFF),
+            ("INDICATOR_COLOR", INDICATOR_COLOR),
+            ("TRACK_COLOR", TRACK_COLOR),
+            ("TRACK_THICKNESS", TRACK_THICKNESS),
+            ("INDICATOR_SIZE", INDICATOR_SIZE),
+            ("START_ANGLE", START_ANGLE),
+            ("SWEEP_ANGLE", SWEEP_ANGLE),
         ];
     }
 

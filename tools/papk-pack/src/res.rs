@@ -648,6 +648,13 @@ impl LayoutCompiler<'_> {
             "inputType" => one(a::INPUT_TYPE, parse_flags(INPUT_TYPE, text, from)?),
             "textOn" => one(a::TEXT_ON, self.string_id(text, from)?),
             "textOff" => one(a::TEXT_OFF, self.string_id(text, from)?),
+            // CircularProgressIndicator, with Material's attribute names.
+            "indicatorColor" => one(a::INDICATOR_COLOR, v.word(TYPE_COLOR, text, from)?),
+            "trackColor" => one(a::TRACK_COLOR, v.word(TYPE_COLOR, text, from)?),
+            "trackThickness" => one(a::TRACK_THICKNESS, self.pixels(text, from)?),
+            "indicatorSize" => one(a::INDICATOR_SIZE, self.pixels(text, from)?),
+            "startAngle" => one(a::START_ANGLE, self.float(text, from)?),
+            "sweepAngle" => one(a::SWEEP_ANGLE, self.float(text, from)?),
             _ => {
                 self.warnings
                     .push(format!("{from}: attribute is not supported; ignored"));

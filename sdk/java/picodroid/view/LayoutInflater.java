@@ -6,6 +6,7 @@ import picodroid.content.res.Resources;
 import picodroid.text.TextUtils;
 import picodroid.widget.Button;
 import picodroid.widget.CheckBox;
+import picodroid.widget.CircularProgressIndicator;
 import picodroid.widget.CompoundButton;
 import picodroid.widget.EditText;
 import picodroid.widget.FrameLayout;
@@ -227,6 +228,8 @@ public class LayoutInflater {
         return new Spinner(mContext);
       case 16: // CLASS_LIST_VIEW
         return new ListView(mContext);
+      case 17: // CLASS_CIRCULAR_PROGRESS_INDICATOR
+        return new CircularProgressIndicator(mContext);
       default:
         // A layout compiled for a newer framework than this one.
         throw new InflateException("unknown view class code " + cls);
@@ -339,6 +342,36 @@ public class LayoutInflater {
       case 31: // ATTR_TEXT_OFF
         if (v instanceof ToggleButton) {
           ((ToggleButton) v).setTextOff(string(value));
+        }
+        break;
+      case 36: // ATTR_INDICATOR_COLOR
+        if (v instanceof CircularProgressIndicator) {
+          ((CircularProgressIndicator) v).setIndicatorColor(value);
+        }
+        break;
+      case 37: // ATTR_TRACK_COLOR
+        if (v instanceof CircularProgressIndicator) {
+          ((CircularProgressIndicator) v).setTrackColor(value);
+        }
+        break;
+      case 38: // ATTR_TRACK_THICKNESS
+        if (v instanceof CircularProgressIndicator) {
+          ((CircularProgressIndicator) v).setTrackThickness(value);
+        }
+        break;
+      case 39: // ATTR_INDICATOR_SIZE
+        if (v instanceof CircularProgressIndicator) {
+          ((CircularProgressIndicator) v).setIndicatorSize(value);
+        }
+        break;
+      case 40: // ATTR_START_ANGLE
+        if (v instanceof CircularProgressIndicator) {
+          ((CircularProgressIndicator) v).setStartAngle(Float.intBitsToFloat(value));
+        }
+        break;
+      case 41: // ATTR_SWEEP_ANGLE
+        if (v instanceof CircularProgressIndicator) {
+          ((CircularProgressIndicator) v).setSweepAngle(Float.intBitsToFloat(value));
         }
         break;
       default:
