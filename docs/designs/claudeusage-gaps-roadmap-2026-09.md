@@ -38,6 +38,15 @@ because two of the three candidate causes are runtime-wide, not this app's.
   produced the 51 to 74 ms warning on that tick. GC is not it: `Runtime.gcCount()` did not move
   across a turn and total GC time was 10 ms over four turns.
 
+**Measured 2026-09-23, ring-gauge round (`pico_display2_w`, probes inside `LimitsPage.update`).**
+The Limits page's first `update` after a swap costs ~100 ms in both the bar and the ring
+versions: 27 to 35 ms per card is `BigNumber` creating its glyph `ImageView`s on first show,
+the bar 6 to 11 ms, the ring 4 to 8 ms, the text lines 5 to 6 ms. With bars the swap tick's own
+51 to 74 ms warning fired first and the update's was swallowed by the one-per-second rate limit;
+with rings the two land in one tick, so a single `Runnable took 114 ms` shows the whole cost.
+Later minute ticks cost 21 to 34 ms for the whole page. A cheap cut would be creating the glyph
+slots hidden during the build steps so the first visible tick only sets positions and sources.
+
 **Not the cause: the redraw.** `g.tick()` (render plus SPI flush) runs on the same main task as
 its own `MainTask::LvglTick` and is excluded from the timed spans, so it cannot sit inside a
 Runnable's span. The note in the Android-shape doc and in commit `79369105` blaming "the redraw
