@@ -1,6 +1,6 @@
 # Platform gaps found building `claudeusage`
 
-**Status: open list, nothing started (2026-09-21). D4 added 2026-09-23 as the top priority.**
+**Status: open list; G3 closed 2026-09-23, nothing else started. D4 added 2026-09-23 as the top priority.**
 
 `examples/claudeusage` is a desk display for Claude usage limits on a new board, `pico_display2_w`
 (Pimoroni Pico Display Pack 2.0 on a Pico 2 W). It was built to look like a modern product rather
