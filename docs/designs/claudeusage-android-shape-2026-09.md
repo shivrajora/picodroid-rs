@@ -141,7 +141,15 @@ Ordered by how much Android shape each would buy back here.
 8. ~~`java.time` or at least `DateFormat`/`DateUtils` (item 44).~~ Shipped 2026-09-24 as a
    port of the JDK classes (fixed-offset zones only).
 
-## Found on the way: resolution-cache growth (runtime, not app; open)
+## Found on the way: resolution-cache growth (runtime, not app; fixed 2026-09-23)
+
+**Fixed in `350c3552`.** The per-executor doubling caches and `cache_push` are gone: method,
+field, static and `new` sites now resolve into fixed-size, four-way set-associative tables on the
+shared heap (`crates/jvm/src/resolve_cache.rs`, 16 KB on the RP2350), allocated once and kept
+across Runnables, so there is no growth request left to refuse. The account below is kept as the
+record of what the soak showed. The 20,480 B and 22,528 B requests it mentions are unrelated to
+the other large request the heap still makes, the collector's compaction buffer (G10 in the
+gaps roadmap).
 
 A soak of the new app with AUTO cycling the four screens logged, in the sim, `[sim] OOM: tried
 20480 B` on every other page turn (15 in 30 turns; the pre-change app: 0 in 30), with 50 to 60 KB
@@ -187,5 +195,9 @@ inlined by javac, would trade the resource-backed palette (item 15) for cache en
   tick after a page swap, and it stays there when that tick is emptied down to one log line.
   The redraw cannot be the cause (it runs as its own main-queue task, outside the timed span);
   the instrumented run showed every tick of a swap over budget, not just the first. Tracked as
-  **D4, top priority, in `claudeusage-gaps-roadmap-2026-09.md`**, with the candidate causes. The boot-time
+  **D4 in `claudeusage-gaps-roadmap-2026-09.md`**: root-caused 2026-09-23 as runtime cost
+  (cold resolution, frame allocation, native dispatch, interpretation from XIP), not the app;
+  the runtime fixes in `350c3552` bring the small steps under budget, and the 2026-09-24
+  follow-ups (batched style refreshes, a dispatch memo, one meter row or four bars per step)
+  take the Burn and Models build steps under it too; History remains. The boot-time
   `pending-op drain` of ~90 ms is the Service start plus bind, one-off.

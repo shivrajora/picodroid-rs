@@ -20,7 +20,9 @@ final class BurnPage extends Page {
   private static final int BAR_PITCH = 11;
   private static final int CHART_HEIGHT = 50;
   private static final int BASELINE = 84;
-  private static final int BARS_PER_STEP = 8;
+
+  /** Eight bars in one step cost the RP2350 85 ms; four fit the 50 ms tick. */
+  private static final int BARS_PER_STEP = 4;
 
   /** Below this many minutes to the limit the projection turns red. */
   private static final int ETA_URGENT_MIN = 30;
@@ -102,16 +104,19 @@ final class BurnPage extends Page {
         unit.setPadding(0, 0, 0, UNIT_BASELINE_LIFT);
         rateRow.addView(unit);
         rateCard.addView(rateRow);
+        return true;
+      case 2:
+        // Each right-aligned line is a row and a label: two of them are a step of their own.
         eta = right(rateCard, 32);
         reset = right(rateCard, 54);
         return true;
-      case 2:
+      case 3:
         trendCard = Ui.card(ctx, root, 2 + CARD_HEIGHT + 4, CARD_HEIGHT, palette.card);
         Ui.label(ctx, trendCard, ctx.getString(R.string.burn_trend), Ui.CARD_PAD, 7, palette.muted);
         now = right(trendCard, 7);
         return true;
       default:
-        int from = (s - 3) * BARS_PER_STEP;
+        int from = (s - 4) * BARS_PER_STEP;
         int to = from + BARS_PER_STEP > BARS ? BARS : from + BARS_PER_STEP;
         for (int i = from; i < to; i++) {
           bars[i] = Ui.box(ctx, barX(i), BASELINE - 2, BAR_WIDTH, 2, palette.track, 1);

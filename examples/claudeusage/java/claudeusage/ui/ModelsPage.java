@@ -40,38 +40,41 @@ final class ModelsPage extends Page {
     return R.string.page_models;
   }
 
+  /**
+   * A card's title row and note, then one meter row per step: three rows at once cost the RP2350
+   * 120 ms.
+   */
+  private static final int STEPS_PER_CARD = 1 + UsageSnapshot.MAX_MODELS;
+
   @Override
   boolean buildNext() {
-    switch (step++) {
-      case 0:
-        capsCard = Ui.card(ctx, root, 2, CARD_HEIGHT, palette.card);
-        Ui.label(
-            ctx,
-            capsCard,
-            ctx.getString(R.string.models_weekly_limit),
-            Ui.CARD_PAD,
-            7,
-            palette.muted);
-        capsNote = note(capsCard);
-        return true;
-      case 1:
-        rows(capsCard, caps);
-        return true;
-      case 2:
-        mixCard = Ui.card(ctx, root, 2 + CARD_HEIGHT + 4, CARD_HEIGHT, palette.card);
-        Ui.label(
-            ctx,
-            mixCard,
-            ctx.getString(R.string.models_tokens_week),
-            Ui.CARD_PAD,
-            7,
-            palette.muted);
-        mixNote = note(mixCard);
-        return true;
-      default:
-        rows(mixCard, mix);
-        return false;
+    int s = step++;
+    if (s == 0) {
+      capsCard = Ui.card(ctx, root, 2, CARD_HEIGHT, palette.card);
+      Ui.label(
+          ctx,
+          capsCard,
+          ctx.getString(R.string.models_weekly_limit),
+          Ui.CARD_PAD,
+          7,
+          palette.muted);
+      capsNote = note(capsCard);
+      return true;
     }
+    if (s < STEPS_PER_CARD) {
+      row(capsCard, caps, s - 1);
+      return true;
+    }
+    if (s == STEPS_PER_CARD) {
+      mixCard = Ui.card(ctx, root, 2 + CARD_HEIGHT + 4, CARD_HEIGHT, palette.card);
+      Ui.label(
+          ctx, mixCard, ctx.getString(R.string.models_tokens_week), Ui.CARD_PAD, 7, palette.muted);
+      mixNote = note(mixCard);
+      return true;
+    }
+    int i = s - STEPS_PER_CARD - 1;
+    row(mixCard, mix, i);
+    return i + 1 < mix.length;
   }
 
   private Line note(FrameLayout card) {
@@ -81,10 +84,8 @@ final class ModelsPage extends Page {
         palette.faint);
   }
 
-  private void rows(FrameLayout card, MeterRow[] into) {
-    for (int i = 0; i < into.length; i++) {
-      into[i] = new MeterRow(ctx, palette, card, FIRST_ROW_Y + i * MeterRow.HEIGHT);
-    }
+  private void row(FrameLayout card, MeterRow[] into, int i) {
+    into[i] = new MeterRow(ctx, palette, card, FIRST_ROW_Y + i * MeterRow.HEIGHT);
   }
 
   @Override

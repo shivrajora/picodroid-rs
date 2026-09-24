@@ -40,35 +40,43 @@ pub fn apply_gradient_drawable(
         return;
     }
 
+    // Up to six sets, one refresh (style_batch.rs). The border width is the
+    // one property here with a layout flag, so it stands for the batch.
     unsafe {
-        // Radius and border are independent of fill/gradient — set first.
-        lv_obj_set_style_radius(obj, radius.max(0), 0);
-        lv_obj_set_style_border_width(obj, stroke_width.max(0), 0);
-        if stroke_width > 0 {
-            lv_obj_set_style_border_color(obj, lv_color_hex(stroke_argb & 0x00FF_FFFF), 0);
-        }
+        super::style_batch::with_one_refresh(obj, LV_STYLE_BORDER_WIDTH, || {
+            // Radius and border are independent of fill/gradient — set first.
+            lv_obj_set_style_radius(obj, radius.max(0), 0);
+            lv_obj_set_style_border_width(obj, stroke_width.max(0), 0);
+            if stroke_width > 0 {
+                lv_obj_set_style_border_color(obj, lv_color_hex(stroke_argb & 0x00FF_FFFF), 0);
+            }
 
-        // Fill: gradient takes precedence when requested. The bg_color
-        // doubles as the gradient's start when bg_grad_dir is non-NONE.
-        if has_gradient {
-            let dir = match gradient_direction {
-                LV_GRAD_DIR_HOR => LV_GRAD_DIR_HOR,
-                _ => LV_GRAD_DIR_VER, // default to vertical for any unknown code
-            };
-            lv_obj_set_style_bg_color(obj, lv_color_hex(gradient_start_argb & 0x00FF_FFFF), 0);
-            lv_obj_set_style_bg_grad_color(obj, lv_color_hex(gradient_end_argb & 0x00FF_FFFF), 0);
-            lv_obj_set_style_bg_grad_dir(obj, dir, 0);
-            // Use the start color's alpha as the overall background opacity.
-            lv_obj_set_style_bg_opa(obj, ((gradient_start_argb >> 24) & 0xFF) as u8, 0);
-        } else {
-            // Reset any previously-applied gradient. Without this, swapping
-            // a gradient drawable for a solid one would leave the gradient
-            // descriptor in place and the second color would still bleed
-            // through.
-            lv_obj_set_style_bg_grad_dir(obj, LV_GRAD_DIR_NONE, 0);
-            lv_obj_set_style_bg_color(obj, lv_color_hex(fill_argb & 0x00FF_FFFF), 0);
-            lv_obj_set_style_bg_opa(obj, ((fill_argb >> 24) & 0xFF) as u8, 0);
-        }
+            // Fill: gradient takes precedence when requested. The bg_color
+            // doubles as the gradient's start when bg_grad_dir is non-NONE.
+            if has_gradient {
+                let dir = match gradient_direction {
+                    LV_GRAD_DIR_HOR => LV_GRAD_DIR_HOR,
+                    _ => LV_GRAD_DIR_VER, // default to vertical for any unknown code
+                };
+                lv_obj_set_style_bg_color(obj, lv_color_hex(gradient_start_argb & 0x00FF_FFFF), 0);
+                lv_obj_set_style_bg_grad_color(
+                    obj,
+                    lv_color_hex(gradient_end_argb & 0x00FF_FFFF),
+                    0,
+                );
+                lv_obj_set_style_bg_grad_dir(obj, dir, 0);
+                // Use the start color's alpha as the overall background opacity.
+                lv_obj_set_style_bg_opa(obj, ((gradient_start_argb >> 24) & 0xFF) as u8, 0);
+            } else {
+                // Reset any previously-applied gradient. Without this, swapping
+                // a gradient drawable for a solid one would leave the gradient
+                // descriptor in place and the second color would still bleed
+                // through.
+                lv_obj_set_style_bg_grad_dir(obj, LV_GRAD_DIR_NONE, 0);
+                lv_obj_set_style_bg_color(obj, lv_color_hex(fill_argb & 0x00FF_FFFF), 0);
+                lv_obj_set_style_bg_opa(obj, ((fill_argb >> 24) & 0xFF) as u8, 0);
+            }
+        });
     }
 }
 

@@ -32,7 +32,9 @@ mod sensors;
 mod threads;
 
 mod class_registry;
+mod dispatch_memo;
 pub use class_registry::PICODROID_NATIVE_CLASSES;
+pub use dispatch_memo::next_app_generation;
 
 pub mod state;
 use crate::shrink_names::c;
@@ -59,6 +61,9 @@ pub struct PicodroidNativeHandler {
     /// that does both `startService` and `bindService` queues two ops;
     /// excess ops past [`MAX_PENDING_OPS`] are silently dropped (logged).
     pending_ops: state::PendingOpQueue,
+    /// Which sub-dispatcher served each `(class, method)` seen so far, so a
+    /// repeat call skips the chain walk (`dispatch_memo.rs`).
+    memo: dispatch_memo::DispatchMemo,
 }
 
 /// Required now that the type is public API of a library rather than
@@ -176,8 +181,55 @@ impl PicodroidNativeHandler {
             peak_used: 0,
             activity_stack: state::ActivityStack::new(),
             pending_ops: state::PendingOpQueue::new(),
+            memo: dispatch_memo::DispatchMemo::new(),
         }
     }
+
+    /// One link of the dispatch chain, by position. The order is the one
+    /// the chain always had; `MODULES` is the whole of it.
+    fn dispatch_module(
+        &mut self,
+        module: u8,
+        class_name: &str,
+        method_name: &str,
+        ctx: &mut NativeContext<'_>,
+    ) -> Option<Result<Option<Value>, JvmError>> {
+        match module {
+            0 => pio::dispatch(class_name, method_name, ctx),
+            1 => os::dispatch(class_name, method_name, ctx),
+            2 => res::dispatch(class_name, method_name, ctx),
+            3 => threads::dispatch(class_name, method_name, ctx),
+            4 => concurrent::dispatch(class_name, method_name, ctx),
+            5 => graphics::dispatch(class_name, method_name, ctx),
+            6 => io::dispatch(class_name, method_name, ctx),
+            #[cfg(has_json)]
+            7 => json::dispatch(class_name, method_name, ctx),
+            #[cfg(not(has_json))]
+            7 => None,
+            #[cfg(has_audio)]
+            8 => media::dispatch(class_name, method_name, ctx),
+            #[cfg(not(has_audio))]
+            8 => media_stub::dispatch(class_name, method_name, ctx),
+            #[cfg(has_network)]
+            9 => net::dispatch(class_name, method_name, ctx),
+            #[cfg(not(has_network))]
+            9 => net_stub::dispatch(class_name, method_name, ctx),
+            #[cfg(not(test))]
+            10 => sensors::dispatch(class_name, method_name, ctx),
+            #[cfg(test)]
+            10 => None,
+            // Service / notification dispatch — needs `self` for the
+            // pending-op queue, so it lives outside the module-style
+            // sub-dispatchers above.
+            11 => app_services::dispatch(self, class_name, method_name, ctx),
+            // Arms that need access to `self` stay in the handler itself.
+            _ => self.dispatch_own(class_name, method_name, ctx),
+        }
+    }
+
+    /// The chain's length: modules `0..MODULES` in order, the handler's
+    /// own arms last.
+    const MODULES: u8 = 13;
 
     /// Append `op` to the pending queue. Returns `true` on success; `false`
     /// (with a log) if the queue is full — apps shouldn't be queueing more
@@ -457,113 +509,15 @@ impl PicodroidNativeHandler {
     }
 }
 
-impl NativeMethodHandler for PicodroidNativeHandler {
-    fn clock_nanos(&self) -> u64 {
-        crate::hal::system_clock::elapsed_realtime_nanos() as u64
-    }
-
-    fn native_class_names(&self) -> &'static [&'static str] {
-        PICODROID_NATIVE_CLASSES
-    }
-
-    fn gc_visit_roots(&self, visit: &mut dyn FnMut(Value)) {
-        // This handler's own stacks/ops — valid even if its executor never
-        // created a HandlerRootGuard.
-        self.visit_own_roots(visit);
-
-        // Every OTHER live handler's stacks/ops. Without this, a GC in a
-        // child executor rooted only the child's (empty) Activity stack and
-        // swept the UI's Activities whenever the main task was between
-        // executes (see HANDLER_ROOTS docs).
-        for &hp in handler_registry().iter() {
-            if core::ptr::eq(hp, self) {
-                continue;
-            }
-            // SAFETY: scheduling contract per HANDLER_ROOTS — the owning
-            // executor is parked while this collector runs.
-            let h = unsafe { &*hp };
-            h.visit_own_roots(visit);
-        }
-
-        // Everything else — native listener maps holding Views the Java heap
-        // does not reference, plus the modules that own their own object refs
-        // — reports itself through the registry rather than being enumerated
-        // here. See `crate::gc_root_registration` for the list and
-        // `crate::gc_roots` for why (audit P2-17).
-        crate::gc_roots::visit_all(&mut *visit);
-    }
-
-    fn report_gc(&mut self, time_ns: u64, freed: usize, pre_gc_used: usize) {
-        self.gc_time_ns += time_ns;
-        self.gc_count += 1;
-        self.gc_freed += freed as u32;
-        self.total_gc_time_ns += time_ns;
-        self.total_gc_count += 1;
-        self.total_gc_freed += freed as u32;
-        // GC fires at heap pressure peaks — sample the high-water mark.
-        let pre_gc_used = pre_gc_used.min(u32::MAX as usize) as u32;
-        if pre_gc_used > self.peak_used {
-            self.peak_used = pre_gc_used;
-        }
-    }
-
-    fn dispatch(
+impl PicodroidNativeHandler {
+    /// The handler's own arms: the ones that need `self`, and the
+    /// any-receiver Activity natives.
+    fn dispatch_own(
         &mut self,
         class_name: &str,
         method_name: &str,
         ctx: &mut NativeContext<'_>,
     ) -> Option<Result<Option<Value>, JvmError>> {
-        // Delegate to domain-specific sub-handlers.
-        if let result @ Some(_) = pio::dispatch(class_name, method_name, ctx) {
-            return result;
-        }
-        if let result @ Some(_) = os::dispatch(class_name, method_name, ctx) {
-            return result;
-        }
-        if let result @ Some(_) = res::dispatch(class_name, method_name, ctx) {
-            return result;
-        }
-        if let result @ Some(_) = threads::dispatch(class_name, method_name, ctx) {
-            return result;
-        }
-        if let result @ Some(_) = concurrent::dispatch(class_name, method_name, ctx) {
-            return result;
-        }
-        if let result @ Some(_) = graphics::dispatch(class_name, method_name, ctx) {
-            return result;
-        }
-        if let result @ Some(_) = io::dispatch(class_name, method_name, ctx) {
-            return result;
-        }
-        #[cfg(has_json)]
-        if let result @ Some(_) = json::dispatch(class_name, method_name, ctx) {
-            return result;
-        }
-        #[cfg(has_audio)]
-        if let result @ Some(_) = media::dispatch(class_name, method_name, ctx) {
-            return result;
-        }
-        #[cfg(not(has_audio))]
-        if let result @ Some(_) = media_stub::dispatch(class_name, method_name, ctx) {
-            return result;
-        }
-        #[cfg(has_network)]
-        if let result @ Some(_) = net::dispatch(class_name, method_name, ctx) {
-            return result;
-        }
-        #[cfg(not(has_network))]
-        if let result @ Some(_) = net_stub::dispatch(class_name, method_name, ctx) {
-            return result;
-        }
-        #[cfg(not(test))]
-        if let result @ Some(_) = sensors::dispatch(class_name, method_name, ctx) {
-            return result;
-        }
-        // Service / notification dispatch — needs `self` for the pending-op
-        // queue, so it lives outside the module-style sub-dispatchers above.
-        if let result @ Some(_) = app_services::dispatch(self, class_name, method_name, ctx) {
-            return result;
-        }
         // Arms that need access to `self` stay here.
         use crate::util::log::{self, LogLevel};
         match (class_name, method_name) {
@@ -720,41 +674,121 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                 }
                 Some(Ok(None))
             }
-            _ => {
-                // True native miss: no sub-dispatcher or arm above claimed this
-                // (class, method). The JVM turns our None into NoSuchMethod; if
-                // it's a known Android idiom picodroid omits, log the picodroid
-                // alternative first (devs live in the sim, so println there).
-                if let Some(hint) = class_registry::api_hint(class_name, method_name) {
-                    #[cfg(not(feature = "sim"))]
-                    defmt::warn!(
-                        "no native {=str}.{=str} — {=str}",
-                        class_name,
-                        method_name,
-                        hint
-                    );
-                    #[cfg(feature = "sim")]
-                    eprintln!("[sim] no native {class_name}.{method_name} — {hint}");
-                } else if class_registry::is_excluded_on_this_board(class_name) {
-                    // The class exists in the SDK but this board dropped it to
-                    // fit flash, so the miss is a build-configuration answer,
-                    // not a missing implementation.
-                    #[cfg(not(feature = "sim"))]
-                    defmt::warn!(
-                        "{=str} is not built into this board's framework (framework_class_excludes)",
-                        class_name
-                    );
-                    #[cfg(feature = "sim")]
-                    eprintln!(
-                        "[sim] {class_name} is not built into this board's framework \
-                         (framework_class_excludes in board.toml)"
-                    );
-                }
-                None
+            _ => None,
+        }
+    }
+}
+
+impl NativeMethodHandler for PicodroidNativeHandler {
+    fn clock_nanos(&self) -> u64 {
+        crate::hal::system_clock::elapsed_realtime_nanos() as u64
+    }
+
+    fn native_class_names(&self) -> &'static [&'static str] {
+        PICODROID_NATIVE_CLASSES
+    }
+
+    fn gc_visit_roots(&self, visit: &mut dyn FnMut(Value)) {
+        // This handler's own stacks/ops — valid even if its executor never
+        // created a HandlerRootGuard.
+        self.visit_own_roots(visit);
+
+        // Every OTHER live handler's stacks/ops. Without this, a GC in a
+        // child executor rooted only the child's (empty) Activity stack and
+        // swept the UI's Activities whenever the main task was between
+        // executes (see HANDLER_ROOTS docs).
+        for &hp in handler_registry().iter() {
+            if core::ptr::eq(hp, self) {
+                continue;
             }
+            // SAFETY: scheduling contract per HANDLER_ROOTS — the owning
+            // executor is parked while this collector runs.
+            let h = unsafe { &*hp };
+            h.visit_own_roots(visit);
+        }
+
+        // Everything else — native listener maps holding Views the Java heap
+        // does not reference, plus the modules that own their own object refs
+        // — reports itself through the registry rather than being enumerated
+        // here. See `crate::gc_root_registration` for the list and
+        // `crate::gc_roots` for why (audit P2-17).
+        crate::gc_roots::visit_all(&mut *visit);
+    }
+
+    fn report_gc(&mut self, time_ns: u64, freed: usize, pre_gc_used: usize) {
+        self.gc_time_ns += time_ns;
+        self.gc_count += 1;
+        self.gc_freed += freed as u32;
+        self.total_gc_time_ns += time_ns;
+        self.total_gc_count += 1;
+        self.total_gc_freed += freed as u32;
+        // GC fires at heap pressure peaks — sample the high-water mark.
+        let pre_gc_used = pre_gc_used.min(u32::MAX as usize) as u32;
+        if pre_gc_used > self.peak_used {
+            self.peak_used = pre_gc_used;
         }
     }
 
+    fn dispatch(
+        &mut self,
+        class_name: &str,
+        method_name: &str,
+        ctx: &mut NativeContext<'_>,
+    ) -> Option<Result<Option<Value>, JvmError>> {
+        // A pair seen before goes straight to the module that claimed it, or
+        // straight back to the builtins when none did (`dispatch_memo.rs`).
+        let remembered = self.memo.get(class_name, method_name);
+        if let Some(module) = remembered {
+            if module == dispatch_memo::NONE {
+                return None;
+            }
+            if let result @ Some(_) = self.dispatch_module(module, class_name, method_name, ctx) {
+                return result;
+            }
+        }
+        // The full walk, in the order the chain always had; the remembered
+        // module, if any, has just declined and is not asked twice.
+        for module in 0..Self::MODULES {
+            if remembered == Some(module) {
+                continue;
+            }
+            if let result @ Some(_) = self.dispatch_module(module, class_name, method_name, ctx) {
+                self.memo.set(class_name, method_name, module);
+                return result;
+            }
+        }
+        self.memo.set(class_name, method_name, dispatch_memo::NONE);
+        // True native miss: no sub-dispatcher or arm above claimed this
+        // (class, method). The JVM turns our None into NoSuchMethod; if
+        // it's a known Android idiom picodroid omits, log the picodroid
+        // alternative first (devs live in the sim, so println there).
+        if let Some(hint) = class_registry::api_hint(class_name, method_name) {
+            #[cfg(not(feature = "sim"))]
+            defmt::warn!(
+                "no native {=str}.{=str} — {=str}",
+                class_name,
+                method_name,
+                hint
+            );
+            #[cfg(feature = "sim")]
+            eprintln!("[sim] no native {class_name}.{method_name} — {hint}");
+        } else if class_registry::is_excluded_on_this_board(class_name) {
+            // The class exists in the SDK but this board dropped it to
+            // fit flash, so the miss is a build-configuration answer,
+            // not a missing implementation.
+            #[cfg(not(feature = "sim"))]
+            defmt::warn!(
+                "{=str} is not built into this board's framework (framework_class_excludes)",
+                class_name
+            );
+            #[cfg(feature = "sim")]
+            eprintln!(
+                "[sim] {class_name} is not built into this board's framework \
+                 (framework_class_excludes in board.toml)"
+            );
+        }
+        None
+    }
     /// Polled at JVM safepoints so `pdb install` can stop a running app
     /// cooperatively.
     ///

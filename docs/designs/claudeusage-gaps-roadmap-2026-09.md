@@ -1,6 +1,6 @@
 # Platform gaps found building `claudeusage`
 
-**Status: open list; G1, G2 and G3 closed 2026-09-23, D5 (app bug) fixed the same day, nothing else started. D4 added 2026-09-23 as the top priority.**
+**Status: open list; G1, G2 and G3 closed 2026-09-23, D5 (app bug) fixed the same day. D4 root-caused; the runtime fixes (`350c3552`) and the cheap follow-ups (style batching, dispatch memo, the Burn and Models step split, 2026-09-24) landed — Burn and the Models rows are under budget, History and the XIP interpreter cost remain. G10 is next.**
 
 `examples/claudeusage` is a desk display for Claude usage limits on a new board, `pico_display2_w`
 (Pimoroni Pico Display Pack 2.0 on a Pico 2 W). It was built to look like a modern product rather
@@ -19,7 +19,7 @@ unless it says hardware.
 
 ### D4. Every tick of a page swap overruns the slow-handler budget on the RP2350 — **highest priority**
 
-**Status: root-caused and partly fixed (2026-09-23, evening); see "Findings" below.** Candidates 0
+**Status: root-caused and mostly fixed (2026-09-23/24); see "Findings" and "Follow-ups landed" below.** Candidates 0
 to 2 are answered: the pre-round app is just as slow on today's runtime, nothing preempts the
 UI task, and the cost is per-bytecode interpreter overhead plus LVGL object creation, not
 the app. The runtime fixes landed (persistent set-associative resolution tables, frame
@@ -130,6 +130,37 @@ own cost. On the simulator `PICODROID_TRACE_SPANS=1` prints every span, slow or 
   objects per build step (the Models and Burn pages).
 - **On the simulator** the same steps are 0–1 ms (misses cost microseconds there), which is
   why none of this showed before the board did.
+
+**Follow-ups landed (2026-09-24).** Same board, same `parity-metrics` debug build, two laps of
+page turns before and after; the parity build prints every slow span, so a page with no line
+has every step under 50 ms.
+
+- **(a) `nativeCreate`: batched style refreshes.** LVGL's automatic style refresh is switched
+  off around the style sets of the `LinearLayout`, `ScrollView` and `NumberPicker` creates,
+  `View.setPadding` and `GradientDrawable.applyTo`, with one refresh at the end
+  (`graphics/lvgl/style_batch.rs`; the refresh carries a representative property's flags, not
+  `LV_STYLE_PROP_ANY`, which would also walk every descendant). `LinearLayout.nativeCreate`
+  1.65–1.95 ms → 1.35–1.59 ms: the six refreshes were a fifth of it. The rest is
+  `lv_obj_create` itself — theme, init, the eleven `lv_style_set_prop` reallocs — every
+  instruction of it fetched from XIP, and it stays. *Creating under the final parent* is not
+  possible as such: `nativeCreate` is static and the parent only arrives with `addView`. The
+  nearest thing, a hidden holder object, would spare only the create-time invalidations while
+  changing what an unattached view does (today it is drawn on the screen), so it was not done.
+- **(c) The dispatch floor: a per-site memo.** The handler remembers, per `(class, method)`
+  name pair, which sub-dispatcher claimed it or that none did
+  (`native_handler/dispatch_memo.rs`, 64 rows, keyed by the names' addresses, emptied when a
+  new app run starts). Fastest native per step 50–70 µs → 27–35 µs. What remains is the
+  interpreter's invoke path, the graphics module's own class and method match, the handle
+  lookups and the parity clock.
+- **(d) App: fewer objects per step.** Burn builds four trend bars per step instead of eight
+  and its two right-aligned lines in a step of their own; Models builds one meter row per step
+  instead of three. Burn: 80–90 ms per step → no step over 50. Models: 121–128 → no row step
+  over 50; the title step is 53 ms and the first `update` 78 ms (the page's own `setText` and
+  tint sets, 70 natives — `TextView.setText` at 0.6–0.7 ms is now the slowest native).
+- **Unchanged:** History (61–88 ms per step) and the Limits step (52 ms), not in this round;
+  History wants the same split. **(b) remains:** interpreting from XIP, and with it the
+  observation above that *all* native code pays the same fetch cost — the create's residual
+  1.4 ms is a few thousand LVGL instructions at flash speed, not any one expensive call.
 
 **Repro.** `env $(grep -v '^#' .wifi-creds.env | xargs) PICODROID_NET_TEST_HOST=<PC address>
 ./scripts/flash.sh --board pico_display2_w --app claudeusage` in the background, wait for

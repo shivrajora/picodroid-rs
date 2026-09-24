@@ -5,25 +5,30 @@ use crate::lvgl_ffi::*;
 
 use super::super::handle_table;
 use super::super::lifecycle;
+use super::super::style_batch;
 
 pub(in crate::graphics) fn create() -> i32 {
     let ptr = unsafe {
         let o = lv_obj_create(lifecycle::screen_ptr());
-        // Flat first — no theme border, fill, corners or padding, as on Android
-        // (`frame_layout::make_flat`) — since the strip removes local styles
-        // too, and the flex flow below is one.
-        super::frame_layout::make_flat(o);
-        lv_obj_set_flex_flow(o, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_flex_align(
-            o,
-            LV_FLEX_ALIGN_START,
-            LV_FLEX_ALIGN_CENTER,
-            LV_FLEX_ALIGN_CENTER,
-        );
         // Android LinearLayout never scrolls — use ScrollView for that. Clearing
         // SCROLLABLE also kills the stray scrollbars LVGL would otherwise draw
         // when content brushes the inner edge.
         lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+        // Flat first — no theme border, fill, corners or padding, as on Android
+        // (`frame_layout::make_flat`) — since the strip removes local styles
+        // too, and the flex flow is one. The strip and the two flex sets share
+        // one refresh (style_batch.rs); the six padding writes the strip
+        // replaced were most of this native's 1.7 ms on the RP2350.
+        style_batch::with_one_refresh(o, LV_STYLE_PAD_TOP, || {
+            super::frame_layout::make_flat(o);
+            lv_obj_set_flex_flow(o, LV_FLEX_FLOW_COLUMN);
+            lv_obj_set_flex_align(
+                o,
+                LV_FLEX_ALIGN_START,
+                LV_FLEX_ALIGN_CENTER,
+                LV_FLEX_ALIGN_CENTER,
+            );
+        });
         o
     };
     handle_table::register(ptr)

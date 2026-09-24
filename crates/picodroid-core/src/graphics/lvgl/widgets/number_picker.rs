@@ -14,6 +14,7 @@ use core::ffi::c_char;
 use super::super::handle_table;
 use super::super::lifecycle;
 use super::super::listener_map::{map_mut, map_ref, warn_full, PtrMap, Upsert};
+use super::super::style_batch;
 
 const MAX_PICKERS: usize = 16;
 /// (container raw ptr, Java obj_ref). Registered from the `NumberPicker`
@@ -55,26 +56,30 @@ pub(in crate::graphics) fn create() -> i32 {
         // A value box never scrolls and never draws scrollbars.
         lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_scrollbar_mode(o, LV_SCROLLBAR_MODE_OFF);
-        // The label centers in the box (symmetric padding cancels out of the
-        // centering math anyway); zero the card's large default padding like
-        // LinearLayout does so it can't constrain small explicit sizes.
-        lv_obj_set_style_pad_left(o, 0, 0);
-        lv_obj_set_style_pad_right(o, 0, 0);
-        lv_obj_set_style_pad_top(o, 0, 0);
-        lv_obj_set_style_pad_bottom(o, 0, 0);
-        // Plain lv_obj gets no theme focus styling; replicate the theme's
-        // outline_primary (FOCUS_KEY) / outline_secondary (EDITED) — 3 px
-        // outline + pad, 50% opacity, theme accent colors — so the picker's
-        // focus and edit feedback matches Button/EditText. EDITED outranks
-        // FOCUS_KEY in style specificity while both states are set.
-        lv_obj_set_style_outline_width(o, 3, LV_STATE_FOCUS_KEY);
-        lv_obj_set_style_outline_pad(o, 3, LV_STATE_FOCUS_KEY);
-        lv_obj_set_style_outline_opa(o, 127, LV_STATE_FOCUS_KEY);
-        lv_obj_set_style_outline_color(o, lv_theme_get_color_primary(o), LV_STATE_FOCUS_KEY);
-        lv_obj_set_style_outline_width(o, 3, LV_STATE_EDITED);
-        lv_obj_set_style_outline_pad(o, 3, LV_STATE_EDITED);
-        lv_obj_set_style_outline_opa(o, 127, LV_STATE_EDITED);
-        lv_obj_set_style_outline_color(o, lv_theme_get_color_secondary(o), LV_STATE_EDITED);
+        // The style sets below under one refresh (style_batch.rs); the label
+        // is created after them because a create switches the refresh back on.
+        style_batch::with_one_refresh(o, LV_STYLE_PAD_TOP, || {
+            // The label centers in the box (symmetric padding cancels out of the
+            // centering math anyway); zero the card's large default padding like
+            // LinearLayout does so it can't constrain small explicit sizes.
+            lv_obj_set_style_pad_left(o, 0, 0);
+            lv_obj_set_style_pad_right(o, 0, 0);
+            lv_obj_set_style_pad_top(o, 0, 0);
+            lv_obj_set_style_pad_bottom(o, 0, 0);
+            // Plain lv_obj gets no theme focus styling; replicate the theme's
+            // outline_primary (FOCUS_KEY) / outline_secondary (EDITED) — 3 px
+            // outline + pad, 50% opacity, theme accent colors — so the picker's
+            // focus and edit feedback matches Button/EditText. EDITED outranks
+            // FOCUS_KEY in style specificity while both states are set.
+            lv_obj_set_style_outline_width(o, 3, LV_STATE_FOCUS_KEY);
+            lv_obj_set_style_outline_pad(o, 3, LV_STATE_FOCUS_KEY);
+            lv_obj_set_style_outline_opa(o, 127, LV_STATE_FOCUS_KEY);
+            lv_obj_set_style_outline_color(o, lv_theme_get_color_primary(o), LV_STATE_FOCUS_KEY);
+            lv_obj_set_style_outline_width(o, 3, LV_STATE_EDITED);
+            lv_obj_set_style_outline_pad(o, 3, LV_STATE_EDITED);
+            lv_obj_set_style_outline_opa(o, 127, LV_STATE_EDITED);
+            lv_obj_set_style_outline_color(o, lv_theme_get_color_secondary(o), LV_STATE_EDITED);
+        });
 
         let label = lv_label_create(o);
         lv_label_set_text(label, c"".as_ptr());

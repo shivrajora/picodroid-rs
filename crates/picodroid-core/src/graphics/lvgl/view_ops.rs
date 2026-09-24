@@ -93,11 +93,14 @@ pub(in crate::graphics) fn set_padding(h: Handle, left: i32, top: i32, right: i3
     if o.is_null() {
         return; // stale handle — mutating a destroyed View is a no-op
     }
+    // Four sets, one refresh (style_batch.rs).
     unsafe {
-        lv_obj_set_style_pad_left(o, left, 0);
-        lv_obj_set_style_pad_top(o, top, 0);
-        lv_obj_set_style_pad_right(o, right, 0);
-        lv_obj_set_style_pad_bottom(o, bottom, 0);
+        super::style_batch::with_one_refresh(o, LV_STYLE_PAD_TOP, || {
+            lv_obj_set_style_pad_left(o, left, 0);
+            lv_obj_set_style_pad_top(o, top, 0);
+            lv_obj_set_style_pad_right(o, right, 0);
+            lv_obj_set_style_pad_bottom(o, bottom, 0);
+        });
     }
 }
 
