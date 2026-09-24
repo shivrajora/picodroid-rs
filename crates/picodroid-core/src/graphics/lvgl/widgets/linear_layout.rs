@@ -5,29 +5,34 @@ use crate::lvgl_ffi::*;
 
 use super::super::handle_table;
 use super::super::lifecycle;
+use super::super::style_batch;
 
 pub(in crate::graphics) fn create() -> i32 {
     let ptr = unsafe {
         let o = lv_obj_create(lifecycle::screen_ptr());
-        lv_obj_set_flex_flow(o, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_flex_align(
-            o,
-            LV_FLEX_ALIGN_START,
-            LV_FLEX_ALIGN_CENTER,
-            LV_FLEX_ALIGN_CENTER,
-        );
         // Android LinearLayout never scrolls — use ScrollView for that. Clearing
         // SCROLLABLE also kills the stray scrollbars LVGL would otherwise draw
         // when content brushes the inner edge (e.g. the 2 px default border
         // eating into a 224 px child inside a 240 px parent).
         lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
-        // Clear theme padding so only explicit setPadding() takes effect.
-        lv_obj_set_style_pad_left(o, 0, 0);
-        lv_obj_set_style_pad_right(o, 0, 0);
-        lv_obj_set_style_pad_top(o, 0, 0);
-        lv_obj_set_style_pad_bottom(o, 0, 0);
-        lv_obj_set_style_pad_row(o, 0, 0);
-        lv_obj_set_style_pad_column(o, 0, 0);
+        // Eight style sets, one refresh: refreshed one by one they were most
+        // of this native's 1.7 ms on the RP2350 (style_batch.rs).
+        style_batch::with_one_refresh(o, LV_STYLE_PAD_TOP, || {
+            lv_obj_set_flex_flow(o, LV_FLEX_FLOW_COLUMN);
+            lv_obj_set_flex_align(
+                o,
+                LV_FLEX_ALIGN_START,
+                LV_FLEX_ALIGN_CENTER,
+                LV_FLEX_ALIGN_CENTER,
+            );
+            // Clear theme padding so only explicit setPadding() takes effect.
+            lv_obj_set_style_pad_left(o, 0, 0);
+            lv_obj_set_style_pad_right(o, 0, 0);
+            lv_obj_set_style_pad_top(o, 0, 0);
+            lv_obj_set_style_pad_bottom(o, 0, 0);
+            lv_obj_set_style_pad_row(o, 0, 0);
+            lv_obj_set_style_pad_column(o, 0, 0);
+        });
         o
     };
     handle_table::register(ptr)

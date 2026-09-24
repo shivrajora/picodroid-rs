@@ -789,6 +789,11 @@ extern "C" {
 
     // Mark the entire object as needing redraw on the next refresh.
     pub fn lv_obj_invalidate(obj: *mut lv_obj_t);
+    /// LVGL's automatic style refresh, a global flag: off, `lv_obj_set_style_*`
+    /// records the value and does nothing else (see `graphics::lvgl::style_batch`).
+    pub fn lv_obj_enable_style_refresh(en: bool);
+    /// The refresh a `lv_obj_set_style_*` of `prop` on `part` would have run.
+    pub fn lv_obj_refresh_style(obj: *mut lv_obj_t, part: lv_part_t, prop: lv_style_prop_t);
 
     // Object parent / child
     pub fn lv_obj_set_parent(obj: *mut lv_obj_t, parent: *mut lv_obj_t);
