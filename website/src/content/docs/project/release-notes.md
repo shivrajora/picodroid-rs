@@ -7,7 +7,7 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
-**Keys, text gravity, flat containers, `java.time` (2026-09-24)**
+**Keys, text gravity, flat containers, `java.time` (2026-09-24; map v0.29.0, package 0.29.0)**
 
 - `Activity.onKeyDown(int, KeyEvent)` / `onKeyUp(int, KeyEvent)`: a hardware key no focused view
   consumed reaches the foreground Activity, as on Android, so a screen with nothing to focus needs
@@ -47,6 +47,11 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 - The SDK's `compileJava` is no longer incremental: the tree shadows JDK types, and an
   incremental compile checked a changed `java/time` file against the JDK's interfaces instead of
   the tree's.
+- Map v0.29.0, cut on `main`, folds in the 27 classes added since v0.28.0 (the `java.time`
+  package, `ZoneRules` and `java.util.TimeZone`) and 227 member names (the key callbacks and
+  tracking, text gravity, the `Math` helpers and every `java.time` member), so the shrunk-image
+  check is clean again. The member floor stays at v0.17.0, so PAPKs shrunk with v0.17.0 through
+  v0.28.0 still install. `Build.VERSION.RELEASE` reads `0.29.0`.
 
 **Text size (map v0.28.0, package 0.28.0)**
 
