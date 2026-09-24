@@ -44,3 +44,18 @@ pub fn install_heap_atomic_hooks() {
     // same reason: before the first task, by both boots (`crate::jvm_run_lock`).
     crate::jvm_run_lock::init();
 }
+
+/// The kernel's run-time counter for the calling task: the CPU time it has
+/// been scheduled for, in the port's run-time-stats unit (microseconds on
+/// the RP boards). Wraps; take deltas. Feeds the `parity-metrics` span
+/// report, where wall time minus this is the time the UI task spent
+/// preempted or blocked. Device only: the host port compiles the kernel
+/// without run-time stats.
+#[cfg(all(not(test), not(feature = "sim"), feature = "parity-metrics"))]
+pub fn current_task_runtime_counter() -> u32 {
+    extern "C" {
+        fn ulTaskGetRunTimeCounter(task: *const core::ffi::c_void) -> u32;
+    }
+    // SAFETY: FFI into the kernel; a null handle names the calling task.
+    unsafe { ulTaskGetRunTimeCounter(core::ptr::null()) }
+}

@@ -81,34 +81,217 @@ fn slow_handler_threshold_ms() -> u64 {
     SLOW_HANDLER_DEFAULT_MS
 }
 
+/// Where a timed main-loop span began: its clock reading and, in a
+/// `parity-metrics` build, the JVM's work counters, so a slow-handler
+/// warning can say how many bytecodes and cold resolutions the span ran —
+/// the two numbers that turn "took 60 ms" into "interpreted 18,000
+/// bytecodes", which is what a device's budget is really spent on.
+#[derive(Clone, Copy)]
+struct SpanStart {
+    ms: u64,
+    #[cfg(feature = "parity-metrics")]
+    insns: usize,
+    #[cfg(feature = "parity-metrics")]
+    resolves: usize,
+    #[cfg(feature = "parity-metrics")]
+    declines: usize,
+    #[cfg(feature = "parity-metrics")]
+    native_us: usize,
+    #[cfg(feature = "parity-metrics")]
+    native_calls: usize,
+    #[cfg(feature = "parity-metrics")]
+    resolve_us: usize,
+    #[cfg(feature = "parity-metrics")]
+    clinit_us: usize,
+    #[cfg(feature = "parity-metrics")]
+    invoke_us: usize,
+    #[cfg(feature = "parity-metrics")]
+    invokes: usize,
+    #[cfg(feature = "parity-metrics")]
+    frame_us: usize,
+    #[cfg(feature = "parity-metrics")]
+    fields_us: usize,
+    #[cfg(feature = "parity-metrics")]
+    new_us: usize,
+    #[cfg(feature = "parity-metrics")]
+    other_us: usize,
+    #[cfg(feature = "parity-metrics")]
+    field_ops: usize,
+    /// Cost of two back-to-back clock reads, so a reader can subtract the
+    /// measurement itself from the per-op columns.
+    #[cfg(feature = "parity-metrics")]
+    clock_ns: u64,
+    #[cfg(all(feature = "parity-metrics", not(feature = "sim")))]
+    cpu_us: u32,
+}
+
+fn span_start() -> SpanStart {
+    #[cfg(feature = "parity-metrics")]
+    pico_jvm::parity::reset_slowest_native();
+    #[cfg(feature = "parity-metrics")]
+    let clock_ns = {
+        let a = crate::hal::system_clock::elapsed_realtime_nanos();
+        let _ = crate::hal::system_clock::elapsed_realtime_nanos();
+        let c = crate::hal::system_clock::elapsed_realtime_nanos();
+        (c - a).max(0) as u64 / 2
+    };
+    SpanStart {
+        ms: now_ms(),
+        #[cfg(feature = "parity-metrics")]
+        insns: pico_jvm::parity::insns(),
+        #[cfg(feature = "parity-metrics")]
+        resolves: pico_jvm::parity::resolves(),
+        #[cfg(feature = "parity-metrics")]
+        declines: pico_jvm::parity::cache_declines(),
+        #[cfg(feature = "parity-metrics")]
+        native_us: pico_jvm::parity::native_us(),
+        #[cfg(feature = "parity-metrics")]
+        native_calls: pico_jvm::parity::native_calls(),
+        #[cfg(feature = "parity-metrics")]
+        resolve_us: pico_jvm::parity::resolve_us(),
+        #[cfg(feature = "parity-metrics")]
+        clinit_us: pico_jvm::parity::clinit_us(),
+        #[cfg(feature = "parity-metrics")]
+        invoke_us: pico_jvm::parity::invoke_us(),
+        #[cfg(feature = "parity-metrics")]
+        invokes: pico_jvm::parity::invokes(),
+        #[cfg(feature = "parity-metrics")]
+        frame_us: pico_jvm::parity::frame_us(),
+        #[cfg(feature = "parity-metrics")]
+        fields_us: pico_jvm::parity::fields_us(),
+        #[cfg(feature = "parity-metrics")]
+        new_us: pico_jvm::parity::new_us(),
+        #[cfg(feature = "parity-metrics")]
+        other_us: pico_jvm::parity::other_us(),
+        #[cfg(feature = "parity-metrics")]
+        field_ops: pico_jvm::parity::field_ops(),
+        #[cfg(feature = "parity-metrics")]
+        clock_ns,
+        #[cfg(all(feature = "parity-metrics", not(feature = "sim")))]
+        cpu_us: crate::rtos::freertos::current_task_runtime_counter(),
+    }
+}
+
+/// Whether the simulator prints every Runnable span, not just the slow
+/// ones: `PICODROID_TRACE_SPANS=1`. Read once. Only meaningful with the
+/// `parity-metrics` counters compiled in, which is where the bytecode and
+/// resolution columns come from.
+#[cfg(feature = "sim")]
+fn trace_spans() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PICODROID_TRACE_SPANS").is_ok_and(|v| v.trim() == "1"))
+}
+
 /// Warn — rate-limited to once a second — when `span` ran for at least
-/// `slow_ms` since `start_ms`. The main loop is single-threaded, so a slow
+/// `slow_ms` since `start`. The main loop is single-threaded, so a slow
 /// handler directly stalls the UI tick; surfacing it points at the freeze.
 /// Two clock reads on the fast (not-slow) path. `last_warn_ms` carries the
 /// rate-limit state between calls.
-fn warn_if_slow(span: &str, start_ms: u64, slow_ms: u64, last_warn_ms: &mut u64) {
+fn warn_if_slow(span: &str, start: SpanStart, slow_ms: u64, last_warn_ms: &mut u64) {
+    #[cfg(feature = "sim")]
+    if trace_spans() {
+        let elapsed = now_ms().saturating_sub(start.ms);
+        #[cfg(feature = "parity-metrics")]
+        eprintln!(
+            "[sim] span: {span} {elapsed} ms insns={} resolves={} declines={} native={} us/{} calls resolve={} us clinit={} us invoke={} us/{} frame={} us",
+            pico_jvm::parity::insns().wrapping_sub(start.insns),
+            pico_jvm::parity::resolves().wrapping_sub(start.resolves),
+            pico_jvm::parity::cache_declines().wrapping_sub(start.declines),
+            pico_jvm::parity::native_us().wrapping_sub(start.native_us),
+            pico_jvm::parity::native_calls().wrapping_sub(start.native_calls),
+            pico_jvm::parity::resolve_us().wrapping_sub(start.resolve_us),
+            pico_jvm::parity::clinit_us().wrapping_sub(start.clinit_us),
+            pico_jvm::parity::invoke_us().wrapping_sub(start.invoke_us),
+            pico_jvm::parity::invokes().wrapping_sub(start.invokes),
+            pico_jvm::parity::frame_us().wrapping_sub(start.frame_us),
+        );
+        #[cfg(not(feature = "parity-metrics"))]
+        eprintln!("[sim] span: {span} {elapsed} ms");
+    }
     if slow_ms == 0 {
         return;
     }
-    let elapsed = now_ms().saturating_sub(start_ms);
+    let elapsed = now_ms().saturating_sub(start.ms);
     if elapsed < slow_ms {
         return;
     }
     let now = now_ms();
-    if now.saturating_sub(*last_warn_ms) < 1000 {
+    // A counters build is a measurement build: report every slow span,
+    // not one a second, or a page turn's ten steps show as one line.
+    if !cfg!(feature = "parity-metrics") && now.saturating_sub(*last_warn_ms) < 1000 {
         return;
     }
     *last_warn_ms = now;
-    #[cfg(not(feature = "sim"))]
+    #[cfg(feature = "parity-metrics")]
+    let (insns, resolves, declines, native_us, native_calls, resolve_us, clinit_us) = (
+        pico_jvm::parity::insns().wrapping_sub(start.insns),
+        pico_jvm::parity::resolves().wrapping_sub(start.resolves),
+        pico_jvm::parity::cache_declines().wrapping_sub(start.declines),
+        pico_jvm::parity::native_us().wrapping_sub(start.native_us),
+        pico_jvm::parity::native_calls().wrapping_sub(start.native_calls),
+        pico_jvm::parity::resolve_us().wrapping_sub(start.resolve_us),
+        pico_jvm::parity::clinit_us().wrapping_sub(start.clinit_us),
+    );
+    #[cfg(feature = "parity-metrics")]
+    let (invoke_us, invokes, frame_us, fastest_us, fields_us, new_us, other_us) = (
+        pico_jvm::parity::invoke_us().wrapping_sub(start.invoke_us),
+        pico_jvm::parity::invokes().wrapping_sub(start.invokes),
+        pico_jvm::parity::frame_us().wrapping_sub(start.frame_us),
+        pico_jvm::parity::fastest_native_us(),
+        pico_jvm::parity::fields_us().wrapping_sub(start.fields_us),
+        pico_jvm::parity::new_us().wrapping_sub(start.new_us),
+        pico_jvm::parity::other_us().wrapping_sub(start.other_us),
+    );
+    #[cfg(feature = "parity-metrics")]
+    let field_ops = pico_jvm::parity::field_ops().wrapping_sub(start.field_ops);
+    #[cfg(feature = "parity-metrics")]
+    let clock_ns = start.clock_ns;
+    #[cfg(all(feature = "parity-metrics", not(feature = "sim")))]
+    let cpu_us = crate::rtos::freertos::current_task_runtime_counter().wrapping_sub(start.cpu_us);
+    #[cfg(feature = "parity-metrics")]
+    let (slowest_us, slowest_class, slowest_method) = pico_jvm::parity::slowest_native();
+    #[cfg(all(not(feature = "sim"), not(feature = "parity-metrics")))]
     defmt::warn!(
         "slow handler: {=str} took {=u64} ms (>= {=u64} ms) — stalls the UI tick",
         span,
         elapsed,
         slow_ms
     );
-    #[cfg(feature = "sim")]
+    #[cfg(all(not(feature = "sim"), feature = "parity-metrics"))]
+    defmt::warn!(
+        "slow handler: {=str} took {=u64} ms (>= {=u64} ms) — stalls the UI tick; cpu={=u32} us native={=usize} us/{=usize} calls resolve={=usize} us clinit={=usize} us invoke={=usize} us/{=usize} frame={=usize} us fields={=usize} us/{=usize} new={=usize} us other={=usize} us insns={=usize} resolves={=usize} declines={=usize} slowest={=str}.{=str} {=usize} us fastest={=usize} us clock={=u64} ns",
+        span,
+        elapsed,
+        slow_ms,
+        cpu_us,
+        native_us,
+        native_calls,
+        resolve_us,
+        clinit_us,
+        invoke_us,
+        invokes,
+        frame_us,
+        fields_us,
+        field_ops,
+        new_us,
+        other_us,
+        insns,
+        resolves,
+        declines,
+        slowest_class,
+        slowest_method,
+        slowest_us,
+        fastest_us,
+        clock_ns
+    );
+    #[cfg(all(feature = "sim", not(feature = "parity-metrics")))]
     eprintln!(
         "[sim] slow handler: {span} took {elapsed} ms (>= {slow_ms} ms) — stalls the UI tick"
+    );
+    #[cfg(all(feature = "sim", feature = "parity-metrics"))]
+    eprintln!(
+        "[sim] slow handler: {span} took {elapsed} ms (>= {slow_ms} ms) — stalls the UI tick; native={native_us} us/{native_calls} calls resolve={resolve_us} us clinit={clinit_us} us invoke={invoke_us} us/{invokes} frame={frame_us} us fields={fields_us} us/{field_ops} new={new_us} us other={other_us} us insns={insns} resolves={resolves} declines={declines} slowest={slowest_class}.{slowest_method} {slowest_us} us fastest={fastest_us} us clock={clock_ns} ns"
     );
 }
 
@@ -433,7 +616,7 @@ pub(crate) fn run_activity(
                 crate::hal::sim::app_region::service_requests();
                 // Watch only the Java dispatch, not g.tick's render above —
                 // rendering legitimately varies and would be a false positive.
-                let span_start = now_ms();
+                let span_start = span_start();
                 dispatch_widget_events(jvm, heap, handler);
                 warn_if_slow(
                     "widget events",
@@ -508,7 +691,7 @@ pub(crate) fn run_activity(
                 // metadata. Calling Runnable.run directly from Rust finds
                 // the abstract interface method with no bytecode and
                 // silently no-ops.
-                let span_start = now_ms();
+                let span_start = span_start();
                 let dispatched = jvm.invoke_static_with_args(
                     dispatch_class(dispatch_sites::EXECUTORS_DISPATCH),
                     dispatch_method(dispatch_sites::EXECUTORS_DISPATCH),
@@ -545,7 +728,7 @@ pub(crate) fn run_activity(
         // dispatch above (a button click handler called startActivity,
         // a Runnable called finish(), etc.).
         let mut should_exit = false;
-        let span_start = now_ms();
+        let span_start = span_start();
         while let Some(op) = handler.take_next_pending_op() {
             if process_pending_op(jvm, op, heap, handler).is_break() {
                 should_exit = true;

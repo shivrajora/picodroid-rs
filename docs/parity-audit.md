@@ -612,3 +612,15 @@ Deliberate divergences surfaced by the bug bash (docs/bugbash-2026-08-30.md), ke
 - **PAPK asset records are 4-aligned within the assets section only**; the section offset
   itself depends on the class blob's length, so XIP-direct LVGL use relies on LVGL's
   byte-wise pixel reads. Verify before any word-wide blit path. (bugbash S11.)
+
+## Span report (`parity-metrics`, 2026-09-23)
+
+With the feature on, the main loop's slow-handler warning (`lifecycle/mod.rs::warn_if_slow`)
+is not rate-limited and prints, per span: the UI task's FreeRTOS run-time counter delta
+(`cpu`, device only), time inside native calls and their count, time resolving method/field
+sites, time in class-initialised probes, invoke / field / `new` / other opcode time, frame
+allocation time, bytecodes, cold resolutions, cache declines, the slowest and fastest native
+by name, and the cost of one clock read. On the simulator `PICODROID_TRACE_SPANS=1` prints
+every span, not only the slow ones. The counters live in `pico_jvm::parity`; the timing
+columns cost two clock reads per opcode, so the build is for attribution, never for a gate.
+Worked example: `docs/designs/claudeusage-gaps-roadmap-2026-09.md` D4.

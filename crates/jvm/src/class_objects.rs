@@ -26,12 +26,18 @@ use alloc::vec::Vec;
 /// One cached `(interned class-name index, Class object reference)` pair.
 pub struct ClassObjectCache {
     entries: Vec<(u16, u16)>,
+    /// The interpreter's resolution tables — here for the same reason the
+    /// Class objects are: per loaded class set, shared by every executor
+    /// and every thread on this heap, reset with it. See
+    /// [`crate::resolve_cache`].
+    pub resolve: crate::resolve_cache::ResolveCache,
 }
 
 impl ClassObjectCache {
     pub const fn new() -> Self {
         Self {
             entries: Vec::new(),
+            resolve: crate::resolve_cache::ResolveCache::new(),
         }
     }
 

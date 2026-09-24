@@ -23,7 +23,102 @@ pub struct Frame {
     pub monitor: Option<MonitorKey>,
 }
 
+/// Recycled `locals` / `stack` buffers for the frames one executor pushes
+/// and pops.
+///
+/// A Java call costs two heap reservations and a return two frees; on the
+/// RP2350 that was 65 µs per call — heap_4's first-fit walk over a
+/// fragmented arena — and 6 % of a claudeusage page-turn tick (D4,
+/// 2026-09-23). The pool hands a returning frame's buffers to the next call
+/// instead. It is executor-local and starts empty (`Vec::new` allocates
+/// nothing), so the first frames of an invocation still allocate and the
+/// buffers go back to the heap when the executor does.
+#[derive(Default)]
+pub struct FramePool {
+    bufs: Vec<Vec<Value>>,
+}
+
+impl FramePool {
+    /// Buffers kept at most: a deeper stack than this recycles nothing
+    /// extra, and the pool never holds more than 16 small allocations.
+    const KEEP: usize = 16;
+
+    pub const fn new() -> Self {
+        Self { bufs: Vec::new() }
+    }
+
+    /// A cleared buffer with room for `cap` values, from the pool when one
+    /// fits and fresh otherwise. `None` is the heap refusing.
+    #[inline]
+    fn take(&mut self, cap: usize) -> Option<Vec<Value>> {
+        if let Some(i) = self.bufs.iter().position(|b| b.capacity() >= cap) {
+            return Some(self.bufs.swap_remove(i));
+        }
+        let mut v = Vec::new();
+        v.try_reserve(cap).ok()?;
+        Some(v)
+    }
+
+    #[inline]
+    fn give(&mut self, mut buf: Vec<Value>) {
+        if buf.capacity() == 0 || self.bufs.len() >= Self::KEEP {
+            return;
+        }
+        buf.clear();
+        // `KEEP` is small and the pool is built lazily; a push that cannot
+        // grow the pool's own vector simply drops the buffer.
+        if self.bufs.try_reserve(1).is_ok() {
+            self.bufs.push(buf);
+        }
+    }
+}
+
 impl Frame {
+    /// [`Frame::new`] drawing both buffers from `pool` when it can.
+    pub fn new_in(
+        pool: &mut FramePool,
+        class_idx: usize,
+        method_idx: usize,
+        args: &[Value],
+        max_locals: u16,
+        max_stack: u16,
+    ) -> Result<Self, JvmError> {
+        let cap = (max_locals as usize).max(args.len() * 2);
+        let mut locals = pool.take(cap).ok_or(JvmError::StackOverflow)?;
+        for v in args {
+            locals.push(*v);
+            if matches!(v, Value::Long(_) | Value::Double(_)) {
+                locals.push(Value::Null);
+            }
+        }
+        let cap = (max_locals as usize).max(locals.len());
+        locals.resize(cap, Value::Null);
+        let stack = match pool.take(max_stack as usize) {
+            Some(s) => s,
+            None => {
+                pool.give(locals);
+                return Err(JvmError::StackOverflow);
+            }
+        };
+        Ok(Self {
+            class_idx,
+            method_idx,
+            pc: 0,
+            inst_pc: 0,
+            locals,
+            stack,
+            box_return: 0,
+            monitor: None,
+        })
+    }
+
+    /// Hand this frame's buffers back to `pool` for the next call.
+    #[inline]
+    pub fn recycle(self, pool: &mut FramePool) {
+        pool.give(self.locals);
+        pool.give(self.stack);
+    }
+
     pub fn new(
         class_idx: usize,
         method_idx: usize,

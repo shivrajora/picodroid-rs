@@ -132,7 +132,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             return false;
         };
         match helpers::find_method_walking_cached(
-            &mut self.method_cache,
+            &mut self.class_objects.resolve,
             self.classes,
             class,
             m::equals,

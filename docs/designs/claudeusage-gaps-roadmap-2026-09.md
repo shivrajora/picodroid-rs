@@ -19,7 +19,15 @@ unless it says hardware.
 
 ### D4. Every tick of a page swap overruns the slow-handler budget on the RP2350 — **highest priority**
 
-**Status: open (2026-09-23).** Added after the hardware run of the Android-shape round
+**Status: root-caused and partly fixed (2026-09-23, evening); see "Findings" below.** Candidates 0
+to 2 are answered: the pre-round app is just as slow on today's runtime, nothing preempts the
+UI task, and the cost is per-bytecode interpreter overhead plus LVGL object creation, not
+the app. The runtime fixes landed (persistent set-associative resolution tables, frame
+buffer pooling) take the small steps under the line; the big steps (a Models or Burn build
+step with 200–270 invokes and 320–360 field ops) stay at 80–140 ms and need either fewer
+objects per step or the follow-ups listed under the findings.
+
+**Status before that: open (2026-09-23).** Added after the hardware run of the Android-shape round
 (`claudeusage-android-shape-2026-09.md`, commit `79369105`). Listed first because every button
 press stalls input and the 1 Hz ticker for 50 to 175 ms across roughly ten consecutive ticks, and
 because two of the three candidate causes are runtime-wide, not this app's.
@@ -76,6 +84,52 @@ of the swapped region" was wrong and is withdrawn here.
 3. **LVGL object creation itself.** Each `Ui.box`/`label` is one object with a fresh style set,
    each right- or centre-aligned label two; the eight-bar build steps of `BurnPage` cost 90 ms.
    If 1 and 2 are clear, the answer is fewer objects (G3, G4), not finer slicing.
+
+**Findings (2026-09-23, evening).** Measured with the `parity-metrics` span report
+(`PICODROID_EXTRA_FEATURES=parity-metrics ./scripts/flash.sh …`): every slow main-loop span now
+prints the UI task's CPU time, time inside natives (and the slowest and fastest native by name),
+time resolving method and field sites, time in the class-initialised probes, invoke / field /
+`new` / other opcode time, frame-allocation time, bytecodes, cold resolutions, and the clock's
+own cost. On the simulator `PICODROID_TRACE_SPANS=1` prints every span, slow or not.
+
+- **Not the app.** The pre-round app (`d72d6dae^`, installed over `pdb install` onto today's
+  firmware) turns pages in 55–160 ms, the same as the Android-shape app. Release firmware is
+  the same as debug (54–123 ms).
+- **Not the scheduler.** For a 52 ms Runnable the task's FreeRTOS run-time counter moved
+  51.6 ms: nothing preempts or blocks the UI task. `sysmon` agrees (cyw43 0.0 %, Tmr Svc 0.5 %).
+- **Not the caches declining.** `declines=0` on every span; the tables never refused.
+- **Where a 60 ms step (847 bytecodes, 96 invokes, 36 natives) went, before the fixes:**
+  natives 13 ms (a fixed floor of ~60 µs per native call through the string-matched
+  dispatcher chain, and `LinearLayout.nativeCreate` at 1.6–2.0 ms each — `lv_obj_create` on
+  the screen plus six `lv_obj_set_style_pad_*`, each a style refresh); cold resolution 15 ms
+  (109 sites at ~140 µs: the executor's memo tables lived only for one top-level invocation, so
+  every posted Runnable started cold and walked `TextView → View → Object` comparing ~200
+  method names read from XIP flash); class-initialised probes 0.5–2 ms (a linear name scan on
+  every `getstatic`/`invokestatic`/`new`); frame allocation 4 ms (two heap reservations per
+  Java call, ~65 µs, heap_4's first-fit walk); and ~25 ms of plain interpretation at 15–35 µs
+  per field or invoke bytecode — about ten times the benchmark app's 3 µs, which is the XIP
+  instruction-cache cost of the interpreter's sprawling opcode handlers on UI code, and is not
+  addressed here.
+- **Fixed in the runtime** (`crates/jvm/src/resolve_cache.rs`, `frame.rs::FramePool`): the
+  method, field, static and `new` sites resolve into four-way set-associative tables that live
+  on the shared heap beside the Class-object cache, persist across Runnables and threads, are
+  allocated once at a fixed size (16 KB on the RP2350, 4.3 KB on the RP2040 — no doubling, so
+  the 10,240-byte request of `project_jvm_cache_push_fallible` is gone), and carry the
+  class-initialised flag so the probe runs once per site. Frames draw their two buffers from
+  an executor-local pool. `find_method` reads a descriptor only after the name matched (half
+  the flash reads on a miss). On the board: cold resolutions per step 109 → 0–13 on a warm
+  lap, clinit probes ~0, frame time halved; the ~850-bytecode steps went from 55–60 ms to
+  under the 50 ms line, and the big steps lost 15–20 %: Models 139 → 119–126 ms (natives
+  37 ms/112 calls, invokes 74 ms/270, fields 14 ms/359 ops), Burn 105 → 85 ms, History
+  92 → 77 ms.
+- **Left for follow-ups**, largest first: (a) `nativeCreate` at 1.7 ms — try
+  `lv_obj_enable_style_refresh(false)` around the create sequence, and creating under the
+  final parent instead of the screen; (b) the interpreter's per-bytecode cost from XIP — a
+  RAM-resident core loop, or fewer, fatter opcodes; (c) the ~60 µs native-dispatch floor — a
+  pointer-keyed memo from class name to sub-dispatcher; (d) at the app level, halve the
+  objects per build step (the Models and Burn pages).
+- **On the simulator** the same steps are 0–1 ms (misses cost microseconds there), which is
+  why none of this showed before the board did.
 
 **Repro.** `env $(grep -v '^#' .wifi-creds.env | xargs) PICODROID_NET_TEST_HOST=<PC address>
 ./scripts/flash.sh --board pico_display2_w --app claudeusage` in the background, wait for
@@ -280,6 +334,16 @@ doubling as the live object count grew, but the allocation site was not identifi
 doubling table, any app whose live set crosses the same threshold on a fragmented heap hits it,
 and chunked growth (as the object and string stores already do) would make it a non-event. First
 step: name the site (`reference_device_big_alloc_backtrace` style, or the sim's OOM backtrace).
+
+**Named (2026-09-23):** it is the collector's arena-compaction buffer, `GcState::arena_compact_buf`
+(`Vec<u64>`, one word per live arena entry: `object_heap/mod.rs::compact_fields_arena` and
+`array_heap.rs::compact_arena` each `try_reserve(live)`). 38,912 B is 4,864 live entries; the
+22,528 B request (2,816 entries) shows on the Burn page after the resolution tables changed the
+heap's layout. It is fallible and the refusal only skips that collection's compaction, so the
+app never sees it — but a skipped compaction leaves the arena fragmented, which is the condition
+that made the request fail. Fix shape: compact in bounded slices, or reserve the buffer once
+from the pre-reservation budget (`prereserve_config`) while the heap is young. The executor's
+resolution caches are no longer a candidate: they are fixed-size tables now (D4 findings).
 
 ### Minor
 

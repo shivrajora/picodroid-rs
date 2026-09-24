@@ -155,6 +155,12 @@ pub fn start_tasks(boot_apk: Option<&'static [u8]>) -> ! {
         move |_| {
             // Store our handle so pdb_task and child tasks can notify us.
             crate::pdb::pending::set_jvm_task(Task::current().unwrap());
+            // The RP2040's 160 KB arena takes the half-size resolution
+            // tables (`pico_jvm::resolve_cache`); everything else the default.
+            #[cfg(feature = "chip-rp2040")]
+            picodroid_core::boot::set_resolve_cache_sizes(
+                picodroid_core::boot::ResolveCacheSizes::SMALL,
+            );
             let mut image = boot_apk;
             loop {
                 crate::pdb::pending::clear_stop();

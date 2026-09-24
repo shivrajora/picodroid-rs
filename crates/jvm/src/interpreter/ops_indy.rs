@@ -395,7 +395,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 }
                 let class = self.runtime_class_of(recv)?;
                 let resolved = helpers::find_method_walking_cached(
-                    &mut self.method_cache,
+                    &mut self.class_objects.resolve,
                     self.classes,
                     class,
                     name,

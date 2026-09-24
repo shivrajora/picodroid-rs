@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use crate::names::{c, d};
+use crate::resolve_cache::ResolveCache;
 use crate::{
     class_file::{find_class, name_eq, ClassFile},
     class_objects::ClassObjectCache,
@@ -9,24 +10,18 @@ use crate::{
 };
 use alloc::vec::Vec;
 
-/// Cache entry: (class_name ptr, method_name ptr, descriptor ptr) → (class_idx, method_idx).
-pub(super) type MethodCacheEntry = (*const u8, *const u8, *const u8, usize, usize);
-
-/// Cached field_slot: uses pointer identity on the Flash-backed class/field name slices.
+/// `field_slot_declared` through the persistent field table: pointer
+/// identity on the Flash-backed class/field name slices (see
+/// [`crate::resolve_cache`]).
 pub(super) fn field_slot_cached(
-    cache: &mut Vec<(*const u8, *const u8, *const u8, usize)>,
+    cache: &mut ResolveCache,
     classes: &[ClassFile],
     class_name: &'static str,
     declared_class: &[u8],
     field_name: &[u8],
 ) -> Option<usize> {
-    let cn_ptr = class_name.as_ptr();
-    let dc_ptr = declared_class.as_ptr();
-    let fn_ptr = field_name.as_ptr();
-    for &(cp, dp, fp, slot) in cache.iter() {
-        if cp == cn_ptr && dp == dc_ptr && fp == fn_ptr {
-            return Some(slot);
-        }
+    if let Some(slot) = cache.field(class_name, declared_class, field_name) {
+        return Some(slot);
     }
     let slot = field_slot_declared(
         classes,
@@ -34,64 +29,43 @@ pub(super) fn field_slot_cached(
         core::str::from_utf8(declared_class).ok()?,
         core::str::from_utf8(field_name).ok()?,
     )?;
-    cache_push(cache, (cn_ptr, dc_ptr, fn_ptr, slot));
+    cache.insert_field(class_name, declared_class, field_name, slot);
     Some(slot)
 }
 
-/// Memoise `entry` if the heap can take the growth, and simply don't if it
-/// cannot.
-///
-/// These are caches, not state: a `Vec::push` that has to double is a single
-/// contiguous request the size of the whole table — 512 `MethodCacheEntry`
-/// is 10,240 bytes on a 32-bit target — and doing that infallibly resets the
-/// board under a full heap, which is how `qa_ui` took the RP2040 down in its
-/// focus section (`docs/qa-2026-09-13-followups.md` §3). Declining to cache
-/// costs a re-resolve on the next lookup and nothing else.
-pub(super) fn cache_push<T>(cache: &mut Vec<T>, entry: T) {
-    if cache.try_reserve(1).is_ok() {
-        cache.push(entry);
-    }
-}
-
+/// Resolve from the CP-declared class (invokestatic / invokespecial),
+/// through the persistent method table.
 pub(super) fn find_method_cached(
-    cache: &mut Vec<MethodCacheEntry>,
+    cache: &mut ResolveCache,
     classes: &[ClassFile],
     class_name: &str,
     method_name: &str,
     descriptor: &str,
 ) -> Option<(usize, usize)> {
-    let cn_ptr = class_name.as_ptr();
-    let mn_ptr = method_name.as_ptr();
-    let dn_ptr = descriptor.as_ptr();
-    for &(cp, mp, dp, ci, mi) in cache.iter() {
-        if cp == cn_ptr && mp == mn_ptr && dp == dn_ptr {
-            return Some((ci, mi));
-        }
+    if let Some(hit) = cache.method(class_name, method_name, descriptor) {
+        return Some((hit.ci, hit.mi));
     }
     // JVMS §5.4.3.3: method resolution recurses into the superclass when the named
     // class doesn't declare a matching method. Used by invokestatic and invokespecial.
     let (ci, mi) = find_method_walking(classes, class_name, method_name, descriptor)?;
-    cache_push(cache, (cn_ptr, mn_ptr, dn_ptr, ci, mi));
+    cache.insert_method(class_name, method_name, descriptor, ci, mi);
     Some((ci, mi))
 }
 
+/// Resolve from the receiver's runtime class (invokevirtual /
+/// invokeinterface), through the persistent method table.
 pub(super) fn find_method_walking_cached(
-    cache: &mut Vec<MethodCacheEntry>,
+    cache: &mut ResolveCache,
     classes: &[ClassFile],
     runtime_class: &str,
     method_name: &str,
     descriptor: &str,
 ) -> Option<(usize, usize)> {
-    let cn_ptr = runtime_class.as_ptr();
-    let mn_ptr = method_name.as_ptr();
-    let dn_ptr = descriptor.as_ptr();
-    for &(cp, mp, dp, ci, mi) in cache.iter() {
-        if cp == cn_ptr && mp == mn_ptr && dp == dn_ptr {
-            return Some((ci, mi));
-        }
+    if let Some(hit) = cache.method(runtime_class, method_name, descriptor) {
+        return Some((hit.ci, hit.mi));
     }
     let (ci, mi) = find_method_walking(classes, runtime_class, method_name, descriptor)?;
-    cache_push(cache, (cn_ptr, mn_ptr, dn_ptr, ci, mi));
+    cache.insert_method(runtime_class, method_name, descriptor, ci, mi);
     Some((ci, mi))
 }
 
@@ -183,10 +157,16 @@ pub(super) fn find_method(
 ) -> Option<(usize, usize)> {
     let ci = find_class(classes, class_name.as_bytes())?;
     let cf = &classes[ci];
+    // Name first, descriptor only on a name match: each `cp_utf8` is a
+    // length read from the Flash-backed class data, and a miss walks every
+    // method of every class on the chain (a `View` has ~150).
     for (mi, m) in cf.methods().iter().enumerate() {
         let mn = cf.cp_utf8(m.name_index)?;
+        if !name_eq(mn, method_name.as_bytes()) {
+            continue;
+        }
         let md = cf.cp_utf8(m.descriptor_index)?;
-        if name_eq(mn, method_name.as_bytes()) && name_eq(md, descriptor.as_bytes()) {
+        if name_eq(md, descriptor.as_bytes()) {
             return Some((ci, mi));
         }
     }

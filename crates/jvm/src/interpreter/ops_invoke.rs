@@ -45,11 +45,29 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         let name_str = core::str::from_utf8(name_bytes).map_err(|_| JvmError::InvalidBytecode)?;
         let desc_str = core::str::from_utf8(desc_bytes).map_err(|_| JvmError::InvalidBytecode)?;
 
-        // invokestatic triggers class initialization.
-        if opcode == 0xb8 && self.ensure_class_initialized(class_bytes)? {
-            let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
-            frame.pc = frame.inst_pc;
-            return Ok(());
+        // invokestatic triggers class initialization. A site whose entry
+        // already says "initialised" skips the probe (a scan of the
+        // initialised-class list by name); the flag is set below, after the
+        // site resolves, the first time the probe comes back clear.
+        let mut mark_static_init = false;
+        if opcode == 0xb8
+            && !self
+                .class_objects
+                .resolve
+                .method(class_str, name_str, desc_str)
+                .is_some_and(|hit| hit.init)
+        {
+            #[cfg(feature = "parity-metrics")]
+            let t0 = self.handler.clock_nanos();
+            let pending = self.ensure_class_initialized(class_bytes)?;
+            #[cfg(feature = "parity-metrics")]
+            crate::parity::count_clinit_time(self.handler.clock_nanos().saturating_sub(t0));
+            if pending {
+                let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
+                frame.pc = frame.inst_pc;
+                return Ok(());
+            }
+            mark_static_init = true;
         }
 
         let arg_count = match opcode {
@@ -119,23 +137,33 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         // Resolve method. Both branches walk the superclass chain per JVMS §5.4.3.3:
         // invokevirtual / invokeinterface start from the receiver's runtime class,
         // invokestatic / invokespecial start from the CP-declared class.
+        #[cfg(feature = "parity-metrics")]
+        let resolve_start = self.handler.clock_nanos();
         let resolved = if is_virtual {
             helpers::find_method_walking_cached(
-                &mut self.method_cache,
+                &mut self.class_objects.resolve,
                 self.classes,
                 dispatch_class,
                 name_str,
                 desc_str,
             )
         } else {
-            helpers::find_method_cached(
-                &mut self.method_cache,
+            let r = helpers::find_method_cached(
+                &mut self.class_objects.resolve,
                 self.classes,
                 class_str,
                 name_str,
                 desc_str,
-            )
+            );
+            if mark_static_init {
+                self.class_objects
+                    .resolve
+                    .mark_method_init(class_str, name_str, desc_str);
+            }
+            r
         };
+        #[cfg(feature = "parity-metrics")]
+        crate::parity::count_resolve_time(self.handler.clock_nanos().saturating_sub(resolve_start));
 
         // Pop arguments from caller's stack into an inline buffer (avoids heap
         // alloc). The buffer is a local, so it outlives the borrow of `frames`
@@ -246,7 +274,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         const TO_STRING: &str = m::toString;
         const TO_STRING_DESC: &str = d::__String;
         if let Some((ci, mi)) = helpers::find_method_walking_cached(
-            &mut self.method_cache,
+            &mut self.class_objects.resolve,
             self.classes,
             class,
             TO_STRING,
@@ -394,7 +422,18 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             Some((ci, mi)) => {
                 // Java method — push new frame for the iterative interpreter loop.
                 let jm = &self.classes[ci].methods()[mi];
-                let new_frame = Frame::new(ci, mi, args, jm.max_locals, jm.max_stack)?;
+                #[cfg(feature = "parity-metrics")]
+                let t0 = self.handler.clock_nanos();
+                let new_frame = Frame::new_in(
+                    &mut self.frame_pool,
+                    ci,
+                    mi,
+                    args,
+                    jm.max_locals,
+                    jm.max_stack,
+                )?;
+                #[cfg(feature = "parity-metrics")]
+                crate::parity::count_frame_time(self.handler.clock_nanos().saturating_sub(t0));
                 self.pending_frame = Some(new_frame);
                 Ok(())
             }
@@ -568,15 +607,23 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             upcall: Some(&mut env),
         };
         // Try the exact class first.
-        if let Some(result) = self
+        #[cfg(feature = "parity-metrics")]
+        let native_start = self.handler.clock_nanos();
+        let exact = self
             .handler
             .dispatch(class_name, method_name, &mut ctx)
             .or_else(|| {
                 let r = BuiltinHandler.dispatch(class_name, method_name, &mut ctx);
                 *retry = matches!(r, Some(Err(JvmError::StackOverflow)));
                 r
-            })
-        {
+            });
+        #[cfg(feature = "parity-metrics")]
+        crate::parity::count_native(
+            self.handler.clock_nanos().saturating_sub(native_start),
+            class_name,
+            method_name,
+        );
+        if let Some(result) = exact {
             return result;
         }
         // Walk the superclass chain: the method may be inherited from a native
@@ -740,7 +787,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
     ) -> Result<Option<Frame>, JvmError> {
         let class = self.runtime_class_of(recv)?;
         let Some((ci, mi)) = helpers::find_method_walking_cached(
-            &mut self.method_cache,
+            &mut self.class_objects.resolve,
             self.classes,
             class,
             method_name,
@@ -774,25 +821,40 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         frame.pc += 2;
         let cf = &self.classes[frame.class_idx];
         let class_name_bytes = cf.cp_class_name(cp_idx).ok_or(JvmError::InvalidBytecode)?;
-        if self.ensure_class_initialized(class_name_bytes)? {
-            frame.pc = frame.inst_pc;
-            return Ok(());
-        }
-        let class_name =
-            core::str::from_utf8(class_name_bytes).map_err(|_| JvmError::InvalidBytecode)?;
-        // Refuse to instantiate abstract classes or interfaces
-        if let Some(target_cf) =
-            find_class(self.classes, class_name.as_bytes()).map(|i| &self.classes[i])
-        {
-            if target_cf.is_interface() || target_cf.is_abstract() {
-                return Err(JvmError::AbstractMethodError);
+        // A site the table knows — and knows initialised — needs neither
+        // the initialised probe nor the two class-table walks below.
+        let static_name = match self.class_objects.resolve.class(class_name_bytes) {
+            Some(hit) if hit.init => hit.name,
+            _ => {
+                #[cfg(feature = "parity-metrics")]
+                let t0 = self.handler.clock_nanos();
+                let pending = self.ensure_class_initialized(class_name_bytes)?;
+                #[cfg(feature = "parity-metrics")]
+                crate::parity::count_clinit_time(self.handler.clock_nanos().saturating_sub(t0));
+                if pending {
+                    frame.pc = frame.inst_pc;
+                    return Ok(());
+                }
+                let class_name = core::str::from_utf8(class_name_bytes)
+                    .map_err(|_| JvmError::InvalidBytecode)?;
+                // Refuse to instantiate abstract classes or interfaces
+                let ci = find_class(self.classes, class_name.as_bytes());
+                if let Some(target_cf) = ci.map(|i| &self.classes[i]) {
+                    if target_cf.is_interface() || target_cf.is_abstract() {
+                        return Err(JvmError::AbstractMethodError);
+                    }
+                }
+                let static_name = helpers::class_name_to_static_in(
+                    self.classes,
+                    self.handler.native_class_names(),
+                    class_name,
+                );
+                self.class_objects
+                    .resolve
+                    .insert_class(class_name_bytes, ci, static_name, true);
+                static_name
             }
-        }
-        let static_name = helpers::class_name_to_static_in(
-            self.classes,
-            self.handler.native_class_names(),
-            class_name,
-        );
+        };
         match self.objects.alloc_with_defaults(static_name, self.classes) {
             Some(obj_idx) => frame.push(Value::ObjectRef(obj_idx))?,
             None => {

@@ -21,26 +21,40 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 let cf = &self.classes[frame.class_idx];
                 let (class_name, field_name, _desc) =
                     cf.cp_fieldref(cp_idx).ok_or(JvmError::InvalidBytecode)?;
-                if self.ensure_class_initialized(class_name)? {
-                    frame.pc = frame.inst_pc;
-                    return Ok(());
-                }
-                let cn_ptr = class_name.as_ptr();
-                let fn_ptr = field_name.as_ptr();
-                let value = 'lookup: {
-                    for &(cp, fp, idx) in self.static_field_cache.iter() {
-                        if cp == cn_ptr && fp == fn_ptr {
-                            break 'lookup self.statics.get_by_index(idx);
-                        }
-                    }
-                    let value = self.statics.get(class_name, field_name);
-                    if let Some(idx) = self.statics.find_index(class_name, field_name) {
-                        super::helpers::cache_push(
-                            &mut self.static_field_cache,
-                            (cn_ptr, fn_ptr, idx),
+                // A cached site was inserted after its class initialised,
+                // so a hit answers both questions at once.
+                let value = match self
+                    .class_objects
+                    .resolve
+                    .static_index(class_name, field_name)
+                {
+                    Some(idx) => self.statics.get_by_index(idx),
+                    None => {
+                        #[cfg(feature = "parity-metrics")]
+                        let t0 = self.handler.clock_nanos();
+                        let pending = self.ensure_class_initialized(class_name)?;
+                        #[cfg(feature = "parity-metrics")]
+                        crate::parity::count_clinit_time(
+                            self.handler.clock_nanos().saturating_sub(t0),
                         );
+                        if pending {
+                            frame.pc = frame.inst_pc;
+                            return Ok(());
+                        }
+                        #[cfg(feature = "parity-metrics")]
+                        let t0 = self.handler.clock_nanos();
+                        let value = self.statics.get(class_name, field_name);
+                        if let Some(idx) = self.statics.find_index(class_name, field_name) {
+                            self.class_objects
+                                .resolve
+                                .insert_static(class_name, field_name, idx);
+                        }
+                        #[cfg(feature = "parity-metrics")]
+                        crate::parity::count_resolve_time(
+                            self.handler.clock_nanos().saturating_sub(t0),
+                        );
+                        value
                     }
-                    value
                 };
                 frame.push(value)?;
             }
@@ -52,29 +66,41 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 let cf = &self.classes[frame.class_idx];
                 let (class_name, field_name, _desc) =
                     cf.cp_fieldref(cp_idx).ok_or(JvmError::InvalidBytecode)?;
-                if self.ensure_class_initialized(class_name)? {
-                    frame.pc = frame.inst_pc;
-                    return Ok(());
-                }
-                let value = frame.pop()?;
-                let cn_ptr = class_name.as_ptr();
-                let fn_ptr = field_name.as_ptr();
-                let mut found = false;
-                for &(cp, fp, idx) in self.static_field_cache.iter() {
-                    if cp == cn_ptr && fp == fn_ptr {
+                match self
+                    .class_objects
+                    .resolve
+                    .static_index(class_name, field_name)
+                {
+                    Some(idx) => {
+                        let value = frame.pop()?;
                         self.statics.set_by_index(idx, value);
-                        found = true;
-                        break;
                     }
-                }
-                if !found {
-                    self.statics
-                        .set(class_name, field_name, value)
-                        .ok_or(JvmError::StackOverflow)?;
-                    if let Some(idx) = self.statics.find_index(class_name, field_name) {
-                        super::helpers::cache_push(
-                            &mut self.static_field_cache,
-                            (cn_ptr, fn_ptr, idx),
+                    None => {
+                        #[cfg(feature = "parity-metrics")]
+                        let t0 = self.handler.clock_nanos();
+                        let pending = self.ensure_class_initialized(class_name)?;
+                        #[cfg(feature = "parity-metrics")]
+                        crate::parity::count_clinit_time(
+                            self.handler.clock_nanos().saturating_sub(t0),
+                        );
+                        if pending {
+                            frame.pc = frame.inst_pc;
+                            return Ok(());
+                        }
+                        let value = frame.pop()?;
+                        #[cfg(feature = "parity-metrics")]
+                        let t0 = self.handler.clock_nanos();
+                        self.statics
+                            .set(class_name, field_name, value)
+                            .ok_or(JvmError::StackOverflow)?;
+                        if let Some(idx) = self.statics.find_index(class_name, field_name) {
+                            self.class_objects
+                                .resolve
+                                .insert_static(class_name, field_name, idx);
+                        }
+                        #[cfg(feature = "parity-metrics")]
+                        crate::parity::count_resolve_time(
+                            self.handler.clock_nanos().saturating_sub(t0),
                         );
                     }
                 }
@@ -94,14 +120,20 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                             .objects
                             .class_name(idx)
                             .ok_or(JvmError::InvalidReference)?;
+                        #[cfg(feature = "parity-metrics")]
+                        let t0 = self.handler.clock_nanos();
                         let slot = helpers::field_slot_cached(
-                            &mut self.field_cache,
+                            &mut self.class_objects.resolve,
                             self.classes,
                             obj_class,
                             declared_class,
                             field_name_bytes,
                         )
                         .ok_or(JvmError::InvalidReference)?;
+                        #[cfg(feature = "parity-metrics")]
+                        crate::parity::count_resolve_time(
+                            self.handler.clock_nanos().saturating_sub(t0),
+                        );
                         let v = self.objects.get_field(idx, slot).unwrap_or(Value::Null);
                         frame.push(v)?;
                     }
@@ -125,14 +157,20 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                             .objects
                             .class_name(idx)
                             .ok_or(JvmError::InvalidReference)?;
+                        #[cfg(feature = "parity-metrics")]
+                        let t0 = self.handler.clock_nanos();
                         let slot = helpers::field_slot_cached(
-                            &mut self.field_cache,
+                            &mut self.class_objects.resolve,
                             self.classes,
                             obj_class,
                             declared_class,
                             field_name_bytes,
                         )
                         .ok_or(JvmError::InvalidReference)?;
+                        #[cfg(feature = "parity-metrics")]
+                        crate::parity::count_resolve_time(
+                            self.handler.clock_nanos().saturating_sub(t0),
+                        );
                         self.objects
                             .set_field(idx, slot, value)
                             .ok_or(JvmError::InvalidReference)?;

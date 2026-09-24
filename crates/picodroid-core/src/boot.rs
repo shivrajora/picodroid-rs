@@ -293,6 +293,7 @@ pub fn run_app(apk_data: &[u8]) {
     crate::packages::set_running(apk_for_count.package_name());
     let mut jvm = Jvm::with_capacity(FRAMEWORK_CLASSES.len() + apk_class_count);
     let heap = shared_heap();
+    heap.class_objects.resolve.configure(resolve_cache_sizes());
     let mut handler = crate::native_handler::PicodroidNativeHandler::new();
     // Root this handler's Activity stack / pending ops for GCs run by OTHER
     // executors (network children, bg workers) — see HANDLER_ROOTS.
@@ -463,5 +464,53 @@ pub fn run_app(apk_data: &[u8]) {
             parsed,
             total,
         );
+    }
+}
+
+// ── Resolution-cache sizing ──────────────────────────────────────────────────
+
+pub use pico_jvm::resolve_cache::Sizes as ResolveCacheSizes;
+
+/// Packed `Sizes` the platform chose (`set_resolve_cache_sizes`); 0 = the
+/// crate default.
+static RESOLVE_CACHE_SHIFTS: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+/// Size the interpreter's resolution tables for this board's RAM. Call
+/// before `run_app`; the RP2040's 160 KB arena wants
+/// [`ResolveCacheSizes::SMALL`].
+pub fn set_resolve_cache_sizes(s: ResolveCacheSizes) {
+    let packed = (s.methods as u32) << 24
+        | (s.fields as u32) << 16
+        | (s.statics as u32) << 8
+        | s.classes as u32;
+    RESOLVE_CACHE_SHIFTS.store(packed, core::sync::atomic::Ordering::Relaxed);
+}
+
+/// The sizes `run_app` installs: the platform's choice, or on the
+/// simulator `PICODROID_RESOLVE_SHIFTS=m,f,s,c` (log2 entry counts), else
+/// the crate default.
+fn resolve_cache_sizes() -> ResolveCacheSizes {
+    #[cfg(feature = "sim")]
+    if let Ok(v) = std::env::var("PICODROID_RESOLVE_SHIFTS") {
+        let parts: alloc::vec::Vec<u8> =
+            v.split(',').filter_map(|p| p.trim().parse().ok()).collect();
+        if let [m, f, s, c] = parts[..] {
+            return ResolveCacheSizes {
+                methods: m,
+                fields: f,
+                statics: s,
+                classes: c,
+            };
+        }
+    }
+    let packed = RESOLVE_CACHE_SHIFTS.load(core::sync::atomic::Ordering::Relaxed);
+    if packed == 0 {
+        return ResolveCacheSizes::DEFAULT;
+    }
+    ResolveCacheSizes {
+        methods: (packed >> 24) as u8,
+        fields: (packed >> 16) as u8,
+        statics: (packed >> 8) as u8,
+        classes: packed as u8,
     }
 }

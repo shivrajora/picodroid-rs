@@ -84,6 +84,7 @@ pub mod native;
 pub mod object_heap;
 #[cfg(feature = "parity-metrics")]
 pub mod parity;
+pub mod resolve_cache;
 pub mod sort;
 pub mod static_fields;
 #[cfg(test)]

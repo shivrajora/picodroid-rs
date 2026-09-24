@@ -112,13 +112,8 @@ pub(crate) fn upcall_from_native<H: NativeMethodHandler>(
         gc_state,
         class_objects,
         handler,
-        // Fresh caches: they key on pointer identity and are cheap to rebuild
-        // (`Vec::new` does not allocate). Threading the outer executor's
-        // caches through would mean handing out a fourth mutable borrow of it.
-        field_cache: Vec::new(),
-        method_cache: Vec::new(),
-        static_field_cache: Vec::new(),
         pending_frame: None,
+        frame_pool: crate::frame::FramePool::new(),
         native_retry: false,
         pending_clinit_frames: Vec::new(),
         insn_count: 0,
@@ -136,15 +131,12 @@ pub(crate) struct Executor<'a, H: NativeMethodHandler> {
     pub gc_state: &'a mut GcState,
     pub class_objects: &'a mut ClassObjectCache,
     pub handler: &'a mut H,
-    /// Cache: (class_name ptr, field_name ptr) → field slot index.
-    pub field_cache: Vec<(*const u8, *const u8, *const u8, usize)>,
-    /// Cache: (class_name ptr, method_name ptr, desc ptr) → (class_idx, method_idx).
-    pub method_cache: Vec<helpers::MethodCacheEntry>,
-    /// Cache: (class_name ptr, field_name ptr) → index in StaticFieldStore entries.
-    pub static_field_cache: Vec<(*const u8, *const u8, usize)>,
     /// Set by `op_invoke` when a Java method should be called; the main loop
     /// pushes this frame onto the frame stack on the next iteration.
     pub pending_frame: Option<Frame>,
+    /// Buffers of frames this executor has popped, for the frames it will
+    /// push (see [`FramePool`]).
+    pub frame_pool: crate::frame::FramePool,
     /// Set by `dispatch_native` when one of pico-jvm's own builtin arms
     /// failed to allocate: those arms reserve before they write, so the
     /// invoke can be re-executed after a collection (see
@@ -516,7 +508,9 @@ fn pop_frame<H: NativeMethodHandler>(
     frames: &mut Vec<Frame>,
 ) -> Result<(), JvmError> {
     if let Some(frame) = frames.pop() {
-        if let Some(key) = frame.monitor {
+        let monitor = frame.monitor;
+        frame.recycle(&mut ex.frame_pool);
+        if let Some(key) = monitor {
             ex.handler.monitor_exit(key)?;
         }
     }
@@ -574,6 +568,9 @@ pub fn execute<H: NativeMethodHandler>(
     method_idx: usize,
     args: &[Value],
 ) -> Result<Option<Value>, JvmError> {
+    // The resolution tables hold indices into `classes`; bind them to this
+    // slice (a new app's table empties them).
+    class_objects.resolve.sync(classes);
     let m = &classes[class_idx].methods()[method_idx];
     let initial_frame = Frame::new(class_idx, method_idx, args, m.max_locals, m.max_stack)?;
     let mut frames: Vec<Frame> = Vec::new();
@@ -625,10 +622,8 @@ fn execute_frames<H: NativeMethodHandler>(
         gc_state,
         class_objects,
         handler,
-        field_cache: Vec::new(),
-        method_cache: Vec::new(),
-        static_field_cache: Vec::new(),
         pending_frame: None,
+        frame_pool: crate::frame::FramePool::new(),
         native_retry: false,
         pending_clinit_frames: Vec::new(),
         insn_count: 0,
@@ -739,6 +734,8 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
                 _ => {}
             }
 
+            #[cfg(feature = "parity-metrics")]
+            let op_t0 = ex.handler.clock_nanos();
             let mut r: Result<(), JvmError> = match opcode {
                 0x00..=0x14 => ex.op_constants(opcode, code, frame),
                 0x15..=0x2d => ex.op_locals_load(opcode, code, frame),
@@ -752,7 +749,14 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
                     ex.op_control(opcode, code, frame)
                 }
                 0xb2..=0xb5 => ex.op_fields(opcode, code, frame),
-                0xb6..=0xba => ex.op_invoke(opcode, code, frames),
+                0xb6..=0xba => {
+                    #[cfg(feature = "parity-metrics")]
+                    let t0 = ex.handler.clock_nanos();
+                    let r = ex.op_invoke(opcode, code, frames);
+                    #[cfg(feature = "parity-metrics")]
+                    crate::parity::count_invoke(ex.handler.clock_nanos().saturating_sub(t0));
+                    r
+                }
                 0xbb => ex.op_new(code, frame),
                 0xbc..=0xbe | 0xc5 => ex.op_array_alloc(opcode, code, frame),
                 0xbf => ex.op_athrow(frame),
@@ -761,6 +765,16 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
                 0xc4 => ex.op_wide(code, frame),
                 op => Err(JvmError::UnsupportedOpcode(op)),
             };
+            #[cfg(feature = "parity-metrics")]
+            {
+                let dt = ex.handler.clock_nanos().saturating_sub(op_t0);
+                match opcode {
+                    0xb2..=0xb5 => crate::parity::count_fields(dt),
+                    0xb6..=0xba => {}
+                    0xbb => crate::parity::count_new(dt),
+                    _ => crate::parity::count_other(dt),
+                }
+            }
 
             // Native dispatches mint allocations the bytecode opcodes never see —
             // fold them into GC pacing while they're fresh (the checkpoint above
