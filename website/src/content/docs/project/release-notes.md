@@ -7,7 +7,7 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
-**Text size**
+**Text size (map v0.28.0, package 0.28.0)**
 
 - `TextView.setTextSize(float)`, `setTextSize(int unit, float)`, `getTextSize()` and
   `getLineHeight()` mirror Android, backed by new `picodroid.util.TypedValue`
@@ -25,9 +25,14 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 - `setIncludeFontPadding(false)` now trims the leading the face actually has above its digits
   (measured on the face, unchanged at 14) and, on a `Button`, trims the label rather than the
   button box; a single-line or max-lines cap follows a size change.
-- Compatibility: apps that never call `setTextSize` render exactly as before; the two new
-  classes ship un-shrunk until the next map cut.
-**Ring gauges: `CircularProgressIndicator`**
+- Compatibility: apps that never call `setTextSize` render exactly as before.
+- Map v0.28.0, cut on `main`, folds in the 4 classes added since v0.27.0 — `TypedValue`,
+  `DisplayMetrics`, `ColorStateList` and `CircularProgressIndicator` — and 92 member names (the
+  text-size, ring-gauge, `ProgressBar` range/tint and `perform*` lifecycle surfaces), so the
+  shrunk-image check is clean again. The member floor stays at v0.17.0, so PAPKs shrunk with
+  v0.17.0 through v0.27.0 still install. `Build.VERSION.RELEASE` reads `0.28.0`.
+
+**Ring gauges: `CircularProgressIndicator` (map v0.28.0, package 0.28.0)**
 
 - `picodroid.widget.CircularProgressIndicator` arrives: Material Components' determinate ring, a
   `ProgressBar` subclass over LVGL's `lv_arc`, with `setIndicatorColor`, `setTrackColor`,
@@ -40,7 +45,7 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
   subclass over another LVGL widget can adopt it; the ring's `setProgressTintList` and
   `setProgressBackgroundTintList` colour its indicator and track. No other app-visible change.
 
-**`ProgressBar` styled per instance, Android-shaped**
+**`ProgressBar` styled per instance, Android-shaped (map v0.28.0, package 0.28.0)**
 
 - [`ProgressBar`](/api/ui/#picodroidwidgetprogressbar) gains Android's range and tint API:
   `setMax` / `getMax`, `setMin` / `getMin`, `setProgress(int, boolean animate)` (80 ms, as
@@ -56,6 +61,15 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 - `ProgressBar.setTint(int)` is deprecated in favour of `setIndeterminateTintList` and keeps
   working. `examples/claudeusage` draws its limit and model bars with `ProgressBar` instead of
   nested `FrameLayout`s.
+
+**Activity callbacks reach a base-class override (map v0.28.0, package 0.28.0)**
+
+- `onStart`, `onResume`, `onRestart`, `onPause`, `onStop`, `onDestroy`, `onBackPressed` and
+  `onActivityResult` now dispatch through `final` `perform*` methods on `Activity`, as the
+  `Bundle` callbacks already did. Before, the runtime looked each callback up by name on the
+  app's own class and fell back to `Activity`, so an override declared on an app's shared base
+  `Activity` was silently never called. `examples/bundledemo` covers it with a
+  `BaseStateActivity` and a `BaseHomeActivity`. `Service` callbacks are unchanged.
 
 **Saved instance state, and Activities the framework may reclaim (map v0.27.0, package 0.27.0)**
 
