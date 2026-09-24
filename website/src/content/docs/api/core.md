@@ -330,8 +330,8 @@ What is not there, and what to do instead:
 | Locale-aware text, `DateTimeFormatter.ofLocalizedDate`, parsing with a pattern | `ofPattern` with `y u M L d D E a H h m s S` and `'…'` literals (English month and day names); `LocalDate.parse` and friends read ISO-8601. |
 | `Clock`, `Instant.now()` before the clock is set | `now()` reads `System.currentTimeMillis()`, which counts from boot until `SystemClock.setCurrentTimeMillis`. |
 
-The package is left out of the `testbench_rp2040` image (`framework_class_excludes`, about 25 KB
-of flash it does not have), where `verifyApiContract --board` rejects an app that uses it.
+The package is left out of the `testbench_rp2040` image (`framework_class_excludes`, about 67 KB
+of class files it does not have room for), where `verifyApiContract --board` rejects an app that uses it.
 `examples/timedemo` exercises the port; its expectations were checked against the JDK's own
 `java.time` on a host.
 

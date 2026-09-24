@@ -41,7 +41,7 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
   Android date code compiles and runs unchanged. Fixed-offset zones only, no `ZonedDateTime` or
   `Period`, `ofPattern` with the common letters and English names, ISO parsing; see
   [java.time](/api/core/#javatime). `Math.floorDiv` / `floorMod` / `addExact` / `subtractExact` /
-  `multiplyExact` / `toIntExact` come with it. About 25 KB of flash, so `testbench_rp2040`
+  `multiplyExact` / `toIntExact` come with it. About 67 KB of class files (76 KB of RP2350 flash with the rest of this round), so `testbench_rp2040`
   excludes the package (`framework_class_excludes`); `examples/timedemo` checks it, on the host
   JDK too.
 - The SDK's `compileJava` is no longer incremental: the tree shadows JDK types, and an

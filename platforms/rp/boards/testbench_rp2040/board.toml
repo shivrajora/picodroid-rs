@@ -33,7 +33,7 @@ lv_mem_kb = 48
 # that could never make a sound, which this region cannot spare; on the
 # roomier 2350 boards they stay and cost nothing that matters.
 # java.time (with java.util.TimeZone and java.time.zone.ZoneRules) goes too:
-# ~25 KB of class files this region cannot hold. Apps that use it need a
+# ~67 KB of class files this region cannot hold. Apps that use it need a
 # 2350-class board (examples/timedemo); `verifyApiContract --board` says so.
 framework_class_excludes = "java/time/DateTimeException;java/time/DayOfWeek;java/time/Duration;java/time/Instant;java/time/LocalDate;java/time/LocalDateTime;java/time/LocalTime;java/time/Month;java/time/Year;java/time/ZoneId;java/time/ZoneOffset;java/time/chrono/ChronoLocalDate;java/time/chrono/ChronoLocalDateTime;java/time/format/DateTimeFormatter;java/time/temporal/ChronoUnit;java/time/temporal/Temporal;java/time/temporal/TemporalAccessor;java/time/temporal/TemporalUnit;java/time/zone/ZoneRules;java/util/TimeZone;picodroid/net/HttpURLConnection;picodroid/net/HttpInputStream;picodroid/net/HttpOutputStream;picodroid/net/URL;picodroid/net/Socket;picodroid/net/ServerSocket;picodroid/net/DatagramSocket;picodroid/net/DatagramPacket;picodroid/net/InetAddress;picodroid/concurrent/ThreadPoolExecutor;picodroid/concurrent/FutureTask;picodroid/concurrent/ExecutorService;picodroid/concurrent/Future;picodroid/concurrent/Callable;picodroid/concurrent/TimeUnit;picodroid/concurrent/AtomicInteger;picodroid/concurrent/AtomicLong;picodroid/concurrent/AtomicBoolean;picodroid/concurrent/AtomicReference;picodroid/concurrent/CountDownLatch;picodroid/net/ConnectivityManager;picodroid/media/ToneGenerator;picodroid/media/AudioManager"
 
