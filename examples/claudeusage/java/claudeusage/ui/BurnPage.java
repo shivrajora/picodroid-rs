@@ -53,8 +53,8 @@ final class BurnPage extends Page {
   private final String resetsIn;
   private final String nowFmt;
 
-  BurnPage(Context ctx, Palette p) {
-    super(ctx, p);
+  BurnPage(Context ctx, Palette palette) {
+    super(ctx, palette);
     noLiveData = ctx.getString(R.string.burn_no_live_data);
     limitReached = ctx.getString(R.string.burn_limit_reached);
     idle = ctx.getString(R.string.burn_idle);
@@ -74,8 +74,8 @@ final class BurnPage extends Page {
     int s = step++;
     switch (s) {
       case 0:
-        rateCard = Ui.card(ctx, root, 2, CARD_HEIGHT, p.card);
-        Ui.label(ctx, rateCard, ctx.getString(R.string.burn_title), Ui.CARD_PAD, 7, p.muted);
+        rateCard = Ui.card(ctx, root, 2, CARD_HEIGHT, palette.card);
+        Ui.label(ctx, rateCard, ctx.getString(R.string.burn_title), Ui.CARD_PAD, 7, palette.muted);
         return true;
       case 1:
         // The number and its unit share a row, so the unit follows the number's width.
@@ -89,15 +89,15 @@ final class BurnPage extends Page {
                 Gravity.LEFT | Gravity.BOTTOM);
         rateRow.setSpacing(UNIT_GAP);
         TextView number = new TextView(ctx);
-        number.setTextColor(p.text);
+        number.setTextColor(palette.text);
         number.setSingleLine();
         number.setTextSize(Ui.DISPLAY_SIZE);
         number.setIncludeFontPadding(false);
         rateRow.addView(number);
-        rate = new Line(number, "", p.text);
+        rate = new Line(number, "", palette.text);
         TextView unit = new TextView(ctx);
         unit.setText(ctx.getString(R.string.burn_unit));
-        unit.setTextColor(p.muted);
+        unit.setTextColor(palette.muted);
         unit.setSingleLine();
         unit.setPadding(0, 0, 0, UNIT_BASELINE_LIFT);
         rateRow.addView(unit);
@@ -106,15 +106,15 @@ final class BurnPage extends Page {
         reset = right(rateCard, 54);
         return true;
       case 2:
-        trendCard = Ui.card(ctx, root, 2 + CARD_HEIGHT + 4, CARD_HEIGHT, p.card);
-        Ui.label(ctx, trendCard, ctx.getString(R.string.burn_trend), Ui.CARD_PAD, 7, p.muted);
+        trendCard = Ui.card(ctx, root, 2 + CARD_HEIGHT + 4, CARD_HEIGHT, palette.card);
+        Ui.label(ctx, trendCard, ctx.getString(R.string.burn_trend), Ui.CARD_PAD, 7, palette.muted);
         now = right(trendCard, 7);
         return true;
       default:
         int from = (s - 3) * BARS_PER_STEP;
         int to = from + BARS_PER_STEP > BARS ? BARS : from + BARS_PER_STEP;
         for (int i = from; i < to; i++) {
-          bars[i] = Ui.box(ctx, barX(i), BASELINE - 2, BAR_WIDTH, 2, p.track, 1);
+          bars[i] = Ui.box(ctx, barX(i), BASELINE - 2, BAR_WIDTH, 2, palette.track, 1);
           shown[i] = -1;
           trendCard.addView(bars[i]);
         }
@@ -124,9 +124,9 @@ final class BurnPage extends Page {
 
   private Line right(FrameLayout card, int y) {
     return new Line(
-        Ui.labelRight(ctx, card, "", 140, y, Ui.CARD_WIDTH - 140 - Ui.CARD_PAD, p.muted),
+        Ui.labelRight(ctx, card, "", 140, y, Ui.CARD_WIDTH - 140 - Ui.CARD_PAD, palette.muted),
         "",
-        p.muted);
+        palette.muted);
   }
 
   private static int barX(int i) {
@@ -142,27 +142,28 @@ final class BurnPage extends Page {
     boolean stale = !repo.isFresh();
 
     int perHour = stale ? -1 : s.ratePerHour;
-    rate.show(perHour < 0 ? "--" : "+" + perHour, p.text);
+    rate.show(perHour < 0 ? "--" : "+" + perHour, palette.text);
 
     if (stale) {
-      eta.show(noLiveData, p.faint);
+      eta.show(noLiveData, palette.faint);
     } else if (s.sessionPct >= 100) {
-      eta.show(limitReached, p.bad);
+      eta.show(limitReached, palette.bad);
     } else if (s.ratePerHour <= 0 || s.etaMinutes < 0) {
-      eta.show(idle, p.good);
+      eta.show(idle, palette.good);
     } else {
       long leftMin = s.sessionReset > 0 ? (s.sessionReset * 1000L - nowMs) / 60_000L : -1;
       if (leftMin >= 0 && s.etaMinutes > leftMin) {
-        eta.show(resetsFirst, p.good);
+        eta.show(resetsFirst, palette.good);
       } else {
         eta.show(
             String.format(limitIn, TimeFormat.duration(s.etaMinutes * 60_000L)),
-            s.etaMinutes < ETA_URGENT_MIN ? p.bad : p.warn);
+            s.etaMinutes < ETA_URGENT_MIN ? palette.bad : palette.warn);
       }
     }
     long leftMs = s.sessionReset > 0 ? s.sessionReset * 1000L - nowMs : -1;
-    reset.show(leftMs > 0 ? String.format(resetsIn, TimeFormat.duration(leftMs)) : "", p.muted);
-    now.show(stale || s.sessionPct < 0 ? "" : String.format(nowFmt, s.sessionPct), p.muted);
+    reset.show(
+        leftMs > 0 ? String.format(resetsIn, TimeFormat.duration(leftMs)) : "", palette.muted);
+    now.show(stale || s.sessionPct < 0 ? "" : String.format(nowFmt, s.sessionPct), palette.muted);
 
     // Newest sample at the right edge; slots not yet filled stay as stubs on the left.
     int count = repo.trendCount();
@@ -176,12 +177,12 @@ final class BurnPage extends Page {
       if (value < 0) {
         bars[i].setSize(BAR_WIDTH, 2);
         bars[i].setPosition(barX(i), BASELINE - 2);
-        Ui.fill(bars[i], p.track, 1);
+        Ui.fill(bars[i], palette.track, 1);
       } else {
         int h = 3 + value * (CHART_HEIGHT - 3) / 100;
         bars[i].setSize(BAR_WIDTH, h);
         bars[i].setPosition(barX(i), BASELINE - h);
-        Ui.fill(bars[i], p.severity(value), 2);
+        Ui.fill(bars[i], palette.severity(value), 2);
       }
       bars[i].setVisibility(View.VISIBLE);
     }

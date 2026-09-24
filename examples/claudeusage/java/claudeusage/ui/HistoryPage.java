@@ -39,8 +39,8 @@ final class HistoryPage extends Page {
   private final String noTranscripts;
   private final String peakFmt;
 
-  HistoryPage(Context ctx, Palette p) {
-    super(ctx, p);
+  HistoryPage(Context ctx, Palette palette) {
+    super(ctx, palette);
     dash = ctx.getString(R.string.dash);
     estimate = ctx.getString(R.string.history_estimate);
     noTranscripts = ctx.getString(R.string.no_transcripts);
@@ -57,28 +57,31 @@ final class HistoryPage extends Page {
     int s = step++;
     switch (s) {
       case 0:
-        stats = Ui.card(ctx, root, 2, STATS_HEIGHT, p.card);
+        stats = Ui.card(ctx, root, 2, STATS_HEIGHT, palette.card);
         return true;
       case 1:
       case 2:
       case 3:
         int i = s - 1;
         int x = STAT_X[i];
-        statValue[i] = new Line(Ui.label(ctx, stats, dash, x, 11, p.text), dash, p.text);
-        Ui.label(ctx, stats, ctx.getString(CAPTIONS[i]), x, 31, p.muted);
+        statValue[i] =
+            new Line(Ui.label(ctx, stats, dash, x, 11, palette.text), dash, palette.text);
+        Ui.label(ctx, stats, ctx.getString(CAPTIONS[i]), x, 31, palette.muted);
         return true;
       case 4:
-        chart = Ui.card(ctx, root, CHART_Y, CHART_CARD_HEIGHT, p.card);
-        Ui.label(ctx, chart, ctx.getString(R.string.history_last_week), Ui.CARD_PAD, 7, p.muted);
+        chart = Ui.card(ctx, root, CHART_Y, CHART_CARD_HEIGHT, palette.card);
+        Ui.label(
+            ctx, chart, ctx.getString(R.string.history_last_week), Ui.CARD_PAD, 7, palette.muted);
         peak =
             new Line(
-                Ui.labelRight(ctx, chart, "", 150, 7, Ui.CARD_WIDTH - 150 - Ui.CARD_PAD, p.faint),
+                Ui.labelRight(
+                    ctx, chart, "", 150, 7, Ui.CARD_WIDTH - 150 - Ui.CARD_PAD, palette.faint),
                 "",
-                p.faint);
+                palette.faint);
         return true;
       case 5:
         for (int d = 0; d < DAYS; d++) {
-          bars[d] = Ui.box(ctx, barX(d), BASELINE - 2, BAR_WIDTH, 2, p.track, 1);
+          bars[d] = Ui.box(ctx, barX(d), BASELINE - 2, BAR_WIDTH, 2, palette.track, 1);
           shownHeight[d] = -1;
           chart.addView(bars[d]);
         }
@@ -89,9 +92,9 @@ final class HistoryPage extends Page {
         for (int d = from; d < to; d++) {
           letters[d] =
               new Line(
-                  Ui.labelCentred(ctx, chart, "", columnX(d), BASELINE + 3, COLUMN, p.muted),
+                  Ui.labelCentred(ctx, chart, "", columnX(d), BASELINE + 3, COLUMN, palette.muted),
                   "",
-                  p.muted);
+                  palette.muted);
         }
         return to < DAYS;
     }
@@ -111,14 +114,14 @@ final class HistoryPage extends Page {
     if (s == null) {
       return;
     }
-    int ink = repo.isFresh() ? p.text : p.muted;
+    int ink = repo.isFresh() ? palette.text : palette.muted;
     statValue[0].show(TimeFormat.tokens(s.todayTokensK), ink);
     statValue[1].show(
         s.todayCents < 0 ? dash : String.format(estimate, TimeFormat.dollars(s.todayCents)), ink);
     statValue[2].show(String.valueOf(s.todayMessages), ink);
 
     if (!s.hasHistory) {
-      peak.show(noTranscripts, p.faint);
+      peak.show(noTranscripts, palette.faint);
       return;
     }
     int max = 0;
@@ -127,7 +130,7 @@ final class HistoryPage extends Page {
         max = s.dayTokensK[d];
       }
     }
-    peak.show(max > 0 ? String.format(peakFmt, TimeFormat.tokens(max)) : "", p.faint);
+    peak.show(max > 0 ? String.format(peakFmt, TimeFormat.tokens(max)) : "", palette.faint);
     for (int d = 0; d < DAYS; d++) {
       boolean today = d == DAYS - 1;
       int h =
@@ -138,10 +141,13 @@ final class HistoryPage extends Page {
         shownHeight[d] = h;
         bars[d].setSize(BAR_WIDTH, h);
         bars[d].setPosition(barX(d), BASELINE - h);
-        Ui.fill(bars[d], h <= 2 ? p.track : (today ? p.clay : p.barPast), h <= 2 ? 1 : 4);
+        Ui.fill(
+            bars[d],
+            h <= 2 ? palette.track : (today ? palette.clay : palette.barPast),
+            h <= 2 ? 1 : 4);
       }
       String letter = d < s.dayLetters.length() ? s.dayLetters.substring(d, d + 1) : "";
-      letters[d].show(letter, today ? p.text : p.muted);
+      letters[d].show(letter, today ? palette.text : palette.muted);
     }
   }
 }

@@ -15,7 +15,7 @@ import picodroid.widget.FrameLayout;
  */
 abstract class Page {
   protected final Context ctx;
-  protected final Palette p;
+  protected final Palette palette;
   final FrameLayout root;
 
   /** The header title, resolved once: the chrome repaints it on every refresh. */
@@ -23,10 +23,10 @@ abstract class Page {
 
   protected int step;
 
-  Page(Context ctx, Palette p) {
+  Page(Context ctx, Palette palette) {
     this.ctx = ctx;
-    this.p = p;
-    root = Ui.group(ctx, 0, 0, Ui.WIDTH, Ui.PAGE_HEIGHT, p.background);
+    this.palette = palette;
+    root = Ui.group(ctx, 0, 0, Ui.WIDTH, Ui.PAGE_HEIGHT, palette.background);
     title = ctx.getString(titleRes());
   }
 

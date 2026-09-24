@@ -9,31 +9,31 @@ import picodroid.view.ViewGroup;
 final class MeterRow {
   static final int HEIGHT = 21;
 
-  private final Palette p;
+  private final Palette palette;
   private final String dash;
   private final Line name;
   private final Line figure;
   private final BarView bar;
 
-  MeterRow(Context ctx, Palette p, ViewGroup card, int y) {
-    this.p = p;
+  MeterRow(Context ctx, Palette palette, ViewGroup card, int y) {
+    this.palette = palette;
     dash = ctx.getString(R.string.dash);
-    name = new Line(Ui.label(ctx, card, "", Ui.CARD_PAD, y, p.text), "", p.text);
-    bar = new BarView(ctx, p, card, 84, y + 5, 156, 8);
-    figure = new Line(Ui.labelRight(ctx, card, "", 246, y, 46, p.text), "", p.text);
+    name = new Line(Ui.label(ctx, card, "", Ui.CARD_PAD, y, palette.text), "", palette.text);
+    bar = new BarView(ctx, palette, card, 84, y + 5, 156, 8);
+    figure = new Line(Ui.labelRight(ctx, card, "", 246, y, 46, palette.text), "", palette.text);
   }
 
   void show(String label, int pct, int color, boolean stale) {
-    name.show(label, stale ? p.muted : p.text);
+    name.show(label, stale ? palette.muted : palette.text);
     bar.setVisible(true);
     bar.show(pct, color, stale);
-    figure.show(pct < 0 ? dash : pct + "%", stale ? p.muted : p.text);
+    figure.show(pct < 0 ? dash : pct + "%", stale ? palette.muted : palette.text);
   }
 
   void clear() {
-    name.show("", p.text);
-    bar.show(-1, p.good, false);
+    name.show("", palette.text);
+    bar.show(-1, palette.good, false);
     bar.setVisible(false);
-    figure.show("", p.text);
+    figure.show("", palette.text);
   }
 }

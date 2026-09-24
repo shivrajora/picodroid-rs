@@ -14,8 +14,8 @@ final class LimitsPage extends Page {
   private LimitCard session;
   private LimitCard weekly;
 
-  LimitsPage(Context ctx, Palette p) {
-    super(ctx, p);
+  LimitsPage(Context ctx, Palette palette) {
+    super(ctx, palette);
   }
 
   @Override
@@ -27,7 +27,8 @@ final class LimitsPage extends Page {
   boolean buildNext() {
     switch (step++) {
       case 0:
-        session = new LimitCard(ctx, p, root, Ui.MARGIN, R.string.card_session, SESSION_SECONDS);
+        session =
+            new LimitCard(ctx, palette, root, Ui.MARGIN, R.string.card_session, SESSION_SECONDS);
         return true;
       case 1:
         session.fillRing();
@@ -42,7 +43,7 @@ final class LimitsPage extends Page {
         weekly =
             new LimitCard(
                 ctx,
-                p,
+                palette,
                 root,
                 Ui.MARGIN + LimitCard.WIDTH + LimitCard.GAP,
                 R.string.card_weekly,

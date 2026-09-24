@@ -25,8 +25,8 @@ final class StatusPage extends Page {
   private final String retryingIn;
   private final String retrying;
 
-  StatusPage(Context ctx, Palette p, String bridgeAddress) {
-    super(ctx, p);
+  StatusPage(Context ctx, Palette palette, String bridgeAddress) {
+    super(ctx, palette);
     this.bridgeAddress = bridgeAddress;
     contacting = ctx.getString(R.string.status_contacting);
     retryingIn = ctx.getString(R.string.status_retrying_in);
@@ -43,14 +43,14 @@ final class StatusPage extends Page {
     int inner = Ui.CARD_WIDTH;
     switch (step++) {
       case 0:
-        card = Ui.card(ctx, root, 2, Ui.PAGE_HEIGHT - 4, p.card);
-        dot = Ui.box(ctx, Ui.CARD_WIDTH / 2 - 6, 24, 12, 12, p.clay, 6);
-        shownDot = p.clay;
+        card = Ui.card(ctx, root, 2, Ui.PAGE_HEIGHT - 4, palette.card);
+        dot = Ui.box(ctx, Ui.CARD_WIDTH / 2 - 6, 24, 12, 12, palette.clay, 6);
+        shownDot = palette.clay;
         card.addView(dot);
         return true;
       case 1:
-        headline = centred(48, p.text, inner);
-        advice = centred(70, p.muted, inner);
+        headline = centred(48, palette.text, inner);
+        advice = centred(70, palette.muted, inner);
         return true;
       default:
         Ui.labelCentred(
@@ -60,10 +60,10 @@ final class StatusPage extends Page {
             0,
             108,
             inner,
-            p.muted);
-        retry = centred(130, p.clay, inner);
+            palette.muted);
+        retry = centred(130, palette.clay, inner);
         Ui.labelCentred(
-            ctx, card, ctx.getString(R.string.status_retry_hint), 0, 156, inner, p.faint);
+            ctx, card, ctx.getString(R.string.status_retry_hint), 0, 156, inner, palette.faint);
         return false;
     }
   }
@@ -76,18 +76,18 @@ final class StatusPage extends Page {
   void update(UsageService repo, long nowMs) {
     LinkState state = repo.linkState();
     String err = repo.linkErr();
-    headline.show(ctx.getString(state.shortText(err)), p.text);
+    headline.show(ctx.getString(state.shortText(err)), palette.text);
     int adviceRes = state.advice(err);
-    advice.show(adviceRes == 0 ? "" : ctx.getString(adviceRes), p.muted);
+    advice.show(adviceRes == 0 ? "" : ctx.getString(adviceRes), palette.muted);
     if (repo.isSyncing()) {
-      retry.show(contacting, p.clay);
+      retry.show(contacting, palette.clay);
     } else if (state == LinkState.JOINING || state == LinkState.NO_WIFI) {
-      retry.show("", p.clay);
+      retry.show("", palette.clay);
     } else {
       int wait = repo.secondsToNextAttempt();
-      retry.show(wait > 0 ? String.format(retryingIn, wait) : retrying, p.clay);
+      retry.show(wait > 0 ? String.format(retryingIn, wait) : retrying, palette.clay);
     }
-    int color = state == LinkState.JOINING ? p.clay : p.bad;
+    int color = state == LinkState.JOINING ? palette.clay : palette.bad;
     if (color != shownDot) {
       Ui.fill(dot, color, 6);
       shownDot = color;

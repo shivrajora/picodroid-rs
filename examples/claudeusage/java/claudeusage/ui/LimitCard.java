@@ -34,7 +34,7 @@ final class LimitCard {
   private static final int DETAIL_Y = 165;
 
   private final Context ctx;
-  private final Palette p;
+  private final Palette palette;
   private final FrameLayout card;
   private final long windowSeconds;
   private Line resetsLabel;
@@ -54,12 +54,13 @@ final class LimitCard {
   private final String windowGone;
 
   /** Build step one: the card and its caption. */
-  LimitCard(Context ctx, Palette p, ViewGroup parent, int x, int captionRes, long windowSeconds) {
+  LimitCard(
+      Context ctx, Palette palette, ViewGroup parent, int x, int captionRes, long windowSeconds) {
     this.ctx = ctx;
-    this.p = p;
+    this.palette = palette;
     this.windowSeconds = windowSeconds;
-    card = Ui.card(ctx, parent, x, 2, WIDTH, HEIGHT, p.card);
-    Ui.labelCentred(ctx, card, ctx.getString(captionRes), 0, CAPTION_Y, WIDTH, p.muted);
+    card = Ui.card(ctx, parent, x, 2, WIDTH, HEIGHT, palette.card);
+    Ui.labelCentred(ctx, card, ctx.getString(captionRes), 0, CAPTION_Y, WIDTH, palette.muted);
     resetsIn = ctx.getString(R.string.resets_in_label);
     resetting = ctx.getString(R.string.resetting);
     windowHasReset = ctx.getString(R.string.window_has_reset);
@@ -70,25 +71,31 @@ final class LimitCard {
 
   /** Build step two: the gauge and its pace tick. */
   void fillRing() {
-    ring = new RingView(ctx, p, card, RING_X, RING_Y, RING_DIAMETER, RING_STROKE, true);
+    ring = new RingView(ctx, palette, card, RING_X, RING_Y, RING_DIAMETER, RING_STROKE, true);
   }
 
   /** Build step three: the two lines inside the ring. */
   void fillCentre() {
     resetsLabel =
         new Line(
-            Ui.labelCentred(ctx, card, "", INNER_X, LINE1_Y, INNER_WIDTH, p.faint), "", p.faint);
+            Ui.labelCentred(ctx, card, "", INNER_X, LINE1_Y, INNER_WIDTH, palette.faint),
+            "",
+            palette.faint);
     countdown =
         new Line(
-            Ui.labelCentred(ctx, card, "", INNER_X, LINE2_Y, INNER_WIDTH, p.muted), "", p.muted);
+            Ui.labelCentred(ctx, card, "", INNER_X, LINE2_Y, INNER_WIDTH, palette.muted),
+            "",
+            palette.muted);
   }
 
   /** Build step four: the pace line and the big number. */
   void fillFooter() {
     detail =
         new Line(
-            Ui.labelCentred(ctx, card, "", DETAIL_X, DETAIL_Y, DETAIL_WIDTH, p.faint), "", p.faint);
-    number = Ui.labelCentred(ctx, card, "", 0, NUMBER_Y, WIDTH, Ui.DISPLAY_BOX, p.text);
+            Ui.labelCentred(ctx, card, "", DETAIL_X, DETAIL_Y, DETAIL_WIDTH, palette.faint),
+            "",
+            palette.faint);
+    number = Ui.labelCentred(ctx, card, "", 0, NUMBER_Y, WIDTH, Ui.DISPLAY_BOX, palette.text);
     number.setTextSize(Ui.DISPLAY_SIZE);
     number.setIncludeFontPadding(false);
   }
@@ -111,10 +118,10 @@ final class LimitCard {
     boolean expired = stale && resetEpochS > 0 && leftMs <= 0;
     if (pct < 0 || expired) {
       showNumber("--%", stale);
-      ring.show(-1, p.good, -1, false);
-      resetsLabel.show("", p.faint);
-      countdown.show("", p.muted);
-      detail.show(expired ? windowHasReset : notReported, p.faint);
+      ring.show(-1, palette.good, -1, false);
+      resetsLabel.show("", palette.faint);
+      countdown.show("", palette.muted);
+      detail.show(expired ? windowHasReset : notReported, palette.faint);
       return;
     }
     int elapsed = -1;
@@ -123,20 +130,20 @@ final class LimitCard {
       elapsed = gone <= 0 ? 0 : (gone >= windowSeconds ? 100 : (int) (gone * 100L / windowSeconds));
     }
     showNumber(pct + "%", stale);
-    ring.show(pct, p.severity(pct), elapsed, stale);
+    ring.show(pct, palette.severity(pct), elapsed, stale);
     if (leftMs > 0) {
-      resetsLabel.show(resetsIn, p.faint);
-      countdown.show(TimeFormat.duration(leftMs), p.muted);
+      resetsLabel.show(resetsIn, palette.faint);
+      countdown.show(TimeFormat.duration(leftMs), palette.muted);
     } else {
-      resetsLabel.show("", p.faint);
-      countdown.show(resetting, p.muted);
+      resetsLabel.show("", palette.faint);
+      countdown.show(resetting, palette.muted);
     }
     if (elapsed < 0) {
-      detail.show("", p.faint);
-    } else if (pct > elapsed + 10 && pct >= p.warnFrom) {
-      detail.show(aheadOfPace, stale ? p.faint : p.severity(pct));
+      detail.show("", palette.faint);
+    } else if (pct > elapsed + 10 && pct >= palette.warnFrom) {
+      detail.show(aheadOfPace, stale ? palette.faint : palette.severity(pct));
     } else {
-      detail.show(String.format(windowGone, elapsed), p.faint);
+      detail.show(String.format(windowGone, elapsed), palette.faint);
     }
   }
 }
