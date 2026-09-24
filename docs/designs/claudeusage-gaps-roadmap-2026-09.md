@@ -1,6 +1,6 @@
 # Platform gaps found building `claudeusage`
 
-**Status: open list; G1, G2 and G3 closed 2026-09-23, D5 (app bug) fixed the same day. D4 root-caused; the runtime fixes (`350c3552`) and the cheap follow-ups (style batching, dispatch memo, the Burn and Models step split, 2026-09-24) landed — Burn and the Models rows are under budget, History and the XIP interpreter cost remain. G10 is next.**
+**Status: open list; G1, G2 and G3 closed 2026-09-23, G8 closed 2026-09-24, D5 (app bug) fixed 2026-09-23. D4 root-caused; the runtime fixes (`350c3552`) and the cheap follow-ups (style batching, dispatch memo, the Burn and Models step split, 2026-09-24) landed — Burn and the Models rows are under budget, History and the XIP interpreter cost remain. G10 is next.**
 
 `examples/claudeusage` is a desk display for Claude usage limits on a new board, `pico_display2_w`
 (Pimoroni Pico Display Pack 2.0 on a Pico 2 W). It was built to look like a modern product rather

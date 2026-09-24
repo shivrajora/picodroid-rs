@@ -1,6 +1,6 @@
 # Roadmap: `claudeusage` toward Android shape
 
-**Status: round 1 landed 2026-09-22 (app-only, no SDK change); SDK asks open.**
+**Status: round 1 landed 2026-09-22 (app-only, no SDK change); SDK asks 1, 2, 3 and 8 landed 2026-09-24 and the app uses them (items 10, 16, 44 and the chrome flattening); 4 to 7 open.**
 
 `examples/claudeusage` is a four-screen desk display (Limits, Models, Burn rate, History) for a
 Pico 2 W with a Pimoroni Display Pack 2.0. The project goal is that a picodroid app reads like the
