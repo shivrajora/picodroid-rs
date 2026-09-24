@@ -330,6 +330,9 @@ public final class UsageService extends Service {
     int failures = 0;
     boolean everConnected = false;
     while (running) {
+      // Consumed on every pass, the offline one included: a request left set makes idle() return
+      // at once, and while the link is down that spun this loop, flooding the main queue.
+      refreshRequested = false;
       if (!NetworkInfo.isConnected()) {
         final LinkState state = everConnected ? LinkState.NO_WIFI : LinkState.JOINING;
         Executors.mainExecutor().execute(() -> applyLinkOnly(state));
@@ -337,7 +340,6 @@ public final class UsageService extends Service {
         continue;
       }
       everConnected = true;
-      refreshRequested = false;
       Executors.mainExecutor().execute(this::applySyncing);
 
       final UsageSnapshot fresh = new UsageSnapshot();
