@@ -384,6 +384,32 @@ that made the request fail. Fix shape: compact in bounded slices, or reserve the
 from the pre-reservation budget (`prereserve_config`) while the heap is young. The executor's
 resolution caches are no longer a candidate: they are fixed-size tables now (D4 findings).
 
+### G11. Every class an app touches is parsed into RAM, and the sim charges 1.7x the device
+
+Found 2026-09-24 landing `java.time`: with the SDK's port, this app OOM'd in the simulator on
+the first page after a sync (`OOM: tried 4096 B — free 12 KB, largest block 3 KB`). The heap
+census (`sim.sh -m -l 0` + `heapcensus`, after the first sync, on the Limits page) explained it:
+
+| tree | native heap used | classes parsed | parsed metadata (host) | device estimate |
+|---|---|---|---|---|
+| main before the round | 353 KB | 61 of 201 | 127 KB | 74 KB |
+| with `java.time` in `TimeFormat` | 388 KB | 70 of 226 | 171 KB | 99 KB |
+| plus the D4 follow-ups of the same day | 399 KB of 408 | 70 | 171 KB | 99 KB |
+
+Class metadata is parsed lazily on first use and kept for the run (`ClassFile::parsed`,
+`OnceCell<Box<Parsed>>`): about 5 KB per class in the simulator's 64-bit model, 3 KB on the
+RP2350 (`devB~` in the census line), and it is the single largest consumer of this app's heap —
+larger than every live Java object put together (12 KB). A `LocalDateTime.ofInstant(Instant,
+ZoneId)` reaches nine classes; the app now formats through `LocalTime`, `ZoneOffset`,
+`Duration` and `DateTimeFormatter` only (`util/TimeFormat.java`), which is the four the screens
+need, and the sim runs again with about 25 KB to spare.
+
+**Ask:** cheaper parsed metadata (per-method entries are the bulk: name and descriptor slices,
+offsets, flags — a packed table would halve them), a census line per class so the cost of an
+import is visible, and a sim model that charges device-sized metadata rather than host-sized,
+so an app that fits the RP2350 is not refused by the simulator. Until then, an app on this
+board should count the SDK classes it touches, not only its own objects.
+
 ### Minor
 
 - `--shrink-app` refuses any app that spells a one- or two-letter member name, because the

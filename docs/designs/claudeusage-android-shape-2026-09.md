@@ -90,7 +90,7 @@ The last column says what round 1 did: **closed**, **kept** (with the reason), o
 
 | # | Deviation | Tag | Round 1 |
 |---|---|---|---|
-| 44 | `TimeFormat` does epoch arithmetic by hand with a mutable static UTC offset. | SDK-forced (no `java.time`) | **closed** 2026-09-24: `java.time` landed; `TimeFormat.hm` is `LocalTime` in the bridge's offset, installed with `TimeZone.setDefault`, formatted with `DateTimeFormatter`. |
+| 44 | `TimeFormat` does epoch arithmetic by hand with a mutable static UTC offset. | SDK-forced (no `java.time`) | **closed** 2026-09-24: `java.time` landed; `TimeFormat.hm` is a `LocalTime` in the bridge's `ZoneOffset`, formatted with `DateTimeFormatter`. Kept to those four classes rather than `LocalDateTime.ofInstant(…, ZoneId.systemDefault())`: each class an app touches is parsed into RAM, and this app is at the heap's edge (gaps G11). |
 | 45 | Zero padding by hand instead of `String.format`. | App choice | **closed**: `String.format("%02d")` and friends. |
 
 ## 7. Hardware

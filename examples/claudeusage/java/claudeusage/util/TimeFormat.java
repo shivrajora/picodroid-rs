@@ -2,32 +2,37 @@
 package claudeusage.util;
 
 import java.time.Duration;
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
+import java.time.LocalTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
-import java.util.TimeZone;
 
-/** The screens' short forms of a clock time, a duration, a token count and a price. */
+/**
+ * The screens' short forms of a clock time, a duration, a token count and a price.
+ *
+ * <p>Deliberately touches four {@code java.time} classes and no more ({@code LocalTime}, {@code
+ * ZoneOffset}, {@code Duration}, {@code DateTimeFormatter}): every class an app calls is parsed
+ * into RAM on first use, about 5 KB each in the simulator's model (3 KB on the RP2350), and this
+ * app runs within a few KB of the modelled heap (gaps roadmap G11). {@code
+ * LocalDateTime.ofInstant(Instant.ofEpochMilli(ms), ZoneId.systemDefault())} would read better and
+ * cost four more.
+ */
 public final class TimeFormat {
   private static final DateTimeFormatter HM = DateTimeFormatter.ofPattern("HH:mm");
 
+  /** The bridge's zone: the PC knows its timezone, the device does not. UTC until told. */
+  private static ZoneOffset zone = ZoneOffset.UTC;
+
   private TimeFormat() {}
 
-  /**
-   * Installs the bridge's UTC offset as the zone every local time is shown in: the PC knows its
-   * timezone, the device does not, and {@code java.time} here has no tz database — one fixed offset
-   * is the whole of a zone.
-   */
+  /** Installs the bridge's UTC offset as the zone every local time is shown in. */
   public static void setUtcOffsetMinutes(int minutes) {
-    TimeZone.setDefault(TimeZone.getTimeZone(ZoneOffset.ofTotalSeconds(minutes * 60)));
+    zone = ZoneOffset.ofTotalSeconds(minutes * 60);
   }
 
   /** Local "12:03". */
   public static String hm(long epochMs) {
-    return LocalDateTime.ofInstant(Instant.ofEpochMilli(epochMs), ZoneId.systemDefault())
-        .format(HM);
+    long local = Math.floorDiv(epochMs, 1000L) + zone.getTotalSeconds();
+    return LocalTime.ofSecondOfDay(Math.floorMod(local, 86_400L)).format(HM);
   }
 
   /** "3d 4h", "2h 14m", "14m", "<1m": two units at most, so it stays short at any scale. */
