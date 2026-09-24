@@ -60,7 +60,11 @@ static GENERATION: AtomicU32 = AtomicU32::new(0);
 
 /// A new app run is starting: every memo filled before this is stale.
 pub fn next_app_generation() {
-    GENERATION.fetch_add(1, Ordering::Relaxed);
+    // A load and a store rather than `fetch_add`: the Cortex-M0+ has no
+    // atomic read-modify-write, and `boot` is the one writer (as
+    // `packages::RUN_GENERATION`).
+    let next = GENERATION.load(Ordering::Relaxed).wrapping_add(1);
+    GENERATION.store(next, Ordering::Relaxed);
 }
 
 pub(super) struct DispatchMemo {
