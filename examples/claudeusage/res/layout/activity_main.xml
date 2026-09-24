@@ -9,7 +9,6 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="@dimen/none"
     android:background="@color/background">
 
     <LinearLayout
@@ -18,7 +17,6 @@
         android:layout_height="@dimen/header_height"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:padding="@dimen/none"
         android:background="@color/background">
 
         <TextView
@@ -50,8 +48,7 @@
             android:layout_height="@dimen/line_height"
             android:orientation="horizontal"
             android:gravity="right|center_vertical"
-            android:padding="@dimen/none"
-            android:background="@color/background">
+                android:background="@color/background">
 
             <TextView
                 android:id="@+id/clock"
@@ -73,8 +70,7 @@
                 android:id="@+id/status_dot"
                 android:layout_width="@dimen/status_dot"
                 android:layout_height="@dimen/status_dot"
-                android:padding="@dimen/none"
-                android:background="@color/faint" />
+                        android:background="@color/faint" />
         </FrameLayout>
 
         <LinearLayout
@@ -100,17 +96,7 @@
         android:id="@+id/page_host"
         android:layout_width="match_parent"
         android:layout_height="@dimen/page_height"
-        android:padding="@dimen/none"
-        android:background="@color/background">
-
-        <!-- Keys reach Java only through a focused view; this invisible one holds the focus. -->
-        <Button
-            android:id="@+id/key_catcher"
-            android:layout_width="@dimen/hairline"
-            android:layout_height="@dimen/hairline"
-            android:focusable="true"
-            android:alpha="0" />
-    </FrameLayout>
+        android:background="@color/background" />
 
     <LinearLayout
         android:id="@+id/footer"
@@ -118,7 +104,6 @@
         android:layout_height="@dimen/footer_height"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:padding="@dimen/none"
         android:background="@color/background">
 
         <TextView
@@ -135,36 +120,31 @@
             android:layout_width="@dimen/page_dots_width"
             android:layout_height="@dimen/page_dot"
             android:orientation="horizontal"
-            android:padding="@dimen/none"
-            android:background="@color/background">
+                android:background="@color/background">
 
             <FrameLayout
                 android:id="@+id/page_dot_0"
                 android:layout_width="@dimen/page_dot"
                 android:layout_height="@dimen/page_dot"
-                android:padding="@dimen/none"
-                android:background="@color/track" />
+                        android:background="@color/track" />
 
             <FrameLayout
                 android:id="@+id/page_dot_1"
                 android:layout_width="@dimen/page_dot"
                 android:layout_height="@dimen/page_dot"
-                android:padding="@dimen/none"
-                android:background="@color/track" />
+                        android:background="@color/track" />
 
             <FrameLayout
                 android:id="@+id/page_dot_2"
                 android:layout_width="@dimen/page_dot"
                 android:layout_height="@dimen/page_dot"
-                android:padding="@dimen/none"
-                android:background="@color/track" />
+                        android:background="@color/track" />
 
             <FrameLayout
                 android:id="@+id/page_dot_3"
                 android:layout_width="@dimen/page_dot"
                 android:layout_height="@dimen/page_dot"
-                android:padding="@dimen/none"
-                android:background="@color/track" />
+                        android:background="@color/track" />
         </LinearLayout>
 
         <LinearLayout
@@ -173,8 +153,7 @@
             android:layout_height="@dimen/line_height"
             android:orientation="horizontal"
             android:gravity="center_horizontal|center_vertical"
-            android:padding="@dimen/none"
-            android:background="@color/background">
+                android:background="@color/background">
 
             <TextView
                 android:id="@+id/banner"

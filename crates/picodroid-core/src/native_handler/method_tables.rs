@@ -715,6 +715,7 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/widget/TextView", "getText", "()Ljava/lang/CharSequence;"),
     ("picodroid/widget/TextView", "nativeCreate", "()I"),
     ("picodroid/widget/TextView", "nativeGetLineHeight", "()I"),
+    ("picodroid/widget/TextView", "nativeSetGravity", "(I)V"),
     ("picodroid/widget/TextView", "nativeSetIncludeFontPadding", "(Z)V"),
     ("picodroid/widget/TextView", "nativeSetLineMode", "(IIZ)V"),
     ("picodroid/widget/TextView", "nativeSetTextSize", "(F)V"),

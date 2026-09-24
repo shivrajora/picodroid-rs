@@ -11,6 +11,15 @@ sourceSets {
     }
 }
 
+// Always a full compile. The tree shadows JDK types (java/lang/Math, java/time/**): javac takes a
+// type from the sources it is handed, and from the platform's ct.sym otherwise. An incremental
+// compile hands it only the changed files, so a changed LocalDate.java is then checked against
+// the JDK's ChronoLocalDate rather than this tree's, and fails on methods it never meant to have.
+// The whole tree compiles in seconds, so nothing is lost.
+tasks.named<JavaCompile>("compileJava") {
+    options.isIncremental = false
+}
+
 // Firmware and the sim embed one of THESE trees, never compileJava's: build.rs
 // picks by the `line-numbers` cargo feature (CARGO_FEATURE_LINE_NUMBERS). Both
 // drop everything pico-jvm skips by length (StackMapTable, annotations,

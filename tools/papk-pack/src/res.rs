@@ -411,6 +411,19 @@ impl Values {
     fn word(&self, ty: u8, text: &str, from: &str) -> Result<u32, String> {
         let text = text.trim();
         let literal = match parse_ref(text) {
+            // The framework colours a layout can name without declaring them:
+            // `@android:color/transparent` is how Android spells a flat container.
+            Some(("android:color", name)) if ty == TYPE_COLOR => match name.as_str() {
+                "transparent" => return Ok(0x0000_0000),
+                "black" => return Ok(0xFF00_0000),
+                "white" => return Ok(0xFFFF_FFFF),
+                _ => {
+                    return Err(format!(
+                        "{from}: '{text}' is not a framework colour picodroid ships \
+                         (transparent, black, white); use a @color/ of your own"
+                    ))
+                }
+            },
             Some((t, name)) => {
                 if Some(t) != fmt::type_name(ty) {
                     return Err(format!(

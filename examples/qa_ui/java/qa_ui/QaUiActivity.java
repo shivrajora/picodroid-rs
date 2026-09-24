@@ -17,6 +17,7 @@ import picodroid.text.TextWatcher;
 import picodroid.util.DisplayMetrics;
 import picodroid.util.Log;
 import picodroid.util.TypedValue;
+import picodroid.view.Gravity;
 import picodroid.view.View;
 import picodroid.view.ViewGroup;
 import picodroid.widget.ArrayAdapter;
@@ -117,6 +118,7 @@ public class QaUiActivity extends Activity {
     section("visibilityEnabled", () -> visibilityEnabled());
     section("text", () -> text());
     section("textSize", () -> textSize());
+    section("gravity", () -> gravity());
     section("clicks", () -> clicks());
     section("compound", () -> compound());
     section("radio", () -> radio());
@@ -280,6 +282,27 @@ public class QaUiActivity extends Activity {
     root.addView(b);
     check("Button is a TextView", ((TextView) b).getText().length() == 400);
     root.removeView(b);
+  }
+
+  /** setGravity: the round trip, Android's default, and the fill-in of an unspecified axis. */
+  void gravity() {
+    TextView tv = new TextView(this);
+    tv.setText("g");
+    root.addView(tv);
+    check("default gravity", tv.getGravity() == (Gravity.TOP | Gravity.START));
+    tv.setGravity(Gravity.CENTER);
+    check("gravity round trip", tv.getGravity() == Gravity.CENTER);
+    tv.setGravity(Gravity.RIGHT);
+    check("horizontal-only gravity fills in TOP", tv.getGravity() == (Gravity.RIGHT | Gravity.TOP));
+    tv.setGravity(Gravity.BOTTOM);
+    check(
+        "vertical-only gravity fills in START",
+        tv.getGravity() == (Gravity.BOTTOM | Gravity.START));
+    Button b = new Button(this);
+    b.setText("b");
+    b.setGravity(Gravity.CENTER_HORIZONTAL);
+    check("Button takes a gravity", b.getGravity() == (Gravity.CENTER_HORIZONTAL | Gravity.TOP));
+    root.removeView(tv);
   }
 
   /**

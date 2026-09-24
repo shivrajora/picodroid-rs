@@ -23,6 +23,7 @@ sourceSets {
             srcDir("../rttidemo/java")
             srcDir("../stringdemo/java")
             srcDir("../syncdemo")
+            srcDir("../timedemo/java")
             srcDir("../trywithresourcesdemo")
         }
     }

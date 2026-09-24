@@ -266,7 +266,7 @@ public final class UsageService extends Service {
     linkErr = fresh != null ? fresh.err : "";
     if (fresh != null) {
       if (fresh.bridgeEpochS > 0) {
-        TimeFormat.utcOffsetMinutes = fresh.tzMinutes;
+        TimeFormat.setUtcOffsetMinutes(fresh.tzMinutes);
         long wall = fresh.bridgeEpochS * 1000L;
         long drift = System.currentTimeMillis() - wall;
         if (drift > 2000 || drift < -2000) {

@@ -36,7 +36,7 @@ The last column says what round 1 did: **closed**, **kept** (with the reason), o
 
 | # | Deviation | Tag | Round 1 |
 |---|---|---|---|
-| 10 | An invisible 1x1 `Button` holds focus so hardware keys reach an `OnKeyListener`; Android overrides `Activity.onKeyDown`. | SDK-forced | kept; the catcher is now declared in the XML layout rather than built in code. |
+| 10 | An invisible 1x1 `Button` holds focus so hardware keys reach an `OnKeyListener`; Android overrides `Activity.onKeyDown`. | SDK-forced | **closed** 2026-09-24: `Activity.onKeyDown` landed (gaps G8); the catcher is gone and BACK is consumed in `onKeyDown`, which is also what keeps the default `onKeyUp` from running `onBackPressed`. |
 | 11 | `OnKeyListener.onKey(View, KeyEvent)` drops Android's `int keyCode` parameter. | SDK-shape | kept |
 | 12 | Catcher hidden with `setAlpha(0f)` plus a background drawable rather than `View.INVISIBLE`. | App choice | kept: an invisible view cannot take focus. Now `android:alpha="0"` in the layout. |
 
@@ -47,7 +47,7 @@ The last column says what round 1 did: **closed**, **kept** (with the reason), o
 | 13 | Every view placed in absolute pixels with `setPosition`/`setSize`; no XML, no LayoutParams, no weights. | App choice (chrome) / App choice (pages) | **closed for the chrome**: header, footer, page container and key catcher come from `res/layout/activity_main.xml` (`LinearLayout` rows, weights, gravity, `findViewById`). **Kept for the pages**: they are built incrementally (item 4), and their geometry is pixel art tuned to 320x240. |
 | 14 | Screen size hard-coded as `Ui.WIDTH`/`Ui.HEIGHT`. | App choice | partly closed: the chrome is `match_parent`; page constants remain for the reason in 13. |
 | 15 | Colours, strings and dimensions inline in Java. | App choice | **closed**: `res/values/colors.xml`, `strings.xml`, `dimens.xml`; `Palette` is resolved once from `Resources`; every user-visible string goes through `R.string`. |
-| 16 | Right/centre-aligned labels are a `TextView` wrapped in a gravity-set `LinearLayout`. | SDK-forced (no `TextView.setGravity`) | open |
+| 16 | Right/centre-aligned labels are a `TextView` wrapped in a gravity-set `LinearLayout`. | SDK-forced (no `TextView.setGravity`) | **closed** 2026-09-24: `TextView.setGravity` landed; `Ui.labelRight` / `labelCentred` are one sized `TextView`. The tall display figure keeps its row, since a label cannot centre itself vertically. |
 | 17 | Progress bars are nested `FrameLayout`s with `GradientDrawable`s. | SDK-forced (no styled `ProgressBar`, no `Canvas`) | **closed** 2026-09-23: `ProgressBar` tints per instance (gap G3), so `BarView` is one `ProgressBar`; the Limits gauges are `CircularProgressIndicator` rings (gap G2). |
 | 18 | Bar charts are arrays of `FrameLayout` boxes. | SDK-forced (no `Canvas`) | open |
 | 19 | Large numerals are PNG sprites in `ImageView`s. | SDK-forced (one font size) | closed 2026-09-23: `TextView.setTextSize(64)` |
@@ -90,7 +90,7 @@ The last column says what round 1 did: **closed**, **kept** (with the reason), o
 
 | # | Deviation | Tag | Round 1 |
 |---|---|---|---|
-| 44 | `TimeFormat` does epoch arithmetic by hand with a mutable static UTC offset. | SDK-forced (no `java.time`) | open; the static offset is kept because the bridge is the only clock. |
+| 44 | `TimeFormat` does epoch arithmetic by hand with a mutable static UTC offset. | SDK-forced (no `java.time`) | **closed** 2026-09-24: `java.time` landed; `TimeFormat.hm` is `LocalTime` in the bridge's offset, installed with `TimeZone.setDefault`, formatted with `DateTimeFormatter`. |
 | 45 | Zero padding by hand instead of `String.format`. | App choice | **closed**: `String.format("%02d")` and friends. |
 
 ## 7. Hardware
@@ -113,10 +113,10 @@ The last column says what round 1 did: **closed**, **kept** (with the reason), o
 - **Pages in XML.** A page holds 20 to 40 views. Inflating one in a single tick is the thing the
   incremental `Page.buildNext()` exists to avoid (item 4), and `LayoutInflater` has no
   "inflate a few views, come back next tick" mode. The pages also use absolute positions that
-  the layout compiler does not express (no margins, no `translationX`), and inflated
-  `LinearLayout`s carry the theme's 2 px border and padding, which every container in this app
-  strips. The chrome is small enough to inflate in one go and flatten afterwards; the pages are
-  not.
+  the layout compiler does not express (no margins, no `translationX`). (Inflated
+  `LinearLayout`s also carried the theme's 2 px border and padding until 2026-09-24, which every
+  container in this app stripped; they are flat now.) The chrome is small enough to inflate in
+  one go; the pages are not.
 - **`ViewModel` / `LiveData`.** None in the SDK. The `Service` plus `Listener` pair is the nearest
   shape the SDK offers.
 - **A settings screen for the bridge address.** Four buttons and no keyboard widget make typing
@@ -127,17 +127,19 @@ The last column says what round 1 did: **closed**, **kept** (with the reason), o
 
 Ordered by how much Android shape each would buy back here.
 
-1. `Activity.onKeyDown` / `onKeyUp` as the fallback when no view consumes a key (item 10; gaps G8).
-2. `TextView.setGravity` (item 16). `setTextSize` shipped 2026-09-23 (item 19; gaps G1).
-3. A borderless, padding-free container option for inflated `LinearLayout`/`FrameLayout` (a
-   `style` attribute, or honouring `android:background` as "flat"), so an inflated chrome needs no
-   post-inflate flattening.
+1. ~~`Activity.onKeyDown` / `onKeyUp` as the fallback when no view consumes a key (item 10; gaps G8).~~ Shipped 2026-09-24.
+2. ~~`TextView.setGravity` (item 16).~~ Shipped 2026-09-24. `setTextSize` shipped 2026-09-23 (item 19; gaps G1).
+3. ~~A borderless, padding-free container option for inflated `LinearLayout`/`FrameLayout`.~~
+   Shipped 2026-09-24 the Android way: every `LinearLayout` / `FrameLayout` is flat by default
+   (no border, fill, radius or padding), `setBackgroundColor` honours alpha, and layouts take
+   `@android:color/transparent`; `Ui.flat` and its ten call sites are gone.
 4. `Handler` / `View.postDelayed` or an equivalent one-shot timer on the main thread (item 30).
 5. A minimal `Canvas` (item 18; gap G4). The styled `ProgressBar` (item 17; gap G3) and the ring
    gauge (gap G2) landed 2026-09-23.
 6. `ConnectivityManager` with a `NetworkCallback` (item 36).
 7. A `BuildConfig` block (item 43; gaps G7).
-8. `java.time` or at least `DateFormat`/`DateUtils` (item 44).
+8. ~~`java.time` or at least `DateFormat`/`DateUtils` (item 44).~~ Shipped 2026-09-24 as a
+   port of the JDK classes (fixed-offset zones only).
 
 ## Found on the way: resolution-cache growth (runtime, not app; open)
 

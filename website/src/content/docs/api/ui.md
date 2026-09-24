@@ -63,6 +63,7 @@ The full Android-style lifecycle is dispatched by the runtime. Override only the
 | `onStop()` | After `onPause`, once the new top Activity is fully resumed. |
 | `onDestroy()` | Just before this Activity is popped off the stack. |
 | `onBackPressed()` | BACK-key default action — calls `finish()`. Override and don't `super.onBackPressed()` to suppress (e.g. show a confirm dialog). |
+| `onKeyDown(int keyCode, KeyEvent)` / `onKeyUp(int keyCode, KeyEvent)` | A hardware key no focused view consumed; return `true` to consume it. The defaults track BACK so its release runs `onBackPressed`. See [Key events](#key-events). |
 
 The content view installed in `onCreate` (or `onResume`) is **preserved across pause** — when this Activity returns to the foreground, the saved widget tree is restored automatically. Rebuilding the tree from `onResume` is still supported; the new root replaces the saved one.
 
@@ -474,9 +475,24 @@ Starting a property that is already animating replaces the running animation for
 
 ## Key events
 
-Hardware buttons declared in [`board.toml`](/reference/porting-guide/#boardtoml-reference) are surfaced through Android-style `KeyEvent`s. Events route to the currently **LVGL-focused** widget — whichever widget holds the focus at the moment of the press. If no widget has focus, the event is dropped.
+Hardware buttons declared in [`board.toml`](/reference/porting-guide/#boardtoml-reference) are surfaced through Android-style `KeyEvent`s, and delivered the way Android delivers them: first to the **focused** widget's `OnKeyListener`, then — if there is no focused widget, or its listener returned `false` — to the foreground Activity's `onKeyDown` / `onKeyUp`.
 
-To receive keys, install an `OnKeyListener` on a focusable widget (a `Button` is the easiest):
+A screen with nothing to focus (a dashboard, a game) needs no invisible focus-catcher: override the Activity callbacks.
+
+```java
+@Override
+public boolean onKeyDown(int keyCode, KeyEvent event) {
+    switch (keyCode) {
+        case KeyEvent.KEYCODE_DPAD_UP:   previousPage(); return true;
+        case KeyEvent.KEYCODE_DPAD_DOWN: nextPage();     return true;
+        default: return super.onKeyDown(keyCode, event);
+    }
+}
+```
+
+The defaults follow Android's BACK contract: `Activity.onKeyDown` consumes `KEYCODE_BACK` and calls `event.startTracking()`, and `onKeyUp` runs `onBackPressed()` for a BACK release whose press it tracked (`event.isTracking()`). So an override that consumes BACK in `onKeyDown` without calling `super` suppresses the back action, and one that calls `super` for BACK keeps it — no need to override `onBackPressed` to a no-op. HOME never reaches an app, and BACK is offered to a showing soft keyboard and to a showing `AlertDialog` before either handler sees it. There is no auto-repeat or long-press: every physical press is one DOWN and one UP.
+
+A widget that wants a key for itself takes it first through an `OnKeyListener` (a `Button` is the easiest to focus):
 
 ```java
 import picodroid.view.KeyEvent;
@@ -497,7 +513,7 @@ focus.setOnKeyListener(new OnKeyListener() {
 });
 ```
 
-Return `true` from `onKey` to consume the event; `false` lets LVGL keep processing it (e.g. for default focus navigation).
+Return `true` from `onKey` to consume the event; `false` passes it on to the Activity's `onKeyDown` / `onKeyUp` (and lets LVGL keep processing it, e.g. for default focus navigation).
 
 | Constant | Value |
 |----------|-------|
@@ -510,7 +526,14 @@ Return `true` from `onKey` to consume the event; `false` lets LVGL keep processi
 | `KeyEvent.KEYCODE_DPAD_RIGHT` | 22 |
 | `KeyEvent.KEYCODE_DPAD_CENTER` | 23 |
 
-The `keycode` each pin emits is declared in `board.toml` — see [Porting Guide → board.toml reference](/reference/porting-guide/#boardtoml-reference) for the full schema. On boards with no buttons (touch-only), `setOnKeyListener` is a no-op.
+The `keycode` each pin emits is declared in `board.toml` — see [Porting Guide → board.toml reference](/reference/porting-guide/#boardtoml-reference) for the full schema. On boards with no buttons (touch-only), neither path ever fires.
+
+| `KeyEvent` method | Description |
+|---|---|
+| `getAction()` / `getKeyCode()` | `ACTION_DOWN` or `ACTION_UP`, and the `KEYCODE_*` constant. |
+| `startTracking()` / `isTracking()` | Mark a press in `onKeyDown` and recognise its release in `onKeyUp`, as the default BACK handling does. The flag carries from a press to its own release only. |
+
+The framework recycles one `KeyEvent` per edge: read it inside the callback, never keep it.
 
 > **Idle wake:** if the display has gone to sleep (60 s with no input), the first button press wakes the display and is **not** delivered to listeners. Subsequent presses route normally.
 
@@ -538,6 +561,10 @@ label.setSingleLine();
 label.setEllipsize(TextUtils.TruncateAt.END);
 // Or at most two lines, the second cut.
 label.setMaxLines(2);
+
+// Where the text sits in a label wider than its text (a fixed width, match_parent or a weight).
+label.setSize(120, 18);
+label.setGravity(Gravity.RIGHT);                  // or CENTER_HORIZONTAL; LEFT/START is the default
 
 // Bigger text: 28 sp, or any TypedValue unit.
 label.setTextSize(28);
@@ -589,7 +616,12 @@ boolean clicked = btn.wasClicked();
 
 ### `picodroid.widget.LinearLayout`
 
-A container that arranges child widgets horizontally or vertically.
+A container that arranges child widgets horizontally or vertically. Like Android's, it draws
+nothing of its own: no background, border, corner radius or padding until you set one
+(`setBackgroundColor`, a `GradientDrawable`, `setPadding`). Until 2026-09-24 every container came
+with the LVGL theme's 2 px card border, rounded corners, fill and 13 px padding, which apps
+stripped by hand; a layout that wants the card look now asks for it with a `GradientDrawable`
+stroke.
 
 ```java
 import picodroid.widget.LinearLayout;
@@ -931,7 +963,7 @@ scroll.addView(content);
 
 ### `picodroid.widget.FrameLayout`
 
-A simple container that stacks children (last `addView` is on top). Useful for overlays such as a status badge over an `ImageView`.
+A simple container that stacks children (last `addView` is on top). Useful for overlays such as a status badge over an `ImageView`. Flat by default, like `LinearLayout` above.
 
 ```java
 import picodroid.widget.FrameLayout;

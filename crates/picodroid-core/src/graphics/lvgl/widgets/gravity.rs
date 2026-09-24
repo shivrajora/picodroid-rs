@@ -61,9 +61,44 @@ pub(crate) fn flex_align(gravity: i32, vertical_flow: bool) -> (lv_flex_align_t,
     )
 }
 
+/// `TextView.setGravity` as LVGL sees it: the horizontal field of a gravity as the label's
+/// `text_align`. `LEFT` / `START` and an unspecified axis read as LEFT — Android's default for a
+/// `TextView` is `TOP | START` — `CENTER_HORIZONTAL` as CENTER, `RIGHT` / `END` as RIGHT, and
+/// `FILL_HORIZONTAL`, which sets both pulls, as LEFT (a label cannot stretch its text). The
+/// vertical field is not read: an `lv_label` is its text's height and has nowhere to move it.
+pub(crate) fn text_align(gravity: i32) -> lv_text_align_t {
+    let horizontal = gravity & AXIS_MASK;
+    if horizontal & AXIS_PULL_BEFORE != 0 {
+        LV_TEXT_ALIGN_LEFT
+    } else if horizontal & AXIS_PULL_AFTER != 0 {
+        LV_TEXT_ALIGN_RIGHT
+    } else if horizontal & AXIS_SPECIFIED != 0 {
+        LV_TEXT_ALIGN_CENTER
+    } else {
+        LV_TEXT_ALIGN_LEFT
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_align_reads_the_horizontal_field_only() {
+        assert_eq!(text_align(LEFT), LV_TEXT_ALIGN_LEFT);
+        assert_eq!(text_align(START), LV_TEXT_ALIGN_LEFT);
+        assert_eq!(text_align(RIGHT), LV_TEXT_ALIGN_RIGHT);
+        assert_eq!(text_align(END), LV_TEXT_ALIGN_RIGHT);
+        assert_eq!(text_align(CENTER_HORIZONTAL), LV_TEXT_ALIGN_CENTER);
+        assert_eq!(text_align(CENTER), LV_TEXT_ALIGN_CENTER);
+        // RIGHT shares the SPECIFIED bit with LEFT: the pull bits decide, not a mask test.
+        assert_eq!(text_align(RIGHT | CENTER_VERTICAL), LV_TEXT_ALIGN_RIGHT);
+        // The vertical field alone, or nothing, leaves the text where Android's default puts it.
+        assert_eq!(text_align(BOTTOM), LV_TEXT_ALIGN_LEFT);
+        assert_eq!(text_align(NO_GRAVITY), LV_TEXT_ALIGN_LEFT);
+        // FILL_HORIZONTAL sets both pulls; a label cannot stretch, so it reads as the start.
+        assert_eq!(text_align(FILL_VERTICAL | 0x07), LV_TEXT_ALIGN_LEFT);
+    }
 
     // The Gravity constants, spelled as sdk/java/picodroid/view/Gravity.java has them.
     const TOP: i32 = 0x30;

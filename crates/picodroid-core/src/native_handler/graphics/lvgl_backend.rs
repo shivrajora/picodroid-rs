@@ -131,6 +131,9 @@ impl GraphicsBackend for LvglBackend {
                 ctx.args,
                 ctx.objects,
             )),
+            m::nativeSetGravity => {
+                Some(widgets::text_view_native_set_gravity(ctx.args, ctx.objects))
+            }
             _ => None,
         }
     }

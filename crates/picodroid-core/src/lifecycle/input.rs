@@ -257,15 +257,49 @@ pub(super) fn dispatch_key_events(
         }
 
         // 2) Dispatch to the focused View's OnKeyListener, if any. Capture
-        //    fireKey's `boolean` return so an un-consumed BACK release can
-        //    fall through to onBackPressed below.
-        let (consumed, had_focus) = match events::focused_view_obj() {
+        //    fireKey's `boolean` return so an un-consumed edge can fall
+        //    through to the Activity below.
+        let event_obj = match fill_key_event(keycode, action, heap, handler) {
+            Some(o) => o,
+            None => continue,
+        };
+        let (mut consumed, had_focus) = match events::focused_view_obj() {
             Some(view_ref) => (
-                fire_view_key(jvm, view_ref, keycode, action, heap, handler),
+                fire_key_site(
+                    jvm,
+                    dispatch_sites::VIEW_KEY,
+                    view_ref,
+                    &[Value::ObjectRef(event_obj)],
+                    heap,
+                    handler,
+                ),
                 true,
             ),
             None => (false, false),
         };
+
+        // 3) The Activity's `onKeyDown` / `onKeyUp`, Android's fallback when
+        //    no View took the edge. The default `onKeyUp` runs
+        //    `onBackPressed` for a BACK release whose press the default
+        //    `onKeyDown` tracked, so the old hard-coded BACK route now lives
+        //    in Activity.java where an app can override it.
+        if !consumed {
+            if let Some((act_ref, _)) = handler.current_activity() {
+                let site = if action == ACTION_UP {
+                    dispatch_sites::ACTIVITY_KEY_UP
+                } else {
+                    dispatch_sites::ACTIVITY_KEY_DOWN
+                };
+                consumed = fire_key_site(
+                    jvm,
+                    site,
+                    act_ref,
+                    &[Value::Int(keycode), Value::ObjectRef(event_obj)],
+                    heap,
+                    handler,
+                );
+            }
+        }
         crate::pd_info!(
             "key: code={} action={} consumed={} focus={}",
             keycode,
@@ -273,22 +307,6 @@ pub(super) fn dispatch_key_events(
             consumed,
             had_focus
         );
-
-        // 3) Default BACK handler: invoke `Activity.onBackPressed` on the
-        //    top activity when no View consumed the BACK release. Apps
-        //    that want to suppress finish() can override `onBackPressed`
-        //    to a no-op (or show a confirm dialog).
-        if !consumed && keycode == KEYCODE_BACK && action == ACTION_UP {
-            if let Some((act_ref, _)) = handler.current_activity() {
-                let _ = invoke_lifecycle(
-                    jvm,
-                    dispatch_sites::ACTIVITY_ON_BACK_PRESSED,
-                    act_ref,
-                    heap,
-                    handler,
-                );
-            }
-        }
 
         // If this key initiated an Activity transition (startActivity /
         // finish), stop draining the batch. The remaining queued keys belong
@@ -359,64 +377,70 @@ pub(super) fn dispatch_editor_actions(
     }
 }
 
-/// Build a `KeyEvent`, invoke `View.fireKey`, and return `true` if the
-/// listener consumed the event (`fireKey` returned non-zero). Helper for
-/// [`dispatch_key_events`] — keeps the BACK-routing logic readable.
+/// Write one key edge into the recycled `KeyEvent` and return it. The
+/// `tracking` flag (`KeyEvent.startTracking()`) is cleared on every press
+/// and on a release of a different key, so it only ever carries from a
+/// press to its own release — Android's key-tracking contract, which the
+/// default `Activity.onKeyUp` relies on for BACK.
 #[cfg(not(test))]
-pub(super) fn fire_view_key(
-    jvm: &mut Jvm,
-    view_ref: u16,
+fn fill_key_event(
     keycode: i32,
     action: i32,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
+) -> Option<u16> {
+    use crate::graphics::fields::key_event as f;
+    use pico_jvm::types::Value;
+
+    let event_obj = ensure_recycled_key_event(heap, handler)?;
+    let previous_code = match heap.objects.get_field(event_obj, f::KEY_CODE) {
+        Some(Value::Int(c)) => c,
+        _ => -1,
+    };
+    let keep_tracking = action == 1 && previous_code == keycode;
+    heap.objects
+        .set_field(event_obj, f::ACTION, Value::Int(action))?;
+    heap.objects
+        .set_field(event_obj, f::KEY_CODE, Value::Int(keycode))?;
+    if !keep_tracking {
+        heap.objects
+            .set_field(event_obj, f::TRACKING, Value::Int(0))?;
+    }
+    Some(event_obj)
+}
+
+/// Invoke a `boolean`-returning key site (`View.fireKey`,
+/// `Activity.performKeyDown` / `performKeyUp`) on `target_ref` and return
+/// whether it consumed the event (returned non-zero). Helper for
+/// [`dispatch_key_events`].
+#[cfg(not(test))]
+fn fire_key_site(
+    jvm: &mut Jvm,
+    site: usize,
+    target_ref: u16,
+    args: &[pico_jvm::types::Value],
     heap: &mut SharedJvmHeap,
     handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) -> bool {
     use pico_jvm::types::Value;
 
-    let event_obj = match ensure_recycled_key_event(heap, handler) {
-        Some(o) => o,
-        None => return false,
-    };
-    if heap
-        .objects
-        .set_field(
-            event_obj,
-            crate::graphics::fields::key_event::ACTION,
-            Value::Int(action),
-        )
-        .is_none()
-    {
-        return false;
-    }
-    if heap
-        .objects
-        .set_field(
-            event_obj,
-            crate::graphics::fields::key_event::KEY_CODE,
-            Value::Int(keycode),
-        )
-        .is_none()
-    {
-        return false;
-    }
-
     let mut ret = jvm.invoke_instance_with_args_returning(
-        dispatch_class(dispatch_sites::VIEW_KEY),
-        dispatch_method(dispatch_sites::VIEW_KEY),
-        view_ref,
-        &[Value::ObjectRef(event_obj)],
+        dispatch_class(site),
+        dispatch_method(site),
+        target_ref,
+        args,
         heap,
         handler,
     );
     if matches!(ret, Err(pico_jvm::types::JvmError::StackOverflow)) {
-        // Allocation failure inside the listener's Java — collect with
+        // Allocation failure inside the handler's Java — collect with
         // native-only roots (no safepoint runs out here) and retry once.
         heap.collect_now(handler);
         ret = jvm.invoke_instance_with_args_returning(
-            dispatch_class(dispatch_sites::VIEW_KEY),
-            dispatch_method(dispatch_sites::VIEW_KEY),
-            view_ref,
-            &[Value::ObjectRef(event_obj)],
+            dispatch_class(site),
+            dispatch_method(site),
+            target_ref,
+            args,
             heap,
             handler,
         );

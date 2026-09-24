@@ -9,6 +9,10 @@ use super::super::lifecycle;
 pub(in crate::graphics) fn create() -> i32 {
     let ptr = unsafe {
         let o = lv_obj_create(lifecycle::screen_ptr());
+        // Flat first — no theme border, fill, corners or padding, as on Android
+        // (`frame_layout::make_flat`) — since the strip removes local styles
+        // too, and the flex flow below is one.
+        super::frame_layout::make_flat(o);
         lv_obj_set_flex_flow(o, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(
             o,
@@ -18,16 +22,8 @@ pub(in crate::graphics) fn create() -> i32 {
         );
         // Android LinearLayout never scrolls — use ScrollView for that. Clearing
         // SCROLLABLE also kills the stray scrollbars LVGL would otherwise draw
-        // when content brushes the inner edge (e.g. the 2 px default border
-        // eating into a 224 px child inside a 240 px parent).
+        // when content brushes the inner edge.
         lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
-        // Clear theme padding so only explicit setPadding() takes effect.
-        lv_obj_set_style_pad_left(o, 0, 0);
-        lv_obj_set_style_pad_right(o, 0, 0);
-        lv_obj_set_style_pad_top(o, 0, 0);
-        lv_obj_set_style_pad_bottom(o, 0, 0);
-        lv_obj_set_style_pad_row(o, 0, 0);
-        lv_obj_set_style_pad_column(o, 0, 0);
         o
     };
     handle_table::register(ptr)

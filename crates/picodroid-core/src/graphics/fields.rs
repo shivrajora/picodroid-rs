@@ -42,8 +42,12 @@ pub mod motion_event {
 pub mod key_event {
     pub const ACTION: usize = 0;
     pub const KEY_CODE: usize = 1;
+    /// `boolean tracking`: set by `KeyEvent.startTracking()` on a press and
+    /// carried to the matching release; the dispatcher clears it on every
+    /// new press (`lifecycle/input.rs::fill_key_event`).
+    pub const TRACKING: usize = 2;
     /// Slots the recycled instance is allocated with.
-    pub const SLOTS: usize = KEY_CODE + 1;
+    pub const SLOTS: usize = TRACKING + 1;
 }
 
 /// `picodroid.app.AlertDialog` is **not** a View subclass — slot numbering

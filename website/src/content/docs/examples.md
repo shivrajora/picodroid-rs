@@ -97,6 +97,7 @@ Demonstrate Java language features supported by the JVM interpreter. Reference: 
 | `mathsdemo` | `mathsdemo.MathsDemo` | Demonstrates integer/long/double arithmetic, bitwise/shift ops, cross-type conversions, `tableswitch`, `instanceof`, `checkcast`, reference arrays, and `java.lang.Math` |
 | `stringdemo` | `stringdemo.StringDemo` | Test-harness coverage of `java.lang.String`, `StringBuilder`, and `String.format`: predicates, search, transforms, `valueOf`, `concat`/`replace`/`split`/`toCharArray`/`hashCode`, `"" + obj`/`append(Object)`/`valueOf(Object)` through `toString()`, `toUpperCase(Locale)`, plus exhaustive printf-style conversions, flags, widths, and precision; `String.join` and the `java.util.Objects` helpers |
 | `enumdemo` | `enumdemo.EnumDemo` | Demonstrates Java `enum` declarations, `values()`, `name()`, `ordinal()`, and `switch` over enums |
+| `timedemo` | `timedemo.TimeDemo` | Self-checking `java.time`: `LocalDate`/`LocalTime`/`LocalDateTime` arithmetic and ISO text, `Instant`, `Duration`, `ZoneOffset` and `TimeZone.setDefault`, `DateTimeFormatter.ofPattern`, `Math.floorDiv`/`floorMod`; logs `=== ALL PASSED ===`. RP2350 boards only (the RP2040 image excludes `java.time`) |
 | `trywithresourcesdemo` | `trywithresourcesdemo.TryWithResourcesDemo` | Demonstrates `try`-with-resources (`AutoCloseable`) -- opens an ADC pin in a `try` block and confirms `close()` is called on exit |
 | `lambdademo` | `lambdademo.LambdaDemo` | Demonstrates Java lambdas via `invokedynamic`: non-capturing, capturing, callbacks, and static method references |
 | `anondemo` | `anondemo.AnonDemo` | Demonstrates anonymous classes implementing interfaces, with local variable capture |
@@ -136,7 +137,7 @@ Full graphical UI with touch input, demonstrating the Activity lifecycle and LVG
 | Example | Class | Description |
 |---------|-------|-------------|
 | `displaydemo` | `displaydemo.DisplayDemoApp` | Showcases the full widget set on a 320x240 display: `LinearLayout`, `ScrollView`, `TextView`, `Button`, `ToggleButton`, `Switch`, `CheckBox`, `SeekBar`, `Spinner`, `EditText`, touch input, event handlers, a moving-average FPS overlay (`DisplayDebug.showFps()`), and a themed-widgets section using a custom `Theme` palette with `GradientDrawable` (gradient header, surface card, pill / ghost buttons) |
-| `keydemo` | `keydemo.KeyDemoActivity` | Hardware-button demo: installs an `OnKeyListener` on a focusable `Button` and displays each `KeyEvent`'s action + keycode; requires `[[button]]` entries in `board.toml` |
+| `keydemo` | `keydemo.KeyDemoActivity` | Hardware-button demo: a focusable `Button`'s `OnKeyListener` takes DPAD_CENTER and the Activity's `onKeyDown` / `onKeyUp` take the rest; displays each `KeyEvent`'s action + keycode; requires `[[button]]` entries in `board.toml` |
 | `callbacktest` | `callbacktest.CallbackTestActivity` | Regression harness for widget callback dispatch under both shrink modes — registers a lambda listener on every widget type and synthetically fires its event |
 | `dialogdemo` | `dialogdemo.DialogDemoApp` | `Toast.makeText().show()` and `AlertDialog.Builder` with positive / negative listeners; demonstrates `onBackPressed()` confirmation pattern |
 | `gesturedemo` | `gesturedemo.GestureDemoApp` | `GestureDetector` with `onSingleTap` / `onLongPress` / `onFling` listeners on a single View |

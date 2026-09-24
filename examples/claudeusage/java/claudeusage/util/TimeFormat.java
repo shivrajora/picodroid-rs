@@ -1,31 +1,44 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package claudeusage.util;
 
-/** The SDK has no Date or Calendar; this is the integer arithmetic the screens need. */
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.util.TimeZone;
+
+/** The screens' short forms of a clock time, a duration, a token count and a price. */
 public final class TimeFormat {
-  /** Local offset from UTC, as reported by the bridge (the PC knows its timezone; we do not). */
-  public static int utcOffsetMinutes;
+  private static final DateTimeFormatter HM = DateTimeFormatter.ofPattern("HH:mm");
 
   private TimeFormat() {}
 
+  /**
+   * Installs the bridge's UTC offset as the zone every local time is shown in: the PC knows its
+   * timezone, the device does not, and {@code java.time} here has no tz database — one fixed offset
+   * is the whole of a zone.
+   */
+  public static void setUtcOffsetMinutes(int minutes) {
+    TimeZone.setDefault(TimeZone.getTimeZone(ZoneOffset.ofTotalSeconds(minutes * 60)));
+  }
+
   /** Local "12:03". */
   public static String hm(long epochMs) {
-    long sec = epochMs / 1000L + utcOffsetMinutes * 60L;
-    long daySec = sec % 86_400L;
-    if (daySec < 0) {
-      daySec += 86_400L;
-    }
-    return String.format("%02d:%02d", (int) (daySec / 3600), (int) ((daySec % 3600) / 60));
+    return LocalDateTime.ofInstant(Instant.ofEpochMilli(epochMs), ZoneId.systemDefault())
+        .format(HM);
   }
 
   /** "3d 4h", "2h 14m", "14m", "<1m": two units at most, so it stays short at any scale. */
   public static String duration(long ms) {
-    if (ms < 60_000L) {
+    Duration d = Duration.ofMillis(ms);
+    long minutes = d.toMinutes();
+    if (minutes < 1) {
       return "<1m";
     }
-    long minutes = ms / 60_000L;
-    long hours = minutes / 60;
-    long days = hours / 24;
+    long hours = d.toHours();
+    long days = d.toDays();
     if (days > 0) {
       return String.format("%dd %dh", days, hours % 24);
     }

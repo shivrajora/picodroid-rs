@@ -78,7 +78,14 @@ pub(in crate::graphics) fn set_bg_color(h: Handle, argb: u32) {
         return; // stale handle — mutating a destroyed View is a no-op
     }
     let color = argb_to_lv_color(argb);
-    unsafe { lv_obj_set_style_bg_color(o, color, 0) };
+    // The alpha byte is the fill's opacity, as on Android: `Color.TRANSPARENT` clears the
+    // background and an opaque colour paints it, on a label (transparent by default) as much as
+    // on a container. Before 2026-09-24 only the colour was written, so a transparent colour
+    // painted opaque black on a container and a label never showed a background at all.
+    unsafe {
+        lv_obj_set_style_bg_color(o, color, 0);
+        lv_obj_set_style_bg_opa(o, (argb >> 24) as u8, 0);
+    }
 }
 
 pub(in crate::graphics) fn set_padding(h: Handle, left: i32, top: i32, right: i32, bottom: i32) {

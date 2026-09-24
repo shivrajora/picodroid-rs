@@ -309,15 +309,23 @@ preferences, with `NetTestConfig.HOST` as the default, so an installed unit can 
 without a rebuild (`pdb`, or a future settings screen). The `BuildConfig` ask stands for the
 default. See `claudeusage-android-shape-2026-09.md`.
 
-### G8. Keys need a focused widget
+### G8. Keys need a focused widget — closed 2026-09-24
 
-There is no `Activity.onKeyDown`; keys reach Java only through `View.setOnKeyListener` on the
-focused view. A screen with nothing to focus (a dashboard) must add an invisible focusable `Button`
-just to receive keys, as this app and `examples/keydemo` both do. There is also no long-press or
-repeat for keys, which would have given four buttons eight actions.
+There was no `Activity.onKeyDown`; keys reached Java only through `View.setOnKeyListener` on the
+focused view. A screen with nothing to focus (a dashboard) had to add an invisible focusable
+`Button` just to receive keys, as this app and `examples/keydemo` both did. There is also no
+long-press or repeat for keys, which would have given four buttons eight actions.
 
 **Ask:** `Activity.onKeyDown` / `onKeyUp` as the fallback when no view consumes the event, and
 `KeyEvent.getRepeatCount()` / long-press.
+
+**Landed:** `Activity.onKeyDown(int, KeyEvent)` / `onKeyUp(int, KeyEvent)`, reached after the
+focused view's `OnKeyListener` declines (or there is none), through the same `final`
+trampolines the lifecycle uses (`lifecycle/input.rs::dispatch_key_events`). The defaults carry
+Android's BACK contract with `KeyEvent.startTracking()` / `isTracking()`: `onKeyDown` consumes
+and tracks BACK, `onKeyUp` runs `onBackPressed` for a tracked release, so consuming BACK's press
+is the whole of "never finish". The app's key catcher is gone; `keydemo` shows both paths.
+**Still open:** long-press and repeat (`getRepeatCount()`) — one DOWN and one UP per press.
 
 ### G9. No TLS
 

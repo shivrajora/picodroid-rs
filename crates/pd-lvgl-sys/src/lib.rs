@@ -253,6 +253,16 @@ pub const LV_LABEL_LONG_MODE_SCROLL: lv_label_long_mode_t = 2;
 pub const LV_LABEL_LONG_MODE_SCROLL_CIRCULAR: lv_label_long_mode_t = 3;
 pub const LV_LABEL_LONG_MODE_CLIP: lv_label_long_mode_t = 4;
 
+/// Text alignment inside a label's box (third_party/lvgl/include/lvgl/font/lv_text.h
+/// `lv_text_align_t`), implicit ordinals; plain C enum → 1 byte under `-fshort-enums`.
+/// Guarded by `lv_text_align_constants_match_vendored_header`. `TextView.setGravity`'s
+/// horizontal field maps onto these; AUTO is what a fresh label starts with and draws as LEFT.
+pub type lv_text_align_t = u8;
+pub const LV_TEXT_ALIGN_AUTO: lv_text_align_t = 0;
+pub const LV_TEXT_ALIGN_LEFT: lv_text_align_t = 1;
+pub const LV_TEXT_ALIGN_CENTER: lv_text_align_t = 2;
+pub const LV_TEXT_ALIGN_RIGHT: lv_text_align_t = 3;
+
 /// Arc fill direction (third_party/lvgl/include/lvgl/widgets/lv_arc.h
 /// `lv_arc_mode_t`), implicit ordinals; plain C enum → 1 byte under
 /// `-fshort-enums`. Guarded by `lv_arc_mode_constants_match_vendored_header`.
@@ -310,6 +320,12 @@ pub const LV_PART_INDICATOR: lv_style_selector_t = 0x020000;
 /// The draggable handle of `lv_arc`/`lv_slider`; `CircularProgressIndicator`
 /// removes the theme's style for it to draw a plain ring.
 pub const LV_PART_KNOB: lv_style_selector_t = 0x030000;
+/// `LV_PART_ANY | LV_STATE_ANY`: the selector `lv_obj_remove_style(obj, NULL, …)` takes to
+/// strip every style an object carries — what LVGL's inline `lv_obj_remove_style_all` passes.
+/// Both halves are guarded by `lv_part_constants_match_vendored_header` and
+/// `lv_state_constants_match_vendored_header`.
+pub const LV_PART_ANY: lv_style_selector_t = 0x0F0000;
+pub const LV_STATE_ANY: lv_style_selector_t = 0xFFFF;
 
 /// A bare part id (no state bits), as `lv_obj_get_style_prop` takes it.
 pub type lv_part_t = u32;
@@ -820,6 +836,11 @@ extern "C" {
         value: *const lv_font_t,
         selector: lv_style_selector_t,
     );
+    pub fn lv_obj_set_style_text_align(
+        obj: *mut lv_obj_t,
+        value: lv_text_align_t,
+        selector: lv_style_selector_t,
+    );
 
     // Padding style
     pub fn lv_obj_set_style_pad_left(obj: *mut lv_obj_t, value: i32, selector: lv_style_selector_t);
@@ -1220,6 +1241,8 @@ mod tests {
         include_str!("../../../third_party/lvgl/include/lvgl/core/lv_style.h");
     const LV_LABEL_HEADER: &str =
         include_str!("../../../third_party/lvgl/include/lvgl/widgets/lv_label.h");
+    const LV_TEXT_HEADER: &str =
+        include_str!("../../../third_party/lvgl/include/lvgl/font/lv_text.h");
     const LV_ARC_HEADER: &str =
         include_str!("../../../third_party/lvgl/include/lvgl/widgets/lv_arc.h");
     const LV_CONF: &str = include_str!("../lvgl/lv_conf.h");
@@ -1484,6 +1507,7 @@ mod tests {
             (LV_STATE_EDITED, "LV_STATE_EDITED"),
             (LV_STATE_SCROLLED, "LV_STATE_SCROLLED"),
             (LV_STATE_DISABLED, "LV_STATE_DISABLED"),
+            (LV_STATE_ANY, "LV_STATE_ANY"),
         ] {
             let header_val = lookup_assigned_value(body, name)
                 .unwrap_or_else(|| panic!("{name} not found/parsable in vendored lv_obj_style.h"));
@@ -1497,12 +1521,34 @@ mod tests {
     }
 
     #[test]
+    fn lv_text_align_constants_match_vendored_header() {
+        let body =
+            enum_body(LV_TEXT_HEADER, "} lv_text_align_t").expect("lv_text_align_t enum not found");
+        for (rust_const, name) in [
+            (LV_TEXT_ALIGN_AUTO, "LV_TEXT_ALIGN_AUTO"),
+            (LV_TEXT_ALIGN_LEFT, "LV_TEXT_ALIGN_LEFT"),
+            (LV_TEXT_ALIGN_CENTER, "LV_TEXT_ALIGN_CENTER"),
+            (LV_TEXT_ALIGN_RIGHT, "LV_TEXT_ALIGN_RIGHT"),
+        ] {
+            let header_val = lookup_ordinal(body, "LV_TEXT_ALIGN_", name)
+                .unwrap_or_else(|| panic!("{name} not found in vendored lv_text.h"));
+            assert_eq!(
+                u32::from(rust_const),
+                header_val,
+                "{name}: Rust FFI drifted from vendored lv_text.h — TextView.setGravity picks \
+                 the label's text alignment by these values."
+            );
+        }
+    }
+
+    #[test]
     fn lv_part_constants_match_vendored_header() {
         let body = enum_body(LV_OBJ_STYLE_HEADER, "} lv_part_t").expect("lv_part_t enum not found");
         for (rust_const, name) in [
             (LV_PART_MAIN, "LV_PART_MAIN"),
             (LV_PART_INDICATOR, "LV_PART_INDICATOR"),
             (LV_PART_KNOB, "LV_PART_KNOB"),
+            (LV_PART_ANY, "LV_PART_ANY"),
         ] {
             let header_val = lookup_assigned_value(body, name)
                 .unwrap_or_else(|| panic!("{name} not found/parsable in vendored lv_obj_style.h"));

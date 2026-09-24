@@ -120,9 +120,9 @@ Create those views in Java and `addView` them into an inflated container.
 
 | Group | Attributes |
 |---|---|
-| Any view | `id`, `layout_width`, `layout_height` (`match_parent`, `wrap_content`, a dimension), `layout_weight`, `layout_gravity`, `padding`, `paddingLeft/Top/Right/Bottom`, `paddingStart/End`, `paddingHorizontal/Vertical`, `background` (a colour), `visibility`, `enabled`, `focusable`, `alpha` |
-| `LinearLayout`, `RadioGroup` | `orientation`, `gravity` |
-| `TextView`, `Button` | `text`, `textColor`, `textSize` (a dimension, `sp` = `px`; snaps to the board's nearest compiled face), `singleLine`, `maxLines`, `ellipsize` |
+| Any view | `id`, `layout_width`, `layout_height` (`match_parent`, `wrap_content`, a dimension), `layout_weight`, `layout_gravity`, `padding`, `paddingLeft/Top/Right/Bottom`, `paddingStart/End`, `paddingHorizontal/Vertical`, `background` (a colour, `#AARRGGBB` with the alpha honoured, or `@android:color/transparent`, `black`, `white`), `visibility`, `enabled`, `focusable`, `alpha` |
+| `LinearLayout`, `RadioGroup` | `orientation`, `gravity` (where the children go) |
+| `TextView`, `Button` | `text`, `textColor`, `textSize` (a dimension, `sp` = `px`; snaps to the board's nearest compiled face), `gravity` (where the text sits in a view wider than it: `left`/`start`, `center_horizontal`/`center`, `right`/`end`; the vertical half is recorded, not drawn), `singleLine`, `maxLines`, `ellipsize` |
 | `EditText` | `text`, `hint`, `inputType` (`text`, `number`, `phone`, `datetime`, `textUri`, `textEmailAddress`, `textPassword`, `numberSigned`, `numberDecimal`) |
 | `CheckBox`, `RadioButton` | `text`, `checked` |
 | `Switch`, `ToggleButton` | `checked`; `textOn`, `textOff` on `ToggleButton` |

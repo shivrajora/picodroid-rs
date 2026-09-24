@@ -196,6 +196,19 @@ pub(in crate::graphics) fn set_text_size(id: i32, px: f32) {
     unsafe { lv_obj_set_style_text_font(label, faces[i].font, 0) };
 }
 
+/// `TextView.nativeSetGravity`: the horizontal field of an Android gravity as the label's
+/// `text_align` (`gravity::text_align`). Only visible when the label is wider than its text — a
+/// content-sized label has no slack — which is also when Android's `setGravity` shows. A `Button`
+/// receiver lands here too (`label_of`): its label is content-sized and centred by the button, so
+/// the call is honoured but changes nothing, as on Android where a Button is centred anyway.
+pub(in crate::graphics) fn set_gravity(id: i32, gravity: i32) {
+    let label = label_of(id);
+    if label.is_null() {
+        return;
+    }
+    unsafe { lv_obj_set_style_text_align(label, super::gravity::text_align(gravity), 0) };
+}
+
 /// `TextView.nativeGetLineHeight`: one line of the face in use, in pixels; 0 for a stale handle.
 pub(in crate::graphics) fn line_height(id: i32) -> i32 {
     let label = label_of(id);

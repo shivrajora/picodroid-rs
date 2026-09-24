@@ -58,4 +58,16 @@ public final class Gravity {
    * is LTR-only, so this behaves exactly like {@link #RIGHT}.
    */
   public static final int END = 0x00800005;
+
+  /** The bits of the horizontal field; mirrors Android. */
+  public static final int HORIZONTAL_GRAVITY_MASK = 0x0007;
+
+  /** The bits of the vertical field; mirrors Android. */
+  public static final int VERTICAL_GRAVITY_MASK = 0x0070;
+
+  /** The bit that makes {@link #START} and {@link #END} relative to the layout direction. */
+  public static final int RELATIVE_LAYOUT_DIRECTION = 0x00800000;
+
+  /** The horizontal field plus the relative bit: {@code START} and {@code END} included. */
+  public static final int RELATIVE_HORIZONTAL_GRAVITY_MASK = START | END;
 }

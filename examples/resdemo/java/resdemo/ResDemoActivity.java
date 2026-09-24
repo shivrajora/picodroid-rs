@@ -5,6 +5,7 @@ import picodroid.app.Activity;
 import picodroid.content.res.Resources;
 import picodroid.os.Bundle;
 import picodroid.util.Log;
+import picodroid.view.Gravity;
 import picodroid.view.LayoutInflater;
 import picodroid.view.View;
 import picodroid.view.ViewGroup;
@@ -56,6 +57,9 @@ public class ResDemoActivity extends Activity {
     check("findViewById", title != null && title.getId() == R.id.title);
     check("text from @string", title != null && "Res Demo".equals(title.getText().toString()));
     check("textSize from @dimen", title != null && title.getTextSize() == 20f);
+    check(
+        "gravity from the layout",
+        title != null && title.getGravity() == (Gravity.CENTER_HORIZONTAL | Gravity.TOP));
     check("missing id is null", findViewById(R.id.row_label) == null);
 
     final Button tap = findViewById(R.id.tap);
@@ -115,9 +119,10 @@ public class ResDemoActivity extends Activity {
         "match_parent root",
         root.getWidth() == getDisplay().getWidth() && root.getHeight() == getDisplay().getHeight());
     check("@dimen size", logo != null && logo.getWidth() == 64 && logo.getHeight() == 64);
-    // Content width: the display less the 8 px padding and LinearLayout's 2 px theme border.
+    // Content width: the display less the 8 px padding. A LinearLayout draws no border, as on
+    // Android (it carried the LVGL theme's 2 px card border until 2026-09-24).
     View greeting = findViewById(R.id.greeting);
-    check("padding", greeting != null && greeting.getWidth() == root.getWidth() - 2 * 8 - 2 * 2);
+    check("padding", greeting != null && greeting.getWidth() == root.getWidth() - 2 * 8);
     check("wrap_content bar keeps its height", progress != null && progress.getHeight() > 0);
     check(
         "wrap_content ring keeps its size",

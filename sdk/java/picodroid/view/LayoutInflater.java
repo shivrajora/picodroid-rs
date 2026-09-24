@@ -295,6 +295,8 @@ public class LayoutInflater {
       case 22: // ATTR_GRAVITY
         if (v instanceof LinearLayout) {
           ((LinearLayout) v).setGravity(value);
+        } else if (v instanceof TextView) {
+          ((TextView) v).setGravity(value);
         }
         break;
       case 23: // ATTR_SRC

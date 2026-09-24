@@ -85,6 +85,21 @@ pub fn text_view_native_set_text_size(
     Ok(None)
 }
 
+/// `TextView.nativeSetGravity(int gravity)` — the Android gravity bitmask; the LVGL side reads
+/// its horizontal field as the label's text alignment.
+pub fn text_view_native_set_gravity(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let gravity = match args.get(1) {
+        Some(Value::Int(v)) => *v,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    lvgl_text_view::set_gravity(id, gravity);
+    Ok(None)
+}
+
 /// `TextView.nativeGetLineHeight()` — one line of the face in use, in pixels.
 pub fn text_view_native_get_line_height(
     args: &[Value],

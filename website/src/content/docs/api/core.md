@@ -121,6 +121,12 @@ long   rl = Math.round(2.5);    // 3   (double → long)
 double sq = Math.sqrt(2.0);          // ≈ 1.4142135
 double pw = Math.pow(2.0, 10.0);     // 1024.0
 
+// Floor division and the exact-arithmetic helpers (int and long forms)
+int  fd = Math.floorDiv(-7, 2);      // -4  (rounds toward negative infinity; -7 / 2 is -3)
+int  fm = Math.floorMod(-7, 2);      // 1   (takes the divisor's sign; -7 % 2 is -1)
+long ex = Math.multiplyExact(1L << 20, 1L << 20);  // ArithmeticException on overflow
+int  ie = Math.toIntExact(42L);      // ArithmeticException when the long does not fit
+
 // Trigonometry (arguments in radians)
 double s  = Math.sin(Math.PI / 2.0); // ≈ 1.0
 double c  = Math.cos(0.0);           // 1.0
@@ -282,6 +288,52 @@ if (Objects.nonNull(x) && Objects.isNull(y)) { /* ... */ }
 ```
 
 `hash(Object...)` boxes its arguments; prefer `hashCode(o)` for a single value on a hot path.
+
+## `java.time`
+
+The JDK's date-time classes, ported to the SDK so an app stops doing epoch arithmetic by hand:
+`LocalDate`, `LocalTime`, `LocalDateTime`, `Instant`, `Duration`, `ZoneOffset`, `ZoneId`,
+`Month`, `DayOfWeek`, `Year`, `DateTimeFormatter`, `ChronoUnit`, and `java.util.TimeZone` for
+the process default zone. The methods keep their JDK signatures, so the code you would write on
+Android compiles and runs unchanged:
+
+```java
+import java.time.*;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
+import java.util.TimeZone;
+
+// The wall clock counts from boot until something sets it (SNTP, a bridge, a settings screen).
+SystemClock.setCurrentTimeMillis(epochMillisFromTheNetwork);
+// There is no tz database: the zone is one fixed offset, installed once as the process default.
+TimeZone.setDefault(TimeZone.getTimeZone("GMT+05:30"));
+
+LocalDateTime now = LocalDateTime.now();                       // in the default zone
+String clock = now.format(DateTimeFormatter.ofPattern("HH:mm"));
+String date  = now.toLocalDate().format(DateTimeFormatter.ofPattern("EEE, d MMM yyyy"));
+
+Instant resetAt = Instant.ofEpochSecond(json.getLong("resets_at"));
+Duration left   = Duration.between(Instant.now(), resetAt);
+long hours = left.toHours(), minutes = left.toMinutes() % 60;
+
+LocalDate due = LocalDate.of(2026, Month.SEPTEMBER, 23).plusMonths(1);   // 2026-10-23
+long days = ChronoUnit.DAYS.between(LocalDate.now(), due);
+LocalDateTime local = LocalDateTime.ofInstant(resetAt, ZoneId.systemDefault());
+```
+
+What is not there, and what to do instead:
+
+| Missing | Instead |
+|---|---|
+| Region zones (`ZoneId.of("Europe/London")` throws `DateTimeException`), daylight saving | A fixed offset: `ZoneOffset.ofHours(1)`, `ZoneId.of("UTC+01:00")`; learn the offset from whatever sets the clock. |
+| `ZonedDateTime`, `OffsetDateTime`, `Period`, `TemporalField` / `ChronoField`, `TemporalAdjusters` | `LocalDateTime.ofInstant(instant, zone)` and `toInstant(offset)` cross between the time-line and local fields; `ChronoUnit.X.between` and `plusX` cover the arithmetic. |
+| Locale-aware text, `DateTimeFormatter.ofLocalizedDate`, parsing with a pattern | `ofPattern` with `y u M L d D E a H h m s S` and `'…'` literals (English month and day names); `LocalDate.parse` and friends read ISO-8601. |
+| `Clock`, `Instant.now()` before the clock is set | `now()` reads `System.currentTimeMillis()`, which counts from boot until `SystemClock.setCurrentTimeMillis`. |
+
+The package is left out of the `testbench_rp2040` image (`framework_class_excludes`, about 25 KB
+of flash it does not have), where `verifyApiContract --board` rejects an app that uses it.
+`examples/timedemo` exercises the port; its expectations were checked against the JDK's own
+`java.time` on a host.
 
 ## `java.lang.Comparable`
 

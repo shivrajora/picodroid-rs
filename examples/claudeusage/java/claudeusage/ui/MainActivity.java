@@ -16,16 +16,13 @@ import picodroid.os.Bundle;
 import picodroid.os.IBinder;
 import picodroid.util.Log;
 import picodroid.view.KeyEvent;
-import picodroid.view.OnKeyListener;
-import picodroid.view.View;
-import picodroid.widget.Button;
 import picodroid.widget.FrameLayout;
 import picodroid.widget.LinearLayout;
 
 /**
  * The one Activity, declared in the manifest as the entry point. Four screens live in it as pages
- * rather than as Activities of their own: one key listener, one header and footer, and a page
- * switch is a fade instead of a lifecycle. The chrome is {@code res/layout/activity_main.xml}.
+ * rather than as Activities of their own: one key handler, one header and footer, and a page switch
+ * is a fade instead of a lifecycle. The chrome is {@code res/layout/activity_main.xml}.
  *
  * <p>The numbers come from {@link UsageService}, started here so they stay warm and bound while the
  * screen is on. Buttons, with the display landscape (A top-left, B bottom-left, X top-right, Y
@@ -40,7 +37,7 @@ import picodroid.widget.LinearLayout;
  * Y never leaves the app: this is an appliance, and BACK falling through to finish() would drop it
  * to a launcher nobody asked for.
  */
-public class MainActivity extends Activity implements OnKeyListener, UsageService.Listener {
+public class MainActivity extends Activity implements UsageService.Listener {
   private static final String TAG = UsageService.TAG;
 
   private static final int PAGE_LIMITS = 0;
@@ -80,7 +77,6 @@ public class MainActivity extends Activity implements OnKeyListener, UsageServic
   private RgbLed led;
 
   private FrameLayout pageHost;
-  private Button keyCatcher;
   private Line title;
   private Line plan;
   private Line clock;
@@ -148,20 +144,9 @@ public class MainActivity extends Activity implements OnKeyListener, UsageServic
     Log.i(TAG, "ui ready");
   }
 
-  /** Finds the chrome and strips the theme border from its containers. */
+  /** Finds the chrome. */
   private void bindChrome() {
-    int bg = palette.background;
-    Ui.flat(findViewById(R.id.root), bg);
-    Ui.flat(findViewById(R.id.header), bg);
-    Ui.flat(findViewById(R.id.clock_box), bg);
-    Ui.flat(findViewById(R.id.dot_box), bg);
-    Ui.flat(findViewById(R.id.sync_box), bg);
-    Ui.flat(findViewById(R.id.footer), bg);
-    Ui.flat(findViewById(R.id.page_dots), bg);
-    Ui.flat(findViewById(R.id.banner_box), bg);
-    Ui.flat(findViewById(R.id.home_box), bg);
     pageHost = findViewById(R.id.page_host);
-    Ui.flat(pageHost, bg);
 
     title = new Line(findViewById(R.id.title), palette.text);
     plan = new Line(findViewById(R.id.plan), palette.clay);
@@ -179,10 +164,6 @@ public class MainActivity extends Activity implements OnKeyListener, UsageServic
       pageDots[i] = findViewById(PAGE_DOT_IDS[i]);
       Ui.fill(pageDots[i], palette.track, 3);
     }
-
-    keyCatcher = findViewById(R.id.key_catcher);
-    keyCatcher.setOnKeyListener(this);
-    keyCatcher.requestFocus();
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
@@ -235,19 +216,18 @@ public class MainActivity extends Activity implements OnKeyListener, UsageServic
     outState.putBoolean(STATE_AUTO, auto);
   }
 
-  @Override
-  public void onBackPressed() {
-    // Y is handled in onKey; never finish().
-  }
-
   // ── Input ──────────────────────────────────────────────────────────────────
 
+  /**
+   * Every key is consumed here, BACK included: an appliance never finishes to the launcher, and
+   * consuming BACK's press (without calling super) is what keeps the default {@code onKeyUp} from
+   * running {@code onBackPressed}, as on Android.
+   */
   @Override
-  public boolean onKey(View v, KeyEvent event) {
-    if (event.getAction() != KeyEvent.ACTION_DOWN || repo == null) {
+  public boolean onKeyDown(int code, KeyEvent event) {
+    if (repo == null) {
       return true;
     }
-    int code = event.getKeyCode();
     if (pageIsStatus && code != KeyEvent.KEYCODE_DPAD_CENTER) {
       return true; // nothing to page through yet; X still retries
     }

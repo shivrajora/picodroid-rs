@@ -77,6 +77,11 @@ fn slot_expectations() -> Vec<(&'static str, &'static str, usize)> {
             g::key_event::KEY_CODE,
         ),
         (
+            c::picodroid_view_KeyEvent,
+            "tracking",
+            g::key_event::TRACKING,
+        ),
+        (
             c::picodroid_app_AlertDialog,
             "nativeHandle",
             g::alert_dialog::NATIVE_HANDLE,

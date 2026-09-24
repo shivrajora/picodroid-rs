@@ -7,6 +7,47 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**Keys, text gravity, flat containers, `java.time` (2026-09-24)**
+
+- `Activity.onKeyDown(int, KeyEvent)` / `onKeyUp(int, KeyEvent)`: a hardware key no focused view
+  consumed reaches the foreground Activity, as on Android, so a screen with nothing to focus needs
+  no invisible focus-catcher. The defaults carry Android's BACK contract — `onKeyDown` consumes
+  BACK and `startTracking()`s it, `onKeyUp` runs `onBackPressed()` for a tracked release — so an
+  override that consumes BACK in `onKeyDown` suppresses the back action without touching
+  `onBackPressed`. `KeyEvent.startTracking()` / `isTracking()` are new. `examples/keydemo` and
+  `examples/claudeusage` use them.
+- `TextView.setGravity(int)` / `getGravity()` and `android:gravity` on a `TextView`: the
+  horizontal field aligns the text inside a view wider than it (`LEFT`/`START`,
+  `CENTER_HORIZONTAL`, `RIGHT`/`END`); the vertical field is stored, not drawn — a label is its
+  text's height — so centre a label in a taller row with the parent's gravity. `Gravity` gains
+  Android's `HORIZONTAL_GRAVITY_MASK`, `VERTICAL_GRAVITY_MASK`, `RELATIVE_LAYOUT_DIRECTION` and
+  `RELATIVE_HORIZONTAL_GRAVITY_MASK`.
+- `LinearLayout`, `FrameLayout` and `RadioGroup` are flat by default, as on Android: no
+  background, border, corner radius or padding until set. They carried the LVGL theme's 2 px card
+  border, rounded corners, fill and 13 px padding before, which every app stripped by hand
+  (`claudeusage`, `picoclock`, `calculator`, `picoenvmon` each had a helper for it). One
+  `lv_obj_remove_style` at creation replaces six per-side padding writes, so a `LinearLayout`
+  costs one style refresh instead of six (the 1.6–2.0 ms `nativeCreate` of the D4 findings).
+  `View.setBackgroundColor` honours the colour's alpha, so `Color.TRANSPARENT` clears a
+  background and a `TextView` background draws; layouts take `#AARRGGBB` and
+  `@android:color/transparent` / `black` / `white`. **Compatibility:** a container that relied on
+  the theme's implicit border or fill now needs a `GradientDrawable` (`setStroke`, `setColor`) —
+  `examples/resdemo`'s geometry check lost its `2 * 2` border term; a code-built container that
+  called `setPadding(0, 0, 0, 0)` or applied a stroke-0 drawable can stop.
+- `java.time` in the SDK: `LocalDate`, `LocalTime`, `LocalDateTime`, `Instant`, `Duration`,
+  `ZoneOffset`, `ZoneId`, `Month`, `DayOfWeek`, `Year`, `DateTimeFormatter`, `ChronoUnit` and
+  `java.util.TimeZone`, with their JDK signatures (`Instant.plus(TemporalAmount)`,
+  `LocalDate.compareTo(ChronoLocalDate)`, `DateTimeFormatter.format(TemporalAccessor)`), so
+  Android date code compiles and runs unchanged. Fixed-offset zones only, no `ZonedDateTime` or
+  `Period`, `ofPattern` with the common letters and English names, ISO parsing; see
+  [java.time](/api/core/#javatime). `Math.floorDiv` / `floorMod` / `addExact` / `subtractExact` /
+  `multiplyExact` / `toIntExact` come with it. About 25 KB of flash, so `testbench_rp2040`
+  excludes the package (`framework_class_excludes`); `examples/timedemo` checks it, on the host
+  JDK too.
+- The SDK's `compileJava` is no longer incremental: the tree shadows JDK types, and an
+  incremental compile checked a changed `java/time` file against the JDK's interfaces instead of
+  the tree's.
+
 **Text size (map v0.28.0, package 0.28.0)**
 
 - `TextView.setTextSize(float)`, `setTextSize(int unit, float)`, `getTextSize()` and

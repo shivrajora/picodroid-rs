@@ -12,6 +12,12 @@ import picodroid.widget.Button;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
 
+/**
+ * Hardware keys, both ways Android delivers them: a focused view's {@link OnKeyListener} first,
+ * then the Activity's {@link #onKeyDown} / {@link #onKeyUp} for whatever the view left alone. The
+ * button consumes DPAD_CENTER and passes everything else on; BACK is consumed by the Activity so
+ * the demo never finishes, which is also what the default {@code onKeyUp} would do with it.
+ */
 public class KeyDemoActivity extends Activity implements OnKeyListener {
   private static final String TAG = "KeyDemo";
   private TextView status;
@@ -37,9 +43,7 @@ public class KeyDemoActivity extends Activity implements OnKeyListener {
     status.setTextColor(Color.CYAN);
     root.addView(status);
 
-    // A focusable widget is required so LVGL's default keypad group has a
-    // target — without one, lv_group_get_focused() returns null and no key
-    // events reach Java.
+    // A focused view sees a key first. Without one every key goes straight to onKeyDown/onKeyUp.
     Button focus = new Button("Focus me");
     focus.setSize(200, 50);
     focus.setOnKeyListener(this);
@@ -50,9 +54,29 @@ public class KeyDemoActivity extends Activity implements OnKeyListener {
 
   @Override
   public boolean onKey(View v, KeyEvent event) {
-    String action = event.getAction() == KeyEvent.ACTION_DOWN ? "DOWN" : "UP";
-    status.setText(action + " keyCode=" + event.getKeyCode());
-    Log.i(TAG, action + " keyCode=" + event.getKeyCode());
+    if (event.getKeyCode() != KeyEvent.KEYCODE_DPAD_CENTER) {
+      return false; // not ours: falls through to the Activity
+    }
+    show("view", event.getAction(), event.getKeyCode());
     return true;
+  }
+
+  @Override
+  public boolean onKeyDown(int keyCode, KeyEvent event) {
+    show("activity", KeyEvent.ACTION_DOWN, keyCode);
+    return true;
+  }
+
+  @Override
+  public boolean onKeyUp(int keyCode, KeyEvent event) {
+    show("activity", KeyEvent.ACTION_UP, keyCode);
+    return true;
+  }
+
+  private void show(String who, int action, int keyCode) {
+    String line =
+        who + " " + (action == KeyEvent.ACTION_DOWN ? "DOWN" : "UP") + " keyCode=" + keyCode;
+    status.setText(line);
+    Log.i(TAG, line);
   }
 }

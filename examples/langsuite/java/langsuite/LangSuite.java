@@ -31,6 +31,7 @@ public class LangSuite extends Application {
     safe("rttidemo", () -> rttidemo.RttiDemo.run());
     safe("stringdemo", () -> stringdemo.StringDemo.run());
     safe("syncdemo", () -> syncdemo.SyncDemo.run());
+    safe("timedemo", () -> timedemo.TimeDemo.run());
     safe("trywithresourcesdemo", () -> trywithresourcesdemo.TryWithResourcesDemo.run());
 
     Log.i(TAG, "=== LangSuite done ===");

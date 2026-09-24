@@ -5,6 +5,7 @@ import picodroid.content.Context;
 import picodroid.content.res.Resources;
 import picodroid.text.TextUtils;
 import picodroid.util.TypedValue;
+import picodroid.view.Gravity;
 import picodroid.view.View;
 
 public class TextView extends View {
@@ -41,6 +42,9 @@ public class TextView extends View {
 
   /** The size last set by {@link #setTextSize}, in pixels; the face in use may differ. */
   private float mTextSize = DEFAULT_TEXT_SIZE;
+
+  /** The gravity last set by {@link #setGravity}; Android's default is {@code TOP | START}. */
+  private int mGravity = Gravity.TOP | Gravity.START;
 
   public TextView() {
     super(nativeCreate());
@@ -127,6 +131,36 @@ public class TextView extends View {
   private native void nativeSetTextSize(float px);
 
   private native int nativeGetLineHeight();
+
+  /**
+   * Mirrors Android's {@code TextView.setGravity(int)}: where the text sits inside the view when
+   * the view is wider than its text — {@link Gravity#LEFT} / {@link Gravity#START} (the default),
+   * {@link Gravity#CENTER_HORIZONTAL} or {@link Gravity#RIGHT} / {@link Gravity#END}. A {@code
+   * wrap_content} view is exactly its text's width, so the horizontal gravity only shows on a view
+   * given a width (a fixed size, {@code match_parent}, or a {@code layout_weight}).
+   *
+   * <p>The vertical half ({@link Gravity#TOP}, {@link Gravity#CENTER_VERTICAL}, {@link
+   * Gravity#BOTTOM}) is kept for {@link #getGravity} but not drawn: an LVGL label is always its
+   * text's height, so there is no spare room to place the text in. To centre a label in a taller
+   * row, give the parent {@code LinearLayout} the vertical gravity instead.
+   */
+  public void setGravity(int gravity) {
+    if ((gravity & Gravity.HORIZONTAL_GRAVITY_MASK) == 0) {
+      gravity |= Gravity.START;
+    }
+    if ((gravity & Gravity.VERTICAL_GRAVITY_MASK) == 0) {
+      gravity |= Gravity.TOP;
+    }
+    mGravity = gravity;
+    nativeSetGravity(gravity);
+  }
+
+  /** Mirrors Android: the gravity set by {@link #setGravity}, {@code TOP | START} until one is. */
+  public int getGravity() {
+    return mGravity;
+  }
+
+  private native void nativeSetGravity(int gravity);
 
   /**
    * Mirrors Android's {@code TextView.setIncludeFontPadding(boolean)}. When {@code false}, strips

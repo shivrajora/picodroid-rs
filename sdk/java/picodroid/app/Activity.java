@@ -5,6 +5,7 @@ import picodroid.content.Context;
 import picodroid.content.Intent;
 import picodroid.graphics.Display;
 import picodroid.os.Bundle;
+import picodroid.view.KeyEvent;
 import picodroid.view.LayoutInflater;
 import picodroid.view.View;
 
@@ -111,6 +112,14 @@ public class Activity extends Context {
     onBackPressed();
   }
 
+  final boolean performKeyDown(int keyCode, KeyEvent event) {
+    return onKeyDown(keyCode, event);
+  }
+
+  final boolean performKeyUp(int keyCode, KeyEvent event) {
+    return onKeyUp(keyCode, event);
+  }
+
   final void performActivityResult(int requestCode, int resultCode, Intent data) {
     onActivityResult(requestCode, resultCode, data);
   }
@@ -153,6 +162,39 @@ public class Activity extends Context {
   /** Called right before this Activity is destroyed (after finish() pops it). */
   public void onDestroy() {
     // Subclass overrides
+  }
+
+  /**
+   * A hardware key was pressed and no focused view consumed it. Mirrors {@code
+   * android.app.Activity#onKeyDown}: return {@code true} to consume the press. The default starts
+   * tracking BACK so that {@link #onKeyUp} can run {@link #onBackPressed} on its release, and
+   * returns {@code false} for every other key.
+   *
+   * <p>Keys reach here after the focused view's {@link picodroid.view.OnKeyListener}, and only
+   * while no system keyboard or dialog is showing (BACK dismisses those first). HOME never reaches
+   * an app. There is no long-press or auto-repeat: every physical press is one DOWN and one UP.
+   */
+  public boolean onKeyDown(int keyCode, KeyEvent event) {
+    if (keyCode == KeyEvent.KEYCODE_BACK) {
+      event.startTracking();
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * A hardware key was released and no focused view consumed it. Mirrors {@code
+   * android.app.Activity#onKeyUp}: the default runs {@link #onBackPressed} for a BACK release whose
+   * press was left to the default {@link #onKeyDown} (see {@link KeyEvent#isTracking}), so an
+   * override that consumes BACK in {@code onKeyDown} without calling super also suppresses the back
+   * action.
+   */
+  public boolean onKeyUp(int keyCode, KeyEvent event) {
+    if (keyCode == KeyEvent.KEYCODE_BACK && event.isTracking()) {
+      onBackPressed();
+      return true;
+    }
+    return false;
   }
 
   /**
