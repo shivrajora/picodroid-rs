@@ -1,6 +1,6 @@
 # Platform gaps found building `claudeusage`
 
-**Status: open list; G2 and G3 closed 2026-09-23, nothing else started. D4 added 2026-09-23 as the top priority.**
+**Status: open list; G1, G2 and G3 closed 2026-09-23, D5 (app bug) fixed the same day, nothing else started. D4 added 2026-09-23 as the top priority.**
 
 `examples/claudeusage` is a desk display for Claude usage limits on a new board, `pico_display2_w`
 (Pimoroni Pico Display Pack 2.0 on a Pico 2 W). It was built to look like a modern product rather
@@ -41,7 +41,7 @@ because two of the three candidate causes are runtime-wide, not this app's.
 **Measured 2026-09-23, ring-gauge round (`pico_display2_w`, probes inside `LimitsPage.update`).**
 The Limits page's first `update` after a swap costs ~100 ms in both the bar and the ring
 versions: 27 to 35 ms per card is `BigNumber` creating its glyph `ImageView`s on first show
-(gone since the figures became `TextView`s on 2026-09-23; re-measure),
+(gone since the figures became `TextView`s in `464f1e63`; **not yet re-measured on hardware**),
 the bar 6 to 11 ms, the ring 4 to 8 ms, the text lines 5 to 6 ms. With bars the swap tick's own
 51 to 74 ms warning fired first and the update's was swallowed by the one-per-second rate limit;
 with rings the two land in one tick, so a single `Runnable took 114 ms` shows the whole cost.
@@ -80,6 +80,18 @@ of the swapped region" was wrong and is withdrawn here.
 **Repro.** `env $(grep -v '^#' .wifi-creds.env | xargs) PICODROID_NET_TEST_HOST=<PC address>
 ./scripts/flash.sh --board pico_display2_w --app claudeusage` in the background, wait for
 `sync ok`, then `./scripts/pdb.sh --board pico_display2_w input keyevent 20` and watch the RTT log.
+
+### D5. App: a sync pressed while offline spun the poll loop — fixed 2026-09-23
+
+An app bug, not a platform one, recorded here because the symptom looks like a platform fault.
+`UsageService.refreshNow()` sets `refreshRequested`, but only the connected branch of `pollLoop()`
+cleared it. Pressing X with the link down left it set, so `idle()` returned at once on every pass
+and the poll thread posted `applyLinkOnly` in a tight loop: the 64-slot main queue stayed full and
+`MainExecutor.execute: queue full, dropped` fired 4,268 times in 8 s (`pico_display2_w` built
+without WiFi credentials). Fixed in `7d2083c8` by clearing the flag at the top of every pass;
+three X presses offline now give zero warnings. Two things worth knowing from it: the main queue
+is bounded and drops with only a log line (Android's `Handler` queue is unbounded), and a
+runaway poster shows up as that warning, not as a hang.
 
 ### D1. Sim: a connect timeout to an unreachable host fires late, sometimes very late
 
@@ -150,7 +162,7 @@ named this in one run.
 
 ## Gaps, by cost to the UI
 
-### G1. One font size
+### G1. One font size — closed 2026-09-23
 
 Only Montserrat 14 exists and there is no `TextView.setTextSize`. A dashboard needs one figure
 readable across a room. The app renders its large percentages from pre-rendered glyph sprites
@@ -169,6 +181,11 @@ a `text_sizes` key (the RP2350 default; the RP2040 keeps 14). 64 px draws 44 px 
 height of the sprites. A size snaps to the nearest compiled face; `getLineHeight()` says which.
 The app's sprites, `BigNumber` and `tools/gen_digits.py` went with the follow-up commit that
 put the figures on `TextView`s (`Ui.DISPLAY_SIZE`).
+
+*Follow-up 2026-09-23 (`5f0dd5f5`):* `setIncludeFontPadding(false)` on a single-line label took
+the trim off twice (LVGL 9.6 clamps the text height by `max_height` before adding the pads), so
+the 64 px face measured 48 px instead of 57 and the Limits percentage ran into its caption. The
+single-line cap now adds the frame only when it is positive.
 
 ### G2. No arc or ring gauge — closed 2026-09-23
 
@@ -265,6 +282,11 @@ and chunked growth (as the object and string stores already do) would make it a 
 step: name the site (`reference_device_big_alloc_backtrace` style, or the sim's OOM backtrace).
 
 ### Minor
+
+- `--shrink-app` refuses any app that spells a one- or two-letter member name, because the
+  release map hands those names to SDK members. The app hit it with `final Palette p` (renamed to
+  `palette` in `91c4234c`); five other examples fail the same way. Tracked with the fix in
+  `docs/quality-roadmap.md`.
 
 - `board.toml` has no pin-conflict check; collisions between a display, buttons and the CYW43 pins
   are caught only by review.
