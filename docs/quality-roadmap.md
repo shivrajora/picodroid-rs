@@ -292,6 +292,39 @@ threshold/event logic is untestable in sim today, and the GC-starvation OOM clas
 needs sustained sensor-event streams to reproduce. **Tradeoff:** keep the format dumb
 (timestamped value list); injected values arrive with sim timing, useless for driver timing.
 
+### `--shrink-app` refuses any app that spells a one- or two-letter member name (found 2026-09-23)
+
+`class-shrink cut-app` (`tools/class-shrink/src/shrink.rs`, the `clashes` check) fails the build
+when any member name the app *spells* is a target of the release map: "the app spells member
+name(s) that are targets of the release map: p; rename them in the app source". The release map
+(v0.28.0, 1,402 members) hands out the shortest free names first, so practically every one- and
+two-character name is a target: `a`–`z`, `A`–`Z`, `a0`, `Ab`, … So an ordinary field such as
+`x`, `y`, `r`, `id` or `p`, or a single-letter enum constant, makes `flash.sh -r --shrink
+--shrink-app` fail. Names of two characters or fewer are also never rename candidates, which is
+why they reach this check still spelled as written.
+
+Hit on `claudeusage` (`final Palette p` in `Page`, `LimitCard` and `MeterRow`; renamed to
+`palette` in 91c4234c). Running `cutAppShrinkMap` over every example on main 91c4234c
+(`PICODROID_SHRINK=1 PICODROID_SHRINK_APP=1`) fails five more: `qa_oop` (`K O X Y a b f k r
+s`), `langsuite_kt` (`A B a b c f s`), `clinitdemo` (`X Y`), `langsuite` (`c`) and
+`defaultmethods` (`c`). Nothing in CI or the nightlies runs `--shrink-app` over those apps, so
+the failure only appears when someone shrinks an app by hand.
+
+The check is much broader than the hazard. A real collision needs an app member that shares a
+lookup with a renamed SDK member: an app class extending an SDK class whose shrunk member has
+the same name, plus the same descriptor for a method. A `private` app field (`LimitCard.p`,
+`MeterRow.p`) can never collide, and neither can a member of a class with no SDK ancestor.
+Fix, in order of preference:
+1. Treat an app-declared, non-kept name that clashes as a candidate whatever its length, and
+   give it a fresh target, the way longer names are already handled. The build then never
+   fails for this reason.
+2. Or narrow the refusal to real collisions (a shared superclass chain, with descriptors
+   compared for methods).
+
+Add a `cut-app` test for each case (a private field `p`; a field `p` on a subclass of a class
+whose member maps to `p`). Also run the `--shrink-app` cut over every example in CI or the 3 AM
+nightly, so a new clash fails at push time and not at a user's flash.
+
 ## Readability / maintenance
 
 ### Module docs for load-bearing invariants
