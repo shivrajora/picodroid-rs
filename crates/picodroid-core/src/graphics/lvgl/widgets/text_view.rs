@@ -124,9 +124,9 @@ pub(in crate::graphics) fn set_line_mode(id: i32, kind: i32, max_lines: i32, sin
     }
 }
 
-/// The height of the label's box holding `lines` lines: the lines and the spacing between them,
-/// plus the padding and border that `max_height` clamps together with the content (so the Java
-/// side re-applies the mode after a padding change). `LV_COORD_MAX` — no cap — when the font
+/// The `max_height` that holds the label's box to `lines` lines: the lines and the spacing between
+/// them, plus the padding and border that `max_height` clamps together with the content (so the
+/// Java side re-applies the mode after a padding change). `LV_COORD_MAX` — no cap — when the font
 /// gives no line height to measure by.
 fn box_height_for(label: *mut lv_obj_t, lines: i32) -> i32 {
     let num =
@@ -135,11 +135,19 @@ fn box_height_for(label: *mut lv_obj_t, lines: i32) -> i32 {
     if line_height <= 0 {
         return LV_COORD_MAX;
     }
-    let pads = num(LV_STYLE_PAD_TOP) + num(LV_STYLE_PAD_BOTTOM);
-    lines * line_height
-        + (lines - 1) * num(LV_STYLE_TEXT_LINE_SPACE)
-        + pads
-        + 2 * num(LV_STYLE_BORDER_WIDTH)
+    let text = lines * line_height + (lines - 1) * num(LV_STYLE_TEXT_LINE_SPACE);
+    let frame = num(LV_STYLE_PAD_TOP) + num(LV_STYLE_PAD_BOTTOM) + 2 * num(LV_STYLE_BORDER_WIDTH);
+    line_cap(text, frame)
+}
+
+/// The `max_height` for a label whose text should measure `text` px inside a frame of pads and
+/// border `frame` px (negative under `setIncludeFontPadding(false)`). LVGL's label clamps its own
+/// text height by `max_height` (`lv_label` `GET_SELF_SIZE`) before the frame is added and the box
+/// clamped again, so a cap that carried a negative frame would take it off twice: a 64 px face
+/// trimmed by 9 px measured 48 px, not 57, and a row centring it dropped the digits 5 px. A
+/// positive frame belongs in the cap, or the box would clamp to less than the frame plus the text.
+fn line_cap(text: i32, frame: i32) -> i32 {
+    text + frame.max(0)
 }
 
 /// The face a label draws with: its `LV_STYLE_TEXT_FONT`, inherited from the theme until
@@ -230,5 +238,25 @@ pub(in crate::graphics) fn set_include_font_padding(id: i32, include: bool) {
     unsafe {
         lv_obj_set_style_pad_top(label, pad_top, 0);
         lv_obj_set_style_pad_bottom(label, pad_bot, 0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::line_cap;
+
+    #[test]
+    fn a_positive_frame_is_in_the_cap() {
+        // A bordered button label: text plus its frame, so the box is not clamped short.
+        assert_eq!(line_cap(16, 4), 20);
+        assert_eq!(line_cap(16, 0), 16);
+    }
+
+    #[test]
+    fn a_negative_frame_is_left_out_of_the_cap() {
+        // Font padding off on the 64 px face: LVGL takes the -9 off the box itself, so a cap of
+        // 57 would measure 48.
+        assert_eq!(line_cap(66, -9), 66);
+        assert_eq!(line_cap(16, -4), 16);
     }
 }
