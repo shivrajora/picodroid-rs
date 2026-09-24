@@ -187,6 +187,20 @@ both-direction assertions are what keep the two in step. Generating the arms fro
 list (the X-macro phase in `docs/designs/method-level-native-registry.md`) remains open and
 would make drift structurally impossible rather than test-enforced.
 
+**Gap the registry cannot see: private natives dispatch by the declaring class (found
+2026-09-23).** javac emits `invokespecial` for a `private` method call (the SDK targets release
+8), and `ops_invoke.rs` hands the handler the constant-pool class for `invokespecial`, the
+receiver's runtime class only for `invokevirtual`/`invokeinterface`. So a subclass over a
+*different* LVGL widget — `CircularProgressIndicator` (`lv_arc`) under `ProgressBar` (`lv_bar`)
+— reaches the superclass's arms with the subclass's handle, and with `LV_USE_ASSERT_OBJ 0` an
+`lv_bar_*` call on an `lv_arc` pointer writes bar fields into the arc struct instead of
+refusing. Every table row still matches an arm, so the registry check stays green. The fix
+used: the inherited natives are package-private (`invokevirtual`, routed by runtime class), the
+subclass is in `is_view()` and its dispatcher owns those arms — the `CompoundButton` shape.
+Open: a guard that fails when a `private native` on an SDK class has a subclass whose
+dispatcher does not handle it, or, cheaper, a source scan that rejects `private native` on any
+SDK class that is extended within the SDK.
+
 ### Scripted UI scenario tests via the control FIFO
 
 A scenario runner feeding `PICODROID_SIM_CTRL_FIFO` button sequences synchronized on log tokens,
