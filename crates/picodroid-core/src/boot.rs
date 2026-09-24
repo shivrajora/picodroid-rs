@@ -294,6 +294,10 @@ pub fn run_app(apk_data: &[u8]) {
     let mut jvm = Jvm::with_capacity(FRAMEWORK_CLASSES.len() + apk_class_count);
     let heap = shared_heap();
     heap.class_objects.resolve.configure(resolve_cache_sizes());
+    // A new app run: the class data behind every native's name is about to
+    // change address, so long-lived handlers (the background workers) drop
+    // what they remembered about the last one (`dispatch_memo.rs`).
+    crate::native_handler::next_app_generation();
     let mut handler = crate::native_handler::PicodroidNativeHandler::new();
     // Root this handler's Activity stack / pending ops for GCs run by OTHER
     // executors (network children, bg workers) — see HANDLER_ROOTS.
