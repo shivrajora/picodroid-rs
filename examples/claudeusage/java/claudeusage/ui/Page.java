@@ -38,4 +38,14 @@ abstract class Page {
 
   /** Repaint from the service. Called once built, then every second; must diff. */
   abstract void update(UsageService repo, long nowMs);
+
+  /**
+   * The first paint, one part per tick, while the page is still invisible: a page whose whole
+   * {@link #update} overruns the RP2350's tick budget paints itself in parts here. Returns true
+   * while there is more to paint. The default paints everything at once.
+   */
+  boolean paintNext(UsageService repo, long nowMs) {
+    update(repo, nowMs);
+    return false;
+  }
 }

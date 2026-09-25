@@ -366,7 +366,7 @@ public class MainActivity extends Activity implements UsageService.Listener {
         Executors.mainExecutor().execute(() -> continueBuild(token));
         return;
       }
-      // The first update takes its own tick: with the last build step it overran the budget.
+      // The first paint takes its own ticks: with the last build step it overran the budget.
       Executors.mainExecutor().execute(() -> finishPage(token));
     } catch (OutOfMemoryError | RuntimeException e) {
       // A half-built page would stay invisible for good. Drop it; the next tick builds it again,
@@ -381,12 +381,30 @@ public class MainActivity extends Activity implements UsageService.Listener {
       return;
     }
     try {
-      pageBuilt = true;
       updatedSnapshot = repo.snapshot();
       updatedFresh = repo.isFresh();
       updatedMinute = System.currentTimeMillis() / 60_000L;
       refreshPageChrome();
-      page.update(repo, System.currentTimeMillis());
+      Executors.mainExecutor().execute(() -> paintPage(token));
+    } catch (OutOfMemoryError | RuntimeException e) {
+      // A half-built page would stay invisible for good. Drop it; the next tick builds it again,
+      // by which time the collector has had a chance to run.
+      Log.w(TAG, "page build failed: " + e);
+      discardPage();
+    }
+  }
+
+  /** The first paint, a part per tick while the page is invisible, then the fade-in. */
+  private void paintPage(int token) {
+    if (token != buildToken || destroyed || page == null || repo == null) {
+      return;
+    }
+    try {
+      if (page.paintNext(repo, System.currentTimeMillis())) {
+        Executors.mainExecutor().execute(() -> paintPage(token));
+        return;
+      }
+      pageBuilt = true;
       page.root.animate().alpha(1f).setDuration(fadeMs).start();
     } catch (OutOfMemoryError | RuntimeException e) {
       // A half-built page would stay invisible for good. Drop it; the next tick builds it again,

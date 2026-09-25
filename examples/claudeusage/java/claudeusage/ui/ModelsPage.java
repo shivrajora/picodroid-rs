@@ -20,6 +20,9 @@ final class ModelsPage extends Page {
   private final MeterRow[] caps = new MeterRow[UsageSnapshot.MAX_MODELS];
   private final MeterRow[] mix = new MeterRow[UsageSnapshot.MAX_MODELS];
 
+  /** The first paint takes one card per tick: both at once cost the RP2350 57 ms. */
+  private int paintStep;
+
   private final String all;
   private final String noCaps;
   private final String resetsIn;
@@ -89,13 +92,32 @@ final class ModelsPage extends Page {
   }
 
   @Override
+  boolean paintNext(UsageService repo, long nowMs) {
+    UsageSnapshot s = repo.snapshot();
+    if (s == null) {
+      return false;
+    }
+    boolean stale = !repo.isFresh();
+    if (paintStep++ == 0) {
+      updateCaps(s, stale, nowMs);
+      return true;
+    }
+    updateMix(s);
+    return false;
+  }
+
+  @Override
   void update(UsageService repo, long nowMs) {
     UsageSnapshot s = repo.snapshot();
     if (s == null) {
       return;
     }
     boolean stale = !repo.isFresh();
+    updateCaps(s, stale, nowMs);
+    updateMix(s);
+  }
 
+  private void updateCaps(UsageSnapshot s, boolean stale, long nowMs) {
     // Row 0 is always the all-models cap, so the card is never empty on a plan without per-model
     // caps; the rest are whatever the account reports.
     caps[0].show(all, s.weeklyPct, palette.severity(s.weeklyPct), stale);
@@ -115,7 +137,9 @@ final class ModelsPage extends Page {
       capsNote.show(
           leftMs > 0 ? String.format(resetsIn, TimeFormat.duration(leftMs)) : "", palette.faint);
     }
+  }
 
+  private void updateMix(UsageSnapshot s) {
     for (int i = 0; i < mix.length; i++) {
       if (i < s.mixCount) {
         mix[i].show(s.mixName[i], s.mixPct[i], palette.clay, false);

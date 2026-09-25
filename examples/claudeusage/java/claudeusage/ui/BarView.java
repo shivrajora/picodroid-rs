@@ -17,6 +17,7 @@ final class BarView {
 
   private final ProgressBar bar;
 
+  private int shownPct;
   private int shownColor;
   private boolean shownDim;
   private boolean shownVisible = true;
@@ -42,9 +43,13 @@ final class BarView {
    * @param color the fill colour
    */
   void show(int pct, int color, boolean dim) {
-    // show() runs every second: the widget skips an unchanged value itself; the tint is diffed here
-    // because every style set redraws the bar.
-    bar.setProgress(pct < 0 ? 0 : pct, true);
+    // show() runs every second: an unchanged value is not even a native call, and the tint is
+    // diffed because every style set redraws the bar.
+    int shown = pct < 0 ? 0 : pct;
+    if (shown != shownPct) {
+      bar.setProgress(shown, true);
+      shownPct = shown;
+    }
     if (color != shownColor || dim != shownDim) {
       bar.setProgressTintList(ColorStateList.valueOf(color).withAlpha(dim ? DIM_ALPHA : 0xFF));
       shownColor = color;

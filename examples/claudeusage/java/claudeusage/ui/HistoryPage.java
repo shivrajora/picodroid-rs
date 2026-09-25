@@ -19,6 +19,13 @@ final class HistoryPage extends Page {
   private static final int BAR_MAX = 58;
   private static final int BASELINE = 98;
 
+  /** Seven bars in one step cost the RP2350 54 ms; four fit the 50 ms tick. */
+  private static final int BARS_PER_STEP = 4;
+
+  private static final int BAR_STEPS = (DAYS + BARS_PER_STEP - 1) / BARS_PER_STEP;
+  private static final int FIRST_BAR_STEP = 5;
+  private static final int FIRST_LETTER_STEP = FIRST_BAR_STEP + BAR_STEPS;
+
   /** Column origins: the first caption is the widest, so the columns are not equal. */
   private static final int[] STAT_X = {Ui.CARD_PAD, 124, 214};
 
@@ -33,6 +40,7 @@ final class HistoryPage extends Page {
   private final FrameLayout[] bars = new FrameLayout[DAYS];
   private final Line[] letters = new Line[DAYS];
   private final int[] shownHeight = new int[DAYS];
+  private final int[] shownFill = new int[DAYS];
 
   private final String dash;
   private final String estimate;
@@ -79,15 +87,22 @@ final class HistoryPage extends Page {
                 "",
                 palette.faint);
         return true;
-      case 5:
-        for (int d = 0; d < DAYS; d++) {
-          bars[d] = Ui.box(ctx, barX(d), BASELINE - 2, BAR_WIDTH, 2, palette.track, 1);
-          shownHeight[d] = -1;
-          chart.addView(bars[d]);
-        }
-        return true;
       default:
-        int from = (s - 6) * 4;
+        if (s < FIRST_LETTER_STEP) {
+          // Built in the colour a day with tokens takes: the page is invisible until its first
+          // update, which then only sizes the bar. A day without tokens is re-filled as a stub.
+          int from = (s - FIRST_BAR_STEP) * BARS_PER_STEP;
+          int to = from + BARS_PER_STEP > DAYS ? DAYS : from + BARS_PER_STEP;
+          for (int d = from; d < to; d++) {
+            int fill = d == DAYS - 1 ? palette.clay : palette.barPast;
+            bars[d] = Ui.box(ctx, barX(d), BASELINE - 2, BAR_WIDTH, 2, fill, 4);
+            shownHeight[d] = -1;
+            shownFill[d] = fill;
+            chart.addView(bars[d]);
+          }
+          return true;
+        }
+        int from = (s - FIRST_LETTER_STEP) * 4;
         int to = from + 4 > DAYS ? DAYS : from + 4;
         for (int d = from; d < to; d++) {
           letters[d] =
@@ -141,10 +156,11 @@ final class HistoryPage extends Page {
         shownHeight[d] = h;
         bars[d].setSize(BAR_WIDTH, h);
         bars[d].setPosition(barX(d), BASELINE - h);
-        Ui.fill(
-            bars[d],
-            h <= 2 ? palette.track : (today ? palette.clay : palette.barPast),
-            h <= 2 ? 1 : 4);
+      }
+      int fill = h <= 2 ? palette.track : (today ? palette.clay : palette.barPast);
+      if (fill != shownFill[d]) {
+        shownFill[d] = fill;
+        Ui.fill(bars[d], fill, h <= 2 ? 1 : 4);
       }
       String letter = d < s.dayLetters.length() ? s.dayLetters.substring(d, d + 1) : "";
       letters[d].show(letter, today ? palette.text : palette.muted);
