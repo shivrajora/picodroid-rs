@@ -47,7 +47,7 @@ One line per window, greppable by `memmon` (sim `[memmon] ...`, device RTT
 `memmon: ...`):
 
 ```text
-[memmon] w=12 live=2331 obj=2216 arr=0 str=115 floor=2331 nused=126856 nfree=299128 nmin=296664 lblk=295840 gc=+0 freed=+0 gcb=+0 alloc=+14 nalloc=+0 stri=+9 frag=11pm
+[memmon] w=12 live=2331 obj=2216 arr=0 str=115 floor=2331 nused=126856 nfree=299128 nmin=296664 lblk=295840 gc=+0 freed=+0 gcb=+0 alloc=+14 nalloc=+0 stri=+9 frag=11pm lv=9312/49152
 ```
 
 | Field | Meaning |
@@ -64,6 +64,7 @@ One line per window, greppable by `memmon` (sim `[memmon] ...`, device RTT
 | `nalloc=+N` | JVM allocations by native glue (lifecycle/sensor code) this window |
 | `stri=+N` | `intern_dyn` calls this window (StringBuilder.toString / format / concat all sink here) |
 | `frag=Npm` | Permille of free space **not** in the largest block — 0 = unfragmented, high values mean a big allocation may fail despite ample total free |
+| `lv=U/T` | The LVGL pool: used / total bytes. A second heap `nused` never sees — the widget tree lives in it, and its C structs carry pointers, so the same screen costs the 64-bit simulator 1.3–2× what it costs the device (`lv_obj_t` 72 B against 48; a style entry or event descriptor exactly double). Read it beside the device's own line |
 
 Special lines:
 

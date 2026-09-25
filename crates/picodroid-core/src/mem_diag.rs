@@ -540,6 +540,16 @@ fn sample_native_heap() -> NativeHeapSample {
     }
 }
 
+/// The LVGL pool as `(used, total)` bytes. A second heap the `nused` figure
+/// never sees: the widget tree lives here, and its C structs carry pointers,
+/// so the host pays 1.3–2x the device for the same screen (`lv_obj_t` 72 B
+/// against 48, a style entry 16 against 8). Printing it beside the arena is
+/// what makes that divergence measurable. UI task only, like the sampler.
+fn sample_lvgl_pool() -> (u32, u32) {
+    let (free, total) = crate::graphics::lvgl::pool_free_bytes();
+    (total.saturating_sub(free) as u32, total as u32)
+}
+
 // ── Report output ───────────────────────────────────────────────────────────
 
 /// Permille of free space NOT reachable as one contiguous block — 0 means
@@ -566,13 +576,14 @@ fn print_report(
     alloc_delta: u32,
     native_alloc_delta: u32,
     intern_delta: u32,
+    lvgl: (u32, u32),
 ) {
     let frag = frag_permille(native);
     #[cfg(feature = "sim")]
     {
         let _b = crate::host::heap_bypass();
         println!(
-            "[memmon] w={} live={} obj={} arr={} str={} floor={} nused={} nfree={} nmin={} lblk={} gc=+{} freed=+{} gcb=+{} alloc=+{} nalloc=+{} stri=+{} frag={}pm",
+            "[memmon] w={} live={} obj={} arr={} str={} floor={} nused={} nfree={} nmin={} lblk={} gc=+{} freed=+{} gcb=+{} alloc=+{} nalloc=+{} stri=+{} frag={}pm lv={}/{}",
             window,
             live,
             obj,
@@ -590,11 +601,13 @@ fn print_report(
             native_alloc_delta,
             intern_delta,
             frag,
+            lvgl.0,
+            lvgl.1,
         );
     }
     #[cfg(not(feature = "sim"))]
     defmt::info!(
-        "memmon: w={=u32} live={=u32} obj={=u32} arr={=u32} str={=u32} floor={=u32} nused={=u32} nfree={=u32} nmin={=u32} lblk={=u32} gc=+{=u32} freed=+{=u32} gcb=+{=u32} alloc=+{=u32} nalloc=+{=u32} stri=+{=u32} frag={=u32}pm",
+        "memmon: w={=u32} live={=u32} obj={=u32} arr={=u32} str={=u32} floor={=u32} nused={=u32} nfree={=u32} nmin={=u32} lblk={=u32} gc=+{=u32} freed=+{=u32} gcb=+{=u32} alloc=+{=u32} nalloc=+{=u32} stri=+{=u32} frag={=u32}pm lv={=u32}/{=u32}",
         window,
         live,
         obj,
@@ -612,6 +625,8 @@ fn print_report(
         native_alloc_delta,
         intern_delta,
         frag,
+        lvgl.0,
+        lvgl.1,
     );
 }
 
@@ -756,6 +771,7 @@ fn sample_window(heap: &mut SharedJvmHeap, _handler: &PicodroidNativeHandler) {
         alloc_delta,
         native_alloc_delta,
         intern_delta,
+        sample_lvgl_pool(),
     );
 
     let storage = (
@@ -873,10 +889,11 @@ pub fn snapshot(jvm: &pico_jvm::Jvm, heap: &mut SharedJvmHeap, _handler: &Picodr
         live
     };
     let native = sample_native_heap();
+    let lvgl = sample_lvgl_pool();
     {
         let _b = crate::host::heap_bypass();
         println!(
-            "[memmon] snapshot live={} obj={} arr={} str={} floor={} nused={} nfree={} nmin={} lblk={} gc={} freed={} gcb={} alloc={} nalloc={} stri={} frag={}pm",
+            "[memmon] snapshot live={} obj={} arr={} str={} floor={} nused={} nfree={} nmin={} lblk={} gc={} freed={} gcb={} alloc={} nalloc={} stri={} frag={}pm lv={}/{}",
             live,
             obj,
             arr,
@@ -893,6 +910,8 @@ pub fn snapshot(jvm: &pico_jvm::Jvm, heap: &mut SharedJvmHeap, _handler: &Picodr
             native_alloc_total(),
             heap.strings.dyn_intern_total(),
             frag_permille(&native),
+            lvgl.0,
+            lvgl.1,
         );
     }
     print_histo_top(heap);
