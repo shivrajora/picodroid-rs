@@ -28,6 +28,8 @@ pub mod spi_bus;
 pub mod system_clock;
 pub mod touch;
 pub mod uart;
+#[cfg(feature = "chip-rp2350")]
+pub mod xip;
 
 // The CYW43439 link driver: bindings plus `cyw43::link::Cyw43Link`, which
 // core's `run_link_task` drives. Family code: the chip is a link driver,

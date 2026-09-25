@@ -107,6 +107,8 @@ static GLOBAL: FreeRtosAllocator = FreeRtosAllocator;
 #[entry]
 fn main() -> ! {
     hal::boot::clock_init();
+    #[cfg(feature = "chip-rp2350")]
+    hal::xip::init();
     // The RP2040 bootrom's float_to_int rounds toward -inf and rp2040-hal
     // maps `__aeabi_f2iz` to it; the vendored HAL (third_party/rp2040-hal)
     // truncates instead. Loud if a HAL upgrade ever drops that patch: the

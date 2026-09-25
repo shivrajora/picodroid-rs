@@ -77,6 +77,9 @@ pub use chip::pdb_usb;
 // `packagemanager`) carry this same gate.
 #[cfg(all(not(any(feature = "sim", test)), feature = "family-rp"))]
 pub use chip::{boot, flash};
+// RP2350 XIP window timing (rp/xip.rs): device-only, chip-specific.
+#[cfg(all(not(any(feature = "sim", test)), feature = "chip-rp2350"))]
+pub use chip::xip;
 
 // The module's QSPI PSRAM (rp/psram.rs): device-only for the same reason as
 // boot and flash, and only where the MCU toml declares `psram_kb`.
