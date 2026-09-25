@@ -1,6 +1,6 @@
 # Roadmap: `claudeusage` toward Android shape
 
-**Status: round 1 landed 2026-09-22 (app-only, no SDK change); SDK asks 1, 2, 3 and 8 landed 2026-09-24 and the app uses them (items 10, 16, 44 and the chrome flattening); 4 to 7 open.**
+**Status: round 1 landed 2026-09-22 (app-only, no SDK change); SDK asks 1, 2, 3 and 8 landed 2026-09-24 and the app uses them (items 10, 16, 44 and the chrome flattening); 4 to 7 open. D4 (page-turn stalls) closed 2026-09-25, see the gaps roadmap.**
 
 `examples/claudeusage` is a four-screen desk display (Limits, Models, Burn rate, History) for a
 Pico 2 W with a Pimoroni Display Pack 2.0. The project goal is that a picodroid app reads like the
@@ -199,5 +199,8 @@ inlined by javac, would trade the resource-backed palette (item 15) for cache en
   (cold resolution, frame allocation, native dispatch, interpretation from XIP), not the app;
   the runtime fixes in `350c3552` bring the small steps under budget, and the 2026-09-24
   follow-ups (batched style refreshes, a dispatch memo, one meter row or four bars per step)
-  take the Burn and Models build steps under it too; History remains. The boot-time
-  `pending-op drain` of ~90 ms is the Service start plus bind, one-off.
+  take the Burn and Models build steps under it too; the 2026-09-25 round (the RP2350's
+  flash clock at the pico-sdk's divider instead of the ROM's, `hal/rp/xip.rs`; History four
+  bars per step and pre-filled; the Models first paint one card per tick) leaves no page turn
+  with a span over 50 ms. The boot-time `pending-op drain` of ~90 ms is the Service start
+  plus bind, one-off.

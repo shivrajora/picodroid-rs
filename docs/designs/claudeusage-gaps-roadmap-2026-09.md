@@ -1,6 +1,6 @@
 # Platform gaps found building `claudeusage`
 
-**Status: open list; G1, G2 and G3 closed 2026-09-23, G8 closed 2026-09-24, D5 (app bug) fixed 2026-09-23. D4 root-caused; the runtime fixes (`350c3552`) and the cheap follow-ups (style batching, dispatch memo, the Burn and Models step split, 2026-09-24) landed — Burn and the Models rows are under budget, History and the XIP interpreter cost remain. G11 attributed 2026-09-24: the board has 98 KB free on its worst page, the simulator 9 KB; the levers are listed there. G10 is next.**
+**Status: open list; G1, G2 and G3 closed 2026-09-23, G8 closed 2026-09-24, D5 (app bug) fixed 2026-09-23. D4 closed for this app 2026-09-25: the RP2350's flash clock was the ROM's divider of 3 and is now 2 (`hal/rp/xip.rs`, every RP2350 board), the History and Models first paints are split, and no page turn has a span over 50 ms; the one runtime follow-up left, a RAM-resident interpreter loop, is measured below and waits on a decision about the 30 KB. G11 attributed 2026-09-24: the board has 98 KB free on its worst page, the simulator 9 KB; the levers are listed there. G10 is next.**
 
 `examples/claudeusage` is a desk display for Claude usage limits on a new board, `pico_display2_w`
 (Pimoroni Pico Display Pack 2.0 on a Pico 2 W). It was built to look like a modern product rather
@@ -17,9 +17,9 @@ unless it says hardware.
 
 ## Defects
 
-### D4. Every tick of a page swap overruns the slow-handler budget on the RP2350 — **highest priority**
+### D4. Every tick of a page swap overruns the slow-handler budget on the RP2350 — closed 2026-09-25
 
-**Status: root-caused and mostly fixed (2026-09-23/24); see "Findings" and "Follow-ups landed" below.** Candidates 0
+**Status: closed for this app (2026-09-25); see "The flash clock" at the end of this section for what did it and what is left for the runtime.** Before that: root-caused and mostly fixed (2026-09-23/24); see "Findings" and "Follow-ups landed" below. Candidates 0
 to 2 are answered: the pre-round app is just as slow on today's runtime, nothing preempts the
 UI task, and the cost is per-bytecode interpreter overhead plus LVGL object creation, not
 the app. The runtime fixes landed (persistent set-associative resolution tables, frame
@@ -161,6 +161,52 @@ has every step under 50 ms.
   History wants the same split. **(b) remains:** interpreting from XIP, and with it the
   observation above that *all* native code pays the same fetch cost — the create's residual
   1.4 ms is a few thousand LVGL instructions at flash speed, not any one expensive call.
+
+**The flash clock (2026-09-25).** Same board, same `parity-metrics` debug build, laps of eight
+page turns. The morning's baseline: Limits first update 56–62 ms, Models first update 72–77,
+History bar step 72 and first update 86–87; Burn clean. The counters said where the time was
+not: 383 field ops cost 14–15 ms (38 µs each) and 24 cold resolves 9–10 ms, on a hit path that
+is a hash and four compares in RAM. Everything on this board runs at the speed its code can be
+fetched from flash, so the fetch itself was measured:
+
+- **The QSPI clock was the ROM's.** The image has no boot stage 2, so XIP window 0 ran in the
+  mode the RP2350 boot ROM discovers — quad-I/O `EB` reads, 8-bit command prefix per burst,
+  `M0_TIMING` divider 3 (50 MHz SCK at 150 MHz clk_sys). The pico-sdk's boot2 programs
+  divider 2 and RXDELAY 2 for every RP2350 board (`boot2_w25q080.S`). `hal/rp/xip.rs` now
+  retimes the window to those figures once after `clock_init`, guarded on the ROM having
+  picked `EB` (the serial `03h` fallback is rated to 50 MHz). A 128 KB read through the
+  uncached alias: 6.2 ms → 4.7 ms (1.33×). Every span 20–25 % shorter: Limits under the line,
+  Models 57–59, History 54 and 65–66. `with_xip_disabled!` restores the retimed registers
+  after a runtime flash write; two AUTO toggles (preference writes) left the spans unchanged.
+  The boot log line `[xip] window 0: quad EB, clkdiv 3 -> 2, …; 128 KB uncached read N us`
+  is the figure to watch: a restore that ever falls back to `03h` shows as a 14× N.
+- **`opt-level = "s"` is slower, not faster.** Tried for the whole workspace: flash 1,539 →
+  1,424 KB, but every span 8–15 % longer (History 54 → 60, 66 → 73). At `s` the opcode handlers
+  stop inlining into `Executor::run` (29.6 → 3.1 KB, the handlers 2.7–5.1 KB each), so a
+  bytecode crosses more call boundaries, each a fresh set of cold lines. Reverted; `3` stays.
+- **A RAM-resident interpreter loop works, and costs 30 KB.** `#[link_section = ".data"]` on
+  `Executor::run` (29.6 KB at `opt-level = 3`, 35.6 KB with the release profile's fat LTO)
+  with the arena cut 408 → 372 KB to fund it: Models first update gone, History bar step gone,
+  History first update 65 → 51–52; `other` (the plain opcodes) 6.5 → 2.0 ms and fields
+  11.8 → 9.2 ms per History paint. What is left in a 51 ms paint is natives 12.5 ms, cache
+  probes 7 ms and the invoke path's own 14 ms (constant-pool reads of names and descriptors
+  from flash, `count_args` over the descriptor, the name compares before dispatch), all of it
+  outside `run`. Not landed: the 30 KB comes out of the arena on every RP2350 board, which is
+  a product decision (opt-in per board through `[jvm]` in board.toml and the JVM's
+  `build.rs`, funded by H8 + H9 + H7 at 23 KB, would leave ~7 KB of headroom on this board);
+  the RAM copy could also be halved by keeping the cold handlers (math, convert, arrays, indy,
+  monitors, the exception and GC tails) out of line in flash. XIP-cache pinning (op 7 in the
+  maintenance alias, 8-byte lines) is the no-RAM alternative, at the cost of one of the two
+  cache ways for the pinned sets; not tried.
+- **App, on top of the clock.** History builds four bars per step (`BARS_PER_STEP`, as Burn)
+  and builds them in their final colour and radius while the page is still invisible, so the
+  first paint only sizes them and re-fills only a day without tokens (`shownFill`): no History
+  span over 50 ms in three laps. Models paints one card per tick on the first paint
+  (`Page.paintNext`, driven by `MainActivity.paintPage` before the fade-in; later updates stay
+  whole), and `BarView` skips `setProgress` for an unchanged value, which the cleared rows were
+  paying as a native each: no Models span over 50 ms either. Twelve turns and two preference writes on the final build:
+  no slow span at all. What remains is one-off: the Service start (`pending-op drain`, ~60–75 ms)
+  and the first page after boot (65 ms, 83 cold resolutions), before the tables are warm.
 
 **Repro.** `env $(grep -v '^#' .wifi-creds.env | xargs) PICODROID_NET_TEST_HOST=<PC address>
 ./scripts/flash.sh --board pico_display2_w --app claudeusage` in the background, wait for
