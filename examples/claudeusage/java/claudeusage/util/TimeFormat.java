@@ -17,7 +17,7 @@ import java.time.format.DateTimeFormatter;
  * cost four more.
  */
 public final class TimeFormat {
-  private static final DateTimeFormatter HM = DateTimeFormatter.ofPattern("HH:mm");
+  private static final DateTimeFormatter HH_MM = DateTimeFormatter.ofPattern("HH:mm");
 
   /** The bridge's zone: the PC knows its timezone, the device does not. UTC until told. */
   private static ZoneOffset zone = ZoneOffset.UTC;
@@ -32,7 +32,7 @@ public final class TimeFormat {
   /** Local "12:03". */
   public static String hm(long epochMs) {
     long local = Math.floorDiv(epochMs, 1000L) + zone.getTotalSeconds();
-    return LocalTime.ofSecondOfDay(Math.floorMod(local, 86_400L)).format(HM);
+    return LocalTime.ofSecondOfDay(Math.floorMod(local, 86_400L)).format(HH_MM);
   }
 
   /** "3d 4h", "2h 14m", "14m", "<1m": two units at most, so it stays short at any scale. */
