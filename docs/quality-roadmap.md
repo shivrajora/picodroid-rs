@@ -366,6 +366,39 @@ scratch grow fallibly (the smaller objects let a full heap reach a growth step t
 infallible push aborted on). Measurements and what differed from the design:
 `designs/value-slot-8b.md`, "As built".
 
+### A class store of our own: shared string table, packed method records
+
+**What.** Replace the per-class `.class` files the firmware embeds (and the parser keeps
+metadata for) with a store built at firmware-build time from the same stripped, shrunk
+classes: one string table shared by every class, 16-bit indexes in place of the per-class
+constant pools, and a fixed-width method record (flags, name, descriptor, code offset,
+`max_stack`, `max_locals` in about 12 bytes) in place of `method_info` plus a `Code`
+attribute. `ClassFile::parse` reads the store; javac, the API contract, the shrink maps and
+the app PAPKs are untouched (an app's own classes could keep the class-file format, or go
+through the same packer at install).
+
+**Why.** Measured on `java.time.LocalDateTime` after the v0.29.0 cut (2026-09-25): 7,361 B in
+the shrunk image, of which bytecode is 2,186 B. The rest is format: a 480-entry constant pool
+(3,235 B, of which 1,160 B is the fixed framing of `Class` / `NameAndType` / `Methodref`
+entries and 1,899 B is Utf8 that every other class spells again for the same names), and 26 B
+of framing per method (8 B `method_info` header, 18 B `Code` preamble — 1,898 B for its 73
+methods, nearly as much as their code, since the median body is 17 B and 23 of them are
+one-line delegations). The 27 `java.time` classes are 54.5 KB shrunk and 67 KB before the map;
+a shared table and packed records would take roughly half again off that, across all 301 SDK
+classes. The same records are what `Parsed` builds per method at first use, so the store also
+cuts the RAM cost recorded as G11 in `designs/claudeusage-gaps-roadmap-2026-09.md` (5 KB per
+class in the sim, 3 KB on the RP2350; `claudeusage` OOM'd on nine of them).
+
+**Tradeoff.** A second class format to keep in step with `ClassFile` (the parser, the shrink
+pass in `build_support`, `check-shrunk-image.sh`, the census) and a packer step in `build.rs`;
+`--shrink-app` and the PAPK loader must decide whether app classes join the store. Worth it
+once flash or the parsed-metadata RAM is the constraint on a board; today the RP2350 has
+887 KB of flash free and the RP2040 sidesteps `java.time` by excluding it, so this is a
+budget lever to pull deliberately, not a fix something is waiting on. Cheaper first steps if
+only `java.time` matters: drop its one-line delegations (`minusX`, `withNano`, the
+`Month`-typed `of` overloads) — about 2 KB per class — at the price of some Android code no
+longer compiling.
+
 ### Background pool: two 6 KiB workers instead of four on `pico_enviro_mon_w`
 
 The W board raises `[background_pool] stack_bytes` to 6144 for one job (NetworkManager's
