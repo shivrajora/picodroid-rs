@@ -1,6 +1,6 @@
 # Platform gaps found building `claudeusage`
 
-**Status: open list; G1, G2 and G3 closed 2026-09-23, G8 closed 2026-09-24, D5 (app bug) fixed 2026-09-23. D4 root-caused; the runtime fixes (`350c3552`) and the cheap follow-ups (style batching, dispatch memo, the Burn and Models step split, 2026-09-24) landed — Burn and the Models rows are under budget, History and the XIP interpreter cost remain. G10 is next.**
+**Status: open list; G1, G2 and G3 closed 2026-09-23, G8 closed 2026-09-24, D5 (app bug) fixed 2026-09-23. D4 root-caused; the runtime fixes (`350c3552`) and the cheap follow-ups (style batching, dispatch memo, the Burn and Models step split, 2026-09-24) landed — Burn and the Models rows are under budget, History and the XIP interpreter cost remain. G11 attributed 2026-09-24: the board has 98 KB free on its worst page, the simulator 9 KB; the levers are listed there. G10 is next.**
 
 `examples/claudeusage` is a desk display for Claude usage limits on a new board, `pico_display2_w`
 (Pimoroni Pico Display Pack 2.0 on a Pico 2 W). It was built to look like a modern product rather
@@ -409,6 +409,84 @@ offsets, flags — a packed table would halve them), a census line per class so 
 import is visible, and a sim model that charges device-sized metadata rather than host-sized,
 so an app that fits the RP2350 is not refused by the simulator. Until then, an app on this
 board should count the SDK classes it touches, not only its own objects.
+
+**Attributed (2026-09-24):** the census now names every parsed class and every part of the
+parsed record, and the simulator's allocator can keep the call stack behind every live arena
+block (`PICODROID_MEMDIAG_SITES=1`, docs/memory-diagnostics.md). With that, and a mem-diag
+firmware on the board beside it, the whole heap has owners. Measured on the same afternoon's
+tree, the live bridge, pages turned in order after the first sync:
+
+| page | sim arena used (of 408 KB) | RP2350 heap used (of 408 KB) | RP2350 free / lowest ever |
+|---|---|---|---|
+| before the first sync | 120 KB | 244 KB | 174 KB |
+| Limits | 383 KB | 301 KB | 117 KB / 106 KB |
+| Models | 391 KB | 314 KB | 103 KB / 86 KB |
+| Burn rate | 396 KB | 317 KB | 101 KB / 78 KB |
+| History | 399 KB | 320 KB | 98 KB / 78 KB, largest block 48 KB |
+
+The device is not at the edge: 98 KB free on the worst page, 78 KB at the deepest transient.
+The simulator is, by 79 KB, and the ledger says why — pointer width: parsed class metadata
+161 KB on the host against 94 KB modelled for the device, the class table 11 against 4.5,
+the static field store 14 against 7, the seven dispatch memos 11 against 5. Where the bytes
+are on the History page (sim ledger, device model beside it):
+
+| owner | sim | device | what |
+|---|---|---|---|
+| task stacks, TCBs, queues | 121 KB | 121 KB | JVM 33; `usage-poll` 16.5; `usage-tick` 16.5; 4 pool workers 25; pdb 8.3; fs 8.3; cyw43, flash parker, timer, idle, queues 10.8 |
+| parsed class metadata, 73 classes | 161 KB | 94 KB | CP offsets (`usize` each) 43 %, method table 35 %, CP tags 6 %, the `Box<Parsed>` 7 % — the rest is fields, interfaces, bootstrap and exception tables |
+| JVM heap storage | 41 KB | 41 KB | slot chunks, the fields arena (14 KB), side tables, arrays, strings, GC buffers; holding 11–26 KB of live Java objects |
+| resolution tables | 14 KB | 16 KB | sized on purpose (D4) |
+| static field store | 14 KB | 7 KB | a `Vec` of (class name, field name, value), doubled once to 256 entries |
+| LittleFS | 12.7 KB | 12.7 KB | read cache, program cache and lookahead each default to the 4 KB block size |
+| class table, 226 entries | 10.8 KB | 4.5 KB | |
+| dispatch memos, 7 handlers | 10.8 KB | 5.4 KB | main + 4 pool workers + 2 Java threads, 64 rows each |
+| JSON pool, frames, misc | 8 KB | 8 KB | |
+
+The device sum (310 KB) is 10 KB under the board's own `nused`: the network stack's sockets
+and buffers, which the simulator does not model (host sockets). Classes that cost the most on
+the device: `JSONObject` 6.0 KB, `MainActivity` 5.7, `View` 4.0, `LocalTime` 3.9, `JSONArray`
+3.5, `UsageService` 3.5, `Duration` 3.2, `HttpURLConnection` 2.7, `Thread` 2.5,
+`LayoutInflater` 2.3, `SharedPreferences` 2.3, `UsageFetcher` 2.2 (its 24 exception-table
+entries), `BurnPage` 2.1, `Activity` 2.1.
+
+**Levers, device bytes, ranked within each owner:**
+
+*App (about 39 KB):*
+
+1. Fold `usage-tick` into the poll thread: `idle()` already waits on the lock; wake it every
+   `TICK_MS` and post `tick` from there. −17 KB (a Java thread is a 16 KB stack, a TCB and a
+   dispatch memo).
+2. Read the bridge's reply without `picodroid.json`: `JSONObject`, `JSONArray` and the inner
+   class are 9.9 KB of metadata (17.3 KB in the simulator) plus the 2 KB node pool, for one
+   flat object whose format the app owns. A `key=value` line format needs a short scanner.
+3. Format times without `java.time`: the seven classes `TimeFormat` reaches cost 11.9 KB
+   (20.7 KB in the simulator). Integer arithmetic on the epoch does what the screens need.
+   This undoes part of the 2026-09-24 showcase, so only when the budget is wanted.
+
+*Runtime, every app (about 36 KB):*
+
+4. `Parsed::cp_offsets` as `Vec<u16>`: no class file is 64 KB (`lnt_offset` already rests
+   on it). −17.5 KB here (−52 KB in the simulator). The cheapest large cut, and it closes
+   most of the sim-versus-device gap.
+5. `MethodInfo` 32 → about 20 B: `code_offset` and `code_len` as `u16`, the exception table
+   as an (offset, count) pair into flash instead of a `Vec`. −12 KB here.
+6. Static field store keyed by (class index, field index): 24 → 12 B per entry, no doubling,
+   no name compare on every `getstatic`. −4 KB.
+7. Dispatch memos of 16 rows for `JvmChild` and `BgWorker` handlers, which dispatch few
+   natives: −3.5 KB.
+
+*Platform (about 20 KB):*
+
+8. LittleFS `cache_size` 512 B and `lookahead_size` 64 B instead of the block-size defaults:
+   −11 KB on every board; preference files are hundreds of bytes.
+9. `[background_pool] threads = 2` for this board: the app's only pool work is a preference
+   write. −8.5 KB.
+10. The JVM task's 32 KB stack is the largest single block; it needs a high-water reading
+    before it is touched.
+
+Not levers: the resolution tables (D4 bought them), the JVM heap storage (the live set is a
+quarter of it, the rest is pre-reservation and chunking that keeps first-fit placement
+stable), the class table.
 
 ### Minor
 
