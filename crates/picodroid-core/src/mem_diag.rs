@@ -447,6 +447,52 @@ fn print_census(jvm: &pico_jvm::Jvm, heap: &SharedJvmHeap) {
     println!(
         "[memmon] census classmeta main: {parsed}/{total} parsedB={host_b} devB~={dev_b} tableB~={table_dev_b}"
     );
+    // Which part of the parsed metadata holds the bytes, and which classes:
+    // the price of an import, visible (docs/memory-diagnostics.md).
+    let (hp, dp) = jvm.parsed_metadata_parts();
+    println!(
+        "[memmon] census classmeta parts host/dev: box={}/{} cp_off={}/{} cp_tag={}/{} methods={}/{} fields={}/{} statics={}/{} ifaces={}/{} bsm={}/{} exc={}/{} (MethodInfo {}B host, 32B dev)",
+        hp.boxed,
+        dp.boxed,
+        hp.cp_offsets,
+        dp.cp_offsets,
+        hp.cp_tags,
+        dp.cp_tags,
+        hp.methods,
+        dp.methods,
+        hp.fields,
+        dp.fields,
+        hp.statics,
+        dp.statics,
+        hp.interfaces,
+        dp.interfaces,
+        hp.bootstrap,
+        dp.bootstrap,
+        hp.exc,
+        dp.exc,
+        core::mem::size_of::<pico_jvm::class_file::MethodInfo>()
+    );
+    let rows = jvm.parsed_metadata_rows();
+    let dump = env_flag("PICODROID_MEMDIAG_CLASSDUMP", false);
+    let shown = if dump { rows.len() } else { 12.min(rows.len()) };
+    println!(
+        "[memmon] census classmeta classes: {} parsed, top {} by devB~ (name=devB~/hostB cp/methods/fields/exc flashB)",
+        rows.len(),
+        shown
+    );
+    for (name, m) in rows.iter().take(shown) {
+        println!(
+            "[memmon]   {}={}/{} cp{}/m{}/f{}/x{} {}B",
+            core::str::from_utf8(name).unwrap_or("?"),
+            m.dev.total(),
+            m.host.total(),
+            m.cp_entries,
+            m.methods,
+            m.fields,
+            m.exc_entries,
+            m.class_bytes
+        );
+    }
     let slots = unsafe { &*core::ptr::addr_of!(CHILD_JVMS) };
     for (name, ptr) in slots.iter().flatten() {
         // SAFETY: registry contract (see CHILD_JVMS) — the owning task is
@@ -460,6 +506,9 @@ fn print_census(jvm: &pico_jvm::Jvm, heap: &SharedJvmHeap) {
             "[memmon] census classmeta child {name}: {cp}/{ct} parsedB={ch} devB~={cd} tableB~={ctab}"
         );
     }
+
+    // The rest of the arena, by allocation site (opt-in ledger).
+    crate::hal::sim::alloc_ledger::print_census();
 }
 
 // ── Native heap sampling ────────────────────────────────────────────────────

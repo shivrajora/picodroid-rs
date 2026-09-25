@@ -307,6 +307,35 @@ impl Jvm {
         (host, dev)
     }
 
+    /// The parsed-metadata figure by part, summed over the loaded set:
+    /// `(host, device)`. Says which packing lever pays.
+    #[cfg(feature = "mem-diag")]
+    pub fn parsed_metadata_parts(&self) -> (class_file::MetaParts, class_file::MetaParts) {
+        let mut host = class_file::MetaParts::default();
+        let mut dev = class_file::MetaParts::default();
+        for c in &self.classes {
+            if let Some(m) = c.parsed_metadata_census() {
+                host.add(&m.host);
+                dev.add(&m.dev);
+            }
+        }
+        (host, dev)
+    }
+
+    /// Every parsed class with its metadata cost, most expensive on the
+    /// device model first. The census's per-class line: the price of an
+    /// import, visible.
+    #[cfg(feature = "mem-diag")]
+    pub fn parsed_metadata_rows(&self) -> alloc::vec::Vec<(&'static [u8], class_file::MetaCensus)> {
+        let mut rows: alloc::vec::Vec<(&'static [u8], class_file::MetaCensus)> = self
+            .classes
+            .iter()
+            .filter_map(|c| c.parsed_metadata_census().map(|m| (c.scanned_name(), m)))
+            .collect();
+        rows.sort_unstable_by_key(|(_, m)| core::cmp::Reverse(m.dev.total()));
+        rows
+    }
+
     /// RAM held by the class *registration* table itself — the per-entry
     /// `ClassFile` structs, paid for every registered class whether or not
     /// it ever parses. `(host_bytes, device_bytes)`; device: 20 B per entry

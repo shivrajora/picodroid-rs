@@ -166,6 +166,30 @@ fn method_code_is_return() {
     assert_eq!(cf.method_code(&cf.methods()[0]), &[0xB1u8]);
 }
 
+/// The census parts sum to the totals the executor-level line prints, and
+/// the counts behind them are the class file's.
+#[cfg(feature = "mem-diag")]
+#[test]
+fn metadata_census_parts_sum_to_totals() {
+    let cf = ClassFile::parse(spelled(MINIMAL_CLASS)).unwrap();
+    let c = cf.parsed_metadata_census().expect("parsed");
+    let (host, dev) = cf.parsed_metadata_bytes().expect("parsed");
+    assert_eq!(c.host.total(), host);
+    assert_eq!(c.dev.total(), dev);
+    assert_eq!(c.methods, 1);
+    assert_eq!(c.fields, 0);
+    assert_eq!(c.exc_entries, 0);
+    assert_eq!(c.class_bytes, MINIMAL_CLASS.len());
+    // Eight tags for cp_count = 8 (index 0 is the unused slot).
+    assert_eq!(c.cp_entries, 8);
+    // The Box and the two constant-pool tables are never empty.
+    assert!(c.dev.boxed > 0 && c.dev.cp_offsets > 0 && c.dev.cp_tags > 0);
+    assert!(
+        c.host.cp_offsets > c.dev.cp_offsets,
+        "usize offsets cost more on the host"
+    );
+}
+
 #[test]
 fn bad_magic_returns_error() {
     let result = ClassFile::parse(spelled(BAD_MAGIC));

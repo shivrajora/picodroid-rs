@@ -112,6 +112,9 @@ littlefs-rust = { version = "0.1", default-features = false, features = ["alloc"
 [target.'cfg(not(target_arch = "arm"))'.dependencies]
 minifb = "0.28"
 libc = "0.2"
+# Call-stack capture and symbolisation for the mem-diag allocation-site
+# ledger (hal/sim/alloc_ledger.rs): who holds each live arena block.
+backtrace = "0.3"
 # The simulator's FreeRTOS kernel bindings. Same fork the device build uses, so
 # host and device drive one set of them; its `links = "freertos"` metadata is
 # also what exports DEP_FREERTOS_SHIM to build.rs.

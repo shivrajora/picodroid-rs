@@ -31,6 +31,10 @@ Runtime toggles within a `--mem-diag` sim build (all read once at startup):
 | `PICODROID_MEMDIAG_OFFENSIVE` | off | Poison-on-free + GC poison check + post-GC integrity sweep + span/overlap invariants + root audit; sim reads it at runtime, the device bakes it at BUILD time (`mem_diag::apply_device_flags` since `0c1326d` — before that it was silently sim-only; boot must print `memmon: offensive checks ON (build-baked)`). Allocator canaries remain sim-only |
 | `PICODROID_MEMDIAG_HISTO` | off | Per-class allocation histogram (sim only) |
 | `PICODROID_MEMDIAG_SELFTEST` | off | Feed the sentinel a synthetic +2 KB/window ramp — must print `LEAK?` (detector self-test; sim only) |
+| `PICODROID_MEMDIAG_SITES` | off | Allocation-site ledger: every live arena block keeps the call stack that allocated it, and `heapcensus` attributes the whole arena by site and by stack (sim only; see "Attributing the rest of the arena") |
+| `PICODROID_MEMDIAG_SITES_MIN` | `0` | With `_SITES`: smallest block traced, in bytes; smaller ones are counted, not attributed |
+| `PICODROID_MEMDIAG_SITES_TOP` | `24` | With `_SITES`: rows printed per ranking (sites, stacks) |
+| `PICODROID_MEMDIAG_CLASSDUMP` | off | `heapcensus` lists every parsed class with its metadata cost, not only the top 12 (sim only) |
 
 On device there are no env vars: compiled-in = monitor active with the
 defaults (1 s window, sentinel warn-only, no offensive checks). A mem-diag
@@ -109,6 +113,58 @@ live-set snapshot, attributed to code constructs. Printed with every
   table itself. One `child` row per live `Thread.start`/bg-pool executor
   (each child's parsed set is a full duplicate of the main one — the
   handover §6 lever; children register via `mem_diag::register_child_jvm`).
+- `census classmeta parts host/dev` — the same bytes by the part of the
+  parsed record that holds them: the `Box<Parsed>` itself, the constant-pool
+  offset and tag tables, the method, field, static, interface and bootstrap
+  tables, the exception tables. Says which packing lever pays: on
+  claudeusage the CP offsets (`usize` per entry) and the method table are
+  three quarters of it.
+- `census classmeta classes` — the price of an import: one line per parsed
+  class, most expensive first (top 12; all of them under
+  `PICODROID_MEMDIAG_CLASSDUMP=1`), as `name=devB~/hostB
+  cp<entries>/m<methods>/f<fields>/x<exception entries> <class file bytes>`.
+  A class costs RAM in proportion to its constant pool and method count,
+  not its bytecode.
+
+### Attributing the rest of the arena (`PICODROID_MEMDIAG_SITES=1`)
+
+`nused` minus the census above is a number with no owner: task stacks,
+executor state, resolution tables, the file system, native side tables.
+With `PICODROID_MEMDIAG_SITES=1` the simulator's allocator records the call
+stack behind every live arena block (one unwind per allocation, a few
+microseconds; symbolised only at census time), and `heapcensus` appends:
+
+```text
+[memmon] census native: live blocks=634 payload=393497B heap4=399408B (header+align tax 5911B) untraced<0B: 0n/0B (cumulative)
+[memmon] census native sizes: <=16=173n/1303B <=32=53n/1359B ... <=4K=64n/129952B >4K=18n/181376B
+[memmon] census native sites: 61 distinct, top 24
+[memmon]    120976B    20n  picodroid_core::hal::sim::boot_budget::model::charge (boot_budget.rs:128)
+[memmon]     74048B    71n  pico_jvm::class_file::parse::<impl pico_jvm::class_file::Parsed>::parse (parse.rs:400)
+[memmon]     13824B     4n  pico_jvm::resolve_cache::Table<S>::ensure (resolve_cache.rs:164)
+...
+[memmon] census native stacks: 275 distinct, top 24
+[memmon]     16504B     1n  ...boot_budget::model::charge (boot_budget.rs:128) <- ...charge_task_spawn <- ...rtos_freertos::spawn <- ...threads::thread_start0 (threads.rs:161) <- ...
+```
+
+- `census native` — every live block the arena holds: payload requested,
+  what heap_4 charges for it (8 B header, 8 B alignment), and how much
+  fell under `_SITES_MIN`.
+- `census native sizes` — the live set by size class. Many tiny blocks
+  mean header tax and fragmentation; the `>4K` row is stacks and tables.
+- `census native sites` — bytes and blocks by the innermost frame inside
+  this code base (runtime plumbing — `alloc`, `core`, `std`, the allocator
+  — is skipped). The site that owns the bytes.
+- `census native stacks` — the same by full call path, five of our frames
+  deep: which caller reached the site (the `thread_start0` row above is one
+  Java thread's stack and TCB).
+
+The figures are host bytes: pointer-sized fields cost twice what they do
+on the device, so a `Vec<usize>` site reads 2× and a task stack reads 1×.
+Translate with the `devB~` ratio for class metadata and by inspection for
+the rest, or read the device's own `nused` from a mem-diag firmware
+(`pdb.sh sysmon`, or the RTT `memmon:` line) beside it. On claudeusage the
+simulator charged 79 KB more than the RP2350 measured for the same screen
+(docs/designs/claudeusage-gaps-roadmap-2026-09.md, G11).
 
 ## The growth sentinel
 
@@ -183,6 +239,13 @@ Hunt heap corruption:
 
 ```bash
 PICODROID_MEMDIAG_OFFENSIVE=1 ./scripts/sim.sh --app myapp --mem-diag
+```
+
+Attribute the whole arena — who holds the bytes `live=` does not cover:
+
+```bash
+PICODROID_MEMDIAG_SITES=1 PICODROID_MEMDIAG_CLASSDUMP=1 ./scripts/sim.sh --app myapp --mem-diag
+./scripts/sim-ctrl.sh heapcensus      # sites, stacks, size classes, every parsed class
 ```
 
 On-device numbers over USB (mem-diag firmware):

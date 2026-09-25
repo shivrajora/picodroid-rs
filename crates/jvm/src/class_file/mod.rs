@@ -175,16 +175,24 @@ impl ClassFile {
     /// Approximate RAM held by this class's lazily-parsed metadata, as
     /// `(host_bytes, device_bytes)`. `None` when the parse has not run —
     /// an unparsed entry costs only its `ClassFile` struct in the class
-    /// table.
-    ///
-    /// `host_bytes` is what this process actually pays (real `size_of` /
-    /// capacities — the figure the sim's modeled arena sees). Pointer-width
-    /// parts differ 2× on the 64-bit host, so `device_bytes` re-derives the
-    /// 32-bit release layout (4-byte usize, 12-byte Vec headers) and adds
-    /// one 8-byte heap_4 block header per real allocation — use the device
-    /// figure for sizing decisions.
+    /// table. The totals of [`Self::parsed_metadata_census`].
     #[cfg(feature = "mem-diag")]
     pub fn parsed_metadata_bytes(&self) -> Option<(usize, usize)> {
+        let c = self.parsed_metadata_census()?;
+        Some((c.host.total(), c.dev.total()))
+    }
+
+    /// The same figure broken down by the part of [`Parsed`] that holds it,
+    /// with the counts that drive each part.
+    ///
+    /// `host` is what this process actually pays (real `size_of` /
+    /// capacities — the figure the sim's modeled arena sees). Pointer-width
+    /// parts differ 2× on the 64-bit host, so `dev` re-derives the 32-bit
+    /// release layout (4-byte usize, 12-byte Vec headers) and adds one
+    /// 8-byte heap_4 block header per real allocation — use the device
+    /// figure for sizing decisions.
+    #[cfg(feature = "mem-diag")]
+    pub fn parsed_metadata_census(&self) -> Option<MetaCensus> {
         // Device layout constants (32-bit release):
         /// heap_4 BlockLink_t header per allocation.
         const DEV_HDR: usize = 8;
@@ -206,37 +214,116 @@ impl ClassFile {
         }
 
         let p = self.parsed.get()?;
+        let mut host = MetaParts::default();
+        let mut dev = MetaParts::default();
 
-        let mut host = core::mem::size_of::<Parsed>();
-        host += p.cp_offsets.capacity() * core::mem::size_of::<usize>();
-        host += p.cp_tags.capacity();
-        host += p.methods.capacity() * core::mem::size_of::<MethodInfo>();
-        host += p.fields.capacity() * core::mem::size_of::<FieldInfo>();
-        host += p.static_fields.capacity() * core::mem::size_of::<FieldInfo>();
-        host += p.interfaces.capacity() * core::mem::size_of::<u16>();
-        host += p.bootstrap_methods.capacity() * core::mem::size_of::<BootstrapMethod>();
+        host.boxed = core::mem::size_of::<Parsed>();
+        host.cp_offsets = p.cp_offsets.capacity() * core::mem::size_of::<usize>();
+        host.cp_tags = p.cp_tags.capacity();
+        host.methods = p.methods.capacity() * core::mem::size_of::<MethodInfo>();
+        host.fields = p.fields.capacity() * core::mem::size_of::<FieldInfo>();
+        host.statics = p.static_fields.capacity() * core::mem::size_of::<FieldInfo>();
+        host.interfaces = p.interfaces.capacity() * core::mem::size_of::<u16>();
+        host.bootstrap = p.bootstrap_methods.capacity() * core::mem::size_of::<BootstrapMethod>();
 
-        let mut dev = DEV_PARSED + DEV_HDR; // the Box allocation
-        dev += dev_alloc(p.cp_offsets.capacity() * 4);
-        dev += dev_alloc(p.cp_tags.capacity());
-        dev += dev_alloc(p.methods.capacity() * DEV_METHOD_INFO);
-        dev += dev_alloc(p.fields.capacity() * 4);
-        dev += dev_alloc(p.static_fields.capacity() * 4);
-        dev += dev_alloc(p.interfaces.capacity() * 2);
-        dev += dev_alloc(p.bootstrap_methods.capacity() * DEV_BOOTSTRAP);
+        dev.boxed = DEV_PARSED + DEV_HDR; // the Box allocation
+        dev.cp_offsets = dev_alloc(p.cp_offsets.capacity() * 4);
+        dev.cp_tags = dev_alloc(p.cp_tags.capacity());
+        dev.methods = dev_alloc(p.methods.capacity() * DEV_METHOD_INFO);
+        dev.fields = dev_alloc(p.fields.capacity() * 4);
+        dev.statics = dev_alloc(p.static_fields.capacity() * 4);
+        dev.interfaces = dev_alloc(p.interfaces.capacity() * 2);
+        dev.bootstrap = dev_alloc(p.bootstrap_methods.capacity() * DEV_BOOTSTRAP);
 
+        let mut exc_entries = 0usize;
         for m in &p.methods {
             let payload = m.exception_table.capacity() * core::mem::size_of::<ExceptionEntry>();
-            host += payload;
-            dev += dev_alloc(payload); // ExceptionEntry is 8 B on all targets
+            exc_entries += m.exception_table.len();
+            host.exc += payload;
+            dev.exc += dev_alloc(payload); // ExceptionEntry is 8 B on all targets
         }
         for b in &p.bootstrap_methods {
             let payload = b.arguments.capacity() * core::mem::size_of::<u16>();
-            host += payload;
-            dev += dev_alloc(payload);
+            host.bootstrap += payload;
+            dev.bootstrap += dev_alloc(payload);
         }
-        Some((host, dev))
+        Some(MetaCensus {
+            host,
+            dev,
+            cp_entries: p.cp_tags.len(),
+            methods: p.methods.len(),
+            fields: p.fields.len() + p.static_fields.len(),
+            exc_entries,
+            class_bytes: self.data.len(),
+        })
     }
+}
+
+/// Bytes of parsed metadata by the part of [`Parsed`] that holds them.
+/// One instance per layout model (host or device); see
+/// [`ClassFile::parsed_metadata_census`].
+#[cfg(feature = "mem-diag")]
+#[derive(Clone, Copy, Default, Debug)]
+pub struct MetaParts {
+    /// The `Box<Parsed>` itself.
+    pub boxed: usize,
+    /// `cp_offsets`: one `usize` per constant-pool entry.
+    pub cp_offsets: usize,
+    /// `cp_tags`: one byte per constant-pool entry.
+    pub cp_tags: usize,
+    /// `methods`: one `MethodInfo` per method.
+    pub methods: usize,
+    /// Instance field table.
+    pub fields: usize,
+    /// Static field table.
+    pub statics: usize,
+    /// Interface index list.
+    pub interfaces: usize,
+    /// Bootstrap methods and their argument lists.
+    pub bootstrap: usize,
+    /// Exception tables, across every method.
+    pub exc: usize,
+}
+
+#[cfg(feature = "mem-diag")]
+impl MetaParts {
+    pub fn total(&self) -> usize {
+        self.boxed
+            + self.cp_offsets
+            + self.cp_tags
+            + self.methods
+            + self.fields
+            + self.statics
+            + self.interfaces
+            + self.bootstrap
+            + self.exc
+    }
+
+    pub fn add(&mut self, o: &MetaParts) {
+        self.boxed += o.boxed;
+        self.cp_offsets += o.cp_offsets;
+        self.cp_tags += o.cp_tags;
+        self.methods += o.methods;
+        self.fields += o.fields;
+        self.statics += o.statics;
+        self.interfaces += o.interfaces;
+        self.bootstrap += o.bootstrap;
+        self.exc += o.exc;
+    }
+}
+
+/// One parsed class's metadata cost with the counts behind it.
+#[cfg(feature = "mem-diag")]
+#[derive(Clone, Copy, Debug)]
+pub struct MetaCensus {
+    pub host: MetaParts,
+    pub dev: MetaParts,
+    pub cp_entries: usize,
+    pub methods: usize,
+    pub fields: usize,
+    pub exc_entries: usize,
+    /// Size of the class file in flash, for the RAM-per-flash-byte ratio.
+    pub class_bytes: usize,
 }
 
 struct Cursor<'a> {

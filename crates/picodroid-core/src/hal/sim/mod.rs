@@ -24,6 +24,10 @@
 
 pub mod adc;
 pub mod allocator;
+// The allocation-site ledger behind `heapcensus` (who holds each live arena
+// block); needs the host unwinder, exists only under mem-diag.
+#[cfg(feature = "mem-diag")]
+pub mod alloc_ledger;
 // The app region and the `apps …` control verbs: needs the installer's
 // in-memory region, which only the simulator build links.
 #[cfg(feature = "sim")]

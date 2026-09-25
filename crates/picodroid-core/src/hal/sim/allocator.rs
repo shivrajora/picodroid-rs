@@ -476,7 +476,7 @@ unsafe impl GlobalAlloc for CappedAllocator {
             self.arena_base.store(base as usize, Ordering::Release);
         }
         let heap = guard.as_mut().unwrap();
-        match heap.malloc(want) {
+        let p = match heap.malloc(want) {
             Some(off) => {
                 let base = self.arena_base.load(Ordering::Relaxed);
                 let p = unsafe { (base as *mut u8).add(off as usize) };
@@ -519,7 +519,15 @@ unsafe impl GlobalAlloc for CappedAllocator {
                 }
                 std::ptr::null_mut()
             }
+        };
+        // The site ledger takes its own lock and unwinds the stack: never
+        // while the arena lock is held.
+        drop(guard);
+        #[cfg(feature = "mem-diag")]
+        if !p.is_null() {
+            super::alloc_ledger::record(p, size);
         }
+        p
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
@@ -531,6 +539,8 @@ unsafe impl GlobalAlloc for CappedAllocator {
             let addr = ptr as usize;
             let len = self.arena_len.load(Ordering::Relaxed);
             if addr >= base && addr < base + len {
+                #[cfg(feature = "mem-diag")]
+                super::alloc_ledger::forget(ptr);
                 #[cfg(feature = "mem-diag")]
                 if canaries_enabled() {
                     let c = unsafe {
