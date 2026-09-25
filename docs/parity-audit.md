@@ -588,6 +588,87 @@ keep scenes to a few seconds or extend the hil-run capture window; the CRC adds
 ~1-2 ms/band on-device, so `parity-fbhash` builds are for sequence comparison,
 never wall-clock measurement.
 
+## 2026-09-24 memory-model divergence, measured and planned
+
+The simulator refused claudeusage (`OOM: tried 4096 B`) on a screen the RP2350 runs with
+98 KB to spare. The allocation-site ledger (`PICODROID_MEMDIAG_SITES=1`,
+docs/memory-diagnostics.md) put an owner on every live arena block in the simulator, and a
+mem-diag firmware on the board gave the same screen's `nused`; the gap has four terms and
+one blind spot (numbers for the History page, the widest):
+
+| term | simulator | device | why |
+|---|---|---|---|
+| parsed class metadata, 73 classes | 161 KB | 94 KB | `cp_offsets: Vec<usize>` (8 B against 4 per constant-pool entry), `MethodInfo` 56 B against 32, `Box<Parsed>` 176 B against 88, six `Vec` headers per class at 24 B against 12 |
+| class table, 226 entries | 10.8 KB | 4.5 KB | two `&'static [u8]` per `ClassFile` at 16 B against 8, the `OnceCell<Box>` at 8 against 4 |
+| static field store | 14 KB | 7 KB | `(&[u8], &[u8], Value)` entries at 40 B against 24, doubled once to 256 |
+| dispatch memos, 7 handlers | 10.8 KB | 5.4 KB | rows of two `*const u8` |
+| resolution tables | 14 KB | 16 KB | `usize` keys; the simulator halves the entry counts to hold the same bytes, so its hit rate differs from the device's |
+| everything else | equal | equal | task stacks and TCBs (the boot budget), JVM object, array and string storage (M6), LittleFS buffers, the JSON pool, frames within 1 KB |
+| **arena total** | **399 KB** | **320 KB** | the device's own 10 KB the model never sees: FreeRTOS+TCP's IP task, socket streams and network buffers, host sockets in the simulator |
+
+And the blind spot: the LVGL pool (`lv_mem_kb`, 48 KB on this board) is a second heap that
+no `[memmon]` figure covered until 2026-09-24. Its C structs carry pointers, so the
+simulator's copy of the same widget tree is larger — `lv_obj_t` 72 B against 48,
+`lv_label_t` 120 against 92, a style entry 16 against 8, an event descriptor 24 against 12,
+measured with a C probe against the real `lv_conf.h` on gcc and arm-none-eabi-gcc — and the
+sim's pool runs out first. The `lv=used/total` field on the `[memmon]` line now shows both
+sides; on claudeusage the ratio is a steady 1.6×, and the simulator's pool is also smaller
+to begin with, because LVGL's own bookkeeping is host-sized too:
+
+| page | simulator `lv=` | device `lv=` |
+|---|---|---|
+| Limits | 22.9 KB of 43.3 | 14.4 KB of 46.1 |
+| Models | 25.3 KB of 42.9 | 16.0 KB of 45.9 |
+| Burn rate | 27.0 KB of 42.6 | 16.9 KB of 45.7 |
+| History | 23.8 KB of 43.0 | 15.1 KB of 46.0 |
+
+A screen that fills 60 % of the device's pool fills the simulator's, and the
+`under_memory_pressure` policy in `lifecycle/activity_stack.rs` (a push refused when the
+pool is low) trips in the simulator on trees the board carries.
+
+M6 fixed the object heap; every remaining term is the same disease in a table M6 did not
+reach: a long-lived structure keyed or laid out by pointer width. The plan follows M6's
+shape rather than compensating in the allocator (the allocator sees sizes, not types, so
+there is nothing to scale):
+
+- **M8 — pointer-width-independent runtime tables.** The gap's four terms, each as its own
+  change, each also a device saving (they are H4–H7 in
+  docs/designs/claudeusage-gaps-roadmap-2026-09.md):
+  - `Parsed` as one `Box<[u8]>` record per class: `cp_offsets` as `u16` (no class file is
+    64 KB; `lnt_offset` already rests on that), `MethodInfo` packed to `u16` fields with
+    the exception table as an (offset, count) pair into flash, the six `Vec`s folded into
+    one allocation with `u16` sub-offsets. Host and device then differ by one fat pointer
+    per class. Closes about 62 KB of the 79 on this app and saves the device about 30.
+  - the class table with (image, offset, len) `u32` triples in place of the two slices;
+  - the static field store keyed by (class index, field index) with a bitset for
+    `initialized`;
+  - dispatch memo rows keyed by (class index, method index) in place of two name pointers;
+  - resolution-table keys as (class index, CP index) `u32` pairs, so both targets hold the
+    same entry counts and the same hit rate — today `Sizes::DEFAULT` differs by pointer
+    width on purpose, which is honest about bytes and dishonest about behaviour.
+  Each carries the M6 discipline: `const _: () = assert!(size_of::<T>() == N)` on every
+  target, and the ledger's `census native sites` row for the structure equal on host and
+  device to within the fat pointer. Pinned by a test that parses the framework class set
+  and compares `parsed_metadata_bytes()` host against the device model to within 2 %.
+- **M9 — model the network stack in the boot budget.** Charge FreeRTOS+TCP's IP task stack
+  and TCB at boot as the other modelled tasks are, and a per-socket charge (the board's
+  `net_tcp_rx_bytes` + `net_tcp_tx_bytes` streams plus one network buffer) at `connect`,
+  released at close — the `Thread.start` pattern. Calibrate against the device's `nused`
+  before and after the first connection (the 10 KB above) and assert within 2 KB, as M4
+  does for boot.
+- **M10 — the LVGL pool.** No Rust change reaches C struct layout. Two honest options: (a)
+  give the simulator's pool the device size scaled by the measured ratio (1.6× on this
+  board's widget mix) so the same tree fills the same fraction, and keep `lv=` on both
+  sides so drift is visible — approximate, one line in `pd-lvgl-sys/build.rs`;
+  (b) bring back the 32-bit lane (`c45e84a`: armv7 under qemu-user, 13× slower, headless,
+  the FreeRTOS POSIX port under qemu untested) as a nightly memory-parity oracle, exact
+  for C and Rust alike. (a) now, (b) when the nightly has room for a 13× run.
+
+What full parity means after M8–M10: every arena block the same size on both targets to
+within `Vec`/`Box` header width (12 B each, a few hundred of them), the network stack and
+the LVGL pool modelled, and the residual measured by the same two instruments that found
+this gap: the ledger in the simulator and `memmon:` on the board.
+
 ## 2026-08-30 bug-bash divergence decisions
 
 Deliberate divergences surfaced by the bug bash (docs/bugbash-2026-08-30.md), kept as-is:

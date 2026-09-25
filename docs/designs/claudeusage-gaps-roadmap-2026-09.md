@@ -443,46 +443,60 @@ are on the History page (sim ledger, device model beside it):
 | JSON pool, frames, misc | 8 KB | 8 KB | |
 
 The device sum (310 KB) is 10 KB under the board's own `nused`: the network stack's sockets
-and buffers, which the simulator does not model (host sockets). Classes that cost the most on
+and buffers, which the simulator does not model (host sockets). The LVGL pool is a second
+heap with the same disease: the widget tree costs the simulator 1.6× (Burn page 27.0 KB of
+its 42.6 KB pool against 16.9 KB of the device's 45.7 KB; `lv=` on the `[memmon]` line).
+The whole divergence, term by term, and the plan to close it (M8–M10) are in
+docs/parity-audit.md, "2026-09-24 memory-model divergence". Classes that cost the most on
 the device: `JSONObject` 6.0 KB, `MainActivity` 5.7, `View` 4.0, `LocalTime` 3.9, `JSONArray`
 3.5, `UsageService` 3.5, `Duration` 3.2, `HttpURLConnection` 2.7, `Thread` 2.5,
 `LayoutInflater` 2.3, `SharedPreferences` 2.3, `UsageFetcher` 2.2 (its 24 exception-table
 entries), `BurnPage` 2.1, `Activity` 2.1.
 
-**Levers, device bytes, ranked within each owner:**
+The levers are tracked as H1–H10 below.
+
+## Heap levers, ranked (H1–H10)
+
+Device bytes on the History page, from the G11 attribution. Each is its own piece of work;
+the runtime ones shrink every app and close most of the simulator's gap at the same time
+(docs/parity-audit.md, M8).
 
 *App (about 39 KB):*
 
-1. Fold `usage-tick` into the poll thread: `idle()` already waits on the lock; wake it every
-   `TICK_MS` and post `tick` from there. −17 KB (a Java thread is a 16 KB stack, a TCB and a
-   dispatch memo).
-2. Read the bridge's reply without `picodroid.json`: `JSONObject`, `JSONArray` and the inner
-   class are 9.9 KB of metadata (17.3 KB in the simulator) plus the 2 KB node pool, for one
-   flat object whose format the app owns. A `key=value` line format needs a short scanner.
-3. Format times without `java.time`: the seven classes `TimeFormat` reaches cost 11.9 KB
-   (20.7 KB in the simulator). Integer arithmetic on the epoch does what the screens need.
-   This undoes part of the 2026-09-24 showcase, so only when the budget is wanted.
+- **H1. Fold `usage-tick` into the poll thread** — open. `idle()` already waits on the lock;
+  wake it every `TICK_MS` and post `tick` from there. −17 KB (a Java thread is a 16 KB stack,
+  a TCB and a dispatch memo). `data/UsageService.java`.
+- **H2. Read the bridge's reply without `picodroid.json`** — open. `JSONObject`, `JSONArray`
+  and the inner class are 9.9 KB of metadata (17.3 KB in the simulator) plus the 2 KB node
+  pool, for one flat object whose format the app owns. A `key=value` line format needs a
+  short scanner in `UsageFetcher` and a second output mode in the bridge. −12 KB.
+- **H3. Format times without `java.time`** — open, only when the budget is wanted. The seven
+  classes `TimeFormat` reaches cost 11.9 KB (20.7 KB in the simulator); integer arithmetic on
+  the epoch does what the screens need. Undoes part of the 2026-09-24 showcase.
 
 *Runtime, every app (about 36 KB):*
 
-4. `Parsed::cp_offsets` as `Vec<u16>`: no class file is 64 KB (`lnt_offset` already rests
-   on it). −17.5 KB here (−52 KB in the simulator). The cheapest large cut, and it closes
-   most of the sim-versus-device gap.
-5. `MethodInfo` 32 → about 20 B: `code_offset` and `code_len` as `u16`, the exception table
-   as an (offset, count) pair into flash instead of a `Vec`. −12 KB here.
-6. Static field store keyed by (class index, field index): 24 → 12 B per entry, no doubling,
-   no name compare on every `getstatic`. −4 KB.
-7. Dispatch memos of 16 rows for `JvmChild` and `BgWorker` handlers, which dispatch few
-   natives: −3.5 KB.
+- **H4. `Parsed::cp_offsets` as `Vec<u16>`** — open. No class file is 64 KB (`lnt_offset`
+  already rests on it). −17.5 KB here, −52 KB in the simulator: the cheapest large cut, and
+  the single biggest term of the sim-versus-device gap. `jvm/src/class_file/`.
+- **H5. `MethodInfo` 32 → about 20 B** — open. `code_offset` and `code_len` as `u16`, the
+  exception table as an (offset, count) pair into flash instead of a `Vec` per method.
+  −12 KB here, −40 KB in the simulator.
+- **H6. Static field store keyed by (class index, field index)** — open. 24 → 12 B per
+  entry, no doubling `Vec`, no name compare on every `getstatic`. −4 KB, and the same bytes
+  on both targets. `jvm/src/static_fields.rs`.
+- **H7. Dispatch memos of 16 rows for `JvmChild` and `BgWorker` handlers** — open. Those
+  handlers dispatch few natives. −3.5 KB. `native_handler/dispatch_memo.rs`.
 
 *Platform (about 20 KB):*
 
-8. LittleFS `cache_size` 512 B and `lookahead_size` 64 B instead of the block-size defaults:
-   −11 KB on every board; preference files are hundreds of bytes.
-9. `[background_pool] threads = 2` for this board: the app's only pool work is a preference
-   write. −8.5 KB.
-10. The JVM task's 32 KB stack is the largest single block; it needs a high-water reading
-    before it is touched.
+- **H8. LittleFS `cache_size` 512 B and `lookahead_size` 64 B** — open. The block-size
+  defaults cost three 4 KB buffers on every board; preference files are hundreds of bytes.
+  −11 KB. `fs/volume.rs::config_for`.
+- **H9. `[background_pool] threads = 2` on `pico_display2_w`** — open. The app's only pool
+  work is a preference write. −8.5 KB. `board.toml`.
+- **H10. The JVM task's 32 KB stack** — open, measure first. The largest single block; it
+  needs a high-water reading (`pdb sysmon` task table) before it is touched.
 
 Not levers: the resolution tables (D4 bought them), the JVM heap storage (the live set is a
 quarter of it, the rest is pre-reservation and chunking that keeps first-fit placement
