@@ -26,9 +26,8 @@ import picoenvmonkt.util.hms
  * Callbacks arrive via [NetworkManager.Listener] on the main executor, so all widget mutation here
  * happens on the main thread.
  *
- * Sim caveat: the simulator's `NetworkInfo.getIpAddress()` is hardcoded to 127.0.0.1, so the URL
- * line reads `http://127.0.0.1:8080/` even though the server binds 0.0.0.0 and is LAN-reachable via
- * the host's real address.
+ * In the simulator `NetworkInfo.getIpAddress()` is the host's own LAN address, so the URL line is
+ * the one to open from another machine (the server binds 0.0.0.0).
  */
 class NetworkActivity : NavActivity(), NetworkManager.Listener {
     @Inject lateinit var net: NetworkManager

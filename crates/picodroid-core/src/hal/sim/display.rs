@@ -539,6 +539,19 @@ fn handle_control_line(line: &str) {
         return;
     }
 
+    // `net up|down` — the simulated link (hal/sim/net.rs::set_link_up).
+    if cmd.eq_ignore_ascii_case("net") {
+        #[cfg(has_network)]
+        match it.next().map(str::to_ascii_lowercase).as_deref() {
+            Some("up") => super::net::set_link_up(true),
+            Some("down") => super::net::set_link_up(false),
+            _ => println!("[sim] control channel: usage: net up|down"),
+        }
+        #[cfg(not(has_network))]
+        println!("[sim] net: this board has no network (try --board pico_enviro_mon_w)");
+        return;
+    }
+
     if cmd.eq_ignore_ascii_case("touch") {
         handle_touch_command(&mut it);
         return;
