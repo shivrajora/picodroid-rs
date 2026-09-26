@@ -16,6 +16,16 @@ libm = { version = "0.2", default-features = false }
 [features]
 # Deterministic sim<->device execution counters (docs/parity-audit.md P1).
 parity-metrics = []
+# Place the interpreter's main loop (`Executor::run`, the opcode handlers
+# inlined into it) in `.data`, so it executes from RAM instead of XIP flash.
+# For a chip whose program runs from external flash through a cache the
+# working set of UI code overflows: on the RP2350 a page-turn step ran
+# 15-25 % faster (claudeusage gaps roadmap D4, 2026-09-25). Costs the loop's
+# code size in RAM (~30 KB at opt-level 3, ~36 KB under fat LTO), which the
+# MCU toml's `jvm_loop_ram_kb` takes out of the arena; the family's Cargo
+# feature for the chip enables this and the platform build asserts the two
+# agree.
+loop-in-ram = []
 # Opt-in memory diagnostics: periodic heap monitor, steady-state growth
 # sentinel, churn counters, offensive heap checks (docs/memory-diagnostics.md).
 # Off by default — when absent, none of the diagnostic code exists in the

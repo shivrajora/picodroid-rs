@@ -73,6 +73,11 @@ core_count = 2
 # go back to 408 — at a measured 10 % of the frame, which is why that board
 # leaves it off.
 heap_kb = 336
+# The RAM copy of the interpreter loop, as in rp2350.toml: the linked arena
+# is 300 KB. picoclock's measured peak is ~276 KB with the radio up, so the
+# margin here is 24 KB plus what the LittleFS caches and the worker memos
+# gave back the same day (~15 KB); re-measure before adding tenants.
+jvm_loop_ram_kb = 36
 size_tool = "arm-none-eabi-size"
 # Every C object built for this MCU (LVGL, the FreeRTOS kernel and shim, the
 # network stack and the WiFi driver) compiles at -Os instead of following

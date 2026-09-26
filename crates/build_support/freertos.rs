@@ -80,17 +80,15 @@ pub fn build(
         }
     }
 
-    // Heap arena size is single-sourced from the MCU toml (`heap_kb`) so the
-    // C build and the simulator's default cap can never drift apart
-    // (docs/parity-audit.md M2). FreeRTOSConfig.h #errors if this is absent.
-    let heap_kb: u32 = mcu
-        .get("heap_kb")
-        .unwrap_or_else(|| panic!("MCU toml missing 'heap_kb': {mcu_toml_path}"))
-        .parse()
-        .unwrap_or_else(|e| panic!("MCU toml 'heap_kb' not a number ({mcu_toml_path}): {e}"));
+    // The arena is single-sourced from the MCU toml (`heap_kb`, less the
+    // `jvm_loop_ram_kb` a RAM copy of the interpreter loop takes) so the C
+    // build and the simulator's default cap can never drift apart
+    // (docs/parity-audit.md M2; `board_cfg::emit_heap_config` on the one
+    // place they differ). FreeRTOSConfig.h #errors if this is absent.
+    let arena_kb = crate::board_cfg::mcu_arena_kb(mcu, mcu_toml_path);
     b.get_cc().define(
         "configTOTAL_HEAP_SIZE",
-        format!("({heap_kb} * 1024)").as_str(),
+        format!("({arena_kb} * 1024)").as_str(),
     );
     crate::config::apply_c_opt_level(b.get_cc(), mcu);
 

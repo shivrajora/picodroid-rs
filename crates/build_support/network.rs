@@ -73,8 +73,9 @@ pub struct NetStackBuild<'a> {
     /// The family's port directory (e.g. `src/hal/rp/port`), which holds
     /// `FreeRTOSIPConfig_family.h`.
     pub family_port_dir: &'a str,
-    /// `heap_kb` from the MCU toml, injected as `configTOTAL_HEAP_SIZE`.
-    pub heap_kb: u32,
+    /// The linked arena (`board_cfg::mcu_arena_kb`), injected as
+    /// `configTOTAL_HEAP_SIZE`.
+    pub arena_kb: u32,
     /// From [`net_config_overrides`].
     pub overrides: &'a [(String, String)],
     /// The link driver's C sources: `NetworkInterface_<X>.c`, a vendored
@@ -157,7 +158,7 @@ pub fn build_freertos_tcp(b: &NetStackBuild<'_>) {
         .include(b.family_port_dir)
         .define(
             "configTOTAL_HEAP_SIZE",
-            format!("({} * 1024)", b.heap_kb).as_str(),
+            format!("({} * 1024)", b.arena_kb).as_str(),
         )
         .warnings(false)
         .extra_warnings(false);
@@ -205,7 +206,7 @@ pub fn build_cyw43_driver(
     freertos_config_dir: &str,
     kernel_port_include: &Path,
     family_port_dir: &str,
-    heap_kb: u32,
+    arena_kb: u32,
     overrides: &[(String, String)],
     mcu: &HashMap<String, String>,
 ) {
@@ -232,7 +233,7 @@ pub fn build_cyw43_driver(
         .include(freertos_config_dir)
         .define(
             "configTOTAL_HEAP_SIZE",
-            format!("({heap_kb} * 1024)").as_str(),
+            format!("({arena_kb} * 1024)").as_str(),
         )
         .define("CYW43_CONFIG_FILE", "\"cyw43_configport.h\"")
         .define("CYW43_USE_SPI", "1")

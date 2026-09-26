@@ -45,6 +45,19 @@ fn main() {
             .unwrap_or_else(|| panic!("MCU toml missing 'family': {mcu_toml_path}"));
 
         if mcu_family == "rp" {
+            // The RAM copy of the interpreter loop is paid for by the MCU
+            // toml (`jvm_loop_ram_kb`) and switched on by the chip's Cargo
+            // feature forwarding `pico-jvm/loop-in-ram`; one without the
+            // other is either an arena cut for nothing or an image whose
+            // `.data` the linked stack has no room for.
+            let loop_ram_kb = board_cfg::mcu_jvm_loop_ram_kb(&mcu, &mcu_toml_path);
+            let loop_in_ram = std::env::var("CARGO_FEATURE_CHIP_RP2350").is_ok();
+            assert!(
+                (loop_ram_kb > 0) == loop_in_ram,
+                "{mcu_toml_path}: jvm_loop_ram_kb = {loop_ram_kb} but pico-jvm/loop-in-ram is {}: \
+                 the key and the chip feature (platforms/rp/Cargo.toml) must agree",
+                if loop_in_ram { "on" } else { "off" }
+            );
             let freertos_config_dir = format!("mcus/{mcu_family}");
             // The same layout `board_cfg::emit_neutral` writes as constants
             // below, rendered here as the linker's MEMORY block.
@@ -95,7 +108,7 @@ fn main() {
                 // board_cfg::emit_network_cfgs already refused a missing or
                 // unknown network_type.
                 let network_type = b.cfg.props.get("network_type").cloned().unwrap_or_default();
-                let heap_kb = board_cfg::mcu_heap_kb(&mcu, &mcu_toml_path);
+                let arena_kb = board_cfg::mcu_arena_kb(&mcu, &mcu_toml_path);
                 let mut net_overrides = network::net_config_overrides(&b.cfg.props);
                 // The same define the kernel compile gets (freertos.rs):
                 // cyw43_port.c counts its own busy delays for the monitor.
@@ -118,7 +131,7 @@ fn main() {
                             &freertos_config_dir,
                             &kernel_port_include,
                             &family_port_dir,
-                            heap_kb,
+                            arena_kb,
                             &net_overrides,
                             &mcu,
                         );
@@ -139,7 +152,7 @@ fn main() {
                             freertos_config_dir: &freertos_config_dir,
                             kernel_port_include: &kernel_port_include,
                             family_port_dir: &family_port_dir,
-                            heap_kb,
+                            arena_kb,
                             overrides: &net_overrides,
                             link_sources: &link_sources,
                             extra_includes: &extra_includes,

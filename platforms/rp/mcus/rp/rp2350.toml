@@ -18,6 +18,21 @@ core_count = 2
 # whose headroom drops below MAIN_STACK_FLOOR_BYTES. picoenvmon still fits:
 # the simulator cap that models a 408 KB device heap (376 KB) runs it clean.
 heap_kb = 408
+# 2026-09-25: the interpreter loop executes from RAM on this chip
+# (pico-jvm `loop-in-ram`, enabled by the family's `chip-rp2350` feature):
+# `Executor::run` with its opcode handlers is ~30 KB at opt-level 3 and
+# ~36 KB under the release profile's fat LTO, copied to `.data` at boot,
+# and a claudeusage page-turn step ran 15-25 % faster for it (gaps roadmap
+# D4). This much comes out of the arena the device links — the FreeRTOS
+# heap is heap_kb - jvm_loop_ram_kb = 372 KB — and not out of the
+# simulator's cap, which keeps modelling heap_kb: the sim holds no copy of
+# the loop and already charges an app 60-80 KB more than the board for the
+# same screens (gaps roadmap G11). Funded on the same day by the LittleFS
+# caches (-11 KB), the worker handlers' memos (-4.6 KB) and, on the display
+# board, two pool workers instead of four (-12.5 KB), so an app's headroom
+# moved by under 10 KB. picodroid/build.rs refuses a build where this key
+# and the Cargo feature disagree.
+jvm_loop_ram_kb = 36
 size_tool = "arm-none-eabi-size"
 # Every C object built for this MCU (LVGL, the FreeRTOS kernel and shim, the
 # network stack and the WiFi driver) compiles at -Os instead of following

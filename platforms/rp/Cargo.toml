@@ -57,7 +57,9 @@ board-testbench-rp2350w = ["chip-rp2350", "picodroid-core/board-testbench-rp2350
 board-pico-touch-kit = ["chip-rp2350", "picodroid-core/board-pico-touch-kit", "picodroid-core/network-wifi"]
 # MCU selection (internal — activated by board features)
 chip-rp2040 = ["dep:rp-pico", "family-rp"]
-chip-rp2350 = ["dep:rp235x-hal", "family-rp"]
+# The RP2350 runs the interpreter loop from RAM (mcus/rp/rp2350*.toml
+# `jvm_loop_ram_kb` funds it); the RP2040's 264 KB has no room for it.
+chip-rp2350 = ["dep:rp235x-hal", "family-rp", "pico-jvm/loop-in-ram"]
 # MCU family grouping (internal — forwarded to picodroid-core so both crates
 # see the same family feature without requiring duplicate cfg flags).
 family-rp = ["picodroid-core/family-rp"]

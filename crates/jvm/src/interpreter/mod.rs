@@ -640,6 +640,12 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
     /// native→Java upcall passes the depth the stack had *before* it pushed
     /// its callee, so the loop hands control back the moment that callee
     /// returns rather than running on into the caller's frames.
+    // `loop-in-ram`: the loop and everything inlined into it execute from
+    // RAM (the `.data` section is copied there at boot); the helpers it
+    // calls stay in flash. Not inlined into `execute_frames` so the section
+    // holds exactly this function.
+    #[cfg_attr(feature = "loop-in-ram", link_section = ".data")]
+    #[cfg_attr(feature = "loop-in-ram", inline(never))]
     fn run(
         &mut self,
         frames: &mut Vec<Frame>,

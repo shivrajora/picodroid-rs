@@ -741,7 +741,7 @@ impl PlatformHooks for PlatformHost {
             vPortGetHeapStats(stats.as_mut_ptr());
             let stats = stats.assume_init();
             NativeHeapStats {
-                used_bytes: picodroid_core::board_cfg::heap::DEVICE_HEAP_BYTES
+                used_bytes: picodroid_core::board_cfg::heap::DEVICE_ARENA_BYTES
                     .saturating_sub(free as usize),
                 free_bytes: free as usize,
                 min_ever_free_bytes: xPortGetMinimumEverFreeHeapSize() as usize,
