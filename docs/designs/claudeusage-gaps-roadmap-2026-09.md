@@ -557,7 +557,13 @@ The device sum (310 KB) is 10 KB under the board's own `nused`: the network stac
 and buffers, which the simulator does not model (host sockets). The LVGL pool is a second
 heap with the same disease: the widget tree costs the simulator 1.6× (Burn page 27.0 KB of
 its 42.6 KB pool against 16.9 KB of the device's 45.7 KB; `lv=` on the `[memmon]` line).
-The whole divergence, term by term, and the plan to close it (M8–M10) are in
+**2026-09-26, after M8–M10** (same page, simulator, `heapcensus`; the board re-measure is
+pending its lease): the arena 247 KB where the 24th measured 399; parsed metadata 51.3 KB
+host / 50.7 modelled (the gap is one fat pointer per class), class table 7.3 / 4.6, static
+store 4.4 / 4.4, resolution tables 12.3 / 12.3, five dispatch memos 1.5 / 1.5, the LVGL pool
+23.8 of 72.2 KB (33 %) against the board's 15.1 of 46.0 (33 %). The IP task and each open
+socket are charged now (M9). The next lever is H10; H1–H3 stay the app's own.
+The whole divergence, term by term, and the plan that closed it (M8–M10) are in
 docs/parity-audit.md, "2026-09-24 memory-model divergence". Classes that cost the most on
 the device: `JSONObject` 6.0 KB, `MainActivity` 5.7, `View` 4.0, `LocalTime` 3.9, `JSONArray`
 3.5, `UsageService` 3.5, `Duration` 3.2, `HttpURLConnection` 2.7, `Thread` 2.5,
@@ -587,12 +593,13 @@ the runtime ones shrink every app and close most of the simulator's gap at the s
 
 *Runtime, every app (about 36 KB):*
 
-- **H4. `Parsed::cp_offsets` as `Vec<u16>`** — open. No class file is 64 KB (`lnt_offset`
-  already rests on it). −17.5 KB here, −52 KB in the simulator: the cheapest large cut, and
-  the single biggest term of the sim-versus-device gap. `jvm/src/class_file/`.
-- **H5. `MethodInfo` 32 → about 20 B** — open. `code_offset` and `code_len` as `u16`, the
-  exception table as an (offset, count) pair into flash instead of a `Vec` per method.
-  −12 KB here, −40 KB in the simulator.
+- **H4. `Parsed::cp_offsets` as `Vec<u16>`** — **closed 2026-09-26** (M8.1, with H5): the
+  whole parsed record is one u16 blob per class, byte-identical on both targets; this app's
+  74 parsed classes cost 51.3 KB in the simulator (was 161) and 50.7 KB modelled on the board
+  (was 94). `jvm/src/class_file/`.
+- **H5. `MethodInfo` 32 → about 20 B** — **closed 2026-09-26** (M8.1): 14 B (16 with line
+  numbers), inline in the class's record; the exception table and the bootstrap methods are
+  read from the class bytes, not copied. Counted under H4's figure.
 - **H6. Static field store keyed by (class index, field index)** — **closed 2026-09-26**
   (M8.3): a slot is one 16 B `Value` on both targets (the entry was 32 B on the device, 48 on
   the host, with a name compare on every miss), plus 2 B per class and an initialised bit;

@@ -109,18 +109,20 @@ live-set snapshot, attributed to code constructs. Printed with every
   (`sb`), lambda captures, exception tables.
 - `census classmeta` — per-executor parsed-class metadata: `parsed/total`
   classes, `parsedB` = bytes in this process (what the sim arena pays),
-  `devB~` = 32-bit release re-derivation (4 B usize, 12 B Vec headers, heap_4
-  block headers) — **use `devB~` for device sizing decisions**, the host
-  figure is ~2× inflated by pointer width. `tableB~` = the registration
-  table itself. One `child` row per live `Thread.start`/bg-pool executor
-  (each child's parsed set is a full duplicate of the main one — the
-  handover §6 lever; children register via `mem_diag::register_child_jvm`).
+  `devB~` = the device's figure: since M8 (2026-09-26) a class's record is
+  one u16 blob, byte-identical on both targets, and the two differ by one
+  fat pointer per parsed class (`class_file::FAT_PTR_DELTA`, 8 B) and
+  nothing else. `tableB~` = the registration table itself (one fat and one
+  thin pointer per entry more on the host). One `child` row per live
+  `Thread.start`/bg-pool executor (each child's parsed set is a full
+  duplicate of the main one — the handover §6 lever; children register
+  via `mem_diag::register_child_jvm`).
 - `census classmeta parts host/dev` — the same bytes by the part of the
-  parsed record that holds them: the `Box<Parsed>` itself, the constant-pool
-  offset and tag tables, the method, field, static, interface and bootstrap
-  tables, the exception tables. Says which packing lever pays: on
-  claudeusage the CP offsets (`usize` per entry) and the method table are
-  three quarters of it.
+  parsed record that holds them: the record header, the constant-pool
+  offset and tag tables, the method, field, static and interface tables.
+  The exception tables and bootstrap methods are read from flash and cost
+  nothing here. Says which packing lever pays: on claudeusage the CP
+  offsets and the method table are still two thirds of it.
 - `census classmeta classes` — the price of an import: one line per parsed
   class, most expensive first (top 12; all of them under
   `PICODROID_MEMDIAG_CLASSDUMP=1`), as `name=devB~/hostB

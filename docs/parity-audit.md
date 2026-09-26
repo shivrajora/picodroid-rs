@@ -598,7 +598,7 @@ one blind spot (numbers for the History page, the widest):
 
 | term | simulator | device | why |
 |---|---|---|---|
-| parsed class metadata, 73 classes | 161 KB | 94 KB | `cp_offsets: Vec<usize>` (8 B against 4 per constant-pool entry), `MethodInfo` 56 B against 32, `Box<Parsed>` 176 B against 88, six `Vec` headers per class at 24 B against 12 |
+| parsed class metadata, 73 classes | 161 KB | 94 KB | `cp_offsets: Vec<usize>` (8 B against 4 per constant-pool entry), `MethodInfo` 56 B against 32, `Box<Parsed>` 176 B against 88, seven `Vec` headers per class at 24 B against 12 |
 | class table, 226 entries | 10.8 KB | 4.5 KB | two `&'static [u8]` per `ClassFile` at 16 B against 8, the `OnceCell<Box>` at 8 against 4 |
 | static field store | 14 KB | 7 KB | `(&[u8], &[u8], Value)` entries at 40 B against 24, doubled once to 256 |
 | dispatch memos, 7 handlers | 10.8 KB | 5.4 KB | rows of two `*const u8` |
@@ -623,51 +623,95 @@ to begin with, because LVGL's own bookkeeping is host-sized too:
 | History | 23.8 KB of 43.0 | 15.1 KB of 46.0 |
 
 A screen that fills 60 % of the device's pool fills the simulator's, and the
-`under_memory_pressure` policy in `lifecycle/activity_stack.rs` (a push refused when the
-pool is low) trips in the simulator on trees the board carries.
+`under_memory_pressure` policy in `lifecycle/activity_stack.rs` (covered Activities reclaimed
+when the pool is low) trips in the simulator on trees the board carries.
 
-M6 fixed the object heap; every remaining term is the same disease in a table M6 did not
-reach: a long-lived structure keyed or laid out by pointer width. The plan follows M6's
-shape rather than compensating in the allocator (the allocator sees sizes, not types, so
-there is nothing to scale):
+M6 fixed the object heap; every remaining term was the same disease in a table M6 did not
+reach: a long-lived structure keyed or laid out by pointer width. The plan followed M6's shape
+rather than compensating in the allocator (the allocator sees sizes, not types, so there is
+nothing to scale). **All three landed 2026-09-26** (branch `memory-model-m8`, one commit per
+term), with three departures from the sketch below, each recorded where it applies.
 
-- **M8 — pointer-width-independent runtime tables.** The gap's four terms, each as its own
-  change, each also a device saving (they are H4–H7 in
-  docs/designs/claudeusage-gaps-roadmap-2026-09.md):
-  - `Parsed` as one `Box<[u8]>` record per class: `cp_offsets` as `u16` (no class file is
-    64 KB; `lnt_offset` already rests on that), `MethodInfo` packed to `u16` fields with
-    the exception table as an (offset, count) pair into flash, the six `Vec`s folded into
-    one allocation with `u16` sub-offsets. Host and device then differ by one fat pointer
-    per class. Closes about 62 KB of the 79 on this app and saves the device about 30.
-  - the class table with (image, offset, len) `u32` triples in place of the two slices;
-  - the static field store keyed by (class index, field index) with a bitset for
-    `initialized`;
-  - dispatch memo rows keyed by (class index, method index) in place of two name pointers;
-  - resolution-table keys as (class index, CP index) `u32` pairs, so both targets hold the
-    same entry counts and the same hit rate — today `Sizes::DEFAULT` differs by pointer
-    width on purpose, which is honest about bytes and dishonest about behaviour.
-  Each carries the M6 discipline: `const _: () = assert!(size_of::<T>() == N)` on every
-  target, and the ledger's `census native sites` row for the structure equal on host and
-  device to within the fat pointer. Pinned by a test that parses the framework class set
-  and compares `parsed_metadata_bytes()` host against the device model to within 2 %.
-- **M9 — model the network stack in the boot budget.** Charge FreeRTOS+TCP's IP task stack
-  and TCB at boot as the other modelled tasks are, and a per-socket charge (the board's
-  `net_tcp_rx_bytes` + `net_tcp_tx_bytes` streams plus one network buffer) at `connect`,
-  released at close — the `Thread.start` pattern. Calibrate against the device's `nused`
-  before and after the first connection (the 10 KB above) and assert within 2 KB, as M4
-  does for boot.
-- **M10 — the LVGL pool.** No Rust change reaches C struct layout. Two honest options: (a)
-  give the simulator's pool the device size scaled by the measured ratio (1.6× on this
-  board's widget mix) so the same tree fills the same fraction, and keep `lv=` on both
-  sides so drift is visible — approximate, one line in `pd-lvgl-sys/build.rs`;
-  (b) bring back the 32-bit lane (`c45e84a`: armv7 under qemu-user, 13× slower, headless,
-  the FreeRTOS POSIX port under qemu untested) as a nightly memory-parity oracle, exact
-  for C and Rust alike. (a) now, (b) when the nightly has room for a 13× run.
+- **M8 — pointer-width-independent runtime tables.** The gap's terms, each its own change,
+  each also a device saving (H4–H7 in docs/designs/claudeusage-gaps-roadmap-2026-09.md):
+  - `Parsed` is one exact `Box<[u16]>` record per class — CP offsets as u16, tags packed,
+    `FieldInfo`/`MethodInfo` inline as `#[repr(C)]` u16 records (`MethodInfo` 14 B, 16 with
+    line numbers) — and a 40 B header, 32 on the device: the blob's fat pointer is the whole
+    difference (`FAT_PTR_DELTA`). The exception table and the `BootstrapMethods` attribute are
+    not copied at all, both decode from the class bytes on demand (more than the sketch's
+    "(offset, count) pair"). Two-pass parse, one fallible allocation. Class files past 64 KB
+    are refused at registration; the largest that ships is 51 KB. The census's hand-written
+    device constants are gone (its `DEV_PARSED = 80` had counted six `Vec`s of seven): the
+    device figure is the host's minus one fat pointer per class, pinned by
+    `class_metadata_tests` over every framework class. `0d7c739e`
+  - the class table keeps `data` and turns `name` into two u16 offsets into it: `ClassFile` is
+    32 B host / 20 B device, `const`-asserted. The (image, offset, len) triple was not taken —
+    it needs a global image registry and an indirection on every CP read to save a further
+    ~3 KB host / ~1 KB device. `4f52bb8b`
+  - the static store is one 16 B `Value` slot per declared static, prepared per class at
+    initialisation, plus 2 B per class and an initialised bit, growing fallibly. A
+    `getstatic` resolves to the *declaring* class (JVMS §5.4.3.2), which also fixed `Sub.X`
+    reading `Null` for an `X` declared on `Super`, and initialises the declaring class rather
+    than the CP-named one (JLS §12.4.1). The table above says 40/24 B an entry; it was 48/32
+    (`Value` is 16 B on every target). `27f30473`
+  - the resolution tables and the dispatch memo both key on one `SiteKey { site, recv }` of
+    two u32: the constant-pool site `(class index << 16) | CP index`, which fixes class, name
+    and descriptor at javac's own granularity, plus the receiver's heap class id for virtual,
+    interface and instance-field sites. The interpreter's constant-name sites get fixed ids; a
+    native upcall, which has no CP entry, a 16-bit hash verified against the resolved method
+    on a hit. Slots are 16/12/8/8 B and `Sizes::DEFAULT` is one definition — 12,288 B on both
+    targets (13,824 host / 16,128 device before), the same entry counts and so the same hit
+    rate. The memo's rows are 12 B (24 / 16) and carry the superclass re-walk step: not the
+    "(class index, method index)" sketched, because the re-walk dispatches one `(ci, mi)`
+    under several class names, and the builtin calls whose `NONE` answer matters most
+    (`String.length`, the D4 floor) have no `(ci, mi)` at all. `SharedJvmHeap::reset` clears
+    the tables explicitly — a relaunch can reuse the class set's address while heap class ids
+    are renumbered. `11b28da5`, `98db7abc`
+- **M9 — the network stack in the boot budget.** On a `has_network` board the simulator now
+  charges the IP task's stack and TCB at boot (a modelled row after the kernel's tasks) and its
+  kernel objects in the queue bucket, and at every TCP connect or accept the four blocks a
+  connected socket holds on the device — socket struct, event group, receive and send streams
+  — released at close, the `Thread.start` pattern; the first connection also charges the
+  window-segment pool the device never frees. Figures per board from the same `net_*`
+  board.toml keys the C build takes (`board_cfg::net`, `net_budget.rs`), the struct sizes
+  pinned by `_Static_assert`s in `net_init.c` — which is how a hand-summed 428 B socket became
+  the compiler's 444 before it shipped. pico_display2_w: 2,432 B at boot, 4,616 B per open
+  socket, 512 B once; the boot banner reconciles at 77,952 B with the IP task in the model.
+  `9ee64757`. **Calibration pending:** the WiFi bench slot was on another session's lease, so
+  the test that pins the three measured deltas (`the_model_is_within_2_kb_of_the_measured_board`)
+  is `#[ignore]`d with the capture recipe, and this entry reads "modelled, uncalibrated" until
+  it runs. Honest note: the "as M4 does" ±2 KB assertion this section refers to is
+  documentation — nothing asserts a modelled figure against a device figure today; M9's
+  ignored test is the first.
+- **M10(a) — the LVGL pool.** The host pool is the board's `lv_mem_kb` × 1.6
+  (`HOST_LV_POOL_PERCENT` in build_support/lvgl.rs, not embedded targets), so a tree fills
+  the same fraction on both sides and `under_memory_pressure` (which drives
+  `reclaim_covered_activities`; it never refused a push) trips where the board's would. `lv=`
+  stays on both sides so a widget mix that drifts from the ratio shows. (b), the 32-bit lane,
+  stays deferred. `29d8a0cb`
 
-What full parity means after M8–M10: every arena block the same size on both targets to
-within `Vec`/`Box` header width (12 B each, a few hundred of them), the network stack and
-the LVGL pool modelled, and the residual measured by the same two instruments that found
-this gap: the ledger in the simulator and `memmon:` on the board.
+Measured with the audit's own instruments — claudeusage on pico_display2_w in the simulator,
+History page after the first sync, `PICODROID_MEMDIAG_SITES=1` + `heapcensus` — beside the
+2026-09-24 figures above (the device column on the 26th is the model, the board being leased;
+re-measure both with the recipe above when it is free):
+
+| term | 2026-09-24 sim / device | 2026-09-26 sim / device model |
+|---|---|---|
+| parsed class metadata | 161 KB / 94 KB, 73 classes | 51.3 KB / 50.7 KB, 74 classes — the gap is 74 fat pointers, 592 B |
+| class table, 227 entries | 10.8 KB / 4.5 KB | 7.3 KB / 4.6 KB |
+| static field store | 14 KB / 7 KB | 4.4 KB / 4.4 KB |
+| dispatch memos | 10.8 KB / 5.4 KB, 7 handlers | 1.5 KB / 1.5 KB, 5 handlers (two pool workers since H9) |
+| resolution tables | 13.8 KB / 16.1 KB | 12.3 KB / 12.3 KB |
+| LVGL pool, History | 23.8 of 43.0 KB (55 %) / 15.1 of 46.0 (33 %) | 23.8 of 72.2 KB (33 %) / unchanged |
+| arena total | 399 KB / 320 KB | 247 KB / — |
+
+The arena total also carries what else moved between the two dates — two pool workers, the
+LittleFS caches, the RAM-resident loop's arena cut, the IP task now charged — so it is not M8's
+number alone; the per-term rows are. What full parity means now holds for every term here:
+each arena block the same size on both targets to within a `Vec`/`Box` header (12 B each, a
+few hundred of them), the network stack and the LVGL pool modelled, and the residual measured
+by the same two instruments that found the gap: the ledger in the simulator and `memmon:` on
+the board.
 
 ## 2026-08-30 bug-bash divergence decisions
 
