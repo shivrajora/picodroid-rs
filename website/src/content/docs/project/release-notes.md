@@ -7,7 +7,7 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
-**`View.close()` leaves its parent; `View.getParent()` (2026-09-25)**
+**`View.close()` leaves its parent; `View.getParent()` (2026-09-25; map v0.30.0, package 0.30.0)**
 
 - `View.close()` on a child now detaches it from its parent before freeing the widget, as
   `ViewGroup.removeView` does from the parent's side. Before, the parent's child list kept the
@@ -20,6 +20,10 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
   `removeView` frees, so a move is the only way to reparent).
 - Sim: with the handle sanitizer on (the `sim.sh` default), freeing a widget that still sits under
   a Java-owned container stops the run with a backtrace instead of leaking.
+- Map v0.30.0, cut on `main`, folds in `ViewParent` and the three member names the detaching
+  `close()` added (`mParent`, `detachChild`, `nativeClose`), so the shrunk-image check is clean
+  again. The member floor stays at v0.17.0, so PAPKs shrunk with v0.17.0 through v0.29.0 still
+  install. `Build.VERSION.RELEASE` reads `0.30.0`.
 
 **Keys, text gravity, flat containers, `java.time` (2026-09-24; map v0.29.0, package 0.29.0)**
 
