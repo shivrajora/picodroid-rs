@@ -7,6 +7,66 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**Custom drawing: `View.onDraw(Canvas)` (2026-09-26; map v0.31.0, package 0.31.0)**
+
+- Android's custom-view API: subclass `View` (`new View(Context)`), override `onDraw(Canvas)`, and
+  call `invalidate()` (or `postInvalidate()` off the main thread) when the picture changes.
+  `Canvas` draws `drawColor`, `drawRect`, `drawRoundRect`, `drawCircle`, `drawLine`, `drawArc`
+  and `drawText`. `Paint` carries colour and alpha (`setARGB`, `ANTI_ALIAS_FLAG`), `Style`
+  (`FILL` / `STROKE` / `FILL_AND_STROKE`), stroke width, `Cap`, text size and `Align`, and
+  `ascent`, `descent` and `measureText`.
+- There is no pixel buffer: a 320×240 canvas would be 150 KB. Each draw call records a 32-byte
+  op in a per-view list in the LVGL pool (2 KB cap), and LVGL replays the list whenever it paints
+  the view. So `onDraw` runs once per `invalidate()`, not once per frame.
+- `testbench_rp2040` leaves it out (the new `has_canvas = false` board key, about 16 KB of
+  flash there), and `build-apk.sh --board testbench_rp2040` rejects an app that uses it.
+- `examples/claudeusage` draws its Burn and History charts with it, pixel-identical to the bar
+  views they replace. `examples/displaydemo` gains a shapes row, and `qa_ui` a canvas section.
+
+**UDP broadcast on `DatagramSocket` (2026-09-26; map v0.31.0, package 0.31.0)**
+
+- `DatagramSocket()`, `setSoTimeout`, `setBroadcast` / `getBroadcast` and
+  `DatagramPacket(byte[], int, InetAddress, int)`, with their `java.net` spellings. Broadcast is on
+  by default and the setting is recorded but not enforced, since neither network stack refuses a
+  broadcast. In the simulator, UDP sockets get `SO_BROADCAST` as Java's do;
+  `PICODROID_SIM_NET_BROADCAST=0` withholds it, to rehearse an access point with client isolation.
+- `examples/claudeusage` finds its bridge by broadcasting `PICODROID-USAGE?` to UDP 8788 rather
+  than using a build-time address. The bridge's reply names the port, and its source address names
+  the PC.
+- Map v0.31.0, cut on `main`, folds in `Canvas`, `Paint`, `Paint$Align` / `$Cap` / `$Style` and
+  `View$DrawTask` (302 → 308 classes) and the 54 member names the drawing and broadcast surfaces
+  added (1632 → 1686). The member floor stays at v0.17.0, so PAPKs shrunk with v0.17.0 through
+  v0.30.0 still install. `Build.VERSION.RELEASE` reads `0.31.0`.
+
+**`--shrink-app` shrinks every app; an app never renames anything for the shrinker (2026-09-26)**
+
+- `cut-app` gives an app member whose name is already a release-map target a fresh target of its
+  own, instead of refusing the app. App classes in the default package or under `a/`, `b/` or `c/`
+  move to fresh `c/` names. Five examples that could not be built with `--shrink-app` now can
+  (`qa_oop`, `langsuite_kt`, `clinitdemo`, `langsuite`, `defaultmethods`).
+- Plain `--shrink` runs the same check (`cut-app --declash-only`) and renames only the colliding
+  names. Before, an app member that happened to spell a shrunk SDK name could silently alias it.
+  A clash-free app shrinks exactly as before. Still refused: an app copy of a framework class, and
+  a colliding name spelled by a kept class or an annotation element.
+
+**The simulator's memory model matches the board's (M8–M10), and GC compaction stops failing on a fragmented heap (2026-09-25/26)**
+
+- Parsed class metadata is one `u16` record per class. Exception and bootstrap tables are read
+  from the class bytes in flash rather than copied. On claudeusage's History page, parsed metadata
+  drops from 161 KB to 51 KB in the simulator and from 94 KB to 47 KB on the board. Class files
+  over 64 KB are refused at registration; the largest that ships is 51 KB.
+- Resolution tables are keyed by constant-pool site (`SiteKey`) instead of by pointers, so the
+  simulator and the device hold the same entries and hit at the same rate. Static fields are
+  keyed by class and field index, and class-table names are stored as offsets into the class
+  bytes. The simulator's LVGL pool is scaled by the measured 1.6× pointer overhead. A screen that
+  fits the board no longer triggers memory-pressure Activity reclaim in the simulator.
+- GC compaction works in 512-key slices from a 4 KB buffer claimed at boot. Before, it asked for
+  one block per collection that grew with the live set (38 KB on claudeusage). On a fragmented
+  heap that request failed, and compaction was skipped.
+- `onServiceConnected` is delivered on the next main-loop turn rather than inside the drain that
+  ran the Service's `onCreate` / `onBind`, which splits the last long boot span out of
+  claudeusage's start.
+
 **`View.close()` leaves its parent; `View.getParent()` (2026-09-25; map v0.30.0, package 0.30.0)**
 
 - `View.close()` on a child now detaches it from its parent before freeing the widget, as
