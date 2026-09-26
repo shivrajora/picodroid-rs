@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.view;
 
+import picodroid.concurrent.Executor;
+import picodroid.concurrent.Executors;
+import picodroid.content.Context;
+import picodroid.graphics.Canvas;
 import picodroid.graphics.drawable.Drawable;
 
 public class View {
@@ -57,8 +61,113 @@ public class View {
   int id = NO_ID;
   Object tag;
 
+  /**
+   * The canvas {@link #onDraw} draws on; non-null only for a view made with {@link #View(Context)},
+   * the one kind whose widget keeps a drawing. The framework widgets draw themselves.
+   */
+  private Canvas mCanvas;
+
+  /** An {@link #onDraw} is queued on the main thread and has not run yet. */
+  private boolean mDrawPending;
+
+  /** The queued task that runs {@link #onDraw}; made on the first {@link #invalidate}. */
+  private Runnable mDrawTask;
+
+  /** The main thread's executor, shared by every view that draws. */
+  private static Executor sMainExecutor;
+
   protected View(int nativeHandle) {
     this.nativeHandle = nativeHandle;
+  }
+
+  /**
+   * A plain view that draws what its {@link #onDraw} draws: subclass it and override {@code
+   * onDraw}, as on Android. It starts transparent, borderless and not clickable, 0 by 0 until it is
+   * sized ({@link #setSize}, or a layout); its first {@code onDraw} runs on the main thread shortly
+   * after construction.
+   */
+  public View(Context context) {
+    this(nativeCreateView());
+    mCanvas = new Canvas();
+    scheduleDraw();
+  }
+
+  private static native int nativeCreateView();
+
+  /**
+   * Draws this view. Mirrors {@code android.view.View#onDraw(Canvas)}: runs on the main thread
+   * after {@link #invalidate}, and what it draws is kept and repainted until the next call, so it
+   * must draw the whole view each time. Only a view made with {@link #View(Context)} is drawn this
+   * way; the default draws nothing.
+   */
+  protected void onDraw(Canvas canvas) {}
+
+  /**
+   * Asks for {@link #onDraw} to run again, on the main thread before the next frame. Mirrors {@code
+   * android.view.View#invalidate()}: several calls before it runs cost one {@code onDraw}. Call it
+   * when the state {@code onDraw} reads changes, and after a size change. Framework widgets repaint
+   * themselves when their state changes, so on them this does nothing.
+   */
+  public void invalidate() {
+    if (mCanvas != null) {
+      scheduleDraw();
+    }
+  }
+
+  /** {@link #invalidate} from any thread. Mirrors {@code android.view.View#postInvalidate()}. */
+  public void postInvalidate() {
+    invalidate();
+  }
+
+  private void scheduleDraw() {
+    if (mDrawPending || nativeHandle == 0) {
+      return;
+    }
+    mDrawPending = true;
+    if (mDrawTask == null) {
+      mDrawTask = new DrawTask(this);
+    }
+    Executor main = sMainExecutor;
+    if (main == null) {
+      main = Executors.mainExecutor();
+      sMainExecutor = main;
+    }
+    main.execute(mDrawTask);
+  }
+
+  /** Runs {@link #onDraw} into this view's recording, then has the view repainted. */
+  final void performDraw() {
+    mDrawPending = false;
+    Canvas canvas = mCanvas;
+    if (canvas == null || nativeHandle == 0) {
+      return;
+    }
+    nativeBeginDraw(canvas);
+    try {
+      onDraw(canvas);
+    } finally {
+      nativeEndDraw(canvas);
+    }
+  }
+
+  /** Points {@code canvas} at this view's widget and size and empties the old recording. */
+  private native void nativeBeginDraw(Canvas canvas);
+
+  /** Detaches {@code canvas} again and repaints the view. */
+  private native void nativeEndDraw(Canvas canvas);
+
+  /** The main-thread task behind {@link #invalidate}; one per drawing view, reused. */
+  private static final class DrawTask implements Runnable {
+    private final View view;
+
+    DrawTask(View view) {
+      this.view = view;
+    }
+
+    @Override
+    public void run() {
+      view.performDraw();
+    }
   }
 
   /** Whether this view's widget has been freed ({@link ViewGroup#removeView}). */

@@ -1,6 +1,6 @@
 # Platform gaps found building `claudeusage`
 
-**Status: open list; G1, G2 and G3 closed 2026-09-23, G8 closed 2026-09-24, D5 (app bug) fixed 2026-09-23, D2 fixed 2026-09-25 (`LV_DRAW_SW_SUPPORT_RGB888`, the horizontal gradient's source format), D1 (sim run-lock hand-off) closed 2026-09-25. D4 closed for this app 2026-09-25: the RP2350's flash clock was the ROM's divider of 3 and is now 2 (`hal/rp/xip.rs`, every RP2350 board), the History and Models first paints are split, and no page turn has a span over 50 ms; the RAM-resident interpreter loop landed the same day on every RP2350 board, paid for by H7, H8 and H9. G11 attributed 2026-09-24: the board has 98 KB free on its worst page, the simulator 9 KB; the levers are listed there. G10 closed 2026-09-25: the collector compacts in bounded slices from a 4 KB buffer claimed at boot.**
+**Status: open list; G1, G2 and G3 closed 2026-09-23, G8 closed 2026-09-24, D5 (app bug) fixed 2026-09-23, D2 fixed 2026-09-25 (`LV_DRAW_SW_SUPPORT_RGB888`, the horizontal gradient's source format), D1 (sim run-lock hand-off) closed 2026-09-25. D4 closed for this app 2026-09-25: the RP2350's flash clock was the ROM's divider of 3 and is now 2 (`hal/rp/xip.rs`, every RP2350 board), the History and Models first paints are split, and no page turn has a span over 50 ms; the RAM-resident interpreter loop landed the same day on every RP2350 board, paid for by H7, H8 and H9. G11 attributed 2026-09-24: the board has 98 KB free on its worst page, the simulator 9 KB; the levers are listed there. G10 closed 2026-09-25: the collector compacts in bounded slices from a 4 KB buffer claimed at boot. G4 closed 2026-09-26: `View.onDraw(Canvas)` over a retained display list; both charts are one view each.**
 
 `examples/claudeusage` is a desk display for Claude usage limits on a new board, `pico_display2_w`
 (Pimoroni Pico Display Pack 2.0 on a Pico 2 W). It was built to look like a modern product rather
@@ -211,8 +211,53 @@ fetched from flash, so the fetch itself was measured:
   (`Page.paintNext`, driven by `MainActivity.paintPage` before the fade-in; later updates stay
   whole), and `BarView` skips `setProgress` for an unchanged value, which the cleared rows were
   paying as a native each: no Models span over 50 ms either. Twelve turns and two preference writes on the final build:
-  no slow span at all. What remains is one-off: the Service start (`pending-op drain`, ~60–75 ms)
+  no slow span at all. What remained was one-off: the Service start (`pending-op drain`, ~60–75 ms)
   and the first page after boot (65 ms, 83 cold resolutions), before the tables are warm.
+
+**The boot one-offs (2026-09-25, later).** Read from the code rather than measured: the drain
+span held, back to back, the Service's instantiation and first-time class parses, its
+`onCreate` (a second read of the preferences file, two 16 KB task creates), `onStartCommand`,
+`onBind`, and then `onServiceConnected` delivered synchronously — whose `refresh()` painted the
+chrome (~20 ms) in the same span. The first data page was built only when the data arrived, so
+its class parses and cold call sites landed on that tick, after seconds of idle on the status
+screen. Four changes, measured on the board below:
+
+- **Runtime: `onServiceConnected` is one turn later.** `process_bind` queues a
+  `PendingServiceOp::Connected` at the head of the pending ops instead of invoking the
+  callback; a held head stops the drain that queued it (`release_held` at the top of the next
+  one lets it go) and the bind posts a main-queue wake, so the callback follows within a tick
+  in a span of its own, and whatever the app queued after its bind waits behind it. That last
+  part matters: a first cut appended the op at the tail, and `qa_life`'s Activity A, which
+  binds and then launches B from the same `onCreate`, got its connect only after B's whole
+  round-trip (three checks failed). At the head, `onBind` still precedes the connect, the
+  connect precedes the launch, and `servicedemo`'s bind-then-unbind in one `onCreate` sees
+  connected, then disconnected, as before. The owner-is-live check moved to delivery time. The
+  boot drain and service-only apps, which have no loop to come back, release before every take
+  or drain in rounds.
+- **App: the connect callback posts its refresh** (`MainActivity.onConnected`), and the
+  Service's tick thread starts with the first listener (`setListener`) rather than in
+  `onCreate`, since it has nothing to do before one.
+- **App: the first data page is built behind the status screen** (`prebuildPage`, a step per
+  tick once the status page is up), invisible in the page host; `startPage` adopts it, built or
+  part-built, when the data arrives, and only the first paint is left. A build failure there is
+  logged and the arrival builds the page as before; a restored page index other than Limits
+  prebuilds that page instead.
+
+- **App: the chrome's data path is warmed while idle** (`warmChrome`, posted after the
+  prebuild): the banner formats, `TimeFormat.hm` and `duration` and the plan's upper-casing run
+  once on placeholder values. The runtime keys a resolved site by the caller's constant-pool
+  names, so any method of `MainActivity` warms the sites `refreshChrome` uses, and the class
+  initialisations are global.
+
+**Board, parity build, from power-on** (`pico_display2_w`, live bridge). With the first three
+changes: no `pending-op drain` line at all (the Service start is under the 50 ms line), no
+line at the connect, and one slow span left — the first `refresh()` with data, 57 ms (cpu 56.7:
+invokes 29.8 ms/202, fields 12.7/211, resolve 12.4/89 cold, clinit 6.0, natives 6.7/104,
+1,775 bytecodes at ~32 µs each: every line of it cold), before `page -> Limits`; the adopted
+page's paint ticks were all under the line. With the warm-up: `prebuilt Limits`, `chrome warm`,
+then `state -> OK`, `page -> Limits` and not one slow span from power-on. Class parsing is
+still invisible to the span counters; a `parsed` count and time per span is the cheap next
+step, see G10's neighbours.
 
 **Repro.** `env $(grep -v '^#' .wifi-creds.env | xargs) PICODROID_NET_TEST_HOST=<PC address>
 ./scripts/flash.sh --board pico_display2_w --app claudeusage` in the background, wait for
@@ -399,7 +444,7 @@ Was: determinate bars took their colour from the theme (`setTint` only affected 
 spinner), the range was fixed at 0..100 with no `setMax`, and there was no animated `setProgress`,
 so the app built `ui/BarView` from two `FrameLayout`s.
 
-### G4. No chart and no custom drawing
+### G4. No chart and no custom drawing — closed 2026-09-26
 
 There is no `Canvas`/`onDraw`, no line, and no chart widget. The app's two charts are one view per
 bar (24 and 7), which is the expensive way to draw rectangles: each costs LVGL pool and several
@@ -407,6 +452,16 @@ milliseconds to create, which is why pages are built a few views per tick. A spa
 not bars) is not expressible at all.
 
 **Ask:** `lv_chart` as a widget, or a minimal `Canvas` with `drawLine` / `drawRect` / `drawArc`.
+
+**Landed 2026-09-26:** Android's `View(Context)` + `onDraw(Canvas)` + `invalidate()`, with
+`Canvas.drawColor` / `drawRect` / `drawRoundRect` / `drawCircle` / `drawLine` / `drawArc` /
+`drawText` and a `Paint` with style, stroke, cap, text size, align and metrics. Not an `lv_canvas`
+(a 320x240 buffer is 150 KB) and not an `lv_chart`: each draw call records a 32-byte op that an
+`LV_EVENT_DRAW_MAIN` hook replays whenever LVGL paints the view
+([`canvas-2026-09.md`](canvas-2026-09.md)). `ui/TrendChart` and `ui/WeekChart` replace the 24 and
+14 views: the Burn page builds its chart in one step instead of six, History its bars and letters
+in one instead of four, and the three pages are pixel-identical to the view-per-bar build in the
+simulator. A sparkline is now a loop of `drawLine`.
 
 ### G5. Image assets lose their alpha
 

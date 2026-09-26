@@ -115,6 +115,12 @@ pub trait GraphicsBackend {
         method: &str,
         ctx: &mut NativeContext<'_>,
     ) -> DispatchResult;
+    /// `picodroid.graphics.Canvas`: the draw calls of a `View.onDraw`.
+    #[cfg(has_canvas)]
+    fn dispatch_canvas(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult;
+    /// `picodroid.graphics.Paint`: its text metrics.
+    #[cfg(has_canvas)]
+    fn dispatch_paint(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult;
     fn dispatch_keyboard(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult;
     fn dispatch_swipe_refresh_layout(
         &mut self,

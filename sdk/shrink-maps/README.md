@@ -43,7 +43,9 @@ A release map never carries `c/` rows. `--shrink-app` (`build-apk.sh`)
 cuts a **per-PAPK** map at build time — `class-shrink cut-app` copies the
 active release map and appends the app's own classes under `c/` and its
 private member names, resuming the release allocator so no target
-collides. That merged file lands next to the PAPK
+collides. Plain `--shrink` cuts one too (`--declash-only`), renaming only
+the app names that would collide with a shrunk framework name. That merged
+file lands next to the PAPK
 (`build/apks/<app>.shrink-map.toml`), is the PAPK's retrace key, and is
 regenerated on every build; nothing under `sdk/shrink-maps/` changes.
 
@@ -119,8 +121,9 @@ map (`build_support/names.rs`: `c::picodroid_view_View`, `m::toString`,
 `instanceof`, native dispatch and `Class.getName()` all use the mapped
 spelling and the image carries no original name — ProGuard semantics.
 Build without `--shrink` for readable names, or pipe a shrunk log through
-`scripts/retrace.sh`. All three prefixes are reserved: `cut-app` rejects an
-app class in package `a`, `b` or `c`.
+`scripts/retrace.sh`. All three prefixes are reserved: `cut-app` moves an
+app class in package `a`, `b` or `c` (or the default package) under a fresh
+`c/` name, in both shrink modes.
 
 ## Current releases
 

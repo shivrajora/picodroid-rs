@@ -412,8 +412,36 @@ fn shrink_directory_rewrites_a_default_package_this_class() {
     shrink_directory(&in_dir, &out_dir, &map).unwrap();
     let out = fs::read(out_dir.join("c/A.class")).expect("written under c/A");
     let cf = ClassFile::parse(&out).unwrap();
-    assert_eq!(utf8_at(&cf, 2), b"c/A");
+    assert_eq!(read_own_name(&cf), Some(b"c/A".as_slice()));
     assert_eq!(utf8_at(&cf, 3), b"Lc/A;");
+}
+
+#[test]
+fn shrink_directory_moves_a_default_package_class_off_a_shared_slot() {
+    // javac shares one Utf8 between the class name `Main`, a method named
+    // `Main` and a `"Main"` log tag; only the class reference may change.
+    let in_dir = tmp("shrink-dflt-shared-in");
+    let out_dir = tmp("shrink-dflt-shared-out");
+    let bytes = build_class_with(
+        vec![
+            class(2),     // #1 this_class
+            utf8("Main"), // #2 class name, method name and literal
+            string(2),    // #3 ldc "Main"
+            utf8("()V"),  // #4
+        ],
+        1,
+        0x0021,
+        &[],
+        &[(2, 4)],
+    );
+    fs::write(in_dir.join("Main.class"), bytes).unwrap();
+    let mut map = ShrinkMap::new();
+    map.classes.insert("Main".into(), "c/A".into());
+    shrink_directory(&in_dir, &out_dir, &map).unwrap();
+    let cf = ClassFile::parse(&fs::read(out_dir.join("c/A.class")).unwrap()).unwrap();
+    assert_eq!(read_own_name(&cf), Some(b"c/A".as_slice()));
+    assert_eq!(utf8_at(&cf, 2), b"Main", "literal and member keep the slot");
+    assert_eq!(cf.members().unwrap().methods[0].name, b"Main");
 }
 
 /// One simple class-file with the given name and `(name, desc)` methods.
@@ -447,6 +475,14 @@ fn no_reserve() -> AppCut<'static> {
     AppCut {
         reserve_dirs: &[],
         reserve_names: &[],
+        declash_only: false,
+    }
+}
+
+fn declash_only() -> AppCut<'static> {
+    AppCut {
+        declash_only: true,
+        ..no_reserve()
     }
 }
 
@@ -506,16 +542,28 @@ fn cut_app_allocates_c_names_and_follows_components_for_injectors() {
 }
 
 #[test]
-fn cut_app_rejects_default_package_and_synthetic_prefixes() {
-    let dir = tmp("cut-app-dflt");
-    write(&dir, "Main", simple_class("Main", &[]));
-    let err = cut_app(&dir, &app_keep(), ShrinkMap::new(), &no_reserve()).unwrap_err();
-    assert!(err.to_string().contains("default package"), "{err}");
-
+fn cut_app_moves_default_package_and_synthetic_prefix_classes_under_c() {
     let dir = tmp("cut-app-synth");
-    write(&dir, "c/Foo", simple_class("c/Foo", &[]));
-    let err = cut_app(&dir, &app_keep(), ShrinkMap::new(), &no_reserve()).unwrap_err();
-    assert!(err.to_string().contains("synthetic"), "{err}");
+    write(&dir, "Main", simple_class("Main", &[]));
+    write(&dir, "app/Main", simple_class("app/Main", &[]));
+    write(&dir, "c/A", simple_class("c/A", &[]));
+    let map = cut_app(&dir, &app_keep(), ShrinkMap::new(), &no_reserve()).unwrap();
+    let classes: Vec<(&str, &str)> = map.iter_classes().collect();
+    // `c/A` is the app's own name, so no class is handed it as a target.
+    assert_eq!(
+        classes,
+        vec![("Main", "c/B"), ("app/Main", "c/C"), ("c/A", "c/D")]
+    );
+}
+
+#[test]
+fn cut_app_refuses_an_app_copy_of_a_framework_class() {
+    let dir = tmp("cut-app-fw");
+    write(&dir, "java/lang/Math", simple_class("java/lang/Math", &[]));
+    let mut base = ShrinkMap::new();
+    base.classes.insert("java/lang/Math".into(), "b/A".into());
+    let err = cut_app(&dir, &app_keep(), base, &no_reserve()).unwrap_err();
+    assert!(err.to_string().contains("framework class"), "{err}");
 }
 
 #[test]
@@ -547,6 +595,7 @@ fn cut_app_member_targets_skip_reserved_names_and_short_or_mapped_candidates() {
     let opts = AppCut {
         reserve_dirs: &[],
         reserve_names: &reserve,
+        declash_only: false,
     };
     let map = cut_app(&dir, &app_keep(), base, &opts).unwrap();
     let members: Vec<(&str, &str)> = map.iter_members().collect();
@@ -557,15 +606,84 @@ fn cut_app_member_targets_skip_reserved_names_and_short_or_mapped_candidates() {
     );
 }
 
-#[test]
-fn cut_app_refuses_an_app_that_spells_a_release_target() {
-    let dir = tmp("cut-app-clash");
-    write(&dir, "app/Main", simple_class("app/Main", &[("f", "()V")]));
+/// `app/Main` declares `f` (a release target: `setText → f`) and `refresh`;
+/// `app/Caller` only calls `Main.f`.
+fn clashing_app(tag: &str) -> PathBuf {
+    let dir = tmp(tag);
+    write(
+        &dir,
+        "app/Main",
+        simple_class("app/Main", &[("f", "()V"), ("refresh", "()V")]),
+    );
+    write(
+        &dir,
+        "app/Caller",
+        build_class(
+            vec![
+                class(2),
+                utf8("app/Caller"),
+                utf8("f"),
+                utf8("()V"),
+                nat(3, 4),
+            ],
+            1,
+        ),
+    );
+    dir
+}
+
+fn set_text_base() -> ShrinkMap {
     let mut base = ShrinkMap::new();
     base.members.insert("setText".into(), "f".into());
-    let err = cut_app(&dir, &app_keep(), base, &no_reserve()).unwrap_err();
-    assert!(
-        err.to_string().contains("targets of the release map"),
-        "{err}"
+    base
+}
+
+#[test]
+fn cut_app_renames_an_app_member_spelled_like_a_release_target() {
+    let dir = clashing_app("cut-app-clash");
+    let map = cut_app(&dir, &app_keep(), set_text_base(), &no_reserve()).unwrap();
+    let members: Vec<(&str, &str)> = map.iter_members().collect();
+    // One-letter `f` is renamed although it is short; the release row stays.
+    assert_eq!(
+        members,
+        vec![("f", "g"), ("refresh", "h"), ("setText", "f")]
     );
+}
+
+#[test]
+fn cut_app_declash_only_renames_just_the_collisions() {
+    let dir = clashing_app("cut-app-declash");
+    write(&dir, "a/A", simple_class("a/A", &[]));
+    let map = cut_app(&dir, &app_keep(), set_text_base(), &declash_only()).unwrap();
+    let classes: Vec<(&str, &str)> = map.iter_classes().collect();
+    assert_eq!(classes, vec![("a/A", "c/A")], "app/* stays as written");
+    let members: Vec<(&str, &str)> = map.iter_members().collect();
+    assert_eq!(members, vec![("f", "g"), ("setText", "f")]);
+}
+
+#[test]
+fn cut_app_declash_only_leaves_a_clash_free_app_on_the_base_map() {
+    let dir = tmp("cut-app-declash-none");
+    write(
+        &dir,
+        "app/Main",
+        simple_class("app/Main", &[("refresh", "()V"), ("id", "()V")]),
+    );
+    let map = cut_app(&dir, &app_keep(), set_text_base(), &declash_only()).unwrap();
+    let base = set_text_base();
+    assert!(map.iter_classes().eq(base.iter_classes()));
+    assert!(map.iter_members().eq(base.iter_members()));
+}
+
+#[test]
+fn cut_app_refuses_a_release_target_spelled_by_a_kept_class() {
+    let dir = tmp("cut-app-kept-clash");
+    write(
+        &dir,
+        "kotlin/Unit",
+        simple_class("kotlin/Unit", &[("f", "()V")]),
+    );
+    write(&dir, "app/Main", simple_class("app/Main", &[("f", "()V")]));
+    let err = cut_app(&dir, &app_keep(), set_text_base(), &no_reserve()).unwrap_err();
+    assert!(err.to_string().contains("cannot be renamed"), "{err}");
 }

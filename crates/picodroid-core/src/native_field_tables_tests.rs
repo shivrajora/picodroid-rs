@@ -101,6 +101,31 @@ fn slot_expectations() -> Vec<(&'static str, &'static str, usize)> {
             "packageName",
             g::intent::PACKAGE,
         ),
+        (
+            c::picodroid_graphics_Canvas,
+            "nativeHandle",
+            g::canvas::NATIVE_HANDLE,
+        ),
+        (c::picodroid_graphics_Canvas, "width", g::canvas::WIDTH),
+        (c::picodroid_graphics_Canvas, "height", g::canvas::HEIGHT),
+        (c::picodroid_graphics_Paint, "color", g::paint::COLOR),
+        (
+            c::picodroid_graphics_Paint,
+            "strokeWidth",
+            g::paint::STROKE_WIDTH,
+        ),
+        (c::picodroid_graphics_Paint, "style", g::paint::STYLE),
+        (
+            c::picodroid_graphics_Paint,
+            "strokeCap",
+            g::paint::STROKE_CAP,
+        ),
+        (c::picodroid_graphics_Paint, "textSize", g::paint::TEXT_SIZE),
+        (
+            c::picodroid_graphics_Paint,
+            "textAlign",
+            g::paint::TEXT_ALIGN,
+        ),
         // pio/fields.rs — slot 0 of each; the rest is native-only state.
         (c::picodroid_pio_Gpio, "pin", pio::gpio::PIN),
         (c::picodroid_pio_UartDevice, "uartId", pio::uart::UART_ID),

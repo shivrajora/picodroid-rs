@@ -360,6 +360,9 @@ pub const LV_SCALE_NONE: i32 = 256;
 /// `lv_draw_rect.h`: special radius value meaning "fully rounded" — the
 /// standard recipe for a radio-style circular checkbox indicator.
 pub const LV_RADIUS_CIRCLE: i32 = 0x7FFF;
+/// `lvgl/pd_canvas.h`: the bytes one drawing view's display list may hold;
+/// ops past it are dropped and counted (`pd_canvas_end`).
+pub const PD_CANVAS_MAX_BYTES: usize = 2048;
 
 // Button-matrix control flags (`lv_buttonmatrix.h`). Only the subset the
 // AlertDialog choice lists need.
@@ -734,6 +737,68 @@ extern "C" {
     pub fn pd_font_table(count: *mut usize) -> *const pd_font_t;
     /// Blank rows between a face's line top and its digit tops (`lvgl/pd_fonts.c`); 0 for null.
     pub fn pd_font_top_leading(font: *const lv_font_t) -> i32;
+
+    // The retained display list behind `picodroid.graphics.Canvas` (`lvgl/pd_canvas.c`).
+    // View-local coordinates, inclusive right/bottom; colours 0xAARRGGBB. Each op returns 0,
+    // or -1 when it was dropped (no list on the object, or the list is full).
+    /// Give an object a display list and its draw and delete hooks; once per object.
+    pub fn pd_canvas_attach(obj: *mut lv_obj_t) -> i32;
+    /// Empty the list before a new `onDraw`.
+    pub fn pd_canvas_begin(obj: *mut lv_obj_t);
+    /// Invalidate the object; returns the ops this pass dropped for want of room.
+    pub fn pd_canvas_end(obj: *mut lv_obj_t) -> i32;
+    pub fn pd_canvas_fill(obj: *mut lv_obj_t, argb: u32) -> i32;
+    pub fn pd_canvas_rect(
+        obj: *mut lv_obj_t,
+        x1: i32,
+        y1: i32,
+        x2: i32,
+        y2: i32,
+        radius: i32,
+        fill_argb: u32,
+        stroke_argb: u32,
+        stroke_width: i32,
+    ) -> i32;
+    pub fn pd_canvas_line(
+        obj: *mut lv_obj_t,
+        x1: i32,
+        y1: i32,
+        x2: i32,
+        y2: i32,
+        width: i32,
+        argb: u32,
+        round_caps: i32,
+    ) -> i32;
+    pub fn pd_canvas_arc(
+        obj: *mut lv_obj_t,
+        cx: i32,
+        cy: i32,
+        radius: i32,
+        start_deg: i32,
+        end_deg: i32,
+        width: i32,
+        argb: u32,
+        rounded: i32,
+    ) -> i32;
+    /// `x` anchors per `align` (`LV_TEXT_ALIGN_*`), `baseline` is Android's `y`,
+    /// `font_index` a row of `pd_font_table`; the text is copied, so it need not be
+    /// NUL-terminated.
+    pub fn pd_canvas_text(
+        obj: *mut lv_obj_t,
+        x: i32,
+        baseline: i32,
+        font_index: i32,
+        argb: u32,
+        align: i32,
+        utf8: *const c_char,
+        len: usize,
+    ) -> i32;
+    /// `Paint.ascent()`: the line's top above the baseline, negative; 0 for no face.
+    pub fn pd_canvas_ascent(font_index: i32) -> i32;
+    /// `Paint.descent()`: the line's bottom below the baseline; 0 for no face.
+    pub fn pd_canvas_descent(font_index: i32) -> i32;
+    /// `Paint.measureText()`: one line's width in the face; the text is copied.
+    pub fn pd_canvas_text_width(font_index: i32, utf8: *const c_char, len: usize) -> i32;
 
     // Button widget
     pub fn lv_button_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
@@ -1251,6 +1316,7 @@ mod tests {
     const LV_ARC_HEADER: &str =
         include_str!("../../../third_party/lvgl/include/lvgl/widgets/lv_arc.h");
     const LV_CONF: &str = include_str!("../lvgl/lv_conf.h");
+    const PD_CANVAS_HEADER: &str = include_str!("../lvgl/pd_canvas.h");
     const LV_DRAW_SW_FILL: &str =
         include_str!("../../../third_party/lvgl/src/draw/sw/lv_draw_sw_fill.c");
     const LV_DRAW_SW_TRIANGLE: &str =
@@ -1783,6 +1849,12 @@ mod tests {
                 "LV_RADIUS_CIRCLE",
                 LV_DRAW_RECT_HEADER,
                 "lv_draw_rect.h",
+            ),
+            (
+                PD_CANVAS_MAX_BYTES as u32,
+                "PD_CANVAS_MAX_BYTES",
+                PD_CANVAS_HEADER,
+                "pd_canvas.h",
             ),
         ] {
             let header_val = lookup_define(header, name)

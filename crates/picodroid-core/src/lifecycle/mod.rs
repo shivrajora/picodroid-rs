@@ -342,7 +342,13 @@ pub(crate) fn run_application(
     // surviving services and exit cleanly.
     use crate::native_handler::PendingOp;
     let mut activity_push: Option<(&'static str, Option<u16>)> = None;
-    while let Some(op) = handler.take_next_pending_op() {
+    // No loop yet to come back for a held connect (an Application that
+    // binds in its onCreate): release before every take, so it is
+    // delivered here and the Activity push behind it is still found.
+    while let Some(op) = {
+        handler.release_held_ops();
+        handler.take_next_pending_op()
+    } {
         match op {
             PendingOp::Activity(PendingActivityOp::Push {
                 class_name,
@@ -382,10 +388,21 @@ pub(crate) fn run_application(
     } else {
         // Service-only app or app that did nothing in onCreate — process
         // any further queued ops, then run final teardown so live Services
-        // (started or bound) get an onDestroy.
-        while let Some(op) = handler.take_next_pending_op() {
-            if let PendingOp::Service(s) = op {
-                let _ = crate::service_lifecycle::process_pending_service_op(jvm, s, heap, handler);
+        // (started or bound) get an onDestroy. There is no main loop to
+        // come back for a held connect, so each round releases what the
+        // previous one queued, until a round finds nothing.
+        loop {
+            handler.release_held_ops();
+            let mut any = false;
+            while let Some(op) = handler.take_next_pending_op() {
+                any = true;
+                if let PendingOp::Service(s) = op {
+                    let _ =
+                        crate::service_lifecycle::process_pending_service_op(jvm, s, heap, handler);
+                }
+            }
+            if !any {
+                break;
             }
         }
         crate::service_lifecycle::destroy_all(jvm, heap, handler);
@@ -726,9 +743,12 @@ pub(crate) fn run_activity(
 
         // Drain any lifecycle transitions queued by Java during the
         // dispatch above (a button click handler called startActivity,
-        // a Runnable called finish(), etc.).
+        // a Runnable called finish(), etc.). A connect callback that a
+        // bind queues in this drain is held for the next one, which the
+        // bind's wake makes the very next turn: its span is its own.
         let mut should_exit = false;
         let span_start = span_start();
+        handler.release_held_ops();
         while let Some(op) = handler.take_next_pending_op() {
             if process_pending_op(jvm, op, heap, handler).is_break() {
                 should_exit = true;

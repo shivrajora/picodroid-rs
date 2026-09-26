@@ -8,6 +8,13 @@ mcu = "rp2040"
 # out of memory in gcstress, threadstress and the Kotlin stdlib suite.
 lv_mem_kb = 48
 
+# No View.onDraw(Canvas) here: Canvas, Paint, their Rust arms and the display
+# list in pd-lvgl-sys/lvgl/pd_canvas.c are ~16 KB of flash (measured
+# 2026-09-26), a third of what this program region has left. The build derives
+# the class exclusion from this key; do not list the classes below. Apps that
+# draw need a 2350-class board (docs/designs/canvas-2026-09.md).
+has_canvas = false
+
 # Networking will never be supported on this board, and framework classes are
 # embedded on every board whether an app uses them or not — so the whole
 # picodroid.net stack is pure flash cost here, on the tightest program region

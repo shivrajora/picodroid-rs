@@ -88,6 +88,14 @@ impl GraphicsBackend for LvglBackend {
             m::nativeRegisterSwipeListener => {
                 Some(view::register_swipe_listener(ctx.args, ctx.objects))
             }
+            // The drawing View: `new View(Context)` and the bind around its `onDraw`. A board
+            // without `has_canvas` ships no Canvas class, so these stay unclaimed there.
+            #[cfg(has_canvas)]
+            m::nativeCreateView => Some(widgets::view_native_create_view()),
+            #[cfg(has_canvas)]
+            m::nativeBeginDraw => Some(widgets::view_native_begin_draw(ctx.args, ctx.objects)),
+            #[cfg(has_canvas)]
+            m::nativeEndDraw => Some(widgets::view_native_end_draw(ctx.args, ctx.objects)),
             _ => None,
         }
     }
@@ -579,6 +587,36 @@ impl GraphicsBackend for LvglBackend {
     ) -> DispatchResult {
         match method {
             m::nativeApply => Some(widgets::gradient_drawable_apply(ctx.args, ctx.objects)),
+            _ => None,
+        }
+    }
+
+    #[cfg(has_canvas)]
+    fn dispatch_canvas(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult {
+        match method {
+            m::nativeDrawColor => Some(widgets::canvas_draw_color(ctx.args, ctx.objects)),
+            m::nativeDrawRect => Some(widgets::canvas_draw_rect(ctx.args, ctx.objects)),
+            m::nativeDrawLine => Some(widgets::canvas_draw_line(ctx.args, ctx.objects)),
+            m::nativeDrawArc => Some(widgets::canvas_draw_arc(ctx.args, ctx.objects)),
+            m::nativeDrawText => Some(widgets::canvas_draw_text(
+                ctx.args,
+                ctx.strings,
+                ctx.objects,
+            )),
+            _ => None,
+        }
+    }
+
+    #[cfg(has_canvas)]
+    fn dispatch_paint(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult {
+        match method {
+            m::ascent => Some(widgets::paint_ascent(ctx.args, ctx.objects)),
+            m::descent => Some(widgets::paint_descent(ctx.args, ctx.objects)),
+            m::measureText => Some(widgets::paint_measure_text(
+                ctx.args,
+                ctx.strings,
+                ctx.objects,
+            )),
             _ => None,
         }
     }

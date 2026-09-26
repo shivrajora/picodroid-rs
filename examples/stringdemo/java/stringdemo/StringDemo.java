@@ -218,7 +218,12 @@ public class StringDemo extends Application {
     check("concat enum", ("e=" + Color.RED).equals("e=RED"));
     Object nul = null;
     check("concat null obj", ("n=" + nul).equals("n=null"));
-    check("concat identity", ("" + new Plain()).startsWith("stringdemo.StringDemo$Plain@"));
+    // --shrink-app renames the app's own classes ("c.K"), as in examples/classlit.
+    String ident = "" + new Plain();
+    check(
+        "concat identity",
+        ident.startsWith("stringdemo.StringDemo$Plain@")
+            || (ident.startsWith("c.") && ident.indexOf('/') < 0 && ident.indexOf('@') > 2));
     Object anArray = new int[0];
     check("concat array identity", ("" + anArray).startsWith("[I@"));
     check("valueOf obj", String.valueOf((Object) nm).equals("Named(x)"));

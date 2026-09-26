@@ -47,8 +47,10 @@ import java.io.File
  * App shrinking (`picodroid.shrinkApp=true` / `PICODROID_SHRINK_APP=1`, on
  * top of the shrink gate): a [CutAppMapTask] stage extends the release map
  * with this app's own classes (`c/`) and private members, and the shrink and
- * pack stages read that merged map. Invisible to firmware — the manifest
- * keeps the release `framework-map-version`.
+ * pack stages read that merged map. Without it, the same stage still runs
+ * whenever a release map applies, renaming only the app names that collide
+ * with a shrunk framework name. Invisible to firmware — the manifest keeps
+ * the release `framework-map-version`.
  */
 class PicodroidPapkPlugin : Plugin<Project> {
     override fun apply(target: Project) {
@@ -239,13 +241,17 @@ class PicodroidPapkPlugin : Plugin<Project> {
                     "for this package version"
             )
         }
-        // App shrinking: cut the merged (release + app) map on the stripped,
-        // pre-shrink tree; every later stage reads it instead of the release
-        // map. A task output, so it is wired as a provider.
+        // The per-app map, cut on the stripped, pre-shrink tree; every later
+        // stage reads it instead of the release map. Under --shrink-app it
+        // renames the app's classes and private members; under plain --shrink
+        // only app names that collide with a shrunk framework name (an app
+        // field `p` beside a release target `p`), so the app never has to
+        // rename them itself. A task output, so it is wired as a provider.
         val appMapFile: Provider<org.gradle.api.file.RegularFile>? =
-            if (shrinkAppEnabled && shrinkMapFile != null) {
+            if (shrinkMapFile != null) {
                 val cutTask = target.tasks.register("cutAppShrinkMap", CutAppMapTask::class.java) {
-                    description = "Cut the per-app shrink map (app classes under c/, private members)"
+                    description = "Cut the per-app shrink map (app classes under c/, private members, collisions)"
+                    declashOnly.set(!shrinkAppEnabled)
                     inputDir.set(strippedClassesInput)
                     baseMapFile.set(shrinkMapFile)
                     keepFile.set(repoRoot.resolve("sdk/keep.toml"))
@@ -261,8 +267,8 @@ class PicodroidPapkPlugin : Plugin<Project> {
             } else {
                 null
             }
-        // The map a downstream stage rewrites with: the merged app map when
-        // app shrinking is on, else the release map.
+        // The map a downstream stage rewrites with: the merged app map, cut
+        // whenever a release map applies (callers wire it only then).
         fun wireActiveMap(property: org.gradle.api.file.RegularFileProperty) {
             if (appMapFile != null) property.set(appMapFile) else property.set(shrinkMapFile)
         }

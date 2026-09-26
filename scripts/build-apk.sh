@@ -27,7 +27,10 @@ Options:
   -o, --output <file>   Output path (default: build/apks/<app>.papk)
       --shrink          Apply the active release shrink map (class-name
                         shrinking). Off by default; also honored via
-                        PICODROID_SHRINK=1. See website/src/content/docs/reference/shrinker.md.
+                        PICODROID_SHRINK=1. App names that collide with a
+                        shrunk framework name are renamed; the merged map
+                        lands next to the PAPK (<app>.shrink-map.toml).
+                        See website/src/content/docs/reference/shrinker.md.
       --shrink-app      Also rename this app's own classes (c/…) and private
                         members, ProGuard-style, through a per-build map cut
                         on top of the release map. Requires --shrink. Also
@@ -169,16 +172,17 @@ size=$(stat -c%s "$OUTPUT" 2>/dev/null || stat -f%z "$OUTPUT")
 echo "==> Wrote $OUTPUT ($size bytes)"
 
 # The merged (release + app) map is this PAPK's retrace key: keep it next to
-# the PAPK, named after it, so `scripts/retrace.sh <map>` finds it. Removed
-# when app shrinking is off so a stale map never outlives the build that
-# made it.
+# the PAPK, named after it, so `scripts/retrace.sh <map>` finds it. Plain
+# --shrink cuts one too (it renames app names that collide with a shrunk
+# framework name). Removed when shrinking is off so a stale map never
+# outlives the build that made it.
 MAP_OUTPUT="${OUTPUT%.papk}.shrink-map.toml"
-if [[ "${PICODROID_SHRINK_APP:-}" == "1" ]]; then
-  GRADLE_MAP="$APP_DIR/build/papk/${APP}.shrink-map.toml"
-  if [[ ! -f "$GRADLE_MAP" ]]; then
-    echo "Error: expected app shrink map not found: $GRADLE_MAP" >&2
-    exit 1
-  fi
+GRADLE_MAP="$APP_DIR/build/papk/${APP}.shrink-map.toml"
+if [[ "${PICODROID_SHRINK_APP:-}" == "1" && ! -f "$GRADLE_MAP" ]]; then
+  echo "Error: expected app shrink map not found: $GRADLE_MAP" >&2
+  exit 1
+fi
+if [[ "${PICODROID_SHRINK:-}" == "1" && -f "$GRADLE_MAP" ]]; then
   cp "$GRADLE_MAP" "$MAP_OUTPUT"
   echo "==> Wrote $MAP_OUTPUT (retrace with: ./scripts/retrace.sh $MAP_OUTPUT < log)"
 else

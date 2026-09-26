@@ -10,11 +10,14 @@ import org.gradle.api.tasks.*
 
 /**
  * Wraps `tools/class-shrink cut-app`: extends the active release shrink map
- * with this app's own classes (`c/`) and private member names, writing the
- * merged map that `shrinkMembers`, `shrinkClasses` and `packPapk` then
- * consume in place of the release map. Registered only under
- * `-Ppicodroid.shrinkApp=true` (`scripts/build-apk.sh --shrink-app`), see
- * [PicodroidPapkPlugin].
+ * with this app's own rows, writing the merged map that `shrinkMembers`,
+ * `shrinkClasses` and `packPapk` then consume in place of the release map.
+ * Registered whenever a release map applies (see [PicodroidPapkPlugin]):
+ * under `-Ppicodroid.shrinkApp=true` (`scripts/build-apk.sh --shrink-app`)
+ * it renames the app's classes (`c/`) and private members; under plain
+ * `--shrink` ([declashOnly]) it renames only the app names that would
+ * collide with a shrunk framework name, so an app never has to rename
+ * anything to be shrunk.
  *
  * Runs on the stripped, pre-shrink tree: original names, and for Kotlin apps
  * the staged shim too (kept by `sdk/keep.toml`'s `kotlin/…` glob, so it is
@@ -47,6 +50,10 @@ abstract class CutAppMapTask : DefaultTask() {
     @get:OutputFile
     abstract val outputFile: RegularFileProperty
 
+    /** Plain `--shrink`: rename only colliding app names (`cut-app --declash-only`). */
+    @get:Input
+    abstract val declashOnly: Property<Boolean>
+
     @get:Input
     abstract val hostTarget: Property<String>
 
@@ -73,6 +80,7 @@ abstract class CutAppMapTask : DefaultTask() {
             "--out", out.absolutePath,
         )
         reserveNameFiles.files.sortedBy { it.absolutePath }.forEach { args += listOf("--reserve-names", it.absolutePath) }
+        if (declashOnly.get()) args += "--declash-only"
         val pb = ProcessBuilder(args).directory(repoRoot)
         ProcessRun.runOrThrow(pb, "class-shrink cut-app")
     }

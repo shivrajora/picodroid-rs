@@ -17,7 +17,8 @@ import picodroid.util.Log;
  * The started-and-bound Service that owns the numbers and the two background threads. One polls the
  * bridge. The other nudges the UI once a second so countdowns and the staleness display keep
  * moving; it is separate so that a fetch that blocks, or never returns, cannot freeze the screen on
- * numbers that look live.
+ * numbers that look live, and it starts with the first listener, since it has nothing to do before
+ * one and a thread's start is a cost the Service's own start tick can do without.
  *
  * <p>Started so the numbers stay warm whichever screen is showing; bound so the Activity can read
  * them through the {@link LocalBinder}. The bridge's address is, in order: the {@link
@@ -127,6 +128,7 @@ public final class UsageService extends Service {
   private SharedPreferences prefs;
 
   private Listener listener;
+  private boolean ticking;
   private UsageSnapshot snapshot;
   private LinkState linkState = LinkState.JOINING;
   private String linkErr = "";
@@ -174,7 +176,6 @@ public final class UsageService extends Service {
     }
     running = true;
     new Thread(this::pollLoop, "usage-poll").start();
-    new Thread(this::tickLoop, "usage-tick").start();
   }
 
   /**
@@ -217,6 +218,10 @@ public final class UsageService extends Service {
   public void setListener(Listener l) {
     listener = l;
     listening = l != null;
+    if (listening && !ticking && running) {
+      ticking = true;
+      new Thread(this::tickLoop, "usage-tick").start();
+    }
   }
 
   /** X button: fetch now rather than at the next poll. */

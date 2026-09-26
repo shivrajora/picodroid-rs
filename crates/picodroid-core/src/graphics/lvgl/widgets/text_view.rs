@@ -178,10 +178,31 @@ pub(in crate::graphics) fn set_text_size(id: i32, px: f32) {
     if label.is_null() {
         return;
     }
+    let font = face_for_px(px);
+    if font.is_null() {
+        return;
+    }
+    unsafe { lv_obj_set_style_text_font(label, font, 0) };
+}
+
+/// The compiled face nearest `px` (`text_size::nearest` over `pd_fonts.c`'s table), or null for
+/// an empty table or a NaN. `TextView.setTextSize` applies it; `Canvas.drawText` records its row
+/// ([`face_index_for_px`]), so a paint's text size snaps to the same ladder a label's does.
+pub(in crate::graphics) fn face_for_px(px: f32) -> *const lv_font_t {
+    let mut count = 0usize;
+    let table = unsafe { pd_font_table(&mut count) };
+    match face_index_for_px(px) {
+        Some(i) if !table.is_null() && i < count => unsafe { (*table.add(i)).font },
+        _ => core::ptr::null(),
+    }
+}
+
+/// The row of `pd_fonts.c`'s table nearest `px`, or `None` for an empty table or a NaN.
+pub(in crate::graphics) fn face_index_for_px(px: f32) -> Option<usize> {
     let mut count = 0usize;
     let table = unsafe { pd_font_table(&mut count) };
     if table.is_null() || count == 0 {
-        return;
+        return None;
     }
     let faces = unsafe { core::slice::from_raw_parts(table, count) };
     // The ladder is a handful of faces; a fixed buffer keeps the pick allocation-free.
@@ -190,10 +211,7 @@ pub(in crate::graphics) fn set_text_size(id: i32, px: f32) {
     for (size, face) in sizes.iter_mut().zip(faces) {
         *size = face.px;
     }
-    let Some(i) = super::text_size::nearest(&sizes[..n], px) else {
-        return;
-    };
-    unsafe { lv_obj_set_style_text_font(label, faces[i].font, 0) };
+    super::text_size::nearest(&sizes[..n], px)
 }
 
 /// `TextView.nativeSetGravity`: the horizontal field of an Android gravity as the label's

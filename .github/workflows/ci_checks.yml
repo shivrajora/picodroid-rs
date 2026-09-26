@@ -214,6 +214,11 @@ jobs:
         run: ./gradlew assemblePapk --console=plain
       - name: Assemble all PAPKs (shrink)
         run: PICODROID_SHRINK=1 ./gradlew assemblePapk --console=plain
+      # Every example through `class-shrink cut-app`: an app name that
+      # collides with a shrunk framework name must be renamed by the cut,
+      # never refused, so the developer never renames anything by hand.
+      - name: Assemble all PAPKs (shrink-app)
+        run: ./gradlew assemblePapk -Ppicodroid.shrink=true -Ppicodroid.shrinkApp=true --console=plain
       # Every example through the device-bound debug-attribute strip — an ASM
       # rewrite of every class (docs/designs/flash-string-budget-2026-08.md §4).
       - name: Assemble all PAPKs (strip-debug)

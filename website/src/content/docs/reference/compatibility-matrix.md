@@ -78,7 +78,10 @@ counterpart's name, so the API reads the same; you just import `picodroid.*`
 |---|---|---|
 | `Color` | Full | Named constants + ARGB ints. |
 | `drawable.GradientDrawable` | Partial | Solid/gradient fills, corner radius. |
-| `Canvas`, `Paint`, `Bitmap` | Unsupported | Drawing is via LVGL widgets, not an immediate-mode `Canvas`. |
+| `View.onDraw(Canvas)`, `View.invalidate()` / `postInvalidate()` | Partial | A view made with `new View(Context)` (or a subclass) draws what its `onDraw` draws. `onDraw` runs on the main thread after `invalidate()`, not every frame; `invalidate()` on a framework widget does nothing. Every RP2350 board; not the RP2040 testbench (`has_canvas = false`, flash). |
+| `Canvas` | Partial | `drawColor`, `drawRect`, `drawRoundRect`, `drawCircle`, `drawLine`, `drawArc`, `drawText`, `getWidth`/`getHeight`. Recorded, not rasterised: about 60 calls per view. No `Path`, `Bitmap`, `save`/`restore`, clipping, transforms or `Rect`/`RectF` overloads; ovals and arcs are circular. |
+| `Paint` | Partial | Colour and alpha, `Style`, stroke width, `Cap` (`SQUARE` draws as `BUTT`), text size (snaps to a compiled face) and align, `ascent`, `descent`, `measureText`. No shaders, path effects or typefaces; always anti-aliased. |
+| `Bitmap` | Unsupported | No pixel buffers: a full-screen bitmap is 150 KB of RAM. |
 
 ### android.content
 
