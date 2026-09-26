@@ -547,6 +547,16 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/debug/DisplayDebug", "calibrate", "()V"),
     ("picodroid/debug/DisplayDebug", "pollTouch", "()Lpicodroid/view/MotionEvent;"),
     ("picodroid/debug/DisplayDebug", "showFps", "()V"),
+    // picodroid/graphics/Canvas
+    ("picodroid/graphics/Canvas", "nativeDrawArc", "(FFFFFFLpicodroid/graphics/Paint;)V"),
+    ("picodroid/graphics/Canvas", "nativeDrawColor", "(I)V"),
+    ("picodroid/graphics/Canvas", "nativeDrawLine", "(FFFFLpicodroid/graphics/Paint;)V"),
+    ("picodroid/graphics/Canvas", "nativeDrawRect", "(FFFFFLpicodroid/graphics/Paint;)V"),
+    ("picodroid/graphics/Canvas", "nativeDrawText", "(Ljava/lang/String;FFLpicodroid/graphics/Paint;)V"),
+    // picodroid/graphics/Paint
+    ("picodroid/graphics/Paint", "ascent", "()F"),
+    ("picodroid/graphics/Paint", "descent", "()F"),
+    ("picodroid/graphics/Paint", "measureText", "(Ljava/lang/String;)F"),
     // picodroid/graphics/Display
     ("picodroid/graphics/Display", "getInstance", "()Lpicodroid/graphics/Display;"),
     ("picodroid/graphics/Display", "setContentView", "(Lpicodroid/view/View;)V"),
@@ -569,7 +579,10 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/view/View", "getLeft", "()I"),
     ("picodroid/view/View", "getTop", "()I"),
     ("picodroid/view/View", "getWidth", "()I"),
+    ("picodroid/view/View", "nativeBeginDraw", "(Lpicodroid/graphics/Canvas;)V"),
     ("picodroid/view/View", "nativeClose", "()V"),
+    ("picodroid/view/View", "nativeCreateView", "()I"),
+    ("picodroid/view/View", "nativeEndDraw", "(Lpicodroid/graphics/Canvas;)V"),
     ("picodroid/view/View", "nativeGetProperty", "(I)F"),
     ("picodroid/view/View", "nativeIsFocused", "()Z"),
     ("picodroid/view/View", "nativeRegisterClickListener", "()V"),

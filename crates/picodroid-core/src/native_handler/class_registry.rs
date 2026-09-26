@@ -73,6 +73,8 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
     c::picodroid_graphics_drawable_GradientDrawable_Orientation,
     c::picodroid_graphics_drawable_BitmapDrawable,
     c::picodroid_graphics_Display,
+    c::picodroid_graphics_Canvas,
+    c::picodroid_graphics_Paint,
     c::picodroid_widget_TextView,
     c::picodroid_widget_Button,
     c::picodroid_widget_LinearLayout,

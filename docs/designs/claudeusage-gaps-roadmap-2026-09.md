@@ -1,6 +1,6 @@
 # Platform gaps found building `claudeusage`
 
-**Status: open list; G1, G2 and G3 closed 2026-09-23, G8 closed 2026-09-24, D5 (app bug) fixed 2026-09-23, D2 fixed 2026-09-25 (`LV_DRAW_SW_SUPPORT_RGB888`, the horizontal gradient's source format), D1 (sim run-lock hand-off) closed 2026-09-25. D4 closed for this app 2026-09-25: the RP2350's flash clock was the ROM's divider of 3 and is now 2 (`hal/rp/xip.rs`, every RP2350 board), the History and Models first paints are split, and no page turn has a span over 50 ms; the RAM-resident interpreter loop landed the same day on every RP2350 board, paid for by H7, H8 and H9. G11 attributed 2026-09-24: the board has 98 KB free on its worst page, the simulator 9 KB; the levers are listed there. G10 closed 2026-09-25: the collector compacts in bounded slices from a 4 KB buffer claimed at boot.**
+**Status: open list; G1, G2 and G3 closed 2026-09-23, G8 closed 2026-09-24, D5 (app bug) fixed 2026-09-23, D2 fixed 2026-09-25 (`LV_DRAW_SW_SUPPORT_RGB888`, the horizontal gradient's source format), D1 (sim run-lock hand-off) closed 2026-09-25. D4 closed for this app 2026-09-25: the RP2350's flash clock was the ROM's divider of 3 and is now 2 (`hal/rp/xip.rs`, every RP2350 board), the History and Models first paints are split, and no page turn has a span over 50 ms; the RAM-resident interpreter loop landed the same day on every RP2350 board, paid for by H7, H8 and H9. G11 attributed 2026-09-24: the board has 98 KB free on its worst page, the simulator 9 KB; the levers are listed there. G10 closed 2026-09-25: the collector compacts in bounded slices from a 4 KB buffer claimed at boot. G4 closed 2026-09-26: `View.onDraw(Canvas)` over a retained display list; both charts are one view each.**
 
 `examples/claudeusage` is a desk display for Claude usage limits on a new board, `pico_display2_w`
 (Pimoroni Pico Display Pack 2.0 on a Pico 2 W). It was built to look like a modern product rather
@@ -444,7 +444,7 @@ Was: determinate bars took their colour from the theme (`setTint` only affected 
 spinner), the range was fixed at 0..100 with no `setMax`, and there was no animated `setProgress`,
 so the app built `ui/BarView` from two `FrameLayout`s.
 
-### G4. No chart and no custom drawing
+### G4. No chart and no custom drawing — closed 2026-09-26
 
 There is no `Canvas`/`onDraw`, no line, and no chart widget. The app's two charts are one view per
 bar (24 and 7), which is the expensive way to draw rectangles: each costs LVGL pool and several
@@ -452,6 +452,16 @@ milliseconds to create, which is why pages are built a few views per tick. A spa
 not bars) is not expressible at all.
 
 **Ask:** `lv_chart` as a widget, or a minimal `Canvas` with `drawLine` / `drawRect` / `drawArc`.
+
+**Landed 2026-09-26:** Android's `View(Context)` + `onDraw(Canvas)` + `invalidate()`, with
+`Canvas.drawColor` / `drawRect` / `drawRoundRect` / `drawCircle` / `drawLine` / `drawArc` /
+`drawText` and a `Paint` with style, stroke, cap, text size, align and metrics. Not an `lv_canvas`
+(a 320x240 buffer is 150 KB) and not an `lv_chart`: each draw call records a 32-byte op that an
+`LV_EVENT_DRAW_MAIN` hook replays whenever LVGL paints the view
+([`canvas-2026-09.md`](canvas-2026-09.md)). `ui/TrendChart` and `ui/WeekChart` replace the 24 and
+14 views: the Burn page builds its chart in one step instead of six, History its bars and letters
+in one instead of four, and the three pages are pixel-identical to the view-per-bar build in the
+simulator. A sparkline is now a loop of `drawLine`.
 
 ### G5. Image assets lose their alpha
 

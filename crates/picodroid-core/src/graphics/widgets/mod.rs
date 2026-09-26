@@ -3,11 +3,13 @@
 //! `TextView`, `Button`, `LinearLayout`, `ProgressBar`, `CircularProgressIndicator`, `Switch`,
 //! `ToggleButton`, `ListView`,
 //! `ImageView`, `SeekBar`, `CheckBox`, `ScrollView`, `FrameLayout`, `Spinner`, `EditText`,
-//! `Toast`, `AlertDialog`, `Snackbar`.
+//! `Toast`, `AlertDialog`, `Snackbar`, and `Canvas` with the drawing half of `View`.
 
 mod alert_dialog;
 mod animator;
 mod button;
+#[cfg(has_canvas)]
+mod canvas;
 mod check_box;
 mod circular_progress_indicator;
 mod date_picker;
@@ -50,6 +52,12 @@ pub use animator::{
 pub use button::{button_get_text, button_native_create, button_set_text, reset_button_state};
 pub use button::{
     drain_click_queue, drain_long_click_queue, lookup_button_obj, lookup_long_click_obj,
+};
+#[cfg(has_canvas)]
+pub use canvas::{
+    canvas_draw_arc, canvas_draw_color, canvas_draw_line, canvas_draw_rect, canvas_draw_text,
+    paint_ascent, paint_descent, paint_measure_text, view_native_begin_draw,
+    view_native_create_view, view_native_end_draw,
 };
 pub use check_box::{
     check_box_is_checked, check_box_native_create, check_box_perform_checked_change,

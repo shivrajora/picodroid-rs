@@ -10,8 +10,9 @@
 pub mod view {
     /// `lv_obj_t*` cast to `i32` (declared in `View.java`).
     pub const NATIVE_HANDLE: usize = 0;
-    // View.java declares the parent back-pointer, the listener, layout-params
-    // and cached-getter fields after `nativeHandle` (15 fields in all); a
+    // View.java declares the parent back-pointer, the listener, layout-params,
+    // cached-getter and drawing (`mCanvas`, `mDrawPending`, `mDrawTask`) fields
+    // after `nativeHandle` (18 fields in all); a
     // subclass's own fields — e.g.
     // `CompoundButton.onCheckedChangeListener`, `LinearLayout.orientation` —
     // follow them. `TextView` and `Button` declare none, so inserting TextView
@@ -77,4 +78,31 @@ pub mod intent {
     pub const TARGET_CLASS_NAME: usize = 0;
     /// `packageName`: the package a cross-package launch leaves for.
     pub const PACKAGE: usize = 2;
+}
+
+/// `picodroid.graphics.Canvas` is **not** a View. `View.nativeBeginDraw` writes
+/// all three while `onDraw` runs and `nativeEndDraw` zeroes them, so a canvas
+/// used outside `onDraw` holds handle 0 and draws nothing.
+pub mod canvas {
+    /// The drawing view's widget handle; 0 outside `onDraw`.
+    pub const NATIVE_HANDLE: usize = 0;
+    pub const WIDTH: usize = 1;
+    pub const HEIGHT: usize = 2;
+}
+
+/// `picodroid.graphics.Paint`, read by every `Canvas` draw native. The enums
+/// are stored as ordinals so these are all `int`s and `float`s.
+pub mod paint {
+    /// `int color`, 0xAARRGGBB.
+    pub const COLOR: usize = 0;
+    /// `float strokeWidth`; 0 is a hairline.
+    pub const STROKE_WIDTH: usize = 1;
+    /// `int style`: `Paint.Style` ordinal (FILL, STROKE, FILL_AND_STROKE).
+    pub const STYLE: usize = 2;
+    /// `int strokeCap`: `Paint.Cap` ordinal (BUTT, ROUND, SQUARE).
+    pub const STROKE_CAP: usize = 3;
+    /// `float textSize`, pixels.
+    pub const TEXT_SIZE: usize = 4;
+    /// `int textAlign`: `Paint.Align` ordinal (LEFT, CENTER, RIGHT).
+    pub const TEXT_ALIGN: usize = 5;
 }
