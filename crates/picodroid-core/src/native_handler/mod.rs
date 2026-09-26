@@ -170,7 +170,18 @@ fn request_package_launch(_package: &str) -> bool {
 }
 
 impl PicodroidNativeHandler {
+    /// The main JVM task's handler.
     pub fn new() -> Self {
+        Self::with_memo_rows(dispatch_memo::MAIN_ROWS)
+    }
+
+    /// A Java thread's or a pool worker's handler: the same handler with a
+    /// dispatch memo a quarter the size (`dispatch_memo::WORKER_ROWS`).
+    pub fn for_worker() -> Self {
+        Self::with_memo_rows(dispatch_memo::WORKER_ROWS)
+    }
+
+    fn with_memo_rows(rows: usize) -> Self {
         Self {
             gc_time_ns: 0,
             gc_count: 0,
@@ -181,7 +192,7 @@ impl PicodroidNativeHandler {
             peak_used: 0,
             activity_stack: state::ActivityStack::new(),
             pending_ops: state::PendingOpQueue::new(),
-            memo: dispatch_memo::DispatchMemo::new(),
+            memo: dispatch_memo::DispatchMemo::new(rows),
         }
     }
 

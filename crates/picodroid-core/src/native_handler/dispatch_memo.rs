@@ -30,10 +30,15 @@
 use alloc::boxed::Box;
 use core::sync::atomic::{AtomicU32, Ordering};
 
-/// Direct-mapped, `SLOTS` rows; a UI build step touches a few dozen distinct
-/// pairs. Allocated once per handler on the heap (about 1 KB on a 32-bit
-/// target): the Java-thread handlers live on 8 KB task stacks.
-const SLOTS: usize = 64;
+/// Rows for the main handler: direct-mapped, a UI build step touches a few
+/// dozen distinct pairs. Allocated once per handler on the heap (1 KB on a
+/// 32-bit target): the Java-thread handlers live on 8 KB task stacks.
+pub(super) const MAIN_ROWS: usize = 64;
+/// Rows for a Java thread's or a pool worker's handler: those dispatch a
+/// handful of natives (a poll loop, a preference write), and an app with two
+/// threads and four workers was paying 6 KB for six main-sized tables
+/// (claudeusage gaps roadmap H7). A miss costs the chain walk, nothing else.
+pub(super) const WORKER_ROWS: usize = 16;
 
 /// "No module claimed this pair": the builtins or `NoSuchMethod` follow.
 pub(super) const NONE: u8 = u8::MAX;
@@ -76,10 +81,12 @@ pub(super) struct DispatchMemo {
 }
 
 impl DispatchMemo {
-    pub(super) fn new() -> Self {
+    /// `rows` is a power of two: the slot index is a mask.
+    pub(super) fn new(rows: usize) -> Self {
+        debug_assert!(rows.is_power_of_two());
         let mut v = alloc::vec::Vec::new();
-        let rows = if v.try_reserve_exact(SLOTS).is_ok() {
-            v.resize(SLOTS, EMPTY);
+        let rows = if v.try_reserve_exact(rows).is_ok() {
+            v.resize(rows, EMPTY);
             Some(v.into_boxed_slice())
         } else {
             None
@@ -91,12 +98,12 @@ impl DispatchMemo {
     }
 
     #[inline(always)]
-    fn slot(class: &str, method: &str) -> usize {
+    fn slot(rows: usize, class: &str, method: &str) -> usize {
         let c = class.as_ptr() as usize;
         let m = method.as_ptr() as usize;
         // The names live in flash or the class store, so the low bits are
         // alignment; the method's address spreads the class's.
-        ((c >> 2) ^ (m >> 2).wrapping_mul(0x9E37_79B1usize)) & (SLOTS - 1)
+        ((c >> 2) ^ (m >> 2).wrapping_mul(0x9E37_79B1usize)) & (rows - 1)
     }
 
     /// The module remembered for `(class, method)`: `Some(NONE)` for a pair
@@ -112,7 +119,8 @@ impl DispatchMemo {
             }
             return None;
         }
-        let row = &self.rows.as_ref()?[Self::slot(class, method)];
+        let rows = self.rows.as_ref()?;
+        let row = &rows[Self::slot(rows.len(), class, method)];
         let hit = core::ptr::eq(row.class, class.as_ptr())
             && core::ptr::eq(row.method, method.as_ptr())
             && row.class_len as usize == class.len()
@@ -132,7 +140,8 @@ impl DispatchMemo {
         else {
             return;
         };
-        rows[Self::slot(class, method)] = Row {
+        let slot = Self::slot(rows.len(), class, method);
+        rows[slot] = Row {
             class: class.as_ptr(),
             method: method.as_ptr(),
             class_len,
@@ -148,7 +157,7 @@ mod tests {
 
     #[test]
     fn remembers_by_address_and_forgets_on_reuse_of_length_only() {
-        let mut memo = DispatchMemo::new();
+        let mut memo = DispatchMemo::new(MAIN_ROWS);
         let class = "picodroid/widget/TextView";
         let method = "setText";
         assert_eq!(memo.get(class, method), None);
@@ -163,7 +172,7 @@ mod tests {
 
     #[test]
     fn a_new_app_run_empties_the_memo() {
-        let mut memo = DispatchMemo::new();
+        let mut memo = DispatchMemo::new(WORKER_ROWS);
         memo.set("a/B", "m", 3);
         assert_eq!(memo.get("a/B", "m"), Some(3));
         next_app_generation();
@@ -174,7 +183,7 @@ mod tests {
 
     #[test]
     fn eviction_is_silent() {
-        let mut memo = DispatchMemo::new();
+        let mut memo = DispatchMemo::new(WORKER_ROWS);
         let names: Vec<String> = (0..200).map(|i| format!("class/{i}")).collect();
         for (i, n) in names.iter().enumerate() {
             memo.set(n, "m", (i % 7) as u8);

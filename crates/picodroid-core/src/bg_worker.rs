@@ -28,7 +28,7 @@ pub fn install() {
 }
 
 fn worker_body(worker_id: u32) {
-    let mut handler = crate::native_handler::PicodroidNativeHandler::new();
+    let mut handler = crate::native_handler::PicodroidNativeHandler::for_worker();
     // Cross-executor GC root visibility for this worker's pending state.
     let _handler_roots = crate::native_handler::HandlerRootGuard::new(&handler);
 

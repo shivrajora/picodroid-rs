@@ -167,7 +167,7 @@ fn thread_start0(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError>
             // bkpt here would freeze USB CDC and lock the debug bridge out).
             if let Some(jvm) = crate::boot::shared_jvm() {
                 let heap = crate::boot::shared_heap();
-                let mut handler = super::PicodroidNativeHandler::new();
+                let mut handler = super::PicodroidNativeHandler::for_worker();
                 let _handler_roots = super::HandlerRootGuard::new(&handler);
                 // Java runs only under the run lock (`crate::jvm_run_lock`);
                 // released at the end of this block, before the task ends.
