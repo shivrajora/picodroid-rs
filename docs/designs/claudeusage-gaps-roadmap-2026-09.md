@@ -1,6 +1,6 @@
 # Platform gaps found building `claudeusage`
 
-**Status: open list; G1, G2 and G3 closed 2026-09-23, G8 closed 2026-09-24, D5 (app bug) fixed 2026-09-23, D2 fixed 2026-09-25 (`LV_DRAW_SW_SUPPORT_RGB888`, the horizontal gradient's source format), D1 (sim run-lock hand-off) closed 2026-09-25. D4 closed for this app 2026-09-25: the RP2350's flash clock was the ROM's divider of 3 and is now 2 (`hal/rp/xip.rs`, every RP2350 board), the History and Models first paints are split, and no page turn has a span over 50 ms; the one runtime follow-up left, a RAM-resident interpreter loop, is measured below and waits on a decision about the 30 KB. G11 attributed 2026-09-24: the board has 98 KB free on its worst page, the simulator 9 KB; the levers are listed there. G10 is next.**
+**Status: open list; G1, G2 and G3 closed 2026-09-23, G8 closed 2026-09-24, D5 (app bug) fixed 2026-09-23, D2 fixed 2026-09-25 (`LV_DRAW_SW_SUPPORT_RGB888`, the horizontal gradient's source format), D1 (sim run-lock hand-off) closed 2026-09-25. D4 closed for this app 2026-09-25: the RP2350's flash clock was the ROM's divider of 3 and is now 2 (`hal/rp/xip.rs`, every RP2350 board), the History and Models first paints are split, and no page turn has a span over 50 ms; the RAM-resident interpreter loop landed the same day on every RP2350 board, paid for by H7, H8 and H9. G11 attributed 2026-09-24: the board has 98 KB free on its worst page, the simulator 9 KB; the levers are listed there. G10 is next.**
 
 `examples/claudeusage` is a desk display for Claude usage limits on a new board, `pico_display2_w`
 (Pimoroni Pico Display Pack 2.0 on a Pico 2 W). It was built to look like a modern product rather
@@ -191,13 +191,19 @@ fetched from flash, so the fetch itself was measured:
   11.8 → 9.2 ms per History paint. What is left in a 51 ms paint is natives 12.5 ms, cache
   probes 7 ms and the invoke path's own 14 ms (constant-pool reads of names and descriptors
   from flash, `count_args` over the descriptor, the name compares before dispatch), all of it
-  outside `run`. Not landed: the 30 KB comes out of the arena on every RP2350 board, which is
-  a product decision (opt-in per board through `[jvm]` in board.toml and the JVM's
-  `build.rs`, funded by H8 + H9 + H7 at 23 KB, would leave ~7 KB of headroom on this board);
-  the RAM copy could also be halved by keeping the cold handlers (math, convert, arrays, indy,
-  monitors, the exception and GC tails) out of line in flash. XIP-cache pinning (op 7 in the
-  maintenance alias, 8-byte lines) is the no-RAM alternative, at the cost of one of the two
-  cache ways for the pinned sets; not tried.
+  outside `run`. **Landed later the same day** as `pico-jvm/loop-in-ram`, forwarded by the
+  family's `chip-rp2350` feature (the RP2040 has no room): `Executor::run` goes to `.data`,
+  and the MCU toml's `jvm_loop_ram_kb = 36` takes it out of the arena the device links
+  (408 → 372 KB on the RP2350, 336 → 300 on the RP2350B) while the simulator's cap keeps
+  modelling `heap_kb`, since the sim holds no copy of the loop and already over-charges
+  (G11). `platforms/rp/build.rs` refuses a build where the key and the feature disagree. The
+  RAM was paid for by H7, H8 and H9 below (about 28 KB on this board, 15 KB on a board that
+  keeps four workers); the display board's arena went from 98 KB free on History to 68 KB
+  free after a lap (45 KB lowest ever, measured on the parity build), the touch kit's linked
+  stack headroom from 10 KB to 18 KB. Still open for the runtime: halve the copy by keeping
+  the cold handlers (math, convert, arrays, indy, monitors, the exception and GC tails) out
+  of line in flash; XIP-cache pinning (op 7 in the maintenance alias, 8-byte lines) as the
+  no-RAM alternative, at the cost of one of the two cache ways for the pinned sets.
 - **App, on top of the clock.** History builds four bars per step (`BARS_PER_STEP`, as Burn)
   and builds them in their final colour and radius while the page is still invisible, so the
   first paint only sizes them and re-fills only a day without tokens (`shownFill`): no History
@@ -569,16 +575,20 @@ the runtime ones shrink every app and close most of the simulator's gap at the s
 - **H6. Static field store keyed by (class index, field index)** — open. 24 → 12 B per
   entry, no doubling `Vec`, no name compare on every `getstatic`. −4 KB, and the same bytes
   on both targets. `jvm/src/static_fields.rs`.
-- **H7. Dispatch memos of 16 rows for `JvmChild` and `BgWorker` handlers** — open. Those
-  handlers dispatch few natives. −3.5 KB. `native_handler/dispatch_memo.rs`.
+- **H7. Dispatch memos of 16 rows for `JvmChild` and `BgWorker` handlers** — **closed
+  2026-09-25**: `PicodroidNativeHandler::for_worker()` builds the Java-thread and pool-worker
+  handlers with `WORKER_ROWS = 16` (the main handler keeps 64). −4.6 KB with four workers and
+  two threads.
 
 *Platform (about 20 KB):*
 
-- **H8. LittleFS `cache_size` 512 B and `lookahead_size` 64 B** — open. The block-size
-  defaults cost three 4 KB buffers on every board; preference files are hundreds of bytes.
-  −11 KB. `fs/volume.rs::config_for`.
-- **H9. `[background_pool] threads = 2` on `pico_display2_w`** — open. The app's only pool
-  work is a preference write. −8.5 KB. `board.toml`.
+- **H8. LittleFS `cache_size` 512 B and `lookahead_size` 64 B** — **closed 2026-09-25**
+  (`fs/volume.rs::config_for`): −7 KB at mount on every board, and each open file's cache is
+  512 B instead of 4 KB.
+- **H9. `[background_pool] threads = 2` on `pico_display2_w`** — **closed 2026-09-25**.
+  The boot-budget model (`platforms/rp/src/boot_budget.rs`) now takes its worker entries from
+  `POOL_THREADS`, which is what had kept `pico_enviro_mon_w` from doing the same. −12.5 KB
+  (two 6 KB stacks, TCBs, memos).
 - **H10. The JVM task's 32 KB stack** — open, measure first. The largest single block; it
   needs a high-water reading (`pdb sysmon` task table) before it is touched.
 
