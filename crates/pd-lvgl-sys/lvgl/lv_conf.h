@@ -45,7 +45,10 @@
 #define LV_STDARG_INCLUDE       <stdarg.h>
 
 /* Built-in memory pool — default 64 KB for RP2350's 520 KB SRAM.
- * Override via build.rs -D for boards with different RAM budgets.
+ * Override via build.rs -D for boards with different RAM budgets. On the
+ * host, build.rs scales the board's figure by 1.6 (build_support/lvgl.rs
+ * HOST_LV_POOL_PERCENT): the same widget tree costs a 64-bit build that
+ * much more, so a screen fills the same fraction of the pool on both.
  *
  * Where the pool lives is the build's call too: a board with
  * `lv_mem_in_psram` gets -DLV_MEM_ADR=<psram_origin>, and

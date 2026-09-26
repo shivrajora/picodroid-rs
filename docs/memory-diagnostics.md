@@ -65,7 +65,7 @@ One line per window, greppable by `memmon` (sim `[memmon] ...`, device RTT
 | `stri=+N` | `intern_dyn` calls this window (StringBuilder.toString / format / concat all sink here) |
 | `frag=Npm` | Permille of free space **not** in the largest block — 0 = unfragmented, high values mean a big allocation may fail despite ample total free |
 | `nused` (sim) | Since M9 (2026-09-26) the simulator's arena also carries the network stack's device cost on a network board: the IP task, its queues, and each open TCP socket's struct, event group and streams (`net_budget.rs`), released at close — the ~10 KB the ledger could not attribute before |
-| `lv=U/T` | The LVGL pool: used / total bytes. A second heap `nused` never sees — the widget tree lives in it, and its C structs carry pointers, so the same screen costs the 64-bit simulator 1.3–2× what it costs the device (`lv_obj_t` 72 B against 48; a style entry or event descriptor exactly double). Read it beside the device's own line |
+| `lv=U/T` | The LVGL pool: used / total bytes. A second heap `nused` never sees — the widget tree lives in it, and its C structs carry pointers, so the same screen costs the 64-bit simulator 1.6× what it costs the device (`lv_obj_t` 72 B against 48; a style entry or event descriptor exactly double). Since M10a (2026-09-26) the simulator's pool is the board's `lv_mem_kb` × 1.6 for that reason, so `U/T` is the same fraction on both sides and the pressure policy trips where the board's would; the totals differ by design — read the ratio beside the device's own line |
 
 Special lines:
 

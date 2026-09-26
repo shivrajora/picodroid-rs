@@ -2,6 +2,25 @@
 //! LVGL C sources compilation.
 
 use crate::config::collect_files;
+
+/// The host LVGL pool, as a percentage of the board's `lv_mem_kb`.
+///
+/// LVGL's C structs carry pointers, so the same widget tree costs the
+/// 64-bit simulator more than the device (`lv_obj_t` 72 B against 48,
+/// `lv_label_t` 120 against 92, a style entry 16 against 8, an event
+/// descriptor 24 against 12 — measured with a C probe against the real
+/// `lv_conf.h` on gcc and arm-none-eabi-gcc), and LVGL's own bookkeeping
+/// takes more of the pool too. Measured on claudeusage, simulator `lv=`
+/// against device `lv=` on the `[memmon]` line, four pages
+/// (docs/parity-audit.md, 2026-09-24): Limits 22.9/14.4 KB, Models
+/// 25.3/16.0, Burn rate 27.0/16.9, History 23.8/15.1 — 1.58–1.60× every
+/// time. Scaling the host pool by this makes a tree that fills a fraction
+/// of the device's pool fill the same fraction here, so
+/// `lifecycle::activity_stack::under_memory_pressure` trips where the
+/// board's would, instead of on trees the board carries with room to
+/// spare (M10a). Device builds are never scaled; `lv=` on both sides
+/// keeps the ratio visible, so a widget mix that drifts from 1.6× shows.
+const HOST_LV_POOL_PERCENT: u64 = 160;
 use std::collections::HashMap;
 use std::env;
 use std::path::Path;
@@ -88,9 +107,20 @@ pub fn build(
         if let Some(dpi) = cfg.get("lv_dpi") {
             build.define("LV_DPI_DEF", dpi.as_str());
         }
-        if let Some(mem_kb) = cfg.get("lv_mem_kb") {
-            let mem_val = format!("({mem_kb} * 1024U)");
-            build.define("LV_MEM_SIZE", mem_val.as_str());
+        // The pool's size. A device gets the board's `lv_mem_kb` as is
+        // (lv_conf.h's own 64 KB when the key is absent); the host's pool
+        // is the same figure scaled by `HOST_LV_POOL_PERCENT`, whether or
+        // not the board sets one, so the rule is one rule.
+        let mem_kb: Option<u64> = cfg
+            .get("lv_mem_kb")
+            .map(|v| v.trim().parse().expect("board.toml: lv_mem_kb: int"));
+        if crate::config::is_embedded() {
+            if let Some(kb) = mem_kb {
+                build.define("LV_MEM_SIZE", format!("({kb} * 1024U)").as_str());
+            }
+        } else {
+            let bytes = mem_kb.unwrap_or(64) * 1024 * HOST_LV_POOL_PERCENT / 100 / 8 * 8;
+            build.define("LV_MEM_SIZE", format!("({bytes}U)").as_str());
         }
         // Where the pool lives. A board that puts it in the module's PSRAM
         // (`lv_mem_in_psram`) hands LVGL the window's origin instead of the
