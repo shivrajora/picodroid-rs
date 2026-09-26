@@ -1,6 +1,6 @@
 # The JVM run lock — 2026-09-15
 
-**Status: landed 2026-09-15** (`d1a09765`).
+**Status: landed 2026-09-15** (`d1a09765`); the hand-off yield added 2026-09-25 (see "The hand-off").
 
 One interpreting task at a time, enforced by a kernel mutex instead of by scheduler
 configuration. Module: `crates/pd-rtos/src/run_lock.rs` (until 2026-09-20 `crates/picodroid-core/src/jvm_run_lock.rs`; still reachable as `picodroid_core::jvm_run_lock`).
@@ -63,6 +63,33 @@ A recursive kernel mutex, created before the first task by both boots
 What a Java thread observes is unchanged: it always ran until it blocked. The atomic-section
 guards stay; they are the second line, for the wake preemption, and cost a counter.
 
+## The hand-off — 2026-09-25
+
+`give` yields after releasing the mutex. Without that, a task that gives and immediately takes
+again keeps the lock for as long as it likes on a single-core kernel, whatever a sibling does.
+
+The kernel readies a task of the same priority without preempting the running one — on a mutex
+give (`xTaskRemoveFromEventList` yields only to a strictly higher priority) and on the tick that
+ends its sleep (`xTaskIncrementTick`, the same test). The readied task sits in the ready list
+until the running one blocks for real or a higher-priority task wakes and rotates the tier. The UI
+loop's `recv_blocking` on a queue that is never empty does exactly the wrong thing: the wrapper
+gives, the receive returns at once, the take follows, and a child that was readied by the give is
+still in the ready list, now behind a mutex that is held again. The claudeusage poll thread's 4 s
+connect timeout surfaced 16 to 30 s late this way on the simulator with a window open, where
+minifb's 60 Hz frame pacing keeps the 16 ms tick queue from ever draining
+(`docs/designs/claudeusage-gaps-roadmap-2026-09.md` D1). The device's SMP kernel preempts for an
+equal-priority wake (`prvYieldForTask`, `>=`), so it never showed the stall.
+
+The yield is unconditional. A first version yielded only when a task was blocked on the mutex,
+and that helped little: a sibling woken from a sleep is *ready*, not waiting — it has to run once
+to reach the mutex — and it got that first run only at a tier rotation, every 7 ms or so on the
+simulator. With the yield at every give, `examples/mainhog` (a main-queue Runnable that re-posts
+itself for 2 s while a child counts 1 ms sleeps) went from 42–73 sleeps during the hog to 1890,
+against 1893 with the main thread idle; the hog's own throughput fell by 9 %. The giver is at a
+blocking point already, so the extra switch is within the contract, and with no other task ready
+the kernel picks the giver again at once. On the device it costs one `taskYIELD` per blocking
+call.
+
 ## Rules for new code
 
 - Never take the run lock inside an `AtomicSection` — the kernel is suspended there.
@@ -70,6 +97,9 @@ guards stay; they are the second line, for the wake preemption, and cost a count
   A new blocking primitive reached from Java (a driver wait, a new socket call) gets a
   `let _run = jvm_run_lock::unlocked();` around the wait.
 - Tasks that never interpret Java never touch the lock; `unlocked()` is a no-op for them.
+- `give` must stay a hand-off (release, then yield). A give that only readies the waiter lets a
+  holder whose wait returns at once take the lock straight back, and on a single-core kernel
+  nothing else ever moves the waiter.
 - With no kernel (`cargo test`) every operation is a no-op.
 - **A short wait that a native owns is not always one to release around.** The rule above is
   about waits a Java thread is *meant* to sit in. A wait inside a native the UI task is already

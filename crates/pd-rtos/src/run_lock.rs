@@ -97,12 +97,39 @@ fn take() -> bool {
     true
 }
 
+/// Give the lock up, then yield, so a sibling that is ready to interpret
+/// gets the core — and the lock — before the giver can take it back.
+///
+/// The give alone does not do that on a single-core kernel. Readying a task
+/// of the *same* priority never preempts the running one there: neither a
+/// mutex give (`xTaskRemoveFromEventList` yields only to a higher priority)
+/// nor a tick that ends the sibling's sleep (`xTaskIncrementTick`, the same
+/// test). The sibling sits in the ready list until the giver blocks for
+/// real or a higher-priority task wakes and rotates the tier. A giver whose
+/// wait returns at once — the UI loop's `recv_blocking` on a queue that is
+/// never empty — takes the mutex straight back every time, and the sibling
+/// starves for as long as the queue stays fed. With the simulator window
+/// open that is indefinitely: minifb paces each frame to 60 Hz while the
+/// tick source posts every 16 ms, so the queue never drains, and a child
+/// thread's 4 s connect timeout surfaced 16 to 30 s late
+/// (docs/designs/claudeusage-gaps-roadmap-2026-09.md D1). The device's SMP
+/// kernel preempts for an equal-priority wake (`prvYieldForTask` compares
+/// with `>=`), which is why it never showed the stall; the yield gives the
+/// simulator the same hand-off.
+///
+/// Unconditional, not "only when a task waits on the mutex": a sibling that
+/// woke from a sleep is ready, not yet waiting, and it has to run once to
+/// reach the mutex at all. The giver is at a blocking point already — that
+/// is the only place `give` is called from — so the extra switch changes
+/// nothing the heap contract relies on, and with no other task ready the
+/// kernel picks the giver again at once. `examples/mainhog` pins this.
 fn give() {
     let Some(m) = lock() else {
         return;
     };
     HOLDER.store(0, Ordering::Release);
     rtos::mutex_recursive_unlock(m);
+    rtos::yield_unhooked();
 }
 
 /// The lock, held for a scope: a task about to interpret Java takes one at

@@ -388,6 +388,13 @@ pub fn delay_ms(ms: u32) {
     let _run = crate::run_lock::unlocked();
     unsafe { __pd_rtos_delay_ms(ms) }
 }
+/// Yield the core without touching the run lock: the run lock's own
+/// hand-off to a waiter ([`run_lock`]), which has just given the lock up
+/// itself. A zero delay is a yield on both kernels (`vTaskDelay(0)` is
+/// `taskYIELD`).
+pub(crate) fn yield_unhooked() {
+    unsafe { __pd_rtos_delay_ms(0) }
+}
 /// The first `last_wake_ms` of a [`delay_until`] loop. See
 /// [`Rtos::delay_until_anchor`].
 pub fn delay_until_anchor() -> u32 {

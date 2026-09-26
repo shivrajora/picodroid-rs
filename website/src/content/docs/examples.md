@@ -94,6 +94,7 @@ Demonstrate Java language features supported by the JVM interpreter. Reference: 
 | `floatdemo` | `floatdemo.FloatDemo` | Demonstrates `float`, `long`, and `double` arithmetic and type conversions (`f2i`, `i2l`, `i2d`, etc.) |
 | `exceptiondemo` | `exceptiondemo.ExceptionDemo` | Demonstrates `throw`, `try`/`catch`, and custom exception classes |
 | `threaddemo` | `threaddemo.ThreadDemo` | Demonstrates spawning concurrent FreeRTOS tasks via `picodroid.concurrent.Thread` |
+| `mainhog` | `mainhog.Main` | Keeps the main queue non-empty for 600 ms while a child thread counts its sleeps: the JVM run lock must hand off to a waiting sibling even when the UI loop never blocks |
 | `mathsdemo` | `mathsdemo.MathsDemo` | Demonstrates integer/long/double arithmetic, bitwise/shift ops, cross-type conversions, `tableswitch`, `instanceof`, `checkcast`, reference arrays, and `java.lang.Math` |
 | `stringdemo` | `stringdemo.StringDemo` | Test-harness coverage of `java.lang.String`, `StringBuilder`, and `String.format`: predicates, search, transforms, `valueOf`, `concat`/`replace`/`split`/`toCharArray`/`hashCode`, `"" + obj`/`append(Object)`/`valueOf(Object)` through `toString()`, `toUpperCase(Locale)`, plus exhaustive printf-style conversions, flags, widths, and precision; `String.join` and the `java.util.Objects` helpers |
 | `enumdemo` | `enumdemo.EnumDemo` | Demonstrates Java `enum` declarations, `values()`, `name()`, `ordinal()`, and `switch` over enums |

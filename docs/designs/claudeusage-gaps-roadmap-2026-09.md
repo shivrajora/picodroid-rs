@@ -1,6 +1,6 @@
 # Platform gaps found building `claudeusage`
 
-**Status: open list; G1, G2 and G3 closed 2026-09-23, G8 closed 2026-09-24, D5 (app bug) fixed 2026-09-23. D4 closed for this app 2026-09-25: the RP2350's flash clock was the ROM's divider of 3 and is now 2 (`hal/rp/xip.rs`, every RP2350 board), the History and Models first paints are split, and no page turn has a span over 50 ms; the one runtime follow-up left, a RAM-resident interpreter loop, is measured below and waits on a decision about the 30 KB. G11 attributed 2026-09-24: the board has 98 KB free on its worst page, the simulator 9 KB; the levers are listed there. G10 is next.**
+**Status: open list; G1, G2 and G3 closed 2026-09-23, G8 closed 2026-09-24, D5 (app bug) fixed 2026-09-23, D1 (sim run-lock hand-off) closed 2026-09-25. D4 closed for this app 2026-09-25: the RP2350's flash clock was the ROM's divider of 3 and is now 2 (`hal/rp/xip.rs`, every RP2350 board), the History and Models first paints are split, and no page turn has a span over 50 ms; the one runtime follow-up left, a RAM-resident interpreter loop, is measured below and waits on a decision about the 30 KB. G11 attributed 2026-09-24: the board has 98 KB free on its worst page, the simulator 9 KB; the levers are listed there. G10 is next.**
 
 `examples/claudeusage` is a desk display for Claude usage limits on a new board, `pico_display2_w`
 (Pimoroni Pico Display Pack 2.0 on a Pico 2 W). It was built to look like a modern product rather
@@ -224,7 +224,7 @@ three X presses offline now give zero warnings. Two things worth knowing from it
 is bounded and drops with only a log line (Android's `Handler` queue is unbounded), and a
 runaway poster shows up as that warning, not as a hang.
 
-### D1. Sim: a connect timeout to an unreachable host fires late, sometimes very late
+### D1. Sim: a connect timeout to an unreachable host fires late, sometimes very late — closed 2026-09-25
 
 **Repro.** Build the app against an address nothing answers on, run it with no bridge:
 
@@ -260,6 +260,28 @@ unused address on the same subnet, every attempt failed promptly with `NoRouteTo
 (ARP gets no answer), the app showed `PC offline`, and six retries held the 15 s cadence to within
 the 3 s sampling. An address behind a router, where the SYN is simply dropped and the 4 s connect
 timeout itself has to fire, was not tried.
+
+**Closed 2026-09-25.** Not the socket path: with a probe around the host connect, every
+`TcpStream::connect_timeout` returned at 4.000 s, in a headless run and a windowed one alike (std
+tracks its own deadline across the tick's `EINTR`s, as the comment in `hal/sim/net.rs` said). The
+time went *after* the connect, in the poll thread taking the JVM run lock back: 33.7 s, 5.6 s and
+0.8 s in three windowed runs, microseconds headless. The holder was the UI task, and it never
+blocked: with a window open, minifb paces every frame to 60 Hz while the tick source posts every
+16 ms, so the main queue is never empty, `recv_blocking` gives the lock and its receive returns at
+once, and the task takes the lock straight back. That barging wins every time on the simulator's
+single-core kernel, where readying an equal-priority task — a mutex give, or the tick that ends
+its sleep — never preempts the running one (`xTaskRemoveFromEventList` and `xTaskIncrementTick`
+both test for a strictly higher priority). The device's SMP kernel yields to an equal-priority
+wake (`prvYieldForTask`, `>=`), which is why the hardware never showed it and why the `wchan`
+was `futex_do_wait`: the thread was blocked on the kernel mutex, not in `poll`.
+
+Fix: `run_lock::give` yields after every give (`crates/pd-rtos/src/run_lock.rs`), so a sibling
+that is ready takes the lock before the giver can; a yield only when a task already waits on the
+mutex was not enough, since a sibling woken from a sleep is ready and not yet waiting.
+`examples/mainhog` pins it (a self-reposting main-queue Runnable for 2 s; the child's 1 ms sleeps
+went from 42–73 to 1890 against 1893 with the main thread idle), and it is in `hil-tests.conf`.
+Design note: `docs/designs/jvm-run-lock-2026-09.md`, "The hand-off". The three fetch timeouts in
+a windowed run now land at 4, 24 and 44 s.
 
 **App-side mitigation (done, verified in the stalled runs).** UI ticks come from their own thread
 rather than the poll thread, and a fetch still running after 12 s is presented as `PC offline`, so
