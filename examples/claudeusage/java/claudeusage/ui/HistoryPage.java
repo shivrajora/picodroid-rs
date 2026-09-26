@@ -14,17 +14,9 @@ final class HistoryPage extends Page {
   private static final int CHART_Y = 2 + STATS_HEIGHT + 4;
   private static final int CHART_CARD_HEIGHT = Ui.PAGE_HEIGHT - CHART_Y - 2;
   private static final int DAYS = UsageSnapshot.DAYS;
-  private static final int COLUMN = 40;
-  private static final int BAR_WIDTH = 26;
-  private static final int BAR_MAX = 58;
+
+  /** The bars' baseline in the chart card; the day letters sit just under it. */
   private static final int BASELINE = 98;
-
-  /** Seven bars in one step cost the RP2350 54 ms; four fit the 50 ms tick. */
-  private static final int BARS_PER_STEP = 4;
-
-  private static final int BAR_STEPS = (DAYS + BARS_PER_STEP - 1) / BARS_PER_STEP;
-  private static final int FIRST_BAR_STEP = 5;
-  private static final int FIRST_LETTER_STEP = FIRST_BAR_STEP + BAR_STEPS;
 
   /** Column origins: the first caption is the widest, so the columns are not equal. */
   private static final int[] STAT_X = {Ui.CARD_PAD, 124, 214};
@@ -37,10 +29,7 @@ final class HistoryPage extends Page {
   private FrameLayout chart;
   private final Line[] statValue = new Line[3];
   private Line peak;
-  private final FrameLayout[] bars = new FrameLayout[DAYS];
-  private final Line[] letters = new Line[DAYS];
-  private final int[] shownHeight = new int[DAYS];
-  private final int[] shownFill = new int[DAYS];
+  private WeekChart week;
 
   private final String dash;
   private final String estimate;
@@ -88,39 +77,12 @@ final class HistoryPage extends Page {
                 palette.faint);
         return true;
       default:
-        if (s < FIRST_LETTER_STEP) {
-          // Built in the colour a day with tokens takes: the page is invisible until its first
-          // update, which then only sizes the bar. A day without tokens is re-filled as a stub.
-          int from = (s - FIRST_BAR_STEP) * BARS_PER_STEP;
-          int to = from + BARS_PER_STEP > DAYS ? DAYS : from + BARS_PER_STEP;
-          for (int d = from; d < to; d++) {
-            int fill = d == DAYS - 1 ? palette.clay : palette.barPast;
-            bars[d] = Ui.box(ctx, barX(d), BASELINE - 2, BAR_WIDTH, 2, fill, 4);
-            shownHeight[d] = -1;
-            shownFill[d] = fill;
-            chart.addView(bars[d]);
-          }
-          return true;
-        }
-        int from = (s - FIRST_LETTER_STEP) * 4;
-        int to = from + 4 > DAYS ? DAYS : from + 4;
-        for (int d = from; d < to; d++) {
-          letters[d] =
-              new Line(
-                  Ui.labelCentred(ctx, chart, "", columnX(d), BASELINE + 3, COLUMN, palette.muted),
-                  "",
-                  palette.muted);
-        }
-        return to < DAYS;
+        // One view draws the bars and the day letters, in one step; fourteen views took four.
+        week = new WeekChart(ctx, palette, DAYS);
+        week.setPosition(Ui.CARD_PAD, BASELINE - WeekChart.BAR_MAX);
+        chart.addView(week);
+        return false;
     }
-  }
-
-  private static int columnX(int day) {
-    return Ui.CARD_PAD + day * COLUMN;
-  }
-
-  private static int barX(int day) {
-    return columnX(day) + (COLUMN - BAR_WIDTH) / 2;
   }
 
   @Override
@@ -146,24 +108,8 @@ final class HistoryPage extends Page {
       }
     }
     peak.show(max > 0 ? String.format(peakFmt, TimeFormat.tokens(max)) : "", palette.faint);
-    for (int d = 0; d < DAYS; d++) {
-      boolean today = d == DAYS - 1;
-      int h =
-          max == 0 || s.dayTokensK[d] == 0
-              ? 2
-              : 4 + (int) ((long) s.dayTokensK[d] * (BAR_MAX - 4) / max);
-      if (h != shownHeight[d]) {
-        shownHeight[d] = h;
-        bars[d].setSize(BAR_WIDTH, h);
-        bars[d].setPosition(barX(d), BASELINE - h);
-      }
-      int fill = h <= 2 ? palette.track : (today ? palette.clay : palette.barPast);
-      if (fill != shownFill[d]) {
-        shownFill[d] = fill;
-        Ui.fill(bars[d], fill, h <= 2 ? 1 : 4);
-      }
-      String letter = d < s.dayLetters.length() ? s.dayLetters.substring(d, d + 1) : "";
-      letters[d].show(letter, today ? palette.text : palette.muted);
+    if (week.set(s.dayTokensK, s.dayLetters)) {
+      week.invalidate();
     }
   }
 }

@@ -31,22 +31,32 @@ python3 examples/claudeusage/bridge/claude_usage_bridge.py --demo &
 ./scripts/sim.sh --board pico_display2_w --app claudeusage
 ```
 
-Keys `1` `2` `3` `4` are buttons A B X Y. The bridge address defaults to `127.0.0.1`.
+Keys `1` `2` `3` `4` are buttons A B X Y. The simulator finds the bridge the way the board does
+(below); with none answering it falls back to `127.0.0.1`.
 
 ## Run on the board
 
-The bridge's default address is baked in at build time, next to the WiFi credentials:
+The display finds the bridge by itself. With no address it broadcasts a query on the LAN (UDP port
+8788); the bridge answers, and the reply's source address is the PC. So a plain build is enough:
 
 ```bash
-env $(grep -v '^#' .wifi-creds.env | xargs) PICODROID_NET_TEST_HOST=192.168.1.20 \
+env $(grep -v '^#' .wifi-creds.env | xargs) \
   ./scripts/flash.sh --board pico_display2_w --app claudeusage
 ```
 
-Give the PC a fixed address (a DHCP reservation) so it stays where the display expects it. An
-installed unit can be repointed without a rebuild: the `bridge_host` key in the app's `settings`
-preferences overrides the build-time host (there is no screen to type it on yet; `pdb` can set it).
-Either form may carry a port, `192.168.1.20:8790`, for a PC whose live bridge already owns 8787
-and runs a `--demo --port 8790` one beside it for the simulator.
+The display asks at every boot, and again once a minute whenever the bridge stops answering, so it
+follows the PC to a new DHCP address; X (sync now) asks at once. The last answer is remembered as
+the fallback for a boot where nobody answers. The status screen shows the address in use, or that
+it is still looking.
+
+Two things defeat the broadcast: an access point that isolates its clients (a guest network), and a
+bridge started with `--discovery-port 0`. Then give the display the address. Baked in at build time,
+`PICODROID_NET_TEST_HOST=192.168.1.20` is the fallback tried when nothing answers; the `bridge_host`
+key in the app's `settings` preferences pins the address outright and switches discovery off (there
+is no screen to type it on yet; `pdb` can set it). Either form may carry a port, `192.168.1.20:8790`,
+for a PC whose live bridge already owns 8787 and runs a `--demo --port 8790` one beside it for the
+simulator. Only one bridge per PC answers the broadcast, the first to start; the other is reachable
+by address.
 
 ## Buttons
 

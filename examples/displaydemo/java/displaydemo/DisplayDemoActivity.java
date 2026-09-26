@@ -262,6 +262,9 @@ public class DisplayDemoActivity extends Activity {
     ghost.setOnClickListener(v -> Log.i("DisplayDemo", "ghost clicked"));
     root.addView(ghost);
 
+    // A custom view: onDraw(Canvas) draws shapes and text instead of stacking widgets.
+    root.addView(new ShapesView(this));
+
     setContentView(scroll);
 
     // Property read-back: laid-out geometry and the cached state getters.

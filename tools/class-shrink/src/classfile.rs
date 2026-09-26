@@ -151,6 +151,29 @@ impl ClassFile {
         })
     }
 
+    /// Append a Utf8 entry at the end of the constant pool and return its
+    /// index. Existing indices do not move, so the tail stays valid.
+    pub fn append_utf8(&mut self, bytes: Vec<u8>) -> io::Result<usize> {
+        let slot = self.entries.len();
+        // `constant_pool_count` is a u2 equal to the highest index + 1.
+        if slot >= u16::MAX as usize {
+            return Err(invalid("constant pool full: cannot append a Utf8 entry"));
+        }
+        self.entries.push(CpEntry::Utf8(bytes));
+        Ok(slot)
+    }
+
+    /// Point every `CONSTANT_Class` whose `name_index` is `from` at `to`.
+    pub fn repoint_class_entries(&mut self, from: usize, to: usize) {
+        for e in &mut self.entries {
+            if let CpEntry::Other { tag: 7, payload } = e {
+                if u16::from_be_bytes([payload[0], payload[1]]) as usize == from {
+                    payload.copy_from_slice(&(to as u16).to_be_bytes());
+                }
+            }
+        }
+    }
+
     /// Which constant-pool entries point at each Utf8 slot, by role. Lets
     /// callers tell a class name (`CONSTANT_Class`), a descriptor
     /// (`CONSTANT_NameAndType` / `CONSTANT_MethodType`) and a string literal

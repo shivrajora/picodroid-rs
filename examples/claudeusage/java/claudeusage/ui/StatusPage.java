@@ -13,21 +13,24 @@ import picodroid.widget.FrameLayout;
  * wrong address is the likeliest first-boot problem.
  */
 final class StatusPage extends Page {
-  private final String bridgeAddress;
   private FrameLayout card;
   private FrameLayout dot;
   private Line headline;
   private Line advice;
+  private Line bridge;
   private Line retry;
   private int shownDot;
 
+  private final String bridgeAt;
+  private final String searching;
   private final String contacting;
   private final String retryingIn;
   private final String retrying;
 
-  StatusPage(Context ctx, Palette palette, String bridgeAddress) {
+  StatusPage(Context ctx, Palette palette) {
     super(ctx, palette);
-    this.bridgeAddress = bridgeAddress;
+    bridgeAt = ctx.getString(R.string.status_bridge);
+    searching = ctx.getString(R.string.status_searching);
     contacting = ctx.getString(R.string.status_contacting);
     retryingIn = ctx.getString(R.string.status_retrying_in);
     retrying = ctx.getString(R.string.status_retrying);
@@ -53,14 +56,7 @@ final class StatusPage extends Page {
         advice = centred(70, palette.muted, inner);
         return true;
       default:
-        Ui.labelCentred(
-            ctx,
-            card,
-            String.format(ctx.getString(R.string.status_bridge), bridgeAddress),
-            0,
-            108,
-            inner,
-            palette.muted);
+        bridge = centred(108, palette.muted, inner);
         retry = centred(130, palette.clay, inner);
         Ui.labelCentred(
             ctx, card, ctx.getString(R.string.status_retry_hint), 0, 156, inner, palette.faint);
@@ -79,6 +75,8 @@ final class StatusPage extends Page {
     headline.show(ctx.getString(state.shortText(err)), palette.text);
     int adviceRes = state.advice(err);
     advice.show(adviceRes == 0 ? "" : ctx.getString(adviceRes), palette.muted);
+    String address = repo.bridgeAddress();
+    bridge.show(address == null ? searching : String.format(bridgeAt, address), palette.muted);
     if (repo.isSyncing()) {
       retry.show(contacting, palette.clay);
     } else if (state == LinkState.JOINING || state == LinkState.NO_WIFI) {

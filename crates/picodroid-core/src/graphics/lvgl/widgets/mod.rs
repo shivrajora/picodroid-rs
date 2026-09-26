@@ -8,6 +8,8 @@
 
 pub mod alert_dialog;
 pub mod button;
+#[cfg(has_canvas)]
+pub mod canvas;
 pub mod check_box;
 pub mod circular_progress_indicator;
 pub mod date_picker;

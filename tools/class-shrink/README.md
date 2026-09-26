@@ -22,7 +22,10 @@ A release map never contains `c/` rows. `cut-app` (`build-apk.sh
 --shrink-app`) copies the active release map and appends one app's classes
 and private member names, continuing the release allocator; the result is a
 per-PAPK build output (`build/apks/<app>.shrink-map.toml`), never a
-versioned file.
+versioned file. An app name that would collide with a shrunk framework name
+(a member spelled like a release target, such as a field `p`; a class under
+`a/`, `b/` or `c/`) is renamed, never refused. Plain `--shrink` runs
+`cut-app --declash-only`, which renames only those.
 
 ## Usage as a library
 
@@ -59,7 +62,8 @@ class-shrink cut-release --members \
 
 # Cut one app's map on top of the release map (what build-apk.sh --shrink-app
 # runs through the Gradle cutAppShrinkMap task): the app's classes under c/,
-# its private members, every SDK and contract name reserved
+# its private members, every SDK and contract name reserved. Plain --shrink
+# adds --declash-only: only app names that collide with a release target move
 class-shrink cut-app \
     --classes-dir examples/foo/build/classes-stripped \
     --base sdk/shrink-maps/v0.18.0.toml \

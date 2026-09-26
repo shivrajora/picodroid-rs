@@ -290,7 +290,8 @@ if (icon != null) {
 
 ## `picodroid.view.View`
 
-Base class for all UI widgets. Not instantiated directly — use subclasses like `TextView`, `Button`, etc.
+Base class for all UI widgets. Use its subclasses like `TextView` and `Button`, or subclass it
+with `View(Context)` to draw your own content (see [Custom drawing](#custom-drawing-ondraw-canvas-and-paint)).
 
 ```java
 import picodroid.view.View;
@@ -321,6 +322,84 @@ and a second `close()` is a no-op.
 | `View.GONE` | 2 | Widget is invisible and takes no layout space |
 | `View.MATCH_PARENT` | -1 | `LayoutParams` size: fill the parent |
 | `View.WRAP_CONTENT` | -2 | `LayoutParams` size: size to content |
+
+## Custom drawing: `onDraw`, `Canvas` and `Paint`
+
+Subclass `View` with the `View(Context)` constructor and override `onDraw(Canvas)`, as on Android.
+Call `invalidate()` when the state `onDraw` reads changes; `onDraw` then runs on the main thread
+before the next frame, and several `invalidate()` calls before it runs cost one `onDraw`.
+
+```java
+import picodroid.content.Context;
+import picodroid.graphics.Canvas;
+import picodroid.graphics.Color;
+import picodroid.graphics.Paint;
+import picodroid.view.View;
+
+final class BarChart extends View {
+  private final Paint paint = new Paint();
+  private final int[] values = new int[24];
+
+  BarChart(Context ctx) {
+    super(ctx);
+    setSize(264, 50);
+  }
+
+  void setValue(int i, int percent) {
+    values[i] = percent;
+    invalidate();
+  }
+
+  @Override
+  protected void onDraw(Canvas canvas) {
+    for (int i = 0; i < values.length; i++) {
+      int h = 2 + values[i] * 48 / 100;
+      paint.setColor(values[i] >= 80 ? Color.RED : Color.GREEN);
+      canvas.drawRoundRect(i * 11, 50 - h, i * 11 + 8, 50, 2, 2, paint);
+    }
+  }
+}
+```
+
+A drawing view starts transparent, borderless and not clickable, and is 0 by 0 until it is sized.
+Coordinates are pixels from the view's top-left corner; a rectangle's right and bottom edges are
+exclusive; angles are degrees clockwise from 3 o'clock; everything is clipped to the view.
+
+| `Canvas` method | Description |
+|--------|-------------|
+| `drawColor(int argb)` | Fill the whole view. |
+| `drawRect(l, t, r, b, paint)` | A rectangle. |
+| `drawRoundRect(l, t, r, b, rx, ry, paint)` | Rounded corners; the smaller of `rx` and `ry` is the radius. |
+| `drawCircle(cx, cy, radius, paint)` | A circle. |
+| `drawLine(x1, y1, x2, y2, paint)` | A line in the paint's colour, stroke width and cap. |
+| `drawArc(l, t, r, b, start, sweep, useCenter, paint)` | An arc of the circle inscribed in the bounds. Filled, a wedge from the centre; stroked, the arc alone. |
+| `drawText(text, x, y, paint)` | One line of text with its baseline at `y`, aligned on `x` by the paint's text align. |
+| `getWidth()` / `getHeight()` | The view's size, during `onDraw`. |
+
+| `Paint` method | Description |
+|--------|-------------|
+| `setColor(int)` / `setAlpha(int)` / `setARGB(a, r, g, b)` | Colour; its alpha is the opacity. |
+| `setStyle(Paint.Style)` | `FILL` (default), `STROKE` or `FILL_AND_STROKE`. |
+| `setStrokeWidth(float)` | Stroke width; 0 is a one-pixel hairline. A stroke straddles the outline, as on Android. |
+| `setStrokeCap(Paint.Cap)` | `BUTT` (default) or `ROUND`; `SQUARE` draws as `BUTT`. |
+| `setTextSize(float)` / `setTextAlign(Paint.Align)` | Snaps to the nearest compiled face, like `TextView.setTextSize`; `LEFT`, `CENTER` or `RIGHT`. |
+| `ascent()` / `descent()` / `measureText(String)` | The face's line top above the baseline (negative), its bottom below it, and a text's width. |
+
+**How it works, and what it costs.** There is no pixel buffer: a 320x240 bitmap would be 150 KB. Each draw
+call records one 32-byte op for the view, and the renderer replays the ops whenever it repaints the view.
+The recording lives in LVGL's memory pool and holds 2 KB, about 60 calls, per view; calls past that are
+dropped, with a `[sim] Canvas:` line in the simulator. That is still far cheaper than a view per shape,
+which costs pool memory and milliseconds to create. `onDraw` must draw the whole view each time, since the
+next `onDraw` replaces the recording.
+
+**Boards.** Every RP2350 board. The RP2040 testbench leaves `Canvas` and `Paint` out (`has_canvas = false`
+in its `board.toml`): they cost about 16 KB of a program region that has little left, and
+`build-apk.sh --board testbench_rp2040` rejects an app that uses them.
+
+**Divergences.** No `Bitmap`, `Path`, `Matrix`, `Shader`, `save`/`restore`, clipping or `Rect`/`RectF`
+overloads. Ovals and arcs are circular: the smaller side of the bounds sets the radius. `onDraw` runs after
+`invalidate()`, not on every frame, and a size change needs an `invalidate()` to redraw at the new size.
+`invalidate()` on a framework widget does nothing; they redraw themselves.
 
 ### Focus navigation
 

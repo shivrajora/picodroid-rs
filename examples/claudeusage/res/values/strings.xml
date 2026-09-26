@@ -46,6 +46,7 @@
 
     <!-- Status screen. -->
     <string name="status_bridge">Bridge  %s</string>
+    <string name="status_searching">Looking for the bridge on the LAN</string>
     <string name="status_retry_hint">X  retry now</string>
     <string name="status_contacting">Contacting bridge</string>
     <string name="status_retrying_in">Retrying in %ds</string>

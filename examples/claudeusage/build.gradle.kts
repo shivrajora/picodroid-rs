@@ -2,9 +2,9 @@ plugins {
     id("picodroid-papk")
 }
 
-// The bridge's address is baked at build time:
-// -PpicodroidNetTestHost=<ip> or PICODROID_NET_TEST_HOST, default loopback
-// (which is what the simulator wants). See README.md.
+// The app finds the bridge by broadcast; this bakes the fallback address for
+// a LAN that blocks broadcasts: -PpicodroidNetTestHost=<ip> or
+// PICODROID_NET_TEST_HOST, default loopback. See README.md.
 picodroidNetTest {
     enabled = true
 }

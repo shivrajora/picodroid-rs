@@ -13,6 +13,15 @@
 //! on a [`picodroid.concurrent.Thread`]. There is no system-killing on an
 //! MCU — `START_STICKY` is therefore vacuously true and `onStartCommand`'s
 //! return value is ignored.
+//!
+//! `onServiceConnected` is delivered one main-loop turn after the bind that
+//! obtained the binder, as a [`PendingServiceOp::Connected`] queued at the
+//! head of the pending ops: the callback is where an app does its
+//! connect-time refresh, and on the RP2350 that paint shared one slow span
+//! with the Service's own onCreate and onBind (claudeusage D4). Ordering is
+//! kept — onBind before onServiceConnected, and whatever the app queued after
+//! its bind (an unbind, an Activity launch) waits behind the connect — so an
+//! app that binds and unbinds in one callback sees what it always saw.
 
 #![cfg(not(test))]
 
@@ -21,7 +30,7 @@ use pico_jvm::types::{JvmError, Value};
 use pico_jvm::{Jvm, SharedJvmHeap};
 
 use crate::dispatch_sites::{self, DISPATCH_SITES};
-use crate::native_handler::{PendingServiceOp, PicodroidNativeHandler};
+use crate::native_handler::{PendingOp, PendingServiceOp, PicodroidNativeHandler};
 
 const MAX_SERVICES: usize = 8;
 const MAX_CONNECTIONS: usize = 16;
@@ -152,6 +161,12 @@ pub(crate) fn process_pending_service_op(
             handler,
         ),
         PendingServiceOp::Unbind { conn_ref } => process_unbind(jvm, conn_ref, heap, handler),
+        PendingServiceOp::Connected {
+            conn_ref,
+            binder_ref,
+            owner_activity_ref,
+            ..
+        } => process_connected(jvm, conn_ref, binder_ref, owner_activity_ref, heap, handler),
     }
 }
 
@@ -411,16 +426,54 @@ fn process_bind(
             owner_activity_ref,
         });
     }
-    // Deliver onServiceConnected with the cached IBinder — but only if the
-    // owner Activity is still the current (top) one. picodroid frees a covered
-    // Activity's content view (handle_pop_op / the push path park it), so a
-    // *deferred* bind whose owner was since covered or replaced — e.g. a rapid
-    // double-launch that stacks two of the same Activity before either bind is
-    // processed — must NOT run its callback: `onServiceConnected` typically
-    // mutates the owner's view tree (HistoryActivity adds rows to its list),
-    // and that tree is gone, so `lv_obj_set_parent` would dereference a freed
-    // object (use-after-free → segfault). `owner == 0` means a non-Activity
-    // binder (Application/Service context), which has no view tree to go stale.
+    // Queue onServiceConnected for the next turn of the main loop, with the
+    // cached IBinder, ahead of everything the app queued after the bind.
+    // Held through the rest of this drain (see `PendingServiceOp::Connected`);
+    // the wake brings the loop straight back for it, so the callback follows
+    // within a tick, in its own span.
+    let Some(binder_ref) = registry()[slot].as_ref().unwrap().binder_ref else {
+        return crate::lifecycle::LifecycleControl::Continue;
+    };
+    let queued = handler.enqueue_op_front(PendingOp::Service(PendingServiceOp::Connected {
+        conn_ref,
+        binder_ref,
+        owner_activity_ref,
+        held: true,
+    }));
+    if queued {
+        crate::executors::main_queue::enqueue_wake();
+        return crate::lifecycle::LifecycleControl::Continue;
+    }
+    // The queue is full (it has already warned): deliver now rather than
+    // never.
+    process_connected(jvm, conn_ref, binder_ref, owner_activity_ref, heap, handler)
+}
+
+/// Deliver a queued `onServiceConnected`, unless the connection or its
+/// owner went away in the meantime.
+fn process_connected(
+    jvm: &mut Jvm,
+    conn_ref: u16,
+    binder_ref: u16,
+    owner_activity_ref: u16,
+    heap: &mut SharedJvmHeap,
+    handler: &mut PicodroidNativeHandler,
+) -> crate::lifecycle::LifecycleControl {
+    // Unbound before delivery (the app left before the turn came): a
+    // connection the app no longer holds gets no callback.
+    if connection_find(conn_ref).is_none() {
+        return crate::lifecycle::LifecycleControl::Continue;
+    }
+    // Only if the owner Activity is still the current (top) one. picodroid
+    // frees a covered Activity's content view (handle_pop_op / the push path
+    // park it), so a bind whose owner was since covered or replaced — e.g. a
+    // rapid double-launch that stacks two of the same Activity before either
+    // bind is processed — must NOT run its callback: `onServiceConnected`
+    // typically mutates the owner's view tree (HistoryActivity adds rows to
+    // its list), and that tree is gone, so `lv_obj_set_parent` would
+    // dereference a freed object (use-after-free → segfault). `owner == 0`
+    // means a non-Activity binder (Application/Service context), which has
+    // no view tree to go stale.
     let owner_is_live = owner_activity_ref == 0
         || handler
             .current_activity()
@@ -428,12 +481,7 @@ fn process_bind(
     if !owner_is_live {
         return crate::lifecycle::LifecycleControl::Continue;
     }
-    // Deliver onServiceConnected with the cached IBinder.
-    let binder_ref = registry()[slot].as_ref().unwrap().binder_ref;
-    match binder_ref {
-        Some(br) => invoke_connection_connected(jvm, conn_ref, br, heap, handler),
-        None => crate::lifecycle::LifecycleControl::Continue,
-    }
+    invoke_connection_connected(jvm, conn_ref, binder_ref, heap, handler)
 }
 
 fn process_unbind(

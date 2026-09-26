@@ -191,6 +191,9 @@ fn load_all_classes(jvm: &mut Jvm) -> Result<(), JvmError> {
 /// or `pdb install` interrupts it; `JvmError::Interrupted` is a clean exit
 /// signal, not an error.
 pub fn run_app(apk_data: &[u8]) {
+    // The class-file parse timer has no handler to ask for the time.
+    #[cfg(feature = "parity-metrics")]
+    pico_jvm::parity::set_clock(|| crate::hal::system_clock::elapsed_realtime_nanos() as u64);
     // This task interprets Java from here until the app is gone: it holds the
     // run lock throughout, giving it up only inside blocking waits
     // (`crate::jvm_run_lock`).

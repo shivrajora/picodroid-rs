@@ -830,3 +830,12 @@ Where the pieces live:
 - **`API_HINTS`** for `findViewById`, `getResources` and `getLayoutInflater`
   are deleted, with a test that they stay deleted.
 
+## Amendment 2026-09-26 — T3.5 `Canvas` / `onDraw` landed, without a canvas buffer
+
+T3.5 above assumed LVGL's `lv_canvas`, whose W×H×2 buffer is what made it "RP2350-only, last".
+It was built instead as a retained display list: `Canvas.drawX` records a 32-byte op per call in
+LVGL's pool and an `LV_EVENT_DRAW_MAIN` hook replays them whenever the view is painted, so there
+is no buffer and it ships on every board. It does not need E2 either: `onDraw` runs from a
+main-executor task that `invalidate()` posts, not as an upcall from the renderer. The concrete
+demand was `claudeusage`'s two charts (G4). Design, costs and what is left out:
+[`canvas-2026-09.md`](canvas-2026-09.md).

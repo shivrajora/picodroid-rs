@@ -7,7 +7,6 @@ import claudeusage.data.UsageSnapshot;
 import claudeusage.util.TimeFormat;
 import picodroid.content.Context;
 import picodroid.view.Gravity;
-import picodroid.view.View;
 import picodroid.widget.FrameLayout;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
@@ -16,13 +15,11 @@ import picodroid.widget.TextView;
 final class BurnPage extends Page {
   private static final int CARD_HEIGHT = 92;
   private static final int BARS = UsageService.TREND_SLOTS;
-  private static final int BAR_WIDTH = 8;
-  private static final int BAR_PITCH = 11;
-  private static final int CHART_HEIGHT = 50;
-  private static final int BASELINE = 84;
 
-  /** Eight bars in one step cost the RP2350 85 ms; four fit the 50 ms tick. */
-  private static final int BARS_PER_STEP = 4;
+  /** The trend chart's left edge and the bars' baseline, in the trend card. */
+  private static final int CHART_X = Ui.CARD_PAD + 8;
+
+  private static final int BASELINE = 84;
 
   /** Below this many minutes to the limit the projection turns red. */
   private static final int ETA_URGENT_MIN = 30;
@@ -44,8 +41,7 @@ final class BurnPage extends Page {
   private Line eta;
   private Line reset;
   private Line now;
-  private final FrameLayout[] bars = new FrameLayout[BARS];
-  private final int[] shown = new int[BARS];
+  private TrendChart chart;
 
   private final String noLiveData;
   private final String limitReached;
@@ -116,14 +112,11 @@ final class BurnPage extends Page {
         now = right(trendCard, 7);
         return true;
       default:
-        int from = (s - 4) * BARS_PER_STEP;
-        int to = from + BARS_PER_STEP > BARS ? BARS : from + BARS_PER_STEP;
-        for (int i = from; i < to; i++) {
-          bars[i] = Ui.box(ctx, barX(i), BASELINE - 2, BAR_WIDTH, 2, palette.track, 1);
-          shown[i] = -1;
-          trendCard.addView(bars[i]);
-        }
-        return to < BARS;
+        // One view draws every bar, in one step; a view per bar took six steps of four.
+        chart = new TrendChart(ctx, palette, BARS);
+        chart.setPosition(CHART_X, BASELINE - TrendChart.HEIGHT);
+        trendCard.addView(chart);
+        return false;
     }
   }
 
@@ -132,10 +125,6 @@ final class BurnPage extends Page {
         Ui.labelRight(ctx, card, "", 140, y, Ui.CARD_WIDTH - 140 - Ui.CARD_PAD, palette.muted),
         "",
         palette.muted);
-  }
-
-  private static int barX(int i) {
-    return Ui.CARD_PAD + 8 + i * BAR_PITCH;
   }
 
   @Override
@@ -172,24 +161,13 @@ final class BurnPage extends Page {
 
     // Newest sample at the right edge; slots not yet filled stay as stubs on the left.
     int count = repo.trendCount();
+    boolean changed = false;
     for (int i = 0; i < BARS; i++) {
       int sample = i - (BARS - count);
-      int value = sample >= 0 ? repo.trendAt(sample) : -1;
-      if (value == shown[i]) {
-        continue;
-      }
-      shown[i] = value;
-      if (value < 0) {
-        bars[i].setSize(BAR_WIDTH, 2);
-        bars[i].setPosition(barX(i), BASELINE - 2);
-        Ui.fill(bars[i], palette.track, 1);
-      } else {
-        int h = 3 + value * (CHART_HEIGHT - 3) / 100;
-        bars[i].setSize(BAR_WIDTH, h);
-        bars[i].setPosition(barX(i), BASELINE - h);
-        Ui.fill(bars[i], palette.severity(value), 2);
-      }
-      bars[i].setVisibility(View.VISIBLE);
+      changed |= chart.set(i, sample >= 0 ? repo.trendAt(sample) : -1);
+    }
+    if (changed) {
+      chart.invalidate();
     }
   }
 }

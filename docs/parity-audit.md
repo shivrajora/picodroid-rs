@@ -744,8 +744,12 @@ With the feature on, the main loop's slow-handler warning (`lifecycle/mod.rs::wa
 is not rate-limited and prints, per span: the UI task's FreeRTOS run-time counter delta
 (`cpu`, device only), time inside native calls and their count, time resolving method/field
 sites, time in class-initialised probes, invoke / field / `new` / other opcode time, frame
-allocation time, bytecodes, cold resolutions, cache declines, the slowest and fastest native
-by name, and the cost of one clock read. On the simulator `PICODROID_TRACE_SPANS=1` prints
-every span, not only the slow ones. The counters live in `pico_jvm::parity`; the timing
+allocation time, bytecodes, cold resolutions, cache declines, first-time class-file parses and
+their time (`parsed=N/M us`: a class touched for the first time is read whole from flash and
+its tables built inside whichever bytecode touched it, so without this column a boot span
+looks like unusually slow invokes), the slowest and fastest native by name, and the cost of
+one clock read. On the simulator `PICODROID_TRACE_SPANS=1` prints
+every span, not only the slow ones (`PICODROID_EXTRA_FEATURES=parity-metrics ./scripts/sim.sh …`
+compiles the columns in, as it does for `flash.sh`). The counters live in `pico_jvm::parity`; the timing
 columns cost two clock reads per opcode, so the build is for attribution, never for a gate.
 Worked example: `docs/designs/claudeusage-gaps-roadmap-2026-09.md` D4.

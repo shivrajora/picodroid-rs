@@ -1,6 +1,6 @@
 # Roadmap: `claudeusage` toward Android shape
 
-**Status: round 1 landed 2026-09-22 (app-only, no SDK change); SDK asks 1, 2, 3 and 8 landed 2026-09-24 and the app uses them (items 10, 16, 44 and the chrome flattening); 4 to 7 open. D4 (page-turn stalls) closed 2026-09-25, see the gaps roadmap.**
+**Status: round 1 landed 2026-09-22 (app-only, no SDK change); SDK asks 1, 2, 3 and 8 landed 2026-09-24 and the app uses them (items 10, 16, 44 and the chrome flattening); ask 5 (`Canvas`) landed 2026-09-26 (item 18); 4, 6 and 7 open. D4 (page-turn stalls) closed 2026-09-25, see the gaps roadmap.**
 
 `examples/claudeusage` is a four-screen desk display (Limits, Models, Burn rate, History) for a
 Pico 2 W with a Pimoroni Display Pack 2.0. The project goal is that a picodroid app reads like the
@@ -49,7 +49,7 @@ The last column says what round 1 did: **closed**, **kept** (with the reason), o
 | 15 | Colours, strings and dimensions inline in Java. | App choice | **closed**: `res/values/colors.xml`, `strings.xml`, `dimens.xml`; `Palette` is resolved once from `Resources`; every user-visible string goes through `R.string`. |
 | 16 | Right/centre-aligned labels are a `TextView` wrapped in a gravity-set `LinearLayout`. | SDK-forced (no `TextView.setGravity`) | **closed** 2026-09-24: `TextView.setGravity` landed; `Ui.labelRight` / `labelCentred` are one sized `TextView`. The tall display figure keeps its row, since a label cannot centre itself vertically. |
 | 17 | Progress bars are nested `FrameLayout`s with `GradientDrawable`s. | SDK-forced (no styled `ProgressBar`, no `Canvas`) | **closed** 2026-09-23: `ProgressBar` tints per instance (gap G3), so `BarView` is one `ProgressBar`; the Limits gauges are `CircularProgressIndicator` rings (gap G2). |
-| 18 | Bar charts are arrays of `FrameLayout` boxes. | SDK-forced (no `Canvas`) | open |
+| 18 | Bar charts are arrays of `FrameLayout` boxes. | SDK-forced (no `Canvas`) | **closed** 2026-09-26: `ui/TrendChart` and `ui/WeekChart` are `View` subclasses that draw their bars (and History's day letters) in `onDraw(Canvas)`; see [`canvas-2026-09.md`](canvas-2026-09.md). |
 | 19 | Large numerals are PNG sprites in `ImageView`s. | SDK-forced (one font size) | closed 2026-09-23: `TextView.setTextSize(64)` |
 | 20 | Sprites loaded from `assets/` by string path. | App choice | **closed**: `res/drawable/d0.png`… with `R.drawable.*` and `setImageResource`. |
 | 21 | Sprites pre-composited onto the card colour. | SDK-forced (assets lose alpha) | closed 2026-09-23: no sprites left |
@@ -84,7 +84,7 @@ The last column says what round 1 did: **closed**, **kept** (with the reason), o
 | 40 | `conn.disconnect()` in `finally` because 16 handles exist. | idiom preserved | kept |
 | 41 | `UsageSnapshot` is a mutable public-field bag with parallel arrays. | App choice | kept: it is written once by the fetch and read by the UI; a `List<ModelCap>` of records costs allocations for no reader. |
 | 42 | `LinkState` as `int` constants with a name table. | App choice | **closed**: an `enum` with `shortText`/`advice` as instance methods. |
-| 43 | Bridge host baked at build time through the `NetTestConfig` test hook. | App choice | **closed** as far as the app can: `UsageService` reads `bridge_host` from `SharedPreferences` with `NetTestConfig.HOST` as the default, so an installed unit can be repointed without a rebuild (via `pdb`, or a future settings screen). A `BuildConfig` block is still the right default source; see G7 in the gaps roadmap. |
+| 43 | Bridge host baked at build time through the `NetTestConfig` test hook. | App choice | **closed** as far as the app can: `UsageService` reads `bridge_host` from `SharedPreferences` with `NetTestConfig.HOST` as the default, so an installed unit can be repointed without a rebuild (via `pdb`, or a future settings screen). A `BuildConfig` block is still the right default source; see G7 in the gaps roadmap. *2026-09-25:* the address is now discovered: `BridgeDiscovery` broadcasts one UDP query and the bridge answers, so nothing is baked or typed unless the LAN blocks broadcasts (`bridge_host` pins, `NetTestConfig.HOST` is the fallback). The Android shape would be `NsdManager` / DNS-SD; the runtime has no multicast DNS, so the app carries the two-datagram protocol itself. |
 
 ## 6. Time and number formatting
 
@@ -134,8 +134,9 @@ Ordered by how much Android shape each would buy back here.
    (no border, fill, radius or padding), `setBackgroundColor` honours alpha, and layouts take
    `@android:color/transparent`; `Ui.flat` and its ten call sites are gone.
 4. `Handler` / `View.postDelayed` or an equivalent one-shot timer on the main thread (item 30).
-5. A minimal `Canvas` (item 18; gap G4). The styled `ProgressBar` (item 17; gap G3) and the ring
-   gauge (gap G2) landed 2026-09-23.
+5. ~~A minimal `Canvas` (item 18; gap G4).~~ Shipped 2026-09-26 as Android's `onDraw(Canvas)`
+   over a retained display list. The styled `ProgressBar` (item 17; gap G3) and the ring gauge
+   (gap G2) landed 2026-09-23.
 6. `ConnectivityManager` with a `NetworkCallback` (item 36).
 7. A `BuildConfig` block (item 43; gaps G7).
 8. ~~`java.time` or at least `DateFormat`/`DateUtils` (item 44).~~ Shipped 2026-09-24 as a

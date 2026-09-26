@@ -326,7 +326,20 @@ pub fn tcp_accept(sock: *mut c_void) -> Result<*mut c_void, NetError> {
 pub fn udp_socket(local_port: u16) -> Result<*mut c_void, NetError> {
     let sock =
         retry_eintr(|| UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, local_port)))?;
+    // `java.net.DatagramSocket` turns SO_BROADCAST on by default, and
+    // FreeRTOS+TCP has no such switch at all, so the host socket gets it too.
+    // `PICODROID_SIM_NET_BROADCAST=0` withholds it to model a network that
+    // swallows client broadcasts (an access point with client isolation): a
+    // send to a broadcast address then fails, and an app that discovers its
+    // peer by broadcast has to fall back to its configured address.
+    if !broadcast_disabled() {
+        let _ = sock.set_broadcast(true);
+    }
     Ok(box_socket(SimSocket::Udp(sock)))
+}
+
+fn broadcast_disabled() -> bool {
+    std::env::var("PICODROID_SIM_NET_BROADCAST").is_ok_and(|v| v == "0")
 }
 
 pub fn udp_sendto(sock: *mut c_void, buf: &[u8], addr: u32, port: u16) -> Result<usize, NetError> {

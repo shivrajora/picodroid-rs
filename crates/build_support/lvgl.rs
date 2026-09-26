@@ -164,6 +164,19 @@ pub fn build(
     build.file(&rgb888_stub);
     println!("cargo:rerun-if-changed={}", rgb888_stub.display());
 
+    // The retained display list behind `picodroid.graphics.Canvas`
+    // (`graphics/lvgl/widgets/canvas.rs`): every board that keeps
+    // `has_canvas` (`board_cfg::has_canvas`), and the simulator.
+    if crate::board_cfg::has_canvas_in(board_cfg.as_ref()) {
+        let canvas = conf_dir.join("pd_canvas.c");
+        build.file(&canvas);
+        println!("cargo:rerun-if-changed={}", canvas.display());
+        println!(
+            "cargo:rerun-if-changed={}",
+            conf_dir.join("pd_canvas.h").display()
+        );
+    }
+
     // The panel scrolls its own frame memory (`board_cfg::hw_vscroll`): the
     // helper that reads LVGL's private invalidation list and walks the widget
     // tree for `graphics/lvgl/hw_scroll.rs` compiles in beside lv_conf.h.

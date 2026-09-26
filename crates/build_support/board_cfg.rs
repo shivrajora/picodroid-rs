@@ -84,6 +84,23 @@ pub fn framework_class_excludes(board: &Option<ResolvedBoard>) -> Vec<String> {
             }
         }
     }
+    let canvas_listed = list.iter().any(|e| CANVAS_CLASSES.contains(&e.as_str()));
+    if has_canvas(board) {
+        if let Some(b) = board {
+            assert!(
+                !canvas_listed,
+                "board '{}' ships Canvas (no `has_canvas = false`) but framework_class_excludes \
+                 names a Canvas class — set has_canvas = false instead of listing the classes",
+                b.name
+            );
+        }
+    } else {
+        for c in CANVAS_CLASSES {
+            if !list.iter().any(|e| e == c) {
+                list.push((*c).to_string());
+            }
+        }
+    }
     let multi_listed = list.iter().any(|e| MULTI_APP_CLASSES.contains(&e.as_str()));
     if multi_app(board) {
         if let Some(b) = board {
@@ -131,6 +148,12 @@ pub const JSON_CLASSES: &[&str] = &[
     "picodroid/json/JSONException",
 ];
 
+/// The SDK classes the `has_canvas` board.toml key owns: what `View.onDraw`
+/// draws with. Inner classes (`Paint$Style`, `Paint$Cap`, `Paint$Align`)
+/// follow their outer class through the embed step. The Gradle contract check
+/// mirrors the list (`buildSrc/.../classfile/ApiContract.kt`).
+pub const CANVAS_CLASSES: &[&str] = &["picodroid/graphics/Canvas", "picodroid/graphics/Paint"];
+
 // `picodroid.media` is deliberately NOT board-excluded, unlike `has_json`.
 // Its `c::`/`m::` name constants are generated from the committed TSVs, which
 // are produced by one boardless run and must therefore hold every name any
@@ -150,6 +173,33 @@ pub fn has_json(board: &Option<ResolvedBoard>) -> bool {
     match props(board) {
         None => true,
         Some(p) => p.get("has_json").map(String::as_str) == Some("true"),
+    }
+}
+
+/// The optional top-level `has_canvas` board.toml key: whether this board
+/// ships `View.onDraw(Canvas)` — the `Canvas` and `Paint` classes, their Rust
+/// arms (`cfg(has_canvas)`) and the display list in `pd-lvgl-sys/lvgl/pd_canvas.c`
+/// (docs/designs/canvas-2026-09.md). On unless a board sets
+/// `has_canvas = false`, which the RP2040 testbench does: about 16 KB of
+/// flash its program region cannot spare. On for boardless builds.
+pub fn has_canvas(board: &Option<ResolvedBoard>) -> bool {
+    has_canvas_in(props(board))
+}
+
+/// [`has_canvas`] from a board's raw props, for the LVGL C build, which gets
+/// the props rather than the resolved board.
+pub fn has_canvas_in(props: Option<&HashMap<String, String>>) -> bool {
+    match props {
+        None => true,
+        Some(p) => p.get("has_canvas").map(String::as_str) != Some("false"),
+    }
+}
+
+/// Emit the `has_canvas` rustc cfg from board.toml (see [`has_canvas`]).
+pub fn emit_canvas_cfg(board: &Option<ResolvedBoard>) {
+    println!("cargo:rustc-check-cfg=cfg(has_canvas)");
+    if has_canvas(board) {
+        println!("cargo:rustc-cfg=has_canvas");
     }
 }
 
@@ -318,6 +368,7 @@ pub fn emit_neutral(out: &Path, board: &Option<ResolvedBoard>, pins: Pins) {
     emit_heap_config(out, board);
     emit_network_cfgs(board);
     emit_json_cfg(board);
+    emit_canvas_cfg(board);
     emit_lvgl_cfgs(board);
     emit_audio_config(out, board);
     emit_sensor_config(out, board);

@@ -7,9 +7,12 @@ import picodroid.app.Notification;
 import picodroid.app.NotificationManager;
 import picodroid.concurrent.Executors;
 import picodroid.concurrent.Thread;
+import picodroid.content.Context;
 import picodroid.content.res.ColorStateList;
+import picodroid.graphics.Canvas;
 import picodroid.graphics.Color;
 import picodroid.graphics.Display;
+import picodroid.graphics.Paint;
 import picodroid.os.Bundle;
 import picodroid.os.Runtime;
 import picodroid.os.SystemClock;
@@ -128,6 +131,7 @@ public class QaUiActivity extends Activity {
     section("containers", () -> containers());
     section("paramsTransforms", () -> paramsTransforms());
     section("focus", () -> focus());
+    section("canvas", () -> canvas());
     setContentView(root);
     later(300, () -> phase2());
   }
@@ -915,6 +919,9 @@ public class QaUiActivity extends Activity {
 
   void phase2() {
     Log.i(TAG, "phase2");
+    // Before churn: the overflow fixture holds a full display list in LVGL's pool until it is
+    // checked and removed here.
+    section("canvasDrawn", () -> canvasDrawn());
     section("deferredEvents", () -> deferredEvents());
     section("sizes", () -> sizes());
     section("animation", () -> animation());
@@ -1101,6 +1108,133 @@ public class QaUiActivity extends Activity {
         root.getChildAt(baseline) == rooted[0] && root.getChildAt(baseline + 12) == churnTarget);
   }
 
+  // ---- canvas -------------------------------------------------------------------------------
+
+  /** A drawing view that counts its onDraw calls and what the canvas said about its size. */
+  static final class CountingView extends View {
+    int draws;
+    int lastWidth = -1;
+    int lastHeight = -1;
+    int ops;
+    Canvas seen;
+    final Paint paint = new Paint();
+
+    CountingView(Context ctx, int ops) {
+      super(ctx);
+      this.ops = ops;
+    }
+
+    @Override
+    protected void onDraw(Canvas canvas) {
+      draws++;
+      seen = canvas;
+      lastWidth = canvas.getWidth();
+      lastHeight = canvas.getHeight();
+      paint.setColor(Color.RED);
+      paint.setStyle(Paint.Style.FILL);
+      for (int i = 0; i < ops; i++) {
+        canvas.drawRoundRect(i, 0, i + 4, 10, 2, 2, paint);
+      }
+      paint.setStyle(Paint.Style.STROKE);
+      paint.setStrokeWidth(2);
+      paint.setStrokeCap(Paint.Cap.ROUND);
+      canvas.drawLine(0, 0, canvas.getWidth(), canvas.getHeight(), paint);
+      canvas.drawArc(0, 0, 30, 30, 135, 270, false, paint);
+      canvas.drawCircle(20, 20, 8, paint);
+      paint.setTextAlign(Paint.Align.CENTER);
+      paint.setTextSize(14);
+      canvas.drawText("Mo", canvas.getWidth() / 2f, 30, paint);
+    }
+  }
+
+  private CountingView drawn;
+  private CountingView releasedDrawing;
+  private CountingView overflowing;
+
+  void canvas() {
+    Paint p = new Paint();
+    check(
+        "paint defaults",
+        p.getColor() == Color.BLACK
+            && p.getStyle() == Paint.Style.FILL
+            && p.getStrokeWidth() == 0f
+            && p.getTextSize() == 12f
+            && p.getTextAlign() == Paint.Align.LEFT
+            && p.getStrokeCap() == Paint.Cap.BUTT);
+    p.setColor(0xFF123456);
+    p.setAlpha(0x80);
+    check("paint setAlpha keeps rgb", p.getColor() == 0x80123456 && p.getAlpha() == 0x80);
+    p.setStyle(Paint.Style.FILL_AND_STROKE);
+    p.setAntiAlias(true);
+    Paint copy = new Paint(p);
+    check(
+        "paint copy",
+        copy.getColor() == p.getColor()
+            && copy.getStyle() == Paint.Style.FILL_AND_STROKE
+            && copy.isAntiAlias());
+    copy.reset();
+    check("paint reset", copy.getColor() == Color.BLACK && copy.getStyle() == Paint.Style.FILL);
+
+    Paint t = new Paint();
+    t.setTextSize(14);
+    check(
+        "paint text metrics",
+        t.ascent() < 0 && t.descent() >= 0 && t.measureText("Mo") > 0 && t.measureText("") == 0f);
+    check("measureText grows with the text", t.measureText("MoMo") > t.measureText("Mo"));
+
+    Canvas loose = new Canvas();
+    loose.drawRect(0, 0, 10, 10, p);
+    loose.drawText("x", 0, 10, p);
+    check("unbound canvas is empty", loose.getWidth() == 0 && loose.getHeight() == 0);
+
+    // Framework widgets repaint themselves: invalidate is accepted and does nothing.
+    rows[0].invalidate();
+
+    drawn = new CountingView(this, 3);
+    drawn.setSize(60, 40);
+    root.addView(drawn);
+    // The constructor queued the first onDraw; these fold into it.
+    drawn.invalidate();
+    drawn.invalidate();
+    check("onDraw is deferred to the main loop", drawn.draws == 0);
+
+    releasedDrawing = new CountingView(this, 1);
+    root.addView(releasedDrawing);
+    root.removeView(releasedDrawing);
+    releasedDrawing.invalidate();
+
+    // Far more ops than one view's list holds: the extra ones are dropped, nothing breaks.
+    overflowing = new CountingView(this, 400);
+    overflowing.setSize(40, 12);
+    root.addView(overflowing);
+  }
+
+  void canvasDrawn() {
+    Log.i(
+        TAG,
+        "canvas draws="
+            + drawn.draws
+            + " size="
+            + drawn.lastWidth
+            + "x"
+            + drawn.lastHeight
+            + " released="
+            + releasedDrawing.draws
+            + " overflow="
+            + overflowing.draws);
+    check("coalesced invalidates draw once", drawn.draws == 1);
+    check("canvas reports the view size", drawn.lastWidth == 60 && drawn.lastHeight == 40);
+    check("removed view never draws", releasedDrawing.draws == 0);
+    check("overflowing onDraw ran once", overflowing.draws == 1);
+    root.removeView(overflowing);
+    Canvas kept = drawn.seen;
+    check("canvas outside onDraw is unbound", kept != null && kept.getWidth() == 0);
+    kept.drawRect(0, 0, 10, 10, drawn.paint);
+    drawn.setSize(80, 40);
+    drawn.invalidate();
+    drawn.invalidate();
+  }
+
   // ---- phase 3 ------------------------------------------------------------------------------
 
   private int animationPolls = 0;
@@ -1150,6 +1284,8 @@ public class QaUiActivity extends Activity {
     Log.i(TAG, "phase4");
     check("listener on survivor after peers removed", churnClicks[0] == 1012);
     check("null listener silent", clicksSecond[0] == 1);
+    check("canvas: two invalidates, one more onDraw", drawn.draws == 2);
+    check("canvas: resize is seen by the next onDraw", drawn.lastWidth == 80);
     Log.i(TAG, "passed=" + passed + " failed=" + failed + " crashed=" + crashed);
     if (failed == 0 && crashed == 0) {
       Log.i(TAG, "=== ALL PASSED ===");

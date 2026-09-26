@@ -170,6 +170,16 @@ object ApiContract {
     )
 
     /**
+     * The `Canvas` classes, owned by the top-level `has_canvas` board.toml key: on unless a board
+     * sets it to `false` (`build_support/board_cfg.rs::CANVAS_CLASSES`). Inner classes
+     * (`Paint$Style`, …) follow their outer class.
+     */
+    private val CANVAS_CLASSES = setOf(
+        "picodroid/graphics/Canvas",
+        "picodroid/graphics/Paint",
+    )
+
+    /**
      * The launcher-facing classes only a multi-app board ships
      * (`build_support/board_cfg.rs::MULTI_APP_CLASSES`, multi-app M2). A board
      * is multi-app when its board.toml sets `max_installed_apps` above 1; the
@@ -190,19 +200,24 @@ object ApiContract {
     /**
      * What a board.toml drops: its top-level `framework_class_excludes = "a;b,c"`
      * key plus the classes its feature switches leave out (`has_json`,
-     * `max_installed_apps`) — the same hand-rolled, line-based read as
+     * `has_canvas`, `max_installed_apps`) — the same hand-rolled, line-based read as
      * `build_support/board_cfg.rs` (`;` or `,` separated, one line each, top
      * level only).
      */
     fun parseBoardExcludes(toml: String): Set<String> {
         var listed = emptySet<String>()
         var hasJson = false
+        var hasCanvas = true
         var maxApps = 1
         for (raw in toml.lineSequence()) {
             val line = raw.trim()
             if (line.startsWith("[")) break
             if (line.startsWith("has_json")) {
                 hasJson = topLevelValue(line, "has_json") == "true"
+                continue
+            }
+            if (line.startsWith("has_canvas")) {
+                hasCanvas = topLevelValue(line, "has_canvas") != "false"
                 continue
             }
             if (line.startsWith("max_installed_apps")) {
@@ -215,6 +230,7 @@ object ApiContract {
         }
         var dropped = listed
         if (!hasJson) dropped = dropped + JSON_CLASSES
+        if (!hasCanvas) dropped = dropped + CANVAS_CLASSES
         if (maxApps <= 1) dropped = dropped + MULTI_APP_CLASSES
         return dropped
     }

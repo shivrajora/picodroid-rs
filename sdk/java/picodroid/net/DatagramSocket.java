@@ -6,7 +6,20 @@ import java.net.SocketException;
 
 /** UDP socket — send and receive datagrams. */
 public class DatagramSocket implements AutoCloseable {
+  // The natives read this at field slot 0 (net/fields.rs): declare nothing above it.
   private int handle;
+
+  /** Java's default: a fresh socket may send to a broadcast address. */
+  private boolean broadcast = true;
+
+  /**
+   * Create a UDP socket bound to any available local port.
+   *
+   * @throws SocketException if the socket cannot be opened
+   */
+  public DatagramSocket() throws SocketException {
+    this(0);
+  }
 
   /**
    * Create a UDP socket bound to a local port.
@@ -29,13 +42,36 @@ public class DatagramSocket implements AutoCloseable {
   /**
    * Receive a datagram packet (blocking). Fills packet's data, length, address, and port.
    *
-   * @throws java.net.SocketTimeoutException if a timeout set via {@link #setTimeout} expired
+   * @throws java.net.SocketTimeoutException if a timeout set via {@link #setSoTimeout} expired
    * @throws IOException for any other receive failure
    */
   public native void receive(DatagramPacket packet) throws IOException;
 
-  /** Set receive timeout in milliseconds (0 = infinite). */
+  /**
+   * Set the receive timeout in milliseconds (0 = infinite), as {@code java.net.DatagramSocket}
+   * spells it: a {@link #receive} still waiting when it expires throws {@code
+   * java.net.SocketTimeoutException}.
+   */
+  public void setSoTimeout(int millis) {
+    setTimeout(millis);
+  }
+
+  /** The older spelling of {@link #setSoTimeout}. */
   public native void setTimeout(int millis);
+
+  /**
+   * Allow or forbid sending to a broadcast address (255.255.255.255 or the subnet's), as {@code
+   * java.net.DatagramSocket.setBroadcast}. On by default, as in Java. Picodroid's network stacks
+   * permit broadcast unconditionally, so the flag is recorded for API parity rather than enforced.
+   */
+  public void setBroadcast(boolean on) {
+    broadcast = on;
+  }
+
+  /** Whether {@link #setBroadcast} is on. */
+  public boolean getBroadcast() {
+    return broadcast;
+  }
 
   @Override
   public native void close();

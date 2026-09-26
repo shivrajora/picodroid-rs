@@ -117,6 +117,10 @@ struct SpanStart {
     other_us: usize,
     #[cfg(feature = "parity-metrics")]
     field_ops: usize,
+    #[cfg(feature = "parity-metrics")]
+    parses: usize,
+    #[cfg(feature = "parity-metrics")]
+    parse_us: usize,
     /// Cost of two back-to-back clock reads, so a reader can subtract the
     /// measurement itself from the per-op columns.
     #[cfg(feature = "parity-metrics")]
@@ -166,6 +170,10 @@ fn span_start() -> SpanStart {
         #[cfg(feature = "parity-metrics")]
         field_ops: pico_jvm::parity::field_ops(),
         #[cfg(feature = "parity-metrics")]
+        parses: pico_jvm::parity::parses(),
+        #[cfg(feature = "parity-metrics")]
+        parse_us: pico_jvm::parity::parse_us(),
+        #[cfg(feature = "parity-metrics")]
         clock_ns,
         #[cfg(all(feature = "parity-metrics", not(feature = "sim")))]
         cpu_us: crate::rtos::freertos::current_task_runtime_counter(),
@@ -194,7 +202,7 @@ fn warn_if_slow(span: &str, start: SpanStart, slow_ms: u64, last_warn_ms: &mut u
         let elapsed = now_ms().saturating_sub(start.ms);
         #[cfg(feature = "parity-metrics")]
         eprintln!(
-            "[sim] span: {span} {elapsed} ms insns={} resolves={} declines={} native={} us/{} calls resolve={} us clinit={} us invoke={} us/{} frame={} us",
+            "[sim] span: {span} {elapsed} ms insns={} resolves={} declines={} native={} us/{} calls resolve={} us clinit={} us invoke={} us/{} frame={} us parsed={}/{} us",
             pico_jvm::parity::insns().wrapping_sub(start.insns),
             pico_jvm::parity::resolves().wrapping_sub(start.resolves),
             pico_jvm::parity::cache_declines().wrapping_sub(start.declines),
@@ -205,6 +213,8 @@ fn warn_if_slow(span: &str, start: SpanStart, slow_ms: u64, last_warn_ms: &mut u
             pico_jvm::parity::invoke_us().wrapping_sub(start.invoke_us),
             pico_jvm::parity::invokes().wrapping_sub(start.invokes),
             pico_jvm::parity::frame_us().wrapping_sub(start.frame_us),
+            pico_jvm::parity::parses().wrapping_sub(start.parses),
+            pico_jvm::parity::parse_us().wrapping_sub(start.parse_us),
         );
         #[cfg(not(feature = "parity-metrics"))]
         eprintln!("[sim] span: {span} {elapsed} ms");
@@ -246,6 +256,11 @@ fn warn_if_slow(span: &str, start: SpanStart, slow_ms: u64, last_warn_ms: &mut u
     #[cfg(feature = "parity-metrics")]
     let field_ops = pico_jvm::parity::field_ops().wrapping_sub(start.field_ops);
     #[cfg(feature = "parity-metrics")]
+    let (parses, parse_us) = (
+        pico_jvm::parity::parses().wrapping_sub(start.parses),
+        pico_jvm::parity::parse_us().wrapping_sub(start.parse_us),
+    );
+    #[cfg(feature = "parity-metrics")]
     let clock_ns = start.clock_ns;
     #[cfg(all(feature = "parity-metrics", not(feature = "sim")))]
     let cpu_us = crate::rtos::freertos::current_task_runtime_counter().wrapping_sub(start.cpu_us);
@@ -260,7 +275,7 @@ fn warn_if_slow(span: &str, start: SpanStart, slow_ms: u64, last_warn_ms: &mut u
     );
     #[cfg(all(not(feature = "sim"), feature = "parity-metrics"))]
     defmt::warn!(
-        "slow handler: {=str} took {=u64} ms (>= {=u64} ms) — stalls the UI tick; cpu={=u32} us native={=usize} us/{=usize} calls resolve={=usize} us clinit={=usize} us invoke={=usize} us/{=usize} frame={=usize} us fields={=usize} us/{=usize} new={=usize} us other={=usize} us insns={=usize} resolves={=usize} declines={=usize} slowest={=str}.{=str} {=usize} us fastest={=usize} us clock={=u64} ns",
+        "slow handler: {=str} took {=u64} ms (>= {=u64} ms) — stalls the UI tick; cpu={=u32} us native={=usize} us/{=usize} calls resolve={=usize} us clinit={=usize} us invoke={=usize} us/{=usize} frame={=usize} us fields={=usize} us/{=usize} new={=usize} us other={=usize} us insns={=usize} resolves={=usize} declines={=usize} parsed={=usize}/{=usize} us slowest={=str}.{=str} {=usize} us fastest={=usize} us clock={=u64} ns",
         span,
         elapsed,
         slow_ms,
@@ -279,6 +294,8 @@ fn warn_if_slow(span: &str, start: SpanStart, slow_ms: u64, last_warn_ms: &mut u
         insns,
         resolves,
         declines,
+        parses,
+        parse_us,
         slowest_class,
         slowest_method,
         slowest_us,
@@ -291,7 +308,7 @@ fn warn_if_slow(span: &str, start: SpanStart, slow_ms: u64, last_warn_ms: &mut u
     );
     #[cfg(all(feature = "sim", feature = "parity-metrics"))]
     eprintln!(
-        "[sim] slow handler: {span} took {elapsed} ms (>= {slow_ms} ms) — stalls the UI tick; native={native_us} us/{native_calls} calls resolve={resolve_us} us clinit={clinit_us} us invoke={invoke_us} us/{invokes} frame={frame_us} us fields={fields_us} us/{field_ops} new={new_us} us other={other_us} us insns={insns} resolves={resolves} declines={declines} slowest={slowest_class}.{slowest_method} {slowest_us} us fastest={fastest_us} us clock={clock_ns} ns"
+        "[sim] slow handler: {span} took {elapsed} ms (>= {slow_ms} ms) — stalls the UI tick; native={native_us} us/{native_calls} calls resolve={resolve_us} us clinit={clinit_us} us invoke={invoke_us} us/{invokes} frame={frame_us} us fields={fields_us} us/{field_ops} new={new_us} us other={other_us} us insns={insns} resolves={resolves} declines={declines} parsed={parses}/{parse_us} us slowest={slowest_class}.{slowest_method} {slowest_us} us fastest={fastest_us} us clock={clock_ns} ns"
     );
 }
 
@@ -342,7 +359,13 @@ pub(crate) fn run_application(
     // surviving services and exit cleanly.
     use crate::native_handler::PendingOp;
     let mut activity_push: Option<(&'static str, Option<u16>)> = None;
-    while let Some(op) = handler.take_next_pending_op() {
+    // No loop yet to come back for a held connect (an Application that
+    // binds in its onCreate): release before every take, so it is
+    // delivered here and the Activity push behind it is still found.
+    while let Some(op) = {
+        handler.release_held_ops();
+        handler.take_next_pending_op()
+    } {
         match op {
             PendingOp::Activity(PendingActivityOp::Push {
                 class_name,
@@ -382,10 +405,21 @@ pub(crate) fn run_application(
     } else {
         // Service-only app or app that did nothing in onCreate — process
         // any further queued ops, then run final teardown so live Services
-        // (started or bound) get an onDestroy.
-        while let Some(op) = handler.take_next_pending_op() {
-            if let PendingOp::Service(s) = op {
-                let _ = crate::service_lifecycle::process_pending_service_op(jvm, s, heap, handler);
+        // (started or bound) get an onDestroy. There is no main loop to
+        // come back for a held connect, so each round releases what the
+        // previous one queued, until a round finds nothing.
+        loop {
+            handler.release_held_ops();
+            let mut any = false;
+            while let Some(op) = handler.take_next_pending_op() {
+                any = true;
+                if let PendingOp::Service(s) = op {
+                    let _ =
+                        crate::service_lifecycle::process_pending_service_op(jvm, s, heap, handler);
+                }
+            }
+            if !any {
+                break;
             }
         }
         crate::service_lifecycle::destroy_all(jvm, heap, handler);
@@ -726,9 +760,12 @@ pub(crate) fn run_activity(
 
         // Drain any lifecycle transitions queued by Java during the
         // dispatch above (a button click handler called startActivity,
-        // a Runnable called finish(), etc.).
+        // a Runnable called finish(), etc.). A connect callback that a
+        // bind queues in this drain is held for the next one, which the
+        // bind's wake makes the very next turn: its span is its own.
         let mut should_exit = false;
         let span_start = span_start();
+        handler.release_held_ops();
         while let Some(op) = handler.take_next_pending_op() {
             if process_pending_op(jvm, op, heap, handler).is_break() {
                 should_exit = true;

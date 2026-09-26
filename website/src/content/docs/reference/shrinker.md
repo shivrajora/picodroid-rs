@@ -208,7 +208,9 @@ What happens, per PAPK build (`buildSrc` task `cutAppShrinkMap`):
    - every method/field name an app class declares that is longer than
      two characters and not already in the release map (SDK overrides
      such as `onCreate` rename in lockstep through the release rows),
-     not kept (`main`, `injectMembers`), and not spelled by a kept class.
+     not kept (`main`, `injectMembers`), and not spelled by a kept class;
+   - every name an app class declares that is itself a release-map
+     target, whatever its length (see [Name collisions](#name-collisions)).
      Targets skip every name the app tree, `sdk/member-names.tsv`,
      `sdk/api-contract.tsv`, the keep list and the release map spell.
 2. `shrinkMembers`, `shrinkClasses` and `papk-pack` read that **merged**
@@ -233,12 +235,44 @@ Consequences and limits:
   name literal sees a mismatch (`examples/classlit` accepts either).
 - Log lines, stack traces and `pdb` output spell `c/A.qZ` — retrace with
   the app map, not the release map.
-- Default-package classes and packages named `a/`, `b/` or `c/` are
-  rejected by `cut-app` (they would alias the synthetic prefixes).
 - Generic `Signature` attributes are not rewritten; device PAPKs strip
   them, an unstripped (sim) PAPK keeps original names inside them.
 - The kotlin-shim stays verbatim: its classes are keep-globbed and its
   member names are neither candidates nor targets.
+
+## Name collisions
+
+An app never renames anything to be shrunk. The release map hands out the
+shortest names first, so almost every one- and two-character name (`p`,
+`x`, `A`, `id`-shaped pairs) is some framework member's target, and `a/`,
+`b/` and `c/` are the framework's packages. An app that spells one of them
+would alias the framework's member or class at run time: a field `p` on a
+`View` subclass shadowing the framework's `p`, a method `p()V` overriding
+it, an app class `a/A` hidden behind the framework's `a/A`.
+
+`cut-app` renames the app's side instead, in both shrink modes:
+
+- A member name an app class declares that is a release target gets a
+  fresh target (`p` → `Qz`), together with every call site. Such a name is
+  never an SDK original (release targets skip every name the SDK spells),
+  so no override or framework call can depend on it.
+- An app class under `a/`, `b/` or `c/`, or in the default package, moves
+  to a fresh `c/` name. A default-package class's references move to a
+  new constant-pool string, so a `"Main"` log tag or a member named like
+  the class keeps its spelling.
+
+Plain `--shrink` runs the same cut with `--declash-only`: those renames
+and nothing else, so a clash-free app shrinks byte-for-byte as before. The
+merged map lands next to the PAPK in both modes; retrace with it.
+
+Two cases remain errors, because the app cannot mean what it wrote:
+
+- An app class spelled exactly like a framework class (its own
+  `java/lang/Math`). The framework's copy always wins, as the boot
+  classpath does on Android.
+- A colliding member name spelled by a kept class (`kotlin/**`,
+  `sdk/keep.toml`) or an annotation element: those stay verbatim by
+  contract.
 
 ## How builds consume the active map
 

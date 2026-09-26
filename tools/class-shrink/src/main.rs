@@ -27,6 +27,7 @@
 //!
 //!   cut-app --classes-dir <dir> --base <release-map.toml> --out <file.toml>
 //!           [--keep <keep.toml>] [--reserve-names <file>]... [--reserve <dir>]...
+//!           [--declash-only]
 //!       Extend the active release map with one app's own classes (`c/`)
 //!       and private member names — the per-PAPK `--shrink-app` map.
 //!
@@ -259,8 +260,14 @@ fn cmd_cut_app(args: &[String]) -> ExitCode {
     let mut out_path: Option<PathBuf> = None;
     let mut reserve_dirs: Vec<PathBuf> = Vec::new();
     let mut reserve_name_files: Vec<PathBuf> = Vec::new();
+    let mut declash_only = false;
     let mut i = 0;
     while i < args.len() {
+        if args[i] == "--declash-only" {
+            declash_only = true;
+            i += 1;
+            continue;
+        }
         let value = || args.get(i + 1).expect("value");
         match args[i].as_str() {
             "--classes-dir" => classes_dir = Some(PathBuf::from(value())),
@@ -311,6 +318,7 @@ fn cmd_cut_app(args: &[String]) -> ExitCode {
     let opts = shrink::AppCut {
         reserve_dirs: &reserve_dirs,
         reserve_names: &reserve_names,
+        declash_only,
     };
     let map = match shrink::cut_app(&classes_dir, &keep, base, &opts) {
         Ok(m) => m,
@@ -512,13 +520,18 @@ Subcommands:
 
   cut-app --classes-dir <dir> --base <release-map.toml> --out <file.toml>
           [--keep <keep.toml>] [--reserve-names <file>]... [--reserve <dir>]...
+          [--declash-only]
       Extend a release map with one app's own classes (c/) and private
-      member names — the per-PAPK, opt-in `--shrink-app` map. The output
-      is the base map plus the app rows, so every consumer reads it as a
+      member names — the per-PAPK `--shrink-app` map. The output is the
+      base map plus the app rows, so every consumer reads it as a
       release map. A `<X>_MembersInjector` class follows its component's
       shrunk name (the runtime derives it). --reserve-names lists names
       that must never become targets (sdk/member-names.tsv and
       sdk/api-contract.tsv); --reserve trees likewise by class file.
+      An app name that collides with a shrunk framework name (a member
+      spelled like a release target, a class under a/, b/ or c/) is
+      renamed, never refused. --declash-only (plain --shrink) renames
+      only those and leaves every other app name as written.
 
   retrace [--map <file.toml>] [--classes <dir>]... [< log]
       Rewrite shrunk names in text back to their originals — `a/DK`,

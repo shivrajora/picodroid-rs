@@ -79,20 +79,26 @@ srv.close();
 import picodroid.net.DatagramSocket;
 import picodroid.net.DatagramPacket;
 
-DatagramSocket s = new DatagramSocket(0);         // 0 = any free local port
+DatagramSocket s = new DatagramSocket();          // any free local port; or new DatagramSocket(9000)
 byte[] data = "ping".getBytes();
 DatagramPacket out = new DatagramPacket(data, data.length,
-                                        InetAddress.getByAddress(192,168,1,10).getRawAddress(),
-                                        9000);
+                                        InetAddress.getByAddress(192,168,1,10), 9000);
 s.send(out);
 
 byte[] inBuf = new byte[1500];
 DatagramPacket in = new DatagramPacket(inBuf, inBuf.length);
-s.setTimeout(2000);
+s.setSoTimeout(2000);                             // receive() past this throws SocketTimeoutException
 s.receive(in);                                    // fills data, length, address, port
 Log.i("Net", "got " + in.getLength() + " bytes");
 s.close();
 ```
+
+A datagram to `255.255.255.255` (or the subnet's broadcast address) reaches every host on the LAN.
+`setBroadcast(true)` is the default, as in Java, and picodroid's stacks never refuse a broadcast,
+so the flag is recorded rather than enforced. That is how a device can find its peer without being
+given an address: `examples/claudeusage` broadcasts one query and takes the source address of the
+reply (`BridgeDiscovery`). Under the simulator `PICODROID_SIM_NET_BROADCAST=0` makes broadcast sends
+fail, to rehearse an access point that isolates its clients.
 
 ## HTTP client
 

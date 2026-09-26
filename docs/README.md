@@ -36,7 +36,7 @@ behind a decision, or a measurement, or a list of what is still broken, it goes 
 |---|---|
 | The JVM heap, GC, threading | [designs/jvm-run-lock-2026-09.md](designs/jvm-run-lock-2026-09.md), [memory-diagnostics.md](memory-diagnostics.md), [parity-audit.md](parity-audit.md), [followups-2026-08.md](followups-2026-08.md) |
 | Scheduling, a busy-wait, a new delay | [scheduling-audit-2026-09.md](scheduling-audit-2026-09.md) (status table at the top), [scheduling-diagnostics.md](scheduling-diagnostics.md), [scheduling-audit-handover-2026-09.md](scheduling-audit-handover-2026-09.md) |
-| LVGL, drawing, scrolling, touch | [designs/scroll-performance-2026-09.md](designs/scroll-performance-2026-09.md), [designs/band-height-120-2026-09.md](designs/band-height-120-2026-09.md), [designs/psram-lvgl-fluid-scroll-2026-09.md](designs/psram-lvgl-fluid-scroll-2026-09.md), [designs/handle-table-invalidation.md](designs/handle-table-invalidation.md), [designs/rgb565-swapped-render-2026-09.md](designs/rgb565-swapped-render-2026-09.md) |
+| LVGL, drawing, scrolling, touch | [designs/scroll-performance-2026-09.md](designs/scroll-performance-2026-09.md), [designs/band-height-120-2026-09.md](designs/band-height-120-2026-09.md), [designs/psram-lvgl-fluid-scroll-2026-09.md](designs/psram-lvgl-fluid-scroll-2026-09.md), [designs/handle-table-invalidation.md](designs/handle-table-invalidation.md), [designs/rgb565-swapped-render-2026-09.md](designs/rgb565-swapped-render-2026-09.md), [designs/canvas-2026-09.md](designs/canvas-2026-09.md) |
 | Networking | [designs/network-seam-2026-09.md](designs/network-seam-2026-09.md), [designs/net-typed-exceptions.md](designs/net-typed-exceptions.md), [networking-followups-2026-08.md](networking-followups-2026-08.md), [designs/cyw43-pio-transport.md](designs/cyw43-pio-transport.md) |
 | A new board, or a new MCU family | [designs/porting-seam-2026-09.md](designs/porting-seam-2026-09.md), [designs/shared-core-extraction.md](designs/shared-core-extraction.md), [designs/family-neutral-residue.md](designs/family-neutral-residue.md), and the published [porting guide](../website/src/content/docs/reference/porting-guide.md) |
 | Flash or RAM budget, the shrinker | [designs/flash-budget-2026-09.md](designs/flash-budget-2026-09.md), [designs/unconditional-shrink-2026-09.md](designs/unconditional-shrink-2026-09.md), [designs/value-slot-8b.md](designs/value-slot-8b.md) |
@@ -114,6 +114,7 @@ Already built. Read these to understand the code, not to re-execute them.
 | Doc | Landed |
 |---|---|
 | [designs/band-height-120-2026-09.md](designs/band-height-120-2026-09.md) | 2026-09-12. Taller draw bands on the touch board, with the measurement recipe in §6. Reshaped the same day by the async flush: the board spends the same bytes on two 60-row buffers. |
+| [designs/canvas-2026-09.md](designs/canvas-2026-09.md) | 2026-09-26. `View.onDraw(Canvas)` as a retained display list replayed from LVGL's draw event: no pixel buffer, every board. Why not `lv_canvas` or `lv_chart`, and the LVGL-pool hang found on the way. |
 
 ### Networking
 
