@@ -677,12 +677,24 @@ term), with three departures from the sketch below, each recorded where it appli
   pinned by `_Static_assert`s in `net_init.c` — which is how a hand-summed 428 B socket became
   the compiler's 444 before it shipped. pico_display2_w: 2,432 B at boot, 4,616 B per open
   socket, 512 B once; the boot banner reconciles at 77,952 B with the IP task in the model.
-  `9ee64757`. **Calibration pending:** the WiFi bench slot was on another session's lease, so
-  the test that pins the three measured deltas (`the_model_is_within_2_kb_of_the_measured_board`)
-  is `#[ignore]`d with the capture recipe, and this entry reads "modelled, uncalibrated" until
-  it runs. Honest note: the "as M4 does" ±2 KB assertion this section refers to is
-  documentation — nothing asserts a modelled figure against a device figure today; M9's
-  ignored test is the first.
+  `9ee64757`. **Calibrated 2026-09-26** on the display board, and the test that pins the
+  deltas (`the_model_is_within_2_kb_of_the_measured_board`, `net_budget.rs`) runs. The recipe
+  changed in the doing: `memmon:` windows never tick while an `Application` blocks in
+  `onCreate`, so the figures came from temporary log lines printing `native_heap_stats()`
+  around the stack's FFI calls, and a scratch two-pass netdemo whose second pass reads the
+  stack with the app's classes already parsed. Measured against the model: the IP task
+  2,688 B (2,432 modelled: the init call itself is 2,456, DHCP leaves 232 behind); the
+  window pool 520 B (512: the `heap_4` header); a socket from `FreeRTOS_socket` to the echo
+  received, settled, 6,280 B (4,616: the struct and event group are 496 B with headers, the
+  streams 2,080 each — the send stream at the first send, the receive stream when the reply
+  arrives, not at the first `recv` — and about 1.6 KB the model does not carry, a transmit
+  buffer the link holds until the segment is acknowledged plus the app's own JVM
+  allocations); close −5,376 B (4,616: the held buffer goes with the socket). All four
+  inside the 2 KB the test allows. Two facts for the next reader: `FreeRTOS_closesocket`
+  returns before the IP task has freed the socket (the reading right after it moved +96 B;
+  3 s later −5,376), and the 232 B DHCP residue and the held transmit buffer are the
+  device-only terms left in the M8 table's 16 KB remainder. Honest note kept: this is the
+  first assertion of a modelled figure against a device figure in the audit.
 - **M10(a) — the LVGL pool.** The host pool is the board's `lv_mem_kb` × 1.6
   (`HOST_LV_POOL_PERCENT` in build_support/lvgl.rs, not embedded targets), so a tree fills
   the same fraction on both sides and `under_memory_pressure` (which drives
@@ -711,8 +723,9 @@ the device layout, and the arena total and the LVGL pool are the board's own rea
 The simulator charges 16 KB more than the board for the screen where it charged 79 KB more.
 What is known of the 16: the class table entry (32 B against 20, 2.8 KB), the fat pointer on
 each parsed record (0.7 KB), a `Vec`/`Box` header on each of about 390 live blocks (12 B each,
-up to 4.7 KB), and M9's modelled network stack against the device's real one, which the
-pending calibration below will settle. The page-by-page figures for both targets are in the
+up to 4.7 KB), and about 1.9 KB the device's network stack holds that M9's model does not:
+the DHCP residue and a transmit buffer the link keeps until it is acknowledged (M9's
+calibration below). The page-by-page figures for both targets are in the
 roadmap's G11 (docs/designs/claudeusage-gaps-roadmap-2026-09.md).
 
 The arena total also carries what else moved between the two dates — two pool workers, the

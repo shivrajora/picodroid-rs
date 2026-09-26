@@ -641,8 +641,8 @@ The board went from 98 KB free on History to 129 KB, with 36 KB less arena to dr
 simulator from 9 KB free to 149 KB. The sim's charge is now 16 KB over the board on the same
 screen where it was 79 KB over; the known host-side remainder is the class table (32 B against
 20 per entry, 2.8 KB over 236), one fat pointer per parsed class (0.7 KB), a `Vec`/`Box` header
-on each of ~390 live blocks (12 B each) and the M9 network model against the stack's real
-footprint, which is still uncalibrated (docs/parity-audit.md M9). Per term on the History
+on each of ~390 live blocks (12 B each) and about 1.9 KB the device's network stack holds
+that M9's model does not (its calibration, the same day: docs/parity-audit.md M9). Per term on the History
 page (sim ledger, device model beside it; the device figures are pinned by
 `class_metadata_tests` and the `const` asserts, not measured): parsed metadata 57.4 KB
 host / 56.7 device for 86 classes (the 24th had 73; G4's charts and the discovery classes
