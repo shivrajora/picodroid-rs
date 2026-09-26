@@ -1,0 +1,8 @@
+# Control-channel script for this app's sim row (sim-run.sh::run_test, sim
+# rows only): the link flap the app waits for. `wait <regex>` blocks until the
+# log matches (or the row times out); every other line goes to the simulator's
+# control channel as typed.
+wait Connectivity.*ready for link change
+net down
+wait Connectivity.*onLost ok
+net up

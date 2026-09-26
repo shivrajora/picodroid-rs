@@ -88,9 +88,20 @@ counterpart's name, so the API reads the same; you just import `picodroid.*`
 | API | Status | Notes / alternative |
 |---|---|---|
 | `Intent` | Partial | Explicit (class-targeted) intents + extras. No implicit intents / `IntentFilter` resolution. |
-| `Context` | Partial | `getMainExecutor`, `getDisplay`, service access. No `getSystemService` (services are exposed directly), `getResources`, `getString(int)`, `getColor(int)`. No `registerReceiver` (no `BroadcastReceiver`). |
+| `Context` | Partial | `getMainExecutor`, `getDisplay`, `getSystemService` (`SENSOR_SERVICE`, `NOTIFICATION_SERVICE`, `ALARM_SERVICE`, `STORAGE_STATS_SERVICE`, `CONNECTIVITY_SERVICE`), `getResources`, `getString(int)`, `getColor(int)`, `getSharedPreferences`, the private-file API. No `registerReceiver` (no `BroadcastReceiver`). |
 | `SharedPreferences` / `Editor` | Partial | Backed by LittleFS. `getString`/`getInt`/`getLong`/`getFloat`/`getBoolean`, `getAll`, `contains`, and the matching `put*`, `remove`, `clear`, `commit`, `apply` (synchronous). No `getStringSet`/`putStringSet`, no `OnSharedPreferenceChangeListener`. |
 | `DialogInterface` | Full | `OnClickListener`, `OnDismissListener`, `OnMultiChoiceClickListener`, button constants. |
+
+### android.net
+
+| API | Status | Notes / alternative |
+|---|---|---|
+| `ConnectivityManager` | Partial | `getSystemService(CONNECTIVITY_SERVICE)`; `registerDefaultNetworkCallback`, `registerNetworkCallback(NetworkRequest, cb)`, `requestNetwork`, `unregisterNetworkCallback`, `getActiveNetwork`, `getNetworkCapabilities`, the `TYPE_*` constants. No `getActiveNetworkInfo` (`NetworkInfo`'s methods are static), `getLinkProperties`, `bindProcessToNetwork`, `isActiveNetworkMetered`. |
+| `ConnectivityManager.NetworkCallback` | Partial | `onAvailable`, `onCapabilitiesChanged`, `onLost` delivered on the main thread by the Activity event loop; `onLosing` / `onUnavailable` declared, never called. No `onLinkPropertiesChanged`, `onBlockedStatusChanged`. |
+| `Network` | Partial | One per link-up; `getNetworkHandle`, `openConnection(URL)`, `equals`/`hashCode`/`toString`. No `getSocketFactory`, `bindSocket`, `getAllByName`. |
+| `NetworkCapabilities` | Partial | `hasTransport`, `hasCapability`; the `TRANSPORT_*` / `NET_CAPABILITY_*` constants a board can show. `VALIDATED` means up with an address (no internet probe). No `Builder`, `getLinkDownstreamBandwidthKbps`, `getTransportInfo`. |
+| `NetworkRequest` / `Builder` | Partial | `addTransportType`, `removeTransportType`, `addCapability`, `removeCapability`, `clearCapabilities`, `build`; `hasTransport`, `hasCapability`. No `setNetworkSpecifier`. |
+| `NetworkInfo` | Partial | Static `isConnected()`, `getIpAddress()` (packed int), `getType()`; no instances. |
 
 ### android.os
 

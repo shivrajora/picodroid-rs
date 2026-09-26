@@ -6,9 +6,11 @@ import claudeusage.util.TimeFormat;
 import picodroid.app.Service;
 import picodroid.concurrent.Executors;
 import picodroid.concurrent.Thread;
+import picodroid.content.Context;
 import picodroid.content.Intent;
 import picodroid.content.SharedPreferences;
-import picodroid.net.NetworkInfo;
+import picodroid.net.ConnectivityManager;
+import picodroid.net.Network;
 import picodroid.os.IBinder;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
@@ -28,7 +30,10 @@ import picodroid.util.Log;
  *
  * <p>Threading: the poll thread never touches the fields the UI reads. It hands each result to the
  * main thread in a posted Runnable, and everything below the "main thread" banner is confined to
- * it. The flags that cross are volatile; the poll thread idles on {@link #lock}.
+ * it. The flags that cross are volatile; the poll thread idles on {@link #lock}. The link's state
+ * comes from {@link ConnectivityManager} on the main thread, as on Android: {@code onAvailable}
+ * wakes the poll thread, {@code onLost} paints the offline state at once and nothing polls the link
+ * meanwhile.
  */
 public final class UsageService extends Service {
   public static final String TAG = "ClaudeUsage";
@@ -60,6 +65,12 @@ public final class UsageService extends Service {
   private static final int FAST_RETRIES = 8;
 
   private static final int RETRY_SLOW_MS = 60_000;
+
+  /**
+   * With the link down there is nothing to poll: {@code onAvailable} wakes the poll thread. This is
+   * only how often it looks for itself, in case a wake was missed.
+   */
+  private static final int LINK_WAIT_MS = 30_000;
 
   /** Two and a half polls without a good reply and the numbers on screen are no longer "live". */
   private static final int STALE_AFTER_MS = 150_000;
@@ -95,6 +106,30 @@ public final class UsageService extends Service {
 
   private final LocalBinder binder = new LocalBinder();
 
+  private ConnectivityManager connectivity;
+
+  /** Main thread, from the framework: the link came up with an address, or dropped. */
+  private final ConnectivityManager.NetworkCallback linkWatch =
+      new ConnectivityManager.NetworkCallback() {
+        @Override
+        public void onAvailable(Network network) {
+          linkUp = true;
+          everConnected = true;
+          synchronized (lock) {
+            lock.notifyAll();
+          }
+        }
+
+        @Override
+        public void onLost(Network network) {
+          linkUp = false;
+          applyLinkOnly(LinkState.NO_WIFI);
+          synchronized (lock) {
+            lock.notifyAll();
+          }
+        }
+      };
+
   // ── Crossing threads ───────────────────────────────────────────────────────
 
   /** The poll thread waits on this between attempts; a refresh request or destroy wakes it. */
@@ -103,6 +138,12 @@ public final class UsageService extends Service {
   private volatile boolean running;
   private volatile boolean refreshRequested;
   private volatile boolean listening;
+
+  /** The link, as {@link #linkWatch} last heard it; a change also wakes {@link #idle}. */
+  private volatile boolean linkUp;
+
+  /** Once true, a link that is down is one that dropped, not one still joining. */
+  private volatile boolean everConnected;
 
   /**
    * The address being tried, {@code host:port}: pinned, discovered, or the fallback while discovery
@@ -175,6 +216,10 @@ public final class UsageService extends Service {
       Log.i(TAG, "service up, bridge by discovery, else " + (found != null ? found : fallback));
     }
     running = true;
+    // Android's shape: the framework says when the link comes and goes (a callback registered
+    // while it is already up hears onAvailable shortly), so the poll thread never asks.
+    connectivity = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+    connectivity.registerDefaultNetworkCallback(linkWatch);
     new Thread(this::pollLoop, "usage-poll").start();
   }
 
@@ -207,6 +252,7 @@ public final class UsageService extends Service {
     listener = null;
     listening = false;
     running = false;
+    connectivity.unregisterNetworkCallback(linkWatch);
     synchronized (lock) {
       lock.notifyAll();
     }
@@ -386,20 +432,20 @@ public final class UsageService extends Service {
   private void pollLoop() {
     int failures = 0;
     int unanswered = 0;
-    boolean everConnected = false;
     boolean probed = false;
     while (running) {
       // Consumed on every pass, the offline one included: a request left set makes idle() return
       // at once, and while the link is down that spun this loop, flooding the main queue.
       final boolean manual = refreshRequested;
       refreshRequested = false;
-      if (!NetworkInfo.isConnected()) {
-        final LinkState state = everConnected ? LinkState.NO_WIFI : LinkState.JOINING;
-        Executors.mainExecutor().execute(() -> applyLinkOnly(state));
-        idle(everConnected ? 5000 : 500);
+      if (!linkUp) {
+        // Joining still, or dropped (onLost painted NO_WIFI itself): onAvailable ends the wait.
+        if (!everConnected) {
+          Executors.mainExecutor().execute(() -> applyLinkOnly(LinkState.JOINING));
+        }
+        idle(LINK_WAIT_MS);
         continue;
       }
-      everConnected = true;
       // Asked at every boot, not only the first: the PC may have a new DHCP lease, and a PC that
       // is up answers in milliseconds.
       if (discover && (!probed || (unanswered > 0 && (manual || probeDue(unanswered))))) {
@@ -449,11 +495,15 @@ public final class UsageService extends Service {
     }
   }
 
-  /** Waits up to {@code ms}, cut short by a refresh request or the Service going away. */
+  /**
+   * Waits up to {@code ms}, cut short by a refresh request, a link change or the Service going
+   * away.
+   */
   private void idle(int ms) {
     long until = SystemClock.elapsedRealtime() + ms;
+    final boolean link = linkUp;
     synchronized (lock) {
-      while (running && !refreshRequested) {
+      while (running && !refreshRequested && linkUp == link) {
         long left = until - SystemClock.elapsedRealtime();
         if (left <= 0) {
           return;

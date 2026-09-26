@@ -11,6 +11,7 @@ import picodroid.hardware.SensorManager;
 import picodroid.io.File;
 import picodroid.io.FileInputStream;
 import picodroid.io.FileOutputStream;
+import picodroid.net.ConnectivityManager;
 
 /**
  * Common base for {@code Application}, {@code Activity} and {@code Service}: provides
@@ -37,6 +38,12 @@ public class Context {
    * a single-app board's framework has no such class).
    */
   public static final String ALARM_SERVICE = "alarm";
+
+  /**
+   * Name for {@link #getSystemService}: retrieves the {@link ConnectivityManager}, which tells an
+   * app when the board's network comes and goes.
+   */
+  public static final String CONNECTIVITY_SERVICE = "connectivity";
 
   /**
    * File-creation mode for {@link #getSharedPreferences} and {@link #openFileOutput}: accessible
@@ -68,6 +75,9 @@ public class Context {
     }
     if (ALARM_SERVICE.equals(name)) {
       return AlarmManager.getInstance();
+    }
+    if (CONNECTIVITY_SERVICE.equals(name)) {
+      return ConnectivityManager.getInstance();
     }
     return null;
   }

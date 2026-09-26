@@ -227,7 +227,7 @@ See [WiFi & networking setup](/get-started/networking/).
 
 ### Sockets fail immediately after boot
 
-The WiFi join takes ~6 s and DHCP completes around 10 s after boot, so an app that opens a socket in its first moments races the link and loses. Poll `NetworkInfo.isConnected()` against a deadline (the example apps wait up to 30 s) before opening sockets — see [WiFi & networking setup](/get-started/networking/).
+The WiFi join takes ~6 s and DHCP completes around 10 s after boot, so an app that opens a socket in its first moments races the link and loses. Open sockets from a `ConnectivityManager.NetworkCallback`'s `onAvailable` (Android's shape; see [Network status](/api/networking/#network-status)), or, in an app with no Activity, poll `NetworkInfo.isConnected()` against a deadline (the `netdemo` and `http_get` examples wait up to 30 s) — see [WiFi & networking setup](/get-started/networking/).
 
 ### `net: down` over RTT with no `net: up` after it
 

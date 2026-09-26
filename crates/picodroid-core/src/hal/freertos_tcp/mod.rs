@@ -91,13 +91,19 @@ static NET_EDGE: NetEdge = NetEdge::new();
 /// the link finally joins.
 #[no_mangle]
 pub extern "C" fn picodroid_net_ip_event(up: u32, ip_nbo: u32) {
-    match NET_EDGE.observe(up != 0, ip_nbo) {
+    let transition = NET_EDGE.observe(up != 0, ip_nbo);
+    match transition {
         Some(NetTransition::Up(ip)) => {
             let o = ip.to_le_bytes();
             crate::pd_info!("net: up, ip {}.{}.{}.{}", o[0], o[1], o[2], o[3]);
         }
         Some(NetTransition::Down) => crate::pd_warn!("net: down"),
         None => {}
+    }
+    // The app's side of the same edge: the event loop sees the generation
+    // move and tells `ConnectivityManager` (lifecycle::net_events).
+    if transition.is_some() {
+        crate::hal::net_edge::LINK_CHANGES.note();
     }
 }
 

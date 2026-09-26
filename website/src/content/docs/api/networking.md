@@ -19,26 +19,47 @@ Which kind of link the board has is a build-time fact. `NetworkInfo.getType()` r
 `FEATURE_WIFI` and `FEATURE_ETHERNET` answer the same question through
 `hasSystemFeature`; an app that only needs *a* network should accept either.
 
-On hardware the WiFi join takes ~6 s and DHCP completes around 10 s after boot, so an app that opens a socket in `onCreate()` races the link. Poll `NetworkInfo.isConnected()` against a deadline instead of checking it once:
+On hardware the WiFi join takes ~6 s and DHCP completes around 10 s after boot, so an app that opens a socket in `onCreate()` races the link. Android's answer is `ConnectivityManager` with a `NetworkCallback`, and it is picodroid's too:
+
+```java
+import picodroid.content.Context;
+import picodroid.net.ConnectivityManager;
+import picodroid.net.Network;
+import picodroid.net.NetworkCapabilities;
+
+ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+cm.registerDefaultNetworkCallback(new ConnectivityManager.NetworkCallback() {
+    @Override public void onAvailable(Network network) {
+        // The link is up with an address: fetch, connect, listen.
+    }
+    @Override public void onCapabilitiesChanged(Network network, NetworkCapabilities caps) {
+        boolean wifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
+    }
+    @Override public void onLost(Network network) {
+        // The link dropped: show it, stop retrying until onAvailable.
+    }
+});
+```
+
+The shape is Android's: one `ConnectivityManager` per app (`getSystemService`), a `NetworkCallback` subclass with the methods you need overridden, `registerDefaultNetworkCallback` / `registerNetworkCallback(NetworkRequest, cb)` / `requestNetwork` to start hearing and `unregisterNetworkCallback` to stop (in `onDestroy`; registering the same callback twice, or unregistering one that is not registered, throws `IllegalArgumentException` as on Android). `onAvailable` arrives when the link comes up with an address and `onLost` when it drops; a callback registered while the link is already up hears `onAvailable` shortly after `register` returns, never from inside it, so an Activity that registers in `onCreate` has its views by then. Callbacks run on the main thread between frames, like every other framework callback, and it is the Activity event loop that delivers them: an app with no Activity does not receive them (the same rule as a posted `Runnable`). Register from any thread.
+
+Since a board has one link there is one `Network` at a time — `getActiveNetwork()` returns it, or null while the link is down — and each time the link comes back it is a new `Network`, as on Android, so `onLost` names the one `onAvailable` did. `getNetworkCapabilities(network)` and the `NetworkCapabilities` passed to `onCapabilitiesChanged` carry the link's transport (`TRANSPORT_WIFI` or `TRANSPORT_ETHERNET`, matching `NetworkInfo.getType()`) and the capabilities a home network shows on Android: `NET_CAPABILITY_INTERNET`, `NET_CAPABILITY_VALIDATED`, `NET_CAPABILITY_NOT_METERED` and the `NOT_*` set. picodroid does not probe the internet — `VALIDATED` means the link is up with an address. A `NetworkRequest` built with `NetworkRequest.Builder` (`addTransportType`, `addCapability`, `removeCapability`, `clearCapabilities`) is satisfied by a network that has every capability it asks for and, if it names transports, one of them; a request for `TRANSPORT_CELLULAR` on a WiFi board never fires.
+
+Not there: `LinkProperties` and `onLinkPropertiesChanged` — read the address with `NetworkInfo.getIpAddress()`; a DHCP renewal that changes it keeps the same `Network` and fires nothing. `onLosing` and `onUnavailable` exist so overrides compile but are never called (nothing loses a network gracefully or times a request out), and the deprecated `getActiveNetworkInfo()` is absent: `NetworkInfo`'s methods are static. A link that drops and returns within one frame (16 ms) is not reported. At most eight callbacks may be registered at once.
+
+The static probes stay for code that has no Activity, or just wants an answer now:
 
 ```java
 import picodroid.net.NetworkInfo;
 import picodroid.net.InetAddress;
-import picodroid.os.SystemClock;
-
-// Wait up to 30 s for WiFi join + DHCP (instant under the simulator).
-long deadline = SystemClock.elapsedRealtimeNanos() + 30_000_000_000L;
-while (!NetworkInfo.isConnected() && SystemClock.elapsedRealtimeNanos() < deadline) {
-    SystemClock.sleep(500);
-}
 
 if (NetworkInfo.isConnected()) {
     InetAddress me = new InetAddress(NetworkInfo.getIpAddress());
     Log.i("Net", "IP: " + me.getHostAddress());   // "192.168.1.42"
-} else {
-    Log.w("Net", "network not up after 30 s");
 }
 ```
+
+An Application-only app (no Activity) that needs the link before its first socket call still polls `NetworkInfo.isConnected()` against a deadline, as `netdemo` and `http_get` do; under the simulator the link is up at boot, so the poll returns at once.
 
 ## TCP client
 

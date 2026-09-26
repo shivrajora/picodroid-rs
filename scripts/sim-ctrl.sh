@@ -34,7 +34,9 @@
 #          A verb naming the running app stops it first, then runs.)
 # Network: net up | net down — the simulated link, on a board with a network
 #          (e.g. --board pico_enviro_mon_w). Down: NetworkInfo.isConnected()
-#          is false and new connects / sends / lookups fail. Boot with the
+#          is false, new connects / sends / lookups fail, and registered
+#          ConnectivityManager.NetworkCallbacks hear onLost (onAvailable with
+#          a new Network on `net up`). Boot with the
 #          link down: PICODROID_SIM_NET=down ./scripts/sim.sh ...
 #          Refuse UDP broadcast sends, as a client-isolating access point
 #          would: PICODROID_SIM_NET_BROADCAST=0 ./scripts/sim.sh ...

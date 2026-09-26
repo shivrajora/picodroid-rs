@@ -18,6 +18,8 @@ mod activity_stack;
 // Alarm delivery exists only where several apps can be installed.
 #[cfg(has_multi_app)]
 mod alarm_events;
+#[cfg(has_network)]
+mod net_events;
 // `pub(crate)`: the GC-root registration names `input::visit_gc_roots` by the
 // module that defines it, which is what the completeness scan matches on.
 pub(crate) mod input;
@@ -612,6 +614,12 @@ pub(crate) fn run_activity(
     #[cfg(has_multi_app)]
     let mut alarm_directory_seen: u32 = u32::MAX;
 
+    // The link-change generation the connectivity dispatch last saw. Starts
+    // at the current one: a link already up is adopted by Java the first
+    // time an app asks (`ConnectivityManager.syncActive`), so no push.
+    #[cfg(has_network)]
+    let mut link_generation_seen: u32 = net_events::link_generation();
+
     loop {
         if handler.interrupted() {
             break;
@@ -671,6 +679,12 @@ pub(crate) fn run_activity(
                 // op it queues is drained by this same loop below.
                 #[cfg(has_multi_app)]
                 dispatch_alarms(jvm, heap, handler, &mut alarm_directory_seen);
+
+                // The link came up or dropped since the last tick: tell
+                // `ConnectivityManager`, whose callbacks then run here, on
+                // the main thread between frames like every other callback.
+                #[cfg(has_network)]
+                net_events::dispatch_connectivity(jvm, heap, handler, &mut link_generation_seen);
 
                 // Memory monitor window cadence — after widget dispatch so
                 // each sample observes a settled frame.

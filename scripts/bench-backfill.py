@@ -39,7 +39,8 @@ HEADER = ["utc", "commit", "env", "board", "app", "mode", "split", "metric", "va
 TRAIN_APPS = {"benchmark", "perfbench"}
 
 # sim-run.sh hardcodes two board-matrix lanes; hil-tests.conf gives netexception
-# a board override in its 5th field. Everything else runs on the default board.
+# and connectivity a board override in their 5th field. Everything else runs on
+# the default board.
 DEFAULT_BOARD = "testbench_rp2350"
 BOARD_BY_APP = {
     "picoenvmon-enviro": "pico_enviro_mon",
@@ -47,6 +48,7 @@ BOARD_BY_APP = {
     "picoenvmon_kt-enviro": "pico_enviro_mon",
     "picoenvmon_kt-enviro-w": "pico_enviro_mon_w",
     "netexception": "testbench_rp2350w",
+    "connectivity": "testbench_rp2350w",
 }
 
 # Cron dirs are "<date>_<time>_<sha>"; parity-bench appends "_<n>" so that

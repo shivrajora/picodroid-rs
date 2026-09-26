@@ -59,7 +59,27 @@ Each line is printed once per change of state: a join that keeps failing logs on
 
 ## Wait for the network in your app
 
-An app's `onCreate` runs long before the join finishes, so a one-shot `NetworkInfo.isConnected()` check will almost always read `false` on hardware. Poll with a deadline instead:
+An app's `onCreate` runs long before the join finishes, so a one-shot `NetworkInfo.isConnected()` check will almost always read `false` on hardware. Do what an Android app does: ask `ConnectivityManager` to tell you when the link is there.
+
+```java
+import picodroid.content.Context;
+import picodroid.net.ConnectivityManager;
+import picodroid.net.Network;
+
+ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+cm.registerDefaultNetworkCallback(new ConnectivityManager.NetworkCallback() {
+  @Override public void onAvailable(Network network) {
+    // Up with an address: open your sockets here (or wake the thread that does).
+  }
+  @Override public void onLost(Network network) {
+    // Dropped: show it and wait for the next onAvailable.
+  }
+});
+```
+
+Callbacks arrive on the main thread, delivered by the Activity's event loop; a callback registered while the link is already up hears `onAvailable` right after `onCreate` returns. Unregister in `onDestroy`. The [networking API reference](/api/networking/#network-status) has the whole surface (`Network`, `NetworkCapabilities`, `NetworkRequest`). The `connectivity` example is the pattern end to end, including what the app sees when the link drops and returns.
+
+An app with no Activity has no event loop to deliver callbacks, so it polls `NetworkInfo.isConnected()` against a deadline instead:
 
 ```java
 import picodroid.net.NetworkInfo;
@@ -79,7 +99,7 @@ if (!NetworkInfo.isConnected()) {
 
 ## Try it: netdemo and http_get
 
-Two example apps exercise the stack end-to-end, and both already contain the wait loop above:
+Two Application-only example apps exercise the stack end-to-end, and both contain the poll above:
 
 - **`netdemo`** — connects to a TCP echo server on port 7000, sends a message, logs the echo. Run an echo server on a machine the Pico can reach (`socat TCP-LISTEN:7000,fork EXEC:cat`), and point the server address in `NetDemo.java` at that machine.
 - **`http_get`** — issues HTTP GET/POST requests. It ships pointing at `http://127.0.0.1:8000/` for the simulator; **edit `BASE_URL`** to a host reachable from your LAN before flashing (`python3 -m http.server 8000` on your dev machine works).

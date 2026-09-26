@@ -12,6 +12,12 @@
 //!
 //! Family-neutral: no stack or kernel names, so any IP stack's event hook
 //! can use it, and the host tests cover it without a kernel to link.
+//!
+//! [`LINK_CHANGES`] is the same idea one level up, for the app: every
+//! transition any link reports bumps a generation the event loop compares
+//! against the one it last saw (`lifecycle::net_events`), so the tick's fast
+//! path is one atomic load and Java's `ConnectivityManager` hears about the
+//! link only when it changed.
 
 use core::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 
@@ -75,6 +81,46 @@ impl Default for NetEdge {
     }
 }
 
+/// How many times the link has changed state since boot, as a generation
+/// the event loop polls (one relaxed load per tick). Bumped by whatever
+/// reports link transitions on a platform — the IP stack's event hook on
+/// device, `net up|down` in the simulator — and read on the JVM task, which
+/// then asks the HAL for the state itself; the counter carries no state, so
+/// a bump that lands a frame late costs nothing but the frame.
+pub struct LinkChanges {
+    generation: AtomicU32,
+}
+
+impl LinkChanges {
+    pub const fn new() -> Self {
+        LinkChanges {
+            generation: AtomicU32::new(0),
+        }
+    }
+
+    /// Record one transition. Load-then-store rather than `fetch_add`: the
+    /// RP2040 (thumbv6m) has no atomic RMW, and one writer per platform
+    /// reports link events, so no bump can be lost to a race.
+    pub fn note(&self) {
+        let next = self.generation.load(Ordering::Relaxed).wrapping_add(1);
+        self.generation.store(next, Ordering::Release);
+    }
+
+    /// The generation now; unequal to an earlier read iff `note` ran between.
+    pub fn generation(&self) -> u32 {
+        self.generation.load(Ordering::Acquire)
+    }
+}
+
+impl Default for LinkChanges {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// The one link's change counter (docs: `ConnectivityManager`).
+pub static LINK_CHANGES: LinkChanges = LinkChanges::new();
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -116,5 +162,18 @@ mod tests {
     fn first_event_is_always_a_transition() {
         assert_eq!(NetEdge::new().observe(false, 0), Some(NetTransition::Down));
         assert_eq!(NetEdge::new().observe(true, 7), Some(NetTransition::Up(7)));
+    }
+
+    #[test]
+    fn link_changes_generation_moves_once_per_note() {
+        let c = LinkChanges::new();
+        let g0 = c.generation();
+        assert_eq!(c.generation(), g0);
+        c.note();
+        assert_ne!(c.generation(), g0);
+        let g1 = c.generation();
+        c.note();
+        c.note();
+        assert_eq!(c.generation(), g1.wrapping_add(2));
     }
 }

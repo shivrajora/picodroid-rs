@@ -7,6 +7,31 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**`ConnectivityManager.NetworkCallback` (2026-09-26; ships un-shrunk until the next map cut)**
+
+- `ConnectivityManager` is a service now — `getSystemService(Context.CONNECTIVITY_SERVICE)` —
+  with Android's `NetworkCallback`: `registerDefaultNetworkCallback`,
+  `registerNetworkCallback(NetworkRequest, cb)`, `requestNetwork`, `unregisterNetworkCallback`,
+  `getActiveNetwork()`, `getNetworkCapabilities(Network)`. `onAvailable` (then
+  `onCapabilitiesChanged`) when the link comes up with an address, `onLost` when it drops; a
+  callback registered while the link is already up hears `onAvailable` right after `register`
+  returns, never from inside it. Callbacks run on the main thread between frames, delivered by the
+  Activity event loop. New `Network` (a fresh one each time the link returns, as on Android),
+  `NetworkCapabilities` (`TRANSPORT_WIFI` / `TRANSPORT_ETHERNET` as `NetworkInfo.getType()` says;
+  `INTERNET`, `VALIDATED`, `NOT_METERED` and the `NOT_*` set once up) and `NetworkRequest` with
+  its `Builder`. Not there: `LinkProperties`, `onLosing` / `onUnavailable` (declared, never
+  called), `getActiveNetworkInfo()`. The `TYPE_*` constants stay.
+- Runtime: the IP stack's up/down hook (device) and `net up|down` (simulator) bump one
+  link-change generation; the event loop checks it once per frame and calls
+  `ConnectivityManager.fireLinkChange` only when it moved, so an app that never registers pays
+  one atomic load per frame. `testbench_rp2040` excludes the new classes with the rest of
+  `picodroid.net`.
+- `examples/connectivity` is the pattern and its sim test; the `sim` rows of `hil-tests.conf` can
+  now carry an `examples/<app>/test.ctrl` that sim-run feeds to the control channel (`wait
+  <regex>`, `sleep <s>`, a verb), which is how the row flaps the link. `claudeusage` no longer
+  polls `NetworkInfo.isConnected()`: its Service registers a callback in `onCreate`; `onAvailable`
+  wakes the poll thread, `onLost` paints the offline state.
+
 **`View.close()` leaves its parent; `View.getParent()` (2026-09-25; map v0.30.0, package 0.30.0)**
 
 - `View.close()` on a child now detaches it from its parent before freeing the widget, as

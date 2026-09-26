@@ -104,6 +104,12 @@ pub const ACTIVITY_KEY_UP: usize = 44;
 // where `AlarmManager` ships; the indices above it stay put either way.
 #[cfg(has_multi_app)]
 pub const ALARM_FIRE: usize = 45;
+/// The link came up with an address or dropped:
+/// `ConnectivityManager.fireLinkChange(boolean up)` fans out to the
+/// registered `NetworkCallback`s (lifecycle::net_events). Present on every
+/// board so the resolution test below covers it, and after `ALARM_FIRE`,
+/// which is only there on multi-app boards.
+pub const CONNECTIVITY_CHANGE: usize = if cfg!(has_multi_app) { 46 } else { 45 };
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -158,6 +164,7 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     (c::picodroid_app_Activity, m::performKeyUp),
     #[cfg(has_multi_app)]
     (c::picodroid_app_AlarmManager, m::fireAlarm),
+    (c::picodroid_net_ConnectivityManager, m::fireLinkChange),
 ];
 
 #[cfg(test)]

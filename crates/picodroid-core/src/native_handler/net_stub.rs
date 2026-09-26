@@ -14,13 +14,19 @@ use pico_jvm::NativeContext;
 /// Every `picodroid/net/*` class, spelled as loaded — a prefix test cannot
 /// see through `--shrink`.
 const NET_CLASSES: &[&str] = &[
+    c::picodroid_net_ConnectivityManager,
+    c::picodroid_net_ConnectivityManager_NetworkCallback,
     c::picodroid_net_DatagramPacket,
     c::picodroid_net_DatagramSocket,
     c::picodroid_net_HttpInputStream,
     c::picodroid_net_HttpOutputStream,
     c::picodroid_net_HttpURLConnection,
     c::picodroid_net_InetAddress,
+    c::picodroid_net_Network,
+    c::picodroid_net_NetworkCapabilities,
     c::picodroid_net_NetworkInfo,
+    c::picodroid_net_NetworkRequest,
+    c::picodroid_net_NetworkRequest_Builder,
     c::picodroid_net_ServerSocket,
     c::picodroid_net_Socket,
     c::picodroid_net_URL,

@@ -72,7 +72,7 @@ The last column says what round 1 did: **closed**, **kept** (with the reason), o
 | 33 | One `Listener` slot with both a data callback and a 1 Hz tick, set in `onResume`/`onPause`. | App choice | kept: there is no `LiveData`; the tick stays in the Service so a wedged fetch can never freeze the countdowns. |
 | 34 | Pre-allocated `Runnable` with `@SuppressWarnings("UnnecessaryLambda")`. | App choice | kept: one allocation per second for the life of the app. |
 | 35 | App sets the wall clock from the bridge. | SDK-forced (no RTC, no NTP) | open |
-| 36 | Connectivity polled with static `NetworkInfo.isConnected()`. | SDK-forced (no `NetworkCallback`) | open |
+| 36 | Connectivity polled with static `NetworkInfo.isConnected()`. | SDK-forced (no `NetworkCallback`) | **closed** 2026-09-26: `ConnectivityManager` gained Android's `NetworkCallback`; `UsageService` registers one in `onCreate`, `onAvailable` wakes the poll thread and `onLost` paints NO_WIFI itself. Nothing polls the link. |
 
 ## 5. Networking and parsing
 
@@ -137,7 +137,9 @@ Ordered by how much Android shape each would buy back here.
 5. ~~A minimal `Canvas` (item 18; gap G4).~~ Shipped 2026-09-26 as Android's `onDraw(Canvas)`
    over a retained display list. The styled `ProgressBar` (item 17; gap G3) and the ring gauge
    (gap G2) landed 2026-09-23.
-6. `ConnectivityManager` with a `NetworkCallback` (item 36).
+6. ~~`ConnectivityManager` with a `NetworkCallback` (item 36).~~ Shipped 2026-09-26 with
+   `Network`, `NetworkCapabilities` and `NetworkRequest`; callbacks arrive on the main thread
+   from the event loop, a link already up is announced right after `register` returns.
 7. A `BuildConfig` block (item 43; gaps G7).
 8. ~~`java.time` or at least `DateFormat`/`DateUtils` (item 44).~~ Shipped 2026-09-24 as a
    port of the JDK classes (fixed-offset zones only).

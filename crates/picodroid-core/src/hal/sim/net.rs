@@ -464,8 +464,13 @@ fn link_up() -> bool {
 /// stall.
 pub fn set_link_up(up: bool) {
     link_up(); // settle the boot-time env read first, so it cannot undo this
-    LINK_UP.store(up, Ordering::Relaxed);
+    let was = LINK_UP.swap(up, Ordering::Relaxed);
     println!("[sim] net: link {}", if up { "up" } else { "down" });
+    // What the IP stack's event hook does on device: a transition bumps the
+    // generation the event loop watches for `ConnectivityManager`.
+    if was != up {
+        crate::hal::net_edge::LINK_CHANGES.note();
+    }
 }
 
 /// What a link-down send/connect fails with.

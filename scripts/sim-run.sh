@@ -104,6 +104,38 @@ PASS=0; FAIL=0; SKIP=0; ERROR=0; TOTAL=0
 
 HOST_TARGET="$(host_target)"
 
+# Feed examples/<app>/test.ctrl to a running sim's control channel. Lines:
+# `# ...` a comment; `wait <regex>` polls the log (grep -E) every half second
+# until it matches — or the sim exits or `deadline` seconds pass, when the rest
+# of the script is skipped and the row fails on its patterns; `sleep <s>`;
+# anything else is written to the FIFO as a control-channel verb (`net down`,
+# `input tap X Y`, ...). Sim rows only: hil-run has no channel to feed.
+drive_test_ctrl() {
+  local script="$1" fifo="$2" log_file="$3" pid="$4" deadline="$5"
+  local start=$SECONDS line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    if [[ "$line" == wait\ * ]]; then
+      local want="${line#wait }"
+      until grep -qE -- "$want" "$log_file" 2>/dev/null; do
+        if ! kill -0 "$pid" 2>/dev/null || (( SECONDS - start >= deadline )); then
+          sim_log "  test.ctrl: gave up waiting for: $want"
+          return 1
+        fi
+        sleep 0.5
+      done
+    elif [[ "$line" == sleep\ * ]]; then
+      sleep "${line#sleep }"
+    else
+      sim_log "  test.ctrl: $line"
+      # A FIFO write blocks until the sim reads; bound it so a sim that died
+      # between the check and the write cannot hang the run.
+      timeout 5 sh -c 'printf "%s\n" "$1" > "$2"' _ "$line" "$fifo" \
+        || sim_log "  test.ctrl: control channel not read"
+    fi
+  done < "$script"
+}
+
 run_test() {
   local app="$1" category="$2" timeout="$3" patterns="$4" mode="$5" board="${6:-testbench_rp2350}"
   local board_feature="board-${board//_/-}"
@@ -181,13 +213,27 @@ run_test() {
   while IFS= read -r app_env_line; do
     app_env+=("$app_env_line")
   done < <(app_test_env "$app")
-  if ! env ${app_env[@]+"${app_env[@]}"} \
-       PICODROID_APK_PATH="$apk_path" PICODROID_SIM_HEADLESS=1 \
-       PICODROID_HANDLE_SANITIZER="${PICODROID_HANDLE_SANITIZER:-1}" \
-       PICODROID_PARITY_STRICT="${PICODROID_PARITY_STRICT:-1}" \
-       timeout "$timeout" "$bin" > "$log_file" 2>&1 < /dev/null; then
-    exit_code=$?
+  # The app's control-channel script (examples/<app>/test.ctrl), if it has
+  # one — see drive_test_ctrl. The sim opens the FIFO at display init.
+  local ctrl_file="$REPO_ROOT/examples/$app/test.ctrl"
+  local fifo=""
+  if [[ -f "$ctrl_file" ]]; then
+    fifo="$RUN_LOG_DIR/${app}.${mode}.fifo"
+    rm -f "$fifo"
+    mkfifo "$fifo"
+    app_env+=("PICODROID_SIM_CTRL_FIFO=$fifo")
   fi
+  env ${app_env[@]+"${app_env[@]}"} \
+      PICODROID_APK_PATH="$apk_path" PICODROID_SIM_HEADLESS=1 \
+      PICODROID_HANDLE_SANITIZER="${PICODROID_HANDLE_SANITIZER:-1}" \
+      PICODROID_PARITY_STRICT="${PICODROID_PARITY_STRICT:-1}" \
+      timeout "$timeout" "$bin" > "$log_file" 2>&1 < /dev/null &
+  local pid=$!
+  if [[ -n "$fifo" ]]; then
+    drive_test_ctrl "$ctrl_file" "$fifo" "$log_file" "$pid" "$timeout" || true
+  fi
+  wait "$pid" || exit_code=$?
+  [[ -n "$fifo" ]] && rm -f "$fifo"
 
   # Non-loop tests must complete within their timeout; exit 124 there means
   # the app hung or deadlocked rather than produced wrong output. Classify as
