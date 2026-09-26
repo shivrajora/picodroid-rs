@@ -63,7 +63,7 @@ The full Android-style lifecycle is dispatched by the runtime. Override only the
 | `onStop()` | After `onPause`, once the new top Activity is fully resumed. |
 | `onDestroy()` | Just before this Activity is popped off the stack. |
 | `onBackPressed()` | BACK-key default action — calls `finish()`. Override and don't `super.onBackPressed()` to suppress (e.g. show a confirm dialog). |
-| `onKeyDown(int keyCode, KeyEvent)` / `onKeyUp(int keyCode, KeyEvent)` | A hardware key no focused view consumed; return `true` to consume it. The defaults track BACK so its release runs `onBackPressed`. See [Key events](#key-events). |
+| `onKeyDown(int keyCode, KeyEvent)` / `onKeyLongPress(int keyCode, KeyEvent)` / `onKeyUp(int keyCode, KeyEvent)` | A hardware key no focused view consumed: its press and auto-repeats, its long-press, its release; return `true` to consume it. The defaults track BACK so its release runs `onBackPressed`. `Activity` implements `KeyEvent.Callback`. See [Key events](#key-events). |
 
 The content view installed in `onCreate` (or `onResume`) is **preserved across pause** — when this Activity returns to the foreground, the saved widget tree is restored automatically. Rebuilding the tree from `onResume` is still supported; the new root replaces the saved one.
 
@@ -577,7 +577,41 @@ public boolean onKeyDown(int keyCode, KeyEvent event) {
 }
 ```
 
-The defaults follow Android's BACK contract: `Activity.onKeyDown` consumes `KEYCODE_BACK` and calls `event.startTracking()`, and `onKeyUp` runs `onBackPressed()` for a BACK release whose press it tracked (`event.isTracking()`). So an override that consumes BACK in `onKeyDown` without calling `super` suppresses the back action, and one that calls `super` for BACK keeps it — no need to override `onBackPressed` to a no-op. HOME never reaches an app, and BACK is offered to a showing soft keyboard and to a showing `AlertDialog` before either handler sees it. There is no auto-repeat or long-press: every physical press is one DOWN and one UP.
+The defaults follow Android's BACK contract: `Activity.onKeyDown` consumes `KEYCODE_BACK` and calls `event.startTracking()`, and `onKeyUp` runs `onBackPressed()` for a BACK release whose press it tracked (`event.isTracking()`) and whose long-press did not run (`!event.isCanceled()`). So an override that consumes BACK in `onKeyDown` without calling `super` suppresses the back action, and one that calls `super` for BACK keeps it — no need to override `onBackPressed` to a no-op. HOME never reaches an app, and BACK is offered to a showing soft keyboard and to a showing `AlertDialog` before either handler sees it.
+
+### Auto-repeat and long-press
+
+A key held past `ViewConfiguration.getKeyRepeatTimeout()` (400 ms, Android's long-press timeout) delivers further `ACTION_DOWN` events with a rising `getRepeatCount()` every `getKeyRepeatDelay()` (50 ms) until the release, as Android's input dispatcher does. The first repeat carries `FLAG_LONG_PRESS`. A handler that wants one action per physical press acts on `getRepeatCount() == 0` (or on the release); one that wants to accelerate while the key is held uses the count as a pace.
+
+Android's way of giving one button two actions works unchanged, through `KeyEvent.dispatch` and the Activity's `KeyEvent.DispatcherState`: track the press, act on the long-press in `onKeyLongPress` (consuming it cancels the release), and act on the release only when it is tracked and not cancelled.
+
+```java
+@Override
+public boolean onKeyDown(int keyCode, KeyEvent event) {
+    if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER) {
+        if (event.getRepeatCount() == 0) event.startTracking();
+        return true;
+    }
+    return super.onKeyDown(keyCode, event);
+}
+
+@Override
+public boolean onKeyLongPress(int keyCode, KeyEvent event) {
+    if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER) { rediscover(); return true; }   // the hold
+    return super.onKeyLongPress(keyCode, event);
+}
+
+@Override
+public boolean onKeyUp(int keyCode, KeyEvent event) {
+    if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER && event.isTracking() && !event.isCanceled()) {
+        syncNow();                                                                // the press
+        return true;
+    }
+    return super.onKeyUp(keyCode, event);
+}
+```
+
+A focused view's `OnKeyListener` sees the repeats too (`getRepeatCount()` on each), but `onKeyLongPress` is an Activity callback: the tracking state lives with the Activity, as it lives with the window on Android. [`examples/keydemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/keydemo) shows both patterns; [`examples/claudeusage/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/claudeusage) gives its four buttons eight actions with them.
 
 A widget that wants a key for itself takes it first through an `OnKeyListener` (a `Button` is the easiest to focus):
 
@@ -618,7 +652,14 @@ The `keycode` each pin emits is declared in `board.toml` — see [Porting Guide 
 | `KeyEvent` method | Description |
 |---|---|
 | `getAction()` / `getKeyCode()` | `ACTION_DOWN` or `ACTION_UP`, and the `KEYCODE_*` constant. |
+| `getRepeatCount()` | 0 for the press, then 1, 2, 3… for each auto-repeat while the key stays held. |
+| `isLongPress()` / `getFlags()` | Whether this is the first repeat after the long-press timeout (`FLAG_LONG_PRESS`); the raw flag word. |
 | `startTracking()` / `isTracking()` | Mark a press in `onKeyDown` and recognise its release in `onKeyUp`, as the default BACK handling does. The flag carries from a press to its own release only. |
+| `isCanceled()` | On a release: the press's long-press was handled, so the release must not act (`FLAG_CANCELED`, with `FLAG_CANCELED_LONG_PRESS`). |
+| `getDownTime()` / `getEventTime()` | `SystemClock.elapsedRealtime()` of the press and of this edge. |
+| `dispatch(Callback, DispatcherState, Object)` | Android's dispatch: runs `onKeyDown` / `onKeyLongPress` / `onKeyUp` on the `Callback` and keeps the tracking and cancel state in the `DispatcherState`. The Activity calls it for every event no view took. |
+
+`ViewConfiguration.getLongPressTimeout()`, `getKeyRepeatTimeout()` and `getKeyRepeatDelay()` give the timings (400, 400 and 50 ms).
 
 The framework recycles one `KeyEvent` per edge: read it inside the callback, never keep it.
 

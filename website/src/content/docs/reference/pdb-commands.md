@@ -101,6 +101,8 @@ Shows live system stats — heap usage, the FreeRTOS task table, CPU% — follow
 
 ```bash
 pdb -s <port> input keyevent <KEYCODE|number>   # e.g. KEYCODE_DPAD_UP or 19
+pdb -s <port> input keyevent --longpress <KEYCODE> # hold past the long-press timeout (Android's flag)
+pdb -s <port> input keyevent --down <KEYCODE>     # press only; --up releases (hold a key across commands)
 pdb -s <port> input dpad <up|down|left|right|center>
 pdb -s <port> input back
 pdb -s <port> input tap <x> <y>

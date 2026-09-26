@@ -91,6 +91,8 @@ app end-to-end without touching the board.
 
 ```bash
 pdb input keyevent KEYCODE_DPAD_DOWN   # press+release a key (name or number, e.g. 20)
+pdb input keyevent --longpress 23      # hold past the long-press timeout (Android's flag)
+pdb input keyevent --down 20           # press only; `--up 20` releases (hold a key across commands)
 pdb input dpad up                      # up|down|left|right|center — D-pad shorthand
 pdb input back                         # KEYCODE_BACK shorthand
 pdb input tap 120 80                   # touch tap at (x, y)
@@ -314,7 +316,7 @@ The verb grammar is `down|up|press|tap <button>`:
 
 Button tokens are the silkscreen names `A`/`B`/`X`/`Y` (1st/2nd/3rd/4th declared button), the semantic names `PREV`/`UP`, `NEXT`/`DOWN`, `ENTER`/`OK`/`SELECT`, `ESC`/`BACK`, or a bare GPIO pin number. An unknown verb prints `[sim] control channel: unknown command '<x>'`; an unknown button prints `[sim] control channel: unknown button '<x>'`. At startup the sim prints a ready banner listing the accepted commands. (The control channel is present on `has_buttons` and `has_touch` boards.) For the navigation model these buttons drive, see [Button navigation](/guides/button-navigation/).
 
-The control channel also accepts the same Android verbs as hardware [`pdb input`](#injecting-input-pdb-input) — `input keyevent <KEYCODE|n>`, `input dpad <dir>`, `input back`, `input tap <x> <y>`, and `input swipe <x1> <y1> <x2> <y2> [ms]`. Prefer these when you want one vocabulary that works identically in the sim and on a real device: rehearse a sequence headlessly in the sim, then run the exact same verbs via `pdb input` over USB CDC.
+The control channel also accepts the same Android verbs as hardware [`pdb input`](#injecting-input-pdb-input) — `input keyevent [--longpress|--down|--up] <KEYCODE|n>`, `input dpad <dir>`, `input back`, `input tap <x> <y>`, and `input swipe <x1> <y1> <x2> <y2> [ms]`. Prefer these when you want one vocabulary that works identically in the sim and on a real device: rehearse a sequence headlessly in the sim, then run the exact same verbs via `pdb input` over USB CDC.
 
 **The wire-true path.** The simulator is also a `pdb` device in its own right: `./scripts/pdb.sh -s sim input tap 120 80` (or `ping`, `list`, `sysmon`, `install`, `uninstall`) goes over the simulator's socket through the same bridge task, framing and handlers a board runs, and an install reboots the simulator the way it reboots a device. Use the control FIFO for the sim-only verbs (button names, `touch`, `apps`, `memstats`) and `pdb -s sim` when the point is to exercise the device path — see [Driving the simulator with pdb](/get-started/simulator/#driving-the-simulator-with-pdb).
 

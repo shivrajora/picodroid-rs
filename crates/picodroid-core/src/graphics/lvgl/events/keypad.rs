@@ -14,6 +14,7 @@ pub(super) const KEY_EVENT_QUEUE_SIZE: usize = 64;
 pub(super) static mut KEY_EVENT_QUEUE: [KeyEventRaw; KEY_EVENT_QUEUE_SIZE] = [KeyEventRaw {
     pin: 0,
     rising: false,
+    t_us: 0,
 };
     KEY_EVENT_QUEUE_SIZE];
 pub(super) static mut KEY_EVENT_QUEUE_HEAD: usize = 0;
@@ -42,7 +43,7 @@ pub(super) static mut KEY_DEBOUNCE: super::super::key_debounce::KeyDebounce =
     super::super::key_debounce::KeyDebounce::new();
 
 #[cfg(has_buttons)]
-pub(super) fn push_key_event_raw(pin: u8, rising: bool) {
+pub(super) fn push_key_event_raw(pin: u8, rising: bool, t_us: u32) {
     unsafe {
         // `&raw mut` then deref: forming `&mut KEY_PRESS_FILTER` directly trips
         // the `static_mut_refs` lint (Rust 2024 compat). See handle_table.rs /
@@ -54,7 +55,7 @@ pub(super) fn push_key_event_raw(pin: u8, rising: bool) {
         let head = KEY_EVENT_QUEUE_HEAD;
         let next = (head + 1) % KEY_EVENT_QUEUE_SIZE;
         if next != KEY_EVENT_QUEUE_TAIL {
-            KEY_EVENT_QUEUE[head] = KeyEventRaw { pin, rising };
+            KEY_EVENT_QUEUE[head] = KeyEventRaw { pin, rising, t_us };
             KEY_EVENT_QUEUE_HEAD = next;
         } else {
             crate::pd_warn!("key: java queue full, dropped pin {} edge", pin);
@@ -187,7 +188,7 @@ pub(super) unsafe extern "C" fn keypad_read_cb(
         };
 
         if decision.forward_java {
-            push_key_event_raw(event.pin, event.rising);
+            push_key_event_raw(event.pin, event.rising, event.t_us);
         }
         if let Some((obj, direction)) = decision.step {
             super::super::widgets::number_picker::push_step(obj, direction);

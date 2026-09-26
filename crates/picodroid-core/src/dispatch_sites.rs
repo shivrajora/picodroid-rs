@@ -92,24 +92,24 @@ pub const THREAD_RUN: usize = 40;
 // Every `ACTIVITY_*` site above is such a trampoline too.
 pub const ACTIVITY_SAVE_INSTANCE_STATE: usize = 41;
 pub const ACTIVITY_RESTORE_INSTANCE_STATE: usize = 42;
-// The Activity's key fallback (`onKeyDown` / `onKeyUp`), reached when no
-// focused View consumed the edge. Both return `boolean`, so `input.rs` calls
-// them through `invoke_instance_with_args_returning` rather than
-// `invoke_lifecycle`.
-pub const ACTIVITY_KEY_DOWN: usize = 43;
-pub const ACTIVITY_KEY_UP: usize = 44;
+// The Activity's key fallback, reached when no focused View consumed the
+// edge: `performKeyEvent(KeyEvent)` runs Android's `KeyEvent.dispatch`
+// (`onKeyDown` / `onKeyLongPress` / `onKeyUp` plus the tracking state) and
+// returns `boolean`, so `input.rs` calls it through
+// `invoke_instance_with_args_returning` rather than `invoke_lifecycle`.
+pub const ACTIVITY_KEY_EVENT: usize = 43;
 // A fired alarm is handed back to Java here: `AlarmManager.fireAlarm` builds
 // the Intent and starts the Activity, so a framework delivery takes the same
 // path an app's own `startActivity` does. Last, and multi-app only, which is
 // where `AlarmManager` ships; the indices above it stay put either way.
 #[cfg(has_multi_app)]
-pub const ALARM_FIRE: usize = 45;
+pub const ALARM_FIRE: usize = 44;
 /// The link came up with an address or dropped:
 /// `ConnectivityManager.fireLinkChange(boolean up)` fans out to the
 /// registered `NetworkCallback`s (lifecycle::net_events). Present on every
 /// board so the resolution test below covers it, and after `ALARM_FIRE`,
 /// which is only there on multi-app boards.
-pub const CONNECTIVITY_CHANGE: usize = if cfg!(has_multi_app) { 46 } else { 45 };
+pub const CONNECTIVITY_CHANGE: usize = if cfg!(has_multi_app) { 45 } else { 44 };
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -160,8 +160,7 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     (c::picodroid_concurrent_Thread, m::runWrapper),
     (c::picodroid_app_Activity, m::performSaveInstanceState),
     (c::picodroid_app_Activity, m::performRestoreInstanceState),
-    (c::picodroid_app_Activity, m::performKeyDown),
-    (c::picodroid_app_Activity, m::performKeyUp),
+    (c::picodroid_app_Activity, m::performKeyEvent),
     #[cfg(has_multi_app)]
     (c::picodroid_app_AlarmManager, m::fireAlarm),
     (c::picodroid_net_ConnectivityManager, m::fireLinkChange),

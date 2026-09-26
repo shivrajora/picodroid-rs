@@ -9,7 +9,7 @@ import picodroid.view.KeyEvent;
 import picodroid.view.LayoutInflater;
 import picodroid.view.View;
 
-public class Activity extends Context {
+public class Activity extends Context implements KeyEvent.Callback {
   /** Standard activity result: the operation succeeded. Matches Android's value. */
   public static final int RESULT_OK = -1;
 
@@ -21,6 +21,13 @@ public class Activity extends Context {
 
   /** The root last passed to {@link #setContentView}, for {@link #findViewById}. */
   private View mContentView;
+
+  /**
+   * The press-to-release bookkeeping for keys dispatched to this Activity (which press is tracked,
+   * which long-press ran), as Android keeps it on the window's decor view. Created on the first
+   * key.
+   */
+  private KeyEvent.DispatcherState mKeyDispatchState;
 
   /**
    * Called when the Activity is starting. Build the UI tree here. Mirrors {@code
@@ -112,12 +119,15 @@ public class Activity extends Context {
     onBackPressed();
   }
 
-  final boolean performKeyDown(int keyCode, KeyEvent event) {
-    return onKeyDown(keyCode, event);
-  }
-
-  final boolean performKeyUp(int keyCode, KeyEvent event) {
-    return onKeyUp(keyCode, event);
+  /**
+   * A key edge no focused view consumed: press, auto-repeat or release. Runs Android's {@link
+   * KeyEvent#dispatch} against this Activity's callbacks and dispatcher state.
+   */
+  final boolean performKeyEvent(KeyEvent event) {
+    if (mKeyDispatchState == null) {
+      mKeyDispatchState = new KeyEvent.DispatcherState();
+    }
+    return event.dispatch(this, mKeyDispatchState, this);
   }
 
   final void performActivityResult(int requestCode, int resultCode, Intent data) {
@@ -165,15 +175,20 @@ public class Activity extends Context {
   }
 
   /**
-   * A hardware key was pressed and no focused view consumed it. Mirrors {@code
-   * android.app.Activity#onKeyDown}: return {@code true} to consume the press. The default starts
-   * tracking BACK so that {@link #onKeyUp} can run {@link #onBackPressed} on its release, and
-   * returns {@code false} for every other key.
+   * A hardware key was pressed, or is auto-repeating while held, and no focused view consumed it.
+   * Mirrors {@code android.app.Activity#onKeyDown}: return {@code true} to consume it. The default
+   * starts tracking BACK so that {@link #onKeyUp} can run {@link #onBackPressed} on its release,
+   * and returns {@code false} for every other key.
    *
    * <p>Keys reach here after the focused view's {@link picodroid.view.OnKeyListener}, and only
    * while no system keyboard or dialog is showing (BACK dismisses those first). HOME never reaches
-   * an app. There is no long-press or auto-repeat: every physical press is one DOWN and one UP.
+   * an app. A held key repeats: the press has {@link KeyEvent#getRepeatCount} 0, each repeat after
+   * {@link picodroid.view.ViewConfiguration#getKeyRepeatTimeout} one more. For one action per
+   * physical press act on the release, or on a repeat count of 0; to give a button a second action
+   * on a long hold, call {@link KeyEvent#startTracking} here, act in {@link #onKeyLongPress}, and
+   * act on the release only when {@code event.isTracking() && !event.isCanceled()}.
    */
+  @Override
   public boolean onKeyDown(int keyCode, KeyEvent event) {
     if (keyCode == KeyEvent.KEYCODE_BACK) {
       event.startTracking();
@@ -183,17 +198,38 @@ public class Activity extends Context {
   }
 
   /**
+   * A tracked key has been held past {@link picodroid.view.ViewConfiguration#getLongPressTimeout}.
+   * Mirrors {@code android.app.Activity#onKeyLongPress}: return {@code true} to consume it, which
+   * also {@linkplain KeyEvent#isCanceled cancels} the release so {@link #onKeyUp} does not run the
+   * short-press action too. Only offered for a key whose press called {@link
+   * KeyEvent#startTracking} in {@link #onKeyDown}. The default does nothing.
+   */
+  @Override
+  public boolean onKeyLongPress(int keyCode, KeyEvent event) {
+    return false;
+  }
+
+  /**
    * A hardware key was released and no focused view consumed it. Mirrors {@code
    * android.app.Activity#onKeyUp}: the default runs {@link #onBackPressed} for a BACK release whose
-   * press was left to the default {@link #onKeyDown} (see {@link KeyEvent#isTracking}), so an
-   * override that consumes BACK in {@code onKeyDown} without calling super also suppresses the back
-   * action.
+   * press was left to the default {@link #onKeyDown} (see {@link KeyEvent#isTracking}) and not
+   * cancelled by a handled long-press, so an override that consumes BACK in {@code onKeyDown}
+   * without calling super also suppresses the back action.
    */
+  @Override
   public boolean onKeyUp(int keyCode, KeyEvent event) {
-    if (keyCode == KeyEvent.KEYCODE_BACK && event.isTracking()) {
+    if (keyCode == KeyEvent.KEYCODE_BACK && event.isTracking() && !event.isCanceled()) {
       onBackPressed();
       return true;
     }
+    return false;
+  }
+
+  /**
+   * Android's batched-repeat callback; this framework never sends one. The default does nothing.
+   */
+  @Override
+  public boolean onKeyMultiple(int keyCode, int count, KeyEvent event) {
     return false;
   }
 

@@ -127,7 +127,7 @@ The last column says what round 1 did: **closed**, **kept** (with the reason), o
 
 Ordered by how much Android shape each would buy back here.
 
-1. ~~`Activity.onKeyDown` / `onKeyUp` as the fallback when no view consumes a key (item 10; gaps G8).~~ Shipped 2026-09-24.
+1. ~~`Activity.onKeyDown` / `onKeyUp` as the fallback when no view consumes a key (item 10; gaps G8).~~ Shipped 2026-09-24. ~~Long-press and auto-repeat (`onKeyLongPress`, `getRepeatCount()`).~~ Shipped 2026-09-26: the app's four buttons carry eight actions, in Android's `startTracking` / `onKeyLongPress` / `isCanceled` shape.
 2. ~~`TextView.setGravity` (item 16).~~ Shipped 2026-09-24. `setTextSize` shipped 2026-09-23 (item 19; gaps G1).
 3. ~~A borderless, padding-free container option for inflated `LinearLayout`/`FrameLayout`.~~
    Shipped 2026-09-24 the Android way: every `LinearLayout` / `FrameLayout` is flat by default

@@ -19,8 +19,8 @@
 
 use pdb_protocol::input::{InputError, InputEvent, MAX_INPUT_PAYLOAD};
 use pdb_protocol::{
-    crc32_frame, CMD_INPUT, INPUT_KEY, INPUT_SWIPE, INPUT_TAP, KEY_META_DOWN, KEY_META_UP,
-    STATUS_CRC_FAIL, STATUS_ERR, STATUS_OK,
+    crc32_frame, CMD_INPUT, INPUT_KEY, INPUT_SWIPE, INPUT_TAP, KEY_META_DOWN, KEY_META_LONG_PRESS,
+    KEY_META_UP, STATUS_CRC_FAIL, STATUS_ERR, STATUS_OK,
 };
 
 use crate::board_cfg::buttons::keycode_to_pin;
@@ -97,11 +97,13 @@ fn inject_key(keycode: i32, meta: u8) -> (u8, &'static [u8]) {
         return (STATUS_ERR, b"no such key");
     };
     crate::pd_info!("pdb: key {} -> pin {}", keycode, pin);
-    match meta {
-        KEY_META_DOWN => input_inject::press::<HalSink>(pin),
-        KEY_META_UP => input_inject::release::<HalSink>(pin),
-        _ => input_inject::press_release::<HalSink>(pin),
-    }
+    let hold = match meta {
+        KEY_META_DOWN => input_inject::KeyHold::Down,
+        KEY_META_UP => input_inject::KeyHold::Up,
+        KEY_META_LONG_PRESS => input_inject::KeyHold::LongPress,
+        _ => input_inject::KeyHold::PressRelease,
+    };
+    input_inject::key::<HalSink>(pin, hold);
     (STATUS_OK, b"")
 }
 

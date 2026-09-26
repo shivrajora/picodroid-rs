@@ -44,6 +44,10 @@ mod tests;
 pub struct KeyEventRaw {
     pub pin: u8,
     pub rising: bool,
+    /// The edge's ISR stamp (`GpioEvent::t_us`), so the hold timer behind
+    /// auto-repeat runs from when the button moved, not from when the UI
+    /// task got round to the queue.
+    pub t_us: u32,
 }
 
 /// Look up the Android keycode for a hardware button pin.
