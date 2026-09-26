@@ -259,7 +259,9 @@ misreports how long each attempt blocks.
 unused address on the same subnet, every attempt failed promptly with `NoRouteToHostException`
 (ARP gets no answer), the app showed `PC offline`, and six retries held the 15 s cadence to within
 the 3 s sampling. An address behind a router, where the SYN is simply dropped and the 4 s connect
-timeout itself has to fire, was not tried.
+timeout itself has to fire, was tried 2026-09-25 (`10.255.255.1`, bench Pico 2 W, debug build over
+RTT): the first `connect timed out` came 4.3 s after `net: up`, the next three 19.0 s apart — the
+4 s timeout plus the 15 s retry idle, as on the simulator.
 
 **Closed 2026-09-25.** Not the socket path: with a probe around the host connect, every
 `TcpStream::connect_timeout` returned at 4.000 s, in a headless run and a windowed one alike (std
