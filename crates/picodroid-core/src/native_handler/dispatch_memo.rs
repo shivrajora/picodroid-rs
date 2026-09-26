@@ -8,18 +8,25 @@
 //! it, and a `String.length()` — served by the JVM's builtin handler *after*
 //! this one declines — walks the whole chain every time. On the RP2350 that
 //! walk, fetched from XIP flash, was a ~60 µs floor under every native call
-//! (claudeusage D4). This table remembers, per `(class, method)` pair, the
-//! module that claimed it or that none did, so the second call goes straight
-//! to that module or straight back to the builtins.
+//! (claudeusage D4). This table remembers, per site, the module that
+//! claimed it or that none did, so the second call goes straight to that
+//! module or straight back to the builtins.
 //!
-//! Keys are the names' addresses: the interpreter passes constant-pool bytes
-//! of a loaded class or a `names::c` / `m` constant, fixed for as long as
-//! the app runs. Two names at one address with one length are one name, so
-//! a hit needs no byte comparison; what a hit cannot tell is an address
-//! reused by the *next* app's class data, which only a handler outliving an
-//! app run could see (the background workers loop across runs). `boot`
-//! therefore bumps [`next_app_generation`] per run and a memo stamped with
-//! an older generation empties itself on its next lookup.
+//! A row is keyed by the interpreter's [`SiteKey`] for the invoke — the
+//! constant-pool site and the receiver's class, which between them fix the
+//! `(class, method)` pair the handler is asked about — plus the superclass
+//! step the interpreter is re-walking (it asks about the receiver's own
+//! class first, then each superclass in turn under the same site). Two
+//! `u32`s and two bytes, the same on every target; the keys used to be the
+//! names' addresses, 24 B a row on the 64-bit simulator against 16 on the
+//! device (M8, docs/parity-audit.md). A call with no site — a handler
+//! driven outside the interpreter, or an upcall keyed by a hash — takes the
+//! full walk, as every call did before the memo existed.
+//!
+//! Class indices and heap class ids are per app run, so `boot` bumps
+//! [`next_app_generation`] per run and a memo stamped with an older
+//! generation empties itself on its next lookup (the background workers'
+//! handlers outlive a run).
 //!
 //! Semantics are unchanged because no two modules claim the same pair: the
 //! `method_tables.rs` cross-check rejects a row listed under two modules, so
@@ -29,10 +36,11 @@
 
 use alloc::boxed::Box;
 use core::sync::atomic::{AtomicU32, Ordering};
+use pico_jvm::SiteKey;
 
 /// Rows for the main handler: direct-mapped, a UI build step touches a few
-/// dozen distinct pairs. Allocated once per handler on the heap (1 KB on a
-/// 32-bit target): the Java-thread handlers live on 8 KB task stacks.
+/// dozen distinct pairs. Allocated once per handler on the heap (768 B):
+/// the Java-thread handlers live on 8 KB task stacks.
 pub(super) const MAIN_ROWS: usize = 64;
 /// Rows for a Java thread's or a pool worker's handler: those dispatch a
 /// handful of natives (a poll loop, a preference write), and an app with two
@@ -45,18 +53,20 @@ pub(super) const NONE: u8 = u8::MAX;
 
 #[derive(Clone, Copy)]
 struct Row {
-    class: *const u8,
-    method: *const u8,
-    class_len: u16,
-    method_len: u16,
+    site: u32,
+    recv: u32,
+    depth: u8,
     module: u8,
 }
 
+// Loosen only with a parity-audit update: the same bytes on every target.
+const _: () = assert!(core::mem::size_of::<Row>() == 12);
+
+/// `site == 0` is an empty row: no site the interpreter builds is 0.
 const EMPTY: Row = Row {
-    class: core::ptr::null(),
-    method: core::ptr::null(),
-    class_len: 0,
-    method_len: 0,
+    site: 0,
+    recv: 0,
+    depth: 0,
     module: NONE,
 };
 
@@ -98,19 +108,20 @@ impl DispatchMemo {
     }
 
     #[inline(always)]
-    fn slot(rows: usize, class: &str, method: &str) -> usize {
-        let c = class.as_ptr() as usize;
-        let m = method.as_ptr() as usize;
-        // The names live in flash or the class store, so the low bits are
-        // alignment; the method's address spreads the class's.
-        ((c >> 2) ^ (m >> 2).wrapping_mul(0x9E37_79B1usize)) & (rows - 1)
+    fn slot(rows: usize, key: SiteKey, depth: u8) -> usize {
+        let mut h = key.site.wrapping_mul(0x9E37_79B1);
+        h ^= (key.recv ^ ((depth as u32) << 24))
+            .rotate_left(13)
+            .wrapping_mul(0x85EB_CA77);
+        h ^= h >> 15;
+        (h.wrapping_mul(0x2C1B_3C6D) >> 16) as usize & (rows - 1)
     }
 
-    /// The module remembered for `(class, method)`: `Some(NONE)` for a pair
+    /// The module remembered for `(key, depth)`: `Some(NONE)` for a pair
     /// no module claims, `None` for a pair not seen, evicted, or from an
     /// earlier app run.
     #[inline]
-    pub(super) fn get(&mut self, class: &str, method: &str) -> Option<u8> {
+    pub(super) fn get(&mut self, key: SiteKey, depth: u8) -> Option<u8> {
         let generation = GENERATION.load(Ordering::Relaxed);
         if generation != self.generation {
             self.generation = generation;
@@ -120,32 +131,21 @@ impl DispatchMemo {
             return None;
         }
         let rows = self.rows.as_ref()?;
-        let row = &rows[Self::slot(rows.len(), class, method)];
-        let hit = core::ptr::eq(row.class, class.as_ptr())
-            && core::ptr::eq(row.method, method.as_ptr())
-            && row.class_len as usize == class.len()
-            && row.method_len as usize == method.len();
+        let row = &rows[Self::slot(rows.len(), key, depth)];
+        let hit = row.site == key.site && row.recv == key.recv && row.depth == depth;
         hit.then_some(row.module)
     }
 
     #[inline]
-    pub(super) fn set(&mut self, class: &str, method: &str, module: u8) {
+    pub(super) fn set(&mut self, key: SiteKey, depth: u8, module: u8) {
         let Some(rows) = self.rows.as_mut() else {
             return;
         };
-        // A `&str` is at most as long as `u16` on the boards; a longer name
-        // on the host would key a row it can never hit, which is harmless.
-        let (Ok(class_len), Ok(method_len)) =
-            (u16::try_from(class.len()), u16::try_from(method.len()))
-        else {
-            return;
-        };
-        let slot = Self::slot(rows.len(), class, method);
+        let slot = Self::slot(rows.len(), key, depth);
         rows[slot] = Row {
-            class: class.as_ptr(),
-            method: method.as_ptr(),
-            class_len,
-            method_len,
+            site: key.site,
+            recv: key.recv,
+            depth,
             module,
         };
     }
@@ -155,45 +155,69 @@ impl DispatchMemo {
 mod tests {
     use super::*;
 
+    fn site(ci: usize, cp: u16) -> SiteKey {
+        SiteKey::cp(ci, cp)
+    }
+
     #[test]
-    fn remembers_by_address_and_forgets_on_reuse_of_length_only() {
+    fn remembers_by_site_receiver_and_depth() {
         let mut memo = DispatchMemo::new(MAIN_ROWS);
-        let class = "picodroid/widget/TextView";
-        let method = "setText";
-        assert_eq!(memo.get(class, method), None);
-        memo.set(class, method, 5);
-        assert_eq!(memo.get(class, method), Some(5));
-        // Same bytes at another address: not the same site.
-        let other = String::from(class);
-        assert_eq!(memo.get(&other, method), None);
-        memo.set(class, method, NONE);
-        assert_eq!(memo.get(class, method), Some(NONE));
+        let k = site(3, 17).with_recv(SiteKey::recv_object(4));
+        assert_eq!(memo.get(k, 0), None);
+        memo.set(k, 0, 5);
+        assert_eq!(memo.get(k, 0), Some(5));
+        // Another receiver class at the same site is another row.
+        assert_eq!(memo.get(k.with_recv(SiteKey::recv_object(5)), 0), None);
+        // A deeper superclass step is another row.
+        assert_eq!(memo.get(k, 1), None);
+        memo.set(k, 1, NONE);
+        assert_eq!(memo.get(k, 1), Some(NONE));
+        assert_eq!(memo.get(k, 0), Some(5));
+        // The same CP index in another class is another site.
+        assert_eq!(
+            memo.get(site(4, 17).with_recv(SiteKey::recv_object(4)), 0),
+            None
+        );
     }
 
     #[test]
     fn a_new_app_run_empties_the_memo() {
         let mut memo = DispatchMemo::new(WORKER_ROWS);
-        memo.set("a/B", "m", 3);
-        assert_eq!(memo.get("a/B", "m"), Some(3));
+        let k = site(1, 2);
+        memo.set(k, 0, 3);
+        assert_eq!(memo.get(k, 0), Some(3));
         next_app_generation();
-        assert_eq!(memo.get("a/B", "m"), None);
-        memo.set("a/B", "m", 4);
-        assert_eq!(memo.get("a/B", "m"), Some(4));
+        assert_eq!(memo.get(k, 0), None);
+        memo.set(k, 0, 4);
+        assert_eq!(memo.get(k, 0), Some(4));
     }
 
     #[test]
     fn eviction_is_silent() {
         let mut memo = DispatchMemo::new(WORKER_ROWS);
-        let names: Vec<String> = (0..200).map(|i| format!("class/{i}")).collect();
-        for (i, n) in names.iter().enumerate() {
-            memo.set(n, "m", (i % 7) as u8);
+        let keys: Vec<SiteKey> = (0..200u16)
+            .map(|i| site(usize::from(i % 7), 1 + i).with_recv(SiteKey::recv_object(i % 3)))
+            .collect();
+        for (i, k) in keys.iter().enumerate() {
+            memo.set(*k, (i % 2) as u8, (i % 7) as u8);
         }
-        // Every row either answers what was stored last for that pair or
-        // nothing; never another pair's module.
-        for (i, n) in names.iter().enumerate() {
-            if let Some(m) = memo.get(n, "m") {
+        // Every row either answers what was stored last for that key or
+        // nothing; never another key's module.
+        for (i, k) in keys.iter().enumerate() {
+            if let Some(m) = memo.get(*k, (i % 2) as u8) {
                 assert_eq!(m, (i % 7) as u8);
             }
         }
+    }
+
+    #[test]
+    fn a_refused_table_answers_nothing() {
+        let mut memo = DispatchMemo {
+            rows: None,
+            generation: GENERATION.load(Ordering::Relaxed),
+        };
+        let k = site(1, 1);
+        memo.set(k, 0, 2);
+        assert_eq!(memo.get(k, 0), None);
     }
 }

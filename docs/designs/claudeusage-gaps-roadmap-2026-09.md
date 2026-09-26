@@ -601,7 +601,8 @@ the runtime ones shrink every app and close most of the simulator's gap at the s
 - **H7. Dispatch memos of 16 rows for `JvmChild` and `BgWorker` handlers** — **closed
   2026-09-25**: `PicodroidNativeHandler::for_worker()` builds the Java-thread and pool-worker
   handlers with `WORKER_ROWS = 16` (the main handler keeps 64). −4.6 KB with four workers and
-  two threads.
+  two threads. A row is 12 B on both targets since M8.4 (2026-09-26, keyed by the invoke's
+  `SiteKey` and re-walk depth in place of two name pointers): 768 B main, 192 B per worker.
 
 *Platform (about 20 KB):*
 

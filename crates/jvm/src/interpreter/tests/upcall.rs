@@ -918,3 +918,78 @@ fn embedder_upcall_without_interpreter_fails_cleanly() {
         other => panic!("expected NoSuchMethod without an interpreter, got {other:?}"),
     }
 }
+
+/// M8: a native call carries its resolution site to the handler through
+/// the upcall env, with the superclass re-walk step beside it — what a
+/// handler's per-site memo keys on. `Probe.twice` has no class file: the
+/// handler is asked under `Probe` at depth 0, then under `java/lang/Object`
+/// at depth 1 when it declines, both for the same site.
+#[test]
+fn a_native_call_hands_the_handler_its_site_and_rewalk_depth() {
+    use crate::resolve_cache::SiteKey;
+    struct SiteRecorder(Vec<(Option<(SiteKey, u8)>, &'static str)>);
+    impl NativeMethodHandler for SiteRecorder {
+        fn dispatch(
+            &mut self,
+            class_name: &str,
+            _method_name: &str,
+            ctx: &mut NativeContext<'_>,
+        ) -> Option<Result<Option<Value>, JvmError>> {
+            let class: &'static str = if class_name == "Probe" {
+                "Probe"
+            } else if class_name == OBJ {
+                OBJ
+            } else {
+                "?"
+            };
+            self.0.push((ctx.dispatch_site(), class));
+            None
+        }
+    }
+    let mut b = Asm::new();
+    let cthis = b.class("Caller");
+    let cobj = b.class(OBJ);
+    let probe = b.class("Probe");
+    let twice = b.methodref(0x0A, probe, "twice", "(I)I");
+    let code = vec![0x05, 0xB8, hi(twice), lo(twice), 0xAC]; // iconst_2; invokestatic; ireturn
+    let caller = b.finish(0x0001, cthis, cobj, &[], Some((1, &code, &[])));
+    let mut h = Harness::new(&[caller]);
+    let mut handler = SiteRecorder(Vec::new());
+    let r = execute(
+        &h.classes,
+        &mut h.strings,
+        &mut h.objects,
+        &mut h.arrays,
+        &mut h.statics,
+        &mut h.gc_state,
+        &mut h.class_objects,
+        &mut handler,
+        0,
+        0,
+        &[],
+    );
+    assert!(matches!(r, Err(JvmError::NoSuchMethod)));
+    let site = SiteKey::cp(0, twice);
+    assert_eq!(
+        handler.0,
+        vec![(Some((site, 0)), "Probe"), (Some((site, 1)), OBJ)]
+    );
+}
+
+/// A handler driven outside the interpreter has no site to memoise on.
+#[test]
+fn dispatch_site_is_none_without_an_upcall_env() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let ctx = NativeContext {
+        descriptor: "()V",
+        args: &[],
+        strings: &mut strings,
+        objects: &mut objects,
+        arrays: &mut arrays,
+        classes: &[],
+        upcall: None,
+    };
+    assert_eq!(ctx.dispatch_site(), None);
+}

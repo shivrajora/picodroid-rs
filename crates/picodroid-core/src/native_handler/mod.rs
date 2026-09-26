@@ -746,9 +746,12 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         method_name: &str,
         ctx: &mut NativeContext<'_>,
     ) -> Option<Result<Option<Value>, JvmError>> {
-        // A pair seen before goes straight to the module that claimed it, or
+        // A site seen before goes straight to the module that claimed it, or
         // straight back to the builtins when none did (`dispatch_memo.rs`).
-        let remembered = self.memo.get(class_name, method_name);
+        // A call with no site (driven outside the interpreter, or a hashed
+        // upcall) takes the full walk every time.
+        let memo_key = ctx.dispatch_site();
+        let remembered = memo_key.and_then(|(key, depth)| self.memo.get(key, depth));
         if let Some(module) = remembered {
             if module == dispatch_memo::NONE {
                 return None;
@@ -764,11 +767,15 @@ impl NativeMethodHandler for PicodroidNativeHandler {
                 continue;
             }
             if let result @ Some(_) = self.dispatch_module(module, class_name, method_name, ctx) {
-                self.memo.set(class_name, method_name, module);
+                if let Some((key, depth)) = memo_key {
+                    self.memo.set(key, depth, module);
+                }
                 return result;
             }
         }
-        self.memo.set(class_name, method_name, dispatch_memo::NONE);
+        if let Some((key, depth)) = memo_key {
+            self.memo.set(key, depth, dispatch_memo::NONE);
+        }
         // True native miss: no sub-dispatcher or arm above claimed this
         // (class, method). The JVM turns our None into NoSuchMethod; if
         // it's a known Android idiom picodroid omits, log the picodroid
