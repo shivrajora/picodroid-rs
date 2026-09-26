@@ -380,6 +380,7 @@ F	appBytes
 F	applicationInfo
 F	base
 F	boundView
+F	broadcast
 F	buttonCount
 F	buttons
 F	callable
@@ -799,6 +800,7 @@ M	getBlockCountLong
 M	getBlockSizeLong
 M	getBoolean
 M	getBooleanExtra
+M	getBroadcast
 M	getBundle
 M	getBundleExtra
 M	getByAddress
@@ -1421,6 +1423,7 @@ M	setAntiAlias
 M	setBackground
 M	setBackgroundColor
 M	setBaudrate
+M	setBroadcast
 M	setChecked
 M	setCheckedId
 M	setCheckedSilently
