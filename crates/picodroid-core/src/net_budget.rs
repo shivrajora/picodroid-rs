@@ -134,33 +134,52 @@ mod tests {
         assert_eq!(win_seg_pool_bytes() % TCP_SEGMENT_BYTES, 0);
     }
 
-    /// The device's own figures, to pin the model against once measured.
+    /// The device's own figures, measured 2026-09-26 on pico_display2_w
+    /// (docs/parity-audit.md M9), pinning the model to within 2 KB.
     ///
-    /// Recipe (docs/parity-audit.md M9): `netdemo` on pico_display2_w with
-    /// a mem-diag firmware (`PICODROID_EXTRA_FEATURES=mem-diag
-    /// PICODROID_NET_TEST_HOST=<lan ip> ./scripts/flash.sh -b
-    /// pico_display2_w -a netdemo`), a scratch copy of the app sleeping
-    /// 3 s between its phases, and the `memmon: … nused=` line over RTT at
-    /// four points: after `memdiag: ACTIVE` before link init; after the
-    /// network-up event; after `Received 5 bytes`; after `Done`. The three
-    /// deltas are what the constants below hold.
+    /// Recipe: a mem-diag `netdemo` build (`PICODROID_EXTRA_FEATURES=mem-diag
+    /// PICODROID_NET_TEST_HOST=<lan ip> ./scripts/flash.sh -b pico_display2_w
+    /// -a netdemo`, `socat TCP-LISTEN:7000,fork EXEC:cat` on the host). The
+    /// `memmon:` windows do not run while an `Application` blocks in
+    /// `onCreate`, so the readings came from temporary `pd_info!` lines
+    /// printing `host::native_heap_stats().used_bytes` around the FFI calls
+    /// in `hal/freertos_tcp/mod.rs` (`picodroid_net_stack_init`,
+    /// `FreeRTOS_socket`, `_connect`, `_send`, `_recv`, the close path) and
+    /// one in the `NetworkInfo.getIpAddress` native, which a scratch copy
+    /// of the app called 3 s after every phase for a settled figure. Two
+    /// echo passes: the first parses the app's classes and creates the
+    /// window pool, so the second pass reads the stack alone.
     #[test]
-    #[ignore = "calibration pending: pico_display2_w not yet measured — docs/parity-audit.md M9"]
     fn the_model_is_within_2_kb_of_the_measured_board() {
-        /// `nused` after the network-up event minus before link init.
-        const DEVICE_IP_INIT_DELTA_B: u32 = 0;
-        /// `nused` after the first exchange minus after network-up.
-        const DEVICE_FIRST_CONNECT_DELTA_B: u32 = 0;
-        /// `nused` after close minus after the first exchange (negative:
-        /// the streams, event group and socket struct go back; the
-        /// window pool stays).
-        const DEVICE_CLOSE_DELTA_B: i32 = 0;
+        /// `nused` at the network-up event minus just before
+        /// `picodroid_net_stack_init`: 2,456 B on the init call itself
+        /// (stack, TCB, the two queues) plus 232 B the DHCP exchange left.
+        const DEVICE_IP_INIT_DELTA_B: u32 = 2_688;
+        /// The TCP window-segment pool: the first pass's `FreeRTOS_connect`
+        /// grew the heap 616 B, the second pass's 96 B; the difference is
+        /// the 512 B pool plus its `heap_4` header.
+        const DEVICE_WIN_POOL_DELTA_B: u32 = 520;
+        /// Second pass, settled after the echo was received minus just
+        /// before `FreeRTOS_socket`: the socket struct and event group
+        /// (496 B with headers), the send stream at the first send and the
+        /// receive stream when the reply arrived (2,080 B each), and about
+        /// 1.6 KB the model does not carry — a transmit network buffer the
+        /// link holds until the segment is acknowledged, and what the
+        /// app's own send and receive allocate in the JVM.
+        const DEVICE_SOCKET_DELTA_B: u32 = 6_280;
+        /// Second pass, settled after close minus settled before it: the
+        /// four blocks go back, and the held transmit buffer with them.
+        const DEVICE_CLOSE_DELTA_B: i32 = -5_376;
+        // The measured board's keys as literals (8 descriptors, 2048 B
+        // streams, 8 segments), as the arithmetic test spells them: the
+        // host test build resolves to whichever board was selected.
+        let ip_task = IP_TASK_STACK_BYTES + 120 + ip_task_queue_bytes(8);
+        let socket = TCP_SOCKET_STRUCT_BYTES + EVENT_GROUP_BYTES + 2 * stream_bytes(2048);
+        let pool = 8 * TCP_SEGMENT_BYTES;
         let within = |model: u32, measured: u32| model.abs_diff(measured) <= 2048;
-        assert!(within(ip_task_boot_bytes(120), DEVICE_IP_INIT_DELTA_B));
-        assert!(within(
-            socket_bytes() + win_seg_pool_bytes(),
-            DEVICE_FIRST_CONNECT_DELTA_B
-        ));
-        assert!(within(socket_bytes(), DEVICE_CLOSE_DELTA_B.unsigned_abs()));
+        assert!(within(ip_task, DEVICE_IP_INIT_DELTA_B));
+        assert!(within(pool, DEVICE_WIN_POOL_DELTA_B));
+        assert!(within(socket, DEVICE_SOCKET_DELTA_B));
+        assert!(within(socket, DEVICE_CLOSE_DELTA_B.unsigned_abs()));
     }
 }

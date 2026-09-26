@@ -63,7 +63,8 @@ impl StaticFieldStore {
             self.base.try_reserve_exact(extra).ok()?;
             self.base.resize(n, UNPREPARED);
         }
-        let words = n.div_ceil(32);
+        // Manual div_ceil: the crate's MSRV (1.70) predates usize::div_ceil.
+        let words = (n + 31) / 32;
         if words > self.initialized.len() {
             let extra = words - self.initialized.len();
             self.initialized.try_reserve_exact(extra).ok()?;

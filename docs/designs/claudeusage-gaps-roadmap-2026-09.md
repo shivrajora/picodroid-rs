@@ -1,6 +1,6 @@
 # Platform gaps found building `claudeusage`
 
-**Status: open list; G1, G2 and G3 closed 2026-09-23, G8 closed 2026-09-24, D5 (app bug) fixed 2026-09-23, D2 fixed 2026-09-25 (`LV_DRAW_SW_SUPPORT_RGB888`, the horizontal gradient's source format), D1 (sim run-lock hand-off) closed 2026-09-25. D4 closed for this app 2026-09-25: the RP2350's flash clock was the ROM's divider of 3 and is now 2 (`hal/rp/xip.rs`, every RP2350 board), the History and Models first paints are split, and no page turn has a span over 50 ms; the RAM-resident interpreter loop landed the same day on every RP2350 board, paid for by H7, H8 and H9. G11 attributed 2026-09-24: the board has 98 KB free on its worst page, the simulator 9 KB; the levers are listed there. G10 closed 2026-09-25: the collector compacts in bounded slices from a 4 KB buffer claimed at boot. G4 closed 2026-09-26: `View.onDraw(Canvas)` over a retained display list; both charts are one view each. H4–H7 closed 2026-09-26 with docs/parity-audit.md M8–M10: the simulator's arena is 247 KB on the History page where it was 399, and every runtime table is the same bytes on both targets.**
+**Status: open list; G1, G2 and G3 closed 2026-09-23, G8 closed 2026-09-24, D5 (app bug) fixed 2026-09-23, D2 fixed 2026-09-25 (`LV_DRAW_SW_SUPPORT_RGB888`, the horizontal gradient's source format), D1 (sim run-lock hand-off) closed 2026-09-25. D4 closed for this app 2026-09-25: the RP2350's flash clock was the ROM's divider of 3 and is now 2 (`hal/rp/xip.rs`, every RP2350 board), the History and Models first paints are split, and no page turn has a span over 50 ms; the RAM-resident interpreter loop landed the same day on every RP2350 board, paid for by H7, H8 and H9. G11 attributed 2026-09-24: the board has 98 KB free on its worst page, the simulator 9 KB; the levers are listed there. G10 closed 2026-09-25: the collector compacts in bounded slices from a 4 KB buffer claimed at boot. G4 closed 2026-09-26: `View.onDraw(Canvas)` over a retained display list; both charts are one view each. H4–H7 closed 2026-09-26 with docs/parity-audit.md M8–M10: every runtime table is the same bytes on both targets; re-measured the same day on main `4b6a17dc`, the History page is 259 KB in the simulator (was 399) and 243 KB on the board (was 320, of a 372 KB arena now), 129 KB free.**
 
 `examples/claudeusage` is a desk display for Claude usage limits on a new board, `pico_display2_w`
 (Pimoroni Pico Display Pack 2.0 on a Pico 2 W). It was built to look like a modern product rather
@@ -622,18 +622,43 @@ The device sum (310 KB) is 10 KB under the board's own `nused`: the network stac
 and buffers, which the simulator does not model (host sockets). The LVGL pool is a second
 heap with the same disease: the widget tree costs the simulator 1.6× (Burn page 27.0 KB of
 its 42.6 KB pool against 16.9 KB of the device's 45.7 KB; `lv=` on the `[memmon]` line).
-**2026-09-26, after M8–M10** (same page, simulator, `heapcensus`; the board re-measure is
-pending its lease): the arena 247 KB where the 24th measured 399; parsed metadata 51.3 KB
-host / 50.7 modelled (the gap is one fat pointer per class), class table 7.3 / 4.6, static
-store 4.4 / 4.4, resolution tables 12.3 / 12.3, five dispatch memos 1.5 / 1.5, the LVGL pool
-23.8 of 72.2 KB (33 %) against the board's 15.1 of 46.0 (33 %). The IP task and each open
-socket are charged now (M9). The next lever is H10; H1–H3 stay the app's own.
+**2026-09-26, after M8–M10**, both sides on main `4b6a17dc` (the merge of M8–M10, G4 and
+the bridge discovery): the board under a `mem-diag` build with the live bridge, the simulator
+under `PICODROID_MEMDIAG_SITES=1` + `heapcensus`, pages turned in order after the first sync,
+two laps. The device's arena is 372 KB since the RAM-resident loop (the simulator's cap keeps
+408):
+
+| page | sim arena used (of 408 KB) | RP2350 heap used (of 372 KB) | RP2350 free / lowest ever |
+|---|---|---|---|
+| before the first sync | — (synced within the first window) | 212 KB | 160 KB |
+| Limits | 240 KB | 227 KB | 145 KB / 141 KB |
+| Models | 250 KB | 234 KB | 138 KB / 113 KB, largest block 84 KB |
+| Burn rate | 258 KB | 240 KB | 132 KB / 113 KB |
+| History | 259 KB | 243 KB | 129 KB / 113 KB, largest block 84 KB |
+| History, second lap | 262 KB | 245 KB | 127 KB / 113 KB |
+
+The board went from 98 KB free on History to 129 KB, with 36 KB less arena to draw on; the
+simulator from 9 KB free to 149 KB. The sim's charge is now 16 KB over the board on the same
+screen where it was 79 KB over; the known host-side remainder is the class table (32 B against
+20 per entry, 2.8 KB over 236), one fat pointer per parsed class (0.7 KB), a `Vec`/`Box` header
+on each of ~390 live blocks (12 B each) and about 1.9 KB the device's network stack holds
+that M9's model does not (its calibration, the same day: docs/parity-audit.md M9). Per term on the History
+page (sim ledger, device model beside it; the device figures are pinned by
+`class_metadata_tests` and the `const` asserts, not measured): parsed metadata 57.4 KB
+host / 56.7 device for 86 classes (the 24th had 73; G4's charts and the discovery classes
+are the difference), class table 7.5 / 4.7, static store 4.8 / 4.8, resolution tables
+12.3 / 12.3, five dispatch memos 1.5 / 1.5, the LVGL pool 19.1 of 71.4 KB (27 %) against the
+board's 12.3 of 45.3 (27 %) — the History tree is smaller on both sides since G4 (23.8 and
+15.1 on the 24th) and the ratio is still 1.56×. The IP task and each open socket are charged
+now (M9). The lowest-ever free on the board (113 KB) and its 84 KB largest block are set by
+the Models first paint, not by History. The next lever is H10; H1–H3 stay the app's own.
 The whole divergence, term by term, and the plan that closed it (M8–M10) are in
 docs/parity-audit.md, "2026-09-24 memory-model divergence". Classes that cost the most on
-the device: `JSONObject` 6.0 KB, `MainActivity` 5.7, `View` 4.0, `LocalTime` 3.9, `JSONArray`
-3.5, `UsageService` 3.5, `Duration` 3.2, `HttpURLConnection` 2.7, `Thread` 2.5,
-`LayoutInflater` 2.3, `SharedPreferences` 2.3, `UsageFetcher` 2.2 (its 24 exception-table
-entries), `BurnPage` 2.1, `Activity` 2.1.
+the device, after M8 (the 24th's figures in brackets): `MainActivity` 3.5 KB (5.7),
+`JSONObject` 3.2 (6.0), `View` 2.6 (4.0), `UsageService` 2.2 (3.5), `LocalTime` 2.1 (3.9),
+`JSONArray` 1.9 (3.5), `Duration` 1.7 (3.2), `HttpURLConnection` 1.5 (2.7), `Thread` 1.3
+(2.5), `LayoutInflater` 1.3 (2.3), `SharedPreferences` 1.3 (2.3), `UsageFetcher` 1.1 (2.2;
+its 24 exception-table entries now stay in flash).
 
 The levers are tracked as H1–H10 below.
 
@@ -651,10 +676,13 @@ the runtime ones shrink every app and close most of the simulator's gap at the s
 - **H2. Read the bridge's reply without `picodroid.json`** — open. `JSONObject`, `JSONArray`
   and the inner class are 9.9 KB of metadata (17.3 KB in the simulator) plus the 2 KB node
   pool, for one flat object whose format the app owns. A `key=value` line format needs a
-  short scanner in `UsageFetcher` and a second output mode in the bridge. −12 KB.
+  short scanner in `UsageFetcher` and a second output mode in the bridge. −12 KB before M8;
+  `JSONObject` and `JSONArray` are 5.1 KB between them since (2026-09-26 census), so about
+  −7 KB with the pool.
 - **H3. Format times without `java.time`** — open, only when the budget is wanted. The seven
-  classes `TimeFormat` reaches cost 11.9 KB (20.7 KB in the simulator); integer arithmetic on
-  the epoch does what the screens need. Undoes part of the 2026-09-24 showcase.
+  classes `TimeFormat` reaches cost 11.9 KB (20.7 KB in the simulator) before M8, and about
+  half that since (`LocalTime` 2.1 KB and `Duration` 1.7 in the 2026-09-26 census); integer
+  arithmetic on the epoch does what the screens need. Undoes part of the 2026-09-24 showcase.
 
 *Runtime, every app (about 36 KB):*
 
