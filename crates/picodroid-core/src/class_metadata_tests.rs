@@ -10,7 +10,7 @@
 //! `Vec` that creeps back in, or a device model that drifts from `size_of`
 //! all show up here as a host/device gap wider than one pointer per class.
 
-use pico_jvm::class_file::{ClassFile, FAT_PTR_DELTA};
+use pico_jvm::class_file::{ClassFile, CLASS_FILE_DELTA, FAT_PTR_DELTA};
 use pico_jvm::Jvm;
 
 fn framework_classes() -> Vec<ClassFile> {
@@ -79,8 +79,11 @@ fn jvm_aggregates_match_per_class_sums() {
     let (parsed, total) = jvm.count_parsed();
     assert_eq!((parsed, total), (classes.len(), classes.len()));
     let (table_host, table_dev) = jvm.class_table_bytes();
-    assert!(
-        table_host >= table_dev,
-        "the class table is never cheaper here"
+    // The registration table: one fat pointer and one thin pointer per
+    // entry, plus the `Vec` header's three words, are the whole gap.
+    let words = core::mem::size_of::<usize>() - 4;
+    assert_eq!(
+        table_host - table_dev,
+        classes.len() * CLASS_FILE_DELTA + 3 * words
     );
 }

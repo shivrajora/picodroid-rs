@@ -115,13 +115,14 @@ fn parse_cp(data: &[u8]) -> Result<(Vec<usize>, Vec<u8>, usize), &'static str> {
     Ok((cp_offsets, cp_tags, pos))
 }
 
-/// Resolves a CP Class index to its UTF8 class-name bytes.
+/// Resolves a CP Class index to `(offset, length)` of its UTF8 class-name
+/// bytes inside `data`.
 fn cp_class_utf8(
-    data: &'static [u8],
+    data: &[u8],
     cp_offsets: &[usize],
     cp_tags: &[u8],
     class_idx: u16,
-) -> Option<&'static [u8]> {
+) -> Option<(usize, usize)> {
     let ci = class_idx as usize;
     if cp_tags.get(ci) != Some(&TAG_CLASS) {
         return None;
@@ -133,7 +134,8 @@ fn cp_class_utf8(
     }
     let uoff = cp_offsets[utf8_idx];
     let ulen = u16::from_be_bytes([data[uoff], data[uoff + 1]]) as usize;
-    data.get(uoff + 2..uoff + 2 + ulen)
+    data.get(uoff + 2..uoff + 2 + ulen)?;
+    Some((uoff + 2, ulen))
 }
 
 impl ClassFile {
@@ -169,7 +171,8 @@ impl ClassFile {
             }
             let off = parsed.cp_offset(i);
             let len = u16::from_be_bytes([data[off], data[off + 1]]) as usize;
-            data.get(off + 2..off + 2 + len).ok_or("truncated name")?
+            data.get(off + 2..off + 2 + len).ok_or("truncated name")?;
+            (off + 2, len)
         };
         Ok(ClassFile::new_eager(data, name, parsed))
     }

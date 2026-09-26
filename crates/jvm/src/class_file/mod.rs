@@ -265,18 +265,37 @@ impl Parsed {
 #[derive(Debug)]
 pub struct ClassFile {
     data: &'static [u8],
-    /// Pre-scanned class name (Flash-backed UTF8 bytes from the constant
-    /// pool), exactly as the class file spells it.
-    name: &'static [u8],
-    /// [`name_hash`] of `name`, so a lookup by name compares one `u32` per
-    /// registered class before touching bytes — see [`find_class`].
+    /// Where the pre-scanned class name lies inside `data` (the Utf8 bytes
+    /// of the constant pool's `this_class` entry, exactly as the class
+    /// file spells them). Offsets rather than a second slice: the table
+    /// then costs the host one fat pointer more than the device per entry,
+    /// not two (M8, docs/parity-audit.md).
+    name_off: u16,
+    name_len: u16,
+    /// [`name_hash`] of the name, so a lookup by name compares one `u32`
+    /// per registered class before touching bytes — see [`find_class`].
     name_hash: u32,
     /// Fully-parsed internals; filled on first access via `parsed()`.
-    /// Boxed so an unparsed ClassFile is one null pointer (8 B) instead of an
-    /// inlined ~176 B of empty Vec headers — saves ~21 KB on 128 framework
-    /// classes when most are never accessed.
+    /// Boxed so an unparsed ClassFile is one null pointer instead of an
+    /// inlined record header, on the classes the app never touches.
     parsed: OnceCell<Box<Parsed>>,
 }
+
+// Loosen only with a parity-audit update: 32 B on a 64-bit host, 20 B on
+// the device — the data slice's fat pointer and the `Box` pointer.
+const _: () = assert!(
+    core::mem::size_of::<ClassFile>()
+        == if cfg!(target_pointer_width = "64") {
+            32
+        } else {
+            20
+        }
+);
+
+/// What a `ClassFile` costs on this target over the device's: one fat
+/// pointer (8 B) and one thin pointer (4 B) on a 64-bit host, 0 on the
+/// device.
+pub const CLASS_FILE_DELTA: usize = FAT_PTR_DELTA + (core::mem::size_of::<usize>() - 4);
 
 impl ClassFile {
     /// Returns the raw bytecode slice backing this class file.
@@ -304,35 +323,43 @@ impl ClassFile {
         self.parsed.get().is_some()
     }
 
-    pub(crate) fn new_lazy(data: &'static [u8], name: &'static [u8]) -> Self {
+    /// `name` is `(byte offset, length)` of the class name inside `data`;
+    /// both fit a `u16` because the parser refuses class files past 64 KB.
+    pub(crate) fn new_lazy(data: &'static [u8], name: (usize, usize)) -> Self {
         Self {
             data,
-            name,
-            name_hash: name_hash(name),
+            name_off: name.0 as u16,
+            name_len: name.1 as u16,
+            name_hash: name_hash(&data[name.0..name.0 + name.1]),
             parsed: OnceCell::new(),
         }
     }
 
-    pub(crate) fn new_eager(data: &'static [u8], name: &'static [u8], parsed: Parsed) -> Self {
+    pub(crate) fn new_eager(data: &'static [u8], name: (usize, usize), parsed: Parsed) -> Self {
         let cell = OnceCell::new();
         let _ = cell.set(Box::new(parsed));
         Self {
             data,
-            name,
-            name_hash: name_hash(name),
+            name_off: name.0 as u16,
+            name_len: name.1 as u16,
+            name_hash: name_hash(&data[name.0..name.0 + name.1]),
             parsed: cell,
         }
     }
 
     /// Returns the pre-scanned class name (does not trigger a full parse).
+    /// The slice is the class file's own bytes, so its address is stable
+    /// for as long as the class is loaded.
+    #[inline]
     pub(crate) fn scanned_name(&self) -> &'static [u8] {
-        self.name
+        let off = self.name_off as usize;
+        &self.data[off..off + self.name_len as usize]
     }
 
     /// Whether this class is named `name`, given `hash == name_hash(name)`.
     #[inline]
     pub fn is_named(&self, name: &[u8], hash: u32) -> bool {
-        self.name_hash == hash && name_eq(self.name, name)
+        self.name_hash == hash && name_eq(self.scanned_name(), name)
     }
 
     /// RAM held by this class's lazily-parsed metadata, as

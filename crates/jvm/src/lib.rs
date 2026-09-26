@@ -336,17 +336,13 @@ impl Jvm {
 
     /// RAM held by the class *registration* table itself — the per-entry
     /// `ClassFile` structs, paid for every registered class whether or not
-    /// it ever parses. `(host_bytes, device_bytes)`; device: 20 B per entry
-    /// (two 8 B Flash slices at 4-byte pointers + a 4 B `OnceCell<Box>`)
-    /// plus the Vec header and its heap_4 block header.
+    /// it ever parses, plus the `Vec` header. `(host_bytes, device_bytes)`:
+    /// the device pays `size_of::<ClassFile>()` less
+    /// [`class_file::CLASS_FILE_DELTA`] per entry and a 12 B header.
     pub fn class_table_bytes(&self) -> (usize, usize) {
-        let host = core::mem::size_of::<Vec<ClassFile>>()
-            + self.classes.capacity() * core::mem::size_of::<ClassFile>();
-        let dev = if self.classes.capacity() > 0 {
-            12 + 8 + self.classes.capacity() * 20
-        } else {
-            12
-        };
+        let cap = self.classes.capacity();
+        let host = core::mem::size_of::<Vec<ClassFile>>() + cap * core::mem::size_of::<ClassFile>();
+        let dev = 12 + cap * (core::mem::size_of::<ClassFile>() - class_file::CLASS_FILE_DELTA);
         (host, dev)
     }
 }
