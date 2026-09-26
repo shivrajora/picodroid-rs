@@ -7,11 +7,26 @@
 
 use littlefs_rust::{Config, Error, Filesystem, Storage};
 
+/// The read cache, the program cache and every open file's cache. LittleFS
+/// defaults each to the 4 KB block size; the volume holds preference files
+/// of a few hundred bytes, so 512 B (a multiple of the 256 B program size
+/// and a divisor of the block) costs one extra flash read on a file over
+/// that size and gives the arena back 7 KB at mount plus 3.5 KB per open
+/// file (claudeusage gaps roadmap H8).
+const CACHE_BYTES: u32 = 512;
+/// The block allocator's lookahead bitmap: 64 B tracks 512 blocks, four
+/// times the largest volume (512 KB of 4 KB blocks). Was the block size.
+const LOOKAHEAD_BYTES: u32 = 64;
+
 fn config_for(block: u32, prog: u32, read: u32, block_count: u32) -> Config {
     let mut cfg = Config::new(block, block_count);
     cfg.read_size = read;
     cfg.prog_size = prog;
     cfg.block_cycles = 500;
+    // A geometry with a program size over the cache (none today) keeps
+    // LittleFS's own rule: the cache is at least one program unit.
+    cfg.cache_size = CACHE_BYTES.max(prog).max(read);
+    cfg.lookahead_size = LOOKAHEAD_BYTES;
     cfg
 }
 
