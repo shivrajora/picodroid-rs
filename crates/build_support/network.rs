@@ -31,34 +31,52 @@ pub fn shared_dir(repo_root: &Path) -> PathBuf {
     repo_root.join("crates/picodroid-core/net-freertos-tcp")
 }
 
-/// Map optional `net_*` board.toml keys to FreeRTOSIPConfig.h override
-/// defines. The header's defaults are `#ifndef`-wrapped so a `-D` from here
-/// wins; heap-constrained boards use these to shrink the IP stack's share of
-/// the heap_4 arena. Values are validated as unsigned integers so a typo
-/// fails the build here rather than as a C syntax error.
+/// The `net_*` board.toml keys: each with the FreeRTOSIPConfig.h define it
+/// overrides and the header's own default (`crates/picodroid-core/
+/// net-freertos-tcp/FreeRTOSIPConfig.h`), the value both the C build and
+/// the simulator's memory model (`picodroid_core::net_budget`) use when the
+/// board sets nothing. One table, so the stack and the model are sized
+/// from the same numbers.
+pub const NET_KEYS: [(&str, &str, u32); 4] = [
+    (
+        "net_buffer_descriptors",
+        "ipconfigNUM_NETWORK_BUFFER_DESCRIPTORS",
+        16,
+    ),
+    ("net_tcp_rx_bytes", "ipconfigTCP_RX_BUFFER_LENGTH", 4096),
+    ("net_tcp_tx_bytes", "ipconfigTCP_TX_BUFFER_LENGTH", 4096),
+    ("net_tcp_win_segs", "ipconfigTCP_WIN_SEG_COUNT", 16),
+];
+
+/// The value of one [`NET_KEYS`] entry for a board: its board.toml setting,
+/// validated as an unsigned integer so a typo fails the build here rather
+/// than as a C syntax error, or the header's default.
+pub fn net_key_value(props: Option<&HashMap<String, String>>, key: &str, default: u32) -> u32 {
+    match props.and_then(|p| p.get(key)) {
+        Some(v) => v
+            .parse()
+            .unwrap_or_else(|_| panic!("board.toml: {key} must be an unsigned integer, got '{v}'")),
+        None => default,
+    }
+}
+
+/// Map the `net_*` board.toml keys to FreeRTOSIPConfig.h override defines.
+/// The header's defaults are `#ifndef`-wrapped so a `-D` from here wins;
+/// heap-constrained boards use these to shrink the IP stack's share of the
+/// heap_4 arena. Every key is emitted, the board's value or the default, so
+/// the number the C build sees is by construction the one
+/// [`NET_KEYS`] holds for the Rust model.
 ///
 /// Every compile unit that includes FreeRTOSIPConfig.h must receive the same
 /// overrides, so both builders take them.
 pub fn net_config_overrides(props: &HashMap<String, String>) -> Vec<(String, String)> {
-    const KEYS: [(&str, &str); 4] = [
-        (
-            "net_buffer_descriptors",
-            "ipconfigNUM_NETWORK_BUFFER_DESCRIPTORS",
-        ),
-        ("net_tcp_rx_bytes", "ipconfigTCP_RX_BUFFER_LENGTH"),
-        ("net_tcp_tx_bytes", "ipconfigTCP_TX_BUFFER_LENGTH"),
-        ("net_tcp_win_segs", "ipconfigTCP_WIN_SEG_COUNT"),
-    ];
-    let mut defines = Vec::new();
-    for (key, define) in KEYS {
-        if let Some(v) = props.get(key) {
-            let n: u32 = v.parse().unwrap_or_else(|_| {
-                panic!("board.toml: {key} must be an unsigned integer, got '{v}'")
-            });
-            defines.push((define.to_string(), format!("({n})")));
-        }
-    }
-    defines
+    NET_KEYS
+        .iter()
+        .map(|&(key, define, default)| {
+            let n = net_key_value(Some(props), key, default);
+            (define.to_string(), format!("({n})"))
+        })
+        .collect()
 }
 
 /// Everything `build_freertos_tcp` needs from the family.

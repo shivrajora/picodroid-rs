@@ -17,6 +17,10 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "FreeRTOS_IP.h"
+#include "FreeRTOS_IP_Private.h"
+#include "FreeRTOS_Sockets.h"
+#include "FreeRTOS_Stream_Buffer.h"
+#include "FreeRTOS_TCP_WIN.h"
 #include "FreeRTOS_DHCP.h"
 #include "FreeRTOS_Routing.h"
 #include "NetworkInterface.h"
@@ -25,6 +29,16 @@
  * milliseconds straight through as FreeRTOS ticks for SO_RCVTIMEO. */
 _Static_assert(configTICK_RATE_HZ == 1000,
                "FreeRtosTcpNet passes milliseconds as ticks: configTICK_RATE_HZ must be 1000");
+
+/* The simulator models what this stack costs the heap arena
+ * (crates/picodroid-core/src/net_budget.rs, docs/parity-audit.md M9) from
+ * these sizes. A stack or config change that moves one must move the
+ * model's constant with it, and this is where that shows up. */
+_Static_assert(sizeof(IPStackEvent_t) == 8, "net_budget::IP_EVENT_BYTES");
+_Static_assert(sizeof(FreeRTOS_Socket_t) == 444, "net_budget::TCP_SOCKET_STRUCT_BYTES");
+_Static_assert(sizeof(StreamBuffer_t) == 24, "net_budget::STREAM_HEADER_BYTES");
+_Static_assert(sizeof(TCPSegment_t) == 64, "net_budget::TCP_SEGMENT_BYTES");
+_Static_assert(ipconfigIP_TASK_STACK_SIZE_WORDS == 512, "net_budget::IP_TASK_STACK_BYTES");
 
 /* ---- Seam 1: the link driver ----
  * Defined by the board's NetworkInterface_<X>.c (the RP family's WiFi driver

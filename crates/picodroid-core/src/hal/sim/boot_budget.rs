@@ -90,14 +90,24 @@ impl BootBudgetModel {
 mod model {
     use super::*;
 
-    /// Live charges, as `(bytes, ptr)`. Every entry of a given size is
-    /// interchangeable — they were allocated identically — so a release just
-    /// takes the most recent match, which is also the one first-fit is most
-    /// likely to want back.
+    /// What a tracked charge stands for, so a release of one kind can
+    /// never hand back a block of the other.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub enum Kind {
+        /// A task's stack and TCB (`charge_task_spawn`).
+        Task,
+        /// A TCP socket's blocks (`charge_net_socket`).
+        Net,
+    }
+
+    /// Live charges, as `(kind, bytes, ptr)`. Every entry of a given kind
+    /// and size is interchangeable — they were allocated identically — so a
+    /// release just takes the most recent match, which is also the one
+    /// first-fit is most likely to want back.
     ///
     /// The `Vec` is host bookkeeping with no device counterpart, so its own
     /// growth is bypassed; only the charged blocks reach the arena.
-    static CHARGES: Mutex<Vec<(u32, usize)>> = Mutex::new(Vec::new());
+    static CHARGES: Mutex<Vec<(Kind, u32, usize)>> = Mutex::new(Vec::new());
 
     /// Running total of every charge made, released or not. Read only by
     /// [`super::report`], which uses it to prove that "pre-charge some,
@@ -110,7 +120,7 @@ mod model {
         TOTAL.load(Ordering::Relaxed)
     }
 
-    fn lock() -> std::sync::MutexGuard<'static, Vec<(u32, usize)>> {
+    fn lock() -> std::sync::MutexGuard<'static, Vec<(Kind, u32, usize)>> {
         CHARGES
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -120,10 +130,10 @@ mod model {
         std::alloc::Layout::from_size_align(bytes as usize, 8).expect("boot-budget layout")
     }
 
-    /// Charge `bytes` to the arena. `track` records the block so
-    /// [`release`] can give it back; untracked charges are the permanent
-    /// ones (boot stacks the device never frees).
-    pub fn charge(bytes: u32, what: &str, track: bool) -> *mut u8 {
+    /// Charge `bytes` to the arena. `track` records the block under its
+    /// kind so [`release`] can give it back; untracked charges are the
+    /// permanent ones (boot stacks the device never frees).
+    pub fn charge(bytes: u32, what: &str, track: Option<Kind>) -> *mut u8 {
         // Deliberately not bypassed: this allocation *is* the device model.
         let p = unsafe { std::alloc::alloc(layout(bytes)) };
         if p.is_null() {
@@ -131,9 +141,9 @@ mod model {
             return p;
         }
         TOTAL.fetch_add(bytes, Ordering::Relaxed);
-        if track {
+        if let Some(kind) = track {
             let _bypass = allocator::bypass();
-            lock().push((bytes, p as usize));
+            lock().push((kind, bytes, p as usize));
         }
         // black_box makes the pointer escape — without it LLVM elides the
         // whole never-freed allocation in optimized builds and the arena is
@@ -141,15 +151,16 @@ mod model {
         std::hint::black_box(p)
     }
 
-    /// Give back one block of exactly `bytes`, if one is outstanding.
-    pub fn release(bytes: u32) {
+    /// Give back one block of `kind` and exactly `bytes`, if one is
+    /// outstanding.
+    pub fn release(kind: Kind, bytes: u32) {
         let taken = {
             let _bypass = allocator::bypass();
             let mut charges = lock();
             charges
                 .iter()
-                .rposition(|&(b, _)| b == bytes)
-                .map(|i| charges.swap_remove(i).1)
+                .rposition(|&(k, b, _)| k == kind && b == bytes)
+                .map(|i| charges.swap_remove(i).2)
         };
         if let Some(p) = taken {
             // Not bypassed either: `dealloc` routes by pointer range, and this
@@ -182,12 +193,12 @@ pub fn precharge(model: &BootBudgetModel) {
         if t.sim_real {
             continue;
         }
-        model::charge(t.stack_bytes, t.name, false);
-        model::charge(model.tcb_bytes, t.name, false);
+        model::charge(t.stack_bytes, t.name, None);
+        model::charge(model.tcb_bytes, t.name, None);
         charged += t.stack_bytes + model.tcb_bytes;
         synthetic += 1;
     }
-    model::charge(model.queues_misc_bytes, "boot queues", false);
+    model::charge(model.queues_misc_bytes, "boot queues", None);
     charged += model.queues_misc_bytes;
 
     println!(
@@ -236,7 +247,11 @@ pub fn report(model: &BootBudgetModel) {
 pub fn charge_task_spawn(model: &BootBudgetModel, spec: &TaskSpec) -> u32 {
     let stack_bytes = model.stack_bytes(spec);
     // Tracked: the task has a real exit for `release_task_spawn` to run at.
-    model::charge(stack_bytes + model.tcb_bytes, spec.name, true);
+    model::charge(
+        stack_bytes + model.tcb_bytes,
+        spec.name,
+        Some(model::Kind::Task),
+    );
     stack_bytes
 }
 
@@ -244,7 +259,27 @@ pub fn charge_task_spawn(model: &BootBudgetModel, spec: &TaskSpec) -> u32 {
 /// returns. Pairs the boot budget's long-standing deliberate leak with the
 /// reclaim the device performs in `vTaskDelete(NULL)`.
 pub fn release_task_spawn(model: &BootBudgetModel, spec: &TaskSpec) {
-    model::release(model.stack_bytes(spec) + model.tcb_bytes);
+    model::release(model::Kind::Task, model.stack_bytes(spec) + model.tcb_bytes);
+}
+
+/// Charge one block a connected TCP socket holds on the device
+/// (`crate::net_budget::socket_blocks`), to be given back by
+/// [`release_net_socket`] when the socket closes — the `Thread.start`
+/// pattern, for sockets (docs/parity-audit.md M9). One call per block, so
+/// the arena sees the device's blocks, not one lump.
+pub fn charge_net_socket(bytes: u32, what: &str) {
+    model::charge(bytes, what, Some(model::Kind::Net));
+}
+
+/// Release one block [`charge_net_socket`] charged.
+pub fn release_net_socket(bytes: u32) {
+    model::release(model::Kind::Net, bytes);
+}
+
+/// Charge a block the network stack allocates once and never frees (the
+/// TCP window-segment pool, on the first connection).
+pub fn charge_net_permanent(bytes: u32, what: &str) {
+    model::charge(bytes, what, None);
 }
 
 #[cfg(test)]
@@ -318,6 +353,29 @@ mod tests {
         assert_eq!(charge_task_spawn(&MODEL, &spec), 4_096);
         assert_eq!(model::outstanding(), before + 1);
         release_task_spawn(&MODEL, &spec);
+        assert_eq!(model::outstanding(), before);
+    }
+
+    /// A socket's charge is its own kind: a task release of the same size
+    /// cannot take it, and the socket's release gives back exactly it.
+    #[test]
+    fn a_socket_charge_is_released_by_kind_and_size() {
+        let spec = TaskSpec {
+            name: "t",
+            kind: TaskKind::JvmChild,
+            priority: 1,
+            stack_bytes: Some(2_072 - 100),
+        };
+        let before = model::outstanding();
+        charge_net_socket(2_072, "rx stream");
+        charge_task_spawn(&MODEL, &spec); // 1_972 + 100 = 2_072 as well
+        assert_eq!(model::outstanding(), before + 2);
+        release_task_spawn(&MODEL, &spec);
+        assert_eq!(model::outstanding(), before + 1);
+        // Only the socket's block is left, and only its release finds it.
+        release_task_spawn(&MODEL, &spec);
+        assert_eq!(model::outstanding(), before + 1);
+        release_net_socket(2_072);
         assert_eq!(model::outstanding(), before);
     }
 }

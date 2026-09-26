@@ -20,6 +20,44 @@ use std::time::Duration;
 
 pub use crate::hal::types::{NetError, NetErrorKind};
 
+/// The arena blocks a connected TCP socket holds on the device, charged
+/// to the simulator's modelled arena for as long as this socket is
+/// connected (docs/parity-audit.md M9). The first socket also charges the
+/// stack's window-segment pool, which the device allocates once and keeps.
+struct NetCharge {
+    blocks: [u32; 4],
+}
+
+impl NetCharge {
+    fn new() -> Self {
+        static POOL: Once = Once::new();
+        POOL.call_once(|| {
+            super::boot_budget::charge_net_permanent(
+                crate::net_budget::win_seg_pool_bytes(),
+                "tcp window pool",
+            );
+        });
+        let blocks = crate::net_budget::socket_blocks();
+        for (b, what) in blocks.iter().zip([
+            "tcp socket",
+            "socket events",
+            "tcp rx stream",
+            "tcp tx stream",
+        ]) {
+            super::boot_budget::charge_net_socket(*b, what);
+        }
+        Self { blocks }
+    }
+}
+
+impl Drop for NetCharge {
+    fn drop(&mut self) {
+        for b in self.blocks {
+            super::boot_budget::release_net_socket(b);
+        }
+    }
+}
+
 /// Classify a host `std::io::Error` into the shared semantic kind.
 ///
 /// `raw` keeps the positive host errno for the `(err N)` message suffix;
@@ -63,7 +101,9 @@ enum SimSocket {
     /// std splits that one value across `connect_timeout` +
     /// `set_read_timeout`, so the pre-connect setting is stashed here until
     /// [`tcp_connect`] applies it to both.
-    TcpClient(Option<TcpStream>, Option<Duration>),
+    /// The third field is the device's arena cost of the connection,
+    /// released when the socket is dropped (closed).
+    TcpClient(Option<TcpStream>, Option<Duration>, Option<NetCharge>),
     TcpListener(TcpListener, Option<Duration>),
     Udp(UdpSocket),
 }
@@ -106,7 +146,7 @@ fn retry_eintr<T>(mut f: impl FnMut() -> std::io::Result<T>) -> Result<T, NetErr
 // ── TCP ──────────────────────────────────────────────────────────────────────
 
 pub fn tcp_socket() -> Result<*mut c_void, NetError> {
-    Ok(box_socket(SimSocket::TcpClient(None, None)))
+    Ok(box_socket(SimSocket::TcpClient(None, None, None)))
 }
 
 pub fn tcp_connect(sock: *mut c_void, addr: u32, port: u16) -> Result<(), NetError> {
@@ -115,7 +155,7 @@ pub fn tcp_connect(sock: *mut c_void, addr: u32, port: u16) -> Result<(), NetErr
     }
     let s = unsafe { deref_socket(sock) };
     match s {
-        SimSocket::TcpClient(ref mut opt, ref pending) => {
+        SimSocket::TcpClient(ref mut opt, ref pending, ref mut charge) => {
             let sa = SocketAddrV4::new(u32_to_ipv4(addr), port);
             let stream = match pending {
                 // std's connect_timeout tracks its deadline across EINTR
@@ -131,6 +171,7 @@ pub fn tcp_connect(sock: *mut c_void, addr: u32, port: u16) -> Result<(), NetErr
                 let _ = stream.set_read_timeout(Some(*d));
             }
             *opt = Some(stream);
+            *charge = Some(NetCharge::new());
             Ok(())
         }
         _ => Err(bad_handle()),
@@ -141,7 +182,7 @@ pub fn tcp_send(sock: *mut c_void, buf: &[u8]) -> Result<usize, NetError> {
     use std::io::Write;
     let s = unsafe { deref_socket(sock) };
     match s {
-        SimSocket::TcpClient(Some(ref mut stream), _) => retry_eintr(|| stream.write(buf)),
+        SimSocket::TcpClient(Some(ref mut stream), _, _) => retry_eintr(|| stream.write(buf)),
         _ => Err(bad_handle()),
     }
 }
@@ -158,7 +199,7 @@ pub fn tcp_recv(sock: *mut c_void, buf: &mut [u8]) -> Result<usize, NetError> {
     use std::io::Read;
     let s = unsafe { deref_socket(sock) };
     match s {
-        SimSocket::TcpClient(Some(ref mut stream), _) => {
+        SimSocket::TcpClient(Some(ref mut stream), _, _) => {
             let configured = stream.read_timeout().ok().flatten();
             let Some(window) = configured else {
                 // No timeout: an EINTR retry loop is exactly right.
@@ -209,7 +250,11 @@ pub fn tcp_accept(sock: *mut c_void) -> Result<*mut c_void, NetError> {
     match s {
         SimSocket::TcpListener(ref listener, None) => {
             let (stream, _addr) = retry_eintr(|| listener.accept())?;
-            Ok(box_socket(SimSocket::TcpClient(Some(stream), None)))
+            Ok(box_socket(SimSocket::TcpClient(
+                Some(stream),
+                None,
+                Some(NetCharge::new()),
+            )))
         }
         // With a timeout set, emulate an accept deadline by polling a
         // nonblocking listener — WouldBlock here means "nothing pending
@@ -255,7 +300,11 @@ pub fn tcp_accept(sock: *mut c_void) -> Result<*mut c_void, NetError> {
                 match listener.accept() {
                     Ok((stream, _addr)) => {
                         let _ = stream.set_nonblocking(false);
-                        break Ok(box_socket(SimSocket::TcpClient(Some(stream), None)));
+                        break Ok(box_socket(SimSocket::TcpClient(
+                            Some(stream),
+                            None,
+                            Some(NetCharge::new()),
+                        )));
                     }
                     // Readable but gone by the time we looked (the peer
                     // reset): wait for the next one.
@@ -358,13 +407,13 @@ pub fn set_recv_timeout(sock: *mut c_void, timeout_ms: u32) {
         Some(Duration::from_millis(timeout_ms as u64))
     };
     match s {
-        SimSocket::TcpClient(Some(ref stream), _) => {
+        SimSocket::TcpClient(Some(ref stream), _, _) => {
             let _ = stream.set_read_timeout(dur);
         }
         // Not connected yet: stash for `tcp_connect`, which uses it as the
         // connect deadline and then applies it as the read timeout — the
         // device's pre-connect RCVTIMEO semantics.
-        SimSocket::TcpClient(None, ref mut pending) => {
+        SimSocket::TcpClient(None, ref mut pending, _) => {
             *pending = dur;
         }
         SimSocket::Udp(ref udp) => {

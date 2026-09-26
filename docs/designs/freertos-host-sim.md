@@ -616,4 +616,6 @@ unchanged — the boot-budget assert reconciles at 79,656 B on
 device's on the sim's JVM task, and its reset an exec of the process; see
 `docs/designs/sim-pdb-endpoint-2026-09.md`. The bridge blocks only through
 `vTaskDelay` (§2.2's invariant), which is why its socket is non-blocking.
-`cyw43` remains the one synthetic user task.
+`cyw43` and, on a network board, FreeRTOS+TCP's `IP-task` remain the synthetic user tasks
+(the IP task since M9, 2026-09-26, with its queues in the kernel bucket and each TCP
+connection's blocks charged while the socket is open — `net_budget.rs`).

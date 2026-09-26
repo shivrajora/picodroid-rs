@@ -119,9 +119,21 @@ const fn bytes(words: u16) -> u32 {
 pub static MODEL: BootBudgetModel = BootBudgetModel {
     tasks: &TASKS,
     tcb_bytes: TCB_EST_BYTES,
-    queues_misc_bytes: QUEUES_MISC_BYTES,
+    queues_misc_bytes: QUEUES_MISC_BYTES + NET_BOOT_QUEUE_BYTES,
     default_stack_bytes,
 };
+
+/// What bringing the network stack up adds to the kernel-object bucket on
+/// a network board: FreeRTOS+TCP's IP event queue and buffer semaphore
+/// (`picodroid_core::net_budget`), and the cyw43 driver's recursive mutex
+/// (`hal/rp/port/net/cyw43_port.c`, one `Queue_t`). The IP task itself is
+/// a row of [`AFTER_POOL`]. Zero on a board without a network.
+#[cfg(all(any(test, feature = "sim"), has_network))]
+const NET_BOOT_QUEUE_BYTES: u32 = picodroid_core::net_budget::ip_task_queue_bytes(
+    picodroid_core::board_cfg::net::BUFFER_DESCRIPTORS,
+) + picodroid_core::net_budget::KERNEL_QUEUE_BYTES;
+#[cfg(all(any(test, feature = "sim"), not(has_network)))]
+const NET_BOOT_QUEUE_BYTES: u32 = 0;
 
 #[cfg(any(test, feature = "sim"))]
 const POOL_THREADS: usize = picodroid_core::board_cfg::background_pool::POOL_THREADS as usize;
@@ -235,6 +247,17 @@ const AFTER_POOL: &[BootTask] = &[
         // As above, and doubly so: the POSIX port is single-core and
         // creates only one idle task. The device's second one is charged
         // anyway, because the arena models the *device*.
+        sim_real: false,
+    },
+    // FreeRTOS+TCP's IP task, created by `FreeRTOS_IPInit_Multi` from the
+    // link task once the link driver is up — after the scheduler has
+    // started, hence after the kernel's own tasks in first-fit order. The
+    // simulator's sockets are the host's, so the task is modelled, not
+    // created (docs/parity-audit.md M9).
+    #[cfg(has_network)]
+    BootTask {
+        name: "IP-task",
+        stack_bytes: picodroid_core::net_budget::IP_TASK_STACK_BYTES,
         sim_real: false,
     },
 ];

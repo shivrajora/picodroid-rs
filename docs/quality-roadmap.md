@@ -639,9 +639,9 @@ attributed here.
 
 Two smaller residues from the same trace, both narrow, both recorded rather than fixed: `RESETS.RESET`
 is RMW'd non-atomically from core 1 (cyw43 init, `pio_spi.rs`) and core 0 (`ensure_io_unreset` on any
-Java `Gpio` call, `gpio.rs` / `dma.rs`) — RP2350's atomic-alias addresses would close it; and the
-FreeRTOS+TCP `IP-task` (2 KB stack + TCB on network boards) is absent from `boot_budget::BOOT_TASKS`,
-so the simulator's boot charge is short by that much on those boards (parity-audit M4).
+Java `Gpio` call, `gpio.rs` / `dma.rs`) — RP2350's atomic-alias addresses would close it. (The
+FreeRTOS+TCP `IP-task`, once absent from the boot-budget model, is charged since M9,
+2026-09-26, with its queues and a per-socket charge at connect — parity-audit M9.)
 
 ### Simulator leaks a pthread and TCB per finished Java thread
 

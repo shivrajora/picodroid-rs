@@ -83,6 +83,7 @@ pub mod native_handler;
 // Board-gated: `has_network` comes from board.toml via this crate's build.rs.
 #[cfg(all(not(test), has_network))]
 pub mod net;
+pub mod net_budget;
 #[cfg(not(test))]
 pub mod notification;
 // `cfg(not(test))` for the same reason it carried that gate in the binary

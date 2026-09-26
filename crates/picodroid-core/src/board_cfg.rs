@@ -61,6 +61,14 @@ pub mod background_pool {
     include!(concat!(env!("OUT_DIR"), "/background_pool_config.rs"));
 }
 
+/// The network stack's sizing keys (`net_*` in board.toml, or the
+/// FreeRTOSIPConfig.h defaults): what the C build was compiled with, for
+/// the simulator's model of the stack's arena cost (`crate::net_budget`).
+pub mod net {
+    include!(concat!(env!("OUT_DIR"), "/net_config.rs"));
+    const _: () = assert!(BUFFER_DESCRIPTORS >= 1 && TCP_RX_BYTES > 0 && TCP_TX_BYTES > 0);
+}
+
 /// LVGL widget handle-table slot count.
 pub mod handle_table {
     include!(concat!(env!("OUT_DIR"), "/handle_table_config.rs"));
