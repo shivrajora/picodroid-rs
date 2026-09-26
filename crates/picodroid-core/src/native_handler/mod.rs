@@ -259,10 +259,27 @@ impl PicodroidNativeHandler {
         ok
     }
 
-    /// Pop the oldest pending op (FIFO). Returns `None` when the queue is
-    /// empty.
+    /// Pop the oldest ready pending op (FIFO). Returns `None` when nothing
+    /// is ready; a `Connected` queued during the current drain is not, see
+    /// [`release_held_ops`](Self::release_held_ops).
     pub fn take_next_pending_op(&mut self) -> Option<PendingOp> {
         self.pending_ops.take_next()
+    }
+
+    /// Start a drain: a `Connected` a previous drain queued becomes ready.
+    /// See `PendingServiceOp::Connected`.
+    pub fn release_held_ops(&mut self) {
+        self.pending_ops.release_held();
+    }
+
+    /// Queue `op` ahead of everything pending; the bind's `Connected` goes
+    /// here. Returns `false` (with a log) if the queue is full.
+    pub fn enqueue_op_front(&mut self, op: PendingOp) -> bool {
+        let ok = self.pending_ops.enqueue_front(op);
+        if !ok {
+            crate::pd_warn!("pending-op queue full, op dropped");
+        }
+        ok
     }
 
     /// True if an Activity transition (startActivity / finish) is queued but

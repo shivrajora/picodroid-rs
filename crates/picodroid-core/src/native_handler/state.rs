@@ -96,6 +96,19 @@ pub enum PendingServiceOp {
     /// `Context.unbindService(conn)` — last-bind triggers `onUnbind` and
     /// possibly `onDestroy`.
     Unbind { conn_ref: u16 },
+    /// The IBinder a processed `Bind` obtained, on its way to
+    /// `conn.onServiceConnected`. The bind queues it at the front, `held`:
+    /// a held head waits out the drain that queued it, and everything
+    /// behind it waits too (`release_held` at the next drain lets it go),
+    /// so the callback — typically an app's connect-time refresh, its first
+    /// real paint — runs on the next turn of the main loop in a span of its
+    /// own, before anything queued after the bind (claudeusage D4).
+    Connected {
+        conn_ref: u16,
+        binder_ref: u16,
+        owner_activity_ref: u16,
+        held: bool,
+    },
 }
 
 /// Either an Activity or a Service transition. Drained in FIFO order from
@@ -507,9 +520,33 @@ impl PendingOpQueue {
         })
     }
 
-    /// Take the oldest queued op. Returns `None` when empty.
+    /// Put `op` at the head, ahead of everything queued: a `Connected`
+    /// goes here so it precedes whatever the app queued after its bind.
+    /// Returns `false` when the queue is full.
+    pub fn enqueue_front(&mut self, op: PendingOp) -> bool {
+        if self.len >= MAX_PENDING_OPS {
+            return false;
+        }
+        for i in (1..=self.len).rev() {
+            self.entries[i] = self.entries[i - 1].take();
+        }
+        self.entries[0] = Some(op);
+        self.len += 1;
+        true
+    }
+
+    /// Take the oldest queued op, unless it is a held `Connected`: then
+    /// nothing is ready until [`release_held`](Self::release_held).
     pub fn take_next(&mut self) -> Option<PendingOp> {
-        if self.len == 0 {
+        if self.len == 0
+            || matches!(
+                self.entries[0],
+                Some(PendingOp::Service(PendingServiceOp::Connected {
+                    held: true,
+                    ..
+                }))
+            )
+        {
             return None;
         }
         let op = self.entries[0].take();
@@ -518,6 +555,17 @@ impl PendingOpQueue {
         }
         self.len -= 1;
         op
+    }
+
+    /// Let a held `Connected` go on the next `take_next`. Called at the
+    /// top of a drain, so an op queued during one drain is delivered by
+    /// the next.
+    pub fn release_held(&mut self) {
+        for op in self.entries[..self.len].iter_mut().flatten() {
+            if let PendingOp::Service(PendingServiceOp::Connected { held, .. }) = op {
+                *held = false;
+            }
+        }
     }
 
     /// Invoke `visit` on every heap object reference embedded in queued
@@ -552,6 +600,16 @@ impl PendingOpQueue {
                     }
                     PendingServiceOp::Unbind { conn_ref } => {
                         visit(conn_ref);
+                    }
+                    PendingServiceOp::Connected {
+                        conn_ref,
+                        binder_ref,
+                        owner_activity_ref,
+                        ..
+                    } => {
+                        visit(conn_ref);
+                        visit(binder_ref);
+                        visit(owner_activity_ref);
                     }
                 },
             }
@@ -929,5 +987,73 @@ mod tests {
         let mut visited: alloc::vec::Vec<u16> = alloc::vec::Vec::new();
         q.visit_object_refs(&mut |r| visited.push(r));
         assert_eq!(visited, alloc::vec![11, 22, 33, 44, 55]);
+    }
+
+    fn connected(conn_ref: u16, held: bool) -> PendingOp {
+        PendingOp::Service(PendingServiceOp::Connected {
+            conn_ref,
+            binder_ref: 100 + conn_ref,
+            owner_activity_ref: 7,
+            held,
+        })
+    }
+
+    fn conn_of(op: Option<PendingOp>) -> Option<u16> {
+        match op {
+            Some(PendingOp::Service(PendingServiceOp::Connected { conn_ref, .. })) => {
+                Some(conn_ref)
+            }
+            Some(PendingOp::Service(PendingServiceOp::Unbind { conn_ref })) => Some(conn_ref),
+            _ => None,
+        }
+    }
+
+    /// A held connect at the head stops the drain: the ops queued after
+    /// the bind (here an Unbind) wait behind it until the release, then
+    /// everything drains in order — connect first.
+    #[test]
+    fn held_connected_at_the_head_holds_the_queue_until_released() {
+        let mut q = PendingOpQueue::new();
+        assert!(q.enqueue(PendingOp::Service(PendingServiceOp::Unbind { conn_ref: 1 })));
+        assert!(q.enqueue(PendingOp::Service(PendingServiceOp::Stop { class_name: C })));
+        assert!(q.enqueue_front(connected(1, true)));
+        assert!(q.take_next().is_none(), "a held head is not ready");
+        assert!(q.take_next().is_none(), "and nothing behind it overtakes");
+        q.release_held();
+        assert_eq!(conn_of(q.take_next()), Some(1));
+        assert_eq!(
+            conn_of(q.take_next()),
+            Some(1),
+            "the unbind follows the connect"
+        );
+        assert!(matches!(
+            q.take_next(),
+            Some(PendingOp::Service(PendingServiceOp::Stop { .. }))
+        ));
+        assert!(q.take_next().is_none());
+    }
+
+    /// The front slot honours the capacity like the back one.
+    #[test]
+    fn enqueue_front_refuses_when_full() {
+        let mut q = PendingOpQueue::new();
+        for _ in 0..MAX_PENDING_OPS {
+            assert!(q.enqueue(PendingOp::Service(PendingServiceOp::Stop { class_name: C })));
+        }
+        assert!(!q.enqueue_front(connected(1, true)));
+        assert!(matches!(
+            q.take_next(),
+            Some(PendingOp::Service(PendingServiceOp::Stop { .. }))
+        ));
+    }
+
+    /// The GC sees every reference a queued connect carries.
+    #[test]
+    fn visit_object_refs_yields_connected_refs() {
+        let mut q = PendingOpQueue::new();
+        assert!(q.enqueue(connected(9, true)));
+        let mut visited: alloc::vec::Vec<u16> = alloc::vec::Vec::new();
+        q.visit_object_refs(&mut |r| visited.push(r));
+        assert_eq!(visited, alloc::vec![9, 109, 7]);
     }
 }
