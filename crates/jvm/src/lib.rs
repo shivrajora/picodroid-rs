@@ -100,6 +100,7 @@ use gc::GcState;
 use heap::StringTable;
 pub use native::{BuiltinHandler, NativeContext, NativeMethodHandler};
 use object_heap::ObjectHeap;
+pub use resolve_cache::SiteKey;
 use static_fields::StaticFieldStore;
 use types::{JvmError, Value};
 
@@ -146,6 +147,12 @@ impl SharedJvmHeap {
     /// Clears all heap state — call before running a new app.
     /// Drops all objects, arrays, interned strings, and static fields.
     pub fn reset(&mut self) {
+        // Load-bearing, not belt and braces: the resolution tables key
+        // virtual sites by heap class ids, which a fresh heap renumbers, and
+        // a relaunch of the same app can put its `Vec<ClassFile>` at the
+        // same address and length, so `ResolveCache::sync` alone would keep
+        // stale entries.
+        self.class_objects.resolve.clear();
         *self = SharedJvmHeap::new();
     }
 

@@ -101,6 +101,7 @@ pub(crate) fn upcall_from_native<H: NativeMethodHandler>(
         class_objects,
         frames,
         upcall_depth,
+        ..
     } = env;
 
     let mut ex = Executor {

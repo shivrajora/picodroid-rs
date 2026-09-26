@@ -94,6 +94,7 @@ pub enum LambdaTarget {
         class: &'static str,
         name: &'static str,
         desc: &'static str,
+        site: u32,
     },
     /// An instance method reference (`String::length`, `Shape::area`,
     /// `s::trim`): resolved on the receiver's runtime class at every call,
@@ -101,6 +102,9 @@ pub enum LambdaTarget {
     Virtual {
         name: &'static str,
         desc: &'static str,
+        /// The `invokedynamic` site's [`crate::resolve_cache::SiteKey`]
+        /// `site`, so each call resolves through the tables.
+        site: u32,
     },
     /// `Foo::new`: allocate `class`, run its `<init>` on the SAM arguments,
     /// and hand the object back. `init` is `None` for a builtin (`ArrayList::new`),
@@ -110,6 +114,7 @@ pub enum LambdaTarget {
         class_bytes: &'static [u8],
         init: Option<(usize, usize)>,
         desc: &'static str,
+        site: u32,
     },
 }
 
@@ -732,6 +737,15 @@ impl ObjectHeap {
     pub fn class_name(&self, idx: u16) -> Option<&'static str> {
         let class_idx = self.objects.get(idx as usize)?.as_ref()?.class_idx;
         self.class_table.get(class_idx as usize).copied()
+    }
+
+    /// The object's class-table id: one per distinct class name for the
+    /// heap's lifetime (the table is append-only and deduplicated), which
+    /// is what the resolution tables key virtual sites on
+    /// ([`crate::resolve_cache::SiteKey`]).
+    #[inline]
+    pub fn class_id(&self, idx: u16) -> Option<u16> {
+        Some(self.objects.get(idx as usize)?.as_ref()?.class_idx)
     }
 
     // ── GC support ───────────────────────────────────────────────────────────

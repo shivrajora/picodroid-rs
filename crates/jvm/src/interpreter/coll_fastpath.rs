@@ -5,6 +5,7 @@
 
 use super::{helpers, Executor};
 use crate::names::{c, d, m};
+use crate::resolve_cache::{special, SiteKey};
 use crate::{
     frame::Frame,
     native::NativeMethodHandler,
@@ -94,10 +95,24 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                         (Value::Null, _) => {
                             return Err(self.runtime_fault(c::java_lang_NullPointerException));
                         }
-                        _ => self.invoke_java(frames, prev, m::compareTo, d::Object__I, &[cur])?,
+                        _ => self.invoke_java_at(
+                            frames,
+                            Some(SiteKey::special(special::COMPARE_TO)),
+                            prev,
+                            m::compareTo,
+                            d::Object__I,
+                            &[cur],
+                        )?,
                     }
                 } else {
-                    self.invoke_java(frames, cmp, COMPARE, COMPARE_DESC, &[prev, cur])?
+                    self.invoke_java_at(
+                        frames,
+                        Some(SiteKey::special(special::COMPARE)),
+                        cmp,
+                        COMPARE,
+                        COMPARE_DESC,
+                        &[prev, cur],
+                    )?
                 };
                 let Some(Value::Int(ord)) = ord else {
                     return Err(JvmError::InvalidReference);
@@ -131,9 +146,15 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         let Some(class) = self.objects.class_name(idx) else {
             return false;
         };
+        let key = SiteKey::special(special::EQUALS).with_recv(helpers::recv_of(
+            self.objects,
+            self.arrays,
+            v,
+        ));
         match helpers::find_method_walking_cached(
             &mut self.class_objects.resolve,
             self.classes,
+            key,
             class,
             m::equals,
             d::Object__Z,
@@ -156,7 +177,14 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         if matches!(candidate, Value::Null) {
             return Ok(false);
         }
-        match self.invoke_java(frames, probe, m::equals, d::Object__Z, &[candidate])? {
+        match self.invoke_java_at(
+            frames,
+            Some(SiteKey::special(special::EQUALS)),
+            probe,
+            m::equals,
+            d::Object__Z,
+            &[candidate],
+        )? {
             Some(Value::Int(b)) => Ok(b != 0),
             _ => Ok(false),
         }

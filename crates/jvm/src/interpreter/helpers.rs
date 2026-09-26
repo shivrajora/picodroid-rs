@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
+use crate::array_heap::ArrayHeap;
 use crate::names::{c, d};
-use crate::resolve_cache::ResolveCache;
+use crate::resolve_cache::{NameRef, ResolveCache, SiteKey};
 use crate::{
     class_file::{find_class, name_eq, ClassFile},
     class_objects::ClassObjectCache,
@@ -10,17 +11,57 @@ use crate::{
 };
 use alloc::vec::Vec;
 
-/// `field_slot_declared` through the persistent field table: pointer
-/// identity on the Flash-backed class/field name slices (see
-/// [`crate::resolve_cache`]).
+/// The receiver half of a [`SiteKey`] for `v`: the object's heap class id,
+/// or the string / array tag. `RECV_NONE` for anything else (a malformed
+/// receiver; the resolve then keys on the site alone and fails like the
+/// invoke will).
+#[inline]
+pub(super) fn recv_of(objects: &ObjectHeap, arrays: &ArrayHeap, v: Value) -> u32 {
+    match v {
+        Value::ObjectRef(idx) => objects
+            .class_id(idx)
+            .map_or(crate::resolve_cache::RECV_NONE, SiteKey::recv_object),
+        Value::Reference(_) => crate::resolve_cache::RECV_STRING,
+        Value::ArrayRef(idx) => {
+            SiteKey::recv_array(arrays.atype(idx).unwrap_or(crate::array_heap::ATYPE_REF))
+        }
+        _ => crate::resolve_cache::RECV_NONE,
+    }
+}
+
+/// Does method `mi` of class `ci` spell `name` and `desc`? The check a
+/// hashed site's hit needs before it is trusted (see [`SiteKey::hashed`]).
+pub(super) fn method_matches(
+    classes: &[ClassFile],
+    ci: usize,
+    mi: usize,
+    name: &str,
+    desc: &str,
+) -> bool {
+    let Some(cf) = classes.get(ci) else {
+        return false;
+    };
+    let Some(m) = cf.methods().get(mi) else {
+        return false;
+    };
+    cf.cp_utf8(m.name_index)
+        .is_some_and(|n| name_eq(n, name.as_bytes()))
+        && cf
+            .cp_utf8(m.descriptor_index)
+            .is_some_and(|d| name_eq(d, desc.as_bytes()))
+}
+
+/// `field_slot_declared` through the persistent field table, keyed by the
+/// `Fieldref` site and the receiver's class (see [`crate::resolve_cache`]).
 pub(super) fn field_slot_cached(
     cache: &mut ResolveCache,
     classes: &[ClassFile],
+    key: SiteKey,
     class_name: &'static str,
     declared_class: &[u8],
     field_name: &[u8],
 ) -> Option<usize> {
-    if let Some(slot) = cache.field(class_name, declared_class, field_name) {
+    if let Some(slot) = cache.field(key) {
         return Some(slot);
     }
     let slot = field_slot_declared(
@@ -29,7 +70,7 @@ pub(super) fn field_slot_cached(
         core::str::from_utf8(declared_class).ok()?,
         core::str::from_utf8(field_name).ok()?,
     )?;
-    cache.insert_field(class_name, declared_class, field_name, slot);
+    cache.insert_field(key, slot);
     Some(slot)
 }
 
@@ -38,34 +79,39 @@ pub(super) fn field_slot_cached(
 pub(super) fn find_method_cached(
     cache: &mut ResolveCache,
     classes: &[ClassFile],
+    key: SiteKey,
     class_name: &str,
     method_name: &str,
     descriptor: &str,
 ) -> Option<(usize, usize)> {
-    if let Some(hit) = cache.method(class_name, method_name, descriptor) {
+    if let Some(hit) = cache.method(key) {
         return Some((hit.ci, hit.mi));
     }
     // JVMS §5.4.3.3: method resolution recurses into the superclass when the named
     // class doesn't declare a matching method. Used by invokestatic and invokespecial.
     let (ci, mi) = find_method_walking(classes, class_name, method_name, descriptor)?;
-    cache.insert_method(class_name, method_name, descriptor, ci, mi);
+    cache.insert_method(key, ci, mi);
     Some((ci, mi))
 }
 
 /// Resolve from the receiver's runtime class (invokevirtual /
-/// invokeinterface), through the persistent method table.
+/// invokeinterface), through the persistent method table. A hashed key
+/// (a native upcall's) trusts a hit only after [`method_matches`].
 pub(super) fn find_method_walking_cached(
     cache: &mut ResolveCache,
     classes: &[ClassFile],
+    key: SiteKey,
     runtime_class: &str,
     method_name: &str,
     descriptor: &str,
 ) -> Option<(usize, usize)> {
-    if let Some(hit) = cache.method(runtime_class, method_name, descriptor) {
-        return Some((hit.ci, hit.mi));
+    if let Some(hit) = cache.method(key) {
+        if !key.is_hashed() || method_matches(classes, hit.ci, hit.mi, method_name, descriptor) {
+            return Some((hit.ci, hit.mi));
+        }
     }
     let (ci, mi) = find_method_walking(classes, runtime_class, method_name, descriptor)?;
-    cache.insert_method(runtime_class, method_name, descriptor, ci, mi);
+    cache.insert_method(key, ci, mi);
     Some((ci, mi))
 }
 
@@ -1044,23 +1090,73 @@ pub(super) fn class_name_to_static_in(
     extra_native_classes: &[&'static str],
     name: &str,
 ) -> &'static str {
+    name_of(
+        classes,
+        extra_native_classes,
+        class_name_ref(classes, extra_native_classes, name),
+    )
+}
+
+/// Where `name`'s canonical `&'static str` comes from — the lookup half of
+/// [`class_name_to_static_in`], as an index a `new` site's cache entry can
+/// hold without a pointer ([`NameRef`]).
+pub(super) fn class_name_ref(
+    classes: &[ClassFile],
+    extra_native_classes: &[&'static str],
+    name: &str,
+) -> NameRef {
     // 1. Loaded user classes (Flash-backed)
-    if let Some(cn) = find_class(classes, name.as_bytes()).and_then(|i| classes[i].class_name()) {
-        if let Ok(s) = core::str::from_utf8(cn) {
-            return s;
+    if let Some(ci) = find_class(classes, name.as_bytes()) {
+        if classes[ci]
+            .class_name()
+            .is_some_and(|cn| core::str::from_utf8(cn).is_ok())
+        {
+            if let Ok(i) = u16::try_from(ci) {
+                return NameRef::Loaded(i);
+            }
         }
     }
     // 2. JVM builtins
-    for &builtin in crate::native::BUILTIN_CLASS_NAMES {
-        if name_eq(builtin.as_bytes(), name.as_bytes()) {
-            return builtin;
+    if let Some(i) = crate::native::BUILTIN_CLASS_NAMES
+        .iter()
+        .position(|b| name_eq(b.as_bytes(), name.as_bytes()))
+    {
+        if let Ok(i) = u16::try_from(i) {
+            return NameRef::Builtin(i);
         }
     }
     // 3. Host-supplied native classes
-    for &extra in extra_native_classes {
-        if name_eq(extra.as_bytes(), name.as_bytes()) {
-            return extra;
+    if let Some(i) = extra_native_classes
+        .iter()
+        .position(|e| name_eq(e.as_bytes(), name.as_bytes()))
+    {
+        if let Ok(i) = u16::try_from(i) {
+            return NameRef::Native(i);
         }
     }
-    "unknown"
+    NameRef::Unknown
+}
+
+/// The `&'static str` a [`NameRef`] stands for.
+pub(super) fn name_of(
+    classes: &[ClassFile],
+    extra_native_classes: &[&'static str],
+    r: NameRef,
+) -> &'static str {
+    match r {
+        NameRef::Loaded(i) => classes
+            .get(i as usize)
+            .and_then(|cf| cf.class_name())
+            .and_then(|cn| core::str::from_utf8(cn).ok())
+            .unwrap_or("unknown"),
+        NameRef::Builtin(i) => crate::native::BUILTIN_CLASS_NAMES
+            .get(i as usize)
+            .copied()
+            .unwrap_or("unknown"),
+        NameRef::Native(i) => extra_native_classes
+            .get(i as usize)
+            .copied()
+            .unwrap_or("unknown"),
+        NameRef::Unknown => "unknown",
+    }
 }

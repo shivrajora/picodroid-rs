@@ -411,3 +411,69 @@ fn emergency_gc_inside_execute_prunes_native_state() {
     );
     assert!(!o.is_live(garbage));
 }
+
+/// M8: the resolution tables key a virtual site by the receiver's heap
+/// class id. A relaunch resets the heap — ids are handed out again in
+/// allocation order — while the same app's class set can land at the same
+/// address and length, so `sync` alone would keep the old entries.
+/// `SharedJvmHeap::reset` clears the tables explicitly; this is the case
+/// that would answer the wrong override without it.
+#[test]
+fn a_relaunch_with_renumbered_heap_classes_cannot_hit_a_stale_receiver_key() {
+    use crate::interpreter::tests::invoke::{
+        CLASS_BASE_SPEAK, CLASS_CALLER_INVOKEVIRTUAL, CLASS_CHILD_SPEAK,
+    };
+    let cf_base = ClassFile::parse(spelled(CLASS_BASE_SPEAK)).expect("parse Base");
+    let cf_child = ClassFile::parse(spelled(CLASS_CHILD_SPEAK)).expect("parse Child");
+    let cf_caller = ClassFile::parse(spelled(CLASS_CALLER_INVOKEVIRTUAL)).expect("parse Caller");
+    let classes = alloc::vec![cf_base, cf_child, cf_caller];
+    let mut heap = crate::SharedJvmHeap::new();
+    let mut h = NoopHandler;
+
+    // Run 1: Child is the first class allocated (heap class id 0).
+    let child = alloc_object(&mut heap.objects, "Child");
+    let r = execute(
+        &classes,
+        &mut heap.strings,
+        &mut heap.objects,
+        &mut heap.arrays,
+        &mut heap.statics,
+        &mut heap.gc_state,
+        &mut heap.class_objects,
+        &mut h,
+        2,
+        0,
+        &[child],
+    );
+    assert_eq!(r.unwrap(), Some(Value::Int(2)));
+
+    // Relaunch: same class set, fresh heap. Base is allocated first now,
+    // so it takes the class id Child had.
+    heap.reset();
+    let base = alloc_object(&mut heap.objects, "Base");
+    assert_eq!(
+        heap.objects.class_id(match base {
+            Value::ObjectRef(i) => i,
+            _ => unreachable!(),
+        }),
+        Some(0)
+    );
+    let r = execute(
+        &classes,
+        &mut heap.strings,
+        &mut heap.objects,
+        &mut heap.arrays,
+        &mut heap.statics,
+        &mut heap.gc_state,
+        &mut heap.class_objects,
+        &mut h,
+        2,
+        0,
+        &[base],
+    );
+    assert_eq!(
+        r.unwrap(),
+        Some(Value::Int(1)),
+        "Base.speak, not the stale Child entry"
+    );
+}

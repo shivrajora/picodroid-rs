@@ -876,6 +876,22 @@ fn embedder_arm_upcalls_into_java() {
     );
     // 2 * 3 = 6, then 6 * 3 = 18.
     assert_eq!(r.expect("upcall failed"), Some(Value::Int(18)));
+    // M8: the handler's upcall had no constant-pool site, so it resolved
+    // under a hashed key on F's heap class id — and the second `apply`
+    // found it there (the entry names F.apply, which the hit check
+    // accepts).
+    use crate::resolve_cache::SiteKey;
+    let Value::ObjectRef(fi) = f else {
+        unreachable!()
+    };
+    let key = SiteKey::hashed(m::apply, "(I)I")
+        .with_recv(SiteKey::recv_object(h.objects.class_id(fi).unwrap()));
+    let hit = h
+        .class_objects
+        .resolve
+        .method(key)
+        .expect("upcall site cached");
+    assert_eq!((hit.ci, hit.mi), (1, 0), "F.apply");
 }
 
 #[test]

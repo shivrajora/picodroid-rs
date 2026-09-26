@@ -961,3 +961,78 @@ fn bootstrap_method_decodes_from_flash() {
     let cf = ClassFile::parse(spelled(CLASS_TARGET_LAMBDA)).unwrap();
     assert!(cf.bootstrap_method(0).is_none());
 }
+
+/// M8: an upcall from native code resolves under a hashed site (sixteen
+/// bits of the name and descriptor), so a hit is trusted only after the
+/// resolved method's own name and descriptor are checked. Two pairs forced
+/// onto one key must not answer for each other.
+#[test]
+fn a_hashed_site_hit_is_verified_against_the_method_it_names() {
+    use crate::resolve_cache::{ResolveCache, SiteKey};
+    let cf_base = ClassFile::parse(spelled(CLASS_BASE_SPEAK)).unwrap();
+    let cf_child = ClassFile::parse(spelled(CLASS_CHILD_SPEAK)).unwrap();
+    let cf_ns = ClassFile::parse(spelled(CLASS_CHILD_NO_SPEAK)).unwrap();
+    let classes = alloc::vec![cf_base, cf_child, cf_ns];
+    let mut cache = ResolveCache::new();
+    let key = SiteKey::hashed("speak", "()I").with_recv(SiteKey::recv_object(0));
+    // Plant ChildNS.m (spells `m()V`) under speak's key — what a colliding
+    // pair would leave — then ask for speak: the entry fails the check, the
+    // walk resolves Child.speak, and the entry is replaced.
+    cache.insert_method(key, 2, 0);
+    assert!(key.is_hashed());
+    assert!(!helpers::method_matches(&classes, 2, 0, "speak", "()I"));
+    assert!(helpers::method_matches(&classes, 1, 0, "speak", "()I"));
+    assert_eq!(cache.method(key).map(|h| (h.ci, h.mi)), Some((2, 0)));
+    assert_eq!(
+        helpers::find_method_walking_cached(&mut cache, &classes, key, "Child", "speak", "()I"),
+        Some((1, 0))
+    );
+    assert_eq!(cache.method(key).map(|h| (h.ci, h.mi)), Some((1, 0)));
+    // A pair no class declares finds nothing through the same key, and
+    // does not disturb what is there.
+    assert_eq!(
+        helpers::find_method_walking_cached(&mut cache, &classes, key, "Child", "shout", "()I"),
+        None
+    );
+    assert_eq!(cache.method(key).map(|h| (h.ci, h.mi)), Some((1, 0)));
+    // An exact site never verifies: it is exact by construction.
+    let exact = SiteKey::cp(0, 5).with_recv(SiteKey::recv_object(0));
+    cache.insert_method(exact, 2, 0);
+    assert_eq!(
+        helpers::find_method_walking_cached(&mut cache, &classes, exact, "Child", "speak", "()I"),
+        Some((2, 0))
+    );
+}
+
+/// The same `invokevirtual` site with two receiver classes resolves each
+/// to its own override: the receiver is part of the key.
+#[test]
+fn one_site_two_receiver_classes_resolves_each() {
+    let cf_base = ClassFile::parse(spelled(CLASS_BASE_SPEAK)).unwrap();
+    let cf_child = ClassFile::parse(spelled(CLASS_CHILD_SPEAK)).unwrap();
+    let cf_caller = ClassFile::parse(spelled(CLASS_CALLER_INVOKEVIRTUAL)).unwrap();
+    let classes = alloc::vec![cf_base, cf_child, cf_caller];
+    let mut heap = crate::SharedJvmHeap::new();
+    let mut h = NoopHandler;
+    let mut call = |heap: &mut crate::SharedJvmHeap, name: &'static str| {
+        let obj = Value::ObjectRef(heap.objects.alloc(name).unwrap());
+        execute(
+            &classes,
+            &mut heap.strings,
+            &mut heap.objects,
+            &mut heap.arrays,
+            &mut heap.statics,
+            &mut heap.gc_state,
+            &mut heap.class_objects,
+            &mut h,
+            2,
+            0,
+            &[obj],
+        )
+        .unwrap()
+    };
+    assert_eq!(call(&mut heap, "Child"), Some(Value::Int(2)));
+    assert_eq!(call(&mut heap, "Base"), Some(Value::Int(1)));
+    assert_eq!(call(&mut heap, "Child"), Some(Value::Int(2)));
+    assert_eq!(call(&mut heap, "Base"), Some(Value::Int(1)));
+}

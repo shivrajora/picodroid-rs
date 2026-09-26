@@ -3,6 +3,7 @@ use super::ops_indy::LambdaCall;
 use super::{helpers, Executor, MAX_FRAME_DEPTH, MAX_UPCALL_DEPTH};
 use crate::class_file::find_class;
 use crate::names::{c, d, m};
+use crate::resolve_cache::{special, SiteKey};
 use crate::{
     frame::Frame,
     native::{BuiltinHandler, NativeContext, NativeMethodHandler},
@@ -49,12 +50,13 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         // already says "initialised" skips the probe (a scan of the
         // initialised-class list by name); the flag is set below, after the
         // site resolves, the first time the probe comes back clear.
+        let site = SiteKey::cp(class_idx, cp_idx);
         let mut mark_static_init = false;
         if opcode == 0xb8
             && !self
                 .class_objects
                 .resolve
-                .method(class_str, name_str, desc_str)
+                .method(site)
                 .is_some_and(|hit| hit.init)
         {
             #[cfg(feature = "parity-metrics")]
@@ -87,12 +89,15 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         // Likewise an array dispatches as its array class: kotlinc's
         // `values()` clones `$VALUES` through `Object.clone()`, where javac
         // names the array class as the owner.
+        // A virtual site resolves per receiver class, so its key carries
+        // the receiver's heap class id (a string or array gets a tag).
         let is_virtual = opcode == 0xb6 || opcode == 0xb9;
-        let dispatch_class = if is_virtual {
+        let (dispatch_class, key) = if is_virtual {
             let frame = frames.last().ok_or(JvmError::InvalidBytecode)?;
             let stack_len = frame.stack.len();
             if stack_len >= arg_count {
-                match frame.stack[stack_len - arg_count] {
+                let recv = frame.stack[stack_len - arg_count];
+                let class = match recv {
                     Value::ObjectRef(idx) => self.objects.class_name(idx).unwrap_or(class_str),
                     Value::Reference(_) => c::java_lang_String,
                     Value::ArrayRef(idx) => helpers::array_class_name(
@@ -101,12 +106,16 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                             .unwrap_or(crate::array_heap::ATYPE_REF),
                     ),
                     _ => class_str,
-                }
+                };
+                (
+                    class,
+                    site.with_recv(helpers::recv_of(self.objects, self.arrays, recv)),
+                )
             } else {
-                class_str
+                (class_str, site)
             }
         } else {
-            class_str
+            (class_str, site)
         };
 
         // Lambda proxy intercept: a call to the proxy's SAM runs the lambda
@@ -143,6 +152,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             helpers::find_method_walking_cached(
                 &mut self.class_objects.resolve,
                 self.classes,
+                key,
                 dispatch_class,
                 name_str,
                 desc_str,
@@ -151,14 +161,13 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             let r = helpers::find_method_cached(
                 &mut self.class_objects.resolve,
                 self.classes,
+                key,
                 class_str,
                 name_str,
                 desc_str,
             );
             if mark_static_init {
-                self.class_objects
-                    .resolve
-                    .mark_method_init(class_str, name_str, desc_str);
+                self.class_objects.resolve.mark_method_init(key);
             }
             r
         };
@@ -213,6 +222,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             Some(heap_buf) => self.invoke_with_heap_args(
                 heap_buf,
                 resolved,
+                key,
                 native_class,
                 name_str,
                 desc_str,
@@ -221,6 +231,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             None => self.finalize_invoke(
                 &inline_buf[..arg_count],
                 resolved,
+                key,
                 native_class,
                 name_str,
                 desc_str,
@@ -273,9 +284,15 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         };
         const TO_STRING: &str = m::toString;
         const TO_STRING_DESC: &str = d::__String;
+        let key = SiteKey::special(special::TO_STRING).with_recv(helpers::recv_of(
+            self.objects,
+            self.arrays,
+            arg,
+        ));
         if let Some((ci, mi)) = helpers::find_method_walking_cached(
             &mut self.class_objects.resolve,
             self.classes,
+            key,
             class,
             TO_STRING,
             TO_STRING_DESC,
@@ -292,7 +309,8 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 return Ok(true);
             }
         }
-        let s = self.dispatch_native(class, TO_STRING, TO_STRING_DESC, &[arg], frames)?;
+        let s =
+            self.dispatch_native(Some(key), class, TO_STRING, TO_STRING_DESC, &[arg], frames)?;
         let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
         if let (Some(slot), Some(s)) = (frame.stack.last_mut(), s) {
             *slot = s;
@@ -349,9 +367,14 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             }
             // The array is rooted through the operand stack; the returned
             // Reference is stored straight back into it.
-            if let Some(s @ Value::Reference(_)) =
-                self.invoke_java(frames, Value::ObjectRef(obj), m::toString, d::__String, &[])?
-            {
+            if let Some(s @ Value::Reference(_)) = self.invoke_java_at(
+                frames,
+                Some(SiteKey::special(special::TO_STRING)),
+                Value::ObjectRef(obj),
+                m::toString,
+                d::__String,
+                &[],
+            )? {
                 if let Some(enc) = crate::array_heap::encode_ref(s) {
                     let _ = self.arrays.store(arr, i, enc);
                 }
@@ -363,10 +386,12 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
     /// Shared tail used by both the inline-args fast path and the heap-args
     /// fallback: dispatches `resolved` to a native handler or pushes a new
     /// Java frame, with `resolved == None` falling back to native dispatch.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn finalize_invoke(
         &mut self,
         args: &[Value],
         resolved: Option<(usize, usize)>,
+        site: SiteKey,
         native_class: &str,
         name_str: &str,
         desc_str: &str,
@@ -406,13 +431,19 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         };
         match resolved {
             Some((ci, mi)) if self.classes[ci].methods()[mi].code_offset == 0 => {
-                let result =
-                    match self.dispatch_native(native_class, name_str, desc_str, args, frames) {
-                        Err(JvmError::StackOverflow) if self.native_retry => {
-                            return self.retry_after_gc(args, frames);
-                        }
-                        r => r?,
-                    };
+                let result = match self.dispatch_native(
+                    Some(site),
+                    native_class,
+                    name_str,
+                    desc_str,
+                    args,
+                    frames,
+                ) {
+                    Err(JvmError::StackOverflow) if self.native_retry => {
+                        return self.retry_after_gc(args, frames);
+                    }
+                    r => r?,
+                };
                 let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
                 if string_init_swap(frame, args, result) {
                     return Ok(());
@@ -439,13 +470,19 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             }
             None => {
                 // Not found in loaded classes — try native dispatch.
-                let result =
-                    match self.dispatch_native(native_class, name_str, desc_str, args, frames) {
-                        Err(JvmError::StackOverflow) if self.native_retry => {
-                            return self.retry_after_gc(args, frames);
-                        }
-                        r => r?,
-                    };
+                let result = match self.dispatch_native(
+                    Some(site),
+                    native_class,
+                    name_str,
+                    desc_str,
+                    args,
+                    frames,
+                ) {
+                    Err(JvmError::StackOverflow) if self.native_retry => {
+                        return self.retry_after_gc(args, frames);
+                    }
+                    r => r?,
+                };
                 let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
                 if string_init_swap(frame, args, result) {
                     return Ok(());
@@ -483,17 +520,34 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         &mut self,
         args: Vec<Value>,
         resolved: Option<(usize, usize)>,
+        site: SiteKey,
         native_class: &str,
         name_str: &str,
         desc_str: &str,
         frames: &mut Vec<Frame>,
     ) -> Result<(), JvmError> {
-        self.finalize_invoke(&args, resolved, native_class, name_str, desc_str, frames)
+        self.finalize_invoke(
+            &args,
+            resolved,
+            site,
+            native_class,
+            name_str,
+            desc_str,
+            frames,
+        )
     }
 
     /// Dispatch a native method call through the handler chain.
+    ///
+    /// `site` is the resolution site of the invoke, when there is one —
+    /// its `recv` must be the class `class_name` names (or `RECV_NONE` when
+    /// `class_name` is the CP-declared class), because a handler's memo
+    /// remembers the answer per `(site, receiver, superclass step)`. A
+    /// caller dispatching under any other class passes `None`.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn dispatch_native(
         &mut self,
+        site: Option<SiteKey>,
         class_name: &str,
         method_name: &str,
         descriptor: &str,
@@ -503,6 +557,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
     ) -> Result<Option<Value>, JvmError> {
         let mut retry = false;
         let r = self.dispatch_native_inner(
+            site,
             class_name,
             method_name,
             descriptor,
@@ -517,6 +572,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn dispatch_native_inner(
         &mut self,
+        site: Option<SiteKey>,
         class_name: &str,
         method_name: &str,
         descriptor: &str,
@@ -596,6 +652,8 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             class_objects: self.class_objects,
             frames,
             upcall_depth: self.upcall_depth,
+            site,
+            depth: 0,
         };
         let mut ctx = NativeContext {
             descriptor,
@@ -646,6 +704,10 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                     None => break,
                 },
             };
+            // One superclass step further for the memo's key.
+            if let Some(e) = ctx.upcall.as_deref_mut() {
+                e.depth = e.depth.saturating_add(1);
+            }
             if let Some(result) = self
                 .handler
                 .dispatch(super_str, method_name, &mut ctx)
@@ -686,6 +748,22 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         descriptor: &str,
         args: &[Value],
     ) -> Result<Option<Value>, JvmError> {
+        self.invoke_java_at(frames, None, recv, method_name, descriptor, args)
+    }
+
+    /// [`Self::invoke_java`] from a known resolution site: the interpreter's
+    /// own constant-name sites pass theirs so the call resolves through the
+    /// tables under an exact key; `None` (a native handler's upcall) keys
+    /// on a hash of the name and descriptor, verified on a hit.
+    pub(super) fn invoke_java_at(
+        &mut self,
+        frames: &mut Vec<Frame>,
+        site: Option<SiteKey>,
+        recv: Value,
+        method_name: &str,
+        descriptor: &str,
+        args: &[Value],
+    ) -> Result<Option<Value>, JvmError> {
         if self.upcall_depth >= MAX_UPCALL_DEPTH {
             let e = self.stack_overflow_error()?;
             return Err(JvmError::Exception(e));
@@ -697,7 +775,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             .gc_state
             .push_shadow_roots(core::slice::from_ref(&recv));
         self.gc_state.push_shadow_roots(args);
-        let result = self.invoke_java_inner(frames, recv, method_name, descriptor, args);
+        let result = self.invoke_java_inner(frames, site, recv, method_name, descriptor, args);
         self.gc_state.truncate_shadow_roots(mark);
         result
     }
@@ -705,11 +783,15 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
     pub(super) fn invoke_java_inner(
         &mut self,
         frames: &mut Vec<Frame>,
+        site: Option<SiteKey>,
         recv: Value,
         method_name: &str,
         descriptor: &str,
         args: &[Value],
     ) -> Result<Option<Value>, JvmError> {
+        let key = site
+            .unwrap_or_else(|| SiteKey::hashed(method_name, descriptor))
+            .with_recv(helpers::recv_of(self.objects, self.arrays, recv));
         // Lambda proxies first. A proxy's nominal class is the functional
         // interface, whose SAM has no bytecode, so any name-based lookup
         // resolves to an empty method and silently does nothing — the exact
@@ -736,7 +818,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                     LambdaCall::Done(result) => return Ok(result),
                 }
             }
-            _ => self.resolve_upcall_frame(recv, method_name, descriptor, args)?,
+            _ => self.resolve_upcall_frame(key, recv, method_name, descriptor, args)?,
         };
 
         let Some(new_frame) = new_frame else {
@@ -746,7 +828,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             let mut all: Vec<Value> = Vec::with_capacity(args.len() + 1);
             all.push(recv);
             all.extend_from_slice(args);
-            return self.dispatch_native(class, method_name, descriptor, &all, frames);
+            return self.dispatch_native(Some(key), class, method_name, descriptor, &all, frames);
         };
 
         let base = frames.len();
@@ -780,6 +862,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
     /// (unresolved, or a native method).
     pub(super) fn resolve_upcall_frame(
         &mut self,
+        key: SiteKey,
         recv: Value,
         method_name: &str,
         descriptor: &str,
@@ -789,6 +872,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         let Some((ci, mi)) = helpers::find_method_walking_cached(
             &mut self.class_objects.resolve,
             self.classes,
+            key,
             class,
             method_name,
             descriptor,
@@ -821,10 +905,13 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         frame.pc += 2;
         let cf = &self.classes[frame.class_idx];
         let class_name_bytes = cf.cp_class_name(cp_idx).ok_or(JvmError::InvalidBytecode)?;
+        let site = SiteKey::cp(frame.class_idx, cp_idx);
         // A site the table knows — and knows initialised — needs neither
         // the initialised probe nor the two class-table walks below.
-        let static_name = match self.class_objects.resolve.class(class_name_bytes) {
-            Some(hit) if hit.init => hit.name,
+        let static_name = match self.class_objects.resolve.class(site) {
+            Some(hit) if hit.init => {
+                helpers::name_of(self.classes, self.handler.native_class_names(), hit.name)
+            }
             _ => {
                 #[cfg(feature = "parity-metrics")]
                 let t0 = self.handler.clock_nanos();
@@ -844,14 +931,16 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                         return Err(JvmError::AbstractMethodError);
                     }
                 }
-                let static_name = helpers::class_name_to_static_in(
+                let name_ref = helpers::class_name_ref(
                     self.classes,
                     self.handler.native_class_names(),
                     class_name,
                 );
+                let static_name =
+                    helpers::name_of(self.classes, self.handler.native_class_names(), name_ref);
                 self.class_objects
                     .resolve
-                    .insert_class(class_name_bytes, ci, static_name, true);
+                    .insert_class(site, name_ref, true);
                 static_name
             }
         };
@@ -899,11 +988,13 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         let Some(slot) = actual.last_mut() else {
             return Ok(());
         };
+        let key = SiteKey::special(special::TO_STRING);
         let s = match *slot {
             Value::ObjectRef(_) => {
-                self.invoke_java(frames, *slot, m::toString, d::__String, &[])?
+                self.invoke_java_at(frames, Some(key), *slot, m::toString, d::__String, &[])?
             }
             Value::ArrayRef(_) => self.dispatch_native(
+                Some(key.with_recv(helpers::recv_of(self.objects, self.arrays, *slot))),
                 c::java_lang_Object,
                 m::toString,
                 d::__String,

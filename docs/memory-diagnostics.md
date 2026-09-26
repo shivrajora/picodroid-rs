@@ -140,8 +140,8 @@ microseconds; symbolised only at census time), and `heapcensus` appends:
 [memmon] census native sizes: <=16=173n/1303B <=32=53n/1359B ... <=4K=64n/129952B >4K=18n/181376B
 [memmon] census native sites: 61 distinct, top 24
 [memmon]    120976B    20n  picodroid_core::hal::sim::boot_budget::model::charge (boot_budget.rs:128)
-[memmon]     74048B    71n  pico_jvm::class_file::parse::<impl pico_jvm::class_file::Parsed>::parse (parse.rs:400)
-[memmon]     13824B     4n  pico_jvm::resolve_cache::Table<S>::ensure (resolve_cache.rs:164)
+[memmon]     38912B   142n  pico_jvm::class_file::parse::<impl pico_jvm::class_file::Parsed>::parse (parse.rs:273)
+[memmon]     12288B     4n  pico_jvm::resolve_cache::Table<S>::ensure (resolve_cache.rs:250)
 ...
 [memmon] census native stacks: 275 distinct, top 24
 [memmon]     16504B     1n  ...boot_budget::model::charge (boot_budget.rs:128) <- ...charge_task_spawn <- ...rtos_freertos::spawn <- ...threads::thread_start0 (threads.rs:161) <- ...

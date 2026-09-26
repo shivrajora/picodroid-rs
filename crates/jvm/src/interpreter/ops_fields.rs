@@ -3,6 +3,7 @@ use super::{helpers, Executor};
 use crate::{
     frame::Frame,
     native::NativeMethodHandler,
+    resolve_cache::SiteKey,
     types::{JvmError, Value},
 };
 
@@ -26,7 +27,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 let value = match self
                     .class_objects
                     .resolve
-                    .static_index(class_name, field_name)
+                    .static_index(SiteKey::cp(frame.class_idx, cp_idx))
                 {
                     Some(idx) => self.statics.get_by_index(idx),
                     None => {
@@ -65,7 +66,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                             .ok_or(JvmError::InvalidBytecode)?;
                         self.class_objects
                             .resolve
-                            .insert_static(class_name, field_name, idx);
+                            .insert_static(SiteKey::cp(frame.class_idx, cp_idx), idx);
                         self.statics.get_by_index(idx)
                     }
                 };
@@ -82,7 +83,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 match self
                     .class_objects
                     .resolve
-                    .static_index(class_name, field_name)
+                    .static_index(SiteKey::cp(frame.class_idx, cp_idx))
                 {
                     Some(idx) => {
                         let value = frame.pop()?;
@@ -121,7 +122,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                             .ok_or(JvmError::InvalidBytecode)?;
                         self.class_objects
                             .resolve
-                            .insert_static(class_name, field_name, idx);
+                            .insert_static(SiteKey::cp(frame.class_idx, cp_idx), idx);
                         self.statics.set_by_index(idx, value);
                     }
                 }
@@ -141,11 +142,17 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                             .objects
                             .class_name(idx)
                             .ok_or(JvmError::InvalidReference)?;
+                        let class_id = self
+                            .objects
+                            .class_id(idx)
+                            .ok_or(JvmError::InvalidReference)?;
                         #[cfg(feature = "parity-metrics")]
                         let t0 = self.handler.clock_nanos();
                         let slot = helpers::field_slot_cached(
                             &mut self.class_objects.resolve,
                             self.classes,
+                            SiteKey::cp(frame.class_idx, cp_idx)
+                                .with_recv(SiteKey::recv_object(class_id)),
                             obj_class,
                             declared_class,
                             field_name_bytes,
@@ -178,11 +185,17 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                             .objects
                             .class_name(idx)
                             .ok_or(JvmError::InvalidReference)?;
+                        let class_id = self
+                            .objects
+                            .class_id(idx)
+                            .ok_or(JvmError::InvalidReference)?;
                         #[cfg(feature = "parity-metrics")]
                         let t0 = self.handler.clock_nanos();
                         let slot = helpers::field_slot_cached(
                             &mut self.class_objects.resolve,
                             self.classes,
+                            SiteKey::cp(frame.class_idx, cp_idx)
+                                .with_recv(SiteKey::recv_object(class_id)),
                             obj_class,
                             declared_class,
                             field_name_bytes,

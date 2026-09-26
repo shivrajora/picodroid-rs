@@ -1118,9 +1118,27 @@ pub struct UpcallEnv<'a> {
     /// Upcall nesting already on this Rust stack, so the nested executor
     /// continues the count instead of restarting it.
     pub(crate) upcall_depth: u8,
+    /// The resolution site of the invoke being dispatched, when the call
+    /// came from one ([`crate::resolve_cache::SiteKey`]), and how many
+    /// superclass steps the interpreter has re-walked for it (0 for the
+    /// receiver's own class). A handler's dispatch memo keys on both.
+    pub(crate) site: Option<crate::resolve_cache::SiteKey>,
+    pub(crate) depth: u8,
 }
 
 impl NativeContext<'_> {
+    /// The invoke site behind this native call and the superclass re-walk
+    /// step it is at, for a handler's own per-site memo. `None` when the
+    /// call has no site — driven outside the interpreter, or an upcall
+    /// whose site is a hash (a hashed site is exact enough to *find* a
+    /// method, whose name is then checked, but not to remember that no
+    /// module claims it).
+    pub fn dispatch_site(&self) -> Option<(crate::resolve_cache::SiteKey, u8)> {
+        let env = self.upcall.as_deref()?;
+        let site = env.site.filter(|s| !s.is_hashed())?;
+        Some((site, env.depth))
+    }
+
     /// Resolve `name` to the loaded class file's genuinely-`'static`
     /// (Flash-backed) class name, or `None` if no loaded class matches.
     ///

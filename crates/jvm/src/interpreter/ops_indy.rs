@@ -5,6 +5,7 @@
 use super::ops_invoke::widen;
 use super::{helpers, Executor};
 use crate::names::c;
+use crate::resolve_cache::{SiteKey, RECV_NONE};
 use crate::{
     frame::Frame,
     native::NativeMethodHandler,
@@ -115,6 +116,9 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         frame.pc += 4; // skip index (2) + padding (2)
 
         let cf = &self.classes[frame.class_idx];
+        // The site every call through this proxy resolves under: the
+        // CONSTANT_InvokeDynamic entry names one implementation handle.
+        let site = SiteKey::cp(frame.class_idx, cp_idx).site;
 
         // 1. Resolve CONSTANT_InvokeDynamic -> (bootstrap_idx, name_and_type_idx)
         let (bsm_idx, nat_idx) = cf
@@ -191,6 +195,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 _ => LambdaTarget::Virtual {
                     name: target_name,
                     desc: target_desc,
+                    site,
                 },
             },
             // REF_invokeStatic / REF_invokeSpecial: a fixed body. A static
@@ -209,10 +214,12 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                     class: target_class,
                     name: target_name,
                     desc: target_desc,
+                    site,
                 },
                 None => LambdaTarget::Virtual {
                     name: target_name,
                     desc: target_desc,
+                    site,
                 },
             },
             // REF_newInvokeSpecial: `Foo::new`. A loaded class runs its
@@ -233,6 +240,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 class_bytes: target_class_bytes,
                 init: helpers::find_method(self.classes, target_class, target_name, target_desc),
                 desc: target_desc,
+                site,
             },
             _ => {
                 return Err(JvmError::UnsupportedInvokeDynamic(
@@ -370,14 +378,23 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 f.box_return = box_return;
                 Ok(LambdaCall::Frame(f))
             }
-            LambdaTarget::NativeStatic { class, name, desc } => {
+            LambdaTarget::NativeStatic {
+                class,
+                name,
+                desc,
+                site,
+            } => {
                 self.stringify_native_args(frames, class, name, desc, &mut actual)?;
                 let mark = self.gc_state.push_shadow_roots(&actual);
-                let r = self.dispatch_native(class, name, desc, &actual, frames);
+                let key = SiteKey {
+                    site,
+                    recv: RECV_NONE,
+                };
+                let r = self.dispatch_native(Some(key), class, name, desc, &actual, frames);
                 self.gc_state.truncate_shadow_roots(mark);
                 Ok(LambdaCall::Done(self.box_native_result(r?, box_return)?))
             }
-            LambdaTarget::Virtual { name, desc } => {
+            LambdaTarget::Virtual { name, desc, site } => {
                 let recv = actual.first().copied().unwrap_or(Value::Null);
                 if matches!(recv, Value::Null) {
                     return Err(self.runtime_fault(c::java_lang_NullPointerException));
@@ -395,9 +412,14 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                     }
                 }
                 let class = self.runtime_class_of(recv)?;
+                let key = SiteKey {
+                    site,
+                    recv: helpers::recv_of(self.objects, self.arrays, recv),
+                };
                 let resolved = helpers::find_method_walking_cached(
                     &mut self.class_objects.resolve,
                     self.classes,
+                    key,
                     class,
                     name,
                     desc,
@@ -412,14 +434,18 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                     _ => {
                         self.stringify_native_args(frames, class, name, desc, &mut actual)?;
                         let mark = self.gc_state.push_shadow_roots(&actual);
-                        let r = self.dispatch_native(class, name, desc, &actual, frames);
+                        let r = self.dispatch_native(Some(key), class, name, desc, &actual, frames);
                         self.gc_state.truncate_shadow_roots(mark);
                         Ok(LambdaCall::Done(self.box_native_result(r?, box_return)?))
                     }
                 }
             }
             LambdaTarget::Ctor {
-                class, init, desc, ..
+                class,
+                init,
+                desc,
+                site,
+                ..
             } => match init {
                 Some((ci, mi)) => {
                     // `op_invoke` initialises the class before coming here;
@@ -447,7 +473,11 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                     all.push(Value::ObjectRef(obj));
                     all.extend_from_slice(&actual);
                     let mark = self.gc_state.push_shadow_roots(&all);
-                    let r = self.dispatch_native(class, "<init>", desc, &all, frames);
+                    let key = SiteKey {
+                        site,
+                        recv: RECV_NONE,
+                    };
+                    let r = self.dispatch_native(Some(key), class, "<init>", desc, &all, frames);
                     self.gc_state.truncate_shadow_roots(mark);
                     // A native `<init>` is void, except `String`'s, which
                     // hands back the interned string in place of the
