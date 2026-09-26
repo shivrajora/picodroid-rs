@@ -144,7 +144,7 @@ fn words_as_mut<T: WordRecord>(w: &mut [u16]) -> &mut [T] {
 ///   `ifaces_len` of them filled with Utf8 CP indices.
 /// - `methods_len` [`MethodInfo`] records.
 #[derive(Debug)]
-pub(crate) struct Parsed {
+pub struct Parsed {
     blob: Box<[u16]>,
     cp_count: u16,
     /// Word offset of the instance field records (`cp_count` plus the tag
@@ -159,12 +159,12 @@ pub(crate) struct Parsed {
     /// Byte offset of the BootstrapMethods attribute body in the class
     /// data (`num_bootstrap_methods` first); 0 = none.
     bsm_offset: u16,
-    pub class_name_index: u16,
-    pub super_class_name_index: u16,
-    pub access_flags: u16,
+    pub(crate) class_name_index: u16,
+    pub(crate) super_class_name_index: u16,
+    pub(crate) access_flags: u16,
     /// CP index of the `SourceFile` attribute's Utf8 (0 = none).
     #[cfg(feature = "line-numbers")]
-    pub source_file_index: u16,
+    pub(crate) source_file_index: u16,
 }
 
 // Loosen only with a parity-audit update: 40 B on a 64-bit host, 32 B on
