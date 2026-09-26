@@ -677,7 +677,9 @@ the runtime ones shrink every app and close most of the simulator's gap at the s
   and the tick is now `scheduler.scheduleAtFixedRate(this::tick, 1, 1, SECONDS)` in
   `setListener`, cancelled when the listener goes and on destroy. −17 KB (a Java thread is a
   16 KB stack, a TCB and a dispatch memo), and unlike the fold the tick keeps coming while the
-  poll thread sits in an 8 s connect timeout. `data/UsageService.java`.
+  poll thread sits in an 8 s connect timeout. `data/UsageService.java`. Verified on the
+  pico_display2_w the same day: `executordemo`'s scheduled tokens, and auto mode turning the
+  page every 10 s (each turn is `onTick`).
 - **H2. Read the bridge's reply without `picodroid.json`** — open. `JSONObject`, `JSONArray`
   and the inner class are 9.9 KB of metadata (17.3 KB in the simulator) plus the 2 KB node
   pool, for one flat object whose format the app owns. A `key=value` line format needs a
