@@ -211,8 +211,53 @@ fetched from flash, so the fetch itself was measured:
   (`Page.paintNext`, driven by `MainActivity.paintPage` before the fade-in; later updates stay
   whole), and `BarView` skips `setProgress` for an unchanged value, which the cleared rows were
   paying as a native each: no Models span over 50 ms either. Twelve turns and two preference writes on the final build:
-  no slow span at all. What remains is one-off: the Service start (`pending-op drain`, ~60–75 ms)
+  no slow span at all. What remained was one-off: the Service start (`pending-op drain`, ~60–75 ms)
   and the first page after boot (65 ms, 83 cold resolutions), before the tables are warm.
+
+**The boot one-offs (2026-09-25, later).** Read from the code rather than measured: the drain
+span held, back to back, the Service's instantiation and first-time class parses, its
+`onCreate` (a second read of the preferences file, two 16 KB task creates), `onStartCommand`,
+`onBind`, and then `onServiceConnected` delivered synchronously — whose `refresh()` painted the
+chrome (~20 ms) in the same span. The first data page was built only when the data arrived, so
+its class parses and cold call sites landed on that tick, after seconds of idle on the status
+screen. Four changes, measured on the board below:
+
+- **Runtime: `onServiceConnected` is one turn later.** `process_bind` queues a
+  `PendingServiceOp::Connected` at the head of the pending ops instead of invoking the
+  callback; a held head stops the drain that queued it (`release_held` at the top of the next
+  one lets it go) and the bind posts a main-queue wake, so the callback follows within a tick
+  in a span of its own, and whatever the app queued after its bind waits behind it. That last
+  part matters: a first cut appended the op at the tail, and `qa_life`'s Activity A, which
+  binds and then launches B from the same `onCreate`, got its connect only after B's whole
+  round-trip (three checks failed). At the head, `onBind` still precedes the connect, the
+  connect precedes the launch, and `servicedemo`'s bind-then-unbind in one `onCreate` sees
+  connected, then disconnected, as before. The owner-is-live check moved to delivery time. The
+  boot drain and service-only apps, which have no loop to come back, release before every take
+  or drain in rounds.
+- **App: the connect callback posts its refresh** (`MainActivity.onConnected`), and the
+  Service's tick thread starts with the first listener (`setListener`) rather than in
+  `onCreate`, since it has nothing to do before one.
+- **App: the first data page is built behind the status screen** (`prebuildPage`, a step per
+  tick once the status page is up), invisible in the page host; `startPage` adopts it, built or
+  part-built, when the data arrives, and only the first paint is left. A build failure there is
+  logged and the arrival builds the page as before; a restored page index other than Limits
+  prebuilds that page instead.
+
+- **App: the chrome's data path is warmed while idle** (`warmChrome`, posted after the
+  prebuild): the banner formats, `TimeFormat.hm` and `duration` and the plan's upper-casing run
+  once on placeholder values. The runtime keys a resolved site by the caller's constant-pool
+  names, so any method of `MainActivity` warms the sites `refreshChrome` uses, and the class
+  initialisations are global.
+
+**Board, parity build, from power-on** (`pico_display2_w`, live bridge). With the first three
+changes: no `pending-op drain` line at all (the Service start is under the 50 ms line), no
+line at the connect, and one slow span left — the first `refresh()` with data, 57 ms (cpu 56.7:
+invokes 29.8 ms/202, fields 12.7/211, resolve 12.4/89 cold, clinit 6.0, natives 6.7/104,
+1,775 bytecodes at ~32 µs each: every line of it cold), before `page -> Limits`; the adopted
+page's paint ticks were all under the line. With the warm-up: `prebuilt Limits`, `chrome warm`,
+then `state -> OK`, `page -> Limits` and not one slow span from power-on. Class parsing is
+still invisible to the span counters; a `parsed` count and time per span is the cheap next
+step, see G10's neighbours.
 
 **Repro.** `env $(grep -v '^#' .wifi-creds.env | xargs) PICODROID_NET_TEST_HOST=<PC address>
 ./scripts/flash.sh --board pico_display2_w --app claudeusage` in the background, wait for

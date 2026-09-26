@@ -236,7 +236,7 @@ Intent i = new Intent(CounterService.class);
 // Fire-and-forget: invokes onStartCommand
 startService(i);
 
-// Bind: invokes onBind, then onServiceConnected
+// Bind: invokes onBind, then onServiceConnected on the next frame
 ServiceConnection conn = new ServiceConnection() {
     public void onServiceConnected(IBinder binder) {
         CounterService s = ((CounterService.LocalBinder) binder).service;
@@ -254,6 +254,10 @@ stopService(i);
 
 `bindService` takes just `(Intent, ServiceConnection)` — there is no `flags` parameter and no
 `Context.BIND_AUTO_CREATE` constant; binding always creates the service if it isn't running.
+`onServiceConnected` arrives one frame after the bind ran `onBind`, as on Android, where it is a
+message on the main looper: the connect-time refresh most apps do there gets a frame of its own
+instead of sharing one with the Service's `onCreate`. An `unbindService` queued behind the bind
+still sees `onServiceConnected` before `onServiceDisconnected`.
 
 ### Starting another app
 

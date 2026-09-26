@@ -58,8 +58,9 @@ public class MainActivity extends Activity implements UsageService.Listener {
         @Override
         public void onServiceConnected(IBinder binder) {
           repo = ((UsageService.LocalBinder) binder).service;
-          repo.setListener(MainActivity.this);
-          refresh();
+          // The first chrome paint costs the RP2350 some 20 ms and the listener's first tick
+          // thread a few more: each takes a tick of its own rather than the connect callback's.
+          Executors.mainExecutor().execute(MainActivity.this::onConnected);
         }
 
         @Override
@@ -97,6 +98,11 @@ public class MainActivity extends Activity implements UsageService.Listener {
   private String bannerStale;
 
   private Page page;
+
+  /** A data screen built behind the status screen, ahead of the first data; see prebuildPage. */
+  private Page prebuilt;
+
+  private int prebuiltIndex;
   private boolean pageBuilt;
   private boolean pageUpdatePending;
   private boolean dotsPending;
@@ -167,6 +173,14 @@ public class MainActivity extends Activity implements UsageService.Listener {
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
+
+  private void onConnected() {
+    if (destroyed || repo == null) {
+      return;
+    }
+    repo.setListener(this);
+    refresh();
+  }
 
   @Override
   public void onStart() {
@@ -312,9 +326,18 @@ public class MainActivity extends Activity implements UsageService.Listener {
     }
     pageIsStatus = !hasData();
     builtToken = token;
-    page = pageIsStatus ? new StatusPage(this, palette, repo.bridgeAddress()) : create(pageIndex);
-    page.root.setAlpha(0f);
-    pageHost.addView(page.root);
+    if (!pageIsStatus && prebuilt != null && prebuiltIndex == pageIndex) {
+      // Built, or part-built, behind the status screen; already in the host, invisible.
+      page = prebuilt;
+      prebuilt = null;
+    } else {
+      if (!pageIsStatus) {
+        discardPrebuilt();
+      }
+      page = pageIsStatus ? new StatusPage(this, palette, repo.bridgeAddress()) : create(pageIndex);
+      page.root.setAlpha(0f);
+      pageHost.addView(page.root);
+    }
     // Constructing a page resolves its strings; the chrome repaint takes the next tick.
     Executors.mainExecutor().execute(() -> announcePage(token));
   }
@@ -406,11 +429,81 @@ public class MainActivity extends Activity implements UsageService.Listener {
       }
       pageBuilt = true;
       page.root.animate().alpha(1f).setDuration(fadeMs).start();
+      if (pageIsStatus) {
+        prebuildPage();
+      }
     } catch (OutOfMemoryError | RuntimeException e) {
       // A half-built page would stay invisible for good. Drop it; the next tick builds it again,
       // by which time the collector has had a chance to run.
       Log.w(TAG, "page build failed: " + e);
       discardPage();
+    }
+  }
+
+  /**
+   * Builds the first data screen behind the status screen, a step per tick, while the board waits
+   * for WiFi and the first fetch. The build's one-off costs (loading the page's classes, the cold
+   * call sites) are paid in that idle time; when the data arrives, {@link #startPage} adopts the
+   * page and only the first paint is left to do.
+   */
+  private void prebuildPage() {
+    if (prebuilt != null || destroyed) {
+      return;
+    }
+    try {
+      prebuilt = create(pageIndex);
+      prebuiltIndex = pageIndex;
+      prebuilt.root.setAlpha(0f);
+      pageHost.addView(prebuilt.root);
+      final Page p = prebuilt;
+      Executors.mainExecutor().execute(() -> prebuildNext(p));
+    } catch (OutOfMemoryError | RuntimeException e) {
+      Log.w(TAG, "prebuild failed: " + e); // the data's arrival builds it the usual way
+      discardPrebuilt();
+    }
+  }
+
+  private void prebuildNext(Page p) {
+    if (destroyed || p != prebuilt) {
+      return; // adopted, or dropped
+    }
+    try {
+      if (p.buildNext()) {
+        Executors.mainExecutor().execute(() -> prebuildNext(p));
+      } else {
+        Log.i(TAG, "prebuilt " + p.title);
+        Executors.mainExecutor().execute(this::warmChrome);
+      }
+    } catch (OutOfMemoryError | RuntimeException e) {
+      Log.w(TAG, "prebuild failed: " + e);
+      discardPrebuilt();
+    }
+  }
+
+  /**
+   * Runs the chrome's data-path formatting once, on placeholder values, while the board is still
+   * idle. The runtime resolves a call site once per app run, keyed by the caller's constant pool,
+   * so the first refresh with real data then finds these sites resolved and their classes
+   * initialised: on the RP2350 that refresh was the last slow tick from power-on (57 ms, of which
+   * 89 cold resolutions and the class initialisations were a third).
+   */
+  private void warmChrome() {
+    if (destroyed) {
+      return;
+    }
+    String at = TimeFormat.hm(System.currentTimeMillis());
+    String warmed =
+        String.format(bannerUpdated, at)
+            + String.format(bannerAuto, at)
+            + String.format(bannerStale, hintHome, TimeFormat.duration(60_000L))
+            + hintSync.toUpperCase();
+    Log.i(TAG, "chrome warm, " + warmed.length() + " chars");
+  }
+
+  private void discardPrebuilt() {
+    if (prebuilt != null) {
+      pageHost.removeView(prebuilt.root);
+      prebuilt = null;
     }
   }
 
