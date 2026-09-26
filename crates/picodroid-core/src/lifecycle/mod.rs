@@ -545,6 +545,7 @@ pub(crate) fn run_activity(
     // Initialise the unified main-thread FIFO; harmless if the module was
     // already initialised on a prior activity launch.
     main_queue::init();
+    crate::executors::scheduled::init();
     // This task owns the widget tree from here on (`lvgl::with_gfx` warns
     // any other task that touches it — see `ui_thread`).
     crate::ui_thread::note_ui_task();
@@ -679,6 +680,10 @@ pub(crate) fn run_activity(
                 // op it queues is drained by this same loop below.
                 #[cfg(has_multi_app)]
                 dispatch_alarms(jvm, heap, handler, &mut alarm_directory_seen);
+
+                // ScheduledExecutorService tasks due this tick: posted to
+                // this queue, so each runs as a Runnable turn of its own.
+                crate::executors::scheduled::fire_due();
 
                 // The link came up or dropped since the last tick: tell
                 // `ConnectivityManager`, whose callbacks then run here, on

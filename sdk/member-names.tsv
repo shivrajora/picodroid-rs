@@ -73,6 +73,8 @@ F	FILL
 F	FILL_AND_STROKE
 F	FILL_HORIZONTAL
 F	FILL_VERTICAL
+F	FIXED_DELAY
+F	FIXED_RATE
 F	FLAG_CANCEL_CURRENT
 F	FLAG_IMMUTABLE
 F	FLAG_MUTABLE
@@ -224,6 +226,7 @@ F	NO_GRAVITY
 F	NO_ID
 F	NULL
 F	OCTOBER
+F	ONE_SHOT
 F	PARITY_EVEN
 F	PARITY_NONE
 F	PARITY_ODD
@@ -398,6 +401,7 @@ F	alphaTo
 F	app
 F	appBytes
 F	applicationInfo
+F	armed
 F	base
 F	boundView
 F	broadcast
@@ -538,9 +542,11 @@ F	onSwipeListener
 F	onTouchListener
 F	onValueChangeListener
 F	orientation
+F	owner
 F	packageName
 F	path
 F	pattern
+F	periodMs
 F	pin
 F	poolSeq
 F	port
@@ -672,6 +678,7 @@ M	applyLineMode
 M	applyTint
 M	applyTo
 M	argb
+M	arm
 M	arraycopy
 M	ascent
 M	atDate
@@ -696,6 +703,8 @@ M	bytesToString
 M	calibrate
 M	call
 M	cancel
+M	cancel0
+M	cancelArmed
 M	ceil
 M	check
 M	checkDouble
@@ -721,6 +730,7 @@ M	colon
 M	commit
 M	compareAndSet
 M	compareTo
+M	completed0
 M	connect
 M	contains
 M	containsCrLf
@@ -743,6 +753,7 @@ M	daysUntil
 M	debugPoolNodes
 M	decode
 M	decrementAndGet
+M	delay0
 M	delete
 M	deleteFile
 M	deliverInitial
@@ -753,6 +764,7 @@ M	disconnect
 M	dismiss
 M	dispatchRunnable
 M	dividedBy
+M	done
 M	doubleToString
 M	drawArc
 M	drawCircle
@@ -779,6 +791,7 @@ M	findButton
 M	findViewById
 M	findViewTraversal
 M	finish
+M	finished
 M	fireActionClick
 M	fireAlarm
 M	fireButtonClick
@@ -864,6 +877,7 @@ M	getDefault
 M	getDefaultColor
 M	getDefaultSensor
 M	getDefaultUncaughtExceptionHandler
+M	getDelay
 M	getDimension
 M	getDimensionPixelOffset
 M	getDimensionPixelSize
@@ -1060,6 +1074,7 @@ M	isLetter
 M	isNegative
 M	isNull
 M	isNullSentinel
+M	isPeriodic
 M	isQueued
 M	isReleased
 M	isShutdown
@@ -1262,6 +1277,7 @@ M	nativeWord
 M	negated
 M	newFixedThreadPool
 M	newSingleThreadExecutor
+M	newSingleThreadScheduledExecutor
 M	next
 M	nextPoolId
 M	node
@@ -1459,10 +1475,15 @@ M	rgb
 M	rotation
 M	round
 M	run
+M	runAndReset
 M	runWrapper
 M	scaleX
 M	scaleY
+M	schedule
+M	schedule0
+M	scheduleAtFixedRate
 M	scheduleDraw
+M	scheduleWithFixedDelay
 M	secondsUntil
 M	send
 M	serializedSize

@@ -64,12 +64,12 @@ The last column says what round 1 did: **closed**, **kept** (with the reason), o
 | # | Deviation | Tag | Round 1 |
 |---|---|---|---|
 | 27 | Repository was a static singleton started from `Application.onCreate`. | App choice | **closed**: it is `UsageService`, a started and bound `Service` with a `LocalBinder`; the Activity binds in `onStart` and unbinds in `onStop`. |
-| 28 | Two raw, unnamed `Thread`s that never stop. | App choice | **closed**: named `usage-poll` and `usage-tick`, both exit when the Service is destroyed. |
+| 28 | Two raw, unnamed `Thread`s that never stop. | App choice | **closed**: named `usage-poll`, which exits when the Service is destroyed; the tick thread is gone (row 30). |
 | 29 | `picodroid.concurrent.Thread` instead of `java.lang.Thread`. | SDK-shape | kept |
-| 30 | A thread that sleeps 1 s and posts a tick, instead of `Handler.postDelayed`. | SDK-forced (no `Handler`, by design) | kept |
+| 30 | A thread that sleeps 1 s and posts a tick, instead of `Handler.postDelayed`. | SDK-forced (no `Handler`, by design) | **closed 2026-09-26**: `ScheduledExecutorService.scheduleAtFixedRate` on the main thread, the `java.util.concurrent` shape; H1 in the gaps roadmap. |
 | 31 | Poll loop idled by sleeping in 250 ms slices polling a volatile flag. | App choice | **closed**: `Object.wait(ms)` on a lock; `refreshNow()` and `onDestroy` call `notifyAll`. |
 | 32 | Cross-thread handoff via `Executors.mainExecutor().execute(...)`. | SDK-shape | kept: the SDK's `runOnUiThread`. |
-| 33 | One `Listener` slot with both a data callback and a 1 Hz tick, set in `onResume`/`onPause`. | App choice | kept: there is no `LiveData`; the tick stays in the Service so a wedged fetch can never freeze the countdowns. |
+| 33 | One `Listener` slot with both a data callback and a 1 Hz tick, set in `onResume`/`onPause`. | App choice | kept: there is no `LiveData`; the tick stays in the Service, on the main thread, so a wedged fetch can never freeze the countdowns. |
 | 34 | Pre-allocated `Runnable` with `@SuppressWarnings("UnnecessaryLambda")`. | App choice | kept: one allocation per second for the life of the app. |
 | 35 | App sets the wall clock from the bridge. | SDK-forced (no RTC, no NTP) | open |
 | 36 | Connectivity polled with static `NetworkInfo.isConnected()`. | SDK-forced (no `NetworkCallback`) | **closed** 2026-09-26: `ConnectivityManager` gained Android's `NetworkCallback`; `UsageService` registers one in `onCreate`, `onAvailable` wakes the poll thread and `onLost` paints NO_WIFI itself. Nothing polls the link. |

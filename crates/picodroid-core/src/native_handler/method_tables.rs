@@ -354,6 +354,27 @@ pub const CONCURRENT_HANDLED: &[Row] = &[
         "execute",
         "(Ljava/lang/Runnable;)V",
     ),
+    // picodroid/concurrent/MainScheduledExecutor
+    (
+        "picodroid/concurrent/MainScheduledExecutor",
+        "cancel0",
+        "(I)Z",
+    ),
+    (
+        "picodroid/concurrent/MainScheduledExecutor",
+        "completed0",
+        "(I)V",
+    ),
+    (
+        "picodroid/concurrent/MainScheduledExecutor",
+        "delay0",
+        "(I)J",
+    ),
+    (
+        "picodroid/concurrent/MainScheduledExecutor",
+        "schedule0",
+        "(Ljava/lang/Runnable;JJI)I",
+    ),
 ];
 
 /// `native_handler/sensors.rs`

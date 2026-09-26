@@ -28,6 +28,18 @@ public final class Executors {
   }
 
   /**
+   * A {@link ScheduledExecutorService} for delayed and periodic tasks, mirroring {@code
+   * java.util.concurrent.Executors#newSingleThreadScheduledExecutor}. Its single thread is the
+   * <em>main</em> thread: the runtime's frame tick posts each task when it is due, so it costs no
+   * task stack and may touch widgets, and a task that blocks stalls the UI. Call {@code
+   * shutdownNow()} when the owner goes away (an Activity's {@code onDestroy}), or the tasks keep
+   * running against it.
+   */
+  public static ScheduledExecutorService newSingleThreadScheduledExecutor() {
+    return new MainScheduledExecutor();
+  }
+
+  /**
    * Bridge invoked by the Rust-side drain of the main queue / background pool. Called directly via
    * {@code Jvm::invoke_static_with_args} with the queued Runnable as the single argument; routes
    * through {@code invokeinterface} bytecode so lambda proxies (which store their target method in

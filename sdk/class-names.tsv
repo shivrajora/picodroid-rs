@@ -154,6 +154,10 @@ picodroid/concurrent/Executors
 picodroid/concurrent/Future
 picodroid/concurrent/FutureTask
 picodroid/concurrent/MainExecutor
+picodroid/concurrent/MainScheduledExecutor
+picodroid/concurrent/ScheduledExecutorService
+picodroid/concurrent/ScheduledFuture
+picodroid/concurrent/ScheduledFutureTask
 picodroid/concurrent/Thread
 picodroid/concurrent/Thread$UncaughtExceptionHandler
 picodroid/concurrent/ThreadPoolExecutor

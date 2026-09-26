@@ -1,6 +1,6 @@
 ---
 title: "System Services"
-description: "Log, SystemClock, Runtime, Thread, and the main / background Executors."
+description: "Log, SystemClock, Runtime, Thread, the main / background Executors and the ScheduledExecutorService."
 ---
 
 Cross-cutting runtime services: logging, clocks, GC introspection, threading, and executors. Packages: `picodroid.util`, `picodroid.os`, `picodroid.concurrent`. See [Java API overview](/api/) for the full API index.
@@ -200,6 +200,31 @@ public interface Executor {
 ```
 
 `execute()` is non-blocking and returns immediately. If the target queue is full, the Runnable is **dropped** with a `defmt::warn` and no exception — plan for occasional backpressure rather than relying on every post to land. The main queue has capacity 64; the background queue's depth is configurable per board.
+
+### Delayed and periodic work: `ScheduledExecutorService`
+
+There is no `Handler.postDelayed` and no `Timer`. Delayed and periodic work goes through `java.util.concurrent`'s shape instead:
+
+```java
+import picodroid.concurrent.Executors;
+import picodroid.concurrent.ScheduledExecutorService;
+import picodroid.concurrent.ScheduledFuture;
+import picodroid.concurrent.TimeUnit;
+
+ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+
+scheduler.schedule(() -> toast.cancel(), 2, TimeUnit.SECONDS);            // once
+ScheduledFuture<?> clock =
+    scheduler.scheduleAtFixedRate(this::tick, 1, 1, TimeUnit.SECONDS);    // every second
+scheduler.scheduleWithFixedDelay(this::poll, 0, 30, TimeUnit.SECONDS);   // 30 s after each run ends
+
+clock.cancel(false);        // one task
+scheduler.shutdownNow();    // all of them — call it from onDestroy
+```
+
+`schedule`, `scheduleAtFixedRate`, `scheduleWithFixedDelay`, `submit`, `shutdown`, `shutdownNow`, `isTerminated` and `awaitTermination` carry their JDK signatures and semantics, with one difference the name does not say: the executor's *single thread is the main thread*. The runtime keeps a table of sixteen deadlines that the 16 ms frame tick checks, and posts each due task to the main queue, so a scheduled task costs one table slot rather than a 16 KiB thread stack, and it may touch widgets directly. The price is the same as a `Handler`'s: a task that blocks stalls the UI while it runs, so hand blocking work to `backgroundExecutor()` from inside the task. Two consequences of the tick-driven design: a task runs within a frame of its due time when the main thread is idle (later if a Runnable ahead of it is slow), and nothing fires while the display is in low-power sleep.
+
+A fixed-rate task keeps its schedule through a late run, but a run so late that the next due time has already passed is followed by one a full period later rather than by a burst of catch-up runs. A task that throws is logged, its future completes exceptionally, and if it was periodic it is not run again. `shutdown()` keeps the JDK's default policy — one-shot tasks still due run, periodic ones stop; `shutdownNow()` cancels everything. When the table is full, scheduling throws `RejectedExecutionException`.
 
 ### Background pool configuration
 

@@ -670,9 +670,14 @@ the runtime ones shrink every app and close most of the simulator's gap at the s
 
 *App (about 39 KB):*
 
-- **H1. Fold `usage-tick` into the poll thread** — open. `idle()` already waits on the lock;
-  wake it every `TICK_MS` and post `tick` from there. −17 KB (a Java thread is a 16 KB stack,
-  a TCB and a dispatch memo). `data/UsageService.java`.
+- **H1. Drop the `usage-tick` thread** — **closed 2026-09-26**, by a different route than the
+  one first written here (fold it into the poll thread). The SDK gained
+  `ScheduledExecutorService` (`Executors.newSingleThreadScheduledExecutor()`, whose one thread
+  is the main thread: a sixteen-slot deadline table in the runtime that the frame tick checks),
+  and the tick is now `scheduler.scheduleAtFixedRate(this::tick, 1, 1, SECONDS)` in
+  `setListener`, cancelled when the listener goes and on destroy. −17 KB (a Java thread is a
+  16 KB stack, a TCB and a dispatch memo), and unlike the fold the tick keeps coming while the
+  poll thread sits in an 8 s connect timeout. `data/UsageService.java`.
 - **H2. Read the bridge's reply without `picodroid.json`** — open. `JSONObject`, `JSONArray`
   and the inner class are 9.9 KB of metadata (17.3 KB in the simulator) plus the 2 KB node
   pool, for one flat object whose format the app owns. A `key=value` line format needs a
