@@ -697,6 +697,15 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
   `CountDownLatch`) on top of the Thread parity work — zero natives, zero
   `.text`, class files only. What stays out, and what would change the answer,
   is enumerated below.
+- **The rest of `ViewGroup`'s child-list API** (*2026-09-25*):
+  `addView(child, index)`, `removeViewAt`, `removeViews`, `indexOfChild`, and
+  the `onAttachedToWindow` / `onDetachedFromWindow` callbacks. None has ever
+  existed here and no app has asked. Since the D3 fix (`2581a272`) the Java
+  child list and `View.mParent` are kept consistent by `addView`, `removeView`
+  and `close`, so each is a small Java-only addition over `mChildren` (the
+  index forms need `lv_obj_move_to_index` for the widget order; the callbacks
+  fire from `addView` / `detachChild`). Backlog only: implement one when a
+  real app needs it, not as a set.
 
 ### Concurrency surface deliberately left out (2026-08-31)
 
