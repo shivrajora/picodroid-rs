@@ -12,7 +12,6 @@ use crate::array_heap::ArrayHeap;
 use crate::class_objects::ClassObjectCache;
 use crate::gc::GcState;
 use crate::names::c;
-use crate::names::m;
 use crate::names::spelled;
 
 /// Single-class fixture: class "Lit" with static method m()I returning iconst_5.
@@ -126,7 +125,7 @@ fn statics_persist_across_execute_calls() {
     let (mut s, mut o, mut a, mut st, mut gc, mut co) = fresh_state();
     let mut h = NoopHandler;
 
-    assert!(!st.is_initialized(m::E.as_bytes()));
+    assert!(!st.is_initialized(0)); // E is class 0
     let r1 = execute(
         &classes,
         &mut s,
@@ -141,7 +140,7 @@ fn statics_persist_across_execute_calls() {
         &[],
     );
     assert_eq!(r1.unwrap(), Some(Value::Int(99)));
-    assert!(st.is_initialized(m::E.as_bytes()));
+    assert!(st.is_initialized(0));
 
     let entries_after_first = st.values_iter().count();
     let r2 = execute(

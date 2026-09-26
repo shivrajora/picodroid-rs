@@ -593,9 +593,11 @@ the runtime ones shrink every app and close most of the simulator's gap at the s
 - **H5. `MethodInfo` 32 → about 20 B** — open. `code_offset` and `code_len` as `u16`, the
   exception table as an (offset, count) pair into flash instead of a `Vec` per method.
   −12 KB here, −40 KB in the simulator.
-- **H6. Static field store keyed by (class index, field index)** — open. 24 → 12 B per
-  entry, no doubling `Vec`, no name compare on every `getstatic`. −4 KB, and the same bytes
-  on both targets. `jvm/src/static_fields.rs`.
+- **H6. Static field store keyed by (class index, field index)** — **closed 2026-09-26**
+  (M8.3): a slot is one 16 B `Value` on both targets (the entry was 32 B on the device, 48 on
+  the host, with a name compare on every miss), plus 2 B per class and an initialised bit;
+  growth is fallible. A `getstatic` now resolves to the *declaring* class per JVMS §5.4.3.2,
+  which also fixed `Sub.X` reading `Null` for an `X` declared on `Super`. `jvm/src/static_fields.rs`.
 - **H7. Dispatch memos of 16 rows for `JvmChild` and `BgWorker` handlers** — **closed
   2026-09-25**: `PicodroidNativeHandler::for_worker()` builds the Java-thread and pool-worker
   handlers with `WORKER_ROWS = 16` (the main handler keeps 64). −4.6 KB with four workers and

@@ -43,8 +43,9 @@ static CLASS_CLINIT_BASIC: &[u8] = &[
     0x01, 0x00, 0x01, b'm', // #13 Utf8 "()I"
     0x01, 0x00, 0x03, b'(', b')', b'I',
     // access_flags=0x0001 (public), this_class=#1, super_class=#3
-    0x00, 0x01, 0x00, 0x01, 0x00, 0x03, // interfaces_count=0, fields_count=0
-    0x00, 0x00, 0x00, 0x00, // methods_count=2
+    0x00, 0x01, 0x00, 0x01, 0x00, 0x03, // interfaces_count=0, fields_count=1
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x09, 0x00, 0x0A, 0x00, 0x0B, 0x00, 0x00, /* static x:I */
+    // methods_count=2
     0x00, 0x02,
     // --- Method 0: <clinit>()V ---
     // access=0x0008 (static), name=#5, desc=#6, attrs=1
@@ -110,8 +111,9 @@ static CLASS_CLINIT_RUNS_ONCE: &[u8] = &[
     0x01, 0x00, 0x01, b'm', // #13 Utf8 "()I"
     0x01, 0x00, 0x03, b'(', b')', b'I',
     // access_flags=0x0001, this_class=#1, super_class=#3
-    0x00, 0x01, 0x00, 0x01, 0x00, 0x03, // interfaces_count=0, fields_count=0
-    0x00, 0x00, 0x00, 0x00, // methods_count=2
+    0x00, 0x01, 0x00, 0x01, 0x00, 0x03, // interfaces_count=0, fields_count=1
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x09, 0x00, 0x0A, 0x00, 0x0B, 0x00, 0x00, /* static x:I */
+    // methods_count=2
     0x00, 0x02,
     // --- Method 0: <clinit>()V ---
     // access=0x0008, name=#5, desc=#6, attrs=1
@@ -172,8 +174,9 @@ pub(super) static CLASS_E: &[u8] = &[
     0x01, 0x00, 0x03, b'g', b'e', b't', // #13 Utf8 "()I"
     0x01, 0x00, 0x03, b'(', b')', b'I',
     // access_flags=0x0001, this_class=#1, super_class=#3
-    0x00, 0x01, 0x00, 0x01, 0x00, 0x03, // interfaces_count=0, fields_count=0
-    0x00, 0x00, 0x00, 0x00, // methods_count=2
+    0x00, 0x01, 0x00, 0x01, 0x00, 0x03, // interfaces_count=0, fields_count=1
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x09, 0x00, 0x0A, 0x00, 0x0B, 0x00, 0x00, /* static val:I */
+    // methods_count=2
     0x00, 0x02, // --- Method 0: <clinit>()V ---
     0x00, 0x08, 0x00, 0x05, 0x00, 0x06, 0x00, 0x01, // Code attr: name=#7, length=18
     0x00, 0x07, 0x00, 0x00, 0x00, 0x12, // max_stack=1, max_locals=0, code_length=6
@@ -362,8 +365,10 @@ static CLASS_CLINIT_THROWS: &[u8] = &[
     0x0A, 0x00, 0x0E, 0x00, 0x11, // #17 NameAndType -> #18, #6
     0x0C, 0x00, 0x12, 0x00, 0x06, // #18 Utf8 "<init>"
     0x01, 0x00, 0x06, b'<', b'i', b'n', b'i', b't', b'>',
-    // access=0x0001, this=#1, super=#3, interfaces=0, fields=0
-    0x00, 0x01, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, // methods_count=2
+    // access=0x0001, this=#1, super=#3, interfaces=0, fields=1
+    0x00, 0x01, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0x00, 0x09, 0x00, 0x0A, 0x00, 0x0B,
+    0x00, 0x00, /* static x:I */
+    // methods_count=2
     0x00, 0x02, // --- Method 0: <clinit>()V — throws RuntimeException ---
     0x00, 0x08, 0x00, 0x05, 0x00, 0x06, 0x00, 0x01,
     // Code attr: name=#7, length=20 (2+2+4+8+2+2)
@@ -412,8 +417,10 @@ static CLASS_CLINIT_THROWS_CAUGHT: &[u8] = &[
     0x01, 0x00, 0x06, b'<', b'i', b'n', b'i', b't', b'>', // #19 Class -> #20
     0x07, 0x00, 0x14, // #20 Utf8 "java/lang/Error"
     0x01, 0x00, 0x0F, b'j', b'a', b'v', b'a', b'/', b'l', b'a', b'n', b'g', b'/', b'E', b'r', b'r',
-    b'o', b'r', // access=0x0001, this=#1, super=#3, interfaces=0, fields=0
-    0x00, 0x01, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, // methods_count=2
+    b'o', b'r', // access=0x0001, this=#1, super=#3, interfaces=0, fields=1
+    0x00, 0x01, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0x00, 0x09, 0x00, 0x0A, 0x00, 0x0B,
+    0x00, 0x00, /* static x:I */
+    // methods_count=2
     0x00, 0x02, // --- Method 0: <clinit>()V — throws RuntimeException ---
     0x00, 0x08, 0x00, 0x05, 0x00, 0x06, 0x00, 0x01, // Code attr: name=#7, length=20
     0x00, 0x07, 0x00, 0x00, 0x00, 0x14, // max_stack=2, max_locals=0, code_length=8
@@ -508,4 +515,178 @@ fn clinit_throw_eiie_caught_by_error_handler() {
         objects.class_name(cause),
         Some(c::java_lang_RuntimeException)
     );
+}
+
+// ── M8: statics keyed by the declaring class (JVMS §5.4.3.2, §5.5) ────────
+//
+// The store used to key a static by the name the `Fieldref` spelled, so
+// `Sub.X` for an `X` declared on `Super` read a slot nobody had written
+// (`Null`), and the CP-named class was initialised in place of the
+// declaring one. Hand-assembled hierarchies pin the resolved behaviour.
+mod declaring_class {
+    use super::super::asm::{Asm, Method, ACC_INTERFACE};
+    use super::*;
+
+    fn hi(i: u16) -> u8 {
+        (i >> 8) as u8
+    }
+    fn lo(i: u16) -> u8 {
+        i as u8
+    }
+
+    /// A class or interface with one `static int <field>` set by its
+    /// `<clinit>` to `value`.
+    fn with_static(access: u16, name: &str, sup: &str, field: &str, value: u8) -> &'static [u8] {
+        let mut a = Asm::new();
+        let this = a.class(name);
+        let sup = a.class(sup);
+        a.static_field(field, "I");
+        let f = a.fieldref(this, field, "I");
+        let code = [0x10, value, 0xB3, hi(f), lo(f), 0xB1]; // bipush v; putstatic; return
+        a.finish_methods(
+            access,
+            this,
+            sup,
+            &[],
+            &[Method {
+                access: 0x0008,
+                name: "<clinit>",
+                desc: "()V",
+                max_stack: 1,
+                max_locals: 0,
+                code: &code,
+                exc: &[],
+            }],
+        )
+    }
+
+    /// `class Impl implements <iface>` with no members of its own.
+    fn implementing(name: &str, iface: &str) -> &'static [u8] {
+        let mut a = Asm::new();
+        let this = a.class(name);
+        let obj = a.class(c::java_lang_Object);
+        let i = a.class(iface);
+        a.finish(0x0001, this, obj, &[i], None)
+    }
+
+    /// `static int m() { return <class>.<field>; }`
+    fn caller_get(class: &str, field: &str) -> &'static [u8] {
+        let mut a = Asm::new();
+        let this = a.class("Caller");
+        let obj = a.class(c::java_lang_Object);
+        let target = a.class(class);
+        let f = a.fieldref(target, field, "I");
+        let code = [0xB2, hi(f), lo(f), 0xAC]; // getstatic; ireturn
+        a.finish(0x0001, this, obj, &[], Some((1, &code, &[])))
+    }
+
+    /// `static int m() { <put_class>.X = 9; return <get_class>.X; }`
+    fn caller_put_then_get(put_class: &str, get_class: &str) -> &'static [u8] {
+        let mut a = Asm::new();
+        let this = a.class("Caller");
+        let obj = a.class(c::java_lang_Object);
+        let pc = a.class(put_class);
+        let put = a.fieldref(pc, "X", "I");
+        let gc = a.class(get_class);
+        let get = a.fieldref(gc, "X", "I");
+        let code = [
+            0x10,
+            9,
+            0xB3,
+            hi(put),
+            lo(put), // bipush 9; putstatic put_class.X
+            0xB2,
+            hi(get),
+            lo(get),
+            0xAC, // getstatic get_class.X; ireturn
+        ];
+        a.finish(0x0001, this, obj, &[], Some((1, &code, &[])))
+    }
+
+    /// Run method 0 of the last class and hand back the static store.
+    fn run_last(
+        classes_data: &[&'static [u8]],
+    ) -> (Result<Option<Value>, JvmError>, StaticFieldStore) {
+        let classes: Vec<ClassFile> = classes_data
+            .iter()
+            .map(|d| ClassFile::parse(spelled(d)).expect("parse failed"))
+            .collect();
+        let mut strings = StringTable::new();
+        let mut objects = ObjectHeap::new();
+        let mut arrays = crate::array_heap::ArrayHeap::new();
+        let mut statics = StaticFieldStore::new();
+        let mut gc_state = GcState::new();
+        let mut handler = NoopHandler;
+        let r = execute(
+            &classes,
+            &mut strings,
+            &mut objects,
+            &mut arrays,
+            &mut statics,
+            &mut gc_state,
+            &mut crate::class_objects::ClassObjectCache::new(),
+            &mut handler,
+            classes.len() - 1,
+            0,
+            &[],
+        );
+        (r, statics)
+    }
+
+    #[test]
+    fn getstatic_through_subclass_reads_the_superclass_static() {
+        let sup = with_static(0x0001, "Super", c::java_lang_Object, "X", 7);
+        let sub = with_static(0x0001, "Sub", "Super", "F", 1);
+        let (r, _) = run_last(&[sup, sub, caller_get("Sub", "X")]);
+        assert_eq!(r.unwrap(), Some(Value::Int(7)));
+    }
+
+    #[test]
+    fn getstatic_through_subclass_initialises_only_the_declaring_class() {
+        let sup = with_static(0x0001, "Super", c::java_lang_Object, "X", 7);
+        let sub = with_static(0x0001, "Sub", "Super", "F", 1);
+        let (r, statics) = run_last(&[sup, sub, caller_get("Sub", "X")]);
+        assert_eq!(r.unwrap(), Some(Value::Int(7)));
+        assert!(statics.is_initialized(0), "Super ran");
+        assert!(
+            !statics.is_initialized(1),
+            "Sub.X names Super's field: Sub's <clinit> must not run (JLS §12.4.1)"
+        );
+        assert!(
+            statics.slot(1, 0).is_none(),
+            "Sub's statics are not even prepared"
+        );
+    }
+
+    #[test]
+    fn putstatic_through_subclass_writes_the_declaring_slot() {
+        let sup = with_static(0x0001, "Super", c::java_lang_Object, "X", 7);
+        let sub = with_static(0x0001, "Sub", "Super", "F", 1);
+        let (r, statics) = run_last(&[sup, sub, caller_put_then_get("Sub", "Super")]);
+        assert_eq!(r.unwrap(), Some(Value::Int(9)));
+        // One slot for Super.X; Sub was never prepared (no phantom entry).
+        assert_eq!(statics.len(), 1);
+        assert_eq!(
+            statics.get_by_index(statics.slot(0, 0).unwrap()),
+            Value::Int(9)
+        );
+    }
+
+    #[test]
+    fn getstatic_interface_constant_through_implementing_class() {
+        let iface = with_static(ACC_INTERFACE, "I", c::java_lang_Object, "K", 5);
+        let imp = implementing("Impl", "I");
+        let (r, statics) = run_last(&[iface, imp, caller_get("Impl", "K")]);
+        assert_eq!(r.unwrap(), Some(Value::Int(5)));
+        assert!(statics.is_initialized(0), "I's <clinit> ran");
+        assert!(!statics.is_initialized(1), "Impl was not initialised");
+    }
+
+    #[test]
+    fn getstatic_of_a_field_no_class_declares_reads_null() {
+        let sup = with_static(0x0001, "Super", c::java_lang_Object, "X", 7);
+        let (r, statics) = run_last(&[sup, caller_get("Super", "nope")]);
+        assert_eq!(r.unwrap(), Some(Value::Null));
+        assert!(!statics.is_initialized(0), "nothing resolved, nothing ran");
+    }
 }

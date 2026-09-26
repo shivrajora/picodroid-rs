@@ -90,7 +90,8 @@ fn collect_now_prunes_native_state_with_the_sweep_result() {
     let mut heap = crate::SharedJvmHeap::new();
     let dead = heap.objects.alloc("Garbage").unwrap();
     let kept = heap.objects.alloc("Kept").unwrap();
-    heap.statics.set(b"K", b"f", Value::ObjectRef(kept));
+    let slot = heap.statics.prepare(0, 1).unwrap() as usize;
+    heap.statics.set_by_index(slot, Value::ObjectRef(kept));
     heap.gc_state.need_gc = true;
 
     let mut handler = Recorder {

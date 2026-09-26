@@ -419,16 +419,13 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 }
             }
             LambdaTarget::Ctor {
-                class,
-                class_bytes,
-                init,
-                desc,
+                class, init, desc, ..
             } => match init {
                 Some((ci, mi)) => {
                     // `op_invoke` initialises the class before coming here;
                     // an upcall cannot re-execute, so it refuses instead of
                     // constructing an uninitialised class.
-                    if !self.statics.is_initialized(class_bytes) {
+                    if !self.statics.is_initialized(ci) {
                         return Err(JvmError::UnsupportedInvokeDynamic(
                             "constructor reference to an uninitialised class from a native upcall",
                         ));

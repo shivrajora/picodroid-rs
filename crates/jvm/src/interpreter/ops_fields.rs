@@ -30,9 +30,27 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 {
                     Some(idx) => self.statics.get_by_index(idx),
                     None => {
+                        // JVMS §5.4.3.2: the field lives on the class that
+                        // declares it, which may be a superclass or a
+                        // superinterface of the one the `Fieldref` names; a
+                        // field no class file declares reads `Null`.
                         #[cfg(feature = "parity-metrics")]
                         let t0 = self.handler.clock_nanos();
-                        let pending = self.ensure_class_initialized(class_name)?;
+                        let resolved =
+                            helpers::resolve_static_field(self.classes, class_name, field_name);
+                        #[cfg(feature = "parity-metrics")]
+                        crate::parity::count_resolve_time(
+                            self.handler.clock_nanos().saturating_sub(t0),
+                        );
+                        let Some((dci, fi)) = resolved else {
+                            frame.push(Value::Null)?;
+                            return Ok(());
+                        };
+                        // JVMS §5.5: `getstatic` initialises the declaring
+                        // class (and, through it, its superclasses).
+                        #[cfg(feature = "parity-metrics")]
+                        let t0 = self.handler.clock_nanos();
+                        let pending = self.ensure_class_initialized_at(dci)?;
                         #[cfg(feature = "parity-metrics")]
                         crate::parity::count_clinit_time(
                             self.handler.clock_nanos().saturating_sub(t0),
@@ -41,19 +59,14 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                             frame.pc = frame.inst_pc;
                             return Ok(());
                         }
-                        #[cfg(feature = "parity-metrics")]
-                        let t0 = self.handler.clock_nanos();
-                        let value = self.statics.get(class_name, field_name);
-                        if let Some(idx) = self.statics.find_index(class_name, field_name) {
-                            self.class_objects
-                                .resolve
-                                .insert_static(class_name, field_name, idx);
-                        }
-                        #[cfg(feature = "parity-metrics")]
-                        crate::parity::count_resolve_time(
-                            self.handler.clock_nanos().saturating_sub(t0),
-                        );
-                        value
+                        let idx = self
+                            .statics
+                            .slot(dci, fi)
+                            .ok_or(JvmError::InvalidBytecode)?;
+                        self.class_objects
+                            .resolve
+                            .insert_static(class_name, field_name, idx);
+                        self.statics.get_by_index(idx)
                     }
                 };
                 frame.push(value)?;
@@ -78,7 +91,21 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                     None => {
                         #[cfg(feature = "parity-metrics")]
                         let t0 = self.handler.clock_nanos();
-                        let pending = self.ensure_class_initialized(class_name)?;
+                        let resolved =
+                            helpers::resolve_static_field(self.classes, class_name, field_name);
+                        #[cfg(feature = "parity-metrics")]
+                        crate::parity::count_resolve_time(
+                            self.handler.clock_nanos().saturating_sub(t0),
+                        );
+                        let Some((dci, fi)) = resolved else {
+                            // No class file declares it: nothing can read
+                            // it back, so the value is dropped.
+                            frame.pop()?;
+                            return Ok(());
+                        };
+                        #[cfg(feature = "parity-metrics")]
+                        let t0 = self.handler.clock_nanos();
+                        let pending = self.ensure_class_initialized_at(dci)?;
                         #[cfg(feature = "parity-metrics")]
                         crate::parity::count_clinit_time(
                             self.handler.clock_nanos().saturating_sub(t0),
@@ -88,20 +115,14 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                             return Ok(());
                         }
                         let value = frame.pop()?;
-                        #[cfg(feature = "parity-metrics")]
-                        let t0 = self.handler.clock_nanos();
-                        self.statics
-                            .set(class_name, field_name, value)
-                            .ok_or(JvmError::StackOverflow)?;
-                        if let Some(idx) = self.statics.find_index(class_name, field_name) {
-                            self.class_objects
-                                .resolve
-                                .insert_static(class_name, field_name, idx);
-                        }
-                        #[cfg(feature = "parity-metrics")]
-                        crate::parity::count_resolve_time(
-                            self.handler.clock_nanos().saturating_sub(t0),
-                        );
+                        let idx = self
+                            .statics
+                            .slot(dci, fi)
+                            .ok_or(JvmError::InvalidBytecode)?;
+                        self.class_objects
+                            .resolve
+                            .insert_static(class_name, field_name, idx);
+                        self.statics.set_by_index(idx, value);
                     }
                 }
             }

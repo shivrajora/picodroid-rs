@@ -195,7 +195,8 @@ fn gc_retains_object_via_static_field() {
     let mut statics = StaticFieldStore::new();
 
     let idx = objects.alloc("StaticRef").unwrap();
-    statics.set(b"MyClass", b"field", Value::ObjectRef(idx));
+    let slot = statics.prepare(0, 1).unwrap() as usize;
+    statics.set_by_index(slot, Value::ObjectRef(idx));
 
     let frames = [];
     let freed = collect(

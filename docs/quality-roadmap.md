@@ -431,9 +431,9 @@ reserve first. **Tradeoff:** a degraded Throwable loses its message or cause exa
 app is out of memory, which is when a developer most wants it, but that beats a reset.
 
 The scan covers only `object_heap/`. Other long-lived JVM tables still push infallibly, but
-they grow per class or per nesting level, not per object: `StaticFieldStore`'s `initialized`
-and `entries`, `ClassObjectCache::entries`, and `GcState`'s `parked_frames` and
-`shadow_roots`. The two synthesized exception messages (the `<clinit>` wrapper's, and
+they grow per class or per nesting level, not per object: `ClassObjectCache::entries`, and
+`GcState`'s `parked_frames` and `shadow_roots` (`StaticFieldStore` grows fallibly since M8,
+2026-09-26: `prepare` and `mark_initialized` refuse instead of pushing). The two synthesized exception messages (the `<clinit>` wrapper's, and
 `Enum.valueOf`'s "No enum constant") are built in a `Vec::with_capacity` on the same throw
 path.
 

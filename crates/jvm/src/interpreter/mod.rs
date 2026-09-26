@@ -221,40 +221,52 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         &mut self,
         class_name: &'static [u8],
     ) -> Result<bool, JvmError> {
-        if self.statics.is_initialized(class_name) {
+        // A name with no class file — a builtin, or a class this board's
+        // framework excludes — has no statics to prepare and no `<clinit>`
+        // to run: it counts as initialised.
+        match crate::class_file::find_class(self.classes, class_name) {
+            Some(ci) => self.ensure_class_initialized_at(ci),
+            None => Ok(false),
+        }
+    }
+
+    /// [`Self::ensure_class_initialized`] for a class the set holds, by
+    /// index — the key the static store and the initialised bitset use.
+    pub(crate) fn ensure_class_initialized_at(&mut self, ci: usize) -> Result<bool, JvmError> {
+        if self.statics.is_initialized(ci) {
             return Ok(false);
         }
 
-        // Build superclass chain, root-first: [Object, ..., Parent, class_name]
-        let chain = helpers::superclass_chain(self.classes, class_name);
+        // Superclass chain, root-first: [Object, ..., Parent, ci]
+        let chain = helpers::superclass_chain_indices(self.classes, ci);
 
         let mut clinit_frames: Vec<Frame> = Vec::new();
-        for &cn in &chain {
-            if self.statics.is_initialized(cn) {
+        for &c in &chain {
+            if self.statics.is_initialized(c) {
                 continue;
             }
             // Mark immediately to prevent re-entrant clinit.
-            self.statics.mark_initialized(cn);
+            self.statics
+                .mark_initialized(c)
+                .ok_or(JvmError::StackOverflow)?;
             // JVMS §5.5 step 2: preparation — every static field gets its
             // typed default before `<clinit>` runs.  Putstatic in `<clinit>`
             // then overwrites these with any explicit initializers.
-            if let Some(cf) =
-                crate::class_file::find_class(self.classes, cn).map(|i| &self.classes[i])
-            {
-                for fi in cf.static_fields() {
-                    if let (Some(name), Some(desc)) =
-                        (cf.cp_utf8(fi.name_index), cf.field_descriptor(fi))
-                    {
-                        self.statics
-                            .set(cn, name, crate::types::default_for_descriptor(desc))
-                            .ok_or(JvmError::StackOverflow)?;
-                    }
+            let cf = &self.classes[c];
+            let base = self
+                .statics
+                .prepare(c, cf.static_fields().len())
+                .ok_or(JvmError::StackOverflow)? as usize;
+            for (fi, f) in cf.static_fields().iter().enumerate() {
+                if let Some(desc) = cf.field_descriptor(f) {
+                    self.statics
+                        .set_by_index(base + fi, crate::types::default_for_descriptor(desc));
                 }
             }
-            if let Some((ci, mi)) = helpers::find_clinit(self.classes, cn) {
-                if self.classes[ci].methods()[mi].code_offset != 0 {
-                    let cm = &self.classes[ci].methods()[mi];
-                    let f = Frame::new(ci, mi, &[], cm.max_locals, cm.max_stack)?;
+            if let Some(mi) = helpers::find_clinit_in(cf) {
+                let cm = &cf.methods()[mi];
+                if cm.code_offset != 0 {
+                    let f = Frame::new(c, mi, &[], cm.max_locals, cm.max_stack)?;
                     clinit_frames
                         .try_reserve(1)
                         .map_err(|_| JvmError::StackOverflow)?;
@@ -569,8 +581,10 @@ pub fn execute<H: NativeMethodHandler>(
     args: &[Value],
 ) -> Result<Option<Value>, JvmError> {
     // The resolution tables hold indices into `classes`; bind them to this
-    // slice (a new app's table empties them).
+    // slice (a new app's table empties them). The static store's per-class
+    // tables are sized to the set once, here, rather than on first use.
     class_objects.resolve.sync(classes);
+    let _ = statics.reserve_classes(classes.len());
     let m = &classes[class_idx].methods()[method_idx];
     let initial_frame = Frame::new(class_idx, method_idx, args, m.max_locals, m.max_stack)?;
     let mut frames: Vec<Frame> = Vec::new();

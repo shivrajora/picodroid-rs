@@ -171,9 +171,10 @@ static CLASS_STATIC_ROUNDTRIP: &[u8] = &[
     0x0C, 0x00, 0x0A, 0x00, 0x0B, // #10 Utf8 "counter" (7)
     0x01, 0x00, 0x07, b'c', b'o', b'u', b'n', b't', b'e', b'r', // #11 Utf8 "I" (1)
     0x01, 0x00, 0x01, b'I', // access_flags=1, this_class=#1, super_class=#3
-    0x00, 0x01, 0x00, 0x01, 0x00, 0x03, // interfaces=0, fields=0, methods=1
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
-    // method: access=0x0008 (static), name=#5, desc=#6, attrs=1
+    0x00, 0x01, 0x00, 0x01, 0x00, 0x03, // interfaces=0, fields=1, methods=1
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x09, 0x00, 0x0A, 0x00, 0x0B, 0x00,
+    0x00, /* static counter:I */
+    0x00, 0x01, // method: access=0x0008 (static), name=#5, desc=#6, attrs=1
     0x00, 0x08, 0x00, 0x05, 0x00, 0x06, 0x00, 0x01,
     // Code attr: name=#7, attr_length=21 (2+2+4+9 bytecode+2+2)
     0x00, 0x07, 0x00, 0x00, 0x00, 0x15, // max_stack=1, max_locals=0, code_length=9
@@ -236,7 +237,8 @@ fn getstatic_unset_field_returns_null() {
     // A getstatic for a field that has never been written returns Null.
     // We test this by directly querying the StaticFieldStore.
     let store = StaticFieldStore::new();
-    assert_eq!(store.get(b"S", b"counter"), Value::Null);
+    assert!(store.slot(0, 0).is_none());
+    assert_eq!(store.get_by_index(0), Value::Null);
 }
 
 #[test]
@@ -272,6 +274,8 @@ fn putstatic_persists_across_two_execute_calls() {
     );
     assert_eq!(r1.unwrap(), Some(Value::Int(99)));
 
-    // After first execution the store holds S.counter = 99.
-    assert_eq!(statics.get(b"S", b"counter"), Value::Int(99));
+    // After first execution the store holds S.counter = 99: class 0's
+    // first (only) static.
+    let slot = statics.slot(0, 0).expect("S prepared");
+    assert_eq!(statics.get_by_index(slot), Value::Int(99));
 }

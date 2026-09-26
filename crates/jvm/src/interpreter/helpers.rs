@@ -853,39 +853,70 @@ pub(super) fn value_is_instance(
     }
 }
 
-/// Find the `<clinit>` method in the given class (by raw class name bytes).
-pub(super) fn find_clinit(classes: &[ClassFile], class_name: &[u8]) -> Option<(usize, usize)> {
-    for (ci, cf) in classes.iter().enumerate() {
-        if cf.class_name() != Some(class_name) {
-            continue;
-        }
-        for (mi, m) in cf.methods().iter().enumerate() {
-            if let Some(mn) = cf.cp_utf8(m.name_index) {
-                if mn == b"<clinit>" {
-                    return Some((ci, mi));
-                }
-            }
-        }
-    }
-    None
+/// Index of the `<clinit>` method in `cf`'s own method table.
+pub(super) fn find_clinit_in(cf: &ClassFile) -> Option<usize> {
+    cf.methods()
+        .iter()
+        .position(|m| cf.cp_utf8(m.name_index) == Some(b"<clinit>"))
 }
 
-/// Build the superclass chain for `class_name`, root-first.
-/// Only includes classes present in the loaded `classes` set.
-pub(super) fn superclass_chain(classes: &[ClassFile], class_name: &[u8]) -> Vec<&'static [u8]> {
-    let mut chain: Vec<&'static [u8]> = Vec::new();
-    // Find the Flash-backed &'static [u8] for the initial class name.
-    let mut current: Option<&'static [u8]> =
-        find_class(classes, class_name).and_then(|i| classes[i].class_name());
-    while let Some(name) = current {
-        chain.push(name);
-        let super_name = find_class(classes, name).and_then(|i| classes[i].super_class_name());
-        // Only follow superclasses that are in our loaded class set.
-        current =
-            super_name.and_then(|sn| find_class(classes, sn).and_then(|i| classes[i].class_name()));
+/// The superclass chain of class `ci`, root-first, as class indices. Only
+/// classes present in the loaded set are included; the chain ends where
+/// a superclass has no class file.
+pub(super) fn superclass_chain_indices(classes: &[ClassFile], ci: usize) -> Vec<usize> {
+    let mut chain: Vec<usize> = Vec::new();
+    let mut current = Some(ci);
+    while let Some(i) = current {
+        chain.push(i);
+        current = classes[i]
+            .super_class_name()
+            .and_then(|sn| find_class(classes, sn));
     }
     chain.reverse(); // root-first
     chain
+}
+
+/// JVMS §5.4.3.2 field resolution for a static: the class named by the
+/// `Fieldref`, then its superinterfaces (breadth-first, transitively), then
+/// its superclass, repeated up the chain. Returns the *declaring* class
+/// index and the field's position in that class's own static-field table,
+/// which is the store's key. `None` when the named class has no class
+/// file, or nothing on the chain declares the field.
+pub(super) fn resolve_static_field(
+    classes: &[ClassFile],
+    class_name: &[u8],
+    field_name: &[u8],
+) -> Option<(usize, usize)> {
+    fn declared_in(cf: &ClassFile, field_name: &[u8]) -> Option<usize> {
+        cf.static_fields().iter().position(|f| {
+            cf.cp_utf8(f.name_index)
+                .is_some_and(|n| name_eq(n, field_name))
+        })
+    }
+    let mut current = find_class(classes, class_name)?;
+    let mut queue: Vec<&'static [u8]> = Vec::new();
+    loop {
+        let cf = &classes[current];
+        if let Some(fi) = declared_in(cf, field_name) {
+            return Some((current, fi));
+        }
+        // Superinterfaces of this class, then theirs (bounded, deduplicated).
+        push_interfaces(&mut queue, cf);
+        let mut i = 0;
+        while i < queue.len() {
+            let name = queue[i];
+            i += 1;
+            let Some(ici) = find_class(classes, name) else {
+                continue;
+            };
+            let icf = &classes[ici];
+            if let Some(fi) = declared_in(icf, field_name) {
+                return Some((ici, fi));
+            }
+            push_interfaces(&mut queue, icf);
+        }
+        current = find_class(classes, cf.super_class_name()?)?;
+    }
 }
 
 /// JVMS §5.4.3.3 method resolution: find a method starting from `start_class`, walking up the

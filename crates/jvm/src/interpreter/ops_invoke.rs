@@ -942,7 +942,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         };
         let cf = &self.classes[ci];
         let cn: &'static [u8] = cf.class_name().ok_or(JvmError::InvalidBytecode)?;
-        for field in cf.static_fields() {
+        for (fi, field) in cf.static_fields().iter().enumerate() {
             let Some(desc) = cf.cp_utf8(field.descriptor_index) else {
                 continue;
             };
@@ -954,10 +954,10 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             if !own_type {
                 continue;
             }
-            let Some(field_name) = cf.cp_utf8(field.name_index) else {
+            let Some(idx) = self.statics.slot(ci, fi) else {
                 continue;
             };
-            let constant = self.statics.get(cn, field_name);
+            let constant = self.statics.get_by_index(idx);
             if let Value::ObjectRef(obj) = constant {
                 if let Some(Value::Reference(n)) = self.objects.get_field(obj, 0) {
                     if self.strings.content_eq(n, wanted) {
