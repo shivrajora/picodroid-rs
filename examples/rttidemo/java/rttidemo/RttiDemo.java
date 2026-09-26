@@ -240,7 +240,11 @@ public class RttiDemo extends Application {
     check("identity hashCode stable", p.hashCode() == q.hashCode());
     check("identity hashCode differs", p.hashCode() != new Plain().hashCode());
     String s = p.toString();
-    check("identity toString shape", s.startsWith("rttidemo.RttiDemo$Plain@"));
+    // --shrink-app renames the app's own classes ("c.K"), as in examples/classlit.
+    check(
+        "identity toString shape",
+        s.startsWith("rttidemo.RttiDemo$Plain@")
+            || (s.startsWith("c.") && s.indexOf('/') < 0 && s.indexOf('@') > 2));
     Object arr = new int[2];
     Object same = arr;
     Object other = new int[2];

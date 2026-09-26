@@ -910,9 +910,13 @@ public class QaOop extends Application {
     check("default equals is identity", n1.equals(n1Again) && !n1.equals(n2));
     check("default hashCode stable", n1.hashCode() == n1Again.hashCode());
     String ts = n1.toString();
+    // --shrink-app renames the app's own classes (ProGuard semantics: "c.K"),
+    // so accept a dot-form synthetic name too, as examples/classlit does.
     check(
         "default toString has class name",
-        ts.startsWith("qa_oop.QaOop$NoOverrides@") || ts.startsWith("qa_oop.QaOop.NoOverrides@"));
+        ts.startsWith("qa_oop.QaOop$NoOverrides@")
+            || ts.startsWith("qa_oop.QaOop.NoOverrides@")
+            || (ts.startsWith("c.") && ts.indexOf('/') < 0 && ts.indexOf('@') > 2));
     // Comparable with stable sort over a larger input
     ArrayList<Ver> vers = new ArrayList<>();
     for (int i = 0; i < 60; i++) {
