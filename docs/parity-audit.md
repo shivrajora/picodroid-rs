@@ -690,20 +690,30 @@ term), with three departures from the sketch below, each recorded where it appli
   stays on both sides so a widget mix that drifts from the ratio shows. (b), the 32-bit lane,
   stays deferred. `29d8a0cb`
 
-Measured with the audit's own instruments — claudeusage on pico_display2_w in the simulator,
-History page after the first sync, `PICODROID_MEMDIAG_SITES=1` + `heapcensus` — beside the
-2026-09-24 figures above (the device column on the 26th is the model, the board being leased;
-re-measure both with the recipe above when it is free):
+Measured with the audit's own instruments — claudeusage on pico_display2_w, History page
+after the first sync; in the simulator `PICODROID_MEMDIAG_SITES=1` + `heapcensus`, on the
+board a `mem-diag` firmware's `memmon:` line over RTT — beside the 2026-09-24 figures above.
+The 26th's column is main `4b6a17dc` on both sides (the M8–M10 merge, plus G4's charts and
+the bridge discovery, which is why it parses 86 classes to the 24th's 73); the device
+per-term figures are the model, which `class_metadata_tests` and the `const` asserts pin to
+the device layout, and the arena total and the LVGL pool are the board's own reading:
 
-| term | 2026-09-24 sim / device | 2026-09-26 sim / device model |
+| term | 2026-09-24 sim / device | 2026-09-26 sim / device |
 |---|---|---|
-| parsed class metadata | 161 KB / 94 KB, 73 classes | 51.3 KB / 50.7 KB, 74 classes — the gap is 74 fat pointers, 592 B |
-| class table, 227 entries | 10.8 KB / 4.5 KB | 7.3 KB / 4.6 KB |
-| static field store | 14 KB / 7 KB | 4.4 KB / 4.4 KB |
+| parsed class metadata | 161 KB / 94 KB, 73 classes | 57.4 KB / 56.7 KB, 86 classes — the gap is 86 fat pointers, 688 B |
+| class table, 236 entries | 10.8 KB / 4.5 KB, 227 entries | 7.5 KB / 4.7 KB |
+| static field store | 14 KB / 7 KB | 4.8 KB / 4.8 KB |
 | dispatch memos | 10.8 KB / 5.4 KB, 7 handlers | 1.5 KB / 1.5 KB, 5 handlers (two pool workers since H9) |
 | resolution tables | 13.8 KB / 16.1 KB | 12.3 KB / 12.3 KB |
-| LVGL pool, History | 23.8 of 43.0 KB (55 %) / 15.1 of 46.0 (33 %) | 23.8 of 72.2 KB (33 %) / unchanged |
-| arena total | 399 KB / 320 KB | 247 KB / — |
+| LVGL pool, History | 23.8 of 43.0 KB (55 %) / 15.1 of 46.0 (33 %) | 19.1 of 71.4 KB (27 %) / 12.3 of 45.3 KB (27 %), measured |
+| arena total | 399 KB of 408 / 320 KB of 408 | 259 KB of 408 / 243 KB of 372, measured |
+
+The simulator charges 16 KB more than the board for the screen where it charged 79 KB more.
+What is known of the 16: the class table entry (32 B against 20, 2.8 KB), the fat pointer on
+each parsed record (0.7 KB), a `Vec`/`Box` header on each of about 390 live blocks (12 B each,
+up to 4.7 KB), and M9's modelled network stack against the device's real one, which the
+pending calibration below will settle. The page-by-page figures for both targets are in the
+roadmap's G11 (docs/designs/claudeusage-gaps-roadmap-2026-09.md).
 
 The arena total also carries what else moved between the two dates — two pool workers, the
 LittleFS caches, the RAM-resident loop's arena cut, the IP task now charged — so it is not M8's
