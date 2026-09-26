@@ -194,3 +194,7 @@ mod net_fields_tests;
 // moves — nothing but this test would notice.
 #[cfg(test)]
 mod native_field_tables_tests;
+// The parsed-metadata model over the embedded framework classes: host and
+// device differ by one fat pointer per class (M8, docs/parity-audit.md).
+#[cfg(test)]
+mod class_metadata_tests;

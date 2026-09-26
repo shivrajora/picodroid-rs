@@ -131,8 +131,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
 
         // 3. Get the BootstrapMethod entry
         let bsm = cf
-            .bootstrap_methods()
-            .get(bsm_idx as usize)
+            .bootstrap_method(bsm_idx)
             .ok_or(JvmError::InvalidBytecode)?;
 
         // 4. The only bootstraps this JVM implements are LambdaMetafactory's
@@ -154,7 +153,9 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             let owner = core::str::from_utf8(bsm_owner).unwrap_or("?");
             return Err(JvmError::UnsupportedInvokeDynamic(owner));
         }
-        let impl_method_cp = *bsm.arguments.get(1).ok_or(JvmError::InvalidBytecode)?;
+        let impl_method_cp = cf
+            .bootstrap_argument(&bsm, 1)
+            .ok_or(JvmError::InvalidBytecode)?;
         let (ref_kind, ref_idx) = cf
             .cp_method_handle(impl_method_cp)
             .ok_or(JvmError::InvalidBytecode)?;

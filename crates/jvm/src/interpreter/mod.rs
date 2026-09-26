@@ -286,7 +286,7 @@ fn find_exception_handler(
     classes: &[ClassFile],
 ) -> Option<usize> {
     let exception_class = objects.class_name(obj_idx)?;
-    for entry in &method.exception_table {
+    for entry in cf.exception_table(method) {
         let start = entry.start_pc as usize;
         let end = entry.end_pc as usize;
         if inst_pc >= start && inst_pc < end {

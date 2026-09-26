@@ -451,7 +451,7 @@ fn print_census(jvm: &pico_jvm::Jvm, heap: &SharedJvmHeap) {
     // the price of an import, visible (docs/memory-diagnostics.md).
     let (hp, dp) = jvm.parsed_metadata_parts();
     println!(
-        "[memmon] census classmeta parts host/dev: box={}/{} cp_off={}/{} cp_tag={}/{} methods={}/{} fields={}/{} statics={}/{} ifaces={}/{} bsm={}/{} exc={}/{} (MethodInfo {}B host, 32B dev)",
+        "[memmon] census classmeta parts host/dev: box={}/{} cp_off={}/{} cp_tag={}/{} methods={}/{} fields={}/{} statics={}/{} ifaces={}/{} (MethodInfo {}B, Parsed {}B host / {}B dev; exception and bootstrap tables in flash)",
         hp.boxed,
         dp.boxed,
         hp.cp_offsets,
@@ -466,11 +466,9 @@ fn print_census(jvm: &pico_jvm::Jvm, heap: &SharedJvmHeap) {
         dp.statics,
         hp.interfaces,
         dp.interfaces,
-        hp.bootstrap,
-        dp.bootstrap,
-        hp.exc,
-        dp.exc,
-        core::mem::size_of::<pico_jvm::class_file::MethodInfo>()
+        core::mem::size_of::<pico_jvm::class_file::MethodInfo>(),
+        core::mem::size_of::<pico_jvm::class_file::Parsed>(),
+        core::mem::size_of::<pico_jvm::class_file::Parsed>() - pico_jvm::class_file::FAT_PTR_DELTA
     );
     let rows = jvm.parsed_metadata_rows();
     let dump = env_flag("PICODROID_MEMDIAG_CLASSDUMP", false);

@@ -941,3 +941,23 @@ fn get_class_on_an_array_receiver() {
     assert_eq!(run(class_compare(10, 10)).unwrap(), Some(Value::Int(1)));
     assert_eq!(run(class_compare(10, 8)).unwrap(), Some(Value::Int(0)));
 }
+
+/// M8: bootstrap methods are decoded from the `BootstrapMethods` attribute
+/// in the class bytes; the record keeps only its offset.
+#[test]
+fn bootstrap_method_decodes_from_flash() {
+    let cf = ClassFile::parse(spelled(CLASS_CALLER_INVOKEDYNAMIC)).unwrap();
+    let bsm = cf.bootstrap_method(0).expect("one bootstrap entry");
+    assert_eq!(bsm.method_ref, 22);
+    assert_eq!(bsm.num_args, 3);
+    let args: Vec<u16> = (0..3)
+        .map(|k| cf.bootstrap_argument(&bsm, k).unwrap())
+        .collect();
+    assert_eq!(args, [23, 21, 24]);
+    assert!(cf.bootstrap_argument(&bsm, 3).is_none());
+    assert!(cf.bootstrap_method(1).is_none());
+
+    // A class without the attribute has no entries at all.
+    let cf = ClassFile::parse(spelled(CLASS_TARGET_LAMBDA)).unwrap();
+    assert!(cf.bootstrap_method(0).is_none());
+}

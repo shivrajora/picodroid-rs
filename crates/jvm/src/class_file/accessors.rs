@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::{
-    BootstrapMethod, ClassFile, FieldInfo, MethodInfo, TAG_CLASS, TAG_FIELDREF, TAG_INVOKE_DYNAMIC,
-    TAG_METHODREF, TAG_METHOD_HANDLE, TAG_NAME_AND_TYPE, TAG_STRING, TAG_UTF8,
+    BootstrapMethod, ClassFile, ExceptionTable, FieldInfo, MethodInfo, TAG_CLASS, TAG_FIELDREF,
+    TAG_INVOKE_DYNAMIC, TAG_METHODREF, TAG_METHOD_HANDLE, TAG_NAME_AND_TYPE, TAG_STRING, TAG_UTF8,
 };
 
 impl ClassFile {
     /// Methods declared in this class.  Triggers full parse on first access.
     pub fn methods(&self) -> &[MethodInfo] {
-        &self.parsed().methods
+        self.parsed().methods()
     }
 
     /// Non-static instance fields declared in this class.  Triggers parse.
     pub fn fields(&self) -> &[FieldInfo] {
-        &self.parsed().fields
+        self.parsed().fields()
     }
 
     /// Static fields declared in this class.  Triggers parse.
     pub fn static_fields(&self) -> &[FieldInfo] {
-        &self.parsed().static_fields
+        self.parsed().static_fields()
     }
 
     /// Returns the descriptor bytes for the given FieldInfo (e.g. `b"I"`, `b"Lfoo/Bar;"`).
@@ -27,12 +27,74 @@ impl ClassFile {
 
     /// Utf8 CP indices for each directly-implemented interface.  Triggers parse.
     pub fn interfaces(&self) -> &[u16] {
-        &self.parsed().interfaces
+        self.parsed().interfaces()
     }
 
-    /// Entries in the `BootstrapMethods` class attribute.  Triggers parse.
-    pub fn bootstrap_methods(&self) -> &[BootstrapMethod] {
-        &self.parsed().bootstrap_methods
+    /// Entry `idx` of the `BootstrapMethods` class attribute, decoded from
+    /// flash (the record keeps only the attribute's offset). Triggers parse.
+    pub fn bootstrap_method(&self, idx: u16) -> Option<BootstrapMethod> {
+        let base = self.parsed().bsm_offset();
+        if base == 0 {
+            return None;
+        }
+        let data = self.data();
+        let u16_at = |p: usize| -> Option<u16> {
+            let b = data.get(p..p + 2)?;
+            Some(u16::from_be_bytes([b[0], b[1]]))
+        };
+        let num_methods = u16_at(base)?;
+        if idx >= num_methods {
+            return None;
+        }
+        let mut pos = base + 2;
+        for _ in 0..idx {
+            let num_args = u16_at(pos + 2)? as usize;
+            pos += 4 + 2 * num_args;
+        }
+        let method_ref = u16_at(pos)?;
+        let num_args = u16_at(pos + 2)?;
+        Some(BootstrapMethod {
+            method_ref,
+            args_off: u16::try_from(pos + 4).ok()?,
+            num_args,
+        })
+    }
+
+    /// CP index of bootstrap argument `k` of `b`.
+    pub fn bootstrap_argument(&self, b: &BootstrapMethod, k: usize) -> Option<u16> {
+        if k >= b.num_args as usize {
+            return None;
+        }
+        let p = b.args_off as usize + 2 * k;
+        let bytes = self.data().get(p..p + 2)?;
+        Some(u16::from_be_bytes([bytes[0], bytes[1]]))
+    }
+
+    /// The method's exception table, read from the class bytes right after
+    /// its bytecode (JVMS §4.7.3). Empty for a native method. The count is
+    /// clamped to what the class bytes can hold, so a corrupt table never
+    /// reads past them.
+    pub fn exception_table(&self, m: &MethodInfo) -> ExceptionTable {
+        let data = self.data();
+        let empty = ExceptionTable {
+            data,
+            pos: 0,
+            remaining: 0,
+        };
+        if m.code_offset == 0 {
+            return empty;
+        }
+        let base = m.code_offset as usize + m.code_len as usize;
+        let Some(count) = data.get(base..base + 2) else {
+            return empty;
+        };
+        let count = u16::from_be_bytes([count[0], count[1]]) as usize;
+        let max_entries = (data.len() - base - 2) / 8;
+        ExceptionTable {
+            data,
+            pos: base + 2,
+            remaining: count.min(max_entries),
+        }
     }
 
     /// Raw access flags bitset.  Triggers parse.
@@ -44,10 +106,10 @@ impl ClassFile {
     pub fn cp_utf8(&self, index: u16) -> Option<&'static [u8]> {
         let p = self.parsed();
         let i = index as usize;
-        if p.cp_tags.get(i) != Some(&TAG_UTF8) {
+        if p.cp_tag(i) != Some(TAG_UTF8) {
             return None;
         }
-        let off = p.cp_offsets[i];
+        let off = p.cp_offset(i);
         let data = self.data();
         let len = u16::from_be_bytes([data[off], data[off + 1]]) as usize;
         data.get(off + 2..off + 2 + len)
@@ -71,10 +133,10 @@ impl ClassFile {
     pub fn cp_string_utf8(&self, index: u16) -> Option<&'static [u8]> {
         let p = self.parsed();
         let i = index as usize;
-        if p.cp_tags.get(i) != Some(&TAG_STRING) {
+        if p.cp_tag(i) != Some(TAG_STRING) {
             return None;
         }
-        let off = p.cp_offsets[i];
+        let off = p.cp_offset(i);
         let data = self.data();
         let utf8_idx = u16::from_be_bytes([data[off], data[off + 1]]);
         self.cp_utf8(utf8_idx)
@@ -89,29 +151,29 @@ impl ClassFile {
     ) -> Option<(&'static [u8], &'static [u8], &'static [u8])> {
         let p = self.parsed();
         let i = index as usize;
-        if p.cp_tags.get(i) != Some(&TAG_METHODREF) && p.cp_tags.get(i) != Some(&11u8) {
+        if p.cp_tag(i) != Some(TAG_METHODREF) && p.cp_tag(i) != Some(11u8) {
             return None;
         }
         let data = self.data();
-        let off = p.cp_offsets[i];
+        let off = p.cp_offset(i);
         let class_idx = u16::from_be_bytes([data[off], data[off + 1]]);
         let nat_idx = u16::from_be_bytes([data[off + 2], data[off + 3]]);
 
         // Resolve class name
         let ci = class_idx as usize;
-        if p.cp_tags.get(ci) != Some(&TAG_CLASS) {
+        if p.cp_tag(ci) != Some(TAG_CLASS) {
             return None;
         }
-        let class_off = p.cp_offsets[ci];
+        let class_off = p.cp_offset(ci);
         let class_name_utf8 = u16::from_be_bytes([data[class_off], data[class_off + 1]]);
         let class_name = self.cp_class_utf8(class_name_utf8)?;
 
         // Resolve name_and_type
         let ni = nat_idx as usize;
-        if p.cp_tags.get(ni) != Some(&TAG_NAME_AND_TYPE) {
+        if p.cp_tag(ni) != Some(TAG_NAME_AND_TYPE) {
             return None;
         }
-        let nat_off = p.cp_offsets[ni];
+        let nat_off = p.cp_offset(ni);
         let method_name_idx = u16::from_be_bytes([data[nat_off], data[nat_off + 1]]);
         let descriptor_idx = u16::from_be_bytes([data[nat_off + 2], data[nat_off + 3]]);
 
@@ -126,7 +188,8 @@ impl ClassFile {
         if m.code_offset == 0 {
             &[]
         } else {
-            &self.data()[m.code_offset..m.code_offset + m.code_len]
+            let start = m.code_offset as usize;
+            &self.data()[start..start + m.code_len as usize]
         }
     }
 
@@ -134,10 +197,10 @@ impl ClassFile {
     pub fn cp_class_name(&self, index: u16) -> Option<&'static [u8]> {
         let p = self.parsed();
         let i = index as usize;
-        if p.cp_tags.get(i) != Some(&TAG_CLASS) {
+        if p.cp_tag(i) != Some(TAG_CLASS) {
             return None;
         }
-        let off = p.cp_offsets[i];
+        let off = p.cp_offset(i);
         let data = self.data();
         let utf8_idx = u16::from_be_bytes([data[off], data[off + 1]]);
         self.cp_class_utf8(utf8_idx)
@@ -164,27 +227,27 @@ impl ClassFile {
     pub fn cp_fieldref(&self, index: u16) -> Option<(&'static [u8], &'static [u8], &'static [u8])> {
         let p = self.parsed();
         let i = index as usize;
-        if p.cp_tags.get(i) != Some(&TAG_FIELDREF) {
+        if p.cp_tag(i) != Some(TAG_FIELDREF) {
             return None;
         }
         let data = self.data();
-        let off = p.cp_offsets[i];
+        let off = p.cp_offset(i);
         let class_idx = u16::from_be_bytes([data[off], data[off + 1]]);
         let nat_idx = u16::from_be_bytes([data[off + 2], data[off + 3]]);
 
         let ci = class_idx as usize;
-        if p.cp_tags.get(ci) != Some(&TAG_CLASS) {
+        if p.cp_tag(ci) != Some(TAG_CLASS) {
             return None;
         }
-        let class_off = p.cp_offsets[ci];
+        let class_off = p.cp_offset(ci);
         let class_name_utf8 = u16::from_be_bytes([data[class_off], data[class_off + 1]]);
         let class_name = self.cp_class_utf8(class_name_utf8)?;
 
         let ni = nat_idx as usize;
-        if p.cp_tags.get(ni) != Some(&TAG_NAME_AND_TYPE) {
+        if p.cp_tag(ni) != Some(TAG_NAME_AND_TYPE) {
             return None;
         }
-        let nat_off = p.cp_offsets[ni];
+        let nat_off = p.cp_offset(ni);
         let field_name_idx = u16::from_be_bytes([data[nat_off], data[nat_off + 1]]);
         let descriptor_idx = u16::from_be_bytes([data[nat_off + 2], data[nat_off + 3]]);
 
@@ -214,10 +277,10 @@ impl ClassFile {
     pub fn cp_integer(&self, index: u16) -> Option<i32> {
         let p = self.parsed();
         let i = index as usize;
-        if p.cp_tags.get(i) != Some(&3u8) {
+        if p.cp_tag(i) != Some(3u8) {
             return None;
         }
-        let off = p.cp_offsets[i];
+        let off = p.cp_offset(i);
         let data = self.data();
         let bytes = [data[off], data[off + 1], data[off + 2], data[off + 3]];
         Some(i32::from_be_bytes(bytes))
@@ -227,10 +290,10 @@ impl ClassFile {
     pub fn cp_float(&self, index: u16) -> Option<f32> {
         let p = self.parsed();
         let i = index as usize;
-        if p.cp_tags.get(i) != Some(&4u8) {
+        if p.cp_tag(i) != Some(4u8) {
             return None;
         }
-        let off = p.cp_offsets[i];
+        let off = p.cp_offset(i);
         let data = self.data();
         let bits = u32::from_be_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]]);
         Some(f32::from_bits(bits))
@@ -240,10 +303,10 @@ impl ClassFile {
     pub fn cp_long(&self, index: u16) -> Option<i64> {
         let p = self.parsed();
         let i = index as usize;
-        if p.cp_tags.get(i) != Some(&5u8) {
+        if p.cp_tag(i) != Some(5u8) {
             return None;
         }
-        let off = p.cp_offsets[i];
+        let off = p.cp_offset(i);
         let data = self.data();
         Some(i64::from_be_bytes([
             data[off],
@@ -261,10 +324,10 @@ impl ClassFile {
     pub fn cp_double(&self, index: u16) -> Option<f64> {
         let p = self.parsed();
         let i = index as usize;
-        if p.cp_tags.get(i) != Some(&6u8) {
+        if p.cp_tag(i) != Some(6u8) {
             return None;
         }
-        let off = p.cp_offsets[i];
+        let off = p.cp_offset(i);
         let data = self.data();
         let bits = u64::from_be_bytes([
             data[off],
@@ -283,10 +346,10 @@ impl ClassFile {
     pub fn cp_name_and_type(&self, index: u16) -> Option<(&'static [u8], &'static [u8])> {
         let p = self.parsed();
         let i = index as usize;
-        if p.cp_tags.get(i) != Some(&TAG_NAME_AND_TYPE) {
+        if p.cp_tag(i) != Some(TAG_NAME_AND_TYPE) {
             return None;
         }
-        let off = p.cp_offsets[i];
+        let off = p.cp_offset(i);
         let data = self.data();
         let name_idx = u16::from_be_bytes([data[off], data[off + 1]]);
         let desc_idx = u16::from_be_bytes([data[off + 2], data[off + 3]]);
@@ -297,10 +360,10 @@ impl ClassFile {
     pub fn cp_method_handle(&self, index: u16) -> Option<(u8, u16)> {
         let p = self.parsed();
         let i = index as usize;
-        if p.cp_tags.get(i) != Some(&TAG_METHOD_HANDLE) {
+        if p.cp_tag(i) != Some(TAG_METHOD_HANDLE) {
             return None;
         }
-        let off = p.cp_offsets[i];
+        let off = p.cp_offset(i);
         let data = self.data();
         let ref_kind = data[off];
         let ref_idx = u16::from_be_bytes([data[off + 1], data[off + 2]]);
@@ -312,10 +375,10 @@ impl ClassFile {
     pub fn cp_invoke_dynamic(&self, index: u16) -> Option<(u16, u16)> {
         let p = self.parsed();
         let i = index as usize;
-        if p.cp_tags.get(i) != Some(&TAG_INVOKE_DYNAMIC) {
+        if p.cp_tag(i) != Some(TAG_INVOKE_DYNAMIC) {
             return None;
         }
-        let off = p.cp_offsets[i];
+        let off = p.cp_offset(i);
         let data = self.data();
         let bsm_idx = u16::from_be_bytes([data[off], data[off + 1]]);
         let nat_idx = u16::from_be_bytes([data[off + 2], data[off + 3]]);

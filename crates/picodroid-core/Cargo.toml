@@ -63,7 +63,7 @@ has-network     = []
 legacy-handle-cast = []
 parity-metrics  = []
 parity-fbhash   = []
-mem-diag        = []
+mem-diag        = ["pico-jvm/mem-diag"]
 # The scheduling monitor (docs/scheduling-diagnostics.md). build.rs turns
 # it into the PICODROID_SCHED_DIAG define for the hosted kernel.
 sched-diag      = []

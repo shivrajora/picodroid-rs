@@ -295,7 +295,6 @@ impl Jvm {
     /// [`ClassFile::parsed_metadata_bytes`]. The census uses this to price
     /// each executor's metadata (a `Thread.start` child that loads its own
     /// class set duplicates all of it — handover §6).
-    #[cfg(feature = "mem-diag")]
     pub fn parsed_metadata_bytes(&self) -> (usize, usize) {
         let mut host = 0;
         let mut dev = 0;
@@ -310,7 +309,6 @@ impl Jvm {
 
     /// The parsed-metadata figure by part, summed over the loaded set:
     /// `(host, device)`. Says which packing lever pays.
-    #[cfg(feature = "mem-diag")]
     pub fn parsed_metadata_parts(&self) -> (class_file::MetaParts, class_file::MetaParts) {
         let mut host = class_file::MetaParts::default();
         let mut dev = class_file::MetaParts::default();
@@ -326,7 +324,6 @@ impl Jvm {
     /// Every parsed class with its metadata cost, most expensive on the
     /// device model first. The census's per-class line: the price of an
     /// import, visible.
-    #[cfg(feature = "mem-diag")]
     pub fn parsed_metadata_rows(&self) -> alloc::vec::Vec<(&'static [u8], class_file::MetaCensus)> {
         let mut rows: alloc::vec::Vec<(&'static [u8], class_file::MetaCensus)> = self
             .classes
@@ -342,7 +339,6 @@ impl Jvm {
     /// it ever parses. `(host_bytes, device_bytes)`; device: 20 B per entry
     /// (two 8 B Flash slices at 4-byte pointers + a 4 B `OnceCell<Box>`)
     /// plus the Vec header and its heap_4 block header.
-    #[cfg(feature = "mem-diag")]
     pub fn class_table_bytes(&self) -> (usize, usize) {
         let host = core::mem::size_of::<Vec<ClassFile>>()
             + self.classes.capacity() * core::mem::size_of::<ClassFile>();

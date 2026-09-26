@@ -168,7 +168,6 @@ fn method_code_is_return() {
 
 /// The census parts sum to the totals the executor-level line prints, and
 /// the counts behind them are the class file's.
-#[cfg(feature = "mem-diag")]
 #[test]
 fn metadata_census_parts_sum_to_totals() {
     let cf = ClassFile::parse(spelled(MINIMAL_CLASS)).unwrap();
@@ -179,14 +178,35 @@ fn metadata_census_parts_sum_to_totals() {
     assert_eq!(c.methods, 1);
     assert_eq!(c.fields, 0);
     assert_eq!(c.exc_entries, 0);
-    assert_eq!(c.class_bytes, MINIMAL_CLASS.len());
+    assert_eq!(c.class_bytes, spelled(MINIMAL_CLASS).len());
     // Eight tags for cp_count = 8 (index 0 is the unused slot).
     assert_eq!(c.cp_entries, 8);
     // The Box and the two constant-pool tables are never empty.
     assert!(c.dev.boxed > 0 && c.dev.cp_offsets > 0 && c.dev.cp_tags > 0);
-    assert!(
-        c.host.cp_offsets > c.dev.cp_offsets,
-        "usize offsets cost more on the host"
+    // M8: the record is byte-identical on both targets; the host pays one
+    // fat pointer more for its header and nothing else.
+    assert_eq!(c.host.cp_offsets, c.dev.cp_offsets);
+    assert_eq!(c.host.cp_tags, c.dev.cp_tags);
+    assert_eq!(c.host.methods, c.dev.methods);
+    assert_eq!(c.host.boxed - c.dev.boxed, FAT_PTR_DELTA);
+    assert_eq!(host - dev, FAT_PTR_DELTA);
+    assert_eq!(c.host.cp_offsets, 2 * c.cp_entries, "u16 per CP entry");
+}
+
+/// A class file past 64 KB is refused at registration: every offset the
+/// record keeps is a `u16`.
+#[test]
+fn class_file_over_64k_is_rejected() {
+    let mut big = MINIMAL_CLASS.to_vec();
+    big.resize(u16::MAX as usize + 1, 0);
+    let leaked: &'static [u8] = Box::leak(big.into_boxed_slice());
+    assert_eq!(
+        ClassFile::register(leaked).unwrap_err(),
+        "class file too large"
+    );
+    assert_eq!(
+        ClassFile::parse(leaked).unwrap_err(),
+        "class file too large"
     );
 }
 

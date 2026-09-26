@@ -1134,3 +1134,32 @@ mod null_receiver {
         }
     }
 }
+
+/// M8: the exception table is not stored — it is decoded from the class
+/// bytes right after the bytecode, entry by entry, and reads exactly what
+/// the class file declares.
+#[test]
+fn exception_table_decodes_from_flash() {
+    use crate::class_file::ClassFile;
+    use crate::names::spelled;
+    let cf = ClassFile::parse(spelled(CLASS_TEST_CATCH)).unwrap();
+    let m = &cf.methods()[0];
+    let table: Vec<(u16, u16, u16, u16)> = cf
+        .exception_table(m)
+        .map(|e| (e.start_pc, e.end_pc, e.handler_pc, e.catch_type_index))
+        .collect();
+    assert_eq!(table, [(0, 8, 10, 5)]);
+    assert_eq!(cf.exception_table(m).len(), 1);
+
+    let cf = ClassFile::parse(spelled(CLASS_TEST_CATCH_ALL)).unwrap();
+    let m = &cf.methods()[0];
+    let table: Vec<(u16, u16, u16, u16)> = cf
+        .exception_table(m)
+        .map(|e| (e.start_pc, e.end_pc, e.handler_pc, e.catch_type_index))
+        .collect();
+    assert_eq!(table, [(0, 8, 10, 0)]);
+
+    // A method with an empty table has none.
+    let cf = ClassFile::parse(spelled(CLASS_EXC)).unwrap();
+    assert_eq!(cf.exception_table(&cf.methods()[0]).len(), 0);
+}
