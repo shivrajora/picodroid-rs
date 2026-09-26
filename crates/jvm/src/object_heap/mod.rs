@@ -7,6 +7,7 @@ mod sb_store;
 
 use crate::chunked_slots::ChunkedSlots;
 use crate::class_file::ClassFile;
+use crate::gc::compact;
 use crate::names::c;
 use crate::types::{default_for_descriptor, Slot, Value};
 use alloc::vec::Vec;
@@ -852,55 +853,45 @@ impl ObjectHeap {
     /// Compact the fields arena by sliding live spans down over the garbage
     /// left by swept objects and lazy-grow moves. Called by GC after sweep;
     /// mirrors [`crate::array_heap::ArrayHeap::compact_arena`] and shares
-    /// its scratch buffer. A heap too full to hold the scratch buffer skips
-    /// the compaction (the dead spans wait for a later cycle) rather than
+    /// its fixed slice buffer ([`crate::gc::compact`]): live spans are
+    /// walked in ascending offset order one slice at a time, so nothing
+    /// here allocates in proportion to the live set. Boot claims the full
+    /// slice; a heap that never pre-reserved gets the small fallback here,
+    /// and one too full even for that skips the compaction rather than
     /// aborting inside the collector.
     pub fn compact_fields_arena(&mut self, buf: &mut Vec<u64>) {
-        buf.clear();
-        let live = self
-            .objects
-            .iter()
-            .filter(|s| s.as_ref().is_some_and(|o| o.fields_cap > 0))
-            .count();
-        if buf.try_reserve(live).is_err() {
+        if !compact::ensure_slice_buf(buf, compact::FALLBACK_ENTRIES) {
             return;
         }
-        for (i, slot) in self.objects.iter().enumerate() {
-            if let Some(obj) = slot.as_ref() {
-                if obj.fields_cap > 0 {
-                    // Slots are addressed by `ObjectRef(u16)`, so an index
-                    // always fits the 16 bits reserved for it in the key.
-                    debug_assert!(
-                        i <= u16::MAX as usize,
-                        "object slot index overflows the key"
-                    );
-                    buf.push(
-                        ((obj.fields_off as u64) << 32)
-                            | ((i as u64) << 16)
-                            | obj.fields_cap as u64,
-                    );
-                }
-            }
-        }
-        crate::sort::sort_keys(buf);
-
         let mut write_pos: usize = 0;
-        for &key in buf.iter() {
-            let (slot_idx, read_offset, cap) = (
-                (key >> 16) as usize & 0xffff,
-                (key >> 32) as u32,
-                key as u16,
+        let mut after = None;
+        loop {
+            let more = compact::next_slice(
+                buf,
+                after,
+                &mut self.objects.iter().enumerate().filter_map(|(i, slot)| {
+                    let obj = slot.as_ref()?;
+                    (obj.fields_cap > 0)
+                        .then(|| compact::key(obj.fields_off, i, obj.fields_cap as u16))
+                }),
             );
-            let read_pos = read_offset as usize;
-            let count = cap as usize;
-            if read_pos != write_pos {
-                self.fields_arena
-                    .copy_within(read_pos..read_pos + count, write_pos);
+            for &key in buf.iter() {
+                let (slot_idx, read_offset, cap) = compact::unpack(key);
+                let read_pos = read_offset as usize;
+                let count = cap as usize;
+                if read_pos != write_pos {
+                    self.fields_arena
+                        .copy_within(read_pos..read_pos + count, write_pos);
+                }
+                if let Some(Some(obj)) = self.objects.get_mut(slot_idx) {
+                    obj.fields_off = write_pos as u32;
+                }
+                write_pos += count;
             }
-            if let Some(Some(obj)) = self.objects.get_mut(slot_idx) {
-                obj.fields_off = write_pos as u32;
+            after = buf.last().copied();
+            if !more {
+                break;
             }
-            write_pos += count;
         }
         self.fields_arena.truncate(write_pos);
         #[cfg(feature = "mem-diag")]

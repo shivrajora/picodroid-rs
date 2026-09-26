@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use crate::chunked_slots::ChunkedSlots;
+use crate::gc::compact;
 use crate::tunables::INLINE_DATA;
 use crate::types::Value;
 use alloc::vec::Vec;
@@ -630,94 +631,90 @@ impl ArrayHeap {
     /// Compact the arena by sliding live array data down to fill gaps left by
     /// freed arrays. Called by GC after sweep.
     ///
-    /// `buf` is a reusable scratch buffer (owned by `GcState`) to avoid
-    /// allocating during compaction. Entries are packed into the `u64` sort
-    /// key described in [`crate::sort`] — offset in the high half so the sort
-    /// orders by it, then the slot index and length — so this shares the
-    /// JVM's single sort instantiation instead of monomorphising another one
-    /// for a tuple.
+    /// `buf` is the collector's fixed slice buffer (owned by `GcState`, see
+    /// [`crate::gc::compact`]): live spans are walked in ascending offset
+    /// order one slice at a time, so the compaction never allocates in
+    /// proportion to the live set. Entries are packed into the `u64` sort
+    /// key described in [`crate::sort`] — offset in the high half so the
+    /// sort orders by it, then the slot index and length — so this shares
+    /// the JVM's single sort instantiation instead of monomorphising
+    /// another one for a tuple.
     pub fn compact_arena(&mut self, buf: &mut Vec<u64>) {
-        buf.clear();
-        // Size the scratch buffer fallibly for the larger pass: a heap too
-        // full to hold it skips the compaction (the dead spans wait for a
-        // later cycle) rather than aborting inside the collector.
-        let (mut arena_live, mut arena8_live) = (0usize, 0usize);
-        for arr in self.arrays.iter().flatten() {
-            match arr.data {
-                ArrayData::Arena { .. } => arena_live += 1,
-                ArrayData::Arena8 { .. } => arena8_live += 1,
-                _ => {}
-            }
-        }
-        if buf.try_reserve(arena_live.max(arena8_live)).is_err() {
+        // Boot claims the full slice; a heap that never pre-reserved (unit
+        // tests) gets the small fallback here, and one too full even for
+        // that skips the compaction rather than aborting in the collector.
+        if !compact::ensure_slice_buf(buf, compact::FALLBACK_ENTRIES) {
             return;
         }
-        for (i, slot) in self.arrays.iter().enumerate() {
-            if let Some(arr) = slot.as_ref() {
-                if let ArrayData::Arena { offset, len } = &arr.data {
-                    // Slots are addressed by `ArrayRef(u16)`, so an index
-                    // always fits the 16 bits reserved for it here.
-                    debug_assert!(i <= u16::MAX as usize, "array slot index overflows the key");
-                    buf.push(((*offset as u64) << 32) | ((i as u64) << 16) | *len as u64);
-                }
-            }
-        }
-        // Sort by arena offset so we slide data forward in order.
-        crate::sort::sort_keys(buf);
-
+        // First pass set: the i32 arena.
         let mut write_pos: usize = 0;
-        for &key in buf.iter() {
-            let (slot_idx, read_offset, len) = (
-                (key >> 16) as usize & 0xffff,
-                (key >> 32) as u32,
-                key as u16,
+        let mut after = None;
+        loop {
+            let more = compact::next_slice(
+                buf,
+                after,
+                &mut self.arrays.iter().enumerate().filter_map(|(i, slot)| {
+                    match slot.as_ref()?.data {
+                        ArrayData::Arena { offset, len } => Some(compact::key(offset, i, len)),
+                        _ => None,
+                    }
+                }),
             );
-            let read_pos = read_offset as usize;
-            let count = len as usize;
-            if read_pos != write_pos {
-                self.arena
-                    .copy_within(read_pos..read_pos + count, write_pos);
-            }
-            if let Some(Some(arr)) = self.arrays.get_mut(slot_idx) {
-                if let ArrayData::Arena { offset, .. } = &mut arr.data {
-                    *offset = write_pos as u32;
+            for &key in buf.iter() {
+                let (slot_idx, read_offset, len) = compact::unpack(key);
+                let read_pos = read_offset as usize;
+                let count = len as usize;
+                if read_pos != write_pos {
+                    self.arena
+                        .copy_within(read_pos..read_pos + count, write_pos);
                 }
+                if let Some(Some(arr)) = self.arrays.get_mut(slot_idx) {
+                    if let ArrayData::Arena { offset, .. } = &mut arr.data {
+                        *offset = write_pos as u32;
+                    }
+                }
+                write_pos += count;
             }
-            write_pos += count;
+            after = buf.last().copied();
+            if !more {
+                break;
+            }
         }
         self.arena.truncate(write_pos);
 
-        // Second pass: the packed byte arena, same scratch buffer.
-        buf.clear();
-        for (i, slot) in self.arrays.iter().enumerate() {
-            if let Some(arr) = slot.as_ref() {
-                if let ArrayData::Arena8 { offset, len } = &arr.data {
-                    debug_assert!(i <= u16::MAX as usize, "array slot index overflows the key");
-                    buf.push(((*offset as u64) << 32) | ((i as u64) << 16) | *len as u64);
-                }
-            }
-        }
-        crate::sort::sort_keys(buf);
-
+        // Second pass set: the packed byte arena, same slice buffer.
         let mut write_pos: usize = 0;
-        for &key in buf.iter() {
-            let (slot_idx, read_offset, len) = (
-                (key >> 16) as usize & 0xffff,
-                (key >> 32) as u32,
-                key as u16,
+        let mut after = None;
+        loop {
+            let more = compact::next_slice(
+                buf,
+                after,
+                &mut self.arrays.iter().enumerate().filter_map(|(i, slot)| {
+                    match slot.as_ref()?.data {
+                        ArrayData::Arena8 { offset, len } => Some(compact::key(offset, i, len)),
+                        _ => None,
+                    }
+                }),
             );
-            let read_pos = read_offset as usize;
-            let count = len as usize;
-            if read_pos != write_pos {
-                self.arena8
-                    .copy_within(read_pos..read_pos + count, write_pos);
-            }
-            if let Some(Some(arr)) = self.arrays.get_mut(slot_idx) {
-                if let ArrayData::Arena8 { offset, .. } = &mut arr.data {
-                    *offset = write_pos as u32;
+            for &key in buf.iter() {
+                let (slot_idx, read_offset, len) = compact::unpack(key);
+                let read_pos = read_offset as usize;
+                let count = len as usize;
+                if read_pos != write_pos {
+                    self.arena8
+                        .copy_within(read_pos..read_pos + count, write_pos);
                 }
+                if let Some(Some(arr)) = self.arrays.get_mut(slot_idx) {
+                    if let ArrayData::Arena8 { offset, .. } = &mut arr.data {
+                        *offset = write_pos as u32;
+                    }
+                }
+                write_pos += count;
             }
-            write_pos += count;
+            after = buf.last().copied();
+            if !more {
+                break;
+            }
         }
         self.arena8.truncate(write_pos);
     }

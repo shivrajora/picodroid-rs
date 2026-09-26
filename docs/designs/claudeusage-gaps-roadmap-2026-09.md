@@ -1,6 +1,6 @@
 # Platform gaps found building `claudeusage`
 
-**Status: open list; G1, G2 and G3 closed 2026-09-23, G8 closed 2026-09-24, D5 (app bug) fixed 2026-09-23, D2 fixed 2026-09-25 (`LV_DRAW_SW_SUPPORT_RGB888`, the horizontal gradient's source format), D1 (sim run-lock hand-off) closed 2026-09-25. D4 closed for this app 2026-09-25: the RP2350's flash clock was the ROM's divider of 3 and is now 2 (`hal/rp/xip.rs`, every RP2350 board), the History and Models first paints are split, and no page turn has a span over 50 ms; the RAM-resident interpreter loop landed the same day on every RP2350 board, paid for by H7, H8 and H9. G11 attributed 2026-09-24: the board has 98 KB free on its worst page, the simulator 9 KB; the levers are listed there. G10 is next.**
+**Status: open list; G1, G2 and G3 closed 2026-09-23, G8 closed 2026-09-24, D5 (app bug) fixed 2026-09-23, D2 fixed 2026-09-25 (`LV_DRAW_SW_SUPPORT_RGB888`, the horizontal gradient's source format), D1 (sim run-lock hand-off) closed 2026-09-25. D4 closed for this app 2026-09-25: the RP2350's flash clock was the ROM's divider of 3 and is now 2 (`hal/rp/xip.rs`, every RP2350 board), the History and Models first paints are split, and no page turn has a span over 50 ms; the RAM-resident interpreter loop landed the same day on every RP2350 board, paid for by H7, H8 and H9. G11 attributed 2026-09-24: the board has 98 KB free on its worst page, the simulator 9 KB; the levers are listed there. G10 closed 2026-09-25: the collector compacts in bounded slices from a 4 KB buffer claimed at boot.**
 
 `examples/claudeusage` is a desk display for Claude usage limits on a new board, `pico_display2_w`
 (Pimoroni Pico Display Pack 2.0 on a Pico 2 W). It was built to look like a modern product rather
@@ -464,7 +464,7 @@ bridge at all, and therefore why "the PC is off" is a failure mode the app has t
 Listed for completeness; the bridge is a reasonable answer for a token that should not live on a
 microcontroller anyway.
 
-### G10. A large contiguous allocation under fragmentation
+### G10. A large contiguous allocation under fragmentation — closed 2026-09-25
 
 Seen while D3 was leaking: one 38,912 B request failed with 62 KB free because the largest free
 block was 25,880 B (`[sim] OOM: tried 38912 B`). The size is consistent with a JVM-side table
@@ -482,6 +482,18 @@ app never sees it — but a skipped compaction leaves the arena fragmented, whic
 that made the request fail. Fix shape: compact in bounded slices, or reserve the buffer once
 from the pre-reservation budget (`prereserve_config`) while the heap is young. The executor's
 resolution caches are no longer a candidate: they are fixed-size tables now (D4 findings).
+
+**Landed (2026-09-25):** both, in `crates/jvm/src/gc/compact.rs`. The buffer is a fixed slice of
+512 keys (4 KB), claimed by `SharedJvmHeap::prereserve` at boot beside the other PEM-3
+reservations and never regrown; a compaction whose live spans outnumber the slice runs in
+several passes, each selecting the next 512 keys of the ascending offset order (a max-heap over
+one rescan of the slot store) and sliding just those. It is exact because spans never overlap
+and every pass handles a prefix of the order: the write cursor never passes the start of the
+smallest span still waiting. The three arena walks (`i32` arrays, packed byte arrays, object
+fields) share one `dyn`-iterator instantiation of the selector, so the RP2040's flash pays for
+it once. A heap that never pre-reserved (unit tests, an 8 KB budget) claims a 256 B slice on
+first use instead. The 38,912 B and 22,528 B requests are gone: the collector's largest
+allocation is now 4 KB, made while the heap is young.
 
 ### G11. Every class an app touches is parsed into RAM, and the sim charges 1.7x the device
 

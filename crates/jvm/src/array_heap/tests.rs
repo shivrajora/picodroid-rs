@@ -440,3 +440,43 @@ fn long_array_does_not_alias_neighbors() {
     assert_eq!(heap.load64(0, 0), Some(0));
     assert_eq!(heap.load64(0, 2), Some(0));
 }
+
+/// G10: a slice buffer smaller than the live set compacts in several
+/// passes and lands exactly where the one-pass compaction did.
+#[test]
+fn compaction_in_bounded_slices_matches_one_pass() {
+    let mut heap = ArrayHeap::new();
+    let mut ints = Vec::new();
+    let mut bytes = Vec::new();
+    for n in 0..40 {
+        let a = heap.alloc(ATYPE_INT, 50).unwrap();
+        let b = heap.alloc(ATYPE_BYTE, 50).unwrap();
+        for i in 0..50 {
+            heap.store(a, i, n * 100 + i as i32).unwrap();
+            heap.store(b, i, (n + i as i32) % 100).unwrap();
+        }
+        ints.push(a);
+        bytes.push(b);
+    }
+    for n in (0..40).step_by(3) {
+        heap.free(ints[n]);
+        heap.free(bytes[n]);
+    }
+    // Three keys per pass: 26 survivors per arena take nine passes each.
+    let mut buf = Vec::with_capacity(3);
+    heap.compact_arena(&mut buf);
+    assert_eq!(buf.capacity(), 3, "the slice buffer must never regrow");
+    assert_eq!(heap.arena.len(), 26 * 50);
+    assert_eq!(heap.arena8.len(), 26 * 50);
+    for n in 0..40 {
+        if n % 3 == 0 {
+            continue;
+        }
+        for i in 0..50 {
+            assert_eq!(heap.load(ints[n], i), Some(n as i32 * 100 + i as i32));
+            assert_eq!(heap.load(bytes[n], i), Some((n as i32 + i as i32) % 100));
+        }
+    }
+    #[cfg(feature = "mem-diag")]
+    assert!(heap.integrity_check().is_ok());
+}

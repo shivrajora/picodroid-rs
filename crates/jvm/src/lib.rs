@@ -169,6 +169,7 @@ impl SharedJvmHeap {
         self.arrays
             .prereserve(arr_chunks, arena_values, arena8_bytes);
         self.strings.prereserve_dyn(str_chunks);
+        self.gc_state.prereserve_compact_buf();
     }
 
     /// Runs a full GC cycle from *outside* the interpreter.

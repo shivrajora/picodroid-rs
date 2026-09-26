@@ -11,6 +11,8 @@ use crate::{
 };
 use alloc::vec::Vec;
 
+pub(crate) mod compact;
+
 #[cfg(test)]
 mod tests;
 
@@ -133,7 +135,12 @@ pub struct GcState {
     arr_marks: Vec<u8>,
     str_marks: Vec<u8>,
     work: WorkStack,
-    /// Scratch buffer for arena compaction: (slot_index, arena_offset, length).
+    /// Scratch buffer for arena compaction, one packed `(offset, slot,
+    /// length)` key per span: a fixed slice of `compact::SLICE_ENTRIES`
+    /// keys, claimed at boot by [`Self::prereserve_compact_buf`] and never
+    /// regrown — a live set larger than the slice compacts in several
+    /// passes (`gc::compact`), so the collector never asks the heap for a
+    /// block that scales with the live set (G10).
     arena_compact_buf: Vec<u64>,
     /// Frame registry: every `interpreter::execute` on this heap registers
     /// its frame stack here for its whole run. A JVM task parked at a
@@ -308,6 +315,14 @@ impl GcState {
         } else {
             Some(floor)
         }
+    }
+
+    /// Claim the arena-compaction slice buffer (4 KB) while the heap is
+    /// young, as part of the boot pre-reservation. Best-effort and
+    /// idempotent; a compaction that finds the buffer unclaimed tries once
+    /// more itself.
+    pub fn prereserve_compact_buf(&mut self) {
+        compact::ensure_slice_buf(&mut self.arena_compact_buf, compact::SLICE_ENTRIES);
     }
 
     /// Clear all buffers (O(1), no deallocation — capacity is retained).
@@ -603,7 +618,7 @@ pub fn collect(
 
     // ── Phase 5: compact object fields arena (M6) ────────────────────────
     // Reclaims spans left by swept objects and set_field lazy-grow moves.
-    // Reuses the same scratch buffer — phases run sequentially.
+    // Reuses the same slice buffer — phases run sequentially.
     objects.compact_fields_arena(&mut gc.arena_compact_buf);
 
     // ── Offensive root audit ─────────────────────────────────────────────

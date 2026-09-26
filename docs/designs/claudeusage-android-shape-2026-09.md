@@ -148,8 +148,8 @@ field, static and `new` sites now resolve into fixed-size, four-way set-associat
 shared heap (`crates/jvm/src/resolve_cache.rs`, 16 KB on the RP2350), allocated once and kept
 across Runnables, so there is no growth request left to refuse. The account below is kept as the
 record of what the soak showed. The 20,480 B and 22,528 B requests it mentions are unrelated to
-the other large request the heap still makes, the collector's compaction buffer (G10 in the
-gaps roadmap).
+the other large request the heap used to make, the collector's compaction buffer (G10 in the
+gaps roadmap, closed 2026-09-25: a fixed 4 KB slice claimed at boot, compaction in passes).
 
 A soak of the new app with AUTO cycling the four screens logged, in the sim, `[sim] OOM: tried
 20480 B` on every other page turn (15 in 30 turns; the pre-change app: 0 in 30), with 50 to 60 KB

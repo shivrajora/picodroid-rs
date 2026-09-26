@@ -416,3 +416,46 @@ fn list_iter_yields_elements() {
     let collected: alloc::vec::Vec<Value> = heap.list_iter(idx).collect();
     assert_eq!(collected, [Value::Int(7), Value::Int(8)]);
 }
+
+/// G10: a slice buffer smaller than the live set compacts the fields arena
+/// in several passes and lands exactly where the one-pass compaction did.
+#[test]
+fn fields_compaction_in_bounded_slices_matches_one_pass() {
+    let mut heap = ObjectHeap::new();
+    let mut objs = Vec::new();
+    for n in 0..60u16 {
+        let o = heap.alloc("A").unwrap();
+        for f in 0..(1 + n as usize % 5) {
+            heap.set_field(o, f, Value::Int(n as i32 * 10 + f as i32))
+                .unwrap();
+        }
+        objs.push(o);
+    }
+    for n in (0..60).step_by(3) {
+        heap.free(objs[n]);
+    }
+    let live_span: usize = heap
+        .objects
+        .iter()
+        .flatten()
+        .map(|o| o.fields_cap as usize)
+        .sum();
+    // Four keys per pass: 40 survivors take ten passes.
+    let mut buf = Vec::with_capacity(4);
+    heap.compact_fields_arena(&mut buf);
+    assert_eq!(buf.capacity(), 4, "the slice buffer must never regrow");
+    assert_eq!(heap.fields_arena.len(), live_span);
+    for n in 0..60usize {
+        if n % 3 == 0 {
+            continue;
+        }
+        for f in 0..(1 + n % 5) {
+            assert_eq!(
+                heap.get_field(objs[n], f),
+                Some(Value::Int(n as i32 * 10 + f as i32))
+            );
+        }
+    }
+    #[cfg(feature = "mem-diag")]
+    assert!(heap.integrity_check().is_ok());
+}
