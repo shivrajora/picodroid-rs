@@ -256,8 +256,9 @@ invokes 29.8 ms/202, fields 12.7/211, resolve 12.4/89 cold, clinit 6.0, natives 
 1,775 bytecodes at ~32 µs each: every line of it cold), before `page -> Limits`; the adopted
 page's paint ticks were all under the line. With the warm-up: `prebuilt Limits`, `chrome warm`,
 then `state -> OK`, `page -> Limits` and not one slow span from power-on. Class parsing is
-still invisible to the span counters; a `parsed` count and time per span is the cheap next
-step, see G10's neighbours.
+a span column now (`parsed=N/M us`, 2026-09-26): `ClassFile::parsed` times its first parse
+on a clock `boot` installs into `pico_jvm::parity`, so the next app's boot one-offs can be
+attributed instead of inferred.
 
 **Repro.** `env $(grep -v '^#' .wifi-creds.env | xargs) PICODROID_NET_TEST_HOST=<PC address>
 ./scripts/flash.sh --board pico_display2_w --app claudeusage` in the background, wait for

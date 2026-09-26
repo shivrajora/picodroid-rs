@@ -12,7 +12,7 @@
 //! 32-bit devices wrap at ~4.3e9 instructions, far beyond any parity scene;
 //! documented in the audit's honest-limits section.
 
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
 static INSNS: AtomicUsize = AtomicUsize::new(0);
 static ALLOCS: AtomicUsize = AtomicUsize::new(0);
@@ -30,6 +30,46 @@ static FIELD_OPS: AtomicUsize = AtomicUsize::new(0);
 static INVOKES: AtomicUsize = AtomicUsize::new(0);
 static FRAME_US: AtomicUsize = AtomicUsize::new(0);
 static FASTEST_US: AtomicUsize = AtomicUsize::new(usize::MAX);
+static PARSES: AtomicUsize = AtomicUsize::new(0);
+static PARSE_US: AtomicUsize = AtomicUsize::new(0);
+static CLOCK: AtomicPtr<()> = AtomicPtr::new(core::ptr::null_mut());
+
+/// Install the clock the class-file parse timer reads (`count_parse` has no
+/// handler to ask). The host installs its `SystemClock` at boot; until then
+/// parses are counted but their time reads as zero.
+pub fn set_clock(f: fn() -> u64) {
+    CLOCK.store(f as *mut (), Ordering::Relaxed);
+}
+
+/// The installed clock's reading, or 0 without one.
+pub fn clock_nanos() -> u64 {
+    let p = CLOCK.load(Ordering::Relaxed);
+    if p.is_null() {
+        return 0;
+    }
+    // SAFETY: the only store is `set_clock`, from a `fn() -> u64`.
+    let f: fn() -> u64 = unsafe { core::mem::transmute(p) };
+    f()
+}
+
+/// One class file parsed for the first time (`ClassFile::parsed`), `ns` on
+/// the installed clock: the whole file read from flash and its method and
+/// field tables built. Invisible to every other column — it happens inside
+/// whichever bytecode first touched the class — which is why a boot span
+/// used to look like unusually slow invokes.
+#[inline(always)]
+pub fn count_parse(ns: u64) {
+    PARSES.fetch_add(1, Ordering::Relaxed);
+    PARSE_US.fetch_add((ns / 1_000) as usize, Ordering::Relaxed);
+}
+
+pub fn parses() -> usize {
+    PARSES.load(Ordering::Relaxed)
+}
+
+pub fn parse_us() -> usize {
+    PARSE_US.load(Ordering::Relaxed)
+}
 
 /// One bytecode dispatch. Called from the interpreter main loop.
 #[inline(always)]

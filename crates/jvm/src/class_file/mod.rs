@@ -130,9 +130,14 @@ impl ClassFile {
     /// so in practice a subsequent full parse should not fail.
     pub(crate) fn parsed(&self) -> &Parsed {
         self.parsed.get_or_init(|| {
-            Box::new(
+            #[cfg(feature = "parity-metrics")]
+            let t0 = crate::parity::clock_nanos();
+            let parsed = Box::new(
                 Parsed::parse(self.data).expect("class file became unparseable after registration"),
-            )
+            );
+            #[cfg(feature = "parity-metrics")]
+            crate::parity::count_parse(crate::parity::clock_nanos().saturating_sub(t0));
+            parsed
         })
     }
 
