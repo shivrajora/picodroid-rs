@@ -61,6 +61,12 @@ pub fn build(
                 && !s.contains("libs/thorvg")
                 && !s.contains("others/vg_lite_tvg")
                 && !s.contains("/drivers/")
+                // The RGB888 *destination* blender. LV_DRAW_SW_SUPPORT_RGB888 is
+                // on for the source side (horizontal gradients are blended as
+                // RGB888 source images) and this file rides on the same switch;
+                // pd_blend_to_rgb888_stub.c below defines its two entry points
+                // instead (2.8 KB on the RP2040 for a target nothing renders to).
+                && !s.ends_with("blend/lv_draw_sw_blend_to_rgb888.c")
         })
         .collect();
 
@@ -120,6 +126,13 @@ pub fn build(
             println!("cargo:rerun-if-changed={}", hook.display());
         }
     }
+
+    // Stands in for the excluded lv_draw_sw_blend_to_rgb888.c (see the
+    // filter above): the dispatcher in lv_draw_sw_blend.c names both of its
+    // entry points, so they must link. Every board and the simulator.
+    let rgb888_stub = conf_dir.join("pd_blend_to_rgb888_stub.c");
+    build.file(&rgb888_stub);
+    println!("cargo:rerun-if-changed={}", rgb888_stub.display());
 
     // The panel scrolls its own frame memory (`board_cfg::hw_vscroll`): the
     // helper that reads LVGL's private invalidation list and walks the widget

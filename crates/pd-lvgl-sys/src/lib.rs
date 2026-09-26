@@ -1251,6 +1251,10 @@ mod tests {
     const LV_ARC_HEADER: &str =
         include_str!("../../../third_party/lvgl/include/lvgl/widgets/lv_arc.h");
     const LV_CONF: &str = include_str!("../lvgl/lv_conf.h");
+    const LV_DRAW_SW_FILL: &str =
+        include_str!("../../../third_party/lvgl/src/draw/sw/lv_draw_sw_fill.c");
+    const LV_DRAW_SW_TRIANGLE: &str =
+        include_str!("../../../third_party/lvgl/src/draw/sw/lv_draw_sw_triangle.c");
 
     /// Slice one enum body out of a header that may contain several enums:
     /// find the closing anchor (e.g. `"} lv_key_t"`) and walk back to the
@@ -1633,6 +1637,35 @@ mod tests {
             Some(0),
             "LV_USE_FLOAT changed: the lv_arc angle externs must switch to f32"
         );
+    }
+
+    /// A horizontal gradient is not a fill: the software renderer blends
+    /// the gradient map as an RGB888 source image, so the RGB888 source arm
+    /// of the blenders must be linked even though no asset uses the format.
+    /// D2 in docs/designs/claudeusage-gaps-roadmap-2026-09.md: with the
+    /// switch off, `LEFT_RIGHT` GradientDrawables drew nothing, silently.
+    /// The second half re-reads the vendored fill so an LVGL bump that
+    /// changes the gradient source format shows up here, not on a display.
+    #[test]
+    fn rgb888_source_blender_stays_on_for_gradients() {
+        assert_eq!(
+            lookup_define(LV_CONF, "LV_DRAW_SW_SUPPORT_RGB888"),
+            Some(1),
+            "LV_DRAW_SW_SUPPORT_RGB888 is off: horizontal gradients (and gradient \
+             triangles) fall into the blenders' unsupported-source arm and render \
+             nothing"
+        );
+        for (name, src) in [
+            ("lv_draw_sw_fill.c", LV_DRAW_SW_FILL),
+            ("lv_draw_sw_triangle.c", LV_DRAW_SW_TRIANGLE),
+        ] {
+            assert!(
+                src.contains("blend_dsc.src_color_format = LV_COLOR_FORMAT_RGB888;"),
+                "vendored {name} no longer blends its gradient as an RGB888 source: \
+                 re-check which LV_DRAW_SW_SUPPORT_* the gradient path needs and \
+                 update lv_conf.h and this test together"
+            );
+        }
     }
 
     #[test]

@@ -213,6 +213,23 @@ public class DisplayDemoActivity extends Activity {
             .setCornerRadius(8));
     root.addView(themedHeader);
 
+    // LEFT_RIGHT is a different render path from TOP_BOTTOM: LVGL blends a
+    // horizontal gradient as an RGB888 source image, a vertical one as solid
+    // lines. This row went fully transparent when the RGB888 source blender
+    // was compiled out (lv_conf.h LV_DRAW_SW_SUPPORT_RGB888; D2 in
+    // docs/designs/claudeusage-gaps-roadmap-2026-09.md).
+    TextView themedBar = new TextView();
+    themedBar.setSize(220, 40);
+    themedBar.setText("  Left-to-right gradient");
+    themedBar.setTextColor(Theme.colorOnPrimary);
+    themedBar.setBackground(
+        new GradientDrawable()
+            .setGradient(
+                Theme.colorPrimary, Theme.colorBackground, GradientDrawable.Orientation.LEFT_RIGHT)
+            .setCornerRadius(8));
+    root.addView(themedBar);
+    Log.i("DisplayDemo", "gradient rows: TOP_BOTTOM + LEFT_RIGHT");
+
     TextView card = new TextView();
     card.setSize(220, 50);
     card.setText("  Card surface");
