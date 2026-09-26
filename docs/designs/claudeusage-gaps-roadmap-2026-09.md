@@ -335,6 +335,15 @@ from the parent, or document on `close()` that a parented view must go through `
 offensive check in the sim (a closed view still present in a live parent's child list) would have
 named this in one run.
 
+**Done 2026-09-25.** `View` keeps a parent back-pointer (`mParent`, set by `ViewGroup.addView`,
+cleared on release), which is also Android's `getParent()` / `ViewParent`. `close()` is now a Java
+method: a parented view goes through `parent.removeView(this)`, an unparented one frees its widget
+and releases itself; a second `close()` is a no-op. `addView` on a view with a parent takes it off
+the old parent's list. The sim check lives in `view_ops::delete`: a `nativeClose` reaching a
+widget whose LVGL parent is a registered (Java-owned) non-screen object means a Java child list
+still holds it — sanitizer on, it panics with a backtrace; off, one `[sim]` line. `qa_ui`'s tree
+section covers detach, refusal to re-add, the no-op second close and the move between parents.
+
 ## Gaps, by cost to the UI
 
 ### G1. One font size — closed 2026-09-23

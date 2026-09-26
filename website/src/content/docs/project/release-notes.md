@@ -7,6 +7,20 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**`View.close()` leaves its parent; `View.getParent()` (2026-09-25)**
+
+- `View.close()` on a child now detaches it from its parent before freeing the widget, as
+  `ViewGroup.removeView` does from the parent's side. Before, the parent's child list kept the
+  closed subtree reachable until the parent died: a dashboard that turned pages with `close()`
+  went from 14 KB to 48 KB of live heap over a dozen turns and then hit `OutOfMemoryError`. A
+  closed view is released like a removed one, and a second `close()` is a no-op.
+- `View.getParent()` and `picodroid.view.ViewParent`, as on Android; `ViewGroup` implements it, so
+  `((ViewGroup) v.getParent()).removeView(v)` works as written. `addView` on a view that already
+  has a parent moves it and takes it off the old parent's list (Android throws; picodroid's
+  `removeView` frees, so a move is the only way to reparent).
+- Sim: with the handle sanitizer on (the `sim.sh` default), freeing a widget that still sits under
+  a Java-owned container stops the run with a backtrace instead of leaking.
+
 **Keys, text gravity, flat containers, `java.time` (2026-09-24; map v0.29.0, package 0.29.0)**
 
 - `Activity.onKeyDown(int, KeyEvent)` / `onKeyUp(int, KeyEvent)`: a hardware key no focused view

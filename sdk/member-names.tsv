@@ -464,6 +464,7 @@ F	mGroup
 F	mLayout
 F	mLineMode
 F	mMetrics
+F	mParent
 F	mPos
 F	mTextSize
 F	max
@@ -697,6 +698,7 @@ M	decode
 M	decrementAndGet
 M	delete
 M	deleteFile
+M	detachChild
 M	digit
 M	disconnect
 M	dismiss
@@ -1056,6 +1058,7 @@ M	nativeBoolValue
 M	nativeCancel
 M	nativeChild
 M	nativeChildAt
+M	nativeClose
 M	nativeConnect
 M	nativeContentLength
 M	nativeCount

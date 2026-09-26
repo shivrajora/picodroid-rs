@@ -10,8 +10,9 @@
 pub mod view {
     /// `lv_obj_t*` cast to `i32` (declared in `View.java`).
     pub const NATIVE_HANDLE: usize = 0;
-    // View.java declares the listener, layout-params and cached-getter fields
-    // after `nativeHandle` (14 fields in all); a subclass's own fields — e.g.
+    // View.java declares the parent back-pointer, the listener, layout-params
+    // and cached-getter fields after `nativeHandle` (15 fields in all); a
+    // subclass's own fields — e.g.
     // `CompoundButton.onCheckedChangeListener`, `LinearLayout.orientation` —
     // follow them. `TextView` and `Button` declare none, so inserting TextView
     // into Button's chain moved nothing. None of those are named in this file:

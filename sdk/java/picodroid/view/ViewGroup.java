@@ -10,7 +10,7 @@ package picodroid.view;
  * subclasses) inherit the native {@code addView} call and may add gravity / orientation /
  * adapter-specific setters of their own.
  */
-public abstract class ViewGroup extends View {
+public abstract class ViewGroup extends View implements ViewParent {
   protected ViewGroup(int nativeHandle) {
     super(nativeHandle);
   }
@@ -30,6 +30,13 @@ public abstract class ViewGroup extends View {
     if (child == null) {
       return;
     }
+    ViewGroup previous = child.mParent;
+    if (previous != null) {
+      // Android throws here ("The specified child already has a parent"). picodroid moves the
+      // view instead: removeView frees a view, so a move is the only way to reparent one. The old
+      // parent's list must let go of it, or that entry keeps the subtree alive.
+      previous.detachChild(child);
+    }
     if (mChildren == null) {
       mChildren = new View[4];
     } else if (mChildCount == mChildren.length) {
@@ -38,9 +45,27 @@ public abstract class ViewGroup extends View {
       mChildren = bigger;
     }
     mChildren[mChildCount++] = child;
+    child.mParent = this;
   }
 
   private native void nativeAddView(View child);
+
+  /**
+   * Drops {@code child} from this group's list without touching its widget, and clears its parent.
+   * Returns whether it was a child. {@link #removeView} and {@link View#close} free the widget
+   * next; {@link #addView} moving a view to another parent does not.
+   */
+  boolean detachChild(View child) {
+    for (int i = 0; i < mChildCount; i++) {
+      if (mChildren[i] == child) {
+        System.arraycopy(mChildren, i + 1, mChildren, i, mChildCount - i - 1);
+        mChildren[--mChildCount] = null;
+        child.mParent = null;
+        return true;
+      }
+    }
+    return false;
+  }
 
   /**
    * A view {@link #removeView} released has no widget left to add: refuse it here, on the Java
@@ -81,17 +106,13 @@ public abstract class ViewGroup extends View {
    * Detaches {@code child}. Unlike Android, picodroid also frees the child's widget here — an
    * embedded panel cannot afford detached trees waiting for a re-add — so a removed view cannot be
    * added again: {@link #addView} throws {@code IllegalStateException} for it. Build a fresh view,
-   * or hide one with {@link View#setVisibility} when it will come back.
+   * or hide one with {@link View#setVisibility} when it will come back. {@link View#close} on a
+   * child is this call from the child's side.
    */
   public void removeView(View child) {
-    for (int i = 0; i < mChildCount; i++) {
-      if (mChildren[i] == child) {
-        System.arraycopy(mChildren, i + 1, mChildren, i, mChildCount - i - 1);
-        mChildren[--mChildCount] = null;
-        nativeRemoveView(child);
-        child.release();
-        return;
-      }
+    if (child != null && detachChild(child)) {
+      nativeRemoveView(child);
+      child.release();
     }
     // Not a child (or already released): a no-op, as on Android.
   }

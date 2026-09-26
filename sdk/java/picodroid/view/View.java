@@ -28,6 +28,13 @@ public class View {
   public static final int SWIPE_DOWN = 8;
 
   int nativeHandle;
+
+  /**
+   * The {@link ViewGroup} this view was {@link ViewGroup#addView added} to, or {@code null}: what
+   * {@link #getParent} returns, and how {@link #close} finds the child list it has to leave.
+   */
+  ViewGroup mParent;
+
   OnKeyListener onKeyListener;
   OnTouchListener onTouchListener;
   OnSwipeListener onSwipeListener;
@@ -66,6 +73,17 @@ public class View {
    */
   void release() {
     nativeHandle = 0;
+    mParent = null;
+  }
+
+  /**
+   * The parent this view was {@link ViewGroup#addView added} to, or {@code null} when it has none:
+   * never added, or {@link ViewGroup#removeView removed} since. Mirrors {@code
+   * android.view.View#getParent()}; the one implementation is {@link ViewGroup}, so the Android
+   * idiom {@code ((ViewGroup) v.getParent()).removeView(v)} works as written.
+   */
+  public final ViewParent getParent() {
+    return mParent;
   }
 
   /**
@@ -466,7 +484,29 @@ public class View {
 
   private native float nativeGetProperty(int property);
 
-  public native void close();
+  /**
+   * Frees this view's widget. Not an Android method (Android's views are garbage collected), but an
+   * embedded panel wants a subtree gone the moment the app is done with it. A parented view leaves
+   * its parent first, exactly as {@link ViewGroup#removeView} would: the parent's child list must
+   * not keep the freed subtree reachable (a dashboard once turned pages with {@code close()} alone
+   * and ran out of heap a dozen turns later). Afterwards the view is released: every further native
+   * call on it throws {@code IllegalStateException}, {@link ViewGroup#addView} refuses it, and a
+   * second {@code close()} is a no-op.
+   */
+  public void close() {
+    ViewGroup parent = mParent;
+    if (parent != null) {
+      parent.removeView(this);
+      return;
+    }
+    if (!isReleased()) {
+      nativeClose();
+      release();
+    }
+  }
+
+  /** Frees the widget; the Java side has already left any parent's child list. */
+  private native void nativeClose();
 
   /**
    * Records the {@link ViewGroup.LayoutParams} that the parent layout should apply to this child.

@@ -305,8 +305,14 @@ view.setTranslationX(8f);           // also setTranslationY, setRotation, setSca
 view.animate().alpha(1f).setDuration(200).start();       // see ViewPropertyAnimator
 view.setOnClickListener(v -> doThing());   // View.OnClickListener (fires on tap or D-pad center)
 view.setOnTouchListener(listener);  // per-View touch dispatch
-view.close();                        // release the native widget
+ViewParent p = view.getParent();     // the ViewGroup it was added to, or null
+view.close();                        // free the widget; a parented view leaves its parent first
 ```
+
+`close()` is picodroid's addition (Android's views are garbage collected). On a child it is
+`removeView` from the child's side: the view leaves its parent's child list, then its widget is
+freed. A closed view is released like a removed one — further calls throw, `addView` refuses it,
+and a second `close()` is a no-op.
 
 | Constant | Value | Description |
 |----------|-------|-------------|
@@ -364,7 +370,9 @@ group.removeAllViews();
 Android: `removeView` and `removeAllViews` also **free the removed view's widget** (an embedded
 panel cannot keep detached trees waiting for a re-add), so a removed view cannot be added again —
 `addView` throws `IllegalStateException` for it. Build a fresh view, or hide one with
-`setVisibility(View.GONE)` when it will come back.
+`setVisibility(View.GONE)` when it will come back. A second divergence follows from the first:
+`addView` on a view that already has a parent **moves** it (Android throws), because a move is the
+only way to reparent a view when `removeView` frees. The old parent's list lets go of it.
 
 `ViewGroup.LayoutParams` carries a child's requested `width`/`height`, using `MATCH_PARENT` (-1) or
 `WRAP_CONTENT` (-2):

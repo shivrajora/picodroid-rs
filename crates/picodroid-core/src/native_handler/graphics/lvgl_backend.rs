@@ -61,7 +61,7 @@ impl GraphicsBackend for LvglBackend {
             m::getHeight => Some(view::get_height(ctx.args, ctx.objects)),
             m::nativeSetProperty => Some(view::set_property(ctx.args, ctx.objects)),
             m::nativeGetProperty => Some(view::get_property(ctx.args, ctx.objects)),
-            m::close => Some(view::close(ctx.args, ctx.objects)),
+            m::nativeClose => Some(view::close(ctx.args, ctx.objects)),
             m::performClick => Some(view::perform_click(ctx.args, ctx.objects)),
             m::nativeSetFlexGrow => Some(view::set_flex_grow(ctx.args, ctx.objects)),
             m::nativeRegisterClickListener => Some(view::register_click_listener(

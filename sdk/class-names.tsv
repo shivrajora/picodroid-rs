@@ -249,6 +249,7 @@ picodroid/view/View$OnFocusChangeListener
 picodroid/view/View$OnLongClickListener
 picodroid/view/ViewGroup
 picodroid/view/ViewGroup$LayoutParams
+picodroid/view/ViewParent
 picodroid/view/ViewPropertyAnimator
 picodroid/view/animation/AccelerateDecelerateInterpolator
 picodroid/view/animation/AccelerateInterpolator

@@ -565,11 +565,11 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     // picodroid/graphics/drawable/GradientDrawable
     ("picodroid/graphics/drawable/GradientDrawable", "nativeApply", "(Lpicodroid/view/View;IIIIIIII)V"),
     // picodroid/view/View
-    ("picodroid/view/View", "close", "()V"),
     ("picodroid/view/View", "getHeight", "()I"),
     ("picodroid/view/View", "getLeft", "()I"),
     ("picodroid/view/View", "getTop", "()I"),
     ("picodroid/view/View", "getWidth", "()I"),
+    ("picodroid/view/View", "nativeClose", "()V"),
     ("picodroid/view/View", "nativeGetProperty", "(I)F"),
     ("picodroid/view/View", "nativeIsFocused", "()Z"),
     ("picodroid/view/View", "nativeRegisterClickListener", "()V"),

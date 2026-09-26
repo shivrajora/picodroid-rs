@@ -203,6 +203,41 @@ public class QaUiActivity extends Activity {
     check(
         "removeView of non-child is a no-op",
         root.getChildCount() == 5 && root.getChildAt(4) == rows[4]);
+    // close() on a parented view leaves the parent's child list first (claudeusage D3, 2026-09):
+    // a freed subtree must not stay reachable through getChildAt.
+    check("getParent", rows[4].getParent() == root && new TextView(this).getParent() == null);
+    rows[4].close();
+    check(
+        "close detaches",
+        root.getChildCount() == 4 && root.getChildAt(4) == null && rows[4].getParent() == null);
+    boolean closedRefused = false;
+    try {
+      root.addView(rows[4]);
+    } catch (IllegalStateException e) {
+      closedRefused = true;
+    }
+    check("re-adding a closed view throws", closedRefused && root.getChildCount() == 4);
+    rows[4].close();
+    check("second close is a no-op", root.getChildCount() == 4);
+    rows[4] = new TextView(this);
+    rows[4].setText("row 4");
+    rows[4].setTag(Integer.valueOf(1004));
+    rows[4].setId(104);
+    // addView on a view that already has a parent moves it (Android throws; picodroid's
+    // removeView frees, so a move is the only way to reparent): the old parent's list lets go.
+    LinearLayout other = new LinearLayout(this);
+    other.addView(rows[4]);
+    check("addView records parent", rows[4].getParent() == other && other.getChildAt(0) == rows[4]);
+    root.addView(rows[4]);
+    check(
+        "addView moves between parents",
+        rows[4].getParent() == root
+            && other.getChildCount() == 0
+            && other.getChildAt(0) == null
+            && root.getChildCount() == 5
+            && root.getChildAt(4) == rows[4]);
+    other.close();
+    check("close of an unparented group", other.getParent() == null && root.getChildCount() == 5);
     check("null tag", new TextView(this).getTag() == null);
     TextView tagged = new TextView(this);
     Object tag = new Object();

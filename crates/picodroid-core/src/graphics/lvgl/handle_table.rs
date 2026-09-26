@@ -205,6 +205,49 @@ mod imp {
         unsafe { encode(GENS[idx], idx) == id && !PTRS[idx].is_null() }
     }
 
+    /// Whether `ptr` is a registered widget — one some Java object holds
+    /// the handle of. A linear scan of the table, so host-only: the D3 check
+    /// in `view_ops::delete` asks it once per `View.close()`.
+    #[cfg(any(test, feature = "sim"))]
+    pub fn is_registered(ptr: *mut lv_obj_t) -> bool {
+        if ptr.is_null() {
+            return false;
+        }
+        (0..SLOTS).any(|i| unsafe { PTRS[i] } == ptr)
+    }
+
+    /// `View.close()` reached a widget that still sits under a Java-owned
+    /// container (claudeusage D3, 2026-09): the container's Java child list
+    /// would keep the freed subtree reachable until the container dies — live
+    /// heap went 14 KB to 48 KB over a dozen page turns, then
+    /// `OutOfMemoryError`. `View.close()` now routes a parented view through
+    /// `removeView`, so this means a widget was attached under a Java view
+    /// without `addView` recording the parent. Sanitizer on: stop with a
+    /// backtrace; off: one warning line.
+    #[cfg(feature = "sim")]
+    #[cold]
+    #[inline(never)]
+    pub fn report_close_under_java_parent(id: i32) {
+        // The diagnosis first, on its own: under the sim's heap cap the
+        // backtrace capture below can fail to allocate (the stale-handle
+        // report's known trap), and the run must still name the bug.
+        eprintln!(
+            "[sim] View.close() on nativeHandle {id} while its widget still sits under a \
+             Java-owned container: the parent's child list would keep the freed subtree \
+             alive (D3)"
+        );
+        if !sanitizer::enabled() {
+            return;
+        }
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        panic!(
+            "handle-sanitizer: View.close() under a Java-owned container (nativeHandle {id}). \
+             View.close() detaches a view whose parent it knows, so whoever attached this \
+             widget bypassed ViewGroup.addView; go through addView/removeView.\n\
+             offending call site:\n{backtrace}"
+        );
+    }
+
     #[inline(never)]
     pub fn lookup(id: i32) -> *mut lv_obj_t {
         if id <= 0 {
@@ -404,6 +447,18 @@ mod imp {
         }
 
         #[test]
+        fn is_registered_follows_the_table() {
+            let _g = setup();
+            assert!(!is_registered(core::ptr::null_mut()));
+            assert!(!is_registered(fake(7)));
+            let h = register(fake(7));
+            assert!(is_registered(fake(7)));
+            assert!(!is_registered(fake(8)));
+            invalidate_if_current(h, fake(7));
+            assert!(!is_registered(fake(7)));
+        }
+
+        #[test]
         fn roundtrip_and_null() {
             let _g = setup();
             assert_eq!(register(core::ptr::null_mut()), 0);
@@ -552,3 +607,5 @@ mod imp {
 }
 
 pub use imp::{is_live, lookup, register, register_pinned, reset};
+#[cfg(feature = "sim")]
+pub use imp::{is_registered, report_close_under_java_parent};

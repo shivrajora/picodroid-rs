@@ -182,7 +182,27 @@ pub(in crate::graphics) fn delete(h: Handle) {
     if o.is_null() {
         return; // already deleted (stale handle)
     }
+    #[cfg(feature = "sim")]
+    check_not_under_java_parent(h, o);
     delete_obj(o);
+}
+
+/// Offensive check, sim only: `View.close()` reaching a widget that still
+/// sits under a Java-owned container. The container's Java child list would
+/// keep the freed subtree reachable until the container dies — the
+/// claudeusage D3 leak. `View.close()` routes a parented view through
+/// `removeView`, so this fires only when a widget was put under a Java view
+/// without `addView` recording the parent. The content root sits under the
+/// screen, which no Java object parents, so a screen parent passes.
+#[cfg(feature = "sim")]
+fn check_not_under_java_parent(h: Handle, o: *mut lv_obj_t) {
+    let parent = unsafe { lv_obj_get_parent(o) };
+    if parent.is_null() || unsafe { lv_obj_get_parent(parent) }.is_null() {
+        return; // no parent, or the parent is a screen
+    }
+    if handle_table::is_registered(parent) {
+        handle_table::report_close_under_java_parent(h.to_java());
+    }
 }
 
 /// Delete an LVGL subtree by raw pointer, running the same pre-delete

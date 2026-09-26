@@ -214,7 +214,9 @@ pub fn set_alpha(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, 
     Ok(None)
 }
 
-/// `View.close()`
+/// `View.nativeClose()` — the widget-freeing half of `View.close()`. The
+/// Java side has already left any parent's child list (a parented view goes
+/// through `ViewGroup.removeView` instead and never reaches here).
 pub fn close(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
     let id = extract_native_handle(args, objects)?;
     with_gfx(|g| g.delete(Handle::from_java(id)));
