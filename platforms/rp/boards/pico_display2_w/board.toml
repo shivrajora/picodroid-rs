@@ -82,5 +82,9 @@ keycode = 4
 
 # A pool worker doing DNS + HTTP + JSON parse measured 4,712 B deep on
 # pico_enviro_mon_w; the 4 KB default overflows. Same 6 KB as that board.
+# Two workers, not the default four: the only pool work a desk display posts
+# is a preference write, and each idle worker is a 6 KB stack, a TCB and a
+# dispatch memo (claudeusage gaps roadmap H9).
 [background_pool]
 stack_bytes = 6144
+threads = 2

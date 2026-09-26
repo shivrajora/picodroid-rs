@@ -112,93 +112,129 @@ const fn bytes(words: u16) -> u32 {
 /// shared simulator engine consumes it.
 ///
 /// The background pool's worker count and stack come from its generated
-/// board config; the four entries here must match `POOL_THREADS = 4`, and
-/// their size is read from the same constant the pool spawns with.
+/// board config: `POOL_THREADS` entries of `POOL_STACK_BYTES`, spliced
+/// between the tasks created before the pool and the kernel's own, so a
+/// board that sets `[background_pool] threads` is modelled as it boots.
 #[cfg(any(test, feature = "sim"))]
 pub static MODEL: BootBudgetModel = BootBudgetModel {
-    tasks: &[
-        BootTask {
-            name: "flashpark",
-            stack_bytes: bytes(FLASHPARK_STACK_WORDS),
-            // No simulator counterpart: host flash has no XIP window to park for.
-            sim_real: false,
-        },
-        BootTask {
-            name: "pdb",
-            stack_bytes: bytes(PDB_STACK_WORDS),
-            // sim_boot spawns the simulator's bridge (hal/sim/pdb.rs) through
-            // the seam, sized by `default_stack_bytes` from the same constant.
-            sim_real: true,
-        },
-        #[cfg(network_cyw43)]
-        BootTask {
-            name: "cyw43",
-            stack_bytes: bytes(CYW43_STACK_WORDS),
-            sim_real: false, // no simulator WiFi endpoint
-        },
-        BootTask {
-            name: "fs",
-            stack_bytes: bytes(FS_STACK_WORDS),
-            sim_real: true, // sim_boot spawns the fs worker
-        },
-        #[cfg(any_sensor)]
-        BootTask {
-            name: "sensor",
-            stack_bytes: bytes(SENSOR_STACK_WORDS),
-            // Modeled rather than created. The device sampler exists to
-            // drive real I²C parts; there are none on the host, so the
-            // simulator keeps its own backing (`sampler.rs`'s `sim_backing`),
-            // which fabricates plausible snapshots on a host thread and
-            // publishes them through the seqlock mailbox — atomics only, so
-            // it is one of the host-service threads §1.2 leaves outside the
-            // kernel.
-            sim_real: false,
-        },
-        BootTask {
-            name: "jvm",
-            stack_bytes: bytes(JVM_STACK_WORDS),
-            sim_real: true, // sim_boot spawns it
-        },
-        BootTask {
-            name: "Tmr Svc",
-            stack_bytes: bytes(MINIMAL_STACK_WORDS),
-            sim_real: false, // created by the kernel, allocated off-arena
-        },
-        BootTask {
-            name: "IDLE0",
-            stack_bytes: bytes(MINIMAL_STACK_WORDS),
-            sim_real: false, // as above
-        },
-        BootTask {
-            name: "IDLE1",
-            stack_bytes: bytes(MINIMAL_STACK_WORDS),
-            // As above, and doubly so: the POSIX port is single-core and
-            // creates only one idle task. The device's second one is charged
-            // anyway, because the arena models the *device*.
-            sim_real: false,
-        },
-        BootTask {
-            name: "jvm-bg",
-            stack_bytes: picodroid_core::board_cfg::background_pool::POOL_STACK_BYTES,
-            sim_real: true, // background_pool::spawn goes through the Rtos seam
-        },
-        BootTask {
-            name: "jvm-bg",
-            stack_bytes: picodroid_core::board_cfg::background_pool::POOL_STACK_BYTES,
-            sim_real: true,
-        },
-        BootTask {
-            name: "jvm-bg",
-            stack_bytes: picodroid_core::board_cfg::background_pool::POOL_STACK_BYTES,
-            sim_real: true,
-        },
-        BootTask {
-            name: "jvm-bg",
-            stack_bytes: picodroid_core::board_cfg::background_pool::POOL_STACK_BYTES,
-            sim_real: true,
-        },
-    ],
+    tasks: &TASKS,
     tcb_bytes: TCB_EST_BYTES,
     queues_misc_bytes: QUEUES_MISC_BYTES,
     default_stack_bytes,
 };
+
+#[cfg(any(test, feature = "sim"))]
+const POOL_THREADS: usize = picodroid_core::board_cfg::background_pool::POOL_THREADS as usize;
+
+/// One pool worker, as `background_pool::spawn` creates it.
+#[cfg(any(test, feature = "sim"))]
+const POOL_WORKER: BootTask = BootTask {
+    name: "jvm-bg",
+    stack_bytes: picodroid_core::board_cfg::background_pool::POOL_STACK_BYTES,
+    sim_real: true, // background_pool::spawn goes through the Rtos seam
+};
+
+#[cfg(any(test, feature = "sim"))]
+const TASK_COUNT: usize = BEFORE_POOL.len() + POOL_THREADS + AFTER_POOL.len();
+
+#[cfg(any(test, feature = "sim"))]
+static TASKS: [BootTask; TASK_COUNT] = task_table();
+
+#[cfg(any(test, feature = "sim"))]
+const fn copy_task(t: &BootTask) -> BootTask {
+    BootTask {
+        name: t.name,
+        stack_bytes: t.stack_bytes,
+        sim_real: t.sim_real,
+    }
+}
+
+#[cfg(any(test, feature = "sim"))]
+const fn task_table() -> [BootTask; TASK_COUNT] {
+    let mut out = [POOL_WORKER; TASK_COUNT];
+    let mut n = 0;
+    let mut i = 0;
+    while i < BEFORE_POOL.len() {
+        out[n] = copy_task(&BEFORE_POOL[i]);
+        n += 1;
+        i += 1;
+    }
+    n += POOL_THREADS;
+    let mut i = 0;
+    while i < AFTER_POOL.len() {
+        out[n] = copy_task(&AFTER_POOL[i]);
+        n += 1;
+        i += 1;
+    }
+    out
+}
+
+/// The tasks created before the background pool.
+#[cfg(any(test, feature = "sim"))]
+const BEFORE_POOL: &[BootTask] = &[
+    BootTask {
+        name: "flashpark",
+        stack_bytes: bytes(FLASHPARK_STACK_WORDS),
+        // No simulator counterpart: host flash has no XIP window to park for.
+        sim_real: false,
+    },
+    BootTask {
+        name: "pdb",
+        stack_bytes: bytes(PDB_STACK_WORDS),
+        // sim_boot spawns the simulator's bridge (hal/sim/pdb.rs) through
+        // the seam, sized by `default_stack_bytes` from the same constant.
+        sim_real: true,
+    },
+    #[cfg(network_cyw43)]
+    BootTask {
+        name: "cyw43",
+        stack_bytes: bytes(CYW43_STACK_WORDS),
+        sim_real: false, // no simulator WiFi endpoint
+    },
+    BootTask {
+        name: "fs",
+        stack_bytes: bytes(FS_STACK_WORDS),
+        sim_real: true, // sim_boot spawns the fs worker
+    },
+    #[cfg(any_sensor)]
+    BootTask {
+        name: "sensor",
+        stack_bytes: bytes(SENSOR_STACK_WORDS),
+        // Modeled rather than created. The device sampler exists to
+        // drive real I²C parts; there are none on the host, so the
+        // simulator keeps its own backing (`sampler.rs`'s `sim_backing`),
+        // which fabricates plausible snapshots on a host thread and
+        // publishes them through the seqlock mailbox — atomics only, so
+        // it is one of the host-service threads §1.2 leaves outside the
+        // kernel.
+        sim_real: false,
+    },
+    BootTask {
+        name: "jvm",
+        stack_bytes: bytes(JVM_STACK_WORDS),
+        sim_real: true, // sim_boot spawns it
+    },
+];
+
+/// The kernel's own tasks, created when the scheduler starts.
+#[cfg(any(test, feature = "sim"))]
+const AFTER_POOL: &[BootTask] = &[
+    BootTask {
+        name: "Tmr Svc",
+        stack_bytes: bytes(MINIMAL_STACK_WORDS),
+        sim_real: false, // created by the kernel, allocated off-arena
+    },
+    BootTask {
+        name: "IDLE0",
+        stack_bytes: bytes(MINIMAL_STACK_WORDS),
+        sim_real: false, // as above
+    },
+    BootTask {
+        name: "IDLE1",
+        stack_bytes: bytes(MINIMAL_STACK_WORDS),
+        // As above, and doubly so: the POSIX port is single-core and
+        // creates only one idle task. The device's second one is charged
+        // anyway, because the arena models the *device*.
+        sim_real: false,
+    },
+];

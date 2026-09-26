@@ -147,7 +147,7 @@ keycode = 4
 # platforms/rp/src/boot_budget.rs, accepted 2026-09-07 to keep the heap cost
 # at +2 KB x 4 workers = 8 KB (8 KB stacks cost 16 KB and pulled the
 # `sim.sh -l 360` pre-flight from 24.2 KB to 7.7 KB min-free). Getting even
-# that back means `threads = 2` here, which needs the sim boot-budget model
-# to stop hard-coding four workers (docs/networking-followups-2026-08.md).
+# that back means `threads = 2` here; the boot-budget model takes its worker
+# count from this section since 2026-09-25 (pico_display2_w runs two).
 [background_pool]
 stack_bytes = 6144
