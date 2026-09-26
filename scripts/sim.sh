@@ -256,6 +256,11 @@ if [[ -n "$SCHED_DIAG" ]]; then
   # opt-in through the environment. See docs/scheduling-diagnostics.md.
   FEATURES="$FEATURES,sched-diag"
 fi
+# Same knob as flash.sh: `PICODROID_EXTRA_FEATURES=parity-metrics` gives
+# PICODROID_TRACE_SPANS=1 its counter columns (docs/parity-audit.md).
+if [[ -n "${PICODROID_EXTRA_FEATURES:-}" ]]; then
+  FEATURES="$FEATURES,$PICODROID_EXTRA_FEATURES"
+fi
 
 PROFILE_DIR="debug"
 for arg in "${EXTRA_ARGS[@]}"; do
