@@ -312,7 +312,7 @@ public class MainActivity extends Activity implements UsageService.Listener {
     }
     pageIsStatus = !hasData();
     builtToken = token;
-    page = pageIsStatus ? new StatusPage(this, palette, repo.bridgeAddress()) : create(pageIndex);
+    page = pageIsStatus ? new StatusPage(this, palette) : create(pageIndex);
     page.root.setAlpha(0f);
     pageHost.addView(page.root);
     // Constructing a page resolves its strings; the chrome repaint takes the next tick.

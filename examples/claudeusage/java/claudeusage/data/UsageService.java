@@ -20,8 +20,10 @@ import picodroid.util.Log;
  * numbers that look live.
  *
  * <p>Started so the numbers stay warm whichever screen is showing; bound so the Activity can read
- * them through the {@link LocalBinder}. The bridge's address is a preference, {@link
- * #KEY_BRIDGE_HOST}, defaulting to the build-time host.
+ * them through the {@link LocalBinder}. The bridge's address is, in order: the {@link
+ * #KEY_BRIDGE_HOST} preference when set; else whatever {@link BridgeDiscovery} finds on the LAN,
+ * asked at boot and again while the bridge is unreachable; else the last address it found ({@link
+ * #KEY_BRIDGE_FOUND}); else the build-time host.
  *
  * <p>Threading: the poll thread never touches the fields the UI reads. It hands each result to the
  * main thread in a posted Runnable, and everything below the "main thread" banner is confined to
@@ -35,8 +37,15 @@ public final class UsageService extends Service {
 
   /**
    * Host or address of the bridge, with an optional {@code :port}; else {@link UsageFetcher#PORT}.
+   * Set by hand (via {@code pdb}); while present, no discovery runs.
    */
   public static final String KEY_BRIDGE_HOST = "bridge_host";
+
+  /** Where the last broadcast found the bridge, {@code host:port}: a cache, never set by hand. */
+  public static final String KEY_BRIDGE_FOUND = "bridge_found";
+
+  /** While the bridge stays unreachable, ask the LAN where it is again this often. */
+  private static final int REDISCOVER_MS = 60_000;
 
   /**
    * The bridge itself only asks Anthropic every three minutes; this just keeps {@code age} fresh.
@@ -93,10 +102,29 @@ public final class UsageService extends Service {
   private volatile boolean running;
   private volatile boolean refreshRequested;
   private volatile boolean listening;
-  private String address;
-  private String url;
+
+  /**
+   * The address being tried, {@code host:port}: pinned, discovered, or the fallback while discovery
+   * finds nothing. Null only before the first probe of a unit that has never found the bridge.
+   */
+  private volatile String address;
+
+  private volatile String url;
+
+  // ── Poll thread only ───────────────────────────────────────────────────────
+
+  /** No pinned address: broadcast for the bridge and follow it. */
+  private boolean discover;
+
+  /** The build-time host, tried when nothing answers the broadcast. */
+  private String fallback;
+
+  private long lastProbeElapsedMs = -1;
 
   // ── Main thread only ───────────────────────────────────────────────────────
+
+  /** Not thread-safe, so the poll thread posts its one write here. */
+  private SharedPreferences prefs;
 
   private Listener listener;
   private UsageSnapshot snapshot;
@@ -130,16 +158,37 @@ public final class UsageService extends Service {
   public void onCreate() {
     super.onCreate();
     binder.service = this;
-    SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-    String host = prefs.getString(KEY_BRIDGE_HOST, NetTestConfig.HOST);
-    // A host may carry its own port ("192.168.1.5:8790"): a dev PC whose live bridge already
-    // owns 8787 runs a demo bridge for the simulator beside it.
-    address = host.indexOf(':') >= 0 ? host : host + ":" + UsageFetcher.PORT;
-    url = "http://" + address + "/u";
+    prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+    String pinned = prefs.getString(KEY_BRIDGE_HOST, null);
+    if (pinned != null) {
+      setAddress(withPort(pinned));
+      Log.i(TAG, "service up, bridge pinned " + address);
+    } else {
+      discover = true;
+      fallback = withPort(NetTestConfig.HOST);
+      String found = prefs.getString(KEY_BRIDGE_FOUND, null);
+      if (found != null) {
+        setAddress(found);
+      }
+      Log.i(TAG, "service up, bridge by discovery, else " + (found != null ? found : fallback));
+    }
     running = true;
     new Thread(this::pollLoop, "usage-poll").start();
     new Thread(this::tickLoop, "usage-tick").start();
-    Log.i(TAG, "service up, bridge " + address);
+  }
+
+  /**
+   * A host may carry its own port ("192.168.1.5:8790"): a dev PC whose live bridge already owns
+   * 8787 runs a demo bridge for the simulator beside it.
+   */
+  private static String withPort(String host) {
+    return host.indexOf(':') >= 0 ? host : host + ":" + UsageFetcher.PORT;
+  }
+
+  /** The one write to the two address fields the UI reads; both are volatile. */
+  private void setAddress(String hostPort) {
+    address = hostPort;
+    url = "http://" + hostPort + "/u";
   }
 
   @Override
@@ -178,7 +227,10 @@ public final class UsageService extends Service {
     }
   }
 
-  /** Shown on the status screen so a wrong address is obvious. */
+  /**
+   * Shown on the status screen so a wrong address is obvious; null while the first discovery
+   * broadcast is still out.
+   */
   public String bridgeAddress() {
     return address;
   }
@@ -328,10 +380,13 @@ public final class UsageService extends Service {
 
   private void pollLoop() {
     int failures = 0;
+    int unanswered = 0;
     boolean everConnected = false;
+    boolean probed = false;
     while (running) {
       // Consumed on every pass, the offline one included: a request left set makes idle() return
       // at once, and while the link is down that spun this loop, flooding the main queue.
+      final boolean manual = refreshRequested;
       refreshRequested = false;
       if (!NetworkInfo.isConnected()) {
         final LinkState state = everConnected ? LinkState.NO_WIFI : LinkState.JOINING;
@@ -340,18 +395,52 @@ public final class UsageService extends Service {
         continue;
       }
       everConnected = true;
+      // Asked at every boot, not only the first: the PC may have a new DHCP lease, and a PC that
+      // is up answers in milliseconds.
+      if (discover && (!probed || (unanswered > 0 && (manual || probeDue(unanswered))))) {
+        probed = true;
+        probe();
+      }
       Executors.mainExecutor().execute(this::applySyncing);
 
       final UsageSnapshot fresh = new UsageSnapshot();
       final LinkState state = UsageFetcher.fetch(url, fresh);
       final boolean gotReply = state == LinkState.OK || state == LinkState.UPSTREAM;
       failures = state == LinkState.OK ? 0 : failures + 1;
+      unanswered = answered(state) ? 0 : unanswered + 1;
       final int wait =
           state == LinkState.OK
               ? POLL_MS
               : (failures <= FAST_RETRIES ? RETRY_FAST_MS : RETRY_SLOW_MS);
       Executors.mainExecutor().execute(() -> applyResult(state, gotReply ? fresh : null, wait));
       idle(wait);
+    }
+  }
+
+  /** The bridge said something, however wrong: it is at this address. */
+  private static boolean answered(LinkState state) {
+    return state != LinkState.PC_OFF
+        && state != LinkState.BRIDGE_DOWN
+        && state != LinkState.NO_REPLY;
+  }
+
+  /** One miss is a blip; from the second on, ask the LAN again once a minute. */
+  private boolean probeDue(int unanswered) {
+    return unanswered >= 2 && SystemClock.elapsedRealtime() - lastProbeElapsedMs >= REDISCOVER_MS;
+  }
+
+  /** Broadcast for the bridge; adopt an answer, or the build-time host when there is none yet. */
+  private void probe() {
+    lastProbeElapsedMs = SystemClock.elapsedRealtime();
+    final String found = BridgeDiscovery.find();
+    if (found != null) {
+      if (!found.equals(address)) {
+        setAddress(found);
+        Executors.mainExecutor()
+            .execute(() -> prefs.edit().putString(KEY_BRIDGE_FOUND, found).apply());
+      }
+    } else if (address == null) {
+      setAddress(fallback);
     }
   }
 

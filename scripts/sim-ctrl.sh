@@ -36,6 +36,8 @@
 #          (e.g. --board pico_enviro_mon_w). Down: NetworkInfo.isConnected()
 #          is false and new connects / sends / lookups fail. Boot with the
 #          link down: PICODROID_SIM_NET=down ./scripts/sim.sh ...
+#          Refuse UDP broadcast sends, as a client-isolating access point
+#          would: PICODROID_SIM_NET_BROADCAST=0 ./scripts/sim.sh ...
 # Memory:  memstats — one [memmon] snapshot (+histogram if enabled); needs a
 #          sim built with --mem-diag (docs/memory-diagnostics.md)
 #          heapcensus — live-set census: bytes by class / array type / dyn

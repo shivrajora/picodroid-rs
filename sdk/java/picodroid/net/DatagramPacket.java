@@ -22,6 +22,11 @@ public class DatagramPacket {
     this.port = port;
   }
 
+  /** Create a packet for sending to {@code address:port}, as {@code java.net.DatagramPacket}. */
+  public DatagramPacket(byte[] data, int length, InetAddress address, int port) {
+    this(data, length, address.getRawAddress(), port);
+  }
+
   public byte[] getData() {
     return data;
   }

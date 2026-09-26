@@ -84,7 +84,7 @@ The last column says what round 1 did: **closed**, **kept** (with the reason), o
 | 40 | `conn.disconnect()` in `finally` because 16 handles exist. | idiom preserved | kept |
 | 41 | `UsageSnapshot` is a mutable public-field bag with parallel arrays. | App choice | kept: it is written once by the fetch and read by the UI; a `List<ModelCap>` of records costs allocations for no reader. |
 | 42 | `LinkState` as `int` constants with a name table. | App choice | **closed**: an `enum` with `shortText`/`advice` as instance methods. |
-| 43 | Bridge host baked at build time through the `NetTestConfig` test hook. | App choice | **closed** as far as the app can: `UsageService` reads `bridge_host` from `SharedPreferences` with `NetTestConfig.HOST` as the default, so an installed unit can be repointed without a rebuild (via `pdb`, or a future settings screen). A `BuildConfig` block is still the right default source; see G7 in the gaps roadmap. |
+| 43 | Bridge host baked at build time through the `NetTestConfig` test hook. | App choice | **closed** as far as the app can: `UsageService` reads `bridge_host` from `SharedPreferences` with `NetTestConfig.HOST` as the default, so an installed unit can be repointed without a rebuild (via `pdb`, or a future settings screen). A `BuildConfig` block is still the right default source; see G7 in the gaps roadmap. *2026-09-25:* the address is now discovered: `BridgeDiscovery` broadcasts one UDP query and the bridge answers, so nothing is baked or typed unless the LAN blocks broadcasts (`bridge_host` pins, `NetTestConfig.HOST` is the fallback). The Android shape would be `NsdManager` / DNS-SD; the runtime has no multicast DNS, so the app carries the two-datagram protocol itself. |
 
 ## 6. Time and number formatting
 

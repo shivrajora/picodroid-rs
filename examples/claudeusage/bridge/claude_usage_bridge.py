@@ -7,6 +7,10 @@ serves the numbers over plain HTTP on the LAN:
 
     GET /u   ->  one compact JSON object, at most MAX_BODY bytes
 
+and answers the display's "where is the bridge?" broadcast on UDP DISCOVERY_PORT
+so it needs no address: the query PICODROID-USAGE? gets "PICODROID-USAGE <port>"
+back, and the reply's source address is this PC (--discovery-port 0 turns it off).
+
 It reads two things:
   * the subscription limits (5-hour session, weekly, per-model weekly) from
     Anthropic's OAuth usage endpoint, with the token Claude Code keeps in
@@ -33,6 +37,7 @@ import glob
 import json
 import math
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -47,6 +52,8 @@ TRANSCRIPTS = os.path.expanduser("~/.claude/projects")
 UPSTREAM_PERIOD_S = 180
 TRANSCRIPT_PERIOD_S = 60
 MAX_BODY = 700  # the device reads into a fixed 1 KiB buffer
+DISCOVERY_PORT = 8788  # UDP; the app's BridgeDiscovery.PORT
+DISCOVERY_QUERY = b"PICODROID-USAGE?"
 HISTORY_DAYS = 7
 RATE_WINDOW_S = 20 * 60
 FAIL_MODES = ("none", "auth", "rate", "creds", "garbage", "http500", "hang", "nodata")
@@ -473,10 +480,47 @@ def poller(limits, history):
         time.sleep(1)
 
 
+def discovery_responder(port, http_port):
+    """Answer the display's broadcast "where is the bridge?" so it needs no address.
+
+    The app broadcasts DISCOVERY_QUERY to UDP `port`; the reply names the HTTP
+    port, and its source address tells the display which PC to talk to. Only
+    one process can own the port, so a second bridge on the same PC (a --demo
+    beside the live one) logs and goes without: the display finds the first.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.bind(("", port))
+    except OSError as e:
+        log("discovery: not answering on udp/%d (%s)" % (port, e.strerror or e))
+        return
+    log("discovery: answering on udp/%d" % port)
+    answer = ("PICODROID-USAGE %d" % http_port).encode()
+    while True:
+        try:
+            data, peer = sock.recvfrom(64)
+        except OSError:
+            continue
+        if data.strip() != DISCOVERY_QUERY:
+            continue
+        try:
+            sock.sendto(answer, peer)
+        except OSError:
+            continue
+        if os.environ.get("BRIDGE_VERBOSE"):
+            log("discovery: answered %s:%d" % peer)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8787)
+    ap.add_argument(
+        "--discovery-port",
+        type=int,
+        default=DISCOVERY_PORT,
+        help="UDP port to answer the display's discovery broadcast on (0 = never)",
+    )
     ap.add_argument("--demo", action="store_true", help="serve synthetic data")
     ap.add_argument("--fail", choices=FAIL_MODES, default="none", help="demo failure mode")
     ap.add_argument("--once", action="store_true", help="print one payload and exit")
@@ -498,6 +542,10 @@ def main():
     if not args.demo:
         State.limits, State.history = Limits(), History()
         threading.Thread(target=poller, args=(State.limits, State.history), daemon=True).start()
+    if args.discovery_port:
+        threading.Thread(
+            target=discovery_responder, args=(args.discovery_port, args.port), daemon=True
+        ).start()
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     server.daemon_threads = True
     log("serving %s data on http://%s:%d/u" % ("DEMO" if args.demo else "live", args.host, args.port))

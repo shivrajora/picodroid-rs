@@ -439,6 +439,15 @@ preferences, with `NetTestConfig.HOST` as the default, so an installed unit can 
 without a rebuild (`pdb`, or a future settings screen). The `BuildConfig` ask stands for the
 default. See `claudeusage-android-shape-2026-09.md`.
 
+*Amendment 2026-09-25:* the app no longer needs an address at all on an ordinary LAN. It
+broadcasts `PICODROID-USAGE?` to UDP 8788 and the bridge answers with its HTTP port; the reply's
+source address is the PC (`BridgeDiscovery`, cached in the `bridge_found` preference, re-asked once
+a minute while the bridge is unreachable). `NetTestConfig.HOST` is now only the fallback for a LAN
+that swallows broadcasts. The SDK grew the Java spellings the probe wanted: `DatagramSocket()`,
+`setSoTimeout`, `setBroadcast`/`getBroadcast`, and a `DatagramPacket(byte[], int, InetAddress,
+int)` constructor. A general mDNS / DNS-SD (`NsdManager`) browse is still the Android shape and
+still open.
+
 ### G8. Keys need a focused widget — closed 2026-09-24
 
 There was no `Activity.onKeyDown`; keys reached Java only through `View.setOnKeyListener` on the
