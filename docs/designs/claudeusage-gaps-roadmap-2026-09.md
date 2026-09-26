@@ -1,6 +1,6 @@
 # Platform gaps found building `claudeusage`
 
-**Status: open list; G1, G2 and G3 closed 2026-09-23, G8 closed 2026-09-24, D5 (app bug) fixed 2026-09-23, D1 (sim run-lock hand-off) closed 2026-09-25. D4 closed for this app 2026-09-25: the RP2350's flash clock was the ROM's divider of 3 and is now 2 (`hal/rp/xip.rs`, every RP2350 board), the History and Models first paints are split, and no page turn has a span over 50 ms; the one runtime follow-up left, a RAM-resident interpreter loop, is measured below and waits on a decision about the 30 KB. G11 attributed 2026-09-24: the board has 98 KB free on its worst page, the simulator 9 KB; the levers are listed there. G10 is next.**
+**Status: open list; G1, G2 and G3 closed 2026-09-23, G8 closed 2026-09-24, D5 (app bug) fixed 2026-09-23, D2 fixed 2026-09-25 (`LV_DRAW_SW_SUPPORT_RGB888`, the horizontal gradient's source format), D1 (sim run-lock hand-off) closed 2026-09-25. D4 closed for this app 2026-09-25: the RP2350's flash clock was the ROM's divider of 3 and is now 2 (`hal/rp/xip.rs`, every RP2350 board), the History and Models first paints are split, and no page turn has a span over 50 ms; the one runtime follow-up left, a RAM-resident interpreter loop, is measured below and waits on a decision about the 30 KB. G11 attributed 2026-09-24: the board has 98 KB free on its worst page, the simulator 9 KB; the levers are listed there. G10 is next.**
 
 `examples/claudeusage` is a desk display for Claude usage limits on a new board, `pico_display2_w`
 (Pimoroni Pico Display Pack 2.0 on a Pico 2 W). It was built to look like a modern product rather
@@ -287,7 +287,21 @@ a windowed run now land at 4, 24 and 44 s.
 rather than the poll thread, and a fetch still running after 12 s is presented as `PC offline`, so
 a slow or stuck fetch cannot leave live-looking numbers or a frozen countdown on screen.
 
-### D2. `GradientDrawable` LEFT_RIGHT gradients do not render
+### D2. `GradientDrawable` LEFT_RIGHT gradients do not render — closed 2026-09-25
+
+**Status: fixed 2026-09-25.** The swapped-RGB565 blender was the right place to look, but the
+cause was configuration, not the blender. LVGL's software fill draws a horizontal gradient by
+blending its gradient map as an RGB888 *source image* (`lv_draw_sw_fill.c` sets
+`src_color_format = LV_COLOR_FORMAT_RGB888`; the map is an `lv_color_t` array), whereas a vertical
+gradient is a solid fill per line and never goes through an image blend. `lv_conf.h` had
+`LV_DRAW_SW_SUPPORT_RGB888 0`, so `lv_draw_sw_blend_image_to_rgb565_swapped` fell into its
+`default:` arm, a `LV_LOG_WARN("Not supported source color format")` that draws nothing, and
+with `LV_USE_LOG 0` it did so silently. `lv_draw_sw_triangle.c` takes the same path, so any
+gradient triangle was lost the same way. The switch is now on, with a comment in `lv_conf.h`
+naming both consumers; a `pd-lvgl-sys` test pins it to 1 and checks the vendored fill still hands
+the blender RGB888, so a future LVGL bump that changes the source format is a review event;
+`examples/displaydemo` has a left-to-right row under the themed header. Flash cost:
++3,732 B on the RP2040 and +3,504 B on the RP2350 for the RGB888 source arm of the linked blenders and the RGB888 image transform path. The switch would also have linked the RGB888 *destination* blender, another 2.8 KB that nothing renders into, so `build_support/lvgl.rs` leaves `lv_draw_sw_blend_to_rgb888.c` out of the compile and `crates/pd-lvgl-sys/lvgl/pd_blend_to_rgb888_stub.c` supplies its two entry points, which assert if ever reached.
 
 `new GradientDrawable().setGradient(a, b, GradientDrawable.Orientation.LEFT_RIGHT)` applied to a
 `FrameLayout` draws nothing: the view is fully transparent, with or without a corner radius. The

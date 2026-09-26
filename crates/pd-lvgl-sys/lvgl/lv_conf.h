@@ -103,7 +103,19 @@
      * intermediate (e.g. a scaled ImageView), blended as RGB565 + mask. */
     #define LV_DRAW_SW_SUPPORT_RGB565       1
     #define LV_DRAW_SW_SUPPORT_RGB565A8     1
-    #define LV_DRAW_SW_SUPPORT_RGB888       0
+    /* No asset is RGB888, but the software renderer's own gradients are: a
+     * horizontal gradient is blended as an RGB888 source image (the lv_color_t
+     * gradient map; lv_draw_sw_fill.c and lv_draw_sw_triangle.c both set
+     * src_color_format = LV_COLOR_FORMAT_RGB888), whereas a vertical one is a
+     * solid fill per line. With this off, blend_image_to_rgb565_swapped hits
+     * its "Not supported source color format" default arm and a LEFT_RIGHT
+     * GradientDrawable draws nothing -- silently, LV_USE_LOG being 0. Pinned
+     * by pd-lvgl-sys::tests::rgb888_source_blender_stays_on_for_gradients.
+     * The RGB888 *destination* blender rides on the same switch and nothing
+     * renders into that format, so build_support/lvgl.rs leaves
+     * lv_draw_sw_blend_to_rgb888.c out and pd_blend_to_rgb888_stub.c here
+     * supplies its two entry points (2.8 KB on the RP2040). */
+    #define LV_DRAW_SW_SUPPORT_RGB888       1
     #define LV_DRAW_SW_SUPPORT_XRGB8888    0
     #define LV_DRAW_SW_SUPPORT_ARGB8888    1  /* needed internally for blending */
     /* Premultiplied ARGB8888 is unreachable here, and LVGL defaults it ON when
