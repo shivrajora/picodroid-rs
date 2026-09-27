@@ -150,13 +150,32 @@ keycode = 4
 # workers (the serve thread only schedules, so a fetch never delays a page).
 # The 4 KB default hard-faulted on the first weather fetch: measured with
 # `pdb sysmon` (2026-09-04), the job's deepest point (DNS + UDP + HTTP + JSON
-# parse on the worker stack) uses 4,712 B — 870 of 2,048 words left on an
-# 8 KB stack, stable over 17 jobs including the NTP-timeout path. 6 KB leaves
-# 23 % headroom: a deliberate exception to the 25 % rule in
-# platforms/rp/src/boot_budget.rs, accepted 2026-09-07 to keep the heap cost
-# at +2 KB x 4 workers = 8 KB (8 KB stacks cost 16 KB and pulled the
-# `sim.sh -l 360` pre-flight from 24.2 KB to 7.7 KB min-free). Getting even
-# that back means `threads = 2` here; the boot-budget model takes its worker
-# count from this section since 2026-09-25 (pico_display2_w runs two).
+# parse on the worker stack) used 4,712 B, and 6 KB (23 % headroom, a
+# deliberate exception to the 25 % rule in platforms/rp/src/boot_budget.rs)
+# carried it while the weather came over plain HTTP. Over HTTPS the worker
+# also runs the TLS record layer after the handshake task hands the session
+# back, and the software AES key schedule (`aes::soft::fixslice32`) on top of
+# those frames hard-faulted the 6 KB stack on the first fetch (2026-09-27);
+# 8 KB carries it: `pdb sysmon` after a fetch shows 1,828 B spare (22 %
+# headroom -- the same standing exception to the 25 % rule as before), and
+# the runtime skips the TLS close-notify on a task with less than 8 KB
+# spare rather than encode it there (docs/designs/tls-2026-09.md A2). The
+# boot-budget model takes its worker count from this section since
+# 2026-09-25 (pico_display2_w runs two).
+#
+# Two workers since 2026-09-27, when the weather row moved to HTTPS
+# (docs/designs/tls-2026-09.md A2): a handshake holds a 40 KB task stack,
+# a 16.6 KB read record and a 4.2 KB write record from the arena at once,
+# and on this board the first fetch died on the 1 KB `HttpConn` allocation
+# right after the handshake -- from picoenvmon and from the `weather`
+# example alike, so it is the board's baseline, not the app's. picoenvmon
+# posts one housekeeping job at a time (NTP, then weather, on the same
+# worker) and nothing else here queues two; the two idle workers were 12 KB
+# of stacks the arena needed back; two 8 KB stacks are still 8 KB less than
+# the four 6 KB ones were. Measured after the change (A2): 98 KB free at
+# rest, 3.4 KB minimum during a fetch -- the fetch's transient is about
+# 95 KB of arena, so this board has no room for a third concurrent
+# network transient; the levers left are listed in A2.
 [background_pool]
-stack_bytes = 6144
+stack_bytes = 8192
+threads = 2

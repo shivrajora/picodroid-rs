@@ -73,11 +73,12 @@ public class NetworkManager implements Runnable {
 
   /**
    * Ceiling on one background housekeeping job. The worst legitimate job is two DNS lookups (~22 s
-   * each on device: FreeRTOS+TCP retries 4 × ~5.5 s), NTP (3 × 3 s) and weather (4 s connect + 4 s
-   * read) — about 61 s. If {@link #housekeepingBusy} stays set longer than this, the job was lost
-   * and the tick re-arms. Two ways to lose one: {@code BackgroundExecutor.execute} drops silently
-   * when its queue is full (only a framework log line says so), and an interpreter-level error
-   * (OOM, stack overflow) inside the worker skips {@code finally}.
+   * each on device: FreeRTOS+TCP retries 4 × ~5.5 s), NTP (3 × 3 s) and weather (4 s connect, a TLS
+   * handshake and the reply under the 4 s read timeout) — about 61 s. If {@link #housekeepingBusy}
+   * stays set longer than this, the job was lost and the tick re-arms. Two ways to lose one: {@code
+   * BackgroundExecutor.execute} drops silently when its queue is full (only a framework log line
+   * says so), and an interpreter-level error (OOM, stack overflow) inside the worker skips {@code
+   * finally}.
    */
   private static final long HOUSEKEEPING_STALL_MS = 180_000L;
 
@@ -306,6 +307,14 @@ public class NetworkManager implements Runnable {
           notifyChanged();
         }
         ntpDueAtMs = nowMs + (ok ? NTP_RESYNC_MS : NTP_RETRY_MS);
+      }
+      if (nowMs >= weatherDueAtMs && !timeSynced) {
+        // The HTTPS handshake checks open-meteo's certificate against the
+        // wall clock and the runtime refuses to run one while the clock is
+        // unset, so the fetch waits for NTP; both retry cadences are 5 min,
+        // and a sync that lands in this job serves the fetch right below.
+        Log.i(TAG, "weather: waiting for the clock");
+        weatherDueAtMs = nowMs + WEATHER_RETRY_MS;
       }
       if (nowMs >= weatherDueAtMs) {
         String w = WeatherFetcher.fetch();

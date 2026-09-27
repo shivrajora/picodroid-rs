@@ -2,6 +2,7 @@
 package picoenvmon.net;
 
 import java.io.IOException;
+import javax.net.ssl.SSLHandshakeException;
 import picodroid.json.JSONException;
 import picodroid.json.JSONObject;
 import picodroid.net.HttpInputStream;
@@ -11,16 +12,27 @@ import picodroid.util.Log;
 import picoenvmon.EnvApp;
 
 /**
- * Current weather from open-meteo over plain HTTP (no TLS exists on this platform), parsed with
- * {@link JSONObject}. Strictly fail-soft: this depends on a third-party endpoint and real internet,
- * so every failure — DNS, timeout, non-200, garbage — returns null and the UI renders
- * "unavailable". Nothing in CI ever asserts on weather content.
+ * Current weather from open-meteo over HTTPS, parsed with {@link JSONObject}. Strictly fail-soft:
+ * this depends on a third-party endpoint and real internet, so every failure — DNS, timeout, a
+ * refused handshake, non-200, garbage — returns null and the UI renders "unavailable". Nothing in
+ * CI ever asserts on weather content.
+ *
+ * <p>The {@code https} URL is all it takes (docs/designs/tls-2026-09.md): {@code connect()} runs
+ * the TLS 1.3 handshake and verifies open-meteo's Let's Encrypt chain against the compiled-in
+ * roots. Two things follow from that. The certificate's validity is checked against the wall clock,
+ * and the runtime refuses to handshake while the clock is unset, so {@link NetworkManager} only
+ * posts this fetch once {@link SntpClient#sync} has anchored the clock. And the handshake runs on a
+ * task of its own with a 40 KB stack, spawned for the call and freed after it, so it costs the pool
+ * worker nothing; what does run on the worker is the record layer (AES-GCM over the reply), which
+ * is why the board's {@code [background_pool] stack_bytes} was re-measured after this move (see the
+ * board.toml comment).
  *
  * <p>The fetch runs as a NetworkManager housekeeping job on a shared background-pool worker, so it
- * no longer delays dashboard serving — but it must still be time-bounded: a stalled endpoint with
- * no timeouts once starved the (then shared) serve loop for a whole 25 s smoke run (nightly
+ * never delays dashboard serving — but it must still be time-bounded: a stalled endpoint with no
+ * timeouts once starved the (then shared) serve loop for a whole 25 s smoke run (nightly
  * 2026-08-18), and today an unbounded fetch would tie up a pool worker and trip NetworkManager's
- * stall ceiling. Connect and read timeouts bound each blocking network call at {@code TIMEOUT_MS};
+ * stall ceiling. Connect and read timeouts bound each blocking network call at {@code TIMEOUT_MS}
+ * (the handshake, about 2 s on the RP2350 for open-meteo's RSA chain, runs under the read timeout);
  * the reply is a few hundred bytes, so the read count stays small.
  */
 public final class WeatherFetcher {
@@ -42,7 +54,7 @@ public final class WeatherFetcher {
 
   /** Current temperature and WMO weather code only, so the reply stays under 400 bytes. */
   private static final String WEATHER_URL =
-      "http://api.open-meteo.com/v1/forecast?latitude="
+      "https://api.open-meteo.com/v1/forecast?latitude="
           + LAT
           + "&longitude="
           + LON
@@ -87,6 +99,9 @@ public final class WeatherFetcher {
       return line;
     } catch (JSONException e) {
       Log.i(TAG, "weather: bad reply: " + e.getMessage());
+      return null;
+    } catch (SSLHandshakeException e) {
+      Log.i(TAG, "weather: handshake rejected: " + e.getMessage());
       return null;
     } catch (IOException e) {
       Log.i(TAG, "weather: fetch failed: " + e.getMessage());

@@ -4,6 +4,7 @@
 package picoenvmonkt.net
 
 import java.io.IOException
+import javax.net.ssl.SSLHandshakeException
 import picodroid.json.JSONException
 import picodroid.json.JSONObject
 import picodroid.net.HttpURLConnection
@@ -12,10 +13,17 @@ import picodroid.util.Log
 import picoenvmonkt.TAG
 
 /**
- * Current weather from open-meteo over plain HTTP (no TLS exists on this platform), parsed with
- * [JSONObject]. Strictly fail-soft: this depends on a third-party endpoint and real internet, so
- * every failure — DNS, timeout, non-200, garbage — returns null and the UI renders "unavailable".
- * Nothing in CI ever asserts on weather content.
+ * Current weather from open-meteo over HTTPS, parsed with [JSONObject]. Strictly fail-soft: this
+ * depends on a third-party endpoint and real internet, so every failure — DNS, timeout, a refused
+ * handshake, non-200, garbage — returns null and the UI renders "unavailable". Nothing in CI ever
+ * asserts on weather content.
+ *
+ * The `https` URL is all it takes (docs/designs/tls-2026-09.md): `connect()` runs the TLS 1.3
+ * handshake and verifies open-meteo's chain against the compiled-in roots. The certificate's
+ * validity is checked against the wall clock, and the runtime refuses to handshake while the clock
+ * is unset, so NetworkManager only posts this fetch once `sntpSync()` has anchored the clock. The
+ * handshake itself runs on a task of its own (40 KB stack, spawned for the call); the record layer
+ * runs on the pool worker, which the board's `[background_pool] stack_bytes` was re-measured for.
  *
  * The fetch runs as a NetworkManager housekeeping job on a shared background-pool worker, so it no
  * longer delays dashboard serving — but it must still be time-bounded: a stalled endpoint with no
@@ -34,7 +42,7 @@ private const val LON = "-122.32"
 
 /** Current temperature and WMO weather code only, so the reply stays under 400 bytes. */
 private const val WEATHER_URL =
-    "http://api.open-meteo.com/v1/forecast?latitude=$LAT&longitude=$LON&current=temperature_2m,weather_code"
+    "https://api.open-meteo.com/v1/forecast?latitude=$LAT&longitude=$LON&current=temperature_2m,weather_code"
 
 private const val MAX_REPLY_BYTES = 512
 
@@ -74,6 +82,9 @@ fun fetchWeather(): String? {
         return line
     } catch (e: JSONException) {
         Log.i(TAG, "weather: bad reply: ${e.message}")
+        return null
+    } catch (e: SSLHandshakeException) {
+        Log.i(TAG, "weather: handshake rejected: ${e.message}")
         return null
     } catch (e: IOException) {
         Log.i(TAG, "weather: fetch failed: ${e.message}")
