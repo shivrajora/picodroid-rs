@@ -7,7 +7,7 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
-**`picodroid.protobuf` (2026-09-26; map v0.32.0, package 0.32.0)**
+**`picodroid.protobuf` (2026-09-26; map v0.33.0, package 0.33.0)**
 
 - protobuf-javalite's stream API — `CodedInputStream`, `CodedOutputStream`, `MessageLite`,
   `WireFormat`, `InvalidProtocolBufferException` — over a native wire codec (`micropb`, reading
@@ -19,6 +19,42 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 - `examples/protodemo` is the conformance app; `claudeusage` reads its bridge's reply as protobuf
   (`Accept: application/x-protobuf`; the bridge still answers JSON to everything else) and no
   longer references `picodroid.json`.
+- Map v0.33.0, cut on `main`, folds in the six `picodroid/protobuf` classes (with
+  `CodedOutputStream$OutOfSpaceException`), `KeyEvent$Callback`, `KeyEvent$DispatcherState` and
+  `ViewConfiguration` (319 → 328) and the 176 member names they declare (1762 → 1938). The member
+  floor stays at v0.17.0, so PAPKs shrunk with v0.17.0 through v0.32.0 still install.
+  `Build.VERSION.RELEASE` reads `0.33.0`.
+
+**Long-press and key auto-repeat (2026-09-26; map v0.33.0, package 0.33.0)**
+
+- A held key repeats as Android's input dispatcher repeats it: a synthetic `ACTION_DOWN` with
+  `getRepeatCount()` 1 after 400 ms (`ViewConfiguration.getKeyRepeatTimeout()`), then one every
+  50 ms until the release; the first repeat carries `FLAG_LONG_PRESS`.
+- Android's Java surface, member for member: `KeyEvent.dispatch(Callback, DispatcherState,
+  Object)`, `KeyEvent.Callback` (which `Activity` now implements, gaining `onKeyLongPress` and
+  `onKeyMultiple`), `KeyEvent.DispatcherState`, `isLongPress`, `isCanceled`, `getFlags`,
+  `getDownTime`, and `ViewConfiguration` with the three timings. The two-actions-per-button idiom
+  transfers unchanged: `startTracking()` in `onKeyDown`, act on the hold in `onKeyLongPress`
+  (which cancels the release), act on the press in `onKeyUp` when the release is tracked and not
+  cancelled. A cancelled BACK release no longer runs `onBackPressed`.
+- Tooling: `input keyevent --longpress` (adb's flag) and `--down` / `--up` on the sim control
+  channel and `pdb input`. A key verb now settles 40 ms after its release, which ends the
+  occasional dropped control-FIFO tap (two queued verbs landed inside the 5 ms debounce).
+  `examples/keydemo` shows every path and runs as a nightly sim row.
+- `claudeusage`: four buttons, eight actions — a held A/B keeps turning pages, a held X
+  rediscovers the bridge, a held Y toggles AUTO from any screen.
+
+**The RP2350's hot code runs from SRAM (2026-09-26)**
+
+- Beyond the interpreter loop, 101 LVGL functions (style lookup, event dispatch, RGB565 blend),
+  30 FreeRTOS kernel and port functions and 20 pico-jvm helpers now execute from SRAM on every
+  RP2350 board, chosen from a PC-sample profile of `claudeusage` page turns. On
+  `pico_display2_w` a page turn's CPU work drops by a third and the Java-side spans of a page
+  visit fall from 205 to 118 ms. No LVGL or kernel source changes: the build retargets the named
+  sections in the built archives (`platforms/rp/mcus/rp/hot-ram-*.txt`).
+- It costs 48 KB of heap arena, set by `hot_ram_kb = 48` in `board.toml`: 372 → 324 KB on the
+  RP2350A boards, 300 → 252 KB on the touch kit. The RP2040 has no room and is unchanged. Design
+  and measurements: `docs/designs/sram-hotpath-2026-09.md`.
 
 **`java.util.zip.CRC32` (2026-09-26; map v0.32.0, package 0.32.0)**
 
