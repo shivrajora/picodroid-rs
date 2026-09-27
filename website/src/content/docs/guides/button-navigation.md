@@ -110,7 +110,7 @@ view.setOnKeyListener((v, event) -> {
 });
 ```
 
-`OnKeyListener` is the Android single-method interface `boolean onKey(View v, KeyEvent event)`; returning `true` consumes the event. Remember: **only a focusable view receives key events**, and focusability is independent of whether you've set a key listener.
+`OnKeyListener` is the Android single-method interface `boolean onKey(View v, KeyEvent event)`; returning `true` consumes the event. Remember: **only a focusable view receives key events**, and focusability is independent of whether you've set a key listener. A screen with nothing to focus overrides the Activity's `onKeyDown` / `onKeyLongPress` / `onKeyUp` instead, and a held key auto-repeats (`getRepeatCount()`) after 400 ms — so four buttons can carry eight actions, a press and a hold each. See [Key events](/api/ui/#key-events).
 
 The `KeyEvent` constants match Android exactly (`sdk/java/picodroid/view/KeyEvent.java`):
 

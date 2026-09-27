@@ -78,8 +78,19 @@ fn slot_expectations() -> Vec<(&'static str, &'static str, usize)> {
         ),
         (
             c::picodroid_view_KeyEvent,
-            "tracking",
-            g::key_event::TRACKING,
+            "repeatCount",
+            g::key_event::REPEAT_COUNT,
+        ),
+        (c::picodroid_view_KeyEvent, "flags", g::key_event::FLAGS),
+        (
+            c::picodroid_view_KeyEvent,
+            "downTime",
+            g::key_event::DOWN_TIME,
+        ),
+        (
+            c::picodroid_view_KeyEvent,
+            "eventTime",
+            g::key_event::EVENT_TIME,
         ),
         (
             c::picodroid_app_AlertDialog,

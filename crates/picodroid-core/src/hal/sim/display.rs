@@ -662,18 +662,34 @@ fn input_dpad_keycode(dir: &str) -> Option<i32> {
 #[cfg(has_buttons)]
 use crate::board_cfg::buttons::keycode_to_pin;
 
-/// Handle `input keyevent|dpad|back` — resolve to a button pin and inject a
-/// press/release. `verb` is the already-lowercased subcommand.
+/// Handle `input keyevent|dpad|back [--longpress|--down|--up] …` — resolve to
+/// a button pin and inject the edges. `verb` is the already-lowercased
+/// subcommand; the flags come before the key, as in `adb shell input keyevent
+/// --longpress KEYCODE`.
 #[cfg(has_buttons)]
 fn handle_key_verb(verb: &str, it: &mut core::str::SplitWhitespace<'_>) {
+    use crate::input_inject::KeyHold;
+
+    let mut hold = KeyHold::PressRelease;
+    let mut tok = it.next();
+    while let Some(flag) = tok.filter(|t| t.starts_with("--")) {
+        match KeyHold::from_flag(flag) {
+            Some(h) => hold = h,
+            None => {
+                println!("[sim] control channel: input {verb}: unknown flag '{flag}'");
+                return;
+            }
+        }
+        tok = it.next();
+    }
     let code = match verb {
-        "keyevent" => it.next().and_then(input_keycode),
-        "dpad" => it.next().and_then(input_dpad_keycode),
+        "keyevent" => tok.and_then(input_keycode),
+        "dpad" => tok.and_then(input_dpad_keycode),
         "back" => Some(pdb_protocol::keycodes::KEYCODE_BACK),
         _ => None,
     };
     match code.and_then(keycode_to_pin) {
-        Some(pin) => crate::input_inject::press_release::<SimSink>(pin),
+        Some(pin) => crate::input_inject::key::<SimSink>(pin, hold),
         None => println!("[sim] control channel: input {verb} — no button for that keycode"),
     }
 }
@@ -719,8 +735,8 @@ impl crate::input_inject::InputSink for SimSink {
 }
 
 /// Parse and apply one `input …` line — the Android verb family:
-/// `keyevent <KEYCODE|n>`, `dpad <dir>`, `back`, `tap <x> <y>`,
-/// `swipe <x1> <y1> <x2> <y2> [ms]`.
+/// `keyevent [--longpress|--down|--up] <KEYCODE|n>`, `dpad <dir>`, `back`,
+/// `tap <x> <y>`, `swipe <x1> <y1> <x2> <y2> [ms]`.
 #[cfg(any(has_buttons, has_touch))]
 fn handle_input_command(it: &mut core::str::SplitWhitespace<'_>) {
     use crate::input_inject as inject;

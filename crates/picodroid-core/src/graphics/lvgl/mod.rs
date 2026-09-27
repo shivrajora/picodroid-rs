@@ -36,6 +36,7 @@ pub mod edit_mode;
 pub mod handle_table;
 pub mod key_debounce;
 pub mod key_filter;
+pub mod key_repeat;
 pub mod listener_map;
 
 /// Idempotency guard for [`LvglGfx::init`]. LVGL itself doesn't tolerate

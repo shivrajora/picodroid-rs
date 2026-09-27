@@ -75,12 +75,17 @@ F	FILL_HORIZONTAL
 F	FILL_VERTICAL
 F	FIXED_DELAY
 F	FIXED_RATE
+F	FLAG_CANCELED
+F	FLAG_CANCELED_LONG_PRESS
 F	FLAG_CANCEL_CURRENT
 F	FLAG_IMMUTABLE
+F	FLAG_LONG_PRESS
 F	FLAG_MUTABLE
 F	FLAG_NO_CREATE
 F	FLAG_ONE_SHOT
+F	FLAG_START_TRACKING
 F	FLAG_SYSTEM
+F	FLAG_TRACKING
 F	FLAG_UPDATE_CURRENT
 F	FLING_MIN_PX
 F	FONT_PAD_OFF
@@ -138,6 +143,7 @@ F	KEYCODE_DPAD_LEFT
 F	KEYCODE_DPAD_RIGHT
 F	KEYCODE_DPAD_UP
 F	KEYCODE_HOME
+F	KEY_REPEAT_DELAY_MS
 F	K_ARRAY
 F	K_BOOL
 F	K_DOUBLE
@@ -154,6 +160,7 @@ F	LENGTH_SHORT
 F	LIST_MODE_ITEMS
 F	LIST_MODE_MULTI
 F	LIST_MODE_SINGLE
+F	LONG_PRESS_TIMEOUT_MS
 F	MAGENTA
 F	MAGIC
 F	MARCH
@@ -169,6 +176,7 @@ F	MAX_KEY_LENGTH
 F	MAX_LINES_LIMIT
 F	MAX_LINES_SHIFT
 F	MAX_LIST_ITEMS
+F	MAX_LONG_PRESSES
 F	MAX_PRIORITY
 F	MAX_REQUEST_HEADERS
 F	MAX_SECONDS
@@ -393,6 +401,7 @@ F	action
 F	actionListener
 F	active
 F	activeCapabilities
+F	activeLongPresses
 F	adapter
 F	address
 F	alive
@@ -438,6 +447,9 @@ F	density
 F	densityDpi
 F	doOutput
 F	downEvent
+F	downKeyCode
+F	downTarget
+F	downTime
 F	duration
 F	durationMs
 F	editorActionListener
@@ -499,6 +511,7 @@ F	mDrawPending
 F	mDrawTask
 F	mGravity
 F	mGroup
+F	mKeyDispatchState
 F	mLayout
 F	mLineMode
 F	mMetrics
@@ -567,6 +580,7 @@ F	rawX
 F	rawY
 F	readTimeout
 F	refreshListener
+F	repeatCount
 F	request
 F	requestCode
 F	resolution
@@ -608,7 +622,6 @@ F	totalSeconds
 F	trackColor
 F	trackCornerRadius
 F	trackThickness
-F	tracking
 F	translationXTo
 F	translationYTo
 F	transports
@@ -643,6 +656,7 @@ M	$values
 M	abs
 M	accept
 M	access$000
+M	access$076
 M	access$100
 M	access$1002
 M	access$1100
@@ -763,6 +777,7 @@ M	detachChild
 M	digit
 M	disconnect
 M	dismiss
+M	dispatch
 M	dispatchRunnable
 M	dividedBy
 M	done
@@ -885,6 +900,7 @@ M	getDimensionPixelSize
 M	getDisplay
 M	getDisplayMetrics
 M	getDouble
+M	getDownTime
 M	getDuration
 M	getEllipsize
 M	getEpochSecond
@@ -924,6 +940,8 @@ M	getItemId
 M	getJSONArray
 M	getJSONObject
 M	getKeyCode
+M	getKeyRepeatDelay
+M	getKeyRepeatTimeout
 M	getLaunchIntentForPackage
 M	getLayoutInflater
 M	getLayoutParams
@@ -932,6 +950,7 @@ M	getLength
 M	getLineHeight
 M	getLong
 M	getLongExtra
+M	getLongPressTimeout
 M	getLongVersionCode
 M	getMax
 M	getMaxLines
@@ -971,6 +990,7 @@ M	getRawOffset
 M	getRawX
 M	getRawY
 M	getReadTimeout
+M	getRepeatCount
 M	getRequestMethod
 M	getRequestProperty
 M	getResolution
@@ -1022,6 +1042,7 @@ M	getX
 M	getY
 M	getYear
 M	grow
+M	handleUpEvent
 M	has
 M	hasCapability
 M	hasExtra
@@ -1051,6 +1072,7 @@ M	isAlive
 M	isAntiAlias
 M	isArray
 M	isBefore
+M	isCanceled
 M	isCancelled
 M	isChecked
 M	isConnected
@@ -1072,6 +1094,7 @@ M	isInterrupted
 M	isLeap
 M	isLeapYear
 M	isLetter
+M	isLongPress
 M	isNegative
 M	isNull
 M	isNullSentinel
@@ -1327,6 +1350,8 @@ M	onItemClick
 M	onItemSelected
 M	onKey
 M	onKeyDown
+M	onKeyLongPress
+M	onKeyMultiple
 M	onKeyUp
 M	onLongClick
 M	onLongPress
@@ -1390,8 +1415,7 @@ M	performDestroy
 M	performDraw
 M	performItemClick
 M	performItemSelected
-M	performKeyDown
-M	performKeyUp
+M	performKeyEvent
 M	performLongClick
 M	performLongClickNative
 M	performPause
@@ -1403,6 +1427,7 @@ M	performSaveInstanceState
 M	performStart
 M	performStop
 M	performTrackingTouch
+M	performedLongPress
 M	plus
 M	plusDays
 M	plusHours

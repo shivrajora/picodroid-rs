@@ -12,7 +12,7 @@ use std::time::Duration;
 use crate::protocol::{recv_response, send_frame, status_str, CMD_INPUT, STATUS_OK};
 use pdb_protocol::input::{InputEvent, MAX_INPUT_PAYLOAD};
 use pdb_protocol::keycodes::{self, dpad_keycode};
-use pdb_protocol::KEY_META_DOWN_UP;
+use pdb_protocol::{KEY_META_DOWN, KEY_META_DOWN_UP, KEY_META_LONG_PRESS, KEY_META_UP};
 
 /// Generous — a swipe blocks the device handler until the gesture completes.
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -23,9 +23,11 @@ const DEFAULT_SWIPE_MS: u32 = 300;
 const INPUT_USAGE: &str = "\
 Usage: pdb input <command> [args]
 
-  keyevent <KEYCODE|number>        Press+release a key (e.g. KEYCODE_DPAD_UP, 19)
-  dpad <up|down|left|right|center> Convenience wrapper for the D-pad keyevents
-  back                             Convenience wrapper for KEYCODE_BACK
+  keyevent [FLAG] <KEYCODE|number> Press+release a key (e.g. KEYCODE_DPAD_UP, 19)
+  dpad [FLAG] <up|down|left|right|center> Convenience wrapper for the D-pad keyevents
+  back [FLAG]                      Convenience wrapper for KEYCODE_BACK
+      FLAG: --longpress            Hold past the long-press timeout (Android's flag)
+            --down | --up          Press only / release only, to hold a key across commands
   tap <x> <y>                      Tap the touchscreen at (x, y)
   swipe <x1> <y1> <x2> <y2> [ms]   Swipe from (x1,y1) to (x2,y2) over [ms] (default 300)
 ";
@@ -36,6 +38,27 @@ Usage: pdb input <command> [args]
 /// `input keyevent 19`).
 fn keycode_from_arg(arg: &str) -> Option<i32> {
     keycodes::keycode_from_name(arg).or_else(|| arg.trim().parse::<i32>().ok())
+}
+
+/// Strip the leading `--longpress` / `--down` / `--up` of a key verb and
+/// return the `KEY_META_*` it stands for with the remaining arguments.
+fn key_meta_flags(args: &[String]) -> (u8, &[String]) {
+    let mut meta = KEY_META_DOWN_UP;
+    let mut rest = args;
+    while let Some(flag) = rest.first().filter(|a| a.starts_with("--")) {
+        meta = match flag.as_str() {
+            "--longpress" => KEY_META_LONG_PRESS,
+            "--down" => KEY_META_DOWN,
+            "--up" => KEY_META_UP,
+            other => {
+                eprintln!("error: input: unknown flag '{other}'");
+                eprint!("{INPUT_USAGE}");
+                process::exit(1);
+            }
+        };
+        rest = &rest[1..];
+    }
+    (meta, rest)
 }
 
 /// Wire bytes of one event, via the shared encoder the device's decoder is
@@ -66,6 +89,7 @@ fn build_payload(args: &[String]) -> Vec<u8> {
 
     match sub {
         "keyevent" => {
+            let (meta, rest) = key_meta_flags(rest);
             let Some(code) = rest.first().and_then(|a| keycode_from_arg(a)) else {
                 eprintln!("error: input keyevent needs a <KEYCODE|number>");
                 eprint!("{INPUT_USAGE}");
@@ -73,10 +97,11 @@ fn build_payload(args: &[String]) -> Vec<u8> {
             };
             payload_of(InputEvent::Key {
                 keycode: code,
-                meta: KEY_META_DOWN_UP,
+                meta,
             })
         }
         "dpad" => {
+            let (meta, rest) = key_meta_flags(rest);
             let Some(code) = rest.first().and_then(|a| dpad_keycode(a)) else {
                 eprintln!("error: input dpad needs <up|down|left|right|center>");
                 eprint!("{INPUT_USAGE}");
@@ -84,13 +109,16 @@ fn build_payload(args: &[String]) -> Vec<u8> {
             };
             payload_of(InputEvent::Key {
                 keycode: code,
-                meta: KEY_META_DOWN_UP,
+                meta,
             })
         }
-        "back" => payload_of(InputEvent::Key {
-            keycode: keycodes::KEYCODE_BACK,
-            meta: KEY_META_DOWN_UP,
-        }),
+        "back" => {
+            let (meta, _) = key_meta_flags(rest);
+            payload_of(InputEvent::Key {
+                keycode: keycodes::KEYCODE_BACK,
+                meta,
+            })
+        }
         "tap" => {
             let x = parse_int("x", rest.first());
             let y = parse_int("y", rest.get(1));

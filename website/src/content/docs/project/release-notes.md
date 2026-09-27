@@ -7,7 +7,7 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
-**`java.util.zip.CRC32` (2026-09-26; ships un-shrunk until the next map cut)**
+**`java.util.zip.CRC32` (2026-09-26; map v0.32.0, package 0.32.0)**
 
 - The JDK's `CRC32` with its `Checksum` interface: `update(int)`, `update(byte[])`,
   `update(byte[], int, int)`, `getValue()`, `reset()`; `"123456789"` checks to `0xCBF43926`. The
@@ -21,7 +21,21 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 - `claudeusage`: with AUTO on, Y from a data page now restarts the 10 s countdown as a page turn
   does; before, the next auto turn could follow the home press by a second or two.
 
-**`ConnectivityManager.NetworkCallback` (2026-09-26; ships un-shrunk until the next map cut)**
+**`ScheduledExecutorService` on the main thread (2026-09-26; map v0.32.0, package 0.32.0)**
+
+- `Executors.newSingleThreadScheduledExecutor()` with the JDK shape: `schedule`,
+  `scheduleAtFixedRate`, `scheduleWithFixedDelay`, `submit`, `shutdown` (periodic tasks cancelled,
+  one-shots still run), `shutdownNow`, `isTerminated`, `awaitTermination`, and `ScheduledFuture`
+  with `cancel`, `getDelay`, `isPeriodic`. Its single thread is the *main* thread: the frame tick
+  posts each task when it is due, so a task may touch widgets, costs no task stack, and stalls the
+  UI if it blocks. This is the delayed-work API in place of `Handler.postDelayed` and `Timer`.
+- Runtime: a 16-entry deadline table checked once per frame (`executors/scheduled.rs`), 16 ms
+  resolution; a fixed-rate task late by more than a period runs once a period later, not in a
+  burst; nothing fires while the tick is paused. `FutureTask` gained `runAndReset()` and `done()`.
+- `examples/executordemo` is the pattern and its sim test; `claudeusage`'s one-second ticker is a
+  scheduled task now, and its `usage-tick` thread (17 KB) is gone.
+
+**`ConnectivityManager.NetworkCallback` (2026-09-26; map v0.32.0, package 0.32.0)**
 
 - `ConnectivityManager` is a service now — `getSystemService(Context.CONNECTIVITY_SERVICE)` —
   with Android's `NetworkCallback`: `registerDefaultNetworkCallback`,
@@ -45,6 +59,11 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
   <regex>`, `sleep <s>`, a verb), which is how the row flaps the link. `claudeusage` no longer
   polls `NetworkInfo.isConnected()`: its Service registers a callback in `onCreate`; `onAvailable`
   wakes the poll thread, `onLost` paints the offline state.
+- Map v0.32.0, cut on `main`, folds in `java/util/zip/CRC32` and `Checksum`, the four scheduler
+  classes and the five `NetworkCallback` classes (308 → 319) and the 76 member names they declare
+  (1686 → 1762). The member floor stays at v0.17.0, so PAPKs shrunk with v0.17.0 through v0.31.0
+  still install. `Build.VERSION.RELEASE` reads `0.32.0`.
+
 **Custom drawing: `View.onDraw(Canvas)` (2026-09-26; map v0.31.0, package 0.31.0)**
 
 - Android's custom-view API: subclass `View` (`new View(Context)`), override `onDraw(Canvas)`, and

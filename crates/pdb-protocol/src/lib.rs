@@ -82,11 +82,14 @@ pub const INPUT_TAP: u8 = 0x02;
 /// SWIPE: `[x1 i32][y1 i32][x2 i32][y2 i32][duration_ms: u32 LE]` (all LE).
 pub const INPUT_SWIPE: u8 = 0x03;
 
-/// [`INPUT_KEY`] `meta` values. The CLI only emits `DOWN_UP`; `DOWN` and `UP`
-/// complete the wire contract for held-key use.
+/// [`INPUT_KEY`] `meta` values: what the device does with the key. The CLI
+/// emits `DOWN_UP` by default, `LONG_PRESS` for `--longpress` (Android's flag:
+/// press, hold past the long-press timeout, release) and `DOWN` / `UP` for
+/// `--down` / `--up`, which hold a key across other commands.
 pub const KEY_META_DOWN_UP: u8 = 0;
 pub const KEY_META_DOWN: u8 = 1;
 pub const KEY_META_UP: u8 = 2;
+pub const KEY_META_LONG_PRESS: u8 = 3;
 
 pub const STATUS_OK: u8 = 0x00;
 /// Device has erased flash and is ready to receive the install data stream.

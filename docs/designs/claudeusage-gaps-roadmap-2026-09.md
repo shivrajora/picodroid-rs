@@ -1,6 +1,6 @@
 # Platform gaps found building `claudeusage`
 
-**Status: open list; G1, G2 and G3 closed 2026-09-23, G8 closed 2026-09-24, D5 (app bug) fixed 2026-09-23, D2 fixed 2026-09-25 (`LV_DRAW_SW_SUPPORT_RGB888`, the horizontal gradient's source format), D1 (sim run-lock hand-off) closed 2026-09-25. D4 closed for this app 2026-09-25: the RP2350's flash clock was the ROM's divider of 3 and is now 2 (`hal/rp/xip.rs`, every RP2350 board), the History and Models first paints are split, and no page turn has a span over 50 ms; the RAM-resident interpreter loop landed the same day on every RP2350 board, paid for by H7, H8 and H9. G11 attributed 2026-09-24: the board has 98 KB free on its worst page, the simulator 9 KB; the levers are listed there. G10 closed 2026-09-25: the collector compacts in bounded slices from a 4 KB buffer claimed at boot. G4 closed 2026-09-26: `View.onDraw(Canvas)` over a retained display list; both charts are one view each. H4–H7 closed 2026-09-26 with docs/parity-audit.md M8–M10: every runtime table is the same bytes on both targets; re-measured the same day on main `4b6a17dc`, the History page is 259 KB in the simulator (was 399) and 243 KB on the board (was 320, of a 372 KB arena now), 129 KB free.**
+**Status: open list; G1, G2 and G3 closed 2026-09-23, G8 closed 2026-09-24 (long-press and repeat 2026-09-26), D5 (app bug) fixed 2026-09-23, D2 fixed 2026-09-25 (`LV_DRAW_SW_SUPPORT_RGB888`, the horizontal gradient's source format), D1 (sim run-lock hand-off) closed 2026-09-25. D4 closed for this app 2026-09-25: the RP2350's flash clock was the ROM's divider of 3 and is now 2 (`hal/rp/xip.rs`, every RP2350 board), the History and Models first paints are split, and no page turn has a span over 50 ms; the RAM-resident interpreter loop landed the same day on every RP2350 board, paid for by H7, H8 and H9. G11 attributed 2026-09-24: the board has 98 KB free on its worst page, the simulator 9 KB; the levers are listed there. G10 closed 2026-09-25: the collector compacts in bounded slices from a 4 KB buffer claimed at boot. G4 closed 2026-09-26: `View.onDraw(Canvas)` over a retained display list; both charts are one view each. H4–H7 closed 2026-09-26 with docs/parity-audit.md M8–M10: every runtime table is the same bytes on both targets; re-measured the same day on main `4b6a17dc`, the History page is 259 KB in the simulator (was 399) and 243 KB on the board (was 320, of a 372 KB arena now), 129 KB free.**
 
 `examples/claudeusage` is a desk display for Claude usage limits on a new board, `pico_display2_w`
 (Pimoroni Pico Display Pack 2.0 on a Pico 2 W). It was built to look like a modern product rather
@@ -507,7 +507,7 @@ that swallows broadcasts. The SDK grew the Java spellings the probe wanted: `Dat
 int)` constructor. A general mDNS / DNS-SD (`NsdManager`) browse is still the Android shape and
 still open.
 
-### G8. Keys need a focused widget — closed 2026-09-24
+### G8. Keys need a focused widget — closed 2026-09-24; long-press and repeat closed 2026-09-26
 
 There was no `Activity.onKeyDown`; keys reached Java only through `View.setOnKeyListener` on the
 focused view. A screen with nothing to focus (a dashboard) had to add an invisible focusable
@@ -523,7 +523,15 @@ trampolines the lifecycle uses (`lifecycle/input.rs::dispatch_key_events`). The 
 Android's BACK contract with `KeyEvent.startTracking()` / `isTracking()`: `onKeyDown` consumes
 and tracks BACK, `onKeyUp` runs `onBackPressed` for a tracked release, so consuming BACK's press
 is the whole of "never finish". The app's key catcher is gone; `keydemo` shows both paths.
-**Still open:** long-press and repeat (`getRepeatCount()`) — one DOWN and one UP per press.
+**Landed 2026-09-26, the rest:** a held key auto-repeats (`lvgl/key_repeat.rs`, polled once a
+tick from `dispatch_key_events`): a synthetic DOWN with `getRepeatCount()` 1 at 400 ms
+(`ViewConfiguration.getKeyRepeatTimeout()`), then one every 50 ms; the first carries
+`FLAG_LONG_PRESS`. The Java side is Android's: `KeyEvent.dispatch(Callback, DispatcherState,
+Object)`, `Activity implements KeyEvent.Callback` with `onKeyLongPress`, `isCanceled()` on the
+release after a handled long-press, `getDownTime()`/`getEventTime()`. `pdb input keyevent
+--longpress` (Android's flag) and `--down`/`--up` drive it from the host and the sim control
+channel; `keydemo` has a nightly sim row. The app: A/B hold to keep turning, X hold to look for the
+bridge again, Y hold to toggle AUTO from any screen — four buttons, eight actions.
 
 ### G9. No TLS
 

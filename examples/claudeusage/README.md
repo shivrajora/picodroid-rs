@@ -63,12 +63,14 @@ by address.
 With the display landscape, A is top-left, B bottom-left, X top-right, Y bottom-right. Each corner
 of the screen shows the hint for the button beside it.
 
-| Button | Action |
-|---|---|
-| A | previous screen |
-| B | next screen |
-| X | sync now |
-| Y | back to Limits; on Limits, toggle `auto`, which cycles the screens every 10 s (remembered across power cycles) |
+| Button | Press | Hold |
+|---|---|---|
+| A | previous screen | keep turning back, a screen every half second |
+| B | next screen | keep turning forward |
+| X | sync now | look for the bridge on the LAN again, then sync |
+| Y | back to Limits | toggle `auto`, which cycles the screens every 10 s (remembered across power cycles) |
+
+A hold is 400 ms, Android's long-press timeout; the corner hints name the press actions.
 
 Screens: **Limits**, **Models**, **Burn rate**, **History**.
 

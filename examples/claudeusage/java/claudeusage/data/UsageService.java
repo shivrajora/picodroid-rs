@@ -142,6 +142,9 @@ public final class UsageService extends Service {
   private volatile boolean running;
   private volatile boolean refreshRequested;
 
+  /** X held: probe the LAN for the bridge before the next fetch, answered or not. */
+  private volatile boolean rediscoverRequested;
+
   /** The link, as {@link #linkWatch} last heard it; a change also wakes {@link #idle}. */
   private volatile boolean linkUp;
 
@@ -282,6 +285,15 @@ public final class UsageService extends Service {
     synchronized (lock) {
       lock.notifyAll();
     }
+  }
+
+  /**
+   * X held: ask the LAN for the bridge again before fetching, whatever the last answer was — the PC
+   * may have moved. Does nothing extra while a {@link #KEY_BRIDGE_HOST} pin is set.
+   */
+  public void rediscover() {
+    rediscoverRequested = true;
+    refreshNow();
   }
 
   /**
@@ -432,6 +444,8 @@ public final class UsageService extends Service {
       // Consumed on every pass, the offline one included: a request left set makes idle() return
       // at once, and while the link is down that spun this loop, flooding the main queue.
       final boolean manual = refreshRequested;
+      final boolean again = rediscoverRequested;
+      rediscoverRequested = false;
       refreshRequested = false;
       if (!linkUp) {
         // Joining still, or dropped (onLost painted NO_WIFI itself): onAvailable ends the wait.
@@ -443,7 +457,7 @@ public final class UsageService extends Service {
       }
       // Asked at every boot, not only the first: the PC may have a new DHCP lease, and a PC that
       // is up answers in milliseconds.
-      if (discover && (!probed || (unanswered > 0 && (manual || probeDue(unanswered))))) {
+      if (discover && (again || !probed || (unanswered > 0 && (manual || probeDue(unanswered))))) {
         probed = true;
         probe();
       }

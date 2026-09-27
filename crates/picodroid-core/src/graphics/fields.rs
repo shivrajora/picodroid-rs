@@ -44,12 +44,20 @@ pub mod motion_event {
 pub mod key_event {
     pub const ACTION: usize = 0;
     pub const KEY_CODE: usize = 1;
-    /// `boolean tracking`: set by `KeyEvent.startTracking()` on a press and
-    /// carried to the matching release; the dispatcher clears it on every
-    /// new press (`lifecycle/input.rs::fill_key_event`).
-    pub const TRACKING: usize = 2;
-    /// Slots the recycled instance is allocated with.
-    pub const SLOTS: usize = TRACKING + 1;
+    /// `int repeatCount`: 0 for the press, then 1, 2, … for each auto-repeat
+    /// while the key stays held (`lvgl/key_repeat.rs`).
+    pub const REPEAT_COUNT: usize = 2;
+    /// `int flags`: the dispatcher writes `FLAG_LONG_PRESS` on the first
+    /// repeat and 0 otherwise; `KeyEvent.dispatch` adds the tracking and
+    /// cancel bits in Java. Rewritten on every edge, so nothing carries
+    /// between edges except through a Java `DispatcherState`.
+    pub const FLAGS: usize = 3;
+    /// `long downTime`: elapsedRealtime millis of the press; slots 4 and 5.
+    pub const DOWN_TIME: usize = 4;
+    /// `long eventTime`: elapsedRealtime millis of this edge; slots 6 and 7.
+    pub const EVENT_TIME: usize = 6;
+    /// Slots the recycled instance is allocated with (the last long takes two).
+    pub const SLOTS: usize = EVENT_TIME + 2;
 }
 
 /// `picodroid.app.AlertDialog` is **not** a View subclass — slot numbering

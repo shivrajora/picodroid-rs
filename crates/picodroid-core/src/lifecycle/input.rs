@@ -27,10 +27,10 @@ pub(super) fn recycled_motion_event() -> &'static mut Option<u16> {
 
 /// Recycled KeyEvent handed to every `View.fireKey` dispatch — the
 /// [`RECYCLED_MOTION_EVENT`] pattern applied to hardware keys. Allocated on
-/// first key with its full 2-field span (ACTION, KEY_CODE), both fields
-/// rewritten per event, so steady-state key dispatch allocates nothing.
-/// Listeners must not retain the event past the callback (Android's
-/// KeyEvent pool contract).
+/// first key with its full field span (action, keyCode, repeatCount, flags,
+/// downTime, eventTime), every field rewritten per event, so steady-state
+/// key dispatch allocates nothing. Listeners must not retain the event past
+/// the callback (Android's KeyEvent pool contract).
 pub(super) static mut RECYCLED_KEY_EVENT: Option<u16> = None;
 
 pub(super) fn recycled_key_event() -> &'static mut Option<u16> {
@@ -53,6 +53,7 @@ pub fn visit_gc_roots(visit: &mut dyn FnMut(pico_jvm::types::Value)) {
 pub fn reset_dispatch_event_state() {
     *recycled_motion_event() = None;
     *recycled_key_event() = None;
+    key_repeat().reset();
 }
 
 /// Return the recycled MotionEvent, allocating it on first use. On
@@ -185,9 +186,49 @@ pub(super) fn dispatch_touch_events(
 
 // ── Hardware key-event dispatch ─────────────────────────────────────────────
 
-/// Drain the hardware key-event queue, dispatch each event to the focused
-/// View's `OnKeyListener`, and route un-consumed BACK releases to the top
-/// Activity's `onBackPressed` (which defaults to `finish()`).
+/// Held keys and their auto-repeat clocks — `KeyEvent.getRepeatCount()` and
+/// the long-press. Fed by [`dispatch_key_events`] as it drains the edge queue
+/// and polled once per tick after the drain; reset between app runs by
+/// [`reset_dispatch_event_state`] and on an Activity transition.
+static mut KEY_REPEAT: crate::graphics::lvgl::key_repeat::KeyRepeat =
+    crate::graphics::lvgl::key_repeat::KeyRepeat::new();
+
+fn key_repeat() -> &'static mut crate::graphics::lvgl::key_repeat::KeyRepeat {
+    unsafe { &mut *core::ptr::addr_of_mut!(KEY_REPEAT) }
+}
+
+/// Mirrors of `KeyEvent`'s Java constants. Hard-coded because there's no
+/// enum bridge from Java to Rust for these.
+#[cfg(not(test))]
+const ACTION_DOWN: i32 = 0;
+#[cfg(not(test))]
+const ACTION_UP: i32 = 1;
+#[cfg(not(test))]
+const KEYCODE_HOME: i32 = 3;
+#[cfg(not(test))]
+const KEYCODE_BACK: i32 = 4;
+/// `KeyEvent.FLAG_LONG_PRESS`: set on the first repeat, the long-press.
+#[cfg(not(test))]
+const FLAG_LONG_PRESS: i32 = 0x80;
+
+/// One key edge or synthetic repeat, as the recycled `KeyEvent` describes it.
+#[cfg(not(test))]
+#[derive(Clone, Copy)]
+struct KeyRecord {
+    keycode: i32,
+    action: i32,
+    repeat_count: i32,
+    flags: i32,
+    /// `KeyEvent.getDownTime()`: elapsedRealtime millis of the press.
+    down_ms: u64,
+    /// `KeyEvent.getEventTime()`: elapsedRealtime millis of this edge.
+    event_ms: u64,
+}
+
+/// Drain the hardware key-event queue and dispatch each edge to the focused
+/// View's `OnKeyListener`, then to the top Activity's key callbacks; then
+/// synthesise the auto-repeats due for keys still held. The BACK route to
+/// `onBackPressed` lives in `Activity.java` (`KeyEvent.dispatch`).
 ///
 /// Note: on the host, the sim control channel (`input keyevent …` via
 /// stdin/FIFO) injects edges into the same GPIO queue, so this dispatcher
@@ -199,20 +240,31 @@ pub(super) fn dispatch_key_events(
     handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
     use crate::graphics::lvgl::events;
+    use crate::graphics::lvgl::key_repeat::edge_time_ms;
 
-    /// Mirrors `KeyEvent.ACTION_UP` and `KeyEvent.KEYCODE_BACK` on the
-    /// Java side. Hard-coded because there's no enum bridge from Java to
-    /// Rust for these constants.
-    const ACTION_UP: i32 = 1;
-    const KEYCODE_HOME: i32 = 3;
-    const KEYCODE_BACK: i32 = 4;
+    let now_us = crate::hal::system_clock::elapsed_realtime_nanos() as u64 / 1_000;
+    let now_ms = now_us / 1_000;
 
     while let Some(raw) = events::drain_key_event() {
         let keycode = match events::pin_to_keycode(raw.pin) {
             Some(k) => k,
             None => continue,
         };
-        let action = if raw.rising { 1 } else { 0 }; // ACTION_UP : ACTION_DOWN
+        let action = if raw.rising { ACTION_UP } else { ACTION_DOWN };
+        let edge_ms = edge_time_ms(now_us, raw.t_us);
+
+        // Hold bookkeeping before any of the routes below, so a release the
+        // framework consumes (HOME, a keyboard or dialog dismissal) still
+        // ends its key's repeats. HOME never reaches Java, so it never
+        // repeats either.
+        let down_ms = if keycode == KEYCODE_HOME {
+            edge_ms
+        } else if action == ACTION_UP {
+            key_repeat().release(keycode).unwrap_or(edge_ms)
+        } else {
+            key_repeat().press(keycode, edge_ms);
+            edge_ms
+        };
 
         // 0) HOME goes to the launcher from anywhere, and nothing on the way
         //    gets a say — not a focused View's OnKeyListener, not a showing
@@ -256,56 +308,19 @@ pub(super) fn dispatch_key_events(
             }
         }
 
-        // 2) Dispatch to the focused View's OnKeyListener, if any. Capture
-        //    fireKey's `boolean` return so an un-consumed edge can fall
-        //    through to the Activity below.
-        let event_obj = match fill_key_event(keycode, action, heap, handler) {
-            Some(o) => o,
-            None => continue,
-        };
-        let (mut consumed, had_focus) = match events::focused_view_obj() {
-            Some(view_ref) => (
-                fire_key_site(
-                    jvm,
-                    dispatch_sites::VIEW_KEY,
-                    view_ref,
-                    &[Value::ObjectRef(event_obj)],
-                    heap,
-                    handler,
-                ),
-                true,
-            ),
-            None => (false, false),
-        };
-
-        // 3) The Activity's `onKeyDown` / `onKeyUp`, Android's fallback when
-        //    no View took the edge. The default `onKeyUp` runs
-        //    `onBackPressed` for a BACK release whose press the default
-        //    `onKeyDown` tracked, so the old hard-coded BACK route now lives
-        //    in Activity.java where an app can override it.
-        if !consumed {
-            if let Some((act_ref, _)) = handler.current_activity() {
-                let site = if action == ACTION_UP {
-                    dispatch_sites::ACTIVITY_KEY_UP
-                } else {
-                    dispatch_sites::ACTIVITY_KEY_DOWN
-                };
-                consumed = fire_key_site(
-                    jvm,
-                    site,
-                    act_ref,
-                    &[Value::Int(keycode), Value::ObjectRef(event_obj)],
-                    heap,
-                    handler,
-                );
-            }
-        }
-        crate::pd_info!(
-            "key: code={} action={} consumed={} focus={}",
-            keycode,
-            action,
-            consumed,
-            had_focus
+        // 2) + 3) The focused View, then the Activity.
+        deliver_key(
+            jvm,
+            heap,
+            handler,
+            KeyRecord {
+                keycode,
+                action,
+                repeat_count: 0,
+                flags: 0,
+                down_ms,
+                event_ms: edge_ms,
+            },
         );
 
         // If this key initiated an Activity transition (startActivity /
@@ -316,10 +331,101 @@ pub(super) fn dispatch_key_events(
         // delivered entirely to the *departing* Activity, e.g. double-launching
         // it; combined with a deferred service bind that then mutates the
         // first instance's freed views, that was the History-screen segfault.
-        // See project_picoenvmon_history_segfault.
+        // See project_picoenvmon_history_segfault. The held keys belong to
+        // the departing screen too: their repeats stop here, and their
+        // eventual release finds nothing tracked on the new one.
         if handler.has_pending_activity_transition() {
-            break;
+            key_repeat().reset();
+            return;
         }
+    }
+
+    // 4) Auto-repeat: a key held past the repeat timeout yields a synthetic
+    //    DOWN every repeat delay, the first flagged as the long-press
+    //    (`KeyEvent.dispatch` turns that into `onKeyLongPress`). Polled after
+    //    the drain, so a press and release queued together never repeat, and
+    //    once per tick, so a repeat is late by at most one tick.
+    while let Some(rep) = key_repeat().next_due(now_ms) {
+        let flags = if rep.repeat_count == 1 {
+            FLAG_LONG_PRESS
+        } else {
+            0
+        };
+        deliver_key(
+            jvm,
+            heap,
+            handler,
+            KeyRecord {
+                keycode: rep.keycode,
+                action: ACTION_DOWN,
+                repeat_count: rep.repeat_count,
+                flags,
+                down_ms: rep.down_ms,
+                event_ms: now_ms,
+            },
+        );
+        if handler.has_pending_activity_transition() {
+            key_repeat().reset();
+            return;
+        }
+    }
+}
+
+/// Fill the recycled `KeyEvent` from `rec` and offer it to the focused View's
+/// `OnKeyListener`, then — Android's fallback when no View took the edge — to
+/// the Activity's `performKeyEvent`, which runs `KeyEvent.dispatch`:
+/// `onKeyDown` / `onKeyLongPress` / `onKeyUp` and the press-to-release
+/// tracking the default BACK handling relies on.
+#[cfg(not(test))]
+fn deliver_key(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
+    rec: KeyRecord,
+) {
+    use crate::graphics::lvgl::events;
+
+    let event_obj = match fill_key_event(&rec, heap, handler) {
+        Some(o) => o,
+        None => return,
+    };
+    let (mut consumed, had_focus) = match events::focused_view_obj() {
+        Some(view_ref) => (
+            fire_key_site(
+                jvm,
+                dispatch_sites::VIEW_KEY,
+                view_ref,
+                &[Value::ObjectRef(event_obj)],
+                heap,
+                handler,
+            ),
+            true,
+        ),
+        None => (false, false),
+    };
+    if !consumed {
+        if let Some((act_ref, _)) = handler.current_activity() {
+            consumed = fire_key_site(
+                jvm,
+                dispatch_sites::ACTIVITY_KEY_EVENT,
+                act_ref,
+                &[Value::ObjectRef(event_obj)],
+                heap,
+                handler,
+            );
+        }
+    }
+    // The repeat stream would be a line every 50 ms: the press, the
+    // long-press and the release are the edges worth one.
+    if rec.repeat_count <= 1 {
+        crate::pd_info!(
+            "key: code={} action={} repeat={} consumed={} focus={}",
+            rec.keycode,
+            rec.action,
+            rec.repeat_count,
+            consumed,
+            had_focus
+        );
     }
 }
 
@@ -377,42 +483,34 @@ pub(super) fn dispatch_editor_actions(
     }
 }
 
-/// Write one key edge into the recycled `KeyEvent` and return it. The
-/// `tracking` flag (`KeyEvent.startTracking()`) is cleared on every press
-/// and on a release of a different key, so it only ever carries from a
-/// press to its own release — Android's key-tracking contract, which the
-/// default `Activity.onKeyUp` relies on for BACK.
+/// Write one key edge or repeat into the recycled `KeyEvent` and return it.
+/// Every field is rewritten, `flags` included: the tracking and cancel bits
+/// live in the Activity's Java `DispatcherState` between edges, not here.
 #[cfg(not(test))]
 fn fill_key_event(
-    keycode: i32,
-    action: i32,
+    rec: &KeyRecord,
     heap: &mut SharedJvmHeap,
     handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) -> Option<u16> {
     use crate::graphics::fields::key_event as f;
-    use pico_jvm::types::Value;
 
     let event_obj = ensure_recycled_key_event(heap, handler)?;
-    let previous_code = match heap.objects.get_field(event_obj, f::KEY_CODE) {
-        Some(Value::Int(c)) => c,
-        _ => -1,
-    };
-    let keep_tracking = action == 1 && previous_code == keycode;
-    heap.objects
-        .set_field(event_obj, f::ACTION, Value::Int(action))?;
-    heap.objects
-        .set_field(event_obj, f::KEY_CODE, Value::Int(keycode))?;
-    if !keep_tracking {
-        heap.objects
-            .set_field(event_obj, f::TRACKING, Value::Int(0))?;
+    for (slot, value) in [
+        (f::ACTION, Value::Int(rec.action)),
+        (f::KEY_CODE, Value::Int(rec.keycode)),
+        (f::REPEAT_COUNT, Value::Int(rec.repeat_count)),
+        (f::FLAGS, Value::Int(rec.flags)),
+        (f::DOWN_TIME, Value::Long(rec.down_ms as i64)),
+        (f::EVENT_TIME, Value::Long(rec.event_ms as i64)),
+    ] {
+        heap.objects.set_field(event_obj, slot, value)?;
     }
     Some(event_obj)
 }
 
 /// Invoke a `boolean`-returning key site (`View.fireKey`,
-/// `Activity.performKeyDown` / `performKeyUp`) on `target_ref` and return
-/// whether it consumed the event (returned non-zero). Helper for
-/// [`dispatch_key_events`].
+/// `Activity.performKeyEvent`) on `target_ref` and return whether it
+/// consumed the event (returned non-zero). Helper for [`deliver_key`].
 #[cfg(not(test))]
 fn fire_key_site(
     jvm: &mut Jvm,

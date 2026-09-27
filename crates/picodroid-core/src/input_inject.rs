@@ -52,6 +52,45 @@ pub const SWIPE_STEPS: u32 = 12;
 /// Default swipe duration when a caller does not give one.
 pub const SWIPE_DEFAULT_MS: u32 = 300;
 
+/// How long `keyevent --longpress` holds the key: past the repeat timeout
+/// that marks the long-press (`key_repeat.rs`), with margin for the 16 ms
+/// tick and for a UI task that is mid-transition when the timeout falls. A
+/// finger held this long also produces a couple of ordinary repeats on the
+/// way, exactly as on Android; an app handles those anyway.
+pub const LONG_PRESS_HOLD_MS: u32 =
+    crate::graphics::lvgl::key_repeat::KEY_REPEAT_TIMEOUT_MS as u32 + 150;
+
+/// Settle after a key verb's release, before the next verb. Two queued verbs
+/// would otherwise put a release and the next press microseconds apart, and
+/// the contact debounce (`key_debounce.rs`, 5 ms) would eat the press — whose
+/// release then fails the press-state filter too, and the whole verb is lost.
+/// One edge gap keeps the next press in a later tick as well.
+pub const KEY_SETTLE_MS: u32 = KEY_EDGE_GAP_MS;
+
+/// What a key verb does with its key — the `[--longpress|--down|--up]` of
+/// `input keyevent`, and the PDB `KEY_META_*` byte. `--longpress` is
+/// Android's flag; `--down` / `--up` are this framework's, for holding a key
+/// across other verbs (auto-repeat QA).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyHold {
+    PressRelease,
+    LongPress,
+    Down,
+    Up,
+}
+
+impl KeyHold {
+    /// Parse one `--flag` token of a key verb; `None` for anything else.
+    pub fn from_flag(tok: &str) -> Option<Self> {
+        match tok {
+            "--longpress" => Some(Self::LongPress),
+            "--down" => Some(Self::Down),
+            "--up" => Some(Self::Up),
+            _ => None,
+        }
+    }
+}
+
 /// Where injected input goes.
 ///
 /// Associated functions rather than methods: every implementation is a
@@ -98,6 +137,28 @@ pub fn press<S: InputSink>(pin: u8) {
 /// Release a held button.
 pub fn release<S: InputSink>(pin: u8) {
     S::gpio_inject(pin, true);
+}
+
+/// Press, hold past the long-press timeout, release — Android's
+/// `input keyevent --longpress`.
+pub fn long_press<S: InputSink>(pin: u8) {
+    S::gpio_inject(pin, false);
+    S::delay_ms(LONG_PRESS_HOLD_MS);
+    S::gpio_inject(pin, true);
+}
+
+/// Drive `pin` as `hold` says — one verb, settled after its release so the
+/// next verb's press is a distinct edge.
+pub fn key<S: InputSink>(pin: u8, hold: KeyHold) {
+    match hold {
+        KeyHold::PressRelease => press_release::<S>(pin),
+        KeyHold::LongPress => long_press::<S>(pin),
+        KeyHold::Down => press::<S>(pin),
+        KeyHold::Up => release::<S>(pin),
+    }
+    if hold != KeyHold::Down {
+        S::delay_ms(KEY_SETTLE_MS);
+    }
 }
 
 /// Tap once at a point, holding long enough to be sampled.
@@ -189,6 +250,46 @@ mod tests {
     fn the_two_key_edges_are_separated() {
         let evs = record(|| press_release::<Rec>(1));
         assert!(matches!(evs[1], Ev::Delay(ms) if ms > 0));
+    }
+
+    /// A long-press is a real hold: the release comes after the repeat
+    /// timeout has passed, so the dispatcher has synthesised the long-press
+    /// repeat by then.
+    #[test]
+    fn a_long_press_holds_past_the_repeat_timeout() {
+        let evs = record(|| long_press::<Rec>(3));
+        assert_eq!(evs[0], Ev::Gpio(3, false));
+        assert!(matches!(evs[1], Ev::Delay(ms)
+            if ms as u64 > crate::graphics::lvgl::key_repeat::KEY_REPEAT_TIMEOUT_MS));
+        assert_eq!(evs[2], Ev::Gpio(3, true));
+    }
+
+    #[test]
+    fn the_hold_flags_parse_and_drive_the_matching_edges() {
+        assert_eq!(KeyHold::from_flag("--longpress"), Some(KeyHold::LongPress));
+        assert_eq!(KeyHold::from_flag("--down"), Some(KeyHold::Down));
+        assert_eq!(KeyHold::from_flag("--up"), Some(KeyHold::Up));
+        assert_eq!(KeyHold::from_flag("--sideways"), None);
+        assert_eq!(
+            record(|| key::<Rec>(5, KeyHold::Down)),
+            vec![Ev::Gpio(5, false)]
+        );
+        assert_eq!(
+            record(|| key::<Rec>(5, KeyHold::Up)),
+            vec![Ev::Gpio(5, true), Ev::Delay(KEY_SETTLE_MS)]
+        );
+        let mut expect = record(|| press_release::<Rec>(5));
+        expect.push(Ev::Delay(KEY_SETTLE_MS));
+        assert_eq!(record(|| key::<Rec>(5, KeyHold::PressRelease)), expect);
+    }
+
+    /// A verb's release is followed by a settle longer than the contact
+    /// debounce, so a queued next verb's press is not eaten as chatter.
+    #[test]
+    fn a_key_verb_settles_past_the_debounce_after_its_release() {
+        let evs = record(|| key::<Rec>(5, KeyHold::LongPress));
+        assert!(matches!(evs.last(), Some(Ev::Delay(ms))
+            if *ms * 1_000 > crate::graphics::lvgl::key_debounce::DEBOUNCE_WINDOW_US));
     }
 
     #[test]

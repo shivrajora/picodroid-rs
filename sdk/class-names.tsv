@@ -254,6 +254,8 @@ picodroid/view/GestureDetector$SimpleOnGestureListener
 picodroid/view/Gravity
 picodroid/view/InflateException
 picodroid/view/KeyEvent
+picodroid/view/KeyEvent$Callback
+picodroid/view/KeyEvent$DispatcherState
 picodroid/view/LayoutInflater
 picodroid/view/MotionEvent
 picodroid/view/OnKeyListener
@@ -264,6 +266,7 @@ picodroid/view/View$DrawTask
 picodroid/view/View$OnClickListener
 picodroid/view/View$OnFocusChangeListener
 picodroid/view/View$OnLongClickListener
+picodroid/view/ViewConfiguration
 picodroid/view/ViewGroup
 picodroid/view/ViewGroup$LayoutParams
 picodroid/view/ViewParent

@@ -1,0 +1,23 @@
+# Control-channel script for this app's sim row (sim-run.sh::run_test, sim
+# rows only): the four key deliveries the row's patterns expect. `wait <regex>`
+# blocks until the log matches (or the row times out); every other line goes
+# to the simulator's control channel as typed — the same verbs `pdb input`
+# takes on hardware.
+wait KeyDemo[]:] ready
+# The focused Button's OnKeyListener takes DPAD_CENTER.
+input keyevent 23
+wait KeyDemo[]:] view UP keyCode=23
+# A long hold of DPAD_UP: onKeyLongPress, then a cancelled release.
+input keyevent --longpress 19
+wait KeyDemo[]:] activity UP keyCode=19 canceled
+# A short press of DPAD_UP: the release carries the action.
+input keyevent 19
+wait KeyDemo[]:] activity SHORT keyCode=19
+# DPAD_DOWN held for a second: the repeat count climbs.
+input keyevent --down 20
+sleep 1
+input keyevent --up 20
+wait KeyDemo[]:] activity UP keyCode=20
+# BACK is left to the Activity defaults: onBackPressed finishes the demo, and
+# the row ends the way a term row does.
+input back

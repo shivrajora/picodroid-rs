@@ -29,19 +29,28 @@ import picodroid.widget.LinearLayout;
  * bottom-right); each corner of the screen carries the hint for the button beside it:
  *
  * <ul>
- *   <li>A previous screen, B next screen (both wrap)
- *   <li>X sync now
- *   <li>Y home (Limits); on Limits, toggle AUTO, which cycles the screens
+ *   <li>A previous screen, B next screen (both wrap); hold either to keep turning
+ *   <li>X sync now; hold X to look for the bridge on the LAN again
+ *   <li>Y home (Limits); hold Y to toggle AUTO, which cycles the screens
  * </ul>
  *
- * Y never leaves the app: this is an appliance, and BACK falling through to finish() would drop it
- * to a launcher nobody asked for.
+ * Four buttons, eight actions, the way Android gives a key two: A and B act on the press and keep
+ * acting on its auto-repeats; X and Y only start tracking on the press, run the long action from
+ * {@link #onKeyLongPress} (which cancels the release) and the short action from {@link #onKeyUp}. Y
+ * never leaves the app: this is an appliance, and BACK falling through to finish() would drop it to
+ * a launcher nobody asked for.
  */
 public class MainActivity extends Activity implements UsageService.Listener {
   private static final String TAG = UsageService.TAG;
 
   private static final int PAGE_LIMITS = 0;
   private static final int PAGE_COUNT = 4;
+
+  /**
+   * A held A or B turns a page every this many auto-repeats: the first turn at the long-press
+   * (repeat 1, 400 ms), then one about every half second at the 50 ms repeat delay.
+   */
+  private static final int PAGE_TURN_REPEATS = 8;
 
   private static final String STATE_PAGE = "page";
   private static final String STATE_AUTO = "auto";
@@ -235,44 +244,88 @@ public class MainActivity extends Activity implements UsageService.Listener {
   /**
    * Every key is consumed here, BACK included: an appliance never finishes to the launcher, and
    * consuming BACK's press (without calling super) is what keeps the default {@code onKeyUp} from
-   * running {@code onBackPressed}, as on Android.
+   * running {@code onBackPressed}, as on Android. A and B act here, on the press and again on every
+   * {@link #PAGE_TURN_REPEATS}th auto-repeat while held; X and Y only start tracking, so {@link
+   * #onKeyLongPress} and {@link #onKeyUp} can tell a hold from a press.
    */
   @Override
   public boolean onKeyDown(int code, KeyEvent event) {
     if (repo == null) {
       return true;
     }
-    if (pageIsStatus && code != KeyEvent.KEYCODE_DPAD_CENTER) {
-      return true; // nothing to page through yet; X still retries
-    }
+    int repeat = event.getRepeatCount();
     switch (code) {
       case KeyEvent.KEYCODE_DPAD_UP:
-        turnPage(-1);
-        break;
       case KeyEvent.KEYCODE_DPAD_DOWN:
-        turnPage(1);
-        break;
+        if (pageIsStatus) {
+          return true; // nothing to page through yet
+        }
+        if (repeat == 0 || (repeat - 1) % PAGE_TURN_REPEATS == 0) {
+          turnPage(code == KeyEvent.KEYCODE_DPAD_UP ? -1 : 1);
+        }
+        return true;
+      case KeyEvent.KEYCODE_DPAD_CENTER:
+      case KeyEvent.KEYCODE_BACK:
+        if (repeat == 0) {
+          event.startTracking();
+        }
+        return true;
+      default:
+        return true;
+    }
+  }
+
+  /** The long actions: X held looks for the bridge again, Y held toggles AUTO from any screen. */
+  @Override
+  public boolean onKeyLongPress(int code, KeyEvent event) {
+    if (repo == null) {
+      return true;
+    }
+    switch (code) {
+      case KeyEvent.KEYCODE_DPAD_CENTER:
+        Log.i(TAG, "rediscover requested");
+        repo.rediscover();
+        return true;
+      case KeyEvent.KEYCODE_BACK:
+        toggleAuto();
+        return true;
+      default:
+        return super.onKeyLongPress(code, event);
+    }
+  }
+
+  /**
+   * The short actions, on a release whose press was tracked here and whose long action did not run:
+   * X syncs now, Y goes home to Limits.
+   */
+  @Override
+  public boolean onKeyUp(int code, KeyEvent event) {
+    if (repo == null || !event.isTracking() || event.isCanceled()) {
+      return true;
+    }
+    switch (code) {
       case KeyEvent.KEYCODE_DPAD_CENTER:
         Log.i(TAG, "sync requested");
         repo.refreshNow();
-        break;
+        return true;
       case KeyEvent.KEYCODE_BACK:
-        if (pageIndex == PAGE_LIMITS) {
-          auto = !auto;
-          autoSeconds = 0;
-          Log.i(TAG, auto ? "auto on" : "auto off");
-          saveAuto(auto);
-          refreshChrome();
-        } else {
+        if (!pageIsStatus && pageIndex != PAGE_LIMITS) {
           pageIndex = PAGE_LIMITS;
           autoSeconds = 0; // home restarts the AUTO countdown, as a turn does
           showPage();
         }
-        break;
+        return true;
       default:
-        break;
+        return true;
     }
-    return true;
+  }
+
+  private void toggleAuto() {
+    auto = !auto;
+    autoSeconds = 0;
+    Log.i(TAG, auto ? "auto on" : "auto off");
+    saveAuto(auto);
+    refreshChrome();
   }
 
   /**
