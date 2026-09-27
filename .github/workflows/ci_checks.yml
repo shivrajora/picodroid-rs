@@ -267,8 +267,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      # socat: the TCP echo listener behind the `net` rows (net-lib.sh); the
+      # https_get lane ERRORs without it.
       - name: Install JDK
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends default-jdk-headless libudev-dev
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends default-jdk-headless libudev-dev socat
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       # Headless end-to-end runs of the self-checking suites, both shrink

@@ -624,9 +624,11 @@ pub fn take_request() -> Option<Request> {
 }
 
 /// Wake whoever serves the mailbox: the link task on a device; in the
-/// simulator the fake, which runs the request now.
+/// simulator the fake, which runs the request now. The fake exists only on
+/// a board with a WiFi link (`hal/sim/mod.rs`); the crate's own test build
+/// is `sim` without one, and there nothing serves the mailbox.
 fn kick() {
-    #[cfg(feature = "sim")]
+    #[cfg(all(feature = "sim", network_link_wifi))]
     crate::hal::sim::wifi::service();
     #[cfg(not(feature = "sim"))]
     {

@@ -43,7 +43,16 @@ def generate(out_dir):
     javas = [
         os.path.join(dp, f) for dp, _, fs in os.walk(out_dir) for f in fs if f.endswith(".java")
     ]
-    if os.path.exists(JAR) and javas:
+    if javas:
+        # golden/ is google-java-format output, so the fresh copy must be
+        # too. The jar is gitignored; fetch it like gen-proto.sh does rather
+        # than skip formatting and fail the comparison on line wraps.
+        if not os.path.exists(JAR):
+            subprocess.run(
+                ["bash", os.path.join(ROOT, "scripts", "format_java.sh"), "fetch"],
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
         subprocess.run(["java", "-jar", JAR, "--replace"] + sorted(javas), check=True)
     return {
         os.path.relpath(p, out_dir): open(p, encoding="utf-8").read() for p in javas

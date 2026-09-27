@@ -26,7 +26,7 @@ if ! "$PY" -c 'import grpc_tools.protoc, google.protobuf.compiler.plugin_pb2' 2>
 fi
 PY_BIN="$(cd "$(dirname "$("$PY" -c 'import sys; print(sys.executable)')")" && pwd)"
 export PATH="$PY_BIN:$PATH"
-[[ -f "$JAR" ]] || bash "$SCRIPT_DIR/format_java.sh" check >/dev/null 2>&1 || true
+[[ -f "$JAR" ]] || bash "$SCRIPT_DIR/format_java.sh" fetch >/dev/null
 
 # One app's proto -> its java/ (and bridge/) trees under $dest_root, which is
 # the repo for `generate` and a scratch tree for `check`.

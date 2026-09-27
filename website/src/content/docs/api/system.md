@@ -203,7 +203,7 @@ public interface Executor {
 
 ### Delayed and periodic work: `ScheduledExecutorService`
 
-There is no `Handler.postDelayed` and no `Timer`. Delayed and periodic work goes through `java.util.concurrent`'s shape instead:
+There is no `Handler.postDelayed` and no `Timer`. Delayed and periodic work goes through `java.util.concurrent`'s shape instead, on every RP2350 board (the `testbench_rp2040` image leaves the scheduler out with the rest of the executors, `framework_class_excludes`):
 
 ```java
 import picodroid.concurrent.Executors;

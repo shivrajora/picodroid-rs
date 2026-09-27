@@ -29,7 +29,13 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 MODE="${1:-check}"
 
-if [[ "$MODE" == "check" ]]; then
+if [[ "$MODE" == "fetch" ]]; then
+  # Download + verify only: what gen-proto.sh and the protoc-gen-picodroid
+  # selftest need before formatting generated Java, on a checkout (CI) that
+  # has no jar yet. The jar is gitignored, so without this the generated
+  # output goes unformatted and the golden comparison fails on line wraps.
+  echo "==> ${JAR_NAME} ready at ${JAR_PATH}"
+elif [[ "$MODE" == "check" ]]; then
   echo "==> Checking Java formatting..."
   # Prune build/ dirs: generated sources (e.g. AssetConstants.java) live under
   # build/generated and are not hand-maintained, so they aren't format-gated.
@@ -45,8 +51,9 @@ elif [[ "$MODE" == "format" ]]; then
   find "$REPO_ROOT/examples" "$REPO_ROOT/sdk" -type d -name build -prune -o -name '*.java' -print0 | xargs -0 java -jar "$JAR_PATH" --replace
   echo "==> Done."
 else
-  echo "Usage: $0 [check|format]"
+  echo "Usage: $0 [check|format|fetch]"
   echo "  check  (default) Fail if any file is not formatted."
   echo "  format           Reformat files in-place."
+  echo "  fetch            Only download and verify the formatter jar."
   exit 1
 fi

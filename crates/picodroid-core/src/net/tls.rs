@@ -203,20 +203,10 @@ struct JobPtr(*mut HandshakeJob);
 unsafe impl Send for JobPtr {}
 
 /// The current task's unused stack, in bytes, on the device; `None` where
-/// the kernel cannot say (the simulator's tasks are host threads).
-#[cfg(not(any(feature = "sim", test)))]
+/// the kernel cannot say (the simulator's tasks are host threads). Through
+/// the RTOS seam, like everything else the framework asks a kernel.
 fn stack_unused_bytes() -> Option<u32> {
-    extern "C" {
-        fn uxTaskGetStackHighWaterMark(task: *mut c_void) -> usize;
-    }
-    // SAFETY: a null handle asks FreeRTOS about the calling task.
-    let words = unsafe { uxTaskGetStackHighWaterMark(core::ptr::null_mut()) };
-    Some((words * 4) as u32)
-}
-
-#[cfg(any(feature = "sim", test))]
-fn stack_unused_bytes() -> Option<u32> {
-    None
+    pd_rtos::task_stack_unused_bytes()
 }
 
 /// Run `session.open` on a task with a stack the handshake fits in, and

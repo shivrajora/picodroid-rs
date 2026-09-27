@@ -146,9 +146,20 @@ build_firmware() {
   # overrides either way. Resolved before the PAPK build because the PAPK
   # must keep its tables for the same firmware; FIRMWARE_FEATURES is an
   # output so flash.sh's `cargo run` links the identical feature set.
+  #
+  # Except on the RP2040 (thumbv6m), whose 896K program region the release
+  # image already fills to 99 %: line numbers cost its debug image ~27 KB
+  # (the SDK tables plus the JVM's line-number paths) and it stopped linking
+  # on 2026-09-26. A debug build there gets `(pc=N)` frames like --release;
+  # PICODROID_LINE_NUMBERS=1 still asks for them, and gets the overflow if
+  # there is no room. Same carve-out as the LTO one below.
   local lines="${PICODROID_LINE_NUMBERS:-}"
   if [[ -z "$lines" ]]; then
-    if [[ "${PROFILE:-debug}" == "release" ]]; then lines=0; else lines=1; fi
+    if [[ "${PROFILE:-debug}" == "release" || "$TARGET" == thumbv6m* ]]; then
+      lines=0
+    else
+      lines=1
+    fi
   fi
   FIRMWARE_FEATURES="$BOARD_FEATURE${PICODROID_EXTRA_FEATURES:+,$PICODROID_EXTRA_FEATURES}"
   local keep_lines=()

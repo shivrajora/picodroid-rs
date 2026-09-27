@@ -150,36 +150,51 @@ const MEMBER_SECOND: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVW
 
 /// Member (method/field) short names: raw index `n` → `a`…`z`, `A`…`Z`
 /// (52 one-char names), then two-char names `<first><second>` over
-/// [`MEMBER_FIRST`] × [`MEMBER_SECOND`]. All-lowercase pairs are skipped —
-/// apps really do declare members called `id`, `io`, `eq`, `of`, and the
-/// kotlin-shim has `to` — as are Java keywords. Like [`short_suffix`],
-/// `raw` is one shared counter threaded through the whole cut.
+/// [`MEMBER_FIRST`] × [`MEMBER_SECOND`] (3,224), then three-char names
+/// `<first><second><second>` (199,888). All-lowercase names are skipped —
+/// apps really do declare members called `id`, `io`, `eq`, `of`, `get`,
+/// `run`, and the kotlin-shim has `to` — as are Java keywords. Like
+/// [`short_suffix`], `raw` is one shared counter threaded through the whole
+/// cut: an app's cut resumes after the release map's members, which by
+/// v0.35.0 take ~2,300 of the pairs, and claudeusage's fragments were the
+/// first app to need a name past the last pair (2026-09-27).
 pub fn member_suffix(raw: &mut usize) -> String {
     loop {
         let n = *raw;
         *raw += 1;
         let s = member_name(n);
-        let all_lower = s.len() == 2 && s.bytes().all(|b| b.is_ascii_lowercase());
+        let all_lower = s.len() >= 2 && s.bytes().all(|b| b.is_ascii_lowercase());
         if !all_lower && !is_java_reserved(&s) {
             return s;
         }
     }
 }
 
+/// Raw indexes below this are one- or two-character names.
+const MEMBER_PAIRS_END: usize = MEMBER_FIRST.len() + MEMBER_FIRST.len() * MEMBER_SECOND.len();
+
 fn member_name(n: usize) -> String {
     if n < MEMBER_FIRST.len() {
         return (MEMBER_FIRST[n] as char).to_string();
     }
-    let n = n - MEMBER_FIRST.len();
-    let first = MEMBER_FIRST[(n / MEMBER_SECOND.len()) % MEMBER_FIRST.len()];
-    let second = MEMBER_SECOND[n % MEMBER_SECOND.len()];
-    // Beyond two characters the sequence wraps; the corpus is ~1000 names
-    // against 52 + 52·62 targets, so this is unreachable in practice.
+    if n < MEMBER_PAIRS_END {
+        let n = n - MEMBER_FIRST.len();
+        let first = MEMBER_FIRST[n / MEMBER_SECOND.len()];
+        let second = MEMBER_SECOND[n % MEMBER_SECOND.len()];
+        return String::from_utf8(vec![first, second]).unwrap();
+    }
+    let n = n - MEMBER_PAIRS_END;
+    let per_first = MEMBER_SECOND.len() * MEMBER_SECOND.len();
+    // Beyond three characters the sequence would wrap; no cut comes within
+    // two orders of magnitude of 52·62·62 targets.
     assert!(
-        n < MEMBER_FIRST.len() * MEMBER_SECOND.len(),
+        n < MEMBER_FIRST.len() * per_first,
         "member allocator exhausted"
     );
-    String::from_utf8(vec![first, second]).unwrap()
+    let first = MEMBER_FIRST[n / per_first];
+    let second = MEMBER_SECOND[(n / MEMBER_SECOND.len()) % MEMBER_SECOND.len()];
+    let third = MEMBER_SECOND[n % MEMBER_SECOND.len()];
+    String::from_utf8(vec![first, second, third]).unwrap()
 }
 
 /// Invert [`member_name`]: the raw index that produced `s`, or `None` if
@@ -193,6 +208,17 @@ pub fn member_inverse(s: &str) -> Option<usize> {
             let first = MEMBER_FIRST.iter().position(|&c| c == b[0])?;
             let second = MEMBER_SECOND.iter().position(|&c| c == b[1])?;
             Some(MEMBER_FIRST.len() + first * MEMBER_SECOND.len() + second)
+        }
+        3 => {
+            let first = MEMBER_FIRST.iter().position(|&c| c == b[0])?;
+            let second = MEMBER_SECOND.iter().position(|&c| c == b[1])?;
+            let third = MEMBER_SECOND.iter().position(|&c| c == b[2])?;
+            Some(
+                MEMBER_PAIRS_END
+                    + first * MEMBER_SECOND.len() * MEMBER_SECOND.len()
+                    + second * MEMBER_SECOND.len()
+                    + third,
+            )
         }
         _ => None,
     }
@@ -343,13 +369,43 @@ mod tests {
 
     #[test]
     fn member_inverse_round_trips() {
-        for n in 0..(52 + 52 * 62) {
+        // Every pair, then the three-char tier end to end (52·62·62 names).
+        for n in 0..(52 + 52 * 62 + 52 * 62 * 62) {
             let s = member_name(n);
             assert_eq!(member_inverse(&s), Some(n), "{n} → {s}");
         }
+        assert_eq!(
+            member_name(52 + 52 * 62),
+            "aaa",
+            "first name past the pairs"
+        );
         assert_eq!(member_inverse(""), None);
-        assert_eq!(member_inverse("abc"), None);
+        assert_eq!(member_inverse("abcd"), None);
         assert_eq!(member_inverse("1a"), None);
+        assert_eq!(member_inverse("a1-"), None);
+    }
+
+    #[test]
+    fn member_allocator_continues_past_the_pairs() {
+        // The release map's members already take most of the pairs; an app
+        // cut that resumes after them must get fresh three-char names, not
+        // a panic (claudeusage, 2026-09-27) or a wrap onto a pair.
+        let mut raw = 52 + 52 * 62 - 3;
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..500 {
+            let s = member_suffix(&mut raw);
+            assert!(s.len() <= 3, "{s}");
+            assert!(
+                !(s.len() >= 2 && s.bytes().all(|b| b.is_ascii_lowercase())),
+                "{s} is all lowercase"
+            );
+            assert!(!is_java_reserved(&s));
+            assert!(seen.insert(s.clone()), "duplicate member target {s}");
+        }
+        assert!(
+            seen.contains("aaA"),
+            "three-char tier starts at aaA once aaa is skipped"
+        );
     }
 
     #[test]

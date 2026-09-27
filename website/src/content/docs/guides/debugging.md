@@ -28,7 +28,7 @@ Exception in thread "main" java.lang.RuntimeException: kaboom
     at tracedemo.TraceDemo.middle(TraceDemo.java:37)
 ```
 
-That is what the simulator and a debug-profile device firmware (`flash.sh`'s default) print: both are built with the `line-numbers` cargo feature, which keeps `LineNumberTable` and `SourceFile` in the class files. A `--release` firmware leaves the tables out of flash and prints the bytecode offset instead, `at tracedemo.TraceDemo.deepest(pc=9)`. Resolve those on the host from the class trees this checkout compiled:
+That is what the simulator and a debug-profile device firmware (`flash.sh`'s default) print: both are built with the `line-numbers` cargo feature, which keeps `LineNumberTable` and `SourceFile` in the class files. A `--release` firmware leaves the tables out of flash and prints the bytecode offset instead, `at tracedemo.TraceDemo.deepest(pc=9)` — and so does every `testbench_rp2040` firmware, whose 896 KB program region has no room for the ~27 KB the tables and the JVM's line-number paths cost (`PICODROID_LINE_NUMBERS=1` asks for them anyway). Resolve those on the host from the class trees this checkout compiled:
 
 ```bash
 ./scripts/retrace.sh --app tracedemo < device.log      # (pc=N) -> (TraceDemo.java:41)

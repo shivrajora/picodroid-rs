@@ -151,12 +151,14 @@ What is never mapped (`cut-release` enforces all of it):
   entry points invoked by literal from Rust on classes the SDK never
   declares, kept the way ProGuard keeps `main`).
 
-Targets are `a`–`z`, `A`–`Z`, then two characters (letter + letter/digit)
-with all-lowercase pairs excluded — apps declare members called `id`,
-`io`, `eq`, `of`, and the kotlin-shim has `to` — and never equal any name
-spelled anywhere in the SDK corpus, the shim, the contract or the keep
-list. Two characters cover the ~870 names in the first cut with room to
-spare.
+Targets are `a`–`z`, `A`–`Z`, then two characters (letter + letter/digit),
+then three (letter + two letters/digits) once the pairs run out, with
+all-lowercase names excluded — apps declare members called `id`, `io`,
+`eq`, `of`, `get`, `run`, and the kotlin-shim has `to` — and never equal
+any name spelled anywhere in the SDK corpus, the shim, the contract or the
+keep list. The release maps take about 2,300 of the 3,276 one- and
+two-character names by v0.35.0; an app cut that continues past the last
+pair gets three-character names.
 
 The rewrite is an ASM pass (`buildSrc`'s `ShrinkMembersTask`, a
 `ClassRemapper` over the `[[member]]` rows), not the Rust class-name tool:

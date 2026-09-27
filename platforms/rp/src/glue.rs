@@ -461,6 +461,15 @@ mod rtos_impl {
                 == freertos_rust::FreeRtosSchedulerState::Running
         }
 
+        /// The kernel's high-water mark for the calling task, words to
+        /// bytes; `None` outside a task. (The simulator answers through
+        /// `hal/sim/platform.rs`: its tasks run on host threads.)
+        fn task_stack_unused_bytes() -> Option<u32> {
+            Task::current()
+                .ok()
+                .map(|t| t.get_stack_high_water_mark().saturating_mul(4))
+        }
+
         fn task_notify(t: RawTask) {
             if t == 0 {
                 return;

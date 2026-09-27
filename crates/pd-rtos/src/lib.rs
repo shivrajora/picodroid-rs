@@ -189,6 +189,12 @@ pub unsafe trait Rtos {
     /// a credit to be spent one at a time.
     fn task_wait_notification(t: Timeout) -> bool;
 
+    /// The calling task's unused stack, in bytes: the least it has ever had
+    /// spare, so a caller can decide whether a deep frame still fits.
+    /// `None` where the kernel cannot say — no task context, or a backing
+    /// whose tasks run on host threads.
+    fn task_stack_unused_bytes() -> Option<u32>;
+
     /// Pointer-width sibling of [`Rtos::queue_create`] and friends.
     ///
     /// A parallel triple rather than widening the existing one: `main_queue`
@@ -264,6 +270,7 @@ extern "Rust" {
     fn __pd_rtos_task_notify(t: RawTask);
     fn __pd_rtos_task_notify_from_isr(t: RawTask) -> bool;
     fn __pd_rtos_task_wait_notification(t: Timeout) -> bool;
+    fn __pd_rtos_task_stack_unused_bytes() -> Option<u32>;
     fn __pd_rtos_queue_create_ptr(depth: usize) -> RawQueue;
     fn __pd_rtos_queue_send_ptr(q: RawQueue, val: usize, t: Timeout) -> bool;
     fn __pd_rtos_queue_recv_ptr(q: RawQueue, t: Timeout) -> Option<usize>;
@@ -326,6 +333,11 @@ pub fn task_notify_from_isr(t: RawTask) -> bool {
 pub fn task_wait_notification(t: Timeout) -> bool {
     let _run = crate::run_lock::unlocked_for(t);
     unsafe { __pd_rtos_task_wait_notification(t) }
+}
+/// The calling task's spare stack in bytes. See
+/// [`Rtos::task_stack_unused_bytes`]; `None` where the kernel cannot say.
+pub fn task_stack_unused_bytes() -> Option<u32> {
+    unsafe { __pd_rtos_task_stack_unused_bytes() }
 }
 pub fn queue_create_ptr(depth: usize) -> RawQueue {
     unsafe { __pd_rtos_queue_create_ptr(depth) }
@@ -458,6 +470,10 @@ macro_rules! set_rtos {
             #[no_mangle]
             extern "Rust" fn __pd_rtos_task_wait_notification(t: Timeout) -> bool {
                 <$t as $crate::Rtos>::task_wait_notification(t)
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_rtos_task_stack_unused_bytes() -> Option<u32> {
+                <$t as $crate::Rtos>::task_stack_unused_bytes()
             }
             #[no_mangle]
             extern "Rust" fn __pd_rtos_queue_create_ptr(depth: usize) -> RawQueue {

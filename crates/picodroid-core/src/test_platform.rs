@@ -365,6 +365,10 @@ unsafe impl Rtos for TestRtos {
     fn scheduler_running() -> bool {
         sim_rtos::scheduler_running()
     }
+    /// Host threads: nothing to measure.
+    fn task_stack_unused_bytes() -> Option<u32> {
+        None
+    }
     fn task_notify(t: RawTask) {
         sim_rtos::task_notify(t)
     }

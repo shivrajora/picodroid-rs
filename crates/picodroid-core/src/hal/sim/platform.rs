@@ -121,6 +121,11 @@ macro_rules! register_sim_platform {
                 fn scheduler_running() -> bool {
                     rtos::scheduler_running()
                 }
+                /// Host threads run on the host's stack, not a buffer the
+                /// kernel could measure.
+                fn task_stack_unused_bytes() -> Option<u32> {
+                    None
+                }
                 fn task_notify(t: RawTask) {
                     rtos::task_notify(t)
                 }
