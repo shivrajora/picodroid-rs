@@ -39,6 +39,7 @@ fn slot_expectations() -> Vec<(&'static str, &'static str, usize)> {
     use crate::native_handler_io_tests::fields as io;
     use crate::net_fields_tests as net;
     use crate::pio::fields as pio;
+    use crate::protobuf_fields_tests as pb;
     vec![
         // graphics/fields.rs
         (
@@ -222,6 +223,37 @@ fn slot_expectations() -> Vec<(&'static str, &'static str, usize)> {
             c::picodroid_net_HttpOutputStream,
             "handle",
             net::http_output_stream::HANDLE,
+        ),
+        // native_handler/protobuf/fields.rs
+        (
+            c::picodroid_protobuf_CodedInputStream,
+            "mBuf",
+            pb::coded_input_stream::BUF,
+        ),
+        (
+            c::picodroid_protobuf_CodedInputStream,
+            "mPos",
+            pb::coded_input_stream::POS,
+        ),
+        (
+            c::picodroid_protobuf_CodedInputStream,
+            "mLimit",
+            pb::coded_input_stream::LIMIT,
+        ),
+        (
+            c::picodroid_protobuf_CodedOutputStream,
+            "mBuf",
+            pb::coded_output_stream::BUF,
+        ),
+        (
+            c::picodroid_protobuf_CodedOutputStream,
+            "mPos",
+            pb::coded_output_stream::POS,
+        ),
+        (
+            c::picodroid_protobuf_CodedOutputStream,
+            "mLimit",
+            pb::coded_output_stream::LIMIT,
         ),
     ]
 }

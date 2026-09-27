@@ -37,6 +37,10 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
     c::picodroid_util_Log,
     // JSONArray declares no natives of its own: it calls JSONObject's.
     c::picodroid_json_JSONObject,
+    // The two picodroid.protobuf classes that declare natives; the
+    // exception, the interface and WireFormat have none.
+    c::picodroid_protobuf_CodedInputStream,
+    c::picodroid_protobuf_CodedOutputStream,
     // AudioManager declares no natives — it is constants only.
     c::picodroid_media_ToneGenerator,
     c::picodroid_concurrent_Thread,

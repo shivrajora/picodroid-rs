@@ -925,10 +925,79 @@ pub const RES_HANDLED: &[Row] = &[
     ("picodroid/view/LayoutInflater", "nativeWord", "(II)I"),
 ];
 
+/// `native_handler/protobuf/mod.rs` — the byte-at-a-time half of
+/// `picodroid.protobuf`: statics on the two stream classes, one name per
+/// value kind.
+pub const PROTOBUF_HANDLED: &[Row] = &[
+    // picodroid/protobuf/CodedInputStream
+    (
+        "picodroid/protobuf/CodedInputStream",
+        "nativeReadDouble",
+        "(Ljava/lang/Object;)D",
+    ),
+    (
+        "picodroid/protobuf/CodedInputStream",
+        "nativeReadFixed32",
+        "(Ljava/lang/Object;)I",
+    ),
+    (
+        "picodroid/protobuf/CodedInputStream",
+        "nativeReadFixed64",
+        "(Ljava/lang/Object;)J",
+    ),
+    (
+        "picodroid/protobuf/CodedInputStream",
+        "nativeReadTag",
+        "(Ljava/lang/Object;)I",
+    ),
+    (
+        "picodroid/protobuf/CodedInputStream",
+        "nativeReadVarint32",
+        "(Ljava/lang/Object;)I",
+    ),
+    (
+        "picodroid/protobuf/CodedInputStream",
+        "nativeReadVarint64",
+        "(Ljava/lang/Object;)J",
+    ),
+    (
+        "picodroid/protobuf/CodedInputStream",
+        "nativeSkipField",
+        "(Ljava/lang/Object;I)V",
+    ),
+    // picodroid/protobuf/CodedOutputStream
+    (
+        "picodroid/protobuf/CodedOutputStream",
+        "nativeWriteDouble",
+        "(Ljava/lang/Object;D)I",
+    ),
+    (
+        "picodroid/protobuf/CodedOutputStream",
+        "nativeWriteFixed32",
+        "(Ljava/lang/Object;I)I",
+    ),
+    (
+        "picodroid/protobuf/CodedOutputStream",
+        "nativeWriteFixed64",
+        "(Ljava/lang/Object;J)I",
+    ),
+    (
+        "picodroid/protobuf/CodedOutputStream",
+        "nativeWriteVarint32",
+        "(Ljava/lang/Object;I)I",
+    ),
+    (
+        "picodroid/protobuf/CodedOutputStream",
+        "nativeWriteVarint64",
+        "(Ljava/lang/Object;J)I",
+    ),
+];
+
 pub const ALL_HANDLED: &[&[Row]] = &[
     PIO_HANDLED,
     IO_HANDLED,
     JSON_HANDLED,
+    PROTOBUF_HANDLED,
     MEDIA_HANDLED,
     NET_HANDLED,
     OS_HANDLED,

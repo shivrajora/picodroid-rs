@@ -12,6 +12,7 @@ fs_kb = 512
 # on here because the 2816K program region has the room. See
 # framework_class_excludes in the porting guide for what "off" drops.
 has_json = true
+has_protobuf = true
 
 # LVGL's pool at the 48 KB the Enviro boards and testbench_rp2040 run their
 # full UI on, not lv_conf.h's 64 KB default. The core-0 main stack is what

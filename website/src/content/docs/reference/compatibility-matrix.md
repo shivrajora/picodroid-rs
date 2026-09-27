@@ -134,6 +134,12 @@ counterpart's name, so the API reads the same; you just import `picodroid.*`
 |---|---|---|
 | `JSONObject` / `JSONArray` / `JSONException` (`picodroid.json`) | Partial | Android's `org.json` method surface for the two classes: constructors from text, `Map`, `Collection` and arrays; `get`/`opt` with Android's coercions; `put`/`putOpt`/`accumulate`/`append`/`remove`; `keys`/`names`/`keySet`; `toString`/`toString(indent)`; `quote`/`numberToString`/`wrap`; `NULL`. Documents live in a native node pool (2048 nodes, 16 KiB of strings, 32 levels) reclaimed with the GC; child wrappers share nodes but are not `==`. Strict RFC 8259 parser (no lenient `JSONTokener` extras), no `JSONTokener`/`JSONStringer`, `keySet()` unordered. Only on boards with `has_json = true` in `board.toml` — every RP2350 board; not `testbench_rp2040`, where the API contract rejects the classes at build time. See [JSON](/api/json/). |
 
+### com.google.protobuf
+
+| API | Status | Notes / alternative |
+|---|---|---|
+| `CodedInputStream` / `CodedOutputStream` / `MessageLite` / `WireFormat` / `InvalidProtocolBufferException` (`picodroid.protobuf`) | Partial | protobuf-javalite's stream surface: `readTag`, every `readXxx`, `skipField`, `pushLimit`/`popLimit`, `readString`/`readBytes` (a `byte[]`, no `ByteString`); every `writeXxx`/`writeXxxNoTag` and `computeXxxSize`. Varints, fixed-width values and skipping are native (`micropb`); strings, byte arrays, zigzag and limits are Java. Message classes come from `protoc-gen-picodroid`: mutable, setters instead of Builders, enums as `int` constants, arrays instead of `List`s, proto3 only, no `map`/`oneof`/groups/extensions/reflection. Only on boards with `has_protobuf = true` in `board.toml` — every RP2350 board; not `testbench_rp2040`, where the API contract rejects the classes at build time. See [Protocol Buffers](/api/protobuf/). |
+
 ### android.media
 
 | API | Status | Notes / alternative |

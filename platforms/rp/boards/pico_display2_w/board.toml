@@ -20,6 +20,7 @@ max_installed_apps = 8
 app_region_kb = 1536
 fs_kb = 512
 has_json = true
+has_protobuf = true
 has_network = true
 network_type = "cyw43"
 # 320x240 over a 2.0" diagonal.

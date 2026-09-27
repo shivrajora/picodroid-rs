@@ -170,6 +170,19 @@ object ApiContract {
     )
 
     /**
+     * The `picodroid.protobuf` classes, owned by the top-level `has_protobuf` board.toml key,
+     * off by default like `has_json` (`build_support/board_cfg.rs::PROTOBUF_CLASSES`). Inner
+     * classes (`CodedOutputStream$OutOfSpaceException`) follow their outer class.
+     */
+    private val PROTOBUF_CLASSES = setOf(
+        "picodroid/protobuf/CodedInputStream",
+        "picodroid/protobuf/CodedOutputStream",
+        "picodroid/protobuf/InvalidProtocolBufferException",
+        "picodroid/protobuf/MessageLite",
+        "picodroid/protobuf/WireFormat",
+    )
+
+    /**
      * The `Canvas` classes, owned by the top-level `has_canvas` board.toml key: on unless a board
      * sets it to `false` (`build_support/board_cfg.rs::CANVAS_CLASSES`). Inner classes
      * (`Paint$Style`, …) follow their outer class.
@@ -199,7 +212,7 @@ object ApiContract {
 
     /**
      * What a board.toml drops: its top-level `framework_class_excludes = "a;b,c"`
-     * key plus the classes its feature switches leave out (`has_json`,
+     * key plus the classes its feature switches leave out (`has_json`, `has_protobuf`,
      * `has_canvas`, `max_installed_apps`) — the same hand-rolled, line-based read as
      * `build_support/board_cfg.rs` (`;` or `,` separated, one line each, top
      * level only).
@@ -207,6 +220,7 @@ object ApiContract {
     fun parseBoardExcludes(toml: String): Set<String> {
         var listed = emptySet<String>()
         var hasJson = false
+        var hasProtobuf = false
         var hasCanvas = true
         var maxApps = 1
         for (raw in toml.lineSequence()) {
@@ -214,6 +228,10 @@ object ApiContract {
             if (line.startsWith("[")) break
             if (line.startsWith("has_json")) {
                 hasJson = topLevelValue(line, "has_json") == "true"
+                continue
+            }
+            if (line.startsWith("has_protobuf")) {
+                hasProtobuf = topLevelValue(line, "has_protobuf") == "true"
                 continue
             }
             if (line.startsWith("has_canvas")) {
@@ -230,6 +248,7 @@ object ApiContract {
         }
         var dropped = listed
         if (!hasJson) dropped = dropped + JSON_CLASSES
+        if (!hasProtobuf) dropped = dropped + PROTOBUF_CLASSES
         if (!hasCanvas) dropped = dropped + CANVAS_CLASSES
         if (maxApps <= 1) dropped = dropped + MULTI_APP_CLASSES
         return dropped

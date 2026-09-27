@@ -190,6 +190,10 @@ mod graphics_fields_tests;
 #[cfg(test)]
 #[path = "net/fields.rs"]
 mod net_fields_tests;
+// The picodroid.protobuf field-slot table, likewise.
+#[cfg(test)]
+#[path = "native_handler/protobuf/fields.rs"]
+mod protobuf_fields_tests;
 // micropb's stream traits over the JVM array heap (the picodroid.protobuf
 // natives' byte source), with their golden vectors; `native_handler` is
 // `cfg(not(test))`.

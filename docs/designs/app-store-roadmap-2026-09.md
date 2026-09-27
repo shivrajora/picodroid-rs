@@ -288,7 +288,11 @@ How it is implemented on the device matters more than the format:
   work. Instead the S8 natives decode with `micropb` (`no_std`, no `alloc`
   required, generates plain structs from `.proto`) and hand the store app
   typed `picodroid.*` objects. The Java side of the store never sees a wire
-  byte.
+  byte. *2026-09-26:* `micropb` 0.6.0 is now a picodroid-core dependency
+  behind the `has_protobuf` board key (`docs/designs/protobuf-2026-09.md`),
+  and `picodroid.protobuf` + `protoc-gen-picodroid` give the Java side a
+  native-backed stream API and generated message classes; S8 can use either
+  route with the same dependency.
 - **Never embed the PAPK in a message.** A 1 MB `bytes` field would have to
   be buffered to be decoded. The catalog carries a URL; S4 streams it.
 - Both `tools/store-server` and the device generate from the same `.proto`

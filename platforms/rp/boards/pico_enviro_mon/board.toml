@@ -12,6 +12,7 @@ fs_kb = 512
 # on here because the 2816K program region has the room. See
 # framework_class_excludes in the porting guide for what "off" drops.
 has_json = true
+has_protobuf = true
 lv_dpi = 166
 lv_mem_kb = 48
 # Disable idle-timeout display sleep — this is a live environmental monitor;

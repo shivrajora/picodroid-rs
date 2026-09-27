@@ -13,6 +13,9 @@ mod io;
 // Board-gated by the `has_json` board.toml key, like `net` by `has_network`.
 #[cfg(has_json)]
 mod json;
+// Board-gated by the `has_protobuf` board.toml key, the same shape.
+#[cfg(has_protobuf)]
+mod protobuf;
 // Tones on the board's buzzer, behind board.toml's `[audio]` section. The SDK
 // classes ship on every board, so a board with no output answers through the
 // stub rather than leaving the natives unresolved — as `net`/`net_stub` do.
@@ -233,6 +236,10 @@ impl PicodroidNativeHandler {
             // pending-op queue, so it lives outside the module-style
             // sub-dispatchers above.
             11 => app_services::dispatch(self, class_name, method_name, ctx),
+            #[cfg(has_protobuf)]
+            12 => protobuf::dispatch(class_name, method_name, ctx),
+            #[cfg(not(has_protobuf))]
+            12 => None,
             // Arms that need access to `self` stay in the handler itself.
             _ => self.dispatch_own(class_name, method_name, ctx),
         }
@@ -240,7 +247,7 @@ impl PicodroidNativeHandler {
 
     /// The chain's length: modules `0..MODULES` in order, the handler's
     /// own arms last.
-    const MODULES: u8 = 13;
+    const MODULES: u8 = 14;
 
     /// Append `op` to the pending queue. Returns `true` on success; `false`
     /// (with a log) if the queue is full — apps shouldn't be queueing more

@@ -58,7 +58,8 @@ impl ResolvedBoard {
 ///
 /// Feature-owned classes are appended here from their board.toml switch
 /// rather than hand-listed: `has_json` off drops [`JSON_CLASSES`] (and the
-/// Rust side goes with it, `cfg(has_json)`), so one key controls the whole
+/// Rust side goes with it, `cfg(has_json)`), `has_protobuf` off drops
+/// [`PROTOBUF_CLASSES`] the same way, so one key controls the whole
 /// feature. Listing one of those classes by hand while the switch is on is
 /// a contradiction and fails the build.
 pub fn framework_class_excludes(board: &Option<ResolvedBoard>) -> Vec<String> {
@@ -79,6 +80,23 @@ pub fn framework_class_excludes(board: &Option<ResolvedBoard>) -> Vec<String> {
         }
     } else {
         for c in JSON_CLASSES {
+            if !list.iter().any(|e| e == c) {
+                list.push((*c).to_string());
+            }
+        }
+    }
+    let protobuf_listed = list.iter().any(|e| PROTOBUF_CLASSES.contains(&e.as_str()));
+    if has_protobuf(board) {
+        if let Some(b) = board {
+            assert!(
+                !protobuf_listed,
+                "board '{}' sets has_protobuf = true but framework_class_excludes names a \
+                 picodroid/protobuf class — drop has_protobuf instead of listing the classes",
+                b.name
+            );
+        }
+    } else {
+        for c in PROTOBUF_CLASSES {
             if !list.iter().any(|e| e == c) {
                 list.push((*c).to_string());
             }
@@ -148,6 +166,19 @@ pub const JSON_CLASSES: &[&str] = &[
     "picodroid/json/JSONException",
 ];
 
+/// The SDK classes the `has_protobuf` board.toml key owns, in JVM internal
+/// form: the `picodroid.protobuf` stream API. Inner classes
+/// (`CodedOutputStream$OutOfSpaceException`) follow their outer class through
+/// the embed step. The Gradle contract check mirrors the list
+/// (`buildSrc/.../classfile/ApiContract.kt`).
+pub const PROTOBUF_CLASSES: &[&str] = &[
+    "picodroid/protobuf/CodedInputStream",
+    "picodroid/protobuf/CodedOutputStream",
+    "picodroid/protobuf/InvalidProtocolBufferException",
+    "picodroid/protobuf/MessageLite",
+    "picodroid/protobuf/WireFormat",
+];
+
 /// The SDK classes the `has_canvas` board.toml key owns: what `View.onDraw`
 /// draws with. Inner classes (`Paint$Style`, `Paint$Cap`, `Paint$Align`)
 /// follow their outer class through the embed step. The Gradle contract check
@@ -173,6 +204,18 @@ pub fn has_json(board: &Option<ResolvedBoard>) -> bool {
     match props(board) {
         None => true,
         Some(p) => p.get("has_json").map(String::as_str) == Some("true"),
+    }
+}
+
+/// The optional top-level `has_protobuf = true` board.toml key: whether this
+/// board ships `picodroid.protobuf` (the SDK stream classes and the native
+/// micropb codec behind them). Off by default, like `has_json`, so a
+/// flash-tight board pays nothing for it; on for boardless builds so the host
+/// tests cover the natives.
+pub fn has_protobuf(board: &Option<ResolvedBoard>) -> bool {
+    match props(board) {
+        None => true,
+        Some(p) => p.get("has_protobuf").map(String::as_str) == Some("true"),
     }
 }
 
@@ -245,6 +288,14 @@ pub fn emit_json_cfg(board: &Option<ResolvedBoard>) {
     println!("cargo:rustc-check-cfg=cfg(has_json)");
     if has_json(board) {
         println!("cargo:rustc-cfg=has_json");
+    }
+}
+
+/// Emit the `has_protobuf` rustc cfg from board.toml (see [`has_protobuf`]).
+pub fn emit_protobuf_cfg(board: &Option<ResolvedBoard>) {
+    println!("cargo:rustc-check-cfg=cfg(has_protobuf)");
+    if has_protobuf(board) {
+        println!("cargo:rustc-cfg=has_protobuf");
     }
 }
 
@@ -368,6 +419,7 @@ pub fn emit_neutral(out: &Path, board: &Option<ResolvedBoard>, pins: Pins) {
     emit_heap_config(out, board);
     emit_network_cfgs(board);
     emit_json_cfg(board);
+    emit_protobuf_cfg(board);
     emit_canvas_cfg(board);
     emit_lvgl_cfgs(board);
     emit_audio_config(out, board);

@@ -241,6 +241,12 @@ picodroid/pio/PeripheralManager
 picodroid/pio/Pwm
 picodroid/pio/SpiDevice
 picodroid/pio/UartDevice
+picodroid/protobuf/CodedInputStream
+picodroid/protobuf/CodedOutputStream
+picodroid/protobuf/CodedOutputStream$OutOfSpaceException
+picodroid/protobuf/InvalidProtocolBufferException
+picodroid/protobuf/MessageLite
+picodroid/protobuf/WireFormat
 picodroid/text/InputType
 picodroid/text/TextUtils
 picodroid/text/TextUtils$TruncateAt
