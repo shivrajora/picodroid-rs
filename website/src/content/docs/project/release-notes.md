@@ -3,11 +3,13 @@ title: "Release notes"
 description: "User-facing changes for Picodroid v0.4.0 onward."
 ---
 
-This page covers everything that landed in releases v0.4.0 through v0.14.0, plus what is on `main` since. Earlier history is in `git log v0.1.0...v0.3.0`.
+This page covers everything that landed in releases v0.4.0 through v0.35.0. Earlier history is in `git log v0.1.0...v0.3.0`.
 
-## Unreleased
+## v0.35.0 — 2026-09-27
 
-**Fragments and ViewPager2 (2026-09-27; unshrunk until the next map cut)**
+The apps-and-networks release, and the first tag since the release version started following the shrink map: v0.15.0 through v0.34.0 were map cuts on `main`, so this one is v0.35.0. The work since v0.14.0 gives a board a launcher, several installed apps with their own storage, a settings app, and Wi-Fi it can join from that app instead of from the build. Apps reach the network in Android's shapes, from HTTPS with certificate checking and `ConnectivityManager.NetworkCallback` to UDP broadcast, JSON and protobuf. The UI gains Fragments and `ViewPager2`, custom drawing through `View.onDraw(Canvas)`, resources with `R` and XML layouts, saved instance state, long-press and key auto-repeat, tones, and text sizes. `--shrink` is unconditional now and renames `java/**` names and each app's own names too. The runtime runs one Java task at a time under a kernel mutex, and puts the RP2350's hot code in SRAM. It catches stale widget handles and enforces the main-stack floor at link time. A QA round fixed forty correctness bugs.
+
+**Fragments and ViewPager2 (2026-09-27; map v0.35.0, package 0.35.0)**
 
 - `picodroid.app.Fragment`, `FragmentManager`, `FragmentTransaction` and `FragmentFactory`, the
   shape of `androidx.fragment.app`: `getSupportFragmentManager().beginTransaction().replace(
@@ -23,7 +25,7 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
   state kept as a Bundle; `smoothScroll` is a fade, a swipe turns the page, keys call
   `setCurrentItem`. `claudeusage`'s four screens are now fragments in one.
 
-**HTTPS (2026-09-27; unshrunk until the next map cut)**
+**HTTPS (2026-09-27; map v0.35.0, package 0.35.0)**
 
 - `https` URLs work: `URL.openConnection()` returns a `picodroid.net.ssl.HttpsURLConnection`
   (the shape of `javax.net.ssl.HttpsURLConnection`) and `connect()` runs a TLS 1.3 handshake —
@@ -63,6 +65,16 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 - Under the hood: `crates/pd-tls` over a vendored `embedded-tls` 0.19 with three marked patches
   (`third_party/embedded-tls/README-PICODROID.md`); design and measurements in
   `docs/designs/tls-2026-09.md`.
+- Map v0.35.0, cut for the release, gives the Fragment, `ViewPager2`, HTTPS and SNTP classes
+  their names (+13 classes, 335 → 348: `picodroid/app/Fragment`, `FragmentFactory`,
+  `FragmentManager`, `FragmentManager$OnBackStackChangedListener`, `FragmentTransaction`,
+  `picodroid/widget/ViewPager2`, `ViewPager2$OnPageChangeCallback`, `FragmentStateAdapter`,
+  `picodroid/net/ssl/HttpsURLConnection`, `picodroid/net/SntpClient` and
+  `javax/net/ssl/SSLException`, `SSLHandshakeException`, `SSLPeerUnverifiedException`), and it
+  also names the 233 members they declare (2024 → 2257). The member floor stays at v0.17.0, so
+  PAPKs shrunk with v0.17.0 through v0.34.0 still install. `Build.VERSION.RELEASE` reads
+  `0.35.0`.
+
 **Wi-Fi provisioning from Settings (2026-09-26; map v0.34.0, package 0.34.0)**
 
 - A board no longer needs its network compiled in. Settings gains a Wi-Fi row on `FEATURE_WIFI`

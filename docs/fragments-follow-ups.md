@@ -57,10 +57,8 @@ a class with forty methods is mostly constant pool.
 
 ## FR-3: Cut the next shrink map
 
-**Status: open.** The six classes, `Activity.getSupportFragmentManager` and the 222 new member
-names ship unshrunk until the next `release(shrink)` cut on `main` (never in a feature branch —
-the release-cut rule). `sdk/class-names.tsv` and `member-names.tsv` already carry the rows. Cut
-it together with TLS-3.
+**Status: closed 2026-09-27.** Map v0.35.0, cut on `main` together with TLS-3 for the v0.35.0
+release, names the Fragment and `ViewPager2` classes and their members.
 
 ## FR-4: A swipe turning the pager
 

@@ -27,10 +27,8 @@ if a row fails: `build/sim/results/`, `build/hil/results/`, the row's `net-tls.l
 
 ## TLS-3: Cut the next shrink map
 
-**Status: open.** `HttpsURLConnection`, `SntpClient`, `getCipherSuite` and the three
-`javax/net/ssl` exception names ship unshrunk until the next `release(shrink)` cut on `main`
-(never in a feature branch — see the release-cut rule). `sdk/class-names.tsv` and
-`member-names.tsv` already carry the rows.
+**Status: closed 2026-09-27.** Map v0.35.0, cut on `main` for the v0.35.0 release, names
+`HttpsURLConnection`, `SntpClient`, `getCipherSuite` and the three `javax/net/ssl` exceptions.
 
 ## TLS-4: Flash
 
