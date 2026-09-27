@@ -94,6 +94,10 @@ pd-drivers    = { path = "../pd-drivers" }
 # JSON tree behind picodroid.json (json/mod.rs wraps its pool); unused and
 # dropped at link time on a board without `has_json`.
 pd-json       = { path = "../pd-json" }
+# Protobuf wire codec behind picodroid.protobuf (native_handler/protobuf/):
+# no_std, no alloc, only num-traits. Pinned exactly because Cargo.lock is
+# gitignored. Unused and dropped at link time on a board without `has_protobuf`.
+micropb       = { version = "=0.6.0", default-features = false, features = ["encode", "decode", "enable-64bit"] }
 # HTTP/1.1 head + chunked-transfer parsing for net/http_connection.rs.
 http-head     = { path = "../http-head" }
 # Runtime dep since graphics/assets.rs moved here: it reads the APK's ASST

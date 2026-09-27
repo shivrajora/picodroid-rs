@@ -190,6 +190,12 @@ mod graphics_fields_tests;
 #[cfg(test)]
 #[path = "net/fields.rs"]
 mod net_fields_tests;
+// micropb's stream traits over the JVM array heap (the picodroid.protobuf
+// natives' byte source), with their golden vectors; `native_handler` is
+// `cfg(not(test))`.
+#[cfg(test)]
+#[path = "native_handler/protobuf/heap_io.rs"]
+mod protobuf_heap_io_tests;
 // The hand-numbered native field tables against the embedded class files:
 // a `long`/`double` field takes two slots, so every constant after one
 // moves — nothing but this test would notice.
