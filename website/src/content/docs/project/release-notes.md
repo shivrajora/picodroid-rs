@@ -7,6 +7,20 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**`java.util.zip.CRC32` (2026-09-26; ships un-shrunk until the next map cut)**
+
+- The JDK's `CRC32` with its `Checksum` interface: `update(int)`, `update(byte[])`,
+  `update(byte[], int, int)`, `getValue()`, `reset()`; `"123456789"` checks to `0xCBF43926`. The
+  per-byte loop is the runtime's (`jvm/src/native/zip.rs`, bit-serial, no table), behind the
+  same two `private static native` steps the JDK hands to zlib; the class is real bytecode, so a
+  `Checksum` reference dispatches like any other object.
+- `SharedPreferences` signs and verifies its file with it. Loading a 90-byte preferences file
+  cost the RP2350 some 40 ms of interpreted bytecode inside `Service.onCreate` — found by the
+  claudeusage device QA as the one slow tick a boot had left — and every `apply()` paid the same
+  again on its worker.
+- `claudeusage`: with AUTO on, Y from a data page now restarts the 10 s countdown as a page turn
+  does; before, the next auto turn could follow the home press by a second or two.
+
 **`ConnectivityManager.NetworkCallback` (2026-09-26; ships un-shrunk until the next map cut)**
 
 - `ConnectivityManager` is a service now — `getSystemService(Context.CONNECTIVITY_SERVICE)` —

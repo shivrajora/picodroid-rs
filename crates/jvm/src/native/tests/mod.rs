@@ -25,6 +25,7 @@ mod random;
 mod string;
 mod string_builder;
 mod string_format;
+mod zip;
 
 // ── String helper ─────────────────────────────────────────────────────────
 //

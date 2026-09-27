@@ -1059,6 +1059,21 @@ java/util/concurrent/CancellationException
 java/util/concurrent/ExecutionException
 java/util/concurrent/RejectedExecutionException
 java/util/concurrent/TimeoutException
+java/util/zip/CRC32
+java/util/zip/CRC32	<init>	()V
+java/util/zip/CRC32	crc	I
+java/util/zip/CRC32	getValue	()J
+java/util/zip/CRC32	reset	()V
+java/util/zip/CRC32	update	(I)V
+java/util/zip/CRC32	update	(II)I
+java/util/zip/CRC32	update	([B)V
+java/util/zip/CRC32	update	([BII)V
+java/util/zip/CRC32	updateBytes	(I[BII)I
+java/util/zip/Checksum
+java/util/zip/Checksum	getValue	()J
+java/util/zip/Checksum	reset	()V
+java/util/zip/Checksum	update	(I)V
+java/util/zip/Checksum	update	([BII)V
 javax/inject/Provider
 javax/inject/Provider	get	()Ljava/lang/Object;
 #

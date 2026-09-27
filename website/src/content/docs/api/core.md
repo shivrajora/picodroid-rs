@@ -289,6 +289,33 @@ if (Objects.nonNull(x) && Objects.isNull(y)) { /* ... */ }
 
 `hash(Object...)` boxes its arguments; prefer `hashCode(o)` for a single value on a hot path.
 
+## `java.util.zip.CRC32`
+
+The JDK's CRC-32, with its `Checksum` interface: the IEEE polynomial, reflected, so `"123456789"`
+checks to `0xCBF43926`. The per-byte loop is native; the running value and the API are a real class
+in the SDK, so a `Checksum` reference dispatches like any other object.
+
+```java
+import java.util.zip.CRC32;
+
+CRC32 crc = new CRC32();
+crc.update(header);            // byte[]
+crc.update(body, 0, bodyLen);  // byte[], off, len
+crc.update(0x0A);              // one byte, the low eight bits
+long value = crc.getValue();   // unsigned 32-bit checksum in a long
+crc.reset();                   // back to an empty stream
+```
+
+| Method | Description |
+|--------|-------------|
+| `update(byte[] b)`, `update(byte[] b, int off, int len)` | Feed bytes; the range form throws `ArrayIndexOutOfBoundsException` for a range off the array. |
+| `update(int b)` | Feed one byte. One native call per byte: hand whole arrays over on a hot path. |
+| `getValue()` | The checksum of everything fed since construction or `reset()`, as a `long` in `0..2^32`. |
+| `reset()` | Start over. |
+
+`SharedPreferences` verifies and signs its file with it; a preferences load on the RP2350 lost some
+40 ms of interpreted bytecode when the loop moved out of Java.
+
 ## `java.time`
 
 The JDK's date-time classes, ported to the SDK so an app stops doing epoch arithmetic by hand:
