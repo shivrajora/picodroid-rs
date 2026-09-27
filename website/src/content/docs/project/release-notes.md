@@ -29,6 +29,21 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
   test host gains a TLS listener on 8443–8446 (`scripts/tls-listener.py`, a valid leaf and three
   that must be refused) whose test CA a test build trusts through `PICODROID_TLS_EXTRA_CA`;
   `PICODROID_SIM_WALL_CLOCK=1` anchors the simulator's clock to the host's.
+- `picoenvmon` (both twins) fetches its open-meteo weather row over HTTPS now, the first
+  cleartext call in an example to move: the `https` URL, a `SSLHandshakeException` log line,
+  and the fetch waits for the NTP sync the certificate check needs. Three things it found:
+  `pico_enviro_mon_w` runs two pool workers instead of four (the arena was 1 KB short of the
+  handshake's transient on this board); the HTTP client's connection object is a fallible
+  allocation, so an arena that is down to fragments after a handshake gives an `IOException`
+  instead of a HardFault; and in the simulator the handshake task runs at the JVM tier, since
+  a Java thread in a host socket call (picoenvmon's dashboard `accept()`) is not idle to
+  FreeRTOS's POSIX port and starved the background tier forever (design doc A2).
+- Example `weather`: a phone-style weather app for the four-button `pico_enviro_mon_w` (today
+  with an hourly strip, the week with a range bar per day, details with the room's own
+  readings), one open-meteo request over HTTPS every 15 minutes, the glyphs and lists drawn
+  with `View.onDraw(Canvas)`, the sky a `GradientDrawable`; the place and units are
+  `BuildConfig` constants. The test listener answers `GET /v1/forecast` with a canned
+  forecast for its nightly row.
 - Under the hood: `crates/pd-tls` over a vendored `embedded-tls` 0.19 with three marked patches
   (`third_party/embedded-tls/README-PICODROID.md`); design and measurements in
   `docs/designs/tls-2026-09.md`.

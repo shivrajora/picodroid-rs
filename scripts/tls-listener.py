@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """The test host's TLS listeners for the `net` rows of hil-tests.conf (https_get,
-askclaude). Four HTTPS ports, all TLS 1.3, serving the test-only certificates
+askclaude, weather). Four HTTPS ports, all TLS 1.3, serving the test-only certificates
 in scripts/tls-test/ (regen.sh; a build trusts the CA through
 PICODROID_TLS_EXTRA_CA=scripts/tls-test/test-ca.der):
 
     8443  a valid leaf for localhost / picodroid-test / 127.0.0.1 (+ --extra-ip)
           GET  /            -> 200, a short text body
           POST /v1/messages -> 200, a canned Claude Messages reply (any key accepted)
+          GET /v1/forecast  -> 200, a canned open-meteo forecast (examples/weather)
     8444  the same names, but the leaf expired in 2020     -> must be refused
     8445  a self-signed leaf under no CA the build trusts  -> must be refused
     8446  a valid leaf for other.example only              -> must be refused
@@ -25,6 +26,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -44,6 +46,48 @@ CANNED_REPLY = {
 }
 
 
+def canned_forecast():
+    """An open-meteo `/v1/forecast` reply for examples/weather's nightly row:
+    the shape the app requests (`timeformat=unixtime`, `timezone=auto`, the
+    current conditions, 12 hours, 7 days), a partly cloudy 18.3 C afternoon
+    in San Mateo, its times counted from the listener's own clock so the
+    strip and the list read as today's."""
+    now = int(time.time()) // 3600 * 3600
+    day = now // 86400 * 86400
+    hourly_temp = [18.3, 18.1, 17.6, 16.8, 15.9, 15.0, 14.2, 13.6, 13.1, 12.7, 12.3, 12.0]
+    hourly_code = [2, 2, 1, 1, 0, 0, 0, 0, 3, 3, 61, 61]
+    daily_code = [2, 3, 61, 80, 1, 0, 95]
+    daily_max = [21.4, 19.8, 17.2, 16.5, 20.1, 23.7, 19.0]
+    daily_min = [12.1, 12.8, 11.4, 10.9, 11.7, 13.2, 12.5]
+    return {
+        "latitude": 37.56, "longitude": -122.32, "generationtime_ms": 0.2,
+        "utc_offset_seconds": -25200, "timezone": "America/Los_Angeles",
+        "timezone_abbreviation": "PDT", "elevation": 5.0,
+        "current_units": {"time": "unixtime", "interval": "seconds",
+                          "temperature_2m": "°C", "relative_humidity_2m": "%",
+                          "apparent_temperature": "°C", "is_day": "",
+                          "weather_code": "wmo code", "surface_pressure": "hPa",
+                          "wind_speed_10m": "km/h"},
+        "current": {"time": now, "interval": 900, "temperature_2m": 18.3,
+                    "relative_humidity_2m": 62, "apparent_temperature": 17.1,
+                    "is_day": 1, "weather_code": 2, "surface_pressure": 1013.2,
+                    "wind_speed_10m": 12.4},
+        "hourly_units": {"time": "unixtime", "temperature_2m": "°C",
+                         "weather_code": "wmo code", "is_day": ""},
+        "hourly": {"time": [now + 3600 * i for i in range(12)],
+                   "temperature_2m": hourly_temp, "weather_code": hourly_code,
+                   "is_day": [1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0]},
+        "daily_units": {"time": "unixtime", "weather_code": "wmo code",
+                        "temperature_2m_max": "°C", "temperature_2m_min": "°C",
+                        "sunrise": "unixtime", "sunset": "unixtime"},
+        "daily": {"time": [day + 86400 * i for i in range(7)],
+                  "weather_code": daily_code, "temperature_2m_max": daily_max,
+                  "temperature_2m_min": daily_min,
+                  "sunrise": [day + 86400 * i + 25200 + 6 * 3600 + 52 * 60 for i in range(7)],
+                  "sunset": [day + 86400 * i + 25200 + 19 * 3600 + 8 * 60 for i in range(7)]},
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "picodroid-tls-test/1"
@@ -60,6 +104,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/":
             self._reply(200, "picodroid tls ok\n")
+        elif self.path.startswith("/v1/forecast"):
+            self._reply(200, json.dumps(canned_forecast()), "application/json")
         else:
             self._reply(404, "not found\n")
 

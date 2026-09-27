@@ -1,0 +1,12 @@
+# Control-channel script for this app's net row (sim-run.sh::run_test; hil-run
+# skips rows with one): the app fetches on its own once the screen is up, so
+# wait for the forecast to land, turn the pages once each (A twice: week,
+# details), then Y — BACK with nothing to dismiss finishes the Activity and
+# ends the row the way a term row does.
+wait Weather[]:] updated
+sleep 1
+input keyevent 20
+sleep 1
+input keyevent 20
+sleep 1
+input back

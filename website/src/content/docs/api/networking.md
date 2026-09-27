@@ -390,7 +390,8 @@ See [`examples/netexception/`](https://github.com/shivrajora/picodroid-rs/tree/m
 ## Current limits
 
 - Open, WPA2-AES, and WPA3-SAE personal networks — no enterprise auth.
-- No TLS: HTTPS URLs throw at `connect()`.
+- TLS 1.3 only, one cipher suite, no client certificates, no session resumption, and only on
+  boards with `has_tls = true` (the RP2350 WiFi boards); elsewhere HTTPS URLs throw at `connect()`.
 - Socket I/O is chunked at 256 bytes per native call; larger reads/writes loop internally.
 
 See [Known issues & current limits](/reference/known-issues/) for the live list.
