@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Every field kind protoc-gen-picodroid supports; ProtoDemo round-trips it
+// on the runtime. Regenerate java/protodemo/proto/Demo.java with
+// ./scripts/gen-proto.sh.
+syntax = "proto3";
+
+package protodemo;
+
+option java_package = "protodemo.proto";
+
+enum Mood {
+  MOOD_UNSPECIFIED = 0;
+  HAPPY = 1;
+  GRUMPY = 2;
+}
+
+message Point {
+  sint32 x = 1;
+  sint32 y = 2;
+}
+
+message Everything {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    ROUND = 1;
+    SQUARE = 7;
+  }
+
+  message Inner {
+    string label = 1;
+    repeated Point corners = 2;
+  }
+
+  double d = 1;
+  float f = 2;
+  int32 i32 = 3;
+  int64 i64 = 4;
+  uint32 u32 = 5;
+  uint64 u64 = 6;
+  sint32 s32 = 7;
+  sint64 s64 = 8;
+  fixed32 f32 = 9;
+  fixed64 f64 = 10;
+  sfixed32 sf32 = 11;
+  sfixed64 sf64 = 12;
+  bool flag = 13;
+  string name = 14;
+  bytes blob = 15;
+  Mood mood = 16;
+  Kind kind = 17;
+  Inner inner = 18;
+  optional int32 maybe = 19;
+  optional string maybe_name = 20;
+  repeated int32 counts = 21;
+  repeated bool flags = 22;
+  repeated string tags = 23;
+  repeated bytes blobs = 24;
+  repeated Point points = 25;
+  repeated Mood moods = 26;
+  repeated double weights = 27;
+  int32 class = 28;
+  int32 two_words_here = 29;
+}
