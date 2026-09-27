@@ -217,4 +217,5 @@ Child fragment managers (nested fragments) when an app needs a pager inside a fr
 `addView(child, index)` for the z-order of several fragments in one container;
 `LV_OBJ_FLAG_EVENT_BUBBLE` so a swipe over a clickable child reaches the pager; `Lifecycle.State`
 and `Fragment.SavedState` if an app needs source-identical Android code; a bridge-backed nightly
-row for `claudeusage` that turns real pages; the sim's swipe injection.
+row for `claudeusage` that turns real pages; the sim's swipe injection. Tracked, with status, as
+FR-1 to FR-11 in [`../fragments-follow-ups.md`](../fragments-follow-ups.md).
