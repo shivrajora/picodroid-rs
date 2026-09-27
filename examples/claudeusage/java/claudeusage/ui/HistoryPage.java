@@ -5,11 +5,11 @@ import claudeusage.R;
 import claudeusage.data.UsageService;
 import claudeusage.data.UsageSnapshot;
 import claudeusage.util.TimeFormat;
-import picodroid.content.Context;
+import picodroid.os.Bundle;
 import picodroid.widget.FrameLayout;
 
 /** Today's totals and a week of daily token counts, from the PC's local transcripts. */
-final class HistoryPage extends Page {
+final class HistoryPage extends UsagePage {
   private static final int STATS_HEIGHT = 60;
   private static final int CHART_Y = 2 + STATS_HEIGHT + 4;
   private static final int CHART_CARD_HEIGHT = Ui.PAGE_HEIGHT - CHART_Y - 2;
@@ -31,17 +31,18 @@ final class HistoryPage extends Page {
   private Line peak;
   private WeekChart week;
 
-  private final String dash;
-  private final String estimate;
-  private final String noTranscripts;
-  private final String peakFmt;
+  private String dash;
+  private String estimate;
+  private String noTranscripts;
+  private String peakFmt;
 
-  HistoryPage(Context ctx, Palette palette) {
-    super(ctx, palette);
-    dash = ctx.getString(R.string.dash);
-    estimate = ctx.getString(R.string.history_estimate);
-    noTranscripts = ctx.getString(R.string.no_transcripts);
-    peakFmt = ctx.getString(R.string.history_peak);
+  @Override
+  public void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
+    dash = getString(R.string.dash);
+    estimate = getString(R.string.history_estimate);
+    noTranscripts = getString(R.string.no_transcripts);
+    peakFmt = getString(R.string.history_peak);
   }
 
   @Override

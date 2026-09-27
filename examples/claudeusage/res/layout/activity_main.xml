@@ -96,7 +96,13 @@
         android:id="@+id/page_host"
         android:layout_width="match_parent"
         android:layout_height="@dimen/page_height"
-        android:background="@color/background" />
+        android:background="@color/background">
+
+        <ViewPager2
+            android:id="@+id/pager"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+    </FrameLayout>
 
     <LinearLayout
         android:id="@+id/footer"

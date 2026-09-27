@@ -4,7 +4,7 @@ package claudeusage.ui;
 import claudeusage.R;
 import claudeusage.data.LinkState;
 import claudeusage.data.UsageService;
-import picodroid.content.Context;
+import picodroid.os.Bundle;
 import picodroid.widget.FrameLayout;
 
 /**
@@ -12,7 +12,7 @@ import picodroid.widget.FrameLayout;
  * the bridge is expected, and when the next attempt is. It doubles as the setup screen, since a
  * wrong address is the likeliest first-boot problem.
  */
-final class StatusPage extends Page {
+final class StatusPage extends UsagePage {
   private FrameLayout card;
   private FrameLayout dot;
   private Line headline;
@@ -21,24 +21,31 @@ final class StatusPage extends Page {
   private Line retry;
   private int shownDot;
 
-  private final String bridgeAt;
-  private final String searching;
-  private final String contacting;
-  private final String retryingIn;
-  private final String retrying;
+  private String bridgeAt;
+  private String searching;
+  private String contacting;
+  private String retryingIn;
+  private String retrying;
 
-  StatusPage(Context ctx, Palette palette) {
-    super(ctx, palette);
-    bridgeAt = ctx.getString(R.string.status_bridge);
-    searching = ctx.getString(R.string.status_searching);
-    contacting = ctx.getString(R.string.status_contacting);
-    retryingIn = ctx.getString(R.string.status_retrying_in);
-    retrying = ctx.getString(R.string.status_retrying);
+  @Override
+  public void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
+    bridgeAt = getString(R.string.status_bridge);
+    searching = getString(R.string.status_searching);
+    contacting = getString(R.string.status_contacting);
+    retryingIn = getString(R.string.status_retrying_in);
+    retrying = getString(R.string.status_retrying);
   }
 
   @Override
   int titleRes() {
     return R.string.page_status;
+  }
+
+  /** Paints at once: it is what shows while there is no data. */
+  @Override
+  boolean needsData() {
+    return false;
   }
 
   @Override
