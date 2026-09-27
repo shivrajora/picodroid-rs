@@ -197,10 +197,19 @@ impl<S: Read + Write + 'static> TlsSession<S> {
             .flush()
     }
 
-    /// Send `close_notify` and hand the socket back for the TCP close.
-    pub fn close(mut self: Box<Self>) -> Result<S, (S, TlsError)> {
-        let conn = self.conn.take().expect("session closed twice");
-        conn.close()
+    /// Send `close_notify` in place (fork patch 4: no move of the
+    /// connection through the caller's stack, which is a pool worker's
+    /// after an HTTP fetch) and drop the connection; the caller closes the
+    /// socket it still holds. A second call is a no-op.
+    pub fn close(&mut self) -> Result<(), TlsError> {
+        match self.conn.as_mut() {
+            Some(conn) => {
+                let r = conn.close_notify();
+                self.conn = None;
+                r
+            }
+            None => Ok(()),
+        }
     }
 }
 

@@ -320,8 +320,25 @@ pub fn native_connect(
         return Err(throw_net_exception(objects, strings, e, NetOpCtx::Send));
     }
 
-    let boxed = Box::new(HttpConn::new(transport));
-    let raw = Box::into_raw(boxed);
+    // A fallible box: on a tight board the arena can be down to fragments
+    // here, after the TLS handshake's transient (2026-09-27,
+    // pico_enviro_mon_w: less than this 1 KB was left and `Box::new`
+    // HardFaulted the device). An IOException keeps a fail-soft caller alive.
+    let layout = core::alloc::Layout::new::<HttpConn>();
+    // SAFETY: `HttpConn` is not zero-sized.
+    let raw = unsafe { alloc::alloc::alloc(layout) as *mut HttpConn };
+    if raw.is_null() {
+        transport.close();
+        return Err(throw_io_exception(
+            objects,
+            strings,
+            "out of memory for the connection",
+        ));
+    }
+    // SAFETY: `raw` is a fresh allocation with `HttpConn`'s layout, so a
+    // later `Box::from_raw` (disconnect, or the error path below) frees it
+    // the way `Box::new` would have.
+    unsafe { raw.write(HttpConn::new(transport)) };
     let handle = http_table::register(raw as *mut c_void);
     if handle == 0 {
         // SAFETY: `raw` came from Box::into_raw above and was never shared.

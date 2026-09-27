@@ -163,6 +163,29 @@ pub struct TlsStream {
 /// Transient: allocated from the arena with the task, freed when it ends.
 const HANDSHAKE_STACK_BYTES: u32 = 40 * 1024;
 
+/// Stack a task must have spare for `close_notify` (`TlsStream::close`):
+/// the record encoder's `ClientRecord` local and the AES-GCM key schedule.
+/// A 16 KB Java thread with about 11 KB spare sent it; an 8 KB pool worker
+/// with about 3 KB did not survive it. Between those, the bound errs high.
+const CLOSE_NOTIFY_STACK_BYTES: u32 = 8 * 1024;
+
+/// The handshake task's priority. On the device, the background tier below
+/// the interpreter's: time slicing is off, so a compute-bound handshake at
+/// the JVM's own priority would hold core 0 from the UI for the length of a
+/// P-384 verify; below it, the handshake runs in the interpreter's idle
+/// time, like a sensor task, and the interpreter is idle whenever every
+/// Java task is blocked in the kernel — which on the device is any socket
+/// wait. The simulator is different: its sockets block in host calls
+/// (`poll`, `recv`) that FreeRTOS's POSIX port cannot see, so a Java thread
+/// in `accept()` stays the running task and a lower-priority task never
+/// gets its first slice (picoenvmon's dashboard thread starved the
+/// handshake forever, 2026-09-27; its pool workers share the JVM tier, so
+/// they were never affected). There the task takes the JVM tier itself.
+#[cfg(not(any(feature = "sim", test)))]
+const HANDSHAKE_PRIORITY: u8 = crate::task_priority::PRIORITY_BG_6;
+#[cfg(any(feature = "sim", test))]
+const HANDSHAKE_PRIORITY: u8 = crate::task_priority::PRIORITY_JVM_NORM;
+
 /// What the handshake task works on; owned by the caller across the wait.
 struct HandshakeJob {
     session: Box<TlsSession<HalSocket>>,
@@ -215,11 +238,7 @@ fn handshake(
     let spec = pd_rtos::TaskSpec {
         name: "tls-handshake",
         kind: pd_rtos::TaskKind::BgWorker,
-        // The background tier, below the interpreter's: time slicing is off,
-        // so a compute-bound handshake at the JVM's own priority would hold
-        // core 0 from the UI for the length of a P-384 verify. Below it, the
-        // handshake runs in the interpreter's idle time, like a pool worker.
-        priority: crate::task_priority::PRIORITY_BG_6,
+        priority: HANDSHAKE_PRIORITY,
         stack_bytes: Some(HANDSHAKE_STACK_BYTES),
     };
     let spawned = pd_rtos::spawn(
@@ -293,9 +312,26 @@ impl TlsStream {
     }
 
     /// Send `close_notify` and hand the socket back for the TCP close.
-    pub fn close(self) -> *mut c_void {
+    pub fn close(mut self) -> *mut c_void {
         let _run = crate::jvm_run_lock::unlocked();
-        let _ = self.session.close();
+        // The alert is optional for an exchange that is complete (the TCP
+        // close says as much), and sending it costs stack the caller may
+        // not have: the record encoder puts a `ClientRecord` on the stack
+        // and AES-GCM its key schedule, on top of the interpreter's frames
+        // -- a pool worker with 3 KB to spare hard-faulted here
+        // (pico_enviro_mon_w, 2026-09-27). With room, send it; without,
+        // drop the session and say so once.
+        match stack_unused_bytes() {
+            Some(unused) if unused < CLOSE_NOTIFY_STACK_BYTES => {
+                crate::pd_info!(
+                    "tls: closing without close_notify, {} B of stack spare",
+                    unused
+                );
+            }
+            _ => {
+                let _ = self.session.close();
+            }
+        }
         self.sock
     }
 }

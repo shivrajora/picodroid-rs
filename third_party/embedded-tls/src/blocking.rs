@@ -252,6 +252,15 @@ where
         Ok(())
     }
 
+    // PICODROID: `close` by value moves the whole connection (its key
+    // schedule and record state) through the caller's stack; a caller
+    // that keeps the connection boxed can send close_notify in place and
+    // drop the box afterwards.
+    /// Send `close_notify` and flush, leaving the connection to be dropped.
+    pub fn close_notify(&mut self) -> Result<(), TlsError> {
+        self.close_internal()
+    }
+
     /// Close a connection instance, returning the ownership of the I/O provider.
     pub fn close(mut self) -> Result<Socket, (Socket, TlsError)> {
         match self.close_internal() {
