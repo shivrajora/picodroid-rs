@@ -954,8 +954,14 @@ run_pdb_install_stress() {
   local test_name="$app:pdb-install-stress[$mode]"
   local log_file="$RUN_LOG_DIR/${app}.pdb-install-stress.${mode}.log"
 
-  # Alternate between blinky and displaydemo for different PAPK sizes.
+  # Alternate between blinky and a larger PAPK. displaydemo draws through
+  # Canvas/Paint, which testbench_rp2040 excludes from its framework
+  # (has_canvas = false), so its PAPK fails verifyApiContract there
+  # (nightly 2026-09-26/27: "papk build failed for displaydemo"); the RP2040
+  # installs resdemo instead, a widget-and-resources PAPK of similar size
+  # that its own row already runs there.
   local -a stress_apps=(blinky displaydemo)
+  [[ "$DEFAULT_MCU" == "rp2040" ]] && stress_apps=(blinky resdemo)
 
   # Build PAPKs for both apps in the same mode as the flashed firmware.
   local -a sa_args

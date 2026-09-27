@@ -198,6 +198,13 @@ fn property_code(p: ViewProperty) -> i32 {
 #[cfg(not(test))]
 static mut GFX: LvglGfx = LvglGfx::new();
 
+/// Whether `lv_init` has run: false for a plain main-class app that never
+/// touched the display, where every LVGL query is undefined.
+#[cfg(not(test))]
+pub fn is_initialized() -> bool {
+    INITIALIZED.load(Ordering::Relaxed)
+}
+
 /// The LVGL pool's `(free, total)` bytes. UI task only, like every LVGL call.
 #[cfg(not(test))]
 pub fn pool_free_bytes() -> (usize, usize) {

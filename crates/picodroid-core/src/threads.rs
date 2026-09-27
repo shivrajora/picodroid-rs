@@ -216,9 +216,11 @@ pub fn is_alive(obj: u16) -> bool {
 }
 
 /// The thread in `slot` has finished: release whatever it still holds,
-/// wake its joiners, and drop the entry. Idempotent, and callable by the
-/// thread itself (the normal path) or by the spawner when the task never
-/// ran.
+/// wake its joiners, and drop the entry. Idempotent for the *same* thread,
+/// but a freed slot is the first one `reserve` hands out again, so a
+/// second call after a yield may find another thread's entry there —
+/// callers that may have already terminated once go through
+/// [`terminate_by_obj`] instead.
 pub fn terminate(slot: usize) {
     // Monitors are the calling task's own to give back (FreeRTOS refuses a
     // give from another task), so this is meaningful only on the normal
@@ -597,6 +599,25 @@ mod tests {
         go_tx.send(()).unwrap();
         child.join().unwrap();
         assert_eq!(joiner.join().unwrap(), Outcome::Satisfied);
+    }
+
+    #[test]
+    fn a_repeated_terminate_of_a_reused_slot_spares_the_new_thread() {
+        let _g = serial();
+        // Thread 5 finishes: `exit0` frees its slot …
+        let slot = reserve(5).unwrap();
+        terminate_by_obj(5);
+        // … and a sibling's `Thread.start` reserves the same slot for 6
+        // before thread 5's task runs its own trailing cleanup.
+        assert_eq!(reserve(6), Some(slot));
+        terminate_by_obj(5);
+        assert!(
+            is_alive(6),
+            "thread 5's second terminate must not take thread 6's entry"
+        );
+        assert_eq!(roots(), vec![6]);
+        terminate(slot);
+        assert!(!is_alive(6));
     }
 
     #[test]

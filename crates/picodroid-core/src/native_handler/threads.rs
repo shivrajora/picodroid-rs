@@ -195,13 +195,19 @@ fn thread_start0(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError>
             }
             // Normally already done by runWrapper's finally; on the error
             // paths above this is what releases the monitors it still
-            // holds and wakes its joiners.
-            threads::terminate(slot);
+            // holds and wakes its joiners. By object, never by `slot`:
+            // `exit0` freed the slot a moment ago and the run lock's give
+            // yielded, so a sibling's `Thread.start` may already have
+            // reserved it — `terminate(slot)` here wiped the new thread's
+            // entry, and its interrupt(), join() and isAlive() then looked
+            // up a Thread the registry no longer knew (threadparity and
+            // qa_thr, every nightly from 2026-09-26).
+            threads::terminate_by_obj(this);
         }),
     );
     if !spawned {
         crate::pd_error!("Thread.start: task spawn failed for {}", task_name);
-        threads::terminate(slot);
+        threads::terminate_by_obj(this);
         return Ok(Some(Value::Int(0)));
     }
     Ok(Some(Value::Int(1)))
