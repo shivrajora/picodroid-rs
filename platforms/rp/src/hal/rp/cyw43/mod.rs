@@ -6,10 +6,11 @@
 //! joining a network.
 //!
 //! The surface here is use-driven, not a complete mirror of `cyw43.h`. It
-//! once wrapped disconnect / link-status / RSSI and carried the full
-//! `CYW43_AUTH_*`, `CYW43_ITF_*` and `CYW43_LINK_*` vocabularies; none of it
-//! ever acquired a caller, so it was removed. Re-add a constant when the
-//! call that needs it arrives, rather than restoring the set wholesale.
+//! once carried the full `CYW43_AUTH_*`, `CYW43_ITF_*` and `CYW43_LINK_*`
+//! vocabularies with no caller, so they were removed; leave, scan and the
+//! STA status came back with `WifiManager` (`link.rs`). Re-add a constant
+//! when the call that needs it arrives, rather than restoring the set
+//! wholesale.
 
 /// The link driver built on these bindings (`Cyw43Link: NetLink`).
 pub mod link;
@@ -17,6 +18,8 @@ pub mod link;
 /// CYW43 authentication modes (matches CYW43_AUTH_* in cyw43_ll.h).
 pub mod auth {
     pub const OPEN: u32 = 0;
+    /// WPA (v1) with TKIP: what an old AP a scan reports as WPA needs.
+    pub const WPA_TKIP_PSK: u32 = 0x0020_0002;
     pub const WPA2_AES: u32 = 0x0040_0004;
     /// WPA3-SAE only (the vendored driver programs the `sae_password`
     /// iovar on this path).
@@ -79,6 +82,79 @@ extern "C" {
 
     /// Set the CYW43 poll task handle (defined in cyw43_port.c).
     fn cyw43_set_poll_task(task: *mut core::ffi::c_void);
+
+    /// Disassociate the STA interface.
+    fn cyw43_wifi_leave(self_: *mut Cyw43State, itf: i32) -> i32;
+
+    // The three helpers in NetworkInterface_CYW43.c behind `WifiManager`:
+    // the STA state folded with the port's interface-up flag, whether a
+    // scan is running, and a scan start that owns the options struct.
+    fn picodroid_cyw43_sta_status() -> i32;
+    fn picodroid_cyw43_scan_active() -> i32;
+    fn picodroid_cyw43_scan_start(
+        cb: Option<unsafe extern "C" fn(*mut core::ffi::c_void, *const ScanResult) -> i32>,
+    ) -> i32;
+}
+
+/// `cyw43_ev_scan_result_t` (cyw43_ll.h), field for field: the driver
+/// hands one per sighting to the scan callback.
+#[repr(C)]
+pub struct ScanResult {
+    _0: [u32; 5],
+    pub bssid: [u8; 6],
+    _1: [u16; 2],
+    pub ssid_len: u8,
+    pub ssid: [u8; 32],
+    _2: [u32; 5],
+    pub channel: u16,
+    _3: [u8; 4],
+    pub rssi: i16,
+    _4: [u8; 12],
+    /// `CYW43_AUTH_FLAG_*` bits: WEP 0x1, WPA 0x0020_0000, WPA2
+    /// 0x0040_0000, WPA3 0x0100_0000.
+    pub auth_mode: u32,
+}
+
+/// The STA's state as `NetworkInterface_CYW43.c` folds it: the driver's
+/// failure kinds (-3 BADAUTH, -2 NONET, -1 FAIL), 0 down, 1 associating,
+/// 2 associated.
+///
+/// # Safety
+/// [`init`] must have succeeded; a field read, safe from the link task.
+pub unsafe fn sta_status() -> i32 {
+    picodroid_cyw43_sta_status()
+}
+
+/// Whether a scan started with [`scan_start`] is still running.
+///
+/// # Safety
+/// [`init`] must have succeeded.
+pub unsafe fn scan_active() -> bool {
+    picodroid_cyw43_scan_active() != 0
+}
+
+/// Start an active scan; `cb` sees every sighting from inside [`poll`].
+///
+/// # Safety
+/// [`init`] must have succeeded; call only from the CYW43 task.
+pub unsafe fn scan_start(
+    cb: unsafe extern "C" fn(*mut core::ffi::c_void, *const ScanResult) -> i32,
+) -> Result<(), i32> {
+    match picodroid_cyw43_scan_start(Some(cb)) {
+        0 => Ok(()),
+        e => Err(e),
+    }
+}
+
+/// Disassociate from the current access point.
+///
+/// # Safety
+/// [`init`] must have succeeded; call only from the CYW43 task.
+pub unsafe fn wifi_leave() -> Result<(), i32> {
+    match cyw43_wifi_leave(&raw mut cyw43_state, itf::STA) {
+        0 => Ok(()),
+        e => Err(e),
+    }
 }
 
 /// Opaque CYW43 driver state — sized to match the C struct.

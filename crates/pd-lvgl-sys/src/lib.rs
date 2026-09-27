@@ -471,6 +471,10 @@ pub const LV_STATE_FOCUSED: u32 = 1 << 3;
 // indev rather than a pointer. The default theme styles this state separately
 // (blue), so widgets that override the focus highlight must cover it too.
 pub const LV_STATE_FOCUS_KEY: u32 = 1 << 4;
+
+/// `lv_align_t` (lv_area.h): `LV_ALIGN_TOP_LEFT`, the origin `lv_obj_set_pos`
+/// offsets from once a widget's own alignment is undone.
+pub const LV_ALIGN_TOP_LEFT: u8 = 1;
 // Set while a widget is being edited (keypad/encoder edit mode). The framework
 // toggles it on NumberPicker during keypad edit mode for the theme-matching
 // secondary outline; EDITED (1 << 5) outranks FOCUS_KEY in style specificity,
@@ -665,6 +669,10 @@ extern "C" {
     pub fn lv_obj_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
     pub fn lv_obj_clean(obj: *mut lv_obj_t);
     pub fn lv_obj_set_pos(obj: *mut lv_obj_t, x: i32, y: i32);
+    /// `lv_align_t`: the reference point `set_pos` / `set_x` / `set_y` offset
+    /// from. Widgets whose constructor aligns them elsewhere (`lv_keyboard`
+    /// is BOTTOM_MID) need it back at TOP_LEFT for absolute placement.
+    pub fn lv_obj_set_align(obj: *mut lv_obj_t, align: u8);
     /// Set just the x coordinate (preserves y). Used by ViewPropertyAnimator
     /// to animate axes independently — `lv_obj_set_pos` would clobber the
     /// other axis if a y-anim were running concurrently.
@@ -1143,6 +1151,9 @@ extern "C" {
     pub fn lv_buttonmatrix_clear_button_ctrl(obj: *mut lv_obj_t, btn_id: u32, ctrl: u16);
     pub fn lv_buttonmatrix_set_one_checked(obj: *mut lv_obj_t, en: bool);
     pub fn lv_buttonmatrix_get_selected_button(obj: *const lv_obj_t) -> u32;
+    /// The key LEFT/RIGHT walk from and ENTER presses; a keypad-focused
+    /// keyboard starts on its first character key, not on a mode switch.
+    pub fn lv_buttonmatrix_set_selected_button(obj: *mut lv_obj_t, btn_id: u32);
     pub fn lv_buttonmatrix_has_button_ctrl(obj: *mut lv_obj_t, btn_id: u32, ctrl: u16) -> bool;
 
     // Dropdown widget
@@ -1179,6 +1190,8 @@ extern "C" {
     pub fn lv_label_get_text(obj: *const lv_obj_t) -> *const c_char;
     pub fn lv_textarea_set_placeholder_text(obj: *mut lv_obj_t, txt: *const c_char);
     pub fn lv_textarea_set_one_line(obj: *mut lv_obj_t, en: bool);
+    pub fn lv_textarea_set_password_mode(obj: *mut lv_obj_t, en: bool);
+    pub fn lv_textarea_add_text(obj: *mut lv_obj_t, txt: *const c_char);
 
     // Keyboard widget
     pub fn lv_keyboard_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;

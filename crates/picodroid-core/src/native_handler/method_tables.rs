@@ -225,6 +225,56 @@ pub const NET_HANDLED: &[Row] = &[
     ("picodroid/net/Socket", "recv", "([BII)I"),
     ("picodroid/net/Socket", "send", "([BII)I"),
     ("picodroid/net/Socket", "setTimeout", "(I)V"),
+    // picodroid/net/wifi/WifiManager
+    ("picodroid/net/wifi/WifiManager", "nativeAvailable", "()Z"),
+    (
+        "picodroid/net/wifi/WifiManager",
+        "nativeCurrentSsid",
+        "()Ljava/lang/String;",
+    ),
+    ("picodroid/net/wifi/WifiManager", "nativeDisconnect", "()Z"),
+    ("picodroid/net/wifi/WifiManager", "nativeForget", "()Z"),
+    ("picodroid/net/wifi/WifiManager", "nativeReconnect", "()Z"),
+    (
+        "picodroid/net/wifi/WifiManager",
+        "nativeSave",
+        "(Ljava/lang/String;Ljava/lang/String;)Z",
+    ),
+    ("picodroid/net/wifi/WifiManager", "nativeSavedSource", "()I"),
+    (
+        "picodroid/net/wifi/WifiManager",
+        "nativeSavedSsid",
+        "()Ljava/lang/String;",
+    ),
+    (
+        "picodroid/net/wifi/WifiManager",
+        "nativeScanBssid",
+        "(I)Ljava/lang/String;",
+    ),
+    (
+        "picodroid/net/wifi/WifiManager",
+        "nativeScanChannel",
+        "(I)I",
+    ),
+    ("picodroid/net/wifi/WifiManager", "nativeScanCount", "()I"),
+    (
+        "picodroid/net/wifi/WifiManager",
+        "nativeScanGeneration",
+        "()I",
+    ),
+    ("picodroid/net/wifi/WifiManager", "nativeScanRssi", "(I)I"),
+    (
+        "picodroid/net/wifi/WifiManager",
+        "nativeScanSecurity",
+        "(I)I",
+    ),
+    (
+        "picodroid/net/wifi/WifiManager",
+        "nativeScanSsid",
+        "(I)Ljava/lang/String;",
+    ),
+    ("picodroid/net/wifi/WifiManager", "nativeStartScan", "()Z"),
+    ("picodroid/net/wifi/WifiManager", "nativeStatus", "()I"),
 ];
 
 /// `native_handler/os.rs`

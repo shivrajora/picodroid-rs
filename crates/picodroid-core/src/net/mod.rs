@@ -15,3 +15,6 @@ mod ptr_table;
 pub mod server_socket;
 pub mod socket;
 pub mod socket_table;
+/// `WifiManager`'s natives; only a WiFi link has them.
+#[cfg(network_link_wifi)]
+pub mod wifi_manager;

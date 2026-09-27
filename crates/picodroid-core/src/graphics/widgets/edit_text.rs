@@ -77,8 +77,20 @@ pub fn edit_text_set_input_type(
         _ => return Err(JvmError::InvalidReference),
     };
     // android.text.InputType: TYPE_MASK_CLASS = 0x0F, TYPE_CLASS_NUMBER = 0x02.
-    let numeric = (type_bits & 0x0F) == 0x02;
+    let class = type_bits & 0x0F;
+    let variation = type_bits & 0x0FF0;
+    let numeric = class == 0x02;
     lvgl_edit_text::set_numeric(id, numeric);
+    // TYPE_TEXT_VARIATION_PASSWORD (0x80) and _WEB_PASSWORD (0xE0) on a text
+    // field, TYPE_NUMBER_VARIATION_PASSWORD (0x10) on a numeric one: masked.
+    // TYPE_TEXT_VARIATION_VISIBLE_PASSWORD (0x90) is a password shown in
+    // clear, as on Android.
+    let masked = match class {
+        0x01 => variation == 0x80 || variation == 0xE0,
+        0x02 => variation == 0x10,
+        _ => false,
+    };
+    lvgl_edit_text::set_password(id, masked);
     Ok(None)
 }
 

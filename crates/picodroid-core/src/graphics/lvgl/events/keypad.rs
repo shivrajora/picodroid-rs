@@ -135,6 +135,12 @@ pub(super) fn focused_obj_for_edit_mode() -> (usize, bool) {
     }
 }
 
+/// Whether the last edge read was a press: a key is down until its release
+/// is read. The system keyboard waits for that release before it takes the
+/// focus (`take_pending_focus`), or the release would land on its first key.
+#[cfg(has_buttons)]
+static mut KEY_HELD: bool = false;
+
 #[cfg(has_buttons)]
 pub(super) unsafe extern "C" fn keypad_read_cb(
     _indev: *mut lv_indev_t,
@@ -158,6 +164,9 @@ pub(super) unsafe extern "C" fn keypad_read_cb(
         }
     };
     if let Some(event) = debounced {
+        unsafe {
+            KEY_HELD = !event.rising;
+        }
         let key = BUTTONS
             .iter()
             .find(|&&(p, _, _)| p == event.pin)
@@ -185,6 +194,21 @@ pub(super) unsafe extern "C" fn keypad_read_cb(
                 forward_java: true,
                 step: None,
             },
+        };
+
+        // While the system keyboard holds the focus, PREV/NEXT walk its
+        // keys instead of the focus ring, and — as an IME consumes what
+        // it types — do not reach Java.
+        let decision = match decision
+            .lvgl_key
+            .and_then(super::super::widgets::keyboard::keypad_remap)
+        {
+            Some(remapped) => super::super::edit_mode::Decision {
+                lvgl_key: Some(remapped),
+                forward_java: false,
+                step: None,
+            },
+            None => decision,
         };
 
         if decision.forward_java {
@@ -215,5 +239,15 @@ pub(super) unsafe extern "C" fn keypad_read_cb(
     } else {
         d.state = LV_INDEV_STATE_RELEASED;
         d.continue_reading = false;
+        // A quiet pass with every key up: the key that opened the system
+        // keyboard has been released, so the keyboard may take the focus
+        // now without that release landing on its first key.
+        if unsafe { !KEY_HELD } {
+            if let Some((kb, first_key)) = super::super::widgets::keyboard::take_pending_focus() {
+                // SAFETY: the keyboard is the live system keyboard (visible,
+                // never freed while the graphics singleton lives).
+                unsafe { focus_system_keyboard(kb, first_key) };
+            }
+        }
     }
 }

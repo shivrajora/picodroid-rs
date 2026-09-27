@@ -85,6 +85,7 @@ See the [system API](/api/system/#picodroidcontentpmpackagemanager) for the whol
 - **About** — the board, its MCU and the release (`Build`), the storage volume (`StatFs`) and the heap in use.
 - **Apps** — one row per installed app (system apps are not listed; they cannot be uninstalled). A tap opens a dialog — the app's label, "Remove app and data?", Uninstall / Cancel — and Uninstall removes the app and its `/data/<package>` through `PackageManager.getPackageInstaller().uninstall(name)`, then the list is rebuilt. The settings app keeps running; nothing reboots.
 - **Storage** — the volume, then each package's app bytes (its image) and data bytes (its directory, as the [storage cap](/api/storage/) counts it).
+- **Wi-Fi** — on a board with a WiFi link only: the status, the saved network, Scan, and one row per network found; a tap joins an open network or asks for a password. See [WiFi setup](/get-started/networking/#joining-a-network-from-settings) for the flow on touch and on four buttons.
 
 The same uninstall is available to any app: `getPackageManager().getPackageInstaller().uninstall("com.example.weather")` is synchronous and throws `IllegalArgumentException` for a package that is not installed, is a system app, or is the caller itself.
 

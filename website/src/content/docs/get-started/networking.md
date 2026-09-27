@@ -1,11 +1,11 @@
 ---
 title: "WiFi & networking setup"
-description: "Get a Pico 2 W on your WiFi network: the cyw43 submodule, build-time credentials, boot timing, and waiting for the network in your app."
+description: "Get a Pico 2 W on your WiFi network: the cyw43 submodule, Settings → Wi-Fi or build-time credentials, boot timing, and waiting for the network in your app."
 ---
 
 Networking runs on the **Raspberry Pi Pico 2 W** (`testbench_rp2350w` board) over its CYW43439 WiFi chip. Once the board has joined your network, the full [`picodroid.net` API](/api/networking/) — TCP/UDP sockets and `HttpURLConnection` — works against real hosts.
 
-In the **simulator** none of this page applies: the sim routes `picodroid.net` through the host's network stack, so there are no credentials to configure and the network is up immediately.
+In the **simulator** the host's network stack stands in for the link: `picodroid.net` works at once with nothing to configure. Settings → Wi-Fi still works there, against a canned list of access points (see [the simulator's WiFi](#the-simulators-wifi)).
 
 ## One-time setup: the cyw43 driver fork
 
@@ -18,17 +18,30 @@ git submodule update --init third_party/cyw43-driver
 
 If the submodule is the unpatched upstream, the device build stops early with exactly this instruction — it does not build a broken image.
 
-## WiFi credentials are baked in at build time
+## Joining a network from Settings
 
-There is no runtime provisioning: the SSID and password are compiled into the firmware from two environment variables read at build time.
+On a multi-app board (every WiFi board is one) the Settings app has a **Wi-Fi** screen, as Android does: it shows the connection status and the saved network, **Scan for networks** lists what is in range strongest first — signal bars, and `*` for a network that needs a password — and a tap on a network joins it. A secured network opens a password screen: one masked field and a Connect button. The outcome comes back on the Wi-Fi screen: *Connecting*, *Obtaining IP address*, *Connected*, *Wrong password* or *Not found*.
+
+The device remembers the network: it is written to the storage volume (`/system/wifi`, outside any app's directory) and joined at every boot before any app runs, so provisioning is a one-time step per device. The saved network's row opens a dialog to connect again or to **Forget** it.
+
+How the password is typed depends on the board's input:
+
+- **Touch panel** (`testbench_rp2350w`, `pico_touch_kit`): tap the field and the on-screen keyboard slides up; type, then tap its OK key or the Connect button.
+- **Four buttons** (`pico_enviro_mon_w`, `pico_display2_w`): NEXT moves the focus to the field, ENTER opens the keyboard, PREV and NEXT walk its keys (hold to repeat), ENTER types the highlighted key, ESC closes the keyboard; then NEXT to the Connect button and ENTER. The keyboard's OK key connects too.
+
+Apps get the same through [`WifiManager`](/api/networking/#wifi) (`Context.WIFI_SERVICE`).
+
+## Build-time credentials override the saved network
+
+A firmware can still carry its network, which is what the bench and the `net` test rows do: the SSID and password are compiled in from environment variables read at build time, and such a firmware joins that network at boot **whatever is saved on the device**. The Wi-Fi screen shows it with "Build" as the source and refuses to forget it; saving another network from Settings still writes the volume, so an image built without credentials picks it up.
 
 ```bash
 PICODROID_WIFI_SSID='MyAP' PICODROID_WIFI_PASS='secret' \
   ./scripts/flash.sh --board testbench_rp2350w --app netdemo --release
 ```
 
-- No `PICODROID_WIFI_SSID` at build time → the firmware logs `wifi: no SSID configured (PICODROID_WIFI_SSID) — not joining` and the network stack stays offline.
-- An empty `PICODROID_WIFI_PASS` means an open network.
+- No `PICODROID_WIFI_SSID` at build time and nothing saved → the firmware logs `wifi: no network configured (Settings > Wi-Fi, or PICODROID_WIFI_SSID) — not joining` and the network stack stays offline until a network is saved.
+- An empty `PICODROID_WIFI_PASS` means an open network. `PICODROID_WIFI_AUTH` (`open`, `wpa2`, `wpa3`, `wpa2wpa3`) pins the security; unset, a password means WPA2.
 - **Never commit or distribute an image built with real credentials** — they are recoverable from the binary.
 
 To avoid retyping (and accidentally shell-history-ing) credentials, keep them in `.wifi-creds.env` at the repo root — it is gitignored:
@@ -55,7 +68,11 @@ net: up, ip 192.168.1.42     ← joined + DHCP lease acquired
 net: down                    ← link lost, or the join has not succeeded yet
 ```
 
-Each line is printed once per change of state: a join that keeps failing logs one `net: down`, not one per retry.
+Each line is printed once per change of state: a join that keeps failing logs one `net: down`, not one per retry. The join itself logs `wifi: join "MyAP" requested (stored)` — or `(build)` — then `wifi: associated`, or `wifi: join failed: bad password` / `no such network`.
+
+## The simulator's WiFi
+
+The sim's link is the host's network, up from the start, and Settings → Wi-Fi is faked on top of it so the screens can be exercised: a scan finds the access points in `PICODROID_SIM_WIFI_NETWORKS` (`ssid:security:rssi` triples, comma-separated; default `picodroid-lab:wpa2:-45,Cafe Guest:open:-70,Neighbour:wpa2wpa3:-82`), a join succeeds for a listed SSID with the password in `PICODROID_SIM_WIFI_PASS` (default `picodroid`) and takes the simulated link up, and fails — *Wrong password*, *Not found* — otherwise, taking it down. The saved network persists in the sim's filesystem image and is joined at the next start, as on a device. `PICODROID_SIM_NET=down` starts with the link down, so a join is what brings it up. The control channel's `input text <string>` types into the open keyboard's field, so a script need not tap keys.
 
 ## Wait for the network in your app
 

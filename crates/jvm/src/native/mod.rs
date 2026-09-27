@@ -25,6 +25,10 @@ mod string_builder;
 mod string_format;
 mod zip;
 
+/// zlib's running CRC-32, for a caller outside the JVM that wants the
+/// same checksum `java.util.zip.CRC32` computes (a store's trailer).
+pub use zip::crc32_update;
+
 #[cfg(test)]
 mod tests;
 

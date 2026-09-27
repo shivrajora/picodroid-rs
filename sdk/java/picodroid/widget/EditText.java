@@ -21,10 +21,14 @@ public class EditText extends View {
 
   public EditText() {
     super(nativeCreate());
+    // Focusable by default, as on Android: `requestFocus()` works without a
+    // `setFocusable(true)` first, and on a keypad board the field takes the
+    // focus ring's select (ENTER opens the keyboard).
+    setFocusable(true);
   }
 
   public EditText(Context ctx) {
-    super(nativeCreate());
+    this();
   }
 
   private static native int nativeCreate();
@@ -43,9 +47,11 @@ public class EditText extends View {
   public native void setShowKeyboardOnTouch(boolean enabled);
 
   /**
-   * Set the input type, mirroring {@code android.widget.TextView.setInputType}. Only the class is
-   * honored: {@link picodroid.text.InputType#TYPE_CLASS_NUMBER} makes the system keyboard open in
-   * digit-pad mode for this field; anything else uses the default text layout.
+   * Set the input type, mirroring {@code android.widget.TextView.setInputType}. The class picks the
+   * keyboard: {@link picodroid.text.InputType#TYPE_CLASS_NUMBER} makes the system keyboard open in
+   * digit-pad mode for this field; anything else uses the default text layout. A password variation
+   * ({@link picodroid.text.InputType#TYPE_TEXT_VARIATION_PASSWORD}) masks the field with bullets,
+   * briefly showing each character as it is typed; {@link #getText} still reads the real text.
    */
   public native void setInputType(int type);
 

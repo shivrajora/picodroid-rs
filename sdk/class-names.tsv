@@ -227,6 +227,13 @@ picodroid/net/NetworkRequest$Builder
 picodroid/net/ServerSocket
 picodroid/net/Socket
 picodroid/net/URL
+picodroid/net/wifi/ScanResult
+picodroid/net/wifi/SupplicantState
+picodroid/net/wifi/WifiConfiguration
+picodroid/net/wifi/WifiConfiguration$Status
+picodroid/net/wifi/WifiInfo
+picodroid/net/wifi/WifiManager
+picodroid/net/wifi/WifiManager$ScanResultsCallback
 picodroid/os/Build
 picodroid/os/Build$VERSION
 picodroid/os/Bundle

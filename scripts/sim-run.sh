@@ -801,6 +801,167 @@ run_settings_smoke() {
   fi
 }
 
+# The Wi-Fi settings lane (docs/designs/wifi-provisioning-2026-09.md): the
+# launcher with the settings app on a WiFi board, driven through Settings →
+# Wi-Fi against the simulator's canned access points: scan, pick the
+# secured one, type its password, connect, see "Connected". Two boards,
+# two ways of typing: `testbench_rp2350w` taps (the field, then `input
+# text`, then the keyboard's OK key), `pico_display2_w` walks with its four
+# buttons (ENTER opens the keyboard, PREV/NEXT select a key, ENTER types
+# it, ESC closes it). The sim starts with the link down so the join is
+# what brings it up; `PICODROID_SIM_WIFI_PASS` is what the fake AP wants.
+# Rows are 40 px: Settings sits at the launcher's y=60, Wi-Fi at the root's
+# y=180, Scan at y=140 and the first network at y=180 on the Wi-Fi screen,
+# the field at y=60 on the password screen; the OK key is the keyboard's
+# bottom-right key (y = 240 - 140 + 119).
+run_settings_wifi_smoke() {
+  local mode="$1" board="$2" input="$3"
+  local app=helloworld lane="settings-wifi-${input}"
+  local tag="${lane}[${mode}]"
+  local log_file="$RUN_LOG_DIR/${lane}.${mode}.log"
+  local build_log="$RUN_LOG_DIR/${lane}.${mode}.build.log"
+  local fs_image="$RUN_LOG_DIR/${lane}.${mode}.fs.img"
+  local patterns="Launcher[]:] ready: 2 apps;Settings[]:] ready;Settings[]:] wifi 0 networks;Settings[]:] wifi scan done;Settings[]:] wifi 3 networks;Settings[]:] wifi pick picodroid-lab;Settings[]:] wifi password picodroid-lab;Settings[]:] wifi connect picodroid-lab;wifi: joined \"picodroid-lab\";Settings[]:] wifi connected picodroid-lab"
+  local password
+  case "$input" in
+    touch) password=picodroid ;;
+    keys) password=qwertyui ;;   # the first eight keys of the text layout
+  esac
+
+  TOTAL=$((TOTAL + 1))
+  sim_log "--- [$TOTAL] $tag (Wi-Fi settings smoke on $board, 120s) ---"
+
+  local apk_path="$REPO_ROOT/build/apks/sim-run/${mode}/${lane}-${app}.papk"
+  local launcher_path="$REPO_ROOT/build/apks/sim-run/${mode}/${lane}-launcher.papk"
+  local settings_path="$REPO_ROOT/build/apks/sim-run/${mode}/${lane}-settings.papk"
+  local -a apk_args=(--app "$app" -o "$apk_path" --board "$board")
+  local -a launcher_args=(--app launcher -o "$launcher_path" --board "$board")
+  local -a settings_args=(--app settings -o "$settings_path" --board "$board")
+  if [[ "$mode" == "shrink" ]]; then
+    apk_args+=(--shrink)
+    launcher_args+=(--shrink)
+    settings_args+=(--shrink)
+  fi
+  if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1 \
+     || ! bash "$SCRIPT_DIR/build-apk.sh" "${launcher_args[@]}" >> "$build_log" 2>&1 \
+     || ! bash "$SCRIPT_DIR/build-apk.sh" "${settings_args[@]}" >> "$build_log" 2>&1; then
+    sim_log "  BUILD FAILED (APK)"
+    echo "ERROR $tag (apk build failed)" >> "$RESULTS_FILE"
+    ERROR=$((ERROR + 1))
+    return
+  fi
+
+  local feature="board-${board//_/-}"
+  local -a cargo_env=(PICODROID_APK_PATH="sim-runtime")
+  [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
+  if ! env "${cargo_env[@]}" cargo build \
+    --release \
+    --target "$HOST_TARGET" \
+    --no-default-features \
+    --features "sim,${feature},line-numbers" >> "$build_log" 2>&1; then
+    sim_log "  BUILD FAILED (sim)"
+    echo "ERROR $tag (sim build failed)" >> "$RESULTS_FILE"
+    ERROR=$((ERROR + 1))
+    return
+  fi
+
+  local bin="$REPO_ROOT/target/$HOST_TARGET/release/picodroid"
+  local fifo="$RUN_LOG_DIR/${lane}.${mode}.fifo"
+  rm -f "$fifo" "$fs_image"
+  mkfifo "$fifo"
+  PICODROID_APK_PATH="$apk_path" \
+    PICODROID_SYSTEM_APKS="$launcher_path:$settings_path" \
+    PICODROID_BOOT=launcher \
+    PICODROID_SIM_CTRL_FIFO="$fifo" \
+    PICODROID_SIM_HEADLESS=1 \
+    PICODROID_SIM_NET=down \
+    PICODROID_SIM_FS="$fs_image" \
+    PICODROID_SIM_WIFI_PASS="$password" \
+    PICODROID_HANDLE_SANITIZER="${PICODROID_HANDLE_SANITIZER:-1}" \
+    PICODROID_PARITY_STRICT="${PICODROID_PARITY_STRICT:-1}" \
+    timeout 120 "$bin" > "$log_file" 2>&1 < /dev/null &
+  local pid=$!
+
+  wifi_wait() {
+    local want="$1" n="$2" i
+    for i in $(seq 1 40); do
+      [[ "$(grep -c -- "$want" "$log_file")" -ge "$n" ]] && return 0
+      kill -0 "$pid" 2>/dev/null || return 1
+      sleep 1
+    done
+    return 1
+  }
+  wifi_send() { printf '%s\n' "$1" > "$fifo"; sleep 0.8; }
+  # A key walk: NEXT to the next key, ENTER to type it, for every letter
+  # after the first (the keyboard opens with `q` selected).
+  wifi_type_keys() {
+    wifi_send "tap ENTER"                                  # q
+    local i
+    for i in $(seq 2 ${#password}); do
+      wifi_send "tap NEXT"
+      wifi_send "tap ENTER"
+    done
+  }
+
+  if wifi_wait "\[Launcher\] ready: 2 apps" 1; then
+    case "$input" in
+      touch)
+        wifi_send "input tap 120 60"                       # Settings
+        if wifi_wait "\[Settings\] ready" 1; then
+          wifi_send "input tap 120 180"                    # Wi-Fi
+          wifi_wait "\[Settings\] wifi 0 networks" 1 || true
+          wifi_send "input tap 120 140"                    # Scan
+          if wifi_wait "\[Settings\] wifi 3 networks" 1; then
+            wifi_send "input tap 120 180"                  # picodroid-lab (secured)
+            wifi_wait "\[Settings\] wifi password" 1 || true
+            wifi_send "input tap 120 60"                   # the field: keyboard up
+            wifi_send "input text $password"
+            wifi_send "input tap 292 219"                  # the keyboard's OK key
+            wifi_wait "\[Settings\] wifi connected" 1 || true
+          fi
+        fi
+        ;;
+      keys)
+        wifi_send "tap NEXT"                               # Settings
+        wifi_send "tap ENTER"
+        if wifi_wait "\[Settings\] ready" 1; then
+          wifi_send "tap NEXT"; wifi_send "tap NEXT"; wifi_send "tap NEXT"   # Wi-Fi
+          wifi_send "tap ENTER"
+          wifi_wait "\[Settings\] wifi 0 networks" 1 || true
+          wifi_send "tap ENTER"                            # Scan (focused)
+          if wifi_wait "\[Settings\] wifi 3 networks" 1; then
+            wifi_send "tap NEXT"                           # picodroid-lab
+            wifi_send "tap ENTER"
+            wifi_wait "\[Settings\] wifi password" 1 || true
+            wifi_send "tap ENTER"                          # the field: keyboard up
+            wifi_type_keys
+            wifi_send "tap ESC"                            # keyboard down
+            wifi_send "tap NEXT"                           # Connect
+            wifi_send "tap ENTER"
+            wifi_wait "\[Settings\] wifi connected" 1 || true
+          fi
+        fi
+        ;;
+    esac
+  fi
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  rm -f "$fifo" "$fs_image"
+
+  if check_patterns "$log_file" "$patterns" > /dev/null 2>&1 \
+     && check_no_crash "$log_file" > /dev/null 2>&1; then
+    sim_log "  PASS"
+    echo "PASS $tag" >> "$RESULTS_FILE"
+    PASS=$((PASS + 1))
+  else
+    sim_log "  FAIL"
+    tail -8 "$log_file" 2>/dev/null | while IFS= read -r line; do sim_log "    $line"; done || true
+    check_patterns "$log_file" "$patterns" 2>&1 | while IFS= read -r line; do sim_log "  $line"; done || true
+    echo "FAIL $tag" >> "$RESULTS_FILE"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
 # WiFi-variant board smoke: same app on pico_enviro_mon_w, which is the only
 # board combining sensors + network. Boots headless, then probes the
 # dashboard HTTP server over the sim's host-network passthrough. NTP and
@@ -1059,6 +1220,12 @@ for MODE in "${MODES[@]}"; do
   # The settings lane (multi-app M3); `--app settings` reaches only this.
   if [[ -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "settings" ]]; then
     run_settings_smoke "$MODE"
+  fi
+  # The Wi-Fi settings lanes: touch on testbench_rp2350w, four buttons on
+  # pico_display2_w; `--app settings-wifi` reaches only these.
+  if [[ -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "settings-wifi" ]]; then
+    run_settings_wifi_smoke "$MODE" testbench_rp2350w touch
+    run_settings_wifi_smoke "$MODE" pico_display2_w keys
   fi
   # The bridge lane: the real pdb tool against the simulator's socket;
   # `--app pdb` reaches only this.

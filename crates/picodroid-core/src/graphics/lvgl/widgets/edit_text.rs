@@ -337,6 +337,17 @@ pub fn visit_editor_action_listener_roots(visit: &mut dyn FnMut(u16)) {
     unsafe { map_ref(&raw const EDITOR_ACTION_MAP).visit(visit) }
 }
 
+/// Mask the field's text (`InputType.TYPE_TEXT_VARIATION_PASSWORD`): LVGL
+/// shows bullets, briefly revealing the last character typed, and
+/// `getText()` still reads the real text.
+pub(in crate::graphics) fn set_password(id: i32, masked: bool) {
+    let ta = handle_table::lookup(id);
+    if ta.is_null() {
+        return;
+    }
+    unsafe { lv_textarea_set_password_mode(ta, masked) };
+}
+
 pub(in crate::graphics) fn set_text(id: i32, text: &str) {
     super::text_view::with_cstr(text, |p| unsafe {
         lv_textarea_set_text(handle_table::lookup(id), p)

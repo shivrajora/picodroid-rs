@@ -116,6 +116,7 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
     c::picodroid_net_HttpURLConnection,
     c::picodroid_net_HttpInputStream,
     c::picodroid_net_HttpOutputStream,
+    c::picodroid_net_wifi_WifiManager,
     c::picodroid_io_File,
     c::picodroid_io_FileInputStream,
     c::picodroid_io_FileOutputStream,

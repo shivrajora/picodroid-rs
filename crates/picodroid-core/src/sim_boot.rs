@@ -84,6 +84,10 @@ pub fn main(model: &'static BootBudgetModel) {
         eprintln!("[sim][fs] init failed: {}", e);
     }
     allocator::checkpoint("post-fs-init");
+    // The saved (or build-time) WiFi network, joined as a device's link
+    // task would before any app runs; needs the volume above.
+    #[cfg(network_link_wifi)]
+    crate::hal::sim::wifi::boot();
 
     // The app region, seeded from PICODROID_APK_PATH and PICODROID_SIM_APPS;
     // like the filesystem image it models flash, so it is not charged.

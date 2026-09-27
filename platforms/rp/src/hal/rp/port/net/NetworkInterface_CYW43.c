@@ -201,6 +201,39 @@ void cyw43_cb_process_ethernet(void *cb_data, int itf, size_t len, const uint8_t
     }
 }
 
+/* ---- picodroid WifiManager helpers (hal/wifi.rs via cyw43/link.rs) ---- */
+
+/*
+ * The STA's state for the Java WifiManager, folded from the driver's join
+ * state and this port's interface-up flag: the driver's failure kinds
+ * (CYW43_LINK_BADAUTH -3, NONET -2, FAIL -1), 0 down, 1 associating (a
+ * join was issued and no EV_LINK has arrived), 2 associated (link up).
+ */
+int picodroid_cyw43_sta_status(void) {
+    int s = cyw43_wifi_link_status(&cyw43_state, CYW43_ITF_STA);
+    if (s < 0) {
+        return s;
+    }
+    if (s < CYW43_LINK_JOIN) {
+        return 0;
+    }
+    return xInterfaceUp != pdFALSE ? 2 : 1;
+}
+
+/* cyw43_wifi_scan_active is a static inline over the driver struct, which
+ * the Rust side keeps opaque. */
+int picodroid_cyw43_scan_active(void) {
+    return cyw43_wifi_scan_active(&cyw43_state) ? 1 : 0;
+}
+
+/* Start an active scan of every channel; results reach `cb` from inside
+ * cyw43_poll, on the link task. The options struct's layout stays here. */
+int picodroid_cyw43_scan_start(int (*cb)(void *, const cyw43_ev_scan_result_t *)) {
+    cyw43_wifi_scan_options_t opts;
+    memset(&opts, 0, sizeof(opts));
+    return cyw43_wifi_scan(&cyw43_state, &opts, NULL, cb);
+}
+
 /* ---- Link state callbacks ---- */
 
 void cyw43_cb_tcpip_set_link_up(cyw43_t *self, int itf) {

@@ -30,6 +30,7 @@ const NET_CLASSES: &[&str] = &[
     c::picodroid_net_ServerSocket,
     c::picodroid_net_Socket,
     c::picodroid_net_URL,
+    c::picodroid_net_wifi_WifiManager,
 ];
 
 pub fn dispatch(
@@ -48,6 +49,8 @@ pub fn dispatch(
         (c::picodroid_net_NetworkInfo, m::getIpAddress) => Some(Ok(Some(Value::Int(0)))),
         // ConnectivityManager.TYPE_NONE
         (c::picodroid_net_NetworkInfo, m::getType) => Some(Ok(Some(Value::Int(-1)))),
+        // WifiManager: no networks, nothing saved, every request refused.
+        (c::picodroid_net_wifi_WifiManager, _) => super::wifi_stub::dispatch(method_name, ctx),
 
         // Everything else would need a live stack — surface a clean exception.
         _ => Some(Err(unsupported(ctx))),

@@ -86,3 +86,7 @@ pub mod uart;
 
 #[cfg(has_network)]
 pub mod net;
+// The provisioning fake over the host network: only with the `sim`
+// feature, whose allocator bypass and boot hook it uses.
+#[cfg(all(network_link_wifi, feature = "sim"))]
+pub mod wifi;

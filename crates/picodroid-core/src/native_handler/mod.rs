@@ -27,12 +27,16 @@ mod media_stub;
 mod net;
 #[cfg(not(has_network))]
 mod net_stub;
+// `WifiManager` without a WiFi link: shared by `net_stub` and by a network
+// board whose link is something else.
 pub(crate) mod os;
 mod pio;
 pub(crate) mod res;
 #[cfg(not(test))]
 mod sensors;
 mod threads;
+#[cfg(not(network_link_wifi))]
+mod wifi_stub;
 
 mod class_registry;
 mod dispatch_memo;

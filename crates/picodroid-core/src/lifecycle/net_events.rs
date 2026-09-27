@@ -54,3 +54,40 @@ pub(super) fn dispatch_connectivity(
         }
     }
 }
+
+/// The WiFi event generation now, for the loop's starting point.
+#[cfg(network_link_wifi)]
+pub(super) fn wifi_generation() -> u32 {
+    crate::hal::wifi::WIFI_EVENTS.generation()
+}
+
+/// A scan finished or the station's state changed since `seen`: tell
+/// `WifiManager`, which fans scan completion out to its callbacks and
+/// leaves the state for apps to read (docs/designs/wifi-provisioning-2026-09.md).
+#[cfg(network_link_wifi)]
+pub(super) fn dispatch_wifi_events(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
+    seen: &mut u32,
+) {
+    let generation = crate::hal::wifi::WIFI_EVENTS.generation();
+    if generation == *seen {
+        return;
+    }
+    *seen = generation;
+    match jvm.invoke_static_with_args(
+        dispatch_class(dispatch_sites::WIFI_EVENT),
+        dispatch_method(dispatch_sites::WIFI_EVENT),
+        &[],
+        heap,
+        handler,
+    ) {
+        Ok(()) => {}
+        Err(JvmError::Interrupted) => {}
+        Err(e) => {
+            crate::monitor_store::release_all_held_by_current();
+            log_error!("[net] WifiManager event error: {}", e);
+        }
+    }
+}

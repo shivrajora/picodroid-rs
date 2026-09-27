@@ -377,8 +377,14 @@ mod tests {
                     // are words typed into the FIFO, compared against
                     // that text and never against a Java name; they share
                     // spellings with `File.list` and
-                    // `PackageInstaller.uninstall`.
+                    // `PackageInstaller.uninstall`. Likewise `text`
+                    // (`input text`, `hal/sim/display.rs`) and `open`, an
+                    // auth-mode word in `PICODROID_WIFI_AUTH` and the
+                    // simulator's `PICODROID_SIM_WIFI_NETWORKS`
+                    // (`hal/wifi.rs`, `hal/sim/wifi.rs`).
                     let prose = [
+                        "text",
+                        "open",
                         "read",
                         "wait",
                         "connect",
