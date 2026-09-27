@@ -4,6 +4,7 @@ package picodroid.content;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.zip.CRC32;
 import picodroid.io.File;
 import picodroid.io.FileInputStream;
 import picodroid.io.FileOutputStream;
@@ -399,16 +400,15 @@ public final class SharedPreferences {
     return sb.toString();
   }
 
+  /**
+   * The blob's trailer. A native step per array, not a Java loop per bit: verifying a 90-byte
+   * preferences file cost the RP2350 some 40 ms of interpreted bytecode inside Service.onCreate
+   * (claudeusage device QA, 2026-09-26), most of the one slow tick a boot had left.
+   */
   static int crc32(byte[] buf, int off, int len) {
-    int c = 0xffffffff;
-    for (int i = 0; i < len; i++) {
-      c ^= buf[off + i] & 0xff;
-      for (int j = 0; j < 8; j++) {
-        int mask = -(c & 1);
-        c = (c >>> 1) ^ (0xedb88320 & mask);
-      }
-    }
-    return ~c;
+    CRC32 c = new CRC32();
+    c.update(buf, off, len);
+    return (int) c.getValue();
   }
 
   /**

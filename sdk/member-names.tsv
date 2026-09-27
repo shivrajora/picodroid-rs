@@ -433,6 +433,7 @@ F	colorText
 F	colorTextSecondary
 F	connectTimeout
 F	count
+F	crc
 F	current
 F	daemon
 F	data
@@ -1731,6 +1732,7 @@ M	unregisterListener
 M	unregisterNetworkCallback
 M	until
 M	update
+M	updateBytes
 M	updateLabel
 M	useDaylightTime
 M	usedMemory

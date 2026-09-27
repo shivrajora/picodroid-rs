@@ -127,6 +127,8 @@ java/util/concurrent/CancellationException
 java/util/concurrent/ExecutionException
 java/util/concurrent/RejectedExecutionException
 java/util/concurrent/TimeoutException
+java/util/zip/CRC32
+java/util/zip/Checksum
 javax/inject/Provider
 picodroid/app/Activity
 picodroid/app/AlarmManager

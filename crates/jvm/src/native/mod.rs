@@ -23,6 +23,7 @@ pub(crate) mod random;
 mod string;
 mod string_builder;
 mod string_format;
+mod zip;
 
 #[cfg(test)]
 mod tests;
@@ -79,6 +80,7 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
     c::java_util_Iterator,
     c::java_util_Random,
     c::java_util_Arrays,
+    c::java_util_zip_CRC32,
     c::java_lang_Math,
     // Canonicalisation-only — handled by the user's NativeMethodHandler, or
     // named in user code as an interface, superclass, lambda SAM, or
@@ -98,6 +100,7 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
     c::java_util_Collections,
     c::java_util_List,
     c::java_lang_Comparable,
+    c::java_util_zip_Checksum,
     c::java_util_Comparator,
     c::java_lang_Cloneable,
     // A legal lambda SAM (`AutoCloseable c = () -> ...`): without a row the
@@ -225,6 +228,9 @@ pub const BUILTIN_SDK_HANDLED: &[(&str, &str, &str)] = &[
     (c::java_util_Arrays, m::toString, d::aI__String),
     (c::java_util_Arrays, m::toString, d::aJ__String),
     (c::java_util_Arrays, m::toString, d::aS__String),
+    // java/util/zip/CRC32
+    (c::java_util_zip_CRC32, m::update, "(II)I"),
+    (c::java_util_zip_CRC32, m::updateBytes, "(I[BII)I"),
 ];
 
 /// One served member of a builtin class: `(name, descriptors)`.
@@ -299,6 +305,7 @@ pub const BUILTIN_METHODS: &[(&str, &[BuiltinMethodRow])] = &[
     (c::java_util_Iterator, ITERATOR_METHODS),
     (c::java_util_Random, RANDOM_METHODS),
     (c::java_util_Arrays, ARRAYS_METHODS),
+    (c::java_util_zip_CRC32, CRC32_METHODS),
     (c::java_lang_Math, MATH_METHODS),
     (c::java_lang_System, SYSTEM_METHODS),
 ];
@@ -615,6 +622,13 @@ const MATH_METHODS: &[BuiltinMethodRow] = &[
 
 const SYSTEM_METHODS: &[BuiltinMethodRow] = &[(m::arraycopy, &[])];
 
+/// The two `private static native` steps; the public API is bytecode in
+/// the class file (`sdk/java/java/util/zip/CRC32.java`), which the
+/// contract reads from there. `update` names only its native overload so
+/// the bytecode `update(int)` / `update(byte[]…)` stay the class file's.
+const CRC32_METHODS: &[BuiltinMethodRow] =
+    &[(m::update, &["(II)I"]), (m::updateBytes, &["(I[BII)I"])];
+
 /// Abstract members of the classfile-less `java/**` interfaces that resolve
 /// on whatever implements them — a lambda proxy (`try_lambda_dispatch` runs
 /// the body for any call on the proxy), an app class (its own bytecode) or a
@@ -631,6 +645,14 @@ pub const BUILTIN_INTERFACE_METHODS: &[(&str, &[BuiltinMethodRow])] = &[
     ),
     (c::java_lang_Comparable, &[(m::compareTo, &[d::Object__I])]),
     (c::java_lang_AutoCloseable, &[(m::close, &["()V"])]),
+    (
+        c::java_util_zip_Checksum,
+        &[
+            (m::update, &["(I)V", "([BII)V"]),
+            (m::getValue, &["()J"]),
+            (m::reset, &["()V"]),
+        ],
+    ),
     (c::java_lang_Iterable, &[(m::iterator, &[d::__Iterator])]),
 ];
 
@@ -806,6 +828,11 @@ const BUILTIN_DISPATCH: &[(&str, u32, BuiltinDispatchFn)] = &[
         c::java_util_Arrays,
         name_hash(c::java_util_Arrays.as_bytes()),
         arrays::dispatch,
+    ),
+    (
+        c::java_util_zip_CRC32,
+        name_hash(c::java_util_zip_CRC32.as_bytes()),
+        zip::dispatch,
     ),
     (
         c::java_lang_Math,
@@ -1390,6 +1417,7 @@ pub trait NativeMethodHandler {
 /// | `java/util/Iterator` | `hasNext`, `next` |
 /// | `java/util/Random` | `<init>`, `<init>(long)`, `setSeed`, `nextInt`, `nextInt(int)`, `nextLong`, `nextBoolean`, `nextFloat`, `nextDouble`, `nextGaussian`, `nextBytes` |
 /// | `java/util/Arrays` | `sort`, `fill`, `copyOf`, `toString` (all numeric primitive overloads: int/long/double/float/short/byte/char) |
+/// | `java/util/zip/CRC32` | the `private static native` steps `update(int, int)`, `updateBytes(int, byte[], int, int)` behind the class file's `update(int)`, `update(byte[])`, `update(byte[], int, int)`, `getValue`, `reset` |
 /// | `java/lang/Enum` | `<init>`, `name`, `ordinal`, `toString`, `equals`, `hashCode` (ordinal), `compareTo` — no `valueOf(Class, String)` (see the compatibility matrix) |
 /// | `java/lang/Math` | `abs`, `min`, `max`, `sqrt`, `pow`, `floor`, `ceil`, `round`, `sin`, `cos`, `tan`, `atan2`, `toRadians`, `toDegrees`, `log`, `log10`, `exp` |
 pub struct BuiltinHandler;
