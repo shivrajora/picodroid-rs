@@ -7,6 +7,19 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**`picodroid.protobuf` (2026-09-26; map v0.32.0, package 0.32.0)**
+
+- protobuf-javalite's stream API — `CodedInputStream`, `CodedOutputStream`, `MessageLite`,
+  `WireFormat`, `InvalidProtocolBufferException` — over a native wire codec (`micropb`, reading
+  the Java `byte[]` in place), and `protoc-gen-picodroid` (`tools/protoc-gen-picodroid/`), a
+  `protoc` plugin that turns a proto3 `.proto` into mutable message classes with `parseFrom`,
+  `writeTo`, `getSerializedSize` and `toByteArray`; `scripts/gen-proto.sh` regenerates and
+  checks them. A board capability like JSON: `has_protobuf = true` in `board.toml`, on for every
+  RP2350 board, off on `testbench_rp2040`. See [Protocol Buffers](/api/protobuf/).
+- `examples/protodemo` is the conformance app; `claudeusage` reads its bridge's reply as protobuf
+  (`Accept: application/x-protobuf`; the bridge still answers JSON to everything else) and no
+  longer references `picodroid.json`.
+
 **`java.util.zip.CRC32` (2026-09-26; map v0.32.0, package 0.32.0)**
 
 - The JDK's `CRC32` with its `Checksum` interface: `update(int)`, `update(byte[])`,

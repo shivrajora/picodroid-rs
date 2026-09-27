@@ -688,12 +688,16 @@ the runtime ones shrink every app and close most of the simulator's gap at the s
   poll thread sits in an 8 s connect timeout. `data/UsageService.java`. Verified on the
   pico_display2_w the same day: `executordemo`'s scheduled tokens, and auto mode turning the
   page every 10 s (each turn is `onTick`).
-- **H2. Read the bridge's reply without `picodroid.json`** — open. `JSONObject`, `JSONArray`
-  and the inner class are 9.9 KB of metadata (17.3 KB in the simulator) plus the 2 KB node
-  pool, for one flat object whose format the app owns. A `key=value` line format needs a
-  short scanner in `UsageFetcher` and a second output mode in the bridge. −12 KB before M8;
-  `JSONObject` and `JSONArray` are 5.1 KB between them since (2026-09-26 census), so about
-  −7 KB with the pool.
+- **H2. Read the bridge's reply without `picodroid.json`** — DONE 2026-09-26, as protobuf
+  rather than a line format: `proto/usage.proto` → five generated classes under
+  `claudeusage.proto` (`protoc-gen-picodroid`), `UsageFetcher` asks the bridge for
+  `application/x-protobuf` (145 B for the demo reply vs 323 B of JSON) and copies the parsed
+  `UsageReply` into `UsageSnapshot`; the app no longer references `picodroid.json`. The
+  five message classes cost about what `JSONObject` + `JSONArray` (5.1 KB) and the 2 KB pool
+  did, so the metadata figure is roughly a wash; what goes is the per-poll churn (an
+  `Integer`/`Long` per `opt*` and ~13 wrapper objects) and the pool's GC hook. The design and
+  the crate choice are in `docs/designs/protobuf-2026-09.md`. Device figures: re-measure with
+  the `mem-diag` recipe (before: History 243 KB of 372 on 2026-09-26) and record here.
 - **H3. Format times without `java.time`** — open, only when the budget is wanted. The seven
   classes `TimeFormat` reaches cost 11.9 KB (20.7 KB in the simulator) before M8, and about
   half that since (`LocalTime` 2.1 KB and `Duration` 1.7 in the 2026-09-26 census); integer

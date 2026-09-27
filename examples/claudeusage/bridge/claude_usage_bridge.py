@@ -5,7 +5,10 @@
 The device has no TLS, so this script runs on the PC that uses Claude Code and
 serves the numbers over plain HTTP on the LAN:
 
-    GET /u   ->  one compact JSON object, at most MAX_BODY bytes
+    GET /u   ->  one compact JSON object, at most MAX_BODY bytes; the
+                 same fields as protobuf (proto/usage.proto) when the
+                 request says `Accept: application/x-protobuf`, which is
+                 what the display sends
 
 and answers the display's "where is the bridge?" broadcast on UDP DISCOVERY_PORT
 so it needs no address: the query PICODROID-USAGE? gets "PICODROID-USAGE <port>"
@@ -28,7 +31,8 @@ faster than every UPSTREAM_PERIOD_S seconds and everything is parsed defensively
     curl 'localhost:8787/demo?fail=hang'     # (demo only) switch failure mode live
     curl 'localhost:8787/demo?reset=30'      # (demo only) session resets 30 s from now
 
-Standard library only.
+Needs the protobuf package for the protobuf form (requirements.txt beside this
+file; usage_pb2.py is generated from ../proto/usage.proto by scripts/gen-proto.sh).
 """
 
 import argparse
@@ -46,12 +50,24 @@ import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    import usage_pb2  # noqa: E402  (generated: scripts/gen-proto.sh)
+except ImportError as e:
+    sys.exit(
+        "claude_usage_bridge: %s\n"
+        "  the display asks for protobuf; install the runtime with\n"
+        "  pip install -r examples/claudeusage/bridge/requirements.txt" % e
+    )
+
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 CREDENTIALS = os.path.expanduser("~/.claude/.credentials.json")
 TRANSCRIPTS = os.path.expanduser("~/.claude/projects")
 UPSTREAM_PERIOD_S = 180
 TRANSCRIPT_PERIOD_S = 60
 MAX_BODY = 700  # the device reads into a fixed 1 KiB buffer
+PROTO_CTYPE = "application/x-protobuf"
+JSON_CTYPE = "application/json"
 DISCOVERY_PORT = 8788  # UDP; the app's BridgeDiscovery.PORT
 DISCOVERY_QUERY = b"PICODROID-USAGE?"
 HISTORY_DAYS = 7
@@ -333,7 +349,7 @@ class History:
 # --------------------------------------------------------------------------
 
 
-def build_payload(limits, history):
+def build_payload(limits, history, proto=False):
     now = time.time()
     out = {"v": 1, "t": int(now), "tz": tz_offset_minutes()}
     with limits.lock:
@@ -351,30 +367,70 @@ def build_payload(limits, history):
             out["wm"] = [list(m) for m in limits.models]
         out["rate"], out["eta"] = limits.burn()
     out.update(history.summary())
-    return encode(out)
+    return encode(out, proto)
 
 
-def encode(out):
-    body = json.dumps(out, separators=(",", ":")).encode()
+def to_proto(out):
+    """The JSON dict as a UsageReply: same fields, protobuf's names."""
+    r = usage_pb2.UsageReply()
+    r.version = out["v"]
+    r.bridge_time = out["t"]
+    r.tz_minutes = out["tz"]
+    r.ok = bool(out.get("ok", 0))
+    if out.get("err"):
+        r.err = out["err"]
+    r.age_s = out.get("age", -1)
+    if out.get("plan"):
+        r.plan = out["plan"]
+    if "s" in out:
+        r.session.pct, r.session.reset = out["s"]["p"], out["s"]["r"]
+    if "w" in out:
+        r.weekly.pct, r.weekly.reset = out["w"]["p"], out["w"]["r"]
+    for name, pct, reset in out.get("wm", []):
+        m = r.model_caps.add()
+        m.name, m.pct, m.reset = name, pct, reset
+    r.rate_per_hour = out.get("rate", 0)
+    r.eta_minutes = out.get("eta", -1)
+    if "td" in out:
+        r.today.tokens_k = out["td"]["tok"]
+        r.today.cents = out["td"]["usd"]
+        r.today.messages = out["td"]["msg"]
+    r.day_tokens_k.extend(out.get("d7", []))
+    if out.get("dl"):
+        r.day_letters = out["dl"]
+    for name, pct in out.get("mix", []):
+        m = r.mix.add()
+        m.name, m.pct = name, pct
+    return r
+
+
+def serialize(out, proto):
+    if proto:
+        return to_proto(out).SerializeToString()
+    return json.dumps(out, separators=(",", ":")).encode()
+
+
+def encode(out, proto=False):
+    body = serialize(out, proto)
     # Shed the optional parts rather than ever overrun the device's buffer.
     for key in ("mix", "wm", "d7", "dl"):
         if len(body) <= MAX_BODY:
             break
         out.pop(key, None)
-        body = json.dumps(out, separators=(",", ":")).encode()
+        body = serialize(out, proto)
     return body
 
 
-def demo_payload(started, fail):
+def demo_payload(started, fail, proto=False):
     """Synthetic data that moves fast enough to watch: a session fills in ~10 min."""
     now = time.time()
     out = {"v": 1, "t": int(now), "tz": tz_offset_minutes(), "plan": "max"}
     if fail in ("auth", "rate", "creds"):
         out.update(ok=0, err=fail, age=-1)
-        return encode(out)
+        return encode(out, proto)
     if fail == "nodata":
         out.update(ok=0, err="nodata", age=-1)
-        return encode(out)
+        return encode(out, proto)
     phase = ((now - started) % 600.0) / 600.0
     session = int(phase * 104)  # overshoots to pin at 100 for a while
     weekly = 38 + int(phase * 20)
@@ -394,7 +450,7 @@ def demo_payload(started, fail):
     )
     if State.demo_reset:
         out["s"]["r"] = State.demo_reset
-    return encode(out)
+    return encode(out, proto)
 
 
 # --------------------------------------------------------------------------
@@ -430,6 +486,9 @@ class Handler(BaseHTTPRequestHandler):
         if path not in ("/u", "/u/"):
             self._send(404, b"not found\n", "text/plain")
             return
+        # The display asks for protobuf; curl, older firmware and humans get JSON.
+        proto = PROTO_CTYPE in (self.headers.get("Accept") or "")
+        ctype = PROTO_CTYPE if proto else JSON_CTYPE
         if State.demo:
             if State.fail == "hang":
                 time.sleep(30)  # longer than the device's read timeout
@@ -438,11 +497,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(500, b"boom\n", "text/plain")
                 return
             if State.fail == "garbage":
-                self._send(200, b'{"v":1,"s":{"p":', "application/json")
+                if proto:
+                    body = demo_payload(State.started, "none", True)[:6]  # cut inside a field
+                else:
+                    body = b'{"v":1,"s":{"p":'
+                self._send(200, body, ctype)
                 return
-            self._send(200, demo_payload(State.started, State.fail), "application/json")
+            self._send(200, demo_payload(State.started, State.fail, proto), ctype)
             return
-        self._send(200, build_payload(State.limits, State.history), "application/json")
+        self._send(200, build_payload(State.limits, State.history, proto), ctype)
 
     def _send(self, code, body, ctype):
         self.send_response(code)
@@ -530,14 +593,19 @@ def main():
     if args.once:
         if args.demo:
             body = demo_payload(State.started, args.fail)
+            pb = demo_payload(State.started, args.fail, True)
         else:
             limits, history = Limits(), History()
             history.scan()
             limits.poll()
             body = build_payload(limits, history)
+            pb = build_payload(limits, history, True)
         print(body.decode())
-        print("%d bytes (limit %d)" % (len(body), MAX_BODY), file=sys.stderr)
-        return 0 if len(body) <= MAX_BODY else 1
+        print(
+            "%d bytes as JSON, %d as protobuf (limit %d)" % (len(body), len(pb), MAX_BODY),
+            file=sys.stderr,
+        )
+        return 0 if max(len(body), len(pb)) <= MAX_BODY else 1
 
     if not args.demo:
         State.limits, State.history = Limits(), History()

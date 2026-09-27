@@ -1,20 +1,25 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package claudeusage.data;
 
+import claudeusage.proto.ModelCap;
+import claudeusage.proto.ModelShare;
+import claudeusage.proto.Today;
+import claudeusage.proto.UsageReply;
+import claudeusage.proto.Window;
 import java.io.IOException;
 import java.net.ConnectException;
 import java.net.SocketTimeoutException;
-import picodroid.json.JSONArray;
-import picodroid.json.JSONException;
-import picodroid.json.JSONObject;
 import picodroid.net.HttpInputStream;
 import picodroid.net.HttpURLConnection;
 import picodroid.net.URL;
+import picodroid.protobuf.InvalidProtocolBufferException;
 import picodroid.util.Log;
 
 /**
- * One blocking GET of the bridge's {@code /u}. Every failure maps onto a {@link LinkState} so the
- * UI can say what is wrong rather than just "offline".
+ * One blocking GET of the bridge's {@code /u}, asked for as protobuf ({@code Accept:
+ * application/x-protobuf}; the schema is {@code proto/usage.proto}, the classes under {@code
+ * claudeusage.proto} are generated from it). Every failure maps onto a {@link LinkState} so the UI
+ * can say what is wrong rather than just "offline".
  */
 public final class UsageFetcher {
   private static final String TAG = UsageService.TAG;
@@ -26,6 +31,8 @@ public final class UsageFetcher {
    * nothing at all, and this is how long each attempt then blocks.
    */
   private static final int TIMEOUT_MS = 4000;
+
+  static final String ACCEPT = "application/x-protobuf";
 
   /** The bridge caps its reply at 700 bytes; anything that fills this buffer is not ours. */
   private static final int MAX_REPLY_BYTES = 1024;
@@ -45,6 +52,7 @@ public final class UsageFetcher {
       conn = new URL(url).openConnection();
       conn.setConnectTimeout(TIMEOUT_MS);
       conn.setReadTimeout(TIMEOUT_MS);
+      conn.setRequestProperty("Accept", ACCEPT);
       conn.connect();
       int code = conn.getResponseCode();
       if (code != 200) {
@@ -64,9 +72,11 @@ public final class UsageFetcher {
         Log.i(TAG, "fetch: reply of " + total + " bytes");
         return LinkState.BAD_DATA;
       }
-      parse(new String(BUF, 0, total), out);
+      if (!parse(UsageReply.parseFrom(BUF, 0, total), out)) {
+        return LinkState.BAD_DATA;
+      }
       return out.ok ? LinkState.OK : LinkState.UPSTREAM;
-    } catch (JSONException e) {
+    } catch (InvalidProtocolBufferException e) {
       Log.i(TAG, "fetch: bad reply: " + e.getMessage());
       return LinkState.BAD_DATA;
     } catch (ConnectException e) {
@@ -92,71 +102,63 @@ public final class UsageFetcher {
     }
   }
 
-  static void parse(String json, UsageSnapshot out) throws JSONException {
-    JSONObject o = new JSONObject(json);
-    if (o.optInt("v", 0) != 1) {
-      throw new JSONException("unknown payload version");
+  /**
+   * Copies {@code r} into {@code out} with the UI's clamps and caps. False when the payload is not
+   * one this app understands (another protocol version).
+   */
+  static boolean parse(UsageReply r, UsageSnapshot out) {
+    if (r.getVersion() != 1) {
+      Log.i(TAG, "fetch: unknown payload version " + r.getVersion());
+      return false;
     }
-    out.bridgeEpochS = o.optLong("t", 0L);
-    out.tzMinutes = o.optInt("tz", 0);
-    out.ok = o.optInt("ok", 0) == 1;
-    out.err = o.optString("err", "");
-    out.ageS = o.optInt("age", -1);
-    out.plan = o.optString("plan", "");
+    out.bridgeEpochS = r.getBridgeTime();
+    out.tzMinutes = r.getTzMinutes();
+    out.ok = r.getOk();
+    out.err = r.getErr();
+    out.ageS = r.getAgeS();
+    out.plan = r.getPlan();
 
-    JSONObject s = o.optJSONObject("s");
-    if (s != null) {
-      out.sessionPct = clampPct(s.optInt("p", -1));
-      out.sessionReset = s.optLong("r", 0L);
+    if (r.hasSession()) {
+      Window s = r.getSession();
+      out.sessionPct = clampPct(s.getPct());
+      out.sessionReset = s.getReset();
     }
-    JSONObject w = o.optJSONObject("w");
-    if (w != null) {
-      out.weeklyPct = clampPct(w.optInt("p", -1));
-      out.weeklyReset = w.optLong("r", 0L);
+    if (r.hasWeekly()) {
+      Window w = r.getWeekly();
+      out.weeklyPct = clampPct(w.getPct());
+      out.weeklyReset = w.getReset();
     }
-    JSONArray wm = o.optJSONArray("wm");
-    if (wm != null) {
-      for (int i = 0; i < wm.length() && out.modelCount < UsageSnapshot.MAX_MODELS; i++) {
-        JSONArray row = wm.optJSONArray(i);
-        if (row == null || row.length() < 2) {
-          continue;
-        }
-        int k = out.modelCount++;
-        out.modelName[k] = row.optString(0, "?");
-        out.modelPct[k] = clampPct(row.optInt(1, 0));
-        out.modelReset[k] = row.optLong(2, 0L);
-      }
+    for (int i = 0; i < r.getModelCapsCount() && out.modelCount < UsageSnapshot.MAX_MODELS; i++) {
+      ModelCap row = r.getModelCaps(i);
+      int k = out.modelCount++;
+      out.modelName[k] = row.getName();
+      out.modelPct[k] = clampPct(row.getPct());
+      out.modelReset[k] = row.getReset();
     }
-    out.ratePerHour = o.optInt("rate", 0);
-    out.etaMinutes = o.optInt("eta", -1);
+    out.ratePerHour = r.getRatePerHour();
+    out.etaMinutes = r.getEtaMinutes();
 
-    JSONObject td = o.optJSONObject("td");
-    if (td != null) {
-      out.todayTokensK = td.optInt("tok", 0);
-      out.todayCents = td.optInt("usd", 0);
-      out.todayMessages = td.optInt("msg", 0);
+    if (r.hasToday()) {
+      Today td = r.getToday();
+      out.todayTokensK = td.getTokensK();
+      out.todayCents = td.getCents();
+      out.todayMessages = td.getMessages();
     }
-    JSONArray d7 = o.optJSONArray("d7");
-    if (d7 != null && d7.length() == UsageSnapshot.DAYS) {
+    if (r.getDayTokensKCount() == UsageSnapshot.DAYS) {
       out.hasHistory = true;
       for (int i = 0; i < UsageSnapshot.DAYS; i++) {
-        int v = d7.optInt(i, 0);
+        int v = r.getDayTokensK(i);
         out.dayTokensK[i] = v < 0 ? 0 : v;
       }
-      out.dayLetters = o.optString("dl", "");
+      out.dayLetters = r.getDayLetters();
     }
-    JSONArray mix = o.optJSONArray("mix");
-    if (mix != null) {
-      for (int i = 0; i < mix.length() && out.mixCount < UsageSnapshot.MAX_MODELS; i++) {
-        JSONArray row = mix.optJSONArray(i);
-        if (row == null || row.length() < 2) {
-          continue;
-        }
-        int k = out.mixCount++;
-        out.mixName[k] = row.optString(0, "?");
-        out.mixPct[k] = clampPct(row.optInt(1, 0));
-      }
+    for (int i = 0; i < r.getMixCount() && out.mixCount < UsageSnapshot.MAX_MODELS; i++) {
+      ModelShare row = r.getMix(i);
+      int k = out.mixCount++;
+      out.mixName[k] = row.getName();
+      out.mixPct[k] = clampPct(row.getPct());
     }
+    return true;
   }
 
   private static int clampPct(int v) {

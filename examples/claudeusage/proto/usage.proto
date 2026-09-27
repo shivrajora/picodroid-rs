@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// The bridge's reply to GET /u when the display asks for
+// `Accept: application/x-protobuf`: the same fields the JSON form carries,
+// in the same order. Regenerate java/claudeusage/proto/*.java and
+// bridge/usage_pb2.py with ./scripts/gen-proto.sh.
+syntax = "proto3";
+
+package claudeusage;
+
+option java_package = "claudeusage.proto";
+option java_multiple_files = true;
+
+// One rate-limit window: percent used and when it resets.
+message Window {
+  int32 pct = 1;      // 0..100, -1 when the bridge did not report it
+  int64 reset = 2;    // epoch seconds, 0 if unknown
+}
+
+// A per-model weekly cap.
+message ModelCap {
+  string name = 1;
+  int32 pct = 2;
+  int64 reset = 3;
+}
+
+// Today's activity from the transcripts.
+message Today {
+  int32 tokens_k = 1;   // thousands of tokens
+  int32 cents = 2;      // estimated cost, -1 when no price is known
+  int32 messages = 3;
+}
+
+// A model's share of the week's tokens.
+message ModelShare {
+  string name = 1;
+  int32 pct = 2;
+}
+
+message UsageReply {
+  uint32 version = 1;               // 1
+  int64 bridge_time = 2;            // the PC's clock, epoch seconds
+  sint32 tz_minutes = 3;            // its UTC offset in minutes
+  bool ok = 4;                      // false: the bridge is up but upstream failed
+  string err = 5;                   // why, when ok is false: creds, auth, rate, net, nodata, http<code>, bridge, init
+  int32 age_s = 6;                  // seconds since the last upstream fetch, -1 if never
+  string plan = 7;                  // at most 8 characters
+  Window session = 8;               // the 5-hour window
+  Window weekly = 9;
+  repeated ModelCap model_caps = 10;  // at most 3
+  int32 rate_per_hour = 11;         // session percent gained per hour
+  int32 eta_minutes = 12;           // minutes to 100 %, -1 when not applicable
+  Today today = 13;
+  repeated int32 day_tokens_k = 14; // exactly 7 when present, oldest first
+  string day_letters = 15;          // 7 weekday letters, with day_tokens_k
+  repeated ModelShare mix = 16;     // at most 3
+}
