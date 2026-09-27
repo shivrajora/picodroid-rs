@@ -44,6 +44,7 @@ fn parse_int(props: &HashMap<String, String>, key: &str) -> Option<u64> {
 /// calling crate's own `lvgl/` (that crate is `pd-lvgl-sys`). `text_sizes` is
 /// the board's face ladder (`board_cfg::text_sizes`): every size but 14 names
 /// a generated face under `conf_dir/fonts/` that is compiled in.
+#[allow(clippy::too_many_arguments)]
 pub fn build(
     out: &Path,
     board_cfg: &Option<HashMap<String, String>>,
