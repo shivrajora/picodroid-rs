@@ -123,7 +123,8 @@ classify_changes() {
     esac
     case "$f" in
       *.java|*.kt|*.kts|*.gradle|gradle.properties|gradle/*|gradlew*|\
-      sdk/*|examples/*|buildSrc/*|bench/parity/ratchet.toml)
+      sdk/*|examples/*|buildSrc/*|bench/parity/ratchet.toml|\
+      *.proto|tools/protoc-gen-picodroid/*)
         BUCKET_JVM=1 ;;
     esac
     case "$f" in
@@ -169,6 +170,9 @@ STAGES=(
 
   "fmt_java|jvm|fast|jvm|Java formatting"
   "fmt_kotlin|jvm|fast|jvm|Kotlin formatting"
+  # CI runs it with the toolchain installed; here it needs grpc_tools on
+  # python3 (tools/protoc-gen-picodroid/requirements.txt) and says so.
+  "proto|jvm|fast|jvm|generated protobuf sources are current"
   "lint_md|jvm|fast|md|markdown lint"
 
   "fmt_rust|host|fast|rust|cargo fmt"
@@ -311,6 +315,22 @@ stage_jvm_env() {
     echo "ERROR: apply_jvm_env smoke test failed. The [jvm] board.toml parser"
     echo "       in scripts/lib.sh is not propagating values to the right"
     echo "       PICODROID_JVM_* env vars. Fix before committing."
+    return 1
+  fi
+}
+
+stage_proto() {
+  local py="${PICODROID_PROTO_PYTHON:-python3}"
+  if ! "$py" -c 'import grpc_tools.protoc' 2>/dev/null; then
+    echo "skipped: $py lacks grpc_tools (pip install -r tools/protoc-gen-picodroid/requirements.txt);"
+    echo "         CI runs this check with the toolchain installed"
+    return 0
+  fi
+  "$py" "$REPO_ROOT/tools/protoc-gen-picodroid/selftest.py" || return 1
+  if ! bash "$SCRIPT_DIR/gen-proto.sh" --check; then
+    echo ""
+    echo "ERROR: a committed protobuf-generated source is stale. Run"
+    echo "       ./scripts/gen-proto.sh and stage the result."
     return 1
   fi
 }

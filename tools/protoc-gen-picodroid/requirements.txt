@@ -1,0 +1,7 @@
+# The protoc toolchain scripts/gen-proto.sh runs: grpcio-tools bundles a
+# protoc of a matching version, so one pin covers the compiler, the Python
+# plugin API protoc_gen_picodroid.py imports, and the runtime the bridge's
+# generated *_pb2.py needs (examples/claudeusage/bridge/requirements.txt pins
+# the same protobuf). Install with `pip install -r` or `uv pip install -r`.
+grpcio-tools==1.84.0
+protobuf==7.36.2

@@ -124,6 +124,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Check hil-tests.conf against the source tree
         run: bash scripts/check-hil-conf.sh
+      - name: Install the protoc toolchain (tools/protoc-gen-picodroid)
+        run: pip install -r tools/protoc-gen-picodroid/requirements.txt
+      - name: protoc-gen-picodroid golden output
+        run: python3 tools/protoc-gen-picodroid/selftest.py
+      - name: Committed protobuf-generated sources are current
+        run: bash scripts/gen-proto.sh --check
       - name: Build helloworld APK
         run: bash scripts/build-apk.sh --app helloworld
       # TestBench RP2040
