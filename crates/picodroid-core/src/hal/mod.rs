@@ -27,6 +27,11 @@ pub mod event_ring;
 // Up/down edge detection for an IP stack's network-event hook: the stack
 // repeats "down" on every retry, the log wants it once per change.
 pub mod net_edge;
+// WiFi provisioning state (docs/designs/wifi-provisioning-2026-09.md): the
+// store, the request mailbox, the scan table. Family-neutral like net_edge;
+// only boards with a WiFi link (and the host tests) compile it.
+#[cfg(any(test, network_link_wifi))]
+pub mod wifi;
 // Bounded register spins: the only sanctioned way to wait on hardware state
 // without the RTOS, and each one named and capped.
 pub mod spin;

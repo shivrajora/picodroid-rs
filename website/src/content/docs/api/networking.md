@@ -61,6 +61,43 @@ if (NetworkInfo.isConnected()) {
 
 An Application-only app (no Activity) that needs the link before its first socket call still polls `NetworkInfo.isConnected()` against a deadline, as `netdemo` and `http_get` do; under the simulator the link is up at boot, so the poll returns at once.
 
+## WiFi
+
+`picodroid.net.wifi.*` mirrors `android.net.wifi`: `WifiManager` (`getSystemService(Context.WIFI_SERVICE)`), `ScanResult`, `WifiInfo`, `WifiConfiguration` and `SupplicantState`. It is what Settings → Wi-Fi is built on ([WiFi setup](/get-started/networking/#joining-a-network-from-settings)); an app can do the same.
+
+```java
+import picodroid.content.Context;
+import picodroid.concurrent.Executors;
+import picodroid.net.wifi.ScanResult;
+import picodroid.net.wifi.WifiConfiguration;
+import picodroid.net.wifi.WifiManager;
+
+WifiManager wm = (WifiManager) getSystemService(Context.WIFI_SERVICE);
+wm.registerScanResultsCallback(Executors.mainExecutor(), new WifiManager.ScanResultsCallback() {
+  @Override public void onScanResultsAvailable() {
+    for (ScanResult r : wm.getScanResults()) {          // strongest first, one per SSID
+      Log.i(TAG, r.SSID + " " + r.level + " dBm " + r.capabilities);
+    }
+  }
+});
+wm.startScan();
+// ...
+WifiConfiguration c = new WifiConfiguration();
+c.SSID = "\"MyAP\"";                                    // quoted, as on Android
+c.preSharedKey = "\"secret\"";                           // null for an open network
+int id = wm.addNetwork(c);                              // saves it; 0, the one networkId
+wm.enableNetwork(id, true);                             // joins it now
+```
+
+What differs from Android, and why:
+
+- **One saved network.** `addNetwork` replaces the saved network and returns 0; `getConfiguredNetworks()` has at most one entry; `removeNetwork(0)` forgets it and leaves. A network compiled into the firmware (`PICODROID_WIFI_SSID`) shows as `WifiConfiguration.Status.CURRENT` and cannot be removed.
+- **No key-management set.** `WifiConfiguration` has no `allowedKeyManagement`: the join uses the security the last scan reported for that SSID (open, WPA, WPA2, WPA3 or mixed), else WPA2/WPA3 with a password and open without one.
+- **The outcome is read, not broadcast.** `getConnectionInfo()` gives a `WifiInfo`: `getSSID()` (quoted, or `WifiManager.UNKNOWN_SSID`), `getSupplicantState()` (`DISCONNECTED`, `ASSOCIATING`, `COMPLETED`), `getRssi()` from the last scan. After a join that did not complete, `getLastError()` is `ERROR_AUTHENTICATING` (Android's value), `ERROR_NETWORK_NOT_FOUND` or `ERROR_GENERIC`. The address arriving is `ConnectivityManager`'s `onAvailable`. Scan completion is pushed, through `registerScanResultsCallback` (Android 11's shape); nothing else is.
+- **Always on.** `isWifiEnabled()` says whether the board has a WiFi link; `setWifiEnabled` is accepted and ignored.
+
+On a board without WiFi the class is a stub: no networks, nothing saved, every request refused — check `hasSystemFeature(FEATURE_WIFI)` first. `testbench_rp2040` leaves the package out of its firmware.
+
 ## TCP client
 
 ```java

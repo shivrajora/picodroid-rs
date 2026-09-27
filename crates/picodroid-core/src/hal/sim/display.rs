@@ -734,6 +734,32 @@ impl crate::input_inject::InputSink for SimSink {
     }
 }
 
+/// Text queued by `input text`, typed on the next UI tick.
+#[cfg(any(has_buttons, has_touch))]
+static PENDING_TEXT: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// Type what `input text` queued into the system keyboard's field. Called
+/// from the JVM event loop's tick, the one place LVGL objects may be
+/// touched; a no-op when nothing is queued or no keyboard is showing.
+#[cfg(any(has_buttons, has_touch))]
+pub fn service_input_text() {
+    let Some(text) = PENDING_TEXT
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .take()
+    else {
+        return;
+    };
+    if crate::graphics::lvgl::widgets::keyboard::type_text(&text) {
+        println!("[sim] input text: typed {} bytes", text.len());
+    } else {
+        println!("[sim] input text: no system keyboard showing — tap an EditText first");
+    }
+}
+
+#[cfg(not(any(has_buttons, has_touch)))]
+pub fn service_input_text() {}
+
 /// Parse and apply one `input …` line — the Android verb family:
 /// `keyevent [--longpress|--down|--up] <KEYCODE|n>`, `dpad <dir>`, `back`,
 /// `tap <x> <y>`, `swipe <x1> <y1> <x2> <y2> [ms]`.
@@ -742,7 +768,7 @@ fn handle_input_command(it: &mut core::str::SplitWhitespace<'_>) {
     use crate::input_inject as inject;
 
     let Some(sub) = it.next() else {
-        println!("[sim] control channel: input needs keyevent|dpad|back|tap|swipe");
+        println!("[sim] control channel: input needs keyevent|dpad|back|tap|swipe|text");
         return;
     };
     let parse_u16 =
@@ -751,6 +777,17 @@ fn handle_input_command(it: &mut core::str::SplitWhitespace<'_>) {
     let verb = sub.to_ascii_lowercase();
     match verb.as_str() {
         "keyevent" | "dpad" | "back" => handle_key_verb(&verb, it),
+        // `input text <string>`: typed into the field the system keyboard
+        // is open on, as adb's verb types into the focused field. Served on
+        // the UI tick (`service_input_text`), where LVGL may be touched.
+        "text" => {
+            let text = it.collect::<Vec<&str>>().join(" ");
+            if text.is_empty() {
+                println!("[sim] control channel: input text needs <string>");
+                return;
+            }
+            *PENDING_TEXT.lock().unwrap_or_else(|p| p.into_inner()) = Some(text);
+        }
         "tap" => {
             let (Some(x), Some(y)) = (parse_u16(it), parse_u16(it)) else {
                 println!("[sim] control channel: input tap needs <x> <y>");

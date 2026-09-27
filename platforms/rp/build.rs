@@ -179,9 +179,11 @@ fn main() {
                             extra_defines: &extra_defines,
                             mcu: &mcu,
                         });
-                        // hal/rp/cyw43/link.rs bakes these in via option_env!;
-                        // without the rerun hints a credential/auth change is
-                        // a cargo no-op and the old values stay in the firmware.
+                        // picodroid-core's hal/wifi.rs bakes these in via
+                        // option_env! (its own build.rs carries the same
+                        // hints); this crate re-links the result, so a
+                        // credential/auth change must not be a cargo no-op
+                        // here either, or the old firmware stays flashed.
                         println!("cargo:rerun-if-env-changed=PICODROID_WIFI_SSID");
                         println!("cargo:rerun-if-env-changed=PICODROID_WIFI_PASS");
                         println!("cargo:rerun-if-env-changed=PICODROID_WIFI_AUTH");

@@ -274,6 +274,68 @@ pub fn request_view_focus(id: i32) -> bool {
     }
 }
 
+/// The system keyboard is showing: put it in the active focus group and
+/// focus it, so the keypad drives its key grid (`keyboard::keypad_remap`),
+/// with `first_key` selected — the layout's first character, so the walk
+/// starts on a letter rather than on the mode switch at key 0. The
+/// FOCUS_KEY state is what the button matrix draws its selected key with;
+/// the group sets it only when a keypad indev is mid-read, which this
+/// (a quiet indev pass) is not.
+///
+/// # Safety
+/// `kb` must be null or a live `lv_keyboard`.
+#[cfg(has_buttons)]
+pub unsafe fn focus_system_keyboard(kb: *mut lv_obj_t, first_key: u32) {
+    if kb.is_null() {
+        return;
+    }
+    unsafe {
+        let group = lv_group_get_default();
+        if group.is_null() {
+            return;
+        }
+        if lv_obj_get_group(kb) != group {
+            lv_group_add_obj(group, kb);
+        }
+        lv_group_focus_obj(kb);
+        lv_obj_add_state(kb, LV_STATE_FOCUS_KEY);
+        lv_buttonmatrix_set_selected_button(kb, first_key);
+        lv_obj_invalidate(kb);
+    }
+}
+
+/// The system keyboard is hidden: out of the group (it outlives every
+/// Activity, so it must not stay in one Activity's ring), and the field it
+/// typed into takes the focus back.
+///
+/// # Safety
+/// `kb` must be null or a live `lv_keyboard`; `ta` null or a live textarea.
+#[cfg(has_buttons)]
+pub unsafe fn unfocus_system_keyboard(kb: *mut lv_obj_t, ta: *mut lv_obj_t) {
+    if kb.is_null() {
+        return;
+    }
+    unsafe {
+        lv_obj_remove_state(kb, LV_STATE_FOCUS_KEY);
+        if !lv_obj_get_group(kb).is_null() {
+            lv_group_remove_obj(kb);
+        }
+        let group = lv_group_get_default();
+        if !ta.is_null() && !group.is_null() && lv_obj_get_group(ta) == group {
+            lv_group_focus_obj(ta);
+        }
+    }
+}
+
+/// # Safety
+/// No-op: nothing is dereferenced.
+#[cfg(not(has_buttons))]
+pub unsafe fn focus_system_keyboard(_kb: *mut lv_obj_t, _first_key: u32) {}
+/// # Safety
+/// No-op: nothing is dereferenced.
+#[cfg(not(has_buttons))]
+pub unsafe fn unfocus_system_keyboard(_kb: *mut lv_obj_t, _ta: *mut lv_obj_t) {}
+
 #[cfg(has_buttons)]
 pub(super) fn init_button_pins() {
     for &(pin, _, _) in BUTTONS {

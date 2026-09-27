@@ -154,6 +154,14 @@ pub fn dispatch(
             ))
         }
 
+        // ── WifiManager ─────────────────────────────────────────────────
+        #[cfg(network_link_wifi)]
+        (c::picodroid_net_wifi_WifiManager, _) => {
+            crate::net::wifi_manager::dispatch(method_name, ctx)
+        }
+        #[cfg(not(network_link_wifi))]
+        (c::picodroid_net_wifi_WifiManager, _) => super::wifi_stub::dispatch(method_name, ctx),
+
         _ => None,
     }
 }

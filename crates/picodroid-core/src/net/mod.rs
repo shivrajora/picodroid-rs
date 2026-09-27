@@ -18,3 +18,6 @@ pub mod socket_table;
 /// HTTPS: the pd-tls session over the HAL socket (`has_tls` boards).
 #[cfg(has_tls)]
 pub mod tls;
+/// `WifiManager`'s natives; only a WiFi link has them.
+#[cfg(network_link_wifi)]
+pub mod wifi_manager;

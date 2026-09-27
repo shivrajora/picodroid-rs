@@ -32,6 +32,30 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 - Under the hood: `crates/pd-tls` over a vendored `embedded-tls` 0.19 with three marked patches
   (`third_party/embedded-tls/README-PICODROID.md`); design and measurements in
   `docs/designs/tls-2026-09.md`.
+**Wi-Fi provisioning from Settings (2026-09-26; map v0.34.0, package 0.34.0)**
+
+- A board no longer needs its network compiled in. Settings gains a Wi-Fi row on `FEATURE_WIFI`
+  boards: scan, pick a network, type the password on the system keyboard (by touch or, on
+  keypad boards, by walking its keys), and the board joins it. The network is saved to
+  `/system/wifi` and rejoined at every boot. `PICODROID_WIFI_SSID` / `PICODROID_WIFI_PASS`
+  still work and, when set at build time, take precedence over the saved network. See
+  [WiFi & networking setup](/get-started/networking/).
+- `picodroid.net.wifi`, Android's shape: `WifiManager` (`Context.WIFI_SERVICE`) with
+  `startScan` / `getScanResults` / `registerScanResultsCallback`, `getConnectionInfo`,
+  `addNetwork` / `enableNetwork` / `removeNetwork` / `reconnect`, `calculateSignalLevel`;
+  `ScanResult`, `WifiInfo`, `WifiConfiguration` and `SupplicantState`. One saved network; the
+  join outcome is read back, not broadcast.
+- `EditText` masks the password input types (`TYPE_TEXT_VARIATION_WEB_PASSWORD`,
+  `TYPE_TEXT_VARIATION_VISIBLE_PASSWORD`, `TYPE_NUMBER_VARIATION_PASSWORD` join `InputType`) and
+  is focusable by default, as on Android. The system keyboard is sized to the display and no
+  longer sits 100 px too low.
+- The simulator fakes a list of access points (`PICODROID_SIM_WIFI_NETWORKS` / `_PASS`) and adds
+  the control verb `input text`; the `settings-wifi-touch` and `settings-wifi-keys` `sim-run.sh` lanes run
+  the flow nightly.
+- Map v0.34.0, cut on `main`, folds in the seven `picodroid/net/wifi` classes (328 → 335) and
+  the 86 member names they and `InputType` declare (1938 → 2024). The member floor stays at
+  v0.17.0, so PAPKs shrunk with v0.17.0 through v0.33.0 still install.
+  `Build.VERSION.RELEASE` reads `0.34.0`.
 
 **`picodroid.protobuf` (2026-09-26; map v0.33.0, package 0.33.0)**
 

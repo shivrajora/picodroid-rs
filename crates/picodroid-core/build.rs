@@ -116,6 +116,14 @@ fn emit_capability_cfgs_from_features() {
 /// rewrites the corpus with, so the two can never disagree.
 fn emit_names(out: &std::path::Path, root: &std::path::Path) {
     println!("cargo:rerun-if-env-changed=PICODROID_SHRINK");
+    // The build-time WiFi network (`hal/wifi.rs` reads them with option_env!).
+    for var in [
+        "PICODROID_WIFI_SSID",
+        "PICODROID_WIFI_PASS",
+        "PICODROID_WIFI_AUTH",
+    ] {
+        println!("cargo:rerun-if-env-changed={var}");
+    }
     let map = papk::active_shrink_map(root);
     let class = |name: &str| -> Option<String> {
         map.as_ref()

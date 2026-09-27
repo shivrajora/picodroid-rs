@@ -663,6 +663,10 @@ pub(crate) fn run_activity(
     // time an app asks (`ConnectivityManager.syncActive`), so no push.
     #[cfg(has_network)]
     let mut link_generation_seen: u32 = net_events::link_generation();
+    // Likewise the WiFi event generation: what happened before the loop
+    // started is read on demand (`WifiManager.getConnectionInfo`).
+    #[cfg(network_link_wifi)]
+    let mut wifi_generation_seen: u32 = net_events::wifi_generation();
 
     loop {
         if handler.interrupted() {
@@ -706,6 +710,8 @@ pub(crate) fn run_activity(
                 // so the directory keeps one writer.
                 #[cfg(feature = "sim")]
                 crate::hal::sim::app_region::service_requests();
+                #[cfg(feature = "sim")]
+                crate::hal::sim::display::service_input_text();
                 // Watch only the Java dispatch, not g.tick's render above —
                 // rendering legitimately varies and would be a false positive.
                 let span_start = span_start();
@@ -739,6 +745,10 @@ pub(crate) fn run_activity(
                 // the main thread between frames like every other callback.
                 #[cfg(has_network)]
                 net_events::dispatch_connectivity(jvm, heap, handler, &mut link_generation_seen);
+                // A scan finished or the station's state moved: `WifiManager`
+                // fans it out here too.
+                #[cfg(network_link_wifi)]
+                net_events::dispatch_wifi_events(jvm, heap, handler, &mut wifi_generation_seen);
 
                 // Memory monitor window cadence — after widget dispatch so
                 // each sample observes a settled frame.

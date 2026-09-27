@@ -135,7 +135,9 @@ pub fn start_tasks(boot_apk: Option<&'static [u8]>) -> ! {
         task_priority::PRIORITY_RT_2,
         task_affinity::CORE1,
         move |_| {
-            picodroid_core::hal::freertos_tcp::run_link_task(crate::hal::cyw43::link::Cyw43Link)
+            picodroid_core::hal::freertos_tcp::run_link_task(
+                crate::hal::cyw43::link::Cyw43Link::new(),
+            )
         },
     )
     .unwrap();

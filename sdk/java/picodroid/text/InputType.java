@@ -5,10 +5,11 @@ package picodroid.text;
  * Input-type constants mirroring {@code android.text.InputType}, with Android's exact bit values.
  * Pass to {@link picodroid.widget.EditText#setInputType(int)}.
  *
- * <p>Only the input-type <em>class</em> is meaningful to the current soft keyboard: {@link
- * #TYPE_CLASS_NUMBER} (and {@link #TYPE_CLASS_PHONE}, which shares the digit pad) selects the
- * numeric layout; everything else uses the default text layout. Variation and flag bits are
- * accepted so ported Android code compiles unchanged, but they do not yet specialize the keyboard.
+ * <p>The input-type <em>class</em> picks the soft keyboard's layout: {@link #TYPE_CLASS_NUMBER}
+ * (and {@link #TYPE_CLASS_PHONE}, which shares the digit pad) selects the numeric layout;
+ * everything else uses the default text layout. Of the variations, the password ones mask the
+ * field; the others and the flag bits are accepted so ported Android code compiles unchanged, but
+ * do not yet specialize the keyboard.
  */
 public final class InputType {
 
@@ -41,8 +42,17 @@ public final class InputType {
   /** Text variation: email address. Accepted; keyboard layout does not yet specialize. */
   public static final int TYPE_TEXT_VARIATION_EMAIL_ADDRESS = 0x00000020;
 
-  /** Text variation: password. Accepted; the field is not yet masked in v1. */
+  /** Text variation: password. The field shows bullets; {@code getText()} reads the real text. */
   public static final int TYPE_TEXT_VARIATION_PASSWORD = 0x00000080;
+
+  /** Text variation: a password shown in clear, as on Android. */
+  public static final int TYPE_TEXT_VARIATION_VISIBLE_PASSWORD = 0x00000090;
+
+  /** Text variation: a web form's password. Masked like {@link #TYPE_TEXT_VARIATION_PASSWORD}. */
+  public static final int TYPE_TEXT_VARIATION_WEB_PASSWORD = 0x000000e0;
+
+  /** Number variation: a numeric password (a PIN). Masked. */
+  public static final int TYPE_NUMBER_VARIATION_PASSWORD = 0x00000010;
 
   /** Number flag: allow a sign character. Accepted; not yet enforced. */
   public static final int TYPE_NUMBER_FLAG_SIGNED = 0x00001000;

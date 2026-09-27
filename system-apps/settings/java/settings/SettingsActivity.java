@@ -3,22 +3,24 @@ package settings;
 
 import picodroid.app.Activity;
 import picodroid.content.Intent;
+import picodroid.content.pm.PackageManager;
 import picodroid.util.Log;
 import picodroid.view.View;
 import picodroid.os.Bundle;
 
 /**
- * The settings app's root (multi-app M3): About, Apps and Storage, one row each. The header row is
- * Home: a tap on it, or BACK on a keypad board, finishes the app and the launcher comes back. Rows
- * are {@link Screens#ROW_HEIGHT} pixels from the top of the screen, the header first, so the bench
- * taps About at y = 60, Apps at 100, Storage at 140.
+ * The settings app's root (multi-app M3): About, Apps and Storage, one row each, then Wi-Fi on a
+ * board that has it ({@code PackageManager.FEATURE_WIFI}). The header row is Home: a tap on it, or
+ * BACK on a keypad board, finishes the app and the launcher comes back. Rows are {@link
+ * Screens#ROW_HEIGHT} pixels from the top of the screen, the header first, so the bench taps About
+ * at y = 60, Apps at 100, Storage at 140 and Wi-Fi at 180.
  */
 public class SettingsActivity extends Activity {
   static final String TAG = "Settings";
 
   private Column column;
   /** Held so the rows stay reachable while their click listeners are live. */
-  private final View[] rows = new View[3];
+  private final View[] rows = new View[4];
   /** Whether the rows are on screen: "ready" is logged once they are, then on every return. */
   private boolean built;
 
@@ -42,6 +44,14 @@ public class SettingsActivity extends Activity {
         rows[2] =
             Screens.row(this, "Storage", v -> startActivity(new Intent(StorageActivity.class)));
         return rows[2];
+      case 3:
+        // Only where there is a WiFi link to provision; the row is not built
+        // otherwise, so the column ends at Storage on every other board.
+        if (!getPackageManager().hasSystemFeature(PackageManager.FEATURE_WIFI)) {
+          return null;
+        }
+        rows[3] = Screens.row(this, "Wi-Fi", v -> startActivity(new Intent(WifiActivity.class)));
+        return rows[3];
       default:
         return null;
     }

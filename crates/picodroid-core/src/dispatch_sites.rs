@@ -110,6 +110,10 @@ pub const ALARM_FIRE: usize = 44;
 /// board so the resolution test below covers it, and after `ALARM_FIRE`,
 /// which is only there on multi-app boards.
 pub const CONNECTIVITY_CHANGE: usize = if cfg!(has_multi_app) { 45 } else { 44 };
+/// A scan finished or the station's state changed: `WifiManager.fireEvent()`
+/// fans scan completion out to the registered `ScanResultsCallback`s
+/// (lifecycle::net_events). Present on every board, like the one above.
+pub const WIFI_EVENT: usize = CONNECTIVITY_CHANGE + 1;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -164,6 +168,7 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     #[cfg(has_multi_app)]
     (c::picodroid_app_AlarmManager, m::fireAlarm),
     (c::picodroid_net_ConnectivityManager, m::fireLinkChange),
+    (c::picodroid_net_wifi_WifiManager, m::fireEvent),
 ];
 
 #[cfg(test)]

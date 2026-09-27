@@ -12,6 +12,7 @@ import picodroid.io.File;
 import picodroid.io.FileInputStream;
 import picodroid.io.FileOutputStream;
 import picodroid.net.ConnectivityManager;
+import picodroid.net.wifi.WifiManager;
 
 /**
  * Common base for {@code Application}, {@code Activity} and {@code Service}: provides
@@ -46,6 +47,13 @@ public class Context {
   public static final String CONNECTIVITY_SERVICE = "connectivity";
 
   /**
+   * Name for {@link #getSystemService}: retrieves the {@link WifiManager}, which scans for networks
+   * and saves the one to join. On a board without WiFi its methods answer "none" — check {@code
+   * getPackageManager().hasSystemFeature(PackageManager.FEATURE_WIFI)} first.
+   */
+  public static final String WIFI_SERVICE = "wifi";
+
+  /**
    * File-creation mode for {@link #getSharedPreferences} and {@link #openFileOutput}: accessible
    * only to this app, which on Picodroid every file is — the storage sandbox keeps each app inside
    * its own directory.
@@ -78,6 +86,9 @@ public class Context {
     }
     if (CONNECTIVITY_SERVICE.equals(name)) {
       return ConnectivityManager.getInstance();
+    }
+    if (WIFI_SERVICE.equals(name)) {
+      return WifiManager.getInstance();
     }
     return null;
   }
