@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Fragment Demo</string>
+    <string name="home_line1">Home fragment</string>
+    <string name="home_line2">inflated from res/layout</string>
+    <string name="home_line3">through Fragment(int)</string>
+    <string name="detail_hint">built in onCreateView</string>
+</resources>

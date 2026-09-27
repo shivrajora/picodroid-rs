@@ -135,6 +135,7 @@ pub mod layout {
         pub const SPINNER: u8 = 15;
         pub const LIST_VIEW: u8 = 16;
         pub const CIRCULAR_PROGRESS_INDICATOR: u8 = 17;
+        pub const VIEW_PAGER2: u8 = 18;
 
         /// `(XML element name, code)`.
         pub const ALL: &[(&str, u8)] = &[
@@ -155,6 +156,7 @@ pub mod layout {
             ("Spinner", SPINNER),
             ("ListView", LIST_VIEW),
             ("CircularProgressIndicator", CIRCULAR_PROGRESS_INDICATOR),
+            ("ViewPager2", VIEW_PAGER2),
         ];
     }
 
