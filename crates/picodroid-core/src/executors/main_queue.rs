@@ -294,14 +294,16 @@ pub fn recv_blocking() -> MainTask {
     task
 }
 
+/// Tests share the same static queue + tick flag. `cargo test` runs tests
+/// concurrently, so they serialise behind this mutex — the `scheduled`
+/// module's too, since its table posts into this queue.
+#[cfg(test)]
+pub(crate) static TEST_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex, MutexGuard};
-
-    // Tests share the same static queue + tick flag. `cargo test` runs
-    // tests concurrently, so serialise them behind this mutex.
-    static TEST_GUARD: Mutex<()> = Mutex::new(());
+    use std::sync::MutexGuard;
 
     fn acquire() -> MutexGuard<'static, ()> {
         let guard = TEST_GUARD.lock().unwrap_or_else(|e| e.into_inner());

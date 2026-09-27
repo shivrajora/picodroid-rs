@@ -7,7 +7,10 @@ import java.util.concurrent.TimeoutException;
 
 /** The result of an asynchronous computation, mirroring {@code java.util.concurrent.Future}. */
 public interface Future<V> {
-  /** Cancels the task if it has not started; a running task is not stopped. */
+  /**
+   * Cancels the task; false if it had already completed or been cancelled. A running task is not
+   * stopped, but its result is discarded and the future reports cancelled.
+   */
   boolean cancel(boolean mayInterruptIfRunning);
 
   boolean isCancelled();

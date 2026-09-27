@@ -5,7 +5,10 @@ import claudeusage.NetTestConfig;
 import claudeusage.util.TimeFormat;
 import picodroid.app.Service;
 import picodroid.concurrent.Executors;
+import picodroid.concurrent.ScheduledExecutorService;
+import picodroid.concurrent.ScheduledFuture;
 import picodroid.concurrent.Thread;
+import picodroid.concurrent.TimeUnit;
 import picodroid.content.Context;
 import picodroid.content.Intent;
 import picodroid.content.SharedPreferences;
@@ -16,11 +19,12 @@ import picodroid.os.SystemClock;
 import picodroid.util.Log;
 
 /**
- * The started-and-bound Service that owns the numbers and the two background threads. One polls the
- * bridge. The other nudges the UI once a second so countdowns and the staleness display keep
- * moving; it is separate so that a fetch that blocks, or never returns, cannot freeze the screen on
- * numbers that look live, and it starts with the first listener, since it has nothing to do before
- * one and a thread's start is a cost the Service's own start tick can do without.
+ * The started-and-bound Service that owns the numbers, the poll thread and the once-a-second tick.
+ * The poll thread fetches from the bridge. The tick is a fixed-rate task on the main thread's
+ * {@link ScheduledExecutorService}: it nudges the UI so countdowns and the staleness display keep
+ * moving, and it runs only while a listener is registered, since it has nothing to do before one. A
+ * task rather than a second thread because a thread is a 16 KB stack for one line of work a second,
+ * and the tick keeps coming whatever the poll thread is blocked in.
  *
  * <p>Started so the numbers stay warm whichever screen is showing; bound so the Activity can read
  * them through the {@link LocalBinder}. The bridge's address is, in order: the {@link
@@ -30,10 +34,10 @@ import picodroid.util.Log;
  *
  * <p>Threading: the poll thread never touches the fields the UI reads. It hands each result to the
  * main thread in a posted Runnable, and everything below the "main thread" banner is confined to
- * it. The flags that cross are volatile; the poll thread idles on {@link #lock}. The link's state
- * comes from {@link ConnectivityManager} on the main thread, as on Android: {@code onAvailable}
- * wakes the poll thread, {@code onLost} paints the offline state at once and nothing polls the link
- * meanwhile.
+ * it, the tick included. The flags that cross are volatile; the poll thread idles on {@link #lock}.
+ * The link's state comes from {@link ConnectivityManager} on the main thread, as on Android: {@code
+ * onAvailable} wakes the poll thread, {@code onLost} paints the offline state at once and nothing
+ * polls the link meanwhile.
  */
 public final class UsageService extends Service {
   public static final String TAG = "ClaudeUsage";
@@ -141,8 +145,6 @@ public final class UsageService extends Service {
   /** X held: probe the LAN for the bridge before the next fetch, answered or not. */
   private volatile boolean rediscoverRequested;
 
-  private volatile boolean listening;
-
   /** The link, as {@link #linkWatch} last heard it; a change also wakes {@link #idle}. */
   private volatile boolean linkUp;
 
@@ -173,7 +175,11 @@ public final class UsageService extends Service {
   private SharedPreferences prefs;
 
   private Listener listener;
-  private boolean ticking;
+
+  /** Runs {@link #tick} once a second while a listener is registered. */
+  private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+
+  private ScheduledFuture<?> ticking;
   private UsageSnapshot snapshot;
   private LinkState linkState = LinkState.JOINING;
   private String linkErr = "";
@@ -189,15 +195,13 @@ public final class UsageService extends Service {
   private int trendCount;
   private long lastTrendElapsedMs = -1;
 
-  /** Pre-allocated: a lambda here would allocate once a second for as long as the app runs. */
-  @SuppressWarnings("UnnecessaryLambda")
-  private final Runnable tick =
-      () -> {
-        recordTrend();
-        if (listener != null) {
-          listener.onTick();
-        }
-      };
+  /** Once a second on the main thread; see {@link #ticking}. */
+  private void tick() {
+    recordTrend();
+    if (listener != null) {
+      listener.onTick();
+    }
+  }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -254,7 +258,7 @@ public final class UsageService extends Service {
   @Override
   public void onDestroy() {
     listener = null;
-    listening = false;
+    scheduler.shutdownNow();
     running = false;
     connectivity.unregisterNetworkCallback(linkWatch);
     synchronized (lock) {
@@ -267,10 +271,11 @@ public final class UsageService extends Service {
 
   public void setListener(Listener l) {
     listener = l;
-    listening = l != null;
-    if (listening && !ticking && running) {
-      ticking = true;
-      new Thread(this::tickLoop, "usage-tick").start();
+    if (l != null && ticking == null && running) {
+      ticking = scheduler.scheduleAtFixedRate(this::tick, TICK_MS, TICK_MS, TimeUnit.MILLISECONDS);
+    } else if (l == null && ticking != null) {
+      ticking.cancel(false);
+      ticking = null;
     }
   }
 
@@ -426,17 +431,6 @@ public final class UsageService extends Service {
     syncStartedElapsedMs = SystemClock.elapsedRealtime();
     if (listener != null) {
       listener.onUsageChanged();
-    }
-  }
-
-  // ── Ticker thread ──────────────────────────────────────────────────────────
-
-  private void tickLoop() {
-    while (running) {
-      SystemClock.sleep(TICK_MS);
-      if (running && listening) {
-        Executors.mainExecutor().execute(tick);
-      }
     }
   }
 

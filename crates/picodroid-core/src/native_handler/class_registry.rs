@@ -44,6 +44,7 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
     c::picodroid_concurrent_Executors,
     c::picodroid_concurrent_MainExecutor,
     c::picodroid_concurrent_BackgroundExecutor,
+    c::picodroid_concurrent_MainScheduledExecutor,
     c::picodroid_app_Application,
     c::picodroid_app_Activity,
     c::picodroid_app_Service,

@@ -311,6 +311,7 @@ public class MainActivity extends Activity implements UsageService.Listener {
       case KeyEvent.KEYCODE_BACK:
         if (!pageIsStatus && pageIndex != PAGE_LIMITS) {
           pageIndex = PAGE_LIMITS;
+          autoSeconds = 0; // home restarts the AUTO countdown, as a turn does
           showPage();
         }
         return true;

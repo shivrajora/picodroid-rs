@@ -14,7 +14,7 @@
 /// Rises by exactly the amount the platform crate's `EXPECTED_PROVIDERS`
 /// falls whenever modules move. If only one of the two changes in a commit,
 /// a provider was dropped.
-pub const EXPECTED_PROVIDERS: usize = 20;
+pub const EXPECTED_PROVIDERS: usize = 21;
 
 /// Register every root provider owned by this crate.
 ///
@@ -88,6 +88,9 @@ pub fn register_all() {
     // maps, one queue further out).
     register_object_refs(crate::executors::main_queue::visit_pending_runnable_roots);
     register_object_refs(crate::executors::background_pool::visit_pending_runnable_roots);
+    // A scheduled task's Runnable, armed in the deadline table for seconds
+    // or minutes with its future typically dropped by the caller.
+    register_object_refs(crate::executors::scheduled::visit_pending_runnable_roots);
     // Every live Thread object — reserved in the registry before its task
     // exists, so it (and through its `target` field the Runnable) is rooted
     // from before the child's first frame; idiomatic Java drops every other

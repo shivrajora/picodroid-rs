@@ -55,23 +55,76 @@ public class FutureTask<V> implements Runnable, Future<V> {
     } catch (Throwable e) {
       t = e;
     }
+    boolean completed;
     synchronized (this) {
-      if (state == RUNNING) {
+      // A cancel during the run wins: the result is dropped and cancel already reported done().
+      completed = state == RUNNING;
+      if (completed) {
         result = v;
         error = t;
         state = DONE;
       }
       notifyAll();
     }
+    if (completed) {
+      done();
+    }
   }
 
-  @Override
-  public synchronized boolean cancel(boolean mayInterruptIfRunning) {
-    if (state != NEW) {
-      return false;
+  /**
+   * Runs the computation without recording its result, so the task can run again: the way a
+   * periodic task runs. Returns true if it ran to the end; false if it threw (the task then
+   * completes with that exception) or had been cancelled.
+   */
+  protected boolean runAndReset() {
+    synchronized (this) {
+      if (state != NEW) {
+        return false;
+      }
+      state = RUNNING;
     }
-    state = CANCELLED;
-    notifyAll();
+    Throwable t = null;
+    try {
+      callable.call();
+    } catch (Throwable e) {
+      t = e;
+    }
+    boolean failed;
+    synchronized (this) {
+      if (state != RUNNING) {
+        return false;
+      }
+      failed = t != null;
+      if (failed) {
+        error = t;
+        state = DONE;
+        notifyAll();
+      } else {
+        state = NEW;
+      }
+    }
+    if (failed) {
+      done();
+    }
+    return !failed;
+  }
+
+  /**
+   * Called once, after the task completes or is cancelled, outside the task's monitor. Does nothing
+   * here; a subclass overrides it to release what it holds.
+   */
+  protected void done() {}
+
+  @Override
+  public boolean cancel(boolean mayInterruptIfRunning) {
+    synchronized (this) {
+      if (state == DONE || state == CANCELLED) {
+        return false;
+      }
+      state = CANCELLED;
+      notifyAll();
+    }
+    done();
     return true;
   }
 
