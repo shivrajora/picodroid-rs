@@ -5,11 +5,11 @@ import claudeusage.R;
 import claudeusage.data.UsageService;
 import claudeusage.data.UsageSnapshot;
 import claudeusage.util.TimeFormat;
-import picodroid.content.Context;
+import picodroid.os.Bundle;
 import picodroid.widget.FrameLayout;
 
 /** Per-model weekly caps, where the plan has them, and which models the week's tokens went to. */
-final class ModelsPage extends Page {
+final class ModelsPage extends UsagePage {
   private static final int CARD_HEIGHT = 92;
   private static final int FIRST_ROW_Y = 27;
 
@@ -23,19 +23,25 @@ final class ModelsPage extends Page {
   /** The first paint takes one card per tick: both at once cost the RP2350 57 ms. */
   private int paintStep;
 
-  private final String all;
-  private final String noCaps;
-  private final String resetsIn;
-  private final String noTranscripts;
-  private final String share;
+  private String all;
+  private String noCaps;
+  private String resetsIn;
+  private String noTranscripts;
+  private String share;
 
-  ModelsPage(Context ctx, Palette palette) {
-    super(ctx, palette);
-    all = ctx.getString(R.string.models_all);
-    noCaps = ctx.getString(R.string.models_no_caps);
-    resetsIn = ctx.getString(R.string.resets_in);
-    noTranscripts = ctx.getString(R.string.no_transcripts);
-    share = ctx.getString(R.string.models_share);
+  @Override
+  public void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
+    all = getString(R.string.models_all);
+    noCaps = getString(R.string.models_no_caps);
+    resetsIn = getString(R.string.resets_in);
+    noTranscripts = getString(R.string.no_transcripts);
+    share = getString(R.string.models_share);
+  }
+
+  @Override
+  void onBuildFailed() {
+    paintStep = 0;
   }
 
   @Override

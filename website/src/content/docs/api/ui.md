@@ -117,6 +117,83 @@ To test that, turn on the equivalent of Android's *Don't keep activities* develo
 
 See [`examples/navdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/navdemo) for a multi-Activity back-stack demo and [`examples/dialogdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/dialogdemo) for an `onBackPressed` override pattern.
 
+## `picodroid.app.Fragment`
+
+A reusable portion of an Activity's UI with a lifecycle of its own, the shape of `androidx.fragment.app.Fragment`; `FragmentManager`, `FragmentTransaction` and `FragmentFactory` sit beside it in `picodroid.app`. A fragment is hosted by an Activity, whose `getSupportFragmentManager()` adds, replaces, removes, hides and shows it:
+
+```java
+import picodroid.app.Fragment;
+import picodroid.os.Bundle;
+import picodroid.view.View;
+
+public class DetailFragment extends Fragment {
+  public DetailFragment() {
+    super(R.layout.fragment_detail); // the default onCreateView inflates it
+  }
+
+  @Override
+  public void onViewCreated(View view, Bundle savedInstanceState) {
+    TextView title = view.findViewById(R.id.title);
+    title.setText(requireArguments().getString("title"));
+  }
+}
+
+// In the Activity, after setContentView:
+DetailFragment detail = new DetailFragment();
+Bundle args = new Bundle();
+args.putString("title", "Second");
+detail.setArguments(args);
+getSupportFragmentManager()
+    .beginTransaction()
+    .replace(R.id.container, detail, "detail")
+    .addToBackStack(null)
+    .commit();
+```
+
+The callbacks arrive in Android's order: `onAttach(Context)`, `onCreate(Bundle)`, `onCreateView(LayoutInflater, ViewGroup, Bundle)`, `onViewCreated(View, Bundle)`, `onViewStateRestored`, `onStart`, `onResume`; then `onPause`, `onStop`, `onSaveInstanceState(Bundle)` (when the host saves), `onDestroyView`, `onDestroy`, `onDetach`; and `onHiddenChanged(boolean)`. The host's lifecycle drives them:
+
+| Host callback | Its fragments |
+|---|---|
+| `onCreate(Bundle)` | Restored (through the `FragmentFactory`, see below) and created inside `super.onCreate`; a transaction committed in the `onCreate` body runs when the body returns. |
+| `onStart` | Views created and started, before the host's `onStart` body. |
+| `onResume` | Resumed after the host's `onResume` body (Android's `onPostResume`). |
+| `onPause` / `onStop` | Paused / stopped before the host's callback; views are kept while stopped. |
+| `onSaveInstanceState` | Every fragment's `onSaveInstanceState` follows the host's, into the same Bundle. |
+| `onDestroy` | Views freed, fragments destroyed and detached before the host's `onDestroy` body. |
+
+**Transactions.** `beginTransaction()` returns a `FragmentTransaction`: `add(containerId, fragment[, tag])`, `add(fragment, tag)` (no container: the view is placed by whoever owns the fragment, or there is none), `replace(containerId, fragment[, tag])`, `remove`, `hide` / `show` (the view goes `GONE`; the fragment stays resumed), `detach` / `attach` (the view is freed, the instance kept at `CREATED`), `setMaxLifecycle(fragment, Fragment.CREATED | STARTED | RESUMED)`, `addToBackStack(name)`, `setReorderingAllowed` (accepted). `commit()` queues the transaction for a later main-thread tick, as Android does; it also runs when the host's lifecycle moves or on `executePendingTransactions()`. `commitNow()` runs it at once (not with a back stack entry). Both refuse to run after the host saved its state (`IllegalStateException`, Android's message) unless the `*AllowingStateLoss` form is used, and from inside a fragment callback. Within a transaction the fragments moving down go first, so a replaced page's widgets are freed before the new page's are made.
+
+**Back stack.** A transaction committed with `addToBackStack` is kept so `popBackStack()` (queued), `popBackStackImmediate()`, or the named forms with `POP_BACK_STACK_INCLUSIVE`, reverse it: a popped `replace` removes the new fragment and adds the replaced ones back, their views built again through `onCreateView`. `getBackStackEntryCount()` and `addOnBackStackChangedListener` are there. The default `onBackPressed` pops the back stack when it has an entry and finishes the Activity otherwise, as `FragmentActivity` does.
+
+**Finding fragments.** `findFragmentById(containerId)`, `findFragmentByTag(tag)`, `getFragments()`; on a fragment `getActivity()` / `requireActivity()`, `getContext()`, `getView()` / `requireView()`, `getArguments()` / `requireArguments()`, `getParentFragmentManager()`, `isAdded()`, `isResumed()`, `isVisible()`, `isHidden()`, `isDetached()`, `getString(int)`, `getResources()`, `startActivity(Intent)`.
+
+**Saved state.** When the host saves its state (before a `recreate()` or a reclaim, see [saved instance state](#saved-instance-state)), every fragment's `onSaveInstanceState` Bundle is saved with it under Android's key, `android:support:fragments`, along with its arguments, tag, container, back stack membership and the back stack itself. The next instance's `super.onCreate` re-creates them, and they get the Bundle back in `onCreate` and `onCreateView`. There is no reflection on this runtime, so re-creation goes through a `FragmentFactory` the app installs **before** `super.onCreate`:
+
+```java
+@Override
+protected void onCreate(Bundle savedInstanceState) {
+  getSupportFragmentManager().setFragmentFactory(new FragmentFactory() {
+    @Override
+    public Fragment instantiate(String className) {
+      if (className.equals(HomeFragment.class.getName())) return new HomeFragment();
+      if (className.equals(DetailFragment.class.getName())) return new DetailFragment();
+      return super.instantiate(className);
+    }
+  });
+  super.onCreate(savedInstanceState);
+  setContentView(R.layout.activity_main);
+  if (savedInstanceState == null) {
+    getSupportFragmentManager().beginTransaction().add(R.id.container, new HomeFragment(), "home").commit();
+  }
+}
+```
+
+Compare with `X.class.getName()`, never a string literal: a shrunk build renames app classes and `getName()` follows the rename. Without a factory nothing is restored and the log says so. `FragmentManager.saveFragmentInstanceState(fragment)` and `Fragment.setInitialSavedState(Bundle)` carry one fragment's state by hand, as Android's `SavedState` does.
+
+**What differs from Android.** A view a fragment gives up in `onDestroyView` is freed at once, LVGL widgets and all, so every field holding one of its children is dead afterwards and the next `onCreateView` builds a fresh tree (Android keeps detached trees; a panel cannot). Lifecycle states are `int` constants on `Fragment` rather than a `Lifecycle.State` enum. `FragmentFactory.instantiate` takes the class name alone (no `ClassLoader`). Views are appended to their container in the order fragments reach `VIEW_CREATED`. Not provided: child fragment managers, `startActivityForResult` on a fragment (use the Activity's), transitions and animations, `setRetainInstance`, menus, `ViewModel` and `Lifecycle` owners, the Fragment Result API. Every method runs on the main thread. A second `setContentView` after fragments have views stales them like any other view of the old tree: remove the fragments first.
+
+See [`examples/fragmentdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/fragmentdemo) for the conformance script (callback order, back stack, refused transactions, the factory under a reclaim) and [`examples/claudeusage/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/claudeusage) for four screens as fragments in a [`ViewPager2`](#picodroidwidgetviewpager2).
+
 ## `picodroid.os.Bundle`
 
 A String-keyed map of typed values, mirroring `android.os.Bundle`: the carrier for Intent extras and for saved instance state.
@@ -1100,6 +1177,44 @@ FrameLayout overlay = new FrameLayout();
 overlay.addView(background);
 overlay.addView(badge);
 ```
+
+### `picodroid.widget.ViewPager2`
+
+Pages of [fragments](#picodroidappfragment), one on screen at a time, the shape of `androidx.viewpager2.widget.ViewPager2` with a `FragmentStateAdapter` (both in `picodroid.widget`). It goes in a layout as `<ViewPager2 android:id="@+id/pager" …/>` or is built with `new ViewPager2(context)`:
+
+```java
+ViewPager2 pager = findViewById(R.id.pager);
+pager.setAdapter(new FragmentStateAdapter(this) {
+  @Override public int getItemCount() { return 4; }
+  @Override public Fragment createFragment(int position) { return PageFragment.newInstance(position); }
+});
+pager.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
+  @Override public void onPageSelected(int position) { dots.select(position); }  // the dots-row idiom
+});
+
+// A board with keys rather than a touch panel:
+@Override public boolean onKeyDown(int keyCode, KeyEvent event) {
+  if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) { pager.setCurrentItem(pager.getCurrentItem() + 1, false); return true; }
+  return super.onKeyDown(keyCode, event);
+}
+```
+
+| Method | Description |
+|--------|-------------|
+| `setAdapter(FragmentStateAdapter)` / `getAdapter()` | The adapter's `createFragment(position)` makes each page's fragment, added with the tag `"f" + itemId` (so `getSupportFragmentManager().findFragmentByTag("f" + pager.getCurrentItem())` is the current page, as on Android); `getItemCount()`, `getItemId(position)`, `containsItem(itemId)`, `notifyDataSetChanged()`. The first page appears on a later tick. |
+| `setCurrentItem(int item[, boolean smoothScroll])` / `getCurrentItem()` | Turn to a page. `getCurrentItem` is the page asked for, even mid-turn. No wrap. |
+| `registerOnPageChangeCallback` / `unregisterOnPageChangeCallback` | `onPageSelected(position)` once the new page is resumed; `onPageScrollStateChanged(SCROLL_STATE_SETTLING | SCROLL_STATE_IDLE)`; `onPageScrolled(position, 0f, 0)` once per turn. |
+| `setUserInputEnabled(boolean)` / `isUserInputEnabled()` | Whether a swipe across the page turns it (on by default; off on a board without touch, where keys drive the pager). |
+| `setOrientation(ORIENTATION_HORIZONTAL | ORIENTATION_VERTICAL)` | Which swipes turn the page. Layout is unaffected. |
+| `setOffscreenPageLimit(int)` / `getOffscreenPageLimit()` | Accepted for source compatibility and logged: one page is alive whatever the limit. |
+| `getScrollState()` | `SCROLL_STATE_IDLE` or `SCROLL_STATE_SETTLING`; `SCROLL_STATE_DRAGGING` is never reported. |
+| `saveState()` / `restoreState(Bundle)` | The page index and every page's saved state, for the Activity's `onSaveInstanceState` / `onCreate` (call `restoreState` before or after `setAdapter`). Android saves these through the view hierarchy; there is none here. |
+
+An embedded panel has no room for the page beside the current one, so this pager keeps exactly one page alive: a turn removes the outgoing fragment (`onPause` … `onDestroyView` … `onDetach`; its `onSaveInstanceState` Bundle kept by the adapter under its item id, its widgets freed) and creates the incoming one (`onAttach` … `onStart`, then `onResume` once it is the page on screen), over three main-thread ticks so no single tick carries the whole turn. When that page comes back, `createFragment` makes a new instance and the Bundle returns through `setInitialSavedState`. There is no scroller: `smoothScroll` is a fade of the incoming page (180 ms), and the outgoing page is gone a tick before it appears. A page that builds its views over several ticks, as `claudeusage`'s do, turns with `setCurrentItem(i, false)` and fades its own root once painted. Page fragments are not saved with the Activity's other fragments (the manager cannot place them again); `saveState()` carries them, so call it from `onSaveInstanceState`.
+
+Not provided: page transformers, fake drags, item decorations, `RecyclerView.Adapter`, the `(Fragment)` adapter constructor (no child fragment managers), `android:orientation` in XML. A swipe that starts on a clickable child (a `Button`, a `ListView`) stays with that child.
+
+See [`examples/pagerdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/pagerdemo) (three pages, a dots row, the states across `recreate()` and a reclaim) and [`examples/claudeusage/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/claudeusage) (four screens on a four-button board).
 
 ### `picodroid.widget.Toast`
 

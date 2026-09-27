@@ -1,6 +1,6 @@
 # Roadmap: `claudeusage` toward Android shape
 
-**Status: round 1 landed 2026-09-22 (app-only, no SDK change); SDK asks 1, 2, 3 and 8 landed 2026-09-24 and the app uses them (items 10, 16, 44 and the chrome flattening); ask 5 (`Canvas`) landed 2026-09-26 (item 18); 4, 6 and 7 open. D4 (page-turn stalls) closed 2026-09-25, see the gaps roadmap.**
+**Status: round 1 landed 2026-09-22 (app-only, no SDK change); SDK asks 1, 2, 3 and 8 landed 2026-09-24 and the app uses them (items 10, 16, 44 and the chrome flattening); ask 5 (`Canvas`) landed 2026-09-26 (item 18); item 1 (Fragments in a `ViewPager2`) closed 2026-09-27; 4 and 7 open. D4 (page-turn stalls) closed 2026-09-25, see the gaps roadmap.**
 
 `examples/claudeusage` is a four-screen desk display (Limits, Models, Burn rate, History) for a
 Pico 2 W with a Pimoroni Display Pack 2.0. The project goal is that a picodroid app reads like the
@@ -22,11 +22,11 @@ The last column says what round 1 did: **closed**, **kept** (with the reason), o
 
 | # | Deviation | Tag | Round 1 |
 |---|---|---|---|
-| 1 | One Activity with hand-rolled `Page` objects swapped in a `FrameLayout`, where Android would use Fragments in a `ViewPager2` or the Navigation component. | SDK-forced (no Fragment) | open |
+| 1 | One Activity with hand-rolled `Page` objects swapped in a `FrameLayout`, where Android would use Fragments in a `ViewPager2` or the Navigation component. | SDK-forced (no Fragment) | **closed** 2026-09-27: `picodroid.app.Fragment` and `picodroid.widget.ViewPager2` landed ([`fragments-2026-09.md`](fragments-2026-09.md)); the four screens are `UsagePage extends Fragment` subclasses in a `<ViewPager2>` inside `page_host`, made by `UsagePagerAdapter extends FragmentStateAdapter`, the dots row driven by `OnPageChangeCallback.onPageSelected`, and the status screen a fragment `replace()`d into `page_host` over the pager. The pager keeps one page alive and hands the outgoing page's state to the adapter, which is what `discardPage()` did by hand; the prebuilt page is gone, since the pager's first page is always built underneath the status screen. |
 | 2 | `Application.onCreate` called `startActivity(new Intent(MainActivity.class))`; Android declares the launcher Activity in the manifest. | App choice | **closed**: `PicodroidManifest.xml` declares `activity="claudeusage/ui/MainActivity"`; `ClaudeUsageApp` is gone. The boot path ignores `activity=` when `application=` is present, so an app cannot have both. |
 | 3 | Theme colours set by assigning `picodroid.graphics.Theme` static fields. | SDK-shape | kept: now done in `MainActivity.onCreate` from `res/values/colors.xml` before any view exists. |
-| 4 | A page's view tree is built a few views per main-thread post, with a build token to survive a page turn mid-build. Android inflates synchronously. | App choice | kept: one page in one tick overran the slow-handler budget on the RP2350. |
-| 5 | `catch (OutOfMemoryError \| RuntimeException)` around view building, retrying next tick. | App choice | kept: same reason; a half-built page would otherwise stay invisible. |
+| 4 | A page's view tree is built a few views per main-thread post, with a build token to survive a page turn mid-build. Android inflates synchronously. | App choice | kept: one page in one tick overran the slow-handler budget on the RP2350. *2026-09-27:* now inside each Fragment: `onCreateView` returns the page's empty root at once and `onViewCreated` starts the `buildNext` chain, each post guarded by `isAdded()` and `getView()` (the Android idiom for work posted from a fragment) in place of the build token. |
+| 5 | `catch (OutOfMemoryError \| RuntimeException)` around view building, retrying next tick. | App choice | kept: same reason; a half-built page would otherwise stay invisible. *2026-09-27:* in `UsagePage`, which empties its root and rebuilds on the service's next tick. |
 | 6 | Lifecycle overrides declared `public`; Android's are `protected`. | SDK-shape | kept |
 | 7 | `getDisplay()` called in `onCreate` with the result discarded. | App choice | **closed**: removed. |
 | 8 | `onBackPressed()` overridden to a no-op instead of an `OnBackPressedCallback`; also unreachable because `onKey` consumes BACK first. | SDK-forced (no dispatcher) | kept as a guard: if the key catcher ever loses focus BACK would otherwise `finish()` the appliance. |
@@ -116,7 +116,8 @@ The last column says what round 1 did: **closed**, **kept** (with the reason), o
   the layout compiler does not express (no margins, no `translationX`). (Inflated
   `LinearLayout`s also carried the theme's 2 px border and padding until 2026-09-24, which every
   container in this app stripped; they are flat now.) The chrome is small enough to inflate in
-  one go; the pages are not.
+  one go; the pages are not. *2026-09-27:* the pager is in the XML (`<ViewPager2>` inside
+  `page_host`); the pages are still built in code, for the same reason.
 - **`ViewModel` / `LiveData`.** None in the SDK. The `Service` plus `Listener` pair is the nearest
   shape the SDK offers.
 - **A settings screen for the bridge address.** Four buttons and no keyboard widget make typing
@@ -143,6 +144,10 @@ Ordered by how much Android shape each would buy back here.
 7. A `BuildConfig` block (item 43; gaps G7).
 8. ~~`java.time` or at least `DateFormat`/`DateUtils` (item 44).~~ Shipped 2026-09-24 as a
    port of the JDK classes (fixed-offset zones only).
+9. ~~`Fragment` and a `ViewPager2` (item 1).~~ Shipped 2026-09-27: `picodroid.app.Fragment`,
+   `FragmentManager`, `FragmentTransaction`, `FragmentFactory` and `picodroid.widget.ViewPager2`,
+   `FragmentStateAdapter`, `<ViewPager2>` in layouts; see
+   [`fragments-2026-09.md`](fragments-2026-09.md).
 
 ## Found on the way: resolution-cache growth (runtime, not app; fixed 2026-09-23)
 

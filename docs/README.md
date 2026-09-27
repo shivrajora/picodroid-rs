@@ -119,6 +119,7 @@ Already built. Read these to understand the code, not to re-execute them.
 |---|---|
 | [designs/band-height-120-2026-09.md](designs/band-height-120-2026-09.md) | 2026-09-12. Taller draw bands on the touch board, with the measurement recipe in §6. Reshaped the same day by the async flush: the board spends the same bytes on two 60-row buffers. |
 | [designs/canvas-2026-09.md](designs/canvas-2026-09.md) | 2026-09-26. `View.onDraw(Canvas)` as a retained display list replayed from LVGL's draw event: no pixel buffer, every board. Why not `lv_canvas` or `lv_chart`, and the LVGL-pool hang found on the way. |
+| [designs/fragments-2026-09.md](designs/fragments-2026-09.md) | 2026-09-27. `picodroid.app.Fragment` / `FragmentManager` / `FragmentTransaction` driven from the Activity's trampolines, pure Java, and `ViewPager2` + `FragmentStateAdapter` over them with one page alive at a time; why Android added fragments and how each reason holds on a panel; what differs (views freed on `onDestroyView`, a `FragmentFactory` in place of reflection); `claudeusage`'s four pages moved onto it. |
 
 ### Networking
 

@@ -139,6 +139,11 @@ picodroid/app/AlertDialog
 picodroid/app/AlertDialog$1
 picodroid/app/AlertDialog$Builder
 picodroid/app/Application
+picodroid/app/Fragment
+picodroid/app/FragmentFactory
+picodroid/app/FragmentManager
+picodroid/app/FragmentManager$OnBackStackChangedListener
+picodroid/app/FragmentTransaction
 picodroid/app/Notification
 picodroid/app/Notification$Builder
 picodroid/app/NotificationManager
@@ -309,6 +314,7 @@ picodroid/widget/CompoundButton$OnCheckedChangeListener
 picodroid/widget/DatePicker
 picodroid/widget/DatePicker$OnDateChangedListener
 picodroid/widget/EditText
+picodroid/widget/FragmentStateAdapter
 picodroid/widget/FrameLayout
 picodroid/widget/FrameLayout$LayoutParams
 picodroid/widget/ImageView
@@ -337,3 +343,5 @@ picodroid/widget/TimePicker
 picodroid/widget/TimePicker$OnTimeChangedListener
 picodroid/widget/Toast
 picodroid/widget/ToggleButton
+picodroid/widget/ViewPager2
+picodroid/widget/ViewPager2$OnPageChangeCallback

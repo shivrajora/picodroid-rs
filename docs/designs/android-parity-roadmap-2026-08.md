@@ -840,3 +840,15 @@ is no buffer and it ships on every board. It does not need E2 either: `onDraw` r
 main-executor task that `invalidate()` posts, not as an upcall from the renderer. The concrete
 demand was `claudeusage`'s two charts (G4). Design, costs and what is left out:
 [`canvas-2026-09.md`](canvas-2026-09.md).
+
+## Amendment 2026-09-27 — `Fragment` and `ViewPager2` landed
+
+"`Fragment` before the resource system" (Not doing, above) is retired: T3.2 (A)–(C) gave
+fragments layouts and ids on 2026-09-19, and the first app that needed them was `claudeusage`
+(row 1 of `claudeusage-android-shape-2026-09.md`, four hand-rolled pages in a `FrameLayout`).
+Landed as pure Java in `picodroid.app` (`Fragment`, `FragmentManager`, `FragmentTransaction`,
+`FragmentFactory`) driven from `Activity`'s `perform*` trampolines, and `picodroid.widget`
+(`ViewPager2`, `FragmentStateAdapter`) over them, with `<ViewPager2>` as layout class 18. Cost
+class **S**, RP2350 boards only (`testbench_rp2040` excludes the six classes; `Activity` resolves
+the manager lazily). Design, deviations and measurements:
+[`fragments-2026-09.md`](fragments-2026-09.md).
