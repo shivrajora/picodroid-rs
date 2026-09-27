@@ -232,6 +232,8 @@ public class LayoutInflater {
         return new ListView(mContext);
       case 17: // CLASS_CIRCULAR_PROGRESS_INDICATOR
         return new CircularProgressIndicator(mContext);
+      case 18: // CLASS_VIEW_PAGER2
+        return new picodroid.widget.ViewPager2(mContext);
       default:
         // A layout compiled for a newer framework than this one.
         throw new InflateException("unknown view class code " + cls);

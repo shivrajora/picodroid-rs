@@ -544,6 +544,13 @@ fn sample_native_heap() -> NativeHeapSample {
 /// against 48, a style entry 16 against 8). Printing it beside the arena is
 /// what makes that divergence measurable. UI task only, like the sampler.
 fn sample_lvgl_pool() -> (u32, u32) {
+    // A plain main-class app (helloworld, gcstress, benchmark) never brings
+    // LVGL up, and `lv_mem_monitor` divides by the pool's total size — zero
+    // without `lv_init` (SIGFPE in the final snapshot, nightly mem-diag row
+    // 2026-09-25..27). No pool: nothing to sample.
+    if !crate::graphics::lvgl::is_initialized() {
+        return (0, 0);
+    }
     let (free, total) = crate::graphics::lvgl::pool_free_bytes();
     (total.saturating_sub(free) as u32, total as u32)
 }

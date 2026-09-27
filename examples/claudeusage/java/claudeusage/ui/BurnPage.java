@@ -5,14 +5,14 @@ import claudeusage.R;
 import claudeusage.data.UsageService;
 import claudeusage.data.UsageSnapshot;
 import claudeusage.util.TimeFormat;
-import picodroid.content.Context;
+import picodroid.os.Bundle;
 import picodroid.view.Gravity;
 import picodroid.widget.FrameLayout;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
 
 /** How fast the session is filling, when it would run out, and the last hour's trend. */
-final class BurnPage extends Page {
+final class BurnPage extends UsagePage {
   private static final int CARD_HEIGHT = 92;
   private static final int BARS = UsageService.TREND_SLOTS;
 
@@ -43,23 +43,24 @@ final class BurnPage extends Page {
   private Line now;
   private TrendChart chart;
 
-  private final String noLiveData;
-  private final String limitReached;
-  private final String idle;
-  private final String resetsFirst;
-  private final String limitIn;
-  private final String resetsIn;
-  private final String nowFmt;
+  private String noLiveData;
+  private String limitReached;
+  private String idle;
+  private String resetsFirst;
+  private String limitIn;
+  private String resetsIn;
+  private String nowFmt;
 
-  BurnPage(Context ctx, Palette palette) {
-    super(ctx, palette);
-    noLiveData = ctx.getString(R.string.burn_no_live_data);
-    limitReached = ctx.getString(R.string.burn_limit_reached);
-    idle = ctx.getString(R.string.burn_idle);
-    resetsFirst = ctx.getString(R.string.burn_resets_first);
-    limitIn = ctx.getString(R.string.burn_limit_in);
-    resetsIn = ctx.getString(R.string.resets_in);
-    nowFmt = ctx.getString(R.string.burn_now);
+  @Override
+  public void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
+    noLiveData = getString(R.string.burn_no_live_data);
+    limitReached = getString(R.string.burn_limit_reached);
+    idle = getString(R.string.burn_idle);
+    resetsFirst = getString(R.string.burn_resets_first);
+    limitIn = getString(R.string.burn_limit_in);
+    resetsIn = getString(R.string.resets_in);
+    nowFmt = getString(R.string.burn_now);
   }
 
   @Override

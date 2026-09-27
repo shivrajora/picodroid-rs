@@ -243,7 +243,29 @@ run_test() {
   if [[ -n "$fifo" ]]; then
     drive_test_ctrl "$ctrl_file" "$fifo" "$log_file" "$pid" "$timeout" || true
   fi
-  wait "$pid" || exit_code=$?
+  # term/sim/net rows are "killed once patterns match" (hil-tests.conf header,
+  # and what hil-run does): an Activity app has no reason to leave its event
+  # loop, so ellipsizedemo, mainhog, picoclock and claudeusage sat in it until
+  # the timeout every night. Until 2026-09-26 `if ! timeout …; then
+  # exit_code=$?` recorded 0 for that (the `!` had already succeeded) and the
+  # rows passed by accident; the honest exit code made them ERROR. Poll the log
+  # instead; a second's grace lets a crash that follows the token land in it.
+  if [[ "$category" != "loop" ]]; then
+    while kill -0 "$pid" 2>/dev/null; do
+      if check_patterns "$log_file" "$patterns" > /dev/null 2>&1; then
+        sleep 1
+        if kill -0 "$pid" 2>/dev/null; then
+          sim_log "  patterns matched; stopping the app"
+          kill "$pid" 2>/dev/null || true
+          wait "$pid" 2>/dev/null || true
+          exit_code=0
+        fi
+        break
+      fi
+      sleep 0.5
+    done
+  fi
+  wait "$pid" 2>/dev/null || exit_code=$?
   [[ -n "$fifo" ]] && rm -f "$fifo"
 
   # Non-loop tests must complete within their timeout; exit 124 there means

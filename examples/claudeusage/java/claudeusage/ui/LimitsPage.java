@@ -4,19 +4,14 @@ package claudeusage.ui;
 import claudeusage.R;
 import claudeusage.data.UsageService;
 import claudeusage.data.UsageSnapshot;
-import picodroid.content.Context;
 
 /** The home screen: the 5-hour session and the weekly cap, as two ring gauges side by side. */
-final class LimitsPage extends Page {
+final class LimitsPage extends UsagePage {
   private static final long SESSION_SECONDS = 5L * 3600L;
   private static final long WEEK_SECONDS = 7L * 86_400L;
 
   private LimitCard session;
   private LimitCard weekly;
-
-  LimitsPage(Context ctx, Palette palette) {
-    super(ctx, palette);
-  }
 
   @Override
   int titleRes() {

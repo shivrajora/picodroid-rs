@@ -1,0 +1,10 @@
+# Control-channel script for this app's sim row (sim-run.sh::run_test, sim
+# rows only). The row runs with no bridge, so the status screen is what shows;
+# B (next page) twice on it must leave the pager where it is and throw
+# nothing, and the row's last pattern (the first fetch classified) must still
+# arrive afterwards. `wait <regex>` blocks until the log matches; every other
+# line goes to the simulator's control channel as typed (`pdb input` on
+# hardware).
+wait ClaudeUsage[]:] page -> Claude usage
+input keyevent 20
+input keyevent 20

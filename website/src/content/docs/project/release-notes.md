@@ -7,6 +7,22 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**Fragments and ViewPager2 (2026-09-27; unshrunk until the next map cut)**
+
+- `picodroid.app.Fragment`, `FragmentManager`, `FragmentTransaction` and `FragmentFactory`, the
+  shape of `androidx.fragment.app`: `getSupportFragmentManager().beginTransaction().replace(
+  R.id.container, new DetailFragment()).addToBackStack(null).commit()`, Android's callbacks in
+  Android's order driven by the host Activity, hide/show, detach/attach, a back stack that BACK
+  pops before `finish()`, and the fragments' state saved with the Activity's. Pure Java, on every
+  RP2350 board (the RP2040 testbench leaves the classes out). Two things differ, both forced by
+  the panel: a view given up in `onDestroyView` is freed at once, and after a re-creation the
+  fragments come back only through a `FragmentFactory` the app sets before `super.onCreate`
+  (there is no reflection). See [Fragments](/api/ui/#picodroidappfragment).
+- `picodroid.widget.ViewPager2` and `FragmentStateAdapter`, `<ViewPager2>` in layouts: one page
+  of fragments alive at a time, the outgoing page freed before the incoming one is built, its
+  state kept as a Bundle; `smoothScroll` is a fade, a swipe turns the page, keys call
+  `setCurrentItem`. `claudeusage`'s four screens are now fragments in one.
+
 **HTTPS (2026-09-27; unshrunk until the next map cut)**
 
 - `https` URLs work: `URL.openConnection()` returns a `picodroid.net.ssl.HttpsURLConnection`

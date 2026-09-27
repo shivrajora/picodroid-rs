@@ -30,16 +30,54 @@ public class Activity extends Context implements KeyEvent.Callback {
   private KeyEvent.DispatcherState mKeyDispatchState;
 
   /**
+   * This Activity's fragments, created on the first {@link #getSupportFragmentManager}. Left null
+   * until then so an app that never touches fragments never resolves the class: boards short of
+   * flash leave the fragment classes out of the framework.
+   */
+  private FragmentManager mFragments;
+
+  /**
+   * Where this Activity is in its lifecycle, as a {@link Fragment} state constant, so a manager
+   * created late (in {@code onResume}, say) starts at the host's state as Android's does.
+   */
+  private int mFragmentHostState;
+
+  /**
+   * Mirrors {@code androidx.fragment.app.FragmentActivity#getSupportFragmentManager()}: the manager
+   * that hosts this Activity's {@link Fragment}s.
+   */
+  public FragmentManager getSupportFragmentManager() {
+    if (mFragments == null) {
+      mFragments = new FragmentManager(this, mFragmentHostState);
+    }
+    return mFragments;
+  }
+
+  /**
    * Called when the Activity is starting. Build the UI tree here. Mirrors {@code
-   * android.app.Activity#onCreate(Bundle)}.
+   * android.app.Activity#onCreate(Bundle)}. Call {@code super.onCreate} first, as on Android: it
+   * restores the fragments the previous instance had (through the {@link FragmentFactory} set
+   * before the call) and creates them.
    *
    * @param savedInstanceState the Bundle this Activity's previous instance filled in {@link
    *     #onSaveInstanceState} when the framework is re-creating it (see {@link #recreate}), else
    *     {@code null} — a fresh launch.
    */
   protected void onCreate(Bundle savedInstanceState) {
-    // Subclass overrides
+    mFragmentHostState = Fragment.CREATED;
+    if (savedInstanceState != null) {
+      Bundle fragments = savedInstanceState.getBundle(FRAGMENTS_TAG);
+      if (fragments != null) {
+        getSupportFragmentManager().restoreSaveState(fragments);
+      }
+    }
+    if (mFragments != null) {
+      mFragments.dispatchCreate();
+    }
   }
+
+  /** The key the fragments' state sits under in the saved Bundle; Android's spelling. */
+  private static final String FRAGMENTS_TAG = "android:support:fragments";
 
   /**
    * Called before the framework destroys this Activity in order to re-create it (see {@link
@@ -79,12 +117,27 @@ public class Activity extends Context implements KeyEvent.Callback {
   // it misses an override on an app's base Activity) and blind to descriptors, where an
   // invokevirtual from here walks the hierarchy and matches the signature.
 
+  // The fragment dispatches sit where androidx's FragmentActivity puts them relative to an
+  // override that calls super first: created inside onCreate (see there), started before onStart,
+  // resumed after onResume (Android's onPostResume), paused, stopped and destroyed before the
+  // matching callback. Each is skipped while the Activity has no manager.
+
   final void performCreate(Bundle savedInstanceState) {
     onCreate(savedInstanceState);
+    mFragmentHostState = Fragment.CREATED;
+    if (mFragments != null) {
+      mFragments.dispatchCreate(); // idempotent; covers an override that skipped super.onCreate
+    }
   }
 
   final void performSaveInstanceState(Bundle outState) {
     onSaveInstanceState(outState);
+    if (mFragments != null) {
+      Bundle fragments = mFragments.saveAllState();
+      if (fragments != null) {
+        outState.putBundle(FRAGMENTS_TAG, fragments);
+      }
+    }
   }
 
   final void performRestoreInstanceState(Bundle savedInstanceState) {
@@ -92,11 +145,19 @@ public class Activity extends Context implements KeyEvent.Callback {
   }
 
   final void performStart() {
+    mFragmentHostState = Fragment.STARTED;
+    if (mFragments != null) {
+      mFragments.dispatchStart();
+    }
     onStart();
   }
 
   final void performResume() {
     onResume();
+    mFragmentHostState = Fragment.RESUMED;
+    if (mFragments != null) {
+      mFragments.dispatchResume();
+    }
   }
 
   final void performRestart() {
@@ -104,14 +165,26 @@ public class Activity extends Context implements KeyEvent.Callback {
   }
 
   final void performPause() {
+    mFragmentHostState = Fragment.STARTED;
+    if (mFragments != null) {
+      mFragments.dispatchPause();
+    }
     onPause();
   }
 
   final void performStop() {
+    mFragmentHostState = Fragment.VIEW_CREATED;
+    if (mFragments != null) {
+      mFragments.dispatchStop();
+    }
     onStop();
   }
 
   final void performDestroy() {
+    mFragmentHostState = Fragment.INITIALIZING;
+    if (mFragments != null) {
+      mFragments.dispatchDestroy();
+    }
     onDestroy();
   }
 
@@ -234,10 +307,14 @@ public class Activity extends Context implements KeyEvent.Callback {
   }
 
   /**
-   * Default BACK-key handler: finishes this Activity. Override and *don't* call super to suppress
-   * (e.g. show a confirm dialog instead).
+   * Default BACK-key handler: pops the fragment back stack if it has an entry, else finishes this
+   * Activity, as {@code FragmentActivity} does. Override and *don't* call super to suppress (e.g.
+   * show a confirm dialog instead).
    */
   public void onBackPressed() {
+    if (mFragments != null && mFragments.popBackStackImmediate()) {
+      return;
+    }
     finish();
   }
 

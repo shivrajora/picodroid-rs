@@ -1,0 +1,11 @@
+# Control-channel script for this app's sim row (sim-run.sh::run_test, sim
+# rows only): two BACK presses, each once the app says it is ready for one.
+# `wait <regex>` blocks until the log matches; every other line goes to the
+# simulator's control channel as typed, the verbs `pdb input` takes on hardware.
+# The first BACK pops the fragment back stack inside the first Activity
+# instance (the default onBackPressed, which must not finish the Activity);
+# the second pops the back stack the re-created instance restored.
+wait FragmentDemo[]:] ready for back 1
+input back
+wait FragmentDemo[]:] ready for back 2
+input back

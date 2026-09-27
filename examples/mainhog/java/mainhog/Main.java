@@ -21,12 +21,16 @@ import picodroid.util.Log;
  *
  * <p>Here a Runnable re-posts itself for {@link #HOG_MS}, so the queue is never empty, while a
  * child thread counts 1 ms sleeps; it then counts them again through an equally long window with
- * the main thread idle, and the hogged count must reach a quarter of the idle one. Passes on the
- * device's SMP kernel by construction (a woken equal-priority task preempts the giver there). In
- * the simulator it pins the run lock's hand-off: the giver yields after every give, so a sibling
- * that is ready — woken from a sleep and not yet at the mutex, which a waiter-only hand-off would
- * miss — runs and takes the lock first. Measured on the host simulator, 2 s hog: 1890 hogged sleeps
- * against 1893 idle with the hand-off, 42 to 73 without it.
+ * the main thread idle, and the hogged count must reach an eighth of the idle one. Passes on the
+ * device's SMP kernel by construction (a woken equal-priority task preempts the giver there), where
+ * the child gets the lock once per hop: an RP2350 hops ~3,500 times in the 2 s (1,550 to 1,800
+ * hogged sleeps against ~1,850 idle), the RP2040 ~700 (440 to 490 against ~1,850, right on a
+ * quarter — nightly 2026-09-27 read 443/1853). Without the hand-off the simulator gave 42 to 73, so
+ * an eighth still separates the two by a factor of three. In the simulator it pins the run lock's
+ * hand-off: the giver yields after every give, so a sibling that is ready — woken from a sleep and
+ * not yet at the mutex, which a waiter-only hand-off would miss — runs and takes the lock first.
+ * Measured on the host simulator, 2 s hog: 1890 hogged sleeps against 1893 idle with the hand-off,
+ * 42 to 73 without it.
  */
 public class Main extends Activity {
   static final String TAG = "MainHog";
@@ -75,7 +79,7 @@ public class Main extends Activity {
             + " times during the hog, "
             + idle
             + " times in the idle window after it");
-    if (hog >= MIN_CHILD_TICKS && hog * 4 >= idle) {
+    if (hog >= MIN_CHILD_TICKS && hog * 8 >= idle) {
       Log.i(TAG, "PASS child ran during the hog");
     } else {
       Log.i(TAG, "FAIL child starved during the hog");

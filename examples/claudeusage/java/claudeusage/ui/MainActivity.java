@@ -8,6 +8,8 @@ import claudeusage.data.UsageSnapshot;
 import claudeusage.hardware.RgbLed;
 import claudeusage.util.TimeFormat;
 import picodroid.app.Activity;
+import picodroid.app.Fragment;
+import picodroid.app.FragmentManager;
 import picodroid.concurrent.Executors;
 import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
@@ -18,11 +20,14 @@ import picodroid.util.Log;
 import picodroid.view.KeyEvent;
 import picodroid.widget.FrameLayout;
 import picodroid.widget.LinearLayout;
+import picodroid.widget.ViewPager2;
 
 /**
- * The one Activity, declared in the manifest as the entry point. Four screens live in it as pages
- * rather than as Activities of their own: one key handler, one header and footer, and a page switch
- * is a fade instead of a lifecycle. The chrome is {@code res/layout/activity_main.xml}.
+ * The one Activity, declared in the manifest as the entry point. Four screens live in it as
+ * Fragments in a {@link ViewPager2} rather than as Activities of their own: one key handler, one
+ * header and footer, and a page switch is a fragment swap in the pager rather than a lifecycle of
+ * the Activity's own. The status screen, shown while there is no data, is a Fragment laid over the
+ * pager in the same container. The chrome is {@code res/layout/activity_main.xml}.
  *
  * <p>The numbers come from {@link UsageService}, started here so they stay warm and bound while the
  * screen is on. Buttons, with the display landscape (A top-left, B bottom-left, X top-right, Y
@@ -44,7 +49,7 @@ public class MainActivity extends Activity implements UsageService.Listener {
   private static final String TAG = UsageService.TAG;
 
   private static final int PAGE_LIMITS = 0;
-  private static final int PAGE_COUNT = 4;
+  private static final int PAGE_COUNT = UsagePagerAdapter.COUNT;
 
   /**
    * A held A or B turns a page every this many auto-repeats: the first turn at the long-press
@@ -52,11 +57,14 @@ public class MainActivity extends Activity implements UsageService.Listener {
    */
   private static final int PAGE_TURN_REPEATS = 8;
 
-  private static final String STATE_PAGE = "page";
+  private static final String STATE_PAGER = "pager";
   private static final String STATE_AUTO = "auto";
 
   /** AUTO is a setting: it survives a power cycle. */
   private static final String KEY_AUTO = "auto";
+
+  /** The status screen's tag in the fragment manager; the pager's pages are {@code f<index>}. */
+  private static final String TAG_STATUS = "status";
 
   private static final int[] PAGE_DOT_IDS = {
     R.id.page_dot_0, R.id.page_dot_1, R.id.page_dot_2, R.id.page_dot_3
@@ -78,6 +86,19 @@ public class MainActivity extends Activity implements UsageService.Listener {
         }
       };
 
+  /** A page turned: the title, the hint and the dot follow; AUTO's countdown restarts. */
+  private final ViewPager2.OnPageChangeCallback pageCallback =
+      new ViewPager2.OnPageChangeCallback() {
+        @Override
+        public void onPageSelected(int position) {
+          autoSeconds = 0;
+          if (!statusShowing) {
+            Log.i(TAG, "page -> " + pageTitles[position]);
+          }
+          refreshPageChrome();
+        }
+      };
+
   /** Null until the Service is bound; every callback that reads it arrives after that. */
   private UsageService repo;
 
@@ -86,7 +107,8 @@ public class MainActivity extends Activity implements UsageService.Listener {
   private int fadeMs;
   private RgbLed led;
 
-  private FrameLayout pageHost;
+  private ViewPager2 pager;
+  private UsagePagerAdapter adapter;
   private Line title;
   private Line plan;
   private Line clock;
@@ -95,6 +117,8 @@ public class MainActivity extends Activity implements UsageService.Listener {
   private Line banner;
   private FrameLayout statusDot;
   private final FrameLayout[] pageDots = new FrameLayout[PAGE_COUNT];
+  private final String[] pageTitles = new String[PAGE_COUNT];
+  private String statusTitle;
   private int shownStatusColor;
   private int shownPageDot = -1;
   private String hintAuto;
@@ -106,22 +130,12 @@ public class MainActivity extends Activity implements UsageService.Listener {
   private String bannerUpdated;
   private String bannerStale;
 
-  private Page page;
+  /** Whether the status screen is laid over the pager (no data yet). */
+  private boolean statusShowing;
 
-  /** A data screen built behind the status screen, ahead of the first data; see prebuildPage. */
-  private Page prebuilt;
-
-  private int prebuiltIndex;
-  private boolean pageBuilt;
   private boolean pageUpdatePending;
   private boolean dotsPending;
-  private UsageSnapshot updatedSnapshot;
-  private boolean updatedFresh;
-  private long updatedMinute = -1;
-  private boolean pageIsStatus;
-  private int pageIndex = PAGE_LIMITS;
-  private int buildToken;
-  private int builtToken;
+  private boolean chromeWarmed;
   private boolean auto;
   private int autoSeconds;
   private boolean destroyed;
@@ -143,17 +157,26 @@ public class MainActivity extends Activity implements UsageService.Listener {
     bannerAuto = getString(R.string.banner_auto);
     bannerUpdated = getString(R.string.banner_updated);
     bannerStale = getString(R.string.banner_stale);
+    for (int i = 0; i < PAGE_COUNT; i++) {
+      pageTitles[i] = getString(UsagePagerAdapter.titleRes(i));
+    }
+    statusTitle = getString(R.string.page_status);
     led = RgbLed.open();
 
     setContentView(R.layout.activity_main);
     bindChrome();
 
     if (savedInstanceState != null) {
-      pageIndex = savedInstanceState.getInt(STATE_PAGE, PAGE_LIMITS);
+      pager.restoreState(savedInstanceState.getBundle(STATE_PAGER));
       auto = savedInstanceState.getBoolean(STATE_AUTO, false);
     } else {
       auto = getSharedPreferences(UsageService.PREFS, MODE_PRIVATE).getBoolean(KEY_AUTO, false);
     }
+    // The first page builds behind the status screen while the board waits for WiFi and the
+    // first fetch: its one-off costs (loading the page's classes, the cold call sites) are paid in
+    // that idle time, and it paints the moment the data arrives.
+    adapter = new UsagePagerAdapter(this);
+    pager.setAdapter(adapter);
 
     startService(new Intent(UsageService.class));
     Log.i(TAG, "ui ready");
@@ -161,7 +184,9 @@ public class MainActivity extends Activity implements UsageService.Listener {
 
   /** Finds the chrome. */
   private void bindChrome() {
-    pageHost = findViewById(R.id.page_host);
+    pager = findViewById(R.id.pager);
+    pager.setUserInputEnabled(false); // four buttons and no touch panel: keys turn the pages
+    pager.registerOnPageChangeCallback(pageCallback);
 
     title = new Line(findViewById(R.id.title), palette.text);
     plan = new Line(findViewById(R.id.plan), palette.clay);
@@ -178,6 +203,37 @@ public class MainActivity extends Activity implements UsageService.Listener {
     for (int i = 0; i < PAGE_COUNT; i++) {
       pageDots[i] = findViewById(PAGE_DOT_IDS[i]);
       Ui.fill(pageDots[i], palette.track, 3);
+    }
+  }
+
+  // ── What the pages ask of their host ───────────────────────────────────
+
+  Palette palette() {
+    return palette;
+  }
+
+  int fadeMs() {
+    return fadeMs;
+  }
+
+  UsageService repo() {
+    return repo;
+  }
+
+  boolean destroyed() {
+    return destroyed;
+  }
+
+  boolean hasData() {
+    UsageSnapshot s = repo == null ? null : repo.snapshot();
+    return s != null && s.hasLimits();
+  }
+
+  /** The first page is built: warm the chrome's data path while the board is still idle. */
+  void onPageBuilt() {
+    if (!chromeWarmed) {
+      chromeWarmed = true;
+      Executors.mainExecutor().execute(this::warmChrome);
     }
   }
 
@@ -227,7 +283,6 @@ public class MainActivity extends Activity implements UsageService.Listener {
   @Override
   public void onDestroy() {
     destroyed = true;
-    buildToken++;
     led.close();
     super.onDestroy();
   }
@@ -235,7 +290,7 @@ public class MainActivity extends Activity implements UsageService.Listener {
   @Override
   protected void onSaveInstanceState(Bundle outState) {
     super.onSaveInstanceState(outState);
-    outState.putInt(STATE_PAGE, pageIndex);
+    outState.putBundle(STATE_PAGER, pager.saveState());
     outState.putBoolean(STATE_AUTO, auto);
   }
 
@@ -257,7 +312,7 @@ public class MainActivity extends Activity implements UsageService.Listener {
     switch (code) {
       case KeyEvent.KEYCODE_DPAD_UP:
       case KeyEvent.KEYCODE_DPAD_DOWN:
-        if (pageIsStatus) {
+        if (statusShowing) {
           return true; // nothing to page through yet
         }
         if (repeat == 0 || (repeat - 1) % PAGE_TURN_REPEATS == 0) {
@@ -309,10 +364,9 @@ public class MainActivity extends Activity implements UsageService.Listener {
         repo.refreshNow();
         return true;
       case KeyEvent.KEYCODE_BACK:
-        if (!pageIsStatus && pageIndex != PAGE_LIMITS) {
-          pageIndex = PAGE_LIMITS;
+        if (!statusShowing && pager.getCurrentItem() != PAGE_LIMITS) {
           autoSeconds = 0; // home restarts the AUTO countdown, as a turn does
-          showPage();
+          pager.setCurrentItem(PAGE_LIMITS, false);
         }
         return true;
       default:
@@ -342,196 +396,48 @@ public class MainActivity extends Activity implements UsageService.Listener {
                     .apply());
   }
 
+  /**
+   * Turns the pager by {@code by} pages, wrapping (the pager itself does not). The pager replaces
+   * the page over its own ticks and the page fades itself in once painted, so the turn asks for no
+   * scroll animation.
+   */
   private void turnPage(int by) {
-    pageIndex = (pageIndex + by + PAGE_COUNT) % PAGE_COUNT;
     autoSeconds = 0;
-    showPage();
+    pager.setCurrentItem((pager.getCurrentItem() + by + PAGE_COUNT) % PAGE_COUNT, false);
   }
 
   // ── Pages ──────────────────────────────────────────────────────────────────
 
-  private boolean hasData() {
-    UsageSnapshot s = repo == null ? null : repo.snapshot();
-    return s != null && s.hasLimits();
-  }
-
   /**
-   * Replaces the page over several UI ticks: tearing down the old tree, repainting the chrome and
-   * starting the new page each cost the RP2350 tens of milliseconds, and together in one tick they
-   * overran the slow-handler budget on every page turn.
+   * Lays the status screen over the pager while there has never been any data, and takes it away
+   * once there is: a fragment {@code replace} into the pager's container, committed on a tick of
+   * its own as the old page swap was.
    */
-  private void showPage() {
-    final int token = ++buildToken;
-    pageBuilt = false;
-    Executors.mainExecutor().execute(() -> replacePage(token));
-  }
-
-  private void replacePage(int token) {
-    if (token != buildToken || destroyed) {
+  private void syncStatus() {
+    boolean wantStatus = !hasData();
+    if (wantStatus == statusShowing) {
       return;
     }
-    discardPage();
-    Executors.mainExecutor().execute(() -> startPage(token));
-  }
-
-  private void startPage(int token) {
-    if (token != buildToken || destroyed || repo == null) {
-      return;
-    }
-    pageIsStatus = !hasData();
-    builtToken = token;
-    if (!pageIsStatus && prebuilt != null && prebuiltIndex == pageIndex) {
-      // Built, or part-built, behind the status screen; already in the host, invisible.
-      page = prebuilt;
-      prebuilt = null;
+    statusShowing = wantStatus;
+    FragmentManager fm = getSupportFragmentManager();
+    if (wantStatus) {
+      fm.beginTransaction().replace(R.id.page_host, new StatusPage(), TAG_STATUS).commit();
+      Log.i(TAG, "page -> " + statusTitle);
     } else {
-      if (!pageIsStatus) {
-        discardPrebuilt();
+      Fragment status = fm.findFragmentByTag(TAG_STATUS);
+      if (status != null) {
+        fm.beginTransaction().remove(status).commit();
       }
-      page = pageIsStatus ? new StatusPage(this, palette) : create(pageIndex);
-      page.root.setAlpha(0f);
-      pageHost.addView(page.root);
+      Log.i(TAG, "page -> " + pageTitles[pager.getCurrentItem()]);
     }
-    // Constructing a page resolves its strings; the chrome repaint takes the next tick.
-    Executors.mainExecutor().execute(() -> announcePage(token));
+    refreshPageChrome();
   }
 
-  private void announcePage(int token) {
-    if (token != buildToken || destroyed || page == null) {
-      return;
-    }
-    Log.i(TAG, "page -> " + page.title);
-    Executors.mainExecutor().execute(() -> continueBuild(token));
-  }
-
-  /**
-   * removeView, not close(): close() frees the widget but leaves the view in the parent's child
-   * list, and the whole page tree then stays reachable for as long as the Activity lives.
-   */
-  private void discardPage() {
-    if (page != null) {
-      pageHost.removeView(page.root);
-      page = null;
-    }
-    pageBuilt = false;
-  }
-
-  /** Between showPage() and the new page existing; a failed build leaves no swap in flight. */
-  private boolean swapInFlight() {
-    return buildToken != builtToken;
-  }
-
-  private Page create(int index) {
-    switch (index) {
-      case 1:
-        return new ModelsPage(this, palette);
-      case 2:
-        return new BurnPage(this, palette);
-      case 3:
-        return new HistoryPage(this, palette);
-      default:
-        return new LimitsPage(this, palette);
-    }
-  }
-
-  private void continueBuild(int token) {
-    if (token != buildToken || destroyed || page == null || repo == null) {
-      return; // a newer page took over, or the screen is gone
-    }
-    try {
-      if (page.buildNext()) {
-        Executors.mainExecutor().execute(() -> continueBuild(token));
-        return;
-      }
-      // The first paint takes its own ticks: with the last build step it overran the budget.
-      Executors.mainExecutor().execute(() -> finishPage(token));
-    } catch (OutOfMemoryError | RuntimeException e) {
-      // A half-built page would stay invisible for good. Drop it; the next tick builds it again,
-      // by which time the collector has had a chance to run.
-      Log.w(TAG, "page build failed: " + e);
-      discardPage();
-    }
-  }
-
-  private void finishPage(int token) {
-    if (token != buildToken || destroyed || page == null || repo == null) {
-      return;
-    }
-    try {
-      updatedSnapshot = repo.snapshot();
-      updatedFresh = repo.isFresh();
-      updatedMinute = System.currentTimeMillis() / 60_000L;
-      refreshPageChrome();
-      Executors.mainExecutor().execute(() -> paintPage(token));
-    } catch (OutOfMemoryError | RuntimeException e) {
-      // A half-built page would stay invisible for good. Drop it; the next tick builds it again,
-      // by which time the collector has had a chance to run.
-      Log.w(TAG, "page build failed: " + e);
-      discardPage();
-    }
-  }
-
-  /** The first paint, a part per tick while the page is invisible, then the fade-in. */
-  private void paintPage(int token) {
-    if (token != buildToken || destroyed || page == null || repo == null) {
-      return;
-    }
-    try {
-      if (page.paintNext(repo, System.currentTimeMillis())) {
-        Executors.mainExecutor().execute(() -> paintPage(token));
-        return;
-      }
-      pageBuilt = true;
-      page.root.animate().alpha(1f).setDuration(fadeMs).start();
-      if (pageIsStatus) {
-        prebuildPage();
-      }
-    } catch (OutOfMemoryError | RuntimeException e) {
-      // A half-built page would stay invisible for good. Drop it; the next tick builds it again,
-      // by which time the collector has had a chance to run.
-      Log.w(TAG, "page build failed: " + e);
-      discardPage();
-    }
-  }
-
-  /**
-   * Builds the first data screen behind the status screen, a step per tick, while the board waits
-   * for WiFi and the first fetch. The build's one-off costs (loading the page's classes, the cold
-   * call sites) are paid in that idle time; when the data arrives, {@link #startPage} adopts the
-   * page and only the first paint is left to do.
-   */
-  private void prebuildPage() {
-    if (prebuilt != null || destroyed) {
-      return;
-    }
-    try {
-      prebuilt = create(pageIndex);
-      prebuiltIndex = pageIndex;
-      prebuilt.root.setAlpha(0f);
-      pageHost.addView(prebuilt.root);
-      final Page p = prebuilt;
-      Executors.mainExecutor().execute(() -> prebuildNext(p));
-    } catch (OutOfMemoryError | RuntimeException e) {
-      Log.w(TAG, "prebuild failed: " + e); // the data's arrival builds it the usual way
-      discardPrebuilt();
-    }
-  }
-
-  private void prebuildNext(Page p) {
-    if (destroyed || p != prebuilt) {
-      return; // adopted, or dropped
-    }
-    try {
-      if (p.buildNext()) {
-        Executors.mainExecutor().execute(() -> prebuildNext(p));
-      } else {
-        Log.i(TAG, "prebuilt " + p.title);
-        Executors.mainExecutor().execute(this::warmChrome);
-      }
-    } catch (OutOfMemoryError | RuntimeException e) {
-      Log.w(TAG, "prebuild failed: " + e);
-      discardPrebuilt();
-    }
+  /** The screen the user sees: the status screen, or the pager's current page; null mid-swap. */
+  private UsagePage visiblePage() {
+    FragmentManager fm = getSupportFragmentManager();
+    Fragment f = fm.findFragmentByTag(statusShowing ? TAG_STATUS : "f" + pager.getCurrentItem());
+    return (UsagePage) f;
   }
 
   /**
@@ -554,13 +460,6 @@ public class MainActivity extends Activity implements UsageService.Listener {
     Log.i(TAG, "chrome warm, " + warmed.length() + " chars");
   }
 
-  private void discardPrebuilt() {
-    if (prebuilt != null) {
-      pageHost.removeView(prebuilt.root);
-      prebuilt = null;
-    }
-  }
-
   // ── Service callbacks (main thread) ────────────────────────────────────────
 
   @Override
@@ -573,7 +472,7 @@ public class MainActivity extends Activity implements UsageService.Listener {
     if (repo == null) {
       return;
     }
-    if (auto && !pageIsStatus && repo.isFresh() && ++autoSeconds >= autoPeriod) {
+    if (auto && !statusShowing && repo.isFresh() && ++autoSeconds >= autoPeriod) {
       turnPage(1);
       return;
     }
@@ -583,7 +482,7 @@ public class MainActivity extends Activity implements UsageService.Listener {
     long minute = System.currentTimeMillis() / 60_000L;
     LinkState state = repo.linkState();
     boolean fresh = repo.isFresh();
-    if (pageIsStatus || minute != tickMinute || state != tickState || fresh != tickFresh) {
+    if (statusShowing || minute != tickMinute || state != tickState || fresh != tickFresh) {
       tickMinute = minute;
       tickState = state;
       tickFresh = fresh;
@@ -595,46 +494,35 @@ public class MainActivity extends Activity implements UsageService.Listener {
     if (destroyed || repo == null) {
       return;
     }
-    if ((page == null && !swapInFlight()) || (page != null && pageIsStatus == hasData())) {
-      refreshChrome(); // the page turn itself only repaints the title and dots
-      showPage(); // first data arrived, or the last build failed
-      return;
-    }
+    syncStatus();
     refreshChrome();
-    if (pageBuilt && !pageUpdatePending) {
+    if (!pageUpdatePending) {
       // The chrome (~20 ms on the RP2350) and the page (~30 ms) would overrun the slow-handler
       // budget together, so the page takes the next tick.
       pageUpdatePending = true;
-      final int token = builtToken;
-      Executors.mainExecutor().execute(() -> updatePage(token));
+      Executors.mainExecutor().execute(this::updatePage);
     }
   }
 
-  private void updatePage(int token) {
+  private void updatePage() {
     pageUpdatePending = false;
-    if (destroyed || repo == null || page == null || !pageBuilt || token != buildToken) {
+    if (destroyed || repo == null) {
       return;
     }
-    UsageSnapshot s = repo.snapshot();
-    boolean fresh = repo.isFresh();
-    long now = System.currentTimeMillis();
-    long minute = now / 60_000L;
-    if (s == updatedSnapshot && fresh == updatedFresh && minute == updatedMinute) {
-      return; // everything on the data screens is minute-grained; nothing to repaint
+    UsagePage page = visiblePage();
+    if (page != null) {
+      page.onUsage(repo, System.currentTimeMillis());
     }
-    updatedSnapshot = s;
-    updatedFresh = fresh;
-    updatedMinute = minute;
-    page.update(repo, now);
   }
 
   /** The part of the chrome a page turn changes; cheap enough to share a tick with the turn. */
   private void refreshPageChrome() {
-    title.show(page != null ? page.title : "", palette.text);
+    int current = pager.getCurrentItem();
+    title.show(statusShowing ? statusTitle : pageTitles[current], palette.text);
     homeHint.show(
-        pageIndex == PAGE_LIMITS || pageIsStatus ? hintAuto : hintHome,
-        auto && pageIndex == PAGE_LIMITS ? palette.clay : palette.faint);
-    int activeDot = pageIsStatus ? -1 : pageIndex;
+        current == PAGE_LIMITS || statusShowing ? hintAuto : hintHome,
+        auto && current == PAGE_LIMITS ? palette.clay : palette.faint);
+    int activeDot = statusShowing ? -1 : current;
     if (activeDot != shownPageDot && !dotsPending) {
       // Each fill costs the RP2350 some 4 ms inside the flex row, so the dots take their own tick.
       dotsPending = true;
@@ -647,7 +535,7 @@ public class MainActivity extends Activity implements UsageService.Listener {
     if (destroyed) {
       return;
     }
-    int activeDot = pageIsStatus ? -1 : pageIndex;
+    int activeDot = statusShowing ? -1 : pager.getCurrentItem();
     if (activeDot == shownPageDot) {
       return;
     }
@@ -672,7 +560,7 @@ public class MainActivity extends Activity implements UsageService.Listener {
       planOf = s; // one upper-casing per snapshot, not per refresh
       planText = s == null ? "" : s.plan.toUpperCase();
     }
-    plan.show(!pageIsStatus ? planText : "", palette.clay);
+    plan.show(!statusShowing ? planText : "", palette.clay);
     clock.show(s != null ? TimeFormat.hm(now) : "", palette.muted);
     syncHint.show(hintSync, repo.isSyncing() ? palette.clay : palette.faint);
 
@@ -686,7 +574,7 @@ public class MainActivity extends Activity implements UsageService.Listener {
       shownStatusColor = dot;
     }
 
-    if (pageIsStatus) {
+    if (statusShowing) {
       banner.show("", palette.muted);
     } else if (fresh && state == LinkState.OK) {
       // AUTO is toggled from Limits only, so say it is on wherever the cycle has got to.
