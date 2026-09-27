@@ -200,7 +200,10 @@ fetched from flash, so the fetch itself was measured:
   RAM was paid for by H7, H8 and H9 below (about 28 KB on this board, 15 KB on a board that
   keeps four workers); the display board's arena went from 98 KB free on History to 68 KB
   free after a lap (45 KB lowest ever, measured on the parity build), the touch kit's linked
-  stack headroom from 10 KB to 18 KB. Still open for the runtime: halve the copy by keeping
+  stack headroom from 10 KB to 18 KB. **2026-09-26: the study of what else earns SRAM is
+  `sram-hotpath-2026-09.md`; its option D (the JVM helpers, 101 LVGL and 30 FreeRTOS
+  functions, 38 KB) is on for every RP2350 board (`hot_ram_kb` in board.toml), and what placement
+  cannot fix is the P backlog at the end of this file.** Still open for the runtime: halve the copy by keeping
   the cold handlers (math, convert, arrays, indy, monitors, the exception and GC tails) out
   of line in flash; XIP-cache pinning (op 7 in the maintenance alias, 8-byte lines) as the
   no-RAM alternative, at the cost of one of the two cache ways for the pinned sets.
@@ -740,3 +743,53 @@ stable), the class table.
   240x240.
 - `GradientDrawable` honours the colour's alpha as background opacity (so `0x00000000` gives a
   transparent container), which is useful and undocumented.
+
+## Performance backlog after the SRAM study (P1–P5)
+
+**Status: open (recorded 2026-09-26).** Source: `sram-hotpath-2026-09.md` §6, from a DWT
+PC-sample profile of claudeusage page turns on `pico_display2_w` with every hot set in SRAM
+(option D, landed the same day for this board). These are the costs that remain when the
+fetch problem is solved: each is *how much work* is asked for, not how fast it is fetched, so
+each needs an algorithmic change. Shares are of the CPU time left after option D.
+
+### P1. The fade repaints the whole screen eight times per page turn
+
+`lv_draw_sw_blend_color_to_rgb565_swapped` is 17 % of what is left, executing from RAM at
+full speed. A turn paints the 320×240 screen once blank and eight times for the fade-in
+(`parity-fbhash`: 90–110 bands per turn). Fewer fade steps, or fading only the region that
+changed, is worth more than any further placement. App-level; the fade lives in
+`MainActivity.paintPage`.
+
+### P2. LVGL style lookups
+
+`get_prop_core`, `get_selector_style_prop`, `lv_style_prop_get_default`,
+`lv_obj_get_style_prop_internal`, `lv_style_get_prop_internal`: 12 % of busy before, 7 %
+after, all now from RAM. Every draw and layout pass asks each widget for its padding,
+colours and borders by walking its style list and its parents'. Levers: LVGL's per-object
+style cache (`LV_OBJ_STYLE_CACHE`), or fewer local styles per object in `Ui.box`/`label`
+(each `setPadding` and `GradientDrawable` is a local style entry).
+
+### P3. Name-based lookups on every native call
+
+`find_class` (a hashed linear scan over every loaded class), `cp_utf8`, `core::str::from_utf8`
+(UTF-8 validation of a constant-pool name per call — `names.rs:38`, `native/mod.rs:1180`) and
+`memcmp` together are 5–6 % of busy and unchanged by placement. The answer is fixed per call
+site: cache the class index or the `&str` alongside the resolution tables (D4 built the
+table; the native path does not use it for the class name yet), and skip validation for
+names the class-file parser already checked at load.
+
+### P4. `memcmp` / `memset` / `memcpy` live in flash and cannot be tagged
+
+2.5 % of busy, from `compiler_builtins`. To move them: define the three as strong symbols in
+the platform crate under `#[link_section = ".data"]`, in a module with `#![no_builtins]` so
+the copy loop is not lowered back into a `memcpy` call. About 1.1 KB of RAM. Also benefits
+LVGL's `lv_memcpy`/`lv_memset` only where they forward to the libc names (they do not: LVGL's
+builtins are in the hot list already).
+
+### P5. 64-bit division on every clock read
+
+`u64_div_rem` and `__udivmoddi4` are 1–1.3 %: `now_ms()` divides a nanosecond count by 10⁶ at
+the start and end of every timed span, and `SystemClock` does the same for the app. A
+microsecond counter with milliseconds derived by a 32-bit multiply-and-shift removes the
+software division. The `parity-metrics` build pays this twice as often (the span counters);
+the plain build still pays it per span and per `SystemClock` call.
