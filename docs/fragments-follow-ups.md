@@ -45,7 +45,7 @@ commit, or the accept is measured on the toolchain the baseline used (the `rustc
 D=$(mktemp -d)
 PICODROID_SIZE_RUN_DIR=$D ./scripts/parity-bench.sh --size-only \
   --boards testbench_rp2040,testbench_rp2350
-./scripts/bench-report.py --ratchet --sizes-from "$D" --accept   # rewrites bench/parity/ratchet.toml
+./scripts/bench-report.py --ratchet --sizes-from "$D" --accept   # rewrites ratchet.toml
 ```
 
 committed with a `size: +N B flash on <board>` trailer, on a clean tree (the measurement is of
@@ -85,13 +85,12 @@ nothing when user input is disabled), and no run has exercised it.
 
 ## FR-5: The `claudeusage` row reads TIMED OUT until `sim-run` kills on match
 
-**Status: open, fix pending elsewhere.** Row 262 of `scripts/hil-tests.conf` (`sim`, 60 s,
-`pico_display2_w`) matches all four patterns (`ui ready`, `page -> Claude usage`,
-`discovery: failed`, `state -> …`) but the Activity never exits, and `sim-run.sh` on `main`
-lets the deadline expire and calls that a failure. The fix — stop the app once every pattern has
-matched (`patterns matched; stopping the app`, 24 lines in `sim-run.sh` and 8 in `hil-run.sh`)
-— sits uncommitted in the `nightly-fixes-2026-09-27` worktree under `.claude/worktrees/`. Nothing
-to do here beyond landing that tree; if it is abandoned, port that hunk.
+**Status: closed 2026-09-27.** The `claudeusage` row (`sim`, 60 s, `pico_display2_w`) matches
+all four patterns (`ui ready`, `page -> Claude usage`, `discovery: failed`, `state -> …`) but its
+Activity never exits, and `sim-run.sh` used to let the deadline expire and call that a failure.
+`d8339e1e` (the 2026-09-27 nightly fixes, merged as `f6f9aee6` while this backlog was being
+written) stops a row's app once every pattern has matched (`patterns matched; stopping the
+app`); re-run on that tree, the row is PASS in both shrink modes.
 
 ## FR-6: `./scripts/test.sh` does not compile on `main`
 
@@ -122,19 +121,22 @@ run with `cargo test -p` directly).
 
 ## FR-7: A thread sleeping across an Activity reclaim dies with `InvalidReference`
 
-**Status: open, JVM.** Found writing `fragmentdemo`: a covering Activity whose `onResume`
-started a `picodroid.concurrent.Thread` that slept 150 ms and then posted `finish()` to the main
-executor (the `qa_life` `T.later` helper) never finished; the log ended with
+**Status: closed 2026-09-27, by `d8339e1e` as far as the repro shows.** Found writing
+`fragmentdemo` on `f1803997`: a covering Activity whose `onResume` started a
+`picodroid.concurrent.Thread` that slept 150 ms and then posted `finish()` to the main executor
+(the `qa_life` `T.later` helper) never finished; the log ended with
 `Thread.start: picodroid/concurrent/Thread left the interpreter: InvalidReference` right after
-the covered Activity was reclaimed under `PICODROID_DONT_KEEP_ACTIVITIES=1`. The same helper
-works when no reclaim happens mid-sleep. Not root-caused: it looks like the parked thread's
-captured references (the lambda, the Activity) not surviving what the reclaim path frees or
-collects. To reproduce, put that thread back into `fragmentdemo`'s `SecondActivity.onResume`
-in place of its `finish()`. Where to start: the parked-frame rooting in
-[designs/jvm-run-lock-2026-09.md](designs/jvm-run-lock-2026-09.md). Until then, delay work that
-crosses a reclaim with `Executors.newSingleThreadScheduledExecutor().schedule(...)` (the
-main-thread deadline table) or finish the covering Activity from `onResume`, as `reclaimdemo`
-does.
+the covered Activity was reclaimed under `PICODROID_DONT_KEEP_ACTIVITIES=1`, and the same helper
+worked when no reclaim happened mid-sleep. The demos were written around it (a
+`ScheduledExecutorService`, or `finish()` straight from `onResume` as `reclaimdemo` does). Put
+back into `SecondActivity.onResume` on the merged tree, the thread runs to its `finish()` (the
+Activity round trip took 219 ms, against 54–67 ms with an immediate `finish()`) and the
+`fragmentdemo` row passes in both shrink modes with no such line. `d8339e1e`'s thread-slot fix
+fits the shape: a finished thread's freed slot was the next one `Thread.start` handed out, and
+the first thread's trailing cleanup then took the newcomer's entry — a timer thread ending
+while the reclaim's own thread traffic reuses slots is exactly that. If the line comes back,
+start there (`crates/picodroid-core/src/threads.rs`, `terminate_by_obj`), then the parked-frame
+rooting in [designs/jvm-run-lock-2026-09.md](designs/jvm-run-lock-2026-09.md).
 
 ## FR-8: The hardware run and the budget checks
 
