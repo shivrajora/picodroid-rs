@@ -568,7 +568,6 @@ impl<'a> Cursor<'a> {
 /// the `bcmp` call they replace.
 #[inline(never)]
 #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
-#[cfg_attr(feature = "hot-in-ram", inline(never))]
 pub const fn name_hash(name: &[u8]) -> u32 {
     let mut h: u32 = 0x811c_9dc5;
     let mut i = 0;
@@ -586,7 +585,6 @@ pub const fn name_hash(name: &[u8]) -> u32 {
 /// wants; longer slices take the library path.
 #[inline(never)]
 #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
-#[cfg_attr(feature = "hot-in-ram", inline(never))]
 pub fn name_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;

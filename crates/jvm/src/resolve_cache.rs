@@ -480,7 +480,7 @@ impl ResolveCache {
 
     // ── methods ─────────────────────────────────────────────────────────
 
-    #[inline]
+    #[cfg_attr(not(feature = "hot-in-ram"), inline)]
     #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
     #[cfg_attr(feature = "hot-in-ram", inline(never))]
     pub fn method(&self, k: SiteKey) -> Option<MethodHit> {
