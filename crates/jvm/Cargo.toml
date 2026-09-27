@@ -26,6 +26,17 @@ parity-metrics = []
 # feature for the chip enables this and the platform build asserts the two
 # agree.
 loop-in-ram = []
+# Place the interpreter's hot helpers outside the loop — the invoke path
+# (`op_invoke`, `finalize_invoke`, `dispatch_native*`, `count_args`, method
+# lookup, `Frame::new_in`, `pop_frame`, `ResolveCache::method`), the field
+# ops (`op_fields`, `field_slot_*`, `get_field`/`set_field`) and the
+# constant-pool and class-name reads (`find_class`, `cp_utf8`,
+# `cp_fieldref`, `cp_methodref`, …) — in `.data.hot`, so they too execute
+# from RAM. ~20 KB at opt-level 3; on the RP2350 the Java-side spans of a
+# claudeusage page turn went 205 → 135 ms with this alone
+# (docs/designs/sram-hotpath-2026-09.md). A board opts in with `hot_ram_kb`
+# in its board.toml plus the platform's `hot-in-ram` feature.
+hot-in-ram = []
 # Opt-in memory diagnostics: periodic heap monitor, steady-state growth
 # sentinel, churn counters, offensive heap checks (docs/memory-diagnostics.md).
 # Off by default — when absent, none of the diagnostic code exists in the

@@ -12,7 +12,7 @@
 // No `lvgl`: LVGL's C sources are compiled by picodroid-core/build.rs, and the
 // resulting static lib reaches this binary through the dependency. See the
 // note at the bottom of `main`.
-use build_support::{board_cfg, boards, config, flash_layout, freertos, network, papk};
+use build_support::{board_cfg, boards, config, flash_layout, freertos, hot_ram, network, papk};
 use std::env;
 use std::path::PathBuf;
 
@@ -58,6 +58,19 @@ fn main() {
                  the key and the chip feature (platforms/rp/Cargo.toml) must agree",
                 if loop_in_ram { "on" } else { "off" }
             );
+            // The board's hot sets (`build_support::hot_ram`): the RAM they
+            // take is the board.toml's `hot_ram_kb`, the Rust half is the
+            // chip feature forwarding `pico-jvm/hot-in-ram`; one without the
+            // other is the same mismatch as above.
+            let hot_ram_kb = hot_ram::board_hot_ram_kb(&b.cfg.props, &b.name);
+            let hot_in_ram = std::env::var("CARGO_FEATURE_HOT_IN_RAM").is_ok();
+            assert!(
+                (hot_ram_kb > 0) == hot_in_ram,
+                "{}: hot_ram_kb = {hot_ram_kb} but the hot-in-ram feature is {}: the key and the \
+                 chip feature (platforms/rp/Cargo.toml) must agree",
+                b.name,
+                if hot_in_ram { "on" } else { "off" }
+            );
             let freertos_config_dir = format!("mcus/{mcu_family}");
             // The same layout `board_cfg::emit_neutral` writes as constants
             // below, rendered here as the linker's MEMORY block.
@@ -99,7 +112,14 @@ fn main() {
                 &mcu_family,
                 &freertos_config_dir,
                 &repo_root,
+                hot_ram_kb,
             );
+            if hot_ram_kb > 0 {
+                hot_ram::retarget(
+                    &out.join("libfreertos.a"),
+                    &hot_ram::list_path(&mcu_toml_path, "freertos"),
+                );
+            }
 
             // The network: FreeRTOS+TCP plus the shared glue from
             // picodroid-core, plus the link driver this board's
@@ -108,7 +128,7 @@ fn main() {
                 // board_cfg::emit_network_cfgs already refused a missing or
                 // unknown network_type.
                 let network_type = b.cfg.props.get("network_type").cloned().unwrap_or_default();
-                let arena_kb = board_cfg::mcu_arena_kb(&mcu, &mcu_toml_path);
+                let arena_kb = board_cfg::mcu_arena_kb(&mcu, &mcu_toml_path, hot_ram_kb);
                 let mut net_overrides = network::net_config_overrides(&b.cfg.props);
                 // The same define the kernel compile gets (freertos.rs):
                 // cyw43_port.c counts its own busy delays for the monitor.

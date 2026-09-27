@@ -8,7 +8,7 @@
 //! functions on the same board.toml, so the C build and the Rust cfgs cannot
 //! disagree about `hw_vscroll` or where LVGL's pool lives.
 
-use build_support::{board_cfg, config, lvgl};
+use build_support::{board_cfg, config, hot_ram, lvgl};
 
 fn main() {
     let out = &std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
@@ -33,6 +33,15 @@ fn main() {
     let board_props = board.as_ref().map(|b| b.cfg.props.clone());
     let mcu = board.as_ref().map(|b| b.mcu().1);
     let text_sizes = board_cfg::text_sizes(&board);
+    // A device board with `hot_ram_kb` set has its hot LVGL functions moved
+    // to SRAM from the family's list (`build_support::hot_ram`); the
+    // simulator executes from host memory and keeps the archive as built.
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let hot_ram_list = board.as_ref().and_then(|b| {
+        let (mcu_toml_path, _) = b.mcu();
+        (target_os == "none" && hot_ram::board_hot_ram_kb(&b.cfg.props, &b.name) > 0)
+            .then(|| hot_ram::list_path(&mcu_toml_path, "lvgl"))
+    });
     lvgl::build(
         out,
         &board_props,
@@ -41,5 +50,6 @@ fn main() {
         &manifest_dir.join("lvgl"),
         hw_vscroll,
         &text_sizes,
+        hot_ram_list.as_deref(),
     );
 }

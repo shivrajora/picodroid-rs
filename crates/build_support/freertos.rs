@@ -43,6 +43,7 @@ pub fn build(
     _mcu_family: &str,
     freertos_config_dir: &str,
     repo_root: &Path,
+    hot_ram_kb: u32,
 ) {
     let mut b = freertos_cargo_build::Builder::new();
     b.freertos(
@@ -81,11 +82,12 @@ pub fn build(
     }
 
     // The arena is single-sourced from the MCU toml (`heap_kb`, less the
-    // `jvm_loop_ram_kb` a RAM copy of the interpreter loop takes) so the C
+    // `jvm_loop_ram_kb` a RAM copy of the interpreter loop takes and the
+    // board's `hot_ram_kb`) so the C
     // build and the simulator's default cap can never drift apart
     // (docs/parity-audit.md M2; `board_cfg::emit_heap_config` on the one
     // place they differ). FreeRTOSConfig.h #errors if this is absent.
-    let arena_kb = crate::board_cfg::mcu_arena_kb(mcu, mcu_toml_path);
+    let arena_kb = crate::board_cfg::mcu_arena_kb(mcu, mcu_toml_path, hot_ram_kb);
     b.get_cc().define(
         "configTOTAL_HEAP_SIZE",
         format!("({arena_kb} * 1024)").as_str(),

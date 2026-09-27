@@ -16,6 +16,8 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
     /// dispatch below can re-enter the interpreter (a synchronous native→Java
     /// upcall), which needs to push and pop frames. The current frame is
     /// re-derived at each use and never held across a call that might push.
+    #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+    #[cfg_attr(feature = "hot-in-ram", inline(never))]
     pub(super) fn op_invoke(
         &mut self,
         opcode: u8,
@@ -387,6 +389,8 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
     /// fallback: dispatches `resolved` to a native handler or pushes a new
     /// Java frame, with `resolved == None` falling back to native dispatch.
     #[allow(clippy::too_many_arguments)]
+    #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+    #[cfg_attr(feature = "hot-in-ram", inline(never))]
     pub(super) fn finalize_invoke(
         &mut self,
         args: &[Value],
@@ -545,6 +549,8 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
     /// remembers the answer per `(site, receiver, superclass step)`. A
     /// caller dispatching under any other class passes `None`.
     #[allow(clippy::too_many_arguments)]
+    #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+    #[cfg_attr(feature = "hot-in-ram", inline(never))]
     pub(super) fn dispatch_native(
         &mut self,
         site: Option<SiteKey>,
@@ -570,6 +576,8 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+    #[cfg_attr(feature = "hot-in-ram", inline(never))]
     pub(super) fn dispatch_native_inner(
         &mut self,
         site: Option<SiteKey>,

@@ -53,6 +53,8 @@ pub(super) fn method_matches(
 
 /// `field_slot_declared` through the persistent field table, keyed by the
 /// `Fieldref` site and the receiver's class (see [`crate::resolve_cache`]).
+#[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+#[cfg_attr(feature = "hot-in-ram", inline(never))]
 pub(super) fn field_slot_cached(
     cache: &mut ResolveCache,
     classes: &[ClassFile],
@@ -76,6 +78,8 @@ pub(super) fn field_slot_cached(
 
 /// Resolve from the CP-declared class (invokestatic / invokespecial),
 /// through the persistent method table.
+#[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+#[cfg_attr(feature = "hot-in-ram", inline(never))]
 pub(super) fn find_method_cached(
     cache: &mut ResolveCache,
     classes: &[ClassFile],
@@ -97,6 +101,8 @@ pub(super) fn find_method_cached(
 /// Resolve from the receiver's runtime class (invokevirtual /
 /// invokeinterface), through the persistent method table. A hashed key
 /// (a native upcall's) trusts a hit only after [`method_matches`].
+#[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+#[cfg_attr(feature = "hot-in-ram", inline(never))]
 pub(super) fn find_method_walking_cached(
     cache: &mut ResolveCache,
     classes: &[ClassFile],
@@ -195,6 +201,8 @@ pub(super) fn class_object_for_name(
     Ok(Value::ObjectRef(obj))
 }
 
+#[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+#[cfg_attr(feature = "hot-in-ram", inline(never))]
 pub(super) fn find_method(
     classes: &[ClassFile],
     class_name: &str,
@@ -222,6 +230,8 @@ pub(super) fn find_method(
 /// Number of parameters in `descriptor` — one per value, whatever its
 /// width: the operand stack holds one `Value` per parameter (a `long` is
 /// one 16 B entry, not two slots), so this is what an invoke pops.
+#[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+#[cfg_attr(feature = "hot-in-ram", inline(never))]
 pub(super) fn count_args(descriptor: &str) -> usize {
     let inner = descriptor
         .strip_prefix('(')
@@ -405,6 +415,8 @@ pub fn instance_slot_count(classes: &[ClassFile], class_name: &str) -> Option<us
 /// name-only walk returned the root-most match for both — reads and writes
 /// through either declaring class aliased A's storage and B's own field was
 /// unreachable (bugbash J12).
+#[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+#[cfg_attr(feature = "hot-in-ram", inline(never))]
 pub(super) fn field_slot_declared(
     classes: &[ClassFile],
     runtime_class: &str,
