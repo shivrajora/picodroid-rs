@@ -265,6 +265,7 @@ public class MainActivity extends Activity implements UsageService.Listener {
           refreshChrome();
         } else {
           pageIndex = PAGE_LIMITS;
+          autoSeconds = 0; // home restarts the AUTO countdown, as a turn does
           showPage();
         }
         break;
