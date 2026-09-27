@@ -676,6 +676,8 @@ impl ObjectHeap {
     /// (a native table numbering fields by one slot each — the
     /// `native_field_tables_match_the_class_files` test in `picodroid-core`
     /// catches those).
+    #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+    #[cfg_attr(feature = "hot-in-ram", inline(never))]
     pub fn get_field(&self, idx: u16, field: usize) -> Option<Value> {
         let obj = self.objects.get(idx as usize)?.as_ref()?;
         let count = obj.field_count as usize;
@@ -697,6 +699,8 @@ impl ObjectHeap {
     /// the one scheduler-atomic section, so no other task ever sees one
     /// half of a category-2 field updated (a torn read of a non-volatile
     /// `long` is allowed by the JLS, but the writer side stays whole).
+    #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+    #[cfg_attr(feature = "hot-in-ram", inline(never))]
     pub fn set_field(&mut self, idx: u16, field: usize, v: Value) -> Option<()> {
         // Atomic for the lazy-grow path (span move + descriptor update) —
         // same interleave hazard as alloc_with_field_count.

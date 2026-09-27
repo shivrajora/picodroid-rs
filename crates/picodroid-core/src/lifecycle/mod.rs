@@ -65,6 +65,49 @@ fn now_ms() -> u64 {
     crate::hal::system_clock::elapsed_realtime_nanos() as u64 / 1_000_000
 }
 
+/// Render-time counter for `parity-metrics` device builds: the LVGL tick's
+/// render-plus-flush time, summed per second and printed as a `render:` line
+/// when it exceeds a millisecond. The tick is not a timed span (rendering
+/// legitimately varies), so this is the only place its cost shows; it is the
+/// figure docs/designs/sram-hotpath-2026-09.md compares images by.
+#[cfg(all(feature = "parity-metrics", not(feature = "sim")))]
+mod render_probe {
+    use core::sync::atomic::{AtomicU32, Ordering::Relaxed};
+    static N: AtomicU32 = AtomicU32::new(0);
+    static SUM_US: AtomicU32 = AtomicU32::new(0);
+    static MAX_US: AtomicU32 = AtomicU32::new(0);
+    static LAST_MS: AtomicU32 = AtomicU32::new(0);
+    pub fn record(ns: u64) {
+        let us = (ns / 1000) as u32;
+        N.fetch_add(1, Relaxed);
+        SUM_US.fetch_add(us, Relaxed);
+        MAX_US.fetch_max(us, Relaxed);
+        let now = super::now_ms() as u32;
+        let last = LAST_MS.load(Relaxed);
+        if last == 0 {
+            LAST_MS.store(now, Relaxed);
+            return;
+        }
+        if now.wrapping_sub(last) >= 1000 {
+            let (n, sum, max) = (
+                N.swap(0, Relaxed),
+                SUM_US.swap(0, Relaxed),
+                MAX_US.swap(0, Relaxed),
+            );
+            if sum >= 1000 {
+                defmt::info!(
+                    "render: {=u32} ticks {=u32} us max {=u32} us in {=u32} ms",
+                    n,
+                    sum,
+                    max,
+                    now.wrapping_sub(last)
+                );
+            }
+            LAST_MS.store(now, Relaxed);
+        }
+    }
+}
+
 // ── Slow-handler watchdog ────────────────────────────────────────────────────
 
 /// Default slow-handler threshold: 50 ms ≈ 3 frames of the 16 ms UI tick.
@@ -651,7 +694,13 @@ pub(crate) fn run_activity(
         // submits a Runnable. Sub-ms wake on Runnable post.
         match main_queue::recv_blocking() {
             MainTask::LvglTick => {
+                #[cfg(all(feature = "parity-metrics", not(feature = "sim")))]
+                let tick_t0 = crate::hal::system_clock::elapsed_realtime_nanos();
                 with_gfx(|g| g.tick(crate::executors::tick_source::step_ms()));
+                #[cfg(all(feature = "parity-metrics", not(feature = "sim")))]
+                render_probe::record(
+                    crate::hal::system_clock::elapsed_realtime_nanos().wrapping_sub(tick_t0) as u64,
+                );
                 crate::graphics::lvgl::fps_overlay::update();
                 // Control-channel package verbs run here, on the JVM task,
                 // so the directory keeps one writer.

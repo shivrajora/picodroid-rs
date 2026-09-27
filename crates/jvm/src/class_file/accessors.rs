@@ -6,6 +6,8 @@ use super::{
 
 impl ClassFile {
     /// Methods declared in this class.  Triggers full parse on first access.
+    #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+    #[cfg_attr(feature = "hot-in-ram", inline(never))]
     pub fn methods(&self) -> &[MethodInfo] {
         self.parsed().methods()
     }
@@ -103,6 +105,8 @@ impl ClassFile {
     }
 
     /// Returns the Utf8 bytes for the given constant pool index (must be a Utf8 entry).
+    #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+    #[cfg_attr(feature = "hot-in-ram", inline(never))]
     pub fn cp_utf8(&self, index: u16) -> Option<&'static [u8]> {
         let p = self.parsed();
         let i = index as usize;
@@ -145,6 +149,8 @@ impl ClassFile {
     /// Resolves a CONSTANT_Methodref or CONSTANT_InterfaceMethodref to
     /// (class_name_utf8, method_name_utf8, descriptor_utf8).
     /// Both tags (10 and 11) have the same binary layout.
+    #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+    #[cfg_attr(feature = "hot-in-ram", inline(never))]
     pub fn cp_methodref(
         &self,
         index: u16,
@@ -184,6 +190,8 @@ impl ClassFile {
     }
 
     /// Returns the raw bytecode slice for a method.
+    #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+    #[cfg_attr(feature = "hot-in-ram", inline(never))]
     pub fn method_code(&self, m: &MethodInfo) -> &'static [u8] {
         if m.code_offset == 0 {
             &[]
@@ -224,6 +232,8 @@ impl ClassFile {
     }
 
     /// Resolves a CONSTANT_Fieldref CP entry to (class_name_utf8, field_name_utf8, descriptor_utf8).
+    #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+    #[cfg_attr(feature = "hot-in-ram", inline(never))]
     pub fn cp_fieldref(&self, index: u16) -> Option<(&'static [u8], &'static [u8], &'static [u8])> {
         let p = self.parsed();
         let i = index as usize;

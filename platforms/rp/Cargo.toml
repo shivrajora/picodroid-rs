@@ -59,7 +59,13 @@ board-pico-touch-kit = ["chip-rp2350", "picodroid-core/board-pico-touch-kit", "p
 chip-rp2040 = ["dep:rp-pico", "family-rp"]
 # The RP2350 runs the interpreter loop from RAM (mcus/rp/rp2350*.toml
 # `jvm_loop_ram_kb` funds it); the RP2040's 264 KB has no room for it.
-chip-rp2350 = ["dep:rp235x-hal", "family-rp", "pico-jvm/loop-in-ram"]
+chip-rp2350 = ["dep:rp235x-hal", "family-rp", "pico-jvm/loop-in-ram", "hot-in-ram"]
+# The hot sets beyond the loop (docs/designs/sram-hotpath-2026-09.md): the
+# JVM's invoke, frame, field and constant-pool helpers, and — through the
+# board.toml's `hot_ram_kb`, which build.rs requires to agree with this
+# feature — the family's lists of LVGL and FreeRTOS functions. Every RP2350
+# board carries the key, since the RAM comes out of that board's arena.
+hot-in-ram = ["pico-jvm/hot-in-ram"]
 # MCU family grouping (internal — forwarded to picodroid-core so both crates
 # see the same family feature without requiring duplicate cfg flags).
 family-rp = ["picodroid-core/family-rp"]

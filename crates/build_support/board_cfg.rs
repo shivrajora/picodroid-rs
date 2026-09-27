@@ -535,22 +535,24 @@ pub fn mcu_jvm_loop_ram_kb(mcu: &HashMap<String, String>, mcu_toml_path: &str) -
 }
 
 /// The FreeRTOS arena the device links (`configTOTAL_HEAP_SIZE`, in KB):
-/// `heap_kb` less the RAM the interpreter loop's copy takes.
-pub fn mcu_arena_kb(mcu: &HashMap<String, String>, mcu_toml_path: &str) -> u32 {
+/// `heap_kb` less the RAM the interpreter loop's copy takes, less the
+/// board's `hot_ram_kb` (`crate::hot_ram`).
+pub fn mcu_arena_kb(mcu: &HashMap<String, String>, mcu_toml_path: &str, hot_ram_kb: u32) -> u32 {
     let heap = mcu_heap_kb(mcu, mcu_toml_path);
     let loop_ram = mcu_jvm_loop_ram_kb(mcu, mcu_toml_path);
     assert!(
-        loop_ram < heap,
-        "MCU toml 'jvm_loop_ram_kb' ({loop_ram}) must be under 'heap_kb' ({heap}): {mcu_toml_path}"
+        loop_ram + hot_ram_kb < heap,
+        "MCU toml 'jvm_loop_ram_kb' ({loop_ram}) plus the board's 'hot_ram_kb' ({hot_ram_kb}) \
+         must be under 'heap_kb' ({heap}): {mcu_toml_path}"
     );
-    heap - loop_ram
+    heap - loop_ram - hot_ram_kb
 }
 
 /// Emit `OUT_DIR/heap_config.rs` with the heap sizes for the active board's
 /// MCU: `DEVICE_HEAP_BYTES`, `heap_kb`, is the simulator's default heap cap
 /// (`sim_allocator.rs`, docs/parity-audit.md M2) and the figure `mem_diag`
 /// models; `DEVICE_ARENA_BYTES` is the arena the device actually links,
-/// `heap_kb` less `jvm_loop_ram_kb`, the same number the FreeRTOS C build
+/// `heap_kb` less `jvm_loop_ram_kb` and the board's `hot_ram_kb`, the same number the FreeRTOS C build
 /// gets as `configTOTAL_HEAP_SIZE`. The two differ only where the image
 /// keeps a RAM copy of the interpreter loop, which the simulator has no
 /// counterpart for and whose cost the sim's own over-charge (gaps roadmap
@@ -561,9 +563,10 @@ pub fn emit_heap_config(out: &Path, board: &Option<ResolvedBoard>) {
     let (heap_bytes, arena_bytes) = match board {
         Some(b) => {
             let (path, mcu) = b.mcu();
+            let hot_ram_kb = crate::hot_ram::board_hot_ram_kb(&b.cfg.props, &b.name);
             (
                 mcu_heap_kb(&mcu, &path) as usize * 1024,
-                mcu_arena_kb(&mcu, &path) as usize * 1024,
+                mcu_arena_kb(&mcu, &path, hot_ram_kb) as usize * 1024,
             )
         }
         None => (408 * 1024, 408 * 1024),

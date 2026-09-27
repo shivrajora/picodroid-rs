@@ -28,6 +28,15 @@ lv_dpi = 200
 # 48 KB, not lv_conf.h's 64 KB default: the W boards' radio statics leave the
 # core-0 main stack short otherwise (see testbench_rp2350w/board.toml).
 lv_mem_kb = 48
+# 2026-09-26: the hot sets beyond the interpreter loop execute from SRAM on
+# this board — the JVM's invoke/field/constant-pool helpers (the platform's
+# `hot-in-ram` feature, which the chip feature forwards and build.rs requires
+# to agree with this key) and the family's lists of LVGL and FreeRTOS
+# functions (mcus/rp/hot-ram-*.txt). Measured here: a third less CPU per
+# claudeusage page turn, the Java-side spans 205 → 118 ms
+# (docs/designs/sram-hotpath-2026-09.md). The RAM comes out of the arena
+# like `jvm_loop_ram_kb`: 372 → 324 KB; the History page needs 243 KB.
+hot_ram_kb = 48
 # An always-on desk display: never sleep the panel on idle.
 idle_timeout_ms = 0
 

@@ -567,6 +567,8 @@ impl<'a> Cursor<'a> {
 /// site these cost 8 KB of rp2040 flash, and a local `bl` is no dearer than
 /// the `bcmp` call they replace.
 #[inline(never)]
+#[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+#[cfg_attr(feature = "hot-in-ram", inline(never))]
 pub const fn name_hash(name: &[u8]) -> u32 {
     let mut h: u32 = 0x811c_9dc5;
     let mut i = 0;
@@ -583,6 +585,8 @@ pub const fn name_hash(name: &[u8]) -> u32 {
 /// rather than a `bcmp` call, which is what a two- or four-byte shrunk name
 /// wants; longer slices take the library path.
 #[inline(never)]
+#[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+#[cfg_attr(feature = "hot-in-ram", inline(never))]
 pub fn name_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
@@ -602,6 +606,7 @@ pub fn name_eq(a: &[u8], b: &[u8]) -> bool {
 /// Index of the registered class named `name`, if any. The one lookup
 /// every resolution path funnels through; see [`name_hash`].
 #[inline(never)]
+#[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
 pub fn find_class(classes: &[ClassFile], name: &[u8]) -> Option<usize> {
     let hash = name_hash(name);
     classes.iter().position(|cf| cf.is_named(name, hash))

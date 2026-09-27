@@ -1,6 +1,11 @@
 # Board: TestBench (WiFi) — Waveshare 2.8" Pico display (ST7789 + XPT2046)
 # on a Raspberry Pi Pico 2 W (RP2350 + CYW43439 WiFi)
 mcu = "rp2350"
+# 2026-09-26: the hot sets beyond the interpreter loop execute from SRAM
+# (docs/designs/sram-hotpath-2026-09.md; the chip feature `hot-in-ram`,
+# which build.rs requires to agree with this key). Taken out of the arena
+# like `jvm_loop_ram_kb`.
+hot_ram_kb = 48
 
 # Multi-app (docs/designs/multi-app-2026-09.md D1/D2): the app region holds
 # up to eight installed apps as self-describing runs, LittleFS grows to

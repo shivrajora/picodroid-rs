@@ -45,13 +45,14 @@ fn parse_int(props: &HashMap<String, String>, key: &str) -> Option<u64> {
 /// the board's face ladder (`board_cfg::text_sizes`): every size but 14 names
 /// a generated face under `conf_dir/fonts/` that is compiled in.
 pub fn build(
-    _out: &Path,
+    out: &Path,
     board_cfg: &Option<HashMap<String, String>>,
     mcu: Option<&HashMap<String, String>>,
     repo_root: &Path,
     conf_dir: &Path,
     hw_vscroll: bool,
     text_sizes: &[u8],
+    hot_ram_list: Option<&Path>,
 ) {
     let lvgl_src = repo_root.join("third_party/lvgl/src");
     if !lvgl_src.exists() {
@@ -239,6 +240,11 @@ pub fn build(
     }
 
     build.compile("lvgl");
+    // Hot functions into SRAM, per board (`crate::hot_ram`): the list names
+    // functions of this archive, retargeted after the compile.
+    if let Some(list) = hot_ram_list {
+        crate::hot_ram::retarget(&out.join("liblvgl.a"), list);
+    }
 
     println!(
         "cargo:rerun-if-changed={}",

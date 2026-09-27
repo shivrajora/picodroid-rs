@@ -516,6 +516,8 @@ fn enter_synchronized<H: NativeMethodHandler>(
 
 /// Pop the top frame, releasing the monitor of a synchronized method. Every
 /// pop in this module goes through here or [`truncate_frames`].
+#[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+#[cfg_attr(feature = "hot-in-ram", inline(never))]
 fn pop_frame<H: NativeMethodHandler>(
     ex: &mut Executor<'_, H>,
     frames: &mut Vec<Frame>,

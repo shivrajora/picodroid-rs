@@ -75,6 +75,8 @@ impl FramePool {
 
 impl Frame {
     /// [`Frame::new`] drawing both buffers from `pool` when it can.
+    #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+    #[cfg_attr(feature = "hot-in-ram", inline(never))]
     pub fn new_in(
         pool: &mut FramePool,
         class_idx: usize,

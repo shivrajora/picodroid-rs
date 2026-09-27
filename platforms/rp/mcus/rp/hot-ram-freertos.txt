@@ -1,0 +1,40 @@
+# FreeRTOS kernel and port functions that execute from SRAM (30 functions, ~4.5 KB).
+#
+# One C function per line; `build_support::hot_ram::retarget` moves each
+# from `.text.<fn>` to `.data.hot.<fn>` in libfreertos.a, so it executes from
+# SRAM on a board with `hot_ram_kb` in its board.toml. Chosen from a
+# DWT-PCSR profile of claudeusage page turns on pico_display2_w
+# (2026-09-26) by samples per byte, up to a 6 KB budget (the critical sections, tick, context switch, queues and heap_4 — 9 % of the busy samples); how to re-derive it is in
+# docs/designs/sram-hotpath-2026-09.md §3 and Appendix B. A name the archive
+# no longer defines (after an LVGL or kernel update) is silently a no-op, so
+# re-profile after such an update rather than trusting the list.
+vClearInterruptMask
+vPortRecursiveLock
+ulSetInterruptMask
+vTaskEnterCritical
+isr_systick
+vTaskExitCritical
+vTaskExitCriticalFromISR
+xTaskGetCurrentTaskHandle
+vTaskSuspendAll
+freertos_rs_take_semaphore
+freertos_rs_give_semaphore
+vPortFree
+xTaskIncrementTick
+xTaskResumeAll
+isr_pendsv
+vTaskEnterCriticalFromISR
+prvCheckForRunStateChange
+prvYieldForTask
+xQueueSemaphoreTake
+pvPortMalloc
+vTaskSwitchContext
+prvCopyDataToQueue
+vTaskYieldWithinAPI
+xQueueGenericSend
+xQueueGiveFromISR
+xTaskCheckForTimeOut
+prvUnlockQueue
+xTaskRemoveFromEventList
+prvAddCurrentTaskToDelayedList
+prvTimerTask

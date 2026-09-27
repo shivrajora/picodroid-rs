@@ -15,6 +15,7 @@ pub mod flash_layout;
 #[cfg(feature = "freertos-device")]
 pub mod freertos;
 pub mod freertos_host;
+pub mod hot_ram;
 pub mod jvm_defaults;
 pub mod lvgl;
 pub mod names;

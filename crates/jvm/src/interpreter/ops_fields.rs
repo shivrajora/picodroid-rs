@@ -8,6 +8,8 @@ use crate::{
 };
 
 impl<'a, H: NativeMethodHandler> Executor<'a, H> {
+    #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+    #[cfg_attr(feature = "hot-in-ram", inline(never))]
     pub(super) fn op_fields(
         &mut self,
         opcode: u8,
