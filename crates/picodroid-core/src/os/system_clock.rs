@@ -109,6 +109,15 @@ pub fn set_current_time_millis(args: &[Value]) -> Result<Option<Value>, JvmError
         Some(Value::Long(n)) => *n,
         _ => return Err(JvmError::InvalidReference),
     };
+    anchor_wall_clock(millis);
+    Ok(Some(Value::Int(1)))
+}
+
+/// Anchor the wall clock so that `System.currentTimeMillis()` reads
+/// `millis` now. The single-writer rule above applies to callers of this
+/// too: the simulator's boot (`PICODROID_SIM_WALL_CLOCK`) runs before any
+/// Java thread exists, so it is the one exception that is not a race.
+pub fn anchor_wall_clock(millis: i64) {
     let elapsed_ms = platform::elapsed_realtime_nanos() / 1_000_000;
     let offset = (millis - elapsed_ms) as u64;
     // Nothing below blocks, which is the section's one rule.
@@ -118,5 +127,4 @@ pub fn set_current_time_millis(args: &[Value]) -> Result<Option<Value>, JvmError
     WALL_HI.store((offset >> 32) as u32, Ordering::Release);
     WALL_LO.store(offset as u32, Ordering::Release);
     WALL_SEQ.store(seq.wrapping_add(2), Ordering::Release); // even: write done
-    Ok(Some(Value::Int(1)))
 }

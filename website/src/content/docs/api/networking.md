@@ -127,7 +127,9 @@ fail, to rehearse an access point that isolates its clients.
 
 Constraints:
 
-- HTTP/1.1 only. HTTPS URLs throw `UnsupportedOperationException` at `connect()` — TLS is not bundled.
+- HTTP/1.1 only. `https` URLs work on boards built with TLS (`has_tls = true`: every RP2350
+  WiFi board); elsewhere they throw `UnsupportedOperationException` at `connect()`. See
+  [HTTPS](#https) below.
 - Methods: `GET`, `POST`, `PUT`.
 - `Connection: close` is always sent — no keep-alive / connection pooling.
 - Request bodies need a known length: call `setFixedLengthStreamingMode(n)` before `connect()` on any request that writes a body.
@@ -198,6 +200,76 @@ try (HttpURLConnection c = new URL("http://example.com/").openConnection()) {
     // ...
 }
 ```
+
+## HTTPS
+
+`URL.openConnection()` returns a `picodroid.net.ssl.HttpsURLConnection` (the shape of
+`javax.net.ssl.HttpsURLConnection`) for an `https` URL, and the usual cast works. Everything
+above applies unchanged; the difference is what `connect()` does on the wire:
+
+- TLS 1.3, one cipher suite (`TLS_AES_128_GCM_SHA256`, which `getCipherSuite()` reports),
+  P-256 key exchange.
+- The server name is sent (SNI) and checked against the certificate — an IP literal in the
+  URL is checked against the certificate's IP entries instead, and sends no SNI.
+- The chain is verified against the runtime's compiled-in root store (GTS, ISRG / Let's
+  Encrypt, DigiCert, GlobalSign, Sectigo / USERTrust, Amazon; ECDSA and RSA), so any
+  public host under those roots works: `api.anthropic.com`, `api.github.com`,
+  `api.open-meteo.com`, …
+- Validity is checked against the wall clock, which **must have been set**: the runtime
+  refuses to handshake with the clock unset rather than skip the check. Anchor it once the
+  network is up, with `SntpClient` below.
+
+Failures throw `javax.net.ssl.SSLHandshakeException` (an `IOException`) whose message
+names the reason: `wall clock not set`, `not issued by a known root`, `rejected
+(signature, validity or host name)`; a handshake that runs into the read timeout throws
+`SocketTimeoutException`. Not mirrored: `setSSLSocketFactory`, `setHostnameVerifier`,
+`getServerCertificates` — an app cannot loosen the trust store.
+
+```java
+import javax.net.ssl.SSLHandshakeException;
+import picodroid.net.ssl.HttpsURLConnection;
+
+HttpsURLConnection c = (HttpsURLConnection) new URL("https://api.example.com/v1/x").openConnection();
+c.setConnectTimeout(10000);
+c.setReadTimeout(10000);
+try {
+    int status = c.getResponseCode();   // the handshake happens in connect()
+    // ...
+} catch (SSLHandshakeException e) {
+    Log.w(TAG, "certificate rejected: " + e.getMessage());
+} finally {
+    c.disconnect();
+}
+```
+
+Cost, on the RP2350: about 24 KB of arena for the life of a connection (a 16 KB record
+buffer, a 4 KB write buffer, the session state), plus a 32 KB stack for the handshake's
+own task, which exists only for the handshake. Any thread may call `connect()`; like every
+`connect()`, it blocks the caller, so the main thread is the wrong place for it. Design and
+measurements: `docs/designs/tls-2026-09.md`.
+
+## Wall clock: `SntpClient`
+
+`System.currentTimeMillis()` counts from boot until an app anchors it; there is no
+battery-backed clock. `picodroid.net.SntpClient` is the shape of Android's
+`android.net.SntpClient`: one request yields the server's time and the monotonic reference
+it was read against, and the caller anchors the clock, as Android's network time service
+does.
+
+```java
+import picodroid.net.SntpClient;
+import picodroid.os.SystemClock;
+
+SntpClient client = new SntpClient();
+if (client.requestTime("pool.ntp.org", 3000)) {
+    long now = client.getNtpTime() + SystemClock.elapsedRealtime() - client.getNtpTimeReference();
+    SystemClock.setCurrentTimeMillis(now);
+}
+```
+
+Do this once the network is up and before the first `https` request. Under the simulator,
+`PICODROID_SIM_WALL_CLOCK=1` anchors the clock to the host's at boot instead, for tests that
+should not depend on an NTP round trip.
 
 ### POST
 

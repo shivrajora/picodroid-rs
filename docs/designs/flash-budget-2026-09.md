@@ -613,3 +613,15 @@ Gotchas, two new:
 Open levers, unchanged in substance: §8 rows 4 (LVGL config), 5
 (`format_shortest` float layout), 6 (app-driven SDK tree-shake + derived
 `LV_USE_*`), 7 (`no-pdb` product feature) and 9 (shared string table).
+
+### 2026-09-27 — TLS on the W boards
+
+`pico_display2_w` release, helloworld image, `parity-bench.sh --size-only`
+(`docs/designs/tls-2026-09.md` §6): 1,587,892 B without TLS, 1,916,532 B with the
+shipped ECDSA + RSA client — **+328,640 B**, the region at 91 % with the launcher and
+settings linked in. RSA is 56,656 B of it; P-384 (fiat-crypto, 64-bit limbs on a 32-bit
+core) and its SHA-512 are 109 KB. Static RAM is unchanged; the client's memory is per
+connection, from the arena. Per-package `opt-level = "s"` on the crypto crates does nothing
+under fat LTO (1.8 KB). The W boards are not on the ratchet; the two testbenches and the
+RP2040 carry no TLS and moved by nothing. The lever, if the region gets tight: a Cortex-M
+assembly P-384 (`tls-2026-09.md` §7).

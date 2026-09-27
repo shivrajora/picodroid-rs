@@ -15,3 +15,6 @@ mod ptr_table;
 pub mod server_socket;
 pub mod socket;
 pub mod socket_table;
+/// HTTPS: the pd-tls session over the HAL socket (`has_tls` boards).
+#[cfg(has_tls)]
+pub mod tls;

@@ -151,6 +151,9 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
     c::java_net_BindException,
     c::java_net_UnknownHostException,
     c::java_net_ProtocolException,
+    c::javax_net_ssl_SSLException,
+    c::javax_net_ssl_SSLHandshakeException,
+    c::javax_net_ssl_SSLPeerUnverifiedException,
 ];
 
 /// Every `(declaring class, method, descriptor)` the built-in handler serves

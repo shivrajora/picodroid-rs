@@ -258,7 +258,7 @@ jobs:
           - shard: memory
             apps: gcstress heapstress clinitdemo tracedemo
           - shard: framework
-            apps: callbacktest prefs_demo jsondemo resdemo
+            apps: callbacktest prefs_demo jsondemo resdemo https_get
     env:
       # Abort loudly on any use-after-delete handle lookup (off by default;
       # see platforms/rp/.../lvgl/handle_table.rs).
@@ -276,7 +276,9 @@ jobs:
       # job closes the push -> 3 AM detection window for the JVM, GC-stress,
       # stdlib (langsuite), widget-callback dispatch, <clinit>, prefs/storage
       # and heap-pressure paths, and (resdemo) the resource compiler, the
-      # generated R and the layout inflater. picoenvmon rides the enviro-board
+      # generated R and the layout inflater; https_get is the TLS client
+      # against the runner's own listener (scripts/tls-listener.py) — its
+      # public-host legs are logged, not asserted. picoenvmon rides the enviro-board
       # smoke lanes inside sim-run.sh (parity-audit LVG-01/BRD-01) so the
       # shipping board's LVGL config is CI-simulated. The Kotlin twins hellokt,
       # gcstress_kt and picoenvmon_kt are nightly-only: the Kotlin langsuites

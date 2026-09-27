@@ -11,6 +11,7 @@ members = [
     "crates/pd-json",
     "crates/pd-lvgl-sys",
     "crates/pd-rtos",
+    "crates/pd-tls",
     "crates/pdb-protocol",
     "crates/picodroid-core",
     "crates/test_support",
@@ -38,6 +39,9 @@ littlefs-rust = { path = "third_party/littlefs-rust" }
 # everywhere else (qa-2026-09-13-followups.md §4). platforms/rp/src/main.rs
 # checks the fix at boot.
 rp2040-hal = { path = "third_party/rp2040-hal" }
+# Vendored embedded-tls 0.19.0 with two local changes (`CertVerifier::set_ca`,
+# no panic on a malformed RSA key): third_party/embedded-tls/README-PICODROID.md.
+embedded-tls = { path = "third_party/embedded-tls" }
 
 # Both device profiles are opt-level 3, on purpose. Rust at "s" was priced on
 # the RP2350 bench on 2026-09-08: -167 KB of .text for +29 % on the JVM

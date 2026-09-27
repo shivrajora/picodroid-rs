@@ -80,8 +80,14 @@ public class URL {
     return path;
   }
 
-  /** Open an HTTP connection to this URL. The connection is not opened until {@code connect()}. */
+  /**
+   * Open a connection to this URL: an {@link HttpURLConnection}, or for {@code https} a {@link
+   * picodroid.net.ssl.HttpsURLConnection}. Nothing is sent until {@code connect()}.
+   */
   public HttpURLConnection openConnection() {
+    if (protocol.equals("https")) {
+      return new picodroid.net.ssl.HttpsURLConnection(this);
+    }
     return new HttpURLConnection(this);
   }
 

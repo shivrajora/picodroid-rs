@@ -158,8 +158,15 @@ run_test() {
   [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
   # net rows talk to 127.0.0.1 (the NetTestConfig.HOST default; sim sockets
   # are host sockets). Drop any inherited test-host override so a stale
-  # export cannot point the sim elsewhere.
-  if ! env -u PICODROID_NET_TEST_HOST bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1; then
+  # export cannot point the sim elsewhere. The app's own test.env goes to
+  # the APK build too: a `picodroidBuildConfig` constant (askclaude's API
+  # key and endpoint) is baked at build time, not read at run time.
+  local -a apk_env=()
+  local apk_env_line
+  while IFS= read -r apk_env_line; do
+    apk_env+=("$apk_env_line")
+  done < <(app_test_env "$app")
+  if ! env -u PICODROID_NET_TEST_HOST ${apk_env[@]+"${apk_env[@]}"} bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1; then
     sim_log "  BUILD FAILED (APK)"
     echo "ERROR $tag (apk build failed)" >> "$RESULTS_FILE"
     ERROR=$((ERROR + 1))
@@ -177,6 +184,10 @@ run_test() {
   sim_log "  Building sim binary..."
   local -a cargo_env=(PICODROID_APK_PATH="sim-runtime")
   [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
+  # The test-only CA behind the TLS listener (net-lib.sh), for the https rows.
+  local tls_ca_env
+  tls_ca_env="$(tls_test_ca_env)"
+  [[ -n "$tls_ca_env" ]] && cargo_env+=("$tls_ca_env")
   if ! env "${cargo_env[@]}" cargo build \
     --release \
     --target "$HOST_TARGET" \

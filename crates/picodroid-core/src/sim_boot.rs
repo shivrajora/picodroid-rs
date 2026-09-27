@@ -77,6 +77,16 @@ pub fn main(model: &'static BootBudgetModel) {
     boot_budget::precharge(model);
     allocator::checkpoint("baseline");
 
+    // `PICODROID_SIM_WALL_CLOCK=1`: the host's clock as the wall clock, for
+    // rows that verify TLS certificates without an NTP round trip
+    // (examples/https_get/test.env). Off by default: a device's clock counts
+    // from boot until an app anchors it, and the simulator keeps that shape.
+    if std::env::var("PICODROID_SIM_WALL_CLOCK").is_ok_and(|v| v == "1") {
+        if let Ok(now) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+            crate::os::system_clock::anchor_wall_clock(now.as_millis() as i64);
+        }
+    }
+
     // The host-file image has the same block layout as a device's flash
     // region, so its bytes stay interchangeable with a flash dump.
     #[cfg(feature = "littlefs")]

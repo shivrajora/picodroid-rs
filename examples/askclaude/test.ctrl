@@ -1,0 +1,12 @@
+# Control-channel script for this app's net row (sim-run.sh::run_test; hil-run
+# skips rows with one): press X once the screen is up, wait for the reply,
+# then Y twice — the first clears the reply, the second is BACK with nothing
+# to clear, which finishes the Activity and ends the row the way a term row does.
+wait AskClaude[]:] ready
+sleep 1
+input keyevent 23
+wait AskClaude[]:] usage: ok
+sleep 1
+input back
+sleep 1
+input back

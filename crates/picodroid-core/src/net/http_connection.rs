@@ -33,10 +33,46 @@ const RX_BUF_SIZE: usize = 1024;
 const TX_BUF_SIZE: usize = 512;
 const IO_CHUNK: usize = 256;
 
+/// What an `HttpConn` reads and writes: the HAL socket, or on a `has_tls`
+/// board a TLS session over it. One shape for the request and response
+/// code either way.
+enum Transport {
+    Plain(*mut c_void),
+    #[cfg(has_tls)]
+    Tls(super::tls::TlsStream),
+}
+
+impl Transport {
+    fn send(&mut self, data: &[u8]) -> Result<usize, NetError> {
+        match self {
+            Transport::Plain(sock) => crate::hal::net::tcp_send(*sock, data),
+            #[cfg(has_tls)]
+            Transport::Tls(tls) => tls.send(data),
+        }
+    }
+
+    fn recv(&mut self, buf: &mut [u8]) -> Result<usize, NetError> {
+        match self {
+            Transport::Plain(sock) => crate::hal::net::tcp_recv(*sock, buf),
+            #[cfg(has_tls)]
+            Transport::Tls(tls) => tls.recv(buf),
+        }
+    }
+
+    /// `close_notify` first on a TLS session, then the socket's graceful close.
+    fn close(self) {
+        match self {
+            Transport::Plain(sock) => crate::hal::net::close(sock),
+            #[cfg(has_tls)]
+            Transport::Tls(tls) => crate::hal::net::close(tls.close()),
+        }
+    }
+}
+
 /// Per-connection state.  Boxed; the raw pointer is stored in the Java
 /// `handle` field via [`http_table`].
 struct HttpConn {
-    socket: *mut c_void,
+    transport: Transport,
     headers_parsed: bool,
     status_code: i32,
     content_length: i64, // -1 if absent
@@ -61,9 +97,9 @@ struct HttpConn {
 }
 
 impl HttpConn {
-    fn new(socket: *mut c_void) -> Self {
+    fn new(transport: Transport) -> Self {
         Self {
-            socket,
+            transport,
             headers_parsed: false,
             status_code: -1,
             content_length: -1,
@@ -136,12 +172,15 @@ fn handle_from_obj(args: &[Value], objects: &ObjectHeap, field: usize) -> Result
 // ── HttpURLConnection.nativeConnect (static) ─────────────────────────────────
 
 /// Java signature: `nativeConnect(String host, int port, String path,
-/// String method, int bodyLength) -> int`.
+/// String method, int bodyLength, int connectTimeoutMs, int readTimeoutMs,
+/// String extraHeaders, boolean tls) -> int`.
 ///
-/// Resolves the host, opens a TCP socket, and sends the request line +
-/// minimal headers.  Returns the new handle.  Failures surface as the typed
+/// Resolves the host, opens a TCP socket — and, for an `https` URL, runs
+/// the TLS handshake over it — then sends the request line + minimal
+/// headers.  Returns the new handle.  Failures surface as the typed
 /// `java.net` taxonomy: `UnknownHostException` when resolution fails,
-/// `ConnectException`/`SocketTimeoutException` from the TCP connect, and
+/// `ConnectException`/`SocketTimeoutException` from the TCP connect,
+/// `javax.net.ssl.SSLHandshakeException` from the handshake, and
 /// `SocketException`/`IOException` from the request send.
 pub fn native_connect(
     args: &[Value],
@@ -161,6 +200,8 @@ pub fn native_connect(
     // by the Java side (which owns ordering, replace-vs-add, and rejecting
     // CR/LF injection). Empty when the app set none.
     let extra_headers_idx = as_ref(args.get(7))?;
+    // `https`: the Java side derives it from the URL's scheme.
+    let tls = as_int(args.get(8))? != 0;
 
     // Owned copies: the throw helpers below need `&mut strings` while these
     // would otherwise still be borrowed from the table.
@@ -214,6 +255,34 @@ pub fn native_connect(
         crate::hal::net::set_recv_timeout(sock, u32::MAX);
     }
 
+    // The TLS handshake, on a board that has one. Its record reads run
+    // under the read timeout set just above.
+    #[cfg(has_tls)]
+    let mut transport = if tls {
+        match super::tls::TlsStream::open(sock, &host) {
+            Ok(stream) => Transport::Tls(stream),
+            Err(fail) => {
+                crate::hal::net::close(sock);
+                return Err(super::tls::throw_tls_fail(objects, strings, fail, &host));
+            }
+        }
+    } else {
+        Transport::Plain(sock)
+    };
+    #[cfg(not(has_tls))]
+    let mut transport = {
+        if tls {
+            crate::hal::net::close(sock);
+            return Err(throw_named_exception(
+                objects,
+                strings,
+                c::java_lang_UnsupportedOperationException,
+                "HTTPS is not supported on this board",
+            ));
+        }
+        Transport::Plain(sock)
+    };
+
     // Build the request head in a stack buffer and send it.  For HTTP/1.1
     // we're required to send Host; Connection: close keeps our cleanup
     // single-path (no keep-alive reuse).
@@ -223,7 +292,8 @@ pub fn native_connect(
     head.push(path.as_bytes());
     head.push(b" HTTP/1.1\r\nHost: ");
     head.push(host.as_bytes());
-    if port != 80 {
+    let default_port = if tls { 443 } else { 80 };
+    if port != default_port {
         head.push(b":");
         head.push_usize(port as usize);
     }
@@ -237,7 +307,7 @@ pub fn native_connect(
     head.push(b"\r\n");
 
     if head.overflow {
-        crate::hal::net::close(sock);
+        transport.close();
         return Err(throw_io_exception(
             objects,
             strings,
@@ -245,18 +315,18 @@ pub fn native_connect(
         ));
     }
 
-    if let Err(e) = send_all(sock, &head.buf[..head.pos]) {
-        crate::hal::net::close(sock);
+    if let Err(e) = send_all(&mut transport, &head.buf[..head.pos]) {
+        transport.close();
         return Err(throw_net_exception(objects, strings, e, NetOpCtx::Send));
     }
 
-    let boxed = Box::new(HttpConn::new(sock));
+    let boxed = Box::new(HttpConn::new(transport));
     let raw = Box::into_raw(boxed);
     let handle = http_table::register(raw as *mut c_void);
     if handle == 0 {
         // SAFETY: `raw` came from Box::into_raw above and was never shared.
         let conn = unsafe { Box::from_raw(raw) };
-        crate::hal::net::close(conn.socket);
+        conn.transport.close();
         return Err(throw_io_exception(
             objects,
             strings,
@@ -458,9 +528,8 @@ pub fn native_disconnect(args: &[Value]) -> Result<Option<Value>, JvmError> {
     }
     // SAFETY: Pointer was produced by Box::into_raw in native_connect.
     let conn = unsafe { Box::from_raw(ptr) };
-    crate::hal::net::close(conn.socket);
+    conn.transport.close();
     http_table::remove(handle);
-    drop(conn);
     Ok(None)
 }
 
@@ -493,7 +562,7 @@ pub fn native_output_write(
                 .load(arr_idx, off + sent_total + i)
                 .ok_or(JvmError::ArrayIndexOutOfBounds)? as i8 as u8;
         }
-        match crate::hal::net::tcp_send(conn.socket, &buf[..chunk]) {
+        match conn.transport.send(&buf[..chunk]) {
             // A blocking send that makes no progress means the peer is gone.
             Ok(0) => {
                 let e = NetError::new(NetErrorKind::Closed, 0);
@@ -564,7 +633,7 @@ pub fn native_input_read(
     } else {
         core::cmp::min(want, conn.body_remaining as usize)
     };
-    match crate::hal::net::tcp_recv(conn.socket, &mut buf[..want]) {
+    match conn.transport.recv(&mut buf[..want]) {
         // `Ok(0)` is orderly EOF on every platform (the device HAL remaps
         // FreeRTOS's inverted encoding) — so `-1` here really means
         // end-of-stream, and a stalled-but-alive server now throws
@@ -643,7 +712,9 @@ fn chunked_read(
         conn.rx_head = conn.head_len;
         conn.rx_tail = conn.head_len;
         let start = conn.rx_head as usize;
-        let n = crate::hal::net::tcp_recv(conn.socket, &mut conn.rx_buf[start..])
+        let n = conn
+            .transport
+            .recv(&mut conn.rx_buf[start..])
             .map_err(|e| throw_net_exception(objects, strings, e, NetOpCtx::Recv))?;
         if n == 0 {
             return Err(throw_named_exception(
@@ -681,7 +752,9 @@ fn parse_response_head(
             ));
         }
         let space = &mut conn.rx_buf[conn.rx_tail as usize..];
-        let n = crate::hal::net::tcp_recv(conn.socket, space)
+        let n = conn
+            .transport
+            .recv(space)
             .map_err(|e| throw_net_exception(objects, strings, e, NetOpCtx::Recv))?;
         if n == 0 {
             return Err(throw_named_exception(
@@ -729,9 +802,9 @@ fn parse_response_head(
     }
 }
 
-fn send_all(sock: *mut c_void, mut buf: &[u8]) -> Result<(), NetError> {
+fn send_all(transport: &mut Transport, mut buf: &[u8]) -> Result<(), NetError> {
     while !buf.is_empty() {
-        let n = crate::hal::net::tcp_send(sock, buf)?;
+        let n = transport.send(buf)?;
         if n == 0 {
             // A blocking send that makes no progress means the peer is gone.
             return Err(NetError::new(NetErrorKind::Closed, 0));

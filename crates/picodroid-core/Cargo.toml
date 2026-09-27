@@ -54,6 +54,11 @@ any-sensor      = []
 network-wifi     = ["has-network"]
 network-ethernet = ["has-network"]
 has-network     = []
+# HTTPS for HttpURLConnection (net/tls.rs): the pd-tls session over the
+# network HAL. Forwarded by a board that sets `has_tls = true`
+# (board_cfg::assert_forwarded_features_match); the boardless build takes
+# the cfg from this feature. Needs a network.
+tls             = ["dep:pd-tls", "has-network"]
 # Diagnostics / staged-rollout features, forwarded from the binary crate so
 # shared code compiles the same way the platform crate does.
 # Escape hatch for the generational widget handle table, which every target
@@ -100,6 +105,9 @@ pd-json       = { path = "../pd-json" }
 micropb       = { version = "=0.6.0", default-features = false, features = ["encode", "decode", "enable-64bit"] }
 # HTTP/1.1 head + chunked-transfer parsing for net/http_connection.rs.
 http-head     = { path = "../http-head" }
+# TLS 1.3 client (trust store, verifier, session) behind the `tls` feature;
+# net/tls.rs adds the HAL socket, the wall clock and the entropy.
+pd-tls        = { path = "../pd-tls", optional = true }
 # Runtime dep since graphics/assets.rs moved here: it reads the APK's ASST
 # section to build LVGL image descriptors.
 papk-format   = { path = "../papk-format" }

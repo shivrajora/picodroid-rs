@@ -23,6 +23,9 @@ has_json = true
 has_protobuf = true
 has_network = true
 network_type = "cyw43"
+# HTTPS (docs/designs/tls-2026-09.md): pd-tls behind the platform's `tls`
+# feature, which the board feature forwards; build.rs checks they agree.
+has_tls = true
 # 320x240 over a 2.0" diagonal.
 lv_dpi = 200
 # 48 KB, not lv_conf.h's 64 KB default: the W boards' radio statics leave the

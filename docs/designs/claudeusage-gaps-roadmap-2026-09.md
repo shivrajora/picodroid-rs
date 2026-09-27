@@ -533,12 +533,23 @@ release after a handled long-press, `getDownTime()`/`getEventTime()`. `pdb input
 channel; `keydemo` has a nightly sim row. The app: A/B hold to keep turning, X hold to look for the
 bridge again, Y hold to toggle AUTO from any screen — four buttons, eight actions.
 
-### G9. No TLS
+### G9. No TLS — closed 2026-09-27 for the platform; the bridge stays for this app
 
-By design (flash budget), and recorded in the parity roadmap. It is why this app needs a PC-side
-bridge at all, and therefore why "the PC is off" is a failure mode the app has to design around.
-Listed for completeness; the bridge is a reasonable answer for a token that should not live on a
-microcontroller anyway.
+Was: by design (flash budget), recorded in the parity roadmap. TLS 1.3 landed on every RP2350
+WiFi board (`docs/designs/tls-2026-09.md`: `HttpsURLConnection`, a compiled-in root store,
+`SntpClient` for the clock; the `askclaude` example is the showcase). This app keeps its bridge
+on purpose: a direct fetch would need the Claude Code OAuth session on the device — an 8-hour
+access token with a rotating refresh token that would desync the PC's login — and the History
+page is built from local transcripts no API serves. "The PC is off" therefore remains a
+designed-for state here, now by choice rather than by budget.
+
+### G7 amendment (2026-09-27): `BuildConfig`
+
+`picodroidBuildConfig { field("NAME", …) }` in an app's `build.gradle.kts` generates
+`<package>.BuildConfig` with string constants (Android's `buildConfigField` shape;
+`buildSrc/.../BuildConfigExtension.kt`). `fieldFromProperty` reads a Gradle property, else an
+environment variable, else a default — the `NetTestConfig` precedence. First user: `askclaude`'s
+API key, model and endpoint.
 
 ### G10. A large contiguous allocation under fragmentation — closed 2026-09-25
 

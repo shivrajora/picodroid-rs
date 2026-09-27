@@ -219,6 +219,28 @@ pub fn has_protobuf(board: &Option<ResolvedBoard>) -> bool {
     }
 }
 
+/// The optional top-level `has_tls = true` board.toml key: whether this
+/// board ships HTTPS — `picodroid-core/src/net/tls.rs` over the `pd-tls`
+/// session, behind the core's `tls` Cargo feature, which the board feature
+/// must forward ([`assert_forwarded_features_match`]). Off by default: the
+/// client is on the order of 150 KB of flash (docs/designs/tls-2026-09.md).
+/// A boardless build follows the feature, so the cfg and the Cargo graph
+/// agree in `cargo test` and a host `cargo build -p picodroid-core`.
+pub fn has_tls(board: &Option<ResolvedBoard>) -> bool {
+    match props(board) {
+        None => std::env::var("CARGO_FEATURE_TLS").is_ok(),
+        Some(p) => p.get("has_tls").map(String::as_str) == Some("true"),
+    }
+}
+
+/// Emit the `has_tls` rustc cfg from board.toml (see [`has_tls`]).
+pub fn emit_tls_cfg(board: &Option<ResolvedBoard>) {
+    println!("cargo:rustc-check-cfg=cfg(has_tls)");
+    if has_tls(board) {
+        println!("cargo:rustc-cfg=has_tls");
+    }
+}
+
 /// The optional top-level `has_canvas` board.toml key: whether this board
 /// ships `View.onDraw(Canvas)` — the `Canvas` and `Paint` classes, their Rust
 /// arms (`cfg(has_canvas)`) and the display list in `pd-lvgl-sys/lvgl/pd_canvas.c`
@@ -420,6 +442,7 @@ pub fn emit_neutral(out: &Path, board: &Option<ResolvedBoard>, pins: Pins) {
     emit_network_cfgs(board);
     emit_json_cfg(board);
     emit_protobuf_cfg(board);
+    emit_tls_cfg(board);
     emit_canvas_cfg(board);
     emit_lvgl_cfgs(board);
     emit_audio_config(out, board);
@@ -1162,6 +1185,10 @@ pub fn assert_forwarded_features_match(board: &Option<ResolvedBoard>) {
         let declared = b.cfg.sensors.iter().any(|s| s.kind == kind);
         check(kind, declared, &format!("sensor-{kind}"));
     }
+
+    // HTTPS: the board.toml key and the forwarded `tls` feature must agree,
+    // or the cfg would name a crate the Cargo graph does not carry.
+    check("has_tls", has_tls(board), "tls");
 
     // The board's link kind (from the KNOWN_NETWORK_TYPES table) must match
     // exactly one forwarded `network-<kind>` feature.

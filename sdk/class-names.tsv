@@ -130,6 +130,9 @@ java/util/concurrent/TimeoutException
 java/util/zip/CRC32
 java/util/zip/Checksum
 javax/inject/Provider
+javax/net/ssl/SSLException
+javax/net/ssl/SSLHandshakeException
+javax/net/ssl/SSLPeerUnverifiedException
 picodroid/app/Activity
 picodroid/app/AlarmManager
 picodroid/app/AlertDialog
@@ -225,8 +228,10 @@ picodroid/net/NetworkInfo
 picodroid/net/NetworkRequest
 picodroid/net/NetworkRequest$Builder
 picodroid/net/ServerSocket
+picodroid/net/SntpClient
 picodroid/net/Socket
 picodroid/net/URL
+picodroid/net/ssl/HttpsURLConnection
 picodroid/os/Build
 picodroid/os/Build$VERSION
 picodroid/os/Bundle

@@ -203,6 +203,7 @@ F	MODE_1
 F	MODE_2
 F	MODE_3
 F	MODE_APPEND
+F	MODE_CLIENT
 F	MODE_NUMBER
 F	MODE_PRIVATE
 F	MODE_SPECIAL
@@ -232,9 +233,11 @@ F	NOTIFICATION_SERVICE
 F	NOVEMBER
 F	NO_GRAVITY
 F	NO_ID
+F	NTP_PORT
 F	NULL
 F	OCTOBER
 F	ONE_SHOT
+F	PACKET_BYTES
 F	PARITY_EVEN
 F	PARITY_NONE
 F	PARITY_ODD
@@ -267,6 +270,7 @@ F	SCALE_FIT_CENTER
 F	SCALE_FIT_XY
 F	SCALE_TILE
 F	SECONDS
+F	SECONDS_1900_TO_1970
 F	SECONDS_PER_DAY
 F	SECONDS_PER_HOUR
 F	SECONDS_PER_MINUTE
@@ -345,6 +349,7 @@ F	TONE_SUP_RADIO_NOTAVAIL
 F	TONE_SUP_RINGTONE
 F	TOP
 F	TOP_BOTTOM
+F	TRANSMIT_TIME_OFFSET
 F	TRANSPARENT
 F	TRANSPORT_BLUETOOTH
 F	TRANSPORT_CELLULAR
@@ -554,6 +559,8 @@ F	neutralText
 F	nextAutoId
 F	nextId
 F	nextNetId
+F	ntpTime
+F	ntpTimeReference
 F	offset
 F	onCheckedChangeListener
 F	onClickListener
@@ -598,6 +605,7 @@ F	requestCode
 F	resolution
 F	result
 F	rotationTo
+F	roundTripTime
 F	rules
 F	sInstance
 F	sMainExecutor
@@ -927,6 +935,7 @@ M	getCacheBytes
 M	getCheckedRadioButtonId
 M	getChildAt
 M	getChildCount
+M	getCipherSuite
 M	getColor
 M	getColorForState
 M	getConnectTimeout
@@ -1021,6 +1030,8 @@ M	getName
 M	getNano
 M	getNetworkCapabilities
 M	getNetworkHandle
+M	getNtpTime
+M	getNtpTimeReference
 M	getOffset
 M	getOnFocusChangeListener
 M	getOnItemClickListener
@@ -1053,6 +1064,7 @@ M	getResources
 M	getResponseCode
 M	getResponseMessage
 M	getRotation
+M	getRoundTripTime
 M	getRules
 M	getScaleX
 M	getScaleY
@@ -1570,6 +1582,7 @@ M	readSInt32
 M	readSInt64
 M	readString
 M	readTag
+M	readTimestamp
 M	readUInt32
 M	readUInt64
 M	readValue
@@ -1593,6 +1606,7 @@ M	renameTo
 M	report
 M	requestFocus
 M	requestNetwork
+M	requestTime
 M	requireNonNull
 M	reset
 M	resetGcStats

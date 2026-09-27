@@ -529,3 +529,19 @@ pub fn dns_resolve(hostname: &str) -> Result<u32, NetError> {
     }
     Err(NetError::new(NetErrorKind::HostLookup, -1))
 }
+
+/// `picodroid_port_entropy_bytes` for the host (`net/tls.rs`'s handshake
+/// seed): the OS's random source, which never says "not yet".
+#[no_mangle]
+pub extern "C" fn picodroid_port_entropy_bytes(buf: *mut u8, len: usize) -> usize {
+    use std::io::Read;
+    if buf.is_null() || len == 0 {
+        return 0;
+    }
+    // SAFETY: the caller passes a live, writable buffer of `len` bytes.
+    let out = unsafe { core::slice::from_raw_parts_mut(buf, len) };
+    match std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(out)) {
+        Ok(()) => len,
+        Err(_) => 0,
+    }
+}

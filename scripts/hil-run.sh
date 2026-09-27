@@ -1235,6 +1235,10 @@ run_test() {
     while IFS= read -r cred; do
       extra_env+=("$cred")
     done < <(grep -E '^PICODROID_WIFI_(SSID|PASS|AUTH)=' "$NET_CREDS_FILE")
+    # The test-only CA behind the host's TLS listener (net-lib.sh).
+    local tls_ca_env
+    tls_ca_env="$(tls_test_ca_env)"
+    [[ -n "$tls_ca_env" ]] && extra_env+=("$tls_ca_env")
   fi
   # The app's own test environment (examples/<app>/test.env), baked in here:
   # the device reads such switches through option_env!.
@@ -1421,6 +1425,17 @@ for MODE in "${MODES[@]}"; do
     # network stack; sim-run.sh runs them).
     if [[ "$category" == "sim" ]]; then
       hil_log "SKIP $app[$MODE] (sim-only)"
+      echo "SKIP $app[$MODE]" >> "$RESULTS_FILE"
+      SKIP=$((SKIP + 1))
+      continue
+    fi
+
+    # A row whose app ships a test.ctrl is driven through the simulator's
+    # control channel (sim-run.sh::drive_test_ctrl); this runner has no
+    # counterpart, so the row would sit waiting for a key press that never
+    # comes. Skip it with the reason (askclaude's net row).
+    if [[ -f "$REPO_ROOT/examples/$app/test.ctrl" ]]; then
+      hil_log "SKIP $app[$MODE] (test.ctrl: needs the simulator's control channel)"
       echo "SKIP $app[$MODE]" >> "$RESULTS_FILE"
       SKIP=$((SKIP + 1))
       continue

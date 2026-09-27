@@ -7,8 +7,9 @@ import java.io.IOException;
  * HTTP/1.1 client connection, Android-style.
  *
  * <p>Supports {@code GET}, {@code POST}, and {@code PUT}. Request bodies must have a known length,
- * set via {@link #setFixedLengthStreamingMode(int)}. HTTPS URLs are rejected at {@link #connect()}
- * time with {@link UnsupportedOperationException}.
+ * set via {@link #setFixedLengthStreamingMode(int)}. An {@code https} URL opens a {@link
+ * picodroid.net.ssl.HttpsURLConnection}, which runs TLS 1.3 at {@link #connect()} on boards built
+ * with it and throws {@link UnsupportedOperationException} there on boards without.
  *
  * <p>Request headers are set with {@link #setRequestProperty(String, String)} before connecting;
  * response headers are read with {@link #getHeaderField(String)}. {@code Host}, {@code Connection},
@@ -267,14 +268,14 @@ public class HttpURLConnection implements AutoCloseable {
    * @throws java.net.UnknownHostException if the host cannot be resolved
    * @throws java.net.ConnectException if the server actively refused the connection
    * @throws java.net.SocketTimeoutException if the connect attempt timed out
+   * @throws javax.net.ssl.SSLHandshakeException if an {@code https} handshake failed: the chain is
+   *     not issued by a known root, the certificate does not name the host or is outside its
+   *     validity, or the wall clock is unset
    * @throws IOException for any other connection or request-send failure
    */
   public void connect() throws IOException {
     if (handle != -1) {
       return; // already connected
-    }
-    if (url.getProtocol().equals("https")) {
-      throw new UnsupportedOperationException("HTTPS not yet supported");
     }
     if (doOutput && fixedLength < 0) {
       throw new IllegalStateException("setFixedLengthStreamingMode() required for output");
@@ -288,7 +289,8 @@ public class HttpURLConnection implements AutoCloseable {
             fixedLength,
             connectTimeout,
             readTimeout,
-            buildRequestHeaders());
+            buildRequestHeaders(),
+            url.getProtocol().equals("https"));
   }
 
   public HttpOutputStream getOutputStream() throws IOException {
@@ -423,7 +425,8 @@ public class HttpURLConnection implements AutoCloseable {
       int bodyLength,
       int connectTimeoutMs,
       int readTimeoutMs,
-      String extraHeaders)
+      String extraHeaders,
+      boolean tls)
       throws IOException;
 
   private static native int nativeReadResponseCode(int handle) throws IOException;

@@ -625,6 +625,16 @@ pub const BUILTIN_SUPER: &[(&str, &str)] = &[
     (c::java_net_BindException, c::java_net_SocketException),
     (c::java_net_UnknownHostException, c::java_io_IOException),
     (c::java_net_ProtocolException, c::java_io_IOException),
+    // javax.net.ssl, thrown by HttpURLConnection's TLS handshake.
+    (c::javax_net_ssl_SSLException, c::java_io_IOException),
+    (
+        c::javax_net_ssl_SSLHandshakeException,
+        c::javax_net_ssl_SSLException,
+    ),
+    (
+        c::javax_net_ssl_SSLPeerUnverifiedException,
+        c::javax_net_ssl_SSLException,
+    ),
     (
         c::java_lang_ArrayIndexOutOfBoundsException,
         c::java_lang_IndexOutOfBoundsException,

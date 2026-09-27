@@ -7,6 +7,32 @@ This page covers everything that landed in releases v0.4.0 through v0.14.0, plus
 
 ## Unreleased
 
+**HTTPS (2026-09-27; unshrunk until the next map cut)**
+
+- `https` URLs work: `URL.openConnection()` returns a `picodroid.net.ssl.HttpsURLConnection`
+  (the shape of `javax.net.ssl.HttpsURLConnection`) and `connect()` runs a TLS 1.3 handshake —
+  server name checked, chain verified against a compiled-in store of 14 Mozilla roots (ECDSA
+  and RSA), validity checked against the wall clock. Failures throw
+  `javax.net.ssl.SSLHandshakeException` / `SSLException` (`IOException`s, as on Android). A
+  board capability: `has_tls = true`, on for every RP2350 WiFi board, never on the RP2040
+  (329 KB of flash; a handshake is 1.1–2.0 s on the RP2350 and runs on a task of its own with
+  a 40 KB stack that exists only for the handshake). See [HTTPS](/api/networking/#https).
+- `picodroid.net.SntpClient`, the shape of Android's `android.net.SntpClient`: one NTP round
+  trip, then `SystemClock.setCurrentTimeMillis`. The runtime refuses to handshake with the clock
+  unset rather than skip the validity check.
+- `picodroidBuildConfig { field("NAME", …) }` in an app's `build.gradle.kts` generates
+  `<package>.BuildConfig` string constants (Android's `buildConfigField`); `fieldFromProperty`
+  reads a Gradle property, the per-invocation `picodroid.env.<VAR>` property `build-apk.sh`
+  forwards for every `PICODROID_*` variable, the variable itself, then a default.
+- Examples: `askclaude` (a prompt to the Claude Messages API from four buttons, the reply on
+  screen; the API key is a `BuildConfig` constant) and `https_get` (the nightly's TLS row). The
+  test host gains a TLS listener on 8443–8446 (`scripts/tls-listener.py`, a valid leaf and three
+  that must be refused) whose test CA a test build trusts through `PICODROID_TLS_EXTRA_CA`;
+  `PICODROID_SIM_WALL_CLOCK=1` anchors the simulator's clock to the host's.
+- Under the hood: `crates/pd-tls` over a vendored `embedded-tls` 0.19 with three marked patches
+  (`third_party/embedded-tls/README-PICODROID.md`); design and measurements in
+  `docs/designs/tls-2026-09.md`.
+
 **`picodroid.protobuf` (2026-09-26; map v0.33.0, package 0.33.0)**
 
 - protobuf-javalite's stream API — `CodedInputStream`, `CodedOutputStream`, `MessageLite`,

@@ -686,9 +686,10 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
   a someday conversation, not this roadmap.
 - **`RecyclerView`.** Needs upcalls, recycling, and layout managers for a
   ~12-row screen; `ListView` + convertView gets the semantics far cheaper.
-- **HTTPS/TLS.** No stack is vendored and the flash budget rules it out on
-  RP2040. `connect()` keeps throwing. Revisit as RP2350-only, behind E1, if
-  a real case appears.
+- **HTTPS/TLS.** *2026-09-27:* landed RP2350-only as
+  `docs/designs/tls-2026-09.md` — `HttpsURLConnection`, `SntpClient`, the
+  `javax.net.ssl` exceptions; the RP2040 keeps throwing (10.9 KB of flash
+  left). Not mirrored: `SSLSocket`, `setSSLSocketFactory`, `HostnameVerifier`.
 - **Full `java.util.concurrent`, `LinkedList`, `TreeMap`, `ArrayDeque`.** No
   demonstrated need; every builtin still costs shared `.text` and table rows.
   *2026-08-30:* the core set landed as **pure Java** in `picodroid.concurrent`

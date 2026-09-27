@@ -401,6 +401,21 @@ class PicodroidPapkPlugin : Plugin<Project> {
         javaExt.sourceSets.getByName("main").java.srcDir(genNetCfg.flatMap { it.outputDir })
         compileJava.configure { dependsOn(genNetCfg) }
 
+        // `picodroidBuildConfig { field("NAME", …) }` — Android's BuildConfig,
+        // reduced to string constants (BuildConfigExtension). Generated only
+        // when a field is declared; same second-srcDir shape as NetTestConfig.
+        val buildConfig = target.extensions.create("picodroidBuildConfig", BuildConfigExtension::class.java)
+        val genBuildConfig = target.tasks.register(
+            "generateBuildConfig", GenerateBuildConfigTask::class.java
+        ) {
+            onlyIf { buildConfig.fields.get().isNotEmpty() }
+            packageName.set(manifest.packageName)
+            fields.set(buildConfig.fields)
+            outputDir.set(target.layout.buildDirectory.dir("generated/picodroid-buildconfig"))
+        }
+        javaExt.sourceSets.getByName("main").java.srcDir(genBuildConfig.flatMap { it.outputDir })
+        compileJava.configure { dependsOn(genBuildConfig) }
+
         val packPapk = target.tasks.register("packPapk", PapkPackTask::class.java) {
             dependsOn(verifyApiContract)
             classesDir.set(packClassesInput)

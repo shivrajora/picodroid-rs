@@ -225,6 +225,11 @@ fi
 # first build per feature set is the only real build.
 ENV_VARS=(PICODROID_APK_PATH="$APK_PATH")
 BUILD_ENV=(PICODROID_APK_PATH="sim-runtime")
+# The simulator trusts the test-only CA behind scripts/tls-listener.py, so
+# `--app https_get` works against the local listener (net-lib.sh).
+if [[ -f "$SCRIPT_DIR/tls-test/test-ca.der" ]]; then
+  BUILD_ENV+=(PICODROID_TLS_EXTRA_CA="$SCRIPT_DIR/tls-test/test-ca.der")
+fi
 if [[ -n "$SYSTEM_APKS" ]]; then
   ENV_VARS+=(PICODROID_SYSTEM_APKS="$SYSTEM_APKS")
 fi

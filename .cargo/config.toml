@@ -37,6 +37,13 @@ r-testbench-rp2350w = "run -p picodroid --target thumbv8m.main-none-eabihf --no-
 r-pico-enviro-mon = "run -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-pico-enviro-mon"
 r-pico-touch-kit = "run -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-pico-touch-kit"
 
+# The host builds (simulator, tests) use the software AES and POLYVAL
+# backends: the x86 intrinsics backends keep 16-byte-aligned state that
+# the simulator's allocator refuses on behalf of the device heap (aligns
+# to 8, parity-audit MEM-05), and the device links the soft backends anyway.
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["--cfg", "aes_force_soft", "--cfg", "polyval_force_soft"]
+
 [env]
 DEFMT_LOG = "debug"
 # Cross-compilers used by freertos-cargo-build (cc crate) to compile FreeRTOS C source

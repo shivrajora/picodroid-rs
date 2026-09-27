@@ -1076,6 +1076,9 @@ java/util/zip/Checksum	update	(I)V
 java/util/zip/Checksum	update	([BII)V
 javax/inject/Provider
 javax/inject/Provider	get	()Ljava/lang/Object;
+javax/net/ssl/SSLException
+javax/net/ssl/SSLHandshakeException
+javax/net/ssl/SSLPeerUnverifiedException
 #
 # ── Hierarchy ──
 @extends	java/io/IOException	java/lang/Exception
@@ -1128,6 +1131,9 @@ javax/inject/Provider	get	()Ljava/lang/Object;
 @extends	java/util/concurrent/ExecutionException	java/lang/Exception
 @extends	java/util/concurrent/RejectedExecutionException	java/lang/RuntimeException
 @extends	java/util/concurrent/TimeoutException	java/lang/Exception
+@extends	javax/net/ssl/SSLException	java/io/IOException
+@extends	javax/net/ssl/SSLHandshakeException	javax/net/ssl/SSLException
+@extends	javax/net/ssl/SSLPeerUnverifiedException	javax/net/ssl/SSLException
 @implements	java/lang/Boolean	java/lang/Comparable
 @implements	java/lang/Byte	java/lang/Comparable
 @implements	java/lang/Character	java/lang/Comparable

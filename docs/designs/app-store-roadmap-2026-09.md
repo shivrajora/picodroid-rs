@@ -325,7 +325,7 @@ Alternatives considered:
 | S2 | PackageManager and PackageInstaller | queries DONE 2026-09-07 as multi-app M2; uninstall DONE in M3 (A2, A3); the streaming `Session` waits for S4 |
 | S3 | CRC + Ed25519 signatures, streaming verify | NOT STARTED |
 | S4 | Network `InstallTransport` over HTTP `Range` | NOT STARTED |
-| S5 | TLS 1.3 client (position 2) | NOT STARTED |
+| S5 | TLS 1.3 client (position 2) | DONE 2026-09-27 as `docs/designs/tls-2026-09.md`: `embedded-tls` 0.19 `rustpki`, full chain verification against a compiled-in root store (not a pinned key), `HttpsURLConnection` |
 | S6 | Launcher and store as firmware system apps | launcher DONE 2026-09-07 as multi-app M2; settings DONE in M3 (A2, A3); no store yet |
 | S7 | Cross-package launch and task stack | DONE 2026-09-07 as multi-app M2 — exit returns home, no task stack (A2) |
 | S8 | Store protocol (protobuf) and reference server | NOT STARTED |
@@ -393,6 +393,14 @@ Corrections to the body:
   measured image plus TLS plus the system apps, with 3 × 384 KB as the
   starting assumption**, and the firmware region shrinks accordingly in
   `rp2350.x`.
+
+### A3 (2026-09-27) — TLS landed; A1's "does not build" is history
+
+`embedded-tls` 0.19's `rustpki` feature verifies X.509 chains without `ring`, so full chain
+verification builds for Thumb-2 after all. S5 is done as `docs/designs/tls-2026-09.md`, with
+a root store rather than a pinned key (the store's certificate can still be pinned by shipping
+only it as the anchor). Measured flash and RAM are in that document's §6/§7, replacing A1's
+table for any slot arithmetic in S1.
 
 ### A2 (2026-09-07) — the multi-app half executes under `multi-app-2026-09.md`
 

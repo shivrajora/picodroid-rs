@@ -49,12 +49,12 @@ rtt-lossy = ["defmt-rtt/disable-blocking-mode"]
 board-testbench-rp2040 = ["chip-rp2040", "picodroid-core/board-testbench-rp2040"]
 board-testbench-rp2350 = ["chip-rp2350", "picodroid-core/board-testbench-rp2350"]
 board-pico-enviro-mon = ["chip-rp2350", "picodroid-core/board-pico-enviro-mon", "picodroid-core/sensor-bme688", "picodroid-core/sensor-ltr559"]
-board-pico-enviro-mon-w = ["chip-rp2350", "picodroid-core/board-pico-enviro-mon-w", "picodroid-core/sensor-bme688", "picodroid-core/sensor-ltr559", "picodroid-core/network-wifi"]
-board-pico-display2-w = ["chip-rp2350", "picodroid-core/board-pico-display2-w", "picodroid-core/network-wifi"]
-board-testbench-rp2350w = ["chip-rp2350", "picodroid-core/board-testbench-rp2350w", "picodroid-core/network-wifi"]
+board-pico-enviro-mon-w = ["chip-rp2350", "picodroid-core/board-pico-enviro-mon-w", "picodroid-core/sensor-bme688", "picodroid-core/sensor-ltr559", "picodroid-core/network-wifi", "picodroid-core/tls"]
+board-pico-display2-w = ["chip-rp2350", "picodroid-core/board-pico-display2-w", "picodroid-core/network-wifi", "picodroid-core/tls"]
+board-testbench-rp2350w = ["chip-rp2350", "picodroid-core/board-testbench-rp2350w", "picodroid-core/network-wifi", "picodroid-core/tls"]
 # RP2350B (chip-rp2350: rp235x-hal covers both variants; the 16 MB flash is
 # described by mcus/rp/rp2350b.toml, which board.toml names).
-board-pico-touch-kit = ["chip-rp2350", "picodroid-core/board-pico-touch-kit", "picodroid-core/network-wifi"]
+board-pico-touch-kit = ["chip-rp2350", "picodroid-core/board-pico-touch-kit", "picodroid-core/network-wifi", "picodroid-core/tls"]
 # MCU selection (internal — activated by board features)
 chip-rp2040 = ["dep:rp-pico", "family-rp"]
 # The RP2350 runs the interpreter loop from RAM (mcus/rp/rp2350*.toml
@@ -105,6 +105,9 @@ littlefs-rust = { version = "0.1", default-features = false, features = ["alloc"
 # RP-family (Cortex-M) embedded deps.
 [target.'cfg(target_arch = "arm")'.dependencies]
 cortex-m = "0.7"
+# The family's critical section (rp235x-hal's hardware-spinlock impl): the
+# TRNG buffer now has two callers on two cores (hal/rp/entropy.rs).
+critical-section = "1"
 cortex-m-rt = "0.7"
 freertos-rust = { version = "0.2.3", package = "freertos-rust-pd" }
 rp-pico = { version = "0.9", optional = true }

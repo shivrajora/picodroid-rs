@@ -95,7 +95,7 @@ trap 'stop_net_listeners' EXIT
 if [[ "$want_net" == "true" && -f "$REPO_ROOT/.wifi-creds.env" ]]; then
   if start_net_listeners "$FLEET_LOG_DIR"; then
     export PICODROID_NET_LISTENERS_EXTERNAL=1
-    log "Net listeners up (echo $NET_ECHO_PORT, http $NET_HTTP_PORT), shared by every runner"
+    log "Net listeners up (echo $NET_ECHO_PORT, http $NET_HTTP_PORT, tls $NET_TLS_PORT), shared by every runner"
   else
     log "WARNING: $NET_LISTENER_ERR -- net rows will report it"
   fi

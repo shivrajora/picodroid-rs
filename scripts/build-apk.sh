@@ -132,6 +132,15 @@ if [[ "${PICODROID_SKIP_GRADLE:-}" != "1" ]]; then
   if [[ -n "${PICODROID_NET_TEST_HOST:-}" ]]; then
     GRADLE_EXTRA_ARGS+=("-PpicodroidNetTestHost=${PICODROID_NET_TEST_HOST}")
   fi
+  # Every other PICODROID_* variable rides along as a `picodroid.env.<NAME>`
+  # property for the same reason: a `picodroidBuildConfig` field declared with
+  # fieldFromProperty (askclaude's API key, model and endpoint) reads it
+  # before the daemon's frozen environment. The WiFi credentials stay out —
+  # they are the firmware's, and a -P shows in the process list.
+  env_line=""
+  while IFS= read -r env_line; do
+    GRADLE_EXTRA_ARGS+=("-Ppicodroid.env.${env_line%%=*}=${env_line#*=}")
+  done < <(env | grep -E '^PICODROID_[A-Z0-9_]+=' | grep -v -E '^PICODROID_WIFI_(SSID|PASS|AUTH)=')
   # The target board, when the caller knows it: verifyApiContract then also
   # rejects references to classes that board excludes from its framework.
   # A -P property for the same daemon-freshness reason as the shrink flag.
