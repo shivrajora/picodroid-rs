@@ -117,6 +117,12 @@ jobs:
           submodules: recursive
       - name: Install ARM toolchain and JDK
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi default-jdk-headless libudev-dev
+      # google-java-format 1.36.1 is a Java 21 jar; the apt JDK above is 17.
+      # The golden selftest and gen-proto.sh --check both format with it.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
