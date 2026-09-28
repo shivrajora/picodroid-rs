@@ -12,7 +12,9 @@ evidence and where to start. Status lines are kept here as items close.
 
 ## FR-1: Push to origin and the first nightly
 
-**Status: open.** `main` was four commits ahead of `origin/main` when this was written (the TLS
+**Status: closed 2026-09-27.** Pushed with v0.35.0; CI green on `5dadeb74`, and the
+2026-09-27 afternoon sim matrix (`a66329d2`) passed `fragmentdemo`, `pagerdemo` and
+`claudeusage` in both shrink modes. As written: `main` was four commits ahead of `origin/main` (the TLS
 backlog, the two fragment commits, this file); the repo rule is push only when asked. After the
 push, `gh run list --limit 3` shows CI (the two new example APKs build there). The 3 AM `sim-run`
 gains the `fragmentdemo` row (pinned to `pico_display2_w` for the two BACKs its `test.ctrl`
@@ -23,7 +25,10 @@ reds on the first morning: the size-ratchet lane (FR-2) and the `claudeusage` ro
 
 ## FR-2: Accept the flash, and decide the RP2040 reserve
 
-**Status: open, decision needed.** The nightly `size-ratchet` lane fails at 0 % growth from the
+**Status: closed 2026-09-27, by `5dadeb74`.** Accepted at `testbench_rp2350` +39,820 B; the
+`testbench_rp2040` came in 3,984 B *smaller* (903,824 B, the debug-profile trims of `a66329d2`),
+under `G1_HARD`, so the reserve did not have to move. The `size-ratchet` lane passes. As
+written: the nightly `size-ratchet` lane fails at 0 % growth from the
 first night after the push. Measured 2026-09-27 with `parity-bench.sh --size-only` against a
 baseline rebuilt on the same machine ([designs/fragments-2026-09.md](designs/fragments-2026-09.md)
 §7):
@@ -92,7 +97,9 @@ app`); re-run on that tree, the row is PASS in both shrink modes.
 
 ## FR-6: `./scripts/test.sh` does not compile on `main`
 
-**Status: open, one-line fix.** Since `171070fc` (2026-09-27, Wi-Fi provisioning), which is on
+**Status: closed 2026-09-27, by `a66329d2`.** `kick()`'s call is now
+`#[cfg(all(feature = "sim", network_link_wifi))]` (the second option below), so the host tests
+compile without a Wi-Fi link. As written: since `171070fc` (2026-09-27, Wi-Fi provisioning), which is on
 `origin/main`:
 
 ```text
