@@ -3,7 +3,7 @@
 **Status: built 2026-09-16/17 on `feat/value-slot-8b`, stages 1–4 with one
 departure — frames keep the 16 B `Value`; `Slot` holds the fields arena,
 the collection buffers and lambda captures** — see "As built" at the end
-for what differed, why, and what was measured. Tracked in `../quality-roadmap.md` (Memory footprint). Origin: the
+for what differed, why, and what was measured. Tracked in `../quality-roadmap.md` (Memory footprint), now in `../completed/quality-roadmap.md`. Origin: the
 `perf-campaign-2026-08.md` "what is left" bullet, which called this the
 largest memory lever left and asked for a design doc. This is that doc: the
 feasibility verdict, the design, the expected saving, the risks, and the

@@ -1,0 +1,196 @@
+# Completed: Fluid scrolling on the touch board: the PSRAM plan, and what LVGL buys with the room
+
+Items closed out of [psram-lvgl-fluid-scroll-2026-09.md](../designs/psram-lvgl-fluid-scroll-2026-09.md), moved here on 2026-09-28 so the
+original lists only open work. Text is as it stood when moved; ids keep their meaning.
+
+## 3. Bringing PSRAM up
+
+### Stage 1 — boot it and prove it
+
+The bootrom leaves the QMI's second chip select alone. Bringing PSRAM up means,
+in `platforms/rp/src/hal/rp/boot.rs`, before the FreeRTOS arena is handed out:
+
+1. Set GP47's pad function to `XIP_CS1`.
+2. Issue the APS6404L's enter-quad-mode sequence through the QMI's direct mode.
+3. Program the M1 read, write and timing registers for the part.
+
+Three details decide whether this works:
+
+- **The 8 µs `tCEM` limit is the one to get right.** The APS6404 is
+  pseudo-static: it self-refreshes internally, but only while deselected, so
+  chip select may not stay asserted indefinitely. The QMI's `MAX_SELECT` /
+  `MIN_DESELECT` timing fields are what break a long burst into refresh-safe
+  chunks. A DMA read of a 12.8 KB band is exactly such a burst, so getting this
+  wrong produces corruption that only appears under load.
+- **The clock divisor rounds the way the display's did.** The part is rated
+  133 MHz and the system clock is 150 MHz, so the divisor lands on 2 and the bus
+  runs at 75 MHz. That is inside the rating, unlike the display SPI, which
+  `clock_divisors` silently rounded *above* its rated write clock. Record the
+  number this time rather than inheriting it.
+- **The bank-1 worry is retired, but confirm it.** `rp2350b.toml` warns that
+  pins at or above GP32 need bank-1 registers that `hal/rp/gpio.rs` does not
+  have. That warning is about the SIO drive registers, and GP47 is never driven
+  as a SIO output — the pad function select is a per-pin indexed register that
+  already works for any pin the PAC exposes, the same path `hal/rp/touch.rs`
+  uses for the touch MISO pad. Confirm rather than trust, and add a debug
+  assert in `gpio.rs` so a future `1u32 << pin` on a bank-1 pin fails loudly
+  instead of silently.
+
+**Proving it needs care.** A pattern test small enough to sit in the XIP cache
+proves only that the cache works. The readback has to go through the
+non-cached XIP alias, or sweep far enough past the cache to make it irrelevant.
+Do both: a full 8 MB write-and-verify sweep at boot behind a feature, and a
+cache-bypassing spot check that stays in the default build. Report through
+`pdb sysmon`, and while the harness is there, **measure PSRAM read and write
+bandwidth** — §5 cannot be judged without that number.
+
+*Built 2026-09-12:* the report goes through the boot log rather than sysmon
+(`psram: 8192 KB at 0x11000000, bus 75 MHz (QMI clkdiv 2, rxdelay 2)`, which
+the RTT-matching HIL rows can grep for; the sysmon wire format stays frozen),
+the sweep is the `psram-sweep` Cargo feature of the RP crate, and the bench
+said: 0 bad words in 2 x 8 MB, **8.7 MB/s writing through the cache, 19.4 MB/s
+reading uncached, 19.7 MB/s reading cached and sequential**. The QMI direct
+mode runs from RAM — while it is enabled the QMI is not serving XIP — and a
+warm reset (the watchdog after every install) leaves the part in QPI mode, so
+the bring-up sends exit-QPI before the serial ID read; `pdb install` exercises
+that path on every cycle. The bank-1 worry is retired for real: the pad
+function select is all GP47 ever needs.
+
+### Stage 2 — make it addressable
+
+A `PSRAM` region at `0x11000000` in `platforms/rp/mcus/rp/rp2350b.x`, and a
+`psram_kb` key rendered by `crates/build_support/flash_layout.rs`.
+
+That file models exactly one flash and one RAM region, so this is a genuine
+extension of its geometry. Concretely:
+
+- `FlashLayout` gains `psram_origin` and `psram_len`, and the struct name
+  becomes a slight lie. Leave the name — it is the shared geometry type every
+  board includes, and renaming it touches far more than this work.
+- `render_memory_x` emits the region **only when `psram_kb` is present**. The
+  tests at the bottom of the file pin the rendered output byte-for-byte for
+  boards that have none, and those assertions should not move.
+- `rust_consts` gains `PSRAM_ORIGIN` / `PSRAM_LEN` so the firmware and the
+  `LV_MEM_ADR` define in §4 read the same number the linker does.
+- Put `psram_kb` in the **MCU** toml beside `flash_kb`. Both are properties of
+  the module rather than the die, which is already an acknowledged wart in
+  `rp2350b.toml` — a descriptor exists for that variant precisely because
+  `flash_kb` is MCU-only. Consistency beats a second mechanism here. The
+  *policy* keys (which tenant goes to PSRAM) belong in board.toml.
+
+Note that the `PSRAM` region gets no `.psram` output section at first. Nothing
+is linked there in Stage 2; §4's first tenant takes its address as a constant,
+not as a section. A second tenant is what forces a real sub-allocator.
+
+*Built 2026-09-12* as written, with `psram_cs_pin` beside the two geometry
+keys (the RP build.rs hands it and `clock_hz` to `psram.rs`), the
+`PSRAM_ORIGIN`/`PSRAM_LEN` constants, and a `has_psram` cfg next to
+`has_multi_app`.
+
+### Stage 3 — state the XIP rule, and audit for it
+
+The stage that will bite, and the reason to do it before any tenant moves.
+PSRAM lives behind the same XIP window that runtime flash writes switch off.
+
+**Good news first.** The hazard is narrower than the feasibility doc implies,
+in two ways worth writing down:
+
+- **PSRAM contents survive a flash write.** The part self-refreshes while
+  deselected. What fails is *access* during the window, not retention.
+- **The audit surface is two call sites**, both in
+  `platforms/rp/src/hal/rp/flash.rs`: the `with_xip_disabled!` wrappers around
+  `flash_range_erase` and `flash_range_program`. Both already run from RAM with
+  interrupts masked on the calling core and core 1 parked
+  (`hal/rp/core1_park.rs`). Nothing reachable from either closure touches
+  PSRAM today.
+
+**The rule, for the porting guide, beside the existing flash-write rule:**
+between XIP-off and XIP-restore, no code on either core may read or write
+PSRAM — and that includes core 1's park loop. Two corollaries:
+
+- The installer must not stage an app image in PSRAM.
+- `with_xip_disabled!` must restore the M1 window as well as M0. This is the
+  second window that the existing "restore fast XIP after flash ops" rule now
+  has to cover, and the sim models neither.
+
+A violation is hardware-only and silent, the same class of bug as the 32-bit
+handle dangles. The on-device test that catches it: install a package (which
+forces real flash erases and programs) while the UI is scrolling, with the
+LVGL pool already in PSRAM. That belongs in `hil-tests.conf` as part of Stage 4,
+not as an afterthought.
+
+*Built 2026-09-12.* One more obligation turned up that neither doc had: the
+RP2350's XIP cache is **write-back** for window 1, and the ROM's
+`flash_flush_cache` invalidates without cleaning, so `with_xip_disabled!` now
+cleans the whole cache (by set/way through the top of the maintenance alias,
+the RP2350-E11 workaround pico-sdk uses) before `connect_internal_flash`, and
+restores M1_TIMING..M1_WCMD after the ROM's restore of window 0. The rule is
+in the porting guide beside the flash-write rule. Tested with the pool in
+PSRAM: a SharedPreferences commit (LittleFS erase and program on the fs
+worker) with the UI live, rendering on afterwards and the alarm back after
+the next reset; then an install and its watchdog reset. An install cannot
+overlap a scroll by design — it parks the JVM first — so the live-UI case is
+the filesystem write, and the existing `pdb install` rows cover the reset
+path on every nightly.
+
+## 4. What LVGL does with the 64 KB
+
+### 4.1 Moving the pool is one define
+
+`LV_USE_STDLIB_MALLOC` is `LV_STDLIB_BUILTIN`, and
+`third_party/lvgl/src/stdlib/builtin/lv_mem_core_builtin.c` already has the
+hook: with `LV_MEM_ADR` nonzero, `lv_mem_init` calls
+`lv_tlsf_create_with_pool((void *)LV_MEM_ADR, LV_MEM_SIZE)` instead of
+declaring the static array. So the move is `build_support/lvgl.rs` emitting
+`LV_MEM_ADR` from the Stage 2 constant when the board opts in, next to where it
+already emits `LV_MEM_SIZE` from `lv_mem_kb`. Board key: `lv_mem_in_psram`.
+
+Cheap to try and cheap to revert, which is what a first tenant should be.
+
+### 4.2 The open question has a fix, not just a measurement
+
+Both prior docs flag the same risk: LVGL allocates draw buffers from
+`LV_MEM_SIZE` during rendering, so the pool may be a bad first tenant precisely
+because it is not as cold as it looks. That is real. The chain is
+`lv_draw.c:503` -> `lv_draw_buf_create` -> `buf_malloc` -> `lv_malloc`, so with
+the pool in PSRAM every blended or transformed layer becomes a per-pixel write
+target on the QSPI bus.
+
+It is fixable rather than merely measurable. `lv_draw_buf_get_handlers()`
+returns a mutable pointer to the default handler struct, so after `lv_init()`
+we install our own `buf_malloc_cb` / `buf_free_cb` that serve render targets
+from a small SRAM arena and leave everything else in PSRAM. That is the
+arrangement we wanted anyway: **cold metadata in PSRAM, hot pixels in SRAM.**
+
+Sizing it: `LV_DRAW_LAYER_SIMPLE_BUF_SIZE` is 8 KB, so a 16 KB SRAM arena
+covers the simple-layer case with room for two. A request that does not fit
+falls back to the pool and logs once through defmt, so an unexpectedly large
+layer shows up as a line in the log rather than as an unexplained slow frame.
+
+This turns Stage 4's gate into roughly forty lines of code.
+
+*Built 2026-09-12* as `lvgl/lv_draw_buf_sram.c`, with one change: the SRAM
+comes from the FreeRTOS arena (`pvPortMalloc`) rather than a 16 KB static
+arena, because layers are transient — allocated and freed inside one refresh —
+so at rest they cost nothing, and the fallback to the pool is counted and
+warned about once from `lifecycle.rs`. Across every gesture measured, the
+count stayed at zero.
+
+## 6. Open questions this plan does not close
+
+- ~~**Whether QMI M1 timing can be programmed without disturbing flash XIP on
+  M0.**~~ *Answered 2026-09-12 on the bench:* it can; the firmware runs from
+  window 0 throughout, and flash writes restore both windows.
+
+## 7. Order
+
+| # | Step | Needs PSRAM | Effort | Buys |
+|---|---|---|---|---|
+| 1 | **S3: `LV_DEF_REFR_PERIOD` 33 -> 16 — done** | no | one line | 3 ticks per paint became 1; ceiling 20 -> 62 fps |
+| 2 | S2: honest `lv_tick_inc` | no | hours | animation and fling timing that is correct rather than approximate |
+| 3 | **S6 measurement**: style-cache A/B, XIP cache counters | no | one flash cycle | decides most of what follows |
+| 4 | S5 RAM-neutral variant: 10-row bands, two buffers | no | a day | answers the per-band-overhead question; hides some SPI |
+| 5 | **S4: hardware vertical scroll — done 2026-09-12** | no | framework feature | ~9x fewer pixels per scroll step; measured in §5 S4 of the scroll doc |
+| 6 | PSRAM Stages 1-3 | — | the enabling chain | nothing directly |
+| 7 | Stage 4: pool to PSRAM + SRAM draw-buffer handler | yes | small, given 6 | 64 KB of SRAM back |
+| 8 | S5 at full band height, and style cache on | 7 | a day | most of the 39 ms SPI half |

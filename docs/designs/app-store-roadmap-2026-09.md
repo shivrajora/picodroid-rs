@@ -12,6 +12,8 @@
 > (`picodroid-core/src/install/`), and the JVM core / comm core split on
 > RP2040 and RP2350.
 
+Completed items: [completed/app-store-roadmap-2026-09.md](../completed/app-store-roadmap-2026-09.md) — S0, S1, S5, S7, deferred per-package data isolation.
+
 ## 0. Why this exists
 
 Today an app reaches a device in exactly one way: a developer runs `pdb
@@ -76,45 +78,8 @@ needs to be rewritten; every session extends it.
 
 Each session is one PR with its own design pass, sim coverage where the sim
 can express it, and an HIL check on `testbench_rp2350w`. Status is tracked
-in the table in §5.
-
-### S0 — Package identity in the manifest
-
-Add manifest keys, all additive, emitted by `build-apk.sh` from the app's
-Gradle metadata:
-
-- `package` (reverse-DNS, the identity everything else keys on)
-- `version-code` (monotonic integer), `version-name`
-- `label`, `icon` (an asset name in the ASSETS section)
-- `min-framework-map-version`
-- `uses-feature` (comma-separated `PackageManager.FEATURE_*` names)
-- `uses-permission` (S9 consumes this; S0 only carries it)
-
-`papk-info` prints them; `pdb install` warns on a missing `package`. No
-device behaviour changes. Existing PAPKs without the keys keep installing
-through PDB (legacy path) until S2 makes `package` mandatory for slots.
-
-### S1 — Multi-slot flash layout and the package index
-
-Replace the single `PAPK_FLASH` region on RP2350 with a partition table:
-
-- `SYS_PAPK`: one protected region for the launcher + store image (S6).
-- `APP_PAPK[0..N]`: N fixed slots. First cut: 4 × 512 KB out of the
-  2816 KB firmware reservation, leaving the firmware its measured size plus
-  headroom. Slot size is a board.toml key so a board can trade count for
-  size.
-- Each slot keeps its own 4 KB boot-meta sector, so the existing
-  `PapkSlot<F>` arithmetic applies per slot with a slot-base parameter.
-
-`PapkSlotFlash` grows a slot index; `read_mapped` takes a slot base. A
-package index in LittleFS (`/pm/index`, protobuf-encoded, see §4) maps
-`package → slot, version-code, install time`; it is rebuilt from the slot
-boot-meta pages on boot if missing or corrupt, so the slots stay the source
-of truth. Uninstall erases the meta sector of the slot and drops the index
-row.
-
-`pdb install` gains `--slot` and `--package`; the sim gets an in-memory
-slot array so S2 onward has coverage without a board.
+in the table in §5. S0, S1, S5 and S7 are done; their sections are in
+[completed/app-store-roadmap-2026-09.md](../completed/app-store-roadmap-2026-09.md).
 
 ### S2 — PackageManager and PackageInstaller
 
@@ -167,23 +132,6 @@ An `InstallTransport` backed by a TCP stream owned by the comm core:
 - Sim: the transport talks to a local HTTP server started by `sim.sh
   --store-url`.
 
-### S5 — TLS
-
-The device has no TLS. Two positions, choose after measuring:
-
-1. **Signatures only (S3), plain HTTP.** Integrity and authenticity come
-   from the package and catalog signatures; TLS would add only privacy of
-   what the device downloads. Cheapest, and enough to ship an internal
-   store.
-2. **TLS 1.3 client** via `embedded-tls` (`no_std`, Rust, client-only,
-   TLS 1.3 only) with the store's certificate pinned rather than a root
-   store. Expected 60–80 KB of flash plus ~16 KB RAM per connection on
-   RP2350. Needed before a public store.
-
-Recommendation: ship S4 on position 1 with the catalog and packages signed,
-and land position 2 as its own session once flash is measured. Either way
-`HttpURLConnection` stops throwing on `https` when 2 lands.
-
 ### S6 — System apps: launcher and store in firmware
 
 - Build `launcher` and `store` as ordinary `picodroid.*` apps under
@@ -196,20 +144,6 @@ and land position 2 as its own session once flash is measured. Either way
 - The launcher is a grid of `getInstalledPackages()` with labels and icons;
   the store is the S7 client. Both are held to the same size discipline as
   every SDK class: they cost flash on every RP2350 board.
-
-### S7 — Cross-package launch and the task stack
-
-`startActivity(Intent)` with a target outside the current package:
-
-- Resolve through the S2 index; unknown package → `ActivityNotFoundException`.
-- Tear down the current app (`run_app` re-entry: heap reset, background
-  pool drain, sensor deregistration all exist) and re-enter `run_app` on the
-  target slot.
-- A task stack of packages, depth-limited (4 is plenty): when the last
-  `Activity` of a package finishes, pop and re-enter the previous package.
-  The launcher is the bottom of the stack and cannot be popped.
-- `onSaveInstanceState` is not carried across a re-entry in this session;
-  document it and defer.
 
 ### S8 — Store client protocol and catalog
 
@@ -258,9 +192,6 @@ what it needs:
 - **Firmware OTA.** A store that cannot update the framework hits the map
   floor within a few releases. A/B firmware is not possible in the RP2350
   budget; a bootloader-staged single-image update is. Separate design.
-- **Per-package data isolation** for files beyond `SharedPreferences`
-  (`openFileOutput`, `getFilesDir`): namespaced by package in LittleFS,
-  wiped on uninstall. Small; lands with whichever session first needs it.
 - **Device attestation** to the store. Not needed until the store gates
   anything on device identity.
 
@@ -320,14 +251,10 @@ Alternatives considered:
 
 | Session | Title | Status |
 |---------|-------|--------|
-| S0 | Package identity in the manifest | DONE 2026-09-07 as multi-app M0 (A2) |
-| S1 | Multi-slot flash layout and package index (RP2350) | DONE 2026-09-07 as multi-app M1 — dynamic region, no index (A2, A3) |
 | S2 | PackageManager and PackageInstaller | queries DONE 2026-09-07 as multi-app M2; uninstall DONE in M3 (A2, A3); the streaming `Session` waits for S4 |
 | S3 | CRC + Ed25519 signatures, streaming verify | NOT STARTED |
 | S4 | Network `InstallTransport` over HTTP `Range` | NOT STARTED |
-| S5 | TLS 1.3 client (position 2) | DONE 2026-09-27 as `docs/designs/tls-2026-09.md`: `embedded-tls` 0.19 `rustpki`, full chain verification against a compiled-in root store (not a pinned key), `HttpsURLConnection` |
 | S6 | Launcher and store as firmware system apps | launcher DONE 2026-09-07 as multi-app M2; settings DONE in M3 (A2, A3); no store yet |
-| S7 | Cross-package launch and task stack | DONE 2026-09-07 as multi-app M2 — exit returns home, no task stack (A2) |
 | S8 | Store protocol (protobuf) and reference server | NOT STARTED |
 | S9 | Permissions | NOT STARTED |
 

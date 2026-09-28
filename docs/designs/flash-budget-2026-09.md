@@ -7,6 +7,8 @@
 > embedded corpora, or a rebuilt image, unless a row is marked *(projected)*.
 > Reproduction commands and one important trap are in §9.
 
+Completed items: [completed/flash-budget-2026-09.md](../completed/flash-budget-2026-09.md) — §6.2 (retire `shrink_class`/`unshrink_class`), §6.7 (app PAPK obfuscation), §8 rows 1a, 1b (measured, rejected), 2, 3, 8, and the matching §0 TL;DR rows.
+
 ## 0. TL;DR
 
 The three string changes took the image from **1,009,792 → 943,959 B
@@ -20,19 +22,16 @@ ARM code, and that is where the next order of magnitude is:
 |---|---:|---|
 | `opt-level = "s"` for the release profile (LVGL/FreeRTOS C follow via cc-rs) | **−224,552 B (−23.8 %)** | measured, §6.1 — needs a HIL benchmark before adoption |
 | `opt-level = "z"` | −270,260 B (−28.6 %) | measured, §6.1 |
-| C code alone at `-Os`, Rust untouched at 3 | **−81,552 B (−8.6 %)** | measured, §6.1 — no JVM-speed exposure |
-| Retire `shrink_class` / `unshrink_class` in favour of `c::` consts | **−27,154 B** (943,959 → 916,805) | **landed 2026-09-02**, §6.2 |
 | App-driven tree-shake of the embedded SDK corpus | ~19.8 KB for this app | projected, §6.3 |
 | Float parse/format in `core` (`Double.toString` round-trip search + `parseDouble`) | up to ~25 KB | measured components, §6.4 |
 | LVGL config (ARGB8888 blend, blur, shadow, transform, unused widgets) | ~20–35 KB | measured components, §6.5 |
 | `pdb` + USB CDC as a product-image feature gate | ~14 KB | measured components, §6.6 |
-| App PAPK class/member obfuscation (`--shrink-app`) | **−9,297 B** PAPK (49,929 → 40,632), **outside the program region** | **landed 2026-09-02**, §6.7 |
 
 One bookkeeping correction that changes how the PAPK-side numbers should be
 read: **the embedded PAPK does not live in the program region** (§3). The
 `Flash:` line sums it in, but the linker places it in `PAPK_FLASH`, so
 `picoenvmon`'s real `FLASH` usage is **889,664 B**, and every PAPK-side saving
-in the earlier document (and §6.7 here) relieves the 1 MB PAPK slot, not the
+in the earlier document (and §6.7, now in [completed/flash-budget-2026-09.md](../completed/flash-budget-2026-09.md)) relieves the 1 MB PAPK slot, not the
 896 K rp2040 ceiling.
 
 ## 1. The build under measurement
@@ -97,7 +96,7 @@ address linked into `FLASH` is `.gnu.sgstubs` at `0x100d9340`, i.e.
 correction is only ~4.9 KB (`helloworld.papk` + the meta sector), so the
 896 K ceiling numbers stand, but the headroom there is ~48 KB rather than
 ~43 KB. Worth teaching `lib.sh` to subtract the `PAPK_FLASH` sections so the
-gate measures what the linker enforces (done 2026-09-19, §8 row 3; size
+gate measures what the linker enforces (done 2026-09-19, §8 row 3 in [completed/flash-budget-2026-09.md](../completed/flash-budget-2026-09.md); size
 figures before that date include the PAPK).
 
 ## 4. Java name text still in the image (59,129 B, 6.3 %)
@@ -177,7 +176,7 @@ Cross-class duplication inside the PAPK is 10,862 B.
 | type descriptors / `java/**` | 2 | 2 | 33 |
 
 The three blobs behind the original-form names are unchanged from August and
-are the subject of §6.2:
+are the subject of §6.2 (landed; [completed/flash-budget-2026-09.md](../completed/flash-budget-2026-09.md)):
 
 | Address | Bytes | What |
 |---|---:|---|
@@ -233,7 +232,8 @@ recoverable on stable: only 1,024 B came off.
 
 ## 6. Opportunities
 
-Ranked by measured or projected bytes off the **program region**.
+Ranked by measured or projected bytes off the **program region**. §6.2 and §6.7
+landed and are in [completed/flash-budget-2026-09.md](../completed/flash-budget-2026-09.md).
 
 ### 6.1 Optimisation level — measured, −224 KB to −270 KB
 
@@ -365,43 +365,6 @@ that interaction, since `-Os` + LTO may behave differently from `-O3` + LTO.
   stabilises. Anything in between needs to be measured per variant, not
   reasoned about.
 
-### 6.2 Retire runtime class-name translation — ~19 KB
-
-> **Landed 2026-09-02** as [unconditional-shrink-2026-09.md](unconditional-shrink-2026-09.md)
-> (map v0.17.0): ProGuard semantics for `--shrink`, no original name anywhere
-> in the image, `Class.getName()` returns the mapped name. Measured on this
-> build: **943,959 → 916,805 B (−27,154)** — `.text` −17,424, `.rodata`
-> −9,460 — more than the ~19 KB priced below because the contract members
-> and the JVM's own `java/**` literals went with it. `.rodata` now carries
-> zero original `picodroid/**` or `java/**` spellings (§4.3 is empty).
-
-August's #3/#5 priced this at ~4.7 KB of `.rodata`. The `.text` side was not
-counted then and is larger:
-
-| Piece | Bytes | Section |
-|---|---:|---|
-| `picodroid_core::shrink_names::shrink_class` (300-arm `match`) | 7,764 | `.text` |
-| `picodroid_core::shrink_names::unshrink_class` | 4,364 | `.text` |
-| `unshrink_class` original-name returns | 2,556 | `.rodata` |
-| `PICODROID_NATIVE_CLASSES` in full names | 2,240 | `.rodata` |
-| `pico_jvm::class_file::names` `b/` table + `JAVA_ORIGINALS` | 1,337 + 712 | `.rodata` |
-| **Total** | **~18,970** | |
-
-Both functions are live at runtime: `lifecycle.rs`, `service_lifecycle.rs`,
-`display.rs`, `threads.rs`, `net/server_socket.rs` and
-`pio/peripheral_manager` call `shrink_class` on every dispatch-site lookup or
-native allocation, and every per-domain handler (`graphics/mod.rs:87`,
-`io.rs:35`, `os.rs`, `net.rs`, `sensors.rs`, `pio.rs`, `mod.rs:372`) calls
-`unshrink_class` at entry. The `m::` mechanism already proved the pattern:
-generate one `c::` const per SDK class from the active map, match dispatch
-arms and `DISPATCH_SITES` on `c::View` rather than the literal, emit
-`PICODROID_NATIVE_CLASSES` through the same consts, and both translators
-become dead code. Keep `unshrink_class` behind `cfg(test)` for the contract
-and `method_tables` tests, which already use it that way. The `b/` table must
-stay for `Class.getName()` and pre-0.15 PAPKs, so ~2 KB of the total is
-non-recoverable; call it **~17 KB**. No-shrink images are byte-identical, as
-with `m::`.
-
 ### 6.3 App-driven tree-shake of the SDK corpus — ~19.8 KB *(projected)*
 
 The corpus embeds all 145 classes regardless of the app. Closing the
@@ -418,7 +381,7 @@ the classes Rust instantiates or upcalls by name (`DISPATCH_SITES`, the
 per board by hand. An app-driven variant would have `build.rs` read the PAPK
 being embedded (it already has the path via `PICODROID_APK_PATH`), compute
 this closure, and exclude the rest — with two rules: the Rust-side root set
-must be generated, not hand-listed (the same `c::` generator from §6.2 can
+must be generated, not hand-listed (the same `c::` generator from §6.2 — [completed/flash-budget-2026-09.md](../completed/flash-budget-2026-09.md) — can
 emit it), and `pdb install` of a *different* app onto such an image must fail
 with a clear "framework subset" error rather than `ClassNotFound` at runtime.
 The SDK-side `.text` that only those classes reach (the LVGL widgets in §6.5,
@@ -483,22 +446,6 @@ shipped `picoenvmon` image is ~14 KB, and the `defmt`/RTT path is separate
 (1,490 B) so logging survives. Under `-Os` this bucket is 3.7 KB, so it
 matters more at `opt-level 3`.
 
-### 6.7 App PAPK obfuscation — 9.3 KB, in the PAPK slot *(landed 2026-09-02, `--shrink-app`)*
-
-Shrinking `picoenvmon/*` class names to a third prefix (`c/`) saves 3,071 B
-as `Class` entries and 2,790 B inside descriptors; renaming the 333
-app-private member names (4,572 B) at 2–3 chars saves ~3,500 B. Together
-**~9.4 KB of 50.2 KB** projected; measured **49,929 → 40,632 B (−9,297 B,
-18.6 %)** for the stripped `picoenvmon` PAPK and 917,393 → 908,096 B for the
-rp2350 release image. Landed as `scripts/build-apk.sh --shrink-app`
-(`class-shrink cut-app`, see the shrinker reference): entry points are
-*mapped* rather than kept (`papk-pack` spells the manifest entry through the
-merged map, the `_MembersInjector` class follows its component's shrunk
-name), and the merged map ships next to the PAPK as its retrace key.
-Because the PAPK lives in `PAPK_FLASH` (§3), this relieves the 1 MB app slot
-and OTA transfer time, not the program-region ceiling — which is why it sat
-below §6.1–§6.6 despite being pure toolchain work.
-
 ### 6.8 Shared cross-class string table — ~23 KB upper bound *(projected)*
 
 Identical `Utf8` text repeated across classes is 12,896 B in the SDK corpus
@@ -520,7 +467,7 @@ above. Not worth doing before §6.3, which removes a third of the corpus.
 - Date-picker year list (629 B) and hour/minute lists (179 B) could be
   generated into a stack buffer at widget creation.
 - `PICODROID_NATIVE_CLASSES` in shrunk form (August #3, 2,240 B) is
-  subsumed by §6.2.
+  subsumed by §6.2 (landed; [completed/flash-budget-2026-09.md](../completed/flash-budget-2026-09.md)).
 
 ## 7. RAM, for completeness
 
@@ -534,17 +481,14 @@ and the heap-census work, not here.
 
 ## 8. Recommended order
 
+Rows 1a, 1b, 2, 3 and 8 are closed and are in [completed/flash-budget-2026-09.md](../completed/flash-budget-2026-09.md).
+
 | # | Change | Saving | Risk | Effort |
 |---|---|---:|---|---|
-| 1a | C at `-Os` (`c_opt_level` in the MCU toml, `config::apply_c_opt_level`) — **landed 2026-09-08**, rp2040 in `773dc9a`, rp2350 plus frame pointers the same day | −92,928 B rp2350, −19,132 B rp2040 (§6.1 status) | UI render speed, unmeasured | done |
-| 1b | Benchmark profile-wide `opt-level = "s"` on HIL; adopt if the JVM `benchmark` delta is acceptable — **measured 2026-09-08, rejected**: −166.9 KB `.text` for +29 % on the interpreter sections (§6.1 status) | — | JVM speed: three times the 10 % budget | not taken |
-| 2 | `c::` class consts; retire `shrink_class`/`unshrink_class`; emit `PICODROID_NATIVE_CLASSES` via them — **landed 2026-09-02** (47bc221, map v0.17.0) | −27,154 B measured | — | done: `build_support/names.rs` + every arm on `c::`/`m::`/`d::` |
-| 3 | Teach `lib.sh`/ratchet to exclude `PAPK_FLASH` from `Flash:` — **landed 2026-09-19**: `lib.sh::app_region_bytes` takes `.papk_flash_init` out of `Flash:`, the size lane logs `#app_region_bytes=` and `bench-backfill.py` takes it out of `flash_bytes`; `ratchet.toml` rebased by −4,928 B on both testbench boards (rp2040 836,968 of 917,248, 80,280 B free) | 0 B, correct gate | — | done |
 | 4 | LVGL: ARGB8888 blend, blur, shadow off; font without kerning | ~18 KB | low–medium, visual check | `lv_conf.h` + font convert |
 | 5 | `java_float_layout` via `format_shortest` | ~8 KB | low, conformance tests exist | `object_heap/mod.rs` |
 | 6 | App-driven SDK tree-shake + derived `LV_USE_*` | ~20 KB + ~19 KB | medium — root discipline, `pdb install` guard | build.rs + board/app cfg |
 | 7 | `no-pdb` product feature | ~14 KB | low | feature flag |
-| 8 | App PAPK obfuscation (`c/` prefix + private members) — **landed 2026-09-02** (1eed0b8, `--shrink-app`) | −9,297 B PAPK measured | — | done: `class-shrink cut-app` + the `main`/`injectMembers` keeps |
 | 9 | Shared string table | ~23 KB | high — format change | after 6 |
 
 Each step must advance `bench/parity/ratchet.toml` in the same commit, per

@@ -2,8 +2,10 @@
 
 Companion to [picoclock-2026-09.md](picoclock-2026-09.md), which describes what
 the app is and why it is shaped that way. This file is the list of what it is
-not yet. Everything here is unstarted except R1, which is done and kept below
-for what it left behind.
+not yet. Everything here is unstarted; R1 is done, and what it left behind is
+folded into R5 and R7.
+
+Completed items: [completed/picoclock-roadmap.md](../completed/picoclock-roadmap.md) — R1 (alarms that survive leaving the app).
 
 Items are grouped by what they change rather than by size, and ordered within
 each group by how much they are worth.
@@ -14,25 +16,6 @@ framework's render and input path rather than in `picoclock`. That is profiled
 and scoped separately in
 [scroll-performance-2026-09.md](scroll-performance-2026-09.md); nothing about it
 is an app change, so nothing about it is listed below.
-
-## 1. The thing that stopped it being a real alarm clock
-
-### R1. Alarms that survive leaving the app — DONE 2026-09-11
-
-The long path was taken: a framework-level `picodroid.app.AlarmManager`, written
-up in [alarm-manager-2026-09.md](alarm-manager-2026-09.md). The alarms live in a
-table outside every app's memory, and when one comes due the framework starts
-picoclock again and puts `RingActivity` on top. `AlarmService` keeps the
-heartbeat, the buzzer and the snooze, and stops deciding when anything rings.
-
-Two things it leaves behind, both small enough to belong with their neighbours
-below rather than here:
-
-- **HOME during a ring still silences it.** The app is torn down and the buzzer
-  goes with it. Re-arming a minute out on the way down is R5's territory.
-- **A snooze does not survive a relaunch.** The framework keeps the alarm, not
-  the fact that it is a snooze, so the face shows the regular next alarm until
-  it fires. R7 is where a snooze that counts would fix this.
 
 ## 2. Making the clock right
 
@@ -66,7 +49,7 @@ otherwise.
 
 ### R5. Give up eventually
 
-Also where R1's leftover belongs: HOME during a ring silences it for good,
+Also where R1's leftover belongs ([completed](../completed/picoclock-roadmap.md)): HOME during a ring silences it for good,
 because the app goes down with it. An alarm re-armed a minute out as the app is
 torn down would survive that, and is the same machinery as giving up after
 fifteen minutes.
