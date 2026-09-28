@@ -1,6 +1,10 @@
-[target.thumbv6m-none-eabi]
-# RP2040 (Cortex-M0+)
-runner = "probe-rs run --chip RP2040 --protocol swd"
+# Keyed by cfg, not by triple: cargo reads the dotted triple in
+# `[target.thumbv8m.main-none-eabihf]` only unquoted up to 1.98 and only
+# quoted from nightly 1.101 (2026-09-27), so either spelling silently drops
+# the RP2350 rustflags on one toolchain and the link loses link.x/memory.x.
+# A cfg key has no dots. eabi = RP2040 (Cortex-M0+), eabihf = RP2350
+# (Cortex-M33); the two must stay disjoint or cargo rejects the runner.
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
 linker = "flip-link"
 rustflags = [
   "-C", "link-arg=--nmagic",
@@ -8,15 +12,11 @@ rustflags = [
   "-C", "link-arg=-Tdefmt.x",
 ]
 
-[target.thumbv8m.main-none-eabihf]
-# RP2350 (Cortex-M33)
+[target.'cfg(all(target_arch = "arm", target_os = "none", target_abi = "eabi"))']
+runner = "probe-rs run --chip RP2040 --protocol swd"
+
+[target.'cfg(all(target_arch = "arm", target_os = "none", target_abi = "eabihf"))']
 runner = "probe-rs run --chip RP235x --protocol swd"
-linker = "flip-link"
-rustflags = [
-  "-C", "link-arg=--nmagic",
-  "-C", "link-arg=-Tlink.x",
-  "-C", "link-arg=-Tdefmt.x",
-]
 
 # Per-board build/run aliases. Bare `cargo build` no longer has a default
 # target so it errors clearly — pick a board explicitly via these aliases or
