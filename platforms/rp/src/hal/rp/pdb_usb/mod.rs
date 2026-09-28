@@ -590,8 +590,21 @@ fn wait_tx_ready() -> bool {
 
 /// Write a block of bytes to the USB CDC bulk IN endpoint.
 /// Automatically splits into 64-byte USB packets.
+///
+/// A bulk transfer ends at a packet shorter than the endpoint's 64 bytes,
+/// so a write whose length is an exact multiple of 64 is followed by a
+/// zero-length packet — otherwise the host's read request waits for data
+/// that never comes. Linux's cdc_acm reads in 128-byte requests: the
+/// 192-byte `pdb list` reply of the touch kit's shrink build (nine header
+/// bytes and a 183-byte listing) filled one request and left the next one
+/// holding 64 bytes and open, and every `LIST` timed out at the host until
+/// a different listing length happened to end short (blinky:pdb-launch
+/// [shrink], every nightly 2026-09-20..27). PING's greeting and the
+/// no-shrink listing were never multiples of 64, which is why only that
+/// row saw it.
 pub fn write_bytes(data: &[u8]) {
-    for chunk in data.chunks(64) {
+    let zlp = !data.is_empty() && data.len().is_multiple_of(64);
+    for chunk in data.chunks(64).chain(zlp.then_some(&[][..])) {
         if !wait_tx_ready() {
             return;
         }

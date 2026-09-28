@@ -553,6 +553,15 @@ macro_rules! set_hal_fs {
                 <$t as $crate::hal::HalFs>::write_at(path, pos, data)
             }
             #[no_mangle]
+            extern "Rust" fn __pd_hal_fs_write_from(
+                path: &str,
+                pos: u64,
+                len: usize,
+                fill: &mut dyn FnMut(&mut [u8]) -> bool,
+            ) -> i32 {
+                <$t as $crate::hal::HalFs>::write_from(path, pos, len, fill)
+            }
+            #[no_mangle]
             extern "Rust" fn __pd_hal_fs_list_dir(
                 path: &str,
                 out: &mut ::alloc::vec::Vec<$crate::hal::DirEntry>,

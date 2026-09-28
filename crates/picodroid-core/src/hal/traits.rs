@@ -305,6 +305,16 @@ pub trait HalFs {
     /// hold the backend's per-open state (see `read_at`). Creates the file
     /// if absent.
     fn write_at(path: &str, pos: u64, data: &[u8]) -> i32;
+    /// [`write_at`](Self::write_at) for a window the caller produces piece
+    /// by piece: `fill` is asked for successive chunks (each the buffer it
+    /// is handed, the last one shorter) until `len` bytes have gone out, all
+    /// inside ONE open/sync of the file. Returns bytes written, -1 on an I/O
+    /// error or when `fill` returns false, -2 as `write_at`. A 16 KB
+    /// `FileOutputStream.write(byte[])` used to go out as 64 `write_at`
+    /// calls of 256 bytes, each an open, a LittleFS metadata commit and a
+    /// copy of the file's tail block — 8 s per blob on the touch kit.
+    fn write_from(path: &str, pos: u64, len: usize, fill: &mut dyn FnMut(&mut [u8]) -> bool)
+        -> i32;
     /// Append the entries of the directory at `path` onto `out`, without
     /// `.` and `..`. Returns `false` when `path` is not a directory or the
     /// read fails; `out` may then hold a partial listing.

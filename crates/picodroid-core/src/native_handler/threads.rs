@@ -158,8 +158,16 @@ fn thread_start0(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError>
         priority: crate::task_priority::PRIORITY_JVM_NORM,
         stack_bytes: None,
     };
-    let spawned = crate::rtos::spawn(
-        &spec,
+    // A finished thread's stack and TCB are freed by the kernel's idle task,
+    // and a start/join loop never lets it run: the joiner is ready the
+    // moment the child terminates, so the next start asks for a 16 KB
+    // stack while the last one is still awaiting reclaim. A board with two
+    // stacks of headroom never notices; the touch kit's 252 KB arena had
+    // 29.7 KB free (largest block 12 KB) at threadparity's 40-cycle churn
+    // and refused (nightly 2026-09-27). Each retry sleeps a tick so idle
+    // gets the core and frees what is pending; three of them bound the wait.
+    const SPAWN_ATTEMPTS: u32 = 3;
+    let body = move || {
         alloc::boxed::Box::new(move || {
             threads::bind_current(slot);
             // Shared class set and heap (`boot`); a missing set means the
@@ -203,10 +211,29 @@ fn thread_start0(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError>
             // up a Thread the registry no longer knew (threadparity and
             // qa_thr, every nightly from 2026-09-26).
             threads::terminate_by_obj(this);
-        }),
-    );
+        }) as alloc::boxed::Box<dyn FnOnce() + Send>
+    };
+    let mut spawned = false;
+    for attempt in 0..SPAWN_ATTEMPTS {
+        if attempt > 0 {
+            crate::rtos::delay_ms(2);
+        }
+        if crate::rtos::spawn(&spec, body()) {
+            spawned = true;
+            break;
+        }
+    }
     if !spawned {
-        crate::pd_error!("Thread.start: task spawn failed for {}", task_name);
+        // The heap's shape names the cause: a small largest block with
+        // plenty free is fragmentation, both small is exhaustion.
+        let heap = crate::host::native_heap_stats();
+        crate::pd_error!(
+            "Thread.start: task spawn failed for {} after {} attempts (heap free {} B, largest block {} B)",
+            task_name,
+            SPAWN_ATTEMPTS,
+            heap.free_bytes,
+            heap.largest_free_block
+        );
         threads::terminate_by_obj(this);
         return Ok(Some(Value::Int(0)));
     }

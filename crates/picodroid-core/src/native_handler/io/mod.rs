@@ -353,33 +353,51 @@ fn fos_write(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
         let msg = alloc::format!("{}: {path}", refusal(refused));
         return Err(throw_io(ctx, &msg));
     }
-    // The window goes out in 256-byte chunks through a stack buffer: a
-    // heap copy of the whole array window (20 KB for a 20 KB write) was an
-    // infallible allocation the RP2040 could not honour (QA 2026-09-13).
-    let mut chunk = [0u8; 256];
+    // The window goes out in 256-byte chunks that the backend asks for
+    // one at a time, inside a single open of the file: a heap copy of the
+    // whole array window (20 KB for a 20 KB write) was an infallible
+    // allocation the RP2040 could not honour (QA 2026-09-13), and one
+    // `write_at` per chunk was a LittleFS metadata commit and a tail-block
+    // copy per 256 bytes (quotademo's 63 blobs on the touch kit, 2026-09-27).
+    let arrays = &*ctx.arrays;
+    let mut load_error: Option<JvmError> = None;
     let mut done = 0usize;
-    while done < len {
-        let n = (len - done).min(chunk.len());
-        load_bytes_into(ctx.arrays, arr_idx, off + done, &mut chunk[..n])?;
-        let wrote = backend::write_at(volume, pos as u64 + done as u64, &chunk[..n]);
-        if wrote < 0 {
-            // Charge only what actually landed.
-            let landed = before.max(pos as u64 + done as u64);
-            let landed_growth = (quota::file_bytes(landed) - quota::file_bytes(before)) as i64;
-            let _ = quota::charge(landed_growth - growth);
-            if wrote == -2 {
-                // The open's per-file cache could not be allocated: the
-                // heap is full, an OutOfMemoryError rather than an I/O
-                // failure (see fis_read).
-                return Err(JvmError::StackOverflow);
-            }
-            let msg = alloc::format!("cannot write {path}");
-            return Err(throw_io(ctx, &msg));
+    let wrote =
+        backend::write_from(
+            volume,
+            pos as u64,
+            len,
+            &mut |chunk: &mut [u8]| match load_bytes_into(arrays, arr_idx, off + done, chunk) {
+                Ok(()) => {
+                    done += chunk.len();
+                    true
+                }
+                Err(e) => {
+                    load_error = Some(e);
+                    false
+                }
+            },
+        );
+    if let Some(e) = load_error {
+        return Err(e);
+    }
+    let landed = if wrote < 0 { 0 } else { wrote as usize };
+    if wrote < 0 || landed < len {
+        // Charge only what actually landed.
+        let landed_end = before.max(pos as u64 + landed as u64);
+        let landed_growth = (quota::file_bytes(landed_end) - quota::file_bytes(before)) as i64;
+        let _ = quota::charge(landed_growth - growth);
+        if wrote == -2 {
+            // The open's per-file cache could not be allocated: the
+            // heap is full, an OutOfMemoryError rather than an I/O
+            // failure (see fis_read).
+            return Err(JvmError::StackOverflow);
         }
-        done += n;
+        let msg = alloc::format!("cannot write {path}");
+        return Err(throw_io(ctx, &msg));
     }
     ctx.objects
-        .set_field(this, fields::fos::POS, Value::Long(pos + done as i64))
+        .set_field(this, fields::fos::POS, Value::Long(pos + landed as i64))
         .ok_or(JvmError::InvalidReference)?;
     Ok(None)
 }

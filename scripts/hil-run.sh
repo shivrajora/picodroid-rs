@@ -330,8 +330,26 @@ run_pdb_test() {
   case "$pdb_cmd" in
     list|uninstall|install-reject-noroom|install-compact|launch|launch-soak|settings-uninstall)
       local pre_ping="$RUN_LOG_DIR/${app}.pdb-${pdb_cmd}.${mode}.pre-ping.log"
-      if ! hil_pdb_run 10 ping > "$pre_ping" 2>&1 \
-          || ! grep -qE 'apps [0-9]+/[0-9]+' "$pre_ping"; then
+      # A ping that reaches no device at all is not a single-app greeting:
+      # the board may still be re-enumerating after the previous row's
+      # reboot (2026-09-27, the touch kit: "no picodroid devices found …
+      # not enumerated after 20s" read as SKIP single-app). Give it two
+      # more tries, then call it what it is.
+      local greeted=false try
+      for try in 1 2 3; do
+        if hil_pdb_run 10 ping > "$pre_ping" 2>&1; then
+          greeted=true
+          break
+        fi
+        sleep 5
+      done
+      if [[ "$greeted" != true ]]; then
+        hil_log "ERROR $test_name (no pdb greeting: $(tail -1 "$pre_ping" 2>/dev/null))"
+        echo "ERROR $test_name (no pdb greeting)" >> "$RESULTS_FILE"
+        ERROR=$((ERROR + 1))
+        return
+      fi
+      if ! grep -qE 'apps [0-9]+/[0-9]+' "$pre_ping"; then
         hil_log "SKIP $test_name (single-app firmware: no package directory)"
         echo "SKIP $test_name (single-app firmware)" >> "$RESULTS_FILE"
         SKIP=$((SKIP + 1))

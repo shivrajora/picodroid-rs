@@ -154,6 +154,52 @@ impl HalFs for LittleFsHal {
         .unwrap_or(-1)
     }
 
+    fn write_from(
+        path: &str,
+        pos: u64,
+        len: usize,
+        fill: &mut dyn FnMut(&mut [u8]) -> bool,
+    ) -> i32 {
+        with_fs(|fs| {
+            mutated();
+            let file = match fs.open(path, OpenFlags::WRITE | OpenFlags::CREATE) {
+                Ok(f) => f,
+                Err(FsError::NoMemory) => return -2i32,
+                Err(_) => return -1i32,
+            };
+            if file.seek(SeekFrom::Start(pos as u32)).is_err() {
+                return -1;
+            }
+            // The same 256-byte stack chunk as `read_at`, but the file stays
+            // open across the window: one metadata commit at the sync below
+            // instead of one per chunk (quotademo's 16 KB blobs took 64
+            // opens each, and the touch kit's 63 of them never finished).
+            let mut chunk = [0u8; 256];
+            let mut done = 0usize;
+            while done < len {
+                let n = (len - done).min(chunk.len());
+                if !fill(&mut chunk[..n]) {
+                    let _ = file.sync();
+                    return -1;
+                }
+                match file.write(&chunk[..n]) {
+                    Ok(w) if w as usize == n => done += n,
+                    Ok(w) => {
+                        done += w as usize;
+                        break;
+                    }
+                    Err(_) => {
+                        let _ = file.sync();
+                        return -1;
+                    }
+                }
+            }
+            let _ = file.sync();
+            done as i32
+        })
+        .unwrap_or(-1)
+    }
+
     fn list_dir(path: &str, out: &mut Vec<DirEntry>) -> bool {
         with_fs(|fs| {
             let Ok(dir) = fs.read_dir(path) else {

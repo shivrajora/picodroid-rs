@@ -247,6 +247,23 @@ impl crate::hal::HalFs for TestHal {
         entry[start..start + data.len()].copy_from_slice(data);
         data.len() as i32
     }
+    fn write_from(
+        path: &str,
+        pos: u64,
+        len: usize,
+        fill: &mut dyn FnMut(&mut [u8]) -> bool,
+    ) -> i32 {
+        let mut data = vec![0u8; len];
+        let mut done = 0usize;
+        while done < len {
+            let n = (len - done).min(256);
+            if !fill(&mut data[done..done + n]) {
+                return -1;
+            }
+            done += n;
+        }
+        <Self as crate::hal::HalFs>::write_at(path, pos, &data)
+    }
 }
 
 fn store() -> &'static std::sync::Mutex<std::collections::BTreeMap<String, Vec<u8>>> {
