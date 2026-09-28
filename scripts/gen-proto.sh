@@ -26,6 +26,9 @@ if ! "$PY" -c 'import grpc_tools.protoc, google.protobuf.compiler.plugin_pb2' 2>
 fi
 PY_BIN="$(cd "$(dirname "$("$PY" -c 'import sys; print(sys.executable)')")" && pwd)"
 export PATH="$PY_BIN:$PATH"
+# PY_BIN is often /usr/bin, which now shadows a JDK that setup-java or a
+# developer put on PATH with an older system one; JAVA_HOME, when set, wins.
+JAVA="${JAVA_HOME:+$JAVA_HOME/bin/}java"
 [[ -f "$JAR" ]] || bash "$SCRIPT_DIR/format_java.sh" fetch >/dev/null
 
 # One app's proto -> its java/ (and bridge/) trees under $dest_root, which is
@@ -45,7 +48,7 @@ gen_app() {
   for f in "$proto_dir"/*.proto; do
     "$PY" -m grpc_tools.protoc "${args[@]}" "$(basename "$f")"
   done
-  find "$java_out" -name '*.java' -newer "$PLUGIN" -print0 2>/dev/null | xargs -0 -r java -jar "$JAR" --replace
+  find "$java_out" -name '*.java' -newer "$PLUGIN" -print0 2>/dev/null | xargs -0 -r "$JAVA" -jar "$JAR" --replace
 }
 
 # The files a .proto owns: every generated Java under the app's java tree

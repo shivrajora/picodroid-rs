@@ -53,7 +53,8 @@ def generate(out_dir):
                 check=True,
                 stdout=subprocess.DEVNULL,
             )
-        subprocess.run(["java", "-jar", JAR, "--replace"] + sorted(javas), check=True)
+        java = os.path.join(os.environ["JAVA_HOME"], "bin", "java") if os.environ.get("JAVA_HOME") else "java"
+        subprocess.run([java, "-jar", JAR, "--replace"] + sorted(javas), check=True)
     return {
         os.path.relpath(p, out_dir): open(p, encoding="utf-8").read() for p in javas
     }

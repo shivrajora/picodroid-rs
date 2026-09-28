@@ -26,6 +26,8 @@ if ! verify_jar; then
 fi
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# The jar needs Java 21; JAVA_HOME, when set, names the JDK to use.
+JAVA="${JAVA_HOME:+$JAVA_HOME/bin/}java"
 
 MODE="${1:-check}"
 
@@ -39,7 +41,7 @@ elif [[ "$MODE" == "check" ]]; then
   echo "==> Checking Java formatting..."
   # Prune build/ dirs: generated sources (e.g. AssetConstants.java) live under
   # build/generated and are not hand-maintained, so they aren't format-gated.
-  if ! find "$REPO_ROOT/examples" "$REPO_ROOT/sdk" -type d -name build -prune -o -name '*.java' -print0 | xargs -0 java -jar "$JAR_PATH" --dry-run --set-exit-if-changed; then
+  if ! find "$REPO_ROOT/examples" "$REPO_ROOT/sdk" -type d -name build -prune -o -name '*.java' -print0 | xargs -0 "$JAVA" -jar "$JAR_PATH" --dry-run --set-exit-if-changed; then
     echo ""
     echo "ERROR: Java formatting check failed."
     echo "       Run './scripts/format_java.sh format' to fix, then re-stage your changes."
@@ -48,7 +50,7 @@ elif [[ "$MODE" == "check" ]]; then
   echo "==> Java formatting OK."
 elif [[ "$MODE" == "format" ]]; then
   echo "==> Formatting Java files..."
-  find "$REPO_ROOT/examples" "$REPO_ROOT/sdk" -type d -name build -prune -o -name '*.java' -print0 | xargs -0 java -jar "$JAR_PATH" --replace
+  find "$REPO_ROOT/examples" "$REPO_ROOT/sdk" -type d -name build -prune -o -name '*.java' -print0 | xargs -0 "$JAVA" -jar "$JAR_PATH" --replace
   echo "==> Done."
 else
   echo "Usage: $0 [check|format|fetch]"
