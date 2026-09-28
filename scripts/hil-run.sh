@@ -1272,9 +1272,14 @@ run_test() {
   # — flake territory for `loop` apps whose first log line takes a moment to
   # appear (e.g. activities that bring up LVGL on the first onCreate).
   #
-  # 35 s covers both the typical 22–27 s flash + a couple seconds of slop
-  # without running so long that real hangs go unnoticed.
-  local flash_budget=35
+  # The budget follows the image: 22–27 s when this was written, 53–72 s
+  # for the 1.85 MB v0.35.0 RP2350 images (probe-rs "Finished in" on the
+  # touch kit 58.6 s at the 2026-09-27 nightly, 71.5 s that afternoon; the
+  # Enviro W 52.9 → 64.8 s). mainhog's 30 s row had 6 s left last night and
+  # nothing by the afternoon: two empty RTT captures, no MainHog line at
+  # all. 80 s leaves every 30 s row its full window; a passing term row is
+  # killed on its pattern, so only a hang pays the extra wait.
+  local flash_budget=80
   # The conf's budgets are set against the RP2350 (150 MHz, 520 KB); the
   # RP2040 runs the same rows at roughly half the speed (benchmark: 33 s vs
   # 15 s for int_arithmetic on the 2026-09-09 bench), so its rows get twice
