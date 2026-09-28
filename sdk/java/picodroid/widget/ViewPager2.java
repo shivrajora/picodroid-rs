@@ -81,7 +81,7 @@ public class ViewPager2 extends FrameLayout {
   private int mCallbackCount;
   private Bundle mPendingAdapterState;
 
-  /** On the pager and on every page root: the pressed object gets LVGL's gesture. */
+  /** On the pager and on every page root, so a swipe anywhere over the page turns it. */
   private final OnSwipeListener mSwipeListener = (view, direction) -> onSwipe(direction);
 
   public ViewPager2(Context ctx) {

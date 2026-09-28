@@ -1,0 +1,10 @@
+# Control-channel script for this app's sim row (sim-run.sh::run_test, sim
+# rows only): two swipes across the page, each once the app says it is ready
+# for one. `wait <regex>` blocks until the log matches; every other line goes
+# to the simulator's control channel as typed, the verbs `pdb input` takes on
+# hardware. The first swipe (right to left) must turn to page 1, the second
+# (left to right) back to page 0.
+wait PagerDemo[]:] ready for swipe left
+input swipe 220 100 40 100 150
+wait PagerDemo[]:] ready for swipe right
+input swipe 40 100 220 100 150

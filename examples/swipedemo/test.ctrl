@@ -1,0 +1,14 @@
+# Control-channel script for this app's sim row (sim-run.sh::run_test, sim
+# rows only). `wait <regex>` blocks until the log matches; every other line
+# goes to the simulator's control channel as typed, the verbs `pdb input`
+# takes on hardware. Left and right reach the content's OnSwipeListener; the
+# pull-down is the SwipeRefreshLayout's (a refresh, not "swipe down"); up is
+# the listener's again.
+wait SwipeDemo[]:] Display ready
+input swipe 220 100 40 100 150
+wait SwipeDemo[]:] swipe left
+input swipe 40 100 220 100 150
+wait SwipeDemo[]:] swipe right
+input swipe 120 40 120 200 150
+wait SwipeDemo[]:] refresh 1
+input swipe 120 200 120 40 150

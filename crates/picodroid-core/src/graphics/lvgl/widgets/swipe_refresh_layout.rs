@@ -58,17 +58,22 @@ unsafe extern "C" fn gesture_cb(e: *mut lv_event_t) {
         if indev.is_null() {
             return;
         }
-        let dir = lv_indev_get_gesture_dir(indev);
-        if dir & LV_DIR_BOTTOM == 0 {
-            // Only pull-down (LV_DIR_BOTTOM, swipe finger downward) triggers
-            // a refresh. Other directions fall through to the generic
-            // OnSwipeListener path on the parent View if registered.
-            return;
-        }
+        pull_down(container, lv_indev_get_gesture_dir(indev));
+    }
+}
+
+/// Start a refresh on `container` for a pull-down. Only pull-down
+/// (LV_DIR_BOTTOM, finger moving downward) counts, and not while a refresh
+/// is already showing. Returns whether the gesture was taken.
+unsafe fn pull_down(container: usize, dir: lv_dir_t) -> bool {
+    if dir & LV_DIR_BOTTOM == 0 {
+        return false;
+    }
+    unsafe {
         for slot in &mut SLOTS[..] {
             if slot.container == container {
                 if slot.refreshing {
-                    return;
+                    return false;
                 }
                 slot.refreshing = true;
                 if slot.spinner != 0 {
@@ -79,10 +84,31 @@ unsafe extern "C" fn gesture_cb(e: *mut lv_event_t) {
                     QUEUE[QUEUE_HEAD] = container;
                     QUEUE_HEAD = next;
                 }
-                return;
+                return true;
             }
         }
     }
+    false
+}
+
+/// Android's `onInterceptTouchEvent` for a gesture that landed on a
+/// descendant with its own swipe listener: a pull-down inside a
+/// SwipeRefreshLayout refreshes, and the child does not see it. Every other
+/// direction stays with the child. Returns whether a layout took it.
+pub(in crate::graphics) fn intercept(obj: *mut lv_obj_t, dir: lv_dir_t) -> bool {
+    unsafe {
+        let mut o = lv_obj_get_parent(obj);
+        while !o.is_null() {
+            if (*(&raw const SLOTS))
+                .iter()
+                .any(|s| s.container == o as usize)
+            {
+                return pull_down(o as usize, dir);
+            }
+            o = lv_obj_get_parent(o);
+        }
+    }
+    false
 }
 
 pub(in crate::graphics) fn create() -> i32 {
@@ -94,6 +120,12 @@ pub(in crate::graphics) fn create() -> i32 {
         lv_obj_set_style_pad_right(container, 0, 0);
         lv_obj_set_style_pad_top(container, 0, 0);
         lv_obj_set_style_pad_bottom(container, 0, 0);
+        // Android's SwipeRefreshLayout does not scroll; its child does. The
+        // default theme's border leaves a full-size child a few pixels of
+        // overflow, and a scrollable container then takes every drag past
+        // the scroll limit as an (elastic) scroll, before the gesture below
+        // can fire.
+        lv_obj_remove_flag(container, LV_OBJ_FLAG_SCROLLABLE);
 
         // Spinner overlay — pinned to the top center, hidden by default.
         // Shown while a refresh is in flight.
@@ -103,6 +135,9 @@ pub(in crate::graphics) fn create() -> i32 {
         lv_obj_set_pos(spinner, 104, 4);
         lv_obj_add_flag(spinner, LV_OBJ_FLAG_HIDDEN);
 
+        // Stop gestures here instead of passing them up to the screen
+        // (LVGL sets GESTURE_BUBBLE on every child; see events/swipe.rs).
+        lv_obj_remove_flag(container, LV_OBJ_FLAG_GESTURE_BUBBLE);
         lv_obj_add_event_cb(
             container,
             Some(gesture_cb),

@@ -461,6 +461,10 @@ pub const LV_OBJ_FLAG_SCROLLABLE: u32 = 1 << 4;
 /// Scroll the object into view when it takes focus (a focused row in a
 /// list taller than the screen, as Android's ScrollView does).
 pub const LV_OBJ_FLAG_SCROLL_ON_FOCUS: u32 = 1 << 10;
+/// Hand a gesture to the parent. LVGL sets it on every object that has a
+/// parent, so a gesture reaches the screen unless the object that wants it
+/// clears this — which is what registering a swipe listener does.
+pub const LV_OBJ_FLAG_GESTURE_BUBBLE: u32 = 1 << 15;
 
 // Object states (from lv_obj_style.h; renumbered in v9.5.0, unchanged in v9.6.0).
 // The state bits were renumbered in v9.5.0 to leave room for LV_STATE_ALT
@@ -1656,6 +1660,7 @@ mod tests {
             (LV_OBJ_FLAG_CLICKABLE, "LV_OBJ_FLAG_CLICKABLE"),
             (LV_OBJ_FLAG_CHECKABLE, "LV_OBJ_FLAG_CHECKABLE"),
             (LV_OBJ_FLAG_SCROLLABLE, "LV_OBJ_FLAG_SCROLLABLE"),
+            (LV_OBJ_FLAG_GESTURE_BUBBLE, "LV_OBJ_FLAG_GESTURE_BUBBLE"),
         ] {
             let header_val = lookup_assigned_value(body, name)
                 .unwrap_or_else(|| panic!("{name} not found/parsable in vendored lv_obj.h"));

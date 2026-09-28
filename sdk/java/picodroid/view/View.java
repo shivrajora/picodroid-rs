@@ -333,7 +333,9 @@ public class View {
    * Register a swipe-gesture listener on this view. Fires once per gesture with one of {@link
    * #SWIPE_LEFT}, {@link #SWIPE_RIGHT}, {@link #SWIPE_UP}, {@link #SWIPE_DOWN}. The values mirror
    * LVGL's {@code lv_dir_t} bits — {@code SWIPE_UP=4} corresponds to a {@code LV_DIR_TOP} gesture
-   * (finger moved upward).
+   * (finger moved upward). The listener hears swipes that start on this view or on any descendant
+   * without a listener of its own; a scrollable ancestor that can scroll in the swipe's direction
+   * takes the drag as a scroll first.
    */
   public void setOnSwipeListener(OnSwipeListener listener) {
     this.onSwipeListener = listener;

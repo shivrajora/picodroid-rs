@@ -19,9 +19,9 @@ import picodroid.widget.ViewPager2;
  * OnPageChangeCallback}, the Android shape. The script, advanced from the callbacks: a smooth turn
  * (SETTLING, selected, the old page destroyed, scrolled, IDLE), instant turns, a page's saved state
  * coming back with it, then {@code recreate()} and a covering Activity under "don't keep
- * activities", after each of which the pager comes back on the same page with every page's state. A
- * swipe turns the pager too, but not from the simulator's control channel: an injected drag raises
- * no LVGL gesture there (swipedemo's listener is as silent), so that path is a hardware check.
+ * activities", after each of which the pager comes back on the same page with every page's state.
+ * Last, two swipes from test.ctrl (or a finger on a touch board): left turns to page 1, right back
+ * to page 0.
  */
 public class PagerDemoActivity extends Activity {
   static final String TAG = "PagerDemo";
@@ -180,12 +180,22 @@ public class PagerDemoActivity extends Activity {
                 && pager.isUserInputEnabled()
                 && pager.getOrientation() == ViewPager2.ORIENTATION_HORIZONTAL
                 && pager.getAdapter() != null);
+        step = 8;
+        Log.i(TAG, "ready for swipe left");
+        break;
+      case 8:
+        check("a swipe left turned to page 1", position == 1 && lastVisits[1] == 5);
+        step = 9;
+        Log.i(TAG, "ready for swipe right");
+        break;
+      case 9:
+        check("a swipe right turned back to page 0", position == 0 && lastVisits[0] == 4);
         if (failures == 0) {
           Log.i(TAG, "=== ALL PASSED ===");
         } else {
           Log.i(TAG, "=== FAILED: " + failures + " ===");
         }
-        step = 8;
+        step = 10;
         finish();
         break;
       default:

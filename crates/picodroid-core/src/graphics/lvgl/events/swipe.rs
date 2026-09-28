@@ -44,6 +44,9 @@ pub(super) unsafe extern "C" fn swipe_gesture_cb(e: *mut lv_event_t) {
         if dir == LV_DIR_NONE {
             return;
         }
+        if super::super::widgets::swipe_refresh_layout::intercept(obj as *mut lv_obj_t, dir) {
+            return;
+        }
         let head = SWIPE_QUEUE_HEAD;
         let next = (head + 1) % SWIPE_QUEUE_SIZE;
         if next != SWIPE_QUEUE_TAIL {
@@ -71,6 +74,12 @@ pub fn register_view_swipe_listener(id: i32, obj_ref: u16) {
             }
             Upsert::Inserted => {}
         }
+        // LVGL sets GESTURE_BUBBLE on every object with a parent, so a
+        // gesture climbs from the pressed object to the screen and only the
+        // screen hears it. Clearing it here makes this view the target for a
+        // swipe that starts on it or on any descendant still bubbling —
+        // Android's "the nearest view with a listener".
+        lv_obj_remove_flag(raw_obj, LV_OBJ_FLAG_GESTURE_BUBBLE);
         lv_obj_add_event_cb(
             raw_obj,
             Some(swipe_gesture_cb),

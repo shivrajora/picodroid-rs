@@ -132,9 +132,10 @@ IDLE). A `setCurrentItem` during a turn retargets it (the old build token). `smo
 fade of the incoming page, LVGL having no scroller for this and the outgoing page being gone a
 tick earlier; the state goes SETTLING → IDLE and DRAGGING is never reported.
 `setOffscreenPageLimit` stores the value and logs once. Swipes: the pager and every page root
-carry the `OnSwipeListener`, since LVGL delivers the gesture to the pressed clickable object
-(the page root for a press on a label) — a swipe starting on a clickable child stays with the
-child. `saveState()` / `restoreState(Bundle)` hold the page index and the adapter's per-page
+carry the `OnSwipeListener`. Registering one clears LVGL's `GESTURE_BUBBLE` on that view, so a
+gesture that starts anywhere over the page, a clickable child included, climbs to the page root
+and stops there (FR-4 in the follow-ups: before 2026-09-28 the flag was left set and every gesture
+went to the screen). `saveState()` / `restoreState(Bundle)` hold the page index and the adapter's per-page
 Bundles; the Activity calls them, there being no view-state hierarchy to do it.
 
 ## 5. Deviations from Android, all deliberate
@@ -199,8 +200,9 @@ accept, and whether the reserve moves, is a decision for the accept commit, not 
   on it).
 - The papk-pack drift test for class code 18; the name-table currency tests after
   `gen-api-contract.sh`.
-- Not verified here: a swipe turning the pager. The sim's `input swipe` raises no LVGL gesture
-  (it leaves `swipedemo`'s listener as silent), so that path is a touch-board check.
+- A swipe turning the pager: at first not verified, and in fact broken on every board (the
+  gesture went to the screen). Fixed and covered on 2026-09-28: `pagerdemo`'s row swipes both
+  ways, and so did `pico_touch_kit` over `pdb` (FR-4).
 
 ## 9. Found on the way
 
@@ -214,8 +216,7 @@ accept, and whether the reserve moves, is a decision for the accept commit, not 
 ## 10. Not doing, and follow-ups
 
 Child fragment managers (nested fragments) when an app needs a pager inside a fragment;
-`addView(child, index)` for the z-order of several fragments in one container;
-`LV_OBJ_FLAG_EVENT_BUBBLE` so a swipe over a clickable child reaches the pager; `Lifecycle.State`
+`addView(child, index)` for the z-order of several fragments in one container; `Lifecycle.State`
 and `Fragment.SavedState` if an app needs source-identical Android code; a bridge-backed nightly
-row for `claudeusage` that turns real pages; the sim's swipe injection. Tracked, with status, as
+row for `claudeusage` that turns real pages. Tracked, with status, as
 FR-1 to FR-11 in [`../fragments-follow-ups.md`](../fragments-follow-ups.md).

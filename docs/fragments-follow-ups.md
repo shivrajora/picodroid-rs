@@ -67,24 +67,33 @@ release, names the Fragment and `ViewPager2` classes and their members.
 
 ## FR-4: A swipe turning the pager
 
-**Status: open, two parts.** `ViewPager2` registers its `OnSwipeListener` on itself and on
-every page root (`SWIPE_LEFT` / `SWIPE_UP` next, `SWIPE_RIGHT` / `SWIPE_DOWN` previous, no wrap,
-nothing when user input is disabled), and no run has exercised it.
+**Status: closed 2026-09-28.** The swipe did not work on any board, sim or device, and nothing
+was wrong with the injection. LVGL 9 sets `LV_OBJ_FLAG_GESTURE_BUBBLE` on every object that has a
+parent, so a gesture climbs from the pressed object to the screen and only the screen receives
+`LV_EVENT_GESTURE`. No `OnSwipeListener` below the screen was ever called, and neither was the
+`SwipeRefreshLayout` pull-down. `pagerdemo` on `pico_touch_kit` shows the same: with the old
+code, `pdb input swipe 220 100 40 100 150` over the page does nothing.
 
-- **Hardware.** Flash `pagerdemo` on `pico_touch_kit` (GT911 touch) and swipe left over the
-  page, or drive it with `pdb input swipe 220 100 40 100 150`: expect `[PagerDemo] selected 1`
-  then `page 0 destroyed`. `claudeusage` calls `setUserInputEnabled(false)` (buttons only), so
-  `pagerdemo` is the check.
-- **Simulator.** `input swipe x1 y1 x2 y2 ms` on the control channel (the `"swipe"` arm of
-  `handle_input_command` in `crates/picodroid-core/src/hal/sim/display.rs`, an interpolated
-  touch drag) raised no LVGL gesture on 2026-09-27: a 40 ms drag, a 300 ms drag and a
-  hand-stepped `touch down`, five `touch move`s and `touch up` all left `swipedemo`'s listener
-  silent, while the verb's own commit record says `gesturedemo` saw swipes when it was added.
-  Bisect: run `gesturedemo` under the same drag (if it fires, the difference is the
-  `OnSwipeListener` path, not the injection); compare the drag's per-read step against LVGL's
-  gesture limit and minimum velocity in `lv_conf.h` and the pointer indev's read period. Once it
-  fires, restore `pagerdemo`'s swipe step (`swipe -> 1` in the row, `testbench_rp2350` for its
-  touch panel) and its `test.ctrl`.
+- **Fix.** Registering a swipe listener now clears the flag on that view (`events/swipe.rs`). A
+  swipe that starts on the view, or on a descendant that still bubbles, stops there: the nearest
+  view with a listener, as on Android. `SwipeRefreshLayout`'s container clears it too. The
+  container is also no longer scrollable: the theme's border gave its full-size child 4 px of
+  overflow each way, and every drag past the scroll limit became an elastic scroll before the
+  50 px gesture distance was reached. That is why `swipedemo` stayed silent even for a gesture
+  aimed at the layout itself. A pull-down that lands on a descendant with its own listener goes to
+  the enclosing `SwipeRefreshLayout` first (`intercept`, Android's `onInterceptTouchEvent`); every
+  other direction stays with the child.
+- **Evidence.** In the sim, the `pagerdemo` row gains a swipe step: its `test.ctrl` swipes left
+  (page 1) and right (page 0 again). A new `swipedemo` row checks left, right, pull-down
+  (`refresh 1`, not `swipe down`) and up. Both rows pass in both shrink modes, and so do
+  `fragmentdemo` and `claudeusage`. On `pico_touch_kit`, `pagerdemo` built with
+  `PICODROID_DONT_KEEP_ACTIVITIES=1` and driven by `pdb input swipe` reached `=== ALL PASSED ===`.
+  The same build without the fix stayed on page 0. The board swipes were injected through the
+  GT911 touch override, not made with a finger.
+- **Consequence for FR-9.** A swipe that starts on a clickable child now reaches the pager too:
+  the child is only LVGL's pressed object, and the gesture bubbles up from it to the page root's
+  listener. `LV_OBJ_FLAG_EVENT_BUBBLE` is not needed for that. The one case left is a child with a
+  swipe listener of its own, which keeps the swipe, as on Android.
 
 ## FR-5: The `claudeusage` row reads TIMED OUT until `sim-run` kills on match
 
@@ -215,8 +224,8 @@ testbench excludes the six classes), and FR-2's per-class numbers say to measure
 - `getChildFragmentManager` (nested fragments: a pager inside a fragment).
 - `ViewGroup.addView(child, index)`, for the z-order of several fragments in one container;
   today add order is z-order and a popped fragment comes back on top.
-- `LV_OBJ_FLAG_EVENT_BUBBLE` so a swipe that starts on a clickable child reaches the pager;
-  there is no `onInterceptTouchEvent`.
+- `onInterceptTouchEvent` in general. A swipe over a clickable child already reaches the pager
+  (FR-4); only `SwipeRefreshLayout`'s pull-down is intercepted.
 - `Lifecycle.State` and `Fragment.SavedState` as types, if an app needs source-identical
   Android code; today `setMaxLifecycle` takes an `int` and saved state is a `Bundle`.
 - `setOffscreenPageLimit(n ≥ 1)` honoured: it is stored and logged, one page stays alive.
