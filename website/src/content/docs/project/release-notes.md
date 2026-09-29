@@ -3,7 +3,68 @@ title: "Release notes"
 description: "User-facing changes for Picodroid v0.4.0 onward."
 ---
 
-This page covers everything that landed in releases v0.4.0 through v0.35.0. Earlier history is in `git log v0.1.0...v0.3.0`.
+This page covers everything that landed in releases v0.4.0 through v0.35.0, and what is on `main` since. Earlier history is in `git log v0.1.0...v0.3.0`.
+
+## Unreleased — on `main` since v0.35.0
+
+Not tagged yet. One change here needs action: **every `.papk` must be re-packed**, because the
+package format moved to major version 2.
+
+**Classes are linked when they are packed (PAPK v2) (2026-09-28)**
+
+- `papk-pack` now does the class loader's work at build time. Each class in a `.papk` carries a
+  link table (the parsed record, a signature hash per method, a hash per superclass and
+  interface, a 4-byte descriptor per method reference), and the package carries a sorted class
+  index. The runtime reads both in place from flash: nothing is parsed or allocated per class
+  when an app starts. The framework's own classes are embedded in the firmware in the same
+  form, so apps and the framework share one loader.
+- Calls are faster. On `testbench_rp2350` (release, `--shrink --shrink-app`) the `benchmark`
+  example's total drops from 123.6 s to 97.0 s (−21.6 %): virtual calls −28 %, interface calls
+  −25 %, object allocation −40 %, string operations −48 %. `claudeusage`'s History page uses
+  81 KB less of the JVM arena.
+- **Breaking:** the PAPK header is 28 bytes and its major version is 2. `pdb install`
+  refuses a v1 file with a message that says to re-pack it, and a device does not load one
+  that is already in its flash; there is no legacy path. Rebuild your apps with the current toolchain (`./scripts/build-apk.sh`).
+  `papk-info` validates the link tables of a packed file.
+- The tables live in flash: +126 KB on `testbench_rp2350`, +61 KB on `testbench_rp2040`. The
+  flash layout of four boards moved to make room, below.
+
+**Flash layout: larger program regions on the W boards and the RP2040 (2026-09-28)**
+
+- `pico_display2_w`, `pico_enviro_mon_w` and `testbench_rp2350w`: the program region grows from
+  2048 KB to 2304 KB and the app region shrinks from 1536 KB to 1280 KB (eight apps the size of
+  `claudeusage` still fit). LittleFS and the app region start at new addresses on these boards,
+  so **the first flash of a new build reformats the volume and the installed apps are gone**:
+  reinstall them, and re-enter the Wi-Fi network if it was saved from Settings.
+- `testbench_rp2040`: the program region grows from 896 KB to 1152 KB and the app region
+  shrinks from 1024 KB to 768 KB. It is a single-app board and the largest example is about
+  125 KB.
+- `testbench_rp2040` also leaves out the scheduled executor
+  (`ScheduledExecutorService`, `ScheduledFuture`, `MainScheduledExecutor`) and `SntpClient`,
+  next to the executors and network classes it already dropped. An app that schedules needs an
+  RP2350 board.
+- The other RP2350 boards are unchanged.
+
+**Swipes reach their listener (2026-09-28)**
+
+- An `OnSwipeListener` on a view below the screen never fired, `ViewPager2`'s included, in the
+  simulator or on a board: LVGL passed every gesture up to the screen. The nearest view with a
+  swipe listener takes the swipe now, as on Android, so a swipe turns a `ViewPager2` page.
+- `SwipeRefreshLayout`: a drag is no longer swallowed as a scroll of the container, and a
+  pull-down that lands on a child with its own swipe listener goes to the layout first
+  (Android's `onInterceptTouchEvent`).
+
+**Fixes (2026-09-27/28)**
+
+- `FileOutputStream.write` of a large array streams through one open and one sync instead of one
+  per 256 bytes. Writing sixty-three 16 KB files on `pico_touch_kit` went from not finishing in
+  480 s to passing; the simulator with that board's profile went from 110.7 s to 10.4 s.
+- `Thread.start` retries a task spawn that fails because the previous thread's stack has not
+  been reclaimed yet (three attempts, 2 ms apart). Forty start/join cycles in a row no longer
+  fail on a board with little free heap.
+- `pdb list` no longer hangs on Linux when the reply is an exact multiple of 64 bytes.
+- Device builds work on both stable and nightly `cargo`: the RP2350 linker flags no longer
+  depend on how the toolchain spells the target triple.
 
 ## v0.35.0 — 2026-09-27
 

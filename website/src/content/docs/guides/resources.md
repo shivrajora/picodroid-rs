@@ -111,9 +111,17 @@ cycles are a build error. An id of the wrong type, or one that does not exist, t
 
 **Elements:** `LinearLayout`, `FrameLayout`, `ScrollView`, `RadioGroup`, `TextView`, `Button`,
 `ImageView`, `EditText`, `CheckBox`, `Switch`, `ToggleButton`, `RadioButton`, `ProgressBar`,
-`CircularProgressIndicator`, `SeekBar`, `Spinner`, `ListView`. A custom view class cannot be inflated — there is no reflection
+`CircularProgressIndicator`, `SeekBar`, `Spinner`, `ListView`, `ViewPager2`. A custom view class cannot be inflated — there is no reflection
 to construct it with — and `<include>` / `<merge>` are not supported yet; both are build errors.
-Create those views in Java and `addView` them into an inflated container.
+Create those views in Java and `addView` them into an inflated container. The same goes for a
+view that draws itself with `onDraw(Canvas)`.
+
+A Fragment needs no element of its own: give a `FrameLayout` an id and hand it to the
+transaction, `getSupportFragmentManager().beginTransaction().replace(R.id.container, fragment)`,
+as [`examples/fragmentdemo`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/fragmentdemo)
+does; there is no `<fragment>` or `FragmentContainerView` element. `testbench_rp2040` leaves
+`ViewPager2` and Fragments out of its framework, so a layout with a `<ViewPager2>` is for the
+RP2350 boards.
 
 **Attributes** (the `android:` prefix is what Android Studio writes; any prefix is accepted, and
 `tools:` attributes are dropped):

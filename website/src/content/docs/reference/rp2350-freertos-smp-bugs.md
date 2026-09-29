@@ -43,7 +43,7 @@ Parking has since swapped cores: a dedicated `flashpark` parker task pinned
 to core 1 blocks on a FreeRTOS task notification (`hal/rp/core1_park.rs`);
 before each erase/program window core 0 notifies it and waits for the parked
 ack in SRAM, and core 1 spins in a RAM-resident loop with interrupts masked
-until the window closes. (On testbench_rp2350w, core 1 also hosts the `cyw43`
+until the window closes. (On the WiFi boards, core 1 also hosts the `cyw43`
 WiFi task, at a priority below the parker.) The tick still freezes inside
 each erase/program window (`with_xip_disabled!`),
 so install-time reads use a hardware-timer busywait
@@ -85,10 +85,17 @@ for tick processing to work correctly.
 
 **Workaround:** Core 1's resident tasks block in the scheduler: the
 `flashpark` parker waits on a FreeRTOS task notification (`core1_park.rs`),
-and on testbench_rp2350w the `cyw43` task blocks between driver polls. The
+and on the WiFi boards the `cyw43` task blocks between driver polls. The
 only tight loop core 1 ever runs is the deliberate RAM-resident park spin
 inside a flash window, entered and exited via the `core1_park.rs` handshake.
 The TIMER0 alarm this workaround once relied on is retired.
+
+The parker needs `configRUN_MULTIPLE_PRIORITIES=1` in `FreeRTOSConfig.h`: with
+the kernel default of 0, the priority-30 parker holding core 1 bars the
+lower-priority filesystem task from core 0, and the park request can then
+never be cleared. Both chips run the parker; the RP2040's route into the same
+lockup (its tick is on core 1) is recorded in
+[`docs/bugs-rp2040-flash-2026-08-01.md`](https://github.com/shivrajora/picodroid-rs/blob/main/docs/bugs-rp2040-flash-2026-08-01.md).
 
 ---
 

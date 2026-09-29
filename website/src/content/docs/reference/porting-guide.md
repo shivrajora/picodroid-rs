@@ -22,9 +22,10 @@ crates/picodroid-core/    # everything shared, including the simulator
   src/porting.rs          # the checklist: re-exports every seam item
   src/hal/                # HAL CONTRACT v2 traits, facade, set_hal_*! macros
   src/hal/sim/            # the simulator (shared, never copied per family)
-  src/rtos/               # the Rtos trait; rtos/freertos.rs for FreeRTOS families
+  src/rtos/               # the Rtos trait (crates/pd-rtos, re-exported); rtos/freertos.rs for FreeRTOS families
   src/host.rs             # PlatformHooks
-  src/pdb/, src/install/  # debug bridge and installer, generic over your impls
+  src/pdb/, src/install/  # debug bridge and installer (crates/pd-install), generic over your impls
+  src/packages.rs         # the package directory: what is installed, what boots, what runs next
   src/fs/                 # LittleFS behind the `littlefs` feature
 platforms/
   rp/                     # RP2040 + RP2350: the reference implementation
@@ -97,17 +98,17 @@ traits are the whole contract.
 
 | Trait | Methods | Notes |
 |---|---|---|
-| `HalDisplay` | 8 + 2 defaulted | `init`, window and pixel push, backlight, sleep/wake, `update_window`, `is_window_open`. Geometry comes from `board_cfg::display`, not from you. `set_vertical_scroll_area` / `set_vertical_scroll_start` (ST7796 `VSCRDEF` / `VSCRSADD`) default to no-ops and are only ever called on a board whose `[display]` is a portrait ST7796, where the framework scrolls a full-width `ScrollView` by rotating the panel's frame memory instead of repainting it. |
+| `HalDisplay` | 8 + 4 defaulted | `init`, window and pixel push, backlight, sleep/wake, `update_window`, `is_window_open`. Geometry comes from `board_cfg::display`, not from you. `write_pixels_start` / `write_pixels_wait` are the asynchronous flush a board with `draw_buffers = 2` uses; they default to the synchronous `write_pixels` and a no-op. `set_vertical_scroll_area` / `set_vertical_scroll_start` (ST7796 `VSCRDEF` / `VSCRSADD`) default to no-ops and are only ever called on a board whose `[display]` is a portrait ST7796, where the framework scrolls a full-width `ScrollView` by rotating the panel's frame memory instead of repainting it. |
 | `HalGpio` | 11 | Direction, value, `set_input(pin, Pull)`, `read`, edge IRQ enable/disable, `init_gpio_irq`, `inject`, `drain_gpio_event`, `has_pending_event`, `wait_for_button_event`. |
 | `HalClock` | 2 | `sleep(ms)` and `elapsed_realtime_nanos()`. Do **not** put a debug-stop check in `sleep`; shared code owns it. |
-| `HalTouch` | 7 | `init`, `read_point`, `read_raw_unfiltered`, `set_calibration`, and the three scripted-touch overrides. |
+| `HalTouch` | 7 + 1 defaulted | `init`, `read_point`, `read_raw_unfiltered`, `set_calibration`, and the three scripted-touch overrides. `wait_irq(timeout_ms)` blocks the touch sampler until the panel's interrupt line reports activity; the default is a plain sleep for the timeout. |
 | `HalI2c` | 4 + 2 defaulted | `init`, `set_speed`, `write_slice`, `read_slice`. The Java-array `write`/`read` are defaulted over the slice pair. |
 | `HalAdc` | 2 | `init(pin)`, `read(pin) -> volts`. |
 | `HalPwm` | 2 | `init(pin)`, `apply(pin, freq_hz, duty_pct, enabled)`. |
 | `HalSpi` | 4 + 2 defaulted | `init`, `reconfigure`, `write_raw`, `transfer_raw`. The Java-array `transfer`/`write` are defaulted. |
 | `HalUart` | 4 | `init`, `write_byte`, `read_byte` (-1 when empty), `reconfigure(baud, data, parity, stop, flow)`. |
 | `HalNet` | 14 | Only on a board with `has_network = true`; registered with `set_hal_net!`, not `set_hal!`. See [The network](#the-network). |
-| `HalFs` | 10 | Registered with `set_hal_fs!`. Usually `set_hal_fs!(picodroid_core::fs::LittleFsHal)` — see [The filesystem](#4-the-filesystem). |
+| `HalFs` | 13 | Registered with `set_hal_fs!`. Usually `set_hal_fs!(picodroid_core::fs::LittleFsHal)` — see [The filesystem](#4-the-filesystem). |
 
 `set_hal!` takes the nine bus and display traits at once; there are also
 per-trait forms (`set_hal_display!`, `set_hal_gpio!`, `set_hal_clock!`,
@@ -142,26 +143,30 @@ the methods, not the constant.
 
 Implement `picodroid_core::rtos::Rtos` (an `unsafe trait`: it promises real
 mutual exclusion and real cross-task wake-ups) and register it with
-`set_rtos!`. Its 23 methods, grouped:
+`set_rtos!`. The trait is defined in the `pd-rtos` crate and re-exported as
+`picodroid_core::rtos`; the same crate holds the JVM run lock, which the
+seam's own wrappers release around every blocking wait, so your impl does
+nothing about it. Its 28 methods, grouped:
 
 - `spawn(&TaskSpec, body)` — a task may be **declined** (return `false`);
   the framework copes.
 - `queue_create/send/recv` (a `u32` word) and the pointer-width triple
   `queue_create_ptr/send_ptr/recv_ptr`.
-- `task_current`, `task_notify`, `task_wait_notification`, and
+- `task_current`, `task_notify`, `task_notify_from_isr`,
+  `task_wait_notification`, `task_stack_unused_bytes`, and
   `scheduler_running`.
 - `mutex_recursive_create/lock/unlock/delete` — Java monitors re-enter.
-- `sem_binary_create/give/take`.
+- `sem_binary_create/give/take`, and `sem_give_from_isr`.
 - `tick_timer_start/pause/resume/stop` — the UI tick; `pause` must really
   quiesce the timer so the chip can idle.
-- `delay_ms`.
+- `delay_ms`, and `delay_until_anchor` / `delay_until` for a fixed-rate loop.
 
 Rules that are easy to get wrong:
 
 - **Stack sizes are bytes.** FreeRTOS counts words; ESP-IDF counts bytes.
   Convert in your impl, once.
 - **`TaskKind` is your policy hook.** Shared code says what a task is for —
-  `Jvm`, `JvmChild`, `BgWorker`, `Sensor`, `FsWorker` — and you decide its
+  `Jvm`, `JvmChild`, `BgWorker`, `Sensor`, `Touch`, `FsWorker`, `DebugBridge` — and you decide its
   stack, core and any bookkeeping. On a family that runs from the flash it
   writes, pin `FsWorker` to the core that does the writing: a dual-core
   device corrupts only when a flash write races an instruction fetch on the
@@ -183,11 +188,13 @@ Rules that are easy to get wrong:
 ## 3. The hooks (`PlatformHooks`)
 
 Implement `picodroid_core::host::PlatformHooks` and register it with
-`set_platform_hooks!`. Six methods: `stop_requested` (has a debugger asked
+`set_platform_hooks!`. Seven methods: `stop_requested` (has a debugger asked
 the JVM to stop — `false` if you have no bridge), `heap_bypass_enter/exit`
 and `heap_checkpoint` (no-ops on hardware; the simulator's heap model uses
-them), `native_heap_stats` (what the memory monitor prints), and
-`register_gc_roots`.
+them), `native_heap_stats` (what the memory monitor prints),
+`register_gc_roots`, and `uninstall_run(first_sector, sectors)`, which erases
+an installed run for a Java `PackageInstaller.uninstall` while the app that
+asked keeps running (the RP family runs the erase on the LittleFS worker).
 
 `register_gc_roots` is required, not defaulted, on purpose: a family with no
 native module holding Java references writes an empty body, which is a
@@ -338,11 +345,14 @@ modules `config`, `board_cfg`, `boards`, `freertos`, `network`, `papk`,
 `board_cfg::resolve`, `boards::emit_board_imports`, your memory-layout and
 kernel build, `board_cfg::emit_neutral(out, &board, Pins::Owned)`,
 `config::emit_display_config`, `config::emit_touch_config`,
-`board_cfg::emit_jvm_env_vars`, and the four `papk::*` embed calls.
+`board_cfg::emit_jvm_env_vars`, and the three `papk::*` calls
+(`emit_framework_map_version`, `embed_framework_classes`,
+`embed_papk_flash_init`).
 `config::repo_root` and `config::is_embedded` are shared; do not derive
 them by hand. The capability `cfg`s — `has_display`, `has_touch`,
 `has_buttons`, `has_network`, `network_<type>`, `network_link_<kind>`, `any_sensor`,
-`sensor_<kind>` — are emitted from `board.toml` by `board_cfg`, not set by
+`sensor_<kind>`, and the feature switches `has_json`, `has_protobuf`, `has_tls`,
+`has_canvas`, `has_multi_app` and `has_psram` — are emitted from `board.toml` by `board_cfg`, not set by
 Cargo features. **Do not compile LVGL**: `picodroid-core`'s build script
 owns it, and two builders mean duplicate symbols.
 
@@ -471,7 +481,7 @@ per family:
 | `configSMP_SPINLOCK_*` | 26, 27 | N/A |
 | `configSUPPORT_PICO_SYNC_INTEROP` | 1 | 0 |
 | `configENABLE_FPU` | chip-dependent | chip-dependent |
-| `configTOTAL_HEAP_SIZE` | 128 KB | depends on RAM |
+| `configTOTAL_HEAP_SIZE` | injected from the MCU toml's `heap_kb` (less the RAM the hot code takes) | depends on RAM |
 
 Leave `configIDLE_AFFINITY` and `configTASK_DEFAULT_CORE_AFFINITY` unset on
 a dual-core part: pinning the idle tasks pins the reaper, and a
@@ -521,18 +531,26 @@ nrf52840-hal = { version = "...", optional = true }
 
 ## .cargo/config.toml
 
-Add the target entry:
+The device tables in `.cargo/config.toml` are keyed by `cfg`, not by target
+triple: `cfg(all(target_arch = "arm", target_os = "none"))` carries the
+linker (`flip-link`) and the three link arguments (`--nmagic`, `-Tlink.x`,
+`-Tdefmt.x`) for every bare-metal ARM target, and two narrower tables pick
+the RP runner by `target_abi` (`eabi` for the RP2040, `eabihf` for the
+RP2350). They are spelled that way because cargo reads a table named by a
+dotted triple (`thumbv8m.main-none-eabihf`) only unquoted up to 1.98 and only
+quoted from nightly 1.101.
+
+A new ARM family therefore inherits the linker and the link arguments and
+adds only its runner:
 
 ```toml
 [target.thumbv7em-none-eabihf]
 runner = "probe-rs run --chip nRF52840_xxAA --protocol swd"
-linker = "flip-link"
-rustflags = [
-  "-C", "link-arg=--nmagic",
-  "-C", "link-arg=-Tlink.x",
-  "-C", "link-arg=-Tdefmt.x",
-]
 ```
+
+Two `cfg` tables that both match a target and both set a runner are an error,
+which is why the RP pair is kept disjoint; a family on another architecture
+needs a table of its own with its linker and link arguments.
 
 ## Single-core vs dual-core considerations
 
@@ -584,22 +602,25 @@ You don't edit `board.toml` to write an app, but it determines what your app can
 
 | Key | Type | Required | Description |
 |-----|------|----------|-------------|
-| `mcu` | string | yes | `"rp2040"` or `"rp2350"` (the schema is family-agnostic). |
+| `mcu` | string | yes | `"rp2040"`, `"rp2350"` or `"rp2350b"` — the name of a descriptor under `mcus/<family>/` (the schema is family-agnostic). |
+| `hot_ram_kb` | int | no | RAM for the hot sets that execute from SRAM: the JVM's invoke, field and constant-pool helpers and the LVGL and FreeRTOS functions listed in `mcus/rp/hot-ram-*.txt`. Taken out of the heap arena, like the MCU toml's `jvm_loop_ram_kb`. Must agree with the `hot-in-ram` Cargo feature (which `chip-rp2350` enables), or the build stops. Every RP2350 board sets 48; absent means none. |
 | `has_network` | bool | no | If `true`, compiles in the networking stack (FreeRTOS+TCP + a link driver). Needs `network_type`. |
 | `network_type` | string | no | Required when `has_network = true`. Must be a row of `build_support::board_cfg::KNOWN_NETWORK_TYPES` (`"cyw43"` = wifi today); the build emits `network_<type>` and `network_link_<kind>` and checks the kind against the forwarded `picodroid-core/network-<kind>` feature. |
 | `lv_dpi` | int | no | Override LVGL's reported DPI (default 130). Used for small-screen boards. |
-| `lv_mem_kb` | int | no | LVGL render-pool size in KiB (default 64). |
+| `lv_mem_kb` | int | no | LVGL render-pool size in KiB (default 64; every board but `pico_touch_kit` sets 48). The pool is a static array, so it comes off the core-0 main stack's budget, which the linker script holds to at least 8,192 bytes. |
 | `text_sizes` | string | no | The pixel sizes of the Montserrat faces `TextView.setTextSize` can snap to, `;`-separated; the MCU toml's value applies when unset (`14;20;28;64` on the RP2350s, `14` on the RP2040). 14 is required; every other size must exist as a generated face in `crates/pd-lvgl-sys/lvgl/fonts/` (`scripts/gen-fonts.sh`). Flash per face: [Limits](/reference/limits/). |
 | `lv_mem_in_psram` | bool | no | Put the LVGL pool in the module's PSRAM instead of `.bss` (the MCU toml must declare `psram_kb`). Frees the pool's size from the main-stack budget; render targets stay in SRAM. Device builds only — the simulator keeps its `.bss` pool. |
 | `idle_timeout_ms` | int | no | Idle time before the display sleeps (default 60000; `0` disables sleep). Only takes effect on boards with `[[button]]` entries. |
 | `handle_slots` | int | no | Size of the LVGL object handle table (default 256). Must be a power of two between 32 and 4096. |
 | `has_json` | bool | no | If `true`, ships `picodroid.json` (`JSONObject`/`JSONArray`/`JSONException` and the native node pool behind them). Off by default: a board that leaves it off drops those classes from its embedded SDK and compiles the parser out, and apps built for it fail the API contract if they reference them. |
 | `has_protobuf` | bool | no | If `true`, ships `picodroid.protobuf` (`CodedInputStream`/`CodedOutputStream`/`MessageLite`/`WireFormat`/`InvalidProtocolBufferException` and the native wire codec behind them). Off by default, like `has_json`: a board that leaves it off drops those classes from its embedded SDK and compiles the codec out, and apps built for it fail the API contract if they reference them. |
-| `framework_class_excludes` | list | no | Framework classes to leave out of this board's embedded SDK, to save flash. Classes owned by a feature switch (`has_json`, `has_protobuf`) are added automatically; listing one by hand while the switch is on fails the build. |
-| `max_installed_apps` | int | no | Package-directory capacity, 1..=64 (MCU default 1 = a single-app board; the RP2350 boards set 8). Above 1 the build emits `has_multi_app` and the debug bridge gains `list`/`uninstall`. |
-| `app_region_kb` | int | no | Size of the app region (`PAPK_FLASH`), a multiple of 4 (MCU default 1024; the RP2350 boards set 1536). |
+| `has_tls` | bool | no | If `true`, ships HTTPS: `picodroid.net.ssl.HttpsURLConnection` over the `pd-tls` client. Off by default. The board's Cargo feature must forward `picodroid-core/tls`, and the build checks the two agree. On for every RP2350 WiFi board. |
+| `has_canvas` | bool | no | On unless set to `false`. `false` drops `View.onDraw(Canvas)`: the `Canvas` and `Paint` classes, their natives and the display list, about 16 KB of flash. `testbench_rp2040` sets it. |
+| `framework_class_excludes` | list | no | Framework classes to leave out of this board's embedded SDK, to save flash. Classes owned by a feature switch (`has_json`, `has_protobuf`, `has_canvas`) are added automatically; listing one by hand while the switch is on fails the build. |
+| `max_installed_apps` | int | no | Package-directory capacity, 1..=64 (MCU default 1 = a single-app board; the RP2350 boards set 8, `pico_touch_kit` 16). Above 1 the build emits `has_multi_app` and the debug bridge gains `list`/`uninstall`. |
+| `app_region_kb` | int | no | Size of the app region (`PAPK_FLASH`), a multiple of 4 (MCU default 1024). What the app region and LittleFS do not take is the program region, so this key is also how a board buys room for its image: `testbench_rp2350` and `pico_enviro_mon` set 1536 (program region 2048 KB), the three 4 MB WiFi boards 1280 (2304 KB), `pico_touch_kit` 10240, `testbench_rp2040` 768 (1152 KB). Changing it, or `fs_kb`, moves LittleFS and the app region, so the next flash reformats the volume. |
 | `boot_package` | string | no | The package to boot when it is installed, for a board that always runs one app. Otherwise the usual order applies: the app `flash.sh --app` baked in, then the launcher, then the lowest run. `flash.sh --boot` overrides it. |
-| `fs_kb` | int | no | Size of the LittleFS region (MCU default 128 on rp2040, 256 on rp2350; the RP2350 boards set 512). |
+| `fs_kb` | int | no | Size of the LittleFS region (MCU default 128 on rp2040, 256 on rp2350; the RP2350 boards set 512, `pico_touch_kit` 4096). |
 | `fs_system_reserve_kb` | int | no | Tail of the LittleFS volume no app may write into (default 64; system apps are exempt). Enforced on multi-app boards. |
 | `app_data_cap_kb` | int | no | Most one app's `/data/<package>` may hold, in the framework's 4 KB-block accounting (default a quarter of `fs_kb`; `0` lifts the cap). Enforced on multi-app boards. |
 | `linker_script` | string | no | Path to a linker script used verbatim, `MEMORY` block and all (by default the `MEMORY` block is generated from the flash layout above and the MCU's `mcus/<family>/<mcu>.x` supplies only its `SECTIONS`). |

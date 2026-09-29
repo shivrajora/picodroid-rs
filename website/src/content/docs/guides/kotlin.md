@@ -27,7 +27,8 @@ app costs a few hundred bytes over its Java twin.
   automatically, so `@Inject`, `@Singleton`, `@Module` / `@Provides`,
   `Provider<T>` and `picodroid.di.Lazy<T>` are all available. The
   Kotlin-specific shapes and traps are covered in
-  [Services & DI](/api/services/).
+  [Services & DI](/api/services/), and `examples/injectdemo_kt` is the worked
+  example.
 
 ## What is supported
 
@@ -85,10 +86,13 @@ views) and asserts the slot-stability and capture-rooting behaviour above.
 
 ## Class-metadata frugality
 
-On device, the binding constraint is usually **class metadata**, not the
-object heap: every class in the PAPK costs ~20 B registered at boot, every
-*parsed* class ~0.8 KB, every method 32 B — and Kotlin codegen mints classes
-freely unless told not to. For a long-running app on a small board:
+On device, what Kotlin costs is **classes**, not object heap — and Kotlin
+codegen mints classes freely unless told not to. Since PAPK v2 a class is
+linked when the app is packed: its link table sits beside its bytecode in
+flash and is read in place, so a registered class costs 16 bytes of RAM and
+nothing is parsed onto the heap. The price moved to the package, which
+carries the tables (the measured apps grew by 19 % and 30 %), and every
+installed app shares one app region. For a long-running app on a small board:
 
 - **Avoid `companion object`** — each is a parsed class. Use top-level
   `const val` (inlined at the use site) and top-level functions with
@@ -102,12 +106,15 @@ freely unless told not to. For a long-running app on a small board:
   over constant tables.
 
 `examples/picoenvmon_kt` is the reference: the Kotlin twin of a real
-multi-Activity + Service + HTTP-dashboard app, written under these rules. Its
-like-for-like cost over the Java app is **+5 % PAPK and +3.8 % parsed class
-metadata (+2.5 KB)** with an identical idle allocation signature — the full
-measurement table is in the repo at
+multi-Activity + Service + HTTP-dashboard app, written under these rules.
+Measured on 2026-08-30, its like-for-like cost over the Java app was **+5 %
+PAPK and +3.8 % parsed class metadata (+2.5 KB)** with an identical idle
+allocation signature — the full measurement table is in the repo at
 `docs/designs/kotlin-shim-inventory.md` § 10, and the RAM figures are
-summarized in [Runtime limits](/reference/limits/).
+summarized in [Runtime limits](/reference/limits/#kotlin-apps). The
+comparison between the two languages stands; the parsed-metadata row
+describes the runtime before PAPK v2, which keeps no parsed metadata on the
+heap.
 
 ## When `contractCheck` fails
 

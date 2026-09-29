@@ -1,6 +1,6 @@
 ---
 title: "Debugging"
-description: "Tools and symptom-driven playbooks for debugging Picodroid apps: RTT, the host simulator, pdb sysmon, GDB, GC sweeps, OOM, and headless input."
+description: "Tools and symptom-driven playbooks for debugging Picodroid apps: RTT, stack traces, the host simulator, pdb sysmon, diagnostics builds, GDB, GC sweeps, OOM, and headless input."
 ---
 
 This page has two halves. **Tools** is the standing kit — how to get logs, run the simulator, read system health, and step with GDB. **Playbooks** is symptom-driven: start there when something is already broken.
@@ -28,7 +28,7 @@ Exception in thread "main" java.lang.RuntimeException: kaboom
     at tracedemo.TraceDemo.middle(TraceDemo.java:37)
 ```
 
-That is what the simulator and a debug-profile device firmware (`flash.sh`'s default) print: both are built with the `line-numbers` cargo feature, which keeps `LineNumberTable` and `SourceFile` in the class files. A `--release` firmware leaves the tables out of flash and prints the bytecode offset instead, `at tracedemo.TraceDemo.deepest(pc=9)` — and so does every `testbench_rp2040` firmware, whose 896 KB program region has no room for the ~27 KB the tables and the JVM's line-number paths cost (`PICODROID_LINE_NUMBERS=1` asks for them anyway). Resolve those on the host from the class trees this checkout compiled:
+That is what the simulator and a debug-profile device firmware (`flash.sh`'s default) print: both are built with the `line-numbers` cargo feature, which keeps `LineNumberTable` and `SourceFile` in the class files. A `--release` firmware leaves the tables out of flash and prints the bytecode offset instead, `at tracedemo.TraceDemo.deepest(pc=9)` — and so does every `testbench_rp2040` firmware: the build leaves the feature off on the RP2040, where the tables and the JVM's line-number paths cost about 27 KB of its program region. `PICODROID_LINE_NUMBERS=0|1` overrides the default on any board, and on the RP2040 `1` fails to link when the image has no room. Resolve those on the host from the class trees this checkout compiled:
 
 ```bash
 ./scripts/retrace.sh --app tracedemo < device.log      # (pc=N) -> (TraceDemo.java:41)
@@ -52,12 +52,23 @@ The host simulator lets you run apps on your development machine without hardwar
 ```bash
 ./scripts/sim.sh --app helloworld
 ./scripts/sim.sh --app blinky          # loops forever — Ctrl-C to stop
-./scripts/sim.sh --app benchmark       # JVM performance benchmark (host-only)
-./scripts/sim.sh --app gcstress        # GC stress test (host-only)
+./scripts/sim.sh --app benchmark       # JVM performance benchmark
+./scripts/sim.sh --app gcstress        # GC stress test
 ./scripts/sim.sh --app displaydemo     # opens a 320x240 graphical window
+./scripts/sim.sh --board pico_enviro_mon --app picoenvmon   # a four-button board
 ```
 
-For display apps, the simulator opens a graphical window (via minifb) that renders the LVGL widget tree with mouse-as-touch input. Close the window or press Escape to exit.
+For display apps, the simulator opens a graphical window (via minifb) that renders the LVGL widget tree with mouse-as-touch input. On a board with buttons the host keyboard presses them: the Up and Down arrows are PREV and NEXT, Enter is ENTER, Backspace is BACK, and `1`–`4` are the first to fourth declared button. Close the window or press Escape to exit.
+
+The simulator models the board's memory, not the host's: the heap is capped at the board's FreeRTOS arena and the LVGL pool is sized from its `lv_mem_kb`, so an app that runs out on the device runs out here. Two checks are on by default — the handle sanitizer, which stops the run with a backtrace when a freed widget is used (`--no-sanitize-handles` turns it off), and the [slow-handler watchdog](/get-started/simulator/#slow-handler-watchdog), which prints `slow handler: … took N ms` when one handler stalls the UI tick for 50 ms or more (on a device too).
+
+Three environment switches change what the simulator boots into, without a rebuild:
+
+| Variable | Effect |
+|---|---|
+| `PICODROID_DONT_KEEP_ACTIVITIES=1` | Destroy every Activity the moment it is covered, as Android's developer option does — finds state kept in fields instead of the `Bundle` |
+| `PICODROID_BOOT=launcher` (with `--system-apps`) | Boot the launcher, with the app under test installed beside it; see [Launcher](/guides/launcher/) |
+| `PICODROID_SIM_NET=down` | Boot a network board with its link down; `net up` on the control channel raises it |
 
 To drive the UI without a local display (over SSH, in CI, or for scripted QA), see [Driving the simulator headlessly](#driving-the-simulator-headlessly) below.
 
@@ -74,8 +85,9 @@ This reports:
 - **Heap**: free bytes, minimum-ever free bytes (high-water mark)
 - **Uptime**: tick count and wall-clock seconds
 - **Task table**: every FreeRTOS task with name, state, priority, stack high-water mark, and CPU %
+- **JVM block** (a `mem-diag` firmware only): live bytes, the post-GC floor, total allocations and the largest free block
 
-CPU % is computed from the delta between consecutive queries — run it twice with a few seconds in between. The first query shows CPU % as N/A.
+CPU % is computed from the delta between consecutive queries — run it twice with a few seconds in between. The first query shows CPU % as N/A, and so does the simulator (`pdb -s sim sysmon`), whose kernel keeps no run-time statistics.
 
 Under the hood this uses `xPortGetFreeHeapSize()`, `xPortGetMinimumEverFreeHeapSize()`, and `uxTaskGetSystemState()` from FreeRTOS, with run-time stats driven by the hardware microsecond timer (TIMERAWL register). There is no background sampling task — stats are collected on-demand when the host sends the query, so there is zero impact on power consumption or scheduling.
 
@@ -119,6 +131,8 @@ Two opt-in cargo features compile in monitors that report once a second; with th
 |---|---|---|---|
 | `mem-diag` | Heap growth, churn, fragmentation; offensive checks for corruption | `./scripts/sim.sh --app <app> --mem-diag` | `PICODROID_EXTRA_FEATURES=mem-diag ./scripts/flash.sh -b <board> -a <app>` |
 | `sched-diag` | A real-time task holding its core (`HOG`), a starved task (`STARVE`), sleep-polling (`POLL`), a delay that burns cycles (`BUSYDELAY`), a long `spin_until!` (`SPIN`) | `./scripts/sim.sh --app <app> --sched-diag` | `PICODROID_EXTRA_FEATURES=sched-diag ./scripts/flash.sh -b <board> -a <app>` |
+
+A diagnostics image says so at boot (`memdiag: ACTIVE`, `scheddiag: ACTIVE`). The memory monitor prints one `[memmon]` line per window (`memmon:` over RTT): `floor` is the post-GC live floor, the leak signal; `lv=used/total` is the LVGL pool; and `LEAK?` is the growth sentinel tripping. In a simulator built with `--mem-diag`, `./scripts/sim-ctrl.sh memstats` prints a snapshot on demand and `heapcensus` the live set by class. The scheduling monitor prints one `[schedmon]` line per window and a line per finding.
 
 On the RP2040 both are manual opt-ins: each adds flash the program region may not have room for. Output formats and knobs are in [`docs/memory-diagnostics.md`](https://github.com/shivrajora/picodroid-rs/blob/main/docs/memory-diagnostics.md) and [`docs/scheduling-diagnostics.md`](https://github.com/shivrajora/picodroid-rs/blob/main/docs/scheduling-diagnostics.md).
 
@@ -166,9 +180,16 @@ arm-none-eabi-gdb target/thumbv8m.main-none-eabihf/debug/picodroid \
 [sim] Activity lifecycle error: NoSuchMethod
 ```
 
-On hardware the same line arrives over RTT without the `[sim]` prefix: `Activity lifecycle error: NoSuchMethod`. A second, related line can appear from the framework-default fallback path: `Activity lifecycle fallback error: NoSuchMethod`. These are emitted from the lifecycle dispatcher in [`crates/picodroid-core/src/lifecycle.rs`](https://github.com/shivrajora/picodroid-rs/blob/main/crates/picodroid-core/src/lifecycle.rs).
+On hardware the same line arrives over RTT without the `[sim]` prefix: `Activity lifecycle error: NoSuchMethod`. It is emitted from the lifecycle dispatcher in [`crates/picodroid-core/src/lifecycle/mod.rs`](https://github.com/shivrajora/picodroid-rs/blob/main/crates/picodroid-core/src/lifecycle/mod.rs).
 
-There is **no "native miss" log line** — ignore any guidance that tells you to grep for one. The real diagnostic surface for this failure is the `Activity lifecycle error: NoSuchMethod` line above.
+**Rule out the two plain causes first.** When no native claims a call, the runtime logs why if it knows, just before the error:
+
+```text
+[sim] no native picodroid/view/View.postDelayed — no Handler — use ViewPropertyAnimator timers or Executors.mainExecutor()
+[sim] picodroid/widget/ViewPager2 is not built into this board's framework (framework_class_excludes in board.toml)
+```
+
+The first is an Android idiom picodroid does not have, with its replacement (`runOnUiThread`, `View.post`, `View.postDelayed` and `registerReceiver` carry one). The second is a class the target board leaves out of its framework; build the app with the board named (`./scripts/build-apk.sh --app myapp --board testbench_rp2040`) and the API contract check reports it at build time. On hardware both arrive as RTT warnings without the `[sim]` prefix, and a `--shrink` build spells the class by its mapped name (`retrace.sh` above). A miss with neither line, on a call that used to work, is the case below.
 
 **What it usually means.** The JVM heap is a non-moving mark-sweep collector with slot reuse; class and method tables are append-only and never collected. So `NoSuchMethod` at runtime almost always means a *still-referenced* object was swept (a missing GC root), its heap slot was reused by a later allocation, and a subsequent method dispatch hit the wrong class's vtable.
 
@@ -192,6 +213,8 @@ There is a **silent variant**: a listener kept alive only by its native map (a `
 **Prevention.** Keep a Java field reference to anything whose callback must keep firing. The framework now roots Views, dialogs, compound-button and editor listeners, the `Display` singleton, sensors, and bound-service refs through its GC walk, but the cheapest defence in your own app is to never let a listener-bearing widget be reachable only from a local. See the GC-lifetime rules in [Embedded gotchas](/guides/embedded-gotchas/).
 
 **Diagnosing a new instance.** This class of bug is found by *runtime tracing*, not static reading: trace the receiver class and method at the failure (`recv_class=... method=...`) and confirm the receiver is the wrong type for the method being called. If so, the object needs a GC root.
+
+**The widget side of the same mistake.** A Java `View` that outlives its widget — it was `close()`d, removed, or belonged to a Fragment view given up in `onDestroyView` — holds a stale handle. Handles carry the generation of their table slot, so on a device a call through a stale one resolves to nothing and returns, where it once followed a pointer into freed LVGL memory. The simulator stops at that call with a backtrace (the handle sanitizer), so reproduce a "setter that does nothing" there.
 
 ### Out of memory / heap exhaustion
 
@@ -251,7 +274,9 @@ It returns `false` when the listener or sensor argument is not a valid object, w
 
 **The listener was GC-swept.** A View, dialog, compound-button, or `EditText` listener whose only owner is a native map gets collected on the first GC and stops firing a few seconds in, with no error. This is the silent variant of the [NoSuchMethod playbook](#nosuchmethod--input-dies-after-a-while) — keep a Java field reference to the widget. See [Embedded gotchas](/guides/embedded-gotchas/).
 
-> Note: on the host simulator the hardware key/touch dispatcher never fires — `drain_gpio_event` always returns `None` in sim builds. Button input in the sim comes through the control channel below (which uses a different injection path that *does* work for `has_buttons` boards), not the hardware key path. End-to-end key verification on the hardware path requires a device — use [`pdb input`](#injecting-input-pdb-input) to drive that path over USB CDC.
+**A swipe listener.** A swipe goes to the nearest view with an `OnSwipeListener`, starting from the view under the finger; a child with a listener of its own keeps the swipe, and a pull-down inside a `SwipeRefreshLayout` goes to the layout first. Rehearse one with `input swipe` (below).
+
+> Note: the simulator has no GPIO, but its keyboard and control channel put button edges into the same queue the device's GPIO interrupt fills, so `OnKeyListener`, the Activity key callbacks, auto-repeat and the BACK chain all run in the simulator. What only a device shows is the electrical side (bounce, the idle-sleep wake press) — use [`pdb input`](#injecting-input-pdb-input) to drive a board over USB CDC.
 
 ### pdb install fails
 
@@ -277,11 +302,13 @@ PAPK is incompatible with running firmware.
   Rebuild the PAPK with matching --shrink setting (see reference/shrinker in the docs).
 ```
 
-`Reason` is one of three: the two sides disagree about `--shrink` (one of them reports `0.0.0`); the PAPK's map is newer than the firmware's; or *PAPK was shrunk before method/field names were (map < member floor)* — a firmware at v0.17.0 or later dispatches on mapped member names and refuses a PAPK shrunk with an older map even though older maps are otherwise accepted. `--shrink-app` does not enter into it: the per-app map extends the release map without changing `framework-map-version`, so a `--shrink-app` PAPK installs on any `--shrink` firmware of the same release.
+`Reason` is usually one of three: the two sides disagree about `--shrink` (one of them reports `0.0.0`) or the PAPK's map is newer than the firmware's — both print *version mismatch (asymmetric --shrink, or PAPK newer than firmware)* — or *PAPK was shrunk before method/field names were (map < member floor)* — a firmware at v0.17.0 or later dispatches on mapped member names and refuses a PAPK shrunk with an older map even though older maps are otherwise accepted. `--shrink-app` does not enter into it: the per-app map extends the release map without changing `framework-map-version`, so a `--shrink-app` PAPK installs on any `--shrink` firmware of the same release.
 
 The same condition can surface as a firmware-load panic, `PAPK framework-map-version incompatible with firmware`. **Recovery:** rebuild the APK and firmware with the *same* `--shrink` flag, or rebuild the PAPK without `--shrink` to match a non-shrunk firmware, or reflash matching firmware. The shrinker is documented in [Shrinker](/reference/shrinker/); the panic and recovery steps are in [`PAPK framework-map-version incompatible with firmware`](/guides/troubleshooting/#papk-framework-map-version-incompatible-with-firmware).
 
-**Other refusals.** A malformed package is rejected unconditionally with `PAPK file is not a valid PAPK: <error>` (this check runs even under `--skip-host-check`, to prevent bricking). An over-size package fails with `error: PAPK is <n> KB but device supports max <n> KB`. If you bypass the host check, the device can still reject with `device rejected install: STATUS_INCOMPAT — framework-map-version mismatch` — and the existing PAPK on flash is left untouched.
+**No room, or no package name** (multi-app boards). `device rejected install: STATUS_NO_ROOM` means the app region has no contiguous run for the package even after compaction, or the directory is full; nothing was erased. Free room with `pdb uninstall <package>` (`pdb list` shows what is installed). `PAPK has no package-name; a multi-app device cannot place it` means the manifest lacks `package`; the message carries the `papk-pack --repack` command that adds one.
+
+**Other refusals.** A malformed package is rejected unconditionally with `PAPK file is not a valid PAPK: <error>` (this check runs even under `--skip-host-check`, to prevent bricking). A package built before PAPK v2 is one of them — `PAPK format version is not the one this build reads (a v1 file: re-pack it with the current toolchain)` — so rebuild it with `./scripts/build-apk.sh`. An over-size package fails with `error: PAPK is <n> KB but device supports max <n> KB`. If you bypass the host check, the device can still reject with `device rejected install: STATUS_INCOMPAT — framework-map-version mismatch` — and the existing PAPK on flash is left untouched.
 
 ### Driving the simulator headlessly
 
@@ -314,11 +341,11 @@ The verb grammar is `down|up|press|tap <button>`:
 - `up` — release (rising edge)
 - `press` / `tap` — press, wait 40 ms, release (one clean tap)
 
-Button tokens are the silkscreen names `A`/`B`/`X`/`Y` (1st/2nd/3rd/4th declared button), the semantic names `PREV`/`UP`, `NEXT`/`DOWN`, `ENTER`/`OK`/`SELECT`, `ESC`/`BACK`, or a bare GPIO pin number. An unknown verb prints `[sim] control channel: unknown command '<x>'`; an unknown button prints `[sim] control channel: unknown button '<x>'`. At startup the sim prints a ready banner listing the accepted commands. (The control channel is present on `has_buttons` and `has_touch` boards.) For the navigation model these buttons drive, see [Button navigation](/guides/button-navigation/).
+Button tokens are the silkscreen names `A`/`B`/`X`/`Y` (1st/2nd/3rd/4th declared button), the semantic names `PREV`/`UP`, `NEXT`/`DOWN`, `ENTER`/`OK`/`SELECT`, `ESC`/`BACK`, or a bare GPIO pin number. An unknown verb prints `[sim] control channel: unknown command '<x>'`; an unknown button prints `[sim] control channel: unknown button '<x>'`. At startup the sim prints a ready banner listing the accepted commands. (The control channel is present on `has_buttons` and `has_touch` boards.) Without `sim-remote.sh` the same commands are read from the simulator's stdin. For the navigation model these buttons drive, see [Button navigation](/guides/button-navigation/).
 
 The control channel also accepts the same Android verbs as hardware [`pdb input`](#injecting-input-pdb-input) — `input keyevent [--longpress|--down|--up] <KEYCODE|n>`, `input dpad <dir>`, `input back`, `input tap <x> <y>`, and `input swipe <x1> <y1> <x2> <y2> [ms]` — plus `input text <string>`, sim-only, which types into the field the system keyboard is open on (tap the `EditText` first). Prefer these when you want one vocabulary that works identically in the sim and on a real device: rehearse a sequence headlessly in the sim, then run the exact same verbs via `pdb input` over USB CDC.
 
-**The wire-true path.** The simulator is also a `pdb` device in its own right: `./scripts/pdb.sh -s sim input tap 120 80` (or `ping`, `list`, `sysmon`, `install`, `uninstall`) goes over the simulator's socket through the same bridge task, framing and handlers a board runs, and an install reboots the simulator the way it reboots a device. Use the control FIFO for the sim-only verbs (button names, `touch`, `apps`, `memstats`) and `pdb -s sim` when the point is to exercise the device path — see [Driving the simulator with pdb](/get-started/simulator/#driving-the-simulator-with-pdb).
+**The wire-true path.** The simulator is also a `pdb` device in its own right: `./scripts/pdb.sh -s sim input tap 120 80` (or `ping`, `list`, `sysmon`, `install`, `uninstall`) goes over the simulator's socket through the same bridge task, framing and handlers a board runs, and an install reboots the simulator the way it reboots a device. Use the control FIFO for the sim-only verbs — button names, `touch down|move <x> <y>` / `touch up`, `apps list|install|uninstall`, `net up|down` (the simulated link, on a network board), and `memstats` / `heapcensus` in a `--mem-diag` build — and `pdb -s sim` when the point is to exercise the device path — see [Driving the simulator with pdb](/get-started/simulator/#driving-the-simulator-with-pdb).
 
 **Capturing frames.** The sim window is named `picodroid`. Grab it with `scrot`:
 
