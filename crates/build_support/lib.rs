@@ -8,6 +8,8 @@
 //! `names.rs`: pico-jvm takes no build-dependency on a path crate, so both
 //! files must stay free of `crate::` references.
 
+#![forbid(unsafe_code)]
+
 pub mod board_cfg;
 pub mod boards;
 pub mod config;

@@ -92,8 +92,7 @@ pub fn shared_jvm() -> Option<&'static Jvm> {
 fn publish_jvm(jvm: Jvm) -> &'static mut Jvm {
     unsafe {
         let slot = &mut *SHARED_JVM.0.get();
-        *slot = Some(jvm);
-        slot.as_mut().unwrap_unchecked()
+        slot.insert(jvm)
     }
 }
 
@@ -271,7 +270,7 @@ pub fn run_app(apk_data: &[u8]) {
     // Determine the entry point from the APK manifest. The pre-sizing parse
     // above already returned on error, so a second failure here is a
     // fresh-bytes anomaly; bail cleanly rather than panic on-device.
-    let apk = match Papk::parse(apk_data) {
+    let apk = match Papk::parse(apk_static) {
         Ok(a) => a,
         Err(e) => {
             #[cfg(not(feature = "sim"))]
@@ -318,15 +317,12 @@ pub fn run_app(apk_data: &[u8]) {
     let start = std::time::Instant::now();
 
     if let Some(application_class) = apk.application() {
-        // The APK data is &'static [u8] (Flash-backed), so the parsed class
-        // name string is also 'static. Transmute the lifetime so alloc() can
-        // store it in the object heap.
-        let static_name: &'static str =
-            unsafe { core::mem::transmute::<&str, &'static str>(application_class) };
+        // Parsed from `apk_static`, so the class name is `'static` too and
+        // alloc() can store it in the object heap.
+        let static_name: &'static str = application_class;
         crate::lifecycle::run_application(jvm, static_name, heap, &mut handler);
     } else if let Some(activity_class) = apk.activity() {
-        let static_name: &'static str =
-            unsafe { core::mem::transmute::<&str, &'static str>(activity_class) };
+        let static_name: &'static str = activity_class;
         // Same construction path as every pushed Activity: field defaults,
         // <init>, then @Inject member injection.
         match crate::lifecycle::instantiate_component(jvm, static_name, heap, &mut handler) {

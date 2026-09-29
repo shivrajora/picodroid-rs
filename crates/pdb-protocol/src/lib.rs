@@ -42,6 +42,7 @@
 //! the whole `[CMD_INSTALL][papk_len][papk bytes]`.
 
 #![no_std]
+#![forbid(unsafe_code)]
 
 pub mod crc32;
 pub mod greeting;

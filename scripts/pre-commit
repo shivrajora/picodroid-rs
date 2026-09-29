@@ -161,6 +161,7 @@ fi
 STAGES=(
   "twins|guards|fast|always|shadow twins across platforms/ and picodroid-core"
   "cfg_gates|guards|fast|always|sim/family-rp cfg-gate hygiene"
+  "unsafe_ratchet|guards|fast|always|unsafe Rust against scripts/unsafe-baseline.conf"
   "jvm_env|guards|fast|always|apply_jvm_env propagation"
   # CI runs the drift check on every push (ci_checks.yml `linting`); locally
   # it matters when the conf itself, under scripts/, changed.
@@ -297,6 +298,7 @@ fi
 # `guards` job runs byte-for-byte the same checks.
 stage_twins()     { bash "$SCRIPT_DIR/check-source-guards.sh" --twins; }
 stage_cfg_gates() { bash "$SCRIPT_DIR/check-source-guards.sh" --cfg-gates; }
+stage_unsafe_ratchet() { bash "$SCRIPT_DIR/check-source-guards.sh" --unsafe; }
 
 stage_hil_conf() {
   if ! bash "$SCRIPT_DIR/check-hil-conf.sh"; then

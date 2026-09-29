@@ -4,10 +4,11 @@
 //! sensors. No HAL, RTOS or allocator dependency.
 
 #![cfg_attr(not(test), no_std)]
-
 // Every driver is always compiled: each is generic over its bus, so a board
 // instantiates -- and links -- only the controllers it names, and the unit
 // tests below run on every `cargo test`, board or not.
+#![forbid(unsafe_code)]
+
 pub mod bme688;
 pub mod gt911;
 pub mod ltr559;

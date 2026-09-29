@@ -15,6 +15,8 @@
 //! PAPKs are rejected — see `compat::MEMBER_SHRINK_FLOOR`. `retrace` maps
 //! shrunk names in logs back to originals on the host.
 
+#![forbid(unsafe_code)]
+
 pub mod classfile;
 pub mod descriptor;
 pub mod keep;

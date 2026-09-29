@@ -7,6 +7,7 @@
 //! crate has no HAL, JVM or transport dependencies — keep it that way.
 
 #![cfg_attr(not(test), no_std)]
+#![forbid(unsafe_code)]
 
 extern crate alloc;
 

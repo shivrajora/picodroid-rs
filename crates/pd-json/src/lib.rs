@@ -16,6 +16,7 @@
 //! (`native_handler/json.rs`, `json/mod.rs`); nothing here names the JVM.
 
 #![cfg_attr(not(test), no_std)]
+#![forbid(unsafe_code)]
 
 extern crate alloc;
 

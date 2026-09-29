@@ -10,48 +10,44 @@
 use papk_format::res::{ResTable, TYPE_BOOL, TYPE_COLOR, TYPE_DIMEN, TYPE_INTEGER};
 use papk_format::Papk;
 
-struct Cell(core::cell::UnsafeCell<(*const u8, usize)>);
+struct Cell(core::cell::Cell<Option<&'static [u8]>>);
 // SAFETY: written by `init_from_papk` / `clear` on the JVM task before and
 // after the app runs, read by natives on JVM threads in between — the same
 // single-writer discipline as `graphics::assets`.
 unsafe impl Sync for Cell {}
 
-static TABLE: Cell = Cell(core::cell::UnsafeCell::new((core::ptr::null(), 0)));
+static TABLE: Cell = Cell(core::cell::Cell::new(None));
 
 /// Point the registry at `papk`'s RESOURCES section. A package without one
 /// (no `res/` tree, or any PAPK below v1.2) leaves it empty, and every
 /// lookup then misses.
 ///
-/// The caller guarantees what `assets::init_from_papk` asks for: the papk
-/// bytes stay mapped until [`clear`].
-pub fn init_from_papk(papk: &Papk<'_>) {
+/// The papk is the image the app runs from, mapped for as long as it does
+/// (`boot::run_app`'s `apk_static`); [`clear`] drops the slice before the
+/// package can change.
+pub fn init_from_papk(papk: &Papk<'static>) {
     let section = match papk.resources_section() {
-        Ok(Some((_, data))) if ResTable::parse(data).is_ok() => (data.as_ptr(), data.len()),
-        Ok(None) => (core::ptr::null(), 0),
+        Ok(Some((_, data))) if ResTable::parse(data).is_ok() => Some(data),
+        Ok(None) => None,
         _ => {
             #[cfg(not(feature = "sim"))]
             defmt::error!("[res] RESOURCES section is malformed; ignored");
             #[cfg(feature = "sim")]
             println!("[res] RESOURCES section is malformed; ignored");
-            (core::ptr::null(), 0)
+            None
         }
     };
-    unsafe { *TABLE.0.get() = section };
+    TABLE.0.set(section);
 }
 
 /// Forget the table. Called on app reset, before the package can change.
 pub fn clear() {
-    unsafe { *TABLE.0.get() = (core::ptr::null(), 0) };
+    TABLE.0.set(None);
 }
 
 fn table() -> Option<ResTable<'static>> {
-    let (ptr, len) = unsafe { *TABLE.0.get() };
-    if ptr.is_null() {
-        return None;
-    }
-    // SAFETY: `init_from_papk` stored a slice that outlives the app, and
-    // validated it.
-    ResTable::parse(unsafe { core::slice::from_raw_parts(ptr, len) }).ok()
+    // `init_from_papk` validated the slice it stored.
+    ResTable::parse(TABLE.0.get()?).ok()
 }
 
 /// The UTF-8 bytes of string resource `id`.

@@ -354,7 +354,7 @@ fn tap_debug_enabled() -> bool {
     }
 }
 
-unsafe fn paint_tap_debug(buf: &mut [u32]) {
+fn paint_tap_debug(buf: &mut [u32]) {
     let pos = MOUSE_POS.load(Ordering::Relaxed);
     let (mx, my) = ((pos >> 16) as u16, (pos & 0xFFFF) as u16);
     if !MOUSE_PRESSED.load(Ordering::Relaxed) {

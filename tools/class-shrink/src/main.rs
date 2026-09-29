@@ -43,6 +43,8 @@
 //!       Check each map is a 1:1 original → shrunk mapping (no duplicate
 //!       shrunk names). Exits non-zero and lists collisions on failure.
 
+#![forbid(unsafe_code)]
+
 use std::path::PathBuf;
 use std::process::ExitCode;
 

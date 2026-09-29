@@ -42,6 +42,7 @@
 //! See `docs/shrinker.md` for the broader design.
 
 #![no_std]
+#![forbid(unsafe_code)]
 
 /// Reasons a PAPK ↔ firmware compatibility check can fail.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

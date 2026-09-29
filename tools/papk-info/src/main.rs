@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
+
+#![forbid(unsafe_code)]
+
 use std::path::Path;
 use std::{env, fs, process};
 

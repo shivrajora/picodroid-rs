@@ -18,6 +18,8 @@
 //! section (see the `res` module), and `papk-pack gen-r` writes the matching
 //! `R.java` from the same tree before the app is compiled.
 
+#![forbid(unsafe_code)]
+
 mod classcheck;
 mod res;
 

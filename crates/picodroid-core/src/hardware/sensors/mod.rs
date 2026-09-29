@@ -640,9 +640,7 @@ fn deliver_event(
         .ok_or(JvmError::StackOverflow)?;
 
     // Invoke listener.onSensorChanged(event)
-    let listener_class = heap.objects.class_name(listener_obj).unwrap_or("unknown");
-    let static_class: &'static str =
-        unsafe { core::mem::transmute::<&str, &'static str>(listener_class) };
+    let static_class: &'static str = heap.objects.class_name(listener_obj).unwrap_or("unknown");
 
     jvm.invoke_instance_with_args(
         static_class,

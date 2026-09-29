@@ -4,9 +4,11 @@
 # `guards` job, so a bypassed hook (--no-verify, a merge) still meets them on
 # the server.
 #
-#   ./scripts/check-source-guards.sh              # both checks
-#   ./scripts/check-source-guards.sh --twins      # shadow twins only
-#   ./scripts/check-source-guards.sh --cfg-gates  # cfg-gate hygiene only
+#   ./scripts/check-source-guards.sh                  # every check
+#   ./scripts/check-source-guards.sh --twins          # shadow twins only
+#   ./scripts/check-source-guards.sh --cfg-gates      # cfg-gate hygiene only
+#   ./scripts/check-source-guards.sh --unsafe         # unsafe ratchet only
+#   ./scripts/check-source-guards.sh --unsafe-accept  # rewrite its baseline
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -92,14 +94,99 @@ check_cfg_gates() {
   return 1
 }
 
+UNSAFE_BASELINE="$REPO_ROOT/scripts/unsafe-baseline.conf"
+
+# One line per workspace crate: `<crate dir> <blocks> <fns> <impls>
+# <static mut> <undocumented>`. Text counts over non-comment lines, so they
+# move with the code and with nothing else:
+#   blocks        `unsafe {`
+#   fns           `unsafe fn`, `unsafe extern "C" fn`
+#   impls         `unsafe impl`
+#   static mut    `static mut`
+#   undocumented  `unsafe {` with no SAFETY on its line or the three above
+unsafe_counts() {
+  local dir
+  for dir in "$REPO_ROOT"/crates/*/ "$REPO_ROOT"/platforms/*/ "$REPO_ROOT"/tools/*/; do
+    [[ -f "$dir/Cargo.toml" ]] || continue
+    dir="${dir%/}"
+    find "$dir" -name target -prune -o -name '*.rs' -print0 | sort -z \
+      | xargs -0 awk -v crate="${dir#"$REPO_ROOT"/}" '
+          FNR == 1 { a = b = c = "" }
+          {
+            line = $0
+            if (line !~ /^[[:space:]]*\/\//) {
+              n = gsub(/unsafe[[:space:]]*\{/, "&", line)
+              blocks += n
+              if (n > 0 && (a b c $0) !~ /SAFETY/) undoc += n
+              fns += gsub(/unsafe[[:space:]]+(extern[[:space:]]+"[A-Za-z]+"[[:space:]]+)?fn[[:space:]]/, "&", line)
+              impls += gsub(/unsafe[[:space:]]+impl[ <]/, "&", line)
+              smut += gsub(/static[[:space:]]+mut[[:space:]]/, "&", line)
+            }
+            a = b; b = c; c = $0
+          }
+          END { printf "%s %d %d %d %d %d\n", crate, blocks, fns, impls, smut, undoc }'
+  done
+}
+
+check_unsafe() {
+  # The count of `unsafe` only goes down (docs/designs/unsafe-reduction-2026-09.md).
+  # A rise fails; so does a fall the baseline has not caught up with, the way
+  # the binary-size ratchet does, so the floor is always the tree's own.
+  local current
+  current=$(unsafe_counts)
+  if [[ "${1:-}" == "accept" ]]; then
+    {
+      echo "# Per-crate counts of unsafe Rust; scripts/check-source-guards.sh --unsafe."
+      echo "# crate blocks fns impls static_mut undocumented"
+      echo "$current"
+    } > "$UNSAFE_BASELINE"
+    echo "wrote ${UNSAFE_BASELINE#"$REPO_ROOT"/}"
+    return 0
+  fi
+  [[ -f "$UNSAFE_BASELINE" ]] || { echo "ERROR: $UNSAFE_BASELINE is missing"; return 1; }
+  local report
+  report=$(awk -v names="blocks fns impls static_mut undocumented" '
+      BEGIN { split(names, name, " ") }
+      NR == FNR { if ($0 !~ /^#/ && NF == 6) { base[$1] = $0 }; next }
+      {
+        seen[$1] = 1
+        if (!($1 in base)) { printf "new   %s: not in the baseline\n", $1; next }
+        split(base[$1], was, " ")
+        for (i = 2; i <= 6; i++) {
+          if ($i > was[i]) printf "rise  %s: %s %d -> %d\n", $1, name[i - 1], was[i], $i
+          if ($i < was[i]) printf "fall  %s: %s %d -> %d\n", $1, name[i - 1], was[i], $i
+        }
+      }
+      END { for (k in base) if (!(k in seen)) printf "gone  %s: still in the baseline\n", k }
+    ' "$UNSAFE_BASELINE" <(echo "$current"))
+  [[ -z "$report" ]] && return 0
+  echo ""
+  echo "$report" | sort | sed 's/^/         /'
+  echo ""
+  if echo "$report" | grep -q '^rise'; then
+    echo "ERROR: more unsafe Rust than scripts/unsafe-baseline.conf allows."
+    echo "       Reach for a shared primitive first (picodroid-core's util/,"
+    echo "       a HAL or RTOS seam method). If the new unsafe is genuinely"
+    echo "       needed, give it a SAFETY comment and raise the baseline in"
+    echo "       the same commit: ./scripts/check-source-guards.sh --unsafe-accept"
+  else
+    echo "ERROR: scripts/unsafe-baseline.conf is behind the tree. Lower it in"
+    echo "       the same commit: ./scripts/check-source-guards.sh --unsafe-accept"
+  fi
+  return 1
+}
+
 case "${1:-}" in
-  --twins)     check_twins ;;
-  --cfg-gates) check_cfg_gates ;;
+  --twins)         check_twins ;;
+  --cfg-gates)     check_cfg_gates ;;
+  --unsafe)        check_unsafe ;;
+  --unsafe-accept) check_unsafe accept ;;
   "")
     rc=0
     check_twins || rc=1
     check_cfg_gates || rc=1
+    check_unsafe || rc=1
     exit "$rc"
     ;;
-  *) echo "Usage: $(basename "$0") [--twins|--cfg-gates]" >&2; exit 2 ;;
+  *) echo "Usage: $(basename "$0") [--twins|--cfg-gates|--unsafe|--unsafe-accept]" >&2; exit 2 ;;
 esac
