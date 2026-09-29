@@ -25,28 +25,21 @@ pub mod pool {
     //! goes through [`with_pool`], which holds an `AtomicSection` (scheduler
     //! suspended) for the duration — the same discipline as `monitor_store`.
 
-    use core::cell::UnsafeCell;
-
     use pico_jvm::atomic_section::AtomicSection;
 
     pub use pd_json::pool::*;
 
-    struct PoolCell(UnsafeCell<Pool>);
+    use crate::util::section_cell::SectionCell;
 
-    // SAFETY: every access goes through `with_pool`, which holds an
-    // `AtomicSection` for the whole closure — see the module docs.
-    unsafe impl Sync for PoolCell {}
-
-    static POOL: PoolCell = PoolCell(UnsafeCell::new(Pool::new()));
+    // SAFETY: reached only through `with_pool`, from JVM tasks on core 0,
+    // and callers never nest `with_pool`.
+    static POOL: SectionCell<Pool> = unsafe { SectionCell::new(Pool::new()) };
 
     /// Run `f` against the global pool inside a scheduler-atomic section.
     /// Never nest calls: the closure holds the one `&mut`.
     pub fn with_pool<R>(f: impl FnOnce(&mut Pool) -> R) -> R {
-        let _atomic = AtomicSection::enter();
-        // SAFETY: the section keeps every other JVM task off the CPU, and
-        // callers never nest `with_pool`, so this is the only live reference.
-        let pool = unsafe { &mut *POOL.0.get() };
-        f(pool)
+        let mut atomic = AtomicSection::enter();
+        f(POOL.get(&mut atomic))
     }
 
     #[cfg(test)]

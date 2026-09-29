@@ -31,6 +31,8 @@
 //! Android's `Thread.setPriority` is advisory here — see `task_priority`.
 
 use pico_jvm::atomic_section::AtomicSection;
+
+use crate::util::section_cell::SectionCell;
 use pico_jvm::types::MonitorKey;
 
 use crate::rtos::{self, RawTask, Timeout};
@@ -88,23 +90,14 @@ struct Table {
     wait_seq: u32,
 }
 
-struct TableCell(core::cell::UnsafeCell<Table>);
-
-// SAFETY: every access goes through `table()`, whose callers hold an
-// `AtomicSection` — see the module docs.
-unsafe impl Sync for TableCell {}
-
-static TABLE: TableCell = TableCell(core::cell::UnsafeCell::new(Table {
-    entries: [None; MAX_JAVA_THREADS],
-    wait_seq: 0,
-}));
-
-/// # Safety
-/// The caller must hold an `AtomicSection` for as long as the reference
-/// lives.
-unsafe fn table() -> &'static mut Table {
-    &mut *TABLE.0.get()
-}
+// SAFETY: shared by the JVM tasks, all on core 0, and no function here
+// calls another while it holds the table.
+static TABLE: SectionCell<Table> = unsafe {
+    SectionCell::new(Table {
+        entries: [None; MAX_JAVA_THREADS],
+        wait_seq: 0,
+    })
+};
 
 fn blank(task: RawTask, obj: Option<u16>) -> Entry {
     Entry {
@@ -156,9 +149,8 @@ fn now_ns() -> i64 {
 /// exists, so `thread_obj` is rooted from here on. `None` when the table is
 /// full.
 pub fn reserve(thread_obj: u16) -> Option<usize> {
-    let _atomic = AtomicSection::enter();
-    // SAFETY: inside the section.
-    let t = unsafe { table() };
+    let mut atomic = AtomicSection::enter();
+    let t = TABLE.get(&mut atomic);
     let slot = t.entries.iter().position(Option::is_none)?;
     t.entries[slot] = Some(blank(0, Some(thread_obj)));
     Some(slot)
@@ -166,9 +158,8 @@ pub fn reserve(thread_obj: u16) -> Option<usize> {
 
 /// The child's first act: attach its task handle to its reserved entry.
 pub fn bind_current(slot: usize) {
-    let _atomic = AtomicSection::enter();
-    // SAFETY: inside the section.
-    if let Some(e) = unsafe { table() }.entries[slot].as_mut() {
+    let mut atomic = AtomicSection::enter();
+    if let Some(e) = TABLE.get(&mut atomic).entries[slot].as_mut() {
         e.task = rtos::task_current();
     }
 }
@@ -177,9 +168,8 @@ pub fn bind_current(slot: usize) {
 /// given, attach the `Thread` object that now represents it. Returns false
 /// when the table is full.
 pub fn adopt_current(obj: Option<u16>) -> bool {
-    let _atomic = AtomicSection::enter();
-    // SAFETY: inside the section.
-    let t = unsafe { table() };
+    let mut atomic = AtomicSection::enter();
+    let t = TABLE.get(&mut atomic);
     let me = rtos::task_current();
     let slot = match slot_by_task(t, me) {
         Some(s) => s,
@@ -201,17 +191,15 @@ pub fn adopt_current(obj: Option<u16>) -> bool {
 
 /// The `Thread` object of the calling task, if it has one.
 pub fn current_obj() -> Option<u16> {
-    let _atomic = AtomicSection::enter();
-    // SAFETY: inside the section.
-    let t = unsafe { table() };
+    let mut atomic = AtomicSection::enter();
+    let t = TABLE.get(&mut atomic);
     slot_by_task(t, rtos::task_current()).and_then(|s| t.entries[s].and_then(|e| e.obj))
 }
 
 /// Whether the `Thread` object `obj` is a started, unfinished thread.
 pub fn is_alive(obj: u16) -> bool {
-    let _atomic = AtomicSection::enter();
-    // SAFETY: inside the section.
-    let t = unsafe { table() };
+    let mut atomic = AtomicSection::enter();
+    let t = TABLE.get(&mut atomic);
     slot_by_obj(t, obj).is_some_and(|s| t.entries[s].is_some_and(|e| e.alive))
 }
 
@@ -228,9 +216,8 @@ pub fn terminate(slot: usize) {
     crate::monitor_store::release_all_held_by_current();
     let mut to_wake: [RawTask; MAX_JAVA_THREADS] = [0; MAX_JAVA_THREADS];
     {
-        let _atomic = AtomicSection::enter();
-        // SAFETY: inside the section.
-        let t = unsafe { table() };
+        let mut atomic = AtomicSection::enter();
+        let t = TABLE.get(&mut atomic);
         if t.entries[slot].is_none() {
             return;
         }
@@ -258,9 +245,8 @@ pub fn terminate(slot: usize) {
 /// [`terminate`] by `Thread` object — the `exit0` native.
 pub fn terminate_by_obj(obj: u16) {
     let slot = {
-        let _atomic = AtomicSection::enter();
-        // SAFETY: inside the section.
-        slot_by_obj(unsafe { table() }, obj)
+        let mut atomic = AtomicSection::enter();
+        slot_by_obj(TABLE.get(&mut atomic), obj)
     };
     if let Some(s) = slot {
         terminate(s);
@@ -272,9 +258,8 @@ pub fn terminate_by_obj(obj: u16) {
 /// `Thread.interrupt`: set the flag and wake the target if it is parked.
 pub fn interrupt(obj: u16) {
     let task = {
-        let _atomic = AtomicSection::enter();
-        // SAFETY: inside the section.
-        let t = unsafe { table() };
+        let mut atomic = AtomicSection::enter();
+        let t = TABLE.get(&mut atomic);
         let Some(s) = slot_by_obj(t, obj) else {
             return;
         };
@@ -293,17 +278,15 @@ pub fn interrupt(obj: u16) {
 
 /// `Thread.isInterrupted`.
 pub fn is_interrupted(obj: u16) -> bool {
-    let _atomic = AtomicSection::enter();
-    // SAFETY: inside the section.
-    let t = unsafe { table() };
+    let mut atomic = AtomicSection::enter();
+    let t = TABLE.get(&mut atomic);
     slot_by_obj(t, obj).is_some_and(|s| t.entries[s].is_some_and(|e| e.interrupted))
 }
 
 /// Static `Thread.interrupted`: the calling task's flag, cleared.
 pub fn take_interrupted_current() -> bool {
-    let _atomic = AtomicSection::enter();
-    // SAFETY: inside the section.
-    let t = unsafe { table() };
+    let mut atomic = AtomicSection::enter();
+    let t = TABLE.get(&mut atomic);
     let Some(s) = slot_by_task(t, rtos::task_current()) else {
         return false;
     };
@@ -320,9 +303,8 @@ fn begin_park(park: Park) -> Option<usize> {
     if !adopt_current(None) {
         return None;
     }
-    let _atomic = AtomicSection::enter();
-    // SAFETY: inside the section.
-    let t = unsafe { table() };
+    let mut atomic = AtomicSection::enter();
+    let t = TABLE.get(&mut atomic);
     let s = slot_by_task(t, rtos::task_current())?;
     let e = t.entries[s].as_mut()?;
     e.park = park;
@@ -333,9 +315,8 @@ fn begin_park(park: Park) -> Option<usize> {
 /// Read-and-clear the wake reasons for `slot`; `satisfied` is evaluated
 /// inside the same section so it sees a consistent table.
 fn poll_park(slot: usize, satisfied: &dyn Fn(&Table) -> bool) -> Option<Outcome> {
-    let _atomic = AtomicSection::enter();
-    // SAFETY: inside the section.
-    let t = unsafe { table() };
+    let mut atomic = AtomicSection::enter();
+    let t = TABLE.get(&mut atomic);
     let e = t.entries[slot]?;
     if e.stopping {
         return Some(Outcome::Stopped);
@@ -353,9 +334,8 @@ fn poll_park(slot: usize, satisfied: &dyn Fn(&Table) -> bool) -> Option<Outcome>
 }
 
 fn end_park(slot: usize) {
-    let _atomic = AtomicSection::enter();
-    // SAFETY: inside the section.
-    if let Some(e) = unsafe { table() }.entries[slot].as_mut() {
+    let mut atomic = AtomicSection::enter();
+    if let Some(e) = TABLE.get(&mut atomic).entries[slot].as_mut() {
         e.park = Park::None;
         e.notified = false;
     }
@@ -404,9 +384,8 @@ pub fn sleep_current(ms: u32) -> Outcome {
 /// for a thread that was never started or has already finished.
 pub fn join(target: u16, timeout_ms: Option<u32>) -> Outcome {
     {
-        let _atomic = AtomicSection::enter();
-        // SAFETY: inside the section.
-        let t = unsafe { table() };
+        let mut atomic = AtomicSection::enter();
+        let t = TABLE.get(&mut atomic);
         let alive = slot_by_obj(t, target).is_some_and(|s| t.entries[s].is_some_and(|e| e.alive));
         if !alive {
             return Outcome::Satisfied;
@@ -422,9 +401,8 @@ pub fn join(target: u16, timeout_ms: Option<u32>) -> Outcome {
 /// [`notify`] picks this task, `timeout_ms` elapses, or an interrupt.
 pub fn wait_current(key: MonitorKey, timeout_ms: Option<u32>) -> Outcome {
     let seq = {
-        let _atomic = AtomicSection::enter();
-        // SAFETY: inside the section.
-        let t = unsafe { table() };
+        let mut atomic = AtomicSection::enter();
+        let t = TABLE.get(&mut atomic);
         t.wait_seq = t.wait_seq.wrapping_add(1);
         t.wait_seq
     };
@@ -440,9 +418,8 @@ pub fn wait_current(key: MonitorKey, timeout_ms: Option<u32>) -> Outcome {
 pub fn notify(key: MonitorKey, all: bool) {
     let mut to_wake: [RawTask; MAX_JAVA_THREADS] = [0; MAX_JAVA_THREADS];
     {
-        let _atomic = AtomicSection::enter();
-        // SAFETY: inside the section.
-        let t = unsafe { table() };
+        let mut atomic = AtomicSection::enter();
+        let t = TABLE.get(&mut atomic);
         let mut n = 0;
         if all {
             for e in t.entries.iter_mut().flatten() {
@@ -483,9 +460,8 @@ pub fn notify(key: MonitorKey, all: bool) {
 pub fn wake_all_parked() {
     let mut to_wake: [RawTask; MAX_JAVA_THREADS] = [0; MAX_JAVA_THREADS];
     {
-        let _atomic = AtomicSection::enter();
-        // SAFETY: inside the section.
-        let t = unsafe { table() };
+        let mut atomic = AtomicSection::enter();
+        let t = TABLE.get(&mut atomic);
         for (i, e) in t.entries.iter_mut().enumerate() {
             if let Some(e) = e {
                 if e.park != Park::None {
@@ -505,18 +481,16 @@ pub fn wake_all_parked() {
 /// Forget every thread — heap reset between app runs, after every JVM task
 /// has drained.
 pub fn clear() {
-    let _atomic = AtomicSection::enter();
-    // SAFETY: inside the section.
-    let t = unsafe { table() };
+    let mut atomic = AtomicSection::enter();
+    let t = TABLE.get(&mut atomic);
     t.entries = [None; MAX_JAVA_THREADS];
     t.wait_seq = 0;
 }
 
 /// GC root provider: every live `Thread` object.
 pub fn visit_thread_roots(visit: &mut dyn FnMut(u16)) {
-    let _atomic = AtomicSection::enter();
-    // SAFETY: inside the section.
-    for e in unsafe { table() }.entries.iter().flatten() {
+    let mut atomic = AtomicSection::enter();
+    for e in TABLE.get(&mut atomic).entries.iter().flatten() {
         if let Some(o) = e.obj {
             visit(o);
         }
@@ -525,9 +499,8 @@ pub fn visit_thread_roots(visit: &mut dyn FnMut(u16)) {
 
 #[cfg(test)]
 pub fn park_of(obj: u16) -> Park {
-    let _atomic = AtomicSection::enter();
-    // SAFETY: inside the section.
-    let t = unsafe { table() };
+    let mut atomic = AtomicSection::enter();
+    let t = TABLE.get(&mut atomic);
     slot_by_obj(t, obj)
         .and_then(|s| t.entries[s])
         .map_or(Park::None, |e| e.park)

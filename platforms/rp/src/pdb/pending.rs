@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use picodroid_core::util::section_cell::SectionCell;
 
 extern crate alloc;
 use alloc::vec::Vec;
@@ -39,14 +40,13 @@ pub static CORE0_PARKED: AtomicBool = AtomicBool::new(false);
 /// against the other JVM tasks that also touch it.
 pub static ACTIVE_JVM_THREADS: AtomicU32 = AtomicU32::new(0);
 
-// SAFETY: every access is inside an `AtomicSection` (scheduler suspended),
-// so no two tasks can be in the Vec at once. The former "single-core, never
+// Every access is inside an `AtomicSection` (scheduler suspended), so no
+// two tasks can be in the Vec at once. The former "single-core, never
 // concurrent" argument did not survive unequal priorities: a child created
 // above its parent's priority preempts it inside `Vec::push`.
-struct ChildTasksCell(UnsafeCell<Vec<freertos_rust::Task>>);
-unsafe impl Sync for ChildTasksCell {}
-// Vec::new() is const and does not allocate — safe in a static initializer.
-static CHILD_TASKS: ChildTasksCell = ChildTasksCell(UnsafeCell::new(Vec::new()));
+// SAFETY: reached only from JVM tasks, all on core 0, and nothing below
+// calls back into this module while it holds the list.
+static CHILD_TASKS: SectionCell<Vec<freertos_rust::Task>> = unsafe { SectionCell::new(Vec::new()) };
 
 // SAFETY: written once by jvm_task at startup before pdb_task or any child task can call
 // notify_jvm(); read-only after that. Single-core, no concurrent writes.
@@ -117,16 +117,16 @@ pub fn abort_child_spawn() {
 /// spawning side never holds one — see `glue.rs`). Does not touch the
 /// count; [`note_child_spawning`] already did.
 pub fn register_child_task(task: freertos_rust::Task) {
-    let _atomic = pico_jvm::atomic_section::AtomicSection::enter();
-    unsafe { (*CHILD_TASKS.0.get()).push(task) };
+    let mut atomic = pico_jvm::atomic_section::AtomicSection::enter();
+    CHILD_TASKS.get(&mut atomic).push(task);
 }
 
 /// Deregister a child task by its raw handle. Called from within the child task
 /// just before it exits, so jvm_task's wait loop can unblock.
 pub fn deregister_child_task(own_handle: freertos_rust::FreeRtosTaskHandle) {
     let next = {
-        let _atomic = pico_jvm::atomic_section::AtomicSection::enter();
-        let tasks = unsafe { &mut *CHILD_TASKS.0.get() };
+        let mut atomic = pico_jvm::atomic_section::AtomicSection::enter();
+        let tasks = CHILD_TASKS.get(&mut atomic);
         if let Some(pos) = tasks
             .iter()
             .position(|t| core::ptr::eq(t.raw_handle(), own_handle))
@@ -148,8 +148,8 @@ pub fn deregister_child_task(own_handle: freertos_rust::FreeRtosTaskHandle) {
 /// Abort delays on all registered child tasks. Called from jvm_task immediately
 /// after run_jvm_with() returns so sleeping threads wake up and see STOP_JVM.
 pub fn abort_all_child_delays() {
-    let _atomic = pico_jvm::atomic_section::AtomicSection::enter();
-    let tasks = unsafe { &*CHILD_TASKS.0.get() };
+    let mut atomic = pico_jvm::atomic_section::AtomicSection::enter();
+    let tasks = CHILD_TASKS.get(&mut atomic);
     for task in tasks.iter() {
         // Non-blocking (`xTaskAbortDelay` only readies the task), so it is
         // legal inside the section; the readied child cannot run until the

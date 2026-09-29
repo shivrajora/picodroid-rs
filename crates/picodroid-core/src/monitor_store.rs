@@ -43,6 +43,8 @@
 use alloc::vec::Vec;
 
 use pico_jvm::atomic_section::AtomicSection;
+
+use crate::util::section_cell::SectionCell;
 use pico_jvm::types::{JvmError, MonitorKey};
 
 use crate::rtos::{self, RawMutex, RawTask, Timeout};
@@ -57,20 +59,9 @@ struct Monitor {
     depth: u16,
 }
 
-struct MonitorStoreCell(core::cell::UnsafeCell<Vec<Monitor>>);
-
-// SAFETY: every access goes through `table()`, whose callers hold an
-// `AtomicSection` — see the module docs.
-unsafe impl Sync for MonitorStoreCell {}
-
-static MONITORS: MonitorStoreCell = MonitorStoreCell(core::cell::UnsafeCell::new(Vec::new()));
-
-/// # Safety
-/// The caller must hold an `AtomicSection` for as long as the reference
-/// lives.
-unsafe fn table() -> &'static mut Vec<Monitor> {
-    &mut *MONITORS.0.get()
-}
+// SAFETY: shared by the JVM tasks, all on core 0, and no function here
+// calls another while it holds the table.
+static MONITORS: SectionCell<Vec<Monitor>> = unsafe { SectionCell::new(Vec::new()) };
 
 /// `monitorenter`: acquire the monitor for `key`, creating it on first use.
 pub fn enter(key: MonitorKey) -> Result<(), JvmError> {
@@ -82,9 +73,8 @@ pub fn enter(key: MonitorKey) -> Result<(), JvmError> {
 pub fn enter_with(key: MonitorKey, timeout: Timeout) -> Result<bool, JvmError> {
     let me = rtos::task_current();
     let mutex = {
-        let _atomic = AtomicSection::enter();
-        // SAFETY: inside the section.
-        let table = unsafe { table() };
+        let mut atomic = AtomicSection::enter();
+        let table = MONITORS.get(&mut atomic);
         match table.iter().find(|m| m.key == key) {
             Some(m) => m.mutex,
             None => {
@@ -118,9 +108,8 @@ pub fn enter_with(key: MonitorKey, timeout: Timeout) -> Result<bool, JvmError> {
         };
     }
 
-    let _atomic = AtomicSection::enter();
-    // SAFETY: inside the section.
-    match unsafe { table() }.iter_mut().find(|m| m.key == key) {
+    let mut atomic = AtomicSection::enter();
+    match MONITORS.get(&mut atomic).iter_mut().find(|m| m.key == key) {
         Some(m) => {
             m.owner = me;
             m.depth += 1;
@@ -142,9 +131,8 @@ pub fn enter_with(key: MonitorKey, timeout: Timeout) -> Result<bool, JvmError> {
 /// the JVMS requires.
 pub fn exit(key: MonitorKey) -> Result<(), JvmError> {
     let me = rtos::task_current();
-    let _atomic = AtomicSection::enter();
-    // SAFETY: inside the section.
-    let Some(m) = unsafe { table() }.iter_mut().find(|m| m.key == key) else {
+    let mut atomic = AtomicSection::enter();
+    let Some(m) = MONITORS.get(&mut atomic).iter_mut().find(|m| m.key == key) else {
         return Err(JvmError::IllegalMonitorState);
     };
     if m.owner != me || m.depth == 0 {
@@ -163,9 +151,9 @@ pub fn exit(key: MonitorKey) -> Result<(), JvmError> {
 /// Whether the calling task holds the monitor for `key`.
 pub fn held_by_current(key: MonitorKey) -> bool {
     let me = rtos::task_current();
-    let _atomic = AtomicSection::enter();
-    // SAFETY: inside the section.
-    unsafe { table() }
+    let mut atomic = AtomicSection::enter();
+    MONITORS
+        .get(&mut atomic)
         .iter()
         .any(|m| m.key == key && m.owner == me && m.depth > 0)
 }
@@ -175,9 +163,8 @@ pub fn held_by_current(key: MonitorKey) -> bool {
 /// Fails if the calling task does not hold it.
 pub fn save_and_release(key: MonitorKey) -> Result<u16, JvmError> {
     let me = rtos::task_current();
-    let _atomic = AtomicSection::enter();
-    // SAFETY: inside the section.
-    let Some(m) = unsafe { table() }.iter_mut().find(|m| m.key == key) else {
+    let mut atomic = AtomicSection::enter();
+    let Some(m) = MONITORS.get(&mut atomic).iter_mut().find(|m| m.key == key) else {
         return Err(JvmError::IllegalMonitorState);
     };
     if m.owner != me || m.depth == 0 {
@@ -209,10 +196,9 @@ pub fn reacquire(key: MonitorKey, depth: u16) -> Result<(), JvmError> {
 /// handlers javac emits. Zero on the normal path.
 pub fn release_all_held_by_current() -> usize {
     let me = rtos::task_current();
-    let _atomic = AtomicSection::enter();
+    let mut atomic = AtomicSection::enter();
     let mut released = 0usize;
-    // SAFETY: inside the section.
-    for m in unsafe { table() }.iter_mut() {
+    for m in MONITORS.get(&mut atomic).iter_mut() {
         if m.owner == me && m.depth > 0 {
             for _ in 0..m.depth {
                 rtos::mutex_recursive_unlock(m.mutex);
@@ -229,9 +215,8 @@ pub fn release_all_held_by_current() -> usize {
 /// after a collection; see the module docs for why held monitors are never
 /// candidates.
 pub fn prune_dead(live: &dyn Fn(MonitorKey) -> bool) {
-    let _atomic = AtomicSection::enter();
-    // SAFETY: inside the section.
-    let table = unsafe { table() };
+    let mut atomic = AtomicSection::enter();
+    let table = MONITORS.get(&mut atomic);
     let mut i = 0;
     while i < table.len() {
         if table[i].depth == 0 && !live(table[i].key) {
@@ -246,18 +231,17 @@ pub fn prune_dead(live: &dyn Fn(MonitorKey) -> bool) {
 /// Drop every monitor. Called when the heap is reset between app runs, once
 /// every JVM task has drained.
 pub fn clear() {
-    let _atomic = AtomicSection::enter();
-    // SAFETY: inside the section.
-    for m in unsafe { table() }.drain(..) {
+    let mut atomic = AtomicSection::enter();
+    for m in MONITORS.get(&mut atomic).drain(..) {
         rtos::mutex_recursive_delete(m.mutex);
     }
 }
 
 #[cfg(test)]
 fn depth_of(key: MonitorKey) -> u16 {
-    let _atomic = AtomicSection::enter();
-    // SAFETY: inside the section.
-    unsafe { table() }
+    let mut atomic = AtomicSection::enter();
+    MONITORS
+        .get(&mut atomic)
         .iter()
         .find(|m| m.key == key)
         .map_or(0, |m| m.depth)
@@ -265,9 +249,8 @@ fn depth_of(key: MonitorKey) -> u16 {
 
 #[cfg(test)]
 fn has(key: MonitorKey) -> bool {
-    let _atomic = AtomicSection::enter();
-    // SAFETY: inside the section.
-    unsafe { table() }.iter().any(|m| m.key == key)
+    let mut atomic = AtomicSection::enter();
+    MONITORS.get(&mut atomic).iter().any(|m| m.key == key)
 }
 
 // Under `cargo test` the seam is the std backing (`hal/sim/rtos.rs`): a

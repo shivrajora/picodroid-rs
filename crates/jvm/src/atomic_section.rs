@@ -36,7 +36,7 @@ pub fn set_hooks(enter: fn(), exit: fn()) {
 }
 
 /// RAII scheduler-atomic section. See the module docs.
-pub struct AtomicSection;
+pub struct AtomicSection(());
 
 impl AtomicSection {
     #[inline]
@@ -47,7 +47,7 @@ impl AtomicSection {
             let f: fn() = unsafe { core::mem::transmute(p) };
             f();
         }
-        Self
+        Self(())
     }
 }
 
