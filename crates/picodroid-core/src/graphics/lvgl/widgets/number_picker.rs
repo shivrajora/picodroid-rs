@@ -16,6 +16,7 @@ use super::super::lifecycle;
 use super::super::listener_map::{warn_full, PtrMap, Upsert};
 use super::super::style_batch;
 use crate::util::local::Core0;
+use crate::util::local_ring::LocalRing;
 
 const MAX_PICKERS: usize = 16;
 /// (container raw ptr, Java obj_ref). Registered from the `NumberPicker`
@@ -28,9 +29,9 @@ const MAX_PICKERS: usize = 16;
 static PICKER_MAP: Core0<PtrMap<MAX_PICKERS>> = unsafe { Core0::new(PtrMap::new()) };
 
 const STEP_QUEUE_SIZE: usize = 16;
-static mut STEP_QUEUE: [(usize, i32); STEP_QUEUE_SIZE] = [(0, 0); STEP_QUEUE_SIZE];
-static mut STEP_QUEUE_HEAD: usize = 0;
-static mut STEP_QUEUE_TAIL: usize = 0;
+// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
+static STEP_QUEUE: Core0<LocalRing<(usize, i32), STEP_QUEUE_SIZE>> =
+    unsafe { Core0::new(LocalRing::new((0, 0))) };
 
 unsafe extern "C" fn picker_defocused_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) };
@@ -155,24 +156,11 @@ pub fn is_number_picker(raw_ptr: usize) -> bool {
 /// Queue one edit-mode step (+1/-1) for the picker at `raw_ptr`; drained by
 /// `lifecycle::dispatch_number_picker_steps` into `NumberPicker.fireStep`.
 pub fn push_step(raw_ptr: usize, direction: i32) {
-    unsafe {
-        let next = (STEP_QUEUE_HEAD + 1) % STEP_QUEUE_SIZE;
-        if next != STEP_QUEUE_TAIL {
-            STEP_QUEUE[STEP_QUEUE_HEAD] = (raw_ptr, direction);
-            STEP_QUEUE_HEAD = next;
-        }
-    }
+    STEP_QUEUE.push((raw_ptr, direction));
 }
 
 pub fn drain_step_queue() -> Option<(usize, i32)> {
-    unsafe {
-        if STEP_QUEUE_TAIL == STEP_QUEUE_HEAD {
-            return None;
-        }
-        let r = STEP_QUEUE[STEP_QUEUE_TAIL];
-        STEP_QUEUE_TAIL = (STEP_QUEUE_TAIL + 1) % STEP_QUEUE_SIZE;
-        Some(r)
-    }
+    STEP_QUEUE.pop()
 }
 
 pub fn lookup_picker_obj(handle: usize) -> Option<u16> {
@@ -180,11 +168,8 @@ pub fn lookup_picker_obj(handle: usize) -> Option<u16> {
 }
 
 pub fn reset_number_picker_state() {
-    unsafe {
-        PICKER_MAP.reset();
-        STEP_QUEUE_HEAD = 0;
-        STEP_QUEUE_TAIL = 0;
-    }
+    PICKER_MAP.reset();
+    STEP_QUEUE.clear();
 }
 
 /// Visit the Java `NumberPicker` object ref of every registered picker so the

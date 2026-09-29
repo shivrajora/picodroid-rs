@@ -27,6 +27,8 @@
 //! [`from_units`], so `View.setRotation` and `animate().rotation` agree.
 
 use crate::lvgl_ffi::*;
+use crate::util::local::Core0;
+use crate::util::local_ring::LocalRing;
 
 use super::handle_table;
 
@@ -104,9 +106,9 @@ static mut END_ACTIONS: [(i32, u16); MAX_END_ACTIONS] = [(0, 0); MAX_END_ACTIONS
 // finished, drained by the lifecycle loop and run through the Executors
 // bytecode bridge (lambda proxies only resolve there).
 const COMPLETION_QUEUE_SIZE: usize = 8;
-static mut COMPLETION_QUEUE: [u16; COMPLETION_QUEUE_SIZE] = [0; COMPLETION_QUEUE_SIZE];
-static mut COMPLETION_HEAD: usize = 0;
-static mut COMPLETION_TAIL: usize = 0;
+// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
+static COMPLETION_QUEUE: Core0<LocalRing<u16, COMPLETION_QUEUE_SIZE>> =
+    unsafe { Core0::new(LocalRing::new(0)) };
 
 // ── Units ───────────────────────────────────────────────────────────────────
 
@@ -348,11 +350,7 @@ unsafe fn maybe_fire_end_action(handle: i32) {
         if entry.0 == handle && entry.1 != 0 {
             let obj_ref = entry.1;
             *entry = (0, 0);
-            let next = (COMPLETION_HEAD + 1) % COMPLETION_QUEUE_SIZE;
-            if next != COMPLETION_TAIL {
-                COMPLETION_QUEUE[COMPLETION_HEAD] = obj_ref;
-                COMPLETION_HEAD = next;
-            }
+            COMPLETION_QUEUE.push(obj_ref);
             return;
         }
     }
@@ -360,14 +358,7 @@ unsafe fn maybe_fire_end_action(handle: i32) {
 
 /// Drain one completed end-action Runnable obj_ref, if any.
 pub fn drain_completed_end_action() -> Option<u16> {
-    unsafe {
-        if COMPLETION_TAIL == COMPLETION_HEAD {
-            return None;
-        }
-        let r = COMPLETION_QUEUE[COMPLETION_TAIL];
-        COMPLETION_TAIL = (COMPLETION_TAIL + 1) % COMPLETION_QUEUE_SIZE;
-        Some(r)
-    }
+    COMPLETION_QUEUE.pop()
 }
 
 /// GC roots for pending end-action Runnables — a withEndAction lambda kept
@@ -380,14 +371,11 @@ pub fn visit_end_action_roots(visit: &mut dyn FnMut(u16)) {
                 visit(r);
             }
         }
-        let mut i = COMPLETION_TAIL;
-        while i != COMPLETION_HEAD {
-            let r = COMPLETION_QUEUE[i];
+        COMPLETION_QUEUE.for_each(&mut |r| {
             if r != 0 {
                 visit(r);
             }
-            i = (i + 1) % COMPLETION_QUEUE_SIZE;
-        }
+        });
     }
 }
 
@@ -544,8 +532,7 @@ pub fn reset_animation_state() {
         for entry in &mut END_ACTIONS[..] {
             *entry = (0, 0);
         }
-        COMPLETION_HEAD = 0;
-        COMPLETION_TAIL = 0;
+        COMPLETION_QUEUE.clear();
     }
 }
 

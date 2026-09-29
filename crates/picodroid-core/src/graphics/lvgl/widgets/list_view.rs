@@ -23,6 +23,7 @@ use super::super::handle_table;
 use super::super::lifecycle;
 use super::super::listener_map::{warn_full, PtrMap, Upsert};
 use crate::util::local::Core0;
+use crate::util::local_ring::LocalRing;
 
 /// Accent fill (RGB888) for the keypad-focused list row — a material-teal that
 /// reads clearly as "selected" on both light and dark surfaces. The default
@@ -32,9 +33,9 @@ const FOCUS_HIGHLIGHT_RGB: u32 = 0x0026_A69A;
 // ── Item-click event queue (raw row `lv_obj_t*` pointers) ───────────────────
 
 const ITEM_CLICK_QUEUE_SIZE: usize = 16;
-static mut ITEM_CLICK_QUEUE: [usize; ITEM_CLICK_QUEUE_SIZE] = [0; ITEM_CLICK_QUEUE_SIZE];
-static mut ITEM_CLICK_QUEUE_HEAD: usize = 0;
-static mut ITEM_CLICK_QUEUE_TAIL: usize = 0;
+// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
+static ITEM_CLICK_QUEUE: Core0<LocalRing<usize, ITEM_CLICK_QUEUE_SIZE>> =
+    unsafe { Core0::new(LocalRing::new(0)) };
 
 // ── ListView handle → Java object mapping (one entry per ListView) ──────────
 
@@ -52,13 +53,7 @@ unsafe extern "C" fn list_map_delete_cb(e: *mut lv_event_t) {
 
 unsafe extern "C" fn row_click_cb(e: *mut lv_event_t) {
     let row = unsafe { lv_event_get_target_obj(e) };
-    unsafe {
-        let next = (ITEM_CLICK_QUEUE_HEAD + 1) % ITEM_CLICK_QUEUE_SIZE;
-        if next != ITEM_CLICK_QUEUE_TAIL {
-            ITEM_CLICK_QUEUE[ITEM_CLICK_QUEUE_HEAD] = row as usize;
-            ITEM_CLICK_QUEUE_HEAD = next;
-        }
-    }
+    ITEM_CLICK_QUEUE.push(row as usize);
 }
 
 pub(in crate::graphics) fn create() -> i32 {
@@ -137,14 +132,7 @@ pub(in crate::graphics) fn register_item_click_listener(id: i32, obj_ref: u16) {
 
 /// Drain one item-click event (raw row `lv_obj_t*`) from the queue.
 pub fn drain_item_click_queue() -> Option<usize> {
-    unsafe {
-        if ITEM_CLICK_QUEUE_TAIL == ITEM_CLICK_QUEUE_HEAD {
-            return None;
-        }
-        let row = ITEM_CLICK_QUEUE[ITEM_CLICK_QUEUE_TAIL];
-        ITEM_CLICK_QUEUE_TAIL = (ITEM_CLICK_QUEUE_TAIL + 1) % ITEM_CLICK_QUEUE_SIZE;
-        Some(row)
-    }
+    ITEM_CLICK_QUEUE.pop()
 }
 
 /// Resolve a clicked row pointer to `(Java ListView object ref, item position)`.
@@ -180,11 +168,8 @@ pub fn lookup_item_click(row: usize) -> Option<(u16, i32)> {
 }
 
 pub fn reset_list_view_state() {
-    unsafe {
-        LISTENER_MAP.reset();
-        ITEM_CLICK_QUEUE_HEAD = 0;
-        ITEM_CLICK_QUEUE_TAIL = 0;
-    }
+    LISTENER_MAP.reset();
+    ITEM_CLICK_QUEUE.clear();
 }
 
 /// Visit the Java `ListView` object ref of every list registered for an

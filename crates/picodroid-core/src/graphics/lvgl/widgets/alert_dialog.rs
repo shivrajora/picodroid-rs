@@ -25,6 +25,7 @@ use super::super::handle_table;
 use super::super::lifecycle;
 use super::super::listener_map::{warn_full, PtrMap, Upsert};
 use crate::util::local::Core0;
+use crate::util::local_ring::LocalRing;
 
 const BUTTON_POSITIVE: i32 = 0;
 const BUTTON_NEGATIVE: i32 = 1;
@@ -60,9 +61,9 @@ const EMPTY_CLICK: ClickRecord = ClickRecord {
     which: 0,
 };
 
-static mut CLICK_QUEUE: [ClickRecord; CLICK_QUEUE_SIZE] = [EMPTY_CLICK; CLICK_QUEUE_SIZE];
-static mut CLICK_QUEUE_HEAD: usize = 0;
-static mut CLICK_QUEUE_TAIL: usize = 0;
+// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
+static CLICK_QUEUE: Core0<LocalRing<ClickRecord, CLICK_QUEUE_SIZE>> =
+    unsafe { Core0::new(LocalRing::new(EMPTY_CLICK)) };
 
 // ── Item-click event queue (list dialogs) ───────────────────────────────────
 
@@ -81,9 +82,9 @@ const EMPTY_ITEM: ItemRecord = ItemRecord {
     checked: false,
 };
 
-static mut ITEM_QUEUE: [ItemRecord; CLICK_QUEUE_SIZE] = [EMPTY_ITEM; CLICK_QUEUE_SIZE];
-static mut ITEM_QUEUE_HEAD: usize = 0;
-static mut ITEM_QUEUE_TAIL: usize = 0;
+// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
+static ITEM_QUEUE: Core0<LocalRing<ItemRecord, CLICK_QUEUE_SIZE>> =
+    unsafe { Core0::new(LocalRing::new(EMPTY_ITEM)) };
 
 // ── List storage (owned button-matrix maps) ─────────────────────────────────
 //
@@ -251,15 +252,10 @@ unsafe extern "C" fn dialog_button_click_cb(e: *mut lv_event_t) {
             None => return,
         };
 
-        let head = CLICK_QUEUE_HEAD;
-        let next = (head + 1) % CLICK_QUEUE_SIZE;
-        if next != CLICK_QUEUE_TAIL {
-            CLICK_QUEUE[head] = ClickRecord {
-                dialog_handle,
-                which,
-            };
-            CLICK_QUEUE_HEAD = next;
-        }
+        CLICK_QUEUE.push(ClickRecord {
+            dialog_handle,
+            which,
+        });
     }
 }
 
@@ -290,16 +286,11 @@ unsafe extern "C" fn dialog_item_click_cb(e: *mut lv_event_t) {
             LV_BUTTONMATRIX_CTRL_CHECKED,
         );
 
-        let head = ITEM_QUEUE_HEAD;
-        let next = (head + 1) % CLICK_QUEUE_SIZE;
-        if next != ITEM_QUEUE_TAIL {
-            ITEM_QUEUE[head] = ItemRecord {
-                dialog_handle,
-                position: sel as i32,
-                checked,
-            };
-            ITEM_QUEUE_HEAD = next;
-        }
+        ITEM_QUEUE.push(ItemRecord {
+            dialog_handle,
+            position: sel as i32,
+            checked,
+        });
     }
 }
 
@@ -728,16 +719,11 @@ pub(in crate::graphics) fn perform_item_click(id: i32, position: i32) {
             } else {
                 true
             };
-            let head = ITEM_QUEUE_HEAD;
-            let next = (head + 1) % CLICK_QUEUE_SIZE;
-            if next != ITEM_QUEUE_TAIL {
-                ITEM_QUEUE[head] = ItemRecord {
-                    dialog_handle: scrim_ptr,
-                    position,
-                    checked,
-                };
-                ITEM_QUEUE_HEAD = next;
-            }
+            ITEM_QUEUE.push(ItemRecord {
+                dialog_handle: scrim_ptr,
+                position,
+                checked,
+            });
             return;
         }
     }
@@ -746,14 +732,8 @@ pub(in crate::graphics) fn perform_item_click(id: i32, position: i32) {
 /// Drain one item-click event from a list dialog. Returns
 /// `(dialog_handle, position, checked)`.
 pub fn drain_item_click_queue() -> Option<(usize, i32, bool)> {
-    unsafe {
-        if ITEM_QUEUE_TAIL == ITEM_QUEUE_HEAD {
-            return None;
-        }
-        let rec = ITEM_QUEUE[ITEM_QUEUE_TAIL];
-        ITEM_QUEUE_TAIL = (ITEM_QUEUE_TAIL + 1) % CLICK_QUEUE_SIZE;
-        Some((rec.dialog_handle, rec.position, rec.checked))
-    }
+    let rec = ITEM_QUEUE.pop()?;
+    Some((rec.dialog_handle, rec.position, rec.checked))
 }
 
 /// Register a Java `AlertDialog` object as the click-listener target for
@@ -770,14 +750,8 @@ pub(in crate::graphics) fn register_button_click_listener(id: i32, obj_ref: u16)
 
 /// Drain one click event from the queue. Returns (dialog_handle, which).
 pub fn drain_click_queue() -> Option<(usize, i32)> {
-    unsafe {
-        if CLICK_QUEUE_TAIL == CLICK_QUEUE_HEAD {
-            return None;
-        }
-        let rec = CLICK_QUEUE[CLICK_QUEUE_TAIL];
-        CLICK_QUEUE_TAIL = (CLICK_QUEUE_TAIL + 1) % CLICK_QUEUE_SIZE;
-        Some((rec.dialog_handle, rec.which))
-    }
+    let rec = CLICK_QUEUE.pop()?;
+    Some((rec.dialog_handle, rec.which))
 }
 
 /// Visit the Java `AlertDialog` object ref of every live dialog so the GC keeps
@@ -800,16 +774,8 @@ pub fn reset_alert_dialog_state() {
             *slot = EMPTY_BUTTON;
         }
         DIALOG_OBJ_MAP.reset();
-        for slot in &mut CLICK_QUEUE[..] {
-            *slot = EMPTY_CLICK;
-        }
-        CLICK_QUEUE_HEAD = 0;
-        CLICK_QUEUE_TAIL = 0;
-        for slot in &mut ITEM_QUEUE[..] {
-            *slot = EMPTY_ITEM;
-        }
-        ITEM_QUEUE_HEAD = 0;
-        ITEM_QUEUE_TAIL = 0;
+        CLICK_QUEUE.clear();
+        ITEM_QUEUE.clear();
         for slot in &mut LIST_SLOTS[..] {
             slot.dialog_handle = 0;
             slot.matrix = 0;

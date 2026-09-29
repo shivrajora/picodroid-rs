@@ -17,6 +17,7 @@ use super::super::handle_table;
 use super::super::lifecycle;
 use super::super::listener_map::{warn_full, PtrMap, Upsert};
 use crate::util::local::Core0;
+use crate::util::local_ring::LocalRing;
 
 const MAX_LAYOUTS: usize = 4;
 
@@ -40,9 +41,8 @@ const EMPTY: Slot = Slot {
 static mut SLOTS: [Slot; MAX_LAYOUTS] = [EMPTY; MAX_LAYOUTS];
 
 const QUEUE_SIZE: usize = 8;
-static mut QUEUE: [usize; QUEUE_SIZE] = [0; QUEUE_SIZE];
-static mut QUEUE_HEAD: usize = 0;
-static mut QUEUE_TAIL: usize = 0;
+// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
+static QUEUE: Core0<LocalRing<usize, QUEUE_SIZE>> = unsafe { Core0::new(LocalRing::new(0)) };
 
 const MAX_LISTENERS: usize = MAX_LAYOUTS;
 // SAFETY: a listener registry, reached only from JVM tasks.
@@ -81,11 +81,7 @@ unsafe fn pull_down(container: usize, dir: lv_dir_t) -> bool {
                 if slot.spinner != 0 {
                     lv_obj_remove_flag(slot.spinner as *mut lv_obj_t, LV_OBJ_FLAG_HIDDEN);
                 }
-                let next = (QUEUE_HEAD + 1) % QUEUE_SIZE;
-                if next != QUEUE_TAIL {
-                    QUEUE[QUEUE_HEAD] = container;
-                    QUEUE_HEAD = next;
-                }
+                QUEUE.push(container);
                 return true;
             }
         }
@@ -197,14 +193,7 @@ pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
 }
 
 pub fn drain_refresh_queue() -> Option<usize> {
-    unsafe {
-        if QUEUE_TAIL == QUEUE_HEAD {
-            return None;
-        }
-        let h = QUEUE[QUEUE_TAIL];
-        QUEUE_TAIL = (QUEUE_TAIL + 1) % QUEUE_SIZE;
-        Some(h)
-    }
+    QUEUE.pop()
 }
 
 pub fn lookup_refresh_obj(handle: usize) -> Option<u16> {
@@ -217,8 +206,7 @@ pub fn reset_swipe_refresh_state() {
             *slot = EMPTY;
         }
         HANDLE_MAP.reset();
-        QUEUE_HEAD = 0;
-        QUEUE_TAIL = 0;
+        QUEUE.clear();
     }
 }
 

@@ -4,6 +4,8 @@
 //! LVGL keypad and that queue from one GPIO event.
 
 use super::*;
+use crate::util::local::Core0;
+use crate::util::local_ring::LocalRing;
 
 // ── Java-visible key event queue (parallel to LVGL's internal queue) ────────
 
@@ -11,14 +13,14 @@ use super::*;
 // a whole stall's worth of batched PREV/NEXT edges here before the Java
 // dispatch drains them.
 pub(super) const KEY_EVENT_QUEUE_SIZE: usize = 64;
-pub(super) static mut KEY_EVENT_QUEUE: [KeyEventRaw; KEY_EVENT_QUEUE_SIZE] = [KeyEventRaw {
-    pin: 0,
-    rising: false,
-    t_us: 0,
+// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
+pub(super) static KEY_EVENT_QUEUE: Core0<LocalRing<KeyEventRaw, KEY_EVENT_QUEUE_SIZE>> = unsafe {
+    Core0::new(LocalRing::new(KeyEventRaw {
+        pin: 0,
+        rising: false,
+        t_us: 0,
+    }))
 };
-    KEY_EVENT_QUEUE_SIZE];
-pub(super) static mut KEY_EVENT_QUEUE_HEAD: usize = 0;
-pub(super) static mut KEY_EVENT_QUEUE_TAIL: usize = 0;
 
 /// Press-state filter — drops the phantom rising-edge IRQs that fire at boot
 /// when `enable_edge_irq` arms the GPIO peripheral on pins that were in an
@@ -52,12 +54,7 @@ pub(super) fn push_key_event_raw(pin: u8, rising: bool, t_us: u32) {
         if !(*filter).observe(pin, rising) {
             return;
         }
-        let head = KEY_EVENT_QUEUE_HEAD;
-        let next = (head + 1) % KEY_EVENT_QUEUE_SIZE;
-        if next != KEY_EVENT_QUEUE_TAIL {
-            KEY_EVENT_QUEUE[head] = KeyEventRaw { pin, rising, t_us };
-            KEY_EVENT_QUEUE_HEAD = next;
-        } else {
+        if !KEY_EVENT_QUEUE.push(KeyEventRaw { pin, rising, t_us }) {
             crate::pd_warn!("key: java queue full, dropped pin {} edge", pin);
         }
     }

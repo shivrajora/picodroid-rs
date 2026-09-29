@@ -20,6 +20,7 @@ use super::super::handle_table;
 use super::super::lifecycle;
 use super::super::listener_map::{warn_full, PtrMap, Upsert};
 use crate::util::local::Core0;
+use crate::util::local_ring::LocalRing;
 
 const HOURS_24: &[u8] = b"00\n01\n02\n03\n04\n05\n06\n07\n08\n09\n10\n11\n\
 12\n13\n14\n15\n16\n17\n18\n19\n20\n21\n22\n23\0";
@@ -69,9 +70,8 @@ static mut SLOTS: [PickerSlot; MAX_PICKERS] = [EMPTY_SLOT; MAX_PICKERS];
 // ── Change-event ring buffer ────────────────────────────────────────────────
 
 const QUEUE_SIZE: usize = 8;
-static mut QUEUE: [usize; QUEUE_SIZE] = [0; QUEUE_SIZE];
-static mut QUEUE_HEAD: usize = 0;
-static mut QUEUE_TAIL: usize = 0;
+// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
+static QUEUE: Core0<LocalRing<usize, QUEUE_SIZE>> = unsafe { Core0::new(LocalRing::new(0)) };
 
 // ── Container → Java object map ─────────────────────────────────────────────
 
@@ -139,11 +139,7 @@ unsafe extern "C" fn value_changed_cb(e: *mut lv_event_t) {
                 return;
             }
         }
-        let next = (QUEUE_HEAD + 1) % QUEUE_SIZE;
-        if next != QUEUE_TAIL {
-            QUEUE[QUEUE_HEAD] = container;
-            QUEUE_HEAD = next;
-        }
+        QUEUE.push(container);
     }
 }
 
@@ -376,14 +372,7 @@ pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
 }
 
 pub fn drain_time_picker_queue() -> Option<usize> {
-    unsafe {
-        if QUEUE_TAIL == QUEUE_HEAD {
-            return None;
-        }
-        let h = QUEUE[QUEUE_TAIL];
-        QUEUE_TAIL = (QUEUE_TAIL + 1) % QUEUE_SIZE;
-        Some(h)
-    }
+    QUEUE.pop()
 }
 
 pub fn lookup_time_picker_obj(handle: usize) -> Option<u16> {
@@ -399,8 +388,7 @@ pub fn reset_time_picker_state() {
             *entry = (0, 0);
         }
         HANDLE_MAP.reset();
-        QUEUE_HEAD = 0;
-        QUEUE_TAIL = 0;
+        QUEUE.clear();
     }
 }
 

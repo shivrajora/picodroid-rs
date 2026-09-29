@@ -27,13 +27,14 @@ use super::super::handle_table;
 use super::super::lifecycle;
 use super::super::listener_map::{warn_full, PtrMap, Upsert};
 use crate::util::local::Core0;
+use crate::util::local_ring::LocalRing;
 
 // ── READY event ring buffer (per-instance only) ─────────────────────────────
 
 const READY_QUEUE_SIZE: usize = 16;
-static mut READY_QUEUE: [usize; READY_QUEUE_SIZE] = [0; READY_QUEUE_SIZE];
-static mut READY_QUEUE_HEAD: usize = 0;
-static mut READY_QUEUE_TAIL: usize = 0;
+// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
+static READY_QUEUE: Core0<LocalRing<usize, READY_QUEUE_SIZE>> =
+    unsafe { Core0::new(LocalRing::new(0)) };
 
 const MAX_KEYBOARDS: usize = 4;
 // SAFETY: a listener registry, reached only from JVM tasks.
@@ -46,14 +47,7 @@ unsafe extern "C" fn map_delete_cb(e: *mut lv_event_t) {
 
 unsafe extern "C" fn keyboard_ready_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) };
-    unsafe {
-        let head = READY_QUEUE_HEAD;
-        let next = (head + 1) % READY_QUEUE_SIZE;
-        if next != READY_QUEUE_TAIL {
-            READY_QUEUE[head] = obj as usize;
-            READY_QUEUE_HEAD = next;
-        }
-    }
+    READY_QUEUE.push(obj as usize);
 }
 
 // ── System keyboard singleton ───────────────────────────────────────────────
@@ -449,14 +443,7 @@ pub(in crate::graphics) fn register_ready_listener(id: i32, obj_ref: u16) {
 /// Drain one READY event (raw `lv_obj_t*` value) from the per-instance
 /// queue. Returns `None` when empty.
 pub fn drain_ready_queue() -> Option<usize> {
-    unsafe {
-        if READY_QUEUE_TAIL == READY_QUEUE_HEAD {
-            return None;
-        }
-        let h = READY_QUEUE[READY_QUEUE_TAIL];
-        READY_QUEUE_TAIL = (READY_QUEUE_TAIL + 1) % READY_QUEUE_SIZE;
-        Some(h)
-    }
+    READY_QUEUE.pop()
 }
 
 /// Look up the Java `Keyboard` object index for a per-instance widget.
@@ -467,8 +454,7 @@ pub fn lookup_keyboard_obj(handle: usize) -> Option<u16> {
 pub fn reset_keyboard_state() {
     unsafe {
         KEYBOARD_HANDLE_MAP.reset();
-        READY_QUEUE_HEAD = 0;
-        READY_QUEUE_TAIL = 0;
+        READY_QUEUE.clear();
         // The screen tree is torn down by handle_table::reset on app
         // reload, so the system keyboard pointer is dangling — drop our
         // cache so the next show recreates from scratch.

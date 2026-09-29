@@ -17,13 +17,14 @@ use super::super::handle_table;
 use super::super::lifecycle;
 use super::super::listener_map::{warn_full, PtrMap, Upsert};
 use crate::util::local::Core0;
+use crate::util::local_ring::LocalRing;
 
 // ── Click event queue (ring buffer) ─────────────────────────────────────────
 
 const CLICK_QUEUE_SIZE: usize = 16;
-static mut CLICK_QUEUE: [usize; CLICK_QUEUE_SIZE] = [0; CLICK_QUEUE_SIZE];
-static mut CLICK_QUEUE_HEAD: usize = 0;
-static mut CLICK_QUEUE_TAIL: usize = 0;
+// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
+static CLICK_QUEUE: Core0<LocalRing<usize, CLICK_QUEUE_SIZE>> =
+    unsafe { Core0::new(LocalRing::new(0)) };
 
 // ── Handle → Java object mapping (for click dispatch) ───────────────────────
 
@@ -36,9 +37,9 @@ static VIEW_CLICK_MAP: Core0<PtrMap<MAX_CLICK_VIEWS>> = unsafe { Core0::new(PtrM
 // Parallel to the click pathway above. A view with an OnLongClickListener
 // registers here; LVGL emits LV_EVENT_LONG_PRESSED ~400 ms into a press.
 
-static mut LONG_CLICK_QUEUE: [usize; CLICK_QUEUE_SIZE] = [0; CLICK_QUEUE_SIZE];
-static mut LONG_CLICK_QUEUE_HEAD: usize = 0;
-static mut LONG_CLICK_QUEUE_TAIL: usize = 0;
+// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
+static LONG_CLICK_QUEUE: Core0<LocalRing<usize, CLICK_QUEUE_SIZE>> =
+    unsafe { Core0::new(LocalRing::new(0)) };
 
 // SAFETY: a listener registry, reached only from JVM tasks.
 static VIEW_LONG_CLICK_MAP: Core0<PtrMap<MAX_CLICK_VIEWS>> = unsafe { Core0::new(PtrMap::new()) };
@@ -47,26 +48,12 @@ static VIEW_LONG_CLICK_MAP: Core0<PtrMap<MAX_CLICK_VIEWS>> = unsafe { Core0::new
 
 unsafe extern "C" fn view_click_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) };
-    unsafe {
-        let head = CLICK_QUEUE_HEAD;
-        let next = (head + 1) % CLICK_QUEUE_SIZE;
-        if next != CLICK_QUEUE_TAIL {
-            CLICK_QUEUE[head] = obj as usize;
-            CLICK_QUEUE_HEAD = next;
-        }
-    }
+    CLICK_QUEUE.push(obj as usize);
 }
 
 unsafe extern "C" fn view_long_click_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) };
-    unsafe {
-        let head = LONG_CLICK_QUEUE_HEAD;
-        let next = (head + 1) % CLICK_QUEUE_SIZE;
-        if next != LONG_CLICK_QUEUE_TAIL {
-            LONG_CLICK_QUEUE[head] = obj as usize;
-            LONG_CLICK_QUEUE_HEAD = next;
-        }
-    }
+    LONG_CLICK_QUEUE.push(obj as usize);
 }
 
 unsafe extern "C" fn click_map_delete_cb(e: *mut lv_event_t) {
@@ -211,14 +198,7 @@ pub(in crate::graphics) fn perform_long_press(id: i32) {
 
 /// Drain one long-click event (raw `lv_obj_t*`) from the queue.
 pub fn drain_long_click_queue() -> Option<usize> {
-    unsafe {
-        if LONG_CLICK_QUEUE_TAIL == LONG_CLICK_QUEUE_HEAD {
-            return None;
-        }
-        let handle = LONG_CLICK_QUEUE[LONG_CLICK_QUEUE_TAIL];
-        LONG_CLICK_QUEUE_TAIL = (LONG_CLICK_QUEUE_TAIL + 1) % CLICK_QUEUE_SIZE;
-        Some(handle)
-    }
+    LONG_CLICK_QUEUE.pop()
 }
 
 /// Look up the Java `View` object index for a long-clickable widget's pointer.
@@ -234,14 +214,7 @@ pub fn visit_long_click_listener_roots(visit: &mut dyn FnMut(u16)) {
 
 /// Drain one click event (raw `lv_obj_t*` value) from the queue.
 pub fn drain_click_queue() -> Option<usize> {
-    unsafe {
-        if CLICK_QUEUE_TAIL == CLICK_QUEUE_HEAD {
-            return None;
-        }
-        let handle = CLICK_QUEUE[CLICK_QUEUE_TAIL];
-        CLICK_QUEUE_TAIL = (CLICK_QUEUE_TAIL + 1) % CLICK_QUEUE_SIZE;
-        Some(handle)
-    }
+    CLICK_QUEUE.pop()
 }
 
 /// Look up the Java `View` object index for a clickable widget's raw LVGL pointer.
@@ -250,14 +223,10 @@ pub fn lookup_button_obj(handle: usize) -> Option<u16> {
 }
 
 pub fn reset_button_state() {
-    unsafe {
-        VIEW_CLICK_MAP.reset();
-        CLICK_QUEUE_HEAD = 0;
-        CLICK_QUEUE_TAIL = 0;
-        VIEW_LONG_CLICK_MAP.reset();
-        LONG_CLICK_QUEUE_HEAD = 0;
-        LONG_CLICK_QUEUE_TAIL = 0;
-    }
+    VIEW_CLICK_MAP.reset();
+    CLICK_QUEUE.clear();
+    VIEW_LONG_CLICK_MAP.reset();
+    LONG_CLICK_QUEUE.clear();
 }
 
 /// Visit the Java `View` object ref of every view registered for an onClick

@@ -18,6 +18,8 @@
 //! matching Java object.
 
 use crate::lvgl_ffi::*;
+use crate::util::local::Core0;
+use crate::util::local_ring::LocalRing;
 use core::ffi::c_char;
 
 use super::super::handle_table;
@@ -69,9 +71,9 @@ static mut ELAPSED_MS: u64 = 0;
 // `Snackbar` from a single click record.
 
 const CLICK_QUEUE_SIZE: usize = 8;
-static mut CLICK_QUEUE: [usize; CLICK_QUEUE_SIZE] = [0; CLICK_QUEUE_SIZE];
-static mut CLICK_QUEUE_HEAD: usize = 0;
-static mut CLICK_QUEUE_TAIL: usize = 0;
+// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
+static CLICK_QUEUE: Core0<LocalRing<usize, CLICK_QUEUE_SIZE>> =
+    unsafe { Core0::new(LocalRing::new(0)) };
 
 // ── Action button → snackbar mapping ────────────────────────────────────────
 
@@ -112,12 +114,7 @@ unsafe extern "C" fn action_click_cb(e: *mut lv_event_t) {
         if bar_handle == 0 {
             return;
         }
-        let head = CLICK_QUEUE_HEAD;
-        let next = (head + 1) % CLICK_QUEUE_SIZE;
-        if next != CLICK_QUEUE_TAIL {
-            CLICK_QUEUE[head] = bar_handle;
-            CLICK_QUEUE_HEAD = next;
-        }
+        CLICK_QUEUE.push(bar_handle);
     }
 }
 
@@ -279,14 +276,7 @@ pub fn tick(ms: u32) {
 
 /// Drain one queued action click (raw bar `lv_obj_t*` value).
 pub fn drain_click_queue() -> Option<usize> {
-    unsafe {
-        if CLICK_QUEUE_TAIL == CLICK_QUEUE_HEAD {
-            return None;
-        }
-        let h = CLICK_QUEUE[CLICK_QUEUE_TAIL];
-        CLICK_QUEUE_TAIL = (CLICK_QUEUE_TAIL + 1) % CLICK_QUEUE_SIZE;
-        Some(h)
-    }
+    CLICK_QUEUE.pop()
 }
 
 /// Look up the Java `Snackbar` ObjectRef for a bar's raw pointer.
@@ -312,11 +302,7 @@ pub fn reset_snackbar_state() {
         for entry in &mut SNACKBAR_OBJ_MAP[..] {
             *entry = (0, 0);
         }
-        for slot in &mut CLICK_QUEUE[..] {
-            *slot = 0;
-        }
-        CLICK_QUEUE_HEAD = 0;
-        CLICK_QUEUE_TAIL = 0;
+        CLICK_QUEUE.clear();
         ELAPSED_MS = 0;
     }
 }

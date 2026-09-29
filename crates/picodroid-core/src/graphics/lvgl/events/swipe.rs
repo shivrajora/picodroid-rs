@@ -2,6 +2,8 @@
 //! The swipe-listener registry and its event queue.
 
 use super::*;
+use crate::util::local::Core0;
+use crate::util::local_ring::LocalRing;
 
 // ── Swipe-listener registry ─────────────────────────────────────────────────
 //
@@ -19,12 +21,13 @@ pub struct SwipeRecord {
 }
 
 pub(super) const SWIPE_QUEUE_SIZE: usize = 16;
-pub(super) static mut SWIPE_QUEUE: [SwipeRecord; SWIPE_QUEUE_SIZE] = [SwipeRecord {
-    view_handle: 0,
-    direction: 0,
-}; SWIPE_QUEUE_SIZE];
-pub(super) static mut SWIPE_QUEUE_HEAD: usize = 0;
-pub(super) static mut SWIPE_QUEUE_TAIL: usize = 0;
+// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
+pub(super) static SWIPE_QUEUE: Core0<LocalRing<SwipeRecord, SWIPE_QUEUE_SIZE>> = unsafe {
+    Core0::new(LocalRing::new(SwipeRecord {
+        view_handle: 0,
+        direction: 0,
+    }))
+};
 
 // SAFETY: a listener registry, reached only from JVM tasks.
 pub(super) static VIEW_SWIPE_MAP: Core0<PtrMap<MAX_SWIPE_LISTENERS>> =
@@ -49,15 +52,10 @@ pub(super) unsafe extern "C" fn swipe_gesture_cb(e: *mut lv_event_t) {
         if super::super::widgets::swipe_refresh_layout::intercept(obj as *mut lv_obj_t, dir) {
             return;
         }
-        let head = SWIPE_QUEUE_HEAD;
-        let next = (head + 1) % SWIPE_QUEUE_SIZE;
-        if next != SWIPE_QUEUE_TAIL {
-            SWIPE_QUEUE[head] = SwipeRecord {
-                view_handle: obj,
-                direction: dir as i32,
-            };
-            SWIPE_QUEUE_HEAD = next;
-        }
+        SWIPE_QUEUE.push(SwipeRecord {
+            view_handle: obj,
+            direction: dir as i32,
+        });
     }
 }
 
@@ -98,14 +96,7 @@ pub fn register_view_swipe_listener(id: i32, obj_ref: u16) {
 }
 
 pub fn drain_swipe_event() -> Option<SwipeRecord> {
-    unsafe {
-        if SWIPE_QUEUE_TAIL == SWIPE_QUEUE_HEAD {
-            return None;
-        }
-        let r = SWIPE_QUEUE[SWIPE_QUEUE_TAIL];
-        SWIPE_QUEUE_TAIL = (SWIPE_QUEUE_TAIL + 1) % SWIPE_QUEUE_SIZE;
-        Some(r)
-    }
+    SWIPE_QUEUE.pop()
 }
 
 pub fn lookup_swipe_view_obj(handle: usize) -> Option<u16> {
@@ -113,9 +104,6 @@ pub fn lookup_swipe_view_obj(handle: usize) -> Option<u16> {
 }
 
 pub fn reset_view_swipe_listener_state() {
-    unsafe {
-        VIEW_SWIPE_MAP.reset();
-        SWIPE_QUEUE_HEAD = 0;
-        SWIPE_QUEUE_TAIL = 0;
-    }
+    VIEW_SWIPE_MAP.reset();
+    SWIPE_QUEUE.clear();
 }

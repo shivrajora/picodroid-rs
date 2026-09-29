@@ -13,6 +13,7 @@ use super::super::lifecycle;
 use super::super::listener_map::{warn_full, PtrMap, Upsert};
 use super::keyboard;
 use crate::util::local::Core0;
+use crate::util::local_ring::LocalRing;
 
 // ── Auto-show opt-out registry ──────────────────────────────────────────────
 //
@@ -126,32 +127,22 @@ const MAX_TEXT_WATCHERS: usize = 16;
 static TEXT_WATCH_MAP: Core0<PtrMap<MAX_TEXT_WATCHERS>> = unsafe { Core0::new(PtrMap::new()) };
 
 const TEXT_QUEUE_SIZE: usize = 16;
-static mut TEXT_QUEUE: [usize; TEXT_QUEUE_SIZE] = [0; TEXT_QUEUE_SIZE];
-static mut TEXT_Q_HEAD: usize = 0;
-static mut TEXT_Q_TAIL: usize = 0;
+// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
+static TEXT_QUEUE: Core0<LocalRing<usize, TEXT_QUEUE_SIZE>> =
+    unsafe { Core0::new(LocalRing::new(0)) };
 
 unsafe extern "C" fn textarea_value_changed_cb(e: *mut lv_event_t) {
     let ta = unsafe { lv_event_get_target_obj(e) };
     if ta.is_null() {
         return;
     }
-    unsafe {
-        // Coalesce: the Java side re-reads the final text at dispatch time,
-        // so collapsing a burst of per-keystroke events into one queue entry
-        // is lossless and keeps fast typing from overflowing the ring.
-        let mut i = TEXT_Q_TAIL;
-        while i != TEXT_Q_HEAD {
-            if TEXT_QUEUE[i] == ta as usize {
-                return;
-            }
-            i = (i + 1) % TEXT_QUEUE_SIZE;
-        }
-        let next = (TEXT_Q_HEAD + 1) % TEXT_QUEUE_SIZE;
-        if next != TEXT_Q_TAIL {
-            TEXT_QUEUE[TEXT_Q_HEAD] = ta as usize;
-            TEXT_Q_HEAD = next;
-        }
+    // Coalesce: the Java side re-reads the final text at dispatch time,
+    // so collapsing a burst of per-keystroke events into one queue entry
+    // is lossless and keeps fast typing from overflowing the ring.
+    if TEXT_QUEUE.any(|queued| queued == ta as usize) {
+        return;
     }
+    TEXT_QUEUE.push(ta as usize);
 }
 
 pub(in crate::graphics) fn register_text_changed_listener(id: i32, obj_ref: u16) {
@@ -177,14 +168,7 @@ pub(in crate::graphics) fn register_text_changed_listener(id: i32, obj_ref: u16)
 }
 
 pub fn drain_text_changed_queue() -> Option<usize> {
-    unsafe {
-        if TEXT_Q_TAIL == TEXT_Q_HEAD {
-            return None;
-        }
-        let h = TEXT_QUEUE[TEXT_Q_TAIL];
-        TEXT_Q_TAIL = (TEXT_Q_TAIL + 1) % TEXT_QUEUE_SIZE;
-        Some(h)
-    }
+    TEXT_QUEUE.pop()
 }
 
 pub fn lookup_text_watch_obj(handle: usize) -> Option<u16> {
@@ -320,8 +304,7 @@ pub fn reset_edit_text_state() {
         EDITOR_ACTION_MAP.reset();
         NUMERIC_FIELDS_LEN = 0;
         TEXT_WATCH_MAP.reset();
-        TEXT_Q_HEAD = 0;
-        TEXT_Q_TAIL = 0;
+        TEXT_QUEUE.clear();
     }
 }
 

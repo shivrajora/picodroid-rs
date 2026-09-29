@@ -4,6 +4,8 @@
 //! click), and the single-slot screen press hook.
 
 use super::*;
+use crate::util::local::Core0;
+use crate::util::local_ring::LocalRing;
 
 // ── View touch-listener registry ────────────────────────────────────────────
 //
@@ -68,10 +70,9 @@ pub(super) const EMPTY_TOUCH: TouchRecord = TouchRecord {
 // crossing 240 px at 60 Hz produces ~60 distinct positions even after
 // coalescing identical samples, and 32 became the obvious choke point.
 pub(super) const TOUCH_QUEUE_SIZE: usize = 64;
-pub(super) static mut TOUCH_QUEUE: [TouchRecord; TOUCH_QUEUE_SIZE] =
-    [EMPTY_TOUCH; TOUCH_QUEUE_SIZE];
-pub(super) static mut TOUCH_QUEUE_HEAD: usize = 0;
-pub(super) static mut TOUCH_QUEUE_TAIL: usize = 0;
+// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
+pub(super) static TOUCH_QUEUE: Core0<LocalRing<TouchRecord, TOUCH_QUEUE_SIZE>> =
+    unsafe { Core0::new(LocalRing::new(EMPTY_TOUCH)) };
 
 // Producer-local "last MOVE we pushed" snapshot used to coalesce LVGL
 // PRESSING events that report the same coordinates as the previous
@@ -92,14 +93,7 @@ pub(super) fn now_ms_for_touch() -> u64 {
 }
 
 pub(super) fn push_touch(record: TouchRecord) {
-    unsafe {
-        let head = TOUCH_QUEUE_HEAD;
-        let next = (head + 1) % TOUCH_QUEUE_SIZE;
-        if next != TOUCH_QUEUE_TAIL {
-            TOUCH_QUEUE[head] = record;
-            TOUCH_QUEUE_HEAD = next;
-        }
-    }
+    TOUCH_QUEUE.push(record);
 }
 
 pub(super) unsafe fn touch_event_record(e: *mut lv_event_t, action: i32) -> Option<TouchRecord> {
@@ -245,14 +239,7 @@ pub fn register_view_touch_listener(id: i32, obj_ref: u16) {
 
 /// Pop one touch event from the queue, if any.
 pub fn drain_touch_event() -> Option<TouchRecord> {
-    unsafe {
-        if TOUCH_QUEUE_TAIL == TOUCH_QUEUE_HEAD {
-            return None;
-        }
-        let r = TOUCH_QUEUE[TOUCH_QUEUE_TAIL];
-        TOUCH_QUEUE_TAIL = (TOUCH_QUEUE_TAIL + 1) % TOUCH_QUEUE_SIZE;
-        Some(r)
-    }
+    TOUCH_QUEUE.pop()
 }
 
 /// Look up the Java `View` object reference for a registered LVGL widget.
@@ -263,8 +250,7 @@ pub fn lookup_touch_view_obj(handle: usize) -> Option<u16> {
 pub fn reset_view_touch_listener_state() {
     unsafe {
         VIEW_TOUCH_MAP.reset();
-        TOUCH_QUEUE_HEAD = 0;
-        TOUCH_QUEUE_TAIL = 0;
+        TOUCH_QUEUE.clear();
         CLICK_SUPPRESS_LEN = 0;
     }
     reset_pressing_coalesce();

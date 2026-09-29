@@ -2,6 +2,8 @@
 //! The view focus-change listener registry and its event queue.
 
 use super::*;
+use crate::util::local::Core0;
+use crate::util::local_ring::LocalRing;
 
 // ── View focus-change listener registry ─────────────────────────────────────
 //
@@ -23,12 +25,13 @@ pub struct FocusRecord {
 }
 
 pub(super) const FOCUS_QUEUE_SIZE: usize = 16;
-pub(super) static mut FOCUS_QUEUE: [FocusRecord; FOCUS_QUEUE_SIZE] = [FocusRecord {
-    view_handle: 0,
-    has_focus: false,
-}; FOCUS_QUEUE_SIZE];
-pub(super) static mut FOCUS_QUEUE_HEAD: usize = 0;
-pub(super) static mut FOCUS_QUEUE_TAIL: usize = 0;
+// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
+pub(super) static FOCUS_QUEUE: Core0<LocalRing<FocusRecord, FOCUS_QUEUE_SIZE>> = unsafe {
+    Core0::new(LocalRing::new(FocusRecord {
+        view_handle: 0,
+        has_focus: false,
+    }))
+};
 
 // SAFETY: a listener registry, reached only from JVM tasks.
 pub(super) static VIEW_FOCUS_MAP: Core0<PtrMap<MAX_FOCUS_LISTENERS>> =
@@ -40,17 +43,10 @@ pub(super) unsafe extern "C" fn focus_map_delete_cb(e: *mut lv_event_t) {
 }
 
 pub(super) fn push_focus_event(handle: usize, has_focus: bool) {
-    unsafe {
-        let head = FOCUS_QUEUE_HEAD;
-        let next = (head + 1) % FOCUS_QUEUE_SIZE;
-        if next != FOCUS_QUEUE_TAIL {
-            FOCUS_QUEUE[head] = FocusRecord {
-                view_handle: handle,
-                has_focus,
-            };
-            FOCUS_QUEUE_HEAD = next;
-        }
-    }
+    FOCUS_QUEUE.push(FocusRecord {
+        view_handle: handle,
+        has_focus,
+    });
 }
 
 pub(super) unsafe extern "C" fn view_focused_cb(e: *mut lv_event_t) {
@@ -121,14 +117,7 @@ pub fn register_view_focus_change_listener(id: i32, obj_ref: u16) {
 }
 
 pub fn drain_focus_change_event() -> Option<FocusRecord> {
-    unsafe {
-        if FOCUS_QUEUE_TAIL == FOCUS_QUEUE_HEAD {
-            return None;
-        }
-        let r = FOCUS_QUEUE[FOCUS_QUEUE_TAIL];
-        FOCUS_QUEUE_TAIL = (FOCUS_QUEUE_TAIL + 1) % FOCUS_QUEUE_SIZE;
-        Some(r)
-    }
+    FOCUS_QUEUE.pop()
 }
 
 pub fn lookup_focus_view_obj(handle: usize) -> Option<u16> {
@@ -136,9 +125,6 @@ pub fn lookup_focus_view_obj(handle: usize) -> Option<u16> {
 }
 
 pub fn reset_view_focus_listener_state() {
-    unsafe {
-        VIEW_FOCUS_MAP.reset();
-        FOCUS_QUEUE_HEAD = 0;
-        FOCUS_QUEUE_TAIL = 0;
-    }
+    VIEW_FOCUS_MAP.reset();
+    FOCUS_QUEUE.clear();
 }

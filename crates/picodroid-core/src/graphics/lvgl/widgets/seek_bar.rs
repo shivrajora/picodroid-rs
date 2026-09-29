@@ -7,17 +7,17 @@ use super::super::handle_table;
 use super::super::lifecycle;
 use super::super::listener_map::{warn_full, PtrMap, Upsert};
 use crate::util::local::Core0;
+use crate::util::local_ring::LocalRing;
 
 const QUEUE_SIZE: usize = 16;
-static mut QUEUE: [usize; QUEUE_SIZE] = [0; QUEUE_SIZE];
-static mut QUEUE_HEAD: usize = 0;
-static mut QUEUE_TAIL: usize = 0;
+// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
+static QUEUE: Core0<LocalRing<usize, QUEUE_SIZE>> = unsafe { Core0::new(LocalRing::new(0)) };
 
 /// Press/release edges for onStartTrackingTouch/onStopTrackingTouch —
 /// `(slider ptr, started)` where `started` is true on LV_EVENT_PRESSED.
-static mut TRACK_QUEUE: [(usize, bool); QUEUE_SIZE] = [(0, false); QUEUE_SIZE];
-static mut TRACK_HEAD: usize = 0;
-static mut TRACK_TAIL: usize = 0;
+// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
+static TRACK_QUEUE: Core0<LocalRing<(usize, bool), QUEUE_SIZE>> =
+    unsafe { Core0::new(LocalRing::new((0, false))) };
 
 const MAX_LISTENERS: usize = 32;
 // SAFETY: a listener registry, reached only from JVM tasks.
@@ -30,13 +30,7 @@ unsafe extern "C" fn map_delete_cb(e: *mut lv_event_t) {
 
 unsafe extern "C" fn value_changed_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) };
-    unsafe {
-        let next = (QUEUE_HEAD + 1) % QUEUE_SIZE;
-        if next != QUEUE_TAIL {
-            QUEUE[QUEUE_HEAD] = obj as usize;
-            QUEUE_HEAD = next;
-        }
-    }
+    QUEUE.push(obj as usize);
 }
 
 unsafe extern "C" fn pressed_cb(e: *mut lv_event_t) {
@@ -50,13 +44,7 @@ unsafe extern "C" fn released_cb(e: *mut lv_event_t) {
 }
 
 fn enqueue_track(handle: usize, started: bool) {
-    unsafe {
-        let next = (TRACK_HEAD + 1) % QUEUE_SIZE;
-        if next != TRACK_TAIL {
-            TRACK_QUEUE[TRACK_HEAD] = (handle, started);
-            TRACK_HEAD = next;
-        }
-    }
+    TRACK_QUEUE.push((handle, started));
 }
 
 fn create_internal(max: i32) -> i32 {
@@ -155,25 +143,11 @@ pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
 }
 
 pub fn drain_seek_change_queue() -> Option<usize> {
-    unsafe {
-        if QUEUE_TAIL == QUEUE_HEAD {
-            return None;
-        }
-        let h = QUEUE[QUEUE_TAIL];
-        QUEUE_TAIL = (QUEUE_TAIL + 1) % QUEUE_SIZE;
-        Some(h)
-    }
+    QUEUE.pop()
 }
 
 pub fn drain_seek_tracking_queue() -> Option<(usize, bool)> {
-    unsafe {
-        if TRACK_TAIL == TRACK_HEAD {
-            return None;
-        }
-        let e = TRACK_QUEUE[TRACK_TAIL];
-        TRACK_TAIL = (TRACK_TAIL + 1) % QUEUE_SIZE;
-        Some(e)
-    }
+    TRACK_QUEUE.pop()
 }
 
 pub fn lookup_seek_bar_obj(handle: usize) -> Option<u16> {
@@ -181,11 +155,7 @@ pub fn lookup_seek_bar_obj(handle: usize) -> Option<u16> {
 }
 
 pub fn reset_seek_bar_state() {
-    unsafe {
-        HANDLE_MAP.reset();
-        QUEUE_HEAD = 0;
-        QUEUE_TAIL = 0;
-        TRACK_HEAD = 0;
-        TRACK_TAIL = 0;
-    }
+    HANDLE_MAP.reset();
+    QUEUE.clear();
+    TRACK_QUEUE.clear();
 }

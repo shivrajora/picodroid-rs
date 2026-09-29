@@ -12,11 +12,11 @@ use super::super::handle_table;
 use super::super::lifecycle;
 use super::super::listener_map::{warn_full, PtrMap, Upsert};
 use crate::util::local::Core0;
+use crate::util::local_ring::LocalRing;
 
 const QUEUE_SIZE: usize = 16;
-static mut QUEUE: [usize; QUEUE_SIZE] = [0; QUEUE_SIZE];
-static mut QUEUE_HEAD: usize = 0;
-static mut QUEUE_TAIL: usize = 0;
+// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
+static QUEUE: Core0<LocalRing<usize, QUEUE_SIZE>> = unsafe { Core0::new(LocalRing::new(0)) };
 
 const MAX_LISTENERS: usize = 32;
 // SAFETY: a listener registry, reached only from JVM tasks.
@@ -29,13 +29,7 @@ unsafe extern "C" fn map_delete_cb(e: *mut lv_event_t) {
 
 unsafe extern "C" fn value_changed_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) };
-    unsafe {
-        let next = (QUEUE_HEAD + 1) % QUEUE_SIZE;
-        if next != QUEUE_TAIL {
-            QUEUE[QUEUE_HEAD] = obj as usize;
-            QUEUE_HEAD = next;
-        }
-    }
+    QUEUE.push(obj as usize);
 }
 
 pub(in crate::graphics) fn create() -> i32 {
@@ -104,14 +98,7 @@ pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
 }
 
 pub fn drain_rb_checked_change_queue() -> Option<usize> {
-    unsafe {
-        if QUEUE_TAIL == QUEUE_HEAD {
-            return None;
-        }
-        let h = QUEUE[QUEUE_TAIL];
-        QUEUE_TAIL = (QUEUE_TAIL + 1) % QUEUE_SIZE;
-        Some(h)
-    }
+    QUEUE.pop()
 }
 
 pub fn lookup_rb_checked_change_obj(handle: usize) -> Option<u16> {
@@ -119,11 +106,8 @@ pub fn lookup_rb_checked_change_obj(handle: usize) -> Option<u16> {
 }
 
 pub fn reset_radio_button_state() {
-    unsafe {
-        HANDLE_MAP.reset();
-        QUEUE_HEAD = 0;
-        QUEUE_TAIL = 0;
-    }
+    HANDLE_MAP.reset();
+    QUEUE.clear();
 }
 
 /// GC roots for the radio listener map — same unrooted-View hazard as

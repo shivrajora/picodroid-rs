@@ -69,22 +69,12 @@ pub fn keycode_to_pin(keycode: i32) -> Option<u8> {
 
 /// Pop one key event from the Java-visible queue, if any.
 pub fn drain_key_event() -> Option<KeyEventRaw> {
-    unsafe {
-        if KEY_EVENT_QUEUE_TAIL == KEY_EVENT_QUEUE_HEAD {
-            return None;
-        }
-        let event = KEY_EVENT_QUEUE[KEY_EVENT_QUEUE_TAIL];
-        KEY_EVENT_QUEUE_TAIL = (KEY_EVENT_QUEUE_TAIL + 1) % KEY_EVENT_QUEUE_SIZE;
-        Some(event)
-    }
+    KEY_EVENT_QUEUE.pop()
 }
 
 /// Clear the key event queue between app runs.
 pub fn reset_key_event_queue() {
-    unsafe {
-        KEY_EVENT_QUEUE_HEAD = 0;
-        KEY_EVENT_QUEUE_TAIL = 0;
-    }
+    KEY_EVENT_QUEUE.clear();
 }
 
 /// Return the Java `View` object reference for LVGL's currently focused
