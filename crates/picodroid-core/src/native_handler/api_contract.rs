@@ -257,7 +257,7 @@ mod tests {
     fn sdk_rows() -> (BTreeSet<Row>, usize) {
         let mut rows = BTreeSet::new();
         let mut classes = 0;
-        for bytes in crate::framework_classes::FRAMEWORK_CLASSES {
+        for bytes in crate::framework_classes::class_bytes() {
             let cf = ClassFile::parse(bytes).expect("parse framework class");
             let loaded = core::str::from_utf8(cf.class_name().expect("class name"))
                 .expect("class name is UTF-8");
@@ -271,11 +271,17 @@ mod tests {
                 if m.access_flags & ACC_PRIVATE != 0 {
                     continue;
                 }
-                let name = unshrink_member(&utf8(&cf, m.name_index, "method name")).to_string();
+                let name =
+                    unshrink_member(&utf8(&cf, cf.method_name_index(m).unwrap(), "method name"))
+                        .to_string();
                 if name == "<clinit>" {
                     continue;
                 }
-                let desc = utf8(&cf, m.descriptor_index, "method descriptor");
+                let desc = utf8(
+                    &cf,
+                    cf.method_descriptor_index(m).unwrap(),
+                    "method descriptor",
+                );
                 rows.insert((class.to_string(), name, unshrink_descriptor(&desc)));
             }
             // FieldInfo carries no access flags; a private field row is

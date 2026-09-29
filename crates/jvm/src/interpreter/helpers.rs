@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use crate::array_heap::ArrayHeap;
-use crate::names::{c, d};
-use crate::resolve_cache::{NameRef, ResolveCache, SiteKey};
+use crate::names::{c, d, m};
+use crate::resolve_cache::{flags, MethodHit, NameRef, ResolveCache, SiteKey, Target};
 use crate::{
-    class_file::{find_class, name_eq, ClassFile},
+    class_file::{find_class, find_class_hashed, name_eq, name_hash, ClassFile, Classes},
     class_objects::ClassObjectCache,
     heap::StringTable,
     object_heap::ObjectHeap,
@@ -32,7 +32,7 @@ pub(super) fn recv_of(objects: &ObjectHeap, arrays: &ArrayHeap, v: Value) -> u32
 /// Does method `mi` of class `ci` spell `name` and `desc`? The check a
 /// hashed site's hit needs before it is trusted (see [`SiteKey::hashed`]).
 pub(super) fn method_matches(
-    classes: &[ClassFile],
+    classes: Classes<'_>,
     ci: usize,
     mi: usize,
     name: &str,
@@ -44,10 +44,10 @@ pub(super) fn method_matches(
     let Some(m) = cf.methods().get(mi) else {
         return false;
     };
-    cf.cp_utf8(m.name_index)
+    cf.method_name(m)
         .is_some_and(|n| name_eq(n, name.as_bytes()))
         && cf
-            .cp_utf8(m.descriptor_index)
+            .method_descriptor(m)
             .is_some_and(|d| name_eq(d, desc.as_bytes()))
 }
 
@@ -57,7 +57,7 @@ pub(super) fn method_matches(
 #[cfg_attr(feature = "hot-in-ram", inline(never))]
 pub(super) fn field_slot_cached(
     cache: &mut ResolveCache,
-    classes: &[ClassFile],
+    classes: Classes<'_>,
     key: SiteKey,
     class_name: &'static str,
     declared_class: &[u8],
@@ -82,20 +82,90 @@ pub(super) fn field_slot_cached(
 #[cfg_attr(feature = "hot-in-ram", inline(never))]
 pub(super) fn find_method_cached(
     cache: &mut ResolveCache,
-    classes: &[ClassFile],
+    classes: Classes<'_>,
     key: SiteKey,
     class_name: &str,
     method_name: &str,
     descriptor: &str,
-) -> Option<(usize, usize)> {
+    site_flags: u8,
+) -> MethodHit {
     if let Some(hit) = cache.method(key) {
-        return Some((hit.ci, hit.mi));
+        return hit;
     }
     // JVMS §5.4.3.3: method resolution recurses into the superclass when the named
     // class doesn't declare a matching method. Used by invokestatic and invokespecial.
-    let (ci, mi) = find_method_walking(classes, class_name, method_name, descriptor)?;
-    cache.insert_method(key, ci, mi);
-    Some((ci, mi))
+    let walked = find_method_walking(classes, class_name, method_name, descriptor);
+    let mut hit = resolved_hit(classes, walked, class_name, method_name, descriptor);
+    hit.flags |= site_flags;
+    cache.insert_target(key, hit.target, hit.flags);
+    hit
+}
+
+/// The per-site bits a resolution stores besides its target and
+/// [`flags::PRECHECK`]: the stringification the interpreter runs before
+/// `StringBuilder.append(Object | CharSequence)` / `String.valueOf(Object)`
+/// and before `String.format`'s varargs reach the native arm. Decided once,
+/// from the `Methodref`'s own class, name and descriptor — exactly what
+/// `Executor::stringify_object_arg` and `stringify_format_args` gate on.
+pub(super) fn site_flags(class: &str, name: &str, desc: &str) -> u8 {
+    let stringify = match (class, name) {
+        (c::java_lang_StringBuilder, m::append) => {
+            desc == d::Object__StringBuilder || desc == d::CharSequence__StringBuilder
+        }
+        (c::java_lang_String, m::valueOf) => desc == d::Object__String,
+        _ => false,
+    };
+    let format =
+        class == c::java_lang_String && name == m::format && desc == d::String_aObject__String;
+    (if stringify { flags::STRINGIFY } else { 0 }) | (if format { flags::FORMAT } else { 0 })
+}
+
+/// What a walk's answer means for the site: bytecode to push, or — no
+/// method at all, or one without a `Code` attribute — a native target,
+/// with the [`flags::PRECHECK`] bit worked out once here rather than by
+/// string compares on every call. `dispatch_class` is the class the
+/// native will be dispatched under (the receiver's, for a virtual site).
+fn resolved_hit(
+    classes: Classes<'_>,
+    walked: Option<(usize, usize)>,
+    dispatch_class: &str,
+    method_name: &str,
+    descriptor: &str,
+) -> MethodHit {
+    match walked {
+        Some((ci, mi)) if classes[ci].methods()[mi].code_offset != 0 => MethodHit {
+            target: Target::Java { ci, mi },
+            flags: 0,
+            init: false,
+        },
+        _ => MethodHit {
+            target: Target::Native { hint: None },
+            flags: precheck_flag(dispatch_class, method_name, descriptor),
+            init: false,
+        },
+    }
+}
+
+/// [`flags::PRECHECK`] when `dispatch_native` must run the interpreter's
+/// own checks before the handlers see the call — the operations
+/// `Executor::dispatch_native_inner` serves itself.
+fn precheck_flag(class: &str, name: &str, desc: &str) -> u8 {
+    let map = class == c::java_util_HashMap || class == c::java_util_LinkedHashMap;
+    let set = class == c::java_util_HashSet || class == c::java_util_LinkedHashSet;
+    let precheck = (map
+        && matches!(
+            name,
+            m::get | m::getOrDefault | m::containsKey | m::remove | m::put
+        ))
+        || (set && matches!(name, m::add | m::contains | m::remove))
+        || (class == c::java_util_ArrayList && matches!(name, m::contains | m::remove | m::sort))
+        || (class == c::java_lang_Enum && name == m::valueOf)
+        || (name == m::getClass && desc == d::__Class);
+    if precheck {
+        flags::PRECHECK
+    } else {
+        0
+    }
 }
 
 /// Resolve from the receiver's runtime class (invokevirtual /
@@ -105,25 +175,37 @@ pub(super) fn find_method_cached(
 #[cfg_attr(feature = "hot-in-ram", inline(never))]
 pub(super) fn find_method_walking_cached(
     cache: &mut ResolveCache,
-    classes: &[ClassFile],
+    classes: Classes<'_>,
     key: SiteKey,
     runtime_class: &str,
     method_name: &str,
     descriptor: &str,
-) -> Option<(usize, usize)> {
+    site_flags: u8,
+) -> MethodHit {
     if let Some(hit) = cache.method(key) {
-        if !key.is_hashed() || method_matches(classes, hit.ci, hit.mi, method_name, descriptor) {
-            return Some((hit.ci, hit.mi));
+        match hit.java() {
+            Some((ci, mi)) if key.is_hashed() => {
+                if method_matches(classes, ci, mi, method_name, descriptor) {
+                    return hit;
+                }
+            }
+            _ => return hit,
         }
     }
-    let (ci, mi) = find_method_walking(classes, runtime_class, method_name, descriptor)?;
-    cache.insert_method(key, ci, mi);
-    Some((ci, mi))
+    let walked = find_method_walking(classes, runtime_class, method_name, descriptor);
+    let mut hit = resolved_hit(classes, walked, runtime_class, method_name, descriptor);
+    hit.flags |= site_flags;
+    // A hashed key's hit is trusted only after `method_matches`, which a
+    // native target has no `(ci, mi)` for: never remember one under a hash.
+    if !key.is_hashed() || hit.java().is_some() {
+        cache.insert_target(key, hit.target, hit.flags);
+    }
+    hit
 }
 
 pub(super) fn resolve_ldc(
     cf: &ClassFile,
-    classes: &[ClassFile],
+    classes: Classes<'_>,
     strings: &mut StringTable,
     objects: &mut ObjectHeap,
     class_objects: &mut ClassObjectCache,
@@ -150,7 +232,7 @@ pub(super) fn resolve_ldc(
 /// every `ldc` for the same class name returns the same `ObjectRef`,
 /// regardless of which class file's CP the request came from.
 fn resolve_class_literal(
-    classes: &[ClassFile],
+    classes: Classes<'_>,
     strings: &mut StringTable,
     objects: &mut ObjectHeap,
     class_objects: &mut ClassObjectCache,
@@ -179,7 +261,7 @@ fn resolve_class_literal(
 /// `java/util/ArrayList` with no class file) — both must hand out the same
 /// `ObjectRef` so `obj.getClass() == MyClass.class` holds.
 pub(super) fn class_object_for_name(
-    classes: &[ClassFile],
+    classes: Classes<'_>,
     strings: &mut StringTable,
     objects: &mut ObjectHeap,
     class_objects: &mut ClassObjectCache,
@@ -204,27 +286,55 @@ pub(super) fn class_object_for_name(
 #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
 #[cfg_attr(feature = "hot-in-ram", inline(never))]
 pub(super) fn find_method(
-    classes: &[ClassFile],
+    classes: Classes<'_>,
     class_name: &str,
     method_name: &str,
     descriptor: &str,
 ) -> Option<(usize, usize)> {
     let ci = find_class(classes, class_name.as_bytes())?;
+    find_method_in(classes, ci, method_name, descriptor).map(|mi| (ci, mi))
+}
+
+/// The method of class `ci` spelling `method_name`/`descriptor`: one `u32`
+/// compare per method against the signature hash its link table stores,
+/// and the name and descriptor bytes read only on a hash match. A miss
+/// walks every method of every class on the chain (a `View` has ~150),
+/// which used to be a flash read and a byte compare each.
+#[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+#[cfg_attr(feature = "hot-in-ram", inline(never))]
+pub(super) fn find_method_in(
+    classes: Classes<'_>,
+    ci: usize,
+    method_name: &str,
+    descriptor: &str,
+) -> Option<usize> {
     let cf = &classes[ci];
-    // Name first, descriptor only on a name match: each `cp_utf8` is a
-    // length read from the Flash-backed class data, and a miss walks every
-    // method of every class on the chain (a `View` has ~150).
+    let sig = class_link::sig_hash(method_name.as_bytes(), descriptor.as_bytes());
     for (mi, m) in cf.methods().iter().enumerate() {
-        let mn = cf.cp_utf8(m.name_index)?;
-        if !name_eq(mn, method_name.as_bytes()) {
+        if m.sig_hash() != sig {
             continue;
         }
-        let md = cf.cp_utf8(m.descriptor_index)?;
-        if name_eq(md, descriptor.as_bytes()) {
-            return Some((ci, mi));
+        if cf
+            .method_name(m)
+            .is_some_and(|n| name_eq(n, method_name.as_bytes()))
+            && cf
+                .method_descriptor(m)
+                .is_some_and(|d| name_eq(d, descriptor.as_bytes()))
+        {
+            return Some(mi);
         }
     }
     None
+}
+
+/// The class `ci`'s superclass, by its table's hash: `None` for a class
+/// with no superclass in the set (Object, a builtin parent, or a parent
+/// this board's framework excludes).
+#[inline]
+pub(super) fn super_index(classes: Classes<'_>, ci: usize) -> Option<usize> {
+    let cf = &classes[ci];
+    let sup = cf.super_class_name()?;
+    find_class_hashed(classes, cf.super_hash(), sup)
 }
 
 /// Number of parameters in `descriptor` — one per value, whatever its
@@ -372,7 +482,7 @@ const ENUM_IMPLICIT_FIELDS: usize = 2;
 /// itself resolves through [`field_slot_declared`] with the Fieldref's class.
 /// Public so the hand-numbered native field tables in `picodroid-core` can
 /// be checked against the class files they mirror.
-pub fn field_slot(classes: &[ClassFile], class_name: &str, field_name: &str) -> Option<usize> {
+pub fn field_slot(classes: Classes<'_>, class_name: &str, field_name: &str) -> Option<usize> {
     field_slot_declared(classes, class_name, class_name, field_name)
 }
 
@@ -380,18 +490,12 @@ pub fn field_slot(classes: &[ClassFile], class_name: &str, field_name: &str) -> 
 /// superclasses' instance field widths — what `alloc_with_defaults` sizes
 /// and what a native `alloc_with_field_count` must pass. `None` for a class
 /// that is not loaded.
-pub fn instance_slot_count(classes: &[ClassFile], class_name: &str) -> Option<usize> {
+pub fn instance_slot_count(classes: Classes<'_>, class_name: &str) -> Option<usize> {
     let mut total = 0;
-    let mut current = class_name;
+    let Some(mut ci) = find_class(classes, class_name.as_bytes()) else {
+        return None;
+    };
     loop {
-        let Some(ci) = find_class(classes, current.as_bytes()) else {
-            if current == c::java_lang_Enum {
-                total += ENUM_IMPLICIT_FIELDS;
-            } else if core::ptr::eq(current, class_name) {
-                return None;
-            }
-            return Some(total);
-        };
         let cf = &classes[ci];
         total += cf
             .fields()
@@ -401,9 +505,19 @@ pub fn instance_slot_count(classes: &[ClassFile], class_name: &str) -> Option<us
                     .map_or(1, Value::descriptor_slot_width)
             })
             .sum::<usize>();
-        match cf.super_class_name() {
-            Some(sup) => current = core::str::from_utf8(sup).ok()?,
-            None => return Some(total),
+        let Some(sup) = cf.super_class_name() else {
+            return Some(total);
+        };
+        match find_class_hashed(classes, cf.super_hash(), sup) {
+            Some(next) => ci = next,
+            None => {
+                // A parent with no class file: `java/lang/Enum` carries two
+                // implicit fields (name, ordinal); any other ends the walk.
+                if sup == c::java_lang_Enum.as_bytes() {
+                    total += ENUM_IMPLICIT_FIELDS;
+                }
+                return Some(total);
+            }
         }
     }
 }
@@ -418,7 +532,7 @@ pub fn instance_slot_count(classes: &[ClassFile], class_name: &str) -> Option<us
 #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
 #[cfg_attr(feature = "hot-in-ram", inline(never))]
 pub(super) fn field_slot_declared(
-    classes: &[ClassFile],
+    classes: Classes<'_>,
     runtime_class: &str,
     declared_class: &str,
     field_name: &str,
@@ -448,7 +562,7 @@ pub(super) fn field_slot_declared(
 }
 
 fn field_slot_in(
-    classes: &[ClassFile],
+    classes: Classes<'_>,
     class_name: &str,
     declaring: Option<&str>,
     field_name: &str,
@@ -785,8 +899,28 @@ const MAX_IFACE_DEPTH: u8 = 8;
 /// superinterfaces transitively through loaded interface class files and
 /// [`BUILTIN_INTERFACES`]. Interfaces with no class file and no table row
 /// (`kotlin/jvm/internal/markers/KMappedMarker`) simply end the walk.
-fn iface_reaches(classes: &[ClassFile], iface: &[u8], target: &[u8], depth: u8) -> bool {
-    if iface == target {
+fn iface_reaches(classes: Classes<'_>, iface: &[u8], target: &[u8], depth: u8) -> bool {
+    iface_reaches_hashed(
+        classes,
+        name_hash(iface),
+        iface,
+        name_hash(target),
+        target,
+        depth,
+    )
+}
+
+/// [`iface_reaches`] with both names' hashes in hand: every comparison on
+/// the way is a `u32` first, bytes only on a match.
+fn iface_reaches_hashed(
+    classes: Classes<'_>,
+    iface_hash: u32,
+    iface: &[u8],
+    target_hash: u32,
+    target: &[u8],
+    depth: u8,
+) -> bool {
+    if iface_hash == target_hash && iface == target {
         return true;
     }
     if depth == 0 {
@@ -800,12 +934,13 @@ fn iface_reaches(classes: &[ClassFile], iface: &[u8], target: &[u8], depth: u8) 
             return true;
         }
     }
-    let Some(cf) = find_class(classes, iface).map(|i| &classes[i]) else {
+    let Some(cf) = find_class_hashed(classes, iface_hash, iface).map(|i| &classes[i]) else {
         return false;
     };
-    cf.interfaces().iter().any(|&idx| {
-        cf.cp_class_utf8(idx)
-            .is_some_and(|sup| iface_reaches(classes, sup, target, depth - 1))
+    cf.interfaces().iter().any(|f| {
+        cf.iface_name(f).is_some_and(|sup| {
+            iface_reaches_hashed(classes, f.hash(), sup, target_hash, target, depth - 1)
+        })
     })
 }
 
@@ -813,7 +948,7 @@ fn iface_reaches(classes: &[ClassFile], iface: &[u8], target: &[u8], depth: u8) 
 /// implements `target_class` (checked at each level of the superclass chain,
 /// with superinterfaces walked transitively at each level).
 pub(super) fn is_instance_of(
-    classes: &[ClassFile],
+    classes: Classes<'_>,
     runtime_class: &str,
     target_class: &str,
 ) -> bool {
@@ -823,21 +958,25 @@ pub(super) fn is_instance_of(
     if target_class == c::java_lang_Object {
         return true;
     }
+    let target = target_class.as_bytes();
+    let target_hash = name_hash(target);
     let mut current: &str = runtime_class;
+    let mut current_hash = name_hash(current.as_bytes());
     loop {
-        if current == target_class {
+        if current_hash == target_hash && current == target_class {
             return true;
         }
         if builtin_interfaces(current).contains(&target_class) {
             return true;
         }
-        let ci = match find_class(classes, current.as_bytes()) {
+        let ci = match find_class_hashed(classes, current_hash, current.as_bytes()) {
             Some(i) => i,
             None => {
                 // No classfile — follow the builtin hierarchy.
                 match builtin_super(current) {
                     Some(s) => {
                         current = s;
+                        current_hash = name_hash(s.as_bytes());
                         continue;
                     }
                     None => return false,
@@ -846,12 +985,14 @@ pub(super) fn is_instance_of(
         };
         // Check implemented interfaces at this level, transitively.
         let cf = &classes[ci];
-        for iface_idx in cf.interfaces() {
-            if let Some(iface_name) = cf.cp_class_utf8(*iface_idx) {
-                if iface_reaches(
+        for f in cf.interfaces() {
+            if let Some(iface_name) = cf.iface_name(f) {
+                if iface_reaches_hashed(
                     classes,
+                    f.hash(),
                     iface_name,
-                    target_class.as_bytes(),
+                    target_hash,
+                    target,
                     MAX_IFACE_DEPTH,
                 ) {
                     return true;
@@ -861,7 +1002,10 @@ pub(super) fn is_instance_of(
         match cf.super_class_name() {
             None => return false,
             Some(super_bytes) => match core::str::from_utf8(super_bytes) {
-                Ok(s) => current = s,
+                Ok(s) => {
+                    current = s;
+                    current_hash = cf.super_hash();
+                }
                 Err(_) => return false,
             },
         }
@@ -894,7 +1038,7 @@ pub(crate) fn array_class_name(atype: u8) -> &'static str {
 /// reference-array target (`[L…;` / `[[…`): a documented divergence, the
 /// cast succeeds where Java might throw.
 pub(super) fn value_is_instance(
-    classes: &[ClassFile],
+    classes: Classes<'_>,
     objects: &ObjectHeap,
     arrays: &crate::array_heap::ArrayHeap,
     value: Value,
@@ -925,20 +1069,18 @@ pub(super) fn value_is_instance(
 pub(super) fn find_clinit_in(cf: &ClassFile) -> Option<usize> {
     cf.methods()
         .iter()
-        .position(|m| cf.cp_utf8(m.name_index) == Some(b"<clinit>"))
+        .position(|m| cf.method_name(m) == Some(b"<clinit>"))
 }
 
 /// The superclass chain of class `ci`, root-first, as class indices. Only
 /// classes present in the loaded set are included; the chain ends where
 /// a superclass has no class file.
-pub(super) fn superclass_chain_indices(classes: &[ClassFile], ci: usize) -> Vec<usize> {
+pub(super) fn superclass_chain_indices(classes: Classes<'_>, ci: usize) -> Vec<usize> {
     let mut chain: Vec<usize> = Vec::new();
     let mut current = Some(ci);
     while let Some(i) = current {
         chain.push(i);
-        current = classes[i]
-            .super_class_name()
-            .and_then(|sn| find_class(classes, sn));
+        current = super_index(classes, i);
     }
     chain.reverse(); // root-first
     chain
@@ -951,7 +1093,7 @@ pub(super) fn superclass_chain_indices(classes: &[ClassFile], ci: usize) -> Vec<
 /// which is the store's key. `None` when the named class has no class
 /// file, or nothing on the chain declares the field.
 pub(super) fn resolve_static_field(
-    classes: &[ClassFile],
+    classes: Classes<'_>,
     class_name: &[u8],
     field_name: &[u8],
 ) -> Option<(usize, usize)> {
@@ -962,7 +1104,7 @@ pub(super) fn resolve_static_field(
         })
     }
     let mut current = find_class(classes, class_name)?;
-    let mut queue: Vec<&'static [u8]> = Vec::new();
+    let mut queue: Vec<(u32, &'static [u8])> = Vec::new();
     loop {
         let cf = &classes[current];
         if let Some(fi) = declared_in(cf, field_name) {
@@ -972,9 +1114,9 @@ pub(super) fn resolve_static_field(
         push_interfaces(&mut queue, cf);
         let mut i = 0;
         while i < queue.len() {
-            let name = queue[i];
+            let (hash, name) = queue[i];
             i += 1;
-            let Some(ici) = find_class(classes, name) else {
+            let Some(ici) = find_class_hashed(classes, hash, name) else {
                 continue;
             };
             let icf = &classes[ici];
@@ -983,7 +1125,7 @@ pub(super) fn resolve_static_field(
             }
             push_interfaces(&mut queue, icf);
         }
-        current = find_class(classes, cf.super_class_name()?)?;
+        current = super_index(classes, current)?;
     }
 }
 
@@ -998,23 +1140,17 @@ pub(super) fn resolve_static_field(
 /// every class on the chain ([`find_default_method`]): interface default
 /// methods, including the bodies kotlinc emits under `-Xjvm-default=all`.
 pub(super) fn find_method_walking(
-    classes: &[ClassFile],
+    classes: Classes<'_>,
     start_class: &str,
     method_name: &str,
     descriptor: &str,
 ) -> Option<(usize, usize)> {
-    let mut current: &str = start_class;
-    loop {
-        if let Some(result) = find_method(classes, current, method_name, descriptor) {
-            return Some(result);
+    let mut current = find_class(classes, start_class.as_bytes());
+    while let Some(ci) = current {
+        if let Some(mi) = find_method_in(classes, ci, method_name, descriptor) {
+            return Some((ci, mi));
         }
-        let Some(ci) = find_class(classes, current.as_bytes()) else {
-            break;
-        };
-        let Some(super_bytes) = classes[ci].super_class_name() else {
-            break;
-        };
-        current = core::str::from_utf8(super_bytes).ok()?;
+        current = super_index(classes, ci);
     }
     find_default_method(classes, start_class.as_bytes(), method_name, descriptor)
 }
@@ -1034,33 +1170,28 @@ const MAX_IFACES: usize = 16;
 /// first time a default has to be found through it, never eagerly.
 #[inline(never)]
 fn find_default_method(
-    classes: &[ClassFile],
+    classes: Classes<'_>,
     start_class: &[u8],
     method_name: &str,
     descriptor: &str,
 ) -> Option<(usize, usize)> {
-    let mut queue: Vec<&'static [u8]> = Vec::new();
-    let mut current = start_class;
-    while let Some(cf) = find_class(classes, current).map(|i| &classes[i]) {
-        push_interfaces(&mut queue, cf);
-        match cf.super_class_name() {
-            Some(s) => current = s,
-            None => break,
-        }
+    let mut queue: Vec<(u32, &'static [u8])> = Vec::new();
+    let mut current = find_class(classes, start_class);
+    while let Some(ci) = current {
+        push_interfaces(&mut queue, &classes[ci]);
+        current = super_index(classes, ci);
     }
     let mut best: Option<(&'static [u8], usize, usize)> = None;
     let mut i = 0;
     while i < queue.len() {
-        let name = queue[i];
+        let (hash, name) = queue[i];
         i += 1;
-        let Some(cf) = find_class(classes, name).map(|i| &classes[i]) else {
+        let Some(ci) = find_class_hashed(classes, hash, name) else {
             continue;
         };
+        let cf = &classes[ci];
         push_interfaces(&mut queue, cf);
-        let Ok(name_str) = core::str::from_utf8(name) else {
-            continue;
-        };
-        if let Some((ci, mi)) = find_method(classes, name_str, method_name, descriptor) {
+        if let Some(mi) = find_method_in(classes, ci, method_name, descriptor) {
             if classes[ci].methods()[mi].code_offset == 0 {
                 continue;
             }
@@ -1074,11 +1205,11 @@ fn find_default_method(
 }
 
 /// Append `cf`'s direct superinterfaces to `queue` (deduplicated, bounded).
-fn push_interfaces(queue: &mut Vec<&'static [u8]>, cf: &ClassFile) {
-    for &idx in cf.interfaces() {
-        if let Some(n) = cf.cp_class_utf8(idx) {
-            if queue.len() < MAX_IFACES && !queue.contains(&n) {
-                queue.push(n);
+fn push_interfaces(queue: &mut Vec<(u32, &'static [u8])>, cf: &ClassFile) {
+    for f in cf.interfaces() {
+        if let Some(n) = cf.iface_name(f) {
+            if queue.len() < MAX_IFACES && !queue.iter().any(|&(_, q)| q == n) {
+                queue.push((f.hash(), n));
             }
         }
     }
@@ -1108,7 +1239,7 @@ pub(super) fn descriptor_return_class(desc: &str) -> Option<&str> {
 /// will silently lose virtual dispatch through pointer-identity caching, so
 /// every native class the JVM might encounter must appear in one of them.
 pub(super) fn class_name_to_static_in(
-    classes: &[ClassFile],
+    classes: Classes<'_>,
     extra_native_classes: &[&'static str],
     name: &str,
 ) -> &'static str {
@@ -1123,7 +1254,7 @@ pub(super) fn class_name_to_static_in(
 /// [`class_name_to_static_in`], as an index a `new` site's cache entry can
 /// hold without a pointer ([`NameRef`]).
 pub(super) fn class_name_ref(
-    classes: &[ClassFile],
+    classes: Classes<'_>,
     extra_native_classes: &[&'static str],
     name: &str,
 ) -> NameRef {
@@ -1161,7 +1292,7 @@ pub(super) fn class_name_ref(
 
 /// The `&'static str` a [`NameRef`] stands for.
 pub(super) fn name_of(
-    classes: &[ClassFile],
+    classes: Classes<'_>,
     extra_native_classes: &[&'static str],
     r: NameRef,
 ) -> &'static str {

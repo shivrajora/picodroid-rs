@@ -399,7 +399,8 @@ fn a_multi_app_board_needs_a_package_name() {
         label: None,
         icon: None,
     });
-    bare.class("t/Main", b"CAFE");
+    let main = super::test_support::t_main();
+    bare.class("t/Main", &main);
     let bytes = bare.build().unwrap();
     // An empty package-name is present-but-empty; the plan treats it as a name.
     // The real "no key" case comes from a hand-built PAPK — simulate by planning.
@@ -484,7 +485,8 @@ fn papk_labelled(package: &str, version: &str, code: u32, label: &str) -> Vec<u8
         label: Some(label),
         icon: Some("icon.png"),
     });
-    b.class("t/Main", b"CAFE");
+    let main = super::test_support::t_main();
+    b.class("t/Main", &main);
     b.build().unwrap()
 }
 
@@ -600,7 +602,8 @@ fn register_system_skips_bad_images_duplicates_and_overflow() {
         label: None,
         icon: None,
     });
-    future.class("t/Main", b"CAFE");
+    let main = super::test_support::t_main();
+    future.class("t/Main", &main);
     let future: &'static [u8] = alloc::boxed::Box::leak(future.build().unwrap().into_boxed_slice());
     register_system(&[future]);
     assert!(find("picodroid.future").is_none());

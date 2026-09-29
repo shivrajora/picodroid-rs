@@ -154,7 +154,7 @@ fn method_name_is_run() {
     let cf = ClassFile::parse(spelled(MINIMAL_CLASS)).unwrap();
     // methods[0].name_index = #5 ("run")
     assert_eq!(
-        cf.cp_utf8(cf.methods()[0].name_index),
+        cf.method_name(&cf.methods()[0]),
         Some(m::run.as_bytes() as &[u8])
     );
 }
@@ -166,54 +166,27 @@ fn method_code_is_return() {
     assert_eq!(cf.method_code(&cf.methods()[0]), &[0xB1u8]);
 }
 
-/// The census parts sum to the totals the executor-level line prints, and
-/// the counts behind them are the class file's.
-#[test]
-fn metadata_census_parts_sum_to_totals() {
-    let cf = ClassFile::parse(spelled(MINIMAL_CLASS)).unwrap();
-    let c = cf.parsed_metadata_census().expect("parsed");
-    let (host, dev) = cf.parsed_metadata_bytes().expect("parsed");
-    assert_eq!(c.host.total(), host);
-    assert_eq!(c.dev.total(), dev);
-    assert_eq!(c.methods, 1);
-    assert_eq!(c.fields, 0);
-    assert_eq!(c.exc_entries, 0);
-    assert_eq!(c.class_bytes, spelled(MINIMAL_CLASS).len());
-    // Eight tags for cp_count = 8 (index 0 is the unused slot).
-    assert_eq!(c.cp_entries, 8);
-    // The Box and the two constant-pool tables are never empty.
-    assert!(c.dev.boxed > 0 && c.dev.cp_offsets > 0 && c.dev.cp_tags > 0);
-    // M8: the record is byte-identical on both targets; the host pays one
-    // fat pointer more for its header and nothing else.
-    assert_eq!(c.host.cp_offsets, c.dev.cp_offsets);
-    assert_eq!(c.host.cp_tags, c.dev.cp_tags);
-    assert_eq!(c.host.methods, c.dev.methods);
-    assert_eq!(c.host.boxed - c.dev.boxed, FAT_PTR_DELTA);
-    assert_eq!(host - dev, FAT_PTR_DELTA);
-    assert_eq!(c.host.cp_offsets, 2 * c.cp_entries, "u16 per CP entry");
-}
-
-/// A class file past 64 KB is refused at registration: every offset the
-/// record keeps is a `u16`.
+/// A class file past 64 KB is refused at link time: every offset the table
+/// keeps is a `u16`.
 #[test]
 fn class_file_over_64k_is_rejected() {
     let mut big = MINIMAL_CLASS.to_vec();
     big.resize(u16::MAX as usize + 1, 0);
-    let leaked: &'static [u8] = Box::leak(big.into_boxed_slice());
+    let leaked: &'static [u8] = alloc::boxed::Box::leak(big.into_boxed_slice());
     assert_eq!(
         ClassFile::register(leaked).unwrap_err(),
-        "class file too large"
+        "class file over 65535 bytes"
     );
     assert_eq!(
         ClassFile::parse(leaked).unwrap_err(),
-        "class file too large"
+        "class file over 65535 bytes"
     );
 }
 
 #[test]
 fn bad_magic_returns_error() {
     let result = ClassFile::parse(spelled(BAD_MAGIC));
-    assert_eq!(result.unwrap_err(), "bad magic");
+    assert_eq!(result.unwrap_err(), "not a class file (bad magic)");
 }
 
 #[test]
@@ -374,57 +347,48 @@ fn no_interfaces_for_minimal_class() {
     assert_eq!(cf.interfaces().len(), 0);
 }
 
-// ── Lazy-load regression guard ────────────────────────────────────────────────
+// ── Registration is two pointers ──────────────────────────────────────────
 //
-// `ClassFile::register` must stay lazy: only constant-pool + class-name scan
-// is allowed at registration. A full parse must not fire until an accessor
-// that actually needs parsed state is called. The project's memory-footprint
-// claims (~40 KB → ~3–4 KB baseline) rely on this.
+// A class is registered from its bytes and its link table; nothing is
+// parsed and nothing is allocated per class (the lazy `Parsed` record this
+// replaced was ~360 B a class on the heap). What a `ClassFile` costs is the
+// two pointers and the name hash (16 B on the device, 32 B on a 64-bit
+// host), and every accessor reads the table in place.
 
 #[test]
-fn register_does_not_trigger_full_parse() {
-    let cf = ClassFile::register(spelled(MINIMAL_CLASS)).unwrap();
-    assert!(
-        !cf.is_parsed(),
-        "ClassFile::register must stay lazy — a full parse here defeats the \
-         startup-RAM win documented in the lazy-load milestone"
+fn registration_keeps_no_per_class_ram() {
+    let expected = if core::mem::size_of::<usize>() == 4 {
+        16
+    } else {
+        32
+    };
+    assert_eq!(
+        core::mem::size_of::<ClassFile>(),
+        expected,
+        "a ClassFile is the data slice, one thin pointer and the name hash"
     );
-    // class_name() reads the eagerly-scanned name slice — still lazy.
+    let cf = ClassFile::register(spelled(MINIMAL_CLASS)).unwrap();
     assert_eq!(cf.class_name(), Some(b"TC" as &[u8]));
-    assert!(
-        !cf.is_parsed(),
-        "class_name() must not trigger a full parse"
-    );
+    assert_eq!(cf.methods().len(), 1);
+    assert_eq!(cf.name_hash(), class_link::name_hash(b"TC"));
+    // The table validates against the bytes it was built for.
+    cf.link().validate(cf.data()).unwrap();
+    // `register` and `parse` are the same operation now.
+    let again = ClassFile::parse(spelled(MINIMAL_CLASS)).unwrap();
+    assert_eq!(again.link().words(), cf.link().words());
 }
 
 #[test]
-fn accessor_access_triggers_parse() {
-    let cf = ClassFile::register(spelled(MINIMAL_CLASS)).unwrap();
-    assert!(!cf.is_parsed());
-    let _ = cf.methods();
-    assert!(
-        cf.is_parsed(),
-        "accessors beyond class_name() are expected to force a full parse"
-    );
-}
-
-#[test]
-fn untouched_registered_classes_stay_unparsed() {
-    let touched = ClassFile::register(spelled(MINIMAL_CLASS)).unwrap();
-    let untouched = ClassFile::register(spelled(CLASS_NONOBJECT_SUPER)).unwrap();
-
-    // Simulate a run that references only `touched`. `class_name()` on both
-    // must stay lazy (it's the most common lookup path).
-    assert_eq!(touched.class_name(), Some(b"TC" as &[u8]));
-    assert_eq!(untouched.class_name(), Some(b"Child" as &[u8]));
-    let _ = touched.methods();
-
-    assert!(touched.is_parsed());
-    assert!(
-        !untouched.is_parsed(),
-        "untouched classes must stay unparsed — this is the whole point of \
-         the lazy-load architecture"
-    );
+fn method_dimensions_come_from_the_class_bytes() {
+    let cf = ClassFile::parse(spelled(MINIMAL_CLASS)).unwrap();
+    let m = &cf.methods()[0];
+    assert!(m.has_code());
+    assert_eq!(cf.method_max_stack(m), 1);
+    assert_eq!(cf.method_max_locals(m), 1);
+    assert_eq!(cf.method_code_len(m), 1);
+    assert_eq!(cf.method_descriptor(m), Some(&b"()V"[..]));
+    assert_eq!(cf.exception_table(m).len(), 0);
+    assert_eq!(cf.methodref_desc(1), None, "#1 is a Class entry");
 }
 
 // ── Constant-pool tags nothing resolves ───────────────────────────────────
@@ -493,6 +457,6 @@ fn truly_unknown_cp_tag_is_still_rejected() {
     let leaked: &'static [u8] = alloc::boxed::Box::leak(bytes.into_boxed_slice());
     assert_eq!(
         ClassFile::register(spelled(leaked)).err(),
-        Some("unknown CP tag")
+        Some("unknown constant-pool tag")
     );
 }

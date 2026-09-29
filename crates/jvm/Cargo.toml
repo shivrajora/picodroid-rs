@@ -12,8 +12,19 @@ readme = "README.md"
 
 [dependencies]
 libm = { version = "0.2", default-features = false }
+# The link tables the class files carry (docs/designs/class-link-2026-09.md):
+# the reader only; the builder is behind `link-at-load`.
+class-link = { path = "../class-link" }
+
+[dev-dependencies]
+# Tests hand-assemble class files and link them on the spot.
+class-link = { path = "../class-link", features = ["build"] }
 
 [features]
+# Link class bytes at load time (`ClassFile::parse`, `Jvm::load_class`): the
+# host's and the tests' way in for class files no packer has seen. Pulls the
+# alloc-based builder in; firmware never enables it.
+link-at-load = ["class-link/build"]
 # Deterministic sim<->device execution counters (docs/parity-audit.md P1).
 parity-metrics = []
 # Place the interpreter's main loop (`Executor::run`, the opcode handlers

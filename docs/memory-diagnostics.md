@@ -1,7 +1,7 @@
 # Memory Diagnostics (`mem-diag`)
 
 Opt-in instrumentation for hunting heap growth, churn, and corruption on the
-low-RAM targets (RP2040: 160 KB heap / 896 KB flash program region; RP2350:
+low-RAM targets (RP2040: 160 KB heap / 1152 KB flash program region since the class-link work moved `app_region_kb` to 768; RP2350:
 408 KB heap). Everything here is gated behind the `mem-diag` cargo feature —
 **when the feature is off, none of this code exists in the binary** (verified
 byte-identical flash + RAM against a non-diag build; see "Zero-cost
@@ -34,7 +34,6 @@ Runtime toggles within a `--mem-diag` sim build (all read once at startup):
 | `PICODROID_MEMDIAG_SITES` | off | Allocation-site ledger: every live arena block keeps the call stack that allocated it, and `heapcensus` attributes the whole arena by site and by stack (sim only; see "Attributing the rest of the arena") |
 | `PICODROID_MEMDIAG_SITES_MIN` | `0` | With `_SITES`: smallest block traced, in bytes; smaller ones are counted, not attributed |
 | `PICODROID_MEMDIAG_SITES_TOP` | `24` | With `_SITES`: rows printed per ranking (sites, stacks) |
-| `PICODROID_MEMDIAG_CLASSDUMP` | off | `heapcensus` lists every parsed class with its metadata cost, not only the top 12 (sim only) |
 
 On device there are no env vars: compiled-in = monitor active with the
 defaults (1 s window, sentinel warn-only, no offensive checks). A mem-diag
@@ -92,8 +91,8 @@ live-set snapshot, attributed to code constructs. Printed with every
 [memmon] census arr: ref=7n/792B(inl 5) float=12n/1680B(inl 7) byte=8n/10824B(inl 0) ... dead=0B slack=480B
 [memmon] census str: dyn n=32 len=667 cap=677 slack=10 buckets=14/10/8/0/0/0 top_cap=39/39/38/38
 [memmon] census side: lists=1n/64B maps=0n/0B sb=0B lambda=1n/16B exc=0B
-[memmon] census classmeta main: 62/161 parsedB=92255 devB~=49387 tableB~=3240
-[memmon] census classmeta child picoenvmon/net/NetworkManager: 11/161 parsedB=16123 devB~=8735 tableB~=5140
+[memmon] census classmeta main: 280 classes tableB=6744 tableB~=3372 (link tables in flash: 0 B of RAM)
+[memmon] census classmeta child picoenvmon/net/NetworkManager: 280 classes tableB~=3372
 ```
 
 - `census obj` / `obj top` — live objects bucketed by class, `count`n/`bytes`B
@@ -107,28 +106,17 @@ live-set snapshot, attributed to code constructs. Printed with every
 - `census side` — bytes the `live=` figure does **not** include: ArrayList
   (`lists`) and HashMap/HashSet (`maps`) backing buffers, StringBuilder text
   (`sb`), lambda captures, exception tables.
-- `census classmeta` — per-executor parsed-class metadata: `parsed/total`
-  classes, `parsedB` = bytes in this process (what the sim arena pays),
-  `devB~` = the device's figure: since M8 (2026-09-26) a class's record is
-  one u16 blob, byte-identical on both targets, and the two differ by one
-  fat pointer per parsed class (`class_file::FAT_PTR_DELTA`, 8 B) and
-  nothing else. `tableB~` = the registration table itself (one fat and one
-  thin pointer per entry more on the host). One `child` row per live
-  `Thread.start`/bg-pool executor (each child's parsed set is a full
-  duplicate of the main one — the handover §6 lever; children register
-  via `mem_diag::register_child_jvm`).
-- `census classmeta parts host/dev` — the same bytes by the part of the
-  parsed record that holds them: the record header, the constant-pool
-  offset and tag tables, the method, field, static and interface tables.
-  The exception tables and bootstrap methods are read from flash and cost
-  nothing here. Says which packing lever pays: on claudeusage the CP
-  offsets and the method table are still two thirds of it.
-- `census classmeta classes` — the price of an import: one line per parsed
-  class, most expensive first (top 12; all of them under
-  `PICODROID_MEMDIAG_CLASSDUMP=1`), as `name=devB~/hostB
-  cp<entries>/m<methods>/f<fields>/x<exception entries> <class file bytes>`.
-  A class costs RAM in proportion to its constant pool and method count,
-  not its bytecode.
+- `census classmeta` — per-executor class-table cost: the loaded class
+  count and the class table's bytes, `tableB` in this process and `tableB~`
+  the device's figure (12 B a class plus the `Vec` header; the host pays
+  one fat and one thin pointer more per entry). Since 2026-09-28 that table
+  is the *only* per-class RAM: the parsed record every class used to grow
+  on first touch (`Parsed`, ~360 B a class — ~76 KB on claudeusage's
+  History page, the largest heap consumer) is now the link table built at
+  pack time and read from flash (docs/designs/class-link-2026-09.md). One
+  `child` row per live `Thread.start`/bg-pool executor (children register
+  via `mem_diag::register_child_jvm`); a class's cost no longer depends on
+  whether anything touched it.
 
 ### Attributing the rest of the arena (`PICODROID_MEMDIAG_SITES=1`)
 

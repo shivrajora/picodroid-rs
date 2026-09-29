@@ -20,7 +20,7 @@
 //!   walked only as far as buffered. Merging toward strict breaks device
 //!   installs whose manifest straddles the peek boundary.
 
-use crate::{FILE_HEADER_LEN, SECTION_HEADER_LEN};
+use crate::{FILE_HEADER_LEN, SECTION_HEADER_LEN, SUPPORTED_VERSION_MAJOR};
 
 /// Reasons a buffer fails PAPK structural validation. Distinct from "manifest
 /// key absent" (see `find_manifest_value`'s `None`) — these all mean the file
@@ -37,6 +37,17 @@ pub enum StructuralError {
     ManifestBadMagic,
     /// A manifest TLV entry's length fields walk past the section end.
     ManifestMalformed,
+    /// `version_major` is not the one this build reads: a v1 file, from
+    /// before the classes carried link tables. Re-pack it.
+    UnsupportedVersion,
+    /// Declared classes offset + section header doesn't fit in the buffer.
+    ClassesOutOfBounds,
+    /// Classes section header isn't `CLSS`.
+    ClassesBadMagic,
+    /// The classes section is not a valid class section: a class or its
+    /// link table out of bounds, a table that does not derive from its
+    /// class bytes, or a bad index.
+    Classes(class_link::LinkError),
 }
 
 impl core::fmt::Display for StructuralError {
@@ -47,15 +58,46 @@ impl core::fmt::Display for StructuralError {
             Self::ManifestOutOfBounds => "manifest offset points past end of file",
             Self::ManifestBadMagic => "manifest section header is not 'MANI'",
             Self::ManifestMalformed => "manifest TLV entries overflow the section",
+            Self::UnsupportedVersion => {
+                "PAPK format version is not the one this build reads (a v1 file: re-pack it with the current toolchain)"
+            }
+            Self::ClassesOutOfBounds => "classes offset points past end of file",
+            Self::ClassesBadMagic => "classes section header is not 'CLSS'",
+            Self::Classes(e) => return write!(f, "classes section: {e}"),
         };
         f.write_str(s)
     }
 }
 
-/// Validate that `bytes` is structurally a PAPK: header present, magic
-/// matches, and the manifest section parses to completion. A Ok result does
-/// NOT imply any particular manifest key is present — callers still need
-/// [`find_manifest_value`] for that.
+/// Deep-check a class section: parse it and validate every class's link
+/// table against its bytes. A buffer that is not 4-byte aligned — a host
+/// `Vec<u8>` or `include_bytes!` data, never a flash image — is checked
+/// through an aligned copy when the crate can allocate (`write`).
+fn classes_section_valid(data: &[u8]) -> Result<(), class_link::LinkError> {
+    match class_link::ClassSection::parse(data) {
+        Ok(s) => s.validate(),
+        #[cfg(feature = "write")]
+        Err(class_link::LinkError::Misaligned) => {
+            let mut copy: alloc::vec::Vec<u64> = alloc::vec![0u64; data.len().div_ceil(8)];
+            // SAFETY: `copy` holds at least `data.len()` bytes; a `u8` view
+            // of `u64` storage, 8-aligned.
+            let aligned = unsafe {
+                core::slice::from_raw_parts_mut(copy.as_mut_ptr().cast::<u8>(), data.len())
+            };
+            aligned.copy_from_slice(data);
+            class_link::ClassSection::parse(aligned)?.validate()
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Validate that `bytes` is structurally a PAPK: header present, magic and
+/// version match, the manifest section parses to completion, and the
+/// classes section is a valid class section — every class's link table
+/// derives from its class bytes ([`class_link::Link::validate`]). That deep
+/// check runs here, once per install, embed or boot scan, and the JVM then
+/// trusts the tables. A Ok result does NOT imply any particular manifest key
+/// is present — callers still need [`find_manifest_value`] for that.
 ///
 /// Errors here are unconditional refusals at the host level: they exist
 /// independently of compat mode, and in particular are not gated on
@@ -68,6 +110,9 @@ pub fn validate_structure(bytes: &[u8]) -> Result<(), StructuralError> {
     }
     if &bytes[0..4] != b"PAPK" {
         return Err(StructuralError::BadMagic);
+    }
+    if u16::from_le_bytes([bytes[4], bytes[5]]) != SUPPORTED_VERSION_MAJOR {
+        return Err(StructuralError::UnsupportedVersion);
     }
     let mani_off = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]) as usize;
     if mani_off
@@ -116,7 +161,31 @@ pub fn validate_structure(bytes: &[u8]) -> Result<(), StructuralError> {
         p += vlen;
     }
 
-    Ok(())
+    // The classes section.
+    let clss_off = u32::from_le_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]) as usize;
+    if clss_off
+        .checked_add(SECTION_HEADER_LEN)
+        .is_none_or(|e| e > bytes.len())
+    {
+        return Err(StructuralError::ClassesOutOfBounds);
+    }
+    if &bytes[clss_off..clss_off + 4] != b"CLSS" {
+        return Err(StructuralError::ClassesBadMagic);
+    }
+    let clss_len = u32::from_le_bytes([
+        bytes[clss_off + 4],
+        bytes[clss_off + 5],
+        bytes[clss_off + 6],
+        bytes[clss_off + 7],
+    ]) as usize;
+    let clss_start = clss_off + SECTION_HEADER_LEN;
+    let clss_end = clss_start
+        .checked_add(clss_len)
+        .ok_or(StructuralError::ClassesOutOfBounds)?;
+    if clss_end > bytes.len() {
+        return Err(StructuralError::ClassesOutOfBounds);
+    }
+    classes_section_valid(&bytes[clss_start..clss_end]).map_err(StructuralError::Classes)
 }
 
 /// STRICT whole-file manifest scan (`pdb install` pre-flight semantics):
@@ -254,20 +323,31 @@ mod tests {
             manifest.extend_from_slice(&(v.len() as u16).to_le_bytes());
             manifest.extend_from_slice(v.as_bytes());
         }
+        // MANI right after the 28-byte header; CLSS at the next 4-byte
+        // boundary, holding an empty class section (no classes, the index
+        // right after the section's own 8-byte header).
+        let clss_off = (28 + 16 + manifest.len()).next_multiple_of(4);
         let mut out = Vec::new();
         out.extend_from_slice(b"PAPK");
-        out.extend_from_slice(&1u16.to_le_bytes()); // major
-        out.extend_from_slice(&1u16.to_le_bytes()); // minor
+        out.extend_from_slice(&super::SUPPORTED_VERSION_MAJOR.to_le_bytes()); // major
+        out.extend_from_slice(&0u16.to_le_bytes()); // minor
         out.extend_from_slice(&2u32.to_le_bytes()); // sec count
-        out.extend_from_slice(&24u32.to_le_bytes()); // manifest_offset
-        out.extend_from_slice(&((24 + 16 + manifest.len()) as u32).to_le_bytes());
-        out.extend_from_slice(&0u32.to_le_bytes()); // reserved
+        out.extend_from_slice(&28u32.to_le_bytes()); // manifest_offset
+        out.extend_from_slice(&(clss_off as u32).to_le_bytes()); // classes_offset
+        out.extend_from_slice(&0u32.to_le_bytes()); // assets_offset
+        out.extend_from_slice(&0u32.to_le_bytes()); // resources_offset
         out.extend_from_slice(b"MANI");
         out.extend_from_slice(&(manifest.len() as u32).to_le_bytes());
         out.extend_from_slice(&0u32.to_le_bytes()); // crc
         out.extend_from_slice(&0u32.to_le_bytes()); // reserved
         out.extend_from_slice(&manifest);
-        // No CLASSES section — find_manifest_value doesn't look there.
+        out.resize(clss_off, 0);
+        out.extend_from_slice(b"CLSS");
+        out.extend_from_slice(&8u32.to_le_bytes()); // length
+        out.extend_from_slice(&0u32.to_le_bytes()); // crc
+        out.extend_from_slice(&0u32.to_le_bytes()); // reserved
+        out.extend_from_slice(&0u32.to_le_bytes()); // class_count
+        out.extend_from_slice(&8u32.to_le_bytes()); // index_off
         out
     }
 
@@ -359,8 +439,8 @@ mod tests {
         #[test]
         fn validate_rejects_manifest_bad_section_magic() {
             let mut buf = build_papk(&[("framework-map-version", "0.1.0")]);
-            // Manifest section header starts at offset 24 by construction.
-            buf[24] = b'X';
+            // Manifest section header starts at offset 28 by construction.
+            buf[28] = b'X';
             assert_eq!(
                 validate_structure(&buf),
                 Err(StructuralError::ManifestBadMagic)
@@ -368,11 +448,47 @@ mod tests {
         }
 
         #[test]
+        fn validate_rejects_a_v1_file() {
+            let mut buf = build_papk(&[("framework-map-version", "0.1.0")]);
+            buf[4..6].copy_from_slice(&1u16.to_le_bytes());
+            assert_eq!(
+                validate_structure(&buf),
+                Err(StructuralError::UnsupportedVersion)
+            );
+        }
+
+        #[test]
+        fn validate_rejects_a_bad_classes_section() {
+            let ok = build_papk(&[("framework-map-version", "0.1.0")]);
+            assert_eq!(validate_structure(&ok), Ok(()));
+            let clss = u32::from_le_bytes(ok[16..20].try_into().unwrap()) as usize;
+            let mut buf = ok.clone();
+            buf[clss] = b'X';
+            assert_eq!(
+                validate_structure(&buf),
+                Err(StructuralError::ClassesBadMagic)
+            );
+            let mut buf = ok.clone();
+            buf[16..20].copy_from_slice(&(ok.len() as u32).to_le_bytes());
+            assert_eq!(
+                validate_structure(&buf),
+                Err(StructuralError::ClassesOutOfBounds)
+            );
+            // Five classes declared, none present.
+            let mut buf = ok.clone();
+            buf[clss + 16..clss + 20].copy_from_slice(&5u32.to_le_bytes());
+            assert!(matches!(
+                validate_structure(&buf),
+                Err(StructuralError::Classes(_))
+            ));
+        }
+
+        #[test]
         fn validate_rejects_manifest_overrunning_tlv() {
             let mut buf = build_papk(&[("framework-map-version", "0.1.0")]);
-            // TLV key length lives at offset 24+16 = 40 (first TLV's klen u16).
+            // TLV key length lives at offset 28+16 = 44 (first TLV's klen u16).
             // Inflate it past the section end.
-            buf[40..42].copy_from_slice(&0xffffu16.to_le_bytes());
+            buf[44..46].copy_from_slice(&0xffffu16.to_le_bytes());
             assert_eq!(
                 validate_structure(&buf),
                 Err(StructuralError::ManifestMalformed)
@@ -436,11 +552,11 @@ mod tests {
             ("framework-map-version", "0.1.0"),
             ("zz-filler", &filler_value),
         ]);
-        // Cut right after the fmv entry: 24 (header) + 16 (MANI header) +
-        // [2+21 key][2+5 value] = 70 bytes. The manifest section's declared
+        // Cut right after the fmv entry: 28 (header) + 16 (MANI header) +
+        // [2+21 key][2+5 value] = 74 bytes. The manifest section's declared
         // end is far beyond, so this prefix ends mid-section.
         let fmv_entry_len = 2 + "framework-map-version".len() + 2 + "0.1.0".len();
-        let cut = 24 + 16 + fmv_entry_len;
+        let cut = 28 + 16 + fmv_entry_len;
         assert!(cut < buf.len());
         let prefix = &buf[..cut];
 

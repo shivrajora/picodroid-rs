@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! PAPK writer (`write` feature, alloc-only).
 //!
-//! [`PapkBuilder`] owns "the manifest shape". Its output matches the
-//! historical `papk-pack` `build_papk()` except for the section alignment
-//! padding described below, which that writer did not emit:
+//! [`PapkBuilder`] owns "the manifest shape":
 //!
-//! - file header (24 bytes) with `version_major = 1`, `version_minor = 1`
+//! - file header (28 bytes) with `version_major = 2`, `version_minor = 0`
 //!   always;
+//! - the CLASSES section is a `class-link` class section: every class is
+//!   linked here (its link table built and its name checked against the
+//!   name it was added under), and the sorted class index is written;
 //! - section order MANI, CLSS, then ASST only when at least one asset is
 //!   present (otherwise `assets_offset = 0` and `section_count = 2`);
 //! - every section starts on a 4-byte boundary, zero-padded from the end of
@@ -29,9 +30,8 @@
 use alloc::vec::Vec;
 
 use crate::{
-    keys, FILE_HEADER_LEN, FILE_HEADER_LEN_V1_2, MAGIC, SECTION_HEADER_LEN, TAG_ASSETS,
-    TAG_CLASSES, TAG_MANIFEST, TAG_RESOURCES, VERSION_MAJOR, VERSION_MINOR,
-    VERSION_MINOR_RESOURCES,
+    keys, FILE_HEADER_LEN, MAGIC, SECTION_HEADER_LEN, TAG_ASSETS, TAG_CLASSES, TAG_MANIFEST,
+    TAG_RESOURCES, VERSION_MAJOR, VERSION_MINOR,
 };
 
 /// The app's entry point — exactly one of the three manifest entry keys.
@@ -100,6 +100,10 @@ pub enum BuildError {
     TooManyEntries,
     /// A section or offset exceeds the u32 range of the file header fields.
     TooLarge,
+    /// A class could not be linked (malformed, over 64 KB, a name that is
+    /// not UTF-8, two classes with one name or one hash), or spells a name
+    /// other than the one it was added under.
+    Link(class_link::LinkError),
 }
 
 impl core::fmt::Display for BuildError {
@@ -109,6 +113,7 @@ impl core::fmt::Display for BuildError {
             Self::ValueTooLong => "value or data blob exceeds its length prefix",
             Self::TooManyEntries => "too many classes or assets for the u32 count field",
             Self::TooLarge => "section offset or length exceeds the u32 header fields",
+            Self::Link(e) => return write!(f, "class section: {e}"),
         };
         f.write_str(s)
     }
@@ -150,9 +155,10 @@ impl<'a> PapkBuilder<'a> {
     }
 
     /// Append a class. `jvm_name` is the JVM internal name (forward slashes,
-    /// no `.class` suffix, e.g. `"helloworld/HelloWorld"`). Emission order is
-    /// insertion order — sort beforehand for deterministic output (papk-pack
-    /// sorts by name).
+    /// no `.class` suffix, e.g. `"helloworld/HelloWorld"`); it must be the
+    /// name the class file itself spells, or [`build`](Self::build) refuses
+    /// the class. Emission order is insertion order — sort beforehand for
+    /// deterministic output (papk-pack sorts by name).
     pub fn class(&mut self, jvm_name: &'a str, bytes: &'a [u8]) -> &mut Self {
         self.classes.push((jvm_name, bytes));
         self
@@ -165,8 +171,7 @@ impl<'a> PapkBuilder<'a> {
         self
     }
 
-    /// Serialize the PAPK file. Emission is byte-identical to the historical
-    /// papk-pack `build_papk()` (see the module docs for the layout contract).
+    /// Serialize the PAPK file (see the module docs for the layout contract).
     pub fn build(&self) -> Result<Vec<u8>, BuildError> {
         let manifest_data = self.build_manifest_data()?;
         let classes_data = self.build_classes_data()?;
@@ -180,15 +185,8 @@ impl<'a> PapkBuilder<'a> {
         let classes_len = u32::try_from(classes_data.len()).map_err(|_| BuildError::TooLarge)?;
         let assets_len = u32::try_from(assets_data.len()).map_err(|_| BuildError::TooLarge)?;
 
-        // File header is 24 bytes — 28 with the v1.2 extension, which only a
-        // PAPK with a RESOURCES section carries, so every other PAPK stays
-        // byte-identical to v1.1. MANIFEST starts immediately after.
-        let header_len = if self.resources.is_some() {
-            FILE_HEADER_LEN_V1_2
-        } else {
-            FILE_HEADER_LEN
-        };
-        let manifest_offset = header_len as u32;
+        // MANIFEST starts right after the file header.
+        let manifest_offset = FILE_HEADER_LEN as u32;
         let classes_offset = section_after(manifest_offset, manifest_len)?;
         // 0 means "no ASSETS section". Legacy parsers see zero in the slot
         // they formerly read as `reserved` and behave unchanged.
@@ -204,25 +202,19 @@ impl<'a> PapkBuilder<'a> {
         };
         let section_count =
             2 + u32::from(!self.assets.is_empty()) + u32::from(self.resources.is_some());
-        let version_minor = if self.resources.is_some() {
-            VERSION_MINOR_RESOURCES
-        } else {
-            VERSION_MINOR
-        };
 
         let mut file = Vec::new();
 
-        // File header (24 bytes, or 28)
+        // File header (28 bytes)
         file.extend_from_slice(MAGIC);
         file.extend_from_slice(&VERSION_MAJOR.to_le_bytes());
-        file.extend_from_slice(&version_minor.to_le_bytes());
+        file.extend_from_slice(&VERSION_MINOR.to_le_bytes());
         file.extend_from_slice(&section_count.to_le_bytes());
         file.extend_from_slice(&manifest_offset.to_le_bytes());
         file.extend_from_slice(&classes_offset.to_le_bytes());
         file.extend_from_slice(&assets_offset.to_le_bytes());
-        if self.resources.is_some() {
-            file.extend_from_slice(&resources_offset.to_le_bytes());
-        }
+        file.extend_from_slice(&resources_offset.to_le_bytes());
+        debug_assert_eq!(file.len(), FILE_HEADER_LEN);
 
         // MANIFEST section
         push_section_header(&mut file, TAG_MANIFEST, manifest_len);
@@ -299,18 +291,16 @@ impl<'a> PapkBuilder<'a> {
         Ok(data)
     }
 
-    /// Build the CLASSES section data.
+    /// Build the CLASSES section data: the classes linked, indexed and laid
+    /// out by `class-link`, each checked to spell the name it was added
+    /// under.
     fn build_classes_data(&self) -> Result<Vec<u8>, BuildError> {
-        let mut data = Vec::new();
-        let count = u32::try_from(self.classes.len()).map_err(|_| BuildError::TooManyEntries)?;
-        data.extend_from_slice(&count.to_le_bytes());
-        for (name, bytes) in &self.classes {
-            push_bytes_u16(&mut data, name.as_bytes(), BuildError::NameTooLong)?;
-            let data_len = u32::try_from(bytes.len()).map_err(|_| BuildError::ValueTooLong)?;
-            data.extend_from_slice(&data_len.to_le_bytes());
-            data.extend_from_slice(bytes);
-        }
-        Ok(data)
+        let named: Vec<(&[u8], &[u8])> = self
+            .classes
+            .iter()
+            .map(|(name, bytes)| (name.as_bytes(), *bytes))
+            .collect();
+        class_link::build::build_section_named(&named).map_err(BuildError::Link)
     }
 
     /// Build the ASSETS section data. The data of each asset starts on a
@@ -390,9 +380,14 @@ mod tests {
     use crate::Papk;
     use alloc::string::String;
 
+    /// The golden fixture's class: a real, linkable class file (a fake blob
+    /// no longer packs — every class is linked on the way in).
+    static MAIN: &[u8] = include_bytes!("../tests/fixtures/Main.class");
+    const MAIN_NAME: &str = "fixture/Main";
+
     fn spec() -> ManifestSpec<'static> {
         ManifestSpec {
-            entry: EntryPoint::MainClass("t/Main"),
+            entry: EntryPoint::MainClass(MAIN_NAME),
             package_name: "t",
             version: "1.0",
             framework_map_version: "0.0.0",
@@ -402,80 +397,81 @@ mod tests {
         }
     }
 
-    /// A PAPK without resources is byte-for-byte what v1.1 wrote; one with
-    /// resources grows the header by 4 bytes, says so in `version_minor`, and
-    /// still reads through the three v1.1 offset slots.
+    /// The header is 28 bytes with or without a RESOURCES section; the
+    /// section's presence shows only in `resources_offset` and the count.
     #[test]
-    fn resources_section_round_trips_and_leaves_v1_1_alone() {
+    fn resources_section_round_trips() {
         let mut table = crate::res::ResTableBuilder::new();
         let hello = table.push_string("Hello").unwrap();
         let main = table.push_layout(alloc::vec![7, 8, 9]).unwrap();
         let table = table.build().unwrap();
 
         for with_asset in [false, true] {
-            for class_len in 1..=5usize {
-                let class_bytes = alloc::vec![0xCAu8; class_len];
-                let mut plain = PapkBuilder::new(spec());
-                plain.class("t/Main", &class_bytes);
-                let mut b = PapkBuilder::new(spec());
-                b.class("t/Main", &class_bytes);
-                if with_asset {
-                    for b in [&mut plain, &mut b] {
-                        b.asset(AssetSpec {
-                            name: "a.png",
-                            width: 1,
-                            height: 1,
-                            cf: 0x12,
-                            stride: 0,
-                            data: &[1, 2],
-                        });
-                    }
+            let mut plain = PapkBuilder::new(spec());
+            plain.class(MAIN_NAME, MAIN);
+            let mut b = PapkBuilder::new(spec());
+            b.class(MAIN_NAME, MAIN);
+            if with_asset {
+                for b in [&mut plain, &mut b] {
+                    b.asset(AssetSpec {
+                        name: "a.png",
+                        width: 1,
+                        height: 1,
+                        cf: 0x12,
+                        stride: 0,
+                        data: &[1, 2],
+                    });
                 }
-                b.resources(&table);
-                // An empty table is no section at all.
-                plain.resources(&[]);
-
-                let plain = plain.build().unwrap();
-                assert_eq!(&plain[6..8], &VERSION_MINOR.to_le_bytes());
-                assert_eq!(&plain[12..16], &(FILE_HEADER_LEN as u32).to_le_bytes());
-                let p = Papk::parse(&plain).unwrap();
-                assert!(p.resources().unwrap().is_none());
-                assert_eq!(p.file_header().resources_offset, 0);
-
-                let file = b.build().unwrap();
-                let p = Papk::parse(&file).unwrap();
-                let h = p.file_header();
-                assert_eq!(h.version_minor, VERSION_MINOR_RESOURCES);
-                assert_eq!(h.manifest_offset as usize, FILE_HEADER_LEN_V1_2);
-                assert_eq!(h.section_count, 3 + u32::from(with_asset));
-                assert_eq!(h.resources_offset % 4, 0);
-                assert_eq!(p.classes().unwrap().count(), 1);
-                assert_eq!(p.assets().unwrap().is_some(), with_asset);
-                let (sh, data) = p.resources_section().unwrap().unwrap();
-                assert_eq!(sh.tag, TAG_RESOURCES);
-                assert_eq!(data, &table[..]);
-                let t = p.resources().unwrap().unwrap();
-                assert_eq!(t.string(hello), Some(&b"Hello"[..]));
-                assert_eq!(t.layout(main).unwrap().word(2), Some(9));
-                assert!(crate::validate_structure(&file).is_ok());
             }
+            b.resources(&table);
+            // An empty table is no section at all.
+            plain.resources(&[]);
+
+            let plain = plain.build().unwrap();
+            assert_eq!(&plain[4..6], &VERSION_MAJOR.to_le_bytes());
+            assert_eq!(&plain[6..8], &VERSION_MINOR.to_le_bytes());
+            assert_eq!(&plain[12..16], &(FILE_HEADER_LEN as u32).to_le_bytes());
+            let p = Papk::parse(&plain).unwrap();
+            assert!(p.resources().unwrap().is_none());
+            assert_eq!(p.file_header().resources_offset, 0);
+            assert_eq!(p.file_header().section_count, 2 + u32::from(with_asset));
+            assert!(crate::validate_structure(&plain).is_ok());
+
+            let file = b.build().unwrap();
+            let p = Papk::parse(&file).unwrap();
+            let h = p.file_header();
+            assert_eq!(h.version_minor, VERSION_MINOR);
+            assert_eq!(h.manifest_offset as usize, FILE_HEADER_LEN);
+            assert_eq!(h.section_count, 3 + u32::from(with_asset));
+            assert_eq!(h.resources_offset % 4, 0);
+            assert_eq!(p.classes().unwrap().count(), 1);
+            assert_eq!(p.assets().unwrap().is_some(), with_asset);
+            let (sh, data) = p.resources_section().unwrap().unwrap();
+            assert_eq!(sh.tag, TAG_RESOURCES);
+            assert_eq!(data, &table[..]);
+            let t = p.resources().unwrap().unwrap();
+            assert_eq!(t.string(hello), Some(&b"Hello"[..]));
+            assert_eq!(t.layout(main).unwrap().word(2), Some(9));
+            assert!(crate::validate_structure(&file).is_ok());
         }
     }
 
     /// The bug this guards: asset payloads are padded to 4 bytes *within*
     /// their section, and `lib.rs` asserted exactly that — on a fixture whose
-    /// sections happened to start aligned anyway. A real class file is any
-    /// length, so ASSETS landed wherever CLASSES ended: `imagedemo`'s pixels
-    /// sat at an odd flash address and the RP2040 HardFaulted on LVGL's first
-    /// `uint16_t` read of them. Odd-length class payloads here, absolute file
-    /// offsets asserted.
+    /// sections happened to start aligned anyway. A section is any length, so
+    /// ASSETS landed wherever CLASSES ended: `imagedemo`'s pixels sat at an
+    /// odd flash address and the RP2040 HardFaulted on LVGL's first
+    /// `uint16_t` read of them. Manifest values of every length here move
+    /// the sections that follow; absolute file offsets asserted.
     #[test]
     fn sections_and_asset_data_are_4_byte_aligned_in_the_file() {
-        for class_len in 1..=8usize {
-            let class_bytes = alloc::vec![0xCAu8; class_len];
+        for value_len in 1..=8usize {
+            let version = alloc::string::String::from_utf8(alloc::vec![b'7'; value_len]).unwrap();
+            let mut spec = spec();
+            spec.version = &version;
             let pixels: &[u8] = &[0xDE, 0xAD, 0xBE, 0xEF];
-            let mut b = PapkBuilder::new(spec());
-            b.class("t/Main", &class_bytes);
+            let mut b = PapkBuilder::new(spec);
+            b.class(MAIN_NAME, MAIN);
             // An odd-length name moves the payload within the section too.
             b.asset(AssetSpec {
                 name: "logo.png",
@@ -491,12 +487,12 @@ mod tests {
             assert_eq!(
                 hdr.classes_offset % 4,
                 0,
-                "classes_offset misaligned for class_len {class_len}"
+                "classes_offset misaligned for value_len {value_len}"
             );
             assert_eq!(
                 hdr.assets_offset % 4,
                 0,
-                "assets_offset misaligned for class_len {class_len}"
+                "assets_offset misaligned for value_len {value_len}"
             );
 
             let p = Papk::parse(&file).unwrap();
@@ -505,7 +501,7 @@ mod tests {
             assert_eq!(
                 file_offset % 4,
                 0,
-                "asset data at file offset {file_offset} (class_len {class_len}) is not 4-byte \
+                "asset data at file offset {file_offset} (value_len {value_len}) is not 4-byte \
                  aligned — an unaligned uint16_t read on Cortex-M0+ is a HardFault"
             );
             assert_eq!(entry.data, pixels);
@@ -520,7 +516,7 @@ mod tests {
         spec.icon = Some("icon.png");
         let mut b = PapkBuilder::new(spec);
         b.manifest_entry("x-extra", "1");
-        b.class("t/Main", b"CAFE");
+        b.class(MAIN_NAME, MAIN);
         let bytes = b.build().unwrap();
         let p = Papk::parse(&bytes).unwrap();
         let keys: alloc::vec::Vec<&[u8]> = p.manifest().unwrap().map(|e| e.key).collect();
@@ -547,7 +543,7 @@ mod tests {
     #[test]
     fn unset_identity_keys_are_absent_not_empty() {
         let mut b = PapkBuilder::new(spec());
-        b.class("t/Main", b"CAFE");
+        b.class(MAIN_NAME, MAIN);
         let bytes = b.build().unwrap();
         let p = Papk::parse(&bytes).unwrap();
         assert_eq!(p.manifest().unwrap().count(), 4);
@@ -560,7 +556,7 @@ mod tests {
     fn a_garbled_version_code_reads_as_none() {
         let mut b = PapkBuilder::new(spec());
         b.manifest_entry("version-code", "seven");
-        b.class("t/Main", b"CAFE");
+        b.class(MAIN_NAME, MAIN);
         let bytes = b.build().unwrap();
         assert_eq!(Papk::parse(&bytes).unwrap().version_code(), None);
     }
@@ -568,10 +564,10 @@ mod tests {
     #[test]
     fn minimal_build_parses_back() {
         let mut b = PapkBuilder::new(spec());
-        b.class("t/Main", b"\xCA\xFE\xBA\xBE");
+        b.class(MAIN_NAME, MAIN);
         let bytes = b.build().unwrap();
         let p = Papk::parse(&bytes).unwrap();
-        assert_eq!(p.main_class(), Some("t/Main"));
+        assert_eq!(p.main_class(), Some(MAIN_NAME));
         assert_eq!(p.manifest_value(crate::keys::PACKAGE_NAME), Some("t"));
         assert_eq!(p.framework_map_version(), Some("0.0.0"));
         assert_eq!(p.class_count(), Ok(1));
@@ -579,14 +575,39 @@ mod tests {
         let hdr = p.file_header();
         assert_eq!(hdr.section_count, 2);
         assert_eq!(hdr.assets_offset, 0);
-        assert_eq!(hdr.version_minor, 1);
+        assert_eq!(hdr.version_minor, VERSION_MINOR);
+        // The class comes back with its table, and its name from the table.
+        let entry = p.classes().unwrap().next().unwrap();
+        assert_eq!(entry.name, MAIN_NAME.as_bytes());
+        assert_eq!(entry.data, MAIN);
+        assert_eq!(entry.link.methods_len(), 2, "<init> and main");
+        let section = p.class_section().unwrap();
+        assert_eq!(section.find_class(MAIN_NAME.as_bytes()), Some(0));
+        section.validate().unwrap();
+    }
+
+    #[test]
+    fn a_class_added_under_another_name_is_refused() {
+        let mut b = PapkBuilder::new(spec());
+        b.class("t/Main", MAIN);
+        assert_eq!(
+            b.build(),
+            Err(BuildError::Link(class_link::LinkError::NameMismatch {
+                idx: 0
+            }))
+        );
+        // As is a blob that is not a class file at all.
+        let mut b = PapkBuilder::new(spec());
+        b.class(MAIN_NAME, b"CAFE");
+        assert!(matches!(b.build(), Err(BuildError::Link(_))));
     }
 
     #[test]
     fn oversized_name_errors_instead_of_truncating() {
         let long = String::from_utf8(alloc::vec![b'a'; u16::MAX as usize + 1]).unwrap();
         let mut b = PapkBuilder::new(spec());
-        b.class(&long, b"x");
+        b.manifest_entry(&long, "v");
+        b.class(MAIN_NAME, MAIN);
         assert_eq!(b.build(), Err(BuildError::NameTooLong));
     }
 
@@ -599,15 +620,15 @@ mod tests {
     }
 
     #[test]
-    fn u16_max_name_still_builds() {
-        // The boundary the old writer handled correctly must keep working.
-        let name = String::from_utf8(alloc::vec![b'n'; u16::MAX as usize]).unwrap();
+    fn u16_max_manifest_key_still_builds() {
+        // The boundary the writer handles must keep working.
+        let key = String::from_utf8(alloc::vec![b'n'; u16::MAX as usize]).unwrap();
         let mut b = PapkBuilder::new(spec());
-        b.class(&name, b"x");
+        b.manifest_entry(&key, "v");
+        b.class(MAIN_NAME, MAIN);
         let bytes = b.build().unwrap();
         let p = Papk::parse(&bytes).unwrap();
-        let entry = p.classes().unwrap().next().unwrap();
-        assert_eq!(entry.name.len(), u16::MAX as usize);
+        assert_eq!(p.manifest_value(key.as_bytes()), Some("v"));
     }
 
     #[test]
@@ -618,6 +639,7 @@ mod tests {
             BuildError::ValueTooLong,
             BuildError::TooManyEntries,
             BuildError::TooLarge,
+            BuildError::Link(class_link::LinkError::Truncated),
         ] {
             assert!(!e.to_string().is_empty());
         }

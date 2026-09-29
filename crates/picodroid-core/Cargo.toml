@@ -79,6 +79,9 @@ line-numbers    = ["pico-jvm/line-numbers"]
 
 [dependencies]
 pico-jvm      = { path = "../jvm" }
+# The framework class section (`framework_classes.rs`) and the PAPK classes
+# are read through class-link.
+class-link    = { path = "../class-link" }
 compat        = { path = "../compat", version = "0.1" }
 # The install stream's integrity check is a PDBP concern: its hasher is seeded
 # with the CMD_INSTALL byte, and the host computes the same value.
@@ -137,6 +140,10 @@ freertos-rust = { version = "0.2.3", package = "freertos-rust-pd", optional = tr
 # manifest, so the tests build one rather than hand-rolling bytes that could
 # drift from the format.
 papk-format = { path = "../papk-format", features = ["write"] }
+# The tests link hand-assembled and framework class bytes on the spot.
+pico-jvm = { path = "../jvm", features = ["link-at-load"] }
+# The package tests mint real (member-less) classes for their PAPKs.
+class-link = { path = "../class-link", features = ["build"] }
 # Reads the committed shrink maps for the member-name guard tests
 # (native_handler/member_names.rs); a build-dependency already, host-only.
 class-shrink = { path = "../../tools/class-shrink" }

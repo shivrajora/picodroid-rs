@@ -76,10 +76,10 @@ mod tests {
     #[test]
     fn unshrink_descriptor_covers_java_names_in_the_corpus() {
         let mut shrunk_java_seen = 0;
-        for bytes in crate::framework_classes::FRAMEWORK_CLASSES {
+        for bytes in crate::framework_classes::class_bytes() {
             let cf = pico_jvm::class_file::ClassFile::parse(bytes).expect("parse framework class");
             for m in cf.methods() {
-                let raw = core::str::from_utf8(cf.cp_utf8(m.descriptor_index).unwrap()).unwrap();
+                let raw = core::str::from_utf8(cf.method_descriptor(m).unwrap()).unwrap();
                 let un = unshrink_descriptor(raw);
                 assert!(
                     !un.contains("La/") && !un.contains("Lb/"),
@@ -91,7 +91,7 @@ mod tests {
                 }
             }
         }
-        if SHRINK_ACTIVE && !crate::framework_classes::FRAMEWORK_CLASSES.is_empty() {
+        if SHRINK_ACTIVE && crate::framework_classes::FRAMEWORK_CLASS_COUNT > 0 {
             assert!(
                 shrunk_java_seen > 0,
                 "the active map shrinks java/** but no framework descriptor carries a b/ name"

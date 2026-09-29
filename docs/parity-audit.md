@@ -604,6 +604,12 @@ one blind spot (numbers for the History page, the widest):
 | dispatch memos, 7 handlers | 10.8 KB | 5.4 KB | rows of two `*const u8` |
 | resolution tables | 14 KB | 16 KB | `usize` keys; the simulator halves the entry counts to hold the same bytes, so its hit rate differs from the device's |
 | everything else | equal | equal | task stacks and TCBs (the boot budget), JVM object, array and string storage (M6), LittleFS buffers, the JSON pool, frames within 1 KB |
+
+*2026-09-29 (docs/designs/class-link-2026-09.md): the first two rows are gone
+on both sides. Class metadata is a pack-time link table read in place from
+flash — nothing is parsed and nothing is allocated per class — and a
+`ClassFile` is the data slice, one pointer to its table and the name hash:
+16 B on the device, 32 B on the host, no `OnceCell<Box>`.*
 | **arena total** | **399 KB** | **320 KB** | the device's own 10 KB the model never sees: FreeRTOS+TCP's IP task, socket streams and network buffers, host sockets in the simulator |
 
 And the blind spot: the LVGL pool (`lv_mem_kb`, 48 KB on this board) is a second heap that

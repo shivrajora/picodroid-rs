@@ -17,12 +17,11 @@
 //! spelled as loaded and field names go through `shrink_member`.
 
 use crate::shrink_names::{c, shrink_member};
-use pico_jvm::class_file::ClassFile;
+use pico_jvm::class_file::{ClassFile, Classes};
 use pico_jvm::interpreter::{field_slot, instance_slot_count};
 
 fn framework_classes() -> Vec<ClassFile> {
-    let classes: Vec<ClassFile> = crate::framework_classes::FRAMEWORK_CLASSES
-        .iter()
+    let classes: Vec<ClassFile> = crate::framework_classes::class_bytes()
         .map(|b| ClassFile::parse(b).expect("parse framework class"))
         .collect();
     assert!(
@@ -263,7 +262,7 @@ fn native_field_tables_match_the_class_files() {
     let classes = framework_classes();
     let mut wrong = Vec::new();
     for (class, field, expected) in slot_expectations() {
-        let actual = field_slot(&classes, class, shrink_member(field));
+        let actual = field_slot(Classes::linear(&classes), class, shrink_member(field));
         if actual != Some(expected) {
             wrong.push(format!(
                 "{class}.{field}: table says slot {expected}, class file says {actual:?}"
@@ -290,7 +289,7 @@ fn native_alloc_widths_match_the_class_files() {
         (c::picodroid_hardware_SensorEvent, event_fields::SLOTS),
     ] {
         assert_eq!(
-            instance_slot_count(&classes, class),
+            instance_slot_count(Classes::linear(&classes), class),
             Some(slots),
             "{class}: the native allocation width does not match the class file"
         );

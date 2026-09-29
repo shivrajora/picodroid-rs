@@ -8,11 +8,11 @@ use papk_format::{FileHeader, Papk, PapkError, FILE_HEADER_LEN};
 
 /// Collect `(name, size)` rows from the CLASSES section.
 ///
-/// `ClassIter` silently stops early when the section is truncated mid-record;
-/// papk-info is a diagnostic tool and must not print a short table for a
-/// corrupt file, so compare the yielded count against the declared count and
-/// error on shortfall (preserving the old hand-rolled reader's
-/// Err-on-truncation behavior).
+/// A class section whose directory or index does not fit is refused by the
+/// reader outright; `ClassIter` can still stop early on a record that does
+/// not resolve, and papk-info is a diagnostic tool that must not print a
+/// short table for a corrupt file, so the yielded count is compared against
+/// the declared count too.
 fn collect_class_rows(papk: &Papk) -> Result<Vec<(String, usize)>, String> {
     let declared = papk
         .class_count()
@@ -217,7 +217,11 @@ fn print_table(classes: &[(String, usize)]) {
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 fn run(path: &Path) -> Result<(), String> {
-    let data = fs::read(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
+    // The class section is read in place at an aligned address: copy the
+    // file into one (a `Vec<u8>` promises no alignment).
+    let data = papk_format::AlignedBuf::new(
+        &fs::read(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?,
+    );
 
     let filename = path
         .file_name()
@@ -241,12 +245,7 @@ fn run(path: &Path) -> Result<(), String> {
         other => format!("File header: {other}"),
     })?;
     println!();
-    let header_len = if hdr.version_minor >= papk_format::VERSION_MINOR_RESOURCES {
-        papk_format::FILE_HEADER_LEN_V1_2
-    } else {
-        FILE_HEADER_LEN
-    };
-    println!("File Header  ({header_len} bytes @ {:#x})", 0);
+    println!("File Header  ({FILE_HEADER_LEN} bytes @ {:#x})", 0);
     println!("  magic           \"PAPK\"");
     println!(
         "  version         {}.{}",
@@ -282,13 +281,18 @@ fn run(path: &Path) -> Result<(), String> {
     // version it did not understand).
     let papk = Papk::parse(&data).map_err(|e| match e {
         PapkError::UnsupportedVersion => format!(
-            "unsupported PAPK major version {} (papk-info supports {}) — \
-             stopping after the header dump",
+            "unsupported PAPK major version {} (papk-info reads {}; a v1 file must be \
+             re-packed with the current toolchain) — stopping after the header dump",
             hdr.version_major,
             papk_format::SUPPORTED_VERSION_MAJOR
         ),
         other => format!("{other}"),
     })?;
+    // The deep check `pdb install` and the device's package scan apply:
+    // every section in bounds, every class's link table valid against its
+    // bytes, the class index sorted and collision-free. A file that fails it
+    // would be refused everywhere else, so it is an error here too.
+    papk_format::validate_structure(&data).map_err(|e| format!("structure: {e}"))?;
 
     // ── Manifest section ─────────────────────────────────────────────────────
     let (manifest_hdr, _) = papk
@@ -446,19 +450,18 @@ mod tests {
 
     #[test]
     fn class_shortfall_is_an_error_not_a_short_table() {
-        // Inflate the declared class count: the iterator still yields only
-        // the one real class, and papk-info must error instead of printing a
-        // silently short table.
+        // Inflate the declared class count: the section's directory would
+        // run past its end, the reader refuses it, and papk-info errors
+        // instead of printing a silently short table.
         let mut bytes = MINIMAL_FIXTURE.to_vec();
         let hdr = FileHeader::parse(&bytes).unwrap();
         let count_off = hdr.classes_offset as usize + papk_format::SECTION_HEADER_LEN;
         bytes[count_off..count_off + 4].copy_from_slice(&7u32.to_le_bytes());
+        let bytes = papk_format::AlignedBuf::new(&bytes);
         let papk = Papk::parse(&bytes).unwrap();
+        assert_eq!(papk.class_count(), Ok(7));
         let err = collect_class_rows(&papk).unwrap_err();
-        assert_eq!(
-            err,
-            "CLASSES section truncated: declared 7 classes, found 1"
-        );
+        assert!(err.starts_with("CLASSES section:"), "{err}");
     }
 
     #[test]

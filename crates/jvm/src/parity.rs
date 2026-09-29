@@ -17,6 +17,7 @@ use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 static INSNS: AtomicUsize = AtomicUsize::new(0);
 static ALLOCS: AtomicUsize = AtomicUsize::new(0);
 static RESOLVES: AtomicUsize = AtomicUsize::new(0);
+static FIND_CLASS: AtomicUsize = AtomicUsize::new(0);
 static CACHE_DECLINES: AtomicUsize = AtomicUsize::new(0);
 static NATIVE_US: AtomicUsize = AtomicUsize::new(0);
 static NATIVE_CALLS: AtomicUsize = AtomicUsize::new(0);
@@ -92,6 +93,18 @@ pub fn count_allocs(n: usize) {
 #[inline(always)]
 pub fn count_resolve() {
     RESOLVES.fetch_add(1, Ordering::Relaxed);
+}
+
+/// One scan of the class table by name (`class_file::find_class`) — the
+/// work a warm span should never do: a hit in the resolution tables costs
+/// none. Counts the scans of every caller, resolution or not.
+#[inline(always)]
+pub fn count_find_class() {
+    FIND_CLASS.fetch_add(1, Ordering::Relaxed);
+}
+
+pub fn find_class_calls() -> usize {
+    FIND_CLASS.load(Ordering::Relaxed)
 }
 
 /// One cache entry the heap refused to store (`helpers::cache_push`).

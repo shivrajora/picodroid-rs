@@ -36,7 +36,7 @@ CSV_PATH = REPO / "bench" / "parity" / "history.csv"
 DETERMINISTIC = {
     "insns", "allocs", "gcs", "bands", "fbytes",
     "flash_bytes", "ram_bytes", "text", "data", "bss", "app_region_bytes",
-    "classes_parsed", "classes_total", "apk_bytes",
+    "classes_total", "apk_bytes",
     "oom_count", "gc_count",
 }
 
@@ -193,7 +193,7 @@ def cmd_fit(rows, args):
         sys.exit(f"no hil wall_ms for {app}/{mode}")
     hil_by_commit = {c: statistics.median(v) for (_, c), v in hil.items()}
 
-    regressors = ["wall_ms", "gc_count", "gc_freed", "heap_peak_kb", "classes_parsed"]
+    regressors = ["wall_ms", "gc_count", "gc_freed", "heap_peak_kb"]
     print(f"device wall_ms ~ sim signals   (app={app} mode={mode})\n")
     print(f"{'regressor':<18} {'n':>4} {'pearson r':>10} {'R^2':>8}")
     for reg in regressors:
@@ -265,11 +265,25 @@ def cmd_holdout(rows, args):
 
 RATCHET = REPO / "bench" / "parity" / "ratchet.toml"
 
-# The RP2040 program region is 917,248 B and is enforced today only by the link
-# failing. G1_HARD keeps a deliberate reserve below it so the gate trips in
-# review rather than at 3am in someone's build.
-G1_HARD = 908_000
+# The RP2040 program region is enforced today only by the link failing. The
+# hard gate sits a deliberate reserve below the region so it trips in review
+# rather than at 3am in someone's build. The region is whatever the board's
+# linker script leaves after its app region (`app_region_kb` in board.toml:
+# 917,248 B with the 1024K region, 1,179,392 B with 768K since 2026-09-29),
+# so the ceiling is read from the size-lane run (`#program_flash_max`, via
+# flash_headroom_bytes) and G1_HARD is only the fallback for a run without it.
+G1_RESERVE = 9_248
+G1_HARD = 917_248 - G1_RESERVE
 G2_HARD = 532_480          # rp2350 data+bss, the chip's whole SRAM
+
+
+def flash_ceiling(cur, board):
+    """The RP2040 hard flash ceiling for `board` from the run's own region."""
+    flash = cur.get((board, "flash_bytes"))
+    headroom = cur.get((board, "flash_headroom_bytes"))
+    if flash is None or headroom is None:
+        return G1_HARD
+    return flash + headroom - G1_RESERVE
 
 
 def read_ratchet():
@@ -361,7 +375,7 @@ def cmd_ratchet(rows, args):
             if c is None:
                 continue
             b = base.get(board, {}).get(metric)
-            hard = G1_HARD if metric == "flash_bytes" else G2_HARD
+            hard = flash_ceiling(cur, board) if metric == "flash_bytes" else G2_HARD
             verdict = ""
             if metric == "flash_bytes" and "rp2040" in board and c > hard:
                 verdict = "FAIL (hard ceiling)"

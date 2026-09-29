@@ -7,6 +7,7 @@
 //! `java/util/Locale`.
 use super::asm::{Asm, Method, ACC_INTERFACE};
 use super::*;
+use crate::class_file::Classes;
 use crate::names::{c, d, m};
 use alloc::vec;
 
@@ -295,6 +296,38 @@ fn push_boxed_12345(a: &mut Asm) -> Vec<u8> {
     vec![0x11, 0x30, 0x39, 0xB8, hi(value_of), lo(value_of)] // sipush 12345
 }
 
+/// The stringification is a property of the site, remembered with its
+/// resolution: two `append(Object)` through one `Methodref` — the second a
+/// hit on the entry the first inserted — both run the argument's Java
+/// `toString()` before the native arm.
+#[test]
+fn a_stringify_site_runs_to_string_on_every_call() {
+    let mut a = Asm::new();
+    let this = a.class("T");
+    let obj = a.class(OBJ);
+    let sb = a.class(c::java_lang_StringBuilder);
+    let seed = a.string("x=");
+    let init = a.methodref(0x0A, sb, "<init>", d::String__V);
+    let append = a.methodref(0x0A, sb, m::append, d::Object__StringBuilder);
+    let to_s = a.methodref(0x0A, sb, m::toString, d::__String);
+    let string = a.class(c::java_lang_String);
+    let length = a.methodref(0x0A, string, m::length, "()I");
+    let p = a.class("P");
+    #[rustfmt::skip]
+    let code = [
+        0xBB, hi(sb), lo(sb), 0x59, 0x12, lo(seed), 0xB7, hi(init), lo(init), // new StringBuilder("x=")
+        0xBB, hi(p), lo(p), 0xB6, hi(append), lo(append),                     // .append(new P())
+        0xBB, hi(p), lo(p), 0xB6, hi(append), lo(append),                     // .append(new P())
+        0xB6, hi(to_s), lo(to_s), 0xB6, hi(length), lo(length), 0xAC,        // .toString().length()
+    ];
+    let t = a.finish(0x0001, this, obj, &[], Some((4, &code, &[])));
+    let classes: Vec<&'static [u8]> = vec![class_with_to_string("P", "abc"), t];
+    assert_eq!(
+        run_multi(&classes, 1, &[]).unwrap(),
+        Some(Value::Int("x=abcabc".len() as i32))
+    );
+}
+
 #[test]
 fn append_object_runs_a_java_to_string() {
     // The receiver survives the frame push + re-execution: the seeded
@@ -539,7 +572,7 @@ fn linked_hash_map_is_a_map_backed_by_the_hash_map_dispatcher() {
 
 #[test]
 fn aliases_sit_in_the_builtin_hierarchy() {
-    let is = |c, t| helpers::is_instance_of(&[], c, t);
+    let is = |c, t| helpers::is_instance_of(Classes::linear(&[]), c, t);
     assert!(is(c::java_util_LinkedHashMap, c::java_util_HashMap));
     assert!(is(c::java_util_LinkedHashMap, c::java_util_Map));
     assert!(is(c::java_util_LinkedHashSet, c::java_util_Set));

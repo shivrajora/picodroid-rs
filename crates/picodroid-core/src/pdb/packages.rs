@@ -153,7 +153,8 @@ mod tests {
             label,
             icon: None,
         });
-        b.class("t/Main", b"CAFE");
+        let main = crate::packages::test_support::t_main();
+        b.class("t/Main", &main);
         b.build().unwrap()
     }
 

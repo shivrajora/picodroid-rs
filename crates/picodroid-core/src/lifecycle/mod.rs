@@ -139,6 +139,8 @@ struct SpanStart {
     #[cfg(feature = "parity-metrics")]
     resolves: usize,
     #[cfg(feature = "parity-metrics")]
+    find_class: usize,
+    #[cfg(feature = "parity-metrics")]
     declines: usize,
     #[cfg(feature = "parity-metrics")]
     native_us: usize,
@@ -190,6 +192,8 @@ fn span_start() -> SpanStart {
         insns: pico_jvm::parity::insns(),
         #[cfg(feature = "parity-metrics")]
         resolves: pico_jvm::parity::resolves(),
+        #[cfg(feature = "parity-metrics")]
+        find_class: pico_jvm::parity::find_class_calls(),
         #[cfg(feature = "parity-metrics")]
         declines: pico_jvm::parity::cache_declines(),
         #[cfg(feature = "parity-metrics")]
@@ -247,9 +251,10 @@ fn warn_if_slow(span: &str, start: SpanStart, slow_ms: u64, last_warn_ms: &mut u
         let elapsed = now_ms().saturating_sub(start.ms);
         #[cfg(feature = "parity-metrics")]
         eprintln!(
-            "[sim] span: {span} {elapsed} ms insns={} resolves={} declines={} native={} us/{} calls resolve={} us clinit={} us invoke={} us/{} frame={} us parsed={}/{} us",
+            "[sim] span: {span} {elapsed} ms insns={} resolves={} find_class={} declines={} native={} us/{} calls resolve={} us clinit={} us invoke={} us/{} frame={} us parsed={}/{} us",
             pico_jvm::parity::insns().wrapping_sub(start.insns),
             pico_jvm::parity::resolves().wrapping_sub(start.resolves),
+            pico_jvm::parity::find_class_calls().wrapping_sub(start.find_class),
             pico_jvm::parity::cache_declines().wrapping_sub(start.declines),
             pico_jvm::parity::native_us().wrapping_sub(start.native_us),
             pico_jvm::parity::native_calls().wrapping_sub(start.native_calls),

@@ -89,12 +89,15 @@ fn gen_spec(rng: &mut XorShift, max_class_blob: usize, max_asset_data: usize) ->
         let value = rng.ascii_string(value_len);
         extras.push((key, value));
     }
+    // Every class is linked on the way in, so each must be a real class
+    // file spelling its own name; a per-case ordinal keeps the names apart
+    // (two classes with one name are refused).
+    let _ = max_class_blob;
     let mut classes = Vec::new();
-    for _ in 0..rng.below(16) {
-        let name_len = 1 + rng.below(64);
-        let name = rng.ascii_string(name_len);
-        let blob_len = rng.below(max_class_blob + 1);
-        let blob = rng.bytes(blob_len);
+    for i in 0..rng.below(16) {
+        let name_len = 1 + rng.below(48);
+        let name = format!("g{i}/{}", rng.ascii_string(name_len));
+        let blob = class_link::build::minimal_class(name.as_bytes());
         classes.push((name, blob));
     }
     let mut assets = Vec::new();
@@ -188,7 +191,7 @@ fn round_trip_200_random_papks() {
     let mut rng = XorShift::new(SEED);
     for case in 0..200 {
         let spec = gen_spec(&mut rng, 4096, 1024);
-        let file = build(&spec);
+        let file = papk_format::AlignedBuf::new(&build(&spec));
         let p = Papk::parse(&file).unwrap_or_else(|e| panic!("case {case}: parse failed: {e}"));
 
         // ── Manifest: exact entry order and content. ─────────────────────
@@ -289,9 +292,13 @@ fn round_trip_200_random_papks() {
         }
 
         // Header basics the writer must always emit.
-        assert_eq!(hdr.version_major, 1, "case {case}");
-        assert_eq!(hdr.version_minor, 1, "case {case}");
-        assert_eq!(hdr.manifest_offset, 24, "case {case}");
+        assert_eq!(hdr.version_major, papk_format::VERSION_MAJOR, "case {case}");
+        assert_eq!(hdr.version_minor, papk_format::VERSION_MINOR, "case {case}");
+        assert_eq!(
+            hdr.manifest_offset as usize,
+            papk_format::FILE_HEADER_LEN,
+            "case {case}"
+        );
     }
 }
 

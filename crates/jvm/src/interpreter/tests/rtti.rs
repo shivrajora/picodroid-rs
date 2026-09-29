@@ -5,6 +5,7 @@
 //! `java/lang/String` whatever the constant pool declared.
 use super::asm::{Asm, ACC_INTERFACE};
 use super::*;
+use crate::class_file::Classes;
 use crate::names::{c, d};
 use crate::names::{m, spelled};
 use crate::native::BUILTIN_CLASS_NAMES;
@@ -68,7 +69,7 @@ fn builtin_hierarchy_names_are_registered() {
 #[test]
 fn builtin_collections_and_boxes_implement_their_interfaces() {
     let classes: Vec<ClassFile> = Vec::new();
-    let is = |rt: &str, t: &str| helpers::is_instance_of(&classes, rt, t);
+    let is = |rt: &str, t: &str| helpers::is_instance_of(Classes::linear(&classes), rt, t);
     for t in [
         c::java_util_List,
         c::java_util_Collection,
@@ -119,7 +120,7 @@ fn superinterfaces_are_walked_transitively() {
         plain_class("Base", c::java_lang_Object, &[]),
         plain_class("Sub", "Base", &["KList"]),
     ]);
-    let is = |rt: &str, t: &str| helpers::is_instance_of(&classes, rt, t);
+    let is = |rt: &str, t: &str| helpers::is_instance_of(Classes::linear(&classes), rt, t);
     assert!(is("Sub", "KList"));
     assert!(is("Sub", c::java_util_List));
     assert!(is("Sub", c::java_util_Collection));
@@ -145,7 +146,7 @@ fn deep_interface_chains_and_missing_interfaces_are_tolerated() {
             &["Bottom", "kotlin/jvm/internal/markers/KMappedMarker"],
         ),
     ]);
-    let is = |rt: &str, t: &str| helpers::is_instance_of(&classes, rt, t);
+    let is = |rt: &str, t: &str| helpers::is_instance_of(Classes::linear(&classes), rt, t);
     assert!(is("Impl", "Top"));
     assert!(is("Impl", "Right"));
     assert!(is("Impl", "kotlin/jvm/internal/markers/KMappedMarker"));
@@ -161,8 +162,12 @@ fn interface_cycle_terminates() {
         iface("B", &["A"]),
         plain_class("C", c::java_lang_Object, &["A"]),
     ]);
-    assert!(helpers::is_instance_of(&classes, "C", "B"));
-    assert!(!helpers::is_instance_of(&classes, "C", "Nope"));
+    assert!(helpers::is_instance_of(Classes::linear(&classes), "C", "B"));
+    assert!(!helpers::is_instance_of(
+        Classes::linear(&classes),
+        "C",
+        "Nope"
+    ));
 }
 
 // ── value_is_instance: strings, arrays, null ──────────────────────────────
@@ -175,7 +180,9 @@ fn strings_and_arrays_have_runtime_classes() {
     let ints = Value::ArrayRef(arrays.alloc(crate::array_heap::ATYPE_INT, 2).unwrap());
     let refs = Value::ArrayRef(arrays.alloc(crate::array_heap::ATYPE_REF, 2).unwrap());
     let s = Value::Reference(0);
-    let is = |v: Value, t: &str| helpers::value_is_instance(&classes, &objects, &arrays, v, t);
+    let is = |v: Value, t: &str| {
+        helpers::value_is_instance(Classes::linear(&classes), &objects, &arrays, v, t)
+    };
     for t in [
         c::java_lang_String,
         c::java_lang_CharSequence,
@@ -281,7 +288,7 @@ fn class_cast_exception_is_alloc_by_name() {
     let mut handler = NoopHandler;
     let classes: Vec<ClassFile> = Vec::new();
     let mut ex = Executor {
-        classes: &classes,
+        classes: Classes::linear(&classes),
         strings: &mut strings,
         objects: &mut objects,
         arrays: &mut arrays,

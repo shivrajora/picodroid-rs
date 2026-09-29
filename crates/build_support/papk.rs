@@ -200,11 +200,7 @@ pub fn embed_framework_classes(out: &Path, root: &Path, excludes: &[String]) {
     // moment it touches Intent / StringBuilder / etc.
     println!("cargo:rerun-if-env-changed=PICODROID_APK_PATH");
     if env::var("PICODROID_APK_PATH").is_err() {
-        fs::write(
-            out.join("framework_classes.rs"),
-            b"pub static FRAMEWORK_CLASSES: &[&[u8]] = &[];\npub static FRAMEWORK_EXCLUDED_CLASSES: &[&str] = &[];\npub const FRAMEWORK_CLASSES_LINE_NUMBERS: bool = false;\n",
-        )
-        .unwrap();
+        write_framework_section(out, &[], &[], false);
         return;
     }
 
@@ -328,19 +324,23 @@ pub fn embed_framework_classes(out: &Path, root: &Path, excludes: &[String]) {
     let mut class_files = collect_files(&embed_dir, "class");
     class_files.sort();
 
-    let mut entries = String::new();
+    // Every surviving class, with the name its path spells (the shrunk
+    // spelling under a map): `build_section_named` refuses a file whose own
+    // name differs, which is what a half-applied shrink would look like.
+    let mut named: Vec<(String, Vec<u8>)> = Vec::new();
     let mut dropped: Vec<String> = Vec::new();
     for f in &class_files {
         if let Some(name) = excluded_class_name(f, &embed_dir, excludes, &unshrink) {
             dropped.push(name);
             continue;
         }
-        let abs = f
-            .canonicalize()
-            .unwrap_or_else(|_| f.clone())
-            .display()
-            .to_string();
-        entries.push_str(&format!("    include_bytes!({abs:?}),\n"));
+        let rel = f.strip_prefix(&embed_dir).unwrap_or(f);
+        let name = rel
+            .with_extension("")
+            .to_string_lossy()
+            .replace(std::path::MAIN_SEPARATOR, "/");
+        let bytes = fs::read(f).unwrap_or_else(|e| panic!("cannot read {}: {e}", f.display()));
+        named.push((name, bytes));
     }
 
     // Name an exclude that matched nothing: a typo would otherwise look like
@@ -358,15 +358,67 @@ pub fn embed_framework_classes(out: &Path, root: &Path, excludes: &[String]) {
     }
 
     dropped.sort();
+    write_framework_section(out, &named, &dropped, lines);
+}
+
+/// Link `classes` into one class section — the same bytes a PAPK's CLASSES
+/// section holds, so the firmware loads the framework through the reader
+/// the app goes through — validate it, and emit `framework_classes.rs`:
+/// the section as an aligned static, its class count, the board's excluded
+/// classes and the line-numbers flag.
+fn write_framework_section(
+    out: &Path,
+    classes: &[(String, Vec<u8>)],
+    dropped: &[String],
+    lines: bool,
+) {
+    let named: Vec<(&[u8], &[u8])> = classes
+        .iter()
+        .map(|(n, b)| (n.as_bytes(), b.as_slice()))
+        .collect();
+    let section = class_link::build::build_section_named(&named).unwrap_or_else(|e| {
+        let culprit = match e {
+            class_link::LinkError::NameMismatch { idx }
+            | class_link::LinkError::DuplicateClass { b: idx, .. }
+            | class_link::LinkError::HashCollision { b: idx, .. } => {
+                classes.get(idx as usize).map(|(n, _)| n.as_str())
+            }
+            _ => None,
+        };
+        panic!(
+            "linking the framework classes failed: {e}{}",
+            culprit.map(|n| format!(" ({n})")).unwrap_or_default()
+        )
+    });
+    // `validate` walks every table against its class bytes; the runtime
+    // then trusts them.
+    {
+        let aligned = papk_format::AlignedBuf::new(&section);
+        class_link::ClassSection::parse(&aligned)
+            .and_then(|s| s.validate())
+            .unwrap_or_else(|e| panic!("framework class section does not validate: {e}"));
+    }
+    let bin_path = out.join("framework_clss.bin");
+    fs::write(&bin_path, &section)
+        .unwrap_or_else(|e| panic!("cannot write {}: {e}", bin_path.display()));
+    let abs_bin = bin_path.canonicalize().unwrap();
     let dropped_entries: String = dropped.iter().map(|n| format!("    {n:?},\n")).collect();
     let content = format!(
-        "pub static FRAMEWORK_CLASSES: &[&[u8]] = &[\n{entries}];\n\
+        "/// The framework corpus as a class section (crates/class-link/src/section.rs):\n\
+         /// every class with its link table, plus the sorted class index. The same\n\
+         /// layout as a PAPK's CLASSES section, read by the same code.\n\
+         pub static FRAMEWORK_CLSS: AlignedBytes<{len}> = AlignedBytes(*include_bytes!({path:?}));\n\
+         /// Classes in `FRAMEWORK_CLSS`.\n\
+         pub const FRAMEWORK_CLASS_COUNT: usize = {count};\n\
          pub static FRAMEWORK_EXCLUDED_CLASSES: &[&str] = &[\n{dropped_entries}];\n\
          /// True when the embedded classes came from `:sdk:stripClassesLines`\n\
          /// (LineNumberTable / SourceFile kept, StackMapTable etc. dropped), i.e.\n\
          /// the build has the `line-numbers` feature. Pinned to\n\
          /// `cfg!(feature = \"line-numbers\")` by a picodroid-core test.\n\
-         pub const FRAMEWORK_CLASSES_LINE_NUMBERS: bool = {lines};\n"
+         pub const FRAMEWORK_CLASSES_LINE_NUMBERS: bool = {lines};\n",
+        len = section.len(),
+        path = abs_bin.display().to_string(),
+        count = classes.len(),
     );
     fs::write(out.join("framework_classes.rs"), content).unwrap();
 }

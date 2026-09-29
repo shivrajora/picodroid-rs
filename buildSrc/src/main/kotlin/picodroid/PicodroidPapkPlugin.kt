@@ -342,11 +342,16 @@ class PicodroidPapkPlugin : Plugin<Project> {
         // and an R.java generated from the same tree before compileJava
         // (third generated srcDir, same shape as AssetConstants above).
         val appResDir = target.projectDir.resolve("res")
-        // Both resource tasks re-run when the compiler changes: ids and the
-        // table format are whatever that code says they are.
+        // The packer and everything it packs with. Every task that runs it
+        // takes these as inputs, so a change to the packer, the PAPK format
+        // or the class linker re-packs every app: the on-disk layout is
+        // whatever that code says it is, and a `.papk` Gradle left alone
+        // because the *class files* had not changed is what the firmware
+        // build refuses (2026-09-28: the v2 cutover met stale v1 outputs).
         val resCompilerSources = target.fileTree(repoRoot) {
             include("tools/papk-pack/src/**", "tools/papk-pack/Cargo.toml")
             include("crates/papk-format/src/**", "crates/papk-format/Cargo.toml")
+            include("crates/class-link/src/**", "crates/class-link/Cargo.toml")
         }
         if (appResDir.isDirectory) {
             val genR = target.tasks.register("generateR", GenerateRTask::class.java) {
@@ -435,8 +440,8 @@ class PicodroidPapkPlugin : Plugin<Project> {
             }
             if (appResDir.isDirectory) {
                 resDir.set(appResDir)
-                packerSources.from(resCompilerSources)
             }
+            packerSources.from(resCompilerSources)
             if (shrinkMapFile != null) wireActiveMap(this.shrinkMapFile)
             outputFile.set(target.layout.buildDirectory.file("papk/${target.name}.papk"))
             this.hostTarget.set(hostTarget)

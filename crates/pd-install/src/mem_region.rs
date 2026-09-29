@@ -35,10 +35,17 @@ pub enum Op {
 
 impl MemRegion {
     /// A region of `sectors` erased sectors with room for `max_apps`.
+    /// 8-byte aligned, as flash is: an installed PAPK's class section is
+    /// read in place as `u16` words and 8-byte index entries.
     pub fn new(sectors: usize, max_apps: usize) -> Self {
-        let buf = alloc::vec![0xFFu8; sectors * META_SIZE].into_boxed_slice();
+        let len = sectors * META_SIZE;
+        let words = alloc::vec![u64::MAX; len.div_ceil(8)].into_boxed_slice();
+        let words: &'static mut [u64] = alloc::boxed::Box::leak(words);
+        // SAFETY: `words` holds at least `len` bytes, all initialised to
+        // 0xFF (erased), leaked for the program's life; a `u8` view of it.
+        let buf = unsafe { core::slice::from_raw_parts_mut(words.as_mut_ptr().cast::<u8>(), len) };
         Self {
-            buf: alloc::boxed::Box::leak(buf),
+            buf,
             target: 0,
             max_apps,
             ops: Vec::new(),

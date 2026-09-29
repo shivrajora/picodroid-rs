@@ -389,7 +389,7 @@ fn system_arraycopy_throws_null_pointer_exception_on_a_null_array() {
         let mut arrays = ArrayHeap::new();
         let args = build(&mut arrays);
         let mut ctx = NativeContext {
-            classes: &[],
+            classes: Classes::linear(&[]),
             descriptor: "(Ljava/lang/Object;ILjava/lang/Object;II)V",
             args: &args,
             strings: &mut strings,

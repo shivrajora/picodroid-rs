@@ -231,10 +231,26 @@ jobs:
       # never refused, so the developer never renames anything by hand.
       - name: Assemble all PAPKs (shrink-app)
         run: ./gradlew assemblePapk -Ppicodroid.shrink=true -Ppicodroid.shrinkApp=true --console=plain
+      # Every packed file re-validated the way `pdb install` and the device's
+      # package scan validate it: header, sections, and every class's link
+      # table against its bytes (docs/designs/class-link-2026-09.md).
+      - name: Validate every PAPK (shrink-app)
+        run: |
+          for f in examples/*/build/papk/*.papk; do
+            cargo run -q -p papk-info -- "$f" > /dev/null || { echo "::error::$f failed validation"; exit 1; }
+          done
       # Every example through the device-bound debug-attribute strip — an ASM
       # rewrite of every class (docs/designs/flash-string-budget-2026-08.md §4).
       - name: Assemble all PAPKs (strip-debug)
         run: ./gradlew assemblePapk -Ppicodroid.stripDebug=true --console=plain
+      # Every packed file re-validated the way `pdb install` and the device's
+      # package scan validate it: header, sections, and every class's link
+      # table against its bytes (docs/designs/class-link-2026-09.md).
+      - name: Validate every PAPK (strip-debug)
+        run: |
+          for f in examples/*/build/papk/*.papk; do
+            cargo run -q -p papk-info -- "$f" > /dev/null || { echo "::error::$f failed validation"; exit 1; }
+          done
       # The @Inject annotation processor's golden-output + validation tests
       # (docs/designs/inject-annotations-2026-08.md).
       - name: Test the @Inject annotation processor

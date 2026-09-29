@@ -18,7 +18,9 @@ freertos-device = ["dep:freertos-cargo-build"]
 [dependencies]
 cc = "1.0"
 freertos-cargo-build = { version = "0.2.3", package = "freertos-cargo-build-pd", optional = true }
-papk-format = { path = "../papk-format" }
+papk-format = { path = "../papk-format", features = ["write"] }
+# Links the framework class files into the class section the firmware embeds.
+class-link = { path = "../class-link", features = ["build"] }
 # Shrinker library (host-only). Applied to framework .class files whenever a
 # committed shrink map covers the current picodroid package version.
 class-shrink = { path = "../../tools/class-shrink" }

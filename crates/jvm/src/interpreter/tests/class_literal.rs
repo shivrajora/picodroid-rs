@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::*;
+use crate::class_file::Classes;
 use crate::class_objects::ClassObjectCache;
 use crate::gc::GcState;
 use crate::names::c;
@@ -132,7 +133,7 @@ fn ldc_class_for_unknown_class_errors() {
     let cf_ref = &classes[0];
     let result = crate::interpreter::helpers::resolve_ldc(
         cf_ref,
-        &classes,
+        Classes::linear(&classes),
         &mut strings,
         &mut objects,
         &mut class_objects,
@@ -158,7 +159,7 @@ fn ldc_class_for_builtin_name_resolves() {
     let cf_ref = &classes[0];
     let result = crate::interpreter::helpers::resolve_ldc(
         cf_ref,
-        &classes,
+        Classes::linear(&classes),
         &mut strings,
         &mut objects,
         &mut class_objects,

@@ -1,6 +1,13 @@
 # Board: TestBench RP2040 — Waveshare 2.8" Pico display (ST7789 + XPT2046) on Pico (RP2040)
 mcu = "rp2040"
 
+# Program region: 1152K. The MCU default (fs 128K + app region 1024K) left
+# 896K, which the framework's link tables — the parsed record of every SDK
+# class, in flash since 2026-09-28 (docs/designs/class-link-2026-09.md) —
+# overflowed by ~40 KB. This is a single-app board (max_installed_apps = 1)
+# and the largest example PAPK is ~125 KB, so the app region gives up 256K.
+app_region_kb = 768
+
 # RAM (256 KB): the FreeRTOS arena (rp2040.toml heap_kb = 160) carries every
 # task stack and the JVM, so LVGL's own pool is trimmed to the 48 KB the
 # Enviro boards run their full UI on; 64 KB (lv_conf.h's default) next to a

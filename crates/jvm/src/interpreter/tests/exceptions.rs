@@ -362,89 +362,90 @@ fn athrow_subclass_caught_by_superclass() {
 /// silently never firing.
 #[test]
 fn builtin_throwable_hierarchy_resolves_without_classfiles() {
+    use crate::class_file::Classes;
     use crate::interpreter::helpers::is_instance_of;
     let classes: [crate::class_file::ClassFile; 0] = [];
     assert!(is_instance_of(
-        &classes,
+        Classes::linear(&classes),
         c::java_lang_RuntimeException,
         c::java_lang_Throwable
     ));
     assert!(is_instance_of(
-        &classes,
+        Classes::linear(&classes),
         c::java_lang_RuntimeException,
         c::java_lang_Exception
     ));
     assert!(is_instance_of(
-        &classes,
+        Classes::linear(&classes),
         c::java_lang_NumberFormatException,
         c::java_lang_IllegalArgumentException
     ));
     assert!(is_instance_of(
-        &classes,
+        Classes::linear(&classes),
         c::java_lang_NullPointerException,
         c::java_lang_RuntimeException
     ));
     // Object-ward only — and unrelated targets still fail.
     assert!(!is_instance_of(
-        &classes,
+        Classes::linear(&classes),
         c::java_lang_Throwable,
         c::java_lang_Exception
     ));
     assert!(!is_instance_of(
-        &classes,
+        Classes::linear(&classes),
         c::java_lang_RuntimeException,
         c::java_lang_Error
     ));
     // java.net taxonomy (typed network exceptions, NET-9).
     assert!(is_instance_of(
-        &classes,
+        Classes::linear(&classes),
         c::java_net_ConnectException,
         c::java_net_SocketException
     ));
     assert!(is_instance_of(
-        &classes,
+        Classes::linear(&classes),
         c::java_net_ConnectException,
         c::java_io_IOException
     ));
     assert!(is_instance_of(
-        &classes,
+        Classes::linear(&classes),
         c::java_net_BindException,
         c::java_net_SocketException
     ));
     assert!(is_instance_of(
-        &classes,
+        Classes::linear(&classes),
         c::java_net_NoRouteToHostException,
         c::java_io_IOException
     ));
     assert!(is_instance_of(
-        &classes,
+        Classes::linear(&classes),
         c::java_net_SocketTimeoutException,
         c::java_io_InterruptedIOException
     ));
     assert!(is_instance_of(
-        &classes,
+        Classes::linear(&classes),
         c::java_net_SocketTimeoutException,
         c::java_io_IOException
     ));
     assert!(is_instance_of(
-        &classes,
+        Classes::linear(&classes),
         c::java_net_UnknownHostException,
         c::java_io_IOException
     ));
     assert!(is_instance_of(
-        &classes,
+        Classes::linear(&classes),
         c::java_net_ProtocolException,
         c::java_io_IOException
     ));
     // Real-Java quirk, pinned: SocketTimeoutException extends
     // InterruptedIOException, NOT SocketException.
     assert!(!is_instance_of(
-        &classes,
+        Classes::linear(&classes),
         c::java_net_SocketTimeoutException,
         c::java_net_SocketException
     ));
     assert!(!is_instance_of(
-        &classes,
+        Classes::linear(&classes),
         c::java_net_SocketException,
         c::java_net_ConnectException
     ));
