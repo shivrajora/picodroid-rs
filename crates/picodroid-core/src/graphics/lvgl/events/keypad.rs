@@ -6,6 +6,8 @@
 use super::*;
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
+#[cfg(has_buttons)]
+use core::cell::Cell;
 
 // ── Java-visible key event queue (parallel to LVGL's internal queue) ────────
 
@@ -136,7 +138,8 @@ pub(super) fn focused_obj_for_edit_mode() -> (usize, bool) {
 /// is read. The system keyboard waits for that release before it takes the
 /// focus (`take_pending_focus`), or the release would land on its first key.
 #[cfg(has_buttons)]
-static mut KEY_HELD: bool = false;
+// SAFETY: widget-layer state, reached only from JVM tasks.
+static KEY_HELD: Core0<Cell<bool>> = unsafe { Core0::new(Cell::new(false)) };
 
 #[cfg(has_buttons)]
 pub(super) unsafe extern "C" fn keypad_read_cb(
@@ -161,9 +164,7 @@ pub(super) unsafe extern "C" fn keypad_read_cb(
         }
     };
     if let Some(event) = debounced {
-        unsafe {
-            KEY_HELD = !event.rising;
-        }
+        KEY_HELD.set(!event.rising);
         let key = BUTTONS
             .iter()
             .find(|&&(p, _, _)| p == event.pin)
@@ -239,7 +240,7 @@ pub(super) unsafe extern "C" fn keypad_read_cb(
         // A quiet pass with every key up: the key that opened the system
         // keyboard has been released, so the keyboard may take the focus
         // now without that release landing on its first key.
-        if unsafe { !KEY_HELD } {
+        if !KEY_HELD.get() {
             if let Some((kb, first_key)) = super::super::widgets::keyboard::take_pending_focus() {
                 // SAFETY: the keyboard is the live system keyboard (visible,
                 // never freed while the graphics singleton lives).

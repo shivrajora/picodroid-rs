@@ -9,32 +9,27 @@
 
 #![cfg(not(test))]
 
+use crate::util::local::Core0;
+use core::cell::Cell;
+
 /// id of the notification currently "visible" (or [`NONE`] for none).
 ///
-/// Plain `static mut` rather than `AtomicI32` — RP2040's Cortex-M0+ has no
-/// LL/SC and so doesn't implement `compare_exchange`. The main thread is the
-/// only writer (notifications fire from `Service.startForeground` /
+/// A `Cell` rather than an `AtomicI32`: the main thread is the only writer
+/// (notifications fire from `Service.startForeground` /
 /// `Service.stopForeground`, both processed inside the JVM dispatcher on the
-/// main thread); nothing reads from another core.
-static mut VISIBLE_ID: i32 = NONE;
+/// main thread) and nothing reads from another core.
+// SAFETY: written and read on the main JVM task only.
+static VISIBLE_ID: Core0<Cell<i32>> = unsafe { Core0::new(Cell::new(NONE)) };
 const NONE: i32 = i32::MIN;
 
 #[inline]
 fn visible_id_load() -> i32 {
-    // SAFETY: single-threaded access — see the field's doc comment.
-    #[allow(static_mut_refs)]
-    unsafe {
-        VISIBLE_ID
-    }
+    VISIBLE_ID.get()
 }
 
 #[inline]
 fn visible_id_store(v: i32) {
-    // SAFETY: single-threaded access — see the field's doc comment.
-    #[allow(static_mut_refs)]
-    unsafe {
-        VISIBLE_ID = v;
-    }
+    VISIBLE_ID.set(v);
 }
 
 /// Post (or replace) the foreground-service notification.

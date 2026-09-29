@@ -22,6 +22,8 @@
 use crate::graphics::gfx::Handle;
 use crate::hal;
 use crate::lvgl_ffi::*;
+use crate::util::local::Core0;
+use core::cell::Cell;
 use core::ffi::c_void;
 
 use super::handle_table;
@@ -48,7 +50,8 @@ static mut BAND_BUF: BandBuf = BandBuf([0u8; BAND_BUF_SIZE * DRAW_BUFFERS]);
 /// Handle table id of the active screen, set during `init`. The active
 /// screen pointer is stable across the program's lifetime in our usage
 /// (we never call `lv_screen_load`), so caching once is safe.
-static mut SCREEN_HANDLE: Handle = Handle::NULL;
+// SAFETY: widget-layer state, reached only from JVM tasks.
+static SCREEN_HANDLE: Core0<Cell<Handle>> = unsafe { Core0::new(Cell::new(Handle::NULL)) };
 
 // ── Public lifecycle entry points (called from LvglGfx trait impl) ──────────
 
@@ -104,7 +107,7 @@ pub(in crate::graphics) fn init(width: u16, height: u16) {
         // handle_table::reset() (PDB reload), and must not accumulate
         // LV_EVENT_DELETE hooks — register_pinned covers all three.
         let scr = lv_screen_active();
-        SCREEN_HANDLE = Handle::from_java(handle_table::register_pinned(scr));
+        SCREEN_HANDLE.set(Handle::from_java(handle_table::register_pinned(scr)));
     }
 }
 
@@ -150,7 +153,7 @@ pub(in crate::graphics) fn wake() {
 }
 
 pub(in crate::graphics) fn screen_handle() -> Handle {
-    unsafe { SCREEN_HANDLE }
+    SCREEN_HANDLE.get()
 }
 
 /// Raw screen pointer accessor for legacy callers (widgets that still use
@@ -260,7 +263,8 @@ unsafe extern "C" fn flush_wait_cb(_disp: *mut lv_display_t) {
 /// The last sample handed to LVGL. When the sampler's ring is empty — an
 /// unmoving finger, or no finger — LVGL still asks on every read and has to be
 /// told the state it is already in, or a held press would look like a lift.
-static mut LAST_DELIVERED: Option<(u16, u16)> = None;
+// SAFETY: widget-layer state, reached only from JVM tasks.
+static LAST_DELIVERED: Core0<Cell<Option<(u16, u16)>>> = unsafe { Core0::new(Cell::new(None)) };
 
 /// LVGL input device read callback — called by LVGL to poll touch state.
 ///
@@ -281,12 +285,12 @@ unsafe extern "C" fn touch_read_cb(_indev: *mut lv_indev_t, data: *mut lv_indev_
         match hal::touch_sampler::next() {
             Some(s) => (s, hal::touch_sampler::pending()),
             // SAFETY: single-threaded LVGL callback; only this fn touches it.
-            None => (unsafe { LAST_DELIVERED }, false),
+            None => (LAST_DELIVERED.get(), false),
         }
     } else {
         (hal::touch_sampler::sample_panel(), false)
     };
-    unsafe { LAST_DELIVERED = sample };
+    LAST_DELIVERED.set(sample);
 
     match sample {
         Some((x, y)) => {

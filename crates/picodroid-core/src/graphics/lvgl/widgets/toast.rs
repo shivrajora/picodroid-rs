@@ -13,6 +13,8 @@
 //! ring-buffer-style state in this crate.
 
 use crate::lvgl_ffi::*;
+use crate::util::local::Core0;
+use core::cell::Cell;
 use core::ffi::c_char;
 
 use super::super::handle_table;
@@ -49,7 +51,8 @@ static mut TOAST_SLOTS: [ToastSlot; MAX_TOASTS] = [EMPTY_SLOT; MAX_TOASTS];
 /// the same clock as `system_clock::elapsed_realtime_nanos` — using the
 /// tick-driven clock avoids depending on hardware time in sim builds and
 /// stays drift-free with the LVGL animation loop.
-static mut ELAPSED_MS: u64 = 0;
+// SAFETY: widget-layer state, reached only from JVM tasks.
+static ELAPSED_MS: Core0<Cell<u64>> = unsafe { Core0::new(Cell::new(0)) };
 
 // ── LVGL ops ────────────────────────────────────────────────────────────────
 
@@ -134,8 +137,8 @@ pub(in crate::graphics) fn set_duration(id: i32, duration: i32) {
 /// and deletes any toasts whose deadline has passed.
 pub fn tick(ms: u32) {
     unsafe {
-        ELAPSED_MS = ELAPSED_MS.saturating_add(ms as u64);
-        let now = ELAPSED_MS;
+        ELAPSED_MS.set(ELAPSED_MS.get().saturating_add(ms as u64));
+        let now = ELAPSED_MS.get();
         for slot in &mut TOAST_SLOTS[..] {
             if !slot.armed || slot.handle == 0 {
                 continue;
@@ -154,7 +157,7 @@ pub fn reset_toast_state() {
         for slot in &mut TOAST_SLOTS[..] {
             *slot = EMPTY_SLOT;
         }
-        ELAPSED_MS = 0;
+        ELAPSED_MS.set(0);
     }
 }
 
@@ -185,7 +188,7 @@ fn register_pending(toast_ptr: usize, duration_ms: u32) {
 
 fn arm(toast_ptr: usize) {
     unsafe {
-        let now = ELAPSED_MS;
+        let now = ELAPSED_MS.get();
         for slot in &mut TOAST_SLOTS[..] {
             if slot.handle == toast_ptr {
                 slot.expire_at_ms = now + slot.duration_ms as u64;

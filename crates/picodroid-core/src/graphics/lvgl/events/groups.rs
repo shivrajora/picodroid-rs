@@ -3,6 +3,10 @@
 //! modal group above them, and the focus / focusable helpers views call.
 
 use super::*;
+#[cfg(has_buttons)]
+use crate::util::local::Core0;
+#[cfg(has_buttons)]
+use core::cell::Cell;
 
 // ── Per-Activity keypad focus groups ────────────────────────────────────────
 //
@@ -34,19 +38,24 @@ pub(super) const MAX_ACTIVITY_GROUPS: usize = 32;
 const _: () = assert!(crate::board_cfg::jvm_state::ACTIVITY_STACK_DEPTH <= MAX_ACTIVITY_GROUPS);
 
 #[cfg(has_buttons)]
-pub(super) static mut KEYPAD_INDEV: *mut lv_indev_t = core::ptr::null_mut();
+// SAFETY: widget-layer state, reached only from JVM tasks.
+pub(super) static KEYPAD_INDEV: Core0<Cell<*mut lv_indev_t>> =
+    unsafe { Core0::new(Cell::new(core::ptr::null_mut())) };
 
 #[cfg(has_buttons)]
 pub(super) static mut ACTIVITY_GROUPS: [*mut lv_group_t; MAX_ACTIVITY_GROUPS] =
     [core::ptr::null_mut(); MAX_ACTIVITY_GROUPS];
 
 #[cfg(has_buttons)]
-pub(super) static mut ACTIVITY_GROUP_DEPTH: usize = 0;
+// SAFETY: widget-layer state, reached only from JVM tasks.
+pub(super) static ACTIVITY_GROUP_DEPTH: Core0<Cell<usize>> = unsafe { Core0::new(Cell::new(0)) };
 
 /// The group a modal dialog's buttons live in while any dialog is shown
 /// ([`enter_modal_group`]); null between dialogs.
 #[cfg(has_buttons)]
-pub(super) static mut MODAL_GROUP: *mut lv_group_t = core::ptr::null_mut();
+// SAFETY: widget-layer state, reached only from JVM tasks.
+pub(super) static MODAL_GROUP: Core0<Cell<*mut lv_group_t>> =
+    unsafe { Core0::new(Cell::new(core::ptr::null_mut())) };
 
 /// Create a fresh focus group for a newly-launched Activity and make it the
 /// active group (LVGL default + keypad indev). Called from the lifecycle
@@ -55,16 +64,16 @@ pub(super) static mut MODAL_GROUP: *mut lv_group_t = core::ptr::null_mut();
 #[cfg(has_buttons)]
 pub fn push_activity_group() {
     unsafe {
-        if ACTIVITY_GROUP_DEPTH >= MAX_ACTIVITY_GROUPS {
+        if ACTIVITY_GROUP_DEPTH.get() >= MAX_ACTIVITY_GROUPS {
             return; // unreachable: the Activity stack caps depth first
         }
         let group = lv_group_create();
         lv_group_set_default(group);
-        if !KEYPAD_INDEV.is_null() {
-            lv_indev_set_group(KEYPAD_INDEV, group);
+        if !KEYPAD_INDEV.get().is_null() {
+            lv_indev_set_group(KEYPAD_INDEV.get(), group);
         }
-        ACTIVITY_GROUPS[ACTIVITY_GROUP_DEPTH] = group;
-        ACTIVITY_GROUP_DEPTH += 1;
+        ACTIVITY_GROUPS[ACTIVITY_GROUP_DEPTH.get()] = group;
+        ACTIVITY_GROUP_DEPTH.set(ACTIVITY_GROUP_DEPTH.get() + 1);
     }
 }
 
@@ -76,28 +85,28 @@ pub fn push_activity_group() {
 #[cfg(has_buttons)]
 pub fn pop_activity_group() {
     unsafe {
-        if ACTIVITY_GROUP_DEPTH == 0 {
+        if ACTIVITY_GROUP_DEPTH.get() == 0 {
             return;
         }
-        ACTIVITY_GROUP_DEPTH -= 1;
-        let group = ACTIVITY_GROUPS[ACTIVITY_GROUP_DEPTH];
-        ACTIVITY_GROUPS[ACTIVITY_GROUP_DEPTH] = core::ptr::null_mut();
+        ACTIVITY_GROUP_DEPTH.set(ACTIVITY_GROUP_DEPTH.get() - 1);
+        let group = ACTIVITY_GROUPS[ACTIVITY_GROUP_DEPTH.get()];
+        ACTIVITY_GROUPS[ACTIVITY_GROUP_DEPTH.get()] = core::ptr::null_mut();
 
-        let parent = if ACTIVITY_GROUP_DEPTH > 0 {
-            ACTIVITY_GROUPS[ACTIVITY_GROUP_DEPTH - 1]
+        let parent = if ACTIVITY_GROUP_DEPTH.get() > 0 {
+            ACTIVITY_GROUPS[ACTIVITY_GROUP_DEPTH.get() - 1]
         } else {
             core::ptr::null_mut()
         };
         // A dialog still up on the parent keeps the keypad: its buttons are
         // in the modal group, not the parent's.
-        let active = if MODAL_GROUP.is_null() {
+        let active = if MODAL_GROUP.get().is_null() {
             parent
         } else {
-            MODAL_GROUP
+            MODAL_GROUP.get()
         };
         lv_group_set_default(active);
-        if !KEYPAD_INDEV.is_null() {
-            lv_indev_set_group(KEYPAD_INDEV, active);
+        if !KEYPAD_INDEV.get().is_null() {
+            lv_indev_set_group(KEYPAD_INDEV.get(), active);
         }
         if !group.is_null() {
             lv_group_delete(group);
@@ -114,17 +123,17 @@ pub fn pop_activity_group() {
 #[cfg(has_buttons)]
 pub fn enter_modal_group() -> *mut lv_group_t {
     unsafe {
-        if ACTIVITY_GROUP_DEPTH == 0 {
+        if ACTIVITY_GROUP_DEPTH.get() == 0 {
             return core::ptr::null_mut();
         }
-        if MODAL_GROUP.is_null() {
-            MODAL_GROUP = lv_group_create();
+        if MODAL_GROUP.get().is_null() {
+            MODAL_GROUP.set(lv_group_create());
         }
-        lv_group_set_default(MODAL_GROUP);
-        if !KEYPAD_INDEV.is_null() {
-            lv_indev_set_group(KEYPAD_INDEV, MODAL_GROUP);
+        lv_group_set_default(MODAL_GROUP.get());
+        if !KEYPAD_INDEV.get().is_null() {
+            lv_indev_set_group(KEYPAD_INDEV.get(), MODAL_GROUP.get());
         }
-        MODAL_GROUP
+        MODAL_GROUP.get()
     }
 }
 
@@ -133,20 +142,20 @@ pub fn enter_modal_group() -> *mut lv_group_t {
 #[cfg(has_buttons)]
 pub fn leave_modal_group() {
     unsafe {
-        if MODAL_GROUP.is_null() {
+        if MODAL_GROUP.get().is_null() {
             return;
         }
-        let top = if ACTIVITY_GROUP_DEPTH > 0 {
-            ACTIVITY_GROUPS[ACTIVITY_GROUP_DEPTH - 1]
+        let top = if ACTIVITY_GROUP_DEPTH.get() > 0 {
+            ACTIVITY_GROUPS[ACTIVITY_GROUP_DEPTH.get() - 1]
         } else {
             core::ptr::null_mut()
         };
         lv_group_set_default(top);
-        if !KEYPAD_INDEV.is_null() {
-            lv_indev_set_group(KEYPAD_INDEV, top);
+        if !KEYPAD_INDEV.get().is_null() {
+            lv_indev_set_group(KEYPAD_INDEV.get(), top);
         }
-        lv_group_delete(MODAL_GROUP);
-        MODAL_GROUP = core::ptr::null_mut();
+        lv_group_delete(MODAL_GROUP.get());
+        MODAL_GROUP.set(core::ptr::null_mut());
     }
 }
 
@@ -158,18 +167,18 @@ pub fn reset_activity_groups() {
         // Slice idiom (matching `&mut VIEW_KEY_MAP[..]` elsewhere in this file)
         // rather than an index range — keeps clippy's needless_range_loop quiet
         // without taking a `&mut` to the whole static (static_mut_refs).
-        let had_groups = ACTIVITY_GROUP_DEPTH > 0;
-        for slot in &mut ACTIVITY_GROUPS[..ACTIVITY_GROUP_DEPTH] {
+        let had_groups = ACTIVITY_GROUP_DEPTH.get() > 0;
+        for slot in &mut ACTIVITY_GROUPS[..ACTIVITY_GROUP_DEPTH.get()] {
             let g = *slot;
             *slot = core::ptr::null_mut();
             if !g.is_null() {
                 lv_group_delete(g);
             }
         }
-        ACTIVITY_GROUP_DEPTH = 0;
-        if !MODAL_GROUP.is_null() {
-            lv_group_delete(MODAL_GROUP);
-            MODAL_GROUP = core::ptr::null_mut();
+        ACTIVITY_GROUP_DEPTH.set(0);
+        if !MODAL_GROUP.get().is_null() {
+            lv_group_delete(MODAL_GROUP.get());
+            MODAL_GROUP.set(core::ptr::null_mut());
         }
         // Only touch LVGL when groups actually existed. This runs at app start
         // before `init_keypad`, so on the very first run LVGL isn't initialized
@@ -177,8 +186,8 @@ pub fn reset_activity_groups() {
         // the persistent graphics singleton, where these pointers are live.
         if had_groups {
             lv_group_set_default(core::ptr::null_mut());
-            if !KEYPAD_INDEV.is_null() {
-                lv_indev_set_group(KEYPAD_INDEV, core::ptr::null_mut());
+            if !KEYPAD_INDEV.get().is_null() {
+                lv_indev_set_group(KEYPAD_INDEV.get(), core::ptr::null_mut());
             }
         }
     }

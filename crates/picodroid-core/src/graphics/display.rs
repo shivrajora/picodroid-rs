@@ -2,6 +2,8 @@
 //! Native method implementations for `picodroid.graphics.Display`.
 
 use crate::hal;
+use crate::util::local::Core0;
+use core::cell::Cell;
 use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
@@ -23,7 +25,8 @@ static DISPLAY_INSTANCE: AtomicU16 = AtomicU16::new(u16::MAX);
 /// Java `nativeHandle` of the current root view installed by
 /// `setContentView`. `0` = no root set yet. Single-threaded access (the
 /// JVM owns the only frontend), same contract as the prior `usize` cell.
-static mut CURRENT_ROOT_ID: i32 = 0;
+// SAFETY: widget-layer state, reached only from JVM tasks.
+static CURRENT_ROOT_ID: Core0<Cell<i32>> = unsafe { Core0::new(Cell::new(0)) };
 
 /// Root the singleton `Display` object during GC so it is never swept.
 ///
@@ -92,7 +95,7 @@ pub fn get_instance(objects: &mut ObjectHeap) -> Result<Option<Value>, JvmError>
 /// `pub` rather than `pub(crate)` only because its caller, `lifecycle.rs`,
 /// is still in the platform crate; tighten this back when that moves.
 pub fn current_root_id() -> i32 {
-    unsafe { CURRENT_ROOT_ID }
+    CURRENT_ROOT_ID.get()
 }
 
 /// Write `CURRENT_ROOT_ID`. Used by the lifecycle handler to clear it on
@@ -101,9 +104,7 @@ pub fn current_root_id() -> i32 {
 ///
 /// See [`current_root_id`] for why this is `pub`.
 pub fn set_current_root_id(id: i32) {
-    unsafe {
-        CURRENT_ROOT_ID = id;
-    }
+    CURRENT_ROOT_ID.set(id);
 }
 
 /// `Display.setContentView(View root)` — installs `root` as the screen's
@@ -111,9 +112,9 @@ pub fn set_current_root_id(id: i32) {
 pub fn set_content_view(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
     let root_id = view::extract_handle_at(args, 1, objects)?;
     // SAFETY: single-threaded access matches the prior usize-cell contract.
-    let prev_id = unsafe {
-        let prev = CURRENT_ROOT_ID;
-        CURRENT_ROOT_ID = root_id;
+    let prev_id = {
+        let prev = CURRENT_ROOT_ID.get();
+        CURRENT_ROOT_ID.set(root_id);
         prev
     };
 

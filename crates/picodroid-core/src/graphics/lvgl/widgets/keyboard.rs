@@ -28,6 +28,7 @@ use super::super::lifecycle;
 use super::super::listener_map::{warn_full, PtrMap, Upsert};
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
+use core::cell::Cell;
 
 // ── READY event ring buffer (per-instance only) ─────────────────────────────
 
@@ -76,26 +77,35 @@ fn system_keyboard_offscreen_y() -> i32 {
     crate::hal::display::HEIGHT as i32
 }
 
-static mut SYSTEM_KEYBOARD: *mut lv_obj_t = core::ptr::null_mut();
-static mut SYSTEM_KEYBOARD_HANDLE: i32 = 0;
-static mut SYSTEM_KEYBOARD_VISIBLE: bool = false;
+// SAFETY: widget-layer state, reached only from JVM tasks.
+static SYSTEM_KEYBOARD: Core0<Cell<*mut lv_obj_t>> =
+    unsafe { Core0::new(Cell::new(core::ptr::null_mut())) };
+// SAFETY: widget-layer state, reached only from JVM tasks.
+static SYSTEM_KEYBOARD_HANDLE: Core0<Cell<i32>> = unsafe { Core0::new(Cell::new(0)) };
+// SAFETY: widget-layer state, reached only from JVM tasks.
+static SYSTEM_KEYBOARD_VISIBLE: Core0<Cell<bool>> = unsafe { Core0::new(Cell::new(false)) };
 /// Java `ObjectRef` of the EditText that triggered the most recent show.
 /// Read by [`drain_editor_action`] after the OK key fires.
-static mut SYSTEM_KEYBOARD_BOUND_ET: u16 = 0;
+// SAFETY: widget-layer state, reached only from JVM tasks.
+static SYSTEM_KEYBOARD_BOUND_ET: Core0<Cell<u16>> = unsafe { Core0::new(Cell::new(0)) };
 /// Raw `lv_textarea` the keyboard is currently bound to (mirrors LVGL's internal
 /// `kb->ta`). The keyboard outlives any one Activity (it is parented to the
 /// screen, not the content view), so when that textarea's Activity is torn down
 /// this must be cleared *before* the textarea is freed — otherwise the next
 /// `lv_keyboard_set_textarea` defocuses a dangling textarea (use-after-free).
 /// See [`unbind_if_deleting`].
-static mut SYSTEM_KEYBOARD_BOUND_TA: *mut lv_obj_t = core::ptr::null_mut();
+// SAFETY: widget-layer state, reached only from JVM tasks.
+static SYSTEM_KEYBOARD_BOUND_TA: Core0<Cell<*mut lv_obj_t>> =
+    unsafe { Core0::new(Cell::new(core::ptr::null_mut())) };
 /// The keyboard was just shown and should take the keypad focus once the
 /// key that opened it has been released (`take_pending_focus`).
-static mut SYSTEM_KEYBOARD_FOCUS_PENDING: bool = false;
+// SAFETY: widget-layer state, reached only from JVM tasks.
+static SYSTEM_KEYBOARD_FOCUS_PENDING: Core0<Cell<bool>> = unsafe { Core0::new(Cell::new(false)) };
 /// The key the keypad's walk starts on: the first character of the layout
 /// the keyboard was shown in — `q` of the text layout (key 0 is its mode
 /// switch), `1` of the digit pad.
-static mut SYSTEM_KEYBOARD_FIRST_KEY: u32 = 1;
+// SAFETY: widget-layer state, reached only from JVM tasks.
+static SYSTEM_KEYBOARD_FIRST_KEY: Core0<Cell<u32>> = unsafe { Core0::new(Cell::new(1)) };
 
 /// Pending editor-action record drained from the JVM event pump in
 /// `lifecycle::dispatch_editor_actions`. Single-slot: the OK key can only
@@ -107,7 +117,9 @@ pub struct EditorActionRecord {
     pub action_id: i32,
 }
 
-static mut PENDING_EDITOR_ACTION: Option<EditorActionRecord> = None;
+// SAFETY: widget-layer state, reached only from JVM tasks.
+static PENDING_EDITOR_ACTION: Core0<Cell<Option<EditorActionRecord>>> =
+    unsafe { Core0::new(Cell::new(None)) };
 
 unsafe extern "C" fn system_keyboard_ready_cb(_e: *mut lv_event_t) {
     // OK key on the system keyboard: queue an editor-action for dispatch
@@ -116,13 +128,11 @@ unsafe extern "C" fn system_keyboard_ready_cb(_e: *mut lv_event_t) {
     // returns, so we hide first and the dispatch site re-shows if needed.
     // For v1 we always hide; suppressing dismiss is a follow-up if any
     // app actually requires it.
-    unsafe {
-        if SYSTEM_KEYBOARD_BOUND_ET != 0 {
-            PENDING_EDITOR_ACTION = Some(EditorActionRecord {
-                edit_text_ref: SYSTEM_KEYBOARD_BOUND_ET,
-                action_id: 6, // EditorInfo.IME_ACTION_DONE
-            });
-        }
+    if SYSTEM_KEYBOARD_BOUND_ET.get() != 0 {
+        PENDING_EDITOR_ACTION.set(Some(EditorActionRecord {
+            edit_text_ref: SYSTEM_KEYBOARD_BOUND_ET.get(),
+            action_id: 6, // EditorInfo.IME_ACTION_DONE
+        }));
     }
     hide_system();
 }
@@ -132,7 +142,7 @@ unsafe extern "C" fn screen_press_outside_cb(e: *mut lv_event_t) {
     if target.is_null() {
         return;
     }
-    let kb = unsafe { SYSTEM_KEYBOARD };
+    let kb = SYSTEM_KEYBOARD.get();
     if kb.is_null() {
         return;
     }
@@ -151,8 +161,8 @@ unsafe extern "C" fn screen_press_outside_cb(e: *mut lv_event_t) {
 
 unsafe fn ensure_system_keyboard() -> *mut lv_obj_t {
     unsafe {
-        if !SYSTEM_KEYBOARD.is_null() {
-            return SYSTEM_KEYBOARD;
+        if !SYSTEM_KEYBOARD.get().is_null() {
+            return SYSTEM_KEYBOARD.get();
         }
         let scr = lifecycle::screen_ptr();
         let kb = lv_keyboard_create(scr);
@@ -179,10 +189,10 @@ unsafe fn ensure_system_keyboard() -> *mut lv_obj_t {
             LV_EVENT_READY,
             core::ptr::null_mut(),
         );
-        SYSTEM_KEYBOARD = kb;
+        SYSTEM_KEYBOARD.set(kb);
         // Register the keyboard in the handle table so `animations::start`
         // can locate it by handle on each tick.
-        SYSTEM_KEYBOARD_HANDLE = handle_table::register(kb);
+        SYSTEM_KEYBOARD_HANDLE.set(handle_table::register(kb));
         kb
     }
 }
@@ -203,11 +213,11 @@ pub(in crate::graphics) fn show_system_for(ta: *mut lv_obj_t, et_obj_ref: u16) {
     unsafe {
         let kb = ensure_system_keyboard();
         lv_keyboard_set_textarea(kb, ta);
-        SYSTEM_KEYBOARD_BOUND_TA = ta; // mirror kb->ta for use-after-delete cleanup
-                                       // Pick the keypad layout for the field being bound. EditTexts flagged
-                                       // numeric (setInputType TYPE_CLASS_NUMBER) get the digit pad; everything
-                                       // else gets the default text layout. Set every show because the system
-                                       // keyboard is shared across fields.
+        SYSTEM_KEYBOARD_BOUND_TA.set(ta); // mirror kb->ta for use-after-delete cleanup
+                                          // Pick the keypad layout for the field being bound. EditTexts flagged
+                                          // numeric (setInputType TYPE_CLASS_NUMBER) get the digit pad; everything
+                                          // else gets the default text layout. Set every show because the system
+                                          // keyboard is shared across fields.
         let numeric = super::edit_text::is_numeric(ta as usize);
         let mode = if numeric {
             LV_KEYBOARD_MODE_NUMBER
@@ -215,8 +225,8 @@ pub(in crate::graphics) fn show_system_for(ta: *mut lv_obj_t, et_obj_ref: u16) {
             LV_KEYBOARD_MODE_TEXT_LOWER
         };
         lv_keyboard_set_mode(kb, mode);
-        SYSTEM_KEYBOARD_FIRST_KEY = if numeric { 0 } else { 1 };
-        SYSTEM_KEYBOARD_BOUND_ET = et_obj_ref;
+        SYSTEM_KEYBOARD_FIRST_KEY.set(if numeric { 0 } else { 1 });
+        SYSTEM_KEYBOARD_BOUND_ET.set(et_obj_ref);
         // Visibility flag must be cleared *before* starting the y-anim,
         // otherwise the first frame paints at the off-screen y position
         // while still HIDDEN — fine — and then becomes visible mid-slide
@@ -225,21 +235,21 @@ pub(in crate::graphics) fn show_system_for(ta: *mut lv_obj_t, et_obj_ref: u16) {
         lv_obj_remove_flag(kb, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_y(kb, system_keyboard_offscreen_y());
         animations::start(
-            SYSTEM_KEYBOARD_HANDLE,
+            SYSTEM_KEYBOARD_HANDLE.get(),
             /* PROPERTY_Y */ 2,
             system_keyboard_offscreen_y(),
             system_keyboard_rest_y(),
             SYSTEM_KEYBOARD_SLIDE_DURATION_MS,
             /* INTERP_LINEAR */ 0,
         );
-        SYSTEM_KEYBOARD_VISIBLE = true;
+        SYSTEM_KEYBOARD_VISIBLE.set(true);
         // On a keypad board the keyboard takes the focus while it shows:
         // `keypad_remap` then turns PREV/NEXT into LEFT/RIGHT, which walk
         // its keys, and ENTER presses the selected one (LVGL's own path).
         // Not yet, though: the ENTER that opened it is still down, and its
         // release would land on the keyboard's first key. `keypad_read_cb`
         // moves the focus on its next quiet pass (`take_pending_focus`).
-        SYSTEM_KEYBOARD_FOCUS_PENDING = true;
+        SYSTEM_KEYBOARD_FOCUS_PENDING.set(true);
         // Attach press-outside dismiss after the EditText's PRESSED event
         // has finished bubbling — the screen-level callback will not
         // receive the same press that opened us.
@@ -253,23 +263,23 @@ pub(in crate::graphics) fn show_system_for(ta: *mut lv_obj_t, et_obj_ref: u16) {
 /// event.
 pub fn hide_system() -> bool {
     unsafe {
-        if SYSTEM_KEYBOARD.is_null() || !SYSTEM_KEYBOARD_VISIBLE {
+        if SYSTEM_KEYBOARD.get().is_null() || !SYSTEM_KEYBOARD_VISIBLE.get() {
             return false;
         }
         // Cancel any in-flight slide so the keyboard's saved y doesn't
         // creep back to the rest position after the next show. The next
         // show_system_for re-snaps y=offscreen explicitly anyway, so
         // this is belt-and-braces.
-        animations::cancel(SYSTEM_KEYBOARD_HANDLE);
-        lv_obj_add_flag(SYSTEM_KEYBOARD, LV_OBJ_FLAG_HIDDEN);
-        SYSTEM_KEYBOARD_VISIBLE = false;
-        SYSTEM_KEYBOARD_BOUND_ET = 0;
-        SYSTEM_KEYBOARD_FOCUS_PENDING = false;
+        animations::cancel(SYSTEM_KEYBOARD_HANDLE.get());
+        lv_obj_add_flag(SYSTEM_KEYBOARD.get(), LV_OBJ_FLAG_HIDDEN);
+        SYSTEM_KEYBOARD_VISIBLE.set(false);
+        SYSTEM_KEYBOARD_BOUND_ET.set(0);
+        SYSTEM_KEYBOARD_FOCUS_PENDING.set(false);
         events::detach_screen_press_hook();
         // The field it was typing into takes the keypad focus back. The
         // bound textarea is live: `unbind_if_deleting` clears it before its
         // Activity's tree is freed.
-        events::unfocus_system_keyboard(SYSTEM_KEYBOARD, SYSTEM_KEYBOARD_BOUND_TA);
+        events::unfocus_system_keyboard(SYSTEM_KEYBOARD.get(), SYSTEM_KEYBOARD_BOUND_TA.get());
         true
     }
 }
@@ -279,24 +289,22 @@ pub fn hide_system() -> bool {
 /// read. Clears the wait; the caller (`keypad_read_cb`, on a pass with no
 /// edge and no key down) does the focusing.
 pub fn take_pending_focus() -> Option<(*mut lv_obj_t, u32)> {
-    unsafe {
-        if !SYSTEM_KEYBOARD_FOCUS_PENDING || !SYSTEM_KEYBOARD_VISIBLE {
-            return None;
-        }
-        SYSTEM_KEYBOARD_FOCUS_PENDING = false;
-        Some((SYSTEM_KEYBOARD, SYSTEM_KEYBOARD_FIRST_KEY))
+    if !SYSTEM_KEYBOARD_FOCUS_PENDING.get() || !SYSTEM_KEYBOARD_VISIBLE.get() {
+        return None;
     }
+    SYSTEM_KEYBOARD_FOCUS_PENDING.set(false);
+    Some((SYSTEM_KEYBOARD.get(), SYSTEM_KEYBOARD_FIRST_KEY.get()))
 }
 
 /// Whether the system keyboard is showing and holds the keypad focus: the
 /// condition under which `keypad_read_cb` walks its keys with PREV/NEXT.
 pub fn is_system_keyboard_focused() -> bool {
     unsafe {
-        if SYSTEM_KEYBOARD.is_null() || !SYSTEM_KEYBOARD_VISIBLE {
+        if SYSTEM_KEYBOARD.get().is_null() || !SYSTEM_KEYBOARD_VISIBLE.get() {
             return false;
         }
         let group = lv_group_get_default();
-        !group.is_null() && lv_group_get_focused(group) == SYSTEM_KEYBOARD
+        !group.is_null() && lv_group_get_focused(group) == SYSTEM_KEYBOARD.get()
     }
 }
 
@@ -321,10 +329,10 @@ pub fn keypad_remap(key: u32) -> Option<u32> {
 /// when the keyboard is not showing.
 pub fn type_text(text: &str) -> bool {
     unsafe {
-        if !SYSTEM_KEYBOARD_VISIBLE || SYSTEM_KEYBOARD_BOUND_TA.is_null() {
+        if !SYSTEM_KEYBOARD_VISIBLE.get() || SYSTEM_KEYBOARD_BOUND_TA.get().is_null() {
             return false;
         }
-        let ta = SYSTEM_KEYBOARD_BOUND_TA;
+        let ta = SYSTEM_KEYBOARD_BOUND_TA.get();
         super::text_view::with_cstr(text, |p| lv_textarea_add_text(ta, p));
     }
     true
@@ -346,8 +354,8 @@ pub fn unbind_if_deleting(root: *mut lv_obj_t) {
         return;
     }
     unsafe {
-        let kb = SYSTEM_KEYBOARD;
-        let ta = SYSTEM_KEYBOARD_BOUND_TA;
+        let kb = SYSTEM_KEYBOARD.get();
+        let ta = SYSTEM_KEYBOARD_BOUND_TA.get();
         if kb.is_null() || ta.is_null() {
             return;
         }
@@ -357,7 +365,7 @@ pub fn unbind_if_deleting(root: *mut lv_obj_t) {
         while !cur.is_null() {
             if cur == root {
                 lv_keyboard_set_textarea(kb, core::ptr::null_mut());
-                SYSTEM_KEYBOARD_BOUND_TA = core::ptr::null_mut();
+                SYSTEM_KEYBOARD_BOUND_TA.set(core::ptr::null_mut());
                 let _ = hide_system();
                 return;
             }
@@ -372,11 +380,9 @@ pub fn drain_editor_action() -> Option<EditorActionRecord> {
     // Manual take() — `Option::take` would require &mut to a mutable
     // static, which trips Rust 2024's `static_mut_refs` lint. The record
     // is `Copy`, so a load + store is equivalent and lint-clean.
-    unsafe {
-        let popped = PENDING_EDITOR_ACTION;
-        PENDING_EDITOR_ACTION = None;
-        popped
-    }
+    let popped = PENDING_EDITOR_ACTION.get();
+    PENDING_EDITOR_ACTION.set(None);
+    popped
 }
 
 // ── Per-instance widget ops (called from widgets/keyboard.rs Java shim) ─────
@@ -452,20 +458,18 @@ pub fn lookup_keyboard_obj(handle: usize) -> Option<u16> {
 }
 
 pub fn reset_keyboard_state() {
-    unsafe {
-        KEYBOARD_HANDLE_MAP.reset();
-        READY_QUEUE.clear();
-        // The screen tree is torn down by handle_table::reset on app
-        // reload, so the system keyboard pointer is dangling — drop our
-        // cache so the next show recreates from scratch.
-        SYSTEM_KEYBOARD = core::ptr::null_mut();
-        SYSTEM_KEYBOARD_HANDLE = 0;
-        SYSTEM_KEYBOARD_VISIBLE = false;
-        SYSTEM_KEYBOARD_BOUND_ET = 0;
-        SYSTEM_KEYBOARD_BOUND_TA = core::ptr::null_mut();
-        SYSTEM_KEYBOARD_FOCUS_PENDING = false;
-        PENDING_EDITOR_ACTION = None;
-    }
+    KEYBOARD_HANDLE_MAP.reset();
+    READY_QUEUE.clear();
+    // The screen tree is torn down by handle_table::reset on app
+    // reload, so the system keyboard pointer is dangling — drop our
+    // cache so the next show recreates from scratch.
+    SYSTEM_KEYBOARD.set(core::ptr::null_mut());
+    SYSTEM_KEYBOARD_HANDLE.set(0);
+    SYSTEM_KEYBOARD_VISIBLE.set(false);
+    SYSTEM_KEYBOARD_BOUND_ET.set(0);
+    SYSTEM_KEYBOARD_BOUND_TA.set(core::ptr::null_mut());
+    SYSTEM_KEYBOARD_FOCUS_PENDING.set(false);
+    PENDING_EDITOR_ACTION.set(None);
     // Same lifetime as the system keyboard — the screen press hook is
     // attached only while the keyboard is visible, so the cached cb
     // pointer must die alongside the screen on reload.

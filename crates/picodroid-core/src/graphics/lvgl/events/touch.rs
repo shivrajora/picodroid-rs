@@ -6,6 +6,8 @@
 use super::*;
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
+use crate::util::local_set::LocalSet;
+use core::cell::Cell;
 
 // ── View touch-listener registry ────────────────────────────────────────────
 //
@@ -81,9 +83,12 @@ pub(super) static TOUCH_QUEUE: Core0<LocalRing<TouchRecord, TOUCH_QUEUE_SIZE>> =
 // Single shared slot is correct under the v1 single-touch assumption
 // (matching every other touch path). i32::MIN sentinel ensures the
 // first PRESSING after each fresh press always pushes.
-pub(super) static mut LAST_PRESSING_VIEW: usize = 0;
-pub(super) static mut LAST_PRESSING_X: i32 = i32::MIN;
-pub(super) static mut LAST_PRESSING_Y: i32 = i32::MIN;
+// SAFETY: widget-layer state, reached only from JVM tasks.
+pub(super) static LAST_PRESSING_VIEW: Core0<Cell<usize>> = unsafe { Core0::new(Cell::new(0)) };
+// SAFETY: widget-layer state, reached only from JVM tasks.
+pub(super) static LAST_PRESSING_X: Core0<Cell<i32>> = unsafe { Core0::new(Cell::new(i32::MIN)) };
+// SAFETY: widget-layer state, reached only from JVM tasks.
+pub(super) static LAST_PRESSING_Y: Core0<Cell<i32>> = unsafe { Core0::new(Cell::new(i32::MIN)) };
 
 /// Read the current monotonic ms from the LVGL tick clock. Used as the
 /// timestamp on each touch event; aligns with the same clock GestureDetector
@@ -128,11 +133,9 @@ pub(super) unsafe fn touch_event_record(e: *mut lv_event_t, action: i32) -> Opti
 }
 
 pub(super) fn reset_pressing_coalesce() {
-    unsafe {
-        LAST_PRESSING_VIEW = 0;
-        LAST_PRESSING_X = i32::MIN;
-        LAST_PRESSING_Y = i32::MIN;
-    }
+    LAST_PRESSING_VIEW.set(0);
+    LAST_PRESSING_X.set(i32::MIN);
+    LAST_PRESSING_Y.set(i32::MIN);
 }
 
 pub(super) unsafe extern "C" fn touch_press_cb(e: *mut lv_event_t) {
@@ -157,17 +160,15 @@ pub(super) unsafe extern "C" fn touch_long_press_cb(e: *mut lv_event_t) {
 
 pub(super) unsafe extern "C" fn touch_pressing_cb(e: *mut lv_event_t) {
     if let Some(rec) = unsafe { touch_event_record(e, ACTION_MOVE) } {
-        unsafe {
-            if LAST_PRESSING_VIEW == rec.view_handle
-                && LAST_PRESSING_X == rec.x
-                && LAST_PRESSING_Y == rec.y
-            {
-                return;
-            }
-            LAST_PRESSING_VIEW = rec.view_handle;
-            LAST_PRESSING_X = rec.x;
-            LAST_PRESSING_Y = rec.y;
+        if LAST_PRESSING_VIEW.get() == rec.view_handle
+            && LAST_PRESSING_X.get() == rec.x
+            && LAST_PRESSING_Y.get() == rec.y
+        {
+            return;
         }
+        LAST_PRESSING_VIEW.set(rec.view_handle);
+        LAST_PRESSING_X.set(rec.x);
+        LAST_PRESSING_Y.set(rec.y);
         push_touch(rec);
     }
 }
@@ -248,11 +249,9 @@ pub fn lookup_touch_view_obj(handle: usize) -> Option<u16> {
 }
 
 pub fn reset_view_touch_listener_state() {
-    unsafe {
-        VIEW_TOUCH_MAP.reset();
-        TOUCH_QUEUE.clear();
-        CLICK_SUPPRESS_LEN = 0;
-    }
+    VIEW_TOUCH_MAP.reset();
+    TOUCH_QUEUE.clear();
+    CLICK_SUPPRESS.clear();
     reset_pressing_coalesce();
 }
 
@@ -264,50 +263,26 @@ pub fn reset_view_touch_listener_state() {
 // of a fresh gesture) and consumed (check-and-clear) by the click dispatcher.
 
 pub(super) const MAX_SUPPRESS: usize = 32;
-pub(super) static mut CLICK_SUPPRESS: [usize; MAX_SUPPRESS] = [0; MAX_SUPPRESS];
-pub(super) static mut CLICK_SUPPRESS_LEN: usize = 0;
+// SAFETY: a widget registry, reached only from JVM tasks.
+pub(super) static CLICK_SUPPRESS: Core0<LocalSet<usize, MAX_SUPPRESS>> =
+    unsafe { Core0::new(LocalSet::new(0)) };
 
 /// Mark `handle`'s next synthetic click as suppressed (onTouch / long-press
-/// consumed the gesture).
+/// consumed the gesture). A full registry drops the mark.
 pub fn set_click_suppressed(handle: usize) {
-    unsafe {
-        for &h in &CLICK_SUPPRESS[..CLICK_SUPPRESS_LEN] {
-            if h == handle {
-                return;
-            }
-        }
-        if CLICK_SUPPRESS_LEN < MAX_SUPPRESS {
-            CLICK_SUPPRESS[CLICK_SUPPRESS_LEN] = handle;
-            CLICK_SUPPRESS_LEN += 1;
-        }
-    }
+    CLICK_SUPPRESS.insert(handle);
 }
 
 /// Clear `handle`'s suppress flag — called on ACTION_DOWN to start each
 /// gesture clean.
 pub fn clear_click_suppressed(handle: usize) {
-    unsafe {
-        let len = CLICK_SUPPRESS_LEN;
-        if let Some(i) = CLICK_SUPPRESS[..len].iter().position(|&h| h == handle) {
-            CLICK_SUPPRESS[i] = CLICK_SUPPRESS[len - 1];
-            CLICK_SUPPRESS_LEN = len - 1;
-        }
-    }
+    CLICK_SUPPRESS.remove(handle);
 }
 
 /// Check-and-clear: returns whether the next click for `handle` should be
 /// suppressed, consuming the flag. Called by the click dispatcher.
 pub fn take_click_suppressed(handle: usize) -> bool {
-    unsafe {
-        let len = CLICK_SUPPRESS_LEN;
-        if let Some(i) = CLICK_SUPPRESS[..len].iter().position(|&h| h == handle) {
-            CLICK_SUPPRESS[i] = CLICK_SUPPRESS[len - 1];
-            CLICK_SUPPRESS_LEN = len - 1;
-            true
-        } else {
-            false
-        }
-    }
+    CLICK_SUPPRESS.remove(handle)
 }
 
 // ── Screen-level press hook (single-slot, used by soft keyboard dismiss) ────
@@ -324,7 +299,9 @@ use crate::lvgl_ffi::{
     lv_event_cb_t, lv_obj_add_event_cb, lv_obj_remove_event_cb, lv_screen_active, LV_EVENT_PRESSED,
 };
 
-pub(super) static mut SCREEN_PRESS_HOOK: lv_event_cb_t = None;
+// SAFETY: widget-layer state, reached only from JVM tasks.
+pub(super) static SCREEN_PRESS_HOOK: Core0<Cell<lv_event_cb_t>> =
+    unsafe { Core0::new(Cell::new(None)) };
 
 /// Attach `cb` to the active screen as an `LV_EVENT_PRESSED` listener.
 /// Idempotent — a second call detaches whatever was previously attached
@@ -337,7 +314,7 @@ pub(super) static mut SCREEN_PRESS_HOOK: lv_event_cb_t = None;
 /// operations and is unconditionally correct.
 pub fn attach_screen_press_hook(cb: lv_event_cb_t) {
     unsafe {
-        if let Some(prev) = SCREEN_PRESS_HOOK {
+        if let Some(prev) = SCREEN_PRESS_HOOK.get() {
             lv_obj_remove_event_cb(lv_screen_active(), Some(prev));
         }
         if cb.is_some() {
@@ -348,25 +325,23 @@ pub fn attach_screen_press_hook(cb: lv_event_cb_t) {
                 core::ptr::null_mut(),
             );
         }
-        SCREEN_PRESS_HOOK = cb;
+        SCREEN_PRESS_HOOK.set(cb);
     }
 }
 
 /// Detach the screen-level press hook, if one is attached.
 pub fn detach_screen_press_hook() {
     unsafe {
-        if let Some(prev) = SCREEN_PRESS_HOOK {
+        if let Some(prev) = SCREEN_PRESS_HOOK.get() {
             lv_obj_remove_event_cb(lv_screen_active(), Some(prev));
-            SCREEN_PRESS_HOOK = None;
+            SCREEN_PRESS_HOOK.set(None);
         }
     }
 }
 
 pub fn reset_screen_press_hook_state() {
-    unsafe {
-        // The screen widget itself is being torn down, so we only need to
-        // drop our cached pointer — the underlying event_cb registration
-        // dies with the screen.
-        SCREEN_PRESS_HOOK = None;
-    }
+    // The screen widget itself is being torn down, so we only need to
+    // drop our cached pointer — the underlying event_cb registration
+    // dies with the screen.
+    SCREEN_PRESS_HOOK.set(None);
 }

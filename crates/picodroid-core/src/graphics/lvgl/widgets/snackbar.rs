@@ -20,6 +20,7 @@
 use crate::lvgl_ffi::*;
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
+use core::cell::Cell;
 use core::ffi::c_char;
 
 use super::super::handle_table;
@@ -62,7 +63,8 @@ static mut SLOTS: [SnackbarSlot; MAX_SNACKBARS] = [EMPTY_SLOT; MAX_SNACKBARS];
 /// Monotonic millisecond counter accumulated from `LvglGfx::tick(ms)`. Same
 /// model as `widgets::toast` — drift-free with the LVGL animation loop and
 /// independent of hardware time so the sim builds match.
-static mut ELAPSED_MS: u64 = 0;
+// SAFETY: widget-layer state, reached only from JVM tasks.
+static ELAPSED_MS: Core0<Cell<u64>> = unsafe { Core0::new(Cell::new(0)) };
 
 // ── Action-click event queue (ring buffer) ──────────────────────────────────
 //
@@ -254,8 +256,8 @@ pub(in crate::graphics) fn register_action_click_listener(id: i32, obj_ref: u16)
 /// past their deadline. Wired from `LvglGfx::tick` next to `toast::tick`.
 pub fn tick(ms: u32) {
     unsafe {
-        ELAPSED_MS = ELAPSED_MS.saturating_add(ms as u64);
-        let now = ELAPSED_MS;
+        ELAPSED_MS.set(ELAPSED_MS.get().saturating_add(ms as u64));
+        let now = ELAPSED_MS.get();
         for slot in &mut SLOTS[..] {
             if !slot.armed || slot.handle == 0 || slot.indefinite {
                 continue;
@@ -303,7 +305,7 @@ pub fn reset_snackbar_state() {
             *entry = (0, 0);
         }
         CLICK_QUEUE.clear();
-        ELAPSED_MS = 0;
+        ELAPSED_MS.set(0);
     }
 }
 
@@ -341,7 +343,7 @@ fn register_pending(bar_ptr: usize, duration_ms: u32, indefinite: bool) {
 
 fn arm(bar_ptr: usize) {
     unsafe {
-        let now = ELAPSED_MS;
+        let now = ELAPSED_MS.get();
         for slot in &mut SLOTS[..] {
             if slot.handle == bar_ptr {
                 if slot.indefinite {

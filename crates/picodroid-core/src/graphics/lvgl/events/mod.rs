@@ -165,7 +165,7 @@ pub(in crate::graphics) fn init_keypad() {
         let keypad = lv_indev_create();
         lv_indev_set_type(keypad, LV_INDEV_TYPE_KEYPAD);
         lv_indev_set_read_cb(keypad, Some(keypad_read_cb));
-        KEYPAD_INDEV = keypad;
+        KEYPAD_INDEV.set(keypad);
         // No default group yet: each Activity owns its own keypad focus group,
         // created by `push_activity_group()` as the Activity is launched (see
         // the "Per-Activity keypad focus groups" section). Until the first

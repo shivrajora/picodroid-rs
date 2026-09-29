@@ -14,6 +14,7 @@ use super::super::listener_map::{warn_full, PtrMap, Upsert};
 use super::keyboard;
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
+use crate::util::local_set::LocalSet;
 
 // ── Auto-show opt-out registry ──────────────────────────────────────────────
 //
@@ -23,18 +24,12 @@ use crate::util::local_ring::LocalRing;
 // `setShowKeyboardOnTouch(false)` end up in this list.
 
 const MAX_AUTOSHOW_OPTOUTS: usize = 16;
-static mut AUTOSHOW_DISABLED: [usize; MAX_AUTOSHOW_OPTOUTS] = [0; MAX_AUTOSHOW_OPTOUTS];
-static mut AUTOSHOW_DISABLED_LEN: usize = 0;
+// SAFETY: a widget registry, reached only from JVM tasks.
+static AUTOSHOW_DISABLED: Core0<LocalSet<usize, MAX_AUTOSHOW_OPTOUTS>> =
+    unsafe { Core0::new(LocalSet::new(0)) };
 
 fn is_autoshow_disabled(raw_ptr: usize) -> bool {
-    unsafe {
-        for entry in &AUTOSHOW_DISABLED[..AUTOSHOW_DISABLED_LEN] {
-            if *entry == raw_ptr {
-                return true;
-            }
-        }
-    }
-    false
+    AUTOSHOW_DISABLED.contains(raw_ptr)
 }
 
 // ── Numeric-input registry (raw lv_obj_t* of EditTexts that want a number pad) ──
@@ -44,19 +39,13 @@ fn is_autoshow_disabled(raw_ptr: usize) -> bool {
 // the default text layout for the field it's binding to.
 
 const MAX_NUMERIC_FIELDS: usize = 16;
-static mut NUMERIC_FIELDS: [usize; MAX_NUMERIC_FIELDS] = [0; MAX_NUMERIC_FIELDS];
-static mut NUMERIC_FIELDS_LEN: usize = 0;
+// SAFETY: a widget registry, reached only from JVM tasks.
+static NUMERIC_FIELDS: Core0<LocalSet<usize, MAX_NUMERIC_FIELDS>> =
+    unsafe { Core0::new(LocalSet::new(0)) };
 
 /// Whether the textarea at `raw_ptr` was marked numeric (digits-only keypad).
 pub(in crate::graphics) fn is_numeric(raw_ptr: usize) -> bool {
-    unsafe {
-        for entry in &NUMERIC_FIELDS[..NUMERIC_FIELDS_LEN] {
-            if *entry == raw_ptr {
-                return true;
-            }
-        }
-    }
-    false
+    NUMERIC_FIELDS.contains(raw_ptr)
 }
 
 /// Mark/clear the EditText `id` as numeric. Idempotent in both directions.
@@ -65,28 +54,11 @@ pub(in crate::graphics) fn set_numeric(id: i32, numeric: bool) {
     if raw_ptr == 0 {
         return;
     }
-    unsafe {
-        if numeric {
-            for entry in &NUMERIC_FIELDS[..NUMERIC_FIELDS_LEN] {
-                if *entry == raw_ptr {
-                    return;
-                }
-            }
-            if NUMERIC_FIELDS_LEN < MAX_NUMERIC_FIELDS {
-                NUMERIC_FIELDS[NUMERIC_FIELDS_LEN] = raw_ptr;
-                NUMERIC_FIELDS_LEN += 1;
-            }
-        } else {
-            let mut i = 0;
-            while i < NUMERIC_FIELDS_LEN {
-                if NUMERIC_FIELDS[i] == raw_ptr {
-                    NUMERIC_FIELDS[i] = NUMERIC_FIELDS[NUMERIC_FIELDS_LEN - 1];
-                    NUMERIC_FIELDS_LEN -= 1;
-                    return;
-                }
-                i += 1;
-            }
-        }
+    // A full registry drops the request, as it always has.
+    if numeric {
+        NUMERIC_FIELDS.insert(raw_ptr);
+    } else {
+        NUMERIC_FIELDS.remove(raw_ptr);
     }
 }
 
@@ -186,30 +158,10 @@ pub fn visit_text_changed_listener_roots(visit: &mut dyn FnMut(u16)) {
 /// there would apply this field's flags to a recycled address).
 unsafe extern "C" fn edit_text_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    unsafe {
-        EDITOR_ACTION_MAP.remove(obj);
-        TEXT_WATCH_MAP.remove(obj);
-        let list = &raw mut AUTOSHOW_DISABLED;
-        let len = &raw mut AUTOSHOW_DISABLED_LEN;
-        remove_from_list(&mut *list, &mut *len, obj);
-        let list = &raw mut NUMERIC_FIELDS;
-        let len = &raw mut NUMERIC_FIELDS_LEN;
-        remove_from_list(&mut *list, &mut *len, obj);
-    }
-}
-
-/// Swap-remove `ptr` from a raw-pointer opt-in list, zeroing the vacated tail.
-fn remove_from_list(list: &mut [usize], len: &mut usize, ptr: usize) {
-    let mut i = 0;
-    while i < *len {
-        if list[i] == ptr {
-            list[i] = list[*len - 1];
-            list[*len - 1] = 0;
-            *len -= 1;
-        } else {
-            i += 1;
-        }
-    }
+    EDITOR_ACTION_MAP.remove(obj);
+    TEXT_WATCH_MAP.remove(obj);
+    AUTOSHOW_DISABLED.remove(obj);
+    NUMERIC_FIELDS.remove(obj);
 }
 
 unsafe extern "C" fn textarea_pressed_cb(e: *mut lv_event_t) {
@@ -271,41 +223,20 @@ pub(in crate::graphics) fn set_autoshow(id: i32, enabled: bool) {
     if raw_ptr == 0 {
         return;
     }
-    unsafe {
-        if enabled {
-            // Remove from opt-out list. Compact in place.
-            let mut i = 0;
-            while i < AUTOSHOW_DISABLED_LEN {
-                if AUTOSHOW_DISABLED[i] == raw_ptr {
-                    AUTOSHOW_DISABLED[i] = AUTOSHOW_DISABLED[AUTOSHOW_DISABLED_LEN - 1];
-                    AUTOSHOW_DISABLED_LEN -= 1;
-                    return;
-                }
-                i += 1;
-            }
-        } else {
-            // Add to opt-out list (no-op if already present).
-            for entry in &AUTOSHOW_DISABLED[..AUTOSHOW_DISABLED_LEN] {
-                if *entry == raw_ptr {
-                    return;
-                }
-            }
-            if AUTOSHOW_DISABLED_LEN < MAX_AUTOSHOW_OPTOUTS {
-                AUTOSHOW_DISABLED[AUTOSHOW_DISABLED_LEN] = raw_ptr;
-                AUTOSHOW_DISABLED_LEN += 1;
-            }
-        }
+    // A full registry drops the request, as it always has.
+    if enabled {
+        AUTOSHOW_DISABLED.remove(raw_ptr);
+    } else {
+        AUTOSHOW_DISABLED.insert(raw_ptr);
     }
 }
 
 pub fn reset_edit_text_state() {
-    unsafe {
-        AUTOSHOW_DISABLED_LEN = 0;
-        EDITOR_ACTION_MAP.reset();
-        NUMERIC_FIELDS_LEN = 0;
-        TEXT_WATCH_MAP.reset();
-        TEXT_QUEUE.clear();
-    }
+    AUTOSHOW_DISABLED.clear();
+    EDITOR_ACTION_MAP.reset();
+    NUMERIC_FIELDS.clear();
+    TEXT_WATCH_MAP.reset();
+    TEXT_QUEUE.clear();
 }
 
 /// Visit the Java `EditText` object ref of every textarea registered for an
