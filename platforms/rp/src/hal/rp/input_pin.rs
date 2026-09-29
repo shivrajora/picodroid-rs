@@ -17,11 +17,7 @@ impl RpInputPin {
     /// `pull_up`: true → enable internal pull-up (needed for open-drain signals like XPT2046 PENIRQ).
     #[cfg_attr(not(has_touch), allow(dead_code))]
     pub fn new(pin: u8, pull_up: bool) -> Self {
-        #[cfg(feature = "chip-rp2350")]
-        use rp235x_hal::pac;
-        #[cfg(feature = "chip-rp2040")]
-        use rp_pico::hal::pac;
-        let p = unsafe { pac::Peripherals::steal() };
+        let p = crate::hal::chip::periph::steal();
 
         // Ensure IO_BANK0 and PADS_BANK0 are out of reset
         p.RESETS
@@ -34,7 +30,7 @@ impl RpInputPin {
         p.IO_BANK0
             .gpio(pin as usize)
             .gpio_ctrl()
-            .write(|w| unsafe { w.funcsel().bits(5) });
+            .write(|w| w.funcsel().sio());
 
         // Configure pad: input enable, optional pull-up
         p.PADS_BANK0.gpio(pin as usize).write(|w| {
@@ -63,11 +59,7 @@ impl ErrorType for RpInputPin {
 
 impl InputPin for RpInputPin {
     fn is_high(&mut self) -> Result<bool, Infallible> {
-        #[cfg(feature = "chip-rp2350")]
-        use rp235x_hal::pac;
-        #[cfg(feature = "chip-rp2040")]
-        use rp_pico::hal::pac;
-        let p = unsafe { pac::Peripherals::steal() };
+        let p = crate::hal::chip::periph::steal();
         let val = p.SIO.gpio_in().read().bits();
         Ok((val >> self.pin) & 1 != 0)
     }

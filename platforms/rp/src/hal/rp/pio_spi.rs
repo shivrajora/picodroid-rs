@@ -131,7 +131,7 @@ static mut BOUNCE: Bounce = Bounce([0; 16]);
 // ── Register helpers ───────────────────────────────────────────────────────
 
 fn steal() -> pac::Peripherals {
-    unsafe { pac::Peripherals::steal() }
+    crate::hal::chip::periph::steal()
 }
 
 fn pin_funcsel(p: &pac::Peripherals, pin: u8, funcsel: u8) {
@@ -337,11 +337,8 @@ pub extern "C" fn cyw43_spi_init(_self: *mut c_void) -> i32 {
         if (*DMA_DONE.0.get()).is_none() {
             *DMA_DONE.0.get() = Some(Semaphore::new_binary().expect("pio_spi dma sem alloc"));
         }
-        let nvic_ipr = 0xE000_E400 as *mut u8;
-        let irqn = pac::Interrupt::DMA_IRQ_1 as u8;
-        nvic_ipr.add(irqn as usize).write_volatile(0x10);
-        cortex_m::peripheral::NVIC::unmask(pac::Interrupt::DMA_IRQ_1);
     }
+    crate::hal::chip::periph::enable_irq(pac::Interrupt::DMA_IRQ_1);
 
     // Assemble and load the program at offset 0. `pio_asm!` runs the
     // assembler at compile time; this loop is just a copy.

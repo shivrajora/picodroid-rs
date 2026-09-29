@@ -23,9 +23,8 @@ pub fn elapsed_realtime_nanos() -> i64 {
     // the high word is stable across the low-word read.
     #[cfg(feature = "chip-rp2040")]
     {
-        use rp_pico::hal::pac;
         // SAFETY: read-only register access, no side effects.
-        let p = unsafe { pac::Peripherals::steal() };
+        let p = crate::hal::chip::periph::steal();
         let mut hi = p.TIMER.timerawh().read().bits();
         let us = loop {
             let lo = p.TIMER.timerawl().read().bits();
@@ -39,9 +38,8 @@ pub fn elapsed_realtime_nanos() -> i64 {
     }
     #[cfg(feature = "chip-rp2350")]
     {
-        use rp235x_hal::pac;
         // SAFETY: read-only register access, no side effects.
-        let p = unsafe { pac::Peripherals::steal() };
+        let p = crate::hal::chip::periph::steal();
         let mut hi = p.TIMER0.timerawh().read().bits();
         let us = loop {
             let lo = p.TIMER0.timerawl().read().bits();

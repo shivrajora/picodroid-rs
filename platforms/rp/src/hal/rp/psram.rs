@@ -331,7 +331,7 @@ fn spot_check() -> Result<(), (usize, u32, u32)> {
 /// lives there — an unbacked pool corrupts itself silently, and a clear line
 /// at boot beats that.
 pub fn init() {
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
     super::gpio::ensure_io_unreset(&p);
     let cs = generated::PSRAM_CS_PIN as usize;
     p.IO_BANK0

@@ -6,11 +6,7 @@ pub mod math;
 
 /// Configure a GPIO pin (26–29) for ADC analog input and enable the ADC peripheral.
 pub fn init(pin: u8) {
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
 
     // Ensure IO_BANK0 and PADS_BANK0 are out of reset (idempotent)
     p.RESETS
@@ -30,7 +26,7 @@ pub fn init(pin: u8) {
     p.IO_BANK0
         .gpio(pin as usize)
         .gpio_ctrl()
-        .write(|w| unsafe { w.funcsel().bits(0x1f) });
+        .write(|w| w.funcsel().null());
 
     // Disable all pad features for analog: no input enable, no output disable override,
     // no pull-up, no pull-down, no schmitt trigger (all cleared by write())
@@ -43,11 +39,7 @@ pub fn init(pin: u8) {
 
 /// Perform a single ADC conversion on the given GPIO pin (26–29) and return voltage in volts.
 pub fn read(pin: u8) -> f64 {
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
 
     let channel = pin - 26; // GP26 → channel 0, GP27 → 1, GP28 → 2, GP29 → 3
 

@@ -11,18 +11,14 @@ use picodroid_core::rtos::{self, RawSem, Timeout};
 // ── Output ───────────────────────────────────────────────────────────────────
 
 pub fn set_direction(pin: u8, direction: i32) {
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
 
     ensure_io_unreset(&p);
 
     p.IO_BANK0
         .gpio(pin as usize)
         .gpio_ctrl()
-        .write(|w| unsafe { w.funcsel().bits(5) });
+        .write(|w| w.funcsel().sio());
 
     p.PADS_BANK0.gpio(pin as usize).write(|w| {
         #[cfg(feature = "chip-rp2350")]
@@ -46,11 +42,7 @@ pub fn set_direction(pin: u8, direction: i32) {
 }
 
 pub fn set_value(pin: u8, high: bool) {
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
     if high {
         p.SIO
             .gpio_out_set()
@@ -65,18 +57,14 @@ pub fn set_value(pin: u8, high: bool) {
 // ── Input ────────────────────────────────────────────────────────────────────
 
 pub fn set_input(pin: u8, pull: Pull) {
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
 
     ensure_io_unreset(&p);
 
     p.IO_BANK0
         .gpio(pin as usize)
         .gpio_ctrl()
-        .write(|w| unsafe { w.funcsel().bits(5) }); // SIO
+        .write(|w| w.funcsel().sio()); // SIO
 
     p.PADS_BANK0.gpio(pin as usize).write(|w| {
         #[cfg(feature = "chip-rp2350")]
@@ -96,22 +84,14 @@ pub fn set_input(pin: u8, pull: Pull) {
 }
 
 pub fn read(pin: u8) -> bool {
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
     (p.SIO.gpio_in().read().bits() >> pin) & 1 != 0
 }
 
 // ── Edge interrupt ───────────────────────────────────────────────────────────
 
 pub fn enable_edge_irq(pin: u8, edge: EdgeTrigger) {
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
 
     let reg_idx = pin as usize / 8;
     let bit_pos = (pin as usize % 8) * 4;
@@ -132,11 +112,7 @@ pub fn enable_edge_irq(pin: u8, edge: EdgeTrigger) {
 }
 
 pub fn disable_edge_irq(pin: u8) {
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
 
     let reg_idx = pin as usize / 8;
     let bit_pos = (pin as usize % 8) * 4;
@@ -157,12 +133,7 @@ pub fn init_gpio_irq() {
     // Subsequent calls leave it in place (binary semaphore, signal-latching).
     BUTTON_WAKE_SEM.ensure("BUTTON_WAKE_SEM alloc");
 
-    unsafe {
-        let nvic_ipr = 0xE000_E400 as *mut u8;
-        let irqn = pac::Interrupt::IO_IRQ_BANK0 as u8;
-        nvic_ipr.add(irqn as usize).write_volatile(0x10);
-        cortex_m::peripheral::NVIC::unmask(pac::Interrupt::IO_IRQ_BANK0);
-    }
+    crate::hal::chip::periph::enable_irq(pac::Interrupt::IO_IRQ_BANK0);
 }
 
 // ── CYW43 host-wake interrupt (NET-5) ────────────────────────────────────────
@@ -210,12 +181,7 @@ pub mod hostwake {
     /// core's. Same priority the button path uses — at
     /// `configMAX_SYSCALL_INTERRUPT_PRIORITY`, so FromISR calls are legal.
     pub fn init() {
-        unsafe {
-            let nvic_ipr = 0xE000_E400 as *mut u8;
-            let irqn = pac::Interrupt::IO_IRQ_BANK0 as u8;
-            nvic_ipr.add(irqn as usize).write_volatile(0x10);
-            cortex_m::peripheral::NVIC::unmask(pac::Interrupt::IO_IRQ_BANK0);
-        }
+        crate::hal::chip::periph::enable_irq(pac::Interrupt::IO_IRQ_BANK0);
         picodroid_cyw43_hostwake_rearm();
     }
 
@@ -224,7 +190,7 @@ pub mod hostwake {
     /// end of every `cyw43_poll_func` run (also core 1).
     #[no_mangle]
     pub extern "C" fn picodroid_cyw43_hostwake_rearm() {
-        let p = unsafe { pac::Peripherals::steal() };
+        let p = crate::hal::chip::periph::steal();
         p.IO_BANK0
             .proc1_inte(REG_IDX)
             .modify(|r, w| unsafe { w.bits(r.bits() | LEVEL_HIGH_BIT) });
@@ -242,11 +208,7 @@ extern "C" {
 #[allow(non_snake_case)]
 #[no_mangle]
 extern "C" fn IO_IRQ_BANK0() {
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
 
     #[cfg(feature = "chip-rp2040")]
     const NUM_REGS: usize = 4;
@@ -319,11 +281,7 @@ extern "C" fn IO_IRQ_BANK0() {
 /// SIO CPUID: 0 on core 0, 1 on core 1 (C twin: `get_core_num()` in
 /// `pico_shim.h`). Read-only register, ISR-safe.
 fn core_num() -> u32 {
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
     p.SIO.cpuid().read().bits()
 }
 
@@ -331,12 +289,8 @@ fn core_num() -> u32 {
 // ISR-safe, no hi/lo latch. Wraps every ~71.6 min, which is fine for the
 // wrapping_sub deltas the debounce performs on `GpioEvent::t_us`.
 fn now_us() -> u32 {
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
     // SAFETY: read-only register access, no side effects.
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
     #[cfg(feature = "chip-rp2350")]
     return p.TIMER0.timerawl().read().bits();
     #[cfg(feature = "chip-rp2040")]

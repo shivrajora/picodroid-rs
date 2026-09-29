@@ -72,16 +72,12 @@ mod inner {
     /// attaches to an already-running bus and configures no pins.
     #[cfg(touch_xpt2046)]
     fn configure_touch_miso() {
-        #[cfg(feature = "chip-rp2350")]
-        use rp235x_hal::pac;
-        #[cfg(feature = "chip-rp2040")]
-        use rp_pico::hal::pac;
-        let p = unsafe { pac::Peripherals::steal() };
+        let p = crate::hal::chip::periph::steal();
 
         p.IO_BANK0
             .gpio(generated::TOUCH_PIN_MISO as usize)
             .gpio_ctrl()
-            .write(|w| unsafe { w.funcsel().bits(1) }); // 1 = SPI
+            .write(|w| w.funcsel().spi()); // 1 = SPI
         p.PADS_BANK0
             .gpio(generated::TOUCH_PIN_MISO as usize)
             .write(|w| {

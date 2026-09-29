@@ -282,12 +282,7 @@ unsafe fn flash_program_range_xip_off(flash_offset: u32, data: *const u8, len: u
 
 /// Trigger a full chip reset via the RP2040/RP2350 watchdog.
 pub fn flash_trigger_reset() -> ! {
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
-
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
 
     // Tell the PSM to reset every subsystem except the ring and crystal
     // oscillators when the watchdog fires — the Pico SDK's `watchdog_reboot`

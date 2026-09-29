@@ -43,7 +43,7 @@ pub fn init() {
         DMA_INITED = true;
     }
 
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
 
     // Release DMA from reset
     p.RESETS.reset().modify(|_, w| w.dma().clear_bit());
@@ -67,12 +67,7 @@ pub fn init() {
         .write(|w| unsafe { w.bits((1 << CH_SPI0_RX) | (1 << CH_SPI1_RX)) });
 
     // Set DMA_IRQ_0 priority to 0x10 (FreeRTOS-safe) and unmask
-    unsafe {
-        let nvic_ipr = 0xE000_E400 as *mut u8;
-        let irqn = pac::Interrupt::DMA_IRQ_0 as u8;
-        nvic_ipr.add(irqn as usize).write_volatile(0x10);
-        cortex_m::peripheral::NVIC::unmask(pac::Interrupt::DMA_IRQ_0);
-    }
+    crate::hal::chip::periph::enable_irq(pac::Interrupt::DMA_IRQ_0);
 }
 
 fn configure_tx_channel(dma: &pac::DMA, ch: usize, dreq: u8) {
@@ -149,7 +144,7 @@ fn spi_dreq_rx(spi_id: u8) -> u8 {
 /// The caller must hold the SPI lock.  Completion is signalled via
 /// the SPI_DONE semaphore (same one the ISR path uses).
 pub fn start_write(spi_id: u8, data: &[u8]) {
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
 
     let (tx_ch, rx_ch) = match spi_id {
         0 => (CH_SPI0_TX, CH_SPI0_RX),
@@ -198,7 +193,7 @@ pub fn start_write(spi_id: u8, data: &[u8]) {
 /// Abort any in-progress DMA transfer for the given SPI peripheral.
 /// Called from the timeout recovery path in `spi.rs`.
 pub fn abort(spi_id: u8) {
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
 
     let (tx_ch, rx_ch) = match spi_id {
         0 => (CH_SPI0_TX, CH_SPI0_RX),
@@ -241,7 +236,7 @@ pub fn abort(spi_id: u8) {
 #[allow(non_snake_case)]
 #[no_mangle]
 extern "C" fn DMA_IRQ_0() {
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
     let mut ctx = InterruptContext::new();
     let ints = p.DMA.ints0().read().bits();
 

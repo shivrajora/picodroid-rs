@@ -57,11 +57,7 @@ macro_rules! apply_config {
 }
 
 pub fn init(uart_id: u8) {
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
 
     // Ensure IO_BANK0 and PADS_BANK0 are out of reset (idempotent)
     p.RESETS
@@ -94,7 +90,7 @@ pub fn init(uart_id: u8) {
         p.IO_BANK0
             .gpio(pin)
             .gpio_ctrl()
-            .write(|w| unsafe { w.funcsel().bits(2) }); // 2 = UART
+            .write(|w| w.funcsel().uart()); // 2 = UART
 
         // IE=1 (input enabled), OD=0 (output not disabled).
         // On RP2350, .write() starts from RESET_VALUE which has ISO=1
@@ -118,11 +114,7 @@ pub fn reconfigure(
     stop_bits: i32,
     hw_flow: i32,
 ) {
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
     match uart_id {
         0 => apply_config!(&p.UART0, baudrate, data_size, parity, stop_bits, hw_flow),
         _ => apply_config!(&p.UART1, baudrate, data_size, parity, stop_bits, hw_flow),
@@ -192,7 +184,7 @@ pub fn write_byte(uart_id: u8, byte: u8) {
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
     let uart: &pac::uart0::RegisterBlock = match uart_id {
         0 => &p.UART0,
         _ => &p.UART1,
@@ -204,11 +196,7 @@ pub fn write_byte(uart_id: u8, byte: u8) {
 
 /// Non-blocking read of a single byte. Returns -1 if RX FIFO is empty.
 pub fn read_byte(uart_id: u8) -> i32 {
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
     match uart_id {
         0 => {
             if p.UART0.uartfr().read().rxfe().bit_is_set() {

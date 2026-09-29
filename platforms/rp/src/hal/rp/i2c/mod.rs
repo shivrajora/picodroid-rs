@@ -88,14 +88,14 @@ macro_rules! i2c_isr_body {
 #[allow(non_snake_case)]
 #[no_mangle]
 extern "C" fn I2C0_IRQ() {
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
     i2c_isr_body!(&p.I2C0, I2C0_WAKE);
 }
 
 #[allow(non_snake_case)]
 #[no_mangle]
 extern "C" fn I2C1_IRQ() {
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
     i2c_isr_body!(&p.I2C1, I2C1_WAKE);
 }
 
@@ -152,7 +152,7 @@ macro_rules! apply_speed {
 }
 
 fn reconfigure(i2c_id: u8, speed_hz: u32) {
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
     match i2c_id {
         0 => apply_speed!(&p.I2C0, speed_hz),
         _ => apply_speed!(&p.I2C1, speed_hz),
@@ -192,7 +192,7 @@ pub fn init_with_pins(i2c_id: u8, sda: Option<u8>, scl: Option<u8>) {
         return;
     }
 
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
 
     // Ensure IO_BANK0 and PADS_BANK0 are out of reset (idempotent).
     p.RESETS
@@ -226,11 +226,11 @@ pub fn init_with_pins(i2c_id: u8, sda: Option<u8>, scl: Option<u8>) {
         p.IO_BANK0
             .gpio(pin)
             .gpio_ctrl()
-            .write(|w| unsafe { w.funcsel().bits(3) }); // 3 = I2C
-                                                        // I2C is open-drain. PADS_BANK0 reset value has PDE=1; using
-                                                        // `.write()` (not `.modify()`) sticks every unset field at
-                                                        // reset, so PDE silently stays enabled and the bus settles
-                                                        // mid-rail. Explicitly clear PDE here.
+            .write(|w| w.funcsel().i2c()); // 3 = I2C
+                                           // I2C is open-drain. PADS_BANK0 reset value has PDE=1; using
+                                           // `.write()` (not `.modify()`) sticks every unset field at
+                                           // reset, so PDE silently stays enabled and the bus settles
+                                           // mid-rail. Explicitly clear PDE here.
         p.PADS_BANK0.gpio(pin).write(|w| {
             #[cfg(feature = "chip-rp2350")]
             let w = w.iso().clear_bit();
@@ -272,12 +272,7 @@ pub fn init_with_pins(i2c_id: u8, sda: Option<u8>, scl: Option<u8>) {
     macro_rules! setup_irq {
         ($i2c:expr, $irq:expr) => {{
             $i2c.ic_intr_mask().write(|w| unsafe { w.bits(0) });
-            unsafe {
-                let nvic_ipr = 0xE000_E400 as *mut u8;
-                let irqn = $irq as u8;
-                nvic_ipr.add(irqn as usize).write_volatile(0x10);
-                cortex_m::peripheral::NVIC::unmask($irq);
-            }
+            crate::hal::chip::periph::enable_irq($irq);
         }};
     }
     match i2c_id {
@@ -691,7 +686,7 @@ pub fn write_slice(i2c_id: u8, address: u8, data: &[u8]) -> i32 {
     }
     let lock = i2c_lock(i2c_id);
     let _ = lock.take(Duration::infinite());
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
     let result = match i2c_id {
         0 => write_internal(i2c_id, &p.I2C0, address, data),
         _ => write_internal(i2c_id, &p.I2C1, address, data),
@@ -711,7 +706,7 @@ pub fn read_slice(i2c_id: u8, address: u8, buf: &mut [u8]) -> i32 {
     }
     let lock = i2c_lock(i2c_id);
     let _ = lock.take(Duration::infinite());
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
     let result = match i2c_id {
         0 => read_internal(i2c_id, &p.I2C0, address, buf),
         _ => read_internal(i2c_id, &p.I2C1, address, buf),

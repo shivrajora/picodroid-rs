@@ -436,12 +436,7 @@ pub fn init() {
 
     // Release USBCTRL from reset.
     {
-        #[cfg(feature = "chip-rp2350")]
-        use rp235x_hal::pac;
-        #[cfg(feature = "chip-rp2040")]
-        use rp_pico::hal::pac;
-
-        let p = unsafe { pac::Peripherals::steal() };
+        let p = crate::hal::chip::periph::steal();
         p.RESETS.reset().modify(|_, w| w.usbctrl().clear_bit());
         while p.RESETS.reset_done().read().usbctrl().bit_is_clear() {}
     }
@@ -472,12 +467,7 @@ pub fn init() {
         #[cfg(feature = "chip-rp2040")]
         use rp_pico::hal::pac;
 
-        unsafe {
-            let nvic_ipr = 0xE000_E400 as *mut u8;
-            let irqn = pac::Interrupt::USBCTRL_IRQ as u8;
-            nvic_ipr.add(irqn as usize).write_volatile(0x10);
-            cortex_m::peripheral::NVIC::unmask(pac::Interrupt::USBCTRL_IRQ);
-        }
+        crate::hal::chip::periph::enable_irq(pac::Interrupt::USBCTRL_IRQ);
     }
 }
 

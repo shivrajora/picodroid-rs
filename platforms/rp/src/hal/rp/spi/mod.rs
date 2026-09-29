@@ -162,22 +162,14 @@ macro_rules! spi_isr_body {
 #[allow(non_snake_case)]
 #[no_mangle]
 extern "C" fn SPI0_IRQ() {
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
     spi_isr_body!(&p.SPI0, SPI0_STATE, SPI0_DONE);
 }
 
 #[allow(non_snake_case)]
 #[no_mangle]
 extern "C" fn SPI1_IRQ() {
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
     spi_isr_body!(&p.SPI1, SPI1_STATE, SPI1_DONE);
 }
 
@@ -208,11 +200,7 @@ macro_rules! apply_config {
 }
 
 fn do_reconfigure(spi_id: u8, freq_hz: u32, mode: u32) {
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
     match spi_id {
         0 => apply_config!(&p.SPI0, freq_hz, mode),
         _ => apply_config!(&p.SPI1, freq_hz, mode),
@@ -394,7 +382,7 @@ pub fn init_with_pins(
     use rp235x_hal::pac;
     #[cfg(feature = "chip-rp2040")]
     use rp_pico::hal::pac;
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
 
     // Ensure IO_BANK0 and PADS_BANK0 are out of reset (idempotent)
     p.RESETS
@@ -430,7 +418,7 @@ pub fn init_with_pins(
         p.IO_BANK0
             .gpio(pin)
             .gpio_ctrl()
-            .write(|w| unsafe { w.funcsel().bits(1) }); // 1 = SPI
+            .write(|w| w.funcsel().spi()); // 1 = SPI
         p.PADS_BANK0.gpio(pin).write(|w| {
             #[cfg(feature = "chip-rp2350")]
             let w = w.iso().clear_bit();
@@ -462,12 +450,7 @@ pub fn init_with_pins(
     macro_rules! setup_irq {
         ($spi:expr, $irq:expr) => {{
             $spi.sspimsc().write(|w| unsafe { w.bits(0) });
-            unsafe {
-                let nvic_ipr = 0xE000_E400 as *mut u8;
-                let irqn = $irq as u8;
-                nvic_ipr.add(irqn as usize).write_volatile(0x10);
-                cortex_m::peripheral::NVIC::unmask($irq);
-            }
+            crate::hal::chip::periph::enable_irq($irq);
         }};
     }
     match spi_id {
@@ -504,11 +487,7 @@ pub fn write_raw_start(spi_id: u8, data: &[u8]) {
         return;
     }
 
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
 
     let lock = spi_lock(spi_id);
     let _ = lock.take(Duration::infinite());
@@ -549,11 +528,7 @@ pub fn write_raw_finish(spi_id: u8) {
     }
     pending.store(false, Ordering::Release);
 
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
 
     match spi_id {
         0 => finish_isr_xfer!(&p.SPI0, spi_id),
@@ -570,11 +545,7 @@ pub fn transfer_raw(spi_id: u8, tx: &[u8], rx: &mut [u8]) {
         return;
     }
 
-    #[cfg(feature = "chip-rp2350")]
-    use rp235x_hal::pac;
-    #[cfg(feature = "chip-rp2040")]
-    use rp_pico::hal::pac;
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
 
     let lock = spi_lock(spi_id);
     let _ = lock.take(Duration::infinite());

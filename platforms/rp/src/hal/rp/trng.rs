@@ -94,7 +94,7 @@ fn try_refill(trng: &pac::TRNG) -> bool {
 /// One hardware-random word, or `None` when no entropy is buffered yet
 /// (the caller falls back to its LCG).
 pub fn try_random_u32() -> Option<u32> {
-    let p = unsafe { pac::Peripherals::steal() };
+    let p = crate::hal::chip::periph::steal();
     ensure_init(&p);
     unsafe {
         if AVAILABLE == 0 && !try_refill(&p.TRNG) {
