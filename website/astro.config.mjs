@@ -86,6 +86,7 @@ export default defineConfig({
             { label: 'Storage', slug: 'api/storage' },
             { label: 'Networking', slug: 'api/networking' },
             { label: 'JSON', slug: 'api/json' },
+            { label: 'Protobuf', slug: 'api/protobuf' },
             { label: 'Sensors', slug: 'api/sensors' },
             { label: 'Audio', slug: 'api/media' },
             { label: 'Graphics & UI', slug: 'api/ui' },

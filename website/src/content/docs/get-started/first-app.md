@@ -9,7 +9,15 @@ description: "Scaffold a Picodroid app, wire its lifecycle, and ship a PAPK."
 ./gradlew newApp -Pname=myapp
 ```
 
-This creates `examples/myapp/` with a starter `MyApp.java`, `PicodroidManifest.xml`, and `build.gradle.kts`. Then build and flash:
+This creates `examples/myapp/` with a starter `java/myapp/Myapp.java` (the class is the app name with its first letter capitalised), `PicodroidManifest.xml`, and `build.gradle.kts`. Add `-Plang=kotlin` for a [Kotlin](/guides/kotlin/) starter. The name must be lower case: letters, digits and `_`.
+
+Run it in the [simulator](/get-started/simulator/), no hardware needed:
+
+```bash
+./scripts/sim.sh --app myapp
+```
+
+Or build and flash:
 
 ```bash
 ./scripts/build.sh --app myapp
@@ -43,6 +51,8 @@ public class MyApp extends Application {
 </manifest>
 ```
 
+`package` is the app's identity on a device: a board that holds several apps keeps one install per package, and `pdb uninstall` names it. `<application>` also takes a `label` and an `icon` for the launcher to show — see the [manifest reference](/reference/manifest/#app-identity).
+
 3. Create a one-line `build.gradle.kts` in the app directory:
 
 ```kotlin
@@ -68,11 +78,11 @@ The build pipeline is a Gradle multi-project with a custom `picodroid-papk` plug
 
 The build files in `settings.gradle.kts` and `examples/*/build.gradle.kts` are standard Gradle projects. Opening the repo in IntelliJ IDEA ("Open as Gradle project") or VS Code (with the Red Hat Java + Gradle extensions) gives autocomplete, jump-to-def, and inline error reporting for all framework and app sources.
 
-Pass `--shrink` (off by default) to apply the active release shrink map — `build-apk.sh` will rewrite framework class and member references inside your `.class` files (e.g. `Lpicodroid/app/Application;` → `La/B;`). Your own class names stay unchanged, so the `application=` value in the manifest remains valid. Add `--shrink-app` to rename your own classes and private members as well; the manifest still names `myapp/MyApp` and `papk-pack` maps the entry class for you. See [Shrinker](/reference/shrinker/) for details.
+Pass `--shrink` (off by default) to apply the active release shrink map — `build-apk.sh` will rewrite framework class and member references inside your `.class` files (e.g. `Lpicodroid/app/Application;` → `La/B;`). Your own names stay as they are, so the `application=` value in the manifest remains valid; the one exception is a name of yours that spells one of the map's short names (a field `p`, a class in the default package), which is renamed so it cannot alias the framework's. Add `--shrink-app` to rename your own classes and private members as well; the manifest still names `myapp/MyApp` and `papk-pack` maps the entry class for you. See [Shrinker](/reference/shrinker/) for details.
 
 ## Application Lifecycle
 
-All apps extend `picodroid.app.Application` and override `onCreate()`. The runtime instantiates your Application class and calls `onCreate()` as the entry point.
+The apps on this page extend `picodroid.app.Application` and override `onCreate()`. The runtime instantiates the class the manifest's `application=` names and calls `onCreate()` as the entry point. (The manifest can name an Activity or a `main` class instead — see [entry-point styles](/reference/manifest/#entry-point-styles).)
 
 ### Console app
 
@@ -143,7 +153,7 @@ The Activity's `onCreate()` is called after the display is initialized. Build a 
 
 ### Activity lifecycle and back stack
 
-Beyond `onCreate()`, `Activity` exposes the full Android lifecycle: `onStart` / `onResume` / `onPause` / `onStop` / `onDestroy` / `onBackPressed`. The runtime also maintains a back stack — push a new screen with `startActivity(new Intent(DetailActivity.class))` and pop it with `finish()`:
+Beyond `onCreate()`, `Activity` exposes the full Android lifecycle: `onStart` / `onResume` / `onPause` / `onStop` / `onRestart` / `onDestroy` / `onBackPressed`. The runtime also maintains a back stack — push a new screen with `startActivity(new Intent(DetailActivity.class))` and pop it with `finish()`:
 
 ```java
 import picodroid.content.Intent;
@@ -164,6 +174,43 @@ public class HomeActivity extends Activity {
 ```
 
 The widget tree set via `setContentView()` is **preserved across pause** — when control returns from a popped Activity, the saved tree is restored automatically. See [api/ui.md → Lifecycle](/api/ui/#lifecycle), [api/ui.md → Back stack](/api/ui/#back-stack), and [`examples/navdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/navdemo).
+
+BACK finishes the top Activity. From the app's only Activity that ends the app, and on a board with a launcher the launcher comes back — so leave `onBackPressed` alone on the root screen. A HOME key (`pico_touch_kit` has one) goes to the launcher from anywhere and never reaches the app. See the [launcher guide](/guides/launcher/#coming-back).
+
+### Saved instance state
+
+The argument of `onCreate(Bundle)` is `null` on a fresh launch. It is the Bundle your `onSaveInstanceState` filled when the framework is re-creating the Activity: after `recreate()`, or when a covered Activity was destroyed to get its memory back and the user returns to it. Fields you did not save are gone in the new instance:
+
+```java
+@Override
+protected void onSaveInstanceState(Bundle outState) {
+    outState.putInt("count", count);
+}
+
+@Override
+protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
+    count = savedInstanceState == null ? 0 : savedInstanceState.getInt("count");
+}
+```
+
+Unlike Android, the default `onSaveInstanceState` saves nothing, an `EditText`'s text included. See [api/ui.md → Saved instance state](/api/ui/#saved-instance-state) and [`examples/bundledemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/bundledemo).
+
+### Resources and XML layouts
+
+The display app above builds its widgets in Java. An app can also carry an Android-style `res/` directory — strings, colours, dimensions, layouts, PNG drawables — and use the generated `R` class:
+
+```java
+setContentView(R.layout.activity_main);
+TextView title = findViewById(R.id.title);
+title.setText(getString(R.string.greeting));
+```
+
+Layouts are compiled at build time; no XML parser runs on the device. See [Resources, R and XML layouts](/guides/resources/) and [`examples/resdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/resdemo).
+
+### Fragments
+
+`picodroid.app.Fragment`, with `FragmentManager` and `FragmentTransaction`, has the shape of `androidx.fragment.app`: `getSupportFragmentManager().beginTransaction().replace(R.id.container, new DetailFragment()).addToBackStack(null).commit()`, and BACK pops the fragment back stack before it finishes the Activity. `ViewPager2` pages between fragments. They are on every RP2350 board; `testbench_rp2040` leaves the classes out. See [api/ui.md → Fragment](/api/ui/#picodroidappfragment) and [`examples/fragmentdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/fragmentdemo).
 
 ### Toasts and dialogs
 
@@ -229,7 +276,7 @@ Tapping any `EditText` pops up a system soft keyboard at the screen bottom by de
 
 ### Input and idle power
 
-On boards with hardware buttons, install `OnKeyListener`s to receive `KeyEvent`s — see [api/ui.md → Key events](/api/ui/#key-events). After **60 seconds** with no button or touch input, the runtime puts the display panel to sleep (backlight off, `DISPOFF`, `SLPIN`) and blocks on a GPIO semaphore. The next button edge wakes the panel and is swallowed by the framework — it is not delivered to your listener.
+On boards with hardware buttons, install `OnKeyListener`s to receive `KeyEvent`s, or override `Activity.onKeyDown` / `onKeyUp` / `onKeyLongPress` for the keys no focused view consumed — see [api/ui.md → Key events](/api/ui/#key-events). On such a board, after the idle timeout (`idle_timeout_ms` in `board.toml`, 60 seconds by default) with no button input, the runtime puts the display panel to sleep (backlight off, `DISPOFF`, `SLPIN`) and blocks on a GPIO semaphore. The next button edge wakes the panel and is swallowed by the framework — it is not delivered to your listener. `idle_timeout_ms = 0` turns the sleep off, which is what the four shipped button boards (`pico_enviro_mon`, `pico_enviro_mon_w`, `pico_display2_w`, `pico_touch_kit`) do; a board without buttons, and the simulator, never sleep. See [Display idle sleep](/reference/limits/#display-idle-sleep).
 
 ### Posting work between threads
 
@@ -245,6 +292,8 @@ Executors.backgroundExecutor().execute(() -> {
 ```
 
 `backgroundExecutor()` runs on a shared worker pool (configurable in [`board.toml`](/reference/porting-guide/#boardtoml-reference)); `mainExecutor()` hops back to the UI thread. Both are non-blocking and drop on queue saturation.
+
+For delayed or periodic work on the main thread — what `Handler.postDelayed` does on Android — use `Executors.newSingleThreadScheduledExecutor()`; see [api/system.md → ScheduledExecutorService](/api/system/#delayed-and-periodic-work-scheduledexecutorservice). It is not on `testbench_rp2040`.
 
 ## Porting to a New Platform
 
@@ -292,11 +341,11 @@ for the Kotlin-specific subset, divergences, and idioms.
 | Autoboxing | `Integer`, `Boolean`, `Long`, `Float`, `Double` — `valueOf` / `intValue` etc.; enables storing primitives in `ArrayList<Integer>` etc. |
 | String (extended) | `split`, `replace`, `concat`, `toCharArray`, `hashCode` in addition to the predicates / search / transform methods listed above |
 | Sorting / list utilities | `Arrays.sort` / `Arrays.toString` (stable mergesort over `Comparable[]`), `Collections.sort` / `Collections.reverse` over `java.util.List` (`ArrayList` implements it), `java.lang.Comparable<T>` |
-| `System.currentTimeMillis()` | Boot-elapsed milliseconds — convenience for the common `long now = System.currentTimeMillis()` Android idiom |
+| `System.currentTimeMillis()` | Milliseconds counted from boot until the app sets the wall clock (`SystemClock.setCurrentTimeMillis`, e.g. from `SntpClient`) — the common `long now = System.currentTimeMillis()` Android idiom |
 
 ## Garbage Collection
 
-The JVM runs a **stop-the-world mark-sweep collector** automatically. After every 256 heap allocations it scans all roots (frame locals, operand stacks, static fields), marks every reachable object, array, and string, then frees everything unreachable. There is no action needed from app code — GC fires transparently between bytecode instructions.
+The JVM runs a **stop-the-world mark-sweep collector** automatically. After every 256 heap allocations (the default; `gc_alloc_threshold` in a board's `board.toml` changes it) it scans all roots (frame locals, operand stacks, static fields), marks every reachable object, array, and string, then frees everything unreachable. There is no action needed from app code — GC fires transparently between bytecode instructions.
 
 To introspect GC behavior from Java code, use `picodroid.os.Runtime`:
 

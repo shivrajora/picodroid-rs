@@ -3,7 +3,7 @@ title: "Bundled image assets"
 description: "Ship pre-decoded PNG images inside the PAPK and load them with ImageView.setImageSource at zero runtime cost."
 ---
 
-Picodroid PAPK format **v1.1** adds an `ASST` ("asset") section that carries pre-decoded PNG images as LVGL-native RGB565 structures. The framework builds the asset at PAPK-pack time, embeds it directly in the file, and the firmware maps it from XIP flash at runtime — `ImageView.setImageSource("foo.png")` becomes a name-keyed lookup with no PNG decoder on the device.
+A PAPK can carry an `ASST` ("asset") section of pre-decoded PNG images as LVGL-native RGB565 structures (the section arrived with format v1.1 and is unchanged in today's v2). The framework builds the asset at PAPK-pack time, embeds it directly in the file, and the firmware maps it from XIP flash at runtime — `ImageView.setImageSource("foo.png")` becomes a name-keyed lookup with no PNG decoder on the device.
 
 This guide covers the manifest format, the build pipeline, and the runtime API.
 
@@ -61,15 +61,15 @@ The full Tier C ImageView surface lives in [Graphics & UI → ImageView](/api/ui
 
 ```java
 img.setScaleType(ImageView.SCALE_FIT_CENTER);
-img.setScale(150);                // 100 = 1.0×
-img.setTint(Color.RED);
+img.setScale(384);                // ImageView.SCALE_1X (256) = 1.0×, so 384 = 1.5×
+img.setTint(Color.RED);           // the colour's alpha is the blend strength
 ```
 
 For scaled rendering to be anti-aliased, `LV_DRAW_SW_SUPPORT_RGB565A8` must be enabled in `lv_conf.h` (it is, by default). Without it scaled images render aliased.
 
 ## Step by step: from PNG to screen
 
-1. **Size the PNG for the screen.** Each bundled image costs `width × height × 2` bytes on flash (RGB565, 2 bytes per pixel — there is no compression on device). Budget against the board's flash and the app region every installed app shares (1536 KiB on the RP2350 boards, 1024 KiB on RP2040 — see [limits](/reference/limits/)):
+1. **Size the PNG for the screen.** Each bundled image costs `width × height × 2` bytes on flash (RGB565, 2 bytes per pixel — there is no compression on device). Budget against the app region every installed app shares — `app_region_kb` in the board's `board.toml`: 1536 KiB on `testbench_rp2350` and `pico_enviro_mon`, 1280 KiB on the RP2350 WiFi boards, 10 MiB on `pico_touch_kit`, and 768 KiB on `testbench_rp2040` (see [limits](/reference/limits/)):
 
    | Image | Bytes | On flash |
    |-------|-------|----------|
@@ -100,7 +100,7 @@ For scaled rendering to be anti-aliased, `LV_DRAW_SW_SUPPORT_RGB565A8` must be e
 4. **Confirm the asset landed** with `papk-info` — it prints the ASST table with each image's dimensions, color format, and size:
 
    ```bash
-   cargo run -p papk-info -- build/apks/myapp.papk
+   ./scripts/papk-info.sh build/apks/myapp.papk
    ```
 
    ```text
@@ -123,14 +123,16 @@ For scaled rendering to be anti-aliased, `LV_DRAW_SW_SUPPORT_RGB565A8` must be e
 
 ## PAPK compatibility
 
-Bundled assets land outside the framework class set, so they don't change the **shrink map**. v1.1 PAPKs run unchanged on v1.0 firmware **only if they don't reference an asset** — the firmware will skip the ASST section. PAPKs that call `setImageSource` need v1.1 firmware (any picodroid release ≥ v0.8.0).
+Bundled assets land outside the framework class set, so they don't change the **shrink map**, and `--shrink` / `--shrink-app` never rename an asset: the name passed to `setImageSource` is a string literal, which the shrinker leaves alone.
+
+The container itself is at format **v2**: classes are linked when the app is packed, and a file packed by an older toolchain (v1) is refused rather than read — `pdb install` prints `PAPK file is not a valid PAPK: PAPK format version is not the one this build reads (a v1 file: re-pack it with the current toolchain)`. Rebuild the app with `./scripts/build-apk.sh`; nothing about its `assets/` needs to change.
 
 A PAPK packed before sections were aligned (2026-09-15) can place an image's pixels at an odd address. The firmware skips such an image instead of drawing it and logs `[assets] <name> skipped: pixel data is not 2-byte aligned`; re-pack the app to fix it.
 
 The `papk-info` tool prints both the manifest and the asset table:
 
 ```bash
-cargo run -p papk-info -- build/apks/imagedemo.papk
+./scripts/papk-info.sh build/apks/imagedemo.papk
 ```
 
 ## Internals (for the curious)
@@ -138,6 +140,6 @@ cargo run -p papk-info -- build/apks/imagedemo.papk
 - The ASST section is a `[u32 count]` followed by one record per asset: `[u16 name_len][name bytes][u16 width][u16 height][u8 cf][u8 reserved0][u16 stride (0 = derive from width + cf)][u32 data_len]`, each record padded to a 4-byte boundary before and after its pixel data. Every PAPK section also starts on a 4-byte boundary in the file, so pixel data sits at an aligned flash address — LVGL reads it in place as 16-bit words, and a Cortex-M0+ (RP2040) hard-faults on an unaligned halfword read.
 - The firmware-side resolver lives in `crates/picodroid-core/src/graphics/assets.rs` and registers each entry with LVGL's image cache as `lv_img_dsc_t` pointers into XIP flash.
 - There is no asset-section byte cap in the packer — the only enforced image limit is a per-axis maximum of 65535 px. The real ceiling is the app region the PAPK is installed into, shared with its classes and manifest and with every other installed app, so keep `assets/` modest (a few hundred KiB at most) to leave room for code.
-- Re-pack any PAPK that was built before v1.1 if you start using `setImageSource` — `pdb install` will reject the older format with `FrameworkVersionMismatch`.
+- Another app's icon reaches your app as a `BitmapDrawable` from `PackageManager.getApplicationIcon`, read out of that app's installed image; show it with `ImageView.setImageDrawable`. That is how the launcher draws its rows.
 
 See [`examples/imagedemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/imagedemo) for a worked example.

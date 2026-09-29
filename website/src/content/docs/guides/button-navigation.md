@@ -51,6 +51,17 @@ Each entry binds a GPIO pin to an LVGL keypad key (`lv_key`) and an Android `Key
 
 So **A = up, B = down, X = open (ENTER), Y = back (ESC)**. A single `[[button]]` entry is enough for the board to count as button-capable; the keypad focus-group machinery turns on automatically.
 
+A button can also be a **system key** that stays out of the focus ring. `lv_key = "NONE"` queues the keycode for Java and injects nothing into the LVGL keypad, which is what `pico_touch_kit` — a board with a touchscreen *and* two buttons — uses for HOME:
+
+```toml
+[[button]]
+pin = 14
+lv_key = "NONE"
+keycode = 3        # KEYCODE_HOME
+```
+
+HOME goes straight to the launcher on a multi-app board, from any app at any depth, and never reaches an app: not a focused view's `OnKeyListener`, not a showing dialog, not `onBackPressed`. On a board with no launcher it is swallowed. The four-button boards have no HOME key; there BACK from the root Activity is the way out.
+
 For the full `board.toml` schema — required keys, valid `lv_key` values, how `[[button]]` differs from `[touch]` — see the [porting guide](/reference/porting-guide/). The board files live in [`platforms/rp/boards`](https://github.com/shivrajora/picodroid-rs/tree/main/platforms/rp/boards).
 
 ## Making widgets reachable
@@ -117,6 +128,7 @@ The `KeyEvent` constants match Android exactly (`sdk/java/picodroid/view/KeyEven
 ```java
 ACTION_DOWN        = 0;
 ACTION_UP          = 1;
+KEYCODE_HOME       = 3;   // handled by the framework, never delivered
 KEYCODE_BACK       = 4;
 KEYCODE_DPAD_UP    = 19;
 KEYCODE_DPAD_DOWN  = 20;
@@ -132,12 +144,15 @@ When Y is released, the framework tries each of these in order and stops at the 
 1. **Dismiss the soft keyboard** if it's visible (the only way to close it without touch).
 2. **Dismiss a showing `AlertDialog`** — the only way to dismiss a dialog on a keypad-only board.
 3. **The focused view's `OnKeyListener`** (if it returns `true`).
-4. **`Activity.onBackPressed()`** on the top Activity, whose default body is `finish()`.
+4. **The top Activity's `onKeyDown` / `onKeyUp`**. The defaults carry Android's BACK contract: `onKeyDown` tracks the press, and `onKeyUp` runs `onBackPressed()` for a release that was tracked and not cancelled by a long-press.
+5. **`Activity.onBackPressed()`**, whose default pops the Fragment back stack if there is one to pop and otherwise calls `finish()`.
 
-Override `onBackPressed()` without calling `super` to intercept Back (a confirm dialog, for example); on the root Activity leave it alone so Y returns to the launcher (see the hub pattern below).
+Override `onBackPressed()` without calling `super` to intercept Back (a confirm dialog, for example), or consume `KEYCODE_BACK` in `onKeyDown` without calling `super`; on the root Activity leave both alone so Y returns to the launcher (see the hub pattern below).
 
-:::caution[Buttons don't fire in the host simulator]
-On the host simulator, the hardware GPIO drain always returns `None`, so the Java key dispatcher never fires for real button events — end-to-end button testing needs hardware. The sim instead drives the LVGL keypad indev directly: keyboard keys (and a headless control FIFO) map to button edges, so focus navigation, ENTER, and the ESC back-chain still work for manual testing. See the headless-sim section of the [debugging guide](/guides/debugging/).
+While an `AlertDialog` shows it holds the keypad: A and B cycle the dialog's own buttons and cannot walk onto the rows behind it.
+
+:::note[Buttons in the host simulator]
+The simulator has no GPIO, so it synthesizes button edges into the same queue the device's GPIO interrupt fills, and everything after that is the device's own path: the LVGL keypad, focus navigation, the phantom-release filter, `OnKeyListener`, the Activity's key callbacks with auto-repeat and long-press, and the BACK chain. In the simulator window the host keyboard drives the buttons — Up and Down arrows are PREV and NEXT, Enter is ENTER, Backspace is BACK, and the digits `1`–`4` press the first to fourth declared button (Escape closes the simulator). Headless, the control channel takes `tap A`, `input keyevent --longpress 23` and the rest. See the headless-sim section of the [debugging guide](/guides/debugging/#driving-the-simulator-headlessly).
 :::
 
 ## Lists and menus
@@ -171,11 +186,11 @@ The keypad sets **two** state bits on the focused widget, and you must style bot
 - `LV_STATE_FOCUSED` — focused (set for both pointer and keypad focus).
 - `LV_STATE_FOCUS_KEY` — additionally set when focus arrives via a keypad rather than a pointer.
 
-`ListView` rows handle this for you: the framework fills the focused row with the accent color for both states, so the highlight is unmistakable on dark backgrounds. But if you theme focus yourself on a custom widget and cover only `LV_STATE_FOCUSED`, **keypad focus will show nothing useful** — the default theme repaints the keypad-focused widget blue after the first move (it renders your color on first paint, then the theme's blue once `LV_STATE_FOCUS_KEY` kicks in). Whenever you override the focus highlight, cover the `*_FOCUS_KEY` state too. (This was the QA #7 lesson: a row styled only `LV_STATE_FOCUSED` showed teal on first render and blue after.)
+`ListView` rows handle this for you: the framework fills the focused row with the accent color for both states, so the highlight is unmistakable on dark backgrounds. Every other view made focusable gets a 2 px light border while it has the focus, in both states and drawn inside its bounds — the theme's own focus outline is drawn outside the object and is clipped away for a full-width row. But if you theme focus yourself on a custom widget and cover only `LV_STATE_FOCUSED`, **keypad focus will show nothing useful** — the default theme repaints the keypad-focused widget blue after the first move (it renders your color on first paint, then the theme's blue once `LV_STATE_FOCUS_KEY` kicks in). Whenever you override the focus highlight, cover the `*_FOCUS_KEY` state too. (This was the QA #7 lesson: a row styled only `LV_STATE_FOCUSED` showed teal on first render and blue after.)
 
 There is no dedicated Java "focus highlight color" setter; list rows get the framework default automatically, and `View.setBackground(Drawable)` dispatches virtually for custom cases. See [theming](/guides/theming/) for palette fields.
 
-A practical tip on a touchless device: tell users what each button does. The Pico Enviro Mon shows an always-visible `ButtonHintBar` legend on every screen, e.g. `"A:Up  B:Down  X:Open"` (note the home hub omits `Y:Back` because Back is suppressed there). The legend bar is `224 px` wide — keep hint strings short enough to fit `224 px` or they clip (the QA #6 lesson).
+A practical tip on a touchless device: tell users what each button does. The Pico Enviro Mon shows an always-visible `ButtonHintBar` legend on every screen, e.g. `"A:Up  B:Down  X:Info  Y:Back"` on the History screen and `"A:Up  B:Down  X:Open  Y:Exit"` on the home hub. The legend bar is `224 px` wide — keep hint strings short enough to fit `224 px` or they clip (the QA #6 lesson).
 
 ## Keyboard on button boards
 
@@ -186,12 +201,11 @@ The real input API is the Android one:
 ```java
 import picodroid.text.InputType;
 
-EditText field = new EditText(this);
-field.setFocusable(true);
+EditText field = new EditText(this);               // focusable by default, as on Android
 field.setInputType(InputType.TYPE_CLASS_NUMBER);  // shows the digit keypad
 ```
 
-Fields flagged `TYPE_CLASS_NUMBER` get the numeric keypad layout; everything else gets the default text layout. Dismiss the soft keyboard with Y/BACK — on a keypad-only board it's the only way to close it (the keyboard is consumed first in the BACK routing order above, so the user stays on the same screen). See [UI components](/api/ui/) for the full `EditText` / keyboard surface.
+Fields flagged `TYPE_CLASS_NUMBER` get the numeric keypad layout; everything else gets the default text layout, and a password variation masks what is typed. With the field focused, X (ENTER) opens the keyboard and the keyboard takes the keypad focus: A and B walk its keys (hold to repeat), X types the highlighted key, and its OK key fires the field's `OnEditorActionListener`. Dismiss the soft keyboard with Y/BACK — on a keypad-only board it's the only way to close it (the keyboard is consumed first in the BACK routing order above, so the user stays on the same screen). See [UI components](/api/ui/) for the full `EditText` / keyboard surface.
 
 :::note[Contributors: CI compiles this path; nothing local does]
 GitHub CI clippy-checks `board-pico-enviro-mon` and `board-pico-enviro-mon-w` on the ARM target on every push (the local `scripts/pre-commit` builds nothing; its `--full` tier lints only the W board), so the `has_buttons` code path — keypad indev, per-Activity focus groups, the phantom-release IRQ filter — is compile-gated by CI. The pure-logic unit tests (e.g. the phantom-release filter) run under `scripts/test.sh` but don't exercise the `has_buttons` cfg; behavioral coverage still needs the enviro sim smoke (`sim-run.sh`) or hardware.

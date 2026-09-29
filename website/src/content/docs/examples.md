@@ -3,7 +3,7 @@ title: "Examples"
 description: "The example apps shipped under examples/, grouped by feature area."
 ---
 
-Ninety examples are included under `examples/`, organized by category. The launcher that multi-app boards boot into lives in `system-apps/launcher/`: built the same way, but linked into the firmware. See the [launcher guide](/guides/launcher/).
+One hundred and one examples are included under `examples/`, organized by category. The launcher that multi-app boards boot into lives in `system-apps/launcher/`: built the same way, but linked into the firmware. See the [launcher guide](/guides/launcher/).
 
 New to Picodroid? Start with the two guided tutorials below — they walk through building a real app step by step. The rest of the catalog is reference material to copy from.
 
@@ -46,6 +46,8 @@ On-device persistent storage via LittleFS (`picodroid.io`) and the DataStore-sty
 |---------|-------|-------------|
 | `bootcount` | `bootcount.BootCount` | Persists a boot counter across reboots using `picodroid.io.File` / `FileInputStream` / `FileOutputStream` |
 | `prefs_demo` | `prefsdemo.PrefsDemo` | Stores typed key/value settings (`String`, `int`, `long`, `float`, `boolean`) via `SharedPreferences.open()` / `edit().commit()`, and walks the `File` path helpers (`getName`, `getParent`, `getParentFile`, `mkdirs`, `createNewFile`) |
+| `filesdemo` | `filesdemo.FilesDemo` | Conformance checks for the storage sandbox and the `Context` file API: every path the app names lives under its own directory, `getFilesDir()` is `/files`, `openFileOutput` / `openFileInput` / `fileList` / `deleteFile` round-trip, `File.list` works, and a path that climbs out or is too long is refused |
+| `quotademo` | `quotademo.QuotaDemo` | Conformance checks for the storage quota on multi-app boards: `StatFs` reports the volume and what the app may still write, 16 KB files are written until the board's per-app cap refuses the next with `IOException`, a delete and a `mkdir` move the number by exactly what they cost, and `StorageStatsManager` agrees with the accounting. `Build` names the board |
 
 ## Networking
 
@@ -157,6 +159,7 @@ Full graphical UI with touch input, demonstrating the Activity lifecycle and LVG
 | `imagedemo` | `imagedemo.ImageDemoApp` | `ImageView.setImageSource("name.png")` resolving against the PAPK ASSETS section (v1.1 bundled images). Demonstrates `setScaleType` / `setTint` / `setScale`. See [Bundled image assets](/guides/assets/) |
 | `resdemo` | `resdemo.ResDemoApp` | The resource system end to end: `res/values` through `getResources()`, `setContentView(R.layout.activity_main)`, `findViewById`, `LayoutInflater.inflate` into a parent, `@drawable` images, and the laid-out geometry of `match_parent` / `layout_weight`. Checks itself and logs `ResDemo PASS`. See [Resources, R and XML layouts](/guides/resources/) |
 | `pickerdemo` | `pickerdemo.PickerDemoApp` | `DatePicker` (lv_calendar binding) and `TimePicker` (lv_roller binding) with 12-hour / AM-PM mode and value-changed listeners |
+| `ellipsizedemo` | `ellipsizedemo.EllipsizeDemoApp` | Conformance for `TextView.setSingleLine` / `setEllipsize` / `setMaxLines`: a long text in a 96 px label is one line tall with an ellipsis while `getText()` still returns the whole text, a max-lines label is that many lines tall, and lifting the limit restores the wrapped height. Logs `=== ALL PASSED ===` or one `FAIL` line per check |
 | `snackbardemo` | `snackbardemo.SnackbarDemoApp` | `Snackbar.make().setAction().show()` — toast with a clickable action lozenge, auto-dismiss, click-through-to-listener |
 | `swipedemo` | `swipedemo.SwipeDemoApp` | `OnSwipeListener` (UP / DOWN / LEFT / RIGHT direction constants) on a single view; `SwipeRefreshLayout` pull-to-refresh container |
 | `calculator` | `calculator.CalculatorActivity` | Four-function touch calculator built for the 320x480 `pico_touch_kit` panel: a 4x5 key grid of nested `LinearLayout` rows, `Gravity.BOTTOM`/`Gravity.RIGHT` to right-align the two display lines, `GradientDrawable` key faces and flat layout backgrounds, and an arithmetic model (`CalculatorEngine`) kept free of any framework call. Every box is derived from the `Display` size, so it fills any panel |
@@ -177,6 +180,14 @@ Benchmarks and stress tests for the JVM runtime and allocator. Reference: [Syste
 | `bugbash_ui` | `bugbashui.BugBashUiApp` | Lifecycle half of the bug-bash regression app — self-driving Activity/Service walk covering `finish()` idempotence, service bind limits, and pending-op delivery |
 | `executorstress` | `executorstress.ExecutorStress` | GC-rooting stress for Runnables in flight in the executor queues: posts lambdas whose only reference is the queued executor word, then forces collections before the queue drains |
 | `threadstress` | `threadstress.ThreadStress` | Concurrent-allocation stress for the compound-heap atomic sections — three child threads plus the main task churn the shared heap; run under `--mem-diag` with offensive checks armed |
+| `postloop` | `postloop.Main` | Hop-timing probe for the main executor: a fresh child `Thread` per hop sleeps 80 ms and posts the next hop, every tenth hop commits a `SharedPreferences` write, and each hop logs its per-stage millisecond costs (start, up, slept, post, deliver) so a slow hop names the stage that ate the time |
+| `qa_lang` | `qa_lang.QaLang` | QA suite, language and bytecode semantics: numeric conversions and overflow, shift masking, switch forms, evaluation order, `try`/`finally` ordering and the catchable exception family. A section that throws is reported and the run continues |
+| `qa_oop` | `qa_oop.QaOop` | QA suite, object model: construction order, field shadowing, static hiding, virtual dispatch from constructors, inner / anonymous / local classes, lambdas and method references, enums with bodies, static initialisation order, generics bridges, varargs, and the `equals` / `hashCode` / `toString` / `compareTo` upcalls the collections rely on |
+| `qa_coll` | `qa_coll.QaColl` | QA suite, `java.util` / `java.lang` under load and at the edges: identity hash codes across a compacting GC, `HashMap` growth and views, `ArrayList` growth, boxed keys of different types, string and `String.format` corner cases, interleaved `StringBuilder`s, wrapper parsing and printing, and `java.util.Random`'s exact stream |
+| `qa_thr` | `qa_thr.QaThr` | QA suite, threads: `start` / `join` / `isAlive`, interrupt and the flag, `wait` / `notify` hand-offs and timeouts, monitor exclusion on instance and class locks, uncaught-exception handlers, latches, atomics, the `ExecutorService` / `Future` contract, and clock and sleep accuracy |
+| `qa_store` | `qa_store.QaStore` | QA suite, storage: `File` predicates and renames, stream offsets and EOF, partial reads, truncation, directory listing, refused paths, the `Context` private-file helpers, `SharedPreferences` types, limits and editor semantics, `StatFs`. Run it twice against the same volume to check persistence across a reboot |
+| `qa_life` | `qa_life.QaLifeApp` | QA suite, lifecycle: Intent extras, an Activity started for a result, and a Service walked through unbind / rebind / stop / restart one step per frame |
+| `qa_ui` | `qa_ui.QaUiApp` | QA suite, the view tree and widget state machine driven without a finger: child order after add / remove, visibility and enabled state, listener replacement, compound buttons and radio groups, seek / progress clamping, adapters, focus hand-off, then sizes, animation end actions, dialogs, toasts, snackbars and a view churn under GC |
 
 ## Feature Showcase
 

@@ -17,11 +17,13 @@ The Picodroid JVM exposes five compile-time knobs that let a board choose its ow
 | `prereserve_obj_chunks` | 0 | 0..=64 | Boot-claimed slot storage ↔ boot-time heap use | Default (off) | Nav churn fragments the native heap |
 | `prereserve_arr_chunks` | 0 | 0..=64 | (as above, array slots) | Default (off) | (as above) |
 | `prereserve_str_chunks` | 0 | 0..=64 | (as above, dyn-string slots) | Default (off) | (as above) |
-| `prereserve_fields_values` | 0 | 0..=65536 | Boot-claimed fields-arena capacity (`Value` slots) | Default (off) | (as above) |
+| `prereserve_fields_values` | 0 | 0..=65536 | Boot-claimed fields-arena capacity (8-byte `Slot`s) | Default (off) | (as above) |
 | `prereserve_arena_values` | 0 | 0..=65536 | Boot-claimed array-arena capacity (`i32` slots) | Default (off) | (as above) |
 | `prereserve_arena8_bytes` | 0 | 0..=65536 | Boot-claimed packed byte-array arena capacity (bytes; backs `byte[]`/`boolean[]` at 1 B per element) | Default (off) | (as above) |
 
-The first five are compile-time `pub const`s, inlined at every use site — zero RAM cost; changing them changes the binary, not the running JVM. The `prereserve_*` keys instead size a one-shot allocation at app start.
+The first five are compile-time `pub const`s, inlined at every use site — zero RAM cost; changing them changes the binary, not the running JVM. The `prereserve_*` keys instead size a one-shot allocation at app start, which also claims the collector's 4 KB compaction buffer.
+
+Two boards set a `[jvm]` block today, `pico_enviro_mon` and `pico_enviro_mon_w`, both for the `prereserve_*` keys.
 
 ## Why these knobs exist
 
@@ -37,14 +39,14 @@ Each one is a pure board-vs-board policy choice. The defaults match what the ori
 
 ## How values reach the binary
 
-The JVM crate is `no_std` and cannot read `board.toml` directly, so values flow through environment variables that `crates/jvm/build.rs` snapshots at compile time. The two platform-side knobs take a shorter path because `platforms/rp/build.rs` already parses `board.toml`.
+The JVM crate is `no_std` and cannot read `board.toml` directly, so values flow through environment variables that `crates/jvm/build.rs` snapshots at compile time. The two platform-side knobs and the `prereserve_*` keys take a shorter path because `crates/picodroid-core/build.rs` already parses `board.toml` (through `crates/build_support/board_cfg.rs`). Defaults and ranges for all of them live in one file, `crates/build_support/jvm_defaults.rs`, which both build scripts include.
 
 ```
 board.toml [jvm]
         │
         ├─ JVM-side (3 knobs)
         │       │
-        │       │  scripts/lib.sh::apply_jvm_env
+        │       │  scripts/board-lib.sh::apply_jvm_env
         │       ▼
         │  PICODROID_JVM_GC_ALLOC_THRESHOLD
         │  PICODROID_JVM_SLOT_CHUNK_SHIFT
@@ -56,9 +58,9 @@ board.toml [jvm]
         │
         └─ Platform-side (2 knobs)
                 │
-                │  platforms/rp/build.rs::emit_jvm_config (validates ranges)
+                │  build_support/board_cfg.rs::emit_jvm_state_config (validates ranges)
                 ▼
-           $OUT_DIR/jvm_state_config.rs   ───►   state.rs   ───►   pub const at use site
+           $OUT_DIR/jvm_state_config.rs   ───►   native_handler/state.rs   ───►   pub const at use site
 ```
 
 Both paths end at a `pub const`. Constants are inlined; no value is ever stored in RAM, and no runtime indirection happens at the use site. A `cargo:rerun-if-env-changed=PICODROID_JVM_*` directive in `crates/jvm/build.rs` re-compiles when you switch boards mid-session.
@@ -119,21 +121,35 @@ pending_op_queue     = 16
 
 Doubles two fixed-size buffers in the platform native handler. Each entry is small (≤ 24 bytes), so the RAM cost is roughly 200 extra bytes — a small price for not having `startActivity` / `finish` / `startService` throw `IllegalStateException` ("too many pending Activity/Service transitions in one frame") during a heavy lifecycle burst.
 
+## Related switches outside `[jvm]`
+
+Four more build-time choices shape the JVM. None of them is a `[jvm]` key, and the first two must agree with a Cargo feature or the build stops.
+
+| Switch | Where | What it does |
+|---|---|---|
+| `jvm_loop_ram_kb` | MCU toml (36 on `rp2350` and `rp2350b`, absent on `rp2040`) | RAM for the copy of the interpreter loop that runs from SRAM (`pico-jvm`'s `loop-in-ram` feature, which `chip-rp2350` enables). Comes out of the FreeRTOS arena. |
+| `hot_ram_kb` | `board.toml` (48 on every RP2350 board) | RAM for the other hot sets: the JVM's invoke, field and constant-pool helpers (`hot-in-ram`), and the LVGL and FreeRTOS functions listed in `mcus/rp/hot-ram-*.txt`. Comes out of the arena too. |
+| `line-numbers` | Cargo feature | `(File.java:39)` frames in stack traces instead of `(pc=9)`. The scripts enable it for the simulator and for debug-profile firmware on the RP2350 boards. |
+| `mem-diag` | Cargo feature | The memory monitor and offensive heap checks (`./scripts/sim.sh --mem-diag`, or `PICODROID_EXTRA_FEATURES=mem-diag` for firmware). Compiled out when off. |
+
+The arena each board links after the first two is in [System limits](/reference/limits/#per-board-memory-budget).
+
 ## Limits and pitfalls
 
-- **Out-of-range values fail the build.** Both `crates/jvm/build.rs` and `platforms/rp/build.rs::emit_jvm_config` validate against the declared range and `panic!` with a clear citation. The accepted bounds are designed so that even the extremes are safe — the upper bound on `gc_alloc_threshold` (8192) does not OOM any board the project has tested, and the lower bound on `slot_chunk_shift` (3 = 8-slot chunks) does not measurably slow index math.
+- **Out-of-range values fail the build.** Both `crates/jvm/build.rs` and `emit_jvm_state_config` validate against the declared range and `panic!` with a clear citation. The accepted bounds are designed so that even the extremes are safe — the upper bound on `gc_alloc_threshold` (8192) does not OOM any board the project has tested, and the lower bound on `slot_chunk_shift` (3 = 8-slot chunks) does not measurably slow index math.
 - **`const_assert`s in `crates/jvm/src/tunables.rs` are a second line of defence** against a corrupted generated file. They fire at type-check time with a clear message.
 - **Direct `cargo build` skips the script bridge.** If you're not using `./scripts/sim.sh` or `./scripts/flash.sh`, the `PICODROID_JVM_*` env vars are unset and the JVM picks defaults. Either export them yourself or stick with the wrapper scripts.
 - **Cache invalidation is automatic.** `cargo:rerun-if-env-changed` directives in `crates/jvm/build.rs` mean a board switch (different env values exported by the wrapper script) re-compiles just the affected crates.
 - **One knob at a time.** Interaction effects exist — e.g. lowering `gc_alloc_threshold` while also lowering `slot_chunk_shift` overweights memory at the cost of CPU. Tune one, measure, then move on.
-- **Activity-stack and pending-op caps are not Java-visible errors.** Enqueue overflows return `false` and are logged but do not throw a `RuntimeException`. The defaults are conservative on purpose; if your UI legitimately needs more depth, raise these explicitly.
+- **The two caps fail differently.** A full pending-op queue is Java-visible: the `startActivity` / `finish` / `startService` / `stopService` / `bindService` / `unbindService` call that would have been dropped throws `IllegalStateException` and the log says `pending-op queue full, op dropped`. A full Activity stack is not: the push is dropped, the log says `activity stack overflow on push: <class>`, the previous Activity's view is restored and the app keeps running on it. The defaults are conservative on purpose; if your UI legitimately needs more depth, raise these explicitly.
 
 ## See also
 
 - [`[background_pool]`](/reference/porting-guide/#background_pool--optional-thread-pool-tuning) — adjacent thread-pool tuning in the same `board.toml` schema.
 - [`perfbench`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/perfbench) — the speed + memory composite-score benchmark used in the tuning workflow.
 - [`crates/jvm/build.rs`](https://github.com/shivrajora/picodroid-rs/blob/main/crates/jvm/build.rs) — env-var reader for the three JVM-side knobs.
-- [`platforms/rp/build.rs`](https://github.com/shivrajora/picodroid-rs/blob/main/platforms/rp/build.rs) — `emit_jvm_config` for the two platform-side knobs.
-- [`scripts/lib.sh`](https://github.com/shivrajora/picodroid-rs/blob/main/scripts/lib.sh) — `apply_jvm_env` shell-side bridge from `board.toml` to environment.
+- [`crates/build_support/board_cfg.rs`](https://github.com/shivrajora/picodroid-rs/blob/main/crates/build_support/board_cfg.rs) — `emit_jvm_state_config` for the two platform-side knobs and the `prereserve_*` keys.
+- [`crates/build_support/jvm_defaults.rs`](https://github.com/shivrajora/picodroid-rs/blob/main/crates/build_support/jvm_defaults.rs) — every default and range, in one place.
+- [`scripts/board-lib.sh`](https://github.com/shivrajora/picodroid-rs/blob/main/scripts/board-lib.sh) — `apply_jvm_env` shell-side bridge from `board.toml` to environment.
 - [Porting guide](/reference/porting-guide/) — full `board.toml` schema, MCU contract.
 - [Advanced configuration](/reference/advanced-config/) — files outside `board.toml`.

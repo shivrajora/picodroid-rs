@@ -204,8 +204,9 @@ A launcher lists installed apps by three values, all optional:
 ```
 
 They reach the PAPK as the `version-code`, `label` and `icon` manifest keys
-(`papk-info` prints them). A PAPK packed without them still installs: a missing
-code reads as 1, a missing label as the package name, a missing icon as none.
+(`papk-info` prints them). A PAPK whose manifest lacks them still installs: a
+missing code reads as 1, a missing label as the package name, a missing icon as
+none.
 
 ## How it is wired
 
@@ -218,7 +219,8 @@ plugins {
 ```
 
 The `picodroid-papk` plugin compiles the Java, optionally shrinks framework
-references, and packs a `build/papk/<name>.papk` bundle. It also:
+references, and packs a `build/papk/<name>.papk` bundle (see
+[What the PAPK carries](#what-the-papk-carries)). It also:
 
 - Adds the `:sdk` project as an `implementation` dependency, so every app
   compiles against the Picodroid SDK.
@@ -257,6 +259,36 @@ but keeping them identical avoids confusion.
 Source for the plugin and discovery:
 [buildSrc/](https://github.com/shivrajora/picodroid-rs/tree/main/buildSrc) and
 [settings.gradle.kts](https://github.com/shivrajora/picodroid-rs/blob/main/settings.gradle.kts).
+
+### What the PAPK carries
+
+A `.papk` is a flat little-endian container: a 28-byte header, then a MANIFEST
+section, a CLASSES section, and an ASSETS and a RESOURCES section when the app
+has [images](/guides/assets/) or [resources](/guides/resources/). Every section
+starts on a 4-byte boundary, because the device reads all of them in place from
+flash.
+
+- **MANIFEST** holds the values of this page as key/value strings: the entry
+  point (`application`, `activity` or `main-class`), `package-name`, `version`,
+  `framework-map-version`, and `version-code`, `label` and `icon` when set.
+- **CLASSES** holds every `.class` file with a *link table* `papk-pack` built
+  for it (the record a class loader would otherwise parse at run time, a hash of
+  each superclass and interface name, a signature hash per method and a 4-byte
+  descriptor per method reference) and a class index sorted by name hash. The
+  runtime parses nothing when the app starts and finds classes and methods by
+  hash. The framework's own classes are embedded in the firmware in the same
+  form.
+
+This is format version 2, written since 2026-09-28. There is no reader for
+version 1: a PAPK packed before that date is refused by `pdb install`, by
+`papk-info` and by the firmware build, and a board does not load one left in
+its app region. Re-pack it with `./scripts/build-apk.sh --app <name>`; nothing
+in the app's source or manifest changes. Packing also refuses a class file over
+65,535 bytes and two classes whose names hash alike.
+
+`./scripts/papk-info.sh build/apks/<name>.papk` prints the header, the manifest
+keys, the classes with their sizes, the assets and the resource counts, and
+fails on a file that any of the above would refuse.
 
 ## Scaffolding a new app
 
@@ -337,9 +369,10 @@ log, the usual cause is a typo'd entry-point string or a dotted name. See
 
 ### Install compatibility check
 
-Every PAPK embeds a `framework-map-version` key, written by the packer. At load
-time the firmware compares it against the version it was built with
-(`verify_compat`). The two sides share one rule: both unshrunk (`0.0.0`) is OK,
+Every PAPK embeds a `framework-map-version` key, written by the packer. The
+firmware only loads a file that is format version 2 and whose link tables match
+their class bytes (checked when the app region is scanned at boot); at load time
+it compares the key against the version it was built with (`verify_compat`). The two sides share one rule: both unshrunk (`0.0.0`) is OK,
 both shrunk with a compatible map is OK, and an asymmetric `--shrink` setting (or
 a PAPK built newer than the firmware) is rejected.
 

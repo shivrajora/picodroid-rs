@@ -99,10 +99,7 @@ pub(in crate::graphics) fn intercept(obj: *mut lv_obj_t, dir: lv_dir_t) -> bool 
     unsafe {
         let mut o = lv_obj_get_parent(obj);
         while !o.is_null() {
-            if (*(&raw const SLOTS))
-                .iter()
-                .any(|s| s.container == o as usize)
-            {
+            if SLOTS[..].iter().any(|s| s.container == o as usize) {
                 return pull_down(o as usize, dir);
             }
             o = lv_obj_get_parent(o);

@@ -59,10 +59,11 @@ The full Android-style lifecycle is dispatched by the runtime. Override only the
 | `onCreate(Bundle savedInstanceState)` | Once, after instantiation. Build the UI tree here. The argument is `null` on a fresh launch, and the Bundle filled by `onSaveInstanceState` when the Activity is being [re-created](#saved-instance-state). |
 | `onStart()` | After `onCreate`, and on every return to the foreground. |
 | `onResume()` | Immediately after `onStart`; the Activity is now interactive. |
+| `onRestart()` | When the Activity returns to the foreground after being stopped (the Activity above it finished), before `onStart`. Not called on the first launch. |
 | `onPause()` | When another Activity is being launched on top. |
 | `onStop()` | After `onPause`, once the new top Activity is fully resumed. |
 | `onDestroy()` | Just before this Activity is popped off the stack. |
-| `onBackPressed()` | BACK-key default action — calls `finish()`. Override and don't `super.onBackPressed()` to suppress (e.g. show a confirm dialog). |
+| `onBackPressed()` | BACK-key default action — pops the [fragment back stack](#picodroidappfragment) if it has an entry, else calls `finish()`. Override and don't `super.onBackPressed()` to suppress (e.g. show a confirm dialog). |
 | `onKeyDown(int keyCode, KeyEvent)` / `onKeyLongPress(int keyCode, KeyEvent)` / `onKeyUp(int keyCode, KeyEvent)` | A hardware key no focused view consumed: its press and auto-repeats, its long-press, its release; return `true` to consume it. The defaults track BACK so its release runs `onBackPressed`. `Activity` implements `KeyEvent.Callback`. See [Key events](#key-events). |
 
 The content view installed in `onCreate` (or `onResume`) is **preserved across pause** — when this Activity returns to the foreground, the saved widget tree is restored automatically. Rebuilding the tree from `onResume` is still supported; the new root replaces the saved one.
@@ -107,12 +108,17 @@ To test that, turn on the equivalent of Android's *Don't keep activities* develo
 | Method | Description |
 |--------|-------------|
 | `startActivity(Intent intent)` | Push the Activity named by `new Intent(TargetActivity.class)` onto the stack. Triggers this.onPause → newActivity.{onCreate,onStart,onResume} → this.onStop. |
-| `finish()` | Pop this Activity. Triggers onPause → onStop → onDestroy on this Activity, and onStart/onResume on the one below. If the stack is empty after the pop, the app exits. |
+| `finish()` | Pop this Activity. Triggers onPause → onStop → onDestroy on this Activity, and onRestart/onStart/onResume on the one below. If the stack is empty after the pop, the app exits. |
+| `startActivityForResult(Intent intent, int requestCode)` | Like `startActivity`, expecting a result: when the launched Activity finishes, its result arrives in `onActivityResult` here, before `onResume`. |
+| `setResult(int resultCode)` / `setResult(int resultCode, Intent data)` | In the launched Activity: the result reported to its launcher — `RESULT_OK` (-1), `RESULT_CANCELED` (0, the default when never called) or `RESULT_FIRST_USER` (1) and above. The Intent's extras are readable in the launcher's `onActivityResult`. |
+| `onActivityResult(int requestCode, int resultCode, Intent data)` | Override (it is `protected`) to read the result. `data` is `null` unless the child called `setResult(int, Intent)`. |
+| `getIntent()` | The Intent that launched this Activity, extras included, or `null` for the app's boot Activity. |
 | `setContentView(View root)` | Sets the root of the widget tree and renders it to the display. |
 | `setContentView(int layoutResID)` | Inflates `R.layout.*` and makes it the content. See [resources](/guides/resources/). |
 | `<T extends View> T findViewById(int id)` | The view with that `android:id` / `setId` in the content, depth first, or `null`. Also on every `View`. |
 | `getLayoutInflater()` | A `LayoutInflater` for this Activity: `inflate(R.layout.row, parent, false)`. |
-| `getResources()` | The app's compiled `res/` tree: `getString`, `getColor`, `getDimension`, `getInteger`, `getBoolean`. `getString(int)` and `getColor(int)` are also on `Context`. |
+| `getResources()` | The app's compiled `res/` tree: `getString`, `getText`, `getColor`, `getDimension`, `getDimensionPixelSize`, `getDimensionPixelOffset`, `getInteger`, `getBoolean`, and `getDisplayMetrics()`. `getString(int)` and `getColor(int)` are also on `Context`. |
+| `getSupportFragmentManager()` | The Activity's `FragmentManager`. See [Fragment](#picodroidappfragment). |
 | `getDisplay()` | Returns the `Display` singleton. |
 
 See [`examples/navdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/navdemo) for a multi-Activity back-stack demo and [`examples/dialogdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/dialogdemo) for an `onBackPressed` override pattern.
@@ -161,11 +167,11 @@ The callbacks arrive in Android's order: `onAttach(Context)`, `onCreate(Bundle)`
 | `onSaveInstanceState` | Every fragment's `onSaveInstanceState` follows the host's, into the same Bundle. |
 | `onDestroy` | Views freed, fragments destroyed and detached before the host's `onDestroy` body. |
 
-**Transactions.** `beginTransaction()` returns a `FragmentTransaction`: `add(containerId, fragment[, tag])`, `add(fragment, tag)` (no container: the view is placed by whoever owns the fragment, or there is none), `replace(containerId, fragment[, tag])`, `remove`, `hide` / `show` (the view goes `GONE`; the fragment stays resumed), `detach` / `attach` (the view is freed, the instance kept at `CREATED`), `setMaxLifecycle(fragment, Fragment.CREATED | STARTED | RESUMED)`, `addToBackStack(name)`, `setReorderingAllowed` (accepted). `commit()` queues the transaction for a later main-thread tick, as Android does; it also runs when the host's lifecycle moves or on `executePendingTransactions()`. `commitNow()` runs it at once (not with a back stack entry). Both refuse to run after the host saved its state (`IllegalStateException`, Android's message) unless the `*AllowingStateLoss` form is used, and from inside a fragment callback. Within a transaction the fragments moving down go first, so a replaced page's widgets are freed before the new page's are made.
+**Transactions.** `beginTransaction()` returns a `FragmentTransaction`: `add(containerId, fragment[, tag])`, `add(fragment, tag)` (no container: the view is placed by whoever owns the fragment, or there is none), `replace(containerId, fragment[, tag])`, `remove`, `hide` / `show` (the view goes `GONE`; the fragment stays resumed), `detach` / `attach` (the view is freed, the instance kept at `CREATED`), `setMaxLifecycle(fragment, Fragment.CREATED | STARTED | RESUMED)`, `addToBackStack(name)`, `setReorderingAllowed` (accepted), `isEmpty()`. `commit()` queues the transaction for a later main-thread tick, as Android does; it also runs when the host's lifecycle moves or on `executePendingTransactions()`. `commitNow()` runs it at once (not with a back stack entry). Both refuse to run after the host saved its state (`IllegalStateException`, Android's message) unless the `*AllowingStateLoss` form is used, and from inside a fragment callback. Within a transaction the fragments moving down go first, so a replaced page's widgets are freed before the new page's are made.
 
-**Back stack.** A transaction committed with `addToBackStack` is kept so `popBackStack()` (queued), `popBackStackImmediate()`, or the named forms with `POP_BACK_STACK_INCLUSIVE`, reverse it: a popped `replace` removes the new fragment and adds the replaced ones back, their views built again through `onCreateView`. `getBackStackEntryCount()` and `addOnBackStackChangedListener` are there. The default `onBackPressed` pops the back stack when it has an entry and finishes the Activity otherwise, as `FragmentActivity` does.
+**Back stack.** A transaction committed with `addToBackStack` is kept so `popBackStack()` (queued), `popBackStackImmediate()`, or the named forms with `POP_BACK_STACK_INCLUSIVE`, reverse it: a popped `replace` removes the new fragment and adds the replaced ones back, their views built again through `onCreateView`. `getBackStackEntryCount()` and `addOnBackStackChangedListener` / `removeOnBackStackChangedListener` are there. The default `onBackPressed` pops the back stack when it has an entry and finishes the Activity otherwise, as `FragmentActivity` does.
 
-**Finding fragments.** `findFragmentById(containerId)`, `findFragmentByTag(tag)`, `getFragments()`; on a fragment `getActivity()` / `requireActivity()`, `getContext()`, `getView()` / `requireView()`, `getArguments()` / `requireArguments()`, `getParentFragmentManager()`, `isAdded()`, `isResumed()`, `isVisible()`, `isHidden()`, `isDetached()`, `getString(int)`, `getResources()`, `startActivity(Intent)`.
+**Finding fragments.** `findFragmentById(containerId)`, `findFragmentByTag(tag)`, `getFragments()`, and `putFragment(bundle, key, fragment)` / `getFragment(bundle, key)` to keep a reference to one in a Bundle; `isStateSaved()` and `isDestroyed()` on the manager. On a fragment `getActivity()` / `requireActivity()`, `getContext()` / `requireContext()`, `getView()` / `requireView()`, `getArguments()` / `requireArguments()`, `getParentFragmentManager()`, `getTag()`, `getId()` (its container's id), `isAdded()`, `isResumed()`, `isVisible()`, `isHidden()`, `isDetached()`, `isRemoving()`, `isStateSaved()`, `getLayoutInflater()`, `getString(int)`, `getResources()`, `startActivity(Intent)`. The `require*` forms throw `IllegalStateException` where the plain ones return `null`.
 
 **Saved state.** When the host saves its state (before a `recreate()` or a reclaim, see [saved instance state](#saved-instance-state)), every fragment's `onSaveInstanceState` Bundle is saved with it under Android's key, `android:support:fragments`, along with its arguments, tag, container, back stack membership and the back stack itself. The next instance's `super.onCreate` re-creates them, and they get the Bundle back in `onCreate` and `onCreateView`. There is no reflection on this runtime, so re-creation goes through a `FragmentFactory` the app installs **before** `super.onCreate`:
 
@@ -395,10 +401,27 @@ and a second `close()` is a no-op.
 | Constant | Value | Description |
 |----------|-------|-------------|
 | `View.VISIBLE` | 0 | Widget is visible and takes up layout space |
-| `View.INVISIBLE` | 1 | Widget is invisible but still takes up layout space |
-| `View.GONE` | 2 | Widget is invisible and takes no layout space |
-| `View.MATCH_PARENT` | -1 | `LayoutParams` size: fill the parent |
-| `View.WRAP_CONTENT` | -2 | `LayoutParams` size: size to content |
+| `View.INVISIBLE` | 4 | Widget is invisible but still takes up layout space |
+| `View.GONE` | 8 | Widget is invisible and takes no layout space |
+| `View.WRAP_CONTENT` | -2 | Passed to `setSize`: size to content. `MATCH_PARENT` (-1) is on [`ViewGroup.LayoutParams`](#picodroidviewviewgroup). |
+| `View.NO_ID` | -1 | What `getId()` returns for a view without an id; never matches in `findViewById`. |
+
+The values are Android's. The rest of the `View` surface, all mirroring `android.view.View`:
+
+| Method | Description |
+|--------|-------------|
+| `getVisibility()` / `isEnabled()` / `getAlpha()` | The value the app last set. `setAlpha(float)` takes 0.0–1.0; `getAlpha()` returns the target of a started alpha animation, not the per-frame value. |
+| `setPadding(int left, int top, int right, int bottom)` | Inner padding in pixels. |
+| `getLeft()` / `getTop()` / `getWidth()` / `getHeight()` | Laid-out position relative to the parent (excluding translation) and size, in pixels. |
+| `getX()` / `getY()` | `getLeft() + getTranslationX()` and `getTop() + getTranslationY()`, as `float`. |
+| `setId(int)` / `getId()` / `findViewById(int)` | The view's identifier (a layout's `android:id` sets it) and a depth-first search of this view and its descendants; `null` when nothing matches. |
+| `setTag(Object)` / `getTag()` | An arbitrary object kept with the view. |
+| `setLayoutParams(ViewGroup.LayoutParams)` / `getLayoutParams()` | The parameters the parent applies in `addView(child, params)`. |
+| `setOnLongClickListener(View.OnLongClickListener)` | `boolean onLongClick(View v)` fires when a press is held past the long-press threshold (~400 ms); returning `true` consumes it and suppresses the click that would follow. Attaching one makes the view clickable, as `setOnClickListener` does. |
+| `setOnKeyListener(OnKeyListener)` | See [Key events](#key-events). |
+| `setOnSwipeListener(OnSwipeListener)` | See [Swipe gestures](#swipe-gestures). |
+| `performClick()` / `performLongClick()` | Run the registered listener without a touch, for scripted flows and tests; `performLongClick()` returns whether the listener consumed it. |
+| `invalidate()` / `postInvalidate()` | Ask for `onDraw` to run again; see below. |
 
 ## Custom drawing: `onDraw`, `Canvas` and `Paint`
 
@@ -461,6 +484,9 @@ exclusive; angles are degrees clockwise from 3 o'clock; everything is clipped to
 | `setStrokeCap(Paint.Cap)` | `BUTT` (default) or `ROUND`; `SQUARE` draws as `BUTT`. |
 | `setTextSize(float)` / `setTextAlign(Paint.Align)` | Snaps to the nearest compiled face, like `TextView.setTextSize`; `LEFT`, `CENTER` or `RIGHT`. |
 | `ascent()` / `descent()` / `measureText(String)` | The face's line top above the baseline (negative), its bottom below it, and a text's width. |
+| `new Paint()` / `new Paint(int flags)` / `new Paint(Paint src)`, `set(Paint src)`, `reset()` | A new paint is opaque black, filled, hairline stroke, 12 px text, left-aligned. `Paint.ANTI_ALIAS_FLAG`, `setAntiAlias`, `isAntiAlias`, `setFlags` and `getFlags` are accepted for source compatibility: drawing is always anti-aliased. |
+
+Every setter has its getter: `getColor()`, `getAlpha()`, `getStyle()`, `getStrokeWidth()`, `getStrokeCap()`, `getTextSize()`, `getTextAlign()`.
 
 **How it works, and what it costs.** There is no pixel buffer: a 320x240 bitmap would be 150 KB. Each draw
 call records one 32-byte op for the view, and the renderer replays the ops whenever it repaints the view.
@@ -563,6 +589,8 @@ if (event != null) {
 | `MotionEvent.ACTION_MOVE` | 2 |
 | `MotionEvent.ACTION_LONG_PRESS` | 3 (picodroid extension; LVGL long-press) |
 
+In an `OnTouchListener`, `getX()` / `getY()` are relative to the receiving view's top-left corner and `getRawX()` / `getRawY()` are screen-absolute, as on Android. All four return `int`, not `float`.
+
 ## `picodroid.view.OnTouchListener` and `GestureDetector`
 
 Install an `OnTouchListener` to receive raw touch events on a single `View`:
@@ -603,6 +631,8 @@ view.setOnTouchListener(new GestureDetector(new GestureDetector.OnGestureListene
 | `GestureDetector.TAP_SLOP_PX` | 12 | Max DOWN→UP displacement to count as a tap. |
 | `GestureDetector.FLING_MIN_PX` | 24 | Min DOWN→UP displacement to count as a fling. |
 
+`GestureDetector.SimpleOnGestureListener` is an abstract base with an empty body for each of the three callbacks, so a subclass overrides only the gestures it wants. `onLongPress` fires while the finger is still down, and the release that follows does not call `onSingleTap`.
+
 Velocities are pixels/second; positive `vx` is rightward, positive `vy` is downward. v1 caveats: no `ACTION_MOVE` / scroll callbacks; multi-touch is not supported. See [`examples/gesturedemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/gesturedemo).
 
 ## `picodroid.view.ViewPropertyAnimator`
@@ -626,8 +656,8 @@ view.animate()
 | `translationX(float)`, `translationY(float)` | Animate the offset from the laid-out position. Works everywhere. |
 | `rotation(float)` | Animate rotation in degrees clockwise, about the view's centre. |
 | `scaleX(float)`, `scaleY(float)` | Animate scale about the centre (1.0 = unscaled). |
-| `setDuration(long ms)` | Total duration; applies to every queued property. |
-| `setStartDelay(long ms)` | Wait before starting; the animation then starts from the value the view has at that moment. |
+| `setDuration(long ms)` / `getDuration()` | Total duration; applies to every queued property. |
+| `setStartDelay(long ms)` / `getStartDelay()` | Wait before starting; the animation then starts from the value the view has at that moment. |
 | `setInterpolator(Interpolator)` | `Linear`, `Accelerate`, `Decelerate` or `AccelerateDecelerate` from `picodroid.view.animation`; anything else falls back to linear. |
 | `withEndAction(Runnable)` | Run once every queued property finishes, on the main thread. One per view — a later registration replaces an earlier one; dropped by `cancel()`. |
 | `start()` | Begin every queued property animation. Explicit — nothing runs until it is called. |
@@ -717,12 +747,18 @@ Return `true` from `onKey` to consume the event; `false` passes it on to the Act
 |----------|-------|
 | `KeyEvent.ACTION_DOWN` | 0 |
 | `KeyEvent.ACTION_UP` | 1 |
+| `KeyEvent.KEYCODE_HOME` | 3 (handled by the framework; never delivered to an app) |
 | `KeyEvent.KEYCODE_BACK` | 4 |
 | `KeyEvent.KEYCODE_DPAD_UP` | 19 |
 | `KeyEvent.KEYCODE_DPAD_DOWN` | 20 |
 | `KeyEvent.KEYCODE_DPAD_LEFT` | 21 |
 | `KeyEvent.KEYCODE_DPAD_RIGHT` | 22 |
 | `KeyEvent.KEYCODE_DPAD_CENTER` | 23 |
+| `KeyEvent.FLAG_CANCELED` | `0x20` |
+| `KeyEvent.FLAG_LONG_PRESS` | `0x80` |
+| `KeyEvent.FLAG_CANCELED_LONG_PRESS` | `0x100` |
+| `KeyEvent.FLAG_TRACKING` | `0x200` |
+| `KeyEvent.FLAG_START_TRACKING` | `0x40000000` |
 
 The `keycode` each pin emits is declared in `board.toml` — see [Porting Guide → board.toml reference](/reference/porting-guide/#boardtoml-reference) for the full schema. On boards with no buttons (touch-only), neither path ever fires.
 
@@ -736,6 +772,8 @@ The `keycode` each pin emits is declared in `board.toml` — see [Porting Guide 
 | `getDownTime()` / `getEventTime()` | `SystemClock.elapsedRealtime()` of the press and of this edge. |
 | `dispatch(Callback, DispatcherState, Object)` | Android's dispatch: runs `onKeyDown` / `onKeyLongPress` / `onKeyUp` on the `Callback` and keeps the tracking and cancel state in the `DispatcherState`. The Activity calls it for every event no view took. |
 
+`KeyEvent.Callback` is the four-method interface `Activity` implements: `onKeyDown`, `onKeyLongPress`, `onKeyUp` and `onKeyMultiple(int keyCode, int count, KeyEvent event)`, which exists for Android's signature and is never called. `KeyEvent.DispatcherState` has Android's `reset()`, `reset(Object target)`, `startTracking(KeyEvent, Object)`, `isTracking(KeyEvent)`, `performedLongPress(KeyEvent)` and `handleUpEvent(KeyEvent)`, for code that calls `dispatch` itself.
+
 `ViewConfiguration.getLongPressTimeout()`, `getKeyRepeatTimeout()` and `getKeyRepeatDelay()` give the timings (400, 400 and 50 ms).
 
 The framework recycles one `KeyEvent` per edge: read it inside the callback, never keep it.
@@ -746,7 +784,7 @@ See [`examples/keydemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/e
 
 ## Widgets
 
-All widget classes live in `picodroid.widget.*` and extend `View` (`Button` through `TextView`, as on Android). They inherit `setPosition()`, `setSize()`, `setBackgroundColor()`, `setVisibility()`, and `close()` from `View`.
+All widget classes live in `picodroid.widget.*` and extend `View` (`Button` through `TextView`, as on Android). They inherit `setPosition()`, `setSize()`, `setBackgroundColor()`, `setVisibility()`, and `close()` from `View`. Every widget has Android's `(Context)` constructor beside the no-argument one the examples here use (`new TextView(this)`).
 
 ### `picodroid.widget.TextView`
 
@@ -786,6 +824,8 @@ int lineHeight = label.getLineHeight();   // the face actually in use
 - Without an ellipsize, a single-line view clips the text at its edge (a content-sized one grows to the text's width), and a max-lines view clips the lines past the limit.
 - `getText()` returns the full text while the ellipsis shows. A newline in the text still breaks the line.
 
+`setGravity(int)` / `getGravity()` take [`picodroid.view.Gravity`](#picodroidwidgetlinearlayout) constants. The horizontal part aligns the text; the vertical part is kept and returned but not drawn, since a label is as tall as its text. `setIncludeFontPadding(false)` strips the whitespace above the glyphs so the label box hugs them (default `true`), and `setPadding` is `View`'s.
+
 ### `picodroid.widget.Button`
 
 A clickable button with a text label. Extends `TextView`, so `setText`, `getText`, `setTextColor`, `setTextSize` and the line-mode setters (`setSingleLine`, `setEllipsize`, `setMaxLines`, which act on the button's label) are the TextView methods and a `Button` can be passed wherever a `TextView` is expected. A content-sized button grows with its text size.
@@ -806,9 +846,6 @@ btn.setOnClickListener(new View.OnClickListener() {
 });
 // ...or a lambda, since OnClickListener is a single-method interface:
 btn.setOnClickListener(v -> Log.i("UI", "Button clicked!"));
-
-// Or poll-based
-boolean clicked = btn.wasClicked();
 ```
 
 > **Typed listeners (since v0.10.0):** widget callbacks are Android-style single-method
@@ -843,9 +880,25 @@ layout.addView(button);
 | `LinearLayout.HORIZONTAL` | 0 |
 | `LinearLayout.VERTICAL` | 1 |
 
+| Method | Description |
+|--------|-------------|
+| `setOrientation(int)` | `HORIZONTAL` or `VERTICAL` (the default). |
+| `setSpacing(int px)` | Gap between adjacent children; 0 by default. A picodroid addition. |
+| `setGravity(int)` | Where the children go, in `picodroid.view.Gravity` constants, which may name both axes (`Gravity.BOTTOM` or-ed with `Gravity.RIGHT`). Call it after `setOrientation`. Two divergences: an axis the gravity does not name keeps centring rather than falling back to the start, and `FILL` places at the start instead of stretching. |
+
+`LinearLayout.LayoutParams(width, height, weight)` gives a child a share of the space left over, as on Android:
+
+```java
+row.addView(label, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+```
+
+Weights are relative, with one decimal of precision (`1.5f` against `1f` is 15 : 10), and cap at 25.5. The per-child `LayoutParams.gravity` field is stored but not applied yet.
+
+`picodroid.view.Gravity` has Android's constants and values: `NO_GRAVITY`, `TOP`, `BOTTOM`, `LEFT`, `RIGHT`, `START`, `END`, `CENTER_VERTICAL`, `CENTER_HORIZONTAL`, `CENTER`, `FILL_VERTICAL`, `FILL_HORIZONTAL`, `FILL`, and the masks.
+
 ### `picodroid.widget.CompoundButton`
 
-Abstract base for the two-state widgets below — `Switch`, `ToggleButton`, and `CheckBox`. Mirrors
+Abstract base for the two-state widgets below — `Switch`, `ToggleButton`, `CheckBox` and `RadioButton`. Mirrors
 `android.widget.CompoundButton`. You don't instantiate it directly; it provides the shared checked
 API and listener that each subclass inherits:
 
@@ -853,7 +906,7 @@ API and listener that each subclass inherits:
 |--------|-------------|
 | `boolean isChecked()` | Current checked state. |
 | `void setChecked(boolean)` | Set checked state (does not fire the listener). |
-| `void toggle()` | Flip the checked state. |
+| `void toggle()` | Flip the checked state. On `Switch` and `ToggleButton` only; on a `CheckBox` or `RadioButton` use `setChecked(!isChecked())`. |
 | `setOnCheckedChangeListener(OnCheckedChangeListener)` | `onCheckedChanged(CompoundButton buttonView, boolean isChecked)` fires on user toggle. |
 
 ### `picodroid.widget.Switch`
@@ -879,8 +932,8 @@ sw.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
 ```
 
 `Switch` extends [`CompoundButton`](#picodroidwidgetcompoundbutton) (the shared base for
-`Switch` / `ToggleButton` / `CheckBox`), which is where `isChecked()` / `setChecked()` /
-`toggle()` / `setOnCheckedChangeListener()` come from.
+`Switch` / `ToggleButton` / `CheckBox` / `RadioButton`), which is where `isChecked()` /
+`setChecked()` / `setOnCheckedChangeListener()` come from.
 
 ### `picodroid.widget.ToggleButton`
 
@@ -915,16 +968,30 @@ import picodroid.widget.ImageView;
 
 ImageView img = new ImageView();
 img.setImageSource("icon.png");
+img.setImageResource(R.drawable.logo);   // a PNG under res/drawable/, see resources
 img.setImageDrawable(drawable);   // a Drawable, e.g. another app's icon from the PackageManager
 ```
+
+`setImageResource` throws `Resources.NotFoundException` for an id that is not one of the app's drawables; see [resources](/guides/resources/).
 
 Scale, tint, and aspect controls (Tier C):
 
 ```java
-img.setScaleType(ImageView.SCALE_FIT_CENTER);  // or SCALE_FIT_XY, SCALE_CENTER
-img.setScale(150);          // 100 = 1.0× — uses LVGL transforms
-img.setTint(Color.RED);     // multiplies the source by the given color
+img.setScaleType(ImageView.SCALE_FIT_CENTER);
+img.setScale(ImageView.SCALE_1X * 3 / 2);   // 256 = 1.0×, so this is 1.5× — uses LVGL transforms
+img.setTint(Color.RED);     // recolours the image; the colour's alpha is the blend strength
 ```
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `ImageView.SCALE_FIT_CENTER` | 0 | Fit inside the view, aspect kept, centred. |
+| `ImageView.SCALE_CENTER_CROP` | 1 | Fill the view, aspect kept; the image may be cropped. |
+| `ImageView.SCALE_FIT_XY` | 2 | Stretch to the view's width and height. |
+| `ImageView.SCALE_TILE` | 3 | Tile the image across the view. No Android counterpart. |
+| `ImageView.SCALE_CENTER` | 4 | Centre at the image's own size; clipped if larger than the view. |
+| `ImageView.SCALE_1X` | 256 | The `setScale` unit for 1.0×. |
+
+`setTint(int argb)`: alpha 0 leaves the image alone, 255 recolours it fully. There is no `FIT_START`.
 
 Anti-aliased scale and rotation rendering depends on LVGL 9.6.0's `LV_DRAW_SW_SUPPORT_RGB565A8` (enabled in `lv_conf.h`). Without it scaled images render aliased — see [Advanced configuration → lv_conf.h](/reference/advanced-config/#lv_confh).
 
@@ -949,7 +1016,9 @@ bar.setProgressTintList(null);    // back to the theme colour
 
 `getProgress()` returns the value last set (the target while an animation runs), and `setMax` /
 `setMin` pull a progress outside the new range back into it, as on Android. `ColorStateList` is a
-single colour — `valueOf(int)`, `getDefaultColor()`, `withAlpha(int)` — with no state sets.
+single colour — `valueOf(int)`, `getDefaultColor()`, `withAlpha(int)` — with no state sets
+(`isStateful()` is `false` and `getColorForState` returns the one colour). Each tint setter has its
+getter, and `getMax()`, `getMin()` and `isIndeterminate()` read the rest.
 
 For an **indeterminate** spinner (no progress value, just an animation while work is happening), use the static factory:
 
@@ -961,7 +1030,7 @@ spinner.setIndeterminateTintList(ColorStateList.valueOf(Color.RED));  // the arc
 ```
 
 `indeterminate()` returns a `ProgressBar` backed by `lv_spinner` and ignores `setProgress`; the mode
-is fixed at construction. A tint set on the flavour that is not showing is kept for its getter but
+is fixed at construction (there is no `setIndeterminate(boolean)`). A tint set on the flavour that is not showing is kept for its getter but
 not drawn. `setTint(int)` is a deprecated alias of `setIndeterminateTintList`.
 
 ### `picodroid.widget.CircularProgressIndicator`
@@ -1059,6 +1128,45 @@ cb.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
 });
 ```
 
+### `picodroid.widget.RadioButton` and `RadioGroup`
+
+A `RadioButton` is a two-state button with a circular indicator; a `RadioGroup` is a vertical
+`LinearLayout` that keeps at most one of the `RadioButton`s added to it checked. Both mirror
+`android.widget`.
+
+```java
+import picodroid.widget.RadioButton;
+import picodroid.widget.RadioGroup;
+
+RadioGroup group = new RadioGroup();
+RadioButton celsius = new RadioButton();
+celsius.setText("Celsius");
+celsius.setId(1);                     // optional: a button without an id is given one
+RadioButton fahrenheit = new RadioButton();
+fahrenheit.setText("Fahrenheit");
+group.addView(celsius);
+group.addView(fahrenheit);
+group.check(celsius.getId());
+
+group.setOnCheckedChangeListener(new RadioGroup.OnCheckedChangeListener() {
+    public void onCheckedChanged(RadioGroup group, int checkedId) {
+        Log.i("UI", "checked id=" + checkedId);
+    }
+});
+```
+
+| `RadioGroup` method | Description |
+|--------|-------------|
+| `check(int id)` | Check the button with that id, unchecking the previous one. |
+| `clearCheck()` | Uncheck everything; the listener fires with `View.NO_ID`. |
+| `getCheckedRadioButtonId()` | The checked button's id, or `View.NO_ID`. |
+| `setOnCheckedChangeListener(RadioGroup.OnCheckedChangeListener)` | `onCheckedChanged(RadioGroup group, int checkedId)`, once per change of selection. |
+
+Listen on the group, not on its buttons: the group puts its own checked-change listener on every
+button it tracks. A checked radio in a group stays checked when tapped again, and
+`RadioButton.setChecked(true)` moves the group's selection, as on Android. A `RadioButton` outside
+a group toggles like a `CheckBox`.
+
 ### `picodroid.widget.SeekBar`
 
 A horizontal slider (0–`max`).
@@ -1067,6 +1175,7 @@ A horizontal slider (0–`max`).
 import picodroid.widget.SeekBar;
 
 SeekBar bar = new SeekBar(100);   // or `new SeekBar()` for default max
+bar.setMax(200);
 bar.setProgress(25);
 int p = bar.getProgress();
 
@@ -1080,7 +1189,9 @@ bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
 
 ### `picodroid.widget.Spinner`
 
-A drop-down list. Items are passed as a single newline-separated string.
+A drop-down list. Items are passed as a single newline-separated string, or come from an
+adapter: `Spinner` extends `AdapterView<Adapter>` like `ListView`, so
+`sp.setAdapter(new ArrayAdapter<String>(items))` works and each item renders via its `toString()`.
 
 ```java
 import picodroid.widget.Spinner;
@@ -1094,7 +1205,7 @@ sp.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
         Log.i("UI", "sel=" + position);   // view is null: rows render natively
     }
 
-    public void onNothingSelected(AdapterView<?> parent) {}
+    public void onNothingSelected(AdapterView<?> parent) {}   // never called: there is always a selection
 });
 ```
 
@@ -1112,6 +1223,23 @@ String value = input.getText();
 input.setShowKeyboardOnTouch(false);   // disable system keyboard for this field
 ```
 
+`getText()` returns a `String`. An `EditText` is focusable by default, as on Android, so on a
+keypad board it takes the focus ring's select and ENTER opens the keyboard.
+
+`addTextChangedListener(TextWatcher)` / `removeTextChangedListener(TextWatcher)` take a
+`picodroid.text.TextWatcher`. Its three callbacks take `String` rather than `CharSequence` /
+`Editable`, and only `afterTextChanged(String s)` is ever called, with the full new text;
+`beforeTextChanged` and `onTextChanged` have empty default bodies and exist so ported code
+compiles. As on Android, `setText` fires the watcher too.
+
+```java
+import picodroid.text.TextWatcher;
+
+input.addTextChangedListener(new TextWatcher() {
+    public void afterTextChanged(String s) { save.setEnabled(s.length() > 0); }
+});
+```
+
 #### `OnEditorActionListener`
 
 Fires when the user presses the keyboard's Done / Send key. Lets you commit the value without the user having to tap elsewhere first.
@@ -1124,20 +1252,35 @@ import picodroid.view.KeyEvent;
 input.setOnEditorActionListener(new OnEditorActionListener() {
     public boolean onEditorAction(EditText v, int actionId, KeyEvent event) {
         save(v.getText());   // event is null for the synthesized soft-keyboard OK
-        return true;         // true = consume; false = let default handler run too
+        return true;         // true = handled, the keyboard stays up; false = it hides as usual
     }
 });
 ```
 
+`actionId` is always `EditorInfo.IME_ACTION_DONE`. The listener fires for the system keyboard
+only; an explicit [`Keyboard`](#picodroidwidgetkeyboard) instance reports through its
+`OnReadyListener`.
+
 #### `EditorInfo` hints
 
-Tell the soft keyboard which character set to start with by passing an `EditorInfo` constant:
+`picodroid.view.inputmethod.EditorInfo` holds the `IME_ACTION_*` codes an `OnEditorActionListener`
+receives, with Android's values (`IME_ACTION_UNSPECIFIED` 0, `NONE` 1, `GO` 2, `SEARCH` 3, `SEND` 4,
+`NEXT` 5, `DONE` 6, `PREVIOUS` 7); the soft keyboard's OK key emits `IME_ACTION_DONE` alone.
+
+Which keyboard a field opens is its input type, set with `picodroid.text.InputType` constants as
+on Android:
 
 ```java
-import picodroid.view.inputmethod.EditorInfo;
+import picodroid.text.InputType;
 
-input.setInputType(EditorInfo.TYPE_NUMBER);   // or TYPE_TEXT, TYPE_EMAIL, TYPE_PHONE, TYPE_PASSWORD
+input.setInputType(InputType.TYPE_CLASS_NUMBER);   // the digit pad
+input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);   // masked
 ```
+
+The class picks the layout: `TYPE_CLASS_NUMBER` and `TYPE_CLASS_PHONE` open the digit pad,
+everything else the text layout. The password variations mask the field with bullets, showing each
+character briefly as it is typed; `getText()` still reads the real text. The other variations and
+the flag bits are accepted and change nothing.
 
 See [`picodroid.widget.Keyboard`](#picodroidwidgetkeyboard) for the soft keyboard widget.
 
@@ -1205,14 +1348,14 @@ pager.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
 | `setCurrentItem(int item[, boolean smoothScroll])` / `getCurrentItem()` | Turn to a page. `getCurrentItem` is the page asked for, even mid-turn. No wrap. |
 | `registerOnPageChangeCallback` / `unregisterOnPageChangeCallback` | `onPageSelected(position)` once the new page is resumed; `onPageScrollStateChanged(SCROLL_STATE_SETTLING | SCROLL_STATE_IDLE)`; `onPageScrolled(position, 0f, 0)` once per turn. |
 | `setUserInputEnabled(boolean)` / `isUserInputEnabled()` | Whether a swipe across the page turns it (on by default; off on a board without touch, where keys drive the pager). |
-| `setOrientation(ORIENTATION_HORIZONTAL | ORIENTATION_VERTICAL)` | Which swipes turn the page. Layout is unaffected. |
+| `setOrientation(ORIENTATION_HORIZONTAL | ORIENTATION_VERTICAL)` / `getOrientation()` | Which swipes turn the page: left/right or up/down. Layout is unaffected. |
 | `setOffscreenPageLimit(int)` / `getOffscreenPageLimit()` | Accepted for source compatibility and logged: one page is alive whatever the limit. |
 | `getScrollState()` | `SCROLL_STATE_IDLE` or `SCROLL_STATE_SETTLING`; `SCROLL_STATE_DRAGGING` is never reported. |
 | `saveState()` / `restoreState(Bundle)` | The page index and every page's saved state, for the Activity's `onSaveInstanceState` / `onCreate` (call `restoreState` before or after `setAdapter`). Android saves these through the view hierarchy; there is none here. |
 
 An embedded panel has no room for the page beside the current one, so this pager keeps exactly one page alive: a turn removes the outgoing fragment (`onPause` … `onDestroyView` … `onDetach`; its `onSaveInstanceState` Bundle kept by the adapter under its item id, its widgets freed) and creates the incoming one (`onAttach` … `onStart`, then `onResume` once it is the page on screen), over three main-thread ticks so no single tick carries the whole turn. When that page comes back, `createFragment` makes a new instance and the Bundle returns through `setInitialSavedState`. There is no scroller: `smoothScroll` is a fade of the incoming page (180 ms), and the outgoing page is gone a tick before it appears. A page that builds its views over several ticks, as `claudeusage`'s do, turns with `setCurrentItem(i, false)` and fades its own root once painted. Page fragments are not saved with the Activity's other fragments (the manager cannot place them again); `saveState()` carries them, so call it from `onSaveInstanceState`.
 
-Not provided: page transformers, fake drags, item decorations, `RecyclerView.Adapter`, the `(Fragment)` adapter constructor (no child fragment managers), `android:orientation` in XML. A swipe that starts on a clickable child (a `Button`, a `ListView`) stays with that child.
+Not provided: page transformers, fake drags, item decorations, `RecyclerView.Adapter`, the `(Fragment)` adapter constructor (no child fragment managers), `android:orientation` in XML. A swipe anywhere over the page turns it, one that starts on a clickable child (a `Button`) included; a child with an `OnSwipeListener` of its own keeps the swipe (see [Swipe gestures](#swipe-gestures)).
 
 See [`examples/pagerdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/pagerdemo) (three pages, a dots row, the states across `recreate()` and a reclaim) and [`examples/claudeusage/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/claudeusage) (four screens on a four-button board).
 
@@ -1237,10 +1380,11 @@ Toast.makeText(this, "Saved.", Toast.LENGTH_SHORT).show();
 | `Toast.makeText(Context ctx, String text, int duration)` | Static factory. |
 | `show()` | Display the toast. |
 | `cancel()` | Dismiss before the timeout expires. |
+| `setDuration(int)` / `getDuration()` | `LENGTH_SHORT` or `LENGTH_LONG`. A change takes effect at the next `show()`; a toast already on screen keeps its deadline. |
 
 ### `picodroid.app.AlertDialog`
 
-Modal dialog with a title, message, and up to two buttons. Built via the nested `Builder`.
+Modal dialog with a title, a message or a list, and up to three buttons. Built via the nested `Builder` (`new AlertDialog.Builder()` or `new AlertDialog.Builder(context)`).
 
 ```java
 import picodroid.content.DialogInterface;
@@ -1262,10 +1406,25 @@ new AlertDialog.Builder()
 | `setMessage(String)` | Body text. |
 | `setPositiveButton(String text, DialogInterface.OnClickListener listener)` | Confirm button. `onClick(DialogInterface, int which)`; `listener` may be null. `which` is `DialogInterface.BUTTON_POSITIVE`. |
 | `setNegativeButton(String text, DialogInterface.OnClickListener listener)` | Dismiss button. `listener` may be null. `which` is `DialogInterface.BUTTON_NEGATIVE`. |
+| `setNeutralButton(String text, DialogInterface.OnClickListener listener)` | Third button, placed leftmost. `which` is `DialogInterface.BUTTON_NEUTRAL`. |
+| `setItems(String[] items, DialogInterface.OnClickListener listener)` | A tappable list: a row dismisses the dialog and reports its index as `which`. |
+| `setSingleChoiceItems(String[] items, int checkedItem, DialogInterface.OnClickListener listener)` | A radio-style list with `checkedItem` selected (`-1` for none). A tap selects the row and reports its index; the dialog stays open. |
+| `setMultiChoiceItems(String[] items, boolean[] checkedItems, DialogInterface.OnMultiChoiceClickListener listener)` | A checkbox list. `checkedItems` seeds the state (`null` for all unchecked) and is updated in place as rows toggle; `onClick(DialogInterface dialog, int which, boolean isChecked)` fires per toggle. |
 | `create()` | Returns an `AlertDialog` without showing it. |
 | `show()` | Convenience: `create()` + `show()`. |
 
-Either button click runs its listener (if any) and then dismisses the dialog. Call `dialog.dismiss()` (or `cancel()`) to close programmatically; a second `dismiss()` is a no-op, as on Android. Unlike Android, dismissing **frees the dialog's widgets**, so a dismissed dialog cannot be shown again — `show()` throws `IllegalStateException`; build a new one. See [`examples/dialogdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/dialogdemo).
+A list holds at most 12 rows (`IllegalArgumentException` past that), and a message set beside a list wins: the list is dropped, as on Android.
+
+```java
+String[] units = {"Celsius", "Fahrenheit", "Kelvin"};
+new AlertDialog.Builder()
+    .setTitle("Units")
+    .setSingleChoiceItems(units, 0, (dialog, which) -> selected = which)
+    .setPositiveButton("OK", null)
+    .show();
+```
+
+A button click runs its listener (if any) and then dismisses the dialog. The button constants are Android's: `DialogInterface.BUTTON_POSITIVE` (-1), `BUTTON_NEGATIVE` (-2), `BUTTON_NEUTRAL` (-3). BACK dismisses the topmost showing dialog. Call `dialog.dismiss()` (or `cancel()`) to close programmatically; a second `dismiss()` is a no-op, as on Android. Unlike Android, dismissing **frees the dialog's widgets**, so a dismissed dialog cannot be shown again — `show()` throws `IllegalStateException`; build a new one. See [`examples/dialogdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/dialogdemo).
 
 ### `picodroid.widget.Keyboard`
 
@@ -1332,7 +1491,7 @@ Snackbar.make(rootView, "Item deleted", Snackbar.LENGTH_LONG)
 | `Snackbar.LENGTH_LONG` | 1 | ~3.5 s |
 | `Snackbar.LENGTH_INDEFINITE` | -1 | until manually dismissed |
 
-If the user taps the action lozenge, the listener runs and the Snackbar dismisses immediately. Otherwise the Snackbar fades out after `duration`.
+If the user taps the action lozenge, the listener runs and the Snackbar dismisses immediately; the `View` passed to `onClick` is `null`, since the lozenge is not a `View`. Otherwise the Snackbar fades out after `duration`. `dismiss()` closes it from code, which is how a `LENGTH_INDEFINITE` one without an action goes away. Every Snackbar sits at the bottom of the screen, whichever `parent` is passed.
 
 See [`examples/snackbardemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/snackbardemo).
 
@@ -1354,7 +1513,37 @@ dp.setOnDateChangedListener(new DatePicker.OnDateChangedListener() {
 });
 ```
 
-`OnDateChangedListener` fires only on user interaction; `setDate` programmatically does not re-trigger the listener.
+`OnDateChangedListener` fires only on user interaction; `setDate` programmatically does not re-trigger the listener. `getYear()`, `getMonth()` (1–12) and `getDay()` return the date the user last tapped, and 0 until a day has been tapped.
+
+### `picodroid.widget.NumberPicker`
+
+Picks a number from a range, mirroring a subset of `android.widget.NumberPicker`. Android draws a
+scroll wheel; picodroid shows the current value in a focusable box. On a keypad board ENTER on the
+focused picker enters edit mode, PREV/NEXT step the value while focus navigation is suspended, and
+ENTER or BACK leaves edit mode.
+
+```java
+import picodroid.widget.NumberPicker;
+
+NumberPicker np = new NumberPicker();
+np.setMinValue(0);
+np.setMaxValue(10000);
+np.setStep(100);          // picodroid extension: the change per step
+np.setValue(500);
+
+np.setOnValueChangedListener(new NumberPicker.OnValueChangeListener() {
+    public void onValueChange(NumberPicker picker, int oldVal, int newVal) {
+        Log.i("UI", oldVal + " -> " + newVal);
+    }
+});
+```
+
+| Method | Description |
+|--------|-------------|
+| `setMinValue(int)` / `getMinValue()`, `setMaxValue(int)` / `getMaxValue()` | The range; the current value is pulled into it. |
+| `setValue(int)` / `getValue()` | The current value, clamped to the range. `setValue` does not notify the listener, as on Android. |
+| `setStep(int)` / `getStep()` | How much one step changes the value (1 by default; values below 1 are treated as 1). No Android counterpart. |
+| `setOnValueChangedListener(OnValueChangeListener)` | `onValueChange(NumberPicker picker, int oldVal, int newVal)`, once per change; a step at the edge of the range changes nothing and fires nothing. |
 
 ### `picodroid.widget.TimePicker`
 
@@ -1365,7 +1554,9 @@ import picodroid.widget.TimePicker;
 
 TimePicker tp = new TimePicker();
 tp.setSize(220, 180);
-tp.setTime(14, 30);   // 2:30 pm in 24-hour mode
+tp.setTime(14, 30);   // hour is 0..23, whatever the display mode
+int hour = tp.getHour();      // 14
+int minute = tp.getMinute();  // 30
 
 tp.setOnTimeChangedListener(new TimePicker.OnTimeChangedListener() {
     public void onTimeChanged(TimePicker view, int hourOfDay, int minute) {
@@ -1377,12 +1568,12 @@ tp.setOnTimeChangedListener(new TimePicker.OnTimeChangedListener() {
 12-hour / AM-PM mode (since v0.7.0):
 
 ```java
-tp.setIs24HourView(false);   // adds an AM/PM column
-tp.setTime(2, 30);           // hours run 1..12; AM/PM tracked separately
-boolean isAM = tp.isAm();
+tp.setIs24HourView(false);   // adds an AM/PM column; 14:30 shows as 2:30 PM
+boolean is24 = tp.is24HourView();
 ```
 
-When 12-hour mode is on, `getHour()` returns the displayed hour in `1..12`. Use `isAm()` to disambiguate.
+The display mode changes what the rollers show, not the API: `setTime` and `getHour()` always use
+0..23, as Android's `TimePicker` does since API 23, and switching modes keeps the time.
 
 See [`examples/pickerdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/pickerdemo) for both pickers in one screen.
 
@@ -1410,7 +1601,12 @@ view.setOnSwipeListener(new OnSwipeListener() {
 
 The `SWIPE_*` direction constants live on `View` (`View.SWIPE_LEFT` = 1, `SWIPE_RIGHT` = 2,
 `SWIPE_UP` = 4, `SWIPE_DOWN` = 8). Direction is decided from the largest dominant axis with a
-configurable minimum delta. Diagonal-only swipes do not fire.
+configurable minimum delta. Diagonal-only swipes do not fire. The listener fires once per gesture.
+
+As on Android, the nearest view with a listener takes the swipe: a listener hears the swipes that
+start on its view or on any descendant without a listener of its own, a clickable child such as a
+`Button` included. A scrollable ancestor that can scroll in the swipe's direction takes the drag as
+a scroll first.
 
 ### `picodroid.widget.SwipeRefreshLayout`
 
@@ -1429,7 +1625,11 @@ pull.setOnRefreshListener(new SwipeRefreshLayout.OnRefreshListener() {
 });
 ```
 
-`setRefreshing(true)` shows the spinner programmatically without firing the listener. See [`examples/swipedemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/swipedemo).
+A pull-down turns refreshing on and then calls `onRefresh()`; the spinner stays until
+`setRefreshing(false)`, and a pull while it shows is ignored. `setRefreshing(true)` shows the spinner programmatically without firing the
+listener. The layout wraps a single child and does not scroll itself. A pull-down that starts on a
+descendant with an `OnSwipeListener` of its own goes to the layout first, which is Android's
+`onInterceptTouchEvent`; swipes in every other direction stay with that descendant. See [`examples/swipedemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/swipedemo).
 
 ## Complete display app example
 

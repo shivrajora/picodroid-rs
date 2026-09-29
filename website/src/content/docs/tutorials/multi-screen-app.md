@@ -9,7 +9,7 @@ pops the top screen and returns to Home.
 
 Along the way you'll learn how Picodroid models screens as `Activity` objects, how `startActivity`
 and `finish()` drive the back stack, the order lifecycle callbacks fire, why a paused Activity's
-widget tree is preserved across a push, and how to keep BACK from exiting the app at the root.
+widget tree is preserved across a push, and what BACK does at the root.
 
 The finished code is the committed
 [`examples/tutorial_screens/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/tutorial_screens)
@@ -17,15 +17,18 @@ app — every snippet below is copied from it, so it builds and runs as-is.
 
 ## Scaffold
 
-Generate a new app skeleton with the `newApp` Gradle task:
+The finished app is already in the checkout, so to read along there is nothing to create. To type it
+in yourself, generate a skeleton under a name of your own with the `newApp` Gradle task (it refuses a
+name whose directory exists):
 
 ```bash
-./gradlew newApp -Pname=tutorial_screens
+./gradlew newApp -Pname=myscreens
 ```
 
-This creates `examples/tutorial_screens/` with a `PicodroidManifest.xml`, a `build.gradle.kts`, and a
-`java/tutorial_screens/` source root. The manifest names the `Application` class that the framework
-instantiates at boot:
+This creates `examples/myscreens/` with a `PicodroidManifest.xml`, a `build.gradle.kts`, and a
+`java/myscreens/` source root holding a starter `Myscreens` Application class; use your name
+wherever the snippets below say `tutorial_screens`. The manifest names the `Application` class that
+the framework instantiates at boot — this is the committed app's:
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
@@ -34,13 +37,14 @@ instantiates at boot:
 </manifest>
 ```
 
-The `application` attribute is the only entry point the framework reads — see the
+The `application` attribute is the entry point the framework reads, and `package` is the app's
+identity on a device that holds several apps — see the
 [manifest reference](/reference/manifest/) for every supported element, and
 [your first app](/get-started/first-app/) for the basics of the project layout.
 
 ## The Application entry point
 
-`Application.onCreate` runs first, once, at boot — before any Activity exists. Seed the back stack by
+`Application.onCreate` runs first, once, when the app starts — before any Activity exists. Seed the back stack by
 launching the root screen from it:
 
 ```java
@@ -101,7 +105,7 @@ public class HomeActivity extends Activity {
   }
 ```
 
-Three things here matter on embedded:
+Two things here matter on embedded:
 
 - **Field-held listener buttons.** `counterButton` and `aboutButton` are instance fields, not locals.
   A View that only the native listener registry references can be swept by the garbage collector,
@@ -111,7 +115,7 @@ Three things here matter on embedded:
 - **`setContentView(root)` is mandatory.** Until you call it the Activity has no visible tree. It
   delegates to the `Display`, replacing whatever the previous screen showed.
 
-The second thing to notice is what Home does *not* have: a BACK override. BACK's default behaviour
+The third thing to notice is what Home does *not* have: a BACK override. BACK's default behaviour
 is to `finish()` the top Activity — and Home *is* the only Activity in the stack when it's showing,
 so finishing it pops the last entry, which ends the app and returns to the launcher. That is the
 Android home-screen behaviour and the only way off a button board back to the launcher, so leave
@@ -124,8 +128,10 @@ it alone:
 ```
 
 You will see `onPause`, `onStop` and `onDestroy` in the log when you press BACK here, and then the
-launcher's own screen. See [button navigation](/guides/button-navigation/) for how BACK is routed on
-hardware.
+launcher's own screen — on a board whose firmware carries the launcher, which is every RP2350 board.
+Where there is none (the RP2040 testbench, or a simulator started without `--system-apps`) the app
+just ends. See [button navigation](/guides/button-navigation/) for how BACK is routed on hardware,
+and the [launcher guide](/guides/launcher/#coming-back) for the ways back.
 
 ## A stateful screen
 
@@ -257,6 +263,7 @@ restoring Home:
 CounterActivity onPause
 CounterActivity onStop
 CounterActivity onDestroy
+HomeActivity    onRestart
 HomeActivity    onStart
 HomeActivity    onResume
 ```
@@ -264,9 +271,14 @@ HomeActivity    onResume
 Two things to notice:
 
 - **Home's `onCreate` does not run again.** When Counter was pushed, Home's widget tree was hidden
-  and snapshotted into its stack entry; on the pop it's restored as-is before `onStart`/`onResume`.
-  You build the UI once in `onCreate` and never rebuild it on return — the tree survives the round
-  trip. (Rebuilding from `onResume` is still allowed if you want it.)
+  and snapshotted into its stack entry; on the pop it's restored as-is before
+  `onRestart`/`onStart`/`onResume`. You build the UI once in `onCreate` and never rebuild it on
+  return — the tree survives the round trip. (Rebuilding from `onResume` is still allowed if you
+  want it.) The exception is memory pressure: when a `startActivity` finds the heap or the LVGL pool
+  nearly full, the framework destroys the covered Activities and re-creates each one when the user
+  comes back to it, with `onCreate(savedInstanceState)` carrying what its `onSaveInstanceState`
+  saved. A small app like this one never gets there; see
+  [saved instance state](/api/ui/#saved-instance-state) for the screens that might.
 
 - **Counter's `onDestroy` runs** because `finish()` truly destroys it — which is why its `count`
   resets next time, as covered above.
@@ -317,9 +329,17 @@ The first log lines you should see, as the Application boots and pushes Home:
 [HomeActivity] onResume
 ```
 
-Tap **Counter** or **About** to push a screen; press BACK (or About's Back button) to pop it. Tap
-**Increment** a few times, go BACK to Home, then re-enter Counter — the count is `0` again, because
-the Activity was destroyed and rebuilt.
+Tap **Counter** or **About** to push a screen, and About's Back button to pop it. The simulator's
+default board, `testbench_rp2350`, has a touch panel and no buttons, so it has no BACK key. For one,
+simulate a board that has both, and add the launcher so that BACK on Home has somewhere to go:
+
+```bash
+./scripts/sim.sh --board pico_touch_kit --app tutorial_screens --system-apps
+```
+
+Backspace on the host keyboard is that board's BACK button. Tap **Increment** a few times, go BACK
+to Home, then re-enter Counter — the count is `0` again, because the Activity was destroyed and
+rebuilt. BACK on Home ends the app and brings up the launcher, which lists it to start again.
 
 See [the simulator guide](/get-started/simulator/) for input and scripting details, and
 [hot-swap](/get-started/hot-swap/) to push changes to a running build without a full reflash. For the

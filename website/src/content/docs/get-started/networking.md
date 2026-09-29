@@ -3,9 +3,9 @@ title: "WiFi & networking setup"
 description: "Get a Pico 2 W on your WiFi network: the cyw43 submodule, Settings → Wi-Fi or build-time credentials, boot timing, and waiting for the network in your app."
 ---
 
-Networking runs on the **Raspberry Pi Pico 2 W** (`testbench_rp2350w` board) over its CYW43439 WiFi chip. Once the board has joined your network, the full [`picodroid.net` API](/api/networking/) — TCP/UDP sockets and `HttpURLConnection` — works against real hosts.
+Networking runs on the boards built around a **Raspberry Pi Pico 2 W** or a Pimoroni Pico Plus 2 W — `testbench_rp2350w`, `pico_enviro_mon_w`, `pico_display2_w` and `pico_touch_kit` — over the module's CYW43439 WiFi chip. Once the board has joined your network, the full [`picodroid.net` API](/api/networking/) — TCP/UDP sockets, `HttpURLConnection` and [HTTPS](#https) — works against real hosts.
 
-In the **simulator** the host's network stack stands in for the link: `picodroid.net` works at once with nothing to configure. Settings → Wi-Fi still works there, against a canned list of access points (see [the simulator's WiFi](#the-simulators-wifi)).
+In the **simulator** the host's network stack stands in for the link, with nothing to configure — but simulate one of those boards (`./scripts/sim.sh --board testbench_rp2350w --app netdemo`): the default `testbench_rp2350` has no network, in the simulator as on the bench. Settings → Wi-Fi still works there, against a canned list of access points (see [the simulator's WiFi](#the-simulators-wifi)).
 
 ## One-time setup: the cyw43 driver fork
 
@@ -74,6 +74,15 @@ Each line is printed once per change of state: a join that keeps failing logs on
 
 The sim's link is the host's network, up from the start, and Settings → Wi-Fi is faked on top of it so the screens can be exercised: a scan finds the access points in `PICODROID_SIM_WIFI_NETWORKS` (`ssid:security:rssi` triples, comma-separated; default `picodroid-lab:wpa2:-45,Cafe Guest:open:-70,Neighbour:wpa2wpa3:-82`), a join succeeds for a listed SSID with the password in `PICODROID_SIM_WIFI_PASS` (default `picodroid`) and takes the simulated link up, and fails — *Wrong password*, *Not found* — otherwise, taking it down. The saved network persists in the sim's filesystem image and is joined at the next start, as on a device. `PICODROID_SIM_NET=down` starts with the link down, so a join is what brings it up. The control channel's `input text <string>` types into the open keyboard's field, so a script need not tap keys.
 
+The link itself can be dropped and restored while an app runs, to rehearse what it does when WiFi goes away. Type the verb into the terminal the simulator runs in (its control channel reads stdin), or send it with `./scripts/sim-ctrl.sh` to a simulator started by `sim-remote.sh`:
+
+```text
+net down
+net up
+```
+
+While the link is down `NetworkInfo.isConnected()` is false, new connects, sends and lookups fail, and registered `NetworkCallback`s hear `onLost`; `net up` brings `onAvailable` with a new `Network`. Sockets that are already connected keep flowing.
+
 ## Wait for the network in your app
 
 An app's `onCreate` runs long before the join finishes, so a one-shot `NetworkInfo.isConnected()` check will almost always read `false` on hardware. Do what an Android app does: ask `ConnectivityManager` to tell you when the link is there.
@@ -114,18 +123,28 @@ if (!NetworkInfo.isConnected()) {
 }
 ```
 
+## HTTPS
+
+An `https` URL works on every board with `has_tls = true` in its `board.toml`, which is each of the four WiFi boards: `URL.openConnection()` returns an `HttpsURLConnection`, and `connect()` runs a TLS 1.3 handshake that checks the server's name and verifies its chain against a root store compiled into the firmware.
+
+The certificate's validity is checked against the wall clock, and a board has no battery-backed clock: the runtime refuses the handshake (`SSLHandshakeException`) until the app has set the time. Do it once the network is up and before the first request, with [`SntpClient`](/api/networking/#wall-clock-sntpclient). In the simulator `PICODROID_SIM_WALL_CLOCK=1` anchors the clock to the host's instead. See [HTTPS](/api/networking/#https) for what is checked, what it costs and what is not there.
+
 ## Try it: netdemo and http_get
 
 Two Application-only example apps exercise the stack end-to-end, and both contain the poll above:
 
-- **`netdemo`** — connects to a TCP echo server on port 7000, sends a message, logs the echo. Run an echo server on a machine the Pico can reach (`socat TCP-LISTEN:7000,fork EXEC:cat`), and point the server address in `NetDemo.java` at that machine.
-- **`http_get`** — issues HTTP GET/POST requests. It ships pointing at `http://127.0.0.1:8000/` for the simulator; **edit `BASE_URL`** to a host reachable from your LAN before flashing (`python3 -m http.server 8000` on your dev machine works).
+- **`netdemo`** — connects to a TCP echo server on port 7000, sends a message, logs the echo. Run an echo server on a machine the Pico can reach (`socat TCP-LISTEN:7000,fork EXEC:cat`).
+- **`http_get`** — issues HTTP GET/POST requests against port 8000 (`python3 -m http.server 8000` on your dev machine works).
+
+Both talk to loopback by default, which is right for the simulator. For a board, name the machine that runs the server at build time with `PICODROID_NET_TEST_HOST` — no source edit:
 
 ```bash
-env $(grep -v '^#' .wifi-creds.env | xargs) \
+env $(grep -v '^#' .wifi-creds.env | xargs) PICODROID_NET_TEST_HOST=192.168.1.10 \
   ./scripts/flash.sh --board testbench_rp2350w --app http_get --release
 ```
 
+`https_get` does the same over TLS and `connectivity` is the `NetworkCallback` pattern; the [examples index](/examples/#networking) lists them all.
+
 ## Limits
 
-The current stack supports open and WPA2-AES networks, IPv4 only, and no TLS — the full list lives on the [known issues](/reference/known-issues/) page. The API surface itself is documented in the [networking API reference](/api/networking/).
+The current stack supports open, WPA2-AES and WPA3-SAE personal networks (no enterprise authentication) and IPv4 only; TLS is 1.3 with one cipher suite and no client certificates — the full list lives on the [known issues](/reference/known-issues/) page. The API surface itself is documented in the [networking API reference](/api/networking/).

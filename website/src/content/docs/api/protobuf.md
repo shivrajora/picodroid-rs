@@ -53,6 +53,30 @@ The byte-at-a-time work — tags, varints, fixed-width values, skipping an unkno
 
 A generated message is a plain mutable class: private fields with proto3 defaults, `getX()`, `hasX()` for message and `optional` fields, `setX(v)`, `clearX()`, repeated fields as primitive or typed arrays behind `getXCount()`/`getX(int)`/`addX(v)`, `static parseFrom(byte[])`/`parseFrom(byte[], int, int)`/`parseFrom(CodedInputStream)`, `mergeFrom(CodedInputStream)`, `writeTo`, `getSerializedSize`, `toByteArray`. Each message is one class, which is what it costs on the device: about 1–2 KB of class metadata per message type.
 
+## Generating message classes
+
+An app keeps its schema in `examples/<app>/proto/<name>.proto`, and the generated Java lands under `examples/<app>/java/`, in the package that `option java_package` names. The generated files are committed, so building an app does not need `protoc`.
+
+```bash
+pip install -r tools/protoc-gen-picodroid/requirements.txt
+./scripts/gen-proto.sh            # regenerate every examples/*/proto/*.proto
+./scripts/gen-proto.sh --check    # fail if the committed output is stale
+```
+
+`gen-proto.sh` runs the plugin with the Python named by `PICODROID_PROTO_PYTHON` (default `python3`). When the app has a `bridge/` directory, protoc's own Python output lands there as `<name>_pb2.py`.
+
+## Stream API
+
+| Class | Members |
+|---|---|
+| `CodedInputStream` | `static newInstance(byte[] buf)`, `newInstance(byte[] buf, int off, int len)`; `readTag()` (0 at the end of the stream or of the current limit), `getLastTag()`, `checkLastTagWas(int)`, `skipField(int tag)`, `skipMessage()`; `readInt32`, `readUInt32`, `readSInt32`, `readFixed32`, `readSFixed32`, `readEnum`, `readInt64`, `readUInt64`, `readSInt64`, `readFixed64`, `readSFixed64`, `readBool`, `readFloat`, `readDouble`, `readString`, `readBytes`; `readRawVarint32`, `readRawVarint64`, `readRawByte`, `readRawBytes(int size)`; `pushLimit(int byteLimit)`, `popLimit(int oldLimit)`, `getBytesUntilLimit()`, `isAtEnd()`, `getTotalBytesRead()`; `static decodeZigZag32`, `decodeZigZag64` |
+| `CodedOutputStream` | `static newInstance(byte[] buf)`, `newInstance(byte[] buf, int off, int len)`; `writeTag(int fieldNumber, int wireType)`; for each of `Int32`, `UInt32`, `SInt32`, `Fixed32`, `SFixed32`, `Int64`, `UInt64`, `SInt64`, `Fixed64`, `SFixed64`, `Bool`, `Enum`, `Float`, `Double`, `String`, `Bytes` and `Message`: `writeX(int fieldNumber, value)`, `writeXNoTag(value)`, `static computeXSize(int fieldNumber, value)` and `static computeXSizeNoTag(value)`; `writeRawVarint32`, `writeRawVarint64`, `writeRawByte`, `writeRawBytes`; `getTotalBytesWritten()`, `spaceLeft()`, `checkNoSpaceLeft()`, `flush()`; `static computeTagSize(int fieldNumber)`, `encodeZigZag32`, `encodeZigZag64` |
+| `MessageLite` | `writeTo(CodedOutputStream)`, `getSerializedSize()`, `toByteArray()`. Parsing is a static `parseFrom` on the generated class. |
+| `WireFormat` | `WIRETYPE_VARINT` (0), `WIRETYPE_FIXED64` (1), `WIRETYPE_LENGTH_DELIMITED` (2), `WIRETYPE_START_GROUP` (3), `WIRETYPE_END_GROUP` (4), `WIRETYPE_FIXED32` (5); `static getTagWireType(int tag)`, `getTagFieldNumber(int tag)`, `makeTag(int fieldNumber, int wireType)` |
+| `InvalidProtocolBufferException` | An `IOException`, as is `CodedOutputStream.OutOfSpaceException`. The read and write methods declare `IOException`. |
+
+[`examples/protodemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/protodemo) round-trips every field kind on the runtime.
+
 ## Deviations from protobuf-javalite
 
 - Messages are mutable and have setters; there are no `Builder`s (a Builder doubles the class count) and no `equals`/`hashCode`.

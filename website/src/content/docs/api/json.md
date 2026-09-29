@@ -45,12 +45,12 @@ The pool is capped at 2048 nodes and 16 KiB of string and key bytes across all l
 | `JSONObject()`, `JSONObject(String json)`, `JSONObject(Map copyFrom)`, `JSONObject(JSONObject copyFrom, String[] names)` | `(String)` parses an object text and throws `JSONException` otherwise; `(Map)` requires `String` keys and wraps values with `wrap`. |
 | `NULL` | The explicit-null sentinel: `equals(null)` and `equals(NULL)` are true, `toString()` is `"null"`. Compare with `equals` or `isNull`, not `==`. |
 | `length()`, `has(name)`, `isNull(name)`, `remove(name)` | `isNull` is true for a missing name too. `remove` returns the old value (boxed before the mapping is unlinked). |
-| `keys()`, `keySet()`, `names()`, `toJSONArray(JSONArray names)` | `keys()` and `names()` are in insertion order; `keySet()` is an unordered copy. |
+| `keys()`, `keySet()`, `names()`, `toJSONArray(JSONArray names)` | `keys()` and `names()` are in insertion order; `keySet()` is an unordered copy. `names()` is `null` for an empty object. |
 | `get(name)`, `getBoolean`, `getDouble`, `getInt`, `getLong`, `getString`, `getJSONArray`, `getJSONObject` | Android's coercions: `"true"`/`"false"` to boolean, numeric strings to numbers, `getInt` truncates a double, `getString` stringifies anything. A missing name or a failed coercion throws `JSONException`. |
-| `opt(name)`, `optBoolean(name[, fallback])`, `optDouble` (default `NaN`), `optInt`, `optLong`, `optString` (default `""`), `optJSONArray`, `optJSONObject` | Same coercions, fallback instead of an exception. |
+| `opt(name)`, `optBoolean(name[, fallback])`, `optDouble` (default `NaN`), `optInt`, `optLong`, `optString` (default `""`), `optJSONArray`, `optJSONObject` | Same coercions, fallback instead of an exception. `optJSONArray` and `optJSONObject` take no fallback and return `null`. |
 | `put(name, boolean/double/int/long/Object)`, `putOpt`, `accumulate`, `append` | `put(name, null)` removes; `NULL` stores an explicit null. NaN and infinities throw `JSONException`. `accumulate` builds an array on the second value; `append` requires an array (or nothing) under the name. |
 | `toString()`, `toString(int indentSpaces)` | Compact, or one entry per line with `"key": value`. `toString()` returns null past the nesting cap; `toString(int)` throws. |
-| `static quote(String)`, `numberToString(Number)`, `wrap(Object)` | `quote` escapes as Android does (`"`, `\`, `/`, control characters). `wrap` turns `null` into `NULL`, a `Collection` or array into a `JSONArray`, a `Map` into a `JSONObject`, anything unknown into its `toString()`. |
+| `static quote(String)`, `numberToString(Number)`, `wrap(Object)` | `quote` escapes as Android does (`"`, `\`, `/`, control characters); `quote(null)` is `""`. `wrap` turns `null` into `NULL`, a `Collection` or array into a `JSONArray`, a `Map` into a `JSONObject`, anything unknown into its `toString()`. |
 | `static debugPoolNodes()` | picodroid-only: live nodes in the pool, for diagnostics. |
 
 ## `JSONArray`
@@ -60,7 +60,7 @@ The pool is capped at 2048 nodes and 16 KiB of string and key bytes across all l
 | `JSONArray()`, `JSONArray(String json)`, `JSONArray(Collection copyFrom)`, `JSONArray(Object array)` | `(Object)` accepts `Object[]`, `int[]`, `long[]`, `double[]`, `float[]` and `boolean[]` (there is no reflection) and throws `JSONException` for anything else. |
 | `length()`, `isNull(index)`, `remove(index)` | `remove` returns the old value or null; later items shift down. |
 | `put(boolean/double/int/long/Object)`, `put(int index, …)` | Appending, or setting at an index — an index past the end pads with `NULL`; a negative index throws `JSONException`. |
-| `get(index)`, `getBoolean` … `getJSONObject(index)`, `opt(index)`, `optBoolean` … `optJSONObject(index[, fallback])` | As on `JSONObject`; an index out of range throws (`get`) or falls back (`opt`). |
+| `get(index)`, `getBoolean` … `getJSONObject(index)`, `opt(index)`, `optBoolean` … `optString(index[, fallback])`, `optJSONArray(index)`, `optJSONObject(index)` | As on `JSONObject`; an index out of range throws (`get`) or falls back (`opt`). |
 | `join(separator)`, `toJSONObject(JSONArray names)` | `join` encodes each value as JSON, so strings come out quoted. |
 | `toString()`, `toString(int)`, `equals`, `hashCode` | Equality is by encoded content, as on Android. |
 
@@ -77,3 +77,7 @@ A checked exception, as on Android, with the `(String)`, `(String, Throwable)` a
 - **No `JSONTokener` or `JSONStringer`**, and no constructors taking one.
 - **Cycles are refused.** Putting a container into its own descendant throws `IllegalArgumentException` (Android would overflow the stack in `toString`).
 - **Capacity.** 2048 nodes and 16 KiB of string bytes across all live documents, 32 levels of nesting.
+
+## Examples
+
+[`jsondemo`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/jsondemo) is the conformance app. [`picoenvmon`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/picoenvmon) and [`weather`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/weather) parse open-meteo replies, and [`askclaude`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/askclaude) builds a request body and reads the reply.

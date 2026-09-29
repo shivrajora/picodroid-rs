@@ -1,9 +1,11 @@
 ---
 title: "Core Java Language Surface"
-description: "java.lang and java.util classes available in Picodroid apps."
+description: "java.lang, java.util, java.util.zip and java.time classes available in Picodroid apps."
 ---
 
-`java.lang.*` and `java.util.*` types implemented by the Picodroid JVM. See [Java API overview](/api/) for the full API index.
+`java.lang.*`, `java.util.*` and `java.time.*` types implemented by the Picodroid JVM. See [Java API overview](/api/) for the full API index.
+
+The build checks an app against this surface: `verifyApiContract` rejects a `java.*` class or member the runtime does not serve, naming the call site. The [compatibility matrix](/reference/compatibility-matrix/#java-standard-library) lists the divergences row by row.
 
 ## `java.lang.String`
 
@@ -46,6 +48,7 @@ String vb = String.valueOf(true);     // "true"
 String vc = String.valueOf('X');      // "X"
 String vf = String.valueOf(3.14f);    // "3.14"
 String vd = String.valueOf(2.71828);  // "2.71828"
+String vo = String.valueOf(obj);      // obj.toString(), or "null"
 
 // Extended methods
 String[] parts = "a,b,c".split(",");           // ["a", "b", "c"]
@@ -55,6 +58,9 @@ String j       = String.join(", ", "a", "b", "c");           // "a, b, c"
 String j2      = String.join("/", new String[] {"x", "y"});  // "x/y"
 char[] chs     = "abc".toCharArray();          // {'a', 'b', 'c'}
 int    h       = "abc".hashCode();             // standard Java String hash
+String r2      = "a-b".replace("-", "+");      // "a+b" — the CharSequence form
+byte[] raw     = "abc".getBytes();             // the string's bytes (UTF-8)
+String back    = new String(raw);              // also new String(raw, off, len)
 
 // Formatted strings — String.format(String, Object...)
 String msg = String.format("Score: %d (%.1f%%)", 42, 87.5);  // "Score: 42 (87.5%)"
@@ -70,6 +76,10 @@ HALF_UP, as Java's `Formatter` does (`%.2f` of `1.005` is `"1.01"`). A bad forma
 `String.join(delimiter, …)` takes varargs, a `String[]`, or an `ArrayList<String>`
 (`Iterable`); the elements must be `String` or `null`.
 
+`split` takes a literal delimiter, not a regular expression, and drops trailing empty strings as
+Java does (`"a,b,,".split(",")` is `["a", "b"]`). Strings are built from `byte[]` only: there is
+no `String(char[])` constructor, so build one from characters with `StringBuilder.append(char)`.
+
 ## `java.lang.StringBuilder`
 
 ```java
@@ -83,6 +93,7 @@ sb.append(2.71828);   // append double
 sb.append(100L);      // append long
 sb.append(true);      // append "true" or "false"
 sb.append('x');       // append char
+sb.append(obj);       // append Object — its toString(), or "null"
 
 int  len = sb.length();    // current content length
 char ch  = (char) sb.charAt(2);  // byte at position 2
@@ -164,18 +175,22 @@ String old     = (String) list.set(0, "ALPHA");  // returns "alpha"
 String removed = (String) list.remove(2);        // returns "gamma"
 
 boolean found = list.contains("ALPHA");   // true
+boolean gone  = list.remove("beta");      // remove(Object): drops the first equal element
+Object[] copy = list.toArray();           // always a fresh Object[] of the list's length
 list.clear();
 
 // Indexed insert
 list.add(0, "first");   // insert at position 0
 
 // Generic type with autoboxing (Integer, Boolean, Long, Float, Double)
-ArrayList<Integer> nums = new ArrayList<Integer>();
+ArrayList<Integer> nums = new ArrayList<Integer>();   // or new ArrayList<Integer>(16)
 nums.add(10);    // autoboxes int → Integer
 nums.add(20);
 int n = nums.get(0);          // auto-unboxes Integer → int  (10)
 boolean has = nums.contains(20);  // true — value equality for wrappers
 ```
+
+`list.sort(comparator)` sorts in place; `list.sort(null)` uses the natural ordering. `toArray(T[])` ignores its argument: it neither fills nor returns the array passed in, and the result is an `Object[]`.
 
 > **Autoboxing:** `ArrayList<Integer>` works as expected — `add(42)` and `contains(42)` both box via `Integer.valueOf`. For raw `ArrayList`, store and retrieve Object references (String, custom class instances); do not store bare primitives without explicit boxing (`Integer.valueOf(42)`, etc.).
 
@@ -196,6 +211,7 @@ Integer v   = (Integer) map.get("one");      // 1
 boolean has = map.containsKey("two");        // true
 int     n   = map.size();                    // 2
 Integer d   = (Integer) map.getOrDefault("nope", Integer.valueOf(0));  // 0
+boolean hv  = map.containsValue(Integer.valueOf(2));                   // true
 map.remove("one");
 
 // Iterate keys / values / entries (keySet(), values() and entrySet() are Iterable)
@@ -207,7 +223,10 @@ HashSet set = new HashSet();
 set.add("a");
 set.add("b");
 boolean inSet = set.contains("a");           // true
+set.remove("a");
 ```
+
+Both also have `isEmpty()`, `size()` and `clear()`, and the `(int initialCapacity)` and `(int initialCapacity, float loadFactor)` constructors. A `Map.Entry` answers `getKey()` and `getValue()`; there is no `setValue`.
 
 ## `java.util.Iterator` and the enhanced for loop
 
@@ -232,9 +251,11 @@ while (it.hasNext()) {
 }
 ```
 
+`Iterator.remove()` is served as well.
+
 ## `java.util.Arrays` and `java.util.Collections`
 
-Stable mergesort and a small set of list utilities. Mirrors the most-used subset of the Java standard library.
+Stable mergesort and a small set of list utilities, with `java.util.Comparator` for an ordering of your own. Mirrors the most-used subset of the Java standard library.
 
 ```java
 import java.lang.Comparable;
@@ -259,6 +280,10 @@ ArrayList<Integer> nums = new ArrayList<Integer>();
 nums.add(3); nums.add(1); nums.add(2);
 Collections.sort(nums);     // [1, 2, 3]
 Collections.reverse(nums);  // [3, 2, 1]
+
+// Comparator — a lambda, or a class that implements java.util.Comparator
+Arrays.sort(words, (a, b) -> b.compareTo(a));        // descending
+Collections.sort(nums, (a, b) -> a.compareTo(b));
 ```
 
 | Method | Description |
@@ -267,8 +292,10 @@ Collections.reverse(nums);  // [3, 2, 1]
 | `Arrays.sort(int[] a)` | In-place sort of a primitive array (`long`/`double`/`float`/`short`/`byte`/`char` overloads too). |
 | `Arrays.fill(a, value)` | Fill every element with `value` (primitive overloads). |
 | `Arrays.copyOf(a, newLength)` | Copy, truncating or zero-padding to `newLength` (primitive overloads). |
-| `Arrays.toString(Object[] a)` | `"[a, b, c]"` rendering using each element's `toString`. |
+| `Arrays.sort(T[] a, Comparator<? super T> c)` | Stable sort by `c`; `null` means the natural ordering. |
+| `Arrays.toString(Object[] a)` | `"[a, b, c]"` rendering using each element's `toString` (primitive-array overloads too). |
 | `Collections.sort(List)` | Stable mergesort over a `List`. Elements must implement `Comparable`. |
+| `Collections.sort(List<T> list, Comparator<? super T> c)` | Stable sort by `c`; `null` means the natural ordering. |
 | `Collections.reverse(List)` | Reverse the list in place. |
 
 ## `java.util.Objects`
@@ -407,6 +434,8 @@ boolean same = (s.getClass() == String.class);  // true — Class instances are 
 boolean stable = (Direction.class == Direction.class);  // true
 ```
 
+`toString()` is `"class " + getName()`. `forName`, `newInstance` and member discovery are out of scope.
+
 `Object.getClass()` returns the runtime `Class<?>` of any reference. Useful for type-safe equality (`.getClass() == Foo.class`) and for log dispatch keyed by class identity.
 
 ## `java.lang.AutoCloseable` and try-with-resources
@@ -423,7 +452,7 @@ Any class that implements `AutoCloseable` works in `try`-with-resources — the 
 try (Gpio led = pm.openGpio("GP25")) {
     led.setDirection(Gpio.DIRECTION_OUT_INITIALLY_LOW);
     led.setValue(true);
-} // led.close() runs here — releases the pin back to the PeripheralManager.
+} // led.close() runs here.
 ```
 
 Multiple resources in one `try` close in reverse-declaration order. See [`examples/trywithresourcesdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/trywithresourcesdemo) for a worked example.
@@ -452,8 +481,8 @@ switch (d) {
 
 ## Boxed primitives (wrapper classes)
 
-`Integer`, `Long`, `Float`, `Double`, `Boolean`, and `Character` are available as object wrappers.
-Each supports `valueOf(primitive)`, the matching unboxing accessor, and `toString()`:
+`Integer`, `Long`, `Short`, `Byte`, `Float`, `Double`, `Boolean`, and `Character` are available as
+object wrappers. Each supports `valueOf(primitive)`, the matching unboxing accessor, and `toString()`:
 
 ```java
 Integer boxed = Integer.valueOf(42);
@@ -469,6 +498,24 @@ Character c = Character.valueOf('X');     char    cv = c.charValue();
 
 You rarely call these directly: `ArrayList<Integer>` and `HashMap` keys/values **autobox** through
 `valueOf` and auto-unbox through the `*Value()` accessors.
+
+Parsing and comparing:
+
+```java
+int    n  = Integer.parseInt("42");          // NumberFormatException for text that is not a number
+long   l2 = Long.parseLong("9000");
+double d2 = Double.parseDouble("2.5");       // Float.parseFloat, Short.parseShort, Byte.parseByte too
+boolean t = Boolean.parseBoolean("true");
+Integer b2 = Integer.valueOf("42");          // valueOf(String) on every numeric wrapper
+String  s2 = Integer.toString(42);           // the static toString(x) of each numeric wrapper
+int     c2 = Integer.compare(3, 7);          // negative; compare(x, y) and compareTo on every wrapper
+
+boolean dg = Character.isDigit('7');         // isLetter, toUpperCase, toLowerCase — ASCII only
+```
+
+The numeric wrappers convert through `byteValue()`, `shortValue()`, `intValue()`, `longValue()`,
+`floatValue()` and `doubleValue()` as Java does. `Float.isNaN` / `Double.isNaN` / `isInfinite` are
+not served: test `f != f` for NaN.
 
 `Float.floatToIntBits(f)` and `Float.intBitsToFloat(i)` round-trip the IEEE-754 bit pattern — for a
 bit-exact `equals`/`hashCode`, or to keep a float in an `int` slot.
@@ -492,6 +539,15 @@ try {
     Log.i("TAG", "caught an AppException");
 }
 ```
+
+The runtime throws the standard unchecked exceptions where Java does, and each can be caught by
+name: `NullPointerException`, `ArithmeticException`, `ArrayIndexOutOfBoundsException`,
+`StringIndexOutOfBoundsException`, `IndexOutOfBoundsException`, `NegativeArraySizeException`,
+`ArrayStoreException`, `ClassCastException`, `NumberFormatException`,
+`UnsupportedOperationException`, `IllegalMonitorStateException`, `IllegalThreadStateException`,
+`java.util.NoSuchElementException` and `java.util.ConcurrentModificationException`, with the
+checked `InterruptedException` and `java.io.IOException`, and the errors `OutOfMemoryError`,
+`StackOverflowError` and `ExceptionInInitializerError`.
 
 The message and cause passed to a constructor are captured by the runtime: `getMessage()`,
 `getCause()`, `addSuppressed()` and `getSuppressed()` read them back, and an uncaught throw prints
@@ -526,13 +582,36 @@ See [`examples/randomdemo/`](https://github.com/shivrajora/picodroid-rs/tree/mai
 
 `System.currentTimeMillis()` returns wall-clock milliseconds (see
 [System & concurrency](/api/system/#javalangsystemcurrenttimemillis) for the full timing surface, including
-`SystemClock`). `java.lang.Runnable` is the standard `void run()` interface — used by
-`Thread`, `Executors`, and (historically) view callbacks:
+`SystemClock`). `System.arraycopy(src, srcPos, dest, destPos, length)` copies between arrays of
+the same element type (`ArrayStoreException` otherwise, `IndexOutOfBoundsException` for a range
+off either array); an overlapping copy within one array is safe. `java.lang.Runnable` is the
+standard `void run()` interface — used by `Thread`, `Executors`, and (historically) view callbacks:
 
 ```java
 Runnable task = () -> Log.i("TAG", "ran");
 task.run();
 ```
+
+## Lambdas and method references
+
+A lambda or a method reference can stand in for any interface with a single abstract method —
+`Runnable`, `Comparator`, a listener, or an interface of your own. Lambdas may capture local
+variables. Method references resolve to static methods, bound and unbound instance methods,
+constructors and the built-in classes' methods:
+
+```java
+interface Fn<A, R> { R apply(A a); }
+interface Factory<T> { T create(); }
+
+Fn<Integer, Integer> twice   = MyApp::twice;        // static method
+Fn<Integer, Integer> add     = this::instanceAdd;   // bound instance method
+Fn<String, Integer>  length  = String::length;      // unbound, on a built-in class
+Factory<Counter>     counter = Counter::new;        // constructor
+```
+
+There is no `java.util.function` package (`Function`, `Supplier`, `Predicate`, …): declare the
+single-method interface you need. See
+[`examples/lambdademo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/lambdademo).
 
 ---
 

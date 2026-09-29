@@ -3,7 +3,7 @@ title: "Networking: TCP, UDP, and HTTP"
 description: "TCP, UDP, and HTTP/1.1 client APIs over the on-board Wi-Fi or simulator loopback."
 ---
 
-`picodroid.net.*` — TCP (`Socket`, `ServerSocket`), UDP (`DatagramSocket`, `DatagramPacket`), and a minimal HTTP/1.1 client (`URL`, `HttpURLConnection`), backed by FreeRTOS+TCP on hardware (Pico 2 W via the cyw43 WiFi chip) and the host network stack under the simulator. IPv4 only. See [Java API overview](/api/) for the full API index.
+`picodroid.net.*` — TCP (`Socket`, `ServerSocket`), UDP (`DatagramSocket`, `DatagramPacket`), a minimal HTTP/1.1 client (`URL`, `HttpURLConnection`) with HTTPS over TLS 1.3 (`picodroid.net.ssl.HttpsURLConnection`), an SNTP client, and Android's `ConnectivityManager` and `WifiManager`, backed by FreeRTOS+TCP on hardware (the Pico 2 W boards, via the cyw43 WiFi chip) and the host network stack under the simulator. IPv4 only. See [Java API overview](/api/) for the full API index.
 
 Networking is a board capability, not a Cargo feature — a board opts in by setting `has_network = true` and a `network_type` (one of the known link types — `"cyw43"` today) in its [`board.toml`](/reference/porting-guide/#boardtoml-reference). On boards without a network stack the `picodroid.net.*` classes are registered as stubs: `NetworkInfo.isConnected()` returns `false`, and anything that would touch the network throws `UnsupportedOperationException`. Probe with `NetworkInfo.isConnected()` (or `PackageManager.hasSystemFeature(FEATURE_WIFI)`) and degrade, rather than assuming a socket will open.
 
@@ -43,7 +43,7 @@ cm.registerDefaultNetworkCallback(new ConnectivityManager.NetworkCallback() {
 
 The shape is Android's: one `ConnectivityManager` per app (`getSystemService`), a `NetworkCallback` subclass with the methods you need overridden, `registerDefaultNetworkCallback` / `registerNetworkCallback(NetworkRequest, cb)` / `requestNetwork` to start hearing and `unregisterNetworkCallback` to stop (in `onDestroy`; registering the same callback twice, or unregistering one that is not registered, throws `IllegalArgumentException` as on Android). `onAvailable` arrives when the link comes up with an address and `onLost` when it drops; a callback registered while the link is already up hears `onAvailable` shortly after `register` returns, never from inside it, so an Activity that registers in `onCreate` has its views by then. Callbacks run on the main thread between frames, like every other framework callback, and it is the Activity event loop that delivers them: an app with no Activity does not receive them (the same rule as a posted `Runnable`). Register from any thread.
 
-Since a board has one link there is one `Network` at a time — `getActiveNetwork()` returns it, or null while the link is down — and each time the link comes back it is a new `Network`, as on Android, so `onLost` names the one `onAvailable` did. `getNetworkCapabilities(network)` and the `NetworkCapabilities` passed to `onCapabilitiesChanged` carry the link's transport (`TRANSPORT_WIFI` or `TRANSPORT_ETHERNET`, matching `NetworkInfo.getType()`) and the capabilities a home network shows on Android: `NET_CAPABILITY_INTERNET`, `NET_CAPABILITY_VALIDATED`, `NET_CAPABILITY_NOT_METERED` and the `NOT_*` set. picodroid does not probe the internet — `VALIDATED` means the link is up with an address. A `NetworkRequest` built with `NetworkRequest.Builder` (`addTransportType`, `addCapability`, `removeCapability`, `clearCapabilities`) is satisfied by a network that has every capability it asks for and, if it names transports, one of them; a request for `TRANSPORT_CELLULAR` on a WiFi board never fires.
+Since a board has one link there is one `Network` at a time — `getActiveNetwork()` returns it, or null while the link is down — and each time the link comes back it is a new `Network`, as on Android, so `onLost` names the one `onAvailable` did. `getNetworkCapabilities(network)` and the `NetworkCapabilities` passed to `onCapabilitiesChanged` carry the link's transport (`TRANSPORT_WIFI` or `TRANSPORT_ETHERNET`, matching `NetworkInfo.getType()`) and the capabilities a home network shows on Android: `NET_CAPABILITY_INTERNET`, `NET_CAPABILITY_VALIDATED`, `NET_CAPABILITY_NOT_METERED` and the `NOT_*` set. `Network.openConnection(URL)` is `url.openConnection()`, since the board has one network, and `getNetworkHandle()` is Android's handle for it. picodroid does not probe the internet — `VALIDATED` means the link is up with an address. A `NetworkRequest` built with `NetworkRequest.Builder` (`addTransportType`, `removeTransportType`, `addCapability`, `removeCapability`, `clearCapabilities`, `build`) is satisfied by a network that has every capability it asks for and, if it names transports, one of them; a request for `TRANSPORT_CELLULAR` on a WiFi board never fires.
 
 Not there: `LinkProperties` and `onLinkPropertiesChanged` — read the address with `NetworkInfo.getIpAddress()`; a DHCP renewal that changes it keeps the same `Network` and fires nothing. `onLosing` and `onUnavailable` exist so overrides compile but are never called (nothing loses a network gracefully or times a request out), and the deprecated `getActiveNetworkInfo()` is absent: `NetworkInfo`'s methods are static. A link that drops and returns within one frame (16 ms) is not reported. At most eight callbacks may be registered at once.
 
@@ -94,7 +94,20 @@ What differs from Android, and why:
 - **One saved network.** `addNetwork` replaces the saved network and returns 0; `getConfiguredNetworks()` has at most one entry; `removeNetwork(0)` forgets it and leaves. A network compiled into the firmware (`PICODROID_WIFI_SSID`) shows as `WifiConfiguration.Status.CURRENT` and cannot be removed.
 - **No key-management set.** `WifiConfiguration` has no `allowedKeyManagement`: the join uses the security the last scan reported for that SSID (open, WPA, WPA2, WPA3 or mixed), else WPA2/WPA3 with a password and open without one.
 - **The outcome is read, not broadcast.** `getConnectionInfo()` gives a `WifiInfo`: `getSSID()` (quoted, or `WifiManager.UNKNOWN_SSID`), `getSupplicantState()` (`DISCONNECTED`, `ASSOCIATING`, `COMPLETED`), `getRssi()` from the last scan. After a join that did not complete, `getLastError()` is `ERROR_AUTHENTICATING` (Android's value), `ERROR_NETWORK_NOT_FOUND` or `ERROR_GENERIC`. The address arriving is `ConnectivityManager`'s `onAvailable`. Scan completion is pushed, through `registerScanResultsCallback` (Android 11's shape); nothing else is.
-- **Always on.** `isWifiEnabled()` says whether the board has a WiFi link; `setWifiEnabled` is accepted and ignored.
+- **Always on.** `isWifiEnabled()` says whether the board has a WiFi link, and `getWifiState()` is `WIFI_STATE_ENABLED` or `WIFI_STATE_DISABLED` accordingly; `setWifiEnabled` is accepted and ignored (it returns `false`).
+
+The rest of the surface:
+
+| Member | Description |
+|---|---|
+| `startScan()` | `false` when the board has no WiFi or a request is already waiting; the results arrive through the callbacks a few seconds later. |
+| `registerScanResultsCallback(Executor, ScanResultsCallback)` / `unregisterScanResultsCallback` | At most four at once (`IllegalStateException` past that; `IllegalArgumentException` for one already registered). Delivered between frames, so an app with no Activity does not receive them. |
+| `ScanResult` | Public fields, as on Android: `SSID` (unquoted), `BSSID`, `level` (dBm), `frequency` (MHz), `capabilities` (`[ESS]` for an open network, `[WPA2-PSK-CCMP][ESS]`, `[WPA3-SAE-CCMP][ESS]`, both for a mixed-mode access point), `timestamp` (always 0); `isSecured()`. |
+| `addNetwork(WifiConfiguration)` / `updateNetwork(WifiConfiguration)` | Save the network; 0, or -1 when the SSID is empty, a field is too long or the board has no WiFi. Neither connects. |
+| `enableNetwork(int netId, boolean attemptConnect)` | With `attemptConnect`, join the saved network now. `false` when nothing is saved, `netId` is not 0, or a request is already waiting. |
+| `disconnect()` / `reconnect()` / `reassociate()` | Leave the current network (the saved one is kept and rejoined at the next boot); join the saved one again; the same as `reconnect()`. |
+| `WifiInfo` | A snapshot: `getSSID()`, `getSupplicantState()`, `getRssi()` (`WifiInfo.UNKNOWN_RSSI`, -127, for a network no scan has seen), `getIpAddress()` (packed as `NetworkInfo.getIpAddress()`; 0 until the link is up), `getNetworkId()` (0 when the current network is the saved one, else -1), `getBSSID()` (always `02:00:00:00:00:00`). |
+| `calculateSignalLevel(int rssi, int numLevels)` (static) / `calculateSignalLevel(int rssi)` / `compareSignalLevel(int rssiA, int rssiB)` (static) | Android's helpers: a level in `0..numLevels-1`, linear between -100 and -55 dBm; the one-argument form uses five levels. |
 
 On a board without WiFi the class is a stub: no networks, nothing saved, every request refused — check `hasSystemFeature(FEATURE_WIFI)` first. `testbench_rp2040` leaves the package out of its firmware.
 
@@ -172,7 +185,18 @@ Constraints:
 - Request bodies need a known length: call `setFixedLengthStreamingMode(n)` before `connect()` on any request that writes a body.
 - At most 16 request headers per connection.
 
-The `HTTP_*` status constants (`HTTP_OK`, `HTTP_NOT_FOUND`, `HTTP_INTERNAL_ERROR`, …) match `java.net.HttpURLConnection`.
+The `HTTP_*` status constants (`HTTP_OK`, `HTTP_NOT_FOUND`, `HTTP_INTERNAL_ERROR`, …) match `java.net.HttpURLConnection`. `setRequestMethod` throws `UnsupportedOperationException` for any other method.
+
+### Timeouts
+
+```java
+HttpURLConnection c = new URL("http://example.com/api").openConnection();
+c.setConnectTimeout(10000);   // connect() throws SocketTimeoutException past this
+c.setReadTimeout(10000);      // so does each blocking read of the response
+c.connect();
+```
+
+Both are in milliseconds and both default to 0, which waits forever, so set them. The read timeout bounds `getResponseCode()` and every `HttpInputStream.read`; it is applied to the socket at connect time, so set it before `connect()`. A negative value throws `IllegalArgumentException`. `getConnectTimeout()` and `getReadTimeout()` read them back.
 
 ### Request headers
 
@@ -185,7 +209,7 @@ c.setRequestProperty("Authorization", "Bearer " + token);
 c.connect();
 ```
 
-`Host`, `Connection`, and `Content-Length` are managed by the connection — values set for them are ignored. Setting any header after `connect()` throws `IllegalStateException`, and a name or value containing CR or LF throws `IllegalArgumentException` (header injection).
+`Host`, `Connection`, and `Content-Length` are managed by the connection — values set for them are ignored. Setting any header after `connect()` throws `IllegalStateException`, as does a seventeenth header, and a name or value containing CR or LF throws `IllegalArgumentException` (header injection). `getRequestProperty(name)` returns what was set (case-insensitive; the first value when a header was added more than once), or null.
 
 ### Response headers
 
@@ -204,7 +228,9 @@ for (int i = 1; ; i++) {
 }
 ```
 
-When a header repeats, `getHeaderField(String)` returns the last value; the indexed accessors see every line. `getErrorStream()` returns the body stream for a status of 400 or above, and null otherwise.
+When a header repeats, `getHeaderField(String)` returns the last value; the indexed accessors see every line. `getErrorStream()` returns the body stream for a status of 400 or above, and null otherwise. `getContentLength()` is the parsed `Content-Length`, or -1 when the server sent none or the connection is not open.
+
+`getResponseCode()`, `getInputStream()`, `getOutputStream()` and the header accessors connect first when `connect()` has not been called, as on Android.
 
 ### GET
 
@@ -237,6 +263,43 @@ try (HttpURLConnection c = new URL("http://example.com/").openConnection()) {
     // ...
 }
 ```
+
+### POST
+
+```java
+import picodroid.net.HttpOutputStream;
+import picodroid.net.HttpURLConnection;
+import picodroid.net.URL;
+
+byte[] body = "hello".getBytes();
+HttpURLConnection c = new URL("http://example.com/ingest").openConnection();
+try {
+    c.setRequestMethod("POST");
+    c.setDoOutput(true);
+    c.setFixedLengthStreamingMode(body.length);   // required
+    c.connect();
+    c.getOutputStream().write(body);
+
+    int status = c.getResponseCode();
+    // ...
+} finally {
+    c.disconnect();
+}
+```
+
+`Host:` is set automatically from the URL (including port if non-standard). Add your own with [`setRequestProperty`](#request-headers).
+
+### `URL`
+
+```java
+URL u = new URL("http://192.168.1.10:8080/status?id=42");
+u.getProtocol();   // "http"
+u.getHost();       // "192.168.1.10"
+u.getPort();       // 8080 (80 if omitted, 443 for https)
+u.getPath();       // "/status?id=42"  — query string is part of the path
+```
+
+See [`examples/http_get/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/http_get) for a full GET + POST worked example.
 
 ## HTTPS
 
@@ -280,7 +343,7 @@ try {
 ```
 
 Cost, on the RP2350: about 24 KB of arena for the life of a connection (a 16 KB record
-buffer, a 4 KB write buffer, the session state), plus a 32 KB stack for the handshake's
+buffer, a 4 KB write buffer, the session state), plus a 40 KB stack for the handshake's
 own task, which exists only for the handshake. Any thread may call `connect()`; like every
 `connect()`, it blocks the caller, so the main thread is the wrong place for it. Design and
 measurements: `docs/designs/tls-2026-09.md`.
@@ -304,46 +367,12 @@ if (client.requestTime("pool.ntp.org", 3000)) {
 }
 ```
 
-Do this once the network is up and before the first `https` request. Under the simulator,
+`requestTime(String host, int timeoutMs)` sends one request and returns `false` on any failure
+(resolution, timeout, a malformed reply) without throwing; `getRoundTripTime()` is how long the
+exchange took, in milliseconds. It blocks for up to the timeout, so call it off the main thread.
+The anchor is lost at a reset. Do this once the network is up and before the first `https` request. Under the simulator,
 `PICODROID_SIM_WALL_CLOCK=1` anchors the clock to the host's at boot instead, for tests that
 should not depend on an NTP round trip.
-
-### POST
-
-```java
-import picodroid.net.HttpOutputStream;
-import picodroid.net.HttpURLConnection;
-import picodroid.net.URL;
-
-byte[] body = "hello".getBytes();
-HttpURLConnection c = new URL("http://example.com/ingest").openConnection();
-try {
-    c.setRequestMethod("POST");
-    c.setDoOutput(true);
-    c.setFixedLengthStreamingMode(body.length);   // required
-    c.connect();
-    c.getOutputStream().write(body);
-
-    int status = c.getResponseCode();
-    // ...
-} finally {
-    c.disconnect();
-}
-```
-
-`Host:` is set automatically from the URL (including port if non-standard). Add your own with [`setRequestProperty`](#request-headers).
-
-### `URL`
-
-```java
-URL u = new URL("http://192.168.1.10:8080/status?id=42");
-u.getProtocol();   // "http"
-u.getHost();       // "192.168.1.10"
-u.getPort();       // 8080 (80 if omitted, 443 for https)
-u.getPath();       // "/status?id=42"  — query string is part of the path
-```
-
-See [`examples/http_get/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/http_get) for a full GET + POST worked example.
 
 ## Error handling
 
@@ -359,9 +388,12 @@ Network failures throw the `java.net` exception types Android apps expect, with 
 | Hostname resolution failure | `java.net.UnknownHostException` | `Unable to resolve host "…"` |
 | Peer reset / operation on a closed socket | `java.net.SocketException` | `Connection reset` / `Socket is closed` |
 | Malformed HTTP response | `java.net.ProtocolException` | `unexpected status line: …` |
+| TLS handshake refused (see [HTTPS](#https)) | `javax.net.ssl.SSLHandshakeException` | `wall clock not set…`, `certificate chain of <host> is not issued by a known root`, `certificate of <host> rejected (signature, validity or host name)`, `malformed certificate chain from <host>`, `TLS handshake with <host> aborted: …` |
+| TLS handshake ran into the read timeout | `java.net.SocketTimeoutException` | `TLS handshake timed out` |
+| No memory or entropy for the TLS session | `javax.net.ssl.SSLException` | `out of memory for the TLS session…`, `no hardware entropy for the handshake` |
 | Anything else | `java.io.IOException` | `<op> failed (err N)` |
 
-`Socket.recv` and `HttpInputStream.read` return `-1` **only** at orderly end-of-stream — timeouts and transport errors always throw, so a stalled-but-alive server no longer reads as a clean EOF. The hierarchy matches real Java: `ConnectException` and `BindException` extend `SocketException`; `SocketTimeoutException` extends `InterruptedIOException`, *not* `SocketException`.
+`Socket.recv` and `HttpInputStream.read` return `-1` **only** at orderly end-of-stream — timeouts and transport errors always throw, so a stalled-but-alive server no longer reads as a clean EOF. The hierarchy matches real Java: `ConnectException` and `BindException` extend `SocketException`; `SocketTimeoutException` extends `InterruptedIOException`, *not* `SocketException`; `SSLHandshakeException` and `SSLPeerUnverifiedException` extend `SSLException`, an `IOException`.
 
 ```java
 import java.io.IOException;
@@ -381,11 +413,11 @@ try {
 
 See [`examples/netexception/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/netexception) for runnable per-type assertions.
 
-> **Hardware availability:** the networking stack is only built in for boards whose `board.toml` declares `has_network = true` with a supported `network_type`. Today that means `--board testbench_rp2350w` (Pico 2 W). On other boards the `picodroid.net.*` classes are stubbed and using them throws at runtime. Under `sim.sh`, networking always works against the host stack.
+> **Hardware availability:** the networking stack is only built in for boards whose `board.toml` declares `has_network = true` with a supported `network_type`. Today that means the four Pico 2 W boards: `testbench_rp2350w`, `pico_display2_w`, `pico_enviro_mon_w` and `pico_touch_kit`. On other boards the `picodroid.net.*` classes are stubbed and using them throws at runtime. Under `sim.sh`, networking always works against the host stack.
 >
 > Network builds require the `third_party/cyw43-driver` submodule to be the patched picodroid fork — existing checkouts must run `git submodule sync && git submodule update --init third_party/cyw43-driver` after the fork switch, or the build fails early. Full setup: [WiFi & networking setup](/get-started/networking/). On the device, the WiFi task runs on core 1 over a PIO+DMA gSPI transport.
 
-> **WiFi credentials:** on hardware, the firmware joins the network named by the `PICODROID_WIFI_SSID` and `PICODROID_WIFI_PASS` environment variables at **build time** (automatic auth: open without a password, WPA2 with one; set `PICODROID_WIFI_AUTH` to `open`, `wpa2`, `wpa3`, or `wpa2wpa3` to pin a mode — `wpa2wpa3` is WPA3-SAE with WPA2-PSK fallback for mixed-mode APs). They are baked into the image, so rebuild after changing them and never commit images built with real credentials. Without an SSID the stack still starts but stays offline. Example: `PICODROID_WIFI_SSID='MyAP' PICODROID_WIFI_PASS='secret' ./scripts/flash.sh --board testbench_rp2350w --app netdemo --release`. Expect the `net: up, ip …` RTT log line once DHCP completes (typically 5–15 s after boot); example apps poll `NetworkInfo.isConnected()` for up to 30 s to bridge this window.
+> **WiFi credentials:** on hardware, the firmware joins the network saved from Settings → Wi-Fi, or the one named by the `PICODROID_WIFI_SSID` and `PICODROID_WIFI_PASS` environment variables at **build time**, which override a saved network (automatic auth: open without a password, WPA2 with one; set `PICODROID_WIFI_AUTH` to `open`, `wpa2`, `wpa3`, or `wpa2wpa3` to pin a mode — `wpa2wpa3` is WPA3-SAE with WPA2-PSK fallback for mixed-mode APs). Build-time credentials are baked into the image, so rebuild after changing them and never commit images built with real credentials. With neither, the stack still starts but stays offline. Example: `PICODROID_WIFI_SSID='MyAP' PICODROID_WIFI_PASS='secret' ./scripts/flash.sh --board testbench_rp2350w --app netdemo --release`. Expect the `net: up, ip …` RTT log line once DHCP completes (typically 5–15 s after boot); example apps poll `NetworkInfo.isConnected()` for up to 30 s to bridge this window.
 
 ## Current limits
 

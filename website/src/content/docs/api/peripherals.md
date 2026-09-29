@@ -21,21 +21,25 @@ Pwm pwm         = pm.openPwm("GP25");
 Adc adc         = pm.openAdcPin("GP26");
 ```
 
-| Method | Returns |
-|--------|---------|
-| `static PeripheralManager getInstance()` | the singleton |
-| `Gpio openGpio(String name)` | a GPIO handle |
-| `UartDevice openUartDevice(String name)` | a UART handle |
-| `I2cDevice openI2cDevice(String name)` | an I2C handle |
-| `SpiDevice openSpiDevice(String name)` | an SPI handle |
-| `Pwm openPwm(String name)` | a PWM handle |
-| `Adc openAdcPin(String name)` | an ADC handle |
+| Method | Returns | Names |
+|--------|---------|-------|
+| `static PeripheralManager getInstance()` | the manager | |
+| `Gpio openGpio(String name)` | a GPIO handle | `GP` and the pin number: `GP0`, `GP25` |
+| `UartDevice openUartDevice(String name)` | a UART handle | `UART0`, `UART1` |
+| `I2cDevice openI2cDevice(String name)` | an I2C handle | `I2C0`, `I2C1` |
+| `SpiDevice openSpiDevice(String name)` | an SPI handle | `SPI0`, `SPI1` |
+| `Pwm openPwm(String name)` | a PWM handle | `GP0` – `GP29` |
+| `Adc openAdcPin(String name)` | an ADC handle | `GP26` – `GP29` |
+
+A name outside these forms is rejected: the call fails instead of returning a handle. Opening a bus, a PWM pin or an ADC pin also initialises the hardware with its defaults, given with each class below.
 
 Every handle implements `AutoCloseable` — see below.
 
 ## Resource management (`AutoCloseable`)
 
-All peripheral classes implement `java.lang.AutoCloseable`, so they can be used in try-with-resources blocks. `close()` releases the hardware resource and is guaranteed to be called even if the body throws.
+All peripheral classes implement `java.lang.AutoCloseable`, so they can be used in try-with-resources blocks, and `close()` is guaranteed to be called even if the body throws.
+
+`close()` ends the handle's use and changes nothing on the hardware: the pin or bus keeps its last configuration, an output keeps its level, and a running PWM keeps running. There is no exclusive ownership either — opening the same name twice gives two handles on the same pin. Put a pin into the state you want to leave it in (`setValue(false)`, `pwm.setEnabled(false)`) before the block ends.
 
 ```java
 try (Gpio gpio = pm.openGpio("GP25")) {
@@ -71,9 +75,13 @@ boolean high = sense.getValue();   // read the pin
 | `DIRECTION_IN` = 0 | `setDirection` constant: input, no pull (as Android Things). Read it with `getValue()`; the sim reads such a pin `LOW`, hardware reads whatever drives the pad. |
 | `DIRECTION_OUT_INITIALLY_HIGH` = 1 | `setDirection` constant: output, start high. |
 | `DIRECTION_OUT_INITIALLY_LOW` = 2 | `setDirection` constant: output, start low. |
-| `void setDirection(int)` / `void setValue(boolean)` / `boolean getValue()` / `void close()` | Configure direction, drive the pin, read its level, release it. |
+| `void setDirection(int)` / `void setValue(boolean)` / `boolean getValue()` / `void close()` | Configure direction, drive the pin, read its level, end the handle's use. On an output, `getValue()` is the driven level. |
+
+`getValue()` is a poll; there is no `registerGpioCallback` or edge trigger. For the board's own buttons use [key events](/api/ui/#key-events), which the framework debounces and delivers on the main thread.
 
 ## `picodroid.pio.UartDevice`
+
+Default pins: UART0 → TX=GP0, RX=GP1; UART1 → TX=GP4, RX=GP5. A UART opens at 9600 baud, 8 data bits, no parity, 1 stop bit, no flow control.
 
 ```java
 import picodroid.pio.UartDevice;
@@ -92,13 +100,13 @@ uart.writeByte(0x41);       // blocking write of single byte
 | `PARITY_NONE` = 0 / `PARITY_EVEN` = 1 / `PARITY_ODD` = 2 | `setParity` modes. |
 | `HW_FLOW_CONTROL_NONE` = 0 / `HW_FLOW_CONTROL_AUTO_RTSCTS` = 1 | `setHardwareFlowControl` modes. |
 | `setBaudrate(int)`, `setDataSize(int)`, `setParity(int)`, `setStopBits(int)`, `setHardwareFlowControl(int)` | Line configuration. |
-| `int writeByte(int b)` | Blocking single-byte write. |
+| `int writeByte(int b)` | Blocking single-byte write; returns `1`. |
 | `int readByte()` | Non-blocking read; `-1` if the RX FIFO is empty. |
-| `void close()` | Release the UART. |
+| `void close()` | End the handle's use (see [above](#resource-management-autocloseable)). |
 
 ## `picodroid.pio.I2cDevice`
 
-Default pins: I2C0 → SDA=GP4, SCL=GP5; I2C1 → SDA=GP2, SCL=GP3.
+Default pins: I2C0 → SDA=GP4, SCL=GP5; I2C1 → SDA=GP2, SCL=GP3. A board whose own wiring claims a bus may have routed it to other pads (the first user of a bus decides its pins), so check the board's `board.toml` before sharing a bus with its touch controller or sensors. Addresses are 7-bit, and every write ends with a STOP condition.
 
 ```java
 import picodroid.pio.I2cDevice;
@@ -121,10 +129,10 @@ int ack = i2c.write(0x48, empty, 0);
 | Member | Description |
 |--------|-------------|
 | `SPEED_STANDARD` = 100000 / `SPEED_FAST` = 400000 | `setSpeed` presets (Hz). |
-| `void setSpeed(int hz)` | Bus clock. |
+| `void setSpeed(int hz)` | Bus clock; 100 kHz until set. |
 | `int write(int address, byte[] data, int len)` | Write `len` bytes; returns bytes written, or `-1` on NACK. |
 | `int read(int address, byte[] buf, int len)` | Read `len` bytes; returns bytes read, or `-1` on NACK. |
-| `void close()` | Release the bus. |
+| `void close()` | End the handle's use. |
 
 ### I2C bus scan example
 
@@ -166,10 +174,10 @@ spi.write(cmd, 5);
 | Member | Description |
 |--------|-------------|
 | `MODE_0` = 0 / `MODE_1` = 1 / `MODE_2` = 2 / `MODE_3` = 3 | CPOL/CPHA combinations for `setMode`. |
-| `void setFrequency(int hz)` / `void setMode(int)` | Clock and mode. |
-| `int transfer(byte[] tx, byte[] rx, int len)` | Full-duplex transfer; returns bytes transferred. |
-| `int write(byte[] data, int len)` | Write-only (RX discarded). |
-| `void close()` | Release the bus. |
+| `void setFrequency(int hz)` / `void setMode(int)` | Clock (1 MHz until set) and mode (`MODE_0` until set). |
+| `int transfer(byte[] tx, byte[] rx, int len)` | Full-duplex transfer; returns `len`. |
+| `int write(byte[] data, int len)` | Write-only (RX discarded); returns `len`. |
+| `void close()` | End the handle's use. |
 
 ## `picodroid.pio.Pwm`
 
@@ -188,10 +196,12 @@ pwm.close();                            // or use try-with-resources
 
 | Method | Description |
 |--------|-------------|
-| `void setPwmFrequencyHz(double)` | Carrier frequency in Hz. |
+| `void setPwmFrequencyHz(double)` | Carrier frequency in Hz. Set it before `setEnabled(true)`. |
 | `void setPwmDutyCycle(double)` | Duty cycle, `0.0`–`100.0`. |
-| `void setEnabled(boolean)` | Start / stop output. |
-| `void close()` | Release the slice. |
+| `void setEnabled(boolean)` | Start / stop output. When disabled, the pin holds its last state. |
+| `void close()` | End the handle's use; it does not stop the output. |
+
+A PWM opens at 1 kHz, 0 % duty, disabled. For tones on a board's buzzer use [`ToneGenerator`](/api/media/), which drives the buzzer's PWM pad for you.
 
 ## `picodroid.pio.Adc`
 
@@ -206,10 +216,14 @@ adc.close();                            // or use try-with-resources
 
 | Method | Description |
 |--------|-------------|
-| `double readValue()` | Single blocking ADC conversion; returns volts. |
-| `void close()` | Release the channel. |
+| `double readValue()` | Single blocking ADC conversion; returns volts, `0.0`–`3.3`. |
+| `void close()` | End the handle's use. |
 
-Pins are GPIO numbers (e.g. GP26–GP29 on RP2040). `readValue()` performs a single ADC conversion and returns the voltage.
+The ADC pins are GP26–GP29. `readValue()` performs a single 12-bit conversion and scales it to the 3.3 V reference. The simulator has no ADC and always reads 1.65 V.
+
+## Examples
+
+[`blinky`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/blinky) (GPIO output and input), [`uart`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/uart), [`i2cdemo`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/i2cdemo), [`spidemo`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/spidemo), [`pwmdemo`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/pwmdemo) and [`adcdemo`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/adcdemo).
 
 ---
 

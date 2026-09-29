@@ -1,11 +1,11 @@
 ---
 title: "Storage: Files and Preferences"
-description: "Files, Preferences, and the LittleFS-backed key-value store."
+description: "Files, the per-app sandbox, the Context file API, storage quotas, StatFs, and SharedPreferences over LittleFS."
 ---
 
-On-device persistent storage. Packages: `picodroid.io` (raw files) and `picodroid.content` (typed key-value settings). See [Java API overview](/api/) for the full API index.
+On-device persistent storage. Packages: `picodroid.io` (raw files), `picodroid.content` (typed key-value settings and the `Context` file API), `picodroid.os` (`StatFs`) and `picodroid.app.usage` (`StorageStatsManager`). See [Java API overview](/api/) for the full API index.
 
-Both APIs sit on top of an on-chip [LittleFS](https://github.com/littlefs-project/littlefs) volume. On hardware the volume lives in a dedicated flash region (`fs_kb` in the MCU or board toml: 512 KB on the RP2350 boards, 128 KB on the RP2040 testbench); under the simulator it is backed by a host file of the same size (`picodroid-core/target/sim-fs.img`, overridable via the `PICODROID_SIM_FS` env var; `PICODROID_SIM_FS_KB` overrides the size, and an image of another size is started afresh) so writes survive across `sim.sh` runs.
+Both APIs sit on top of an on-chip [LittleFS](https://github.com/littlefs-project/littlefs) volume. On hardware the volume lives in a dedicated flash region (`fs_kb` in the MCU or board toml: 512 KB on most RP2350 boards, 4 MB on `pico_touch_kit`, 128 KB on the RP2040 testbench); under the simulator it is backed by a host file of the same size (`crates/picodroid-core/target/sim-fs.img`, overridable via the `PICODROID_SIM_FS` env var; `PICODROID_SIM_FS_KB` overrides the size, and an image of another size is started afresh) so writes survive across `sim.sh` runs.
 
 ## Every app has its own root
 
@@ -59,6 +59,8 @@ The read side reports failure the way `java.io.File`'s predicates do — `false`
 | `FileInputStream` | constructors `(File)`, `(String path)`; `read(byte[], int, int)`, `read(byte[])`, `available()`, `close()` |
 | `FileOutputStream` | constructors `(File)`, `(String)`, `(String, boolean append)`; `write(byte[], int, int)`, `write(byte[])`, `write(int)` (all throw `IOException`), `flush()`, `close()` |
 
+`list()` returns the names in a directory in the filesystem's order, and `listFiles()` the same entries as `File`s under the directory's path; both return `null` for a path that is not a directory. `mkdirs()` creates the missing ancestors too and, as on Android, is `true` only when it created the directory — `false` when it already existed. `createNewFile()` is `false` when the path already exists. A `File` has the one constructor: build a child path by concatenation (`new File(dir.getPath() + "/" + name)`).
+
 ## `Context` — private files
 
 `Context` (so every `Activity`, `Service` and `Application`) carries Android's private-file helpers, all relative to the app's own root:
@@ -91,7 +93,7 @@ boolean gone  = deleteFile("state.bin");
 On a multi-app board (`max_installed_apps` above 1) the framework bounds what an app may write, so no app can fill the volume or starve the others:
 
 - **The system reserve** (`fs_system_reserve_kb`, default 64) is the tail of the volume no app may write into: a write that would leave less than that free throws `IOException("no space left on device")`. The system apps built into the firmware are exempt.
-- **The per-app cap** (`app_data_cap_kb`, default a quarter of the volume — 128 KB on the RP2350 boards; `0` lifts it) bounds one app's directory. Past it a write throws `IOException("storage cap reached")` and `mkdir` answers `false`.
+- **The per-app cap** (`app_data_cap_kb`, default a quarter of the volume — 128 KB on a 512 KB volume; `0` lifts it) bounds one app's directory. Past it a write throws `IOException("storage cap reached")` and `mkdir` answers `false`.
 
 The accounting is LittleFS's own currency: a file costs its size rounded up to 4 KB blocks, and every directory costs an 8 KB metadata pair — the app's own `/data/<package>` included, so an empty app already holds 8 KB the moment it first writes. Reads, deletes and truncates are never refused, and a refused write leaves the file as it was. Both keys are board.toml settings ([porting guide](/reference/porting-guide/)). A single-app board keeps neither rule.
 
@@ -127,15 +129,16 @@ What the two cost on a device: `queryStatsForPackage` counts a package's directo
 
 ## `picodroid.content.SharedPreferences`
 
-Typed key-value settings store inspired by Jetpack DataStore. Backed by a CRC32-protected blob written atomically (tmp file + rename) into `/prefs/<name>` on the LittleFS volume.
+Typed key-value settings store mirroring `android.content.SharedPreferences`. Backed by a CRC32-protected blob written atomically (tmp file + rename) into `/prefs/<name>` under the app's root.
 
-Supported value types: `String`, `int`, `long`, `float`, `boolean`. Limits: 64 entries per file, 63-char keys, 1024-char string values, 4 KB total blob.
+Supported value types: `String`, `int`, `long`, `float`, `boolean`. Limits: 64 entries per file, 63-char keys, 1024-char string values, 4 KB total blob. A preferences name is 1 to 32 characters from `A-Z a-z 0-9 _ -`.
 
 ```java
+import picodroid.content.Context;
 import picodroid.content.SharedPreferences;
 import picodroid.content.SharedPreferences.Editor;
 
-SharedPreferences prefs = SharedPreferences.open("settings");
+SharedPreferences prefs = getSharedPreferences("settings", Context.MODE_PRIVATE);
 int boots = prefs.getInt("boot_count", 0);
 
 Editor e = prefs.edit();
@@ -151,8 +154,12 @@ if (prefs.contains("device_name")) {
 
 | Class | Methods |
 |-------|---------|
-| `SharedPreferences` | `static open(String name)`; `contains(String)`, `getString(String, String def)`, `getInt(String, int def)`, `getLong(String, long def)`, `getFloat(String, float def)`, `getBoolean(String, boolean def)`, `getAll()`, `edit()` |
+| `SharedPreferences` | `Context.getSharedPreferences(String name, int mode)` or `static open(String name)`; `contains(String)`, `getString(String, String def)`, `getInt(String, int def)`, `getLong(String, long def)`, `getFloat(String, float def)`, `getBoolean(String, boolean def)`, `getAll()`, `edit()` |
 | `Editor` | `putString`, `putInt`, `putLong`, `putFloat`, `putBoolean` (each returns the `Editor` for chaining), `remove(String)`, `clear()`, `commit()`, `apply()` (same as `commit()`, synchronous) |
+
+`Context.getSharedPreferences(name, mode)` is the Android idiom and is available on every `Activity`, `Service` and `Application`; `mode` is accepted for source compatibility, since every app's storage is private. `SharedPreferences.open(name)` is the same call for code that has no `Context` at hand, such as a `@Provides` method. Each call reads the file afresh and returns a new instance.
+
+An invalid name, a `null` or over-long key, a `null` or over-long string value, or a 65th entry throws `IllegalArgumentException`. An `Editor` records changes and applies them at `commit()`, a `clear()` first and the puts second whatever order they were called in, as on Android; after a commit the editor is empty and can be used again.
 
 `getAll()` returns a fresh `Map<String, ?>` of every stored preference, values boxed as `String`, `Integer`, `Long`, `Float` or `Boolean` (Android's signature; mutating the returned map does not touch the store).
 
