@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
+use super::asm::{Asm, Method};
 use super::*;
+use crate::class_file::Classes;
 use crate::gc::GcState;
-use crate::names::c;
 use crate::names::spelled;
+use crate::names::{c, m};
+use crate::resolve_cache::{flags, ResolveCache, SiteKey, Target, RECV_STRING};
 
 // Class "Base" extends Object, method speak()I returns iconst_1, ireturn.
 //
@@ -980,28 +983,331 @@ fn a_hashed_site_hit_is_verified_against_the_method_it_names() {
     // walk resolves Child.speak, and the entry is replaced.
     cache.insert_method(key, 2, 0);
     assert!(key.is_hashed());
-    assert!(!helpers::method_matches(&classes, 2, 0, "speak", "()I"));
-    assert!(helpers::method_matches(&classes, 1, 0, "speak", "()I"));
-    assert_eq!(cache.method(key).map(|h| (h.ci, h.mi)), Some((2, 0)));
+    assert!(!helpers::method_matches(
+        Classes::linear(&classes),
+        2,
+        0,
+        "speak",
+        "()I"
+    ));
+    assert!(helpers::method_matches(
+        Classes::linear(&classes),
+        1,
+        0,
+        "speak",
+        "()I"
+    ));
+    assert_eq!(cache.method(key).and_then(|h| h.java()), Some((2, 0)));
     assert_eq!(
-        helpers::find_method_walking_cached(&mut cache, &classes, key, "Child", "speak", "()I"),
+        helpers::find_method_walking_cached(
+            &mut cache,
+            Classes::linear(&classes),
+            key,
+            "Child",
+            "speak",
+            "()I",
+            0,
+        )
+        .java(),
         Some((1, 0))
     );
-    assert_eq!(cache.method(key).map(|h| (h.ci, h.mi)), Some((1, 0)));
-    // A pair no class declares finds nothing through the same key, and
-    // does not disturb what is there.
+    assert_eq!(cache.method(key).and_then(|h| h.java()), Some((1, 0)));
+    // A pair no class declares finds nothing through the same key — a
+    // native target, which a hashed site never remembers (a hit must be
+    // verifiable against a method) — and does not disturb what is there.
     assert_eq!(
-        helpers::find_method_walking_cached(&mut cache, &classes, key, "Child", "shout", "()I"),
-        None
+        helpers::find_method_walking_cached(
+            &mut cache,
+            Classes::linear(&classes),
+            key,
+            "Child",
+            "shout",
+            "()I",
+            0,
+        )
+        .target,
+        Target::Native { hint: None }
     );
-    assert_eq!(cache.method(key).map(|h| (h.ci, h.mi)), Some((1, 0)));
+    assert_eq!(cache.method(key).and_then(|h| h.java()), Some((1, 0)));
     // An exact site never verifies: it is exact by construction.
     let exact = SiteKey::cp(0, 5).with_recv(SiteKey::recv_object(0));
     cache.insert_method(exact, 2, 0);
     assert_eq!(
-        helpers::find_method_walking_cached(&mut cache, &classes, exact, "Child", "speak", "()I"),
+        helpers::find_method_walking_cached(
+            &mut cache,
+            Classes::linear(&classes),
+            exact,
+            "Child",
+            "speak",
+            "()I",
+            0,
+        )
+        .java(),
         Some((2, 0))
     );
+}
+
+/// The class set holds `Base.speak` — a walk *would* find it — but the
+/// site is cached as a native target, so the cache answers and no walk
+/// happens. A miss that finds nothing is cached the same way, once.
+#[test]
+fn a_cached_native_target_is_answered_without_a_walk() {
+    let cf_base = ClassFile::parse(spelled(CLASS_BASE_SPEAK)).unwrap();
+    let classes = alloc::vec![cf_base];
+    let mut cache = ResolveCache::new();
+    let recv = SiteKey::recv_object(0);
+    let key = SiteKey::cp(0, 5).with_recv(recv);
+    cache.insert_target(key, Target::Native { hint: None }, 0);
+    assert_eq!(
+        helpers::find_method_walking_cached(
+            &mut cache,
+            Classes::linear(&classes),
+            key,
+            "Base",
+            "speak",
+            "()I",
+            0,
+        )
+        .target,
+        Target::Native { hint: None }
+    );
+    // A miss walks, finds bytecode, and caches a Java target.
+    let other = SiteKey::cp(0, 6).with_recv(recv);
+    assert_eq!(
+        helpers::find_method_walking_cached(
+            &mut cache,
+            Classes::linear(&classes),
+            other,
+            "Base",
+            "speak",
+            "()I",
+            0,
+        )
+        .java(),
+        Some((0, 0))
+    );
+    assert_eq!(cache.method(other).unwrap().java(), Some((0, 0)));
+    // A miss that finds nothing caches a native target.
+    let none = SiteKey::cp(0, 7).with_recv(recv);
+    assert_eq!(
+        helpers::find_method_walking_cached(
+            &mut cache,
+            Classes::linear(&classes),
+            none,
+            "Base",
+            "shout",
+            "()I",
+            0,
+        )
+        .target,
+        Target::Native { hint: None }
+    );
+    assert_eq!(
+        cache.method(none).unwrap().target,
+        Target::Native { hint: None }
+    );
+    // The static / special resolver does the same for a class with no
+    // class file at all.
+    let st = SiteKey::cp(0, 8);
+    assert_eq!(
+        helpers::find_method_cached(
+            &mut cache,
+            Classes::linear(&classes),
+            st,
+            "Nowhere",
+            "m",
+            "()V",
+            0,
+        )
+        .target,
+        Target::Native { hint: None }
+    );
+    assert!(cache.method(st).is_some());
+}
+
+fn hi(i: u16) -> u8 {
+    (i >> 8) as u8
+}
+fn lo(i: u16) -> u8 {
+    i as u8
+}
+
+/// Run method 0 of class 0 of `classes` on `heap` with `handler`.
+fn run_on<H: NativeMethodHandler>(
+    classes: &[ClassFile],
+    heap: &mut crate::SharedJvmHeap,
+    handler: &mut H,
+) -> Option<Value> {
+    execute(
+        classes,
+        &mut heap.strings,
+        &mut heap.objects,
+        &mut heap.arrays,
+        &mut heap.statics,
+        &mut heap.gc_state,
+        &mut heap.class_objects,
+        handler,
+        0,
+        0,
+        &[],
+    )
+    .unwrap()
+}
+
+/// A call on a class with no class file — `String.length()` here — walked
+/// the class table three times on *every* call (the named class, its
+/// chain, its interfaces) because only a found method was remembered. The
+/// site now caches its native target: the second execution finds it.
+#[test]
+fn a_builtin_virtual_call_is_cached_as_a_native_target() {
+    let mut a = Asm::new();
+    let this = a.class("Caller");
+    let obj = a.class(c::java_lang_Object);
+    let s = a.string("abc");
+    let string = a.class(c::java_lang_String);
+    let len = a.methodref(0x0A, string, m::length, "()I");
+    // "abc".length() + "abc".length()
+    let code = alloc::vec![
+        0x12,
+        lo(s),
+        0xB6,
+        hi(len),
+        lo(len),
+        0x12,
+        lo(s),
+        0xB6,
+        hi(len),
+        lo(len),
+        0x60,
+        0xAC,
+    ];
+    let class = a.finish(0x0001, this, obj, &[], Some((2, &code, &[])));
+    let classes = alloc::vec![ClassFile::parse(spelled(class)).unwrap()];
+    let mut heap = crate::SharedJvmHeap::new();
+    let mut h = NoopHandler;
+    assert_eq!(run_on(&classes, &mut heap, &mut h), Some(Value::Int(6)));
+    let hit = heap
+        .class_objects
+        .resolve
+        .method(SiteKey::cp(0, len).with_recv(RECV_STRING))
+        .expect("the site is cached");
+    assert_eq!(hit.target, Target::Native { hint: None });
+    assert_eq!(
+        hit.flags & flags::PRECHECK,
+        0,
+        "String.length needs no pre-check"
+    );
+    // The cached target answers the second run.
+    assert_eq!(run_on(&classes, &mut heap, &mut h), Some(Value::Int(6)));
+}
+
+/// `Math.abs(-5)`: Math has no class file in this set, so the first call
+/// probes the initialised set (a class-table scan) and then marks the site
+/// initialised; the second call skips the probe. Before the site could
+/// hold a native target there was nothing to mark, so the probe ran on
+/// every call.
+#[test]
+fn invokestatic_on_a_builtin_marks_the_site_initialised() {
+    let mut a = Asm::new();
+    let this = a.class("Caller");
+    let obj = a.class(c::java_lang_Object);
+    let math = a.class(c::java_lang_Math);
+    let abs = a.methodref(0x0A, math, m::abs, "(I)I");
+    let code = alloc::vec![0x10, 0xFB, 0xB8, hi(abs), lo(abs), 0xAC]; // bipush -5; invokestatic; ireturn
+    let class = a.finish(0x0001, this, obj, &[], Some((1, &code, &[])));
+    let classes = alloc::vec![ClassFile::parse(spelled(class)).unwrap()];
+    let mut heap = crate::SharedJvmHeap::new();
+    let mut h = NoopHandler;
+    assert_eq!(run_on(&classes, &mut heap, &mut h), Some(Value::Int(5)));
+    let hit = heap
+        .class_objects
+        .resolve
+        .method(SiteKey::cp(0, abs))
+        .expect("the site is cached");
+    assert_eq!(hit.target, Target::Native { hint: None });
+    assert!(
+        hit.init,
+        "a builtin counts as initialised, and the site remembers it"
+    );
+    assert_eq!(run_on(&classes, &mut heap, &mut h), Some(Value::Int(5)));
+    assert!(
+        heap.class_objects
+            .resolve
+            .method(SiteKey::cp(0, abs))
+            .unwrap()
+            .init
+    );
+}
+
+/// Serves `Clock.clockNow()`: the shape of a framework native.
+struct ClockHandler;
+impl NativeMethodHandler for ClockHandler {
+    fn dispatch(
+        &mut self,
+        class_name: &str,
+        method_name: &str,
+        _ctx: &mut NativeContext<'_>,
+    ) -> Option<Result<Option<Value>, JvmError>> {
+        // Names no SDK member shares: `spelled()` rewrites SDK names for the
+        // shrink lane, and a fixture name that collided would no longer match.
+        (class_name == "Clock" && method_name == "clockNow").then_some(Ok(Some(Value::Int(7))))
+    }
+}
+
+/// `Clock.clockNow()` is declared `native`: its class file has the method (no
+/// `Code` attribute), so the walk finds it — and the site remembers
+/// "native", not a `(class, method)` whose bytecode is re-checked on every
+/// call. The framework-side twin of the builtin case: a `SystemClock`
+/// static behaves exactly like this.
+#[test]
+fn a_native_method_with_a_class_file_is_cached_as_a_native_target() {
+    let mut a = Asm::new();
+    let this = a.class("Clock");
+    let obj = a.class(c::java_lang_Object);
+    let now = a.methodref(0x0A, this, "clockNow", "()I");
+    let code = alloc::vec![0xB8, hi(now), lo(now), 0xB8, hi(now), lo(now), 0x60, 0xAC];
+    let class = a.finish_methods(
+        0x0001,
+        this,
+        obj,
+        &[],
+        &[
+            Method {
+                access: 0x0009,
+                name: "m",
+                desc: "()I",
+                max_stack: 2,
+                max_locals: 0,
+                code: &code,
+                exc: &[],
+            },
+            Method {
+                access: 0x0109, // public static native
+                name: "clockNow",
+                desc: "()I",
+                max_stack: 0,
+                max_locals: 0,
+                code: &[],
+                exc: &[],
+            },
+        ],
+    );
+    let classes = alloc::vec![ClassFile::parse(spelled(class)).unwrap()];
+    assert_eq!(classes[0].methods()[1].code_offset, 0);
+    let mut heap = crate::SharedJvmHeap::new();
+    let mut h = ClockHandler;
+    assert_eq!(run_on(&classes, &mut heap, &mut h), Some(Value::Int(14)));
+    let hit = heap
+        .class_objects
+        .resolve
+        .method(SiteKey::cp(0, now))
+        .expect("the site is cached");
+    assert_eq!(hit.target, Target::Native { hint: None });
+    assert!(
+        hit.init,
+        "Clock has a class file: initialised on the first call"
+    );
+    assert_eq!(run_on(&classes, &mut heap, &mut h), Some(Value::Int(14)));
 }
 
 /// The same `invokevirtual` site with two receiver classes resolves each
@@ -1035,4 +1341,222 @@ fn one_site_two_receiver_classes_resolves_each() {
     assert_eq!(call(&mut heap, "Base"), Some(Value::Int(1)));
     assert_eq!(call(&mut heap, "Child"), Some(Value::Int(2)));
     assert_eq!(call(&mut heap, "Base"), Some(Value::Int(1)));
+    // One site, two entries, keyed by the receiver's class id: Child's
+    // points at Child.speak, Base's at Base.speak, and nothing sits under
+    // the receiver-less key.
+    let site = SiteKey::cp(2, 8);
+    let id_of = |heap: &mut crate::SharedJvmHeap, name: &'static str| {
+        let obj = heap.objects.alloc(name).unwrap();
+        heap.objects.class_id(obj).unwrap()
+    };
+    let child = id_of(&mut heap, "Child");
+    let base = id_of(&mut heap, "Base");
+    let slot = |recv: u16| {
+        heap.class_objects
+            .resolve
+            .method(site.with_recv(SiteKey::recv_object(recv)))
+            .map(|h| h.target)
+    };
+    assert_eq!(slot(child), Some(Target::Java { ci: 1, mi: 0 }));
+    assert_eq!(slot(base), Some(Target::Java { ci: 0, mi: 0 }));
+    assert!(heap.class_objects.resolve.method(site).is_none());
+}
+
+/// JVMS §6.5: an invoke on a null receiver throws NullPointerException
+/// before anything else — before resolution, so the site keeps no entry
+/// for the null (which has no class), and a later real call resolves as
+/// if the null had never happened.
+#[test]
+fn a_null_receiver_throws_npe_and_leaves_the_slot_untouched() {
+    let cf_base = ClassFile::parse(spelled(CLASS_BASE_SPEAK)).unwrap();
+    let cf_child = ClassFile::parse(spelled(CLASS_CHILD_SPEAK)).unwrap();
+    let cf_caller = ClassFile::parse(spelled(CLASS_CALLER_INVOKEVIRTUAL)).unwrap();
+    let classes = alloc::vec![cf_base, cf_child, cf_caller];
+    let mut heap = crate::SharedJvmHeap::new();
+    let mut h = NoopHandler;
+    let mut call = |heap: &mut crate::SharedJvmHeap, recv: Value| {
+        execute(
+            &classes,
+            &mut heap.strings,
+            &mut heap.objects,
+            &mut heap.arrays,
+            &mut heap.statics,
+            &mut heap.gc_state,
+            &mut heap.class_objects,
+            &mut h,
+            2,
+            0,
+            &[recv],
+        )
+    };
+    match call(&mut heap, Value::Null) {
+        Err(JvmError::UncaughtException {
+            exception_class, ..
+        }) => assert_eq!(exception_class, c::java_lang_NullPointerException),
+        other => panic!("expected NullPointerException, got {other:?}"),
+    }
+    assert!(heap
+        .class_objects
+        .resolve
+        .method(SiteKey::cp(2, 8))
+        .is_none());
+    let base = Value::ObjectRef(heap.objects.alloc("Base").unwrap());
+    assert_eq!(call(&mut heap, base), Ok(Some(Value::Int(1))));
+}
+
+/// One `Methodref` shared by an `invokespecial` and an `invokevirtual`
+/// (`super.speak()` next to `this.speak()`, javac's usual output): the
+/// non-virtual site resolves under the receiver-less key to the declared
+/// class's method, the virtual one under the receiver's class to the
+/// override, and neither answer leaks into the other — in either order of
+/// first use.
+#[test]
+fn shared_methodref_used_by_both_invokespecial_and_invokevirtual_resolves_each() {
+    // Kid extends Base; Kid.speak()I = 2 (Base.speak()I = 1).
+    // m1(Kid)I = 10 * special + virtual = 12; m2(Kid)I = 10 * virtual + special = 21.
+    let mut a = Asm::new();
+    let this = a.class("Kid");
+    let sup = a.class("Base");
+    let speak = a.methodref(0x0A, sup, "speak", "()I");
+    let (sh, sl) = ((speak >> 8) as u8, speak as u8);
+    let m1 = [
+        0x2A, 0xB7, sh, sl, 0x10, 10, 0x68, 0x2A, 0xB6, sh, sl, 0x60, 0xAC,
+    ];
+    let m2 = [
+        0x2A, 0xB6, sh, sl, 0x10, 10, 0x68, 0x2A, 0xB7, sh, sl, 0x60, 0xAC,
+    ];
+    let method = |name: &'static str, code: &'static [u8], access: u16, max_locals: u16| Method {
+        access,
+        name,
+        desc: if access & 0x0008 != 0 {
+            "(LKid;)I"
+        } else {
+            "()I"
+        },
+        max_stack: 2,
+        max_locals,
+        code,
+        exc: &[],
+    };
+    let m1: &'static [u8] = alloc::boxed::Box::leak(alloc::boxed::Box::new(m1));
+    let m2: &'static [u8] = alloc::boxed::Box::leak(alloc::boxed::Box::new(m2));
+    let kid = a.finish_methods(
+        0x0021,
+        this,
+        sup,
+        &[],
+        &[
+            method("speak", &[0x05, 0xAC], 0x0001, 1),
+            method("m1", m1, 0x0008, 1),
+            method("m2", m2, 0x0008, 1),
+        ],
+    );
+    let classes = alloc::vec![
+        ClassFile::parse(spelled(CLASS_BASE_SPEAK)).unwrap(),
+        ClassFile::parse(kid).unwrap(),
+    ];
+    let mut h = NoopHandler;
+    for (mi, expect) in [(1, 12), (2, 21)] {
+        let mut heap = crate::SharedJvmHeap::new();
+        for _ in 0..2 {
+            let obj = Value::ObjectRef(heap.objects.alloc("Kid").unwrap());
+            let r = execute(
+                &classes,
+                &mut heap.strings,
+                &mut heap.objects,
+                &mut heap.arrays,
+                &mut heap.statics,
+                &mut heap.gc_state,
+                &mut heap.class_objects,
+                &mut h,
+                1,
+                mi,
+                &[obj],
+            );
+            assert_eq!(r, Ok(Some(Value::Int(expect))), "m{mi}");
+        }
+    }
+}
+
+/// The argument count the packer stores in a `Methodref`'s descriptor
+/// record is what the interpreter pops: one per parameter whatever its
+/// width or shape, `this` excluded.
+#[test]
+fn pack_time_argc_matches_the_interpreter_count() {
+    for desc in [
+        "()V",
+        "(I)V",
+        "(JD)V",
+        "(Ljava/lang/String;[I[[Ljava/lang/Object;J)I",
+        "([J)V",
+        "(BCSZFD)Ljava/lang/String;",
+        "([[[Ljava/util/List;IJ)V",
+    ] {
+        assert_eq!(
+            class_link::count_args(desc.as_bytes()).map(|n| n as usize),
+            Some(helpers::count_args(desc)),
+            "{desc}"
+        );
+    }
+}
+
+/// Step 4 of docs/designs/class-link-2026-09.md: a resolution walk compares
+/// signature hashes and reads a method's name only to confirm the one hash
+/// match — a three-deep chain with six methods a class costs one
+/// `method_name` read on a hit and none on a miss, however many methods the
+/// chain holds. (`TextView → View → Object` is the framework shape this
+/// stands in for; `View` alone has ~150 methods.)
+#[test]
+fn a_hash_walk_reads_one_name() {
+    use crate::class_file::METHOD_NAME_READS;
+    use core::sync::atomic::Ordering::Relaxed;
+    fn class(name: &str, sup: &str, prefix: &str) -> &'static [u8] {
+        let mut a = Asm::new();
+        let this = a.class(name);
+        let sup = a.class(sup);
+        let names: alloc::vec::Vec<alloc::string::String> =
+            (0..6).map(|i| alloc::format!("{prefix}{i}")).collect();
+        let methods: alloc::vec::Vec<Method<'_>> = names
+            .iter()
+            .map(|n| Method {
+                access: 0x0401, // public abstract: a declaration is enough
+                name: n,
+                desc: "()I",
+                max_stack: 0,
+                max_locals: 0,
+                code: &[],
+                exc: &[],
+            })
+            .collect();
+        a.finish_methods(0x0021, this, sup, &[], &methods)
+    }
+    let root = ClassFile::parse(class("Root", c::java_lang_Object, "r")).unwrap();
+    let mid = ClassFile::parse(class("Mid", "Root", "m")).unwrap();
+    let leaf = ClassFile::parse(class("Leaf", "Mid", "l")).unwrap();
+    let classes = alloc::vec![root, mid, leaf];
+    let classes = Classes::linear(&classes);
+
+    // A hit two levels up: eighteen methods scanned, one name read.
+    METHOD_NAME_READS.store(0, Relaxed);
+    assert_eq!(
+        helpers::find_method_walking(classes, "Leaf", "r3", "()I"),
+        Some((0, 3))
+    );
+    assert_eq!(METHOD_NAME_READS.load(Relaxed), 1);
+
+    // A miss: the whole chain (and the empty default-method search), no reads.
+    METHOD_NAME_READS.store(0, Relaxed);
+    assert_eq!(
+        helpers::find_method_walking(classes, "Leaf", "nope", "()I"),
+        None
+    );
+    assert_eq!(METHOD_NAME_READS.load(Relaxed), 0);
+
+    // Same name, other descriptor: the hash differs, so no read either.
+    METHOD_NAME_READS.store(0, Relaxed);
+    assert_eq!(
+        helpers::find_method_walking(classes, "Leaf", "r3", "()V"),
+        None
+    );
+    assert_eq!(METHOD_NAME_READS.load(Relaxed), 0);
 }

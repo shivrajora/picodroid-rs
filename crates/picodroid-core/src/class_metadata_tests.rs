@@ -1,89 +1,119 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! The parsed-metadata model against the embedded framework class set.
+//! The embedded framework class set as the JVM loads it.
 //!
-//! M8 (docs/parity-audit.md, "2026-09-24 memory-model divergence"): a
-//! class's parsed metadata is one `u16` record, byte-identical on the
-//! 64-bit host and the 32-bit device, plus a header that differs by the
-//! record's fat pointer and nothing else. The simulator's arena therefore
-//! prices class metadata as the board does. This pins that over every
-//! framework class rather than a fixture: a field that grows to `usize`, a
-//! `Vec` that creeps back in, or a device model that drifts from `size_of`
-//! all show up here as a host/device gap wider than one pointer per class.
+//! Every class arrives with the link table `build.rs` built for it, in one
+//! class section shared with the PAPK format (docs/designs/class-link-2026-09.md).
+//! These pin, over the whole corpus rather than a fixture: that the section
+//! and every table validate against the bytes rustc embedded; that
+//! registering the set costs the class table alone — 12 B a class on the
+//! device, no parsed record, nothing on the heap per class; and that every
+//! class is found by name through the section's index, with the answer the
+//! JVM's own lookup gives.
 
-use pico_jvm::class_file::{ClassFile, CLASS_FILE_DELTA, FAT_PTR_DELTA};
+use pico_jvm::class_file::{find_class, ClassFile, Classes, CLASS_FILE_DELTA};
 use pico_jvm::Jvm;
 
+use crate::framework_classes::{class_files, framework_section, FRAMEWORK_CLASS_COUNT};
+
 fn framework_classes() -> Vec<ClassFile> {
-    let classes: Vec<ClassFile> = crate::framework_classes::FRAMEWORK_CLASSES
-        .iter()
-        .map(|b| ClassFile::parse(b).expect("parse framework class"))
-        .collect();
+    let classes = class_files();
     assert!(
         !classes.is_empty(),
-        "FRAMEWORK_CLASSES is empty — run via scripts/test.sh, which sets PICODROID_APK_PATH"
+        "FRAMEWORK_CLSS is empty — run via scripts/test.sh, which sets PICODROID_APK_PATH"
     );
     classes
 }
 
-/// Host and device differ by exactly one fat pointer per parsed class, and
-/// the device figure is within 2 % of the host's over the whole set.
+/// Every table re-derives from its class bytes, and re-linking the bytes on
+/// the host gives the table word for word: the embedded section is what
+/// the builder produces, not a stale or hand-edited blob.
 #[test]
-fn parsed_metadata_is_pointer_width_independent() {
-    let classes = framework_classes();
-    let (mut host, mut dev) = (0usize, 0usize);
-    for cf in &classes {
-        let c = cf.parsed_metadata_census().expect("eagerly parsed");
+fn framework_tables_relink_word_for_word() {
+    let section = framework_section();
+    section
+        .validate()
+        .expect("framework class section validates");
+    for cf in framework_classes() {
+        let rebuilt = class_link::build::link_class(cf.data()).expect("relink");
         assert_eq!(
-            c.host.boxed - c.dev.boxed,
-            FAT_PTR_DELTA,
-            "{}: header differs by more than the fat pointer",
+            rebuilt.as_slice(),
+            cf.link().words(),
+            "{}: embedded table differs from a fresh link",
             String::from_utf8_lossy(cf.class_name().unwrap())
         );
-        let (h, d) = cf.parsed_metadata_bytes().unwrap();
-        assert_eq!(h - c.host.boxed, d - c.dev.boxed, "record bytes differ");
-        host += h;
-        dev += d;
     }
-    assert_eq!(host - dev, classes.len() * FAT_PTR_DELTA);
-    // The exact pin above is the test; this is the audit's headline figure
-    // (a record averages ~400 B, so one pointer is about 2 % of it).
-    assert!(
-        dev * 100 >= host * 97,
-        "device model {dev} B is more than 3 % under the host's {host} B"
+}
+
+/// Registration costs the class table and nothing else, on both targets:
+/// two pointers and the name hash a class.
+#[test]
+fn a_registered_class_costs_two_pointers_and_a_hash() {
+    let mut jvm = Jvm::with_capacity(FRAMEWORK_CLASS_COUNT);
+    jvm.load_framework(framework_section())
+        .expect("load framework");
+    assert_eq!(jvm.class_count(), FRAMEWORK_CLASS_COUNT);
+    let (host, dev) = jvm.class_table_bytes();
+    assert_eq!(dev, 12 + FRAMEWORK_CLASS_COUNT * 16);
+    assert_eq!(
+        host - dev,
+        FRAMEWORK_CLASS_COUNT * CLASS_FILE_DELTA + (core::mem::size_of::<Vec<ClassFile>>() - 12)
     );
 }
 
-/// The `Jvm` aggregates are the per-class sums, and forcing every method
-/// table through `load_class` prices the same as the eager parse.
+/// The section's index and the JVM's lookup agree on every class, and a
+/// name the set does not hold is found by neither.
 #[test]
-fn jvm_aggregates_match_per_class_sums() {
+fn every_framework_class_is_found_by_name() {
+    let section = framework_section();
     let classes = framework_classes();
-    let expected: (usize, usize) = classes
-        .iter()
-        .map(|cf| cf.parsed_metadata_bytes().unwrap())
-        .fold((0, 0), |(h, d), (a, b)| (h + a, d + b));
+    for (i, cf) in classes.iter().enumerate() {
+        let name = cf.class_name().unwrap();
+        assert_eq!(section.find_class(name), Some(i));
+        assert_eq!(find_class(Classes::linear(&classes), name), Some(i));
+        assert_eq!(cf.name_hash(), class_link::name_hash(name));
+    }
+    assert_eq!(section.find_class(b"no/such/Class"), None);
+    assert_eq!(
+        find_class(Classes::linear(&classes), b"no/such/Class"),
+        None
+    );
+}
 
-    let mut jvm = Jvm::with_capacity(classes.len());
-    for b in crate::framework_classes::FRAMEWORK_CLASSES {
-        jvm.load_class(b).expect("register framework class");
+/// Every method's signature hash and every interface hash in the tables are
+/// the hashes of the names the class bytes spell.
+#[test]
+fn table_hashes_match_the_names() {
+    for cf in framework_classes() {
+        for m in cf.methods() {
+            let n = cf.method_name(m).unwrap();
+            let d = cf.method_descriptor(m).unwrap();
+            assert_eq!(m.sig_hash(), class_link::sig_hash(n, d));
+        }
+        for f in cf.interfaces() {
+            assert_eq!(f.hash(), class_link::name_hash(cf.iface_name(f).unwrap()));
+        }
+        if let Some(sup) = cf.view().super_name() {
+            assert_eq!(cf.super_hash(), class_link::name_hash(sup));
+        }
     }
-    assert_eq!(
-        jvm.parsed_metadata_bytes(),
-        (0, 0),
-        "lazy: nothing parsed yet"
-    );
-    for cf in jvm.classes() {
-        let _ = cf.methods();
+}
+
+/// No two methods of one framework class share a signature hash, so the
+/// hash compare in the resolution walk names the method on its own and the
+/// confirming read is one per hit — for every class of the corpus, the
+/// deep `View`/`TextView` hierarchies included.
+#[test]
+fn signature_hashes_are_unique_within_every_framework_class() {
+    for cf in framework_classes() {
+        let mut seen = std::collections::HashSet::new();
+        for m in cf.methods() {
+            assert!(
+                seen.insert(m.sig_hash()),
+                "{}: two methods hash alike ({} {})",
+                String::from_utf8_lossy(cf.class_name().unwrap()),
+                String::from_utf8_lossy(cf.method_name(m).unwrap()),
+                String::from_utf8_lossy(cf.method_descriptor(m).unwrap())
+            );
+        }
     }
-    assert_eq!(jvm.parsed_metadata_bytes(), expected);
-    let (parsed, total) = jvm.count_parsed();
-    assert_eq!((parsed, total), (classes.len(), classes.len()));
-    let (table_host, table_dev) = jvm.class_table_bytes();
-    // The registration table: one fat pointer and one thin pointer per
-    // entry, plus the `Vec` header's three words, are the whole gap.
-    let words = core::mem::size_of::<usize>() - 4;
-    assert_eq!(
-        table_host - table_dev,
-        classes.len() * CLASS_FILE_DELTA + 3 * words
-    );
 }

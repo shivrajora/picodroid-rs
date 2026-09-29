@@ -21,11 +21,9 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             0xb2 => {
                 let cp_idx = u16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
                 frame.pc += 2;
-                let cf = &self.classes[frame.class_idx];
-                let (class_name, field_name, _desc) =
-                    cf.cp_fieldref(cp_idx).ok_or(JvmError::InvalidBytecode)?;
                 // A cached site was inserted after its class initialised,
-                // so a hit answers both questions at once.
+                // so a hit answers both questions at once — and needs no
+                // name from the constant pool.
                 let value = match self
                     .class_objects
                     .resolve
@@ -33,6 +31,9 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 {
                     Some(idx) => self.statics.get_by_index(idx),
                     None => {
+                        let cf = &self.classes[frame.class_idx];
+                        let (class_name, field_name, _desc) =
+                            cf.cp_fieldref(cp_idx).ok_or(JvmError::InvalidBytecode)?;
                         // JVMS §5.4.3.2: the field lives on the class that
                         // declares it, which may be a superclass or a
                         // superinterface of the one the `Fieldref` names; a
@@ -79,9 +80,6 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             0xb3 => {
                 let cp_idx = u16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
                 frame.pc += 2;
-                let cf = &self.classes[frame.class_idx];
-                let (class_name, field_name, _desc) =
-                    cf.cp_fieldref(cp_idx).ok_or(JvmError::InvalidBytecode)?;
                 match self
                     .class_objects
                     .resolve
@@ -92,6 +90,9 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                         self.statics.set_by_index(idx, value);
                     }
                     None => {
+                        let cf = &self.classes[frame.class_idx];
+                        let (class_name, field_name, _desc) =
+                            cf.cp_fieldref(cp_idx).ok_or(JvmError::InvalidBytecode)?;
                         #[cfg(feature = "parity-metrics")]
                         let t0 = self.handler.clock_nanos();
                         let resolved =
@@ -137,33 +138,42 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 let obj_ref = frame.pop()?;
                 match obj_ref {
                     Value::ObjectRef(idx) => {
-                        let cf = &self.classes[frame.class_idx];
-                        let (declared_class, field_name_bytes, _desc) =
-                            cf.cp_fieldref(cp_idx).ok_or(JvmError::InvalidBytecode)?;
-                        let obj_class = self
-                            .objects
-                            .class_name(idx)
-                            .ok_or(JvmError::InvalidReference)?;
                         let class_id = self
                             .objects
                             .class_id(idx)
                             .ok_or(JvmError::InvalidReference)?;
-                        #[cfg(feature = "parity-metrics")]
-                        let t0 = self.handler.clock_nanos();
-                        let slot = helpers::field_slot_cached(
-                            &mut self.class_objects.resolve,
-                            self.classes,
-                            SiteKey::cp(frame.class_idx, cp_idx)
-                                .with_recv(SiteKey::recv_object(class_id)),
-                            obj_class,
-                            declared_class,
-                            field_name_bytes,
-                        )
-                        .ok_or(JvmError::InvalidReference)?;
-                        #[cfg(feature = "parity-metrics")]
-                        crate::parity::count_resolve_time(
-                            self.handler.clock_nanos().saturating_sub(t0),
-                        );
+                        let key = SiteKey::cp(frame.class_idx, cp_idx)
+                            .with_recv(SiteKey::recv_object(class_id));
+                        // Probe before decoding the Fieldref: a hit needs
+                        // neither the names nor the receiver's class name.
+                        let slot = match self.class_objects.resolve.field(key) {
+                            Some(slot) => slot,
+                            None => {
+                                let cf = &self.classes[frame.class_idx];
+                                let (declared_class, field_name_bytes, _desc) =
+                                    cf.cp_fieldref(cp_idx).ok_or(JvmError::InvalidBytecode)?;
+                                let obj_class = self
+                                    .objects
+                                    .class_name_by_idx(class_id)
+                                    .ok_or(JvmError::InvalidReference)?;
+                                #[cfg(feature = "parity-metrics")]
+                                let t0 = self.handler.clock_nanos();
+                                let slot = helpers::field_slot_cached(
+                                    &mut self.class_objects.resolve,
+                                    self.classes,
+                                    key,
+                                    obj_class,
+                                    declared_class,
+                                    field_name_bytes,
+                                )
+                                .ok_or(JvmError::InvalidReference)?;
+                                #[cfg(feature = "parity-metrics")]
+                                crate::parity::count_resolve_time(
+                                    self.handler.clock_nanos().saturating_sub(t0),
+                                );
+                                slot
+                            }
+                        };
                         let v = self.objects.get_field(idx, slot).unwrap_or(Value::Null);
                         frame.push(v)?;
                     }
@@ -180,33 +190,42 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 let obj_ref = frame.pop()?;
                 match obj_ref {
                     Value::ObjectRef(idx) => {
-                        let cf = &self.classes[frame.class_idx];
-                        let (declared_class, field_name_bytes, _desc) =
-                            cf.cp_fieldref(cp_idx).ok_or(JvmError::InvalidBytecode)?;
-                        let obj_class = self
-                            .objects
-                            .class_name(idx)
-                            .ok_or(JvmError::InvalidReference)?;
                         let class_id = self
                             .objects
                             .class_id(idx)
                             .ok_or(JvmError::InvalidReference)?;
-                        #[cfg(feature = "parity-metrics")]
-                        let t0 = self.handler.clock_nanos();
-                        let slot = helpers::field_slot_cached(
-                            &mut self.class_objects.resolve,
-                            self.classes,
-                            SiteKey::cp(frame.class_idx, cp_idx)
-                                .with_recv(SiteKey::recv_object(class_id)),
-                            obj_class,
-                            declared_class,
-                            field_name_bytes,
-                        )
-                        .ok_or(JvmError::InvalidReference)?;
-                        #[cfg(feature = "parity-metrics")]
-                        crate::parity::count_resolve_time(
-                            self.handler.clock_nanos().saturating_sub(t0),
-                        );
+                        let key = SiteKey::cp(frame.class_idx, cp_idx)
+                            .with_recv(SiteKey::recv_object(class_id));
+                        // Probe before decoding the Fieldref: a hit needs
+                        // neither the names nor the receiver's class name.
+                        let slot = match self.class_objects.resolve.field(key) {
+                            Some(slot) => slot,
+                            None => {
+                                let cf = &self.classes[frame.class_idx];
+                                let (declared_class, field_name_bytes, _desc) =
+                                    cf.cp_fieldref(cp_idx).ok_or(JvmError::InvalidBytecode)?;
+                                let obj_class = self
+                                    .objects
+                                    .class_name_by_idx(class_id)
+                                    .ok_or(JvmError::InvalidReference)?;
+                                #[cfg(feature = "parity-metrics")]
+                                let t0 = self.handler.clock_nanos();
+                                let slot = helpers::field_slot_cached(
+                                    &mut self.class_objects.resolve,
+                                    self.classes,
+                                    key,
+                                    obj_class,
+                                    declared_class,
+                                    field_name_bytes,
+                                )
+                                .ok_or(JvmError::InvalidReference)?;
+                                #[cfg(feature = "parity-metrics")]
+                                crate::parity::count_resolve_time(
+                                    self.handler.clock_nanos().saturating_sub(t0),
+                                );
+                                slot
+                            }
+                        };
                         self.objects
                             .set_field(idx, slot, value)
                             .ok_or(JvmError::InvalidReference)?;

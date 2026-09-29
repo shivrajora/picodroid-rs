@@ -14,7 +14,7 @@ cargo features, so historical logs carry no `parity: insns=...` counters and no
 `[memmon]` windows. Those metrics are parsed here for forward-looking runs
 (scripts/parity-bench.sh enables parity-metrics) but will be absent from the
 backfill. What historical logs DO carry: per-microbench splits, GC counts,
-heap peaks, OOM detail, and lazy-load class counts.
+heap peaks, OOM detail, and the loaded class count.
 
 Usage:
   ./scripts/bench-backfill.py                      # full backfill, both envs
@@ -95,7 +95,7 @@ PARITY_RE = re.compile(
 )
 JVM_WALL_RE = re.compile(
     r"^\[sim\] JVM wall-clock:\s+(\d+)\s+ms,\s+gc:\s+(\d+)\s+collections,\s+(\d+)\s+freed,"
-    r"\s+(\d+)\s+us,\s+lazy-load:\s+(\d+)/(\d+)\s+classes parsed"
+    r"\s+(\d+)\s+us,\s+classes:\s+(\d+)"
 )
 HEAP_PEAK_RE = re.compile(
     r"^\[sim\] heap:\s+peak\s+(\d+)\s+KB\s+/\s+(\d+)\s+KB limit\s+\((\d+)\s+KB current\)"
@@ -166,8 +166,7 @@ def parse_log(path, env):
             out["gc_count"] = int(m.group(2))
             out["gc_freed"] = int(m.group(3))
             out["gc_us"] = int(m.group(4))
-            out["classes_parsed"] = int(m.group(5))
-            out["classes_total"] = int(m.group(6))
+            out["classes_total"] = int(m.group(5))
             continue
         m = HEAP_PEAK_RE.match(line)
         if m:

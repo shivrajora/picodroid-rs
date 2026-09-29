@@ -63,11 +63,12 @@ mod tests {
     fn collect_members() -> (BTreeSet<(bool, String)>, usize) {
         let mut rows = BTreeSet::new();
         let mut classes = 0;
-        for bytes in crate::framework_classes::FRAMEWORK_CLASSES {
+        for bytes in crate::framework_classes::class_bytes() {
             let cf = ClassFile::parse(bytes).expect("parse framework class");
             classes += 1;
             for m in cf.methods() {
-                let name = unshrink_member(&utf8(&cf, m.name_index)).to_string();
+                let name =
+                    unshrink_member(&utf8(&cf, cf.method_name_index(m).unwrap())).to_string();
                 if name.starts_with('<') {
                     continue;
                 }
@@ -124,7 +125,7 @@ mod tests {
     fn collect_classes() -> (BTreeSet<String>, usize) {
         let mut names = BTreeSet::new();
         let mut classes = 0;
-        for bytes in crate::framework_classes::FRAMEWORK_CLASSES {
+        for bytes in crate::framework_classes::class_bytes() {
             let cf = ClassFile::parse(bytes).expect("parse framework class");
             classes += 1;
             let loaded = core::str::from_utf8(cf.class_name().expect("class name")).unwrap();

@@ -22,7 +22,7 @@ fn crc32_dispatch(
     let mut strings = StringTable::new();
     let mut objects = ObjectHeap::new();
     let mut ctx = NativeContext {
-        classes: &[],
+        classes: Classes::linear(&[]),
         descriptor: desc,
         args,
         strings: &mut strings,
@@ -105,7 +105,7 @@ fn crc32_update_int_native_takes_the_low_byte() {
     let mut strings = StringTable::new();
     let mut objects = ObjectHeap::new();
     let mut ctx = NativeContext {
-        classes: &[],
+        classes: Classes::linear(&[]),
         descriptor: "(I)V",
         args: &[Value::Int(0), Value::Int(1)],
         strings: &mut strings,

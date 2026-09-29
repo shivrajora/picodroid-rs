@@ -12,6 +12,8 @@ public class Benchmark extends Application {
   private static final int ITER_FLOAT = 300000;
   private static final int ITER_DOUBLE = 300000;
   private static final int ITER_DISPATCH = 200000;
+  private static final int ITER_BUILTIN = 100000;
+  private static final int ITER_NATIVE = 100000;
   private static final int ITER_ALLOC = 50000;
   private static final int ITER_ARRAY = 10000;
   private static final int ITER_STRING = 20000;
@@ -53,6 +55,14 @@ public class Benchmark extends Application {
     t = benchInterfaceDispatch();
     total += t;
     report("interface_dispatch", t);
+
+    t = benchBuiltinDispatch();
+    total += t;
+    report("builtin_dispatch", t);
+
+    t = benchNativeStaticDispatch();
+    total += t;
+    report("native_static_dispatch", t);
 
     t = benchObjectAllocation();
     total += t;
@@ -172,6 +182,41 @@ public class Benchmark extends Application {
       sum += items[i % 2].count();
     }
     sinkInt = sum;
+    return SystemClock.elapsedRealtimeNanos() - start;
+  }
+
+  // ── builtin dispatch ────────────────────────────────────────────────────────
+  //
+  // Virtual calls on classes that have no class file (String, StringBuilder):
+  // the JVM resolves them straight to a native arm. No allocation in the loop,
+  // so the figure is the dispatch cost alone.
+
+  static long benchBuiltinDispatch() {
+    String s = "item";
+    StringBuilder sb = new StringBuilder("x");
+    long start = SystemClock.elapsedRealtimeNanos();
+    int sum = 0;
+    for (int i = 0; i < ITER_BUILTIN; i++) {
+      sum += s.length();
+      sum += s.charAt(i & 3);
+      sum += sb.length();
+    }
+    sinkInt = sum;
+    return SystemClock.elapsedRealtimeNanos() - start;
+  }
+
+  // ── native static dispatch ──────────────────────────────────────────────────
+  //
+  // A static native on a framework class (SystemClock has a class file; the
+  // method has no bytecode): the framework-side twin of builtin_dispatch.
+
+  static long benchNativeStaticDispatch() {
+    long start = SystemClock.elapsedRealtimeNanos();
+    long acc = 0L;
+    for (int i = 0; i < ITER_NATIVE; i++) {
+      acc += SystemClock.elapsedRealtimeNanos() & 1L;
+    }
+    sinkLong = acc;
     return SystemClock.elapsedRealtimeNanos() - start;
   }
 

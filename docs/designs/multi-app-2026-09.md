@@ -103,6 +103,13 @@ All four rp2350 boards, laid out top-down from the end of flash:
 | `FS_FLASH` | `0x10200000` | 512K | LittleFS (128 blocks) |
 | `PAPK_FLASH` | `0x10280000` | 1536K | the app region: 384 sectors |
 
+Since 2026-09-29 the W boards (`pico_display2_w`, `testbench_rp2350w`,
+`pico_enviro_mon_w`) give the program image 256 KB more — `FLASH` 2304K,
+`FS_FLASH` 512K at `0x10240000`, `PAPK_FLASH` 1280K (320 sectors) at
+`0x102C0000` — because their debug image (radio firmware, net, TLS, no name
+shrink, line numbers) outgrew 2048K once the framework's class link tables
+moved into flash (docs/designs/class-link-2026-09.md).
+
 RP2040 is byte-identical to today (BOOT2, `FLASH` 896K−0x100, `FS_FLASH`
 128K at `0x100E0000`, `PAPK_FLASH` 1024K at `0x10100000`). The formula is
 `APP = [end − app_region, end)`, `FS` just below, `FLASH` from the origin

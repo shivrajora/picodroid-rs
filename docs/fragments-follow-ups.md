@@ -10,6 +10,8 @@ every number in [designs/fragments-2026-09.md](designs/fragments-2026-09.md).
 What remains is **follow-up work, not blockers**: each item below is self-contained, with its
 evidence and where to start. Status lines are kept here as items close.
 
+Completed items: [completed/fragments-follow-ups.md](completed/fragments-follow-ups.md) — FR-3, FR-5, FR-7, FR-8.
+
 ## FR-1: Push to origin and the first nightly
 
 **Status: closed 2026-09-27.** Pushed with v0.35.0; CI green on `5dadeb74`, and the
@@ -21,7 +23,7 @@ gains the `fragmentdemo` row (pinned to `pico_display2_w` for the two BACKs its 
 sends), the `pagerdemo` row and the changed `claudeusage` row, in both shrink modes; the shrink
 lane is what proves the `X.class.getName()` factory idiom night after night. Expect two known
 reds on the first morning: the size-ratchet lane (FR-2) and the `claudeusage` row's TIMED OUT
-(FR-5).
+(FR-5; closed since, [completed/fragments-follow-ups.md](completed/fragments-follow-ups.md)).
 
 ## FR-2: Accept the flash, and decide the RP2040 reserve
 
@@ -60,11 +62,6 @@ accessors on `Fragment` (`require*`, `getString`, `startActivity`), one `findFra
 instead of two. The classes came out at about twice the parity roadmap's 1.5–3 KB-per-class rule:
 a class with forty methods is mostly constant pool.
 
-## FR-3: Cut the next shrink map
-
-**Status: closed 2026-09-27.** Map v0.35.0, cut on `main` together with TLS-3 for the v0.35.0
-release, names the Fragment and `ViewPager2` classes and their members.
-
 ## FR-4: A swipe turning the pager
 
 **Status: closed 2026-09-28.** The swipe did not work on any board, sim or device, and nothing
@@ -95,15 +92,6 @@ code, `pdb input swipe 220 100 40 100 150` over the page does nothing.
   listener. `LV_OBJ_FLAG_EVENT_BUBBLE` is not needed for that. The one case left is a child with a
   swipe listener of its own, which keeps the swipe, as on Android.
 
-## FR-5: The `claudeusage` row reads TIMED OUT until `sim-run` kills on match
-
-**Status: closed 2026-09-27.** The `claudeusage` row (`sim`, 60 s, `pico_display2_w`) matches
-all four patterns (`ui ready`, `page -> Claude usage`, `discovery: failed`, `state -> …`) but its
-Activity never exits, and `sim-run.sh` used to let the deadline expire and call that a failure.
-`d8339e1e` (the 2026-09-27 nightly fixes, merged as `f6f9aee6` while this backlog was being
-written) stops a row's app once every pattern has matched (`patterns matched; stopping the
-app`); re-run on that tree, the row is PASS in both shrink modes.
-
 ## FR-6: `./scripts/test.sh` does not compile on `main`
 
 **Status: closed 2026-09-27, by `a66329d2`.** `kick()`'s call is now
@@ -133,89 +121,6 @@ in both shrink modes: the `Testing` job of the CI run for `67b75cda` on `origin/
 fragments; it blocked the unit-test lane of this round (the name-table and papk-pack tests were
 run with `cargo test -p` directly).
 
-## FR-7: A thread sleeping across an Activity reclaim dies with `InvalidReference`
-
-**Status: closed 2026-09-27, by `d8339e1e` as far as the repro shows.** Found writing
-`fragmentdemo` on `f1803997`: a covering Activity whose `onResume` started a
-`picodroid.concurrent.Thread` that slept 150 ms and then posted `finish()` to the main executor
-(the `qa_life` `T.later` helper) never finished; the log ended with
-`Thread.start: picodroid/concurrent/Thread left the interpreter: InvalidReference` right after
-the covered Activity was reclaimed under `PICODROID_DONT_KEEP_ACTIVITIES=1`, and the same helper
-worked when no reclaim happened mid-sleep. The demos were written around it (a
-`ScheduledExecutorService`, or `finish()` straight from `onResume` as `reclaimdemo` does). Put
-back into `SecondActivity.onResume` on the merged tree, the thread runs to its `finish()` (the
-Activity round trip took 219 ms, against 54–67 ms with an immediate `finish()`) and the
-`fragmentdemo` row passes in both shrink modes with no such line. `d8339e1e`'s thread-slot fix
-fits the shape: a finished thread's freed slot was the next one `Thread.start` handed out, and
-the first thread's trailing cleanup then took the newcomer's entry — a timer thread ending
-while the reclaim's own thread traffic reuses slots is exactly that. If the line comes back,
-start there (`crates/picodroid-core/src/threads.rs`, `terminate_by_obj`), then the parked-frame
-rooting in [designs/jvm-run-lock-2026-09.md](designs/jvm-run-lock-2026-09.md).
-
-## FR-8: The hardware run and the budget checks
-
-**Status: closed 2026-09-27, on `5dadeb74`.** Results below the plan. The "before" build is
-the pre-fragment app (`examples/claudeusage` at `f1803997`) on today's firmware, not the
-`f1803997` firmware; the fragment classes are all the app side can reach, so the difference is
-the port.
-
-- **Board.** `pico_display2_w` (debug build) with the live bridge: `discovery: found`, then 8 B,
-  4 A and 6 B presses 0.6 s apart. Every press delivered in order, each with its `page ->` and
-  `built`. Y went home, a long Y turned AUTO on, and AUTO turned about 7 pages. After a power
-  cycle AUTO kept turning with no key pressed. There were no `slow handler` lines, no errors,
-  and only the known benign `spi0: … 0 of 0 bytes` warning.
-- **Memory.** Sim `--mem-diag`, 30 AUTO turns, with a fixed recorded payload replayed on port
-  8791 for both builds. From turn 2 to turn 30 the new build's live heap went 16,914 → 17,244 B
-  and the old build's went 15,884 → 16,214 B. That is the same +330 B in both: +8 objects,
-  3 classes parsed late. The LVGL pool stayed flat in both (20,288 B used new, 19,848 B old).
-  After the first minute `nused` held flat at about 271 KB new and 256 KB old. Most of the
-  +15 KB is class metadata (parsed 75,974 against 64,340 B). The live Java heap is only +1 KB.
-  There was no `OOM: tried` line. One difference: the native low-water mark is 30 KB lower,
-  122,600 B free against 152,784. It dropped once, on one Limits → Models turn, as the
-  object/field storage grew a chunk; it did not recur over the remaining turns. The census
-  shows no `Bundle` among the top classes.
-  `fragmentdemo`: the LVGL pool read 7,912 → 7,928 B across the pops and the re-created
-  Activity, and 6,336 B at the end. Its final heap delta was −776 B.
-- **Page-turn budget.** Sim `--sched-diag` with `PICODROID_TRACE_SPANS=1`, 30 AUTO turns:
-  0 `slow handler` lines in both builds, and the same three `HOG fs` findings (16–18, 9 and 9 ms,
-  LittleFS) in both. Mean idle was 98.8 % in both. Every span was ≤ 1 ms (79 at 1 ms new,
-  63 old), so the host is too fast to tell the two apart. The board run above is the budget
-  evidence.
-- **Pixels.** Screenshots rather than `fbhash` (Xvfb, `scrot`, PIL diff), because band hashes
-  from the fades are partial rectangles that do not compose into a final frame. All five page
-  shots (Limits, Models, Burn rate, History, Limits) are byte-identical between the builds,
-  including the header. The status screen (bridge down) differs only in the retry countdown
-  digit (14 s against 15 s). One logging difference: the new build logs `page -> Limits`
-  before `page -> Claude usage`, because the pager builds page 0 under the status screen (§6
-  of the design); nothing about it is visible.
-- **Cost.** `fragmentdemo` with `PICODROID_SLOW_HANDLER_MS=10`, and again at 1 ms: no line.
-  Traced, 115 of 118 spans were 0 ms. The rest were the 9 ms Runnable that runs the demo's 11
-  replace-and-pop rounds (about 0.8 ms a round), a 2 ms drain for the Activity re-creation and
-  one 1 ms Runnable. The logs showed `replace took 0 ms` and `activity round trip took 67 ms`.
-
-Not run: `heapcensus` on the board, and an `fbhash` comparison on the device.
-
-The plan, as written:
-
-- **`claudeusage` on the board.** `flash.sh --board pico_display2_w --app claudeusage` with a
-  live bridge on the LAN: the four screens on B, B held every half second, Y home, Y long for
-  AUTO, a power cycle keeping AUTO; no `slow handler` line on a turn. D4 of the gaps roadmap
-  (every tick of a page swap overran the budget; closed 2026-09-25) must still hold now that a
-  turn is the pager's three ticks (unbind, bind, promote) plus the page's own build chain.
-- **Memory.** `python3 examples/claudeusage/bridge/claude_usage_bridge.py --demo`, then
-  `./scripts/sim.sh --board pico_display2_w --app claudeusage --mem-diag`, AUTO on
-  (`sim-ctrl.sh input keyevent --longpress 4`), `sim-ctrl.sh heapcensus` after turn 2 and turn
-  30: live heap flat, no `OOM: tried`, only the four saved page Bundles new. In `fragmentdemo`,
-  `sim-ctrl.sh memstats` after a `replace`: the LVGL pool regains Home's widgets.
-- **Page-turn budget.** The same run with `--sched-diag`; `slow handler` count per turn against
-  the pre-fragment build (`f1803997`).
-- **Pixels.** Both builds with `PICODROID_EXTRA_FEATURES=parity-fbhash` and the demo bridge,
-  `input keyevent 20` per page, `sim-ctrl.sh fbhash`: band CRCs in rows 26..216 identical for
-  the four screens and the status screen.
-- **Cost.** `PICODROID_SLOW_HANDLER_MS=10 ./scripts/sim.sh --app fragmentdemo`: no span per
-  tick beyond what an Activity switch shows. The sim already measured a `replace` at 0–1 ms
-  against 54–67 ms for an Activity round trip.
-
 ## FR-9: What the fragment model still lacks
 
 **Status: open, by demand.** Each of these costs flash on every RP2350 board (the RP2040
@@ -237,7 +142,7 @@ testbench excludes the six classes), and FR-2's per-class numbers say to measure
 patterns). A row whose bridge `sim-run` starts itself (as `net-lib.sh::start_net_listeners`
 starts the TLS listener), with a `test.ctrl` that waits for data and presses B four times and
 patterns `page -> Models`, `page -> Burn rate`, `page -> History`, `page -> Limits`, would
-exercise the port every night; FR-8's `heapcensus` numbers could be asserted there too.
+exercise the port every night; FR-8's `heapcensus` numbers ([completed/fragments-follow-ups.md](completed/fragments-follow-ups.md)) could be asserted there too.
 
 ## FR-11: Keys on a board without buttons
 

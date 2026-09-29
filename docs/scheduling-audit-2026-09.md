@@ -16,27 +16,16 @@ design that makes the property enforced rather than remembered.
   `crates/jvm/**`, the port glue under `platforms/rp/src/hal/rp/port/**`, and the vendored
   `cyw43-driver` / `FreeRTOS-Plus-TCP` forks where the project's port layer calls into them.
 
+Completed items: [completed/scheduling-audit-2026-09.md](completed/scheduling-audit-2026-09.md) — WP1, WP2, WP3, WP4, WP5, WP6, WP8, WP10, WP11, F19 leftover, G1, G2, G5, report landing. WP0 stays here until its HIL pass is done.
+
 ## Status
 
 | Work package | State |
 |---|---|
-| WP1 quick wins (F1, F4, F6 opt-in, F9, F13, F15, F19 bounds + joiners) | **landed** 2026-09-12 |
-| G5 `spin_until!` | **landed** 2026-09-12 (`crates/picodroid-core/src/hal/spin.rs`, a porting seam item) |
-| G1 spin ledger | **landed** 2026-09-12 (`platforms/rp/src/spin_guard.rs`; 14 `spin-ok`, 5 `spin-todo`: F14 ×2, F18 ×3). **Paid down to 0 `spin-todo`** 2026-09-13 session 3 (F18 by WP11, F14 by WP9's blocking half) |
-| G2 config assertions | **landed** 2026-09-12 (`task_affinity::idle_cores_sleep_and_driver_waits_yield`) |
-| WP2 kernel-backed `RpDelay` (F2) | **landed** 2026-09-12 (`platforms/rp/src/hal/rp/delay.rs`; the type is changed in place, so no cycle-only delay remains) |
-| WP3 USB bridge (F3, F11) | **landed** 2026-09-12 (`pdb_usb/mod.rs`: EP1-IN semaphore given from the ISR, 500 ms dead-host latch; install reads block a tick per attempt on a hardware-timer deadline) |
-| WP4 touch by interrupt (F5) | **landed** 2026-09-12 in the interrupt-accelerated form (`HalTouch::wait_irq`; both edges on the INT pin → touch semaphore; 10 ms ceiling touched, 50 ms net idle); touch kit 2026-09-13: the first run exposed `Gt911::read_point` treating a stale buffer as a release (phantom release per INT edge — drags stalled, rollers stepped backwards); fixed in the driver, see S8 in `docs/designs/scroll-performance-2026-09.md` |
-| WP6 per-sector PAPK erase (F8) | **landed** 2026-09-12 (`install/region.rs::erase_run`) |
-| WP8 stop-path correctness (F10, F12) | **landed** 2026-09-12 (`monitor_store.rs` returns `Interrupted` on an aborted `Forever` lock; `wait_for_park` blocks on a notification the JVM task sends) |
+| WP0 ISR-safe seam primitives (F20) | **landed** 2026-09-18 (`rtos::sem_give_from_isr`, `rtos::task_notify_from_isr` — both request the switch themselves and return "higher-priority task woken"; `rtos::delay_until` + `delay_until_anchor` on the kernel's own clock. `gpio.rs` names no kernel crate any more — button and touch wakes are seam semaphores, pinned by `task_affinity::the_gpio_isr_wakes_tasks_through_the_seam`. The display-sleep wait now gives up the JVM run lock like every other blocking seam call. The simulator arm calls the kernel directly: the POSIX port's `TickType_t` is 64-bit and `freertos_rust` types it `u32`, so that crate's `vTaskDelayUntil` wrapper corrupts the stamp on a host. size: testbench_rp2040 +200 B, testbench_rp2350 +48 B). **Needs verification:** not bench-validated — button wake from display sleep and the GT911 wake want one HIL pass |
 | WP7 tick timebase (F16) | **landed** 2026-09-15 (`d8563ae3`, the `719d43e7` cherry-pick, plus `9d090232`). First landed 2026-09-13 and reverted the same day when every tick-loop app stalled on the RP2350 W board: two causes, the slot's silent 5 s SPI completion wait (`f74c108e`, `docs/qa-2026-09-13-followups.md` item 1) and WP7's own `alarms::due` judging an RTC trigger on the wall-clock offset rather than elapsed + offset (never due with the clock unset). W slot after both fixes: `animdemo` loop PASS ×2, `alarmdemo` term PASS ×2 (fire late 124 / 126 ms). The timer-reprogramming half stays deferred until the indev is event-driven: `docs/scheduling-audit-handover-2026-09.md` §2 WP7 |
-| WP10 sim parity (F17) | **landed** 2026-09-13 (child drain by notification, `delay_ms(0)` yields, `accept` waits in `poll(2)`) |
-| F19 leftover (`cyw43_yield`) | **landed** 2026-09-13 (hook is `((void)0)`; nothing else may run on core 1 at priority 22) |
-| WP5 gSPI DMA completion by IRQ (F7) | **landed** 2026-09-13 (`pio_spi.rs`: ch4/5 on `INTE1`/`DMA_IRQ_1`, one loud channel per frame > 8 bytes, semaphore take then busy-bit confirm; short frames spin). W slot: netdemo, http_get, blinky loop + install-stress PASS |
-| WP11 hot-path polish (F18) | **landed** 2026-09-13 (`select_target`: the I²C target register is its own cache; XPT2046 sample = one 30-byte interrupt-driven transfer; SPI polled paths under `spi_lock`, pending DMA writes collected only by their starter). The handover's bus-hold API was not needed — no XPT2046 board has a touch task; see the handover doc |
 | WP9 UART TX (F14) | **half landed** 2026-09-13 (`wait_tx_room`: a tick's sleep per retry, 100 ms drop bound, one warning per boot). The TX ring + `UARTx_IRQ` still waits for a board that ships a serial app |
 | G3 delay-type guard, G4 `sched-diag` monitor, G6 soak lanes | **landed** 2026-09-14 (`crates/picodroid-core/src/sched_diag.rs`, fed by the kernel's trace and tick hooks under `PICODROID_SCHED_DIAG` in both `FreeRTOSConfig.h`s, printed from the idle task; `RpDelay` and `cyw43_port.c` count BUSYDELAY, `spin_until!` reports SPIN; `scripts/test-scheddiag.sh` + a `sim-run.sh` lane; `docs/scheduling-diagnostics.md`). The HIL `loop`/`net` rows of G6 wait for a bench session — the device image is compile-checked (`build_rp2350w_scheddiag` in `--full`), not soaked |
-| WP0 ISR-safe seam primitives (F20) | **landed** 2026-09-18 (`rtos::sem_give_from_isr`, `rtos::task_notify_from_isr` — both request the switch themselves and return "higher-priority task woken"; `rtos::delay_until` + `delay_until_anchor` on the kernel's own clock. `gpio.rs` names no kernel crate any more — button and touch wakes are seam semaphores, pinned by `task_affinity::the_gpio_isr_wakes_tasks_through_the_seam`. The display-sleep wait now gives up the JVM run lock like every other blocking seam call. The simulator arm calls the kernel directly: the POSIX port's `TickType_t` is 64-bit and `freertos_rust` types it `u32`, so that crate's `vTaskDelayUntil` wrapper corrupts the stamp on a host. size: testbench_rp2040 +200 B, testbench_rp2350 +48 B). Not bench-validated: button wake from display sleep and the GT911 wake want one HIL pass |
 
 **Hardware validation, 2026-09-12 (W-board slot, `pico_enviro_mon_w`):** `netdemo` `net` row
 PASS on `testbench_rp2350w` firmware with F1/F9/F15 in the image (firmware load, join, DHCP
@@ -135,56 +124,6 @@ Each WP is one PR-sized change, one commit per finding where practical, sim smok
 `vTaskNotifyGiveFromISR` + `portYIELD_FROM_ISR`; sim arms in `hal/sim/rtos.rs` and `rtos_freertos.rs`.
 Migrate `gpio.rs:354-358` onto it. Update the `seam_guard` must-list.
 
-**WP1 — Quick wins, one commit each (F1, F9, F4, F6, F13, F15, F19).**
-- `cyw43_port.c:47` `ms >= 2` → `ms >= 1`; `cyw43_delay_us`: `us >= 1000 && scheduler running` →
-  `vTaskDelay(us / 1000)` then spin the remainder. Re-verify join on `testbench_rp2350w` (DHCP bind
-  time, `instr_*` counters in `NetworkInterface_CYW43.c:44-46`, `link.rs:144`).
-- `system_clock.rs:97-110`: wrap the three stores in `AtomicSection` (import path used by
-  `gc/mod.rs:294-299`); comment why.
-- `platforms/rp/Cargo.toml:85`: `defmt-rtt = { version = "1", features = ["disable-blocking-mode"] }`;
-  note in `docs/` that RTT is lossy under a slow host. (If lossless capture is ever needed, a
-  `log-lossless` feature can re-enable it explicitly.)
-- `dma.rs:214-215`, `pio_spi.rs:186-201`, `core1_park.rs:130-132, 142-145`, `pico_shim_rp2040.c:93-101`:
-  bound with `spin_until!` (G5) / the RP2350 `tries` cap; log + `Err` or panic on expiry.
-- `FreeRTOSConfig.h`: `configUSE_IDLE_HOOK 1`, `configUSE_PASSIVE_IDLE_HOOK 1`; `vApplicationIdleHook`
-  and `vApplicationPassiveIdleHook` in `pico_shim_rp2040.c` / `pico_shim_rp2350.c` = `dsb; wfi; isb`.
-  Keep `configUSE_TICKLESS_IDLE 0`. HIL: `bootcount` flash test (parker latency unchanged) + a
-  `loop` row; measure idle share via `pdb sysmon` before/after.
-- `threads.rs`: `MAX_JOINERS = MAX_JAVA_THREADS`, delete `JOIN_POLL_MS`; `cyw43_yield` → delete the
-  hook or `vTaskDelay(1)`.
-
-**WP2 — RTOS-backed delay (F2).** `platforms/rp/src/hal/rp/delay.rs`: add `RpRtosDelay` implementing
-`DelayNs` (`ns >= 1_000_000 && scheduler_running` → `CurrentTask::delay(Duration::ms(ns/1e6))` then
-`asm::delay` for the sub-ms remainder; otherwise `asm::delay`). Change `display.rs:40, 59` and
-`touch.rs:144` to it; delete `RpDelay` if no pre-scheduler caller remains (none found). Drivers are
-generic over `DelayNs` and need no change. Sim `SimDelay` stays a no-op (parity row TIM-04 gets a note).
-Measure boot-to-first-frame and button-wake latency on `pico_enviro_mon` / `pico_touch_kit`.
-
-**WP3 — USB debug bridge (F3, F11).** `pdb_usb/mod.rs`: binary semaphore beside `rx_queue()` (`:398`),
-given from the ISR where `EP1_IN_DONE` is stored (`:245`, `:388`) with the existing
-`InterruptContext` (`:333`); `wait_tx_ready` = `take(Duration::ms(500))`, on timeout set a
-`tx_dead` flag and return so `write_bytes` stops. `queue_read_byte_busywait`: first
-`receive(Duration::ms(2))`; only if `xTaskGetTickCount()` did not advance (tick frozen) fall into the
-µs-timer loop. HIL: `pdb` rows + unplug-mid-`pdb list` (app must keep running) + install soak.
-
-**WP4 — Touch by interrupt (F5, needs WP0).** Family side `hal/rp/touch.rs`: keep the pin bound, arm
-`gpio::enable_edge_irq(TOUCH_PIN_INT / TOUCH_PIN_IRQ, Falling)` and give a semaphore from
-`IO_IRQ_BANK0` (core-0 branch, `gpio.rs:265`). Shared side `touch_sampler.rs:176-181`: block on
-`sem_take(Timeout::Ms(PERIOD_MS))` while the last sample was touched, `Timeout::Ms(1000)` (safety net)
-when idle; add `pause()/resume()` wired next to `sensors::sampler::pause` in the display-sleep branch.
-Ring/dedup unchanged. Verify with the scroll parity harness and `pdb sysmon` switch counts.
-
-**WP5 — gSPI DMA completion by IRQ (F7).** `pio_spi.rs`: `INTE1` for ch4/5, `DMA_IRQ_1` handler at
-priority 0x10 giving a binary semaphore (or `task_notify_from_isr` to the poll task the port already
-holds via `cyw43_set_poll_task`); `wait_dma_done` = `take(Duration::ms(5))`, spin only for frames ≤ 8
-bytes; TXSTALL stays a short spin. Keep the design-doc property (frames complete autonomously under
-preemption). HIL on `testbench_rp2350w`: http_get, 10× install soak, `instr_rx_*`.
-
-**WP6 — Flash window granularity (F8).** `install/region.rs:126-131` `erase_run`: loop
-`F::erase_range(sector_offset(first + i), META_SIZE)` per sector (the `packagemanager/mod.rs:41-43`
-path re-parks per call). Measure install time delta and TCP drops during an install soak with
-`netdemo` running.
-
 **WP7 — Tick and timebase (F16).** `graphics/lvgl/lifecycle.rs::tick`: take the measured elapsed ms
 (`now_ms()` delta) instead of 16; return `lv_timer_handler()`'s "next" and let `tick_source`
 reprogram the FreeRTOS timer period (add `tick_timer_set_period` to the seam) or switch the main loop
@@ -192,18 +131,7 @@ to `queue_recv(Timeout::Ms(next))`; alarms keep an earliest-deadline and skip th
 `IDLE_GC_TICKS` → ms. Guard: extend the `LV_DEF_REFR_PERIOD == TICK_PERIOD_MS` scan
 (`tick_source.rs:65-103`) to reject a literal in `g.tick(`.
 
-**WP8 — Stop-path correctness (F10, F12).** `monitor_store.rs:106-111` stop-aware failure arm;
-`pdb/coordinator.rs` notification instead of the 10 ms poll.
-
 **WP9 — UART TX IRQ (F14).** Defer until a board ships a serial app; land a `spin_until!` bound now.
-
-**WP10 — Sim parity (F17).** Three small changes in `hal/sim/`.
-
-**WP11 — Hot-path polish (F18).** I²C `IC_TAR` cache; XPT2046 batched read; SPI small path takes
-`spi_lock`.
-
-**Report landing.** This document; `docs/parity-audit.md` TIM-04 and `docs/quality-roadmap.md`
-point at it.
 
 ## Offensive guards (catch the smell, not just the instance)
 

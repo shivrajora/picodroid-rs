@@ -8,7 +8,14 @@ description = "PAPK (Picodroid APK) container format: no_std zero-copy parser, a
 
 [dependencies]
 compat = { path = "../compat" }
+# The CLASSES section is a class-link class section: every class with its
+# link table, plus the sorted class index.
+class-link = { path = "../class-link" }
+
+[dev-dependencies]
+# The tests build class sections from real class files.
+class-link = { path = "../class-link", features = ["build"] }
 
 [features]
 default = []
-write = [] # enables the alloc-based builder
+write = ["class-link/build"] # enables the alloc-based builder (and the class linker)

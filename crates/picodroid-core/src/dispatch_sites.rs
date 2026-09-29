@@ -184,8 +184,7 @@ mod tests {
     /// `scripts/test.sh`).
     #[test]
     fn every_site_resolves_under_active_shrink_map() {
-        let classes: Vec<ClassFile> = crate::framework_classes::FRAMEWORK_CLASSES
-            .iter()
+        let classes: Vec<ClassFile> = crate::framework_classes::class_bytes()
             .map(|b| ClassFile::parse(b).expect("parse framework class"))
             .collect();
 
@@ -204,7 +203,7 @@ mod tests {
             let has_method = cf
                 .methods()
                 .iter()
-                .any(|m| cf.cp_utf8(m.name_index) == Some(method.as_bytes()));
+                .any(|m| cf.method_name(m) == Some(method.as_bytes()));
             assert!(
                 has_method,
                 "'{shrunk}' (from '{orig}') is missing method '{method}' — \

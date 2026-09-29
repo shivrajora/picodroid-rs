@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+use crate::class_file::Classes;
 use crate::{
     array_heap::ArrayHeap,
     class_file::ClassFile,
@@ -105,7 +106,7 @@ pub(crate) fn upcall_from_native<H: NativeMethodHandler>(
     } = env;
 
     let mut ex = Executor {
-        classes,
+        classes: *classes,
         strings,
         objects,
         arrays,
@@ -124,7 +125,7 @@ pub(crate) fn upcall_from_native<H: NativeMethodHandler>(
 }
 
 pub(crate) struct Executor<'a, H: NativeMethodHandler> {
-    pub classes: &'a [ClassFile],
+    pub classes: Classes<'a>,
     pub strings: &'a mut StringTable,
     pub objects: &'a mut ObjectHeap,
     pub arrays: &'a mut ArrayHeap,
@@ -267,7 +268,13 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             if let Some(mi) = helpers::find_clinit_in(cf) {
                 let cm = &cf.methods()[mi];
                 if cm.code_offset != 0 {
-                    let f = Frame::new(c, mi, &[], cm.max_locals, cm.max_stack)?;
+                    let f = Frame::new(
+                        c,
+                        mi,
+                        &[],
+                        cf.method_max_locals(cm),
+                        cf.method_max_stack(cm),
+                    )?;
                     clinit_frames
                         .try_reserve(1)
                         .map_err(|_| JvmError::StackOverflow)?;
@@ -296,7 +303,7 @@ fn find_exception_handler(
     inst_pc: usize,
     obj_idx: u16,
     objects: &ObjectHeap,
-    classes: &[ClassFile],
+    classes: Classes<'_>,
 ) -> Option<usize> {
     let exception_class = objects.class_name(obj_idx)?;
     for entry in cf.exception_table(method) {
@@ -361,7 +368,7 @@ fn handle_exception<H: NativeMethodHandler>(
             let f = &frames[i];
             let cf = &ex.classes[f.class_idx];
             let method = &cf.methods()[f.method_idx];
-            cf.cp_utf8(method.name_index) == Some(b"<clinit>")
+            cf.method_name(method) == Some(b"<clinit>")
         });
         if let Some(clinit_idx) = crossed_clinit {
             let exc_class = ex.objects.class_name(obj_idx).unwrap_or("");
@@ -445,7 +452,7 @@ fn deliver_exception<H: NativeMethodHandler>(
             let cf = &ex.classes[f.class_idx];
             let cn = core::str::from_utf8(cf.class_name()?).ok()?;
             let method = &cf.methods()[f.method_idx];
-            let mn = core::str::from_utf8(cf.cp_utf8(method.name_index)?).ok()?;
+            let mn = core::str::from_utf8(cf.method_name(method)?).ok()?;
             Some(StackTraceEntry {
                 class_name: cn,
                 method_name: mn,
@@ -569,6 +576,8 @@ pub(crate) fn prune_monitors<H: NativeMethodHandler>(
     handler.native_state_prune(&live);
 }
 
+/// [`execute_indexed`] over a class table with no index — tests and
+/// single-class runs; lookup by name scans.
 #[allow(clippy::too_many_arguments)]
 pub fn execute<H: NativeMethodHandler>(
     classes: &[ClassFile],
@@ -583,13 +592,49 @@ pub fn execute<H: NativeMethodHandler>(
     method_idx: usize,
     args: &[Value],
 ) -> Result<Option<Value>, JvmError> {
+    execute_indexed(
+        Classes::linear(classes),
+        strings,
+        objects,
+        arrays,
+        statics,
+        gc_state,
+        class_objects,
+        handler,
+        class_idx,
+        method_idx,
+        args,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn execute_indexed<H: NativeMethodHandler>(
+    classes: Classes<'_>,
+    strings: &mut StringTable,
+    objects: &mut ObjectHeap,
+    arrays: &mut ArrayHeap,
+    statics: &mut StaticFieldStore,
+    gc_state: &mut GcState,
+    class_objects: &mut ClassObjectCache,
+    handler: &mut H,
+    class_idx: usize,
+    method_idx: usize,
+    args: &[Value],
+) -> Result<Option<Value>, JvmError> {
     // The resolution tables hold indices into `classes`; bind them to this
     // slice (a new app's table empties them). The static store's per-class
     // tables are sized to the set once, here, rather than on first use.
-    class_objects.resolve.sync(classes);
+    class_objects.resolve.sync(&classes);
     let _ = statics.reserve_classes(classes.len());
-    let m = &classes[class_idx].methods()[method_idx];
-    let initial_frame = Frame::new(class_idx, method_idx, args, m.max_locals, m.max_stack)?;
+    let cf = &classes[class_idx];
+    let m = &cf.methods()[method_idx];
+    let initial_frame = Frame::new(
+        class_idx,
+        method_idx,
+        args,
+        cf.method_max_locals(m),
+        cf.method_max_stack(m),
+    )?;
     let mut frames: Vec<Frame> = Vec::new();
     frames.try_reserve(1).map_err(|_| JvmError::StackOverflow)?;
     frames.push(initial_frame);
@@ -620,7 +665,7 @@ pub fn execute<H: NativeMethodHandler>(
 
 #[allow(clippy::too_many_arguments)]
 fn execute_frames<H: NativeMethodHandler>(
-    classes: &[ClassFile],
+    classes: Classes<'_>,
     strings: &mut StringTable,
     objects: &mut ObjectHeap,
     arrays: &mut ArrayHeap,

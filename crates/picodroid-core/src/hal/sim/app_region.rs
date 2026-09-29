@@ -96,6 +96,20 @@ pub(crate) fn with_region<R>(f: impl FnOnce(&mut MemRegion) -> R) -> Option<R> {
     Some(f(region))
 }
 
+/// A copy of `bytes` at an 8-byte aligned address, leaked: what `.rodata`
+/// gives a system app on a device. A PAPK's class section is read in place
+/// as `u16` words and 8-byte index entries; a `Vec<u8>` promises neither.
+fn leak_aligned(bytes: &[u8]) -> &'static [u8] {
+    let words: &'static mut [u64] =
+        Box::leak(vec![0u64; bytes.len().div_ceil(8)].into_boxed_slice());
+    // SAFETY: `words` holds at least `bytes.len()` bytes; a `u8` view of it,
+    // filled once here and never written again.
+    let dst =
+        unsafe { core::slice::from_raw_parts_mut(words.as_mut_ptr().cast::<u8>(), bytes.len()) };
+    dst.copy_from_slice(bytes);
+    dst
+}
+
 /// Create the region and seed it. Pre-scheduler, from the simulator's boot.
 ///
 /// A warm boot — the process the bridge replaced after an install, with
@@ -114,7 +128,7 @@ pub fn init() {
         let mut images: Vec<&'static [u8]> = Vec::new();
         for path in list.split(':').filter(|p| !p.is_empty()) {
             match std::fs::read(path) {
-                Ok(bytes) => images.push(Box::leak(bytes.into_boxed_slice())),
+                Ok(bytes) => images.push(leak_aligned(&bytes)),
                 Err(e) => eprintln!("[sim] apps: cannot read system app {path}: {e}"),
             }
         }

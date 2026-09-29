@@ -437,71 +437,26 @@ fn print_census(jvm: &pico_jvm::Jvm, heap: &SharedJvmHeap) {
         t.exc_bytes
     );
 
-    // Class metadata per executor: the main Jvm, then every registered
-    // child (each child's parsed set is a duplicate of the main one's —
-    // handover §6). devB~ re-derives 32-bit release sizes; use it, not
-    // parsedB, for device sizing decisions.
-    let (parsed, total) = jvm.count_parsed();
-    let (host_b, dev_b) = jvm.parsed_metadata_bytes();
-    let (_, table_dev_b) = jvm.class_table_bytes();
+    // Class metadata per executor: the class table is the only per-class
+    // RAM there is — every class's parsed record (`Parsed`, ~360 B each,
+    // until 2026-09) now lives in flash as its link table
+    // (docs/designs/class-link-2026-09.md). devB~ re-derives the 32-bit
+    // release size of the table; use it for device sizing decisions.
+    let (table_host_b, table_dev_b) = jvm.class_table_bytes();
     println!(
-        "[memmon] census classmeta main: {parsed}/{total} parsedB={host_b} devB~={dev_b} tableB~={table_dev_b}"
+        "[memmon] census classmeta main: {} classes tableB={table_host_b} tableB~={table_dev_b} (link tables in flash: 0 B of RAM)",
+        jvm.class_count()
     );
-    // Which part of the parsed metadata holds the bytes, and which classes:
-    // the price of an import, visible (docs/memory-diagnostics.md).
-    let (hp, dp) = jvm.parsed_metadata_parts();
-    println!(
-        "[memmon] census classmeta parts host/dev: box={}/{} cp_off={}/{} cp_tag={}/{} methods={}/{} fields={}/{} statics={}/{} ifaces={}/{} (MethodInfo {}B, Parsed {}B host / {}B dev; exception and bootstrap tables in flash)",
-        hp.boxed,
-        dp.boxed,
-        hp.cp_offsets,
-        dp.cp_offsets,
-        hp.cp_tags,
-        dp.cp_tags,
-        hp.methods,
-        dp.methods,
-        hp.fields,
-        dp.fields,
-        hp.statics,
-        dp.statics,
-        hp.interfaces,
-        dp.interfaces,
-        core::mem::size_of::<pico_jvm::class_file::MethodInfo>(),
-        core::mem::size_of::<pico_jvm::class_file::Parsed>(),
-        core::mem::size_of::<pico_jvm::class_file::Parsed>() - pico_jvm::class_file::FAT_PTR_DELTA
-    );
-    let rows = jvm.parsed_metadata_rows();
-    let dump = env_flag("PICODROID_MEMDIAG_CLASSDUMP", false);
-    let shown = if dump { rows.len() } else { 12.min(rows.len()) };
-    println!(
-        "[memmon] census classmeta classes: {} parsed, top {} by devB~ (name=devB~/hostB cp/methods/fields/exc flashB)",
-        rows.len(),
-        shown
-    );
-    for (name, m) in rows.iter().take(shown) {
-        println!(
-            "[memmon]   {}={}/{} cp{}/m{}/f{}/x{} {}B",
-            core::str::from_utf8(name).unwrap_or("?"),
-            m.dev.total(),
-            m.host.total(),
-            m.cp_entries,
-            m.methods,
-            m.fields,
-            m.exc_entries,
-            m.class_bytes
-        );
-    }
     let slots = unsafe { &*core::ptr::addr_of!(CHILD_JVMS) };
     for (name, ptr) in slots.iter().flatten() {
         // SAFETY: registry contract (see CHILD_JVMS) — the owning task is
         // parked while the main task runs the census, so the pointee is
         // alive and not mid-mutation.
         let child = unsafe { &**ptr };
-        let (cp, ct) = child.count_parsed();
-        let (ch, cd) = child.parsed_metadata_bytes();
         let (_, ctab) = child.class_table_bytes();
         println!(
-            "[memmon] census classmeta child {name}: {cp}/{ct} parsedB={ch} devB~={cd} tableB~={ctab}"
+            "[memmon] census classmeta child {name}: {} classes tableB~={ctab}",
+            child.class_count()
         );
     }
 

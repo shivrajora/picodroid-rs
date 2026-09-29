@@ -12,5 +12,6 @@ path = "src/main.rs"
 [dependencies]
 serialport = "4"
 compat = { path = "../../crates/compat" }
-papk-format = { path = "../../crates/papk-format" }
+# `write` for the host-side deep validation (an aligned copy of the class section).
+papk-format = { path = "../../crates/papk-format", features = ["write"] }
 pdb-protocol = { path = "../../crates/pdb-protocol" }

@@ -9,6 +9,8 @@ TLS listener. Board-verified on `pico_display2_w`; design and every number in
 What remains is **follow-up work, not blockers**: each item below is self-contained, with
 its evidence and where to start. Status lines are kept here as items close.
 
+Completed items: [completed/tls-follow-ups.md](completed/tls-follow-ups.md) — TLS-3, TLS-10.
+
 ## TLS-1: Push to origin and watch CI
 
 **Status: open.** `main` was two commits ahead of `origin/main` when this was written; the
@@ -24,11 +26,6 @@ asserted, and its local legs need only the runner's own `scripts/tls-listener.py
 `iPAddress` SANs). `askclaude` is SKIPped on hardware by design — its `test.ctrl` presses
 buttons through the simulator's control channel, which `hil-run` cannot drive. Where to look
 if a row fails: `build/sim/results/`, `build/hil/results/`, the row's `net-tls.log`.
-
-## TLS-3: Cut the next shrink map
-
-**Status: closed 2026-09-27.** Map v0.35.0, cut on `main` for the v0.35.0 release, names
-`HttpsURLConnection`, `SntpClient`, `getCipherSuite` and the three `javax/net/ssl` exceptions.
 
 ## TLS-4: Flash
 
@@ -95,11 +92,3 @@ three marked `PICODROID` changes (`set_ca`, no `unwrap` on a malformed RSA key, 
 SAN matching); no upstream pull requests are planned. A future bump re-applies the patches
 listed in its `README-PICODROID.md`; the crate's tests and examples are not vendored.
 
-## TLS-10: Host build flags
-
-**Status: done, for the record.** `.cargo/config.toml` now forces the software AES and
-POLYVAL backends for every host build (`--cfg aes_force_soft --cfg polyval_force_soft`),
-because the x86 intrinsics backends keep 16-byte-aligned state that the simulator's
-allocator refuses on behalf of the device heap (parity-audit MEM-05). `pd-tls` has an
-`align_of` test that fails without them. A new crypto dependency must pass that test before
-anything it holds is boxed.

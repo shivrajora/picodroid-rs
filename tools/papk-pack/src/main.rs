@@ -113,7 +113,10 @@ const WELL_KNOWN_KEYS: &[&[u8]] = &[
 /// byte for byte — no validation, the input was validated when it was packed
 /// (and may be shrunk, which the entry-point check could not follow anyway).
 fn load_repack_source(bytes: &[u8]) -> Result<(RepackSource, RepackManifest), String> {
-    let papk = Papk::parse(bytes).map_err(|e| format!("not a PAPK: {e}"))?;
+    // The class section is read in place at an aligned address; a file
+    // read into a `Vec<u8>` promises none.
+    let aligned = papk_format::AlignedBuf::new(bytes);
+    let papk = Papk::parse(&aligned).map_err(|e| format!("not a PAPK: {e}"))?;
     let classes = papk
         .classes()
         .map_err(|e| format!("CLASSES section: {e}"))?
@@ -1006,7 +1009,8 @@ mod pack_integration {
         validate_entry_point(&args, &classes).unwrap();
 
         let papk = build_papk(&args, &classes, &[], &[]).unwrap();
-        let parsed = papk_format::Papk::parse(&papk).expect("papk-pack output must parse");
+        let aligned = papk_format::AlignedBuf::new(&papk);
+        let parsed = papk_format::Papk::parse(&aligned).expect("papk-pack output must parse");
         assert_eq!(parsed.main_class(), Some("fixture/Main"));
         assert_eq!(parsed.class_count(), Ok(1));
         let entry = parsed.classes().unwrap().next().unwrap();
@@ -1014,51 +1018,13 @@ mod pack_integration {
         assert_eq!(entry.data, class_bytes.as_slice());
         assert!(parsed.assets().unwrap().is_none());
 
-        // These are the exact inputs that produced the pre-refactor golden
-        // fixture (see fixtures/README.md), so the CLI mapping must still
-        // reproduce it — a stale build/apks/*.papk stays reproducible. This
-        // was a byte-for-byte comparison until the writer started 4-byte
-        // aligning every section (2026-09-15, papk-format/src/write.rs), so
-        // it is now "every section identical, only its offset moved"; the
-        // fixture stays exactly as papk-pack produced it, which is also the
-        // proof that the reader still takes the unaligned papks already
-        // installed on devices.
+        // These are the exact inputs that produced the golden fixture (see
+        // fixtures/README.md), so the CLI mapping must reproduce it byte for
+        // byte — a stale build/apks/*.papk stays reproducible.
         let golden = fs::read(fixtures.join("minimal.papk")).expect("fixture minimal.papk");
-        assert_same_sections(&papk, &golden);
+        assert_eq!(papk, golden, "papk-pack output differs from minimal.papk");
 
         fs::remove_dir_all(&work).ok();
-    }
-
-    /// Assert `built` carries the same sections as `fixture`, allowing only
-    /// the file-header offset words and the zero padding between sections to
-    /// differ — and that every section in `built` starts 4-byte aligned.
-    fn assert_same_sections(built: &[u8], fixture: &[u8]) {
-        let b = papk_format::Papk::parse(built).expect("built papk must parse");
-        let f = papk_format::Papk::parse(fixture).expect("fixture papk must parse");
-        let bh = b.file_header();
-        let fh = f.file_header();
-        assert_eq!(bh.version_major, fh.version_major);
-        assert_eq!(bh.version_minor, fh.version_minor);
-        assert_eq!(bh.section_count, fh.section_count);
-
-        assert_eq!(b.manifest_section().unwrap(), f.manifest_section().unwrap());
-        assert_eq!(b.classes_section().unwrap(), f.classes_section().unwrap());
-        assert_eq!(b.assets_section().unwrap(), f.assets_section().unwrap());
-
-        let sections = [
-            ("MANIFEST", bh.manifest_offset),
-            ("CLASSES", bh.classes_offset),
-            ("ASSETS", bh.assets_offset),
-        ];
-        for (name, off) in sections {
-            assert_eq!(off % 4, 0, "{name} starts at {off}, which is not 4-aligned");
-        }
-        // Everything the offsets skipped over is alignment padding, nothing else.
-        assert!(
-            built.len() - fixture.len() < 4 * sections.len(),
-            "built grew by {} bytes, more than section alignment padding",
-            built.len() - fixture.len()
-        );
     }
 
     fn fixture_args(work: &Path) -> Args {
@@ -1179,7 +1145,12 @@ mod pack_integration {
     fn pad_asset_reaches_the_requested_size_or_is_a_no_op() {
         let work = std::env::temp_dir().join("papk-pack-pad");
         let args = fixture_args(&work);
-        let classes = vec![("fixture/Main".to_string(), vec![0u8; 16])];
+        let fixtures = Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../crates/papk-format/tests/fixtures"
+        ));
+        let class_bytes = fs::read(fixtures.join("Main.class")).expect("fixture Main.class");
+        let classes = vec![("fixture/Main".to_string(), class_bytes)];
         let mut assets = Vec::new();
         let small = build_papk(&args, &classes, &assets, &[]).unwrap().len();
 

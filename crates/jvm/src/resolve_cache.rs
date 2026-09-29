@@ -49,6 +49,20 @@
 //! initialise the class first. Once a site's class is known to be
 //! initialised that can never become false again for this class set, so
 //! the entry remembers it and the instruction skips the probe.
+//!
+//! ## Native targets
+//!
+//! A method site stores what it resolved to ([`Target`]), and "no bytecode
+//! — ask the handlers" is an answer like any other. Before 2026-09-28 only
+//! a found `(class, method)` was stored, so every call on a class with no
+//! class file (`String.length()`, `sb.append`, `list.get`, `map.get`: most
+//! of what UI code calls) walked the class table three times — the named
+//! class, its chain, its interfaces — and an `invokestatic` on one probed
+//! the initialised set a fourth time, on every call, ~70 µs on the RP2350.
+//! A native entry also carries what the dispatch needs to know without
+//! comparing names again ([`flags`]) and, once known, which superclass the
+//! native was claimed under (the claim hint), so the handler re-walk is
+//! skipped too.
 
 use crate::class_file::ClassFile;
 use alloc::vec::Vec;
@@ -186,8 +200,14 @@ impl Sizes {
 struct MethodSlot {
     site: u32,
     recv: u32,
+    /// A Java target's class index; for a native target, [`NO_HINT`] or
+    /// the claim hint's `(name kind << 8) | superclass depth`.
     ci: u16,
+    /// A Java target's method index; for a native target with a hint, the
+    /// [`NameRef`] index of the class the native was claimed under.
     mi: u16,
+    /// [`flags`] bits.
+    flags: u8,
     init: bool,
 }
 
@@ -349,6 +369,7 @@ const EMPTY_METHOD: MethodSlot = MethodSlot {
     recv: 0,
     ci: 0,
     mi: 0,
+    flags: 0,
     init: false,
 };
 const EMPTY_FIELD: FieldSlot = FieldSlot {
@@ -364,13 +385,57 @@ const EMPTY_CLASS: ClassSlot = ClassSlot {
     init: false,
 };
 
+/// Per-site bits a [`MethodHit`] carries, set when the site is inserted.
+pub mod flags {
+    /// The target has no bytecode: dispatch native (see [`super::Target`]).
+    pub const NATIVE: u8 = 1 << 0;
+    /// Native dispatch must run the interpreter's own pre-checks first —
+    /// the calls it serves before any handler (`getClass`, the
+    /// equals-aware collection operations, `Enum.valueOf`,
+    /// `ArrayList.sort`). Clear for every other native, which is most.
+    pub const PRECHECK: u8 = 1 << 3;
+    /// `StringBuilder.append(Object | CharSequence)` / `String.valueOf(Object)`:
+    /// the argument's `toString()` runs before the native arm.
+    pub const STRINGIFY: u8 = 1 << 4;
+    /// `String.format`: the varargs' objects are stringified first.
+    pub const FORMAT: u8 = 1 << 5;
+}
+
+/// `MethodSlot::ci` of a native target without a claim hint.
+const NO_HINT: u16 = u16::MAX;
+
+/// What a method site resolved to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Target {
+    /// Bytecode: class `ci`, method `mi`.
+    Java { ci: usize, mi: usize },
+    /// No bytecode — a builtin with no class file, or a `native` method:
+    /// dispatch to the handlers. `hint` remembers which class the native
+    /// was claimed under and how many superclass steps up that is, so the
+    /// re-walk is skipped next time (`None`: claimed at depth 0, or not
+    /// recorded yet).
+    Native { hint: Option<(NameRef, u8)> },
+}
+
 /// A resolved method site.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MethodHit {
-    pub ci: usize,
-    pub mi: usize,
+    pub target: Target,
+    /// [`flags`] bits.
+    pub flags: u8,
     /// The named class is known to be initialised (invokestatic sites).
     pub init: bool,
+}
+
+impl MethodHit {
+    /// The `(ci, mi)` of a Java target.
+    #[inline]
+    pub fn java(&self) -> Option<(usize, usize)> {
+        match self.target {
+            Target::Java { ci, mi } => Some((ci, mi)),
+            Target::Native { .. } => None,
+        }
+    }
 }
 
 /// Where a class's canonical `&'static str` name comes from — the four
@@ -489,16 +554,53 @@ impl ResolveCache {
             .iter()
             .find(|s| s.site == k.site && s.recv == k.recv)
             .map(|s| MethodHit {
-                ci: s.ci as usize,
-                mi: s.mi as usize,
+                target: if s.flags & flags::NATIVE == 0 {
+                    Target::Java {
+                        ci: s.ci as usize,
+                        mi: s.mi as usize,
+                    }
+                } else if s.ci == NO_HINT {
+                    Target::Native { hint: None }
+                } else {
+                    Target::Native {
+                        hint: Some((NameRef::unpack(s.mi, (s.ci >> 8) as u8), s.ci as u8)),
+                    }
+                },
+                flags: s.flags,
                 init: s.init,
             })
     }
 
+    /// A Java target with no flags: what an ordinary bytecode site stores.
     #[inline]
     pub fn insert_method(&mut self, k: SiteKey, ci: usize, mi: usize) {
-        let (Ok(ci16), Ok(mi16)) = (u16::try_from(ci), u16::try_from(mi)) else {
-            return;
+        self.insert_target(k, Target::Java { ci, mi }, 0);
+    }
+
+    /// Store what site `k` resolved to. `flags` are [`flags`] bits;
+    /// [`flags::NATIVE`] comes from the target, not the caller.
+    #[inline]
+    pub fn insert_target(&mut self, k: SiteKey, target: Target, flags: u8) {
+        let (ci, mi, flags) = match target {
+            Target::Java { ci, mi } => {
+                let (Ok(ci16), Ok(mi16)) = (u16::try_from(ci), u16::try_from(mi)) else {
+                    return;
+                };
+                (ci16, mi16, flags & !flags::NATIVE)
+            }
+            Target::Native { hint: None } => (NO_HINT, 0, flags | flags::NATIVE),
+            Target::Native {
+                hint: Some((name, depth)),
+            } => {
+                let Some((idx, kind)) = name.pack() else {
+                    return;
+                };
+                (
+                    (kind as u16) << 8 | depth as u16,
+                    idx,
+                    flags | flags::NATIVE,
+                )
+            }
         };
         #[cfg(feature = "parity-metrics")]
         crate::parity::count_resolve();
@@ -508,13 +610,33 @@ impl ResolveCache {
             MethodSlot {
                 site: k.site,
                 recv: k.recv,
-                ci: ci16,
-                mi: mi16,
+                ci,
+                mi,
+                flags,
                 init: false,
             },
             |s| s.site == k.site && s.recv == k.recv,
             |s| s.site == 0,
         );
+    }
+
+    /// Remember under which class a native site's call was claimed and how
+    /// many superclass steps up that is. A no-op unless the site is cached
+    /// as a native target.
+    #[inline]
+    pub fn mark_claim(&mut self, k: SiteKey, hint: (NameRef, u8)) {
+        let Some((idx, kind)) = hint.0.pack() else {
+            return;
+        };
+        if let Some(s) = self
+            .methods
+            .set_mut(mix(k))
+            .iter_mut()
+            .find(|s| s.site == k.site && s.recv == k.recv && s.flags & flags::NATIVE != 0)
+        {
+            s.ci = (kind as u16) << 8 | hint.1 as u16;
+            s.mi = idx;
+        }
     }
 
     /// Remember that the class this site names is initialised. A no-op
@@ -658,8 +780,8 @@ mod tests {
         assert_eq!(
             c.method(k),
             Some(MethodHit {
-                ci: 3,
-                mi: 7,
+                target: Target::Java { ci: 3, mi: 7 },
+                flags: 0,
                 init: false
             })
         );
@@ -689,9 +811,69 @@ mod tests {
         // Every answer is the one stored for that key, never another's.
         for (i, k) in keys.iter().enumerate() {
             if let Some(hit) = c.method(*k) {
-                assert_eq!((hit.ci, hit.mi), (i, i));
+                assert_eq!(hit.java(), Some((i, i)));
             }
         }
+    }
+
+    #[test]
+    fn native_targets_round_trip_with_their_flags_and_claim_hint() {
+        let mut c = ResolveCache::new();
+        let k = SiteKey::cp(5, 9).with_recv(RECV_STRING);
+        c.insert_target(k, Target::Native { hint: None }, flags::PRECHECK);
+        let hit = c.method(k).unwrap();
+        assert_eq!(hit.target, Target::Native { hint: None });
+        assert_eq!(hit.flags, flags::NATIVE | flags::PRECHECK);
+        assert_eq!(hit.java(), None);
+        assert!(!hit.init);
+        // The initialised flag works for a native target too: an
+        // `invokestatic` on a builtin skips the probe after its first call.
+        c.mark_method_init(k);
+        assert!(c.method(k).unwrap().init);
+        // A claim hint is packed into the index words and comes back whole.
+        c.mark_claim(k, (NameRef::Builtin(7), 2));
+        let hit = c.method(k).unwrap();
+        assert_eq!(
+            hit.target,
+            Target::Native {
+                hint: Some((NameRef::Builtin(7), 2))
+            }
+        );
+        assert!(hit.init, "marking a claim keeps the initialised flag");
+        c.mark_claim(k, (NameRef::Unknown, 0));
+        assert_eq!(
+            c.method(k).unwrap().target,
+            Target::Native {
+                hint: Some((NameRef::Unknown, 0))
+            }
+        );
+        // Inserting with a hint directly.
+        let j = SiteKey::cp(5, 10);
+        c.insert_target(
+            j,
+            Target::Native {
+                hint: Some((NameRef::Loaded(300), 1)),
+            },
+            0,
+        );
+        assert_eq!(
+            c.method(j).unwrap().target,
+            Target::Native {
+                hint: Some((NameRef::Loaded(300), 1))
+            }
+        );
+        // A Java target ignores a NATIVE bit a caller passes.
+        c.insert_target(
+            j,
+            Target::Java { ci: 1, mi: 2 },
+            flags::NATIVE | flags::STRINGIFY,
+        );
+        let hit = c.method(j).unwrap();
+        assert_eq!(hit.java(), Some((1, 2)));
+        assert_eq!(hit.flags, flags::STRINGIFY);
+        // A claim on a Java target is a no-op.
+        c.mark_claim(j, (NameRef::Builtin(1), 1));
+        assert_eq!(c.method(j).unwrap().java(), Some((1, 2)));
     }
 
     #[test]

@@ -525,6 +525,7 @@ fn store_bytes_into_array(
 mod tests {
     use super::*;
     use pico_jvm::array_heap::decode_ref;
+    use pico_jvm::class_file::Classes;
 
     /// A File / FileInputStream / FileOutputStream object over `path` (the
     /// three share the field layout: the path first, then the stream's
@@ -567,7 +568,7 @@ mod tests {
         arrays: &mut ArrayHeap,
     ) -> Result<Option<Value>, JvmError> {
         let mut ctx = NativeContext {
-            classes: &[],
+            classes: Classes::linear(&[]),
             descriptor: "([BII)I",
             args,
             strings,

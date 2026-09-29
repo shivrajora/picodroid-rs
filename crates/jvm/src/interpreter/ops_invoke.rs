@@ -2,8 +2,9 @@
 use super::ops_indy::LambdaCall;
 use super::{helpers, Executor, MAX_FRAME_DEPTH, MAX_UPCALL_DEPTH};
 use crate::class_file::find_class;
+use crate::class_file::Classes;
 use crate::names::{c, d, m};
-use crate::resolve_cache::{special, SiteKey};
+use crate::resolve_cache::{flags, special, MethodHit, NameRef, SiteKey, Target, RECV_STRING};
 use crate::{
     frame::Frame,
     native::{BuiltinHandler, NativeContext, NativeMethodHandler},
@@ -11,11 +12,93 @@ use crate::{
 };
 use alloc::vec::Vec;
 
+/// How [`Executor::dispatch_native`] treats a call.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct DispatchOpts {
+    /// Run the interpreter's own pre-checks (`getClass`, the equals-aware
+    /// collection operations, `Enum.valueOf`, `ArrayList.sort`) before the
+    /// handlers. A resolved site knows from its [`flags::PRECHECK`] bit
+    /// whether it needs them; every other caller asks for all of them.
+    pub prechecks: bool,
+    /// Where to ask first: the superclass (and its depth on the receiver's
+    /// chain) that claimed this site's native last time — the claim hint a
+    /// resolved site remembers ([`Target::Native`]). `None`: start at the
+    /// class itself and walk.
+    pub start: Option<(&'static str, u8)>,
+}
+
+impl DispatchOpts {
+    pub const ALL: Self = Self {
+        prechecks: true,
+        start: None,
+    };
+
+    #[inline]
+    pub fn from_flags(f: u8) -> Self {
+        Self {
+            prechecks: f & flags::PRECHECK != 0,
+            start: None,
+        }
+    }
+}
+
+/// What an invoke's receiver is, as far as the site key needs to know —
+/// its class *name* is looked up only for a miss or a native target.
+#[derive(Clone, Copy)]
+enum RecvClass {
+    /// A heap object of this class-table id.
+    Object(u16),
+    /// A string `Reference`.
+    String,
+    /// An array of this element type.
+    Array(u8),
+    /// No receiver, or a non-virtual call: the CP-declared class.
+    Declared,
+}
+
+impl RecvClass {
+    #[inline]
+    fn name(
+        self,
+        objects: &crate::object_heap::ObjectHeap,
+        declared: &'static str,
+    ) -> Result<&'static str, JvmError> {
+        Ok(match self {
+            RecvClass::Object(cid) => objects
+                .class_name_by_idx(cid)
+                .ok_or(JvmError::InvalidReference)?,
+            RecvClass::String => c::java_lang_String,
+            RecvClass::Array(atype) => helpers::array_class_name(atype),
+            RecvClass::Declared => declared,
+        })
+    }
+}
+
+/// The `(class, name, descriptor)` a `Methodref` spells. Read on a miss,
+/// for a native target and for a stringifying site; a Java hit never
+/// comes here.
+#[inline]
+fn cp_names(
+    cf: &crate::class_file::ClassFile,
+    cp_idx: u16,
+) -> Result<(&'static str, &'static str, &'static str), JvmError> {
+    let (class, name, desc) = cf.cp_methodref(cp_idx).ok_or(JvmError::InvalidBytecode)?;
+    let s = |b: &'static [u8]| core::str::from_utf8(b).map_err(|_| JvmError::InvalidBytecode);
+    Ok((s(class)?, s(name)?, s(desc)?))
+}
+
 impl<'a, H: NativeMethodHandler> Executor<'a, H> {
     /// Takes the whole frame stack rather than the current frame: native
     /// dispatch below can re-enter the interpreter (a synchronous native→Java
     /// upcall), which needs to push and pop frames. The current frame is
     /// re-derived at each use and never held across a call that might push.
+    ///
+    /// Descriptor first: the `Methodref`'s pack-time record gives the
+    /// argument count, the receiver keys the site, and the resolution table
+    /// is probed before any name is decoded. A Java hit pushes its frame
+    /// without reading the constant pool at all; the names are decoded on a
+    /// miss, for a native target (the handlers take strings) and for a site
+    /// flagged as stringifying an argument.
     #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
     #[cfg_attr(feature = "hot-in-ram", inline(never))]
     pub(super) fn op_invoke(
@@ -29,6 +112,9 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
             return self.op_invokedynamic(code, frame);
         }
+        if !matches!(opcode, 0xb6..=0xb9) {
+            return Err(JvmError::UnsupportedOpcode(opcode));
+        }
 
         let (cp_idx, class_idx) = {
             let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
@@ -41,26 +127,99 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             (cp_idx, frame.class_idx)
         };
 
-        let cf = &self.classes[class_idx];
-        let (class_bytes, name_bytes, desc_bytes) =
-            cf.cp_methodref(cp_idx).ok_or(JvmError::InvalidBytecode)?;
-        let class_str = core::str::from_utf8(class_bytes).map_err(|_| JvmError::InvalidBytecode)?;
-        let name_str = core::str::from_utf8(name_bytes).map_err(|_| JvmError::InvalidBytecode)?;
-        let desc_str = core::str::from_utf8(desc_bytes).map_err(|_| JvmError::InvalidBytecode)?;
+        // A copy of the view, so the class file stays borrowed across the
+        // `&mut self` calls below.
+        let classes = self.classes;
+        let cf = &classes[class_idx];
+        let site = SiteKey::cp(class_idx, cp_idx);
+        let is_virtual = opcode == 0xb6 || opcode == 0xb9;
+        // invokevirtual / invokespecial / invokeinterface pass `this`.
+        let has_this = opcode != 0xb8;
+
+        let mref = cf.methodref_desc(cp_idx).ok_or(JvmError::InvalidBytecode)?;
+        let arg_count = mref.argc() as usize + has_this as usize;
+
+        // The receiver keys a virtual site, and a null one is the
+        // NullPointerException JVMS §6.5 throws before anything else happens
+        // — before an argument's `toString()` and before the native arm of a
+        // builtin (`Integer.intValue` on a null `Integer`) saw an
+        // uncatchable InvalidReference.
+        let recv = {
+            let frame = frames.last().ok_or(JvmError::InvalidBytecode)?;
+            let stack_len = frame.stack.len();
+            if stack_len < arg_count {
+                return Err(JvmError::StackUnderflow);
+            }
+            if has_this {
+                Some(frame.stack[stack_len - arg_count])
+            } else {
+                None
+            }
+        };
+        if matches!(recv, Some(Value::Null)) {
+            return Err(self.runtime_fault(c::java_lang_NullPointerException));
+        }
+
+        // Determine dispatch class (virtual uses runtime class of `this`).
+        // A string Reference has no ObjectHeap class — its runtime class is
+        // always `java/lang/String`, whatever the CP declared: an
+        // `invokeinterface Comparable.compareTo` / `CharSequence.length` or
+        // `invokevirtual Object.equals` on a String must reach the String
+        // dispatcher, not a `java/lang/Comparable` arm that does not exist.
+        // Likewise an array dispatches as its array class: kotlinc's
+        // `values()` clones `$VALUES` through `Object.clone()`, where javac
+        // names the array class as the owner.
+        // A virtual site resolves per receiver class, so its key carries
+        // the receiver's heap class id (a string or array gets a tag). The
+        // class *name* is looked up only when something needs it.
+        let (recv_class, key) = match recv {
+            Some(Value::ObjectRef(idx)) if is_virtual => {
+                let cid = self
+                    .objects
+                    .class_id(idx)
+                    .ok_or(JvmError::InvalidReference)?;
+                (
+                    RecvClass::Object(cid),
+                    site.with_recv(SiteKey::recv_object(cid)),
+                )
+            }
+            Some(Value::Reference(_)) if is_virtual => {
+                (RecvClass::String, site.with_recv(RECV_STRING))
+            }
+            Some(Value::ArrayRef(idx)) if is_virtual => {
+                let atype = self
+                    .arrays
+                    .atype(idx)
+                    .unwrap_or(crate::array_heap::ATYPE_REF);
+                (
+                    RecvClass::Array(atype),
+                    site.with_recv(SiteKey::recv_array(atype)),
+                )
+            }
+            _ => (RecvClass::Declared, site),
+        };
+
+        // Lambda proxy intercept: a call to the proxy's SAM runs the lambda
+        // body; any other method on it (a default method, `Object`'s) falls
+        // through to ordinary resolution below.
+        if let Some(Value::ObjectRef(idx)) = recv {
+            if is_virtual && self.objects.has_lambdas() && self.objects.get_lambda(idx).is_some() {
+                let (_, name_str, desc_str) = cp_names(cf, cp_idx)?;
+                if self.try_lambda_dispatch(frames, arg_count, name_str, desc_str)? {
+                    return Ok(());
+                }
+            }
+        }
+
+        let probed = self.class_objects.resolve.method(key);
 
         // invokestatic triggers class initialization. A site whose entry
         // already says "initialised" skips the probe (a scan of the
         // initialised-class list by name); the flag is set below, after the
         // site resolves, the first time the probe comes back clear.
-        let site = SiteKey::cp(class_idx, cp_idx);
         let mut mark_static_init = false;
-        if opcode == 0xb8
-            && !self
-                .class_objects
-                .resolve
-                .method(site)
-                .is_some_and(|hit| hit.init)
-        {
+        if opcode == 0xb8 && !probed.is_some_and(|hit| hit.init) {
+            let (class_bytes, _, _) = cf.cp_methodref(cp_idx).ok_or(JvmError::InvalidBytecode)?;
             #[cfg(feature = "parity-metrics")]
             let t0 = self.handler.clock_nanos();
             let pending = self.ensure_class_initialized(class_bytes)?;
@@ -74,172 +233,138 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             mark_static_init = true;
         }
 
-        let arg_count = match opcode {
-            // invokevirtual / invokespecial / invokeinterface: +1 for `this`
-            0xb6 | 0xb7 | 0xb9 => 1 + helpers::count_args(desc_str),
-            // invokestatic: no `this`
-            0xb8 => helpers::count_args(desc_str),
-            _ => return Err(JvmError::UnsupportedOpcode(opcode)),
-        };
-
-        // Determine dispatch class (virtual uses runtime class of `this`).
-        // A string Reference has no ObjectHeap class — its runtime class is
-        // always `java/lang/String`, whatever the CP declared: an
-        // `invokeinterface Comparable.compareTo` / `CharSequence.length` or
-        // `invokevirtual Object.equals` on a String must reach the String
-        // dispatcher, not a `java/lang/Comparable` arm that does not exist.
-        // Likewise an array dispatches as its array class: kotlinc's
-        // `values()` clones `$VALUES` through `Object.clone()`, where javac
-        // names the array class as the owner.
-        // A virtual site resolves per receiver class, so its key carries
-        // the receiver's heap class id (a string or array gets a tag).
-        let is_virtual = opcode == 0xb6 || opcode == 0xb9;
-        let (dispatch_class, key) = if is_virtual {
-            let frame = frames.last().ok_or(JvmError::InvalidBytecode)?;
-            let stack_len = frame.stack.len();
-            if stack_len >= arg_count {
-                let recv = frame.stack[stack_len - arg_count];
-                let class = match recv {
-                    Value::ObjectRef(idx) => self.objects.class_name(idx).unwrap_or(class_str),
-                    Value::Reference(_) => c::java_lang_String,
-                    Value::ArrayRef(idx) => helpers::array_class_name(
-                        self.arrays
-                            .atype(idx)
-                            .unwrap_or(crate::array_heap::ATYPE_REF),
-                    ),
-                    _ => class_str,
-                };
-                (
-                    class,
-                    site.with_recv(helpers::recv_of(self.objects, self.arrays, recv)),
-                )
-            } else {
-                (class_str, site)
-            }
-        } else {
-            (class_str, site)
-        };
-
-        // Lambda proxy intercept: a call to the proxy's SAM runs the lambda
-        // body; any other method on it (a default method, `Object`'s) falls
-        // through to ordinary resolution below.
-        if is_virtual
-            && self.objects.has_lambdas()
-            && self.try_lambda_dispatch(frames, arg_count, name_str, desc_str)?
-        {
-            return Ok(());
-        }
-
-        // `StringBuilder.append(Object)` / `String.valueOf(Object)` take an
-        // arbitrary object; run its `toString()` before the native arm sees it.
-        if (desc_str.starts_with(crate::names::d::p_Object__)
-            || desc_str == d::CharSequence__StringBuilder)
-            && self.stringify_object_arg(class_str, name_str, desc_str, frames)?
-        {
-            return Ok(());
-        }
-        // Same for the objects inside `String.format`'s varargs array
-        // (bugbash S4) — done here, on this executor, so no second
-        // interpreter is monomorphised for the builtin handler.
-        if class_str == c::java_lang_String && name_str == m::format {
-            self.stringify_format_args(desc_str, frames)?;
-        }
-
-        // Resolve method. Both branches walk the superclass chain per JVMS §5.4.3.3:
-        // invokevirtual / invokeinterface start from the receiver's runtime class,
-        // invokestatic / invokespecial start from the CP-declared class.
+        // Resolve on a miss. Both branches walk the superclass chain per JVMS
+        // §5.4.3.3: invokevirtual / invokeinterface start from the receiver's
+        // runtime class, invokestatic / invokespecial from the CP-declared
+        // class. The site's own bits (what to stringify first) are decided
+        // here, once, and stored with the target.
         #[cfg(feature = "parity-metrics")]
         let resolve_start = self.handler.clock_nanos();
-        let resolved = if is_virtual {
-            helpers::find_method_walking_cached(
-                &mut self.class_objects.resolve,
-                self.classes,
-                key,
-                dispatch_class,
-                name_str,
-                desc_str,
-            )
-        } else {
-            let r = helpers::find_method_cached(
-                &mut self.class_objects.resolve,
-                self.classes,
-                key,
-                class_str,
-                name_str,
-                desc_str,
-            );
-            if mark_static_init {
-                self.class_objects.resolve.mark_method_init(key);
+        let hit = match probed {
+            Some(hit) => hit,
+            None => {
+                let (class_str, name_str, desc_str) = cp_names(cf, cp_idx)?;
+                let site_flags = helpers::site_flags(class_str, name_str, desc_str);
+                if is_virtual {
+                    let dispatch_class = recv_class.name(self.objects, class_str)?;
+                    helpers::find_method_walking_cached(
+                        &mut self.class_objects.resolve,
+                        classes,
+                        key,
+                        dispatch_class,
+                        name_str,
+                        desc_str,
+                        site_flags,
+                    )
+                } else {
+                    helpers::find_method_cached(
+                        &mut self.class_objects.resolve,
+                        classes,
+                        key,
+                        class_str,
+                        name_str,
+                        desc_str,
+                        site_flags,
+                    )
+                }
             }
-            r
         };
+        if mark_static_init {
+            self.class_objects.resolve.mark_method_init(key);
+        }
         #[cfg(feature = "parity-metrics")]
         crate::parity::count_resolve_time(self.handler.clock_nanos().saturating_sub(resolve_start));
 
-        // Pop arguments from caller's stack into an inline buffer (avoids heap
-        // alloc). The buffer is a local, so it outlives the borrow of `frames`
-        // and stays valid across the dispatch below — which may re-enter the
-        // interpreter and push frames.
-        const MAX_INLINE_ARGS: usize = 8;
-        let mut inline_buf = [Value::Null; MAX_INLINE_ARGS];
-        let heap_args: Option<Vec<Value>> = {
-            let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
-            let stack_len = frame.stack.len();
-            if stack_len < arg_count {
-                return Err(JvmError::StackUnderflow);
+        // `StringBuilder.append(Object)` / `String.valueOf(Object)` take an
+        // arbitrary object; run its `toString()` before the native arm sees
+        // it. Same for the objects inside `String.format`'s varargs array
+        // (bugbash S4) — done here, on this executor, so no second
+        // interpreter is monomorphised for the builtin handler.
+        if hit.flags & (flags::STRINGIFY | flags::FORMAT) != 0 {
+            let (class_str, name_str, desc_str) = cp_names(cf, cp_idx)?;
+            if hit.flags & flags::STRINGIFY != 0
+                && self.stringify_object_arg(class_str, name_str, desc_str, frames)?
+            {
+                return Ok(());
             }
-            let start = stack_len - arg_count;
-            if arg_count <= MAX_INLINE_ARGS {
-                inline_buf[..arg_count].copy_from_slice(&frame.stack[start..]);
-                frame.stack.truncate(start);
-                None
-            } else {
-                let heap_buf: Vec<Value> = frame.stack[start..].to_vec();
-                frame.stack.truncate(start);
-                Some(heap_buf)
-            }
-        };
-
-        // JVMS §6.5: invokevirtual / invokespecial / invokeinterface on a
-        // null objectref throw NullPointerException. Without this the null
-        // reached the native arm of a builtin (`Integer.intValue` — every
-        // unboxing of a null `Integer`) as an uncatchable InvalidReference.
-        if opcode != 0xb8 {
-            let recv = match &heap_args {
-                Some(buf) => buf.first().copied(),
-                None => inline_buf.first().copied(),
-            };
-            if matches!(recv, Some(Value::Null)) {
-                return Err(self.runtime_fault(c::java_lang_NullPointerException));
+            if hit.flags & flags::FORMAT != 0 {
+                self.stringify_format_args(desc_str, frames)?;
             }
         }
 
-        let native_class = if is_virtual {
-            dispatch_class
-        } else {
-            class_str
-        };
-
-        match heap_args {
-            Some(heap_buf) => self.invoke_with_heap_args(
-                heap_buf,
-                resolved,
-                key,
-                native_class,
-                name_str,
-                desc_str,
-                frames,
-            ),
-            None => self.finalize_invoke(
-                &inline_buf[..arg_count],
-                resolved,
-                key,
-                native_class,
-                name_str,
-                desc_str,
-                frames,
-            ),
+        match hit.target {
+            Target::Java { ci, mi } => self.push_java_frame(ci, mi, arg_count, frames),
+            Target::Native { .. } => {
+                // No bytecode — a builtin, or a `native` method: the handlers
+                // take the names.
+                let (class_str, name_str, desc_str) = cp_names(cf, cp_idx)?;
+                let native_class = recv_class.name(self.objects, class_str)?;
+                // Pop the arguments from the caller's stack into an inline
+                // buffer (avoids a heap alloc). The buffer is a local, so it
+                // outlives the borrow of `frames` and stays valid across the
+                // dispatch below — which may re-enter the interpreter and
+                // push frames.
+                const MAX_INLINE_ARGS: usize = 8;
+                let mut inline_buf = [Value::Null; MAX_INLINE_ARGS];
+                let heap_args: Option<Vec<Value>> = {
+                    let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
+                    let start = frame.stack.len() - arg_count;
+                    if arg_count <= MAX_INLINE_ARGS {
+                        inline_buf[..arg_count].copy_from_slice(&frame.stack[start..]);
+                        frame.stack.truncate(start);
+                        None
+                    } else {
+                        let heap_buf: Vec<Value> = frame.stack[start..].to_vec();
+                        frame.stack.truncate(start);
+                        Some(heap_buf)
+                    }
+                };
+                let args: &[Value] = match &heap_args {
+                    Some(heap_buf) => heap_buf,
+                    None => &inline_buf[..arg_count],
+                };
+                self.finalize_native(args, hit, key, native_class, name_str, desc_str, frames)
+            }
         }
+    }
+
+    /// Push the frame of Java method `mi` of class `ci`, taking its
+    /// `arg_count` arguments straight off the caller's operand stack: no
+    /// intermediate buffer, and nothing about the method but its dimensions
+    /// is read. The caller's stack is cut only once the frame exists, so a
+    /// failed allocation leaves it intact.
+    #[inline]
+    fn push_java_frame(
+        &mut self,
+        ci: usize,
+        mi: usize,
+        arg_count: usize,
+        frames: &mut [Frame],
+    ) -> Result<(), JvmError> {
+        let cf = &self.classes[ci];
+        let jm = &cf.methods()[mi];
+        debug_assert!(jm.code_offset != 0, "a Java target has bytecode");
+        #[cfg(feature = "parity-metrics")]
+        let t0 = self.handler.clock_nanos();
+        let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
+        let start = frame
+            .stack
+            .len()
+            .checked_sub(arg_count)
+            .ok_or(JvmError::StackUnderflow)?;
+        let new_frame = Frame::new_in(
+            &mut self.frame_pool,
+            ci,
+            mi,
+            &frame.stack[start..],
+            cf.method_max_locals(jm),
+            cf.method_max_stack(jm),
+        )?;
+        frame.stack.truncate(start);
+        #[cfg(feature = "parity-metrics")]
+        crate::parity::count_frame_time(self.handler.clock_nanos().saturating_sub(t0));
+        self.pending_frame = Some(new_frame);
+        Ok(())
     }
 
     /// The one `Object`-typed argument the builtins cannot format themselves:
@@ -298,21 +423,36 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             class,
             TO_STRING,
             TO_STRING_DESC,
-        ) {
-            let m = &self.classes[ci].methods()[mi];
-            if m.code_offset != 0 {
-                // Build the frame before mutating the caller's stack, so an
-                // allocation failure here leaves the frame untouched.
-                let new_frame = Frame::new(ci, mi, &[arg], m.max_locals, m.max_stack)?;
-                let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
-                frame.stack.pop();
-                frame.pc = frame.inst_pc;
-                self.pending_frame = Some(new_frame);
-                return Ok(true);
-            }
+            0,
+        )
+        .java()
+        {
+            let cf = &self.classes[ci];
+            let m = &cf.methods()[mi];
+            // Build the frame before mutating the caller's stack, so an
+            // allocation failure here leaves the frame untouched.
+            let new_frame = Frame::new(
+                ci,
+                mi,
+                &[arg],
+                cf.method_max_locals(m),
+                cf.method_max_stack(m),
+            )?;
+            let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
+            frame.stack.pop();
+            frame.pc = frame.inst_pc;
+            self.pending_frame = Some(new_frame);
+            return Ok(true);
         }
-        let s =
-            self.dispatch_native(Some(key), class, TO_STRING, TO_STRING_DESC, &[arg], frames)?;
+        let s = self.dispatch_native(
+            Some(key),
+            class,
+            TO_STRING,
+            TO_STRING_DESC,
+            &[arg],
+            frames,
+            DispatchOpts::ALL,
+        )?;
         let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
         if let (Some(slot), Some(s)) = (frame.stack.last_mut(), s) {
             *slot = s;
@@ -385,29 +525,24 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         Ok(())
     }
 
-    /// Shared tail used by both the inline-args fast path and the heap-args
-    /// fallback: dispatches `resolved` to a native handler or pushes a new
-    /// Java frame, with `resolved == None` falling back to native dispatch.
+    /// Dispatch a resolved native target: a builtin with no class file, or a
+    /// `native` method — the handlers take the names. The site's entry says
+    /// which pre-checks to run and, once known, which superclass claimed the
+    /// native and how far up it sits: the dispatch starts there, and a first
+    /// call that was claimed up the chain records the hint for the next.
     #[allow(clippy::too_many_arguments)]
     #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
     #[cfg_attr(feature = "hot-in-ram", inline(never))]
-    pub(super) fn finalize_invoke(
+    pub(super) fn finalize_native(
         &mut self,
         args: &[Value],
-        resolved: Option<(usize, usize)>,
+        hit: MethodHit,
         site: SiteKey,
         native_class: &str,
         name_str: &str,
         desc_str: &str,
         frames: &mut Vec<Frame>,
     ) -> Result<(), JvmError> {
-        let push_native_result =
-            |frame: &mut Frame, result: Option<Value>| -> Result<(), JvmError> {
-                if let Some(v) = result {
-                    frame.push(v)?;
-                }
-                Ok(())
-            };
         // `new String(byte[])`: String has no class file, so `op_new` pushed a
         // placeholder ObjectHeap object and the `<init>` reached native
         // dispatch, which interned the bytes and returned the real string
@@ -433,67 +568,51 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             }
             true
         };
-        match resolved {
-            Some((ci, mi)) if self.classes[ci].methods()[mi].code_offset == 0 => {
-                let result = match self.dispatch_native(
-                    Some(site),
-                    native_class,
-                    name_str,
-                    desc_str,
-                    args,
-                    frames,
-                ) {
-                    Err(JvmError::StackOverflow) if self.native_retry => {
-                        return self.retry_after_gc(args, frames);
-                    }
-                    r => r?,
-                };
-                let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
-                if string_init_swap(frame, args, result) {
-                    return Ok(());
-                }
-                push_native_result(frame, result)
+        let start = match hit.target {
+            Target::Native {
+                hint: Some((name, depth)),
+            } => Some((
+                helpers::name_of(self.classes, self.handler.native_class_names(), name),
+                depth,
+            )),
+            _ => None,
+        };
+        let mut claimed = None;
+        let result = match self.dispatch_native_claimed(
+            Some(site),
+            native_class,
+            name_str,
+            desc_str,
+            args,
+            frames,
+            DispatchOpts {
+                prechecks: hit.flags & flags::PRECHECK != 0,
+                start,
+            },
+            &mut claimed,
+        ) {
+            Err(JvmError::StackOverflow) if self.native_retry => {
+                return self.retry_after_gc(args, frames);
             }
-            Some((ci, mi)) => {
-                // Java method — push new frame for the iterative interpreter loop.
-                let jm = &self.classes[ci].methods()[mi];
-                #[cfg(feature = "parity-metrics")]
-                let t0 = self.handler.clock_nanos();
-                let new_frame = Frame::new_in(
-                    &mut self.frame_pool,
-                    ci,
-                    mi,
-                    args,
-                    jm.max_locals,
-                    jm.max_stack,
-                )?;
-                #[cfg(feature = "parity-metrics")]
-                crate::parity::count_frame_time(self.handler.clock_nanos().saturating_sub(t0));
-                self.pending_frame = Some(new_frame);
-                Ok(())
-            }
-            None => {
-                // Not found in loaded classes — try native dispatch.
-                let result = match self.dispatch_native(
-                    Some(site),
-                    native_class,
-                    name_str,
-                    desc_str,
-                    args,
-                    frames,
-                ) {
-                    Err(JvmError::StackOverflow) if self.native_retry => {
-                        return self.retry_after_gc(args, frames);
-                    }
-                    r => r?,
-                };
-                let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
-                if string_init_swap(frame, args, result) {
-                    return Ok(());
+            r => r?,
+        };
+        if start.is_none() {
+            if let Some((class, depth)) = claimed {
+                let name =
+                    helpers::class_name_ref(self.classes, self.handler.native_class_names(), class);
+                if name != NameRef::Unknown {
+                    self.class_objects.resolve.mark_claim(site, (name, depth));
                 }
-                push_native_result(frame, result)
             }
         }
+        let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
+        if string_init_swap(frame, args, result) {
+            return Ok(());
+        }
+        if let Some(v) = result {
+            frame.push(v)?;
+        }
+        Ok(())
     }
 
     /// A builtin arm ran out of heap. By the builtins' contract it changed
@@ -517,30 +636,6 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         Ok(())
     }
 
-    /// Fallback path for methods with >8 arguments (extremely rare).
-    #[cold]
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn invoke_with_heap_args(
-        &mut self,
-        args: Vec<Value>,
-        resolved: Option<(usize, usize)>,
-        site: SiteKey,
-        native_class: &str,
-        name_str: &str,
-        desc_str: &str,
-        frames: &mut Vec<Frame>,
-    ) -> Result<(), JvmError> {
-        self.finalize_invoke(
-            &args,
-            resolved,
-            site,
-            native_class,
-            name_str,
-            desc_str,
-            frames,
-        )
-    }
-
     /// Dispatch a native method call through the handler chain.
     ///
     /// `site` is the resolution site of the invoke, when there is one —
@@ -560,6 +655,38 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         args: &[Value],
         // Carried so the pre-dispatch seam below can re-enter the interpreter.
         frames: &mut Vec<Frame>,
+        opts: DispatchOpts,
+    ) -> Result<Option<Value>, JvmError> {
+        self.dispatch_native_claimed(
+            site,
+            class_name,
+            method_name,
+            descriptor,
+            args,
+            frames,
+            opts,
+            &mut None,
+        )
+    }
+
+    /// [`Self::dispatch_native`], reporting in `claimed` the superclass
+    /// (and its depth) whose handler answered when the class itself did
+    /// not — what a site stores as its claim hint. Left `None` for an
+    /// answer at depth 0, for a hinted start that was taken, and for a
+    /// miss.
+    #[allow(clippy::too_many_arguments)]
+    #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+    #[cfg_attr(feature = "hot-in-ram", inline(never))]
+    pub(super) fn dispatch_native_claimed(
+        &mut self,
+        site: Option<SiteKey>,
+        class_name: &str,
+        method_name: &str,
+        descriptor: &str,
+        args: &[Value],
+        frames: &mut Vec<Frame>,
+        opts: DispatchOpts,
+        claimed: &mut Option<(&'a str, u8)>,
     ) -> Result<Option<Value>, JvmError> {
         let mut retry = false;
         let r = self.dispatch_native_inner(
@@ -569,7 +696,9 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             descriptor,
             args,
             frames,
+            opts,
             &mut retry,
+            claimed,
         );
         self.native_retry = retry;
         r
@@ -586,69 +715,16 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         descriptor: &str,
         args: &[Value],
         frames: &mut Vec<Frame>,
+        opts: DispatchOpts,
         retry: &mut bool,
+        claimed: &mut Option<(&'a str, u8)>,
     ) -> Result<Option<Value>, JvmError> {
-        // `Object.getClass()` resolves here rather than in a handler: it needs
-        // the class-object cache (not part of NativeContext) so that
-        // `obj.getClass() == MyClass.class` identity holds against `ldc`.
-        if method_name == m::getClass && descriptor == crate::names::d::__Class {
-            let name: Option<&'static str> = match args.first().copied() {
-                Some(Value::ObjectRef(idx)) => self.objects.class_name(idx),
-                Some(Value::Reference(_)) => Some(c::java_lang_String),
-                // `arr.getClass()` — the array class, keyed by element kind
-                // (`[I`, `[Ljava/lang/Object;`), so two int[] share a Class.
-                // Used to fall through to a handler arm that does not exist.
-                Some(Value::ArrayRef(idx)) => Some(helpers::array_class_name(
-                    self.arrays
-                        .atype(idx)
-                        .unwrap_or(crate::array_heap::ATYPE_REF),
-                )),
-                _ => None,
-            };
-            if let Some(name) = name {
-                return helpers::class_object_for_name(
-                    self.classes,
-                    self.strings,
-                    self.objects,
-                    self.class_objects,
-                    name.as_bytes(),
-                )
-                .map(Some);
+        if opts.prechecks {
+            if let Some(r) =
+                self.native_prechecks(class_name, method_name, descriptor, args, frames)?
+            {
+                return Ok(r);
             }
-        }
-        // The builtin collections compare keys by value for strings and
-        // boxes and by identity for everything else; a class that overrides
-        // `equals(Object)` — every hand-written key class — gets its override
-        // called here, where a Java method can be run (a handler arm cannot),
-        // one upcall per stored candidate. The buffers are linear anyway.
-        if let Some(r) =
-            self.equals_aware_collection_op(class_name, method_name, descriptor, args, frames)?
-        {
-            return Ok(r);
-        }
-        // `Enum.valueOf(Class, String)` — the callee of every enum's own
-        // `valueOf(String)` — resolves here: the constants are the static
-        // fields of the enum class's own type in the static store, which the
-        // `invokestatic` into that class initialised on the way in.
-        if class_name == c::java_lang_Enum
-            && method_name == m::valueOf
-            && descriptor == d::Class_String__Enum
-        {
-            return self.enum_value_of(args);
-        }
-        // `ArrayList.sort(Comparator)` resolves here rather than in a handler
-        // arm, for two reasons. `java/util/ArrayList` is classfile-less, so
-        // unlike `Collections.sort` there is no Java body this could live in;
-        // and a handler arm receives only a `NativeContext`, which carries no
-        // way back into the interpreter. Here the whole `Executor` — the real
-        // handler included — is still in hand, and `ctx` has not been built
-        // yet, so nothing is borrowed across the upcall.
-        if method_name == m::sort
-            && class_name == c::java_util_ArrayList
-            && descriptor == crate::names::d::Comparator__V
-        {
-            self.sort_list_with_comparator(frames, args)?;
-            return Ok(None);
         }
         // Everything the arm might need to re-enter the interpreter, minus
         // the handler — which it already holds as its own `&mut self` and
@@ -672,6 +748,29 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             classes: self.classes,
             upcall: Some(&mut env),
         };
+        // A site that already knows which superclass claimed its native
+        // starts there, at that step of the chain (the handler's own memo
+        // is keyed by it). A decline — the handler has forgotten the site,
+        // or answers differently now — falls back to the full walk.
+        if let Some((start_class, depth)) = opts.start {
+            if let Some(e) = ctx.upcall.as_deref_mut() {
+                e.depth = depth;
+            }
+            let hinted = self
+                .handler
+                .dispatch(start_class, method_name, &mut ctx)
+                .or_else(|| {
+                    let r = BuiltinHandler.dispatch(start_class, method_name, &mut ctx);
+                    *retry = matches!(r, Some(Err(JvmError::StackOverflow)));
+                    r
+                });
+            if let Some(result) = hinted {
+                return result;
+            }
+            if let Some(e) = ctx.upcall.as_deref_mut() {
+                e.depth = 0;
+            }
+        }
         // Try the exact class first.
         #[cfg(feature = "parity-metrics")]
         let native_start = self.handler.clock_nanos();
@@ -699,8 +798,9 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         // (NumberFormatException, ExceptionInInitializerError, ...) resolves
         // through java/lang/RuntimeException / Throwable's dispatcher.
         let mut current = class_name;
+        let mut depth: u8 = 0;
         loop {
-            let super_str = match find_super_class(self.classes, current) {
+            let super_str: &'a str = match find_super_class(self.classes, current) {
                 Some(s) => s,
                 None => match helpers::builtin_super(current) {
                     Some(s) => s,
@@ -713,8 +813,9 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 },
             };
             // One superclass step further for the memo's key.
+            depth = depth.saturating_add(1);
             if let Some(e) = ctx.upcall.as_deref_mut() {
-                e.depth = e.depth.saturating_add(1);
+                e.depth = depth;
             }
             if let Some(result) = self
                 .handler
@@ -725,11 +826,91 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                     r
                 })
             {
+                *claimed = Some((super_str, depth));
                 return result;
             }
             current = super_str;
         }
         Err(JvmError::NoSuchMethod)
+    }
+
+    /// The calls the interpreter answers itself, before any handler: they
+    /// need the executor (the class-object cache, a Java upcall, the
+    /// static store), which a handler arm never has. `Ok(None)` when the
+    /// call is not one of them. A resolved site runs this only when its
+    /// [`flags::PRECHECK`] bit says so; the four string compares here were
+    /// otherwise a fixed cost on every native call.
+    fn native_prechecks(
+        &mut self,
+        class_name: &str,
+        method_name: &str,
+        descriptor: &str,
+        args: &[Value],
+        frames: &mut Vec<Frame>,
+    ) -> Result<Option<Option<Value>>, JvmError> {
+        // `Object.getClass()` resolves here rather than in a handler: it needs
+        // the class-object cache (not part of NativeContext) so that
+        // `obj.getClass() == MyClass.class` identity holds against `ldc`.
+        if method_name == m::getClass && descriptor == crate::names::d::__Class {
+            let name: Option<&'static str> = match args.first().copied() {
+                Some(Value::ObjectRef(idx)) => self.objects.class_name(idx),
+                Some(Value::Reference(_)) => Some(c::java_lang_String),
+                // `arr.getClass()` — the array class, keyed by element kind
+                // (`[I`, `[Ljava/lang/Object;`), so two int[] share a Class.
+                // Used to fall through to a handler arm that does not exist.
+                Some(Value::ArrayRef(idx)) => Some(helpers::array_class_name(
+                    self.arrays
+                        .atype(idx)
+                        .unwrap_or(crate::array_heap::ATYPE_REF),
+                )),
+                _ => None,
+            };
+            if let Some(name) = name {
+                return helpers::class_object_for_name(
+                    self.classes,
+                    self.strings,
+                    self.objects,
+                    self.class_objects,
+                    name.as_bytes(),
+                )
+                .map(|v| Some(Some(v)));
+            }
+        }
+        // The builtin collections compare keys by value for strings and
+        // boxes and by identity for everything else; a class that overrides
+        // `equals(Object)` — every hand-written key class — gets its override
+        // called here, where a Java method can be run (a handler arm cannot),
+        // one upcall per stored candidate. The buffers are linear anyway.
+        if let Some(r) =
+            self.equals_aware_collection_op(class_name, method_name, descriptor, args, frames)?
+        {
+            return Ok(Some(r));
+        }
+        // `Enum.valueOf(Class, String)` — the callee of every enum's own
+        // `valueOf(String)` — resolves here: the constants are the static
+        // fields of the enum class's own type in the static store, which the
+        // `invokestatic` into that class initialised on the way in.
+        if class_name == c::java_lang_Enum
+            && method_name == m::valueOf
+            && descriptor == d::Class_String__Enum
+        {
+            return self.enum_value_of(args).map(Some);
+        }
+        // `ArrayList.sort(Comparator)` resolves here rather than in a handler
+        // arm, for two reasons. `java/util/ArrayList` is classfile-less, so
+        // unlike `Collections.sort` there is no Java body this could live in;
+        // and a handler arm receives only a `NativeContext`, which carries no
+        // way back into the interpreter. Here the whole `Executor` — the real
+        // handler included — is still in hand, and `ctx` has not been built
+        // yet, so nothing is borrowed across the upcall.
+        if method_name == m::sort
+            && class_name == c::java_util_ArrayList
+            && descriptor == crate::names::d::Comparator__V
+        {
+            self.sort_list_with_comparator(frames, args)?;
+            return Ok(Some(None));
+        }
+        Ok(None)
     }
 
     /// Synchronously invoke a Java method from inside a native context and
@@ -836,7 +1017,15 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             let mut all: Vec<Value> = Vec::with_capacity(args.len() + 1);
             all.push(recv);
             all.extend_from_slice(args);
-            return self.dispatch_native(Some(key), class, method_name, descriptor, &all, frames);
+            return self.dispatch_native(
+                Some(key),
+                class,
+                method_name,
+                descriptor,
+                &all,
+                frames,
+                DispatchOpts::ALL,
+            );
         };
 
         let base = frames.len();
@@ -884,17 +1073,23 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             class,
             method_name,
             descriptor,
-        ) else {
+            0,
+        )
+        .java() else {
             return Ok(None);
         };
-        let m = &self.classes[ci].methods()[mi];
-        if m.code_offset == 0 {
-            return Ok(None);
-        }
+        let cf = &self.classes[ci];
+        let m = &cf.methods()[mi];
         let mut all: Vec<Value> = Vec::with_capacity(args.len() + 1);
         all.push(recv);
         all.extend_from_slice(args);
-        Ok(Some(Frame::new(ci, mi, &all, m.max_locals, m.max_stack)?))
+        Ok(Some(Frame::new(
+            ci,
+            mi,
+            &all,
+            cf.method_max_locals(m),
+            cf.method_max_stack(m),
+        )?))
     }
 
     pub(super) fn runtime_class_of(&self, recv: Value) -> Result<&'static str, JvmError> {
@@ -1008,6 +1203,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 d::__String,
                 &[*slot],
                 frames,
+                DispatchOpts::ALL,
             )?,
             _ => return Ok(()),
         };
@@ -1100,10 +1296,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
 }
 
 /// Return the super class name of `class_name` if it's in the loaded set.
-pub(super) fn find_super_class<'a>(
-    classes: &'a [crate::class_file::ClassFile],
-    class_name: &str,
-) -> Option<&'a str> {
+pub(super) fn find_super_class<'a>(classes: Classes<'a>, class_name: &str) -> Option<&'a str> {
     let cf = find_class(classes, class_name.as_bytes()).map(|i| &classes[i])?;
     let super_bytes = cf.super_class_name()?;
     core::str::from_utf8(super_bytes).ok()

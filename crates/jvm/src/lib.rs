@@ -94,7 +94,7 @@ pub mod types;
 
 use alloc::vec::Vec;
 use array_heap::ArrayHeap;
-use class_file::ClassFile;
+use class_file::{ClassFile, ClassIndex, Classes};
 use class_objects::ClassObjectCache;
 use gc::GcState;
 use heap::StringTable;
@@ -243,13 +243,18 @@ impl Default for SharedJvmHeap {
 /// [`invoke_instance`](Jvm::invoke_instance).
 ///
 /// The `invoke_*` family takes `&self` — the class set is read-only during
-/// execution — so multiple execution contexts (threads) can share one loaded
-/// `Jvm` rather than each paying for a private parsed-metadata copy
-/// (measured ≈14 KB per child for a ~160-class app). The lazy
-/// [`ClassFile`] parse is interior-mutable; sharing across cooperative
-/// tasks is sound because `Parsed::parse` contains no yield point.
+/// execution — so multiple execution contexts (threads) share one loaded
+/// `Jvm`. A [`ClassFile`] is two pointers into flash (the class bytes and
+/// the link table built for them when the set was packed or embedded); the
+/// table costs no RAM and nothing is parsed at load
+/// (docs/designs/class-link-2026-09.md).
 pub struct Jvm {
     classes: Vec<ClassFile>,
+    /// Lookup by name over the framework and app sections' sorted indices
+    /// (`class_file::index`); classes appended past them are scanned.
+    index: ClassIndex,
+    fw: Option<class_link::ClassSection<'static>>,
+    app: Option<class_link::ClassSection<'static>>,
 }
 
 impl Jvm {
@@ -257,6 +262,9 @@ impl Jvm {
     pub fn new() -> Self {
         Self {
             classes: Vec::new(),
+            index: ClassIndex::LINEAR,
+            fw: None,
+            app: None,
         }
     }
 
@@ -267,6 +275,9 @@ impl Jvm {
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             classes: Vec::with_capacity(capacity),
+            index: ClassIndex::LINEAR,
+            fw: None,
+            app: None,
         }
     }
 }
@@ -278,74 +289,26 @@ impl Default for Jvm {
 }
 
 impl Jvm {
-    /// Read-only access to the loaded class table. Callers that need
-    /// `ClassFile` metadata (e.g. `ObjectHeap::alloc_with_defaults`) take
-    /// `&[ClassFile]` — this accessor avoids exposing the inner `Vec`.
-    pub fn classes(&self) -> &[ClassFile] {
-        &self.classes
-    }
-
-    /// Returns (parsed, total) counts for currently loaded classes.
-    ///
-    /// `ClassFile::register` (called by `load_class`) produces a lazy entry:
-    /// only the constant pool is scanned for the class name, and the full
-    /// method/field tables stay unparsed until first access. This accessor
-    /// exposes how many classes have been forced past that lazy state — a
-    /// direct measure of the lazy-load win on any given run.
-    pub fn count_parsed(&self) -> (usize, usize) {
-        let parsed = self.classes.iter().filter(|c| c.is_parsed()).count();
-        (parsed, self.classes.len())
-    }
-
-    /// Total RAM held by parsed class metadata across the loaded set, as
-    /// `(host_bytes, device_bytes)` — see
-    /// [`ClassFile::parsed_metadata_bytes`]. The census uses this to price
-    /// each executor's metadata (a `Thread.start` child that loads its own
-    /// class set duplicates all of it — handover §6).
-    pub fn parsed_metadata_bytes(&self) -> (usize, usize) {
-        let mut host = 0;
-        let mut dev = 0;
-        for c in &self.classes {
-            if let Some((h, d)) = c.parsed_metadata_bytes() {
-                host += h;
-                dev += d;
-            }
+    /// The loaded class table with its index — what every lookup by name
+    /// takes (`ObjectHeap::alloc_with_defaults`, the natives' `ctx.classes`);
+    /// dereferences to the table itself.
+    pub fn classes(&self) -> Classes<'_> {
+        Classes {
+            files: &self.classes,
+            index: &self.index,
         }
-        (host, dev)
     }
 
-    /// The parsed-metadata figure by part, summed over the loaded set:
-    /// `(host, device)`. Says which packing lever pays.
-    pub fn parsed_metadata_parts(&self) -> (class_file::MetaParts, class_file::MetaParts) {
-        let mut host = class_file::MetaParts::default();
-        let mut dev = class_file::MetaParts::default();
-        for c in &self.classes {
-            if let Some(m) = c.parsed_metadata_census() {
-                host.add(&m.host);
-                dev.add(&m.dev);
-            }
-        }
-        (host, dev)
+    /// Number of loaded classes.
+    pub fn class_count(&self) -> usize {
+        self.classes.len()
     }
 
-    /// Every parsed class with its metadata cost, most expensive on the
-    /// device model first. The census's per-class line: the price of an
-    /// import, visible.
-    pub fn parsed_metadata_rows(&self) -> alloc::vec::Vec<(&'static [u8], class_file::MetaCensus)> {
-        let mut rows: alloc::vec::Vec<(&'static [u8], class_file::MetaCensus)> = self
-            .classes
-            .iter()
-            .filter_map(|c| c.parsed_metadata_census().map(|m| (c.scanned_name(), m)))
-            .collect();
-        rows.sort_unstable_by_key(|(_, m)| core::cmp::Reverse(m.dev.total()));
-        rows
-    }
-
-    /// RAM held by the class *registration* table itself — the per-entry
-    /// `ClassFile` structs, paid for every registered class whether or not
-    /// it ever parses, plus the `Vec` header. `(host_bytes, device_bytes)`:
-    /// the device pays `size_of::<ClassFile>()` less
-    /// [`class_file::CLASS_FILE_DELTA`] per entry and a 12 B header.
+    /// RAM held by the class table — the per-entry `ClassFile` structs (the
+    /// only per-class RAM there is: the tables live in flash) plus the
+    /// `Vec` header. `(host_bytes, device_bytes)`: the device pays
+    /// `size_of::<ClassFile>()` less [`class_file::CLASS_FILE_DELTA`] per
+    /// entry and a 12 B header.
     pub fn class_table_bytes(&self) -> (usize, usize) {
         let cap = self.classes.capacity();
         let host = core::mem::size_of::<Vec<ClassFile>>() + cap * core::mem::size_of::<ClassFile>();
@@ -355,17 +318,74 @@ impl Jvm {
 }
 
 impl Jvm {
-    /// Parses and registers a compiled `.class` file.
+    /// Register the framework's class section — the corpus embedded in
+    /// firmware — which must come first: its index is searched first and
+    /// its classes take indices `0..len`.
+    pub fn load_framework(
+        &mut self,
+        section: class_link::ClassSection<'static>,
+    ) -> Result<(), JvmError> {
+        debug_assert!(self.classes.is_empty(), "the framework loads first");
+        self.load_section(section)?;
+        self.fw = Some(section);
+        self.index = ClassIndex::new(self.fw.as_ref(), self.app.as_ref());
+        Ok(())
+    }
+
+    /// Register the app's class section (its PAPK's CLASSES section), after
+    /// the framework's.
+    pub fn load_app(&mut self, section: class_link::ClassSection<'static>) -> Result<(), JvmError> {
+        debug_assert!(self.app.is_none() && self.classes.len() == self.fw.map_or(0, |s| s.len()));
+        self.load_section(section)?;
+        self.app = Some(section);
+        self.index = ClassIndex::new(self.fw.as_ref(), self.app.as_ref());
+        Ok(())
+    }
+
+    /// Register every class of a class section, in directory order, past
+    /// whatever is loaded; these classes are found by scanning (the tests'
+    /// path — [`Self::load_framework`] and [`Self::load_app`] index theirs).
+    /// O(1) per class: the section was validated when it was packed,
+    /// embedded or installed, and each entry is two pointers into it.
     ///
-    /// `data` must be a `'static` byte slice (e.g. embedded via `include_bytes!`
-    /// or a build-script generated constant) because the interpreter holds
+    /// # Errors
+    /// [`JvmError::InvalidBytecode`] if a record does not resolve (a
+    /// section that never went through `validate_structure`).
+    pub fn load_section(
+        &mut self,
+        section: class_link::ClassSection<'static>,
+    ) -> Result<(), JvmError> {
+        if self.classes.try_reserve(section.len()).is_err() {
+            return Err(JvmError::StackOverflow);
+        }
+        for i in 0..section.len() {
+            let linked = section.class(i).ok_or(JvmError::InvalidBytecode)?;
+            self.load_linked(linked)?;
+        }
+        Ok(())
+    }
+
+    /// Register one class from its bytes and link table, past the indexed
+    /// sections.
+    pub fn load_linked(&mut self, linked: class_link::Linked<'static>) -> Result<(), JvmError> {
+        let cf = ClassFile::linked(linked).map_err(|_| JvmError::InvalidBytecode)?;
+        self.classes.push(cf);
+        Ok(())
+    }
+
+    /// Link and register a compiled `.class` file — the host's and the
+    /// tests' way in for class bytes no packer has linked (feature
+    /// `link-at-load`; the table is built now and leaked).
+    ///
+    /// `data` must be a `'static` byte slice because the interpreter holds
     /// references into it for the lifetime of the `Jvm`.
     ///
     /// # Errors
     /// Returns [`JvmError::InvalidBytecode`] if `data` is not a valid `.class`
     /// file.
+    #[cfg(any(test, feature = "link-at-load"))]
     pub fn load_class(&mut self, data: &'static [u8]) -> Result<(), JvmError> {
-        let cf = ClassFile::register(data).map_err(|_| JvmError::InvalidBytecode)?;
+        let cf = ClassFile::parse(data).map_err(|_| JvmError::InvalidBytecode)?;
         self.classes.push(cf);
         Ok(())
     }
@@ -387,9 +407,9 @@ impl Jvm {
         heap: &mut SharedJvmHeap,
         handler: &mut impl NativeMethodHandler,
     ) -> Result<(), JvmError> {
-        let (ci, mi) = find_method_by_name(&self.classes, class_name, method_name)?;
-        interpreter::execute(
-            &self.classes,
+        let (ci, mi) = find_method_by_name(self.classes(), class_name, method_name)?;
+        interpreter::execute_indexed(
+            self.classes(),
             &mut heap.strings,
             &mut heap.objects,
             &mut heap.arrays,
@@ -423,9 +443,9 @@ impl Jvm {
         heap: &mut SharedJvmHeap,
         handler: &mut impl NativeMethodHandler,
     ) -> Result<(), JvmError> {
-        let (ci, mi) = find_method_by_name(&self.classes, class_name, method_name)?;
-        interpreter::execute(
-            &self.classes,
+        let (ci, mi) = find_method_by_name(self.classes(), class_name, method_name)?;
+        interpreter::execute_indexed(
+            self.classes(),
             &mut heap.strings,
             &mut heap.objects,
             &mut heap.arrays,
@@ -457,9 +477,9 @@ impl Jvm {
         heap: &mut SharedJvmHeap,
         handler: &mut impl NativeMethodHandler,
     ) -> Result<(), JvmError> {
-        let (ci, mi) = find_method_by_name(&self.classes, class_name, method_name)?;
-        interpreter::execute(
-            &self.classes,
+        let (ci, mi) = find_method_by_name(self.classes(), class_name, method_name)?;
+        interpreter::execute_indexed(
+            self.classes(),
             &mut heap.strings,
             &mut heap.objects,
             &mut heap.arrays,
@@ -484,11 +504,11 @@ impl Jvm {
         heap: &mut SharedJvmHeap,
         handler: &mut impl NativeMethodHandler,
     ) -> Result<(), JvmError> {
-        let (ci, mi) = find_method_by_name(&self.classes, class_name, method_name)?;
+        let (ci, mi) = find_method_by_name(self.classes(), class_name, method_name)?;
         let mut args = alloc::vec![Value::ObjectRef(obj_ref)];
         args.extend_from_slice(extra_args);
-        interpreter::execute(
-            &self.classes,
+        interpreter::execute_indexed(
+            self.classes(),
             &mut heap.strings,
             &mut heap.objects,
             &mut heap.arrays,
@@ -519,11 +539,11 @@ impl Jvm {
         heap: &mut SharedJvmHeap,
         handler: &mut impl NativeMethodHandler,
     ) -> Result<Option<Value>, JvmError> {
-        let (ci, mi) = find_method_by_name(&self.classes, class_name, method_name)?;
+        let (ci, mi) = find_method_by_name(self.classes(), class_name, method_name)?;
         let mut args = alloc::vec![Value::ObjectRef(obj_ref)];
         args.extend_from_slice(extra_args);
-        interpreter::execute(
-            &self.classes,
+        interpreter::execute_indexed(
+            self.classes(),
             &mut heap.strings,
             &mut heap.objects,
             &mut heap.arrays,
@@ -540,7 +560,7 @@ impl Jvm {
 
 /// Find a class + method index by name (descriptor-agnostic).
 fn find_method_by_name(
-    classes: &[ClassFile],
+    classes: Classes<'_>,
     class_name: &str,
     method_name: &str,
 ) -> Result<(usize, usize), JvmError> {
@@ -548,7 +568,7 @@ fn find_method_by_name(
         .map(|ci| (ci, &classes[ci]))
         .and_then(|(ci, cf)| {
             cf.methods().iter().enumerate().find_map(|(mi, m)| {
-                let mn = cf.cp_utf8(m.name_index)?;
+                let mn = cf.method_name(m)?;
                 if mn == method_name.as_bytes() {
                     Some((ci, mi))
                 } else {

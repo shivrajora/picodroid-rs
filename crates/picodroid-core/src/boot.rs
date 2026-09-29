@@ -14,7 +14,7 @@ use papk_format::Papk;
 use pico_jvm::types::JvmError;
 use pico_jvm::{Jvm, SharedJvmHeap};
 
-use crate::framework_classes::FRAMEWORK_CLASSES;
+use crate::framework_classes::{framework_section, FRAMEWORK_CLASS_COUNT};
 use crate::host;
 
 /// Re-exported at the path it has always had. The constant itself now lives
@@ -97,89 +97,14 @@ fn publish_jvm(jvm: Jvm) -> &'static mut Jvm {
     }
 }
 
-// ── Class loader registration ────────────────────────────────────────────────
+// ── Class loading ────────────────────────────────────────────────────────────
 //
-// `Thread.start()` spawns a task that builds a fresh Jvm and must load every
-// application class before invoking Runnable.run(). A single registered
-// loader reads straight from the active APK, so every app works without
-// special-casing.
-
-type ClassLoaderFn = fn(&mut Jvm) -> Result<(), JvmError>;
-
-// SAFETY: single JVM task (see above); registered once from the bootstrap
-// task before any Thread.start() dispatch can occur.
-struct ClassLoaderCell(core::cell::UnsafeCell<Option<ClassLoaderFn>>);
-unsafe impl Sync for ClassLoaderCell {}
-
-static CLASS_LOADER: ClassLoaderCell = ClassLoaderCell(core::cell::UnsafeCell::new(None));
-
-pub fn register_class_loader(f: ClassLoaderFn) {
-    unsafe { *CLASS_LOADER.0.get() = Some(f) }
-}
-
-pub fn load_classes(jvm: &mut Jvm) -> Result<(), JvmError> {
-    unsafe {
-        match *CLASS_LOADER.0.get() {
-            Some(f) => f(jvm),
-            None => Ok(()),
-        }
-    }
-}
-
-// ── Framework class loading ──────────────────────────────────────────────────
-
-/// Load every picodroid framework class into `jvm`.
-///
-/// Framework classes (`picodroid.*`) are compiled by `build.rs` and embedded
-/// in firmware Flash — platform code, not app code, mirroring Android's boot
-/// classpath model.
-fn load_framework_classes(jvm: &mut Jvm) -> Result<(), JvmError> {
-    for class_data in FRAMEWORK_CLASSES {
-        jvm.load_class(class_data)?;
-    }
-    Ok(())
-}
-
-// ── Active APK pointer ───────────────────────────────────────────────────────
-//
-// `run_app` publishes the current APK here so `load_classes_from_apk` — a
-// bare fn, not a closure — serves both the built-in APK and a dynamically
-// installed PAPK for Thread.start() tasks, without closure captures.
-//
-// SAFETY: single JVM task; one writer (the bootstrap task) and readers that
-// only run after it has published.
-struct ActiveApkCell(core::cell::UnsafeCell<(*const u8, usize)>);
-unsafe impl Sync for ActiveApkCell {}
-
-static ACTIVE_APK: ActiveApkCell =
-    ActiveApkCell(core::cell::UnsafeCell::new((core::ptr::null(), 0)));
-
-// ── APK-driven class loading ─────────────────────────────────────────────────
-
-/// Load every class from the active APK into `jvm`.
-///
-/// Used at startup and by `Thread.start()` when it spawns a fresh `Jvm`,
-/// reading the pointer published by [`run_app`] so dynamically installed
-/// PAPKs load correctly in child threads.
-fn load_classes_from_apk(jvm: &mut Jvm) -> Result<(), JvmError> {
-    let apk_data: &[u8] = unsafe {
-        let (ptr, len) = *ACTIVE_APK.0.get();
-        assert!(!ptr.is_null(), "ACTIVE_APK not set");
-        core::slice::from_raw_parts(ptr, len)
-    };
-    let apk = Papk::parse(apk_data).map_err(|_| JvmError::InvalidBytecode)?;
-    for entry in apk.classes().map_err(|_| JvmError::InvalidBytecode)? {
-        jvm.load_class(entry.data)?;
-    }
-    Ok(())
-}
-
-/// Framework classes then app classes — for `Thread.start()` tasks that need
-/// a fully populated fresh `Jvm`.
-fn load_all_classes(jvm: &mut Jvm) -> Result<(), JvmError> {
-    load_framework_classes(jvm)?;
-    load_classes_from_apk(jvm)
-}
+// Framework classes then app classes, each set a class section — the
+// framework's embedded in firmware (`framework_classes::framework_section`),
+// the app's the PAPK's CLASSES section — registered in O(1) per class:
+// every class arrives with the link table built for it when the set was
+// packed or embedded (docs/designs/class-link-2026-09.md). Every executor,
+// `Thread.start` children included, shares the one `Jvm` (`shared_jvm`).
 
 // ── run_app ──────────────────────────────────────────────────────────────────
 
@@ -198,9 +123,6 @@ pub fn run_app(apk_data: &[u8]) {
     // run lock throughout, giving it up only inside blocking waits
     // (`crate::jvm_run_lock`).
     let _run = crate::jvm_run_lock::Held::acquire();
-    // Publish the APK pointer so load_classes_from_apk (a bare fn) picks it
-    // up even when called from Thread.start()-spawned child tasks.
-    unsafe { *ACTIVE_APK.0.get() = (apk_data.as_ptr(), apk_data.len()) };
 
     // Register GC root providers before the first class load — hence before
     // any GC can run. Objects held only by native code (Views in listener
@@ -290,11 +212,11 @@ pub fn run_app(apk_data: &[u8]) {
             return;
         }
     };
-    let apk_class_count = apk_for_count.classes().map(|it| it.count()).unwrap_or(0);
+    let apk_class_count = apk_for_count.class_count().unwrap_or(0) as usize;
     // Which package this is, for the directory (and later the storage
     // sandbox); copied out because the image may be replaced by an install.
     crate::packages::set_running(apk_for_count.package_name());
-    let mut jvm = Jvm::with_capacity(FRAMEWORK_CLASSES.len() + apk_class_count);
+    let mut jvm = Jvm::with_capacity(FRAMEWORK_CLASS_COUNT + apk_class_count);
     let heap = shared_heap();
     heap.class_objects.resolve.configure(resolve_cache_sizes());
     // A new app run: the class data behind every native's name is about to
@@ -319,14 +241,27 @@ pub fn run_app(apk_data: &[u8]) {
     crate::sched_diag::init();
     host::heap_checkpoint("post-jvm-new");
 
-    // Register the combined loader so Thread.start() spawned tasks load both
-    // framework and app classes into their fresh Jvm instances.
-    register_class_loader(load_all_classes);
-
     // Platform (framework) classes first, then app classes from the APK.
-    load_framework_classes(&mut jvm).unwrap();
+    jvm.load_framework(framework_section()).unwrap();
     host::heap_checkpoint("post-framework-load");
-    load_classes_from_apk(&mut jvm).unwrap();
+    // The PAPK sits in flash (the simulator's leaked copy of it) for the
+    // app's whole run, and the class set points into it from here on.
+    // SAFETY: `apk_data` is the image `run_app` was handed — XIP flash on a
+    // device, a leaked buffer on the host — alive until the next app runs,
+    // by which time `run_app` has returned and this `Jvm` is gone.
+    let apk_static: &'static [u8] =
+        unsafe { core::slice::from_raw_parts(apk_data.as_ptr(), apk_data.len()) };
+    let app_section = match Papk::parse(apk_static).and_then(|p| p.class_section()) {
+        Ok(s) => s,
+        Err(e) => {
+            #[cfg(not(feature = "sim"))]
+            defmt::error!("PAPK class section unreadable: {}", defmt::Debug2Format(&e));
+            #[cfg(feature = "sim")]
+            eprintln!("[sim] PAPK class section unreadable: {e:?}");
+            return;
+        }
+    };
+    jvm.load_app(app_section).unwrap();
     host::heap_checkpoint("post-app-load");
 
     // Publish the loaded set for child executors; `jvm` is the main task's
@@ -460,16 +395,14 @@ pub fn run_app(apk_data: &[u8]) {
         #[cfg(feature = "mem-diag")]
         crate::mem_diag::snapshot(jvm, heap, &handler);
         let (gc_ns, gc_count, gc_freed) = handler.gc_stats();
-        let (parsed, total) = jvm.count_parsed();
         println!(
             "[sim] JVM wall-clock: {} ms, gc: {} collections, {} freed, {} us, \
-             lazy-load: {}/{} classes parsed",
+             classes: {}",
             start.elapsed().as_millis(),
             gc_count,
             gc_freed,
             gc_ns / 1000,
-            parsed,
-            total,
+            jvm.class_count(),
         );
     }
 }

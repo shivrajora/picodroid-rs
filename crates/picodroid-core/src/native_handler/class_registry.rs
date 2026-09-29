@@ -245,8 +245,7 @@ mod tests {
     #[test]
     fn intent_field_slots_match_fields_rs() {
         use crate::shrink_names::{c, m};
-        let intent = crate::framework_classes::FRAMEWORK_CLASSES
-            .iter()
+        let intent = crate::framework_classes::class_bytes()
             .map(|b| ClassFile::parse(b).expect("parse framework class"))
             .find(|cf| cf.class_name() == Some(c::picodroid_content_Intent.as_bytes()))
             .expect("Intent is a framework class");
@@ -272,7 +271,7 @@ mod tests {
     fn every_native_class_is_registered() {
         let mut native_classes = 0;
         let mut missing: Vec<&str> = Vec::new();
-        for bytes in crate::framework_classes::FRAMEWORK_CLASSES {
+        for bytes in crate::framework_classes::class_bytes() {
             let cf = ClassFile::parse(bytes).expect("parse framework class");
             let declares_native = cf
                 .methods()
@@ -340,7 +339,7 @@ mod tests {
     fn no_bodiless_java_framework_classes() {
         let mut java_classes = 0;
         let mut bodiless: Vec<(&str, usize)> = Vec::new();
-        for bytes in crate::framework_classes::FRAMEWORK_CLASSES {
+        for bytes in crate::framework_classes::class_bytes() {
             let cf = ClassFile::parse(bytes).expect("parse framework class");
             let loaded = core::str::from_utf8(cf.class_name().expect("class name"))
                 .expect("class name is UTF-8");

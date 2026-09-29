@@ -8,10 +8,17 @@
 //!
 //! # Format overview
 //!
-//! A PAPK file is a flat binary container with a 24-byte file header followed
-//! by a MANIFEST section, a CLASSES section, (optionally, in v1.1+) an
-//! ASSETS section and (optionally, in v1.2+) a RESOURCES section.  All
-//! integers are little-endian.
+//! A PAPK file is a flat binary container with a 28-byte file header followed
+//! by a MANIFEST section, a CLASSES section, optionally an ASSETS section and
+//! optionally a RESOURCES section.  All integers are little-endian.
+//!
+//! This is format **v2** (2026-09): the CLASSES section is a
+//! [`class_link::ClassSection`] — every class with the link table
+//! `class-link` built for it at pack time, plus a sorted class index — so the
+//! JVM parses nothing at load and resolves by hash
+//! (docs/designs/class-link-2026-09.md). v1 files are refused
+//! ([`PapkError::UnsupportedVersion`]); nothing was deployed that carried
+//! them, so no reader for the old layout exists.
 //!
 //! **Every section starts on a 4-byte boundary**, zero-padded from the end of
 //! the previous one. The reader takes each section's offset from the file
@@ -27,25 +34,15 @@
 //! wherever the sum of the class files happened to land.
 //!
 //! ```text
-//! File header (24 bytes):
-//!   [0..4]   magic:           b"PAPK"
-//!   [4..2]   version_major:   u16 LE  (currently 1)
-//!   [6..2]   version_minor:   u16 LE  (0 = no assets, 1 = ASSETS section may exist,
-//!                                      2 = the header has the v1.2 extension)
-//!   [8..4]   section_count:   u32 LE
-//!   [12..4]  manifest_offset: u32 LE  (offset to MANIFEST section header)
-//!   [16..4]  classes_offset:  u32 LE  (offset to CLASSES section header)
-//!   [20..4]  assets_offset:   u32 LE  (offset to ASSETS section header, 0 = absent)
-//!
-//! File header extension (4 more bytes, present iff version_minor >= 2):
-//!   [24..4]  resources_offset: u32 LE (offset to RESOURCES section header, 0 = absent)
-//!
-//! The writer emits the extension — and minor 2 — only for a PAPK that has a
-//! RESOURCES section, so every other PAPK stays byte-identical to v1.1. A
-//! v1.1 reader handed a v1.2 file takes its three offsets from the same slots
-//! as ever and simply never sees the resources. A reader must gate on
-//! `version_minor` before it looks at [24..28]: in a v1.1 file those bytes
-//! are the MANIFEST section's tag.
+//! File header (28 bytes):
+//!   [0..4]   magic:            b"PAPK"
+//!   [4..2]   version_major:    u16 LE  (2)
+//!   [6..2]   version_minor:    u16 LE  (0)
+//!   [8..4]   section_count:    u32 LE
+//!   [12..4]  manifest_offset:  u32 LE  (offset to MANIFEST section header)
+//!   [16..4]  classes_offset:   u32 LE  (offset to CLASSES section header)
+//!   [20..4]  assets_offset:    u32 LE  (offset to ASSETS section header, 0 = absent)
+//!   [24..4]  resources_offset: u32 LE  (offset to RESOURCES section header, 0 = absent)
 //!
 //! Section header (16 bytes):
 //!   [0..4]   tag:      u32 LE  ("MANI", "CLSS", "ASST" or "RESR")
@@ -61,13 +58,15 @@
 //!   and `icon`, then any extra entries. Readers must tolerate absent keys:
 //!   a PAPK packed before a key existed simply lacks it.
 //!
-//! CLASSES section data:
-//!   [u32 class_count]
-//!   For each class:
-//!     [u16 name_len][name bytes (JVM internal, no .class suffix)]
-//!     [u32 data_len][raw .class file bytes]
+//! CLASSES section data: a `class_link::ClassSection` —
+//!   [u32 class_count][u32 index_off]
+//!   directory: class_count × { u32 class_off, u32 link_off }   (4-aligned)
+//!   per class: raw .class bytes, pad to 4, its link table, pad to 4
+//!   index at index_off: class_count × { u32 name_hash, u16 idx, u16 0 },
+//!   sorted by hash (see crates/class-link/src/section.rs). The class's
+//!   name is in its link table, not repeated here.
 //!
-//! ASSETS section data (v1.1+):
+//! ASSETS section data:
 //!   [u32 asset_count]
 //!   For each asset:
 //!     [u16 name_len][name bytes (UTF-8, e.g. "logo.png")]
@@ -78,7 +77,7 @@
 //!     [pixel bytes (data_size bytes; LVGL-native, not encoded)]
 //!     [pad 0..3 bytes so next record starts at 4-byte offset within the section]
 //!
-//! RESOURCES section data (v1.2+):
+//! RESOURCES section data:
 //!   see the [`res`] module.
 //!
 //! Between sections:
@@ -122,6 +121,10 @@ pub use scan::{
 mod write;
 #[cfg(feature = "write")]
 pub use write::{AssetSpec, BuildError, EntryPoint, ManifestSpec, PapkBuilder};
+#[cfg(any(test, feature = "write"))]
+mod aligned;
+#[cfg(any(test, feature = "write"))]
+pub use aligned::AlignedBuf;
 
 use core::str;
 
@@ -129,21 +132,16 @@ use core::str;
 
 /// The four magic bytes at the start of every PAPK file.
 pub const MAGIC: &[u8; 4] = b"PAPK";
-/// The only `version_major` this parser accepts.
-pub const SUPPORTED_VERSION_MAJOR: u16 = 1;
+/// The only `version_major` this parser accepts: v2, the linked-class
+/// format. A v1 file is refused with [`PapkError::UnsupportedVersion`]; the
+/// message to its owner is "re-pack with the current toolchain".
+pub const SUPPORTED_VERSION_MAJOR: u16 = 2;
 /// `version_major` the writer emits.
-pub const VERSION_MAJOR: u16 = 1;
-/// `version_minor` the writer emits (1 since the `framework-map-version`
-/// manifest key / ASSETS section were introduced) for a PAPK without a
-/// RESOURCES section.
-pub const VERSION_MINOR: u16 = 1;
-/// `version_minor` of a PAPK whose file header carries the v1.2 extension
-/// (`resources_offset`). Emitted only when there is a RESOURCES section.
-pub const VERSION_MINOR_RESOURCES: u16 = 2;
-/// Byte length of the fixed file header.
-pub const FILE_HEADER_LEN: usize = 24;
-/// Byte length of the file header with the v1.2 extension.
-pub const FILE_HEADER_LEN_V1_2: usize = 28;
+pub const VERSION_MAJOR: u16 = 2;
+/// `version_minor` the writer emits.
+pub const VERSION_MINOR: u16 = 0;
+/// Byte length of the file header (`resources_offset` included).
+pub const FILE_HEADER_LEN: usize = 28;
 /// Byte length of each section header.
 pub const SECTION_HEADER_LEN: usize = 16;
 /// Section tag for the MANIFEST section (`b"MANI"` as a LE u32).
@@ -200,6 +198,9 @@ pub enum PapkError {
     /// firmware's active version; the append-only invariant cannot cover
     /// the gap. Rebuild the app against matching firmware.
     FrameworkVersionMismatch,
+    /// The CLASSES section is not a well-formed class section (a class or
+    /// its link table out of bounds or misaligned, or a bad index).
+    Classes(class_link::LinkError),
 }
 
 impl core::fmt::Display for PapkError {
@@ -215,6 +216,7 @@ impl core::fmt::Display for PapkError {
             Self::FrameworkVersionMismatch => {
                 "PAPK framework-map-version is incompatible with the firmware"
             }
+            Self::Classes(e) => return write!(f, "CLASSES section: {e}"),
         };
         f.write_str(s)
     }
@@ -235,26 +237,20 @@ pub struct FileHeader {
     pub section_count: u32,
     pub manifest_offset: u32,
     pub classes_offset: u32,
-    /// Offset of the ASSETS section header; `0` = absent (v1.0 `reserved`).
+    /// Offset of the ASSETS section header; `0` = absent.
     pub assets_offset: u32,
-    /// Offset of the RESOURCES section header; `0` = absent, and always `0`
-    /// below v1.2, whose header has no such field.
+    /// Offset of the RESOURCES section header; `0` = absent.
     pub resources_offset: u32,
 }
 
-/// `resources_offset` of a header whose magic and 24-byte length are already
-/// checked: `0` unless the file declares the v1.2 extension and is long
-/// enough to hold it.
+/// `resources_offset` of a header whose magic and length are already
+/// checked; `0` = no RESOURCES section.
 fn read_resources_offset(data: &[u8]) -> u32 {
-    if read_u16_le(data, 6) >= VERSION_MINOR_RESOURCES && data.len() >= FILE_HEADER_LEN_V1_2 {
-        read_u32_le(data, 24)
-    } else {
-        0
-    }
+    read_u32_le(data, 24)
 }
 
 impl FileHeader {
-    /// Parse the 24-byte file header from `data`.
+    /// Parse the 28-byte file header from `data`.
     ///
     /// Checks the magic and the buffer length only — it does NOT enforce
     /// `version_major`, so callers (e.g. `papk-info`) can still dump a
@@ -291,36 +287,43 @@ pub struct SectionHeader {
     pub crc32: u32,
 }
 
-/// One class entry from the CLASSES section.
+/// One class from the CLASSES section: its bytes and its link table.
 pub struct ClassEntry<'a> {
-    /// JVM internal class name (e.g. `"helloworld/HelloWorld"`), UTF-8.
+    /// JVM internal class name (e.g. `"helloworld/HelloWorld"`), as the
+    /// class file spells it (read through the link table).
     pub name: &'a [u8],
-    /// Raw `.class` file bytes, suitable for `pico_jvm::Jvm::load_class`.
+    /// Raw `.class` file bytes.
     pub data: &'a [u8],
+    /// The class's link table.
+    pub link: class_link::Link<'a>,
 }
 
-/// Iterator over class entries in the CLASSES section.
+impl<'a> ClassEntry<'a> {
+    /// The bytes with their table, as the JVM registers them.
+    pub fn linked(&self) -> class_link::Linked<'a> {
+        class_link::Linked {
+            class: self.data,
+            link: self.link,
+        }
+    }
+}
+
+/// Iterator over the classes of the CLASSES section, in directory order.
 pub struct ClassIter<'a> {
-    data: &'a [u8], // slice covering just the CLASSES section data
-    pos: usize,
-    remaining: u32,
+    section: class_link::ClassSection<'a>,
+    next: usize,
 }
 
 impl<'a> Iterator for ClassIter<'a> {
     type Item = ClassEntry<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.remaining == 0 {
-            return None;
-        }
-        // Read name: [u16 len][bytes]
-        let name = read_bytes_u16(self.data, &mut self.pos)?;
-        // Read class data: [u32 len][bytes]
-        let class_data = read_bytes_u32(self.data, &mut self.pos)?;
-        self.remaining -= 1;
+        let linked = self.section.class(self.next)?;
+        self.next += 1;
         Some(ClassEntry {
-            name,
-            data: class_data,
+            name: linked.name()?,
+            data: linked.class,
+            link: linked.link,
         })
     }
 }
@@ -443,10 +446,11 @@ pub struct Papk<'a> {
 impl<'a> Papk<'a> {
     /// Parse the PAPK file header from `data`.
     ///
-    /// Only the 24-byte file header is read here; sections are read lazily.
+    /// Only the 28-byte file header is read here; sections are read lazily.
     /// Returns [`PapkError::BadMagic`] if the magic bytes are wrong,
-    /// [`PapkError::UnsupportedVersion`] if `version_major != 1`, or
-    /// [`PapkError::Truncated`] if the file is shorter than 24 bytes.
+    /// [`PapkError::UnsupportedVersion`] if `version_major` is not
+    /// [`SUPPORTED_VERSION_MAJOR`] (a v1 file: re-pack it), or
+    /// [`PapkError::Truncated`] if the file is shorter than the header.
     pub fn parse(data: &'a [u8]) -> Result<Self, PapkError> {
         if data.len() < FILE_HEADER_LEN {
             return Err(PapkError::Truncated);
@@ -460,9 +464,7 @@ impl<'a> Papk<'a> {
         }
         let manifest_offset = read_u32_le(data, 12) as usize;
         let classes_offset = read_u32_le(data, 16) as usize;
-        // 0 here means "no ASSETS section" — the field doubled as `reserved`
-        // in v1.0, where it was always written as 0. So legacy papks parse
-        // without surprise.
+        // 0 means "no ASSETS section".
         let assets_offset = read_u32_le(data, 20) as usize;
         let resources_offset = read_resources_offset(data) as usize;
 
@@ -679,23 +681,27 @@ impl<'a> Papk<'a> {
 
     /// Returns an iterator over all class entries in the CLASSES section.
     pub fn classes(&self) -> Result<ClassIter<'a>, PapkError> {
-        let cdata = self.classes_section_data()?;
-        if cdata.len() < 4 {
-            return Err(PapkError::Truncated);
-        }
-        let class_count = read_u32_le(cdata, 0);
         Ok(ClassIter {
-            data: cdata,
-            pos: 4,
-            remaining: class_count,
+            section: self.class_section()?,
+            next: 0,
         })
+    }
+
+    /// The CLASSES section as the class section it is: random access to
+    /// each class with its link table, and the sorted class index. The
+    /// section must sit at a 4-byte aligned address — it does in a file
+    /// mapped from flash and in the firmware's `.rodata`; a host buffer may
+    /// need an aligned copy first (see [`class_link::ClassSection::parse`]).
+    pub fn class_section(&self) -> Result<class_link::ClassSection<'a>, PapkError> {
+        let cdata = self.classes_section_data()?;
+        class_link::ClassSection::parse(cdata).map_err(PapkError::Classes)
     }
 
     /// Returns the class count *declared* in the CLASSES section.
     ///
-    /// [`ClassIter`] stops early (yields fewer entries) when the section is
-    /// truncated mid-record; a dump tool can compare the yielded count with
-    /// this declared count to surface the shortfall as an error.
+    /// [`ClassIter`] stops early (yields fewer entries) when a record is
+    /// malformed; a dump tool can compare the yielded count with this
+    /// declared count to surface the shortfall as an error.
     pub fn class_count(&self) -> Result<u32, PapkError> {
         let cdata = self.classes_section_data()?;
         if cdata.len() < 4 {
@@ -764,24 +770,6 @@ fn read_bytes_u16<'a>(buf: &'a [u8], pos: &mut usize) -> Option<&'a [u8]> {
         return None;
     }
     let len = read_u16_le(buf, *pos) as usize;
-    *pos = after_len;
-    let end = pos.checked_add(len)?;
-    if end > buf.len() {
-        return None;
-    }
-    let slice = &buf[*pos..end];
-    *pos = end;
-    Some(slice)
-}
-
-/// Reads a length-prefixed byte slice using a `u32` length prefix.
-/// Advances `pos` past the length and data. Returns `None` if truncated.
-fn read_bytes_u32<'a>(buf: &'a [u8], pos: &mut usize) -> Option<&'a [u8]> {
-    let after_len = pos.checked_add(4)?;
-    if after_len > buf.len() {
-        return None;
-    }
-    let len = read_u32_le(buf, *pos) as usize;
     *pos = after_len;
     let end = pos.checked_add(len)?;
     if end > buf.len() {

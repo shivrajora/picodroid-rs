@@ -80,7 +80,7 @@ fn arraylist_to_array_keeps_object_zero() {
     )
     .unwrap();
     let mut ctx = NativeContext {
-        classes: &[],
+        classes: Classes::linear(&[]),
         descriptor: d::__aObject,
         args: &[list],
         strings: &mut strings,
@@ -115,7 +115,7 @@ fn arraylist_contains_matches_string_content() {
     dispatch_list(m::add, d::Object__Z, &[list, lit], &mut objects).unwrap();
     let mut call = |m: &str, d: &str, args: &[Value], objects: &mut ObjectHeap| {
         let mut ctx = NativeContext {
-            classes: &[],
+            classes: Classes::linear(&[]),
             descriptor: d,
             args,
             strings: &mut strings,
@@ -234,7 +234,7 @@ fn arraylist_remove_object_overload() {
     }
     let mut call = |m: &str, d: &str, args: &[Value], objects: &mut ObjectHeap| {
         let mut ctx = NativeContext {
-            classes: &[],
+            classes: Classes::linear(&[]),
             descriptor: d,
             args,
             strings: &mut strings,

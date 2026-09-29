@@ -151,17 +151,17 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             self.arrays,
             v,
         ));
-        match helpers::find_method_walking_cached(
+        helpers::find_method_walking_cached(
             &mut self.class_objects.resolve,
             self.classes,
             key,
             class,
             m::equals,
             d::Object__Z,
-        ) {
-            Some((ci, mi)) => self.classes[ci].methods()[mi].code_offset != 0,
-            None => false,
-        }
+            0,
+        )
+        .java()
+        .is_some()
     }
 
     /// `probe.equals(candidate)`: identity first, then the override.
@@ -204,6 +204,13 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
     ) -> Result<Option<Option<Value>>, JvmError> {
         let is_map = class_name == c::java_util_HashMap || class_name == c::java_util_LinkedHashMap;
         let is_set = class_name == c::java_util_HashSet || class_name == c::java_util_LinkedHashSet;
+        let is_list = class_name == c::java_util_ArrayList;
+        // Class first: a call on anything else must not pay the method
+        // compares below (a resolved site skips this whole check anyway,
+        // through `flags::PRECHECK`; upcalls and the indy paths reach it).
+        if !(is_map || is_set || is_list) {
+            return Ok(None);
+        }
         let op = match method_name {
             m::get if is_map => CollOp::MapGet,
             m::getOrDefault if is_map => CollOp::MapGetOrDefault,
@@ -213,10 +220,8 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             m::add if is_set => CollOp::SetAdd,
             m::contains if is_set => CollOp::SetContains,
             m::remove if is_set => CollOp::SetRemove,
-            m::contains if class_name == c::java_util_ArrayList => CollOp::ListContains,
-            m::remove if class_name == c::java_util_ArrayList && descriptor == d::Object__Z => {
-                CollOp::ListRemove
-            }
+            m::contains if is_list => CollOp::ListContains,
+            m::remove if is_list && descriptor == d::Object__Z => CollOp::ListRemove,
             _ => return Ok(None),
         };
         let probe = args.get(1).copied().unwrap_or(Value::Null);

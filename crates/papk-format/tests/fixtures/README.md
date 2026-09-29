@@ -1,17 +1,15 @@
 # Golden PAPK fixtures
 
-These `.papk` files were produced by the **pre-refactor** `papk-pack` CLI
-(repo state: commit `7234d0b`, 2026-07-25) and are the byte-for-byte ground
-truth for `papk-format`'s parser. Do NOT regenerate them casually — the whole
-point is that they pin the on-disk layout emitted by the original writer, and
-they are what proves the reader still takes the papks already installed on
-devices. If the format ever changes intentionally, cut new fixtures with a new
-minor/major version and keep these for the old version.
+These `.papk` files were produced by `papk-pack` (format **v2**, 2026-09-28:
+the linked-class layout of docs/designs/class-link-2026-09.md) and are the
+byte-for-byte ground truth for `papk-format`'s parser and writer: the
+parser must extract the known contents, and `PapkBuilder` must reproduce
+each file exactly (`tests/golden.rs`, `papk-pack`'s `pack_integration`).
+Regenerate them only when the format changes on purpose, with the
+invocations below, and update the sizes and contents listed here.
 
-Since 2026-09-15 the writer 4-byte aligns every section start, so it no longer
-reproduces these files byte for byte. The three rebuild tests — two in
-`golden.rs`, one in `papk-pack`'s `pack_integration` — compare section header
-plus data per section instead, and require the new offsets to be aligned.
+The v1 fixtures were dropped with v1 itself: nothing deployed carried the
+old layout, so no reader for it exists.
 
 ## Inputs (checked in alongside)
 
@@ -66,7 +64,7 @@ $WORK/fixture-classes/fixture/Main.class
 $WORK/fixture-assets/gradient.png
 ```
 
-`minimal.papk` (432 bytes — MANI + CLSS, no ASSETS section):
+`minimal.papk` (564 bytes — MANI + CLSS, no ASSETS section):
 
 ```bash
 cargo run -p papk-pack --target x86_64-unknown-linux-gnu -- \
@@ -75,10 +73,10 @@ cargo run -p papk-pack --target x86_64-unknown-linux-gnu -- \
   --version 1.0 \
   --framework-map-version 0.0.0 \
   --classes-dir $WORK/fixture-classes \
-  --output papk-format/tests/fixtures/minimal.papk
+  --output crates/papk-format/tests/fixtures/minimal.papk
 ```
 
-`with-assets.papk` (608 bytes — MANI + CLSS + ASST, one 8x8 RGB565 asset):
+`with-assets.papk` (740 bytes — MANI + CLSS + ASST, one 8x8 RGB565 asset):
 
 ```bash
 cargo run -p papk-pack --target x86_64-unknown-linux-gnu -- \
@@ -88,7 +86,7 @@ cargo run -p papk-pack --target x86_64-unknown-linux-gnu -- \
   --framework-map-version 0.0.0 \
   --classes-dir $WORK/fixture-classes \
   --assets-dir $WORK/fixture-assets \
-  --output papk-format/tests/fixtures/with-assets.papk
+  --output crates/papk-format/tests/fixtures/with-assets.papk
 ```
 
 (`--target <host triple>` is required because the workspace's default build
@@ -97,10 +95,11 @@ target is `thumbv6m-none-eabi`; substitute the output of
 
 ## Known contents (asserted by tests/golden.rs)
 
-Both files: header `PAPK`, version 1.1, `manifest_offset` 24; manifest keys
+Both files: header `PAPK`, version 2.0, `manifest_offset` 28; manifest keys
 in order: `main-class=fixture/Main`, `package-name=fixture`, `version=1.0`,
 `framework-map-version=0.0.0`; one class `fixture/Main` whose data is exactly
-`Main.class`.
+`Main.class`, followed by its link table (two methods, `<init>` and `main`)
+and a one-entry class index.
 
 `minimal.papk`: `section_count` 2, `assets_offset` 0.
 `with-assets.papk`: `section_count` 3, one asset `gradient.png`

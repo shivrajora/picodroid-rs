@@ -14,7 +14,7 @@ fn iterator_arraylist_empty() {
     let mut arrays = ArrayHeap::new();
     let iter = {
         let mut ctx = NativeContext {
-            classes: &[],
+            classes: Classes::linear(&[]),
             descriptor: d::__Iterator,
             args: &[list],
             strings: &mut strings,
@@ -50,7 +50,7 @@ fn iterator_arraylist_basic() {
     let mut arrays = ArrayHeap::new();
     let iter = {
         let mut ctx = NativeContext {
-            classes: &[],
+            classes: Classes::linear(&[]),
             descriptor: d::__Iterator,
             args: &[list],
             strings: &mut strings,
@@ -99,7 +99,7 @@ fn iterator_arraylist_single() {
     let mut arrays = ArrayHeap::new();
     let iter = {
         let mut ctx = NativeContext {
-            classes: &[],
+            classes: Classes::linear(&[]),
             descriptor: d::__Iterator,
             args: &[list],
             strings: &mut strings,
@@ -138,7 +138,7 @@ fn iterator_next_past_end() {
     let mut arrays = ArrayHeap::new();
     let iter = {
         let mut ctx = NativeContext {
-            classes: &[],
+            classes: Classes::linear(&[]),
             descriptor: d::__Iterator,
             args: &[list],
             strings: &mut strings,
@@ -189,7 +189,7 @@ fn iterator_hashmap_keys() {
     let mut arrays = ArrayHeap::new();
     let iter = {
         let mut ctx = NativeContext {
-            classes: &[],
+            classes: Classes::linear(&[]),
             descriptor: d::__Iterator,
             args: &[keyset],
             strings: &mut strings,
@@ -250,7 +250,7 @@ fn hashmap_key_and_value_views_answer_contains() {
     let mut arrays = ArrayHeap::new();
     let mut probe = |class: &str, view: Value, needle: Value| -> Value {
         let mut ctx = NativeContext {
-            classes: &[],
+            classes: Classes::linear(&[]),
             descriptor: d::Object__Z,
             args: &[view, needle],
             strings: &mut strings,
@@ -320,7 +320,7 @@ fn iterator_hashmap_values() {
     let mut arrays = ArrayHeap::new();
     let iter = {
         let mut ctx = NativeContext {
-            classes: &[],
+            classes: Classes::linear(&[]),
             descriptor: d::__Iterator,
             args: &[vals],
             strings: &mut strings,

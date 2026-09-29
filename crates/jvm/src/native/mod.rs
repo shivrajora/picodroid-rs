@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
+use crate::class_file::Classes;
 use crate::class_file::{name_eq, name_hash};
 use crate::names::{c, d, m};
 use crate::{
     array_heap::ArrayHeap,
-    class_file::ClassFile,
     heap::StringTable,
     object_heap::ObjectHeap,
     static_fields::StaticFieldStore,
@@ -1120,7 +1120,7 @@ pub struct NativeContext<'a> {
     /// [`NativeContext::canonical_class_name`] — required before storing a name
     /// past the current call, since a `&str` from [`StringTable::resolve`] may
     /// point into the GC-managed dynamic-string region.
-    pub classes: &'a [ClassFile],
+    pub classes: Classes<'a>,
     /// The rest of the interpreter state, present whenever this call came from
     /// running bytecode. [`NativeMethodHandler::invoke_java`] needs it; nothing
     /// else does, and its contents are deliberately crate-private.

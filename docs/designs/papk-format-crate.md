@@ -5,6 +5,17 @@
 > verdict and amendments are at the bottom and OVERRIDE the design body where
 > they conflict). Execute from this doc; update it if reality diverges.
 
+## Format v2 (2026-09-28)
+
+The layout this doc describes is **v1**. Since 2026-09-28 the crate writes and
+reads only **v2**: a fixed 28-byte header (`resources_offset` always present,
+`version_major = 2`) and a CLASSES section that is a `class-link` class
+section — every class followed by the link table built for it at pack time,
+plus a sorted class index — so the JVM parses nothing at load. v1 files are
+refused; nothing deployed carried them. The design is
+docs/designs/class-link-2026-09.md; the layout is `crates/papk-format/src/lib.rs`
+and `crates/class-link/src/{layout,section}.rs`.
+
 ## Status (added 2026-08-31 — this doc had none, and read as unexecuted)
 
 **DONE in full, including both critique riders.** `papk-format/` is a workspace

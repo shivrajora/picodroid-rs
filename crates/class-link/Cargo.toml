@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[package]
+name = "class-link"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "Pack-time link tables for JVM class files: the parsed record, member hashes and per-site descriptors laid out for in-place reads from flash, plus the class section that carries a set of classes with a sorted index. no_std reader; alloc-gated builder."
+
+[dependencies]
+
+[features]
+default = []
+# The alloc-based builder: the packer, the firmware build script and tests.
+build = []

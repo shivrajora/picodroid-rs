@@ -2,10 +2,10 @@
 //! `invokedynamic` and lambdas: linking a call site to a `LambdaProxy`,
 //! dispatching an interface call on one, and adapting its arguments.
 
-use super::ops_invoke::widen;
+use super::ops_invoke::{widen, DispatchOpts};
 use super::{helpers, Executor};
 use crate::names::c;
-use crate::resolve_cache::{SiteKey, RECV_NONE};
+use crate::resolve_cache::{SiteKey, Target, RECV_NONE};
 use crate::{
     frame::Frame,
     native::NativeMethodHandler,
@@ -342,12 +342,13 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 class_idx,
                 method_idx,
             } => {
-                let tm = &self.classes[class_idx].methods()[method_idx];
+                let cf = &self.classes[class_idx];
+                let tm = &cf.methods()[method_idx];
                 if tm.code_offset == 0 {
                     return Err(JvmError::NoSuchMethod);
                 }
                 let desc = self.classes[class_idx]
-                    .cp_utf8(tm.descriptor_index)
+                    .method_descriptor(tm)
                     .ok_or(JvmError::InvalidBytecode)?;
                 // ACC_STATIC = 0x0008.
                 (desc, tm.access_flags & 0x0008 == 0)
@@ -372,9 +373,15 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 class_idx,
                 method_idx,
             } => {
-                let tm = &self.classes[class_idx].methods()[method_idx];
-                let mut f =
-                    Frame::new(class_idx, method_idx, &actual, tm.max_locals, tm.max_stack)?;
+                let cf = &self.classes[class_idx];
+                let tm = &cf.methods()[method_idx];
+                let mut f = Frame::new(
+                    class_idx,
+                    method_idx,
+                    &actual,
+                    cf.method_max_locals(tm),
+                    cf.method_max_stack(tm),
+                )?;
                 f.box_return = box_return;
                 Ok(LambdaCall::Frame(f))
             }
@@ -390,7 +397,15 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                     site,
                     recv: RECV_NONE,
                 };
-                let r = self.dispatch_native(Some(key), class, name, desc, &actual, frames);
+                let r = self.dispatch_native(
+                    Some(key),
+                    class,
+                    name,
+                    desc,
+                    &actual,
+                    frames,
+                    DispatchOpts::ALL,
+                );
                 self.gc_state.truncate_shadow_roots(mark);
                 Ok(LambdaCall::Done(self.box_native_result(r?, box_return)?))
             }
@@ -423,18 +438,36 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                     class,
                     name,
                     desc,
+                    0,
                 );
-                match resolved {
-                    Some((ci, mi)) if self.classes[ci].methods()[mi].code_offset != 0 => {
-                        let tm = &self.classes[ci].methods()[mi];
-                        let mut f = Frame::new(ci, mi, &actual, tm.max_locals, tm.max_stack)?;
+                match resolved.target {
+                    Target::Java { ci, mi } => {
+                        let cf = &self.classes[ci];
+                        let tm = &cf.methods()[mi];
+                        let mut f = Frame::new(
+                            ci,
+                            mi,
+                            &actual,
+                            cf.method_max_locals(tm),
+                            cf.method_max_stack(tm),
+                        )?;
                         f.box_return = box_return;
                         Ok(LambdaCall::Frame(f))
                     }
-                    _ => {
+                    Target::Native { .. } => {
                         self.stringify_native_args(frames, class, name, desc, &mut actual)?;
                         let mark = self.gc_state.push_shadow_roots(&actual);
-                        let r = self.dispatch_native(Some(key), class, name, desc, &actual, frames);
+                        // `class` is the receiver's runtime class — what
+                        // the site's PRECHECK bit was computed for.
+                        let r = self.dispatch_native(
+                            Some(key),
+                            class,
+                            name,
+                            desc,
+                            &actual,
+                            frames,
+                            DispatchOpts::from_flags(resolved.flags),
+                        );
                         self.gc_state.truncate_shadow_roots(mark);
                         Ok(LambdaCall::Done(self.box_native_result(r?, box_return)?))
                     }
@@ -463,8 +496,15 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                     let mut all: Vec<Value> = Vec::with_capacity(actual.len() + 1);
                     all.push(Value::ObjectRef(obj));
                     all.extend_from_slice(&actual);
-                    let tm = &self.classes[ci].methods()[mi];
-                    let f = Frame::new(ci, mi, &all, tm.max_locals, tm.max_stack)?;
+                    let cf = &self.classes[ci];
+                    let tm = &cf.methods()[mi];
+                    let f = Frame::new(
+                        ci,
+                        mi,
+                        &all,
+                        cf.method_max_locals(tm),
+                        cf.method_max_stack(tm),
+                    )?;
                     Ok(LambdaCall::Ctor { frame: f, obj })
                 }
                 None => {
@@ -477,7 +517,15 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                         site,
                         recv: RECV_NONE,
                     };
-                    let r = self.dispatch_native(Some(key), class, "<init>", desc, &all, frames);
+                    let r = self.dispatch_native(
+                        Some(key),
+                        class,
+                        "<init>",
+                        desc,
+                        &all,
+                        frames,
+                        DispatchOpts::ALL,
+                    );
                     self.gc_state.truncate_shadow_roots(mark);
                     // A native `<init>` is void, except `String`'s, which
                     // hands back the interned string in place of the

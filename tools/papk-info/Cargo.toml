@@ -10,4 +10,6 @@ name = "papk-info"
 path = "src/main.rs"
 
 [dependencies]
-papk-format = { path = "../../crates/papk-format" }
+papk-format = { path = "../../crates/papk-format", features = ["write"] }
+# `--verify` re-links every class and compares.
+class-link = { path = "../../crates/class-link", features = ["build"] }

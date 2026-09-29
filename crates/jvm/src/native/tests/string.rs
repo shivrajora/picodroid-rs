@@ -692,7 +692,7 @@ fn string_join_unknown_descriptor_is_not_served() {
     let mut ctx = StrCtx::new();
     let d = ctx.intern(b",");
     let mut nctx = NativeContext {
-        classes: &[],
+        classes: Classes::linear(&[]),
         descriptor: "(Ljava/lang/String;)Ljava/lang/String;",
         args: &[d],
         strings: &mut ctx.strings,

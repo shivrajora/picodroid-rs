@@ -6,7 +6,7 @@ mod map_store;
 mod sb_store;
 
 use crate::chunked_slots::ChunkedSlots;
-use crate::class_file::ClassFile;
+use crate::class_file::Classes;
 use crate::gc::compact;
 use crate::names::c;
 use crate::types::{default_for_descriptor, Slot, Value};
@@ -269,8 +269,10 @@ impl ObjectHeap {
         &self.alloc_histo
     }
 
-    /// Canonical class name for a `class_idx`, if loaded.
-    #[cfg(feature = "mem-diag")]
+    /// Canonical class name for a `class_idx`, if loaded — what a site's
+    /// receiver id resolves to when a native target or a miss needs the
+    /// name ([`Self::class_id`] is the cheaper question the hit path asks).
+    #[inline]
     pub fn class_name_by_idx(&self, idx: u16) -> Option<&'static str> {
         self.class_table.get(idx as usize).copied()
     }
@@ -527,7 +529,7 @@ impl ObjectHeap {
     pub fn alloc_with_defaults(
         &mut self,
         class_name: &'static str,
-        classes: &[ClassFile],
+        classes: Classes<'_>,
     ) -> Option<u16> {
         // Build chain root-first, tracking whether the chain bottoms out at
         // java/lang/Enum (a native class outside `classes` with 2 implicit
@@ -544,8 +546,10 @@ impl ObjectHeap {
         // the JVM's lifetime. Falls back to `class_name` for classes not present
         // in `classes` (builtins/native), whose names are already `'static`.
         let mut canonical_name: &'static str = class_name;
+        // The leaf by name; every superclass by the hash its child's table
+        // stores, so a `new` costs one binary search per level.
+        let mut ci = crate::class_file::find_class(classes, current.as_bytes());
         loop {
-            let ci = crate::class_file::find_class(classes, current.as_bytes());
             match ci {
                 Some(i) => {
                     if chain.is_empty() {
@@ -556,10 +560,18 @@ impl ObjectHeap {
                         }
                     }
                     chain.push(i);
-                    match classes[i].super_class_name() {
+                    let cf = &classes[i];
+                    match cf.super_class_name() {
                         None => break,
                         Some(super_bytes) => match core::str::from_utf8(super_bytes) {
-                            Ok(s) => current = s,
+                            Ok(s) => {
+                                current = s;
+                                ci = crate::class_file::find_class_hashed(
+                                    classes,
+                                    cf.super_hash(),
+                                    super_bytes,
+                                );
+                            }
                             Err(_) => break,
                         },
                     }

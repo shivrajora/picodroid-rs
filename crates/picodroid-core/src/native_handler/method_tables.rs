@@ -1086,7 +1086,7 @@ mod tests {
 
     fn sdk_native_methods() -> BTreeSet<(String, String, String)> {
         let mut sdk = BTreeSet::new();
-        for bytes in crate::framework_classes::FRAMEWORK_CLASSES {
+        for bytes in crate::framework_classes::class_bytes() {
             let cf = ClassFile::parse(bytes).expect("parse framework class");
             let loaded = core::str::from_utf8(cf.class_name().expect("class name"))
                 .expect("class name is UTF-8");
@@ -1096,14 +1096,13 @@ mod tests {
                     continue;
                 }
                 let name = unshrink_member(
-                    core::str::from_utf8(cf.cp_utf8(m.name_index).expect("method name utf8"))
+                    core::str::from_utf8(cf.method_name(m).expect("method name utf8"))
                         .expect("method name is UTF-8"),
                 )
                 .to_string();
-                let desc = core::str::from_utf8(
-                    cf.cp_utf8(m.descriptor_index).expect("method descriptor"),
-                )
-                .expect("descriptor is UTF-8");
+                let desc =
+                    core::str::from_utf8(cf.method_descriptor(m).expect("method descriptor"))
+                        .expect("descriptor is UTF-8");
                 sdk.insert((class.clone(), name, unshrink_descriptor(desc)));
             }
         }

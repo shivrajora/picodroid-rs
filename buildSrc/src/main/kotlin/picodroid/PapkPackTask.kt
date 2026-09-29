@@ -74,8 +74,10 @@ abstract class PapkPackTask : DefaultTask() {
     abstract val resDir: DirectoryProperty
 
     /**
-     * The resource compiler's sources, set together with [resDir]: the table
-     * must be rebuilt by the same code that generated the app's `R.java`.
+     * The packer's sources — `tools/papk-pack`, `crates/papk-format`,
+     * `crates/class-link`: a change to any of them changes what this task
+     * writes, class files unchanged or not, so the output is stale without
+     * them as inputs. Also what rebuilt the app's `R.java`, when it has one.
      */
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.RELATIVE)

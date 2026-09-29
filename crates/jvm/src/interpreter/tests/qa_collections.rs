@@ -201,6 +201,23 @@ fn hashmap_finds_an_entry_through_a_user_equals() {
     );
 }
 
+/// The second call reaches the same answer through the cached native
+/// target: the site's PRECHECK bit still routes `containsKey` through the
+/// equals-aware path instead of straight to the handler's identity
+/// compare. (`put` goes the same way: the equal key is replaced, not
+/// duplicated.)
+#[test]
+fn hashmap_user_equals_still_runs_on_the_cached_path() {
+    let mut h = Harness::new(&[map_contains_caller(), key_class()]);
+    let (map, buf) = h.new_map();
+    let stored = h.new_key(7);
+    let probe = h.new_key(7);
+    for _ in 0..3 {
+        assert_eq!(h.execute(0, &[map, stored, probe]), Ok(Some(Value::Int(1))));
+    }
+    assert_eq!(h.objects.map_len(buf), 1, "one key, replaced twice");
+}
+
 #[test]
 fn hashmap_still_misses_when_the_user_equals_says_no() {
     let mut h = Harness::new(&[map_contains_caller(), key_class()]);

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::*;
+use crate::class_file::Classes;
 use crate::gc::GcState;
 use crate::names::spelled;
 use crate::names::{c, m};
@@ -104,7 +105,10 @@ fn field_slot_own_field_is_slot_0() {
     let cf = ClassFile::parse(spelled(CLASS_F_GETFIELD)).unwrap();
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf);
-    assert_eq!(helpers::field_slot(&classes, "F", m::x), Some(0));
+    assert_eq!(
+        helpers::field_slot(Classes::linear(&classes), "F", m::x),
+        Some(0)
+    );
 }
 
 #[test]
@@ -120,8 +124,14 @@ fn field_slot_inherited_field_is_slot_0() {
     let cf = ClassFile::parse(spelled(CLASS_F_GETFIELD)).unwrap();
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf);
-    assert_eq!(helpers::field_slot(&classes, "F", m::x), Some(0));
-    assert_eq!(helpers::field_slot(&classes, "F", "z"), None); // non-existent field
+    assert_eq!(
+        helpers::field_slot(Classes::linear(&classes), "F", m::x),
+        Some(0)
+    );
+    assert_eq!(
+        helpers::field_slot(Classes::linear(&classes), "F", "z"),
+        None
+    ); // non-existent field
 }
 
 #[test]
@@ -129,7 +139,11 @@ fn is_instance_of_same_class() {
     let cf_base = ClassFile::parse(spelled(CLASS_BASE_SPEAK)).unwrap();
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf_base);
-    assert!(helpers::is_instance_of(&classes, "Base", "Base"));
+    assert!(helpers::is_instance_of(
+        Classes::linear(&classes),
+        "Base",
+        "Base"
+    ));
 }
 
 #[test]
@@ -140,7 +154,11 @@ fn is_instance_of_parent_class() {
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf_base);
     classes.push(cf_child);
-    assert!(helpers::is_instance_of(&classes, "Child", "Base"));
+    assert!(helpers::is_instance_of(
+        Classes::linear(&classes),
+        "Child",
+        "Base"
+    ));
 }
 
 #[test]
@@ -151,7 +169,11 @@ fn is_instance_of_unrelated_class() {
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf_base);
     classes.push(cf_child);
-    assert!(!helpers::is_instance_of(&classes, "Base", "Child"));
+    assert!(!helpers::is_instance_of(
+        Classes::linear(&classes),
+        "Base",
+        "Child"
+    ));
 }
 
 #[test]
@@ -192,7 +214,9 @@ fn alloc_with_defaults_initializes_int_field_to_zero() {
     let mut classes: Vec<ClassFile> = Vec::new();
     classes.push(cf);
     let mut objects = ObjectHeap::new();
-    let idx = objects.alloc_with_defaults("F", &classes).unwrap();
+    let idx = objects
+        .alloc_with_defaults("F", Classes::linear(&classes))
+        .unwrap();
     assert_eq!(objects.get_field(idx, 0), Some(Value::Int(0)));
 }
 
@@ -274,13 +298,15 @@ fn shadowed_field_has_its_own_slot() {
         ClassFile::parse(spelled(a_cls)).unwrap(),
         ClassFile::parse(spelled(b_cls)).unwrap(),
     ];
-    let a_slot = helpers::field_slot_declared(&classes, "B", "A", m::x).unwrap();
-    let b_slot = helpers::field_slot_declared(&classes, "B", "B", m::x).unwrap();
+    let a_slot = helpers::field_slot_declared(Classes::linear(&classes), "B", "A", m::x).unwrap();
+    let b_slot = helpers::field_slot_declared(Classes::linear(&classes), "B", "B", m::x).unwrap();
     assert_ne!(a_slot, b_slot, "shadowed field must not alias its super's");
     // ...and end to end, writes through each Fieldref stay separate
     // (aliasing returned 22: the second putfield clobbered A.x).
     let mut heap = crate::object_heap::ObjectHeap::new();
-    let obj = heap.alloc_with_defaults("B", &classes).expect("alloc B");
+    let obj = heap
+        .alloc_with_defaults("B", Classes::linear(&classes))
+        .expect("alloc B");
     let r = run_multi_with_heap(&[a_cls, b_cls], 1, &[Value::ObjectRef(obj)], heap);
     assert_eq!(r.unwrap(), Some(Value::Int(12)));
 }

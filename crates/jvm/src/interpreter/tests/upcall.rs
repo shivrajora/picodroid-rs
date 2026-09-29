@@ -11,6 +11,7 @@
 use super::asm::{Asm, Method};
 use super::*;
 use crate::array_heap::ArrayHeap;
+use crate::class_file::Classes;
 use crate::class_objects::ClassObjectCache;
 use crate::names::spelled;
 use crate::names::{c, d, m};
@@ -891,7 +892,7 @@ fn embedder_arm_upcalls_into_java() {
         .resolve
         .method(key)
         .expect("upcall site cached");
-    assert_eq!((hit.ci, hit.mi), (1, 0), "F.apply");
+    assert_eq!(hit.java(), Some((1, 0)), "F.apply");
 }
 
 #[test]
@@ -909,7 +910,7 @@ fn embedder_upcall_without_interpreter_fails_cleanly() {
         strings: &mut strings,
         objects: &mut objects,
         arrays: &mut arrays,
-        classes: &[],
+        classes: Classes::linear(&[]),
         upcall: None,
     };
     let mut handler = TwiceHandler;
@@ -976,6 +977,94 @@ fn a_native_call_hands_the_handler_its_site_and_rewalk_depth() {
     );
 }
 
+/// Step 6 of docs/designs/class-link-2026-09.md: a native claimed up the
+/// receiver's chain leaves a claim hint on the site — the next call asks
+/// that superclass first, at that depth, and never re-walks from the class
+/// itself. When the hinted class declines, the full walk runs as before.
+#[test]
+fn a_claim_up_the_chain_is_remembered_and_taken_first() {
+    use crate::resolve_cache::{SiteKey, Target};
+    struct Claimer {
+        seen: Vec<(Option<(SiteKey, u8)>, &'static str)>,
+        claim: bool,
+    }
+    impl NativeMethodHandler for Claimer {
+        fn dispatch(
+            &mut self,
+            class_name: &str,
+            _method_name: &str,
+            ctx: &mut NativeContext<'_>,
+        ) -> Option<Result<Option<Value>, JvmError>> {
+            let class: &'static str = if class_name == "Probe" {
+                "Probe"
+            } else if class_name == OBJ {
+                OBJ
+            } else {
+                "?"
+            };
+            self.seen.push((ctx.dispatch_site(), class));
+            (self.claim && class_name == OBJ).then(|| Ok(Some(Value::Int(7))))
+        }
+    }
+    let mut b = Asm::new();
+    let cthis = b.class("Caller");
+    let cobj = b.class(OBJ);
+    let probe = b.class("Probe");
+    let twice = b.methodref(0x0A, probe, "twice", "(I)I");
+    let code = vec![0x05, 0xB8, hi(twice), lo(twice), 0xAC]; // iconst_2; invokestatic; ireturn
+    let caller = b.finish(0x0001, cthis, cobj, &[], Some((1, &code, &[])));
+    let mut h = Harness::new(&[caller]);
+    let mut handler = Claimer {
+        seen: Vec::new(),
+        claim: true,
+    };
+    let site = SiteKey::cp(0, twice);
+    let mut call = |h: &mut Harness, handler: &mut Claimer| {
+        handler.seen.clear();
+        execute(
+            &h.classes,
+            &mut h.strings,
+            &mut h.objects,
+            &mut h.arrays,
+            &mut h.statics,
+            &mut h.gc_state,
+            &mut h.class_objects,
+            handler,
+            0,
+            0,
+            &[],
+        )
+    };
+    // Call 1: the class itself, then its superclass, which claims.
+    assert_eq!(call(&mut h, &mut handler), Ok(Some(Value::Int(7))));
+    assert_eq!(
+        handler.seen,
+        vec![(Some((site, 0)), "Probe"), (Some((site, 1)), OBJ)]
+    );
+    let hint = match h.class_objects.resolve.method(site).map(|m| m.target) {
+        Some(Target::Native { hint }) => hint,
+        other => panic!("expected a native entry, got {other:?}"),
+    };
+    assert_eq!(hint.map(|(_, depth)| depth), Some(1), "claimed one step up");
+    // Call 2: straight to the superclass, at its depth.
+    assert_eq!(call(&mut h, &mut handler), Ok(Some(Value::Int(7))));
+    assert_eq!(handler.seen, vec![(Some((site, 1)), OBJ)]);
+    // The hinted class declines: the walk from the class itself follows.
+    handler.claim = false;
+    assert!(matches!(
+        call(&mut h, &mut handler),
+        Err(JvmError::NoSuchMethod)
+    ));
+    assert_eq!(
+        handler.seen,
+        vec![
+            (Some((site, 1)), OBJ),
+            (Some((site, 0)), "Probe"),
+            (Some((site, 1)), OBJ),
+        ]
+    );
+}
+
 /// A handler driven outside the interpreter has no site to memoise on.
 #[test]
 fn dispatch_site_is_none_without_an_upcall_env() {
@@ -988,7 +1077,7 @@ fn dispatch_site_is_none_without_an_upcall_env() {
         strings: &mut strings,
         objects: &mut objects,
         arrays: &mut arrays,
-        classes: &[],
+        classes: Classes::linear(&[]),
         upcall: None,
     };
     assert_eq!(ctx.dispatch_site(), None);
