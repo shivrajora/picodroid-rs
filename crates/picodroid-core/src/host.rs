@@ -78,39 +78,41 @@ pub trait PlatformHooks {
     fn uninstall_run(first_sector: u32, sectors: u32) -> bool;
 }
 
-extern "Rust" {
-    fn __pd_host_stop_requested() -> bool;
-    fn __pd_host_heap_bypass_enter();
-    fn __pd_host_heap_bypass_exit();
-    fn __pd_host_heap_checkpoint(label: &str);
-    fn __pd_host_native_heap_stats() -> NativeHeapStats;
-    fn __pd_host_register_gc_roots();
-    fn __pd_host_uninstall_run(first_sector: u32, sectors: u32) -> bool;
+// SAFETY: every symbol is defined once per link by `set_platform_hooks!`, whose bodies go
+// through the trait above, so each signature here is the definition's.
+unsafe extern "Rust" {
+    safe fn __pd_host_stop_requested() -> bool;
+    safe fn __pd_host_heap_bypass_enter();
+    safe fn __pd_host_heap_bypass_exit();
+    safe fn __pd_host_heap_checkpoint(label: &str);
+    safe fn __pd_host_native_heap_stats() -> NativeHeapStats;
+    safe fn __pd_host_register_gc_roots();
+    safe fn __pd_host_uninstall_run(first_sector: u32, sectors: u32) -> bool;
 }
 
 /// Has a debug bridge asked the JVM to stop?
 pub fn stop_requested() -> bool {
-    unsafe { __pd_host_stop_requested() }
+    __pd_host_stop_requested()
 }
 
 /// Record a labelled heap checkpoint.
 pub fn heap_checkpoint(label: &str) {
-    unsafe { __pd_host_heap_checkpoint(label) }
+    __pd_host_heap_checkpoint(label)
 }
 
 /// Native heap statistics.
 pub fn native_heap_stats() -> NativeHeapStats {
-    unsafe { __pd_host_native_heap_stats() }
+    __pd_host_native_heap_stats()
 }
 
 /// Register the platform's own GC root providers.
 pub fn register_gc_roots() {
-    unsafe { __pd_host_register_gc_roots() }
+    __pd_host_register_gc_roots()
 }
 
 /// See [`PlatformHooks::uninstall_run`].
 pub fn uninstall_run(first_sector: u32, sectors: u32) -> bool {
-    unsafe { __pd_host_uninstall_run(first_sector, sectors) }
+    __pd_host_uninstall_run(first_sector, sectors)
 }
 
 /// RAII guard for a heap-accounting bypass region.
@@ -122,13 +124,13 @@ pub struct BypassGuard(());
 
 impl Drop for BypassGuard {
     fn drop(&mut self) {
-        unsafe { __pd_host_heap_bypass_exit() }
+        __pd_host_heap_bypass_exit()
     }
 }
 
 /// Open a region whose allocations bypass the simulated device heap cap.
 pub fn heap_bypass() -> BypassGuard {
-    unsafe { __pd_host_heap_bypass_enter() }
+    __pd_host_heap_bypass_enter();
     BypassGuard(())
 }
 

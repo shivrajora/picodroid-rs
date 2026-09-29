@@ -260,65 +260,67 @@ pub unsafe trait Rtos {
     fn delay_until(last_wake_ms: &mut u32, period_ms: u32);
 }
 
-extern "Rust" {
-    fn __pd_rtos_spawn(spec: &TaskSpec, body: Box<dyn FnOnce() + Send>) -> bool;
-    fn __pd_rtos_queue_create(depth: usize) -> RawQueue;
-    fn __pd_rtos_queue_send(q: RawQueue, word: u32, t: Timeout) -> bool;
-    fn __pd_rtos_queue_recv(q: RawQueue, t: Timeout) -> Option<u32>;
-    fn __pd_rtos_task_current() -> RawTask;
-    fn __pd_rtos_scheduler_running() -> bool;
-    fn __pd_rtos_task_notify(t: RawTask);
-    fn __pd_rtos_task_notify_from_isr(t: RawTask) -> bool;
-    fn __pd_rtos_task_wait_notification(t: Timeout) -> bool;
-    fn __pd_rtos_task_stack_unused_bytes() -> Option<u32>;
-    fn __pd_rtos_queue_create_ptr(depth: usize) -> RawQueue;
-    fn __pd_rtos_queue_send_ptr(q: RawQueue, val: usize, t: Timeout) -> bool;
-    fn __pd_rtos_queue_recv_ptr(q: RawQueue, t: Timeout) -> Option<usize>;
-    fn __pd_rtos_mutex_recursive_create() -> Option<RawMutex>;
-    fn __pd_rtos_mutex_recursive_lock(m: RawMutex, t: Timeout) -> bool;
-    fn __pd_rtos_mutex_recursive_unlock(m: RawMutex);
-    fn __pd_rtos_mutex_recursive_delete(m: RawMutex);
-    fn __pd_rtos_sem_binary_create() -> RawSem;
-    fn __pd_rtos_sem_give(s: RawSem);
-    fn __pd_rtos_sem_give_from_isr(s: RawSem) -> bool;
-    fn __pd_rtos_sem_take(s: RawSem, t: Timeout) -> bool;
-    fn __pd_rtos_tick_timer_start(period_ms: u32, cb: fn());
-    fn __pd_rtos_tick_timer_pause();
-    fn __pd_rtos_tick_timer_resume();
-    fn __pd_rtos_tick_timer_stop();
-    fn __pd_rtos_delay_ms(ms: u32);
-    fn __pd_rtos_delay_until_anchor() -> u32;
-    fn __pd_rtos_delay_until(last_wake_ms: &mut u32, period_ms: u32);
+// SAFETY: every symbol is defined once per link by `set_rtos!`, whose bodies go
+// through the trait above, so each signature here is the definition's.
+unsafe extern "Rust" {
+    safe fn __pd_rtos_spawn(spec: &TaskSpec, body: Box<dyn FnOnce() + Send>) -> bool;
+    safe fn __pd_rtos_queue_create(depth: usize) -> RawQueue;
+    safe fn __pd_rtos_queue_send(q: RawQueue, word: u32, t: Timeout) -> bool;
+    safe fn __pd_rtos_queue_recv(q: RawQueue, t: Timeout) -> Option<u32>;
+    safe fn __pd_rtos_task_current() -> RawTask;
+    safe fn __pd_rtos_scheduler_running() -> bool;
+    safe fn __pd_rtos_task_notify(t: RawTask);
+    safe fn __pd_rtos_task_notify_from_isr(t: RawTask) -> bool;
+    safe fn __pd_rtos_task_wait_notification(t: Timeout) -> bool;
+    safe fn __pd_rtos_task_stack_unused_bytes() -> Option<u32>;
+    safe fn __pd_rtos_queue_create_ptr(depth: usize) -> RawQueue;
+    safe fn __pd_rtos_queue_send_ptr(q: RawQueue, val: usize, t: Timeout) -> bool;
+    safe fn __pd_rtos_queue_recv_ptr(q: RawQueue, t: Timeout) -> Option<usize>;
+    safe fn __pd_rtos_mutex_recursive_create() -> Option<RawMutex>;
+    safe fn __pd_rtos_mutex_recursive_lock(m: RawMutex, t: Timeout) -> bool;
+    safe fn __pd_rtos_mutex_recursive_unlock(m: RawMutex);
+    safe fn __pd_rtos_mutex_recursive_delete(m: RawMutex);
+    safe fn __pd_rtos_sem_binary_create() -> RawSem;
+    safe fn __pd_rtos_sem_give(s: RawSem);
+    safe fn __pd_rtos_sem_give_from_isr(s: RawSem) -> bool;
+    safe fn __pd_rtos_sem_take(s: RawSem, t: Timeout) -> bool;
+    safe fn __pd_rtos_tick_timer_start(period_ms: u32, cb: fn());
+    safe fn __pd_rtos_tick_timer_pause();
+    safe fn __pd_rtos_tick_timer_resume();
+    safe fn __pd_rtos_tick_timer_stop();
+    safe fn __pd_rtos_delay_ms(ms: u32);
+    safe fn __pd_rtos_delay_until_anchor() -> u32;
+    safe fn __pd_rtos_delay_until(last_wake_ms: &mut u32, period_ms: u32);
 }
 
 /// Spawn a task running `body`. See [`Rtos::spawn`]; `false` means the
 /// platform declined or could not create it.
 pub fn spawn(spec: &TaskSpec, body: Box<dyn FnOnce() + Send>) -> bool {
-    unsafe { __pd_rtos_spawn(spec, body) }
+    __pd_rtos_spawn(spec, body)
 }
 pub fn queue_create(depth: usize) -> RawQueue {
-    unsafe { __pd_rtos_queue_create(depth) }
+    __pd_rtos_queue_create(depth)
 }
 pub fn queue_send(q: RawQueue, word: u32, t: Timeout) -> bool {
     let _run = crate::run_lock::unlocked_for(t);
-    unsafe { __pd_rtos_queue_send(q, word, t) }
+    __pd_rtos_queue_send(q, word, t)
 }
 pub fn queue_recv(q: RawQueue, t: Timeout) -> Option<u32> {
     let _run = crate::run_lock::unlocked_for(t);
-    unsafe { __pd_rtos_queue_recv(q, t) }
+    __pd_rtos_queue_recv(q, t)
 }
 /// Handle of the calling task; 0 if there is no task context. See
 /// [`Rtos::task_current`].
 pub fn task_current() -> RawTask {
-    unsafe { __pd_rtos_task_current() }
+    __pd_rtos_task_current()
 }
 /// Whether the scheduler is running. See [`Rtos::scheduler_running`].
 pub fn scheduler_running() -> bool {
-    unsafe { __pd_rtos_scheduler_running() }
+    __pd_rtos_scheduler_running()
 }
 /// Wake `t`. See [`Rtos::task_notify`]; a no-op when `t` is 0.
 pub fn task_notify(t: RawTask) {
-    unsafe { __pd_rtos_task_notify(t) }
+    __pd_rtos_task_notify(t)
 }
 /// Wake `t` from interrupt context. See [`Rtos::task_notify_from_isr`]; true
 /// means a higher-priority task was readied.
@@ -326,91 +328,91 @@ pub fn task_notify(t: RawTask) {
 /// Touches no run lock, like [`task_notify`]: it does not block, and an
 /// interrupt holds no lock to give up.
 pub fn task_notify_from_isr(t: RawTask) -> bool {
-    unsafe { __pd_rtos_task_notify_from_isr(t) }
+    __pd_rtos_task_notify_from_isr(t)
 }
 /// Block until notified. See [`Rtos::task_wait_notification`]; false means
 /// the timeout elapsed.
 pub fn task_wait_notification(t: Timeout) -> bool {
     let _run = crate::run_lock::unlocked_for(t);
-    unsafe { __pd_rtos_task_wait_notification(t) }
+    __pd_rtos_task_wait_notification(t)
 }
 /// The calling task's spare stack in bytes. See
 /// [`Rtos::task_stack_unused_bytes`]; `None` where the kernel cannot say.
 pub fn task_stack_unused_bytes() -> Option<u32> {
-    unsafe { __pd_rtos_task_stack_unused_bytes() }
+    __pd_rtos_task_stack_unused_bytes()
 }
 pub fn queue_create_ptr(depth: usize) -> RawQueue {
-    unsafe { __pd_rtos_queue_create_ptr(depth) }
+    __pd_rtos_queue_create_ptr(depth)
 }
 pub fn queue_send_ptr(q: RawQueue, val: usize, t: Timeout) -> bool {
     let _run = crate::run_lock::unlocked_for(t);
-    unsafe { __pd_rtos_queue_send_ptr(q, val, t) }
+    __pd_rtos_queue_send_ptr(q, val, t)
 }
 pub fn queue_recv_ptr(q: RawQueue, t: Timeout) -> Option<usize> {
     let _run = crate::run_lock::unlocked_for(t);
-    unsafe { __pd_rtos_queue_recv_ptr(q, t) }
+    __pd_rtos_queue_recv_ptr(q, t)
 }
 pub fn mutex_recursive_create() -> Option<RawMutex> {
-    unsafe { __pd_rtos_mutex_recursive_create() }
+    __pd_rtos_mutex_recursive_create()
 }
 pub fn mutex_recursive_lock(m: RawMutex, t: Timeout) -> bool {
     let _run = crate::run_lock::unlocked_for(t);
-    unsafe { __pd_rtos_mutex_recursive_lock(m, t) }
+    __pd_rtos_mutex_recursive_lock(m, t)
 }
 /// [`mutex_recursive_lock`] without the run-lock release around it: the
 /// run lock's own take ([`run_lock`]).
 pub(crate) fn mutex_recursive_lock_unhooked(m: RawMutex, t: Timeout) -> bool {
-    unsafe { __pd_rtos_mutex_recursive_lock(m, t) }
+    __pd_rtos_mutex_recursive_lock(m, t)
 }
 pub fn mutex_recursive_unlock(m: RawMutex) {
-    unsafe { __pd_rtos_mutex_recursive_unlock(m) }
+    __pd_rtos_mutex_recursive_unlock(m)
 }
 pub fn mutex_recursive_delete(m: RawMutex) {
-    unsafe { __pd_rtos_mutex_recursive_delete(m) }
+    __pd_rtos_mutex_recursive_delete(m)
 }
 pub fn sem_binary_create() -> RawSem {
-    unsafe { __pd_rtos_sem_binary_create() }
+    __pd_rtos_sem_binary_create()
 }
 pub fn sem_give(s: RawSem) {
-    unsafe { __pd_rtos_sem_give(s) }
+    __pd_rtos_sem_give(s)
 }
 /// Give `s` from interrupt context. See [`Rtos::sem_give_from_isr`].
 pub fn sem_give_from_isr(s: RawSem) -> bool {
-    unsafe { __pd_rtos_sem_give_from_isr(s) }
+    __pd_rtos_sem_give_from_isr(s)
 }
 pub fn sem_take(s: RawSem, t: Timeout) -> bool {
     let _run = crate::run_lock::unlocked_for(t);
-    unsafe { __pd_rtos_sem_take(s, t) }
+    __pd_rtos_sem_take(s, t)
 }
 pub fn tick_timer_start(period_ms: u32, cb: fn()) {
-    unsafe { __pd_rtos_tick_timer_start(period_ms, cb) }
+    __pd_rtos_tick_timer_start(period_ms, cb)
 }
 pub fn tick_timer_pause() {
-    unsafe { __pd_rtos_tick_timer_pause() }
+    __pd_rtos_tick_timer_pause()
 }
 pub fn tick_timer_resume() {
-    unsafe { __pd_rtos_tick_timer_resume() }
+    __pd_rtos_tick_timer_resume()
 }
 pub fn tick_timer_stop() {
-    unsafe { __pd_rtos_tick_timer_stop() }
+    __pd_rtos_tick_timer_stop()
 }
 pub fn delay_ms(ms: u32) {
     // A zero delay is `Thread.yield`: the lock is given up so the task the
     // yield hands the core to can take it.
     let _run = crate::run_lock::unlocked();
-    unsafe { __pd_rtos_delay_ms(ms) }
+    __pd_rtos_delay_ms(ms)
 }
 /// Yield the core without touching the run lock: the run lock's own
 /// hand-off to a waiter ([`run_lock`]), which has just given the lock up
 /// itself. A zero delay is a yield on both kernels (`vTaskDelay(0)` is
 /// `taskYIELD`).
 pub(crate) fn yield_unhooked() {
-    unsafe { __pd_rtos_delay_ms(0) }
+    __pd_rtos_delay_ms(0)
 }
 /// The first `last_wake_ms` of a [`delay_until`] loop. See
 /// [`Rtos::delay_until_anchor`].
 pub fn delay_until_anchor() -> u32 {
-    unsafe { __pd_rtos_delay_until_anchor() }
+    __pd_rtos_delay_until_anchor()
 }
 /// Sleep to the next `period_ms` boundary after `*last_wake_ms`. See
 /// [`Rtos::delay_until`].
@@ -420,7 +422,7 @@ pub fn delay_until(last_wake_ms: &mut u32, period_ms: u32) {
         return delay_ms(0);
     }
     let _run = crate::run_lock::unlocked();
-    unsafe { __pd_rtos_delay_until(last_wake_ms, period_ms) }
+    __pd_rtos_delay_until(last_wake_ms, period_ms)
 }
 
 /// Register the platform's [`Rtos`] implementation.
