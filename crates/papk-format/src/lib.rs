@@ -105,6 +105,7 @@
 //! ```
 
 #![cfg_attr(not(test), no_std)]
+#![forbid(unsafe_code)]
 
 #[cfg(any(test, feature = "write"))]
 extern crate alloc;

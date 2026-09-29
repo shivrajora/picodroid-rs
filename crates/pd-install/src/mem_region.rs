@@ -39,11 +39,12 @@ impl MemRegion {
     /// read in place as `u16` words and 8-byte index entries.
     pub fn new(sectors: usize, max_apps: usize) -> Self {
         let len = sectors * META_SIZE;
-        let words = alloc::vec![u64::MAX; len.div_ceil(8)].into_boxed_slice();
-        let words: &'static mut [u64] = alloc::boxed::Box::leak(words);
-        // SAFETY: `words` holds at least `len` bytes, all initialised to
-        // 0xFF (erased), leaked for the program's life; a `u8` view of it.
-        let buf = unsafe { core::slice::from_raw_parts_mut(words.as_mut_ptr().cast::<u8>(), len) };
+        // Erased (0xFF) and leaked for the program's life, with seven
+        // spare bytes so an 8-aligned window fits wherever it landed.
+        let bytes: &'static mut [u8] =
+            alloc::boxed::Box::leak(alloc::vec![0xFFu8; len + 7].into_boxed_slice());
+        let start = (8 - (bytes.as_ptr() as usize % 8)) % 8;
+        let buf = &mut bytes[start..start + len];
         Self {
             buf,
             target: 0,

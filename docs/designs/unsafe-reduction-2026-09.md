@@ -1,6 +1,7 @@
 # Design: less `unsafe`, same firmware
 
-**Status: in progress.** The execution log at the bottom says which phases have landed.
+**Status: phases 0–7 built, 2026-09-29.** `unsafe {` 1,197 → 919, `static mut` 243 → 113; the
+execution log at the bottom has the per-phase counts, and §4.1 says what was planned and left out.
 
 Started 2026-09-28. The rule for every phase: no change in behaviour, flash, RAM or
 timing. Anything that would change behaviour, including fixes for the soundness findings
@@ -57,22 +58,38 @@ The JVM's interpreter, garbage collector and object heap contain none.
 | `Core0<T>` | `util/local.rs` | The per-access `unsafe` on task-confined statics. One `unsafe impl Sync`, one `unsafe` per static at its declaration. |
 | `LocalRing<T, N>` | `util/local_ring.rs` | The 25 array + head + tail queues. Same semantics: `N - 1` usable slots, the new element is dropped when full. |
 | `LocalSet<T, N>` | `util/local_set.rs` | Array + length pairs. |
-| `SectionCell<T>` | `util/section_cell.rs` | Cells whose every access already sits inside an `AtomicSection`. |
-| `SetOnce` | `util/set_once.rs` | Write-once RTOS handles, after `SemCell` in `platforms/rp/src/hal/rp/gpio.rs`. |
+| `SectionCell<T>` | `util/section_cell.rs` | Cells whose every access already sits inside an `AtomicSection`. `get` borrows the guard exclusively, so the reference cannot outlive the section. |
+| `periph::steal`, `periph::enable_irq` | `platforms/rp/src/hal/rp/periph.rs` | 46 `Peripherals::steal()` sites and 7 copies of the NVIC priority write. |
 | `PtrMap<N>` on `Cell` | `graphics/lvgl/listener_map.rs` | `map_mut` / `map_ref`, which go away. |
 
 ## 4. Phases
 
 | # | Change | `unsafe {` removed |
 |---|---|---|
-| 0 | The ratchet and its baseline, `#![forbid(unsafe_code)]` on the eleven clean crates, a handful of needless transmutes | ~10 |
+| 0 | The ratchet and its baseline, `#![forbid(unsafe_code)]` on the eleven clean crates, a handful of needless transmutes | 6 |
 | 1 | Seams declared `unsafe extern "Rust" { safe fn … }` | 117 |
-| 2 | `Core0` and the `Cell`-based `PtrMap` | ~95 |
-| 3 | `LocalRing` | ~60 |
-| 4 | Scalars and `LocalSet` | ~40 |
-| 5 | `SectionCell` and `SetOnce`, for cells already under a section | ~50 |
-| 6 | `platforms/rp`: one `pac` alias with per-peripheral accessors, one interrupt-enable helper, the PAC's enumerated `funcsel` setters | ~50 |
-| 7 | Simulator and host tools | ~25 |
+| 2 | `Core0` and the `Cell`-based `PtrMap` | 39 |
+| 3 | `LocalRing` for the 24 widget queues | 27 |
+| 4 | 27 scalars into `Core0<Cell<T>>`, three pointer registries onto `LocalSet` | −2 |
+| 5 | `SectionCell` for the thread table, the monitor store, the JSON pool and pdb's child-task list | 29 |
+| 6 | `platforms/rp`: one `steal()`, one `enable_irq()`, the PAC's enumerated `funcsel` setters | 58 |
+| 7 | Host-only aligned buffers in `papk-format` and `pd-install`; `papk-format` takes `forbid(unsafe_code)` | 4 |
+
+The block counts for phases 2–4 are net of what `Core0` costs: `Core0::new` is an `unsafe
+fn`, so each of the 75 converted statics carries one `unsafe` block at its declaration, with
+its reason, where every access used to carry one. Phase 4 comes out at −2 for that reason:
+its scalars were mostly read inside blocks that also call LVGL, so the blocks stayed. What
+it removed is 34 `static mut`.
+
+### 4.1 Planned, and left out
+
+| What | Why |
+|---|---|
+| `SetOnce` for the SPI, I2C, DMA and USB semaphore cells in `platforms/rp` | They hold `freertos_rust::Semaphore` values. Moving them onto the seam's raw handles changes the call path inside interrupt handlers, which is a timing change and cannot be checked in the simulator. |
+| `alarms.rs` onto `SectionCell` | Its table and horizon are borrowed together under one section; two blocks were not worth restructuring it. |
+| `Peripherals::steal()` replaced by per-peripheral `steal()` | It would drop the PAC's flag store, which makes the image differ. `periph::steal()` keeps the call as it was. |
+| The simulator HAL (sockets, display statics, `getenv`) | Host-only, and a `std::sync` lock between FreeRTOS tasks on the POSIX port can deadlock on priority; each wants its own look. |
+| `unsafe_op_in_unsafe_fn` crate-wide on the two large crates | 155 `unsafe fn` bodies to annotate. The new modules carry it; the ratchet's "undocumented" column is what drives the rest down. |
 
 Left alone on purpose, to be documented and nothing more: the XIP-off flash path, core 1
 parking, QMI timing, PSRAM bring-up, the cortex-m-rt exception handlers, the C-ABI exports
@@ -106,8 +123,36 @@ Found while surveying. Each is a behaviour change to fix, so none is fixed here.
 | `boot.rs` `shared_heap()` and 18 other safe functions returning `&'static mut T` | Two calls give two aliasing exclusive references. |
 | About 50 call sites in `graphics/lvgl` | An unchecked `handle_table::lookup` result goes to LVGL, which is built with `LV_USE_CHECK_ARG 0`. |
 
+### 6.1 The seam declarations are not checked against their definitions
+
+`hal/facade.rs` says the test build catches a declaration that drifts from its definition,
+through `clashing_extern_declarations`. It does not. With `__pd_hal_gpio_read` declared as
+taking an extra argument, `cargo check -p picodroid-core --tests` compiled without a
+diagnostic (2026-09-29): that lint compares foreign declarations with each other, not with a
+`#[no_mangle]` definition. The definition side is still held to the trait. The declaration
+side is held by nothing, and it is where `safe fn` now puts its trust. A test that parses
+both files and compares signatures would close it.
+
 ## 7. Execution log
 
-| Phase | Commit | `unsafe {` after | `static mut` after |
-|---|---|---|---|
-| start | `b83170cc` | 1,197 | 243 |
+Totals over every crate, from `scripts/unsafe-baseline.conf` at each commit.
+
+| Phase | Commit | `unsafe {` | `static mut` | `unsafe impl` | undocumented |
+|---|---|---|---|---|---|
+| start | `b83170cc` | 1,197 | 243 | 58 | 1,036 |
+| 0 | `1dca84e6` | 1,191 | 243 | 58 | 1,030 |
+| 1 | `beea6c3d` | 1,074 | 243 | 58 | 913 |
+| 2 | `25f7a50f` | 1,035 | 221 | 59 | 853 |
+| 3 | `1bf2e525` | 1,008 | 149 | 59 | 802 |
+| 4 | `5f9b6ea1` | 1,010 | 115 | 59 | 777 |
+| 5 | `6ad11aa4` | 981 | 113 | 56 | 775 |
+| 6 | `8ffb240a` | 923 | 113 | 56 | 718 |
+| 7 | this commit | 919 | 113 | 56 | 718 |
+
+Checked per phase: clippy on every board and the simulator, the host tests, the helloworld
+smoke. Phases 2–4 also ran `qa_ui`, `dialogdemo`, `keydemo`, `swipedemo`, `animdemo`,
+`bugbash_ui`, `callbacktest`, `qa_life` and `navdemo` in the simulator with the handle
+sanitizer on; phase 5 ran `threadparity`, `qa_thr`, `threadstress`, `threaddemo` and
+`jsondemo`. Phase 6 cannot be seen in the simulator: its release images for
+`testbench_rp2040` and `testbench_rp2350w` are the same size as before and disassemble to
+the same instructions.

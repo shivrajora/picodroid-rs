@@ -78,14 +78,8 @@ fn classes_section_valid(data: &[u8]) -> Result<(), class_link::LinkError> {
         Ok(s) => s.validate(),
         #[cfg(feature = "write")]
         Err(class_link::LinkError::Misaligned) => {
-            let mut copy: alloc::vec::Vec<u64> = alloc::vec![0u64; data.len().div_ceil(8)];
-            // SAFETY: `copy` holds at least `data.len()` bytes; a `u8` view
-            // of `u64` storage, 8-aligned.
-            let aligned = unsafe {
-                core::slice::from_raw_parts_mut(copy.as_mut_ptr().cast::<u8>(), data.len())
-            };
-            aligned.copy_from_slice(data);
-            class_link::ClassSection::parse(aligned)?.validate()
+            let aligned = crate::aligned::AlignedBuf::new(data);
+            class_link::ClassSection::parse(&aligned)?.validate()
         }
         Err(e) => Err(e),
     }

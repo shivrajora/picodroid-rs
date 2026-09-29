@@ -11,21 +11,27 @@ use alloc::vec::Vec;
 /// tools and tests copy into one of these before parsing
 /// (`Papk::parse(&buf)`).
 pub struct AlignedBuf {
-    words: Vec<u64>,
+    /// Seven bytes longer than the copy, so an 8-aligned window of `len`
+    /// bytes fits wherever the allocator put it.
+    bytes: Vec<u8>,
+    start: usize,
     len: usize,
+}
+
+/// How far past `ptr` the next 8-byte boundary is.
+fn pad_to_8(ptr: *const u8) -> usize {
+    (8 - (ptr as usize % 8)) % 8
 }
 
 impl AlignedBuf {
     pub fn new(bytes: &[u8]) -> Self {
-        let mut words = alloc::vec![0u64; bytes.len().div_ceil(8)];
-        // SAFETY: `words` holds at least `bytes.len()` bytes; a `u8` view
-        // of `u64` storage, written once here.
-        let dst = unsafe {
-            core::slice::from_raw_parts_mut(words.as_mut_ptr().cast::<u8>(), bytes.len())
-        };
-        dst.copy_from_slice(bytes);
+        // Never resized after this, so the window stays where it is.
+        let mut copy = alloc::vec![0u8; bytes.len() + 7];
+        let start = pad_to_8(copy.as_ptr());
+        copy[start..start + bytes.len()].copy_from_slice(bytes);
         Self {
-            words,
+            bytes: copy,
+            start,
             len: bytes.len(),
         }
     }
@@ -35,7 +41,25 @@ impl core::ops::Deref for AlignedBuf {
     type Target = [u8];
 
     fn deref(&self) -> &[u8] {
-        // SAFETY: `words` holds at least `len` bytes, all initialised.
-        unsafe { core::slice::from_raw_parts(self.words.as_ptr().cast::<u8>(), self.len) }
+        &self.bytes[self.start..self.start + self.len]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_copy_is_aligned_and_equal() {
+        for len in 0..40usize {
+            let src: Vec<u8> = (0..len as u8).collect();
+            // Offset sources, so the copies land on varied allocations.
+            let buf = AlignedBuf::new(&src);
+            assert_eq!(&*buf, &src[..]);
+            assert_eq!(buf.as_ptr() as usize % 8, 0);
+            let moved = buf;
+            assert_eq!(moved.as_ptr() as usize % 8, 0);
+            assert_eq!(&*moved, &src[..]);
+        }
     }
 }
