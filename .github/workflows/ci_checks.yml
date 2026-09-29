@@ -82,8 +82,10 @@ jobs:
       # largest image and debug (no name shrink, line numbers, no LTO) the
       # largest profile — the link that overflowed unnoticed on 2026-09-29
       # while every testbench row passed (docs/designs/class-link-2026-09.md).
-      # The WiFi credentials are option_env!, so no secrets are needed.
-      - run: bash scripts/build.sh --board pico_display2_w --app helloworld
+      # The WiFi credentials are option_env!, so no secrets are needed. Linux
+      # only: the macOS runner's GCC rejects cyw43-driver's implicit `MIN`.
+      - if: runner.os == 'Linux'
+        run: bash scripts/build.sh --board pico_display2_w --app helloworld
       - run: bash scripts/check-shrunk-image.sh target/thumbv8m.main-none-eabihf/release/picodroid helloworld/
   testing:
     name: Testing

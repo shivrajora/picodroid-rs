@@ -576,7 +576,6 @@ pub(crate) fn prune_monitors<H: NativeMethodHandler>(
     handler.native_state_prune(&live);
 }
 
-#[allow(clippy::too_many_arguments)]
 /// [`execute_indexed`] over a class table with no index — tests and
 /// single-class runs; lookup by name scans.
 #[allow(clippy::too_many_arguments)]

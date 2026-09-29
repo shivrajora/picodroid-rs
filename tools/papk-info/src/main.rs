@@ -477,7 +477,9 @@ mod tests {
 
     #[test]
     fn valid_fixture_rows_match_declared_counts() {
-        let papk = Papk::parse(WITH_ASSETS_FIXTURE).unwrap();
+        // `include_bytes!` promises no alignment; the class section needs 4.
+        let bytes = papk_format::AlignedBuf::new(WITH_ASSETS_FIXTURE);
+        let papk = Papk::parse(&bytes).unwrap();
         let classes = collect_class_rows(&papk).unwrap();
         assert_eq!(classes.len(), 1);
         assert_eq!(classes[0].0, "fixture/Main");

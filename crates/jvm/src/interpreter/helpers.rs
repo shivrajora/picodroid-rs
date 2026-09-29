@@ -492,9 +492,7 @@ pub fn field_slot(classes: Classes<'_>, class_name: &str, field_name: &str) -> O
 /// that is not loaded.
 pub fn instance_slot_count(classes: Classes<'_>, class_name: &str) -> Option<usize> {
     let mut total = 0;
-    let Some(mut ci) = find_class(classes, class_name.as_bytes()) else {
-        return None;
-    };
+    let mut ci = find_class(classes, class_name.as_bytes())?;
     loop {
         let cf = &classes[ci];
         total += cf

@@ -339,7 +339,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         ci: usize,
         mi: usize,
         arg_count: usize,
-        frames: &mut Vec<Frame>,
+        frames: &mut [Frame],
     ) -> Result<(), JvmError> {
         let cf = &self.classes[ci];
         let jm = &cf.methods()[mi];
