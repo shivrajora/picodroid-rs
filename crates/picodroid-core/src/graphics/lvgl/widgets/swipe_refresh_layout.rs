@@ -15,7 +15,8 @@ use crate::lvgl_ffi::*;
 
 use super::super::handle_table;
 use super::super::lifecycle;
-use super::super::listener_map::{map_mut, map_ref, warn_full, PtrMap, Upsert};
+use super::super::listener_map::{warn_full, PtrMap, Upsert};
+use crate::util::local::Core0;
 
 const MAX_LAYOUTS: usize = 4;
 
@@ -44,11 +45,12 @@ static mut QUEUE_HEAD: usize = 0;
 static mut QUEUE_TAIL: usize = 0;
 
 const MAX_LISTENERS: usize = MAX_LAYOUTS;
-static mut HANDLE_MAP: PtrMap<MAX_LISTENERS> = PtrMap::new();
+// SAFETY: a listener registry, reached only from JVM tasks.
+static HANDLE_MAP: Core0<PtrMap<MAX_LISTENERS>> = unsafe { Core0::new(PtrMap::new()) };
 
 unsafe extern "C" fn map_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    unsafe { map_mut(&raw mut HANDLE_MAP).remove(obj) }
+    HANDLE_MAP.remove(obj)
 }
 
 unsafe extern "C" fn gesture_cb(e: *mut lv_event_t) {
@@ -177,7 +179,7 @@ pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
         return;
     }
     unsafe {
-        match map_mut(&raw mut HANDLE_MAP).upsert(raw_ptr, obj_ref) {
+        match HANDLE_MAP.upsert(raw_ptr, obj_ref) {
             Upsert::Updated => {}
             Upsert::Full => warn_full("swipe-refresh"),
             Upsert::Inserted => {
@@ -206,7 +208,7 @@ pub fn drain_refresh_queue() -> Option<usize> {
 }
 
 pub fn lookup_refresh_obj(handle: usize) -> Option<u16> {
-    unsafe { map_ref(&raw const HANDLE_MAP).lookup(handle) }
+    HANDLE_MAP.lookup(handle)
 }
 
 pub fn reset_swipe_refresh_state() {
@@ -214,7 +216,7 @@ pub fn reset_swipe_refresh_state() {
         for slot in &mut SLOTS[..] {
             *slot = EMPTY;
         }
-        map_mut(&raw mut HANDLE_MAP).reset();
+        HANDLE_MAP.reset();
         QUEUE_HEAD = 0;
         QUEUE_TAIL = 0;
     }

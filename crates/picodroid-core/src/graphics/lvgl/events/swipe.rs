@@ -26,11 +26,13 @@ pub(super) static mut SWIPE_QUEUE: [SwipeRecord; SWIPE_QUEUE_SIZE] = [SwipeRecor
 pub(super) static mut SWIPE_QUEUE_HEAD: usize = 0;
 pub(super) static mut SWIPE_QUEUE_TAIL: usize = 0;
 
-pub(super) static mut VIEW_SWIPE_MAP: PtrMap<MAX_SWIPE_LISTENERS> = PtrMap::new();
+// SAFETY: a listener registry, reached only from JVM tasks.
+pub(super) static VIEW_SWIPE_MAP: Core0<PtrMap<MAX_SWIPE_LISTENERS>> =
+    unsafe { Core0::new(PtrMap::new()) };
 
 pub(super) unsafe extern "C" fn swipe_map_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    unsafe { map_mut(&raw mut VIEW_SWIPE_MAP).remove(obj) }
+    VIEW_SWIPE_MAP.remove(obj)
 }
 
 pub(super) unsafe extern "C" fn swipe_gesture_cb(e: *mut lv_event_t) {
@@ -66,7 +68,7 @@ pub fn register_view_swipe_listener(id: i32, obj_ref: u16) {
     }
     let raw_ptr = raw_obj as usize;
     unsafe {
-        match map_mut(&raw mut VIEW_SWIPE_MAP).upsert(raw_ptr, obj_ref) {
+        match VIEW_SWIPE_MAP.upsert(raw_ptr, obj_ref) {
             Upsert::Updated => return,
             Upsert::Full => {
                 warn_full("view-swipe");
@@ -107,12 +109,12 @@ pub fn drain_swipe_event() -> Option<SwipeRecord> {
 }
 
 pub fn lookup_swipe_view_obj(handle: usize) -> Option<u16> {
-    unsafe { map_ref(&raw const VIEW_SWIPE_MAP).lookup(handle) }
+    VIEW_SWIPE_MAP.lookup(handle)
 }
 
 pub fn reset_view_swipe_listener_state() {
     unsafe {
-        map_mut(&raw mut VIEW_SWIPE_MAP).reset();
+        VIEW_SWIPE_MAP.reset();
         SWIPE_QUEUE_HEAD = 0;
         SWIPE_QUEUE_TAIL = 0;
     }

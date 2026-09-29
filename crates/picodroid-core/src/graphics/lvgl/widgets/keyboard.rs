@@ -25,7 +25,8 @@ use super::super::animations;
 use super::super::events;
 use super::super::handle_table;
 use super::super::lifecycle;
-use super::super::listener_map::{map_mut, map_ref, warn_full, PtrMap, Upsert};
+use super::super::listener_map::{warn_full, PtrMap, Upsert};
+use crate::util::local::Core0;
 
 // ── READY event ring buffer (per-instance only) ─────────────────────────────
 
@@ -35,11 +36,12 @@ static mut READY_QUEUE_HEAD: usize = 0;
 static mut READY_QUEUE_TAIL: usize = 0;
 
 const MAX_KEYBOARDS: usize = 4;
-static mut KEYBOARD_HANDLE_MAP: PtrMap<MAX_KEYBOARDS> = PtrMap::new();
+// SAFETY: a listener registry, reached only from JVM tasks.
+static KEYBOARD_HANDLE_MAP: Core0<PtrMap<MAX_KEYBOARDS>> = unsafe { Core0::new(PtrMap::new()) };
 
 unsafe extern "C" fn map_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    unsafe { map_mut(&raw mut KEYBOARD_HANDLE_MAP).remove(obj) }
+    KEYBOARD_HANDLE_MAP.remove(obj)
 }
 
 unsafe extern "C" fn keyboard_ready_cb(e: *mut lv_event_t) {
@@ -427,7 +429,7 @@ pub(in crate::graphics) fn register_ready_listener(id: i32, obj_ref: u16) {
         return;
     }
     unsafe {
-        match map_mut(&raw mut KEYBOARD_HANDLE_MAP).upsert(raw_ptr, obj_ref) {
+        match KEYBOARD_HANDLE_MAP.upsert(raw_ptr, obj_ref) {
             Upsert::Updated => {}
             Upsert::Full => warn_full("keyboard-ready"),
             Upsert::Inserted => {
@@ -459,12 +461,12 @@ pub fn drain_ready_queue() -> Option<usize> {
 
 /// Look up the Java `Keyboard` object index for a per-instance widget.
 pub fn lookup_keyboard_obj(handle: usize) -> Option<u16> {
-    unsafe { map_ref(&raw const KEYBOARD_HANDLE_MAP).lookup(handle) }
+    KEYBOARD_HANDLE_MAP.lookup(handle)
 }
 
 pub fn reset_keyboard_state() {
     unsafe {
-        map_mut(&raw mut KEYBOARD_HANDLE_MAP).reset();
+        KEYBOARD_HANDLE_MAP.reset();
         READY_QUEUE_HEAD = 0;
         READY_QUEUE_TAIL = 0;
         // The screen tree is torn down by handle_table::reset on app

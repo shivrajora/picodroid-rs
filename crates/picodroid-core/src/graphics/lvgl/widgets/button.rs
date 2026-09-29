@@ -15,7 +15,8 @@ use core::ffi::c_char;
 
 use super::super::handle_table;
 use super::super::lifecycle;
-use super::super::listener_map::{map_mut, map_ref, warn_full, PtrMap, Upsert};
+use super::super::listener_map::{warn_full, PtrMap, Upsert};
+use crate::util::local::Core0;
 
 // ── Click event queue (ring buffer) ─────────────────────────────────────────
 
@@ -27,7 +28,8 @@ static mut CLICK_QUEUE_TAIL: usize = 0;
 // ── Handle → Java object mapping (for click dispatch) ───────────────────────
 
 const MAX_CLICK_VIEWS: usize = 32;
-static mut VIEW_CLICK_MAP: PtrMap<MAX_CLICK_VIEWS> = PtrMap::new();
+// SAFETY: a listener registry, reached only from JVM tasks.
+static VIEW_CLICK_MAP: Core0<PtrMap<MAX_CLICK_VIEWS>> = unsafe { Core0::new(PtrMap::new()) };
 
 // ── Long-click pathway (LV_EVENT_LONG_PRESSED) ──────────────────────────────
 //
@@ -38,7 +40,8 @@ static mut LONG_CLICK_QUEUE: [usize; CLICK_QUEUE_SIZE] = [0; CLICK_QUEUE_SIZE];
 static mut LONG_CLICK_QUEUE_HEAD: usize = 0;
 static mut LONG_CLICK_QUEUE_TAIL: usize = 0;
 
-static mut VIEW_LONG_CLICK_MAP: PtrMap<MAX_CLICK_VIEWS> = PtrMap::new();
+// SAFETY: a listener registry, reached only from JVM tasks.
+static VIEW_LONG_CLICK_MAP: Core0<PtrMap<MAX_CLICK_VIEWS>> = unsafe { Core0::new(PtrMap::new()) };
 
 // ── LVGL trampoline ─────────────────────────────────────────────────────────
 
@@ -68,12 +71,12 @@ unsafe extern "C" fn view_long_click_cb(e: *mut lv_event_t) {
 
 unsafe extern "C" fn click_map_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    unsafe { map_mut(&raw mut VIEW_CLICK_MAP).remove(obj) }
+    VIEW_CLICK_MAP.remove(obj)
 }
 
 unsafe extern "C" fn long_click_map_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    unsafe { map_mut(&raw mut VIEW_LONG_CLICK_MAP).remove(obj) }
+    VIEW_LONG_CLICK_MAP.remove(obj)
 }
 
 // ── LVGL ops (plain-Rust; called from widgets/*.rs Java shims) ──────────────
@@ -137,7 +140,7 @@ pub(in crate::graphics) fn perform_click(id: i32) {
 pub(in crate::graphics) fn register_click_listener(id: i32, obj_ref: u16) -> bool {
     let raw_ptr = handle_table::lookup(id) as usize;
     unsafe {
-        match map_mut(&raw mut VIEW_CLICK_MAP).upsert(raw_ptr, obj_ref) {
+        match VIEW_CLICK_MAP.upsert(raw_ptr, obj_ref) {
             Upsert::Updated => {}
             Upsert::Full => {
                 warn_full("view-click");
@@ -170,7 +173,7 @@ pub(in crate::graphics) fn register_click_listener(id: i32, obj_ref: u16) -> boo
 pub(in crate::graphics) fn register_long_click_listener(id: i32, obj_ref: u16) {
     let raw_ptr = handle_table::lookup(id) as usize;
     unsafe {
-        match map_mut(&raw mut VIEW_LONG_CLICK_MAP).upsert(raw_ptr, obj_ref) {
+        match VIEW_LONG_CLICK_MAP.upsert(raw_ptr, obj_ref) {
             Upsert::Updated => {}
             Upsert::Full => warn_full("view-long-click"),
             Upsert::Inserted => {
@@ -220,13 +223,13 @@ pub fn drain_long_click_queue() -> Option<usize> {
 
 /// Look up the Java `View` object index for a long-clickable widget's pointer.
 pub fn lookup_long_click_obj(handle: usize) -> Option<u16> {
-    unsafe { map_ref(&raw const VIEW_LONG_CLICK_MAP).lookup(handle) }
+    VIEW_LONG_CLICK_MAP.lookup(handle)
 }
 
 /// GC roots for the long-click map — same unrooted-View hazard as
 /// [`visit_click_listener_roots`].
 pub fn visit_long_click_listener_roots(visit: &mut dyn FnMut(u16)) {
-    unsafe { map_ref(&raw const VIEW_LONG_CLICK_MAP).visit(visit) }
+    VIEW_LONG_CLICK_MAP.visit(visit)
 }
 
 /// Drain one click event (raw `lv_obj_t*` value) from the queue.
@@ -243,15 +246,15 @@ pub fn drain_click_queue() -> Option<usize> {
 
 /// Look up the Java `View` object index for a clickable widget's raw LVGL pointer.
 pub fn lookup_button_obj(handle: usize) -> Option<u16> {
-    unsafe { map_ref(&raw const VIEW_CLICK_MAP).lookup(handle) }
+    VIEW_CLICK_MAP.lookup(handle)
 }
 
 pub fn reset_button_state() {
     unsafe {
-        map_mut(&raw mut VIEW_CLICK_MAP).reset();
+        VIEW_CLICK_MAP.reset();
         CLICK_QUEUE_HEAD = 0;
         CLICK_QUEUE_TAIL = 0;
-        map_mut(&raw mut VIEW_LONG_CLICK_MAP).reset();
+        VIEW_LONG_CLICK_MAP.reset();
         LONG_CLICK_QUEUE_HEAD = 0;
         LONG_CLICK_QUEUE_TAIL = 0;
     }
@@ -263,5 +266,5 @@ pub fn reset_button_state() {
 /// after which its click silently stops dispatching. See
 /// `events::visit_view_listener_roots`.
 pub fn visit_click_listener_roots(visit: &mut dyn FnMut(u16)) {
-    unsafe { map_ref(&raw const VIEW_CLICK_MAP).visit(visit) }
+    VIEW_CLICK_MAP.visit(visit)
 }

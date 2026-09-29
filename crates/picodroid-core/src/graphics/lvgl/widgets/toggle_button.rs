@@ -10,7 +10,8 @@ use core::ffi::c_char;
 
 use super::super::handle_table;
 use super::super::lifecycle;
-use super::super::listener_map::{map_mut, map_ref, warn_full, PtrMap, Upsert};
+use super::super::listener_map::{warn_full, PtrMap, Upsert};
+use crate::util::local::Core0;
 
 const MAX_TOGGLE_BUTTONS: usize = 16;
 const TEXT_BUF_SIZE: usize = 32;
@@ -43,7 +44,8 @@ static mut QUEUE_HEAD: usize = 0;
 static mut QUEUE_TAIL: usize = 0;
 
 const MAX_LISTENERS: usize = 32;
-static mut HANDLE_MAP: PtrMap<MAX_LISTENERS> = PtrMap::new();
+// SAFETY: a listener registry, reached only from JVM tasks.
+static HANDLE_MAP: Core0<PtrMap<MAX_LISTENERS>> = unsafe { Core0::new(PtrMap::new()) };
 
 /// Remove the dying widget from both per-widget tables: the listener map and
 /// the `ENTRIES` label side-table (a stale `raw_ptr` there would relabel a
@@ -51,7 +53,7 @@ static mut HANDLE_MAP: PtrMap<MAX_LISTENERS> = PtrMap::new();
 unsafe extern "C" fn map_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
     unsafe {
-        map_mut(&raw mut HANDLE_MAP).remove(obj);
+        HANDLE_MAP.remove(obj);
         let entries = &raw mut ENTRIES;
         let entries = &mut *entries;
         let mut i = 0;
@@ -231,10 +233,8 @@ pub(in crate::graphics) fn set_text_off(id: i32, text: &str) {
 
 pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
     let raw_ptr = handle_table::lookup(id) as usize;
-    unsafe {
-        if let Upsert::Full = map_mut(&raw mut HANDLE_MAP).upsert(raw_ptr, obj_ref) {
-            warn_full("toggle-checked");
-        }
+    if let Upsert::Full = HANDLE_MAP.upsert(raw_ptr, obj_ref) {
+        warn_full("toggle-checked");
     }
 }
 
@@ -250,7 +250,7 @@ pub fn drain_checked_change_queue() -> Option<usize> {
 }
 
 pub fn lookup_checked_change_obj(handle: usize) -> Option<u16> {
-    unsafe { map_ref(&raw const HANDLE_MAP).lookup(handle) }
+    HANDLE_MAP.lookup(handle)
 }
 
 pub fn reset_toggle_button_state() {
@@ -258,7 +258,7 @@ pub fn reset_toggle_button_state() {
         ENTRY_COUNT = 0;
         let entries = &raw mut ENTRIES;
         *entries = [EMPTY_ENTRY; MAX_TOGGLE_BUTTONS];
-        map_mut(&raw mut HANDLE_MAP).reset();
+        HANDLE_MAP.reset();
         QUEUE_HEAD = 0;
         QUEUE_TAIL = 0;
     }
@@ -271,5 +271,5 @@ pub fn reset_toggle_button_state() {
 /// a later dispatch resolves a dead ref → `NoSuchMethod`. See
 /// `widgets::button::visit_click_listener_roots`.
 pub fn visit_checked_change_listener_roots(visit: &mut dyn FnMut(u16)) {
-    unsafe { map_ref(&raw const HANDLE_MAP).visit(visit) }
+    HANDLE_MAP.visit(visit)
 }

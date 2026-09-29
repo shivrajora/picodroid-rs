@@ -18,6 +18,8 @@
 //! address always takes the `Inserted` path that (re)attaches callbacks.
 //! Overflow is reported by the caller via [`warn_full`], never silent.
 
+use core::cell::Cell;
+
 /// Outcome of [`PtrMap::upsert`]; tells the caller whether LVGL callbacks
 /// must be attached (`Inserted`), are provably already attached (`Updated`),
 /// or the registration was dropped (`Full` — report it with [`warn_full`]).
@@ -30,8 +32,8 @@ pub enum Upsert {
 
 pub struct PtrMap<const N: usize> {
     /// `(raw lv_obj_t*, Java obj_ref)`; slots at `len..` are zeroed.
-    entries: [(usize, u16); N],
-    len: usize,
+    entries: [Cell<(usize, u16)>; N],
+    len: Cell<usize>,
 }
 
 impl<const N: usize> Default for PtrMap<N> {
@@ -40,24 +42,30 @@ impl<const N: usize> Default for PtrMap<N> {
     }
 }
 
+/// Every method takes `&self` and moves whole entries in and out of `Cell`s,
+/// so a map lives in a plain `static` (inside a
+/// [`Core0`](crate::util::local::Core0)) and a callback that re-enters the
+/// map from inside [`for_each`](Self::for_each) or [`visit`](Self::visit)
+/// sees a consistent table.
 impl<const N: usize> PtrMap<N> {
     pub const fn new() -> Self {
         Self {
-            entries: [(0, 0); N],
-            len: 0,
+            entries: [const { Cell::new((0, 0)) }; N],
+            len: Cell::new(0),
         }
     }
 
-    pub fn upsert(&mut self, ptr: usize, obj_ref: u16) -> Upsert {
-        for entry in &mut self.entries[..self.len] {
-            if entry.0 == ptr {
-                entry.1 = obj_ref;
+    pub fn upsert(&self, ptr: usize, obj_ref: u16) -> Upsert {
+        let len = self.len.get();
+        for entry in &self.entries[..len] {
+            if entry.get().0 == ptr {
+                entry.set((ptr, obj_ref));
                 return Upsert::Updated;
             }
         }
-        if self.len < N {
-            self.entries[self.len] = (ptr, obj_ref);
-            self.len += 1;
+        if len < N {
+            self.entries[len].set((ptr, obj_ref));
+            self.len.set(len + 1);
             Upsert::Inserted
         } else {
             Upsert::Full
@@ -65,8 +73,9 @@ impl<const N: usize> PtrMap<N> {
     }
 
     pub fn lookup(&self, ptr: usize) -> Option<u16> {
-        self.entries[..self.len]
+        self.entries[..self.len.get()]
             .iter()
+            .map(Cell::get)
             .find(|e| e.0 == ptr)
             .map(|e| e.1)
     }
@@ -74,71 +83,53 @@ impl<const N: usize> PtrMap<N> {
     /// Swap-remove every entry for `ptr`, zeroing the vacated tail slot so a
     /// stale obj_ref can never linger past `len` (the GC visitor would still
     /// root it otherwise). No-op if `ptr` is not present.
-    pub fn remove(&mut self, ptr: usize) {
+    pub fn remove(&self, ptr: usize) {
+        let mut len = self.len.get();
         let mut i = 0;
-        while i < self.len {
-            if self.entries[i].0 == ptr {
-                self.entries[i] = self.entries[self.len - 1];
-                self.entries[self.len - 1] = (0, 0);
-                self.len -= 1;
+        while i < len {
+            if self.entries[i].get().0 == ptr {
+                self.entries[i].set(self.entries[len - 1].get());
+                self.entries[len - 1].set((0, 0));
+                len -= 1;
+                self.len.set(len);
             } else {
                 i += 1;
             }
         }
     }
 
-    /// Visit every live `(ptr, obj_ref)` pair.
+    /// Visit every live `(ptr, obj_ref)` pair. `len` is read again after
+    /// each call, so `f` may add to or remove from this map.
     pub fn for_each(&self, f: &mut dyn FnMut(usize, u16)) {
-        for &(p, r) in &self.entries[..self.len] {
+        let mut i = 0;
+        while i < self.len.get() {
+            let (p, r) = self.entries[i].get();
             f(p, r);
+            i += 1;
         }
     }
 
     /// Visit every registered Java obj_ref as a GC root.
     pub fn visit(&self, visit: &mut dyn FnMut(u16)) {
-        for &(_, r) in &self.entries[..self.len] {
+        let mut i = 0;
+        while i < self.len.get() {
+            let (_, r) = self.entries[i].get();
             if r != 0 {
                 visit(r);
             }
+            i += 1;
         }
     }
 
     /// Wholesale clear (between-app-run reset). Zeroes every slot, not just
     /// `len` — the visitor must never see a stale ref regardless of caller
     /// ordering.
-    pub fn reset(&mut self) {
-        self.entries = [(0, 0); N];
-        self.len = 0;
+    pub fn reset(&self) {
+        for entry in &self.entries {
+            entry.set((0, 0));
+        }
+        self.len.set(0);
     }
-}
-
-/// Access a `static mut PtrMap` through a raw pointer without materializing
-/// a reference to the static itself (`static_mut_refs`) or the inline
-/// `*&raw` pattern (`clippy::deref_addrof`): call as
-/// `map_mut(&raw mut MAP).upsert(..)`.
-///
-/// # Safety
-///
-/// `map` must point to a live, initialised `PtrMap<N>` — in practice always
-/// a `static mut` in this crate, obtained via `&raw mut`. The returned
-/// `&'static mut` aliases that static, so the caller must not hold two of
-/// them at once. Sound for the widget maps because they are only ever
-/// touched from the single UI task.
-#[inline]
-pub unsafe fn map_mut<const N: usize>(map: *mut PtrMap<N>) -> &'static mut PtrMap<N> {
-    unsafe { &mut *map }
-}
-
-/// Shared-access counterpart of [`map_mut`].
-///
-/// # Safety
-///
-/// Same contract as [`map_mut`], minus the exclusivity requirement: `map`
-/// must point to a live, initialised `PtrMap<N>`, and no `&mut` to it may be
-/// outstanding.
-#[inline]
-pub unsafe fn map_ref<const N: usize>(map: *const PtrMap<N>) -> &'static PtrMap<N> {
-    unsafe { &*map }
 }
 
 /// Report a dropped registration ([`Upsert::Full`]). A full map means clicks
@@ -169,7 +160,7 @@ mod tests {
 
     #[test]
     fn upsert_insert_update_full() {
-        let mut m: PtrMap<2> = PtrMap::new();
+        let m: PtrMap<2> = PtrMap::new();
         assert!(matches!(m.upsert(0x10, 1), Upsert::Inserted));
         assert!(matches!(m.upsert(0x20, 2), Upsert::Inserted));
         assert!(matches!(m.upsert(0x10, 3), Upsert::Updated));
@@ -180,7 +171,7 @@ mod tests {
 
     #[test]
     fn remove_zeroes_vacated_tail_slot() {
-        let mut m: PtrMap<4> = PtrMap::new();
+        let m: PtrMap<4> = PtrMap::new();
         let _ = m.upsert(0x10, 1);
         let _ = m.upsert(0x20, 2);
         let _ = m.upsert(0x30, 3);
@@ -189,12 +180,12 @@ mod tests {
         assert_eq!(m.lookup(0x10), None);
         assert_eq!(refs(&m), vec![2, 3]);
         // The vacated slot must not resurface as a phantom root.
-        assert_eq!(m.entries[2], (0, 0));
+        assert_eq!(m.entries[2].get(), (0, 0));
     }
 
     #[test]
     fn remove_absent_is_noop_and_reuse_reinserts() {
-        let mut m: PtrMap<2> = PtrMap::new();
+        let m: PtrMap<2> = PtrMap::new();
         let _ = m.upsert(0x10, 1);
         m.remove(0x99);
         assert_eq!(m.lookup(0x10), Some(1));
@@ -207,11 +198,38 @@ mod tests {
 
     #[test]
     fn reset_clears_every_slot() {
-        let mut m: PtrMap<2> = PtrMap::new();
+        let m: PtrMap<2> = PtrMap::new();
         let _ = m.upsert(0x10, 1);
         let _ = m.upsert(0x20, 2);
         m.reset();
         assert_eq!(refs(&m), Vec::<u16>::new());
-        assert_eq!(m.entries, [(0, 0); 2]);
+        assert!(m.entries.iter().all(|e| e.get() == (0, 0)));
+    }
+
+    #[test]
+    fn visitor_may_remove_and_insert() {
+        let m: PtrMap<4> = PtrMap::new();
+        let _ = m.upsert(0x10, 1);
+        let _ = m.upsert(0x20, 2);
+        let _ = m.upsert(0x30, 3);
+        let mut seen = Vec::new();
+        m.for_each(&mut |p, r| {
+            seen.push(r);
+            // What an LVGL delete callback does from inside a walk.
+            m.remove(p);
+        });
+        // Swap-remove pulls the tail into the slot just visited, so the walk
+        // skips it and ends early rather than reading past `len`.
+        assert_eq!(seen, vec![1, 2]);
+        assert_eq!(refs(&m), vec![3]);
+        let mut roots = 0;
+        m.visit(&mut |_| {
+            roots += 1;
+            if roots == 1 {
+                let _ = m.upsert(0x40, 4);
+            }
+        });
+        assert_eq!(roots, 2);
+        assert_eq!(refs(&m), vec![3, 4]);
     }
 }

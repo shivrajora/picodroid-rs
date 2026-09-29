@@ -14,7 +14,8 @@
 use crate::hal;
 use crate::lvgl_ffi::*;
 
-use super::listener_map::{map_mut, map_ref, warn_full, PtrMap, Upsert};
+use super::listener_map::{warn_full, PtrMap, Upsert};
+use crate::util::local::Core0;
 
 // Board-specific button table generated from `[[button]]` in board.toml.
 // Entries: (pin, LV_KEY_*, android_keycode). Empty on boards without buttons.
@@ -106,11 +107,12 @@ pub fn focused_view_obj() -> Option<u16> {
 // ── View key-listener registry (raw lv_obj_t* → Java View ObjectRef) ────────
 
 const MAX_KEY_LISTENERS: usize = 32;
-static mut VIEW_KEY_MAP: PtrMap<MAX_KEY_LISTENERS> = PtrMap::new();
+// SAFETY: a listener registry, reached only from JVM tasks.
+static VIEW_KEY_MAP: Core0<PtrMap<MAX_KEY_LISTENERS>> = unsafe { Core0::new(PtrMap::new()) };
 
 unsafe extern "C" fn key_map_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    unsafe { map_mut(&raw mut VIEW_KEY_MAP).remove(obj) }
+    VIEW_KEY_MAP.remove(obj)
 }
 
 /// Record a Java `View` object as the key-listener target for the given
@@ -126,7 +128,7 @@ pub fn register_view_key_listener(id: i32, obj_ref: u16) {
     }
     let raw_ptr = raw_obj as usize;
     unsafe {
-        match map_mut(&raw mut VIEW_KEY_MAP).upsert(raw_ptr, obj_ref) {
+        match VIEW_KEY_MAP.upsert(raw_ptr, obj_ref) {
             Upsert::Updated => {}
             Upsert::Full => warn_full("view-key"),
             Upsert::Inserted => {
@@ -142,11 +144,11 @@ pub fn register_view_key_listener(id: i32, obj_ref: u16) {
 }
 
 fn lookup_view_obj(handle: usize) -> Option<u16> {
-    unsafe { map_ref(&raw const VIEW_KEY_MAP).lookup(handle) }
+    VIEW_KEY_MAP.lookup(handle)
 }
 
 pub fn reset_view_key_listener_state() {
-    unsafe { map_mut(&raw mut VIEW_KEY_MAP).reset() }
+    VIEW_KEY_MAP.reset()
 }
 
 /// Visit the Java `View` object ref of every view registered for a key, touch,
@@ -158,12 +160,10 @@ pub fn reset_view_key_listener_state() {
 /// silently drops (the keypad appears to "lose focus" a few seconds in).
 /// Called from `PicodroidNativeHandler::gc_visit_roots`.
 pub fn visit_view_listener_roots(visit: &mut dyn FnMut(u16)) {
-    unsafe {
-        map_ref(&raw const VIEW_KEY_MAP).visit(visit);
-        map_ref(&raw const VIEW_TOUCH_MAP).visit(visit);
-        map_ref(&raw const VIEW_SWIPE_MAP).visit(visit);
-        map_ref(&raw const VIEW_FOCUS_MAP).visit(visit);
-    }
+    VIEW_KEY_MAP.visit(visit);
+    VIEW_TOUCH_MAP.visit(visit);
+    VIEW_SWIPE_MAP.visit(visit);
+    VIEW_FOCUS_MAP.visit(visit);
 }
 
 /// Initialize the LVGL keypad indev, focus group, and hardware button GPIO

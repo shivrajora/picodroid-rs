@@ -18,7 +18,8 @@ use core::ffi::c_char;
 
 use super::super::handle_table;
 use super::super::lifecycle;
-use super::super::listener_map::{map_mut, map_ref, warn_full, PtrMap, Upsert};
+use super::super::listener_map::{warn_full, PtrMap, Upsert};
+use crate::util::local::Core0;
 
 const HOURS_24: &[u8] = b"00\n01\n02\n03\n04\n05\n06\n07\n08\n09\n10\n11\n\
 12\n13\n14\n15\n16\n17\n18\n19\n20\n21\n22\n23\0";
@@ -75,11 +76,12 @@ static mut QUEUE_TAIL: usize = 0;
 // ── Container → Java object map ─────────────────────────────────────────────
 
 const MAX_LISTENERS: usize = 4;
-static mut HANDLE_MAP: PtrMap<MAX_LISTENERS> = PtrMap::new();
+// SAFETY: a listener registry, reached only from JVM tasks.
+static HANDLE_MAP: Core0<PtrMap<MAX_LISTENERS>> = unsafe { Core0::new(PtrMap::new()) };
 
 unsafe extern "C" fn map_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    unsafe { map_mut(&raw mut HANDLE_MAP).remove(obj) }
+    HANDLE_MAP.remove(obj)
 }
 
 /// Release a picker's `SLOTS` entry and its three `ROLLER_MAP` entries when the
@@ -106,7 +108,7 @@ unsafe extern "C" fn slot_delete_cb(e: *mut lv_event_t) {
                 *entry = (0, 0);
             }
         }
-        map_mut(&raw mut HANDLE_MAP).remove(container);
+        HANDLE_MAP.remove(container);
     }
 }
 
@@ -356,7 +358,7 @@ pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
         return;
     }
     unsafe {
-        match map_mut(&raw mut HANDLE_MAP).upsert(raw_ptr, obj_ref) {
+        match HANDLE_MAP.upsert(raw_ptr, obj_ref) {
             Upsert::Updated => {}
             Upsert::Full => warn_full("time-picker"),
             Upsert::Inserted => {
@@ -385,7 +387,7 @@ pub fn drain_time_picker_queue() -> Option<usize> {
 }
 
 pub fn lookup_time_picker_obj(handle: usize) -> Option<u16> {
-    unsafe { map_ref(&raw const HANDLE_MAP).lookup(handle) }
+    HANDLE_MAP.lookup(handle)
 }
 
 pub fn reset_time_picker_state() {
@@ -396,7 +398,7 @@ pub fn reset_time_picker_state() {
         for entry in &mut ROLLER_MAP[..] {
             *entry = (0, 0);
         }
-        map_mut(&raw mut HANDLE_MAP).reset();
+        HANDLE_MAP.reset();
         QUEUE_HEAD = 0;
         QUEUE_TAIL = 0;
     }

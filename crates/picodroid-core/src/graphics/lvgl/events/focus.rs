@@ -30,11 +30,13 @@ pub(super) static mut FOCUS_QUEUE: [FocusRecord; FOCUS_QUEUE_SIZE] = [FocusRecor
 pub(super) static mut FOCUS_QUEUE_HEAD: usize = 0;
 pub(super) static mut FOCUS_QUEUE_TAIL: usize = 0;
 
-pub(super) static mut VIEW_FOCUS_MAP: PtrMap<MAX_FOCUS_LISTENERS> = PtrMap::new();
+// SAFETY: a listener registry, reached only from JVM tasks.
+pub(super) static VIEW_FOCUS_MAP: Core0<PtrMap<MAX_FOCUS_LISTENERS>> =
+    unsafe { Core0::new(PtrMap::new()) };
 
 pub(super) unsafe extern "C" fn focus_map_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    unsafe { map_mut(&raw mut VIEW_FOCUS_MAP).remove(obj) }
+    VIEW_FOCUS_MAP.remove(obj)
 }
 
 pub(super) fn push_focus_event(handle: usize, has_focus: bool) {
@@ -89,7 +91,7 @@ pub fn register_view_focus_change_listener(id: i32, obj_ref: u16) {
     }
     let raw_ptr = raw_obj as usize;
     unsafe {
-        match map_mut(&raw mut VIEW_FOCUS_MAP).upsert(raw_ptr, obj_ref) {
+        match VIEW_FOCUS_MAP.upsert(raw_ptr, obj_ref) {
             Upsert::Updated => return,
             Upsert::Full => {
                 warn_full("view-focus");
@@ -130,12 +132,12 @@ pub fn drain_focus_change_event() -> Option<FocusRecord> {
 }
 
 pub fn lookup_focus_view_obj(handle: usize) -> Option<u16> {
-    unsafe { map_ref(&raw const VIEW_FOCUS_MAP).lookup(handle) }
+    VIEW_FOCUS_MAP.lookup(handle)
 }
 
 pub fn reset_view_focus_listener_state() {
     unsafe {
-        map_mut(&raw mut VIEW_FOCUS_MAP).reset();
+        VIEW_FOCUS_MAP.reset();
         FOCUS_QUEUE_HEAD = 0;
         FOCUS_QUEUE_TAIL = 0;
     }

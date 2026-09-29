@@ -10,8 +10,9 @@ use crate::lvgl_ffi::*;
 
 use super::super::handle_table;
 use super::super::lifecycle;
-use super::super::listener_map::{map_mut, map_ref, warn_full, PtrMap, Upsert};
+use super::super::listener_map::{warn_full, PtrMap, Upsert};
 use super::keyboard;
+use crate::util::local::Core0;
 
 // ── Auto-show opt-out registry ──────────────────────────────────────────────
 //
@@ -96,14 +97,12 @@ pub(in crate::graphics) fn set_numeric(id: i32, numeric: bool) {
 // keyboard's OK callback will skip editor-action dispatch.
 
 const MAX_EDITOR_ACTION_LISTENERS: usize = 16;
-static mut EDITOR_ACTION_MAP: PtrMap<MAX_EDITOR_ACTION_LISTENERS> = PtrMap::new();
+// SAFETY: a listener registry, reached only from JVM tasks.
+static EDITOR_ACTION_MAP: Core0<PtrMap<MAX_EDITOR_ACTION_LISTENERS>> =
+    unsafe { Core0::new(PtrMap::new()) };
 
 fn lookup_editor_action_obj(raw_ptr: usize) -> u16 {
-    unsafe {
-        map_ref(&raw const EDITOR_ACTION_MAP)
-            .lookup(raw_ptr)
-            .unwrap_or(0)
-    }
+    EDITOR_ACTION_MAP.lookup(raw_ptr).unwrap_or(0)
 }
 
 pub(in crate::graphics) fn register_editor_action_listener(id: i32, obj_ref: u16) {
@@ -111,10 +110,8 @@ pub(in crate::graphics) fn register_editor_action_listener(id: i32, obj_ref: u16
     if raw_ptr == 0 {
         return;
     }
-    unsafe {
-        if let Upsert::Full = map_mut(&raw mut EDITOR_ACTION_MAP).upsert(raw_ptr, obj_ref) {
-            warn_full("editor-action");
-        }
+    if let Upsert::Full = EDITOR_ACTION_MAP.upsert(raw_ptr, obj_ref) {
+        warn_full("editor-action");
     }
 }
 
@@ -125,7 +122,8 @@ pub(in crate::graphics) fn register_editor_action_listener(id: i32, obj_ref: u16
 // installed lazily on first registration so unwatched fields never enqueue.
 
 const MAX_TEXT_WATCHERS: usize = 16;
-static mut TEXT_WATCH_MAP: PtrMap<MAX_TEXT_WATCHERS> = PtrMap::new();
+// SAFETY: a listener registry, reached only from JVM tasks.
+static TEXT_WATCH_MAP: Core0<PtrMap<MAX_TEXT_WATCHERS>> = unsafe { Core0::new(PtrMap::new()) };
 
 const TEXT_QUEUE_SIZE: usize = 16;
 static mut TEXT_QUEUE: [usize; TEXT_QUEUE_SIZE] = [0; TEXT_QUEUE_SIZE];
@@ -162,7 +160,7 @@ pub(in crate::graphics) fn register_text_changed_listener(id: i32, obj_ref: u16)
         return;
     }
     unsafe {
-        match map_mut(&raw mut TEXT_WATCH_MAP).upsert(raw_ptr, obj_ref) {
+        match TEXT_WATCH_MAP.upsert(raw_ptr, obj_ref) {
             // Event cb already installed.
             Upsert::Updated => {}
             Upsert::Full => warn_full("text-watcher"),
@@ -190,13 +188,13 @@ pub fn drain_text_changed_queue() -> Option<usize> {
 }
 
 pub fn lookup_text_watch_obj(handle: usize) -> Option<u16> {
-    unsafe { map_ref(&raw const TEXT_WATCH_MAP).lookup(handle) }
+    TEXT_WATCH_MAP.lookup(handle)
 }
 
 /// GC roots for the TextWatcher map — same contract as
 /// [`visit_editor_action_listener_roots`].
 pub fn visit_text_changed_listener_roots(visit: &mut dyn FnMut(u16)) {
-    unsafe { map_ref(&raw const TEXT_WATCH_MAP).visit(visit) }
+    TEXT_WATCH_MAP.visit(visit)
 }
 
 /// Purge the dying textarea from every per-widget registry in this module:
@@ -205,8 +203,8 @@ pub fn visit_text_changed_listener_roots(visit: &mut dyn FnMut(u16)) {
 unsafe extern "C" fn edit_text_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
     unsafe {
-        map_mut(&raw mut EDITOR_ACTION_MAP).remove(obj);
-        map_mut(&raw mut TEXT_WATCH_MAP).remove(obj);
+        EDITOR_ACTION_MAP.remove(obj);
+        TEXT_WATCH_MAP.remove(obj);
         let list = &raw mut AUTOSHOW_DISABLED;
         let len = &raw mut AUTOSHOW_DISABLED_LEN;
         remove_from_list(&mut *list, &mut *len, obj);
@@ -319,9 +317,9 @@ pub(in crate::graphics) fn set_autoshow(id: i32, enabled: bool) {
 pub fn reset_edit_text_state() {
     unsafe {
         AUTOSHOW_DISABLED_LEN = 0;
-        map_mut(&raw mut EDITOR_ACTION_MAP).reset();
+        EDITOR_ACTION_MAP.reset();
         NUMERIC_FIELDS_LEN = 0;
-        map_mut(&raw mut TEXT_WATCH_MAP).reset();
+        TEXT_WATCH_MAP.reset();
         TEXT_Q_HEAD = 0;
         TEXT_Q_TAIL = 0;
     }
@@ -334,7 +332,7 @@ pub fn reset_edit_text_state() {
 /// later dispatch resolves a dead ref → `NoSuchMethod`. See
 /// `widgets::button::visit_click_listener_roots`.
 pub fn visit_editor_action_listener_roots(visit: &mut dyn FnMut(u16)) {
-    unsafe { map_ref(&raw const EDITOR_ACTION_MAP).visit(visit) }
+    EDITOR_ACTION_MAP.visit(visit)
 }
 
 /// Mask the field's text (`InputType.TYPE_TEXT_VARIATION_PASSWORD`): LVGL

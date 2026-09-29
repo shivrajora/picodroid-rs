@@ -21,7 +21,8 @@ use core::ffi::c_char;
 
 use super::super::handle_table;
 use super::super::lifecycle;
-use super::super::listener_map::{map_mut, map_ref, warn_full, PtrMap, Upsert};
+use super::super::listener_map::{warn_full, PtrMap, Upsert};
+use crate::util::local::Core0;
 
 /// Accent fill (RGB888) for the keypad-focused list row — a material-teal that
 /// reads clearly as "selected" on both light and dark surfaces. The default
@@ -38,14 +39,15 @@ static mut ITEM_CLICK_QUEUE_TAIL: usize = 0;
 // ── ListView handle → Java object mapping (one entry per ListView) ──────────
 
 const MAX_LIST_LISTENERS: usize = 16;
-static mut LISTENER_MAP: PtrMap<MAX_LIST_LISTENERS> = PtrMap::new();
+// SAFETY: a listener registry, reached only from JVM tasks.
+static LISTENER_MAP: Core0<PtrMap<MAX_LIST_LISTENERS>> = unsafe { Core0::new(PtrMap::new()) };
 
 // Keyed by the LIST object; its rows' trampolines die with the rows, and this
 // delete callback (attached at first registration) drops the map entry when
 // the list itself is deleted.
 unsafe extern "C" fn list_map_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    unsafe { map_mut(&raw mut LISTENER_MAP).remove(obj) }
+    LISTENER_MAP.remove(obj)
 }
 
 unsafe extern "C" fn row_click_cb(e: *mut lv_event_t) {
@@ -118,7 +120,7 @@ pub(in crate::graphics) fn register_item_click_listener(id: i32, obj_ref: u16) {
     }
     let raw_ptr = raw_obj as usize;
     unsafe {
-        match map_mut(&raw mut LISTENER_MAP).upsert(raw_ptr, obj_ref) {
+        match LISTENER_MAP.upsert(raw_ptr, obj_ref) {
             Upsert::Updated => {}
             Upsert::Full => warn_full("list-item-click"),
             Upsert::Inserted => {
@@ -160,7 +162,7 @@ pub fn lookup_item_click(row: usize) -> Option<(u16, i32)> {
     let row_obj = row as *mut lv_obj_t;
     let mut hit = None;
     unsafe {
-        map_ref(&raw const LISTENER_MAP).for_each(&mut |list, obj_ref| {
+        LISTENER_MAP.for_each(&mut |list, obj_ref| {
             if hit.is_some() {
                 return;
             }
@@ -179,7 +181,7 @@ pub fn lookup_item_click(row: usize) -> Option<(u16, i32)> {
 
 pub fn reset_list_view_state() {
     unsafe {
-        map_mut(&raw mut LISTENER_MAP).reset();
+        LISTENER_MAP.reset();
         ITEM_CLICK_QUEUE_HEAD = 0;
         ITEM_CLICK_QUEUE_TAIL = 0;
     }
@@ -191,5 +193,5 @@ pub fn reset_list_view_state() {
 /// after which its item-clicks silently stop dispatching. See
 /// `widgets::button::visit_click_listener_roots`.
 pub fn visit_item_click_listener_roots(visit: &mut dyn FnMut(u16)) {
-    unsafe { map_ref(&raw const LISTENER_MAP).visit(visit) }
+    LISTENER_MAP.visit(visit)
 }

@@ -23,11 +23,13 @@ use super::*;
 // TextView and LinearLayout.
 
 pub(super) const MAX_TOUCH_LISTENERS: usize = 32;
-pub(super) static mut VIEW_TOUCH_MAP: PtrMap<MAX_TOUCH_LISTENERS> = PtrMap::new();
+// SAFETY: a listener registry, reached only from JVM tasks.
+pub(super) static VIEW_TOUCH_MAP: Core0<PtrMap<MAX_TOUCH_LISTENERS>> =
+    unsafe { Core0::new(PtrMap::new()) };
 
 pub(super) unsafe extern "C" fn touch_map_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    unsafe { map_mut(&raw mut VIEW_TOUCH_MAP).remove(obj) }
+    VIEW_TOUCH_MAP.remove(obj)
 }
 
 /// Action codes — must match the constants on `picodroid.view.MotionEvent`.
@@ -189,7 +191,7 @@ pub fn register_view_touch_listener(id: i32, obj_ref: u16) {
     let raw_ptr = raw_obj as usize;
 
     unsafe {
-        match map_mut(&raw mut VIEW_TOUCH_MAP).upsert(raw_ptr, obj_ref) {
+        match VIEW_TOUCH_MAP.upsert(raw_ptr, obj_ref) {
             // Already registered with LVGL — the obj_ref was refreshed.
             Upsert::Updated => return,
             Upsert::Full => {
@@ -255,12 +257,12 @@ pub fn drain_touch_event() -> Option<TouchRecord> {
 
 /// Look up the Java `View` object reference for a registered LVGL widget.
 pub fn lookup_touch_view_obj(handle: usize) -> Option<u16> {
-    unsafe { map_ref(&raw const VIEW_TOUCH_MAP).lookup(handle) }
+    VIEW_TOUCH_MAP.lookup(handle)
 }
 
 pub fn reset_view_touch_listener_state() {
     unsafe {
-        map_mut(&raw mut VIEW_TOUCH_MAP).reset();
+        VIEW_TOUCH_MAP.reset();
         TOUCH_QUEUE_HEAD = 0;
         TOUCH_QUEUE_TAIL = 0;
         CLICK_SUPPRESS_LEN = 0;
