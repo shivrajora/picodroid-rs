@@ -12,3 +12,5 @@ description = "Pack-time link tables for JVM class files: the parsed record, mem
 default = []
 # The alloc-based builder: the packer, the firmware build script and tests.
 build = []
+# Hot accessors into `.data` (pico-jvm's `hot-in-ram` forwards this).
+hot-in-ram = []

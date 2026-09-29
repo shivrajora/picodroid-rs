@@ -32,6 +32,8 @@ impl ObjectHeap {
     }
 
     /// Look up the lambda proxy metadata for an object, if any.
+    #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+    #[cfg_attr(feature = "hot-in-ram", inline(never))]
     pub fn get_lambda(&self, obj_idx: u16) -> Option<&LambdaProxy> {
         self.lambda_proxies
             .iter()

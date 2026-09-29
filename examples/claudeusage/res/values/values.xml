@@ -26,5 +26,5 @@
     <integer name="bad_from">85</integer>
     <!-- AUTO cycles the screens this often. -->
     <integer name="auto_seconds">10</integer>
-    <integer name="fade_ms">180</integer>
+    <integer name="fade_ms">90</integer>
 </resources>

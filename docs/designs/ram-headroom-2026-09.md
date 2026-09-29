@@ -1,9 +1,11 @@
 # Spending the RAM the class-link work freed (handover, 2026-09-29)
 
-Status: **proposal, nothing built.** Written for whoever picks this up
-after the class-link work (`f5d93245`, docs/designs/class-link-2026-09.md).
-It says what the headroom is, where it can go, what each option is likely
-worth, how to measure it, and the traps. The recommendation is at the end.
+Status: **measured and landed 2026-09-28** — the shorter fade, the style
+cache and the longer hot lists (`hot_ram_kb` 48 → 60 on every RP2350 board);
+§6 has the numbers and says where §1–§3's estimates were wrong. The rest is
+the handover as written after the class-link work (`f5d93245`,
+docs/designs/class-link-2026-09.md): what the headroom is, where it can go,
+what each option is likely worth, how to measure it, and the traps.
 
 ## 1. What is free now, and where
 
@@ -199,3 +201,107 @@ unallocated is the conservative floor whatever else is done.
   `find_class` 0.2, `name_eq` 0.3, graphics module dispatch 0.4, the handler
   walk 1.9), and the one item left with a visible share — the native path's
   name decode — needs the API change in 2b.3, not RAM.
+
+## 6. Measured and landed (2026-09-28)
+
+Measured on `pico_display2_w`, `claudeusage` against the live bridge, main
+`eae3e09c`, with the sram-hotpath scenario (a 24-press lap at 2 s for the
+spans and the render time, then 60 s of a press every 0.6 s under the PC
+sampler). Debug profile with `parity-metrics` unless a row says release. The
+same baseline image flashed and measured twice differed by 0.2 % in busy
+samples, 1 % in spans and 0.3 % in render; every variant is one image
+measured once, and a rebuild moves the layout, so a difference under about
+5 % is a direction, not a number.
+
+| variant | CPU per press | Java spans per page | render per lap | RAM |
+|---|---:|---:|---:|---|
+| baseline | 1,157 samples | 137 ms | 8.71 s | — |
+| `LV_OBJ_STYLE_CACHE 1` | −4.7 % | −2 % | −4.7 % | 8 B per object, LVGL pool |
+| `fade_ms` 180 → 90 | −17 % | 0 | −27 % | none |
+| `fade_ms` 0 | −39 % | 0 | −61 % | none |
+| longer hot lists, `hot_ram_kb` 60 | −7.6 % | −12 % | −2 % | `.data` +11.5 KB |
+| all three (fade 90) | −26 % | −14 % | −30 % | |
+| all three, release profile | −26 % | −11 % | −30 % | `.data` 81,100 → 92,488 B |
+| release, all three against all but the style cache | −2.5 % | 0 | −1.4 % | |
+
+What landed:
+
+- **The fade**: `fade_ms` 90 in `examples/claudeusage/res/values/values.xml`.
+  It is an app resource, not a framework change. The fade is two fifths of
+  the CPU of a page turn; no fade at all is the larger prize and a visual
+  decision.
+- **The style cache**: `LV_OBJ_STYLE_CACHE 1` in `lv_conf.h`. `get_prop_core`
+  goes from 7.1–7.7 % of the busy samples to 1.8–1.9 %, but
+  `get_selector_style_prop` still runs for every lookup, so the net is 2.5 %
+  (release) to 4.7 % (debug), the smallest of the three and at the edge of
+  what one image can show. It reverses the "keep it off" of
+  docs/completed/scroll-performance-2026-09.md, which judged it on the render
+  time of a picoclock scroll; the profile is the finer instrument. The cost
+  is two words per object in LVGL's pool: the pool's peak on claudeusage
+  moved from 16,540 to 16,980 B of 46,032.
+- **The hot lists**: 34 more LVGL functions and 2 more FreeRTOS functions in
+  `platforms/rp/mcus/rp/hot-ram-*.txt` (the next 8 KB by samples per byte),
+  and twelve pico-jvm and class-link functions under `hot-in-ram`: the
+  class-link accessors (`Linked::utf8`, `cp_class_name`, `cp_member_ref`,
+  `cp_name_and_type`), `cp_names`, `push_java_frame`, `ResolveCache::field`,
+  `ObjectHeap::class_id`, `alloc_with_field_count`, `alloc_with_defaults`,
+  `get_lambda` and `ClassFile::super_class_name`. `class-link` gained a
+  `hot-in-ram` feature that pico-jvm's forwards. The lists are per family, so
+  `.data` grows by 11.5 KB on every RP2350 board and `hot_ram_kb` is 60 on
+  all of them.
+
+Memory on the display board, debug profile with `mem-diag`, after the lap:
+
+| | before | after |
+|---|---:|---:|
+| arena | 324 KB | 312 KB |
+| free heap | 150,992 B | 138,760 B |
+| lowest free heap | 129,072 B | 116,872 B |
+| largest free block | 118,680 B | 95,816 B |
+| arena in use, peak | 183,912 B | 183,208 B |
+| LVGL pool, peak of 46,032 B | 16,540 B | 16,980 B |
+
+On `pico_touch_kit` (arena 252 → 240 KB, release and shrunk, picoclock)
+the free heap is 63.8 KB at boot and 43.6 KB at its lowest; the 2026-09-26
+figures at 252 KB, before the class-link work, were 50 and 34.
+
+Main-stack headroom of the release images (floor 8,192 B): 32,768 →
+33,792 B on the display board; with the lists longer and the key left at 48
+the other boards would have linked at 21.5–27.6 KB instead of 32.8–38.9.
+`lv_mem_kb = 64` on the display board links with 17,408 B and was not
+taken: nothing measured needs the room.
+
+Where §1–§3 were wrong:
+
+- §1's "the History page needs ~243 KB" is stale. The arena in use peaks at
+  184 KB across the four pages (debug, names unshrunk); the comment in the
+  board.toml is corrected.
+- §2b.1 ranked the style cache first. It is the smallest of the three; the
+  fade is the largest by a factor of four.
+- §2a's 5–8 % was low for the Java side (−12 % of the spans) and right for
+  the total.
+- After the longer lists 27 % of the busy samples are still fetched from
+  flash, and the tail is flat: the next 8 KB of C functions held 6.3 % of
+  the samples before this change. Another raise buys little.
+
+Not done: the `memcpy`/`memset`/`memcmp` symbols (§2a), the 32-bit clock
+derivation, the hash-keyed handler API (§2b.3) and fading only the changed
+region (§2b.2).
+
+Flash: the style cache is 1,020 B on the RP2040 (ratchet accepted); the
+RP2350 image is 540 B smaller.
+
+Verified on hardware after the change, both shrink modes: qa_coll, qa_ui,
+jucdemo, qa_thr, heapstress and gcstress with the `testbench_rp2350w`
+firmware (arena 312 KB); gcstress, heapstress, qa_store and qa_life on
+`pico_touch_kit` (arena 240 KB, shrunk images only, see below).
+
+Found on the way: `SystemClock.sleep(n)` on the RP family slept n ticks,
+which is between n−1 and n ms. qa_thr's `SystemClock.sleep(30)` had passed
+on the time the call path around it took and measured 29 ms once that path
+ran from SRAM. The platform sleep now asks for one tick more.
+
+Found on the way: `pico_touch_kit` does not link unless the image is
+shrunk. On main `eae3e09c` a release build without `--shrink` is 40.9 KB
+over the 2048 KB program region and a debug build 94 KB over; the other W
+boards went to 2304 KB in `2d4216b4`, this one did not.

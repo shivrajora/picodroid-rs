@@ -44,8 +44,11 @@ lv_mem_kb = 48
 # functions (mcus/rp/hot-ram-*.txt). Measured here: a third less CPU per
 # claudeusage page turn, the Java-side spans 205 → 118 ms
 # (docs/designs/sram-hotpath-2026-09.md). The RAM comes out of the arena
-# like `jvm_loop_ram_kb`: 372 → 324 KB; the History page needs 243 KB.
-hot_ram_kb = 48
+# like `jvm_loop_ram_kb`: 372 → 324 KB. 2026-09-28: 48 → 60 with the longer
+# lists and the class-link accessors, arena 312 KB; claudeusage peaks at
+# 184 KB in use across its four pages and never drops under 117 KB free
+# (docs/designs/ram-headroom-2026-09.md §6).
+hot_ram_kb = 60
 # An always-on desk display: never sleep the panel on idle.
 idle_timeout_ms = 0
 

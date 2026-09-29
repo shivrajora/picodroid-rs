@@ -400,6 +400,8 @@ impl ObjectHeap {
     /// layout (native handlers, `op_new` via [`alloc_with_defaults`]) skip
     /// the lazy-grow path inside [`set_field`]. Behaviour is otherwise
     /// identical to [`alloc`].
+    #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+    #[cfg_attr(feature = "hot-in-ram", inline(never))]
     pub fn alloc_with_field_count(
         &mut self,
         class_name: &'static str,
@@ -526,6 +528,8 @@ impl ObjectHeap {
     /// Walks the superclass chain root-to-leaf, matching the slot layout used
     /// by `interpreter::helpers::field_slot`.  Callers without class metadata
     /// should keep using [`alloc`].
+    #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+    #[cfg_attr(feature = "hot-in-ram", inline(never))]
     pub fn alloc_with_defaults(
         &mut self,
         class_name: &'static str,
@@ -759,7 +763,9 @@ impl ObjectHeap {
     /// heap's lifetime (the table is append-only and deduplicated), which
     /// is what the resolution tables key virtual sites on
     /// ([`crate::resolve_cache::SiteKey`]).
-    #[inline]
+    #[cfg_attr(not(feature = "hot-in-ram"), inline)]
+    #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+    #[cfg_attr(feature = "hot-in-ram", inline(never))]
     pub fn class_id(&self, idx: u16) -> Option<u16> {
         Some(self.objects.get(idx as usize)?.as_ref()?.class_idx)
     }

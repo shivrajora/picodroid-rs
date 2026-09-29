@@ -655,7 +655,9 @@ impl ResolveCache {
 
     // ── instance fields ─────────────────────────────────────────────────
 
-    #[inline]
+    #[cfg_attr(not(feature = "hot-in-ram"), inline)]
+    #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+    #[cfg_attr(feature = "hot-in-ram", inline(never))]
     pub fn field(&self, k: SiteKey) -> Option<usize> {
         self.fields
             .set(mix(k))

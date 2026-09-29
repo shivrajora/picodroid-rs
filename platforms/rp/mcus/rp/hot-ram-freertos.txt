@@ -1,4 +1,4 @@
-# FreeRTOS kernel and port functions that execute from SRAM (30 functions, ~4.5 KB).
+# FreeRTOS kernel and port functions that execute from SRAM (32 functions, ~4.6 KB).
 #
 # One C function per line; `build_support::hot_ram::retarget` moves each
 # from `.text.<fn>` to `.data.hot.<fn>` in libfreertos.a, so it executes from
@@ -38,3 +38,7 @@ prvUnlockQueue
 xTaskRemoveFromEventList
 prvAddCurrentTaskToDelayedList
 prvTimerTask
+# 2026-09-28: two more from the same later profile
+# (docs/designs/ram-headroom-2026-09.md §6).
+freertos_rs_pvPortMalloc
+vListInsert

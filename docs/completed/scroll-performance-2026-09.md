@@ -357,6 +357,10 @@ style cache is worth a note of its own: it costs 8 bytes per widget out of the
 LVGL pool rather than `.bss`, so it was affordable all along and never needed
 §7's freed RAM — it simply does not help. Keep it off.
 
+(2026-09-28: turned on after all. A PC-sample profile of claudeusage page
+turns on `pico_display2_w` shows 2.5–4.7 % less CPU with it; a scroll's render
+time could not have resolved that. docs/designs/ram-headroom-2026-09.md §6.)
+
 `-O3` failing is the more interesting one. Better codegen not helping, and
 inflating the image slightly hurting, would fit a fetch-stalled loop — except
 the counters say the fetches are hitting. What both results together say is that

@@ -47,7 +47,7 @@ loop-in-ram = []
 # claudeusage page turn went 205 → 135 ms with this alone
 # (docs/designs/sram-hotpath-2026-09.md). A board opts in with `hot_ram_kb`
 # in its board.toml plus the platform's `hot-in-ram` feature.
-hot-in-ram = []
+hot-in-ram = ["class-link/hot-in-ram"]
 # Opt-in memory diagnostics: periodic heap monitor, steady-state growth
 # sentinel, churn counters, offensive heap checks (docs/memory-diagnostics.md).
 # Off by default — when absent, none of the diagnostic code exists in the
