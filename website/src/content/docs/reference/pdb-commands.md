@@ -15,6 +15,8 @@ cargo run -p pdb -- -s sim <command>            # the running simulator
 
 Running `pdb` with no arguments prints the up-to-date usage text.
 
+On a bench with several boards, `./scripts/pdb.sh` takes `--board <name>` (or `--slot <name>`) in place of `-s`: it takes that board's lease, looks up the board's current serial port and passes it to the binary. With one board configured, or when the session already holds one, the name can be left out. `devices`, the help text and a simulator target (`-s sim`, `-s <socket>`) take no lease. See [the shared bench](/project/contributing/#sharing-the-bench).
+
 ## devices
 
 ```bash
@@ -44,7 +46,13 @@ pdb -s <port> install build/apks/<app>.papk
 
 Hot-swaps an app: writes the PAPK to flash and restarts the JVM, without reflashing firmware. The walkthrough lives in [Hot-swap with pdb](/get-started/hot-swap/).
 
-A PAPK is checked for compatibility before install: its `framework-map-version` must be less than or equal to the firmware's active version (see the [shrinker reference](/reference/shrinker/)).
+A PAPK is checked twice on the host before the install is sent. Its structure first: the header, the format version, the manifest, and the class section with every class's link table compared against what the class bytes derive to. This check cannot be skipped. A file packed in format version 1 (before 2026-09-28) fails it, and the fix is to re-pack the app:
+
+```text
+Refusing to install: PAPK file is not a valid PAPK: PAPK format version is not the one this build reads (a v1 file: re-pack it with the current toolchain)
+```
+
+Then compatibility: its `framework-map-version` must be less than or equal to the firmware's active version (see the [shrinker reference](/reference/shrinker/)).
 
 On multi-app firmware the device also *places* the app before it erases anything. The PAPK's `package-name` (the manifest's `package=`) is its identity: a package that is already installed is upgraded — the new copy lands beside the old one and the old one is erased only after the new one commits, or, when there is no room beside it, over it — and a new package takes the first free run of the app region. If the free space is there but not in one piece the device compacts the region first, which can take up to half a minute; `pdb` waits. When even that cannot make room, or the directory is full, the device answers `STATUS_NO_ROOM` with the numbers and nothing has been erased:
 

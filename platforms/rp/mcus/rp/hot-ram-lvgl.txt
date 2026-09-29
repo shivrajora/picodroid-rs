@@ -1,4 +1,4 @@
-# LVGL functions that execute from SRAM (101 functions, ~12 KB).
+# LVGL functions that execute from SRAM (135 functions, ~20 KB).
 #
 # One C function per line; `build_support::hot_ram::retarget` moves each
 # from `.text.<fn>` to `.data.hot.<fn>` in liblvgl.a, so it executes from
@@ -109,3 +109,40 @@ lv_font_get_glyph_width_internal
 dispatch
 lv_area_is_out
 lv_text_utf8_next
+# 2026-09-28: the next 34, ~7.8 KB, from a profile taken after the class-link
+# work (docs/designs/ram-headroom-2026-09.md §6): the draw setup, the label
+# and object event handlers and the small accessors just under the first cut.
+lv_event_get_current_target
+lv_obj_get_child_count
+lv_ll_get_head
+lv_color_black
+block_next
+lv_area_get_height
+lv_obj_get_layer_type
+lv_obj_get_coords
+lv_style_prop_has_flag
+lv_obj_get_style_space_bottom_internal.constprop.0
+lv_malloc
+lv_obj_get_style_border_side
+lv_draw_fill_dsc_init
+lv_area_get_size
+lv_color_white
+lv_draw_blur
+lv_tlsf_realloc
+lv_draw_sw_blend
+draw_letter_cb
+lv_draw_sw_mask_radius_init
+layout_update_core
+lv_obj_redraw
+lv_draw_buf_create_ex
+lv_trigo_sin
+lv_draw_sw_fill
+lv_memcpy
+lv_label_mark_need_refr_text
+lv_obj_event
+lv_obj_init_draw_label_dsc
+lv_obj_refr
+drop_shadow_init
+lv_text_get_width
+lv_style_set_prop
+circ_calc_aa4

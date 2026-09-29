@@ -233,6 +233,8 @@ impl ClassFile {
 
     /// Returns the Utf8 bytes for this class's super class name (e.g. b"apps/Animal").
     /// Returns None if this class directly extends java/lang/Object.
+    #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+    #[cfg_attr(feature = "hot-in-ram", inline(never))]
     pub fn super_class_name(&self) -> Option<&'static [u8]> {
         let l = self.link();
         if l.super_off() == 0 {

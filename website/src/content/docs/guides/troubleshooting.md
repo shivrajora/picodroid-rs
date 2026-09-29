@@ -61,14 +61,16 @@ timeout 5 ./scripts/sim.sh --app blinky
 Bare `cargo clippy` fails because there's no default target set and the firmware crate needs an explicit target plus board feature flags. Use the feature flags:
 
 ```bash
+./scripts/build-apk.sh --app helloworld    # the PAPK the firmware crate embeds
+
 # RP2040
-PICODROID_APK_PATH=build/apks/helloworld.papk cargo clippy --no-default-features --features board-testbench-rp2040 -- --deny=warnings
+PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo clippy -p picodroid --target thumbv6m-none-eabi --no-default-features --features board-testbench-rp2040 -- --deny=warnings
 
 # RP2350
-PICODROID_APK_PATH=build/apks/helloworld.papk cargo clippy --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350 -- --deny=warnings
+PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo clippy -p picodroid --target thumbv8m.main-none-eabihf --no-default-features --features board-testbench-rp2350 -- --deny=warnings
 
 # Simulator (host)
-PICODROID_APK_PATH=build/apks/helloworld.papk cargo clippy --target "$(rustc -vV | awk '/^host:/ { print $2 }')" --no-default-features --features sim,board-testbench-rp2350 -- --deny=warnings
+PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo clippy -p picodroid --target "$(rustc -vV | awk '/^host:/ { print $2 }')" --no-default-features --features sim,board-testbench-rp2350,line-numbers -- --deny=warnings
 ```
 
 The local pre-commit hook does not run clippy (only the source guards and formatters); GitHub CI runs these legs for every board on every push, and `./scripts/pre-commit --full` adds the `pico_enviro_mon_w` and `legacy-handle-cast` legs:
@@ -103,7 +105,7 @@ PAPK framework-map-version incompatible with firmware (firmware = 0.0.0):
     FrameworkVersionMismatch
 ```
 
-The two most common causes:
+The most common causes:
 
 1. **Firmware and PAPK disagree about `--shrink`.** Shrinking is opt-in
    per build. If you built the firmware without `--shrink` but the
@@ -156,6 +158,12 @@ surface. An `EXCLUDED ON BOARD` section means the target board drops that
 class from its framework (`framework_class_excludes` in its `board.toml`);
 build for a larger board or probe-and-degrade.
 
+A `callback retired: the framework never calls it` entry is an `Activity`
+that still declares the no-arg `onCreate()`. Declare
+`protected void onCreate(Bundle savedInstanceState)` (import
+`picodroid.os.Bundle`) and call `super.onCreate(savedInstanceState)`;
+`Application` and `Service` keep their no-arg `onCreate()`.
+
 `-Ppicodroid.apiContract=warn` (or `off`) bypasses the check while
 experimenting, e.g. `./gradlew :examples:myapp:assemblePapk -Ppicodroid.apiContract=warn`.
 Do not edit `sdk/api-contract.tsv` — it is generated from the runtime's
@@ -177,11 +185,26 @@ device's running firmware before erasing flash. Two messages you may see:
    framework-map-version protocol field"** — the firmware was built
    before the compat-check protocol. `pdb install` won't push to it
    over USB. Reflash the firmware via SWD with `./scripts/flash.sh`,
-   which brings up a `picodroid/2.1` build that advertises the field.
+   which brings up a current (`picodroid/2.2`) build that advertises the field.
+
+3. **"PAPK file is not a valid PAPK"** — the file is truncated or
+   malformed, or it was packed before PAPK v2 (`PAPK format version is
+   not the one this build reads (a v1 file: re-pack it with the current
+   toolchain)`). Rebuild it with `./scripts/build-apk.sh --app <name>`.
+
+4. **"PAPK has no package-name; a multi-app device cannot place it"** —
+   the manifest has no `package`. Add one, or repack the file with the
+   `papk-pack --repack` command the message prints.
 
 If `--skip-host-check` is passed (HIL test usage) and the device-side
 check still fires, `pdb` reports `device rejected install:
 STATUS_INCOMPAT` — same fix as case 1.
+
+`device rejected install: STATUS_NO_ROOM` is not a compatibility
+problem: a multi-app board's app region has no contiguous run for the
+package even after compaction, or its directory is full. Nothing was
+erased. Free room with `pdb uninstall <package>`; `pdb list` shows what
+is installed.
 
 ## Java formatting check fails
 
@@ -191,11 +214,11 @@ Java sources must follow Google Java Style. Reformat before committing:
 ./scripts/format_java.sh format
 ```
 
-The formatter JAR is downloaded automatically on first use. JDK 11+ is required.
+The formatter JAR is downloaded automatically on first use. It is a Java 21 jar: when the `java` on your `PATH` is older, point `JAVA_HOME` at a JDK 21 and the script uses that one.
 
 ## Gradle build fails with "JAVA_HOME is not set" or "no Java runtime"
 
-Java compilation runs through the Gradle wrapper (`./gradlew`) in-tree — no separate Gradle install is needed, but a **JDK 11+** must be on `PATH`. Install one (see [getting-started.md → JDK](/get-started/build/)) and verify with `javac --version`. If `JAVA_HOME` isn't set, point it at your JDK install root before rebuilding.
+Java compilation runs through the Gradle wrapper (`./gradlew`) in-tree — no separate Gradle install is needed, but a **JDK** must be on `PATH`. Install JDK 21, which the Java formatter needs as well (see [getting-started.md → JDK](/get-started/build/)) and verify with `javac --version`. If `JAVA_HOME` isn't set, point it at your JDK install root before rebuilding.
 
 ## `registerListener` returns `false` / sensor event never fires
 
@@ -215,13 +238,18 @@ The `third_party/cyw43-driver` submodule moved to the patched picodroid fork. A 
 git submodule sync && git submodule update --init third_party/cyw43-driver
 ```
 
-### RTT shows `wifi: no SSID configured (PICODROID_WIFI_SSID) — not joining`
+<a id="rtt-shows-wifi-no-ssid-configured-picodroid_wifi_ssid--not-joining"></a>
 
-WiFi credentials are **build-time** environment variables, baked into the image — setting them at flash or run time does nothing. Rebuild (and reflash) with them set; until then the stack starts but stays offline:
+### RTT shows `wifi: no network configured (Settings > Wi-Fi, or PICODROID_WIFI_SSID) — not joining`
 
-```bash
-PICODROID_WIFI_SSID='MyAP' PICODROID_WIFI_PASS='secret' ./scripts/flash.sh --board testbench_rp2350w --app netdemo --release
-```
+The board has no saved network and none was built in, so the stack starts but stays offline. There are two ways to give it one:
+
+- **On the device:** open Settings → Wi-Fi from the launcher, scan, pick the network and type its password. The network is saved on the storage volume (`/system/wifi`) and rejoined at every boot. See [Joining a network from Settings](/get-started/networking/#joining-a-network-from-settings).
+- **At build time:** `PICODROID_WIFI_SSID` / `PICODROID_WIFI_PASS` are baked into the image — setting them at flash or run time does nothing — and take precedence over a saved network:
+
+  ```bash
+  PICODROID_WIFI_SSID='MyAP' PICODROID_WIFI_PASS='secret' ./scripts/flash.sh --board testbench_rp2350w --app netdemo --release
+  ```
 
 See [WiFi & networking setup](/get-started/networking/).
 
@@ -231,11 +259,20 @@ The WiFi join takes ~6 s and DHCP completes around 10 s after boot, so an app th
 
 ### `net: down` over RTT with no `net: up` after it
 
-The join is failing and the stack is retrying it every 3 s. The line is logged once per change of state, so silence after it means the retries are still failing, not that they stopped; check the SSID and password the firmware was built with (`PICODROID_WIFI_SSID` / `PICODROID_WIFI_PASS`, or `.wifi-creds.env`). Once a join succeeds you'll see `net: up, ip a.b.c.d`.
+The join is failing and the stack is retrying it every 3 s. The line is logged once per change of state, so silence after it means the retries are still failing, not that they stopped. The WiFi driver's own lines say why — `wifi: join failed: bad password`, `wifi: join failed: no such network` — so check the network saved in Settings → Wi-Fi, or the SSID and password the firmware was built with (`PICODROID_WIFI_SSID` / `PICODROID_WIFI_PASS`), which override it. Once a join succeeds you'll see `net: up, ip a.b.c.d`.
 
 ## `HttpURLConnection` hangs or throws at `connect()`
 
-- `HTTPS URLs are rejected` — `HttpURLConnection` is HTTP/1.1 only; no TLS. Use the raw socket API if you need TLS and are willing to bundle it.
+- `UnsupportedOperationException` on an `https` URL — the board was built without TLS. HTTPS needs `has_tls = true` in `board.toml`, which the RP2350 WiFi boards set.
+- `SSLHandshakeException: wall clock not set; sync the time first (SntpClient)` — the certificate's validity cannot be checked until the clock is set, and there is no battery-backed clock. Run one `SntpClient.requestTime` and `SystemClock.setCurrentTimeMillis` after the network comes up; see [Wall clock](/api/networking/#wall-clock-sntpclient). In the simulator `PICODROID_SIM_WALL_CLOCK=1` anchors the clock to the host's.
+- `SSLHandshakeException: certificate chain of <host> is not issued by a known root` — the server's chain does not end in one of the roots compiled into the firmware. An app cannot add one.
 - `setFixedLengthStreamingMode() required for output` — for POST/PUT, call `setDoOutput(true)` **and** `setFixedLengthStreamingMode(n)` with the exact body byte count before `connect()`.
-- Hangs are usually DNS-resolution failures against an unreachable host. There is no per-operation timeout parameter yet; check that the `Host` header resolves from the device's network.
+- Hangs: both timeouts default to infinite. Set `setConnectTimeout(ms)` and `setReadTimeout(ms)` before `connect()`; on expiry they throw `SocketTimeoutException`. A host that does not resolve throws `UnknownHostException`, and a refused connection `ConnectException`.
 - `Connection: close` is always sent — keep-alive / pipelining is not supported, so one `HttpURLConnection` = one request.
+- An HTTPS `connect()` takes one to two seconds on an RP2350 and needs a 40 KB stack from the heap arena for that long; call it from a background thread, never the main thread.
+
+## The screen freezes, or a screen comes back empty
+
+- **Frozen, no exception, no log line** after a screen built many widgets: LVGL's pool is full. See [A full LVGL pool freezes the UI](/guides/embedded-gotchas/#a-full-lvgl-pool-freezes-the-ui-without-a-log-line).
+- **A screen the user returns to has lost its state**, with `activity: reclaim <class>` in the log: the covered Activity was destroyed to free memory and re-created. Save state in `onSaveInstanceState`; see [A covered Activity can be destroyed and rebuilt](/guides/embedded-gotchas/#a-covered-activity-can-be-destroyed-and-rebuilt).
+- **`slow handler: <span> took N ms`**: one handler held the UI tick for 50 ms or more. Build big screens a few rows per tick and move work to `Executors.backgroundExecutor()`; see the [slow-handler watchdog](/get-started/simulator/#slow-handler-watchdog).

@@ -95,6 +95,7 @@ public class QaThr extends Application {
     SystemClock.sleep(30);
     dt = nowMs() - t0;
     check("SystemClock.sleep(30) in range", dt >= 30 && dt < 200);
+    Log.i(TAG, "SystemClock.sleep(30) took " + dt + " ms");
     t0 = nowMs();
     Thread.sleep(0);
     Thread.sleep(1);

@@ -1,6 +1,6 @@
 ---
 title: "Services & DI"
-description: "Service / ServiceConnection / Notification / IBinder, plus dependency injection: compile-time @Inject / @Singleton and the manual DI components."
+description: "Service / ServiceConnection / Notification / IBinder, AlarmManager / PendingIntent, plus dependency injection: compile-time @Inject / @Singleton, @Module / @Provides, Provider / Lazy, and the manual DI components."
 ---
 
 :::caution[Preview]
@@ -11,7 +11,7 @@ Picodroid mirrors the Android `Service` shape closely enough that an Android dev
 
 ## `picodroid.app.Service`
 
-A long-running background component with a lifecycle independent of any `Activity`. It extends `Context`, as on Android, so `getSystemService`, `getSharedPreferences`, `startService` and `bindService` are available on `this`. Subclass it in your app:
+A long-running background component with a lifecycle independent of any `Activity`. It extends `Context`, as on Android, so `getSystemService`, `getSharedPreferences`, `startService` and `bindService` are available on `this`. Its callbacks run on the main thread, as on Android: hand blocking work to a [`Thread`](/api/system/#picodroidconcurrentthread) or an [executor](/api/system/#picodroidconcurrentexecutors). The framework instantiates it, so it needs a public no-arg constructor. Subclass it in your app:
 
 ```java
 package myapp;
@@ -62,12 +62,25 @@ public class CounterService extends Service {
 |---|---|
 | `onCreate()` | Once, the first time the service is started or bound. |
 | `onStartCommand(Intent, int flags, int startId)` | Each call to `Context.startService()` (including repeats). `flags` is always `0` — `START_FLAG_REDELIVERY` / `START_FLAG_RETRY` describe redelivery after a process kill, which never happens on an MCU. The return value is **ignored** on picodroid — see the note below. |
-| `onBind(Intent)` | First call to `Context.bindService()` for this service. Return an `IBinder` (typically a custom `LocalBinder`). Cached and reused across subsequent binds. |
+| `onBind(Intent)` | First call to `Context.bindService()` for this service. Return an `IBinder` (typically a custom `LocalBinder`), or `null` to refuse binding (the default). Cached and reused across subsequent binds. |
 | `onUnbind(Intent)` | Last bound client unbinds. Default returns `false`; return `true` to receive `onRebind` when a new client binds later. |
 | `onRebind(Intent)` | A client binds again after `onUnbind` returned `true` (and the service was not destroyed in between). `onBind` is **not** called again — the cached `IBinder` is reused, matching Android's contract. |
 | `onDestroy()` | Service is being torn down (last unbind + no `startService` keepalive, or explicit `stopService`). |
 
-On picodroid the OS never kills a running service, so `onStartCommand`'s return value has no runtime effect — `START_STICKY` and `START_NOT_STICKY` exist only for source-level Android compatibility. Return `START_STICKY` by convention.
+On picodroid the OS never kills a running service, so `onStartCommand`'s return value has no runtime effect — `START_STICKY`, `START_NOT_STICKY` and `START_REDELIVER_INTENT` exist only for source-level Android compatibility, as do `START_FLAG_REDELIVERY` and `START_FLAG_RETRY`. Return `START_STICKY` by convention.
+
+### Stopping from inside
+
+| Method | What it does |
+|---|---|
+| `stopSelf()` | Stop this Service, as `stopService(new Intent(ThisService.class))` would. |
+| `stopSelfResult(int startId)` | Stop only if `startId` is the one the most recent `onStartCommand` received: `true` and stopped, or `false` and still running because a newer start arrived. `startId` counts up per Service instance. |
+
+As with `stopService`, a Service that is also bound lives until its last client unbinds.
+
+### Limits
+
+At most 8 Services and 16 bound connections at a time. A `bindService` past the sixteenth is dropped with a warning in the log, and its `onServiceConnected` never arrives.
 
 ## `picodroid.os.IBinder`
 
@@ -83,7 +96,7 @@ Picodroid is single-process, so there is no AIDL / Messenger / true Binder IPC. 
 
 ## `picodroid.app.Notification` and `startForeground`
 
-A foreground service shows a persistent banner while it runs. There is no idle or low-memory kill policy on an MCU, so "foreground" here is about the banner, not about survival. To opt in, build a `Notification` and call `startForeground` from `onStartCommand`:
+A foreground service carries a notification while it runs. There is no idle or low-memory kill policy on an MCU, so "foreground" here is about the notification, not about survival. To opt in, build a `Notification` and call `startForeground` from `onStartCommand`:
 
 ```java
 import picodroid.app.Notification;
@@ -101,10 +114,16 @@ public int onStartCommand(Intent intent, int flags, int startId) {
 
 `stopForeground(true)` removes the notification; `onDestroy` cancels it automatically.
 
+A `Notification` carries a title and a body, read back with `getContentTitle()` and `getContentText()`. There are no channels, icons or tap intents.
+
+:::note[Nothing is drawn yet]
+The framework tracks one current notification and writes each post and cancel to the log — `[notification 1] Logging sensors: ring buffer 0/256` in the simulator, `[notif 1] …` over RTT. The on-screen banner is not implemented, so use a [`Toast`](/api/ui/#picodroidwidgettoast) or a view of your own for anything the user must see.
+:::
+
 ### `picodroid.app.NotificationManager`
 
 For notifications outside the foreground-service flow, post or cancel by ID through the
-`NotificationManager` singleton. Picodroid renders every notification as a single persistent top-of-screen banner.
+`NotificationManager`, from `getSystemService(Context.NOTIFICATION_SERVICE)` or `NotificationManager.getInstance()`. There is one notification slot, shared with `startForeground`: a post replaces whatever was current, and `cancel` does nothing unless its ID is the current one.
 
 ```java
 import picodroid.app.Notification;
@@ -157,7 +176,7 @@ the Activity lands on top of the app's own entry Activity.
 | `cancel(PendingIntent operation)` | Remove the alarm set with an equal operation. Cancelling one that is not set does nothing. |
 
 `type` is one of `RTC_WAKEUP`, `RTC`, `ELAPSED_REALTIME_WAKEUP` or `ELAPSED_REALTIME`, with
-Android's values. The `RTC` pair measures against `System.currentTimeMillis()`, the
+Android's values; anything else, or a `null` operation, throws `IllegalArgumentException`. The `RTC` pair measures against `System.currentTimeMillis()`, the
 `ELAPSED_REALTIME` pair against `SystemClock.elapsedRealtime()`. The `_WAKEUP` variants
 differ from their partners only in whether they wake a sleeping device, and nothing here
 suspends the JVM, so each pair behaves identically.
@@ -205,6 +224,8 @@ PendingIntent operation(int alarmId, long dueAtMillis) {
       PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 }
 ```
+
+`cancel()` on a `PendingIntent` removes the alarm set with it, as `AlarmManager.cancel(operation)` does. The limits are constants on the class: `PendingIntent.MAX_EXTRAS` (2) and `PendingIntent.MAX_KEY_LENGTH` (15).
 
 `FLAG_NO_CREATE` returns `null` without creating anything. `FLAG_UPDATE_CURRENT`,
 `FLAG_CANCEL_CURRENT`, `FLAG_ONE_SHOT`, `FLAG_IMMUTABLE` and `FLAG_MUTABLE` are accepted and
@@ -258,6 +279,23 @@ stopService(i);
 message on the main looper: the connect-time refresh most apps do there gets a frame of its own
 instead of sharing one with the Service's `onCreate`. An `unbindService` queued behind the bind
 still sees `onServiceConnected` before `onServiceDisconnected`.
+
+A binding belongs to the Activity that made it and is released when that Activity is destroyed. `onServiceConnected` is delivered only while that Activity is still the one on top: if another Activity covered it before the callback's turn came, the callback is skipped. A binding made from an `Application` has no such owner. One divergence from Android: a binding made from inside a `Service` is owned by the foreground Activity at the time of the call, so it is released when that Activity finishes, not when the Service is destroyed.
+
+### System services
+
+`getSystemService(String name)` returns the manager for a name, or `null` for a name it does not know:
+
+| Constant | Returns |
+|---|---|
+| `Context.SENSOR_SERVICE` | [`SensorManager`](/api/sensors/#picodroidhardwaresensormanager) |
+| `Context.NOTIFICATION_SERVICE` | [`NotificationManager`](#picodroidappnotificationmanager) |
+| `Context.ALARM_SERVICE` | [`AlarmManager`](#picodroidappalarmmanager) (multi-app boards) |
+| `Context.STORAGE_STATS_SERVICE` | [`StorageStatsManager`](/api/storage/#picodroidappusagestoragestatsmanager) (multi-app boards) |
+| `Context.CONNECTIVITY_SERVICE` | [`ConnectivityManager`](/api/networking/#network-status) |
+| `Context.WIFI_SERVICE` | [`WifiManager`](/api/networking/#wifi) |
+
+`Context` also carries `getPackageManager()` and `getPackageName()` ([system](/api/system/#picodroidcontentpmpackagemanager)), `getResources()` / `getString(int)` / `getColor(int)`, `getSharedPreferences(String, int)` and the private-file methods ([storage](/api/storage/#context--private-files)).
 
 ### Starting another app
 

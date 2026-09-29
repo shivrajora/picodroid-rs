@@ -77,7 +77,9 @@ impl RecvClass {
 /// The `(class, name, descriptor)` a `Methodref` spells. Read on a miss,
 /// for a native target and for a stringifying site; a Java hit never
 /// comes here.
-#[inline]
+#[cfg_attr(not(feature = "hot-in-ram"), inline)]
+#[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+#[cfg_attr(feature = "hot-in-ram", inline(never))]
 fn cp_names(
     cf: &crate::class_file::ClassFile,
     cp_idx: u16,
@@ -333,7 +335,9 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
     /// intermediate buffer, and nothing about the method but its dimensions
     /// is read. The caller's stack is cut only once the frame exists, so a
     /// failed allocation leaves it intact.
-    #[inline]
+    #[cfg_attr(not(feature = "hot-in-ram"), inline)]
+    #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+    #[cfg_attr(feature = "hot-in-ram", inline(never))]
     fn push_java_frame(
         &mut self,
         ci: usize,

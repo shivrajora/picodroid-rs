@@ -27,8 +27,10 @@ mcu = "rp2350b"
 # which build.rs requires to agree with this key). Taken out of the arena
 # like `jvm_loop_ram_kb`: the arena is 300 → 252 KB, on which picoclock
 # measured 50 KB free at boot, 43 KB after the Set-time and Alarms screens,
-# 34 KB lowest ever (2026-09-26).
-hot_ram_kb = 48
+# 34 KB lowest ever (2026-09-26). 2026-09-28: 48 → 60 with the longer lists
+# (docs/designs/ram-headroom-2026-09.md §6), arena 240 KB; after the
+# class-link work picoclock has 64 KB free at boot and 44 KB lowest ever.
+hot_ram_kb = 60
 
 # Multi-app (docs/designs/multi-app-2026-09.md D1/D2). 16 MB of flash makes this
 # the roomiest board on the bench by a wide margin: the app region takes 10 MB

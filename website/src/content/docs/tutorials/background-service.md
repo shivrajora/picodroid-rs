@@ -101,10 +101,10 @@ public int onStartCommand(Intent intent, int flags, int startId) {
 Three things to understand here:
 
 - **`startForeground(id, Notification)`** promotes the service to foreground state and shows a persistent top-of-screen banner. Call it from `onStartCommand` (after the service is registered), never from a constructor.
-- **`new Thread(this::sampleLoop).start()`** — a service runs on the main thread, and the main thread must never block. Sampling sleeps between samples, so it has to run off-thread. This is `picodroid.concurrent.Thread`: its API is just `new Thread(Runnable)` and `start()`. It has **no** `sleep`, `join`, or `interrupt`.
+- **`new Thread(this::sampleLoop).start()`** — a service runs on the main thread, and the main thread must never block. Sampling sleeps between samples, so it has to run off-thread. This is `picodroid.concurrent.Thread` — there is no `java.lang.Thread` here, so import it. It has the `java.lang.Thread` API (`start`, `join`, `interrupt`, `Thread.sleep`, names, an uncaught-exception handler); see [Thread](/api/system/#picodroidconcurrentthread).
 - **`return START_STICKY`** is for source-level Android compatibility only. On picodroid the OS never kills a running service, so the return value is **ignored**. Returning it keeps the code recognisable to Android developers; don't read meaning into it at runtime.
 
-The loop runs on the background thread. `SystemClock.sleep(int)` is the only blocking sleep in the SDK — safe here precisely because we are *not* on the main thread:
+The loop runs on the background thread. `SystemClock.sleep(int)` is the sleep that cannot be interrupted and throws nothing, as on Android (`Thread.sleep` is the interruptible one) — safe here precisely because we are *not* on the main thread:
 
 ```java
 private void sampleLoop() {
@@ -300,6 +300,12 @@ Run it and watch the boot sequence. The service comes up before the first screen
 
 `onCreate` then `onStartCommand id=1` (the start id begins at 1 and increments per call), the foreground banner and sampler come up, *then* HomeActivity builds. The service is already collecting samples while Home is on screen.
 
+The viewer has no Back button of its own, and the simulator's default board (`testbench_rp2350`: touch, no buttons) has no BACK key. Simulate a board with both to walk the rest — Backspace on the host keyboard is its BACK button:
+
+```bash
+./scripts/sim.sh --board pico_touch_kit --app tutorial_service
+```
+
 Tap **View Log** and the viewer binds the already-running service:
 
 ```text
@@ -314,7 +320,9 @@ Tap **View Log** and the viewer binds the already-running service:
 
 ## When does the service actually stop?
 
-`onDestroy` runs exactly when the service is **neither started nor bound**. For this app that condition is never met during normal use — it was started from the Application and stays started — so it survives every navigation and only stops at app exit, when the framework tears down all live services and runs their `onDestroy`.
+`onDestroy` runs exactly when the service is **neither started nor bound**. For this app that condition is never met while the app runs — it was started from the Application and stays started — so it survives every navigation between its screens and only stops at app exit, when the framework tears down all live services and runs their `onDestroy`.
+
+App exit is an ordinary event on a board with a launcher: BACK on Home finishes the last Activity, which ends the app and brings the launcher back, and so does the HOME key or starting another app. One app runs at a time, so the service does not keep sampling behind the launcher — its ring buffer starts empty the next time the app is started. See the [launcher guide](/guides/launcher/).
 
 If you wanted to end it sooner, you'd call `stopService(new Intent(UptimeLogService.class))` from anywhere with a `Context`, or `stopSelf()` from inside the service. Either drops the *started* state; once no clients are bound either, `onDestroy` runs and the banner clears. Until then, binding and unbinding viewers just raises and lowers the bind count — the service and its ring buffer keep going.
 

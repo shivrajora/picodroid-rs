@@ -3,7 +3,7 @@ title: "Theming"
 description: "Override the default Picodroid color palette via the Theme fields and apply GradientDrawable backgrounds for per-widget styling."
 ---
 
-Apps customize their look by assigning the process-wide `Theme` color fields in `Application.onCreate` and by attaching `GradientDrawable` backgrounds to individual views. There is no XML resource system — themes are configured in Java and applied imperatively.
+Apps customize their look by assigning the process-wide `Theme` color fields in `Application.onCreate` and by attaching `GradientDrawable` backgrounds to individual views. There are no XML styles or themes (`style=`, `?attr/…`): the palette is configured in Java and applied imperatively. Individual colours can still live in `res/values` and be used from layouts and code — see [resources](/guides/resources/).
 
 ## Setting the global theme
 
@@ -31,27 +31,31 @@ public final class MyApp extends Application {
 }
 ```
 
-The palette is process-global (picodroid is single-app), so views read these fields at
-construction time. Views don't cascade automatically — a view applies a theme color explicitly,
-e.g. `view.setBackgroundColor(Theme.colorBackground)` or `label.setTextColor(Theme.colorPrimary)`.
+The palette is process-global — static fields, not per-Activity; one app runs at a time — and
+is read when a view is built, so a later assignment does not repaint what is already on screen.
+Views don't cascade automatically — a view applies a theme color explicitly, e.g.
+`view.setBackgroundColor(Theme.colorBackground)` or `label.setTextColor(Theme.colorPrimary)`.
+The widgets that read the palette themselves are the progress indicators: an indeterminate
+`ProgressBar` spins in `colorPrimary`, and a `CircularProgressIndicator` draws its indicator in
+`colorPrimary` over a `colorOutline` track, until a tint says otherwise.
 
 ### Theme color fields
 
-| Field | Where it shows up |
+| Field | What it is for |
 |---|---|
-| `colorPrimary` | Active button background, focus rings, accent strokes. |
-| `colorBackground` | The root window background under all activities. |
-| `colorSurface` | Container fills (cards, dialogs, list rows). |
-| `colorText` | Primary text foreground. |
-| `colorTextSecondary` | De-emphasized text — captions, hints, disabled text. |
-| `colorOutline` | Borders on `EditText`, `Button` outlines, separators. |
-| `colorOnPrimary` | Foreground on top of `colorPrimary` (e.g. button label color). |
+| `colorPrimary` | Primary accent: button fill, focused outlines, slider track. |
+| `colorBackground` | Page background. |
+| `colorSurface` | Card / surface background, slightly lighter than `colorBackground`. |
+| `colorText` | Primary body text. |
+| `colorTextSecondary` | Secondary, muted text. |
+| `colorOutline` | Subtle separators and divider lines. |
+| `colorOnPrimary` | Text and icons on top of `colorPrimary` (e.g. a button label). |
 
 The fields ship with sensible dark-palette defaults; apps that don't reassign them get those defaults.
 
 ## Per-widget styling: `GradientDrawable`
 
-For backgrounds that don't fit the theme palette directly (rounded cards, gradients, stroked borders), build a `GradientDrawable` and attach it as the view's background:
+`LinearLayout`, `FrameLayout` and `RadioGroup` are flat, as on Android: no background, border, corner radius or padding until you set one. So a card's look is yours to give. For a plain fill `setBackgroundColor` is enough, and it honours the colour's alpha (`Color.TRANSPARENT` clears a background). For anything else (rounded cards, gradients, stroked borders), build a `GradientDrawable` and attach it as the view's background:
 
 ```java
 import picodroid.graphics.Color;
@@ -80,6 +84,15 @@ header.setBackground(g);
 
 `Orientation` has just two constants: `TOP_BOTTOM` (1) and `LEFT_RIGHT` (2). Other angles and
 radial gradients are not supported.
+
+## Text size
+
+`TextView.setTextSize(float)` (and `android:textSize` in a layout) picks the size of a label's or a button's text. The faces are bitmaps compiled into the firmware, so the size snaps to the nearest one the board has — `14`, `20`, `28` and `64` px on the RP2350 boards, `14` alone on `testbench_rp2040` — a tie going to the larger; `getLineHeight()` reports the face in use. There is one typeface (Montserrat) and no bold or italic: `textStyle` and `fontFamily` are dropped from a layout with a build warning. The sizes above 14 are ASCII plus `°` and `•`.
+
+```java
+title.setTextSize(28);
+caption.setTextColor(Theme.colorTextSecondary);
+```
 
 ## Worked example
 

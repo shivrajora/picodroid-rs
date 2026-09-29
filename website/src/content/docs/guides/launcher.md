@@ -22,13 +22,13 @@ It shows one row per installed app: the icon (the manifest `icon`) or the first 
 
 The device picks the app to boot in this order:
 
-1. `flash.sh --boot <what>`, built into the firmware: `app` (the app `--app` baked in), `launcher`, or a package name.
+1. `flash.sh --boot <what>`, built into the firmware: `app` (the app `--app` baked in; the default), `launcher`, or a package name.
 2. `boot_package = "<package>"` in `board.toml`, for a board that always runs one app.
 3. The app `flash.sh --app` baked in (the boot default).
 4. The launcher.
 5. The installed app at the lowest sector.
 
-A name that is not installed is skipped with a warning, and the next rule applies. So `flash.sh --app blinky` boots blinky, as it always did. `flash.sh --app blinky --boot launcher` boots the launcher, with blinky installed beside it.
+A name that is not installed is skipped with a warning, and the next rule applies. The rule that won is logged at boot, e.g. `[packages] boot: picodroid.launcher (--boot launcher)`. So `flash.sh --app blinky` boots blinky, as it always did. `flash.sh --app blinky --boot launcher` boots the launcher, with blinky installed beside it.
 
 In the simulator `PICODROID_BOOT` does the same, read when the simulator starts:
 
@@ -36,7 +36,7 @@ In the simulator `PICODROID_BOOT` does the same, read when the simulator starts:
 PICODROID_BOOT=launcher ./scripts/sim.sh --app blinky --system-apps
 ```
 
-`--system-apps` builds the launcher and loads it into the simulated directory. Without it the simulator runs one app and exits when that app finishes, as before.
+`--system-apps` builds the system apps (the launcher and the settings app) and loads them into the simulated directory. Without it the simulator runs one app and exits when that app finishes, as before. `PICODROID_SIM_APPS` (colon-separated `.papk` files) installs further apps beside the one under test, and `./scripts/sim-ctrl.sh apps list|install <file.papk>|uninstall <package>` or `./scripts/pdb.sh -s sim install|uninstall|list` change the directory while the simulator runs; see [the launcher and several apps](/get-started/simulator/#the-launcher-and-several-apps).
 
 ## Starting another app
 
@@ -60,7 +60,8 @@ On a single-app board `startActivity` with a package target always throws `Activ
 
 - An app whose last Activity finishes returns to the launcher.
 - On a board with buttons, BACK finishes the top Activity, as always. From the app's only Activity that returns to the launcher. The launcher itself ignores BACK.
-- A touch-only board has no BACK button. An app started from the launcher must finish itself (a Close button, or `finish()` when its work is done). Otherwise it runs until the next install or reset.
+- On a board with a HOME key (a `[[button]]` with `keycode = 3`; `pico_touch_kit` has one) HOME returns to the launcher from any app, at any depth. The running app is torn down through its normal lifecycle and cannot intercept the key; the log says `key: HOME -> launcher`. With the launcher already in front, or on a firmware without one, HOME does nothing.
+- A touch-only board has neither button. An app started from the launcher must finish itself (a Close button, or `finish()` when its work is done). Otherwise it runs until the next install or reset.
 - A device without a launcher (a single-app board, or a firmware built without one) waits for a `pdb install` after the app finishes, as it always did.
 - If the launcher itself exits, the device starts it again once. A second exit in a row leaves the device waiting for a `pdb install`, so a broken launcher cannot loop.
 
@@ -87,10 +88,10 @@ See the [system API](/api/system/#picodroidcontentpmpackagemanager) for the whol
 - **Storage** — the volume, then each package's app bytes (its image) and data bytes (its directory, as the [storage cap](/api/storage/) counts it).
 - **Wi-Fi** — on a board with a WiFi link only: the status, the saved network, Scan, and one row per network found; a tap joins an open network or asks for a password. See [WiFi setup](/get-started/networking/#joining-a-network-from-settings) for the flow on touch and on four buttons.
 
-The same uninstall is available to any app: `getPackageManager().getPackageInstaller().uninstall("com.example.weather")` is synchronous and throws `IllegalArgumentException` for a package that is not installed, is a system app, or is the caller itself.
+From the host, `pdb uninstall <package>` does the same ([`pdb uninstall`](/reference/pdb-commands/#uninstall)). The same uninstall is available to any app: `getPackageManager().getPackageInstaller().uninstall("com.example.weather")` is synchronous and throws `IllegalArgumentException` for a package that is not installed, is a system app, or is the caller itself.
 
 ## Costs
 
-A row of either app — a horizontal layout, an ellipsized label, a suffix, focusable — is about 20 ms of LVGL work on an RP2350, so neither app builds its rows inside `onCreate`: the header shows at once and the rows follow one per UI tick, each under the 50 ms the slow-handler watchdog allows, and a screen of seven packages is complete within about half a second with the display and the touch panel served throughout. The Storage screen fetches its numbers on `Executors.backgroundExecutor()` and fills the rows in as they arrive; that job runs 4 KB deep, which is why every multi-app board gives its pool workers 6 KB stacks. The package directory keeps each entry's manifest values (name, label, version, icon) as slices into the image, and the quota keeps a usage figure per package until its directory changes, so the queries behind the screens are a few native calls each.
+A row of either app — a horizontal layout, an ellipsized label, a suffix, focusable — is about 20 ms of LVGL work on an RP2350, so neither app builds its rows inside `onCreate`: the header shows at once and the rows follow one per UI tick, each under the 50 ms the slow-handler watchdog allows, and a screen of seven packages is complete within about half a second with the display and the touch panel served throughout. The Storage screen fetches its numbers on `Executors.backgroundExecutor()` and fills the rows in as they arrive; that job runs 4 KB deep, which is why every multi-app board gives its pool workers stacks of at least 6 KB (`[background_pool] stack_bytes = 6144`; 8 KB on `pico_enviro_mon_w`). The package directory keeps each entry's manifest values (name, label, version, icon) as slices into the image, and the quota keeps a usage figure per package until its directory changes, so the queries behind the screens are a few native calls each.
 
-The launcher is about 10 KB and the settings app about 18 KB of flash on every multi-app board; `bench/parity/ratchet.toml` records the exact figures. A single-app board embeds neither and drops the multi-app classes (`PackageInfo`, `ApplicationInfo`, `BitmapDrawable`, `PackageManager.NameNotFoundException`, `PackageInstaller`, `StorageStatsManager`, `StorageStats`) from its framework.
+The launcher was about 10 KB and the settings app about 18 KB of flash when each landed; the Wi-Fi screens and the link tables every packed app carries since PAPK v2 have added to both. `bench/parity/ratchet.toml` records the size of the whole image that embeds them. A single-app board embeds neither and drops the multi-app classes (`PackageInfo`, `ApplicationInfo`, `BitmapDrawable`, `PackageManager.NameNotFoundException`, `PackageInstaller`, `StorageStatsManager`, `StorageStats`) from its framework.

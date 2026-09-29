@@ -287,13 +287,14 @@ When `PICODROID_SHRINK=1`, `class-shrink print-version` resolves the
 active version from the root `Cargo.toml` + `sdk/shrink-maps/`. Both
 sides of the build call it:
 
-1. **Firmware (`build.rs`)**: after Gradle has compiled — and, for a
-   debug-assertions-off build, [stripped](#debug-attribute-strip) — the
-   framework classes, if shrinking is on and the active version isn't
-   `0.0.0`, applies the map to them and embeds the shrunk output via
-   `FRAMEWORK_CLASSES`. Also writes `framework_mapping_version.rs`
-   (the version string the firmware advertises) and `names.rs` (the
-   `c::` / `m::` / `d::` constants, spelled through the same map).
+1. **Firmware (`build.rs`)**: after Gradle has compiled and
+   [stripped](#debug-attribute-strip) the framework classes, if shrinking
+   is on and the active version isn't `0.0.0`, applies the map to them.
+   The surviving classes are then linked into one class section
+   (`FRAMEWORK_CLSS`, see [Linking comes last](#linking-comes-last)) and
+   embedded. Also writes `framework_mapping_version.rs` (the version
+   string the firmware advertises) and `names.rs` (the `c::` / `m::` /
+   `d::` constants, spelled through the same map).
 
 2. **Apps (`scripts/build-apk.sh`)**: if shrinking is on, runs
    `class-shrink shrink-dir` on the app's `.class` output. The release
@@ -306,10 +307,30 @@ sides of the build call it:
    `0.0.0` when shrinking is off) into the `framework-map-version`
    manifest key.
 
-4. **Load time**: `platforms/rp/src/app.rs` calls `papk.verify_compat(FRAMEWORK_MAP_VERSION)`
-   right after parsing. A PAPK built with mismatched shrink settings
-   (one side `0.0.0`, the other non-zero) is rejected with a hard
-   error asking to rebuild.
+4. **Load time**: `crates/picodroid-core/src/boot.rs` calls
+   `papk.verify_compat(FRAMEWORK_MAP_VERSION)` right after parsing. A PAPK
+   built with mismatched shrink settings (one side `0.0.0`, the other
+   non-zero) is rejected with a hard error asking to rebuild. The firmware
+   build runs the same check on the system apps it embeds (the launcher,
+   the settings app), so a mismatch there fails the build instead of the
+   boot.
+
+### Linking comes last
+
+Since PAPK v2 (2026-09-28) `papk-pack` and the firmware build link every
+class after the renames: each class gets a table holding a hash of its
+name, of its superclass and of each interface, and a signature hash
+(name plus descriptor) per method, and the set gets a class index sorted
+by name hash (`crates/class-link`). The hashes are 32-bit FNV-1a over the
+names as the class file spells them, so under `--shrink` they are hashes
+of the shrunk names, the same ones the runtime computes over its `c::` /
+`m::` constants. Nothing in the shrinker changed for it, and the
+`.class` bytes in the PAPK are still exactly what the shrinker wrote.
+
+Two names in one set that hash alike cannot be told apart by the index,
+so the linker refuses the set (`two class names hash alike`), as it
+refuses two classes that spell the same name. For a framework class the
+way out is a new spelling from the next map cut, not a weaker lookup.
 
 ## Debug-attribute strip
 
@@ -330,14 +351,21 @@ resolves on the host (below). The measurements and the design are in
 
 How it is applied:
 
-- **SDK corpus (`build.rs`)** — when `CARGO_CFG_DEBUG_ASSERTIONS` is absent
-  (every `build.sh` / `flash.sh` build, and `--release` sim builds), the
-  build script runs `./gradlew :sdk:stripClasses` and embeds
-  `sdk/build/classes-stripped/java/main` instead of `compileJava`'s tree;
-  the shrink step then runs on top, unchanged. The generated
+- **SDK corpus (`build.rs`)** — every build embeds a stripped tree, and
+  the `line-numbers` cargo feature picks which: without it the build
+  script runs `./gradlew :sdk:stripClasses` and embeds
+  `sdk/build/classes-stripped/java/main`; with it (the simulator, and
+  debug-profile firmware on the RP2350 boards) it runs
+  `:sdk:stripClassesLines` and embeds
+  `sdk/build/classes-stripped-lines/java/main`, which keeps
+  `LineNumberTable` and `SourceFile`. Under a member map the tasks are
+  `:sdk:shrinkMembersStripped` / `:sdk:shrinkMembersStrippedLines`. The
+  class-name shrink then runs on top, unchanged. The generated
   `framework_classes.rs` records the choice in
-  `FRAMEWORK_CLASSES_DEBUG_STRIPPED`, and a `picodroid-core` test pins it to
-  `!cfg!(debug_assertions)`.
+  `FRAMEWORK_CLASSES_LINE_NUMBERS`, and a `picodroid-core` test pins it to
+  `cfg!(feature = "line-numbers")`. The RP2040 gets no line numbers in
+  either profile (they cost its debug image about 27 KB);
+  `PICODROID_LINE_NUMBERS=0|1` overrides the choice on any board.
 - **PAPKs** — `scripts/build-apk.sh --strip-debug` (Gradle property
   `-Ppicodroid.stripDebug=true`), which every device path passes:
   `build.sh` / `flash.sh`, `hil-run.sh`, the size ratchet and pre-commit's
@@ -537,11 +565,12 @@ Always emitted:
 - `names.rs` — the `c::` / `m::` / `d::` constant modules
   (`crates/build_support/names.rs`), spelled through the active map; original
   spellings when shrinking is off. Plus test-only reverse translators.
-- `framework_classes.rs` — `pub static FRAMEWORK_CLASSES: &[&[u8]] = &[…];`
-  pointing at (shrunk or raw) class files, plus
-  `FRAMEWORK_CLASSES_DEBUG_STRIPPED`. For a debug-assertions-off build the
-  raw tree is `sdk/build/classes-stripped/java/main`, written by
-  `:sdk:stripClasses` (see [Debug-attribute strip](#debug-attribute-strip)).
+- `framework_classes.rs` — `FRAMEWORK_CLSS`, the (shrunk or raw) framework
+  classes linked into one class section (`framework_clss.bin`, the layout
+  of a PAPK's CLASSES section), plus `FRAMEWORK_CLASS_COUNT`,
+  `FRAMEWORK_EXCLUDED_CLASSES` and `FRAMEWORK_CLASSES_LINE_NUMBERS`. The
+  tree the classes come from is one of the stripped ones (see
+  [Debug-attribute strip](#debug-attribute-strip)).
 
 Emitted only when shrinking is on and a map is active:
 
@@ -579,7 +608,7 @@ the device:
    for `framework-map-version`, compare to the firmware's version learned
    from the new PING greeting, and exit with a clear error if `compat::check`
    rejects.
-2. **Device-side check** in [crates/picodroid-core/src/install/orchestrator.rs](https://github.com/shivrajora/picodroid-rs/blob/main/crates/picodroid-core/src/install/orchestrator.rs):
+2. **Device-side check** in [crates/pd-install/src/orchestrator.rs](https://github.com/shivrajora/picodroid-rs/blob/main/crates/pd-install/src/orchestrator.rs):
    after stopping the JVM but before erasing flash, peek the first
    `INSTALL_PEEK_BYTES` (512) of the PAPK off the wire, run `compat::check`,
    and reply `STATUS_INCOMPAT` on mismatch. The host inlines those bytes
@@ -587,8 +616,14 @@ the device:
 
 The PING greeting was bumped from `picodroid/2.0` to `picodroid/2.1` and
 gained a trailing `[u8 len][N bytes]` field for the firmware's
-`framework-map-version`. `pdb install` hard-refuses old `picodroid/2.0`
+`framework-map-version` (`picodroid/2.2`, today's, added the package
+directory's state after it). `pdb install` hard-refuses old `picodroid/2.0`
 firmware (you must reflash via SWD) since it can't verify compatibility.
+
+Before either gate, and whatever the flags, the host checks the file's
+structure: a PAPK in format version 1, or one whose link tables do not
+match its class bytes, is refused without the device being asked. See
+[`pdb install`](/reference/pdb-commands/#install).
 
 For testing, `pdb install` accepts two flags (used by the HIL reject rows):
 `--skip-host-check` (bypass the host pre-flight) and `--expect-rejected`

@@ -10,7 +10,11 @@ pub fn sleep(ms: u32) {
     // A blocking wait outside the `rtos` seam: the JVM run lock is released
     // here by hand (`picodroid_core::jvm_run_lock`).
     let _run = picodroid_core::jvm_run_lock::unlocked();
-    freertos_rust::CurrentTask::delay(freertos_rust::Duration::ms(ms));
+    // One tick more than asked: a delay of n ticks ends on the n-th tick
+    // interrupt from now, which is between n-1 and n tick periods away, and
+    // `SystemClock.sleep(ms)` promises at least `ms`. qa_thr measured 29 ms
+    // for a sleep of 30 once the call path around it got short (2026-09-29).
+    freertos_rust::CurrentTask::delay(freertos_rust::Duration::ms(ms.saturating_add(1)));
 }
 
 pub fn elapsed_realtime_nanos() -> i64 {

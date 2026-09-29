@@ -476,7 +476,9 @@ pub struct Linked<'a> {
 
 impl<'a> Linked<'a> {
     /// The bytes of `Utf8` entry `i`.
-    #[inline]
+    #[cfg_attr(not(feature = "hot-in-ram"), inline)]
+    #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+    #[cfg_attr(feature = "hot-in-ram", inline(never))]
     pub fn utf8(&self, i: usize) -> Option<&'a [u8]> {
         if self.link.cp_tag(i)? != TAG_UTF8 {
             return None;
@@ -509,7 +511,9 @@ impl<'a> Linked<'a> {
     }
 
     /// The name a `Class` entry `i` refers to.
-    #[inline]
+    #[cfg_attr(not(feature = "hot-in-ram"), inline)]
+    #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+    #[cfg_attr(feature = "hot-in-ram", inline(never))]
     pub fn cp_class_name(&self, i: usize) -> Option<&'a [u8]> {
         if self.link.cp_tag(i)? != TAG_CLASS {
             return None;
@@ -521,7 +525,9 @@ impl<'a> Linked<'a> {
     /// `(class name, member name, descriptor)` of a `Methodref`,
     /// `InterfaceMethodref` or `Fieldref` entry `i`: the three share one
     /// layout (JVMS §4.4.2).
-    #[inline]
+    #[cfg_attr(not(feature = "hot-in-ram"), inline)]
+    #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+    #[cfg_attr(feature = "hot-in-ram", inline(never))]
     pub fn cp_member_ref(&self, i: usize) -> Option<(&'a [u8], &'a [u8], &'a [u8])> {
         let tag = self.link.cp_tag(i)?;
         if !matches!(tag, crate::classfile::TAG_FIELDREF) && !is_methodref(tag) {
@@ -536,7 +542,9 @@ impl<'a> Linked<'a> {
     }
 
     /// `(name, descriptor)` of a `NameAndType` entry `i`.
-    #[inline]
+    #[cfg_attr(not(feature = "hot-in-ram"), inline)]
+    #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+    #[cfg_attr(feature = "hot-in-ram", inline(never))]
     pub fn cp_name_and_type(&self, i: usize) -> Option<(&'a [u8], &'a [u8])> {
         if self.link.cp_tag(i)? != crate::classfile::TAG_NAME_AND_TYPE {
             return None;

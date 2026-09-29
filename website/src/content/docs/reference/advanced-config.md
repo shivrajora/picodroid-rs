@@ -37,23 +37,26 @@ gh extension install nektos/gh-act    # via gh CLI
 Run the CI workflow locally:
 
 ```bash
-act -W .github/workflows/ci_checks.yml -j build
+act -W .github/workflows/ci_checks.yml -j building
 ```
+
+The jobs of that workflow are `building`, `testing`, `linting`, `examples`, `sim-smoke`, `formatting` and `java-formatting`.
 
 `.actrc` lives at the repo root so `act` picks it up automatically.
 
 ## `scripts/test.sh` (host-target test wrapper)
 
-Bare `cargo test` fails because the `picodroid` firmware crate is bare-metal (no host test harness) and there is no default cargo target set, so cargo can't pick a host triple on its own. `scripts/test.sh` runs the tests against the host triple and rebuilds the APK first so any embedded test fixtures are fresh:
+Bare `cargo test` fails because the `picodroid` firmware crate is bare-metal (no host test harness) and there is no default cargo target set, so cargo can't pick a host triple on its own. `scripts/test.sh` runs the whole workspace against the host triple, twice: once with the shrinker off and once with `PICODROID_SHRINK=1`, each against a `helloworld` PAPK built in the same mode (the tests that read the embedded framework classes need `PICODROID_APK_PATH` set when the build script runs). Both runs enable the `line-numbers` feature, as the simulator does.
 
 ```bash
-./scripts/test.sh                # all crates
-./scripts/test.sh --crate jvm    # just the JVM tests
+./scripts/test.sh
 ```
 
-CI uses the same wrapper, so passing locally is a strong predictor of green CI.
+The script takes no arguments. CI's Testing job runs exactly this, so passing locally is a strong predictor of green CI.
 
-If you're chasing a specific failure, `scripts/test.sh -- --nocapture <test_name>` forwards args through to `cargo test` exactly like a normal invocation.
+It compiles the test binary with `codegen-units = 16`, `opt-level = 2` and incremental builds rather than the workspace's firmware-tuned test profile; `PICODROID_TEST_FAST=0` restores the stock profile. It does not build the opt-in `mem-diag` or `sched-diag` features: `scripts/test-memdiag.sh` and `scripts/test-scheddiag.sh` run simulator soaks with them on.
+
+If you're chasing a specific failure, run the `cargo test` line from the script by hand with a `-p <crate>` or a test-name filter added.
 
 ## Out-of-tree app builds
 
@@ -79,6 +82,12 @@ The remaining `picodroid.*` properties are per-build switches that the top-level
 - `picodroid.apiContract` — `error` (default), `warn` or `off` for the `verifyApiContract` check.
 
 See [Shrinker](/reference/shrinker/) and [Debugging](/guides/debugging/#stack-traces-and-shrunk-logs) for what each one changes.
+
+## Device cargo configuration
+
+`.cargo/config.toml` holds the linker (`flip-link`), the link arguments and the `probe-rs` runner for device builds in tables keyed by `cfg(...)`, not by target triple, so the same file works on stable and nightly cargo. It sets no default target. The details and the per-board aliases are in [Cargo aliases](/reference/cargo-aliases/).
+
+Host builds on x86-64 Linux (the simulator, the tests) get `--cfg aes_force_soft --cfg polyval_force_soft` from the same file: the TLS client's AES and POLYVAL use their software backends there, as they do on the device.
 
 ## See also
 

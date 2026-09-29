@@ -1,6 +1,6 @@
 ---
 title: "Audio"
-description: "ToneGenerator: Android's tone table on a board's piezo buzzer."
+description: "ToneGenerator and AudioManager: Android's tone table on a board's piezo buzzer."
 ---
 
 `picodroid.media.*` — Android-compatible `ToneGenerator` for boards that declare an [`[audio]` section](/reference/porting-guide/#boardtoml-reference) in `board.toml`. See [Java API overview](/api/) for the full API index.
@@ -36,12 +36,12 @@ tones.release();
 
 | Member | Description |
 |--------|-------------|
-| `ToneGenerator(int streamType, int volume)` | `streamType` is accepted for source compatibility and ignored -- there is no mixer behind it. `volume` is 0-100. |
+| `ToneGenerator(int streamType, int volume)` | `streamType` is accepted for source compatibility and ignored -- there is no mixer behind it. `volume` is 0-100; a value outside the range is clamped. |
 | `boolean startTone(int toneType)` | Plays until the tone completes its cadence, or until `stopTone()` for a held or repeating one. `false` if the tone is not defined. |
 | `boolean startTone(int toneType, int durationMs)` | As above, but stopped after `durationMs` whatever the cadence would do. `0` means no limit. |
 | `boolean startToneSequence(int[] freqHz, int[] durationMs)` | **No `android.media` counterpart** -- see below. |
 | `void stopTone()` | Silences whatever is playing. |
-| `void release()` | Stops and leaves the pin idle. |
+| `void release()` | Stops and leaves the pin idle. The buzzer belongs to the system, not to the instance, so a released generator works again if it is used: the next `startTone` re-arms the output. |
 | `MAX_SEQUENCE_LENGTH` = 32 | Longest sequence `startToneSequence` accepts. |
 
 Volume maps onto duty cycle. A square wave is loudest at 50%, so `100` is a 50% duty cycle and `0` is silence.
@@ -89,7 +89,7 @@ int[] ms = { 120, 120, 120, 320 };
 tones.startToneSequence(hz, ms);
 ```
 
-The note data is copied out before the call returns, so the arrays can be reused immediately. `false` means the arrays were null, differed in length, or the sequence was empty or longer than `MAX_SEQUENCE_LENGTH`.
+The note data is copied out before the call returns, so the arrays can be reused immediately. `false` means the arrays were null, differed in length, or the sequence was empty or longer than `MAX_SEQUENCE_LENGTH`. A frequency or duration outside 0–65535 is clamped to that range, not refused.
 
 ## `picodroid.media.AudioManager`
 
@@ -101,6 +101,8 @@ Stream-type constants only -- `STREAM_VOICE_CALL`, `STREAM_SYSTEM`, `STREAM_RING
 
 **One buzzer, one tone.** Starting a tone replaces whatever was playing, across the whole system, and the volume in effect is the one from the most recently constructed generator. Android would mix per stream; a single piezo leaves no honest alternative.
 
-**On a board with no `[audio]` section** the classes still exist and every method is safe to call: `startTone` and `startToneSequence` return `false` and the rest do nothing. An app that checks the return value needs no board-specific code.
+**On a board with no `[audio]` section** the classes still exist and every method is safe to call: `startTone` and `startToneSequence` return `false` and the rest do nothing. An app that checks the return value needs no board-specific code. The exception is `testbench_rp2040`, which leaves both classes out of its image to save flash (`framework_class_excludes`); `verifyApiContract --board testbench_rp2040` rejects an app that uses them.
+
+**Any thread may start a tone.** `startTone`, `startToneSequence` and `stopTone` can be called from a background thread; the tone still advances on the frame tick.
 
 **Idle display sleep silences the buzzer.** The tick that advances a tone stops when the panel blanks, so anything still sounding is stopped on the way down rather than left droning.
