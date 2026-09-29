@@ -139,6 +139,21 @@ not be searched by hash alone); so are two equal names.
 | 6 | native dispatch: claim hint (6a); hash-matched module `match` (6b) **dropped** — see the profile | inherited natives skip the re-walk (test); 6b: ≤ 0.4 % of a graphics workload's CPU |
 | 7 | this document's results | — |
 
+## Post-commit fix: the W boards' debug image (2026-09-29)
+
+`flash.sh --board pico_display2_w --app claudeusage` (debug: no name shrink,
+line numbers, no LTO) stopped linking after f5d93245 — 77 KB over the
+2048 KB program region, which the release + shrink image (1,992 KB) had
+masked. The three W boards carry the radio firmware, the net stack and TLS
+(~500 KB more than the testbench image), so their debug builds had ~46 KB
+of headroom before the tables arrived. Fix: `app_region_kb` 1536 → 1280 on
+`pico_display2_w`, `testbench_rp2350w` and `pico_enviro_mon_w` (program
+region 2304 KB; eight claudeusage-sized apps still fit). The debug image is
+2,173,900 B, 185 KB under the new region. Non-W boards are unchanged. Not
+caught before the commit because CI links only the testbench boards and
+`cargo clippy` for the others does not link — a `build.sh` row for one W
+board in debug is the missing gate.
+
 ## Follow-ups (each gated by a measurement, none done here)
 
 - **Native-path name decode** (3.3 % of a graphics workload's CPU): a native

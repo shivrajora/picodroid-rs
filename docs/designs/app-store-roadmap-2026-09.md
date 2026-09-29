@@ -341,8 +341,10 @@ diverges from the body here in these ways:
   placed first-fit; the directory is rebuilt by scanning the region at boot
   and after every install; compaction slides runs together when an install
   needs a contiguous run that only exists in pieces. A1's "3 × 384 KB" is
-  void: the region is 1536 KB on the four RP2350 boards (`FLASH` 2048K,
-  `FS_FLASH` 512K, `PAPK_FLASH` 1536K), and no app has a size cap below it.
+  void: the region is 1536 KB on the non-W RP2350 boards (`FLASH` 2048K,
+  `FS_FLASH` 512K, `PAPK_FLASH` 1536K) and 1280 KB on the W boards since
+  2026-09-29 (`FLASH` 2304K: their debug image outgrew 2048K once the class
+  link tables moved into flash), and no app has a size cap below it.
 - **S0 keys are `package-name` (now the manifest's `package=`), `label`,
   `icon`, `version-code`.** `uses-feature`, `uses-permission` and
   `min-framework-map-version` are not added; S9 adds the permission key when

@@ -16,10 +16,16 @@ hot_ram_kb = 48
 
 # Multi-app (docs/designs/multi-app-2026-09.md D1/D2): the app region holds
 # up to eight installed apps as self-describing runs, LittleFS grows to
-# 512 KB for per-app storage, and the program image keeps 2048 KB.
-# FLASH 2048K @0x10000000 | FS_FLASH 512K @0x10200000 | PAPK_FLASH 1536K @0x10280000
+# 512 KB for per-app storage, and the program image takes 2304 KB.
+# FLASH 2304K @0x10000000 | FS_FLASH 512K @0x10240000 | PAPK_FLASH 1280K @0x102C0000
+# 2026-09-29: the app region gave up 256 KB (1536 → 1280 KB; eight apps the
+# size of claudeusage still fit) because the debug image — no name shrink,
+# line numbers on, no LTO — of a W board (radio firmware + net + TLS) was
+# 77 KB over the 2048 KB region once the framework's class link tables
+# moved into flash (docs/designs/class-link-2026-09.md). The non-W RP2350
+# boards keep 2048 KB: no radio, 600 KB of headroom.
 max_installed_apps = 8
-app_region_kb = 1536
+app_region_kb = 1280
 fs_kb = 512
 # picodroid.json (JSONObject/JSONArray, native node pool). Off by default;
 # on here because the 2816K program region has the room. See
