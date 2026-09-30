@@ -179,14 +179,24 @@ PROBE_POLL_TIMEOUT=15
 
 # Fleet: only this slot's probe and board ports (lib.sh::power_cycle_bench),
 # so the other boards keep running. Legacy: every port of the probe's hub.
+#
+# Cycled a second time when the probe does not enumerate afterwards: at the
+# 2026-09-29 nightly the Enviro W slot's probe port came back "power connect"
+# without "enable" once in ~1,500 rows, probe-rs saw no probe, and the row
+# was an ERROR the next cycle would have cleared.
 power_cycle_all() {
-  hil_log "Power-cycling${SLOT:+ slot $SLOT}..."
-  if ! power_cycle_bench 2>&1 | \
-       while IFS= read -r line; do hil_log "  uhubctl: $line"; done; then
-    hil_log "  WARNING: power cycle failed, continuing"
-  fi
-  sleep 5
-  wait_for_probe
+  local attempt why=""
+  for attempt in 1 2; do
+    [[ $attempt -gt 1 ]] && why=" (retry: probe not detected)"
+    hil_log "Power-cycling${SLOT:+ slot $SLOT}...$why"
+    if ! power_cycle_bench 2>&1 | \
+         while IFS= read -r line; do hil_log "  uhubctl: $line"; done; then
+      hil_log "  WARNING: power cycle failed, continuing"
+    fi
+    sleep 5
+    wait_for_probe && return 0
+  done
+  return 0
 }
 
 # Every probe-rs launch waits for the host's USB sysfs to answer first
@@ -211,6 +221,7 @@ wait_for_probe() {
     elapsed=$((elapsed + PROBE_POLL_INTERVAL))
   done
   hil_log "  WARNING: Probe not detected within ${PROBE_POLL_TIMEOUT}s"
+  return 1
 }
 
 # Fleet: only the probe-rs on this slot's probe (fleet-lib.sh::probe_rs_pids
@@ -1237,9 +1248,17 @@ run_test() {
   [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
   # net rows: bake this machine's LAN IP into the app's NetTestConfig.HOST
   # (build-apk.sh forwards the env var as a per-invocation Gradle property).
+  # The app's own test.env goes to the APK build too, as in sim-run.sh: a
+  # `picodroidBuildConfig` constant (weather's and askclaude's API_URL=test,
+  # askclaude's key) is baked at build time, not read at run time. Without
+  # it the weather firmware fetched the live open-meteo forecast on the bench.
   local -a apk_env=()
   [[ "$category" == "net" ]] && apk_env+=(PICODROID_NET_TEST_HOST="$NET_TEST_HOST")
-  if ! env "${apk_env[@]}" bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1; then
+  local apk_env_line
+  while IFS= read -r apk_env_line; do
+    apk_env+=("$apk_env_line")
+  done < <(app_test_env "$app")
+  if ! env ${apk_env[@]+"${apk_env[@]}"} bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1; then
     hil_log "  BUILD FAILED (APK)"
     echo "ERROR $tag (apk build failed)" >> "$RESULTS_FILE"
     ERROR=$((ERROR + 1))
@@ -1402,6 +1421,21 @@ for MODE in "${MODES[@]}"; do
       continue
     fi
 
+    # A row whose app ships a test.ctrl is driven through the simulator's
+    # control channel (sim-run.sh::drive_test_ctrl); this runner has no
+    # counterpart, so the row would sit waiting for a key press that never
+    # comes. Skip it with the reason. Checked before the net branch below,
+    # which `continue`s past everything after it: the askclaude and weather
+    # net rows ran on the Enviro W slot (askclaude never got its X press,
+    # weather answered with the live forecast) and failed every night from
+    # 2026-09-27 to 09-29 while this check sat further down.
+    if [[ -f "$REPO_ROOT/examples/$app/test.ctrl" ]]; then
+      hil_log "SKIP $app[$MODE] (test.ctrl: needs the simulator's control channel)"
+      echo "SKIP $app[$MODE]" >> "$RESULTS_FILE"
+      SKIP=$((SKIP + 1))
+      continue
+    fi
+
     # net rows: W-board firmware + creds + host listeners. Skip with a reason
     # when a prerequisite is missing so a checkout without bench creds, or a
     # different board on the probe, stays green instead of red.
@@ -1454,17 +1488,6 @@ for MODE in "${MODES[@]}"; do
     # network stack; sim-run.sh runs them).
     if [[ "$category" == "sim" ]]; then
       hil_log "SKIP $app[$MODE] (sim-only)"
-      echo "SKIP $app[$MODE]" >> "$RESULTS_FILE"
-      SKIP=$((SKIP + 1))
-      continue
-    fi
-
-    # A row whose app ships a test.ctrl is driven through the simulator's
-    # control channel (sim-run.sh::drive_test_ctrl); this runner has no
-    # counterpart, so the row would sit waiting for a key press that never
-    # comes. Skip it with the reason (askclaude's net row).
-    if [[ -f "$REPO_ROOT/examples/$app/test.ctrl" ]]; then
-      hil_log "SKIP $app[$MODE] (test.ctrl: needs the simulator's control channel)"
       echo "SKIP $app[$MODE]" >> "$RESULTS_FILE"
       SKIP=$((SKIP + 1))
       continue

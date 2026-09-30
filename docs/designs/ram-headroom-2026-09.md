@@ -301,7 +301,9 @@ which is between n−1 and n ms. qa_thr's `SystemClock.sleep(30)` had passed
 on the time the call path around it took and measured 29 ms once that path
 ran from SRAM. The platform sleep now asks for one tick more.
 
-Found on the way: `pico_touch_kit` does not link unless the image is
-shrunk. On main `eae3e09c` a release build without `--shrink` is 40.9 KB
+Found on the way: `pico_touch_kit` did not link unless the image was
+shrunk. On main `eae3e09c` a release build without `--shrink` was 40.9 KB
 over the 2048 KB program region and a debug build 94 KB over; the other W
-boards went to 2304 KB in `2d4216b4`, this one did not.
+boards went to 2304 KB in `2d4216b4`, this one did not until the 2026-09-29
+HIL nightly errored every unshrunk row on it (35.6 KB over). Fixed the same
+way: `app_region_kb` 10240 → 9984, program region 2304 KB.

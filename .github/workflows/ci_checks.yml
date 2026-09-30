@@ -86,6 +86,11 @@ jobs:
       # only: the macOS runner's GCC rejects cyw43-driver's implicit `MIN`.
       - if: runner.os == 'Linux'
         run: bash scripts/build.sh --board pico_display2_w --app helloworld
+      # The touch kit (RP2350B: the radio plus touch, audio and PSRAM) is the
+      # largest image of all; its unshrunk link overflowed at the 2026-09-29
+      # HIL nightly after the display board's fix left it at 2048 KB.
+      - if: runner.os == 'Linux'
+        run: bash scripts/build.sh --board pico_touch_kit --app helloworld
       - run: bash scripts/check-shrunk-image.sh target/thumbv8m.main-none-eabihf/release/picodroid helloworld/
   testing:
     name: Testing

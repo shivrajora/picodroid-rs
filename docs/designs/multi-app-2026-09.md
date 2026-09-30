@@ -108,7 +108,10 @@ Since 2026-09-29 the W boards (`pico_display2_w`, `testbench_rp2350w`,
 `FS_FLASH` 512K at `0x10240000`, `PAPK_FLASH` 1280K (320 sectors) at
 `0x102C0000` — because their debug image (radio firmware, net, TLS, no name
 shrink, line numbers) outgrew 2048K once the framework's class link tables
-moved into flash (docs/designs/class-link-2026-09.md).
+moved into flash (docs/designs/class-link-2026-09.md). `pico_touch_kit`
+followed the same day for the same reason (its release image without
+`--shrink` was 35.6 KB over at the HIL nightly): `FLASH` 2304K, `FS_FLASH`
+4096K at `0x10240000`, `PAPK_FLASH` 9984K at `0x10640000`.
 
 RP2040 is byte-identical to today (BOOT2, `FLASH` 896K−0x100, `FS_FLASH`
 128K at `0x100E0000`, `PAPK_FLASH` 1024K at `0x10100000`). The formula is

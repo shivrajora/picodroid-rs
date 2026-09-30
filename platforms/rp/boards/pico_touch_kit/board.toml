@@ -33,14 +33,20 @@ mcu = "rp2350b"
 hot_ram_kb = 60
 
 # Multi-app (docs/designs/multi-app-2026-09.md D1/D2). 16 MB of flash makes this
-# the roomiest board on the bench by a wide margin: the app region takes 10 MB
-# and LittleFS 4 MB, and the program image still keeps the same 2048 KB ceiling
-# the 4 MB RP2350 boards get. That last number is deliberate — handing the image
+# the roomiest board on the bench by a wide margin: the app region takes nearly
+# 10 MB and LittleFS 4 MB, and the program image keeps the same 2304 KB ceiling
+# the other W boards get. That last number is deliberate — handing the image
 # the leftover 10 MB would turn the flash gate in scripts/lib.sh into a formality
 # on this board while it stays a real constraint everywhere else.
-# FLASH 2048K @0x10000000 | FS_FLASH 4096K @0x10200000 | PAPK_FLASH 10240K @0x10600000
+# 2026-09-29: the app region gave up 256 KB (10240 → 9984 KB) for the same
+# reason the other W boards did in 2d4216b4: a W image (radio firmware, net,
+# TLS) no longer fits 2048 KB unless it is shrunk — release without --shrink
+# was 35.6 KB over at the 2026-09-29 HIL nightly, debug ~94 KB over — once the
+# framework's class link tables moved into flash (docs/designs/class-link-2026-09.md).
+# LittleFS and the app region moved, so the first flash after this reformats them.
+# FLASH 2304K @0x10000000 | FS_FLASH 4096K @0x10240000 | PAPK_FLASH 9984K @0x10640000
 max_installed_apps = 16
-app_region_kb = 10240
+app_region_kb = 9984
 fs_kb = 4096
 # picodroid.json (JSONObject/JSONArray, native node pool). On here for the same
 # reason as the other RP2350 boards: the program region has the room.
