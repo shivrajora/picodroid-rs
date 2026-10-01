@@ -6,16 +6,22 @@
 #   ./scripts/pre-commit          fast (default, and what the git hook runs).
 #                                 The source-tree guards that exist nowhere
 #                                 else plus the formatters the changed files
-#                                 implicate. Seconds; no cargo build.
+#                                 implicate; a Rust change adds CI's clippy
+#                                 legs, on CI's pinned toolchain. Seconds
+#                                 without Rust, a minute or two warm with it.
 #   ./scripts/pre-commit --full   the legs neither CI nor the nightlies run:
 #                                 the legacy-handle-cast hatch and opt-in
 #                                 mem-diag / sched-diag firmware, the
-#                                 pico_enviro_mon_w lint, the shrunk-image
-#                                 name check and the binary-size ratchet.
-#                                 Minutes; run it before cutting a release.
+#                                 shrunk-image name check and the binary-size
+#                                 ratchet. Minutes; run it before a release.
+#
+# Clippy is here, despite CI running it, because a clippy-only red main was
+# the commonest CI failure once it left (2026-09: deref_addrof, question_mark,
+# ptr_arg, duplicated #[allow], a new-toolchain lint). It runs on
+# RUST_TOOLCHAIN from ci_checks.yml, so local and CI see the same lints.
 #
 # Everything else is deliberately NOT here. .github/workflows/ci_checks.yml
-# runs the board clippy legs, rp2040+rp2350 in debug and release, test.sh in
+# runs rp2040+rp2350 in debug and release, test.sh in
 # both shrink modes, every example APK and its API contract, both formatters,
 # the same source guards (scripts/check-source-guards.sh) and a 15-app sim
 # smoke that includes the three langsuites; the 3 AM sim-run.sh runs the whole
@@ -50,7 +56,8 @@ Usage: $(basename "$0") [OPTIONS]
 
   --fast          Change-scoped tier (default, and what the git hook runs):
                   the local-only source guards plus the formatters the
-                  changed files implicate. Seconds.
+                  changed files implicate, and CI's clippy legs when Rust
+                  changed. Seconds without Rust; a minute or two with it.
   --full          The legs neither CI nor the nightlies cover: the staged
                   and opt-in firmware builds, the shrunk-image check, the
                   size ratchet. Minutes. Run before cutting a release.
@@ -167,7 +174,8 @@ STAGES=(
   # it matters when the conf itself, under scripts/, changed.
   "hil_conf|guards|fast|scripts|hil-tests.conf against the source tree"
   "device_lock|guards|fast|scripts|device-lock state machine (test-device-lock.sh)"
-  "apk|guards|full|rust,jvm|helloworld APK (shared by every cargo lane)"
+  "lint_toolchain|guards|fast|rust|clippy toolchain matches CI's RUST_TOOLCHAIN"
+  "apk|guards|fast|rust|helloworld APK (shared by every cargo lane)"
 
   "fmt_java|jvm|fast|jvm|Java formatting"
   "fmt_kotlin|jvm|fast|jvm|Kotlin formatting"
@@ -177,9 +185,14 @@ STAGES=(
   "lint_md|jvm|fast|md|markdown lint"
 
   "fmt_rust|host|fast|rust|cargo fmt"
+  # CI's Linting job, leg for leg (ci_checks.yml), so a clippy-red main is
+  # caught at commit time instead of twenty minutes after the push.
+  "clippy_sim|host|fast|rust|clippy (sim)"
+  "clippy_host_tools|host|fast|rust|clippy (host tools)"
   "clippy_sim_memdiag|host|full|rust|clippy (sim + mem-diag)"
   "clippy_sim_scheddiag|host|full|rust|clippy (sim + sched-diag)"
 
+  "clippy_rp2040|arm6|fast|rust|clippy (testbench_rp2040)"
   "clippy_rp2040_legacy_cast|arm6|full|rust|clippy (testbench_rp2040 + legacy-handle-cast)"
   "size_rp2040|arm6|full|rust,jvm|size lane (rp2040)"
 
@@ -188,11 +201,15 @@ STAGES=(
   # that is a `rerun-if-env-changed` input to jvm/build.rs -- so every switch
   # into or out of it rebuilds pico-jvm and everything above it. Keeping it
   # last makes that one transition instead of two.
+  "clippy_rp2350|arm8|fast|rust|clippy (testbench_rp2350)"
+  "clippy_rp2350w|arm8|fast|rust|clippy (testbench_rp2350w)"
+  "clippy_enviro|arm8|fast|rust|clippy (pico_enviro_mon)"
+  "clippy_touch_kit|arm8|fast|rust|clippy (pico_touch_kit)"
   "build_rp2350_memdiag|arm8|full|rust,jvm|build (rp2350 + mem-diag)"
   "build_rp2350w_scheddiag|arm8|full|rust,jvm|build (rp2350w + sched-diag)"
   "size_rp2350|arm8|full|rust,jvm|size lane (rp2350)"
   "shrink_image|arm8|full|rust,jvm|--shrink image carries no original Java name (rp2350 --release)"
-  "clippy_enviro_w|arm8|full|rust|clippy (pico_enviro_mon_w)"
+  "clippy_enviro_w|arm8|fast|rust|clippy (pico_enviro_mon_w)"
 
   # The nightly sim-run.sh ratchets every night on this machine's lockfile;
   # --full does it here so a release cut sees the number before it ships.
@@ -256,6 +273,17 @@ for system_app_dir in "$REPO_ROOT"/system-apps/*/; do
   [[ -f "$system_app_dir/PicodroidManifest.xml" ]] || continue
   SYSTEM_APK_PATHS="${SYSTEM_APK_PATHS:+$SYSTEM_APK_PATHS:}$REPO_ROOT/build/apks/pre-commit/$(basename "$system_app_dir").papk"
 done
+
+# The clippy legs lint on CI's pinned toolchain (ci_checks.yml
+# RUST_TOOLCHAIN), not whatever `stable` is here: lints come and go
+# between releases, and a local pass on another version proves nothing about
+# CI. No override when the active toolchain already is the pin.
+LINT_TOOLCHAIN="$(sed -n 's/^ *RUST_TOOLCHAIN: *//p' "$REPO_ROOT/.github/workflows/ci_checks.yml" | head -1)"
+LINT_PLUS=""
+if [[ -n "$LINT_TOOLCHAIN" ]] && \
+   [[ "$(rustc --version 2>/dev/null | awk '{ print $2 }')" != "$LINT_TOOLCHAIN" ]]; then
+  LINT_PLUS="+$LINT_TOOLCHAIN"
+fi
 
 RUN_DIR="$REPO_ROOT/build/pre-commit/$(date -u '+%Y-%m-%dT%H%M%S')"
 mkdir -p "$RUN_DIR/size"
@@ -347,6 +375,23 @@ stage_device_lock() {
   fi
 }
 
+stage_lint_toolchain() {
+  if [[ -z "$LINT_TOOLCHAIN" ]]; then
+    echo "ERROR: no RUST_TOOLCHAIN in .github/workflows/ci_checks.yml."
+    return 1
+  fi
+  # shellcheck disable=SC2086  # LINT_PLUS is empty or a "+toolchain" override
+  if ! cargo $LINT_PLUS clippy --version >/dev/null 2>&1 || \
+     ! rustup target list --installed ${LINT_PLUS:+--toolchain "$LINT_TOOLCHAIN"} 2>/dev/null | grep -q thumbv8m; then
+    echo "ERROR: CI lints on Rust $LINT_TOOLCHAIN, which is not installed here"
+    echo "       (with clippy and the ARM targets). Install it once:"
+    echo "         rustup toolchain install $LINT_TOOLCHAIN --component clippy \\"
+    echo "           --target thumbv6m-none-eabi --target thumbv8m.main-none-eabihf"
+    return 1
+  fi
+  echo "clippy on Rust $LINT_TOOLCHAIN${LINT_PLUS:+ (override; active toolchain differs)}"
+}
+
 stage_apk() {
   # Built once, here, in the serial prologue: every cargo lane embeds it, and
   # PICODROID_APK_PATH is a `rerun-if-env-changed` build.rs input, so a stable
@@ -407,9 +452,9 @@ clippy_board() {
   local board="$1" extra="${2:-}"
   resolve_board "$board"
   local features="$BOARD_FEATURE${extra:+,$extra}"
-  # shellcheck disable=SC2086  # CARGO_PLUS is empty or a "+toolchain" override
+  # shellcheck disable=SC2086  # LINT_PLUS is empty or a "+toolchain" override
   if ! PICODROID_APK_PATH="$APK_PATH" \
-       cargo $CARGO_PLUS clippy \
+       cargo $LINT_PLUS clippy \
          --manifest-path "$MANIFEST_DIR/Cargo.toml" \
          -p "$PACKAGE" --jobs "$JOBS" --target "$TARGET" --no-default-features \
          --features "$features" -- --deny=warnings; then
@@ -419,9 +464,15 @@ clippy_board() {
   fi
 }
 
-# The one board leg CI does not compile: pico_enviro_mon_w's board.toml is the
-# only [jvm] block that exports anything (see the registry's ordering note).
-stage_clippy_enviro_w() { clippy_board pico_enviro_mon_w; }
+# CI's board legs (ci_checks.yml `linting`). pico_enviro_mon_w runs last in
+# its lane: its board.toml is the only [jvm] block that exports anything (see
+# the registry's ordering note).
+stage_clippy_rp2040()    { clippy_board testbench_rp2040; }
+stage_clippy_rp2350()    { clippy_board testbench_rp2350; }
+stage_clippy_rp2350w()   { clippy_board testbench_rp2350w; }
+stage_clippy_enviro()    { clippy_board pico_enviro_mon; }
+stage_clippy_touch_kit() { clippy_board pico_touch_kit; }
+stage_clippy_enviro_w()  { clippy_board pico_enviro_mon_w; }
 
 # The generational handle table (audit P1-9) became the default for every
 # board on 2026-09-15, so every clippy/build leg here already compiles and
@@ -438,12 +489,25 @@ clippy_sim_features() {
   resolve_board testbench_rp2350
   # shellcheck disable=SC2086
   if ! PICODROID_APK_PATH="$APK_PATH" \
-       cargo $CARGO_PLUS clippy \
+       cargo $LINT_PLUS clippy \
          --manifest-path "$MANIFEST_DIR/Cargo.toml" \
          -p "$PACKAGE" --jobs "$JOBS" --target "$HOST_TARGET" --no-default-features \
          --features "$features" -- --deny=warnings; then
     echo ""
     echo "ERROR: Clippy check failed ($features). Fix the warnings above."
+    return 1
+  fi
+}
+
+stage_clippy_sim() { clippy_sim_features "sim,board-testbench-rp2350,line-numbers"; }
+
+stage_clippy_host_tools() {
+  # shellcheck disable=SC2086
+  if ! cargo $LINT_PLUS clippy -p pdb -p papk-pack -p papk-info -p class-shrink \
+         -p picodroid-build-support --all-targets --all-features \
+         --jobs "$JOBS" --target "$HOST_TARGET" -- --deny=warnings; then
+    echo ""
+    echo "ERROR: Clippy check failed (host tools). Fix the warnings above."
     return 1
   fi
 }

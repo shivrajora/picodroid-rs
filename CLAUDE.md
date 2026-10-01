@@ -34,7 +34,7 @@ Confirm `[HelloWorld] Hello, World!` appears. Docs, example-app and script-only 
 ./scripts/pre-commit          # after every change; what the git hook runs
 ```
 
-Must end with `==> All checks passed.` It takes seconds and builds nothing: the shadow-twin and cfg-hygiene guards, `apply_jvm_env`, and whichever of `cargo fmt`, Java/Kotlin formatting and markdown lint the changed files implicate. A `scripts/` change adds the `hil-tests.conf` drift check and the device-lock test.
+Must end with `==> All checks passed.` It runs the shadow-twin and cfg-hygiene guards, `apply_jvm_env`, and whichever of `cargo fmt`, Java/Kotlin formatting and markdown lint the changed files implicate. A Rust change adds CI's eight clippy legs on CI's pinned toolchain (`RUST_TOOLCHAIN` in `ci_checks.yml`; ~30 s warm). A `scripts/` change adds the `hil-tests.conf` drift check and the device-lock test.
 
 Do not wait for anything longer locally; commit and push only when asked. GitHub CI (~20 min) runs clippy for every board, both boards in debug and release, the tests in both shrink modes, every example APK, the same source guards and the sim smoke; the 3 AM `sim-run.sh` runs the whole `hil-tests.conf` matrix in both shrink modes (the `qa_*` apps, the diagnostics soaks, the binary-size ratchet) and the 4 AM `hil-fleet.sh` runs it on hardware. After a push, `gh run list --limit 3` shows CI; nightly results arrive by email and under `build/sim/results/` and `build/hil/results/`.
 
@@ -42,7 +42,7 @@ Do not wait for anything longer locally; commit and push only when asked. GitHub
 ./scripts/pre-commit --full   # before cutting a release
 ```
 
-`--full` is the release-cut gate and covers only the legs nothing else runs: the `legacy-handle-cast` clippy leg, the opt-in `mem-diag` / `sched-diag` firmware builds, `pico_enviro_mon_w` clippy, the shrunk-image name check and the size ratchet on both boards. A few minutes.
+`--full` is the release-cut gate and covers only the legs nothing else runs: the `legacy-handle-cast` clippy leg, the opt-in `mem-diag` / `sched-diag` firmware builds, the shrunk-image name check and the size ratchet on both boards. A few minutes.
 
 `--list` prints the stages a run would execute; `--serial` runs the lanes one at
 a time and streams to stdout, which is what to use when a parallel run fails and

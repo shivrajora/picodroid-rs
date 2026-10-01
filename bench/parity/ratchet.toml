@@ -6,9 +6,10 @@
 # why in the message (size: trailer).
 #
 # These bytes are specific to the compiler that produced them:
-# rustc 1.98.0 builds this tree ~4 KB larger than 1.95.0. CI's
-# size-ratchet job pins its toolchain for that reason -- bump the pin
-# and this file together.
+# a different rustc moves them by kilobytes with no source change
+# (1.95.0 -> 1.98.1: -504 B rp2040, -4,784 B rp2350). They are
+# measured on RUST_TOOLCHAIN in .github/workflows/ci_checks.yml --
+# bump the pin and this file together.
 #
 # Regenerate -- read the sizes back from the run you just measured. A
 # bare --accept falls back to bench/parity/history.csv, whose newest
@@ -19,13 +20,13 @@
 #   ./scripts/bench-report.py --ratchet --sizes-from "$D" --accept
 
 [testbench_rp2040]
-flash_bytes = 970492
+flash_bytes = 969984
 ram_bytes = 246684
-text = 975704
+text = 975196
 bss = 246680
 
 [testbench_rp2350]
-flash_bytes = 1488812
+flash_bytes = 1484028
 ram_bytes = 402048
-text = 1494024
+text = 1489240
 bss = 402044

@@ -553,11 +553,10 @@ impl<'a> Link<'a> {
     pub fn strings(&self) -> impl Iterator<Item = StringDesc> + 'a {
         let off = self.strs_off();
         self.words[off..off + 2 * self.strs_len()]
-            .chunks_exact(2)
-            .map(|w| StringDesc {
-                cp_off: w[0],
-                lit: w[1],
-            })
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&[cp_off, lit]| StringDesc { cp_off, lit })
     }
 
     #[inline]

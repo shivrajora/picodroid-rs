@@ -37,17 +37,19 @@ It runs in two tiers, both of which fan their stages out across parallel lanes:
 ./scripts/pre-commit --full   # the release-cut gate
 ```
 
-**`--fast`** takes seconds and builds nothing: the source-tree guards that
-exist nowhere else (shadow twins across `platforms/rp/src` and
-`crates/picodroid-core/src`, `family-rp` cfg-gate hygiene, `apply_jvm_env`)
-plus whichever of `cargo fmt`, the Java and Kotlin formatters and markdown lint
-the changed files implicate. A `scripts/` change adds the `hil-tests.conf`
-drift check and the device-lock test.
+**`--fast`** runs the source-tree guards that exist nowhere else (shadow
+twins across `platforms/rp/src` and `crates/picodroid-core/src`, `family-rp`
+cfg-gate hygiene, `apply_jvm_env`) plus whichever of `cargo fmt`, the Java and
+Kotlin formatters and markdown lint the changed files implicate. A Rust change
+adds CI's eight clippy legs (every board, the sim, the host tools) on the
+toolchain CI pins (`RUST_TOOLCHAIN` in `ci_checks.yml`): about 30 s warm,
+a few minutes cold. A `scripts/` change adds the `hil-tests.conf` drift check
+and the device-lock test.
 
 **`--full`** runs the legs neither CI nor the nightlies cover: the
 `legacy-handle-cast` clippy leg, the opt-in `mem-diag` / `sched-diag`
-firmware builds, `pico_enviro_mon_w` clippy, the shrunk-image name check and
-the binary-size ratchet on both boards. A few minutes; run it before cutting a
+firmware builds, the shrunk-image name check and the binary-size ratchet on
+both boards. A few minutes; run it before cutting a
 release.
 
 Everything else is CI's job, so pushing does not wait for `--full`.
