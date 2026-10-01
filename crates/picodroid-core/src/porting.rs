@@ -51,8 +51,10 @@
 //!    address, erase, program, reset — [`PapkRegion`] turns it into the
 //!    [`PapkFlash`] the installer and the package directory want). Hand the
 //!    four to [`run_pdb_task`] from your bridge task. At boot, before the
-//!    scheduler, `packages::rescan` the region, `packages::cleanup` it, and
-//!    run `packages::boot_image()`. Wire layouts and the USB identity are
+//!    scheduler, `packages::rescan` the region, `packages::cleanup` it,
+//!    `packages::mark_verified` it (so an app is deep-checked on the first
+//!    boot after its install and not on every one), and run
+//!    `packages::boot_image()`. Wire layouts and the USB identity are
 //!    `pdb_protocol`'s; never retype them.
 //! 6. **The simulator.** One [`register_sim_platform!`] call with your GC
 //!    roots and a `static` [`BootBudgetModel`] of the tasks your device

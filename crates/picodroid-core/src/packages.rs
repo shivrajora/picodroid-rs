@@ -9,10 +9,19 @@
 //! directory by walking the region sector by sector: a sector whose header
 //! parses starts a run and the walk skips past it, anything else steps one
 //! sector. That is at most `region / 4 KB` header reads (384 on rp2350),
-//! sub-millisecond from XIP, plus one manifest parse and one deep check of
-//! the class section per run (`papk_format::validate_structure`, ~0.3 ms
-//! per KB of PAPK on the RP2350: the scan is the device's integrity gate
-//! for an installed app).
+//! sub-millisecond from XIP, plus one manifest parse per run.
+//!
+//! The scan is also the device's integrity gate for an installed app: the
+//! first scan that sees a run checks its class section in full
+//! (`papk_format::validate_structure`, ~0.3 ms per KB of PAPK on the
+//! RP2350), and [`mark_verified`] then writes the run's verified page
+//! (`papk_format::flash_image`), a receipt later scans accept in place of
+//! the check. So an app is deep-checked once — by the rescan that ends its
+//! install, which the installer follows with [`mark_verified`]; the boot
+//! path marks whatever a scan had to check without one (a relocated run, an
+//! install cut short between its commit and its receipt) — and not on
+//! every boot after. The receipt is trusted: a flash
+//! fault in a verified image is not caught here.
 //!
 //! An entry keeps the manifest's package name, version, label and icon as
 //! slices into the image — read once when the entry is made, never copied —
@@ -31,7 +40,7 @@
 use core::cell::UnsafeCell;
 
 use papk_format::flash_image::{
-    is_committed, parse_header, FLAG_BOOT_DEFAULT, META_READ_LEN, META_SIZE,
+    is_committed, is_verified, parse_header, FLAG_BOOT_DEFAULT, META_SIZE, VERIFIED_READ_LEN,
 };
 use papk_format::Papk;
 
@@ -75,6 +84,11 @@ pub struct Entry {
     pub flags: u32,
     pub seq: u32,
     pub kind: Kind,
+    /// The run carries its verified page, so the scan took its class
+    /// section on trust; `false` for a run this scan deep-checked, which
+    /// [`mark_verified`] has yet to give its receipt. Always `true` for a
+    /// system app.
+    pub verified: bool,
     // The manifest, read once: slices into `image`, so they are right for
     // exactly as long as the entry is — a rescan makes new entries.
     name: &'static str,
@@ -94,6 +108,7 @@ impl Entry {
         flags: u32,
         seq: u32,
         kind: Kind,
+        verified: bool,
     ) -> Option<Entry> {
         let papk = Papk::parse(image).ok()?;
         let name = papk.package_name()?;
@@ -104,6 +119,7 @@ impl Entry {
             flags,
             seq,
             kind,
+            verified,
             name,
             version: papk.version().unwrap_or("?"),
             version_code: papk.version_code().unwrap_or(1),
@@ -259,7 +275,7 @@ pub unsafe fn rescan(base: *const u8, len: usize) {
         // SAFETY: `base` maps `len` readable bytes (the caller's contract) and
         // `s` stays inside them.
         let sector_ptr = unsafe { base.add(s * SECTOR) };
-        let header = unsafe { core::slice::from_raw_parts(sector_ptr, META_READ_LEN) };
+        let header = unsafe { core::slice::from_raw_parts(sector_ptr, VERIFIED_READ_LEN) };
         let max_len = (sectors - s - 1) * SECTOR;
         let Some(meta) = parse_header(header, max_len) else {
             s += 1;
@@ -275,7 +291,16 @@ pub unsafe fn rescan(base: *const u8, len: usize) {
         }
         let image =
             unsafe { core::slice::from_raw_parts(sector_ptr.add(META_SIZE), meta.len as usize) };
-        let entry = if papk_format::validate_structure(image).is_ok() {
+        // A run with its receipt was deep-checked by an earlier scan (or
+        // by the build script that baked it): only its bounds are read.
+        // One without is checked in full, here, before anything trusts it.
+        let verified = is_verified(header);
+        let valid = if verified {
+            papk_format::validate_embedded(image).is_ok()
+        } else {
+            papk_format::validate_structure(image).is_ok()
+        };
+        let entry = if valid {
             Entry::new(
                 image,
                 s as u16,
@@ -283,6 +308,7 @@ pub unsafe fn rescan(base: *const u8, len: usize) {
                 meta.flags,
                 meta.seq,
                 Kind::App,
+                verified,
             )
         } else {
             None
@@ -413,6 +439,33 @@ pub fn cleanup(flash: &mut impl PapkFlash) {
     }
 }
 
+/// Write the verified page of every run the last scan deep-checked, so
+/// later scans skip the check. Runs where [`cleanup`] does — at boot before
+/// the scheduler, or with the JVM parked — and after it, so the runs it
+/// marks are the ones that stay. Returns how many it marked.
+pub fn mark_verified(flash: &mut impl PapkFlash) -> usize {
+    let d = dir();
+    let mut marked = 0;
+    for e in d.entries.iter_mut().flatten() {
+        if e.kind != Kind::App || e.verified {
+            continue;
+        }
+        // SAFETY: the caller's contract — nothing executes from the region.
+        // The page is erased: a run gets its receipt once, and `verified`
+        // is read back from it by every scan after.
+        unsafe {
+            flash.select_run(e.first_sector as u32);
+            flash.write_meta_verified();
+        }
+        e.verified = true;
+        marked += 1;
+    }
+    if marked > 0 {
+        crate::pd_info!("[packages] verified {} run(s)", marked);
+    }
+    marked
+}
+
 // ── System apps ─────────────────────────────────────────────────────────────
 
 /// Add the system apps linked into the firmware (`board_cfg::system_apks`).
@@ -478,7 +531,7 @@ pub fn register_system(images: &[&'static [u8]]) {
             );
             continue;
         }
-        let Some(entry) = Entry::new(image, 0, 0, 0, 0, Kind::System) else {
+        let Some(entry) = Entry::new(image, 0, 0, 0, 0, Kind::System, true) else {
             continue; // parsed above: unreachable
         };
         match d.entries.iter().position(|e| e.is_none()) {

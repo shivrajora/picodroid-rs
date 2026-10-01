@@ -258,6 +258,7 @@ mod tests {
         }
         unsafe fn write_meta_header(&mut self, _len: u32, _flags: u32, _seq: u32) {}
         unsafe fn write_meta_commit(&mut self) {}
+        unsafe fn write_meta_verified(&mut self) {}
         unsafe fn commit_metadata(&mut self, _len: u32, _flags: u32, _seq: u32) {}
         unsafe fn copy_page(&mut self, _src: u32, _dst: u32, _page: u32) {}
         fn trigger_reset(&mut self) -> ! {

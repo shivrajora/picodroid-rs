@@ -24,6 +24,9 @@ impl PackageDirectory for CoreDirectory {
     fn rescan(&mut self, flash: &impl PapkFlash) {
         crate::packages::rescan_region(flash);
     }
+    fn mark_verified(&mut self, flash: &mut impl PapkFlash) {
+        crate::packages::mark_verified(flash);
+    }
     fn plan_install(
         &mut self,
         package: Option<&str>,

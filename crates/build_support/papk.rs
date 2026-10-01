@@ -531,6 +531,11 @@ pub fn embed_papk_flash_init(out: &Path, is_arm_embedded: bool) {
     let meta = flash_image::build_meta_pages(apk_len as u32, flash_image::FLAG_BOOT_DEFAULT, 0);
     let mut image = Vec::with_capacity(flash_image::META_SIZE + apk_len);
     image.extend_from_slice(&meta);
+    // The verified page too: `validate_structure` passed just above, which
+    // is the check the receipt stands for, so the device's first scan need
+    // not repeat it (nor write the page itself).
+    debug_assert_eq!(image.len(), flash_image::VERIFIED_OFFSET);
+    image.extend_from_slice(&flash_image::build_verified_page());
     image.resize(flash_image::META_SIZE, 0xFF);
     image.extend_from_slice(&apk_bytes);
 

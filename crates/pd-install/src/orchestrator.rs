@@ -126,6 +126,15 @@ pub unsafe trait PapkFlash {
     /// The JVM core must be parked. See the trait docs.
     unsafe fn commit_metadata(&mut self, len: u32, flags: u32, seq: u32);
 
+    /// Write the selected run's verified page: the receipt that its image
+    /// passed the deep structural check, which later package scans then
+    /// skip. Only for a committed run that has no receipt yet (no page is
+    /// ever programmed twice).
+    ///
+    /// # Safety
+    /// The JVM core must be parked. See the trait docs.
+    unsafe fn write_meta_verified(&mut self);
+
     /// Copy page `page` of `src_sector` to the same page of `dst_sector`
     /// (which must be erased), through RAM.
     ///
@@ -173,7 +182,8 @@ pub fn run_install(
 ///      erase its sectors
 ///   B. Stream PAPK bytes page-by-page, computing CRC incrementally
 ///   C. Verify CRC, commit the boot-meta pages, erase a superseded copy,
-///      rescan, report success
+///      rescan (which deep-checks the new run), write its verified page,
+///      report success
 ///
 /// On any error, the execution core is released and the error is reported
 /// via the transport.  The caller can then resume its command loop.
@@ -281,6 +291,9 @@ pub fn install(
         unsafe { flash.erase_run(first, sectors) };
     }
     directory.rescan(flash);
+    // The rescan just checked the new run in full; its receipt goes on
+    // flash now, so neither the next boot nor any later scan checks it again.
+    directory.mark_verified(flash);
     // Core 0 is still parked in its RAM spin loop.  Report success first so
     // the host sees completion; the caller then resets both cores.
     transport.report_success();
@@ -508,6 +521,7 @@ mod tests {
         fn rescan(&mut self, flash: &impl PapkFlash) {
             self.region_sectors = (flash.region_len() / META_SIZE) as u32;
         }
+        fn mark_verified(&mut self, _flash: &mut impl PapkFlash) {}
         fn plan_install(
             &mut self,
             _package: Option<&str>,
@@ -662,6 +676,7 @@ mod tests {
             self.log.push(Ev::Commit(len))
         }
         unsafe fn write_meta_commit(&mut self) {}
+        unsafe fn write_meta_verified(&mut self) {}
         unsafe fn commit_metadata(&mut self, len: u32, _flags: u32, _seq: u32) {
             self.log.push(Ev::Commit(len))
         }

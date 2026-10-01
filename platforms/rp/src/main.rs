@@ -137,6 +137,9 @@ fn main() -> ! {
     picodroid_core::packages::register_system(picodroid_core::board_cfg::system_apks::SYSTEM_APKS);
     picodroid_core::packages::rescan_region(&region);
     picodroid_core::packages::cleanup(&mut region);
+    // A run this scan had to deep-check (a fresh install, a relocated run)
+    // gets its receipt now, so the next boot's scan only reads its header.
+    picodroid_core::packages::mark_verified(&mut region);
     let boot_apk = picodroid_core::packages::boot_image();
     if boot_apk.is_none() {
         defmt::warn!("no app installed: waiting for pdb install");

@@ -517,6 +517,10 @@ unsafe impl PapkFlash for SimPapkFlash {
         app_region::with_region(|r| r.write_meta_commit());
     }
 
+    unsafe fn write_meta_verified(&mut self) {
+        app_region::with_region(|r| r.write_meta_verified());
+    }
+
     unsafe fn commit_metadata(&mut self, len: u32, flags: u32, seq: u32) {
         app_region::with_region(|r| r.commit_metadata(len, flags, seq));
     }

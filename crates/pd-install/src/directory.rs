@@ -59,6 +59,12 @@ pub trait PackageDirectory {
     /// Rebuild the directory from the region — after a commit or an erase.
     fn rescan(&mut self, flash: &impl PapkFlash);
 
+    /// Give every run the last rescan checked in full its verified page
+    /// (`papk_format::flash_image`), so no later scan repeats the check.
+    /// Called with the core still parked, right after the rescan that
+    /// follows a commit.
+    fn mark_verified(&mut self, flash: &mut impl PapkFlash);
+
     /// Decide where a PAPK of `papk_len` bytes for `package` goes.
     /// `max_apps` is the board's directory capacity.
     fn plan_install(

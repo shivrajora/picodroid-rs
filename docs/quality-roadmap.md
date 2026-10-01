@@ -386,6 +386,44 @@ resolving names from the papk. **Tradeoff:** protocol surface + a per-alloc bran
 `4 B × class_count` RAM on device; the sim histogram covers most hunts since the JVM is
 execution-identical (parity P1) — only sensor/HW-driven allocation patterns differ.
 
+## Interpreter speed
+
+### A type-check cache (`checkcast` / `instanceof`)
+
+**What.** Every `checkcast` and `instanceof` decodes the target class name from the constant
+pool, hashes it and the runtime class's name, and walks the hierarchy — superclasses, then
+interfaces transitively, with string scans of `BUILTIN_SUPER` / `BUILTIN_INTERFACES` at every
+level for the classes that have no class file (`helpers::is_instance_of`,
+`ops_control.rs` 0xc0 / 0xc1). Nothing is remembered: the same check at the same site on the
+same class repeats the walk. Exception-handler matching (`find_exception_handler`) goes through
+the same function.
+
+**Measured** (2026-09-30, `pico_touch_kit`, release + shrink, `packtime:` counters): 17–19 µs a
+check against ~1.5 µs for an average bytecode. `langsuite_kt_stdlib` runs 2,975 of them, 63 ms,
+about 11 % of its time; `qa_ui` runs 63. It is a Kotlin cost (generic casts, `is` in `when`),
+not a Java UI one.
+
+**Option A — cache the answer (recommended).** A fifth table in `ResolveCache`, keyed by
+(site, runtime class id) → yes/no, exactly as virtual call sites are keyed. A hit is a probe;
+a miss runs today's walk and stores the result, so semantics cannot change. Covers the
+classfile-less builtins, which are most of what Kotlin casts to. About 60 lines.
+**Tradeoff:** RAM — 8 B an entry, 256–512 B for 32–64 entries; the RP2040 has ~15 KB free and
+its `Sizes::SMALL` would want 16–32 entries. Heap class ids are stable for an app run and the
+cache is already cleared on a heap reset, so no new invalidation rule.
+
+**Option B — precompute at pack time.** A hash per `Class` constant-pool entry (the roadmap's
+N2, ~7 KB of framework flash) plus, per class, a sorted list of its ancestors' hashes closed
+within its section; a check is a binary search, and an app class chains once into its
+framework parent's list. No RAM. **Tradeoff:** a link-table layout bump and a section-level
+structure to validate; hash-only matching needs the collision guarantees of N3; and builtins
+have no class file, so `String` / `Integer` / `ArrayList` targets still go through the
+firmware's string tables unless those are rebuilt as hash-keyed const tables too.
+
+**Why deferred.** The benefit lands only on Kotlin-heavy code and A spends RAM. Do A when a
+Kotlin app's profile shows it; gate on `typechk_us` in the `packtime:` line and on
+`RttiDemo` / `TypeChecksKt` staying green. Background:
+[designs/class-link-2026-09.md](designs/class-link-2026-09.md), second round.
+
 ## Long-term stability
 
 ### No busy-waits, no polling — scheduling audit 2026-09-12

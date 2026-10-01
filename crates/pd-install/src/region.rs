@@ -18,7 +18,8 @@
 use core::marker::PhantomData;
 
 use papk_format::flash_image::{
-    build_commit_page, build_header_page, build_meta_pages, COMMIT_OFFSET, META_SIZE, PAGE_LEN,
+    build_commit_page, build_header_page, build_meta_pages, build_verified_page, COMMIT_OFFSET,
+    META_SIZE, PAGE_LEN, VERIFIED_OFFSET,
 };
 
 use super::PapkFlash;
@@ -160,6 +161,14 @@ unsafe impl<F: PapkRegionFlash> PapkFlash for PapkRegion<F> {
         );
     }
 
+    unsafe fn write_meta_verified(&mut self) {
+        let page = build_verified_page();
+        F::program_range(
+            Self::sector_offset(self.target) + VERIFIED_OFFSET as u32,
+            &page,
+        );
+    }
+
     unsafe fn commit_metadata(&mut self, len: u32, flags: u32, seq: u32) {
         let pages = build_meta_pages(len, flags, seq);
         F::program_range(Self::sector_offset(self.target), &pages);
@@ -296,6 +305,24 @@ mod tests {
             [Op::Program(
                 REGION + 3 * SECTOR as u32,
                 build_meta_pages(4321, 1, 7).to_vec()
+            )]
+        );
+    }
+
+    /// The receipt is its own page, after the two the install wrote.
+    #[test]
+    fn the_verified_page_is_one_program_at_its_own_offset() {
+        // SAFETY: the mock flash records the program; nothing is parked
+        // because nothing runs from it.
+        let ops = run(|r| unsafe {
+            r.select_run(3);
+            r.write_meta_verified()
+        });
+        assert_eq!(
+            ops,
+            [Op::Program(
+                REGION + 3 * SECTOR as u32 + VERIFIED_OFFSET as u32,
+                build_verified_page().to_vec()
             )]
         );
     }

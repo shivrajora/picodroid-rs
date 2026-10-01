@@ -145,6 +145,12 @@ page 0 @0:    [magic "PDB1"][flags u32][len u32][seq u32]
 page 1 @256:  [magic "PDBC"]
 ```
 
+(2026-09-30: a third, optional page at 512, `[magic "PDBV"]`, is the
+receipt that the image has passed `validate_structure`; a scan that finds it
+does not repeat the deep check. Written after the install's rescan, never as
+part of the commit. See "Installed apps are deep-checked once" in
+[class-link-2026-09.md](class-link-2026-09.md).)
+
 A run is an installed app only when both pages parse, the PAPK behind it
 passes `validate_structure`, and it carries `package-name`. No page is ever
 programmed twice: an install writes the image, then both pages; a

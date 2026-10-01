@@ -9,6 +9,7 @@
 //! ```text
 //! page 0 (offset 0):   [magic: u32 LE = "PDB1"][flags: u32 LE][len: u32 LE][seq: u32 LE]
 //! page 1 (offset 256): [magic: u32 LE = "PDBC"]
+//! page 2 (offset 512): [magic: u32 LE = "PDBV"]     (optional)
 //! ```
 //!
 //! The header page says what the run is; the commit page says the image
@@ -18,6 +19,17 @@
 //! copies the image, then the commit page. A power loss anywhere therefore
 //! leaves either a whole run or a commit-less one — which the next boot
 //! erases — and never a half-copied image that reads as installed.
+//!
+//! The third page is a receipt, not part of the install: it says the image
+//! behind a committed run has passed the deep structural check
+//! (`validate_structure` — every class's link table against its bytes), so
+//! a package scan need not repeat it. The device writes it after the first
+//! scan that checks the run; the build script writes it for the image it
+//! bakes, which it has just checked. It lives and dies with the sector: an
+//! erase takes it, and a relocation, which rewrites the header and copies
+//! the image, leaves the new run without one until a scan has checked the
+//! copy. A run with the receipt is trusted from then on — a flash fault
+//! after it was written is not caught by the scan.
 //!
 //! `flags` bit 0 ([`FLAG_BOOT_DEFAULT`]) marks the app a device boots into
 //! when nothing else is configured: the build script sets it on the app it
@@ -57,9 +69,22 @@ pub const COMMIT_OFFSET: usize = PAGE_LEN;
 /// Bytes of the commit page that carry information.
 pub const COMMIT_LEN: usize = 4;
 
+/// Magic at offset 0 of the verified page: `"PDBV"` as a little-endian `u32`.
+pub const VERIFIED_MAGIC: u32 = 0x5044_4256;
+
+/// Offset of the verified page within the sector.
+pub const VERIFIED_OFFSET: usize = 2 * PAGE_LEN;
+
+/// Bytes of the verified page that carry information.
+pub const VERIFIED_LEN: usize = 4;
+
 /// Bytes of the sector a reader needs to decide whether a run is installed:
 /// the header page and the commit magic behind it.
 pub const META_READ_LEN: usize = COMMIT_OFFSET + COMMIT_LEN;
+
+/// Bytes of the sector a reader needs to also tell whether the run has
+/// been verified: both pages above and the verified magic behind them.
+pub const VERIFIED_READ_LEN: usize = VERIFIED_OFFSET + VERIFIED_LEN;
 
 /// `flags` bit 0: boot into this app when no boot package is configured.
 pub const FLAG_BOOT_DEFAULT: u32 = 1 << 0;
@@ -93,6 +118,14 @@ pub fn build_header_page(len: u32, flags: u32, seq: u32) -> [u8; PAGE_LEN] {
 pub fn build_commit_page() -> [u8; PAGE_LEN] {
     let mut page = [0xFFu8; PAGE_LEN];
     page[0..4].copy_from_slice(&COMMIT_MAGIC.to_le_bytes());
+    page
+}
+
+/// Build the verified page: the receipt for a run whose image passed the
+/// deep structural check.
+pub fn build_verified_page() -> [u8; PAGE_LEN] {
+    let mut page = [0xFFu8; PAGE_LEN];
+    page[0..4].copy_from_slice(&VERIFIED_MAGIC.to_le_bytes());
     page
 }
 
@@ -137,6 +170,14 @@ pub fn parse_header(bytes: &[u8], max_len: usize) -> Option<BootMeta> {
 /// Whether the commit page carries its magic. Needs [`META_READ_LEN`] bytes.
 pub fn is_committed(bytes: &[u8]) -> bool {
     bytes.len() >= META_READ_LEN && word(bytes, COMMIT_OFFSET) == COMMIT_MAGIC
+}
+
+/// Whether the verified page carries its magic: the run's image has passed
+/// the deep structural check since it was written. Needs
+/// [`VERIFIED_READ_LEN`] bytes; means nothing for a run that is not
+/// committed.
+pub fn is_verified(bytes: &[u8]) -> bool {
+    bytes.len() >= VERIFIED_READ_LEN && word(bytes, VERIFIED_OFFSET) == VERIFIED_MAGIC
 }
 
 /// Parse an installed run's boot-meta, or `None` if the sector holds no
@@ -193,6 +234,26 @@ mod tests {
         assert_eq!(parse_meta(&sector, MAX), None);
         sector[COMMIT_OFFSET..].copy_from_slice(&build_commit_page()[..COMMIT_LEN]);
         assert_eq!(parse_meta(&sector, MAX).map(|m| m.seq), Some(3));
+    }
+
+    /// The receipt is its own page: a committed run has none until one is
+    /// written, and writing it touches neither of the other two pages.
+    #[test]
+    fn the_verified_page_is_separate_from_the_commit() {
+        let mut sector = [0xFFu8; VERIFIED_READ_LEN];
+        sector[..2 * PAGE_LEN].copy_from_slice(&build_meta_pages(64, 0, 3));
+        assert!(is_committed(&sector));
+        assert!(!is_verified(&sector));
+        sector[VERIFIED_OFFSET..].copy_from_slice(&build_verified_page()[..VERIFIED_LEN]);
+        assert!(is_verified(&sector));
+        assert_eq!(parse_meta(&sector, MAX).map(|m| m.seq), Some(3));
+        // The two-page read an older reader does still parses.
+        assert!(is_committed(&sector[..META_READ_LEN]));
+        assert!(!is_verified(&sector[..META_READ_LEN]));
+        let page = build_verified_page();
+        assert_eq!(&page[0..4], &VERIFIED_MAGIC.to_le_bytes());
+        assert!(page[VERIFIED_LEN..].iter().all(|&b| b == 0xFF));
+        assert_eq!(&VERIFIED_MAGIC.to_be_bytes(), b"PDBV");
     }
 
     /// A device that has never been installed to reads erased flash. That

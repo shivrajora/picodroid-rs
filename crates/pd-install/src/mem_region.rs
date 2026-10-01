@@ -9,7 +9,8 @@
 use alloc::vec::Vec;
 
 use papk_format::flash_image::{
-    build_commit_page, build_header_page, build_meta_pages, COMMIT_OFFSET, META_SIZE, PAGE_LEN,
+    build_commit_page, build_header_page, build_meta_pages, build_verified_page, COMMIT_OFFSET,
+    META_SIZE, PAGE_LEN, VERIFIED_OFFSET,
 };
 
 use super::transport::{InstallError, InstallTransport, ReadError};
@@ -158,6 +159,11 @@ unsafe impl PapkFlash for MemRegion {
     unsafe fn write_meta_commit(&mut self) {
         let page = build_commit_page();
         self.program(self.target, COMMIT_OFFSET, &page);
+    }
+
+    unsafe fn write_meta_verified(&mut self) {
+        let page = build_verified_page();
+        self.program(self.target, VERIFIED_OFFSET, &page);
     }
 
     unsafe fn commit_metadata(&mut self, len: u32, flags: u32, seq: u32) {

@@ -802,3 +802,134 @@ fn without_a_launcher_an_exit_waits_for_an_install() {
     set_running(Some("com.a"));
     assert_eq!(next_image(), None);
 }
+
+// ── The verified page: deep-checked once, trusted after ─────────────────────
+
+/// `image` with one word of its class's link table (the name hash) flipped:
+/// structurally a PAPK, in bounds everywhere, and refused by the deep check.
+fn with_a_bad_link_table(image: &[u8]) -> Vec<u8> {
+    // Baked into a scratch region so the section is read at an aligned
+    // address, as the reader requires.
+    let mut scratch = fresh(16, MAX);
+    bake(&mut scratch, 0, image, 0, 1);
+    let baked = &scratch.bytes()[SECTOR..SECTOR + image.len()];
+    let section = Papk::parse(baked).unwrap().class_section().unwrap();
+    let table = section.class(0).unwrap().link.as_ptr() as usize - baked.as_ptr() as usize;
+    let mut bad = image.to_vec();
+    bad[table + 2 * 16] ^= 0xFF;
+    assert!(papk_format::validate_structure(baked).is_ok());
+    bad
+}
+
+/// Write the receipt of the run at `sector` by hand, as a scan that had
+/// checked it would.
+fn give_receipt(r: &mut MemRegion, sector: u32) {
+    // SAFETY: a `MemRegion` is a buffer; nothing executes from it.
+    unsafe {
+        r.select_run(sector);
+        r.write_meta_verified();
+    }
+}
+
+fn verified_page_programs(r: &MemRegion) -> usize {
+    use crate::install::mem_region::Op;
+    use papk_format::flash_image::VERIFIED_OFFSET;
+    r.ops
+        .iter()
+        .filter(|op| matches!(op, Op::Program(_, off, _) if *off == VERIFIED_OFFSET))
+        .count()
+}
+
+#[test]
+fn a_run_is_deep_checked_once_then_carries_its_receipt() {
+    let _g = test_support::lock();
+    let mut r = fresh(16, MAX);
+    // A committed run with no receipt (what an install cut short before
+    // its last write leaves): the scan checks it in full, the boot path
+    // marks it.
+    bake(&mut r, 0, &papk("com.a", 100), FLAG_BOOT_DEFAULT, 0);
+    assert!(!find("com.a").unwrap().verified);
+    assert_eq!(mark_verified(&mut r), 1);
+    assert!(find("com.a").unwrap().verified);
+    // An install ends with the rescan that checks the new run and the
+    // write of its receipt.
+    do_install(&mut r, &papk_of_sectors("com.b", 2)).unwrap();
+    assert!(apps().all(|e| e.verified));
+    assert_eq!(verified_page_programs(&r), 2);
+    // The receipt is on flash: a rescan reads it back, and nothing is
+    // marked — or programmed — a second time.
+    rescan_region(&r);
+    assert_eq!(installed_count(), 2);
+    assert!(apps().all(|e| e.verified));
+    assert_eq!(mark_verified(&mut r), 0);
+    assert_eq!(verified_page_programs(&r), 2);
+    // System apps are part of the firmware and never marked.
+    register_system(&[system("picodroid.settings")]);
+    assert_eq!(mark_verified(&mut r), 0);
+}
+
+#[test]
+fn an_upgrade_is_checked_again_and_an_uninstall_takes_the_receipt() {
+    let _g = test_support::lock();
+    let mut r = fresh(16, MAX);
+    do_install(&mut r, &papk_of_sectors("com.a", 2)).unwrap();
+    assert_eq!(verified_page_programs(&r), 1);
+    // The upgrade is a new run with a new image: checked and marked anew.
+    do_install(&mut r, &papk_of_sectors("com.a", 3)).unwrap();
+    assert!(find("com.a").unwrap().verified);
+    assert_eq!(verified_page_programs(&r), 2);
+    assert_eq!(mark_verified(&mut r), 0);
+    // Erasing the run erases its meta sector, receipt included: whatever
+    // is installed there next starts unverified.
+    let first = find("com.a").unwrap().first_sector as u32;
+    do_uninstall(&mut r, "com.a");
+    bake(&mut r, first, &papk("com.z", 10), 0, next_seq());
+    assert!(!find("com.z").unwrap().verified);
+}
+
+#[test]
+fn a_bad_link_table_is_refused_until_a_receipt_vouches_for_it() {
+    let _g = test_support::lock();
+    let bad = with_a_bad_link_table(&papk("com.bad", 100));
+    // No receipt: the scan checks it in full and does not list it, so
+    // nothing is ever marked.
+    let mut r = fresh(16, MAX);
+    bake(&mut r, 0, &bad, 0, 1);
+    assert!(find("com.bad").is_none());
+    assert_eq!(mark_verified(&mut r), 0);
+    // With a receipt the scan takes the class section on trust: this is
+    // what the page means, and why only a scan that checked the run (or
+    // the build script that baked it) may write one.
+    give_receipt(&mut r, 0);
+    rescan_region(&r);
+    assert!(find("com.bad").is_some_and(|e| e.verified));
+    // The bounds are still read: a receipt does not vouch for a header
+    // that is not a PAPK's.
+    let mut r = fresh(16, MAX);
+    let mut garbage = papk("com.g", 100);
+    garbage[0] = b'X';
+    bake(&mut r, 0, &garbage, 0, 1);
+    give_receipt(&mut r, 0);
+    rescan_region(&r);
+    assert_eq!(installed_count(), 0);
+}
+
+#[cfg(has_multi_app)]
+#[test]
+fn a_relocated_run_loses_its_receipt() {
+    let _g = test_support::lock();
+    let mut r = fresh(16, MAX);
+    do_install(&mut r, &papk_of_sectors("com.a", 3)).unwrap();
+    do_install(&mut r, &papk_of_sectors("com.b", 3)).unwrap();
+    assert!(apps().all(|e| e.verified));
+    do_uninstall(&mut r, "com.a");
+    let before = find("com.b").unwrap().first_sector;
+    compact(&mut r);
+    let b = find("com.b").unwrap();
+    assert!(b.first_sector < before, "com.b slid down");
+    // The copy has not been checked: the next scan does, and marks it.
+    assert!(!b.verified);
+    assert_eq!(mark_verified(&mut r), 1);
+    rescan_region(&r);
+    assert!(find("com.b").unwrap().verified);
+}

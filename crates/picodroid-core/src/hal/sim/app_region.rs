@@ -141,6 +141,7 @@ pub fn init() {
                 region.restore(&bytes);
                 let _ = std::fs::remove_file(&snapshot);
                 packages::rescan_region(&region);
+                packages::mark_verified(&mut region);
                 println!("[sim] apps: warm boot from {snapshot}");
                 unsafe { REGION = Some(region) };
                 print_list();
@@ -174,6 +175,9 @@ pub fn init() {
             }
         }
     }
+    // As a device's boot does after its scan: what was just checked in
+    // full gets its receipt.
+    packages::mark_verified(&mut region);
     unsafe { REGION = Some(region) };
     print_list();
 }

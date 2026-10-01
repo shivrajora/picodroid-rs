@@ -467,21 +467,9 @@ which more than cancels the system-app saving for a large string-heavy app.
 
 ### Left for a decision
 
-- **Installed apps are deep-checked on every boot**, ~0.28 ms per KB: 48 ms
-  for one 175 KB app, and it grows with everything installed (the touch
-  kit's app region is 9.9 MB). Checking once when an install commits and
-  recording that in the run's boot-meta flags would make the boot scan a
-  header read per run. It changes what the device trusts after a flash
-  fault, which is why it is not done here; the app-store roadmap's S3
-  (section CRCs and a signature) is the natural place for it.
-- **Type checks.** `checkcast` / `instanceof` decode the target name, hash
-  it and the runtime class's name, and walk the hierarchy through string
-  tables, every time, uncached. Two ways to fix it: a small table in the
-  resolution cache keyed by (site, runtime class id) → yes/no (about 60
-  lines, answers builtin classes too, costs 256–512 B of RAM), or
-  class-entry hashes plus per-class ancestor lists from the packer (no RAM,
-  ~7 KB of framework flash, and the classfile-less builtins still need
-  their tables). The first matches how virtual calls are already handled.
+- **Type checks** — recorded in the backlog,
+  [quality-roadmap.md](../quality-roadmap.md) ("A type-check cache"), with
+  the measurement and both designs.
 - **`invokedynamic`**: a per-site record (target, capture count, parameter
   kinds) and one cached proxy for a non-capturing lambda. 0.6 % today.
 - **Resource strings** (`getString`) still copy to the heap on every call;
@@ -491,3 +479,42 @@ which more than cancels the system-app saving for a large string-heavy app.
   has no `putstatic` in `<clinit>`; javac and kotlinc inline such constants
   at every use, so no `getstatic` of one has been seen, but a class from
   another compiler that reads one would see the type's default.
+
+### Installed apps are deep-checked once (2026-09-30)
+
+The boot scan was the device's integrity gate and ran the deep check on
+every installed app at every boot — ~0.28 ms per KB, 48 ms for one 175 KB
+app, growing with everything installed. Decided: check once, keep a receipt.
+
+The boot-meta sector gains a third page, the **verified page** (`"PDBV"` at
+offset 512; `papk_format::flash_image`). A scan that finds it reads only the
+run's bounds (`validate_embedded`); a scan that does not runs
+`validate_structure` as before and lists the run as unverified.
+`packages::mark_verified` then writes the page for every unverified run that
+passed. It is called where the check has just happened with the JVM parked:
+by the installer right after the rescan that ends an install
+(`PackageDirectory::mark_verified`), and by the boot path after `cleanup`.
+The build script writes the page for the image it bakes, which it has just
+validated. No page is programmed twice; an erase of the run takes the
+receipt with it; a relocation copies the image sectors only, so the moved
+run is checked again by the next scan and marked again.
+
+What this trades away: a flash fault in an image *after* its receipt was
+written is no longer caught by the scan. The class tables are read on trust,
+as the framework's always were. Section CRCs or a signature (app-store
+roadmap S3) are where that protection would come back, at a far lower cost
+per byte than the deep check.
+
+`pico_touch_kit`, same build as above, 175 KB Kotlin app baked, then a 60 KB
+and a 1 KB app installed over pdb:
+
+| scan | before | after |
+|---|---|---|
+| boot, one 175 KB app | 48.2 ms | 1.7 ms |
+| boot, 175 KB + 60 KB apps | ≈ 62 ms (not measured; 48.2 + 14.2) | 1.7 ms |
+| the rescan that ends an install of the 60 KB app | checks every app | 14.2 ms: the new run only, then its receipt |
+| the rescan that ends an install of a 1 KB app | checks every app | 2.4 ms |
+| after an uninstall | checks every app | 1.8 ms |
+
+The 1.7 ms that remains is the header walk of the 9.9 MB region's 2,496
+sectors.
