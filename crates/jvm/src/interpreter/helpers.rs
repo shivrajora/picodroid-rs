@@ -211,7 +211,16 @@ pub(super) fn resolve_ldc(
     class_objects: &mut ClassObjectCache,
     cp_idx: u16,
 ) -> Result<Value, JvmError> {
-    if let Some(utf8) = cf.cp_string_utf8(cp_idx) {
+    if let Some(lit) = cf.cp_string_literal(cp_idx) {
+        #[cfg(feature = "parity-metrics")]
+        crate::parity::count_ldc_string();
+        // A constant of a packed set is a row of its section's literal
+        // pool: the reference is the pool's base plus the row.
+        if let Some(r) = strings.literal_ref(cf.data(), lit) {
+            return Ok(Value::Reference(r));
+        }
+        // A class linked on its own (tests, `link-at-load`) has no pool.
+        let utf8 = cf.cp_string_utf8(cp_idx).ok_or(JvmError::InvalidBytecode)?;
         let ref_idx = strings.intern(utf8).ok_or(JvmError::StackOverflow)?;
         return Ok(Value::Reference(ref_idx));
     }
@@ -332,9 +341,7 @@ pub(super) fn find_method_in(
 /// this board's framework excludes).
 #[inline]
 pub(super) fn super_index(classes: Classes<'_>, ci: usize) -> Option<usize> {
-    let cf = &classes[ci];
-    let sup = cf.super_class_name()?;
-    find_class_hashed(classes, cf.super_hash(), sup)
+    classes.super_of(ci)
 }
 
 /// Number of parameters in `descriptor` — one per value, whatever its

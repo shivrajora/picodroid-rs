@@ -545,8 +545,12 @@ pub fn collect(
                 }
             }
             GcRef::String(idx) => {
-                // Strings don't reference other objects; just mark.
-                mark_bit(str_marks, idx);
+                // Strings don't reference other objects; just mark. A pool
+                // literal is flash: nothing to mark, and its reference is
+                // far past the table the bitmap covers.
+                if !strings.is_literal(idx) {
+                    mark_bit(str_marks, idx);
+                }
             }
         }
     }
@@ -640,7 +644,7 @@ pub fn collect(
                 Value::Reference(i) => (
                     "str",
                     i,
-                    (i as usize) >= dyn_start && !strings.is_dyn_live(i),
+                    (i as usize) >= dyn_start && !strings.is_literal(i) && !strings.is_dyn_live(i),
                 ),
                 _ => return,
             };

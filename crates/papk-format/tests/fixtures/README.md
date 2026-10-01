@@ -1,7 +1,9 @@
 # Golden PAPK fixtures
 
-These `.papk` files were produced by `papk-pack` (format **v2**, 2026-09-28:
-the linked-class layout of docs/designs/class-link-2026-09.md) and are the
+These `.papk` files were produced by `papk-pack` (format **v2**, link-table
+layout 2 of 2026-09-29: the linked-class layout of
+docs/designs/class-link-2026-09.md plus the section's string-literal pool)
+and are the
 byte-for-byte ground truth for `papk-format`'s parser and writer: the
 parser must extract the known contents, and `PapkBuilder` must reproduce
 each file exactly (`tests/golden.rs`, `papk-pack`'s `pack_integration`).
@@ -64,7 +66,7 @@ $WORK/fixture-classes/fixture/Main.class
 $WORK/fixture-assets/gradient.png
 ```
 
-`minimal.papk` (564 bytes — MANI + CLSS, no ASSETS section):
+`minimal.papk` (576 bytes — MANI + CLSS, no ASSETS section):
 
 ```bash
 cargo run -p papk-pack --target x86_64-unknown-linux-gnu -- \
@@ -76,7 +78,7 @@ cargo run -p papk-pack --target x86_64-unknown-linux-gnu -- \
   --output crates/papk-format/tests/fixtures/minimal.papk
 ```
 
-`with-assets.papk` (740 bytes — MANI + CLSS + ASST, one 8x8 RGB565 asset):
+`with-assets.papk` (752 bytes — MANI + CLSS + ASST, one 8x8 RGB565 asset):
 
 ```bash
 cargo run -p papk-pack --target x86_64-unknown-linux-gnu -- \
@@ -99,7 +101,8 @@ Both files: header `PAPK`, version 2.0, `manifest_offset` 28; manifest keys
 in order: `main-class=fixture/Main`, `package-name=fixture`, `version=1.0`,
 `framework-map-version=0.0.0`; one class `fixture/Main` whose data is exactly
 `Main.class`, followed by its link table (two methods, `<init>` and `main`)
-and a one-entry class index.
+a one-entry class index and an empty literal pool (the class has no
+`String` constants).
 
 `minimal.papk`: `section_count` 2, `assets_offset` 0.
 `with-assets.papk`: `section_count` 3, one asset `gradient.png`

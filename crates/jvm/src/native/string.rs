@@ -416,6 +416,10 @@ pub(crate) fn dispatch(
         },
         m::hashCode => {
             if let Some(Value::Reference(idx)) = ctx.args.first() {
+                // A literal's hash is in its pool row.
+                if let Some(h) = ctx.strings.literal_hash(*idx) {
+                    return Some(Ok(Some(Value::Int(h))));
+                }
                 let s = ctx.strings.resolve(*idx).unwrap_or("");
                 let mut h: i32 = 0;
                 for &b in s.as_bytes() {

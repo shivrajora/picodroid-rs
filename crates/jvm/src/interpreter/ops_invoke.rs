@@ -4,7 +4,9 @@ use super::{helpers, Executor, MAX_FRAME_DEPTH, MAX_UPCALL_DEPTH};
 use crate::class_file::find_class;
 use crate::class_file::Classes;
 use crate::names::{c, d, m};
-use crate::resolve_cache::{flags, special, MethodHit, NameRef, SiteKey, Target, RECV_STRING};
+use crate::resolve_cache::{
+    flags, special, ClassHit, MethodHit, NameRef, SiteKey, Target, RECV_STRING,
+};
 use crate::{
     frame::Frame,
     native::{BuiltinHandler, NativeContext, NativeMethodHandler},
@@ -1110,16 +1112,25 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
     pub(super) fn op_new(&mut self, code: &[u8], frame: &mut Frame) -> Result<(), JvmError> {
         let cp_idx = u16::from_be_bytes([code[frame.pc], code[frame.pc + 1]]);
         frame.pc += 2;
-        let cf = &self.classes[frame.class_idx];
-        let class_name_bytes = cf.cp_class_name(cp_idx).ok_or(JvmError::InvalidBytecode)?;
         let site = SiteKey::cp(frame.class_idx, cp_idx);
         // A site the table knows — and knows initialised — needs neither
-        // the initialised probe nor the two class-table walks below.
-        let static_name = match self.class_objects.resolve.class(site) {
+        // the class name, nor the initialised probe, nor the two
+        // class-table walks below: a loaded class is allocated from its
+        // index, a builtin from its canonical name.
+        let allocated = match self.class_objects.resolve.class(site) {
+            Some(ClassHit {
+                ci: Some(ci),
+                init: true,
+                ..
+            }) => self.objects.alloc_instance(ci, self.classes),
             Some(hit) if hit.init => {
-                helpers::name_of(self.classes, self.handler.native_class_names(), hit.name)
+                let name =
+                    helpers::name_of(self.classes, self.handler.native_class_names(), hit.name);
+                self.objects.alloc_with_defaults(name, self.classes)
             }
             _ => {
+                let cf = &self.classes[frame.class_idx];
+                let class_name_bytes = cf.cp_class_name(cp_idx).ok_or(JvmError::InvalidBytecode)?;
                 #[cfg(feature = "parity-metrics")]
                 let t0 = self.handler.clock_nanos();
                 let pending = self.ensure_class_initialized(class_name_bytes)?;
@@ -1148,10 +1159,10 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 self.class_objects
                     .resolve
                     .insert_class(site, name_ref, true);
-                static_name
+                self.objects.alloc_with_defaults(static_name, self.classes)
             }
         };
-        match self.objects.alloc_with_defaults(static_name, self.classes) {
+        match allocated {
             Some(obj_idx) => frame.push(Value::ObjectRef(obj_idx))?,
             None => {
                 // Heap exhausted: rewind so the main loop collects and

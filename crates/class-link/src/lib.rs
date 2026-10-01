@@ -19,7 +19,8 @@
 //!
 //! - [`Link`]: one class's table, `u16` words (see [`layout`] for the map).
 //! - [`ClassSection`]: a set of classes, each with its table, plus a
-//!   [`IndexEntry`] array sorted by name hash — the payload of a PAPK
+//!   [`IndexEntry`] array sorted by name hash and the set's string
+//!   constants deduplicated into a [`Literal`] pool — the payload of a PAPK
 //!   `CLSS` section and, byte for byte, the framework corpus embedded in
 //!   firmware. One reader serves both.
 //! - [`build`] (feature `build`, needs `alloc`): the builder. It and
@@ -63,9 +64,10 @@ mod tests;
 
 pub use descriptor::count_args;
 pub use error::LinkError;
-pub use hash::{name_hash, sig_hash};
+pub use hash::{name_hash, sig_hash, string_hash};
 pub use layout::{
-    FieldInfo, IfaceInfo, Link, Linked, MethodInfo, MethodrefDesc, HEADER_WORDS, LINK_MAGIC,
-    MREF_INTERFACE,
+    field_kind, kind_slots, FieldInfo, IfaceInfo, Link, Linked, MethodInfo, MethodrefDesc,
+    StringDesc, HEADER_WORDS, KIND_DOUBLE, KIND_FLOAT, KIND_INT, KIND_LONG, KIND_REF, LINK_MAGIC,
+    LIT_NONE, MREF_INTERFACE, SUPER_NONE,
 };
-pub use section::{ClassSection, IndexEntry};
+pub use section::{ClassSection, IndexEntry, Literal, Literals, LIT_UTF8, MAX_LITERALS};

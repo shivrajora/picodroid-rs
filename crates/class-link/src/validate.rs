@@ -34,6 +34,14 @@ impl Sink for CheckSink<'_> {
             None => Err(LinkError::BadOffset { word: word as u16 }),
         }
     }
+
+    fn put_external(&mut self, word: usize, _placeholder: u16) -> Result<(), LinkError> {
+        if word >= self.words.len() {
+            return Err(LinkError::BadOffset { word: word as u16 });
+        }
+        self.puts += 1;
+        Ok(())
+    }
 }
 
 impl Link<'_> {
@@ -42,7 +50,9 @@ impl Link<'_> {
     /// an independent walk of the pool, then every other word against the
     /// same derivation the builder ran. No allocation; O(class bytes +
     /// table words). Run once per class when a set is built, embedded or
-    /// installed — the runtime then trusts the table.
+    /// installed — the runtime then trusts the table. The String
+    /// descriptors' literal ids are the section's to check
+    /// ([`crate::ClassSection::validate`]).
     pub fn validate(&self, class: &[u8]) -> Result<(), LinkError> {
         if self.class_len() != class.len() {
             return Err(LinkError::WordMismatch { word: 2 });

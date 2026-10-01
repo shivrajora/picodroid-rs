@@ -37,6 +37,20 @@ pub const fn sig_hash(name: &[u8], descriptor: &[u8]) -> u32 {
     fnv1a_continue(fnv1a_continue(FNV_OFFSET, name), descriptor)
 }
 
+/// `String.hashCode()` as this runtime computes it: `h = 31·h + b` over
+/// the constant's bytes (its strings are byte-backed). What a literal
+/// pool row stores, so `hashCode()` on a literal is a read.
+#[inline]
+pub const fn string_hash(bytes: &[u8]) -> u32 {
+    let mut h: u32 = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        h = h.wrapping_mul(31).wrapping_add(bytes[i] as u32);
+        i += 1;
+    }
+    h
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

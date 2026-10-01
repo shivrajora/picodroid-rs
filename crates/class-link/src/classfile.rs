@@ -8,7 +8,10 @@
 use crate::descriptor::count_args;
 use crate::error::LinkError;
 use crate::hash::{name_hash, sig_hash};
-use crate::layout::{HEADER_WORDS, LINK_MAGIC, MREF_INTERFACE};
+use crate::layout::{
+    field_kind, kind_slots, HEADER_WORDS, LINK_MAGIC, LIT_NONE, MAX_OWN_SLOTS, MREF_INTERFACE,
+    SUPER_NONE,
+};
 
 /// Every offset a table stores is a `u16`; a class file past this is
 /// refused at link time rather than truncated.
@@ -239,10 +242,12 @@ pub struct Counts {
     pub statics: usize,
     pub methods: usize,
     pub mrefs: usize,
+    pub strs: usize,
 }
 
 /// First pass: sizes only. `cp_count` and `pos_after_cp` come from
-/// [`walk_cp`]; `cp` supplies the tags (to count the `Methodref`s).
+/// [`walk_cp`]; `cp` supplies the tags (to count the `Methodref`s and the
+/// `String`s).
 pub fn survey(
     class: &[u8],
     cp: &impl CpView,
@@ -251,6 +256,9 @@ pub fn survey(
 ) -> Result<Counts, LinkError> {
     let mrefs = (0..cp_count)
         .filter(|&i| cp.tag(i).is_some_and(is_methodref))
+        .count();
+    let strs = (0..cp_count)
+        .filter(|&i| cp.tag(i) == Some(TAG_STRING))
         .count();
     let mut c = Cursor::at(class, pos_after_cp);
     c.skip(6)?; // access_flags, this_class, super_class
@@ -281,6 +289,7 @@ pub fn survey(
         statics,
         methods,
         mrefs,
+        strs,
     })
 }
 
@@ -300,17 +309,19 @@ pub struct Layout {
     pub ifaces_off: usize,
     pub methods_off: usize,
     pub mrefs_off: usize,
+    pub strs_off: usize,
     pub total_words: usize,
 }
 
 impl Layout {
     pub fn new(n: &Counts) -> Result<Layout, LinkError> {
         let fields_off = HEADER_WORDS + n.cp_count + tag_words(n.cp_count);
-        let statics_off = fields_off + 2 * n.fields;
-        let ifaces_off = statics_off + 2 * n.statics;
+        let statics_off = fields_off + 3 * n.fields;
+        let ifaces_off = statics_off + 3 * n.statics;
         let methods_off = ifaces_off + 3 * n.ifaces;
         let mrefs_off = methods_off + 6 * n.methods;
-        let end = mrefs_off + 2 * n.mrefs;
+        let strs_off = mrefs_off + 2 * n.mrefs;
+        let end = strs_off + 2 * n.strs;
         let total_words = end + (end & 1);
         let fits = |v: usize| v <= u16::MAX as usize;
         if !(fits(total_words)
@@ -318,7 +329,8 @@ impl Layout {
             && fits(n.statics)
             && fits(n.ifaces)
             && fits(n.methods)
-            && fits(n.mrefs))
+            && fits(n.mrefs)
+            && fits(n.strs))
         {
             return Err(LinkError::ClassTooLarge);
         }
@@ -328,6 +340,7 @@ impl Layout {
             ifaces_off,
             methods_off,
             mrefs_off,
+            strs_off,
             total_words,
         })
     }
@@ -337,6 +350,12 @@ impl Layout {
 /// or the validator's comparison against an existing table.
 pub trait Sink {
     fn put(&mut self, word: usize, value: u16) -> Result<(), LinkError>;
+    /// A word the class bytes do not determine — a [`crate::StringDesc`]'s
+    /// literal id or the header's `super_idx`, which name something in the
+    /// section. The builder writes
+    /// `placeholder`; the validator only counts the word (the section's
+    /// validation checks its value).
+    fn put_external(&mut self, word: usize, placeholder: u16) -> Result<(), LinkError>;
 }
 
 /// Derive the link table of `class` word by word into `out`. Every word of
@@ -358,15 +377,21 @@ pub fn derive(
         out.put(word + 1, (v >> 16) as u16)
     };
 
-    // Constant pool: each entry's data offset — for a Methodref, the word
-    // offset of its descriptor instead — and the tags, packed two a word.
+    // Constant pool: each entry's data offset — for a Methodref or a
+    // String, the word offset of its descriptor instead — and the tags,
+    // packed two a word.
     let mut k = 0usize;
+    let mut ks = 0usize;
     let mut lo_tag = 0u8;
     for i in 0..cp_count {
         let tag = cp.tag(i).ok_or(LinkError::Internal)?;
         let word = if is_methodref(tag) {
             let w = l.mrefs_off + 2 * k;
             k += 1;
+            w
+        } else if tag == TAG_STRING {
+            let w = l.strs_off + 2 * ks;
+            ks += 1;
             w
         } else {
             cp.offset(i).ok_or(LinkError::Internal)?
@@ -419,6 +444,24 @@ pub fn derive(
         return Err(LinkError::Internal);
     }
 
+    // String descriptors, in constant-pool order: the entry's offset, and
+    // the literal id the section fills in. The entry must name a Utf8.
+    ks = 0;
+    for i in 0..cp_count {
+        if cp.tag(i) != Some(TAG_STRING) {
+            continue;
+        }
+        let off = cp.offset(i).ok_or(LinkError::Internal)?;
+        let ui = be16(class, off).ok_or(LinkError::Truncated)? as usize;
+        utf8(class, cp, ui).ok_or(LinkError::BadString { cp: i as u16 })?;
+        out.put(l.strs_off + 2 * ks, off as u16)?;
+        out.put_external(l.strs_off + 2 * ks + 1, LIT_NONE)?;
+        ks += 1;
+    }
+    if ks != n.strs {
+        return Err(LinkError::Internal);
+    }
+
     // Every name the runtime decodes without re-checking must be UTF-8: the
     // targets of Class entries and both halves of every NameAndType.
     for i in 0..cp_count {
@@ -466,9 +509,12 @@ pub fn derive(
         put32(out, base + 1, h)?;
     }
 
-    // Fields, split into the instance and static regions.
+    // Fields, split into the instance and static regions. An instance
+    // field's slot is counted from this class's own first slot; a static's
+    // is its position among the statics.
     let field_count = c.u16()? as usize;
     let (mut fi, mut si) = (0usize, 0usize);
+    let mut own_slots = 0usize;
     for j in 0..field_count {
         let access = c.u16()?;
         let name = c.u16()?;
@@ -476,16 +522,24 @@ pub fn derive(
         skip_attributes(&mut c)?;
         let bad = LinkError::BadMember { index: j as u16 };
         check_utf8(utf8(class, cp, name as usize).ok_or(bad)?, name as usize)?;
-        check_utf8(utf8(class, cp, desc as usize).ok_or(bad)?, desc as usize)?;
-        let base = if access & ACC_STATIC == 0 {
+        let desc_b = utf8(class, cp, desc as usize).ok_or(bad)?;
+        check_utf8(desc_b, desc as usize)?;
+        let kind = field_kind(desc_b);
+        let (base, slot) = if access & ACC_STATIC == 0 {
             fi += 1;
-            l.fields_off + 2 * (fi - 1)
+            let slot = own_slots;
+            own_slots += kind_slots(kind);
+            (l.fields_off + 3 * (fi - 1), slot)
         } else {
             si += 1;
-            l.statics_off + 2 * (si - 1)
+            (l.statics_off + 3 * (si - 1), si - 1)
         };
+        if slot > MAX_OWN_SLOTS || own_slots > MAX_OWN_SLOTS {
+            return Err(LinkError::ClassTooLarge);
+        }
         out.put(base, name)?;
         out.put(base + 1, desc)?;
+        out.put(base + 2, slot as u16 | (kind as u16) << 12)?;
     }
     if fi != n.fields || si != n.statics {
         return Err(LinkError::Internal);
@@ -595,9 +649,13 @@ pub fn derive(
     out.put(15, source_file_idx)?;
     put32(out, 16, name_h)?;
     put32(out, 18, super_h)?;
+    out.put(20, n.strs as u16)?;
+    out.put(21, own_slots as u16)?;
+    out.put_external(22, SUPER_NONE)?;
+    out.put(23, 0)?;
 
     // The pad word that makes the table a whole number of 4-byte units.
-    let end = l.mrefs_off + 2 * n.mrefs;
+    let end = l.strs_off + 2 * n.strs;
     if end < l.total_words {
         out.put(end, 0)?;
     }

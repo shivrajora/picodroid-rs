@@ -6,8 +6,8 @@
 //! is into the class bytes; every word offset is into the table itself.
 //!
 //! ```text
-//! header, 20 words:
-//!  w0  LINK_MAGIC (0x4B01: 'K', layout version 1)
+//! header, 24 words:
+//!  w0  LINK_MAGIC (0x4B02: 'K', layout version 2)
 //!  w1  total_words       the whole table, header included (even)
 //!  w2  class_len         == the class bytes' length
 //!  w3  cp_count          constant_pool_count
@@ -24,30 +24,93 @@
 //!  w15 source_file_idx   CP index of the SourceFile Utf8, 0 = none
 //!  w16-17 name_hash      u32, low word first
 //!  w18-19 super_hash     u32, 0 when super_off == 0
+//!  w20 strs_len          String entries
+//!  w21 own_slots         slots this class's own instance fields take (a
+//!                        long or double takes two)
+//!  w22 super_idx         the superclass's position in the section's
+//!                        directory, SUPER_NONE when it is not in the section
+//!  w23 0                 reserved
 //! regions, in this order:
 //!  cp_words[cp_count]        entry i's data offset (after its tag byte); for
-//!                            a Methodref, the WORD offset of its descriptor
+//!                            a Methodref or a String, the WORD offset of
+//!                            its descriptor
 //!  tags[(cp_count+1)/2]      the tags, two a word, entry i at byte i
-//!  fields[fields_len]        FieldInfo, 2 words
-//!  statics[statics_len]      FieldInfo, 2 words
+//!  fields[fields_len]        FieldInfo, 3 words
+//!  statics[statics_len]      FieldInfo, 3 words
 //!  ifaces[ifaces_len]        IfaceInfo, 3 words
 //!  methods[methods_len]      MethodInfo, 6 words
 //!  mrefs[mrefs_len]          MethodrefDesc, 2 words
+//!  strs[strs_len]            StringDesc, 2 words
 //!  [pad word]                to an even total
 //! ```
+//!
+//! Two kinds of word are not derived from the class bytes alone, because
+//! they name something in the *section* ([`crate::section`]): a
+//! [`StringDesc`]'s literal id (a row of the section's literal pool) and
+//! `super_idx` (where the superclass sits in the section). The section
+//! builder fills them in and the section's validation checks them; a table
+//! linked on its own carries [`LIT_NONE`] and [`SUPER_NONE`].
 //!
 //! What is *not* here is read from the class bytes at a fixed distance from
 //! something that is: a method's `max_stack`, `max_locals` and
 //! `code_length` sit 8, 6 and 4 bytes before its `code_offset`; its name and
 //! descriptor indices 2 and 4 bytes after its `info_offset`.
 
-use crate::classfile::{be16, be32, is_methodref, utf8_at, TAG_CLASS, TAG_UTF8};
+use crate::classfile::{be16, be32, is_methodref, utf8_at, TAG_CLASS, TAG_STRING, TAG_UTF8};
 use crate::error::LinkError;
 
-/// `'K'` in the low byte, layout version 1 in the high byte.
-pub const LINK_MAGIC: u16 = 0x4B01;
+/// `'K'` in the low byte, layout version 2 in the high byte.
+pub const LINK_MAGIC: u16 = 0x4B02;
 /// Header length, in words.
-pub const HEADER_WORDS: usize = 20;
+pub const HEADER_WORDS: usize = 24;
+
+/// A [`StringDesc`] literal id meaning "not in a pool": the table was
+/// linked outside a section.
+pub const LIT_NONE: u16 = u16::MAX;
+/// A `super_idx` meaning "not in this section": the class has no
+/// superclass, its superclass is in another set or has no class file, or
+/// the table was linked outside a section.
+pub const SUPER_NONE: u16 = u16::MAX;
+
+/// What a field holds, as far as its default value and its width go
+/// ([`FieldInfo::kind`]).
+pub const KIND_REF: u8 = 0;
+/// `boolean`, `byte`, `char`, `short`, `int`.
+pub const KIND_INT: u8 = 1;
+pub const KIND_FLOAT: u8 = 2;
+/// Two slots.
+pub const KIND_LONG: u8 = 3;
+/// Two slots.
+pub const KIND_DOUBLE: u8 = 4;
+
+/// The kind of a field with descriptor `desc`.
+#[inline]
+pub const fn field_kind(desc: &[u8]) -> u8 {
+    if desc.is_empty() {
+        return KIND_REF;
+    }
+    match desc[0] {
+        b'I' | b'S' | b'B' | b'C' | b'Z' => KIND_INT,
+        b'F' => KIND_FLOAT,
+        b'J' => KIND_LONG,
+        b'D' => KIND_DOUBLE,
+        _ => KIND_REF,
+    }
+}
+
+/// Slots a field of `kind` takes.
+#[inline]
+pub const fn kind_slots(kind: u8) -> usize {
+    if kind == KIND_LONG || kind == KIND_DOUBLE {
+        2
+    } else {
+        1
+    }
+}
+
+/// Bound on the slots one class's own instance fields may take: a
+/// [`FieldInfo`] keeps its slot in 12 bits.
+pub const MAX_OWN_SLOTS: usize = 0x0FFF;
 
 /// [`MethodrefDesc`] flag: the entry is an `InterfaceMethodref`.
 pub const MREF_INTERFACE: u8 = 1 << 0;
@@ -71,7 +134,13 @@ mod hdr {
     pub const SOURCE_FILE_IDX: usize = 15;
     pub const NAME_HASH: usize = 16;
     pub const SUPER_HASH: usize = 18;
+    pub const STRS_LEN: usize = 20;
+    pub const OWN_SLOTS: usize = 21;
+    pub const SUPER_IDX: usize = 22;
 }
+
+/// Word index of `super_idx`, for the section builder that fills it in.
+pub const SUPER_IDX_WORD: usize = hdr::SUPER_IDX;
 
 /// A record stored inline in the table.
 ///
@@ -89,6 +158,25 @@ pub unsafe trait WordRecord: Copy {
 pub struct FieldInfo {
     pub name_index: u16,
     pub descriptor_index: u16,
+    /// Low 12 bits: for an instance field, its first slot among this
+    /// class's own instance fields; for a static, its position among the
+    /// class's statics. High 4 bits: its kind.
+    slot_kind: u16,
+}
+
+impl FieldInfo {
+    /// First slot of the field, counted from the class's own first slot
+    /// (instance field) or the field's position among the statics.
+    #[inline]
+    pub fn slot(&self) -> usize {
+        (self.slot_kind & 0x0FFF) as usize
+    }
+
+    /// `KIND_*`: what the field's default is and whether it takes two slots.
+    #[inline]
+    pub fn kind(&self) -> u8 {
+        (self.slot_kind >> 12) as u8
+    }
 }
 
 /// A directly implemented interface.
@@ -171,8 +259,18 @@ impl MethodrefDesc {
     }
 }
 
+/// A `String` constant: where its entry lies and which literal of the
+/// section's pool it is. Two words in the table.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StringDesc {
+    /// Byte offset of the `String` entry's data in the class bytes.
+    pub cp_off: u16,
+    /// Row of the section's literal pool, or [`LIT_NONE`].
+    pub lit: u16,
+}
+
 unsafe impl WordRecord for FieldInfo {
-    const WORDS: usize = 2;
+    const WORDS: usize = 3;
 }
 unsafe impl WordRecord for IfaceInfo {
     const WORDS: usize = 3;
@@ -184,7 +282,7 @@ unsafe impl WordRecord for MethodrefDesc {
     const WORDS: usize = 2;
 }
 
-const _: () = assert!(core::mem::size_of::<FieldInfo>() == 4);
+const _: () = assert!(core::mem::size_of::<FieldInfo>() == 6);
 const _: () = assert!(core::mem::size_of::<IfaceInfo>() == 6);
 const _: () = assert!(core::mem::size_of::<MethodInfo>() == 12);
 const _: () = assert!(core::mem::size_of::<MethodrefDesc>() == 4);
@@ -222,10 +320,10 @@ impl<'a> Link<'a> {
         // accessor takes is in bounds by construction.
         let l = Link { words };
         let cp_end = HEADER_WORDS + l.cp_count() + crate::classfile::tag_words(l.cp_count());
-        let members_end = cp_end + 2 * l.fields_len() + 2 * l.statics_len() + 3 * l.ifaces_len();
+        let members_end = cp_end + 3 * l.fields_len() + 3 * l.statics_len() + 3 * l.ifaces_len();
         if members_end != l.methods_off()
             || l.methods_off() + 6 * l.methods_len() != l.mrefs_off()
-            || l.mrefs_off() + 2 * l.mrefs_len() > words.len()
+            || l.strs_off() + 2 * l.strs_len() > words.len()
         {
             return Err(LinkError::BadHeader);
         }
@@ -313,6 +411,27 @@ impl<'a> Link<'a> {
         self.words[hdr::MREFS_LEN] as usize
     }
     #[inline]
+    pub fn strs_len(&self) -> usize {
+        self.words[hdr::STRS_LEN] as usize
+    }
+    /// Slots this class's own instance fields take.
+    #[inline]
+    pub fn own_slots(&self) -> usize {
+        self.words[hdr::OWN_SLOTS] as usize
+    }
+    /// The superclass's position in the section's directory; `None` when
+    /// it is not in the section (see [`SUPER_NONE`]).
+    #[inline]
+    pub fn super_idx(&self) -> Option<usize> {
+        let w = self.words[hdr::SUPER_IDX];
+        (w != SUPER_NONE).then_some(w as usize)
+    }
+    /// Word offset of the String descriptors: right after the Methodrefs'.
+    #[inline]
+    pub fn strs_off(&self) -> usize {
+        self.mrefs_off() + 2 * self.mrefs_len()
+    }
+    #[inline]
     pub fn methods_off(&self) -> usize {
         self.words[hdr::METHODS_OFF] as usize
     }
@@ -361,11 +480,11 @@ impl<'a> Link<'a> {
     }
     #[inline]
     fn statics_off(&self) -> usize {
-        self.fields_off() + 2 * self.fields_len()
+        self.fields_off() + 3 * self.fields_len()
     }
     #[inline]
     fn ifaces_off(&self) -> usize {
-        self.statics_off() + 2 * self.statics_len()
+        self.statics_off() + 3 * self.statics_len()
     }
 
     /// Tag of constant-pool entry `i`; `None` past the pool. 0 for index 0
@@ -393,16 +512,52 @@ impl<'a> Link<'a> {
     }
 
     /// Byte offset of entry `i`'s data in the class bytes (0 for a tag-0
-    /// slot). A `Methodref`'s is read through its descriptor.
+    /// slot). A `Methodref`'s and a `String`'s are read through their
+    /// descriptors.
     #[inline]
     pub fn cp_offset(&self, i: usize) -> Option<usize> {
         let tag = self.cp_tag(i)?;
         let w = self.words[HEADER_WORDS + i];
         if is_methodref(tag) {
             Some(self.desc_at_word(w as usize)?.cp_off as usize)
+        } else if tag == TAG_STRING {
+            Some(self.string_at_word(w as usize)?.cp_off as usize)
         } else {
             Some(w as usize)
         }
+    }
+
+    #[inline]
+    fn string_at_word(&self, w: usize) -> Option<StringDesc> {
+        let base = self.strs_off();
+        if w < base || !(w - base).is_multiple_of(2) || (w - base) / 2 >= self.strs_len() {
+            return None;
+        }
+        Some(StringDesc {
+            cp_off: self.words[w],
+            lit: self.words[w + 1],
+        })
+    }
+
+    /// The descriptor of `String` entry `i`; `None` for any other entry.
+    #[inline]
+    pub fn string_desc(&self, i: usize) -> Option<StringDesc> {
+        if self.cp_tag(i)? != TAG_STRING {
+            return None;
+        }
+        self.string_at_word(self.words[HEADER_WORDS + i] as usize)
+    }
+
+    /// The String descriptors, in constant-pool order.
+    #[inline]
+    pub fn strings(&self) -> impl Iterator<Item = StringDesc> + 'a {
+        let off = self.strs_off();
+        self.words[off..off + 2 * self.strs_len()]
+            .chunks_exact(2)
+            .map(|w| StringDesc {
+                cp_off: w[0],
+                lit: w[1],
+            })
     }
 
     #[inline]
@@ -426,13 +581,13 @@ impl<'a> Link<'a> {
     #[inline]
     pub fn fields(&self) -> &'a [FieldInfo] {
         let off = self.fields_off();
-        words_as(&self.words[off..off + 2 * self.fields_len()])
+        words_as(&self.words[off..off + 3 * self.fields_len()])
     }
 
     #[inline]
     pub fn static_fields(&self) -> &'a [FieldInfo] {
         let off = self.statics_off();
-        words_as(&self.words[off..off + 2 * self.statics_len()])
+        words_as(&self.words[off..off + 3 * self.statics_len()])
     }
 
     #[inline]
@@ -558,11 +713,14 @@ impl<'a> Linked<'a> {
     /// The `Utf8` a `String` entry `i` refers to.
     #[inline]
     pub fn cp_string_utf8(&self, i: usize) -> Option<&'a [u8]> {
-        if self.link.cp_tag(i)? != crate::classfile::TAG_STRING {
-            return None;
-        }
-        let ui = be16(self.class, self.link.cp_offset(i)?)? as usize;
+        let ui = be16(self.class, self.link.string_desc(i)?.cp_off as usize)? as usize;
         self.utf8(ui)
+    }
+
+    /// The bytes of String descriptor `d`'s constant.
+    #[inline]
+    pub fn string_bytes(&self, d: StringDesc) -> Option<&'a [u8]> {
+        self.utf8(be16(self.class, d.cp_off as usize)? as usize)
     }
 
     /// Constant-pool index of method `m`'s name.

@@ -9,7 +9,10 @@
 //! directory by walking the region sector by sector: a sector whose header
 //! parses starts a run and the walk skips past it, anything else steps one
 //! sector. That is at most `region / 4 KB` header reads (384 on rp2350),
-//! sub-millisecond from XIP, plus one manifest parse per run.
+//! sub-millisecond from XIP, plus one manifest parse and one deep check of
+//! the class section per run (`papk_format::validate_structure`, ~0.3 ms
+//! per KB of PAPK on the RP2350: the scan is the device's integrity gate
+//! for an installed app).
 //!
 //! An entry keeps the manifest's package name, version, label and icon as
 //! slices into the image — read once when the entry is made, never copied —
@@ -233,6 +236,8 @@ pub fn rescan_region(flash: &impl PapkFlash) {
 /// entries keep slices into it), and no erase or program of the region may
 /// be in flight.
 pub unsafe fn rescan(base: *const u8, len: usize) {
+    #[cfg(feature = "parity-metrics")]
+    let t0 = crate::hal::system_clock::elapsed_realtime_nanos();
     let d = dir();
     d.region = Some((base, len));
     for e in d.entries.iter_mut() {
@@ -291,6 +296,12 @@ pub unsafe fn rescan(base: *const u8, len: usize) {
         insert(d, entry);
         s += span;
     }
+    // What the scan cost, deep link-table validation included.
+    #[cfg(feature = "parity-metrics")]
+    crate::pd_info!(
+        "[packages] region scan: {} us",
+        ((crate::hal::system_clock::elapsed_realtime_nanos() - t0) / 1_000) as u32
+    );
     log_directory(d);
     bump_directory_generation();
 }
@@ -412,8 +423,25 @@ pub fn cleanup(flash: &mut impl PapkFlash) {
 pub fn register_system(images: &[&'static [u8]]) {
     let d = dir();
     for &image in images {
+        #[cfg(feature = "parity-metrics")]
+        let t0 = crate::hal::system_clock::elapsed_realtime_nanos();
+        // A system app on a device is part of the firmware image, and the
+        // build script refused to embed one that fails the deep check
+        // (`build_support::papk::embed_system_apks`), so only its bounds
+        // are read here. The simulator takes its system apps from files
+        // at run time and checks them in full.
+        #[cfg(not(any(test, feature = "sim")))]
+        let valid = papk_format::validate_embedded(image).is_ok();
+        #[cfg(any(test, feature = "sim"))]
+        let valid = papk_format::validate_structure(image).is_ok();
+        #[cfg(feature = "parity-metrics")]
+        crate::pd_info!(
+            "[packages] system app validate: {} B, {} us",
+            image.len() as u32,
+            ((crate::hal::system_clock::elapsed_realtime_nanos() - t0) / 1_000) as u32
+        );
         let papk = match Papk::parse(image) {
-            Ok(p) if papk_format::validate_structure(image).is_ok() => p,
+            Ok(p) if valid => p,
             _ => {
                 crate::pd_warn!("[packages] system app skipped: not a valid PAPK");
                 continue;

@@ -11,7 +11,16 @@
 //!              link table (class_len and total_words are in its header), pad to 4
 //! index:     class_count × IndexEntry { u32 hash, u16 idx, u16 0 }, at index_off
 //!            (8-aligned), sorted by (hash, idx); no two entries share a hash
+//! literals:  [u32 lit_count], then lit_count × Literal { u32 hash, u32 off,
+//!            u16 len, u16 flags }, right after the index
 //! ```
+//!
+//! The literal pool is the set's `String` constants, each distinct byte
+//! string once, in order of first appearance. A row points at the bytes
+//! where they already are — inside the constant pool of the first class
+//! that spells them — and every class's [`crate::StringDesc`] names its
+//! row. An `ldc` of a string is then a row number, the same for every
+//! class of the set, with no table in RAM and nothing to search.
 //!
 //! The section itself must sit at a 4-byte aligned address: every table and
 //! the index are then aligned for in-place reads. A PAPK's sections are
@@ -19,7 +28,7 @@
 //! static is declared aligned.
 
 use crate::error::LinkError;
-use crate::hash::name_hash;
+use crate::hash::{name_hash, string_hash};
 use crate::layout::{Link, Linked};
 
 /// `class_count` and `index_off`.
@@ -30,6 +39,82 @@ pub const INDEX_ENTRY_LEN: usize = 8;
 /// Bound on the classes one section indexes; [`ClassSection::validate`]
 /// keeps a bitmap this big on the stack.
 pub const MAX_CLASSES: usize = 4096;
+
+/// Bound on the literals one section numbers: what leaves room for two
+/// pools and the runtime's own strings in a `u16` of string references.
+pub const MAX_LITERALS: usize = 0x3000;
+pub const LITERAL_LEN: usize = 12;
+/// [`Literal::flags`]: the bytes are valid UTF-8 (a constant with an
+/// embedded NUL or a supplementary character is modified UTF-8 and is not).
+pub const LIT_UTF8: u16 = 1 << 0;
+
+/// One row of the literal pool: `{ u32 hash, u32 off, u16 len, u16 flags }`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Literal {
+    /// [`crate::string_hash`] of the bytes: the string's `hashCode()`.
+    pub hash: u32,
+    /// Offset of the bytes from the section's first byte.
+    pub off: u32,
+    pub len: u16,
+    pub flags: u16,
+}
+
+/// A section's literal pool, read in place.
+#[derive(Clone, Copy, Debug)]
+pub struct Literals<'a> {
+    data: &'a [u8],
+    /// Offset of the first row in `data`.
+    rows_off: usize,
+    count: usize,
+}
+
+impl<'a> Literals<'a> {
+    /// No literals: what a class set outside a section has.
+    pub const EMPTY: Literals<'static> = Literals {
+        data: &[],
+        rows_off: 0,
+        count: 0,
+    };
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.count
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+
+    #[inline]
+    pub fn row(&self, i: usize) -> Option<Literal> {
+        if i >= self.count {
+            return None;
+        }
+        let at = self.rows_off + LITERAL_LEN * i;
+        Some(Literal {
+            hash: le32(self.data, at)?,
+            off: le32(self.data, at + 4)?,
+            len: le16(self.data, at + 8)?,
+            flags: le16(self.data, at + 10)?,
+        })
+    }
+
+    /// The bytes of literal `i`.
+    #[inline]
+    pub fn bytes(&self, i: usize) -> Option<&'a [u8]> {
+        let r = self.row(i)?;
+        let off = r.off as usize;
+        self.data.get(off..off + r.len as usize)
+    }
+
+    /// The section these literals belong to, as bytes: a class of the set
+    /// lies inside them.
+    #[inline]
+    pub fn section_bytes(&self) -> &'a [u8] {
+        self.data
+    }
+}
 
 /// One row of the class index.
 #[repr(C)]
@@ -63,6 +148,7 @@ pub struct ClassSection<'a> {
     data: &'a [u8],
     count: usize,
     index_off: usize,
+    lit_count: usize,
 }
 
 impl<'a> ClassSection<'a> {
@@ -87,10 +173,18 @@ impl<'a> ClassSection<'a> {
         if !index_off.is_multiple_of(4) {
             return Err(LinkError::Misaligned);
         }
+        let lit_count = le32(data, index_end).ok_or(LinkError::BadSection)? as usize;
+        if lit_count > MAX_LITERALS {
+            return Err(LinkError::TooManyLiterals);
+        }
+        if index_end + 4 + LITERAL_LEN * lit_count > data.len() {
+            return Err(LinkError::BadSection);
+        }
         Ok(Self {
             data,
             count,
             index_off,
+            lit_count,
         })
     }
 
@@ -160,6 +254,16 @@ impl<'a> ClassSection<'a> {
         unsafe { core::slice::from_raw_parts(bytes.as_ptr().cast::<IndexEntry>(), self.count) }
     }
 
+    /// The literal pool.
+    #[inline]
+    pub fn literals(&self) -> Literals<'a> {
+        Literals {
+            data: self.data,
+            rows_off: self.index_off + INDEX_ENTRY_LEN * self.count + 4,
+            count: self.lit_count,
+        }
+    }
+
     /// The index entries whose hash is `hash` — at most one in a section
     /// that validates, found by binary search.
     pub fn find(&self, hash: u32) -> &'a [IndexEntry] {
@@ -182,13 +286,48 @@ impl<'a> ClassSection<'a> {
     /// Deep check: every class's table validates against its bytes
     /// ([`Link::validate`]), and the index is sorted, names every class
     /// exactly once with its own hash, and has no two entries with one
-    /// hash. What the packer, the firmware build and an install run.
+    /// hash; every literal row's hash and flags are its bytes', and every
+    /// class's String descriptors name the row that holds their bytes, and
+    /// its `super_idx` the class its superclass name spells.
+    /// What the packer, the firmware build and an install run.
     pub fn validate(&self) -> Result<(), LinkError> {
+        let lits = self.literals();
+        for i in 0..lits.len() {
+            let bytes = lits.bytes(i).ok_or(LinkError::BadLiteral)?;
+            let row = lits.row(i).ok_or(LinkError::BadLiteral)?;
+            let flags = if core::str::from_utf8(bytes).is_ok() {
+                LIT_UTF8
+            } else {
+                0
+            };
+            if row.hash != string_hash(bytes) || row.flags != flags {
+                return Err(LinkError::BadLiteral);
+            }
+        }
         for i in 0..self.count {
             let linked = self.class_checked(i)?;
             linked.link.validate(linked.class)?;
             if linked.name().is_none() {
                 return Err(LinkError::BadOffset { word: 13 });
+            }
+            for d in linked.link.strings() {
+                let bytes = linked.string_bytes(d).ok_or(LinkError::BadLiteral)?;
+                if lits.bytes(d.lit as usize) != Some(bytes) {
+                    return Err(LinkError::BadLiteral);
+                }
+            }
+            // `super_idx` is where the section holds the superclass, and
+            // nothing else: the class of that name if there is one.
+            // Searched by the hash the table already carries (the table
+            // validated above, so the hash is the name's).
+            let expected = linked.super_name().and_then(|n| {
+                self.find(linked.link.super_hash()).iter().find_map(|e| {
+                    let idx = e.idx as usize;
+                    (self.class(idx)?.name()? == n).then_some(idx)
+                })
+            });
+            if linked.link.super_idx() != expected {
+                return Err(LinkError::BadSuperIndex { idx: i as u16 });
             }
         }
         let index = self.index();

@@ -146,6 +146,14 @@ impl ClassFile {
         Some(self.scanned_name())
     }
 
+    /// The literal-pool row of `String` entry `index`
+    /// (`class_link::LIT_NONE` for a class linked outside a section);
+    /// `None` when the entry is not a `String`.
+    #[inline]
+    pub fn cp_string_literal(&self, index: u16) -> Option<u16> {
+        Some(self.view().link.string_desc(index as usize)?.lit)
+    }
+
     /// Resolves a CONSTANT_String CP entry to its Utf8 bytes.
     pub fn cp_string_utf8(&self, index: u16) -> Option<&'static [u8]> {
         self.view().cp_string_utf8(index as usize)

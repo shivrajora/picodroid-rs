@@ -81,6 +81,35 @@ impl<'a> Classes<'a> {
     }
 }
 
+impl Classes<'_> {
+    /// The class `ci`'s superclass, `None` for a class with no superclass
+    /// in the set (Object, a builtin parent, or a parent this board's
+    /// framework excludes).
+    ///
+    /// A class of a packed section carries its superclass's position in
+    /// that section (`Link::super_idx`), so a walk up the chain is an index
+    /// read per level. Only the step out of a section — an app class whose
+    /// parent is a framework class — is a lookup, by the hash the class's
+    /// table stores; a framework class has nowhere else to look.
+    #[inline]
+    pub fn super_of(&self, ci: usize) -> Option<usize> {
+        let cf = self.files.get(ci)?;
+        let ix = self.index;
+        let link = cf.link();
+        if ci < ix.tail_from {
+            let base = if ci < ix.app_base { 0 } else { ix.app_base };
+            if let Some(local) = link.super_idx() {
+                return Some(base + local);
+            }
+            if base == 0 {
+                return None;
+            }
+        }
+        let sup = cf.super_class_name()?;
+        find_class_hashed(*self, link.super_hash(), sup)
+    }
+}
+
 impl Deref for Classes<'_> {
     type Target = [ClassFile];
 

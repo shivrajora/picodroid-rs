@@ -241,6 +241,8 @@ pub fn run_app(apk_data: &[u8]) {
     host::heap_checkpoint("post-jvm-new");
 
     // Platform (framework) classes first, then app classes from the APK.
+    #[cfg(feature = "parity-metrics")]
+    let load_t0 = crate::hal::system_clock::elapsed_realtime_nanos();
     jvm.load_framework(framework_section()).unwrap();
     host::heap_checkpoint("post-framework-load");
     // The PAPK sits in flash (the simulator's leaked copy of it) for the
@@ -261,6 +263,12 @@ pub fn run_app(apk_data: &[u8]) {
         }
     };
     jvm.load_app(app_section).unwrap();
+    // The sections' string constants take the top of the string-reference
+    // range: an `ldc` is then a row number, with nothing interned.
+    let (fw_literals, app_literals) = jvm.literal_pools();
+    heap.strings.set_literal_pools(fw_literals, app_literals);
+    #[cfg(feature = "parity-metrics")]
+    let load_t1 = crate::hal::system_clock::elapsed_realtime_nanos();
     host::heap_checkpoint("post-app-load");
 
     // Publish the loaded set for child executors; `jvm` is the main task's
@@ -312,6 +320,12 @@ pub fn run_app(apk_data: &[u8]) {
     // `LayoutInflater` and `ImageView.setImageResource`. Absent without a
     // `res/` tree.
     crate::resources::init_from_papk(&apk);
+    #[cfg(feature = "parity-metrics")]
+    crate::pd_info!(
+        "launch: classes={} us assets+res={} us",
+        ((load_t1 - load_t0) / 1_000) as u32,
+        ((crate::hal::system_clock::elapsed_realtime_nanos() - load_t1) / 1_000) as u32
+    );
 
     #[cfg(feature = "sim")]
     let start = std::time::Instant::now();
@@ -360,6 +374,7 @@ pub fn run_app(apk_data: &[u8]) {
         let insns = pico_jvm::parity::insns();
         let allocs = pico_jvm::parity::allocs();
         let (bands, fbytes) = crate::graphics::lvgl::lifecycle::flush_stats::snapshot();
+        crate::lifecycle::log_packtime();
         #[cfg(not(feature = "sim"))]
         defmt::info!(
             "parity: insns={=usize} allocs={=usize} gcs={=u32} bands={=usize} fbytes={=usize}",

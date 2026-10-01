@@ -26,22 +26,64 @@ fn framework_classes() -> Vec<ClassFile> {
 
 /// Every table re-derives from its class bytes, and re-linking the bytes on
 /// the host gives the table word for word: the embedded section is what
-/// the builder produces, not a stale or hand-edited blob.
+/// the builder produces, not a stale or hand-edited blob. The words a
+/// class alone does not determine name something in the section — a String
+/// descriptor's literal id, and where the superclass sits — and `validate`
+/// checks each against the section.
 #[test]
 fn framework_tables_relink_word_for_word() {
     let section = framework_section();
     section
         .validate()
         .expect("framework class section validates");
+    let literals = section.literals();
     for cf in framework_classes() {
-        let rebuilt = class_link::build::link_class(cf.data()).expect("relink");
+        let mut rebuilt = class_link::build::link_class(cf.data()).expect("relink");
+        let link = cf.link();
+        for (k, d) in link.strings().enumerate() {
+            let word = link.strs_off() + 2 * k + 1;
+            assert_eq!(rebuilt[word], class_link::LIT_NONE);
+            assert!((d.lit as usize) < literals.len());
+            rebuilt[word] = d.lit;
+        }
+        assert_eq!(
+            rebuilt[class_link::layout::SUPER_IDX_WORD],
+            class_link::SUPER_NONE
+        );
+        if let Some(sup) = link.super_idx() {
+            assert_eq!(
+                section.class(sup).and_then(|s| s.name()),
+                cf.super_class_name()
+            );
+            rebuilt[class_link::layout::SUPER_IDX_WORD] = sup as u16;
+        }
         assert_eq!(
             rebuilt.as_slice(),
-            cf.link().words(),
+            link.words(),
             "{}: embedded table differs from a fresh link",
             String::from_utf8_lossy(cf.class_name().unwrap())
         );
     }
+}
+
+/// The framework's string constants are pooled once each: fewer rows than
+/// `String` entries, and few enough to leave the app's pool and the
+/// runtime's own strings the rest of a `u16` of references.
+#[test]
+fn framework_string_constants_are_pooled() {
+    let literals = framework_section().literals();
+    let entries: usize = framework_classes()
+        .iter()
+        .map(|cf| cf.link().strs_len())
+        .sum();
+    assert!(!literals.is_empty());
+    assert!(literals.len() < entries, "{} rows", literals.len());
+    assert!(literals.len() < class_link::MAX_LITERALS / 4);
+    eprintln!(
+        "framework literals: {} rows for {} String entries",
+        literals.len(),
+        entries
+    );
 }
 
 /// Registration costs the class table and nothing else, on both targets:

@@ -421,8 +421,9 @@ fn section_accessors_return_header_and_data() {
     let (ch, cdata) = p.classes_section().unwrap();
     assert_eq!(ch.tag, TAG_CLASSES);
     assert_eq!(ch.length as usize, cdata.len());
-    // An empty class section: no classes, the index right after its header.
-    assert_eq!(cdata, [0, 0, 0, 0, 8, 0, 0, 0]);
+    // An empty class section: no classes, the index right after its
+    // header, no literals.
+    assert_eq!(cdata, [0, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0]);
 
     let (ah, adata) = p.assets_section().unwrap().expect("ASST present");
     assert_eq!(ah.tag, TAG_ASSETS);

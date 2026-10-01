@@ -25,6 +25,8 @@ pub enum LinkError {
     /// A `Methodref` whose class is not a `Class` or whose name-and-type is
     /// not a `NameAndType`.
     BadMethodref { cp: u16 },
+    /// A `String` entry that does not name a `Utf8`.
+    BadString { cp: u16 },
     /// A method descriptor that does not parse, or has over 255 parameters.
     BadDescriptor { cp: u16 },
     /// A `BootstrapMethods` attribute whose entries overrun its length.
@@ -57,6 +59,15 @@ pub enum LinkError {
     HashCollision { a: u16, b: u16 },
     /// More classes than a section can index.
     TooManyClasses,
+    /// The literal pool does not fit its bytes, a row's bytes, hash or
+    /// flags are not what its string derives to, or a class names a row
+    /// that holds another string.
+    BadLiteral,
+    /// A class whose `super_idx` is not where the section holds its
+    /// superclass (or names one when the section holds none).
+    BadSuperIndex { idx: u16 },
+    /// More distinct string constants than a pool can number.
+    TooManyLiterals,
     /// The builder's one allocation was refused.
     OutOfMemory,
     /// A builder invariant failed: a bug, not an input problem.
@@ -77,6 +88,7 @@ impl LinkError {
             Self::BadInterface { .. } => "bad interface entry",
             Self::BadMember { .. } => "field or method name/descriptor is not Utf8",
             Self::BadMethodref { .. } => "malformed Methodref",
+            Self::BadString { .. } => "String constant does not name a Utf8",
             Self::BadDescriptor { .. } => "malformed method descriptor",
             Self::BadBootstrapMethods => "malformed BootstrapMethods attribute",
             Self::BadUtf8 { .. } => "name is not valid UTF-8",
@@ -90,6 +102,9 @@ impl LinkError {
             Self::DuplicateClass { .. } => "two classes spell the same name",
             Self::HashCollision { .. } => "two class names hash alike",
             Self::TooManyClasses => "too many classes for one section",
+            Self::BadLiteral => "string literal pool inconsistent",
+            Self::BadSuperIndex { .. } => "superclass index does not name the superclass",
+            Self::TooManyLiterals => "too many distinct string constants for one section",
             Self::OutOfMemory => "out of memory",
             Self::Internal => "internal linker error",
         }
@@ -103,11 +118,16 @@ impl core::fmt::Display for LinkError {
             Self::UnknownTag { cp, tag } => write!(f, " (cp #{cp}, tag {tag})"),
             Self::BadInterface { index } => write!(f, " (interface {index})"),
             Self::BadMember { index } => write!(f, " (member {index})"),
-            Self::BadMethodref { cp } | Self::BadDescriptor { cp } | Self::BadUtf8 { cp } => {
+            Self::BadMethodref { cp }
+            | Self::BadString { cp }
+            | Self::BadDescriptor { cp }
+            | Self::BadUtf8 { cp } => {
                 write!(f, " (cp #{cp})")
             }
             Self::WordMismatch { word } | Self::BadOffset { word } => write!(f, " (word {word})"),
-            Self::NameMismatch { idx } => write!(f, " (class {idx})"),
+            Self::NameMismatch { idx } | Self::BadSuperIndex { idx } => {
+                write!(f, " (class {idx})")
+            }
             Self::DuplicateClass { a, b } | Self::HashCollision { a, b } => {
                 write!(f, " (classes {a} and {b})")
             }

@@ -150,7 +150,11 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 frame.pc += 2;
                 let b = frame.pop()?;
                 let a = frame.pop()?;
-                let eq = a == b;
+                // Two references to one string constant are one object,
+                // whichever class set's pool each came from.
+                let eq = a == b
+                    || matches!((a, b), (Value::Reference(x), Value::Reference(y))
+                        if self.strings.same_literal(x, y));
                 let branch = if opcode == 0xa5 { eq } else { !eq };
                 if branch {
                     frame.pc = helpers::branch_target(frame.pc, offset);

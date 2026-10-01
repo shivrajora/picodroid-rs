@@ -782,3 +782,13 @@ every span, not only the slow ones (`PICODROID_EXTRA_FEATURES=parity-metrics ./s
 compiles the columns in, as it does for `flash.sh`). The counters live in `pico_jvm::parity`; the timing
 columns cost two clock reads per opcode, so the build is for attribution, never for a gate.
 Worked example: `docs/designs/claudeusage-gaps-roadmap-2026-09.md` D4.
+
+Each span report is followed by a `packtime:` line of running totals (not deltas — subtract
+two lines for a span; also printed at exit beside the `parity:` line, which keeps its shape
+for `parity-bench.sh`): `ldc` executions, how many produced a `String`, and their time;
+`invokedynamic`, `checkcast` + `instanceof` and `new` counts and times; and the
+flash-resident strings `StringTable::intern` had to copy to the heap. In the same build the
+boot log times each system app's validation and the package-region scan
+(`[packages] … us`), and `launch:` times class registration and the asset + resource
+registries. These are the numbers behind the second round of
+`docs/designs/class-link-2026-09.md`.

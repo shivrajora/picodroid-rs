@@ -2,14 +2,16 @@
 //! The builder (feature `build`): link tables, class indices and whole
 //! class sections, for the packer and the firmware build.
 
+use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
-use crate::classfile::{derive, survey, walk_cp, CpView, Layout, Sink};
+use crate::classfile::{be16, derive, survey, utf8_at, walk_cp, CpView, Layout, Sink};
 use crate::error::LinkError;
-use crate::hash::name_hash;
-use crate::layout::{Link, Linked};
+use crate::hash::{name_hash, string_hash};
+use crate::layout::{Link, SUPER_IDX_WORD};
 use crate::section::{
-    ClassSection, IndexEntry, DIRECTORY_ENTRY_LEN, INDEX_ENTRY_LEN, MAX_CLASSES, SECTION_HEADER_LEN,
+    ClassSection, IndexEntry, DIRECTORY_ENTRY_LEN, INDEX_ENTRY_LEN, LIT_UTF8, MAX_CLASSES,
+    MAX_LITERALS, SECTION_HEADER_LEN,
 };
 
 /// The constant pool as walked from the class bytes.
@@ -36,6 +38,10 @@ impl Sink for VecSink<'_> {
     fn put(&mut self, word: usize, value: u16) -> Result<(), LinkError> {
         *self.0.get_mut(word).ok_or(LinkError::Internal)? = value;
         Ok(())
+    }
+
+    fn put_external(&mut self, word: usize, placeholder: u16) -> Result<(), LinkError> {
+        self.put(word, placeholder)
     }
 }
 
@@ -158,17 +164,77 @@ fn build_section_impl(classes: &[&[u8]], expected: Option<&[&[u8]]>) -> Result<V
     }
     let mut names: Vec<&[u8]> = Vec::with_capacity(n);
     for (i, (class, words)) in classes.iter().zip(&links).enumerate() {
-        let linked = Linked {
-            class,
-            link: Link::new(words)?,
-        };
-        let name = linked.name().ok_or(LinkError::Internal)?;
+        // Read through the class bytes, so the names borrow the classes
+        // and not the tables, which are patched below.
+        let name = utf8_at(class, Link::new(words)?.name_off()).ok_or(LinkError::Internal)?;
         if expected.is_some_and(|e| e.get(i).copied() != Some(name)) {
             return Err(LinkError::NameMismatch { idx: i as u16 });
         }
         names.push(name);
     }
     let index = class_index(&names)?;
+
+    // Where the section holds each class's superclass, if it does.
+    for i in 0..n {
+        let super_off = Link::new(&links[i])?.super_off();
+        let sup = (super_off != 0)
+            .then(|| utf8_at(classes[i], super_off))
+            .flatten()
+            .and_then(|s| names.iter().position(|n| *n == s));
+        if let Some(j) = sup {
+            links[i][SUPER_IDX_WORD] = j as u16;
+        }
+    }
+
+    // The literal pool: every String constant of the set, each distinct
+    // byte string once, in order of first appearance. A row remembers the
+    // class that first spelled it and where, so its bytes stay where they
+    // are; each class's String descriptors get their row's number.
+    struct Row<'c> {
+        bytes: &'c [u8],
+        class: usize,
+        /// Offset of the bytes in that class.
+        at: usize,
+    }
+    let mut rows: Vec<Row<'_>> = Vec::new();
+    let mut seen: BTreeMap<&[u8], u16> = BTreeMap::new();
+    for (i, class) in classes.iter().enumerate() {
+        let class: &[u8] = class;
+        let link = Link::new(&links[i])?;
+        let strs_off = link.strs_off();
+        let mut ids: Vec<u16> = Vec::with_capacity(link.strs_len());
+        let descs: Vec<_> = link.strings().collect();
+        for d in descs {
+            // Through the class bytes alone, so the row borrows the class
+            // and not the table that is patched below.
+            let ui = be16(class, d.cp_off as usize).ok_or(LinkError::Internal)? as usize;
+            let bytes = link
+                .cp_offset(ui)
+                .and_then(|off| utf8_at(class, off))
+                .ok_or(LinkError::Internal)?;
+            let id = match seen.get(bytes) {
+                Some(&id) => id,
+                None => {
+                    if rows.len() >= MAX_LITERALS {
+                        return Err(LinkError::TooManyLiterals);
+                    }
+                    let id = rows.len() as u16;
+                    rows.push(Row {
+                        bytes,
+                        class: i,
+                        at: bytes.as_ptr() as usize - class.as_ptr() as usize,
+                    });
+                    seen.insert(bytes, id);
+                    id
+                }
+            };
+            ids.push(id);
+        }
+        for (k, id) in ids.into_iter().enumerate() {
+            links[i][strs_off + 2 * k + 1] = id;
+        }
+    }
+    let mut class_offs: Vec<usize> = Vec::with_capacity(n);
 
     let mut out: Vec<u8> = Vec::new();
     out.extend_from_slice(&(n as u32).to_le_bytes());
@@ -178,6 +244,7 @@ fn build_section_impl(classes: &[&[u8]], expected: Option<&[&[u8]]>) -> Result<V
     for (i, (class, words)) in classes.iter().zip(&links).enumerate() {
         pad_to(&mut out, 4);
         let class_off = out.len();
+        class_offs.push(class_off);
         out.extend_from_slice(class);
         pad_to(&mut out, 4);
         let link_off = out.len();
@@ -204,6 +271,19 @@ fn build_section_impl(classes: &[&[u8]], expected: Option<&[&[u8]]>) -> Result<V
     }
     debug_assert_eq!(out.len(), index_off + INDEX_ENTRY_LEN * n);
     debug_assert!(out.len() >= SECTION_HEADER_LEN);
+    out.extend_from_slice(&(rows.len() as u32).to_le_bytes());
+    for r in &rows {
+        let off = u32::try_from(class_offs[r.class] + r.at).map_err(|_| LinkError::BadSection)?;
+        let flags = if core::str::from_utf8(r.bytes).is_ok() {
+            LIT_UTF8
+        } else {
+            0
+        };
+        out.extend_from_slice(&string_hash(r.bytes).to_le_bytes());
+        out.extend_from_slice(&off.to_le_bytes());
+        out.extend_from_slice(&(r.bytes.len() as u16).to_le_bytes());
+        out.extend_from_slice(&flags.to_le_bytes());
+    }
     out[4..8].copy_from_slice(
         &u32::try_from(index_off)
             .map_err(|_| LinkError::BadSection)?

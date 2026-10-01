@@ -99,6 +99,21 @@ fn classes_section_valid(data: &[u8]) -> Result<(), class_link::LinkError> {
 /// structural validity — streaming a truncated PAPK to flash bricks the
 /// device regardless of version arithmetic).
 pub fn validate_structure(bytes: &[u8]) -> Result<(), StructuralError> {
+    validate(bytes, true)
+}
+
+/// [`validate_structure`] without the deep check of the classes section:
+/// the header, the manifest walk and the class section's own bounds
+/// (`ClassSection::parse`), nothing per class. For an image that already
+/// passed the deep check and cannot have changed since — a system app
+/// linked into the firmware, which the build script validated before
+/// embedding it. The deep check costs ~0.3 ms per KB of PAPK from XIP flash
+/// (RP2350), on every boot.
+pub fn validate_embedded(bytes: &[u8]) -> Result<(), StructuralError> {
+    validate(bytes, false)
+}
+
+fn validate(bytes: &[u8], deep: bool) -> Result<(), StructuralError> {
     if bytes.len() < FILE_HEADER_LEN {
         return Err(StructuralError::TooShort);
     }
@@ -179,7 +194,14 @@ pub fn validate_structure(bytes: &[u8]) -> Result<(), StructuralError> {
     if clss_end > bytes.len() {
         return Err(StructuralError::ClassesOutOfBounds);
     }
-    classes_section_valid(&bytes[clss_start..clss_end]).map_err(StructuralError::Classes)
+    let classes = &bytes[clss_start..clss_end];
+    if deep {
+        classes_section_valid(classes).map_err(StructuralError::Classes)
+    } else {
+        class_link::ClassSection::parse(classes)
+            .map(|_| ())
+            .map_err(StructuralError::Classes)
+    }
 }
 
 /// STRICT whole-file manifest scan (`pdb install` pre-flight semantics):
@@ -319,7 +341,8 @@ mod tests {
         }
         // MANI right after the 28-byte header; CLSS at the next 4-byte
         // boundary, holding an empty class section (no classes, the index
-        // right after the section's own 8-byte header).
+        // right after the section's own 8-byte header, then an empty
+        // literal pool).
         let clss_off = (28 + 16 + manifest.len()).next_multiple_of(4);
         let mut out = Vec::new();
         out.extend_from_slice(b"PAPK");
@@ -337,11 +360,12 @@ mod tests {
         out.extend_from_slice(&manifest);
         out.resize(clss_off, 0);
         out.extend_from_slice(b"CLSS");
-        out.extend_from_slice(&8u32.to_le_bytes()); // length
+        out.extend_from_slice(&12u32.to_le_bytes()); // length
         out.extend_from_slice(&0u32.to_le_bytes()); // crc
         out.extend_from_slice(&0u32.to_le_bytes()); // reserved
         out.extend_from_slice(&0u32.to_le_bytes()); // class_count
         out.extend_from_slice(&8u32.to_le_bytes()); // index_off
+        out.extend_from_slice(&0u32.to_le_bytes()); // literal count
         out
     }
 

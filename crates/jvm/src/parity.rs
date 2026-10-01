@@ -220,6 +220,93 @@ pub fn field_ops() -> usize {
 #[inline(always)]
 pub fn count_new(ns: u64) {
     NEW_US.fetch_add((ns / 1_000) as usize, Ordering::Relaxed);
+    NEWS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// `new` opcodes executed (a `new` re-run after a collection counts twice).
+pub fn news() -> usize {
+    NEWS.load(Ordering::Relaxed)
+}
+
+static NEWS: AtomicUsize = AtomicUsize::new(0);
+static LDCS: AtomicUsize = AtomicUsize::new(0);
+static LDC_STRINGS: AtomicUsize = AtomicUsize::new(0);
+static LDC_US: AtomicUsize = AtomicUsize::new(0);
+static INDYS: AtomicUsize = AtomicUsize::new(0);
+static INDY_US: AtomicUsize = AtomicUsize::new(0);
+static TYPE_CHECKS: AtomicUsize = AtomicUsize::new(0);
+static TYPE_CHECK_US: AtomicUsize = AtomicUsize::new(0);
+
+/// An `ldc` / `ldc_w` of any constant kind (also inside `count_other`).
+#[inline(always)]
+pub fn count_ldc(ns: u64) {
+    LDCS.fetch_add(1, Ordering::Relaxed);
+    LDC_US.fetch_add((ns / 1_000) as usize, Ordering::Relaxed);
+}
+
+/// An `ldc` that produced a `String`: one pass through the intern scan.
+#[inline(always)]
+pub fn count_ldc_string() {
+    LDC_STRINGS.fetch_add(1, Ordering::Relaxed);
+}
+
+static LITERAL_COPIES: AtomicUsize = AtomicUsize::new(0);
+static LITERAL_COPY_BYTES: AtomicUsize = AtomicUsize::new(0);
+
+/// A flash-resident string (a literal, a class name) that `intern` had to
+/// copy into the heap because dynamic strings already existed.
+#[inline(always)]
+pub fn count_literal_copy(bytes: usize) {
+    LITERAL_COPIES.fetch_add(1, Ordering::Relaxed);
+    LITERAL_COPY_BYTES.fetch_add(bytes, Ordering::Relaxed);
+}
+
+/// (heap copies of flash-resident strings, their bytes).
+pub fn literal_copy_stats() -> (usize, usize) {
+    (
+        LITERAL_COPIES.load(Ordering::Relaxed),
+        LITERAL_COPY_BYTES.load(Ordering::Relaxed),
+    )
+}
+
+/// An `invokedynamic` (also inside `count_invoke`): the bootstrap decode,
+/// the target walk and the proxy allocation, none of them cached.
+#[inline(always)]
+pub fn count_indy(ns: u64) {
+    INDYS.fetch_add(1, Ordering::Relaxed);
+    INDY_US.fetch_add((ns / 1_000) as usize, Ordering::Relaxed);
+}
+
+/// A `checkcast` or `instanceof` (also inside `count_other`).
+#[inline(always)]
+pub fn count_type_check(ns: u64) {
+    TYPE_CHECKS.fetch_add(1, Ordering::Relaxed);
+    TYPE_CHECK_US.fetch_add((ns / 1_000) as usize, Ordering::Relaxed);
+}
+
+/// (`ldc`s, of which strings, microseconds).
+pub fn ldc_stats() -> (usize, usize, usize) {
+    (
+        LDCS.load(Ordering::Relaxed),
+        LDC_STRINGS.load(Ordering::Relaxed),
+        LDC_US.load(Ordering::Relaxed),
+    )
+}
+
+/// (`invokedynamic`s, microseconds).
+pub fn indy_stats() -> (usize, usize) {
+    (
+        INDYS.load(Ordering::Relaxed),
+        INDY_US.load(Ordering::Relaxed),
+    )
+}
+
+/// (`checkcast` + `instanceof`, microseconds).
+pub fn type_check_stats() -> (usize, usize) {
+    (
+        TYPE_CHECKS.load(Ordering::Relaxed),
+        TYPE_CHECK_US.load(Ordering::Relaxed),
+    )
 }
 
 /// Any other opcode's handler.

@@ -570,7 +570,9 @@ pub(crate) fn prune_monitors<H: NativeMethodHandler>(
         MonitorKey::Object(i) => objects.is_live(i),
         MonitorKey::Array(i) => arrays.is_live(i),
         // Static strings live in Flash and are never freed.
-        MonitorKey::String(i) => (i as usize) < strings.dyn_start() || strings.is_dyn_live(i),
+        MonitorKey::String(i) => {
+            (i as usize) < strings.dyn_start() || strings.is_literal(i) || strings.is_dyn_live(i)
+        }
     };
     handler.monitors_prune(&live);
     handler.native_state_prune(&live);
@@ -822,7 +824,13 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
                     let t0 = ex.handler.clock_nanos();
                     let r = ex.op_invoke(opcode, code, frames);
                     #[cfg(feature = "parity-metrics")]
-                    crate::parity::count_invoke(ex.handler.clock_nanos().saturating_sub(t0));
+                    {
+                        let dt = ex.handler.clock_nanos().saturating_sub(t0);
+                        crate::parity::count_invoke(dt);
+                        if opcode == 0xba {
+                            crate::parity::count_indy(dt);
+                        }
+                    }
                     r
                 }
                 0xbb => ex.op_new(code, frame),
@@ -840,6 +848,14 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
                     0xb2..=0xb5 => crate::parity::count_fields(dt),
                     0xb6..=0xba => {}
                     0xbb => crate::parity::count_new(dt),
+                    0x12 | 0x13 => {
+                        crate::parity::count_ldc(dt);
+                        crate::parity::count_other(dt);
+                    }
+                    0xc0 | 0xc1 => {
+                        crate::parity::count_type_check(dt);
+                        crate::parity::count_other(dt);
+                    }
                     _ => crate::parity::count_other(dt),
                 }
             }

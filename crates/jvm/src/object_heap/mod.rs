@@ -9,7 +9,7 @@ use crate::chunked_slots::ChunkedSlots;
 use crate::class_file::Classes;
 use crate::gc::compact;
 use crate::names::c;
-use crate::types::{default_for_descriptor, Slot, Value};
+use crate::types::{Slot, Value};
 use alloc::vec::Vec;
 
 /// Chunked-slot storage for `Option<JvmObject>`. See [`crate::chunked_slots`].
@@ -477,10 +477,18 @@ impl ObjectHeap {
     /// `None` when the table cannot grow — the same allocation failure as
     /// the object's own slot, reported rather than aborted.
     fn intern_class(&mut self, name: &'static str) -> Option<u16> {
+        // By pointer first, over the whole table: a class's name reaches
+        // here as the same Flash slice every time, so this pass is the one
+        // that hits, and it reads no name bytes.
+        if let Some(i) = self
+            .class_table
+            .iter()
+            .position(|e| core::ptr::eq(e.as_ptr(), name.as_ptr()) && e.len() == name.len())
+        {
+            return Some(i as u16);
+        }
         for (i, &existing) in self.class_table.iter().enumerate() {
-            if core::ptr::eq(existing.as_ptr(), name.as_ptr()) && existing.len() == name.len()
-                || crate::class_file::name_eq(existing.as_bytes(), name.as_bytes())
-            {
+            if crate::class_file::name_eq(existing.as_bytes(), name.as_bytes()) {
                 return Some(i as u16);
             }
         }
@@ -525,8 +533,8 @@ impl ObjectHeap {
 
     /// Allocate and initialize every declared instance field to its JVMS §2.3
     /// typed default (0 for integral, 0.0 for fp, `Null` for reference).
-    /// Walks the superclass chain root-to-leaf, matching the slot layout used
-    /// by `interpreter::helpers::field_slot`.  Callers without class metadata
+    /// Walks the superclass chain, matching the slot layout used by
+    /// `interpreter::helpers::field_slot`.  Callers without class metadata
     /// should keep using [`alloc`].
     #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
     #[cfg_attr(feature = "hot-in-ram", inline(never))]
@@ -535,129 +543,108 @@ impl ObjectHeap {
         class_name: &'static str,
         classes: Classes<'_>,
     ) -> Option<u16> {
-        // Build chain root-first, tracking whether the chain bottoms out at
-        // java/lang/Enum (a native class outside `classes` with 2 implicit
-        // reference-typed fields — those stay Null, matching field_slot).
-        let mut chain: Vec<usize> = Vec::new();
-        let mut enum_base = false;
-        let mut current: &str = class_name;
-        // Canonical, genuinely-`'static` (Flash-backed) name for the leaf class.
-        // `class_name` may be a transient pointer — e.g. a native caller can
-        // resolve an Intent's target-class name to a GC-managed dynamic String
-        // and transmute it to `&'static` — and interning that into `class_table`
-        // leaves a dangling entry once the dynamic String is swept. Adopting the
-        // loaded class file's own name keeps `class_table` pointing at Flash for
-        // the JVM's lifetime. Falls back to `class_name` for classes not present
-        // in `classes` (builtins/native), whose names are already `'static`.
-        let mut canonical_name: &'static str = class_name;
-        // The leaf by name; every superclass by the hash its child's table
-        // stores, so a `new` costs one binary search per level.
-        let mut ci = crate::class_file::find_class(classes, current.as_bytes());
-        loop {
-            match ci {
-                Some(i) => {
-                    if chain.is_empty() {
-                        if let Some(n) = classes[i].class_name() {
-                            if let Ok(s) = core::str::from_utf8(n) {
-                                canonical_name = s;
-                            }
-                        }
-                    }
-                    chain.push(i);
-                    let cf = &classes[i];
-                    match cf.super_class_name() {
-                        None => break,
-                        Some(super_bytes) => match core::str::from_utf8(super_bytes) {
-                            Ok(s) => {
-                                current = s;
-                                ci = crate::class_file::find_class_hashed(
-                                    classes,
-                                    cf.super_hash(),
-                                    super_bytes,
-                                );
-                            }
-                            Err(_) => break,
-                        },
-                    }
-                }
-                None => {
-                    if current == c::java_lang_Enum {
-                        enum_base = true;
-                    }
-                    break;
-                }
+        match crate::class_file::find_class(classes, class_name.as_bytes()) {
+            Some(ci) => self.alloc_instance(ci, classes),
+            // No class file: a builtin or native class, whose name is
+            // already `'static` and which declares no fields here —
+            // `java/lang/Enum` itself keeps its two implicit slots.
+            None => {
+                let n = if class_name == c::java_lang_Enum {
+                    ENUM_IMPLICIT_FIELDS
+                } else {
+                    0
+                };
+                self.alloc_with_field_count(class_name, n)
             }
         }
-        chain.reverse();
+    }
 
-        // Size the backing span exactly once, before allocating, so the
-        // default-writing loop below never triggers a reallocation. Slots,
-        // not fields: a `long`/`double` field takes two.
-        let n_fields = (if enum_base { ENUM_IMPLICIT_FIELDS } else { 0 })
-            + chain
-                .iter()
-                .map(|&ci| {
-                    let cf = &classes[ci];
-                    cf.fields()
-                        .iter()
-                        .map(|fi| {
-                            cf.field_descriptor(fi)
-                                .map_or(1, Value::descriptor_slot_width)
-                        })
-                        .sum::<usize>()
-                })
-                .sum::<usize>();
+    /// [`alloc_with_defaults`](Self::alloc_with_defaults) for a caller that
+    /// already holds the class's index — a `new` site the resolution tables
+    /// know. Everything it needs was computed when the class was packed:
+    /// each class's table says how many slots its own fields take, which
+    /// slot and kind each field is, and where its superclass sits, so this
+    /// reads a few words a level and decodes no name or descriptor.
+    #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
+    #[cfg_attr(feature = "hot-in-ram", inline(never))]
+    pub fn alloc_instance(&mut self, ci: usize, classes: Classes<'_>) -> Option<u16> {
+        // The loaded class file's own name: genuinely `'static`
+        // (Flash-backed), whatever transient pointer a native caller looked
+        // the class up by — `class_table` must never hold a name that a GC
+        // can sweep.
+        let canonical_name: &'static str =
+            core::str::from_utf8(classes.get(ci)?.class_name()?).ok()?;
+
+        // Pass 1, leaf to root: the slots the whole chain takes, and the
+        // class at its top. A chain that bottoms out at java/lang/Enum (a
+        // native class outside `classes`) starts after Enum's two implicit
+        // reference-typed fields — those stay Null, matching field_slot.
+        let mut total = 0usize;
+        let mut top = ci;
+        let mut current = Some(ci);
+        let mut depth = 0u8;
+        while let Some(i) = current {
+            total += classes[i].link().own_slots();
+            top = i;
+            current = classes.super_of(i);
+            // A valid hierarchy is a few levels; a cycle is a malformed set.
+            depth = depth.checked_add(1)?;
+        }
+        let enum_base = classes[top].super_class_name() == Some(c::java_lang_Enum.as_bytes());
+        let start_slot = if enum_base { ENUM_IMPLICIT_FIELDS } else { 0 };
+        let n_fields = start_slot + total;
         let idx = self.alloc_with_field_count(canonical_name, n_fields)?;
 
-        // Write the defaults straight into the arena rather than through
-        // `set_field` once per field.
+        // Pass 2, leaf to root again: each class's slots end where its
+        // subclass's begin. Written straight into the arena rather than
+        // through `set_field` once per field.
         //
         // `set_field` exists to be safe for an object other tasks can already
         // see, so it pays for a slot re-lookup, the lazy-grow branch, a
         // high-water bump, and — the expensive part — a scheduler-atomic
-        // section on *every* field. On device that is a
-        // vTaskSuspendAll/xTaskResumeAll pair per field written, so a
-        // ten-field object suspended and resumed the scheduler ten times just
-        // to store ten constants.
+        // section on *every* field. None of that is needed here. `idx` has
+        // not been published: it is still local to this call, so no other
+        // task can read or write these slots and there is no torn-`Value`
+        // hazard to guard against. The capacity was sized exactly above, so
+        // the lazy-grow path is unreachable. One section around the whole
+        // run is all that is required, and it is required only because
+        // another task could be reallocating `fields_arena` underneath us.
         //
-        // None of that is needed here. `idx` has not been published: it is
-        // still local to this call, so no other task can read or write these
-        // slots and there is no torn-`Value` hazard to guard against. The
-        // capacity was sized exactly above, so the lazy-grow path is
-        // unreachable. One section around the whole run is all that is
-        // required, and it is required only because another task could be
-        // reallocating `fields_arena` underneath us.
-        let start_slot = if enum_base { ENUM_IMPLICIT_FIELDS } else { 0 };
-        {
+        // The span arrives filled with `Slot::Null`, which is a reference
+        // field's default, so only the primitive fields are written.
+        if total > 0 {
             let _atomic = crate::atomic_section::AtomicSection::enter();
             let base = self.objects.get(idx as usize)?.as_ref()?.fields_off as usize;
-            let mut slot = start_slot;
-            for ci in chain.iter() {
-                let cf = &classes[*ci];
-                for fi in cf.fields() {
-                    let v = match cf.field_descriptor(fi) {
-                        Some(desc) => default_for_descriptor(desc),
-                        None => Value::Null,
+            let mut end = n_fields;
+            let mut current = Some(ci);
+            while let Some(i) = current {
+                let link = classes[i].link();
+                let first = end.checked_sub(link.own_slots())?;
+                for f in link.fields() {
+                    let at = base + first + f.slot();
+                    let (lo, hi) = match f.kind() {
+                        class_link::KIND_INT => Value::Int(0).to_slots(),
+                        class_link::KIND_FLOAT => Value::Float(0.0).to_slots(),
+                        class_link::KIND_LONG => Value::Long(0).to_slots(),
+                        class_link::KIND_DOUBLE => Value::Double(0.0).to_slots(),
+                        _ => continue,
                     };
-                    let (lo, hi) = v.to_slots();
-                    self.fields_arena[base + slot] = lo;
-                    slot += 1;
+                    self.fields_arena[at] = lo;
                     if let Some(hi) = hi {
-                        self.fields_arena[base + slot] = hi;
-                        slot += 1;
+                        self.fields_arena[at + 1] = hi;
                     }
                 }
+                end = first;
+                current = classes.super_of(i);
             }
             // Match `set_field`'s high-water semantics exactly: it raises
             // `field_count` to the highest slot actually written, and leaves
             // it alone when nothing is written at all. An enum whose chain
             // contributes no fields must keep `field_count == 0` so that
             // reads of the two implicit slots still return None.
-            if slot > start_slot {
-                let s = self.objects.get_mut(idx as usize)?.as_mut()?;
-                if slot > s.field_count as usize {
-                    s.field_count = slot as u8;
-                }
+            let s = self.objects.get_mut(idx as usize)?.as_mut()?;
+            if n_fields > s.field_count as usize {
+                s.field_count = n_fields as u8;
             }
         }
         Some(idx)

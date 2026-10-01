@@ -14,8 +14,21 @@
 /// Static entries (added via [`intern`]) are expected to be added before any
 /// dynamic entries.  In practice all `.class` loading happens at startup before
 /// runtime string operations.
+///
+/// # Literals
+/// A class section's `String` constants are numbered at pack time into a
+/// literal pool (`class_link::Literals`), and the top of the reference range
+/// is given to them: the framework's pool, then the app's, ending at
+/// [`REF_TOP`]. A literal's reference is its pool's first index plus its row,
+/// so an `ldc` is an add — no entry in this table, no search, no copy — and
+/// the entries here start at 0 as they always did.
 use crate::chunked_slots::ChunkedSlots;
 use alloc::vec::Vec;
+use class_link::{Literals, LIT_UTF8};
+
+/// One past the last string reference a literal can have. `u16::MAX` itself
+/// stays unused.
+pub const REF_TOP: usize = u16::MAX as usize;
 
 pub struct StringTable {
     ptrs: Vec<*const u8>,
@@ -38,6 +51,12 @@ pub struct StringTable {
     /// made from native handlers, which never pass through the bytecode
     /// alloc opcodes.
     alloc_events: u16,
+    /// The literal pools — framework, app — and the first reference of
+    /// each. `lit_floor` is the lower of the two: every reference at or
+    /// above it is a literal, and this table may not grow into it.
+    lits: [Literals<'static>; 2],
+    lit_first: [usize; 2],
+    lit_floor: usize,
 }
 
 // SAFETY: the static pointers reference Flash data which is never mutated.
@@ -65,7 +84,84 @@ impl StringTable {
             #[cfg(feature = "mem-diag")]
             dyn_intern_total: 0,
             alloc_events: 0,
+            lits: [Literals::EMPTY; 2],
+            lit_first: [REF_TOP; 2],
+            lit_floor: REF_TOP,
         }
+    }
+
+    /// Give the top of the reference range to the loaded sections' literal
+    /// pools. Call once the class sets are loaded and before any bytecode
+    /// runs; a pool that would overlap entries already interned is left
+    /// out (its constants then intern as they did before pools).
+    pub fn set_literal_pools(&mut self, fw: Literals<'static>, app: Literals<'static>) {
+        let app_first = REF_TOP.saturating_sub(app.len());
+        let fw_first = app_first.saturating_sub(fw.len());
+        if fw_first < self.ptrs.len() || fw.len() + app.len() > REF_TOP / 2 {
+            debug_assert!(false, "literal pools do not fit the reference range");
+            return;
+        }
+        self.lits = [fw, app];
+        self.lit_first = [fw_first, app_first];
+        self.lit_floor = fw_first;
+    }
+
+    /// Is `idx` a pool literal (flash-resident, never collected)?
+    #[inline]
+    pub fn is_literal(&self, idx: u16) -> bool {
+        idx as usize >= self.lit_floor
+    }
+
+    /// The pool and row behind literal reference `idx`.
+    #[inline]
+    fn literal_row(&self, idx: u16) -> Option<(usize, usize)> {
+        let i = idx as usize;
+        if i < self.lit_floor {
+            return None;
+        }
+        let pool = (i >= self.lit_first[1]) as usize;
+        let row = i - self.lit_first[pool];
+        (row < self.lits[pool].len()).then_some((pool, row))
+    }
+
+    /// The reference of literal `lit` of the section `class_bytes` lies in
+    /// — what `ldc` pushes. `None` when no pool covers that class (a class
+    /// loaded outside a section) or pools were never set.
+    #[inline]
+    pub fn literal_ref(&self, class_bytes: &[u8], lit: u16) -> Option<u16> {
+        let at = class_bytes.as_ptr() as usize;
+        for pool in 0..2 {
+            let sec = self.lits[pool].section_bytes();
+            let base = sec.as_ptr() as usize;
+            if at >= base && at < base + sec.len() && (lit as usize) < self.lits[pool].len() {
+                return Some((self.lit_first[pool] + lit as usize) as u16);
+            }
+        }
+        None
+    }
+
+    /// `hashCode()` of a literal, from its pool row.
+    #[inline]
+    pub fn literal_hash(&self, idx: u16) -> Option<i32> {
+        let (pool, row) = self.literal_row(idx)?;
+        Some(self.lits[pool].row(row)?.hash as i32)
+    }
+
+    /// Are `a` and `b` the same string constant? Each pool holds a string
+    /// once, so within a pool that is `a == b`; a constant the framework
+    /// and the app both spell has a row in each, and the two references
+    /// must still compare identical (JLS §3.10.5).
+    pub fn same_literal(&self, a: u16, b: u16) -> bool {
+        if a == b {
+            return true;
+        }
+        let (Some((pa, ra)), Some((pb, rb))) = (self.literal_row(a), self.literal_row(b)) else {
+            return false;
+        };
+        pa != pb
+            && self.lits[pa].row(ra).map(|r| (r.hash, r.len))
+                == self.lits[pb].row(rb).map(|r| (r.hash, r.len))
+            && self.lits[pa].bytes(ra) == self.lits[pb].bytes(rb)
     }
 
     /// Drain the pacing counter (see `alloc_events`).
@@ -134,7 +230,12 @@ impl StringTable {
             // Dynamic entries already exist — appending and advancing dyn_start
             // would corrupt the dynamic region.  Fall back to intern_dyn which
             // correctly manages the dynamic region (copies bytes to the heap).
+            #[cfg(feature = "parity-metrics")]
+            crate::parity::count_literal_copy(s.len());
             return self.intern_dyn(s);
+        }
+        if self.ptrs.len() >= self.lit_floor {
+            return None;
         }
         let idx = self.ptrs.len() as u16;
         self.ptrs.push(s.as_ptr());
@@ -186,7 +287,8 @@ impl StringTable {
         }
         // No free slot — append a new entry, if the table can grow (a table
         // that cannot is the same allocation failure as the bytes).
-        if crate::object_heap::reserve_fallible(&mut self.ptrs, 1).is_err()
+        if self.ptrs.len() >= self.lit_floor
+            || crate::object_heap::reserve_fallible(&mut self.ptrs, 1).is_err()
             || crate::object_heap::reserve_fallible(&mut self.lens, 1).is_err()
         {
             return None;
@@ -333,9 +435,24 @@ impl StringTable {
         c
     }
 
+    /// A literal's text. A row not flagged UTF-8 (a constant with an
+    /// embedded NUL or a supplementary character, which class files spell
+    /// in modified UTF-8) has none, as before pools.
+    #[inline]
+    fn resolve_literal(&self, idx: u16) -> Option<&'static str> {
+        let (pool, row) = self.literal_row(idx)?;
+        if self.lits[pool].row(row)?.flags & LIT_UTF8 == 0 {
+            return None;
+        }
+        core::str::from_utf8(self.lits[pool].bytes(row)?).ok()
+    }
+
     /// Resolve a Reference index to a `&str`.
     pub fn resolve(&self, idx: u16) -> Option<&str> {
         let i = idx as usize;
+        if i >= self.lit_floor {
+            return self.resolve_literal(idx);
+        }
         if i >= self.ptrs.len() {
             return None;
         }
@@ -352,6 +469,9 @@ impl StringTable {
     /// backing storage is owned by `dyn_bufs` and outlives only `&self`).
     pub fn resolve_static(&self, idx: u16) -> Option<&'static str> {
         let i = idx as usize;
+        if i >= self.lit_floor {
+            return self.resolve_literal(idx);
+        }
         if i >= self.dyn_start || i >= self.ptrs.len() {
             return None;
         }

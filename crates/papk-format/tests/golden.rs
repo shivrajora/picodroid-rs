@@ -189,3 +189,28 @@ mod rebuild {
         );
     }
 }
+
+/// `validate_embedded` is the structural check without the per-class deep
+/// check: it still refuses a file that is not a PAPK or whose class section
+/// does not fit, but a link table that disagrees with its class is only
+/// the deep check's to find.
+#[test]
+fn validate_embedded_skips_only_the_deep_class_check() {
+    use papk_format::{validate_embedded, validate_structure};
+    assert_eq!(validate_structure(MINIMAL), Ok(()));
+    assert_eq!(validate_embedded(MINIMAL), Ok(()));
+
+    // Corrupt the class's name hash in its link table (word 16).
+    let section = Papk::parse(MINIMAL).unwrap().class_section().unwrap();
+    let table = section.class(0).unwrap().link.as_ptr() as usize - MINIMAL.as_ptr() as usize;
+    let mut bad = Aligned(MINIMAL_A.0);
+    bad.0[table + 2 * 16] ^= 0xFF;
+    assert!(validate_structure(&bad.0).is_err());
+    assert_eq!(validate_embedded(&bad.0), Ok(()));
+
+    // Bounds and magic are still checked.
+    let mut bad = Aligned(MINIMAL_A.0);
+    bad.0[0] = b'X';
+    assert!(validate_embedded(&bad.0).is_err());
+    assert!(validate_embedded(&MINIMAL[..MINIMAL.len() - 8]).is_err());
+}

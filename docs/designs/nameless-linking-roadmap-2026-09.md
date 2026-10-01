@@ -99,6 +99,12 @@ site's link-table record instead of decoding the constant pool.
 
 ### N2 — Field and type-check hashes (speed on misses; small)
 
+(2026-09-30: link-table layout 2 gave `FieldInfo` a third word — the field's
+slot among its class's own fields and its kind — and every class its
+superclass's index in the section. A field's *name* is still compared as
+bytes on a miss; the hash below is still to do. See the second round in
+docs/designs/class-link-2026-09.md.)
+
 `FieldInfo` gains a name hash; `Fieldref` and class (tag 7) entries get a
 descriptor record like `MethodrefDesc`. Field resolution, `checkcast`,
 `instanceof` and catch-type matching stop decoding names on a miss.

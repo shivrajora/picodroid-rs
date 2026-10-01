@@ -332,6 +332,16 @@ impl Jvm {
         Ok(())
     }
 
+    /// The literal pools of the loaded sections — framework, app — for
+    /// [`StringTable::set_literal_pools`]; empty where a section is absent.
+    pub fn literal_pools(&self) -> (class_link::Literals<'static>, class_link::Literals<'static>) {
+        let of = |s: &Option<class_link::ClassSection<'static>>| {
+            s.as_ref()
+                .map_or(class_link::Literals::EMPTY, |s| s.literals())
+        };
+        (of(&self.fw), of(&self.app))
+    }
+
     /// Register the app's class section (its PAPK's CLASSES section), after
     /// the framework's.
     pub fn load_app(&mut self, section: class_link::ClassSection<'static>) -> Result<(), JvmError> {

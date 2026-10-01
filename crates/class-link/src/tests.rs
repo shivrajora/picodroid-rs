@@ -229,7 +229,21 @@ fn the_javac_fixture_covers_every_region() {
 #[test]
 fn every_word_is_load_bearing() {
     let w = link_class(FIXTURE).unwrap();
+    // A String descriptor's literal id and the header's `super_idx` are
+    // the section's words, checked by `ClassSection::validate`
+    // (`a_section_checks_its_literals`, `a_section_links_superclasses`).
+    let link = Link::new(&w).unwrap();
+    assert!(link.strs_len() > 0, "the fixture has string constants");
+    let mut external: Vec<usize> = (0..link.strs_len())
+        .map(|k| link.strs_off() + 2 * k + 1)
+        .collect();
+    external.push(layout::SUPER_IDX_WORD);
+    assert_eq!(link.super_idx(), None);
     for i in 0..w.len() {
+        if external.contains(&i) {
+            assert_eq!(w[i], u16::MAX, "LIT_NONE / SUPER_NONE");
+            continue;
+        }
         let mut c = w.clone();
         c[i] ^= 0x0101;
         let detected = match Link::new(&c) {
@@ -291,6 +305,149 @@ fn rejects_malformed_classes() {
     let mut c = BASE.to_vec();
     c[16] = 0xFF; // first byte of "Base"
     assert_eq!(link_class(&c), Err(LinkError::BadUtf8 { cp: 2 }));
+}
+
+#[test]
+fn a_section_pools_its_string_constants() {
+    // The same class twice over would be a duplicate, so pool one class:
+    // every String entry gets a row, equal strings share one, and a row's
+    // bytes, hash and flags are the constant's.
+    let sec = build_section(&[BASE, FIXTURE]).unwrap();
+    let buf = aligned(&sec);
+    let s = ClassSection::parse(as_bytes(&buf, sec.len())).unwrap();
+    s.validate().unwrap();
+    let lits = s.literals();
+    assert!(!lits.is_empty());
+    let fixture = s.class(1).unwrap();
+    assert!(fixture.link.strs_len() >= lits.len());
+    for i in 0..fixture.link.cp_count() {
+        let Some(d) = fixture.link.string_desc(i) else {
+            assert_ne!(fixture.link.cp_tag(i), Some(8));
+            continue;
+        };
+        let bytes = fixture.cp_string_utf8(i).unwrap();
+        assert_eq!(fixture.string_bytes(d), Some(bytes));
+        assert_eq!(lits.bytes(d.lit as usize), Some(bytes));
+        let row = lits.row(d.lit as usize).unwrap();
+        assert_eq!(row.hash, string_hash(bytes));
+        assert_eq!(row.flags, LIT_UTF8);
+        assert_eq!(row.len as usize, bytes.len());
+        assert_eq!(fixture.link.cp_offset(i), Some(d.cp_off as usize));
+    }
+    // No two rows hold the same bytes.
+    for a in 0..lits.len() {
+        for b in a + 1..lits.len() {
+            assert_ne!(lits.bytes(a), lits.bytes(b));
+        }
+    }
+    assert_eq!(string_hash(b"ab"), 31 * 97 + 98);
+    assert_eq!(string_hash(b""), 0);
+}
+
+#[test]
+fn a_section_checks_its_literals() {
+    let sec = build_section(&[BASE, FIXTURE]).unwrap();
+    let check = |bytes: &[u8]| {
+        let buf = aligned(bytes);
+        ClassSection::parse(as_bytes(&buf, bytes.len())).and_then(|s| s.validate())
+    };
+    check(&sec).unwrap();
+    // Every byte of the pool, its count included, is load-bearing.
+    let pool_at = {
+        let buf = aligned(&sec);
+        let s = ClassSection::parse(as_bytes(&buf, sec.len())).unwrap();
+        sec.len() - 4 - 12 * s.literals().len()
+    };
+    for i in pool_at..sec.len() {
+        let mut c = sec.clone();
+        c[i] ^= 0x01;
+        assert!(check(&c).is_err(), "pool byte {i} corrupted undetected");
+    }
+    // So is every class's literal id.
+    let buf = aligned(&sec);
+    let s = ClassSection::parse(as_bytes(&buf, sec.len())).unwrap();
+    let fixture = s.class(1).unwrap();
+    let words_at = fixture.link.as_ptr() as usize - as_bytes(&buf, sec.len()).as_ptr() as usize;
+    for k in 0..fixture.link.strs_len() {
+        let at = words_at + 2 * (fixture.link.strs_off() + 2 * k + 1);
+        let mut c = sec.clone();
+        c[at] ^= 0x01;
+        assert_eq!(check(&c), Err(LinkError::BadLiteral), "literal id {k}");
+    }
+    // A truncated pool is refused at parse.
+    assert!(check(&sec[..sec.len() - 4]).is_err());
+}
+
+/// `class <name> extends <sup>`, no members.
+fn subclass(name: &[u8], sup: &[u8]) -> Vec<u8> {
+    let mut c = crate::build::minimal_class(name);
+    // `minimal_class` spells java/lang/Object as Utf8 #4; respell it.
+    let at = c
+        .windows(16)
+        .position(|w| w == b"java/lang/Object")
+        .unwrap();
+    let mut out = c[..at - 2].to_vec();
+    out.extend_from_slice(&(sup.len() as u16).to_be_bytes());
+    out.extend_from_slice(sup);
+    out.extend_from_slice(&c.split_off(at + 16));
+    out
+}
+
+#[test]
+fn a_section_links_superclasses() {
+    // C extends B extends A; A extends Object, which the section lacks.
+    let a = subclass(b"A", b"java/lang/Object");
+    let b = subclass(b"B", b"A");
+    let c = subclass(b"C", b"B");
+    let sec = build_section(&[&c, &a, &b]).unwrap();
+    let check = |bytes: &[u8]| {
+        let buf = aligned(bytes);
+        ClassSection::parse(as_bytes(&buf, bytes.len())).and_then(|s| s.validate())
+    };
+    check(&sec).unwrap();
+    let buf = aligned(&sec);
+    let s = ClassSection::parse(as_bytes(&buf, sec.len())).unwrap();
+    assert_eq!(s.class(0).unwrap().link.super_idx(), Some(2)); // C -> B
+    assert_eq!(s.class(1).unwrap().link.super_idx(), None); // A -> Object
+    assert_eq!(s.class(2).unwrap().link.super_idx(), Some(1)); // B -> A
+                                                               // A wrong index, a missing one and an invented one are all refused.
+    let word = |i: usize| {
+        s.class(i).unwrap().link.as_ptr() as usize - as_bytes(&buf, sec.len()).as_ptr() as usize
+            + 2 * layout::SUPER_IDX_WORD
+    };
+    for (class, value) in [(0usize, 1u16), (0, SUPER_NONE), (1, 0), (2, 2)] {
+        let mut bad = sec.clone();
+        bad[word(class)..word(class) + 2].copy_from_slice(&value.to_le_bytes());
+        assert_eq!(
+            check(&bad),
+            Err(LinkError::BadSuperIndex { idx: class as u16 })
+        );
+    }
+}
+
+#[test]
+fn fields_carry_their_slot_and_kind() {
+    let w = link_class(FIXTURE).unwrap();
+    let l = linked(FIXTURE, &w);
+    // Fixture: `int value; double ratio;` and statics `long BIG; int counter`.
+    let f = l.link.fields();
+    assert_eq!((f[0].slot(), f[0].kind()), (0, KIND_INT));
+    assert_eq!((f[1].slot(), f[1].kind()), (1, KIND_DOUBLE));
+    assert_eq!(l.link.own_slots(), 3);
+    let st = l.link.static_fields();
+    assert_eq!((st[0].slot(), st[0].kind()), (0, KIND_LONG));
+    assert_eq!((st[1].slot(), st[1].kind()), (1, KIND_INT));
+    for fi in f.iter().chain(st) {
+        assert_eq!(fi.kind(), field_kind(l.field_descriptor(fi).unwrap()));
+    }
+    assert_eq!(field_kind(b"Ljava/lang/String;"), KIND_REF);
+    assert_eq!(field_kind(b"[I"), KIND_REF);
+    assert_eq!(field_kind(b"F"), KIND_FLOAT);
+    assert_eq!(field_kind(b"Z"), KIND_INT);
+    assert_eq!(kind_slots(KIND_LONG), 2);
+    assert_eq!(kind_slots(KIND_REF), 1);
+    let base = link_class(BASE).unwrap();
+    assert_eq!(linked(BASE, &base).link.own_slots(), 0);
 }
 
 #[test]

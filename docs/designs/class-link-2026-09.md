@@ -58,8 +58,8 @@ after its class bytes. Every byte offset is into the class bytes, every word
 offset into the table itself. The layout, from `class_link::layout`:
 
 ```text
-header, 20 words:
- w0  LINK_MAGIC (0x4B01: 'K', layout version 1)
+header, 24 words:
+ w0  LINK_MAGIC (0x4B02: 'K', layout version 2)
  w1  total_words       the whole table, header included (even)
  w2  class_len         == the class bytes' length
  w3  cp_count          constant_pool_count
@@ -74,18 +74,31 @@ header, 20 words:
  w15 source_file_idx   CP index of the SourceFile Utf8, 0 = none
  w16-17 name_hash      u32, low word first
  w18-19 super_hash     u32, 0 when super_off == 0
+ w20 strs_len          String entries
+ w21 own_slots         slots this class's own instance fields take
+ w22 super_idx         the superclass's position in the section, 0xFFFF = not in it
+ w23 0                 reserved
 regions, in this order:
- cp_words[cp_count]        entry i's data offset (after its tag byte); for
-                           a Methodref, the WORD offset of its descriptor
+ cp_words[cp_count]        entry i's data offset (after its tag byte); for a
+                           Methodref or a String, the WORD offset of its descriptor
  tags[(cp_count+1)/2]      the tags, two a word, entry i at byte i
- fields[fields_len]        FieldInfo    { name_index, descriptor_index }        2 words
- statics[statics_len]      FieldInfo                                            2 words
+ fields[fields_len]        FieldInfo    { name_index, descriptor_index,
+                                          slot (12 bits) | kind (4 bits) }      3 words
+ statics[statics_len]      FieldInfo                                            3 words
  ifaces[ifaces_len]        IfaceInfo    { utf8_off, hash }                      3 words
  methods[methods_len]      MethodInfo   { info_off, code_off, access_flags,
                                           lnt_off, sig_hash }                   6 words
  mrefs[mrefs_len]          MethodrefDesc{ cp_off, argc, flags }                 2 words
+ strs[strs_len]            StringDesc   { cp_off, literal id }                  2 words
  [pad word]                to an even total
 ```
+
+Layout version 2 (2026-09-30, "Second round" below) added the last four
+header words, the third `FieldInfo` word and the `strs` region. Two kinds of
+word name something in the *section* rather than in the class — a
+`StringDesc`'s literal id and `super_idx` — so a class alone does not
+determine them: the section builder fills them in, `Link::validate` skips
+them, and `ClassSection::validate` checks each against the section.
 
 What is *not* stored is read from the class bytes at a fixed distance from
 something that is: a method's `max_stack`, `max_locals` and `code_length` sit
@@ -121,7 +134,15 @@ directory: class_count × { u32 class_off, u32 link_off }   (both 4-aligned)
 records:   per class: class bytes, pad to 4, link table, pad to 4
 index:     class_count × IndexEntry { u32 hash, u16 idx, u16 0 }, at index_off
            (8-aligned), sorted by (hash, idx); no two entries share a hash
+literals:  [u32 lit_count], then lit_count × { u32 hash, u32 off, u16 len,
+           u16 flags }, right after the index (layout version 2)
 ```
+
+The literal pool is the set's `String` constants, each distinct byte string
+once, in order of first appearance. A row points at the bytes where they
+already are, inside the constant pool of the first class that spells them;
+`hash` is the string's `hashCode()`, `flags` bit 0 says the bytes are valid
+UTF-8.
 
 Two names in one set that hash alike are refused at build time (the set could
 not be searched by hash alone); so are two equal names.
@@ -166,9 +187,8 @@ board in debug is the missing gate.
   refuses a name that is not UTF-8, so the check is redundant on a validated
   image — kept, because a corrupted image would then be undefined behaviour
   rather than `InvalidBytecode`.
-- **`alloc_with_defaults` chain walk** (0.7 %): a per-class instance-layout
-  memo (slot count and defaults, keyed by class index) would make `new` a
-  lookup instead of a walk.
+- ~~**`alloc_with_defaults` chain walk**~~ — done in the second round,
+  from the packer instead of a memo: see below.
 - **Tag nibble packing** in the link table (−8 KB of SDK flash) and dropping
   the header words the RP2040 never reads, if the RP2040 gets tight again
   (215 KB free in the 1152K region today).
@@ -178,9 +198,8 @@ board in debug is the missing gate.
 - **`ObjectHeap::class_table` keyed by class index** instead of a
   `&'static str` scan, and the `Vec<ClassFile>` replaced by the two static
   segments (−4 KB RAM on the RP2350).
-- **`papk-info --verify`**: run `Link::validate` over every class of a
-  packed file from the command line (the packer and `pdb install` already
-  do).
+- ~~**`papk-info --verify`**~~ — `papk-info` runs `validate_structure`,
+  which includes the deep check, on every file it opens.
 
 ## Results
 
@@ -326,3 +345,149 @@ into the pointer-free resolution tables. Noted as a follow-up, not done.
 
 (The committed ratchet was 903,824 / 1,354,080; the tree measured +1.3 / +1.5 KB
 above it before this work began.)
+
+## Second round (2026-09-30): what else the packer can take over
+
+The first round stored offsets and hashes and resolved nothing. This round
+asked which of the remaining run-time work is fixed at pack time, measured
+each candidate first, and built the ones the numbers supported.
+
+### Measurement first
+
+Counters under `parity-metrics` (`packtime:` line, printed with every span
+report and at exit): `ldc` executions and how many produced a `String`,
+`invokedynamic`, `checkcast` + `instanceof`, `new`, each with its time, and
+the flash-resident strings `intern` had to copy to the heap. Boot and launch
+print how long the package scan, each system app's validation, class
+registration and the asset registry took.
+
+`pico_touch_kit` (RP2350B), release + `--shrink --shrink-app`,
+`parity-metrics` build (each timed op carries about 1–2 µs of clock reads):
+
+| per operation, before | qa_ui | langsuite_kt_stdlib |
+|---|---|---|
+| `ldc` (77 % / 96 % of them strings) | 19.1 µs | 33.6 µs |
+| `new` | 36.4 µs | 46.6 µs |
+| `checkcast` / `instanceof` | 17 µs (63 of them) | 19.4 µs (2,975 of them) |
+| `invokedynamic` | 196 µs (67) | 139 µs (17) |
+| average bytecode, for scale | ≈ 1.5 µs | |
+
+At boot, with two system apps and one installed app: system-app validation
+1.8 ms (launcher, 10 KB) + 9.0 ms (settings, 37 KB); the region scan 27 ms
+for a 97 KB app and 36 ms for a 163 KB one — about 0.25 ms per KB of PAPK,
+nearly all of it the deep link-table check. Registering ~280 classes takes
+1.3–1.6 ms and the asset registry 0.1–0.2 ms.
+
+What that ruled in and out:
+
+- A string `ldc` cost 13–22 average bytecodes: a linear byte-compare against
+  every interned string, inside a scheduler-atomic section, and — once the
+  app had built its first dynamic string — a heap copy of every literal not
+  seen before (705 copies, 8.8 KB, in the Kotlin suite). **Built.**
+- `new` cost 24–31 average bytecodes. **Built.**
+- Type checks cost as much per operation but only a Kotlin-heavy workload
+  runs many (11 % of the Kotlin suite's time, under 0.1 % of qa_ui).
+  **Not built here** — see "Left for a decision".
+- `invokedynamic` is slow but rare: 13 ms of a 2 s run (0.6 %). Not built.
+- Class registration and the asset registry are not worth touching.
+
+### What was built
+
+**A literal pool per class section.** The section builder deduplicates every
+`String` constant of the set into a pool after the index; each class's
+`StringDesc` carries its row. The runtime gives the top of the `u16`
+string-reference range to the two pools — the framework's, then the app's,
+ending at `0xFFFF` — so an `ldc` of a string is `pool base + row`: no entry
+in `StringTable`, no search, no atomic section, no copy
+(`StringTable::set_literal_pools`, `literal_ref`; `helpers::resolve_ldc`).
+The table's own entries still start at 0 and may not grow into the pools.
+A literal's `hashCode()` is read from its row. A constant the framework and
+the app both spell has a row in each pool, so `if_acmpeq` / `if_acmpne`
+treat two literal references with equal bytes as one object
+(`StringTable::same_literal`, JLS §3.10.5). The collector never marks or
+sweeps a literal. A class linked outside a section (tests, `link-at-load`)
+carries `LIT_NONE` and interns as before.
+
+**Instance layouts.** Each `FieldInfo` now records the field's slot among
+its class's own fields and its kind (reference, int-like, float, long,
+double); the header records how many slots the class's own fields take and
+where its superclass sits in the section. `new` on a site the resolution
+tables know (`ObjectHeap::alloc_instance`) walks the chain by index — the
+only lookup left is the step from an app class to its framework parent —
+sums the slot counts, and writes typed zeros for the primitive fields in one
+pass. It decodes no class name, no superclass name and no descriptor, and
+allocates no `Vec` for the chain. `op_new` probes its site before reading
+the constant pool, and `ObjectHeap::intern_class` looks a name up by pointer
+before comparing bytes. `helpers::super_index` — every method and field
+walk — uses the same index.
+
+**System apps are not deep-checked at boot.** A system app is part of the
+firmware image, and the build script refuses to embed one that fails
+`validate_structure`. `packages::register_system` now runs
+`papk_format::validate_embedded` on a device: the header, the manifest walk
+and the class section's bounds. The simulator, which takes its system apps
+from files at run time, still checks them in full.
+
+### Results
+
+Same board and build as above.
+
+| | before | after | Δ |
+|---|---|---|---|
+| qa_ui: `ldc`, total / each | 94.1 ms / 19.1 µs | 21.2 ms / 4.3 µs | −77 % |
+| qa_ui: `new`, total / each | 136.9 ms / 36.4 µs | 68.8 ms / 18.3 µs | −50 % |
+| qa_ui: allocations / collections | 13,774 / 78 | 13,347 / 74 | −427 / −4 |
+| langsuite_kt_stdlib: `ldc`, total / each | 71.7 ms / 33.6 µs | 11.0 ms / 5.2 µs | −85 % |
+| langsuite_kt_stdlib: `new`, total / each | 49.8 ms / 46.6 µs | 34.1 ms / 31.9 µs | −32 % |
+| langsuite_kt_stdlib: allocations / collections | 5,095 / 19 | 4,390 / 17 | −705 / −2 |
+| literals copied to the heap (either app) | 402 / 705 | 0 | |
+| boot: system-app validation (launcher + settings) | 10.8 ms | 0.05 ms | −10.7 ms |
+| boot: region scan, 163 KB → 175 KB Kotlin app | 35.6 ms | 48.2 ms | **+12.6 ms** |
+| bytecodes executed | | unchanged | |
+
+The whole-run effect on a UI workload is small, as the first round's profile
+predicted: qa_ui's 2 s handler span went 1,971 → 1,946 ms, which is inside
+its run-to-run spread, because 45 % of it is inside native calls (LVGL).
+The interpreter columns are where it shows.
+
+Costs:
+
+| | before | after | Δ |
+|---|---|---|---|
+| rp2350 flash (`testbench_rp2350`) | 1,480,020 | 1,487,932 | +7,912 |
+| rp2040 flash (`testbench_rp2040`) | 965,724 | 970,564 | +4,840 (208.8 KB free) |
+| static RAM, both | | | ±0 |
+| qa_ui.papk / langsuite_kt_stdlib.papk | 44,612 / 162,944 | 50,336 / 175,096 | +12.8 % / +7.5 % |
+| framework pool | — | 383 rows for 438 `String` entries | |
+
+An app grows by 12 B per distinct string constant, 4 B per `String` entry,
+2 B per field and 8 B per class. The boot scan of an installed app got
+slower with it (the pool and the superclass indices are validated too),
+which more than cancels the system-app saving for a large string-heavy app.
+
+### Left for a decision
+
+- **Installed apps are deep-checked on every boot**, ~0.28 ms per KB: 48 ms
+  for one 175 KB app, and it grows with everything installed (the touch
+  kit's app region is 9.9 MB). Checking once when an install commits and
+  recording that in the run's boot-meta flags would make the boot scan a
+  header read per run. It changes what the device trusts after a flash
+  fault, which is why it is not done here; the app-store roadmap's S3
+  (section CRCs and a signature) is the natural place for it.
+- **Type checks.** `checkcast` / `instanceof` decode the target name, hash
+  it and the runtime class's name, and walk the hierarchy through string
+  tables, every time, uncached. Two ways to fix it: a small table in the
+  resolution cache keyed by (site, runtime class id) → yes/no (about 60
+  lines, answers builtin classes too, costs 256–512 B of RAM), or
+  class-entry hashes plus per-class ancestor lists from the packer (no RAM,
+  ~7 KB of framework flash, and the classfile-less builtins still need
+  their tables). The first matches how virtual calls are already handled.
+- **`invokedynamic`**: a per-site record (target, capture count, parameter
+  kinds) and one cached proxy for a non-capturing lambda. 0.6 % today.
+- **Resource strings** (`getString`) still copy to the heap on every call;
+  a third flash-backed reference range would serve them as the pools serve
+  literals. Only apps with `res/` string tables benefit.
+- **`ConstantValue` is never read.** A `static final` compile-time constant
+  has no `putstatic` in `<clinit>`; javac and kotlinc inline such constants
+  at every use, so no `getstatic` of one has been seen, but a class from
+  another compiler that reads one would see the type's default.

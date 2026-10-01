@@ -65,6 +65,10 @@
 //!   index at index_off: class_count × { u32 name_hash, u16 idx, u16 0 },
 //!   sorted by hash (see crates/class-link/src/section.rs). The class's
 //!   name is in its link table, not repeated here.
+//!   literals, right after the index: [u32 count], then count ×
+//!   { u32 hash, u32 off, u16 len, u16 flags } — the section's `String`
+//!   constants, each distinct string once; `off` is from the section's
+//!   first byte, into the class that first spells it.
 //!
 //! ASSETS section data:
 //!   [u32 asset_count]
@@ -115,7 +119,8 @@ pub mod res;
 
 mod scan;
 pub use scan::{
-    find_manifest_value, find_manifest_value_in_prefix, validate_structure, StructuralError,
+    find_manifest_value, find_manifest_value_in_prefix, validate_embedded, validate_structure,
+    StructuralError,
 };
 
 #[cfg(feature = "write")]

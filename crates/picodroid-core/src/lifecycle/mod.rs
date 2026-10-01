@@ -233,6 +233,33 @@ fn span_start() -> SpanStart {
 /// ones: `PICODROID_TRACE_SPANS=1`. Read once. Only meaningful with the
 /// `parity-metrics` counters compiled in, which is where the bytecode and
 /// resolution columns come from.
+/// Running totals of the work a packer could take over — `ldc` (and how
+/// many produced a `String`), `invokedynamic`, `checkcast` / `instanceof`,
+/// `new` — on its own line so the parity line keeps its shape
+/// (scripts/parity-bench.sh greps it whole). Totals, not deltas: subtract
+/// two lines for a span.
+#[cfg(feature = "parity-metrics")]
+pub(crate) fn log_packtime() {
+    let (ldcs, ldc_strings, ldc_us) = pico_jvm::parity::ldc_stats();
+    let (indys, indy_us) = pico_jvm::parity::indy_stats();
+    let (type_checks, type_check_us) = pico_jvm::parity::type_check_stats();
+    let (copies, copy_bytes) = pico_jvm::parity::literal_copy_stats();
+    crate::pd_info!(
+        "packtime: ldc={} ldc_str={} ldc_us={} indy={} indy_us={} typechk={} typechk_us={} new={} new_us={} litcopy={} litcopy_bytes={}",
+        ldcs,
+        ldc_strings,
+        ldc_us,
+        indys,
+        indy_us,
+        type_checks,
+        type_check_us,
+        pico_jvm::parity::news(),
+        pico_jvm::parity::new_us(),
+        copies,
+        copy_bytes
+    );
+}
+
 #[cfg(feature = "sim")]
 fn trace_spans() -> bool {
     use std::sync::OnceLock;
@@ -268,6 +295,8 @@ fn warn_if_slow(span: &str, start: SpanStart, slow_ms: u64, last_warn_ms: &mut u
         );
         #[cfg(not(feature = "parity-metrics"))]
         eprintln!("[sim] span: {span} {elapsed} ms");
+        #[cfg(feature = "parity-metrics")]
+        log_packtime();
     }
     if slow_ms == 0 {
         return;
@@ -283,6 +312,8 @@ fn warn_if_slow(span: &str, start: SpanStart, slow_ms: u64, last_warn_ms: &mut u
         return;
     }
     *last_warn_ms = now;
+    #[cfg(feature = "parity-metrics")]
+    log_packtime();
     #[cfg(feature = "parity-metrics")]
     let (insns, resolves, declines, native_us, native_calls, resolve_us, clinit_us) = (
         pico_jvm::parity::insns().wrapping_sub(start.insns),
