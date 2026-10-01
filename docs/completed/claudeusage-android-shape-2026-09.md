@@ -11,11 +11,13 @@ original lists only open work. Text is as it stood when moved; ids keep their me
 | 2 | `Application.onCreate` called `startActivity(new Intent(MainActivity.class))`; Android declares the launcher Activity in the manifest. | App choice | **closed**: `PicodroidManifest.xml` declares `activity="claudeusage/ui/MainActivity"`; `ClaudeUsageApp` is gone. The boot path ignores `activity=` when `application=` is present, so an app cannot have both. |
 | 7 | `getDisplay()` called in `onCreate` with the result discarded. | App choice | **closed**: removed. |
 | 9 | No `onSaveInstanceState`: page index and the AUTO flag were lost on recreate. | App choice | **closed**: both saved in the `Bundle`; AUTO also persists in `SharedPreferences` as a setting. |
+| 8 | `onBackPressed()` overridden to a no-op instead of an `OnBackPressedCallback`. | SDK-forced (no dispatcher) | **closed** (recorded 2026-09-30; gone since `Activity.onKeyDown` landed, item 10): `onBackPressed` is not overridden. `onKeyDown` consumes BACK's press, so the default `onKeyUp` never runs it, as on Android. |
 
 ## 2. Input
 
 | # | Deviation | Tag | Round 1 |
 |---|---|---|---|
+| 12 | Key catcher hidden with `setAlpha(0f)` plus a background drawable rather than `View.INVISIBLE`. | App choice | **closed** (recorded 2026-09-30): the catcher went with item 10. |
 | 10 | An invisible 1x1 `Button` holds focus so hardware keys reach an `OnKeyListener`; Android overrides `Activity.onKeyDown`. | SDK-forced | **closed** 2026-09-24: `Activity.onKeyDown` landed (gaps G8); the catcher is gone and BACK is consumed in `onKeyDown`, which is also what keeps the default `onKeyUp` from running `onBackPressed`. |
 
 ## 3. Layout and drawing
@@ -60,6 +62,16 @@ original lists only open work. Text is as it stood when moved; ids keep their me
 | # | Deviation | Tag | Round 1 |
 |---|---|---|---|
 | 47 | PWM channels never closed. | App choice | **closed**: `RgbLed implements AutoCloseable`; `onDestroy` closes it. |
+
+## 9. Fragment shape (2026-09-30)
+
+From the review in [claudeusage-fragment-shape-2026-09.md](../designs/claudeusage-fragment-shape-2026-09.md).
+
+| # | Deviation | Tag | Status |
+|---|---|---|---|
+| 51 | `UsagePage.onAttach` cast its `Context` to `MainActivity` and called six package-private methods on it (`palette`, `destroyed`, `onPageBuilt`, `repo`, `hasData`, `fadeMs`). | App choice / SDK-forced (no `ViewModel`) | **closed** 2026-09-30: the palette is `Palette.of(getResources())` (resolved once, cached), `fade_ms` comes from `getResources()`, `isAdded()` covers a destroyed host (the manager detaches every fragment on destroy), the data comes from `new ViewModelProvider(requireActivity()).get(UsageViewModel.class)`, and `onPageBuilt` goes through the `UsagePage.Host` interface. No page names `MainActivity`. |
+| 53 | `UsagePage.onAttach`, `onCreate`, `onViewCreated` and `onDestroyView` never called `super`; Android throws `SuperNotCalledException`. | App choice | **closed** 2026-09-30: all four call it, as do the fragments of `fragmentdemo` and `pagerdemo`. The SDK still tolerates a skipped `super`, as `Activity` does; `fragments-2026-09.md` §5 says so. |
+| 56 | The roadmap said every build post was guarded by `isAdded()` and `getView()`; the code checked its own `root` field and `host.destroyed()`. | doc | **closed** 2026-09-30: the code is `gen != viewGen \|\| !isAdded() \|\| getView() == null`, and row 4 says why `viewGen` stays. |
 
 ## SDK asks (from this app's point of view)
 

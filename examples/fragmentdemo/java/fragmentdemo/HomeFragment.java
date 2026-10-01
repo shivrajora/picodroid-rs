@@ -29,12 +29,14 @@ public class HomeFragment extends Fragment {
 
   @Override
   public void onAttach(Context context) {
+    super.onAttach(context);
     mark("onAttach");
     T.check("attach has activity", getActivity() != null && context == getActivity());
   }
 
   @Override
   public void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     mark(savedInstanceState == null ? "onCreate(null)" : "onCreate(saved)");
     if (savedInstanceState != null) {
       counter = savedInstanceState.getInt("counter", -1);
@@ -51,6 +53,7 @@ public class HomeFragment extends Fragment {
 
   @Override
   public void onViewCreated(View view, Bundle savedInstanceState) {
+    super.onViewCreated(view, savedInstanceState);
     mark("onViewCreated");
     T.check("home layout inflated", view.findViewById(R.id.home_line1) != null);
     T.check("getView set in onViewCreated", getView() == view);
@@ -58,26 +61,31 @@ public class HomeFragment extends Fragment {
 
   @Override
   public void onStart() {
+    super.onStart();
     mark("onStart");
   }
 
   @Override
   public void onResume() {
+    super.onResume();
     mark("onResume");
   }
 
   @Override
   public void onPause() {
     mark("onPause");
+    super.onPause();
   }
 
   @Override
   public void onStop() {
     mark("onStop");
+    super.onStop();
   }
 
   @Override
   public void onSaveInstanceState(Bundle outState) {
+    super.onSaveInstanceState(outState);
     mark("onSaveInstanceState");
     outState.putInt("counter", counter);
   }
@@ -86,15 +94,18 @@ public class HomeFragment extends Fragment {
   public void onDestroyView() {
     mark("onDestroyView");
     T.check("view live in onDestroyView", getView() != null);
+    super.onDestroyView();
   }
 
   @Override
   public void onDestroy() {
     mark("onDestroy");
+    super.onDestroy();
   }
 
   @Override
   public void onDetach() {
     mark("onDetach");
+    super.onDetach();
   }
 }

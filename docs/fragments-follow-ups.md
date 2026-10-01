@@ -26,6 +26,45 @@ testbench excludes the six classes), and FR-2's per-class numbers say to measure
   Android code; today `setMaxLifecycle` takes an `int` and saved state is a `Bundle`.
 - `setOffscreenPageLimit(n ≥ 1)` honoured: it is stored and logged, one page stays alive.
 - `startActivityForResult`, `setRetainInstance`, transitions and menus.
+- A fragment as its own `LifecycleOwner` and `ViewModelStoreOwner` (`new ViewModelProvider(this)`
+  in a fragment, `by viewModels()`); today the Activity is the one owner and a fragment has
+  `getViewLifecycleOwner()` (FR-12).
+
+## FR-12: `ViewModel` and `LiveData`
+
+**Status: landed 2026-09-30; the ratchet accept is open.** `picodroid.lifecycle`: `ViewModel`,
+`ViewModelProvider` (+ `Factory`), `ViewModelStore`, `ViewModelStoreOwner`,
+`HasDefaultViewModelProviderFactory`, `LiveData`, `MutableLiveData`, `Observer`, `Lifecycle`,
+`LifecycleOwner`; `Activity` implements the three owner interfaces and
+`Fragment.getViewLifecycleOwner()` follows the view. Pure Java, no native arm. What differs from
+Android is in [designs/fragments-2026-09.md](designs/fragments-2026-09.md) §5; `claudeusage`'s
+pages are the first user ([designs/claudeusage-fragment-shape-2026-09.md](designs/claudeusage-fragment-shape-2026-09.md)),
+and `fragmentdemo`'s `stepLifecycle` is the conformance script (22 checks, both shrink modes).
+
+Measured 2026-09-30 with `parity-bench.sh --size-only`, base and change in one worktree with one
+lockfile (FR-2's method):
+
+| Board | Before | After | Delta |
+|---|---|---|---|
+| `testbench_rp2350` | 1,487,932 | 1,503,620 | +15,688 B |
+| `testbench_rp2040` | 970,564 | 985,548 | +14,984 B |
+
+RAM is unchanged at rest on both. The twelve class files are 12,133 B of it (member-stripped):
+`LiveData` 4,958, `ViewModelProvider` 1,819, `Lifecycle` 1,297, `ViewModelStore` 1,174,
+`LiveData$ObserverWrapper` 1,073, `MutableLiveData` 455, `ViewModel` 325,
+`HasDefaultViewModelProviderFactory` 266, `ViewModelProvider$Factory` 209, `ViewModelStoreOwner`
+208, `LifecycleOwner` 188, `Observer` 161. The rest is their link tables and the growth of
+`Activity` (both boards) and `Fragment` / `FragmentManager` (RP2350 only).
+
+**The RP2040 keeps them**, unlike the six fragment classes. `Activity` implements
+`LifecycleOwner`, `ViewModelStoreOwner` and `HasDefaultViewModelProviderFactory`, so those three
+must resolve wherever `Activity` does; `LiveData` and `ViewModel` are useful to an Activity-only
+app; and the board has 193,844 B free in its 1152K program region since 2026-09-29. If that
+region tightens again, `framework_class_excludes` can drop the seven non-owner classes (about
+11 KB): `Activity` only names them inside `getLifecycle()` and `getViewModelStore()`.
+
+Open: the size ratchet is at 0 % growth, so the nightly `size-ratchet` lane fails until the
++15 KB is accepted (FR-2's recipe, `size:` trailer).
 
 ## FR-10: A bridge-backed nightly row that turns real pages
 

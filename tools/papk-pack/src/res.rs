@@ -684,9 +684,16 @@ impl LayoutCompiler<'_> {
     }
 
     fn node(&mut self, el: &Element, file: &str, out: &mut Vec<u32>) -> Result<(), String> {
+        // Android wants the fully qualified name for a view outside android.widget /
+        // android.view (androidx's ViewPager2, say). Every inflatable view here lives in
+        // picodroid.widget, so a layout may spell any of them either way.
+        let simple = el
+            .name
+            .strip_prefix("picodroid.widget.")
+            .unwrap_or(&el.name);
         let class = layout::class::ALL
             .iter()
-            .find(|(n, _)| *n == el.name)
+            .find(|(n, _)| *n == simple)
             .map(|&(_, c)| c)
             .ok_or_else(|| {
                 let hint = match el.name.as_str() {
@@ -1136,6 +1143,22 @@ mod tests {
     }
 
     #[test]
+    fn an_element_may_be_fully_qualified() {
+        let short = tree(&[(
+            "layout/m.xml",
+            r#"<FrameLayout><ViewPager2 layout_width="match_parent"/></FrameLayout>"#,
+        )]);
+        let long = tree(&[(
+            "layout/m.xml",
+            r#"<picodroid.widget.FrameLayout><picodroid.widget.ViewPager2 layout_width="match_parent"/></picodroid.widget.FrameLayout>"#,
+        )]);
+        assert_eq!(
+            compile(&short).unwrap().table,
+            compile(&long).unwrap().table
+        );
+    }
+
+    #[test]
     fn range_attributes_precede_progress_whatever_the_xml_order() {
         use layout::{attr as a, class as k, node_header};
         const BAR: &str = r##"<?xml version="1.0" encoding="utf-8"?>
@@ -1212,6 +1235,7 @@ mod tests {
         assert!(err(&[("values/a.xml", &wrap(r#"<style name="s"/>"#))]).contains("not supported"));
         assert!(err(&[("layout/Main.xml", "<TextView/>")]).contains("[a-z0-9_]"));
         assert!(err(&[("layout/m.xml", "<com.example.Dial/>")]).contains("no reflection"));
+        assert!(err(&[("layout/m.xml", "<picodroid.widget.Dial/>")]).contains("no reflection"));
         assert!(
             err(&[("layout/m.xml", "<TextView><Button/></TextView>")]).contains("not a ViewGroup")
         );

@@ -14,6 +14,8 @@ import picodroid.concurrent.Executors;
 import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
 import picodroid.content.res.Resources;
+import picodroid.lifecycle.ViewModel;
+import picodroid.lifecycle.ViewModelProvider;
 import picodroid.os.Bundle;
 import picodroid.os.IBinder;
 import picodroid.util.Log;
@@ -30,8 +32,10 @@ import picodroid.widget.ViewPager2;
  * pager in the same container. The chrome is {@code res/layout/activity_main.xml}.
  *
  * <p>The numbers come from {@link UsageService}, started here so they stay warm and bound while the
- * screen is on. Buttons, with the display landscape (A top-left, B bottom-left, X top-right, Y
- * bottom-right); each corner of the screen carries the hint for the button beside it:
+ * screen is on. The Activity paints the chrome from them and publishes them in its {@link
+ * UsageViewModel}; the pages observe that, and the Activity never looks for the page on screen.
+ * Buttons, with the display landscape (A top-left, B bottom-left, X top-right, Y bottom-right);
+ * each corner of the screen carries the hint for the button beside it:
  *
  * <ul>
  *   <li>A previous screen, B next screen (both wrap); hold either to keep turning
@@ -45,7 +49,7 @@ import picodroid.widget.ViewPager2;
  * never leaves the app: this is an appliance, and BACK falling through to finish() would drop it to
  * a launcher nobody asked for.
  */
-public class MainActivity extends Activity implements UsageService.Listener {
+public class MainActivity extends Activity implements UsageService.Listener, UsagePage.Host {
   private static final String TAG = UsageService.TAG;
 
   private static final int PAGE_LIMITS = 0;
@@ -63,7 +67,7 @@ public class MainActivity extends Activity implements UsageService.Listener {
   /** AUTO is a setting: it survives a power cycle. */
   private static final String KEY_AUTO = "auto";
 
-  /** The status screen's tag in the fragment manager; the pager's pages are {@code f<index>}. */
+  /** The status screen's tag in the fragment manager. */
   private static final String TAG_STATUS = "status";
 
   private static final int[] PAGE_DOT_IDS = {
@@ -83,6 +87,7 @@ public class MainActivity extends Activity implements UsageService.Listener {
         @Override
         public void onServiceDisconnected() {
           repo = null;
+          model.publish(null);
         }
       };
 
@@ -102,9 +107,9 @@ public class MainActivity extends Activity implements UsageService.Listener {
   /** Null until the Service is bound; every callback that reads it arrives after that. */
   private UsageService repo;
 
+  private UsageViewModel model;
   private Palette palette;
   private int autoPeriod;
-  private int fadeMs;
   private RgbLed led;
 
   private ViewPager2 pager;
@@ -133,7 +138,6 @@ public class MainActivity extends Activity implements UsageService.Listener {
   /** Whether the status screen is laid over the pager (no data yet). */
   private boolean statusShowing;
 
-  private boolean pageUpdatePending;
   private boolean dotsPending;
   private boolean chromeWarmed;
   private boolean auto;
@@ -147,10 +151,10 @@ public class MainActivity extends Activity implements UsageService.Listener {
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     Resources res = getResources();
-    palette = new Palette(res);
+    palette = Palette.of(res);
     palette.applyTheme();
+    model = new ViewModelProvider(this).get(UsageViewModel.class);
     autoPeriod = res.getInteger(R.integer.auto_seconds);
-    fadeMs = res.getInteger(R.integer.fade_ms);
     hintAuto = getString(R.string.hint_auto);
     hintHome = getString(R.string.hint_home);
     hintSync = getString(R.string.hint_sync);
@@ -206,31 +210,21 @@ public class MainActivity extends Activity implements UsageService.Listener {
     }
   }
 
-  // ── What the pages ask of their host ───────────────────────────────────
-
-  Palette palette() {
-    return palette;
-  }
-
-  int fadeMs() {
-    return fadeMs;
-  }
-
-  UsageService repo() {
-    return repo;
-  }
-
-  boolean destroyed() {
-    return destroyed;
-  }
-
-  boolean hasData() {
-    UsageSnapshot s = repo == null ? null : repo.snapshot();
-    return s != null && s.hasLimits();
+  /** There is no reflection to make a ViewModel by: the pages' provider asks here. */
+  @Override
+  public ViewModelProvider.Factory getDefaultViewModelProviderFactory() {
+    return new ViewModelProvider.Factory() {
+      @Override
+      @SuppressWarnings("unchecked")
+      public <T extends ViewModel> T create(Class<T> modelClass) {
+        return (T) new UsageViewModel();
+      }
+    };
   }
 
   /** The first page is built: warm the chrome's data path while the board is still idle. */
-  void onPageBuilt() {
+  @Override
+  public void onPageBuilt() {
     if (!chromeWarmed) {
       chromeWarmed = true;
       Executors.mainExecutor().execute(this::warmChrome);
@@ -276,6 +270,7 @@ public class MainActivity extends Activity implements UsageService.Listener {
       repo.setListener(null);
       repo = null;
     }
+    model.publish(null);
     unbindService(connection);
     super.onStop();
   }
@@ -414,7 +409,7 @@ public class MainActivity extends Activity implements UsageService.Listener {
    * its own as the old page swap was.
    */
   private void syncStatus() {
-    boolean wantStatus = !hasData();
+    boolean wantStatus = !model.hasData();
     if (wantStatus == statusShowing) {
       return;
     }
@@ -431,13 +426,6 @@ public class MainActivity extends Activity implements UsageService.Listener {
       Log.i(TAG, "page -> " + pageTitles[pager.getCurrentItem()]);
     }
     refreshPageChrome();
-  }
-
-  /** The screen the user sees: the status screen, or the pager's current page; null mid-swap. */
-  private UsagePage visiblePage() {
-    FragmentManager fm = getSupportFragmentManager();
-    Fragment f = fm.findFragmentByTag(statusShowing ? TAG_STATUS : "f" + pager.getCurrentItem());
-    return (UsagePage) f;
   }
 
   /**
@@ -494,25 +482,11 @@ public class MainActivity extends Activity implements UsageService.Listener {
     if (destroyed || repo == null) {
       return;
     }
+    // The pages observe this. Each repaints on a tick of its own, after this one: the chrome
+    // below costs the RP2350 some 20 ms, and a page's repaint on top would overrun the budget.
+    model.publish(repo);
     syncStatus();
     refreshChrome();
-    if (!pageUpdatePending) {
-      // The chrome (~20 ms on the RP2350) and the page (~30 ms) would overrun the slow-handler
-      // budget together, so the page takes the next tick.
-      pageUpdatePending = true;
-      Executors.mainExecutor().execute(this::updatePage);
-    }
-  }
-
-  private void updatePage() {
-    pageUpdatePending = false;
-    if (destroyed || repo == null) {
-      return;
-    }
-    UsagePage page = visiblePage();
-    if (page != null) {
-      page.onUsage(repo, System.currentTimeMillis());
-    }
   }
 
   /** The part of the chrome a page turn changes; cheap enough to share a tick with the turn. */

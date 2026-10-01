@@ -32,6 +32,7 @@ public class PageFragment extends Fragment {
 
   @Override
   public void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     position = requireArguments().getInt("position");
     if (savedInstanceState != null) {
       visits = savedInstanceState.getInt("visits", 0);
@@ -57,6 +58,7 @@ public class PageFragment extends Fragment {
 
   @Override
   public void onResume() {
+    super.onResume();
     visits++;
     visitsLabel.setText("visits " + visits);
     PagerDemoActivity.lastVisits[position] = visits;
@@ -65,17 +67,20 @@ public class PageFragment extends Fragment {
 
   @Override
   public void onSaveInstanceState(Bundle outState) {
+    super.onSaveInstanceState(outState);
     outState.putInt("visits", visits);
   }
 
   @Override
   public void onDestroyView() {
     visitsLabel = null;
+    super.onDestroyView();
   }
 
   @Override
   public void onDestroy() {
     PagerDemoActivity.destroyed[position]++;
     Log.i(PagerDemoActivity.TAG, "page " + position + " destroyed");
+    super.onDestroy();
   }
 }

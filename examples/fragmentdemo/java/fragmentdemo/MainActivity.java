@@ -7,6 +7,12 @@ import picodroid.app.FragmentFactory;
 import picodroid.app.FragmentManager;
 import picodroid.app.FragmentTransaction;
 import picodroid.content.Intent;
+import picodroid.lifecycle.Lifecycle;
+import picodroid.lifecycle.LifecycleOwner;
+import picodroid.lifecycle.MutableLiveData;
+import picodroid.lifecycle.Observer;
+import picodroid.lifecycle.ViewModel;
+import picodroid.lifecycle.ViewModelProvider;
 import picodroid.os.Bundle;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
@@ -15,7 +21,8 @@ import picodroid.view.ViewGroup;
 
 /**
  * Conformance driver for {@code picodroid.app.Fragment}: the callback order against the host's,
- * replace with a back stack, hide/show, detach/attach, a headless fragment, the refused
+ * replace with a back stack, hide/show, detach/attach, {@code LiveData} against a fragment's view
+ * lifecycle and a {@code ViewModel} shared through the host, a headless fragment, the refused
  * transactions, ten replace-and-pop rounds, a BACK that pops instead of finishing, then a covered
  * and reclaimed host whose fragments, arguments, saved state and back stack come back through the
  * {@link FragmentFactory}, and a second BACK on the restored stack. Instances trace as {@code
@@ -30,6 +37,39 @@ public class MainActivity extends Activity {
 
   /** Which BACK the driver is waiting for (1 or 2); static so it survives the re-creation. */
   private static int stage;
+
+  /** The first instance's lifecycle and ViewModel, to look at once that instance is gone. */
+  private static Lifecycle firstLifecycle;
+
+  private static DemoViewModel firstModel;
+  private static int modelsMade;
+  private static int modelsCleared;
+
+  /** What {@code postValue} delivered, a tick after it was posted. */
+  private static String posted;
+
+  /** The Android shape: data the Activity and its fragments share, minus the views. */
+  static final class DemoViewModel extends ViewModel {
+    final MutableLiveData<String> line = new MutableLiveData<>();
+
+    @Override
+    protected void onCleared() {
+      modelsCleared++;
+    }
+  }
+
+  /** No reflection to make a ViewModel by: {@code new ViewModelProvider(this)} asks here. */
+  @Override
+  public ViewModelProvider.Factory getDefaultViewModelProviderFactory() {
+    return new ViewModelProvider.Factory() {
+      @Override
+      @SuppressWarnings("unchecked")
+      public <T extends ViewModel> T create(Class<T> modelClass) {
+        modelsMade++;
+        return (T) new DemoViewModel();
+      }
+    };
+  }
 
   private int id;
   private boolean resumedOnce;
@@ -162,6 +202,7 @@ public class MainActivity extends Activity {
       stepReplace();
       stepHideShow();
       stepDetachAttach();
+      stepLifecycle();
       stepHeadless();
       stepRefusals();
       stepChurn();
@@ -258,6 +299,93 @@ public class MainActivity extends Activity {
             && T.count("Detail1.onCreateView(null)") == 2);
   }
 
+  private void stepLifecycle() {
+    // LiveData bound to the fragment's view.
+    DemoViewModel model = new ViewModelProvider(this).get(DemoViewModel.class);
+    MutableLiveData<String> live = model.line;
+    StringBuilder seen = new StringBuilder();
+    Observer<String> observer = v -> seen.append(v).append(';');
+    LifecycleOwner view = detail.getViewLifecycleOwner();
+    T.check(
+        "view lifecycle resumed with its fragment",
+        view.getLifecycle().getCurrentState() == Lifecycle.RESUMED
+            && detail.getViewLifecycleOwner() == view);
+    live.observe(view, observer);
+    live.observe(view, observer);
+    T.check(
+        "observing an empty LiveData delivers nothing",
+        seen.length() == 0 && live.hasActiveObservers() && live.getValue() == null);
+    live.setValue("a");
+    T.check("setValue delivers inside the call", seen.toString().equals("a;"));
+    StringBuilder late = new StringBuilder();
+    live.observe(view, v -> late.append(v));
+    T.check("a late observer gets the current value", late.toString().equals("a"));
+    fm.beginTransaction().detach(detail).commitNow();
+    T.check(
+        "the view going takes its observers",
+        view.getLifecycle().getCurrentState() == Lifecycle.DESTROYED && !live.hasObservers());
+    live.setValue("b");
+    T.check("nothing delivered to a destroyed view", seen.toString().equals("a;"));
+    T.check("no view, no view lifecycle", throwsState(() -> detail.getViewLifecycleOwner()));
+    fm.beginTransaction().attach(detail).commitNow();
+    T.check("a new view has a new lifecycle", detail.getViewLifecycleOwner() != view);
+
+    // An owner that stops and starts, driven by hand.
+    Lifecycle own = new Lifecycle();
+    own.setCurrentState(Lifecycle.CREATED);
+    StringBuilder held = new StringBuilder();
+    live.observe(own, v -> held.append(v));
+    live.setValue("c");
+    T.check("a stopped owner hears nothing", held.length() == 0 && !live.hasActiveObservers());
+    own.setCurrentState(Lifecycle.STARTED);
+    T.check("started: the value it missed", held.toString().equals("c"));
+    live.setValue("d");
+    own.setCurrentState(Lifecycle.CREATED);
+    live.setValue("e");
+    live.setValue("f");
+    own.setCurrentState(Lifecycle.RESUMED);
+    T.check("only the last of the values missed", held.toString().equals("cdf"));
+    own.setCurrentState(Lifecycle.DESTROYED);
+    T.check("a destroyed owner is forgotten", !live.hasObservers());
+    live.observe(own, v -> held.append(v));
+    T.check("and cannot observe again", !live.hasObservers());
+
+    // observeForever, removal from inside a callback, and postValue.
+    MutableLiveData<String> other = new MutableLiveData<>();
+    StringBuilder forever = new StringBuilder();
+    Observer<String> once =
+        new Observer<String>() {
+          @Override
+          public void onChanged(String v) {
+            forever.append(v);
+            other.removeObserver(this);
+          }
+        };
+    other.observeForever(once);
+    other.observeForever(v -> posted = v);
+    other.setValue("y");
+    T.check(
+        "an observer that removes itself, and the one after it",
+        forever.toString().equals("y") && "y".equals(posted) && other.hasObservers());
+    other.postValue("p1");
+    other.postValue("p2");
+    T.check("postValue waits for the main thread", "y".equals(posted));
+
+    // The host's own lifecycle, and its ViewModels.
+    firstLifecycle = getLifecycle();
+    firstModel = model;
+    T.check("the Activity is resumed", firstLifecycle.getCurrentState() == Lifecycle.RESUMED);
+    T.check(
+        "one ViewModel per owner and class",
+        new ViewModelProvider(this).get(DemoViewModel.class) == model && modelsMade == 1);
+    T.check(
+        "another key, another instance",
+        new ViewModelProvider(this).get("second", DemoViewModel.class) != model && modelsMade == 2);
+    T.check(
+        "no factory, no new ViewModel",
+        throwsState(() -> new ViewModelProvider(this, null).get("third", DemoViewModel.class)));
+  }
+
   private void stepHeadless() {
     HeadlessFragment hl = new HeadlessFragment();
     fm.beginTransaction().add(hl, "hl").commitNow();
@@ -334,6 +462,7 @@ public class MainActivity extends Activity {
         home.isResumed() && home.getView() != null && T.count("Home1.onCreateView(null)") == 2);
     T.check("back stack empty", fm.getBackStackEntryCount() == 0);
     T.check("BACK did not finish the Activity", T.count("H1.onDestroy") == 0);
+    T.check("postValue delivered the last value posted", "p2".equals(posted));
     Log.i(TAG, "popped 1");
     stepCover();
   }
@@ -366,6 +495,12 @@ public class MainActivity extends Activity {
         T.count("Home1.onDetach") == 1
             && T.count("Detail12.onDetach") == 1
             && T.before("Detail12.onDestroyView", 1, "H1.onDestroy", 1));
+    T.check(
+        "the first host's lifecycle ended and its ViewModels were cleared",
+        firstLifecycle.getCurrentState() == Lifecycle.DESTROYED && modelsCleared == 2);
+    T.check(
+        "a re-created host starts with a new ViewModel",
+        new ViewModelProvider(this).get(DemoViewModel.class) != firstModel && modelsMade == 3);
     T.check(
         "detail rebuilt and resumed",
         detail.isResumed() && T.count("Detail13.onCreateView(null)") == 1);

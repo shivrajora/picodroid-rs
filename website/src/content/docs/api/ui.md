@@ -119,6 +119,8 @@ To test that, turn on the equivalent of Android's *Don't keep activities* develo
 | `getLayoutInflater()` | A `LayoutInflater` for this Activity: `inflate(R.layout.row, parent, false)`. |
 | `getResources()` | The app's compiled `res/` tree: `getString`, `getText`, `getColor`, `getDimension`, `getDimensionPixelSize`, `getDimensionPixelOffset`, `getInteger`, `getBoolean`, and `getDisplayMetrics()`. `getString(int)` and `getColor(int)` are also on `Context`. |
 | `getSupportFragmentManager()` | The Activity's `FragmentManager`. See [Fragment](#picodroidappfragment). |
+| `getLifecycle()` | The Activity's `Lifecycle`: pass `this` to `LiveData.observe`. See [lifecycle](#picodroidlifecycle). |
+| `getViewModelStore()` / `getDefaultViewModelProviderFactory()` | What `new ViewModelProvider(activity)` uses; override the second to construct the Activity's ViewModels. See [lifecycle](#picodroidlifecycle). |
 | `getDisplay()` | Returns the `Display` singleton. |
 
 See [`examples/navdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/navdemo) for a multi-Activity back-stack demo and [`examples/dialogdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/dialogdemo) for an `onBackPressed` override pattern.
@@ -196,9 +198,63 @@ protected void onCreate(Bundle savedInstanceState) {
 
 Compare with `X.class.getName()`, never a string literal: a shrunk build renames app classes and `getName()` follows the rename. Without a factory nothing is restored and the log says so. `FragmentManager.saveFragmentInstanceState(fragment)` and `Fragment.setInitialSavedState(Bundle)` carry one fragment's state by hand, as Android's `SavedState` does.
 
-**What differs from Android.** A view a fragment gives up in `onDestroyView` is freed at once, LVGL widgets and all, so every field holding one of its children is dead afterwards and the next `onCreateView` builds a fresh tree (Android keeps detached trees; a panel cannot). Lifecycle states are `int` constants on `Fragment` rather than a `Lifecycle.State` enum. `FragmentFactory.instantiate` takes the class name alone (no `ClassLoader`). Views are appended to their container in the order fragments reach `VIEW_CREATED`. Not provided: child fragment managers, `startActivityForResult` on a fragment (use the Activity's), transitions and animations, `setRetainInstance`, menus, `ViewModel` and `Lifecycle` owners, the Fragment Result API. Every method runs on the main thread. A second `setContentView` after fragments have views stales them like any other view of the old tree: remove the fragments first.
+**What differs from Android.** A view a fragment gives up in `onDestroyView` is freed at once, LVGL widgets and all, so every field holding one of its children is dead afterwards and the next `onCreateView` builds a fresh tree (Android keeps detached trees; a panel cannot). Lifecycle states are `int` constants on `Fragment` rather than a `Lifecycle.State` enum. `FragmentFactory.instantiate` takes the class name alone (no `ClassLoader`). Views are appended to their container in the order fragments reach `VIEW_CREATED`. An override that skips `super` is tolerated, as on `Activity` (Android throws `SuperNotCalledException`); call it anyway. A fragment is not a `LifecycleOwner` or a `ViewModelStoreOwner` itself: observe with `getViewLifecycleOwner()` and share a `ViewModel` through `requireActivity()` (see [lifecycle](#picodroidlifecycle)). Not provided: child fragment managers, `startActivityForResult` on a fragment (use the Activity's), transitions and animations, `setRetainInstance`, menus, the Fragment Result API. Every method runs on the main thread. A second `setContentView` after fragments have views stales them like any other view of the old tree: remove the fragments first.
 
 See [`examples/fragmentdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/fragmentdemo) for the conformance script (callback order, back stack, refused transactions, the factory under a reclaim) and [`examples/claudeusage/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/claudeusage) for four screens as fragments in a [`ViewPager2`](#picodroidwidgetviewpager2).
+
+## `picodroid.lifecycle`
+
+`ViewModel`, `ViewModelProvider`, `LiveData` / `MutableLiveData`, `Observer`, `Lifecycle` and `LifecycleOwner`, the shape of `androidx.lifecycle`. They are how an Activity and its fragments share data without the fragments knowing their host's class: the Activity owns a `ViewModel`, the fragments get the same instance from a `ViewModelProvider` over `requireActivity()`, and each observes the `LiveData` it shows for as long as its view lives.
+
+```java
+import picodroid.lifecycle.LiveData;
+import picodroid.lifecycle.MutableLiveData;
+import picodroid.lifecycle.ViewModel;
+import picodroid.lifecycle.ViewModelProvider;
+
+final class ReadingViewModel extends ViewModel {
+  private final MutableLiveData<String> reading = new MutableLiveData<>();
+
+  LiveData<String> reading() { return reading; }
+  void publish(String text) { reading.setValue(text); }
+}
+
+public class MainActivity extends Activity {
+  // No reflection on this runtime: say how this Activity's ViewModels are made.
+  @Override
+  public ViewModelProvider.Factory getDefaultViewModelProviderFactory() {
+    return new ViewModelProvider.Factory() {
+      @Override
+      @SuppressWarnings("unchecked")
+      public <T extends ViewModel> T create(Class<T> modelClass) {
+        return (T) new ReadingViewModel();
+      }
+    };
+  }
+}
+
+public class ReadingFragment extends Fragment {
+  @Override
+  public void onViewCreated(View view, Bundle savedInstanceState) {
+    super.onViewCreated(view, savedInstanceState);
+    TextView label = view.findViewById(R.id.reading);
+    ReadingViewModel model = new ViewModelProvider(requireActivity()).get(ReadingViewModel.class);
+    model.reading().observe(getViewLifecycleOwner(), text -> label.setText(text));
+  }
+}
+```
+
+**`LiveData<T>`.** `observe(owner, observer)` adds an observer that is active while `owner`'s lifecycle is at least `STARTED`: it gets the current value when it becomes active (if it has not seen it), every `setValue` while it stays active, and is removed by itself when the owner is destroyed. `observeForever(observer)` is always active until `removeObserver`. Also `removeObservers(owner)`, `getValue()` (`null` before the first value), `hasObservers()`, `hasActiveObservers()`, and the `onActive()` / `onInactive()` hooks. `setValue` and `postValue` are `protected` on `LiveData` and public on `MutableLiveData`, as on Android. `setValue` is main-thread only and delivers before it returns; `postValue` is for any thread and hands the value to the main thread, where the last of several posted values wins.
+
+`setValue` runs every active observer inside the call. On a microcontroller that is one main-thread tick doing all of their work, so an observer with a lot to repaint should post the repaint to the next tick (`Executors.mainExecutor().execute(...)`), which is what `claudeusage`'s pages do.
+
+**Owners.** An `Activity` is a `LifecycleOwner`: its `getLifecycle()` is `CREATED` after `onCreate` returns, `STARTED` after `onStart`, `RESUMED` after `onResume`, and steps back down before `onPause`, `onStop` and `onDestroy` run. A fragment's `getViewLifecycleOwner()` follows its view the same way and is destroyed before `onDestroyView`; each view gets a new one, and the call throws while there is no view. `Lifecycle.getCurrentState()` returns an `int` (`Lifecycle.DESTROYED`, `INITIALIZED`, `CREATED`, `STARTED`, `RESUMED`); compare with `>=` where Android says `isAtLeast`. An app can be an owner of its own: implement `LifecycleOwner`, hold a `new Lifecycle()` and move it with `setCurrentState`.
+
+**`ViewModel` and `ViewModelProvider`.** `new ViewModelProvider(owner).get(X.class)` returns the owner's `X`, creating it on the first call; `get(key, X.class)` keeps several of one class. An `Activity` is the `ViewModelStoreOwner`. The instance is made by a `ViewModelProvider.Factory`: the one passed as the constructor's second argument, else the owner's `getDefaultViewModelProviderFactory()`, which returns `null` unless the Activity overrides it; with neither, `get` throws `IllegalStateException` for a ViewModel that does not exist yet. `onCleared()` runs when the owning Activity is destroyed.
+
+**What differs from Android.** A `ViewModel` lives as long as its Activity *instance*: there are no configuration changes here, and after `recreate()` or a reclaim the new instance starts with a new ViewModel, as an Android app does after process death (keep what must survive in `onSaveInstanceState`). There is no default reflective factory. Lifecycle states are `int`s. Not provided: `Lifecycle.addObserver` with `LifecycleObserver` / `DefaultLifecycleObserver` and `Lifecycle.Event`, `Transformations`, `MediatorLiveData`, `SavedStateHandle`, `AndroidViewModel`, `viewModelScope`, and a fragment as its own `LifecycleOwner` or `ViewModelStoreOwner`.
+
+See [`examples/claudeusage/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/claudeusage) (`UsageViewModel`, observed by four pager pages) and the lifecycle step of [`examples/fragmentdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/fragmentdemo).
 
 ## `picodroid.os.Bundle`
 
@@ -1344,7 +1400,7 @@ pager.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
 
 | Method | Description |
 |--------|-------------|
-| `setAdapter(FragmentStateAdapter)` / `getAdapter()` | The adapter's `createFragment(position)` makes each page's fragment, added with the tag `"f" + itemId` (so `getSupportFragmentManager().findFragmentByTag("f" + pager.getCurrentItem())` is the current page, as on Android); `getItemCount()`, `getItemId(position)`, `containsItem(itemId)`, `notifyDataSetChanged()`. The first page appears on a later tick. |
+| `setAdapter(FragmentStateAdapter)` / `getAdapter()` | The adapter's `createFragment(position)` makes each page's fragment, added with the tag `"f" + itemId` (Android's spelling; as there it is an implementation detail, so have each page observe its data through a shared [`ViewModel`](#picodroidlifecycle) rather than look the current page up by tag); `getItemCount()`, `getItemId(position)`, `containsItem(itemId)`, `notifyDataSetChanged()`. The first page appears on a later tick. |
 | `setCurrentItem(int item[, boolean smoothScroll])` / `getCurrentItem()` | Turn to a page. `getCurrentItem` is the page asked for, even mid-turn. No wrap. |
 | `registerOnPageChangeCallback` / `unregisterOnPageChangeCallback` | `onPageSelected(position)` once the new page is resumed; `onPageScrollStateChanged(SCROLL_STATE_SETTLING | SCROLL_STATE_IDLE)`; `onPageScrolled(position, 0f, 0)` once per turn. |
 | `setUserInputEnabled(boolean)` / `isUserInputEnabled()` | Whether a swipe across the page turns it (on by default; off on a board without touch, where keys drive the pager). |

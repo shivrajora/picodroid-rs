@@ -58,6 +58,7 @@ F	DEFAULT_REQUEST
 F	DEFAULT_TEXT_SIZE
 F	DEFAULT_TRACK_THICKNESS
 F	DENSITY_DEFAULT
+F	DESTROYED
 F	DIR
 F	DIRECTION_IN
 F	DIRECTION_OUT_INITIALLY_HIGH
@@ -142,6 +143,7 @@ F	IME_ACTION_SEND
 F	IME_ACTION_UNSPECIFIED
 F	INDICATOR_DIRECTION_CLOCKWISE
 F	INDICATOR_DIRECTION_COUNTERCLOCKWISE
+F	INITIALIZED
 F	INITIALIZING
 F	INSTANCE
 F	INTERP_ACCELERATE
@@ -249,6 +251,7 @@ F	NEW
 F	NOON
 F	NORM_PRIORITY
 F	NOTIFICATION_SERVICE
+F	NOT_SET
 F	NOVEMBER
 F	NO_GRAVITY
 F	NO_ID
@@ -334,6 +337,7 @@ F	START_FLAG_RETRY
 F	START_NOT_STICKY
 F	START_REDELIVER_INTENT
 F	START_STICKY
+F	START_VERSION
 F	STATUS_BAD_AUTH
 F	STATUS_DOWN
 F	STATUS_FAIL
@@ -576,6 +580,7 @@ F	longPressFired
 F	longValsHi
 F	longValsLo
 F	mActive
+F	mActiveCount
 F	mAdapter
 F	mAddToBackStack
 F	mAdded
@@ -599,7 +604,10 @@ F	mContentView
 F	mContext
 F	mCurState
 F	mCurrentItem
+F	mData
 F	mDestroyed
+F	mDispatchInvalidated
+F	mDispatchingValue
 F	mDrain
 F	mDrawPending
 F	mDrawTask
@@ -618,16 +626,24 @@ F	mHost
 F	mInts
 F	mIsPop
 F	mKeyDispatchState
+F	mKeys
 F	mLastTag
+F	mLastVersion
 F	mLayout
+F	mLifecycle
+F	mLifecycleState
 F	mLimit
 F	mLineMode
+F	mLiveData
 F	mManager
 F	mMaxState
 F	mMetrics
+F	mModels
 F	mName
 F	mNextBackStackIndex
 F	mNextWho
+F	mObserver
+F	mObservers
 F	mOffscreenPageLimit
 F	mOps
 F	mOrientation
@@ -635,8 +651,10 @@ F	mPager
 F	mParent
 F	mPending
 F	mPendingAdapterState
+F	mPendingData
 F	mPopFlags
 F	mPos
+F	mPostValueRunnable
 F	mSavedFragmentState
 F	mScrollState
 F	mSmooth
@@ -646,12 +664,16 @@ F	mStateCount
 F	mStateIds
 F	mStateSaved
 F	mStates
+F	mStore
 F	mSwapping
 F	mSwipeListener
 F	mTag
 F	mTextSize
 F	mUserInputEnabled
+F	mVersion
 F	mView
+F	mViewLifecycle
+F	mViewModelStore
 F	mWho
 F	max
 F	maxRange
@@ -804,6 +826,7 @@ M	access$076
 M	access$100
 M	access$1002
 M	access$1100
+M	access$200
 M	access$302
 M	access$402
 M	access$502
@@ -812,6 +835,8 @@ M	access$700
 M	access$802
 M	access$902
 M	accumulate
+M	activeCountChanged
+M	activeStateChanged
 M	add
 M	addAndGet
 M	addCapability
@@ -819,6 +844,7 @@ M	addExact
 M	addFragment
 M	addItem
 M	addNetwork
+M	addObserver
 M	addOnBackStackChangedListener
 M	addRequestProperty
 M	addTextChangedListener
@@ -945,6 +971,7 @@ M	computeUInt32SizeNoTag
 M	computeUInt64Size
 M	computeUInt64SizeNoTag
 M	connect
+M	considerNotify
 M	contains
 M	containsCrLf
 M	containsItem
@@ -976,6 +1003,7 @@ M	delay0
 M	delete
 M	deleteFile
 M	deliverInitial
+M	deliverPosted
 M	descent
 M	destroyView
 M	detach
@@ -995,6 +1023,7 @@ M	dispatchSelected
 M	dispatchStart
 M	dispatchStateChange
 M	dispatchStop
+M	dispatchingValue
 M	dividedBy
 M	doAddOp
 M	done
@@ -1032,6 +1061,7 @@ M	extras
 M	fileList
 M	filePath
 M	fill
+M	find
 M	findActiveByWho
 M	findButton
 M	findFragmentById
@@ -1123,6 +1153,7 @@ M	getContentTitle
 M	getContext
 M	getCount
 M	getCurrentItem
+M	getCurrentState
 M	getDSTSavings
 M	getData
 M	getDataBytes
@@ -1135,6 +1166,7 @@ M	getDefault
 M	getDefaultColor
 M	getDefaultSensor
 M	getDefaultUncaughtExceptionHandler
+M	getDefaultViewModelProviderFactory
 M	getDelay
 M	getDimension
 M	getDimensionPixelOffset
@@ -1195,6 +1227,7 @@ M	getLayoutInflater
 M	getLayoutParams
 M	getLeft
 M	getLength
+M	getLifecycle
 M	getLineHeight
 M	getLong
 M	getLongExtra
@@ -1304,6 +1337,8 @@ M	getUnits
 M	getValue
 M	getVendor
 M	getView
+M	getViewLifecycleOwner
+M	getViewModelStore
 M	getVisibility
 M	getWidth
 M	getWifiState
@@ -1313,10 +1348,12 @@ M	getYear
 M	grow
 M	handleUpEvent
 M	has
+M	hasActiveObservers
 M	hasCapability
 M	hasExtra
 M	hasFocus
 M	hasLineMode
+M	hasObservers
 M	hasSystemFeature
 M	hasTransport
 M	hash
@@ -1644,6 +1681,8 @@ M	notify
 M	notifyDataSetChanged
 M	now
 M	numberToString
+M	observe
+M	observeForever
 M	of
 M	ofDays
 M	ofEpochDay
@@ -1664,6 +1703,7 @@ M	ofSeconds
 M	ofTotalSeconds
 M	ofYearDay
 M	onAccuracyChanged
+M	onActive
 M	onActivityResult
 M	onAttach
 M	onAvailable
@@ -1673,7 +1713,9 @@ M	onBind
 M	onBindPage
 M	onButtonChecked
 M	onCapabilitiesChanged
+M	onChanged
 M	onCheckedChanged
+M	onCleared
 M	onClick
 M	onCreate
 M	onCreateView
@@ -1687,6 +1729,7 @@ M	onEditorAction
 M	onFling
 M	onFocusChange
 M	onHiddenChanged
+M	onInactive
 M	onItemClick
 M	onItemSelected
 M	onKey
@@ -1720,6 +1763,7 @@ M	onSingleTap
 M	onStart
 M	onStartCommand
 M	onStartTrackingTouch
+M	onStateChanged
 M	onStop
 M	onStopTrackingTouch
 M	onSwipe
@@ -1798,6 +1842,7 @@ M	popLimit
 M	popRequest
 M	post
 M	postInvalidate
+M	postValue
 M	pow
 M	prolepticMonth
 M	pushAngles
@@ -1871,6 +1916,8 @@ M	removeAllViews
 M	removeCapability
 M	removeFragment
 M	removeNetwork
+M	removeObserver
+M	removeObservers
 M	removeOnBackStackChangedListener
 M	removeStateAt
 M	removeTextChangedListener
@@ -1938,6 +1985,7 @@ M	setContentTitle
 M	setContentView
 M	setCornerRadius
 M	setCurrentItem
+M	setCurrentState
 M	setCurrentTimeMillis
 M	setDaemon
 M	setDataSize
@@ -1976,6 +2024,7 @@ M	setIs24HourView
 M	setItems
 M	setLayoutParams
 M	setLength
+M	setLifecycleState
 M	setMax
 M	setMaxLifecycle
 M	setMaxLines
@@ -2066,6 +2115,7 @@ M	setTranslationY
 M	setUncaughtExceptionHandler
 M	setUserInputEnabled
 M	setValue
+M	setViewLifecycleState
 M	setVisibility
 M	setWifiEnabled
 M	settled

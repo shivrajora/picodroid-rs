@@ -29,7 +29,20 @@ final class Palette {
 
   final int badFrom;
 
-  Palette(Resources res) {
+  private static Palette cached;
+
+  /**
+   * The palette, resolved on the first call: the resources do not change while the app runs, and a
+   * page is a new fragment on every turn, which would otherwise read fifteen of them again.
+   */
+  static Palette of(Resources res) {
+    if (cached == null) {
+      cached = new Palette(res);
+    }
+    return cached;
+  }
+
+  private Palette(Resources res) {
     background = res.getColor(R.color.background);
     card = res.getColor(R.color.card);
     track = res.getColor(R.color.track);

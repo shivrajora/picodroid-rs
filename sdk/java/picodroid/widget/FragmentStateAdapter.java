@@ -14,8 +14,10 @@ import picodroid.view.View;
  * onSaveInstanceState} Bundle is kept here under its {@link #getItemId item id} and the fragment is
  * removed, and when that page returns {@link #createFragment} makes a new instance that gets the
  * Bundle back through {@link Fragment#setInitialSavedState}. Pages are added to the {@link
- * FragmentManager} with the tag {@code "f" + itemId}, so the current page is {@code
- * fm.findFragmentByTag("f" + pager.getCurrentItem())}, as on Android.
+ * FragmentManager} with the tag {@code "f" + itemId}, Android's spelling. As on Android that tag is
+ * an implementation detail, not an API: a host that looks its pages up by it is reaching past the
+ * adapter. Let each page observe what it shows (a {@link picodroid.lifecycle.LiveData} from a
+ * shared {@link picodroid.lifecycle.ViewModel}) instead of pushing data into the current page.
  *
  * <p>Page fragments are not saved with the Activity's other fragments (the manager cannot place
  * them again); the Activity saves them through {@link ViewPager2#saveState}. Android's {@code

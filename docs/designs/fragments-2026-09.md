@@ -153,8 +153,22 @@ Bundles; the Activity calls them, there being no view-state hierarchy to do it.
   `saveState` / `restoreState` explicit, `setAdapter(FragmentStateAdapter)` (no
   `RecyclerView.Adapter`), page fragments not saved with the Activity's other fragments.
 - Not provided: child fragment managers, `startActivityForResult` on a fragment, animations and
-  transitions, `setRetainInstance`, menus, `ViewModel` / `Lifecycle` owners, the Fragment Result
-  API, page transformers, fake drags, `android:orientation` on the pager.
+  transitions, `setRetainInstance`, menus, the Fragment Result API, page transformers, fake
+  drags, `android:orientation` on the pager.
+- A lifecycle override that skips `super` is tolerated; Android's `FragmentManager` throws
+  `SuperNotCalledException`. Decided 2026-09-30: `Activity` already tolerates a skipped
+  `super.onCreate` (`performCreate` covers it), the base callbacks are empty, and enforcing it
+  for fragments alone would cost a flag and a check per callback for an inconsistency. Every
+  fragment in `examples/` calls `super` since that date, so the examples are valid Android.
+- `ViewModel` and `LiveData` (2026-09-30, `picodroid.lifecycle`): `Fragment.getViewLifecycleOwner()`
+  is there, created on first use and one per view; the fragment itself is not a `LifecycleOwner`
+  or a `ViewModelStoreOwner`, so a ViewModel is shared through
+  `new ViewModelProvider(requireActivity())`. The Activity is both owners. A ViewModel lives as
+  long as its Activity instance (no configuration changes), there is no reflective default
+  factory (`Activity.getDefaultViewModelProviderFactory()` is the override point, as
+  `FragmentFactory` is for fragments), and `Lifecycle` states are `int`s with no observer API
+  beyond `LiveData`. Cost and the RP2040 decision: FR-12 in
+  [`../fragments-follow-ups.md`](../fragments-follow-ups.md).
 
 ## 6. `claudeusage` on it
 

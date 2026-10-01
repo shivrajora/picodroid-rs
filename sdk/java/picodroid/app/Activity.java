@@ -4,12 +4,22 @@ package picodroid.app;
 import picodroid.content.Context;
 import picodroid.content.Intent;
 import picodroid.graphics.Display;
+import picodroid.lifecycle.HasDefaultViewModelProviderFactory;
+import picodroid.lifecycle.Lifecycle;
+import picodroid.lifecycle.LifecycleOwner;
+import picodroid.lifecycle.ViewModelProvider;
+import picodroid.lifecycle.ViewModelStore;
+import picodroid.lifecycle.ViewModelStoreOwner;
 import picodroid.os.Bundle;
 import picodroid.view.KeyEvent;
 import picodroid.view.LayoutInflater;
 import picodroid.view.View;
 
-public class Activity extends Context implements KeyEvent.Callback {
+public class Activity extends Context
+    implements KeyEvent.Callback,
+        LifecycleOwner,
+        ViewModelStoreOwner,
+        HasDefaultViewModelProviderFactory {
   /** Standard activity result: the operation succeeded. Matches Android's value. */
   public static final int RESULT_OK = -1;
 
@@ -51,6 +61,63 @@ public class Activity extends Context implements KeyEvent.Callback {
       mFragments = new FragmentManager(this, mFragmentHostState);
     }
     return mFragments;
+  }
+
+  /**
+   * This Activity's {@link Lifecycle}, created on the first {@link #getLifecycle}; {@link
+   * #mLifecycleState} is kept either way, so one created late starts where the Activity is.
+   */
+  private Lifecycle mLifecycle;
+
+  private int mLifecycleState = Lifecycle.INITIALIZED;
+
+  /** This Activity's ViewModels, created on the first {@link #getViewModelStore}. */
+  private ViewModelStore mViewModelStore;
+
+  /**
+   * Mirrors {@code androidx.activity.ComponentActivity#getLifecycle()}: what a {@link
+   * picodroid.lifecycle.LiveData} observed with {@code observe(this, …)} follows. It moves after
+   * {@code onCreate}, {@code onStart} and {@code onResume} return and before {@code onPause},
+   * {@code onStop} and {@code onDestroy} run, as on Android.
+   */
+  @Override
+  public Lifecycle getLifecycle() {
+    if (mLifecycle == null) {
+      mLifecycle = new Lifecycle();
+      mLifecycle.setCurrentState(mLifecycleState);
+    }
+    return mLifecycle;
+  }
+
+  private void setLifecycleState(int state) {
+    mLifecycleState = state;
+    if (mLifecycle != null) {
+      mLifecycle.setCurrentState(state);
+    }
+  }
+
+  /**
+   * Mirrors {@code androidx.activity.ComponentActivity#getViewModelStore()}: the {@link
+   * picodroid.lifecycle.ViewModel}s a {@link ViewModelProvider} over this Activity hands out. They
+   * are cleared when this instance is destroyed, a {@link #recreate} included: there are no
+   * configuration changes to keep them across.
+   */
+  @Override
+  public ViewModelStore getViewModelStore() {
+    if (mViewModelStore == null) {
+      mViewModelStore = new ViewModelStore();
+    }
+    return mViewModelStore;
+  }
+
+  /**
+   * The factory behind {@code new ViewModelProvider(activity)}. Override it to make this Activity's
+   * ViewModels: Android's default reflects on the class, and there is no reflection here, so the
+   * default is {@code null} and such a provider throws for a ViewModel that does not exist yet.
+   */
+  @Override
+  public ViewModelProvider.Factory getDefaultViewModelProviderFactory() {
+    return null;
   }
 
   /**
@@ -128,6 +195,7 @@ public class Activity extends Context implements KeyEvent.Callback {
     if (mFragments != null) {
       mFragments.dispatchCreate(); // idempotent; covers an override that skipped super.onCreate
     }
+    setLifecycleState(Lifecycle.CREATED);
   }
 
   final void performSaveInstanceState(Bundle outState) {
@@ -150,6 +218,7 @@ public class Activity extends Context implements KeyEvent.Callback {
       mFragments.dispatchStart();
     }
     onStart();
+    setLifecycleState(Lifecycle.STARTED);
   }
 
   final void performResume() {
@@ -158,6 +227,7 @@ public class Activity extends Context implements KeyEvent.Callback {
     if (mFragments != null) {
       mFragments.dispatchResume();
     }
+    setLifecycleState(Lifecycle.RESUMED);
   }
 
   final void performRestart() {
@@ -165,6 +235,7 @@ public class Activity extends Context implements KeyEvent.Callback {
   }
 
   final void performPause() {
+    setLifecycleState(Lifecycle.STARTED);
     mFragmentHostState = Fragment.STARTED;
     if (mFragments != null) {
       mFragments.dispatchPause();
@@ -173,6 +244,7 @@ public class Activity extends Context implements KeyEvent.Callback {
   }
 
   final void performStop() {
+    setLifecycleState(Lifecycle.CREATED);
     mFragmentHostState = Fragment.VIEW_CREATED;
     if (mFragments != null) {
       mFragments.dispatchStop();
@@ -181,11 +253,15 @@ public class Activity extends Context implements KeyEvent.Callback {
   }
 
   final void performDestroy() {
+    setLifecycleState(Lifecycle.DESTROYED);
     mFragmentHostState = Fragment.INITIALIZING;
     if (mFragments != null) {
       mFragments.dispatchDestroy();
     }
     onDestroy();
+    if (mViewModelStore != null) {
+      mViewModelStore.clear();
+    }
   }
 
   final void performBackPressed() {

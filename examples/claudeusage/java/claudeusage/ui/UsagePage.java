@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package claudeusage.ui;
 
+import claudeusage.R;
 import claudeusage.data.UsageService;
 import claudeusage.data.UsageSnapshot;
 import picodroid.app.Fragment;
 import picodroid.concurrent.Executors;
 import picodroid.content.Context;
+import picodroid.lifecycle.ViewModelProvider;
 import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.view.LayoutInflater;
@@ -24,9 +26,19 @@ import picodroid.widget.FrameLayout;
  * false, with the page invisible meanwhile. The first paint follows, once the service has data, and
  * ends in the fade-in. Every post checks the fragment is still added with its view, the Android
  * idiom for work posted from a fragment; a page turn mid-build simply strands the chain.
+ *
+ * <p>The data comes from the Activity's {@link UsageViewModel}, which each page observes for as
+ * long as its view lives. A page knows nothing else of its host, except that it may be a {@link
+ * Host}.
  */
 abstract class UsagePage extends Fragment {
   private static final String TAG = UsageService.TAG;
+
+  /** What a page tells the Activity it is in, if that Activity cares to hear. */
+  interface Host {
+    /** A page finished building its views. */
+    void onPageBuilt();
+  }
 
   protected Context ctx;
   protected Palette palette;
@@ -37,7 +49,9 @@ abstract class UsagePage extends Fragment {
 
   protected int step;
 
-  private MainActivity host;
+  private Host host;
+  private UsageViewModel model;
+  private int fadeMs;
   private boolean built;
   private boolean painted;
   private boolean failed;
@@ -49,6 +63,12 @@ abstract class UsagePage extends Fragment {
   private UsageSnapshot updatedSnapshot;
   private boolean updatedFresh;
   private long updatedMinute = -1;
+
+  private boolean repaintPending;
+
+  /** Posted once per publish while this page lives; allocated once rather than per second. */
+  @SuppressWarnings("UnnecessaryLambda")
+  private final Runnable repaint = this::repaint;
 
   /** The header title's string resource. */
   abstract int titleRes();
@@ -79,14 +99,18 @@ abstract class UsagePage extends Fragment {
 
   @Override
   public void onAttach(Context context) {
-    host = (MainActivity) context;
+    super.onAttach(context);
+    host = context instanceof Host ? (Host) context : null;
     ctx = context;
-    palette = host.palette();
+    palette = Palette.of(getResources());
   }
 
   @Override
   public void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     title = getString(titleRes());
+    fadeMs = getResources().getInteger(R.integer.fade_ms);
+    model = new ViewModelProvider(requireActivity()).get(UsageViewModel.class);
   }
 
   @Override
@@ -99,6 +123,8 @@ abstract class UsagePage extends Fragment {
 
   @Override
   public void onViewCreated(View view, Bundle savedInstanceState) {
+    super.onViewCreated(view, savedInstanceState);
+    model.usage().observe(getViewLifecycleOwner(), this::onUsage);
     restart();
   }
 
@@ -108,10 +134,18 @@ abstract class UsagePage extends Fragment {
     root = null;
     built = false;
     painted = false;
+    super.onDestroyView();
+  }
+
+  @Override
+  public void onDetach() {
+    host = null;
+    super.onDetach();
   }
 
   private void restart() {
     step = 0;
+    repaintPending = false;
     built = false;
     painted = false;
     failed = false;
@@ -122,7 +156,8 @@ abstract class UsagePage extends Fragment {
   }
 
   private boolean gone(int gen) {
-    return gen != viewGen || !isAdded() || root == null || host.destroyed();
+    // Detached with the Activity when that is destroyed, so isAdded() covers a dead host too.
+    return gen != viewGen || !isAdded() || getView() == null;
   }
 
   private void buildStep(int gen) {
@@ -136,7 +171,9 @@ abstract class UsagePage extends Fragment {
       }
       built = true;
       Log.i(TAG, "built " + title);
-      host.onPageBuilt();
+      if (host != null) {
+        host.onPageBuilt();
+      }
       // The first paint takes its own ticks: with the last build step it overran the budget.
       Executors.mainExecutor().execute(() -> firstPaint(gen));
     } catch (OutOfMemoryError | RuntimeException e) {
@@ -149,8 +186,8 @@ abstract class UsagePage extends Fragment {
     if (gone(gen) || !built || painted) {
       return;
     }
-    UsageService repo = host.repo();
-    if (repo == null || (needsData() && !host.hasData())) {
+    UsageService repo = model.usage().getValue();
+    if (repo == null || (needsData() && !model.hasData())) {
       awaitingData = true; // built behind the status screen; painted when the data arrives
       return;
     }
@@ -161,7 +198,7 @@ abstract class UsagePage extends Fragment {
         return;
       }
       painted = true;
-      root.animate().alpha(1f).setDuration(host.fadeMs()).start();
+      root.animate().alpha(1f).setDuration(fadeMs).start();
     } catch (OutOfMemoryError | RuntimeException e) {
       fail(e);
     }
@@ -183,13 +220,29 @@ abstract class UsagePage extends Fragment {
   }
 
   /**
-   * The service has something new, or a second passed: paint the first time once built and the data
-   * is there, else repaint when the snapshot, the freshness or the minute moved.
+   * The observer: the service has something new, or a second passed. LiveData delivers inside the
+   * Activity's own refresh, whose chrome repaint (~20 ms on the RP2350) and this page's (~30 ms)
+   * would overrun the slow-handler budget together, so the page takes the next tick.
    */
-  void onUsage(UsageService repo, long nowMs) {
-    if (root == null) {
+  private void onUsage(UsageService repo) {
+    if (repo == null || repaintPending) {
       return;
     }
+    repaintPending = true;
+    Executors.mainExecutor().execute(repaint);
+  }
+
+  /**
+   * Paint the first time once built and the data is there, else repaint when the snapshot, the
+   * freshness or the minute moved.
+   */
+  private void repaint() {
+    repaintPending = false;
+    UsageService repo = model.usage().getValue();
+    if (repo == null || !isAdded() || getView() == null) {
+      return;
+    }
+    long nowMs = System.currentTimeMillis();
     if (failed) {
       restart();
       return;

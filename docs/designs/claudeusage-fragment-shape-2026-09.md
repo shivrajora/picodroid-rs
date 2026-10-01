@@ -1,6 +1,6 @@
 # `claudeusage` on Fragments: where it still is not Android (handover, 2026-09-30)
 
-Status: **open, nothing started.** Written after a review of `examples/claudeusage` on `main`
+Status: **landed 2026-09-30**, see "What landed" at the end. Written after a review of `examples/claudeusage` on `main`
 following `82068a59` (the four screens as Fragments in a `ViewPager2`). That refactor closed item 1
 of [claudeusage-android-shape-2026-09.md](claudeusage-android-shape-2026-09.md) and shrank item 4.
 It also introduced the six differences below. Each section gives the evidence, the Android shape,
@@ -170,3 +170,41 @@ better, and it falls out naturally if section 1(a) replaces `host.destroyed()`.
 - If `ViewModel` / `LiveData` land, record them under FR-9 in
   [../fragments-follow-ups.md](../fragments-follow-ups.md) and in §5 of
   [fragments-2026-09.md](fragments-2026-09.md).
+
+## What landed (2026-09-30)
+
+| Section | Outcome |
+|---|---|
+| 1 | Done, (a) and (b). No page names `MainActivity`: the palette is `Palette.of(getResources())`, `fade_ms` comes from `getResources()`, `isAdded()` covers a destroyed host (`FragmentManager.dispatchDestroy` detaches every fragment), the data comes from `UsageViewModel`, and `onPageBuilt` goes through the `UsagePage.Host` interface. The SDK gained `picodroid.lifecycle`. |
+| 2 | Done. Each page observes `model.usage()` with `getViewLifecycleOwner()`; `updatePage()` and `visiblePage()` are gone, and the `FragmentStateAdapter` javadoc no longer recommends the tag lookup. For the trap, the first option: the Activity stays the Service's listener and paints the chrome, then publishes; each page's observer only posts its repaint to the next tick. The per-minute gating is unchanged. |
+| 3 | Done in the app and in `fragmentdemo` / `pagerdemo`. SDK decision: tolerate a skipped `super`, as `Activity` does; recorded in `fragments-2026-09.md` §5 and the `Fragment` javadoc. |
+| 4 | Packages kept. The layout packer accepts `<picodroid.widget.X>` for every inflatable view. |
+| 5 | No action. |
+| 6 | The code now matches the idiom (`getView() == null`); the doc row says why `viewGen` stays. |
+
+Choices the handover left open:
+
+- **What the `LiveData` carries.** The bound `UsageService`, published again on every change and
+  tick, `null` while unbound. An immutable state object per publish is an allocation a second.
+- **`ViewModel` scope.** The Activity instance. There are no configuration changes, so a
+  ViewModel is cleared on destroy, `recreate()` included.
+- **No reflection.** `Activity.getDefaultViewModelProviderFactory()` is the override point, so a
+  fragment writes `new ViewModelProvider(requireActivity()).get(X.class)` as on Android.
+- **Owners.** The Activity (lifecycle and ViewModel store) and a fragment's view
+  (`getViewLifecycleOwner()`); a fragment itself is neither.
+- **RP2040.** Not excluded; cost and reasoning under FR-12 in
+  [../fragments-follow-ups.md](../fragments-follow-ups.md): +15.7 KB on the RP2350, +15.0 KB on
+  the RP2040, no RAM at rest.
+
+Verified 2026-09-30:
+
+- Sim rows `claudeusage`, `fragmentdemo` (98 checks, 22 of them new: `LiveData`, the view and
+  Activity lifecycles, `ViewModelProvider`) and `pagerdemo`, each in both shrink modes.
+- Pixel identity: the app from before this change and the new one, one replayed demo-bridge
+  payload each, six screenshots (the four pages by B, then A, then Y home), all identical.
+- Hardware, `pico_display2_w` build on the bench against the live bridge: two laps of the pages
+  by B, two A, X sync, Y home, a minute tick and two polls. No `slow handler` line on the plain
+  debug build, cold or warm.
+- Not exercised: Y held for AUTO and a bridge killed mid-run. Neither path changed.
+
+Open: the size-ratchet accept (FR-12).

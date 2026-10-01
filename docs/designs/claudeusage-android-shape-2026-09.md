@@ -1,8 +1,8 @@
 # Roadmap: `claudeusage` toward Android shape
 
-**Status: round 1 landed 2026-09-22 (app-only, no SDK change); SDK asks 1, 2, 3 and 8 landed 2026-09-24 and the app uses them (items 10, 16, 44 and the chrome flattening); ask 5 (`Canvas`) landed 2026-09-26 (item 18); item 1 (Fragments in a `ViewPager2`) closed 2026-09-27; 4 and 7 open. D4 (page-turn stalls) closed 2026-09-25, see the gaps roadmap.**
+**Status: round 1 landed 2026-09-22 (app-only, no SDK change); SDK asks 1, 2, 3 and 8 landed 2026-09-24 and the app uses them (items 10, 16, 44 and the chrome flattening); ask 5 (`Canvas`) landed 2026-09-26 (item 18); item 1 (Fragments in a `ViewPager2`) closed 2026-09-27; the fragment-shape round (items 51 to 56, section 9) landed 2026-09-30 with `picodroid.lifecycle`; 4 and 7 open. D4 (page-turn stalls) closed 2026-09-25, see the gaps roadmap.**
 
-Completed items: [completed/claudeusage-android-shape-2026-09.md](../completed/claudeusage-android-shape-2026-09.md) — rows 1, 2, 7, 9, 10, 15–21, 23, 27, 28, 30, 31, 36, 42–45, 47; SDK asks 1, 2, 3, 5, 6, 8, 9; "Found on the way: resolution-cache growth".
+Completed items: [completed/claudeusage-android-shape-2026-09.md](../completed/claudeusage-android-shape-2026-09.md) — rows 1, 2, 7–10, 12, 15–21, 23, 27, 28, 30, 31, 36, 42–45, 47, 51, 53, 56; SDK asks 1, 2, 3, 5, 6, 8, 9; "Found on the way: resolution-cache growth".
 
 `examples/claudeusage` is a four-screen desk display (Limits, Models, Burn rate, History) for a
 Pico 2 W with a Pimoroni Display Pack 2.0. The project goal is that a picodroid app reads like the
@@ -25,23 +25,21 @@ The last column says what round 1 did: **closed**, **kept** (with the reason), o
 | # | Deviation | Tag | Round 1 |
 |---|---|---|---|
 | 3 | Theme colours set by assigning `picodroid.graphics.Theme` static fields. | SDK-shape | kept: now done in `MainActivity.onCreate` from `res/values/colors.xml` before any view exists. |
-| 4 | A page's view tree is built a few views per main-thread post, with a build token to survive a page turn mid-build. Android inflates synchronously. | App choice | kept: one page in one tick overran the slow-handler budget on the RP2350. *2026-09-27:* now inside each Fragment: `onCreateView` returns the page's empty root at once and `onViewCreated` starts the `buildNext` chain, each post guarded by `isAdded()` and `getView()` (the Android idiom for work posted from a fragment) in place of the build token. |
+| 4 | A page's view tree is built a few views per main-thread post, with a build token to survive a page turn mid-build. Android inflates synchronously. | App choice | kept: one page in one tick overran the slow-handler budget on the RP2350. *2026-09-27:* now inside each Fragment: `onCreateView` returns the page's empty root at once and `onViewCreated` starts the `buildNext` chain, each post guarded by `isAdded()` and `getView() == null` (the Android idiom for work posted from a fragment). A view generation counter (`viewGen`) stays beside them: a view that was destroyed and created again is non-null too, and a chain started for the old one must not build into the new. |
 | 5 | `catch (OutOfMemoryError \| RuntimeException)` around view building, retrying next tick. | App choice | kept: same reason; a half-built page would otherwise stay invisible. *2026-09-27:* in `UsagePage`, which empties its root and rebuilds on the service's next tick. |
 | 6 | Lifecycle overrides declared `public`; Android's are `protected`. | SDK-shape | kept |
-| 8 | `onBackPressed()` overridden to a no-op instead of an `OnBackPressedCallback`; also unreachable because `onKey` consumes BACK first. | SDK-forced (no dispatcher) | kept as a guard: if the key catcher ever loses focus BACK would otherwise `finish()` the appliance. |
 
 ## 2. Input
 
 | # | Deviation | Tag | Round 1 |
 |---|---|---|---|
 | 11 | `OnKeyListener.onKey(View, KeyEvent)` drops Android's `int keyCode` parameter. | SDK-shape | kept |
-| 12 | Catcher hidden with `setAlpha(0f)` plus a background drawable rather than `View.INVISIBLE`. | App choice | kept: an invisible view cannot take focus. Now `android:alpha="0"` in the layout. |
 
 ## 3. Layout and drawing
 
 | # | Deviation | Tag | Round 1 |
 |---|---|---|---|
-| 13 | Every view placed in absolute pixels with `setPosition`/`setSize`; no XML, no LayoutParams, no weights. | App choice (chrome) / App choice (pages) | **closed for the chrome**: header, footer, page container and key catcher come from `res/layout/activity_main.xml` (`LinearLayout` rows, weights, gravity, `findViewById`). **Kept for the pages**: they are built incrementally (item 4), and their geometry is pixel art tuned to 320x240. |
+| 13 | Every view placed in absolute pixels with `setPosition`/`setSize`; no XML, no LayoutParams, no weights. | App choice (chrome) / App choice (pages) | **closed for the chrome**: header, footer and page container come from `res/layout/activity_main.xml` (`LinearLayout` rows of fixed-dp children, gravity, `findViewById`; no weights). **Kept for the pages**: they are built incrementally (item 4), and their geometry is pixel art tuned to 320x240. |
 | 14 | Screen size hard-coded as `Ui.WIDTH`/`Ui.HEIGHT`. | App choice | partly closed: the chrome is `match_parent`; page constants remain for the reason in 13. |
 | 22 | `GradientDrawable` used as a fluent builder and re-allocated per colour change. | SDK-shape / App choice | kept: the SDK drawable is a builder that applies on `setBackground`; there is no mutate-in-place path. |
 | 24 | `animate().alpha().setDuration().start()`. | cosmetic | kept |
@@ -54,7 +52,7 @@ The last column says what round 1 did: **closed**, **kept** (with the reason), o
 |---|---|---|---|
 | 29 | `picodroid.concurrent.Thread` instead of `java.lang.Thread`. | SDK-shape | kept |
 | 32 | Cross-thread handoff via `Executors.mainExecutor().execute(...)`. | SDK-shape | kept: the SDK's `runOnUiThread`. |
-| 33 | One `Listener` slot with both a data callback and a 1 Hz tick, set in `onResume`/`onPause`. | App choice | kept: there is no `LiveData`; the tick stays in the Service, on the main thread, so a wedged fetch can never freeze the countdowns. |
+| 33 | One `Listener` slot with both a data callback and a 1 Hz tick, set in `onResume`/`onPause`. | App choice | **partly closed** 2026-09-30: the pages no longer hear it; they observe `LiveData` from the Activity's `UsageViewModel` (item 52). The Activity is still the Service's one `Listener`, for the chrome and to fill the ViewModel, and the tick stays in the Service, on the main thread, so a wedged fetch can never freeze the countdowns. |
 | 34 | Pre-allocated `Runnable` with `@SuppressWarnings("UnnecessaryLambda")`. | App choice | kept: one allocation per second for the life of the app. |
 | 35 | App sets the wall clock from the bridge. | SDK-forced (no RTC, no NTP) | open |
 
@@ -86,6 +84,20 @@ Items 44 and 45 are closed; see [completed/claudeusage-android-shape-2026-09.md]
 | 49 | `PicodroidManifest.xml` with a slash-separated class path, no `<activity>`, no permissions. | SDK-shape | kept; the Activity is now the declared entry point (item 2, in the completed doc). |
 | 50 | Gradle plugin `picodroid-papk` instead of `com.android.application`. | SDK-forced | open |
 
+## 9. Fragment shape (2026-09-30)
+
+What the move onto Fragments left un-Android, from the review in
+[claudeusage-fragment-shape-2026-09.md](claudeusage-fragment-shape-2026-09.md). Items 51, 53 and
+56 are closed and in the completed doc; these remain, each kept on purpose.
+
+| # | Deviation | Tag | Status |
+|---|---|---|---|
+| 52 | The pages' `LiveData` carries the bound `UsageService` itself, published again on every change and every tick, where Android would publish an immutable UI-state object. Each page's observer only posts its repaint to the next main-thread tick. | App choice | kept: a state object per 1 Hz tick is an allocation a second for the life of the app (item 34's reason), and the Service's numbers are main-thread confined. The post is the tick budget: `setValue` delivers inside the Activity's refresh, and the chrome (~20 ms on the RP2350) plus a page (~30 ms) in one tick overruns the slow-handler budget. The Activity no longer finds the visible page (`"f" + position` is gone), and the per-minute gating is unchanged. |
+| 54 | `picodroid.app.Fragment`, `picodroid.widget.ViewPager2`, `picodroid.lifecycle.*` where Android has `androidx.fragment.app`, `androidx.viewpager2.*`, `androidx.lifecycle`; `FragmentStateAdapter(Activity)` where Android takes a `FragmentActivity`. | SDK-shape | kept: flattening androidx into `picodroid.*` is the project rule. A layout may now spell the element `<picodroid.widget.ViewPager2>`, the fully qualified form Android requires; the app keeps the short one. |
+| 55 | `pager.setUserInputEnabled(false)`. | idiom preserved | kept: four buttons and no touch panel, so keys turn the pages. The Android API used as intended. |
+| 57 | `MainActivity.getDefaultViewModelProviderFactory()` is overridden to construct `UsageViewModel`; on Android the default factory reflects on the class. | SDK-forced (no reflection) | kept: the same reason `FragmentFactory` exists. The override is valid Android code. |
+| 58 | `UsagePage.Host`, an interface the Activity implements, for the one call a page still makes on its host (`onPageBuilt`, which warms the chrome). | idiom preserved | kept: the Android idiom for a fragment-to-host callback. The page checks `instanceof` in `onAttach` and works without it. |
+
 ## What round 1 did not do, and why
 
 - **Pages in XML.** A page holds 20 to 40 views. Inflating one in a single tick is the thing the
@@ -96,8 +108,8 @@ Items 44 and 45 are closed; see [completed/claudeusage-android-shape-2026-09.md]
   container in this app stripped; they are flat now.) The chrome is small enough to inflate in
   one go; the pages are not. *2026-09-27:* the pager is in the XML (`<ViewPager2>` inside
   `page_host`); the pages are still built in code, for the same reason.
-- **`ViewModel` / `LiveData`.** None in the SDK. The `Service` plus `Listener` pair is the nearest
-  shape the SDK offers.
+- **`ViewModel` / `LiveData`.** None in the SDK at the time. *2026-09-30:* `picodroid.lifecycle`
+  has both, and the pages use them (section 9).
 - **A settings screen for the bridge address.** Four buttons and no keyboard widget make typing
   an address impractical (gaps roadmap G7). The preference key exists so a later screen, or
   `pdb`, can set it.

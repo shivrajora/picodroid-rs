@@ -29,26 +29,31 @@ public class HeadlessFragment extends Fragment {
 
   @Override
   public void onResume() {
+    super.onResume();
     mark("onResume");
   }
 
   @Override
   public void onHiddenChanged(boolean hidden) {
+    super.onHiddenChanged(hidden);
     mark(hidden ? "onHiddenChanged(true)" : "onHiddenChanged(false)");
   }
 
   @Override
   public void onDestroyView() {
     mark("onDestroyView");
+    super.onDestroyView();
   }
 
   @Override
   public void onDestroy() {
     mark("onDestroy");
+    super.onDestroy();
   }
 
   @Override
   public void onDetach() {
     mark("onDetach");
+    super.onDetach();
   }
 }

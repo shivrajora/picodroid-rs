@@ -4,6 +4,7 @@ package picodroid.app;
 import java.util.ArrayList;
 import java.util.List;
 import picodroid.concurrent.Executors;
+import picodroid.lifecycle.Lifecycle;
 import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.view.View;
@@ -677,14 +678,17 @@ public class FragmentManager {
         case Fragment.CREATED:
           createView(f);
           f.mState = Fragment.VIEW_CREATED;
+          f.setViewLifecycleState(Lifecycle.CREATED);
           break;
         case Fragment.VIEW_CREATED:
           f.onStart();
           f.mState = Fragment.STARTED;
+          f.setViewLifecycleState(Lifecycle.STARTED);
           break;
         case Fragment.STARTED:
           f.onResume();
           f.mState = Fragment.RESUMED;
+          f.setViewLifecycleState(Lifecycle.RESUMED);
           break;
         default:
           return;
@@ -693,10 +697,12 @@ public class FragmentManager {
     while (f.mState > target) {
       switch (f.mState) {
         case Fragment.RESUMED:
+          f.setViewLifecycleState(Lifecycle.STARTED);
           f.onPause();
           f.mState = Fragment.STARTED;
           break;
         case Fragment.STARTED:
+          f.setViewLifecycleState(Lifecycle.CREATED);
           f.onStop();
           f.mState = Fragment.VIEW_CREATED;
           break;
@@ -760,6 +766,7 @@ public class FragmentManager {
 
   /** {@code onDestroyView} on the live tree, then free it: a removed view cannot be re-added. */
   private void destroyView(Fragment f) {
+    f.setViewLifecycleState(Lifecycle.DESTROYED);
     f.onDestroyView();
     View view = f.mView;
     if (view != null) {

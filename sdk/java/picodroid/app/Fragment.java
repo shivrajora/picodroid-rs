@@ -4,6 +4,8 @@ package picodroid.app;
 import picodroid.content.Context;
 import picodroid.content.Intent;
 import picodroid.content.res.Resources;
+import picodroid.lifecycle.Lifecycle;
+import picodroid.lifecycle.LifecycleOwner;
 import picodroid.os.Bundle;
 import picodroid.view.LayoutInflater;
 import picodroid.view.View;
@@ -42,7 +44,14 @@ import picodroid.view.ViewGroup;
  * rather than a {@code Lifecycle.State} enum; {@link FragmentTransaction#setMaxLifecycle} takes
  * them. Not provided: nested fragments ({@code getChildFragmentManager}), {@code
  * startActivityForResult} on a fragment (use the Activity's), transitions and animations, {@code
- * setRetainInstance}, menus and {@code ViewModel} owners.
+ * setRetainInstance} and menus. A fragment shares a {@link picodroid.lifecycle.ViewModel} with its
+ * host through {@code new ViewModelProvider(requireActivity())} and observes with {@link
+ * #getViewLifecycleOwner}; it is not a {@code LifecycleOwner} or a {@code ViewModelStoreOwner}
+ * itself.
+ *
+ * <p>An override that skips {@code super} is tolerated, as it is on {@link Activity}: the base
+ * callbacks are empty and nothing throws Android's {@code SuperNotCalledException}. Call it anyway;
+ * code that does not would crash at the first attach on Android.
  */
 public class Fragment {
   /** Not attached to any host. The first state, and the last after {@link #onDetach}. */
@@ -90,6 +99,9 @@ public class Fragment {
   ViewGroup mContainer;
   FragmentManager mFragmentManager;
   Activity mHost;
+
+  /** The view's lifecycle, created on the first {@link #getViewLifecycleOwner}; one per view. */
+  private Lifecycle mViewLifecycle;
 
   private final int mContentLayoutId;
 
@@ -205,6 +217,44 @@ public class Fragment {
   /** The view {@link #onCreateView} returned, or {@code null} before it and after onDestroyView. */
   public View getView() {
     return mView;
+  }
+
+  /**
+   * The lifecycle of this fragment's view, mirroring {@code Fragment#getViewLifecycleOwner()}: what
+   * to give {@link picodroid.lifecycle.LiveData#observe} from {@link #onViewCreated}, so the
+   * observer goes away with the view rather than with the fragment. It is created after {@link
+   * #onViewStateRestored}, started after {@link #onStart}, resumed after {@link #onResume}, steps
+   * back before {@link #onPause} and {@link #onStop}, and is destroyed before {@link
+   * #onDestroyView}; each view gets a new one. Available once the view exists, so from {@link
+   * #onViewCreated} on (Android also allows it inside {@link #onCreateView}).
+   */
+  public LifecycleOwner getViewLifecycleOwner() {
+    if (mViewLifecycle == null) {
+      if (mView == null) {
+        throw new IllegalStateException(
+            "Can't access the Fragment View's LifecycleOwner when getView() is null i.e., before"
+                + " onCreateView() or after onDestroyView()");
+      }
+      mViewLifecycle = new Lifecycle();
+      // INITIALIZED inside onViewCreated: the manager reports the view created after it returns.
+      if (mState >= STARTED) {
+        mViewLifecycle.setCurrentState(mState >= RESUMED ? Lifecycle.RESUMED : Lifecycle.STARTED);
+      } else if (mState == VIEW_CREATED) {
+        mViewLifecycle.setCurrentState(Lifecycle.CREATED);
+      }
+    }
+    return mViewLifecycle;
+  }
+
+  /** From the manager: the view's lifecycle moved. Costs nothing until someone asked for it. */
+  void setViewLifecycleState(int state) {
+    Lifecycle lifecycle = mViewLifecycle;
+    if (lifecycle != null) {
+      lifecycle.setCurrentState(state);
+      if (state == Lifecycle.DESTROYED) {
+        mViewLifecycle = null;
+      }
+    }
   }
 
   public final View requireView() {

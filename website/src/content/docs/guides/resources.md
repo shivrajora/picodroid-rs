@@ -111,7 +111,9 @@ cycles are a build error. An id of the wrong type, or one that does not exist, t
 
 **Elements:** `LinearLayout`, `FrameLayout`, `ScrollView`, `RadioGroup`, `TextView`, `Button`,
 `ImageView`, `EditText`, `CheckBox`, `Switch`, `ToggleButton`, `RadioButton`, `ProgressBar`,
-`CircularProgressIndicator`, `SeekBar`, `Spinner`, `ListView`, `ViewPager2`. A custom view class cannot be inflated — there is no reflection
+`CircularProgressIndicator`, `SeekBar`, `Spinner`, `ListView`, `ViewPager2`. Each may also be
+written fully qualified (`<picodroid.widget.ViewPager2>`), the way Android requires for a view
+outside `android.widget`. A custom view class cannot be inflated — there is no reflection
 to construct it with — and `<include>` / `<merge>` are not supported yet; both are build errors.
 Create those views in Java and `addView` them into an inflated container. The same goes for a
 view that draws itself with `onDraw(Canvas)`.
