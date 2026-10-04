@@ -5,31 +5,24 @@ import picodroid.content.Context;
 
 /**
  * Push button. Mirrors {@code android.widget.Button}, a {@link TextView}. The native object is a
- * button with a child label, so {@link #setText} is re-declared here and routed to that label;
- * {@link #setTextColor} is inherited unchanged (the colour style cascades to the label); {@link
- * #setTextSize}, {@link #setIncludeFontPadding} and the line-mode setters ({@link #setSingleLine},
- * {@link #setEllipsize}, {@link #setMaxLines}) reach the label, and a content-sized button grows
- * with its face.
+ * button with a child label: {@link #setText}, {@link #setTextSize}, {@link #setIncludeFontPadding}
+ * and the line-mode setters ({@link #setSingleLine}, {@link #setEllipsize}, {@link #setMaxLines})
+ * reach that label, {@link #setTextColor} cascades to it, and a content-sized button grows with its
+ * face.
  */
 public class Button extends TextView {
   public Button(String text) {
     super(nativeCreate(text));
+    mText = text == null ? "" : text;
   }
 
   public Button(Context ctx, String text) {
-    super(nativeCreate(text));
+    this(text);
   }
 
   public Button(Context ctx) {
-    super(nativeCreate(""));
+    this("");
   }
 
   private static native int nativeCreate(String text);
-
-  @Override
-  public native void setText(String text);
-
-  /** Re-declared like {@link #setText}: reads the child label, not the button box. */
-  @Override
-  public native CharSequence getText();
 }

@@ -2,48 +2,18 @@
 package claudeusage.ui;
 
 import claudeusage.R;
-import claudeusage.data.UsageService;
 import claudeusage.data.UsageSnapshot;
 import claudeusage.util.TimeFormat;
-import picodroid.os.Bundle;
-import picodroid.widget.FrameLayout;
+import picodroid.view.View;
+import picodroid.widget.TextView;
 
 /** Today's totals and a week of daily token counts, from the PC's local transcripts. */
 final class HistoryPage extends UsagePage {
-  private static final int STATS_HEIGHT = 60;
-  private static final int CHART_Y = 2 + STATS_HEIGHT + 4;
-  private static final int CHART_CARD_HEIGHT = Ui.PAGE_HEIGHT - CHART_Y - 2;
-  private static final int DAYS = UsageSnapshot.DAYS;
-
-  /** The bars' baseline in the chart card; the day letters sit just under it. */
-  private static final int BASELINE = 98;
-
-  /** Column origins: the first caption is the widest, so the columns are not equal. */
-  private static final int[] STAT_X = {Ui.CARD_PAD, 124, 214};
-
-  private static final int[] CAPTIONS = {
-    R.string.history_tokens_today, R.string.history_api_value, R.string.history_messages
-  };
-
-  private FrameLayout stats;
-  private FrameLayout chart;
-  private final Line[] statValue = new Line[3];
-  private Line peak;
+  private TextView tokensToday;
+  private TextView apiValue;
+  private TextView messages;
+  private TextView peak;
   private WeekChart week;
-
-  private String dash;
-  private String estimate;
-  private String noTranscripts;
-  private String peakFmt;
-
-  @Override
-  public void onCreate(Bundle savedInstanceState) {
-    super.onCreate(savedInstanceState);
-    dash = getString(R.string.dash);
-    estimate = getString(R.string.history_estimate);
-    noTranscripts = getString(R.string.no_transcripts);
-    peakFmt = getString(R.string.history_peak);
-  }
 
   @Override
   int titleRes() {
@@ -51,64 +21,44 @@ final class HistoryPage extends UsagePage {
   }
 
   @Override
-  boolean buildNext() {
-    int s = step++;
-    switch (s) {
-      case 0:
-        stats = Ui.card(ctx, root, 2, STATS_HEIGHT, palette.card);
-        return true;
-      case 1:
-      case 2:
-      case 3:
-        int i = s - 1;
-        int x = STAT_X[i];
-        statValue[i] =
-            new Line(Ui.label(ctx, stats, dash, x, 11, palette.text), dash, palette.text);
-        Ui.label(ctx, stats, ctx.getString(CAPTIONS[i]), x, 31, palette.muted);
-        return true;
-      case 4:
-        chart = Ui.card(ctx, root, CHART_Y, CHART_CARD_HEIGHT, palette.card);
-        Ui.label(
-            ctx, chart, ctx.getString(R.string.history_last_week), Ui.CARD_PAD, 7, palette.muted);
-        peak =
-            new Line(
-                Ui.labelRight(
-                    ctx, chart, "", 150, 7, Ui.CARD_WIDTH - 150 - Ui.CARD_PAD, palette.faint),
-                "",
-                palette.faint);
-        return true;
-      default:
-        // One view draws the bars and the day letters, in one step; fourteen views took four.
-        week = new WeekChart(ctx, palette, DAYS);
-        week.setPosition(Ui.CARD_PAD, BASELINE - WeekChart.BAR_MAX);
-        chart.addView(week);
-        return false;
-    }
+  int layoutRes() {
+    return R.layout.page_history;
   }
 
   @Override
-  void update(UsageService repo, long nowMs) {
-    UsageSnapshot s = repo.snapshot();
-    if (s == null) {
-      return;
-    }
-    int ink = repo.isFresh() ? palette.text : palette.muted;
-    statValue[0].show(TimeFormat.tokens(s.todayTokensK), ink);
-    statValue[1].show(
-        s.todayCents < 0 ? dash : String.format(estimate, TimeFormat.dollars(s.todayCents)), ink);
-    statValue[2].show(String.valueOf(s.todayMessages), ink);
+  void onBind(View page) {
+    tokensToday = page.findViewById(R.id.tokens_today);
+    apiValue = page.findViewById(R.id.api_value);
+    messages = page.findViewById(R.id.messages);
+    peak = page.findViewById(R.id.peak);
+    week = page.findViewById(R.id.week);
+  }
+
+  @Override
+  void update(UsageUiState state, long nowMs) {
+    UsageSnapshot s = state.snapshot;
+    int ink = state.fresh ? palette.text : palette.muted;
+    tokensToday.setText(TimeFormat.tokens(s.todayTokensK));
+    tokensToday.setTextColor(ink);
+    apiValue.setText(
+        s.todayCents < 0
+            ? getString(R.string.dash)
+            : getString(R.string.history_estimate, TimeFormat.dollars(s.todayCents)));
+    apiValue.setTextColor(ink);
+    messages.setText(String.valueOf(s.todayMessages));
+    messages.setTextColor(ink);
 
     if (!s.hasHistory) {
-      peak.show(noTranscripts, palette.faint);
+      peak.setText(getString(R.string.no_transcripts));
       return;
     }
     int max = 0;
-    for (int d = 0; d < DAYS; d++) {
+    for (int d = 0; d < s.dayTokensK.length; d++) {
       if (s.dayTokensK[d] > max) {
         max = s.dayTokensK[d];
       }
     }
-    peak.show(max > 0 ? String.format(peakFmt, TimeFormat.tokens(max)) : "", palette.faint);
+    peak.setText(max > 0 ? getString(R.string.history_peak, TimeFormat.tokens(max)) : "");
     if (week.set(s.dayTokensK, s.dayLetters)) {
       week.invalidate();
     }

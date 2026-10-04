@@ -2,18 +2,17 @@
 package picoclock.ui;
 
 import picoclock.AlarmService;
+import picodroid.content.ComponentName;
 import picodroid.content.ServiceConnection;
 import picodroid.os.IBinder;
 
 /**
- * The {@link ServiceConnection} every screen binds through.
+ * The {@link ServiceConnection} every screen binds through, a class of its own so that {@link
+ * BaseActivity} hands the framework one small object rather than itself.
  *
- * <p>It exists as a class of its own rather than as something {@link BaseActivity} implements
- * because of how the framework calls back into Java: the lookup behind a native upcall is flat, so
- * it finds {@code onServiceConnected} only on the exact class of the object it was handed. A
- * connection inherited from a base class is never found, and the bind fails silently — no
- * exception, no log, just a screen whose service reference stays null. Declaring both methods on
- * the concrete class that is actually passed to {@code bindService} is what makes them reachable.
+ * <p>It used to have to be: the framework once called a connection by a flat lookup on the exact
+ * class it was handed, and callbacks a base class declared were never found. They are ordinary
+ * interface calls now, so an Activity may implement {@code ServiceConnection} in a base class.
  */
 final class ServiceLink implements ServiceConnection {
   private final BaseActivity screen;
@@ -23,12 +22,12 @@ final class ServiceLink implements ServiceConnection {
   }
 
   @Override
-  public void onServiceConnected(IBinder binder) {
+  public void onServiceConnected(ComponentName name, IBinder binder) {
     screen.attach(((AlarmService.LocalBinder) binder).service);
   }
 
   @Override
-  public void onServiceDisconnected() {
+  public void onServiceDisconnected(ComponentName name) {
     screen.attach(null);
   }
 }

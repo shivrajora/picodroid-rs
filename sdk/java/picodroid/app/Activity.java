@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.app;
 
+import picodroid.concurrent.Thread;
 import picodroid.content.Context;
 import picodroid.content.Intent;
 import picodroid.graphics.Display;
@@ -11,12 +12,14 @@ import picodroid.lifecycle.ViewModelProvider;
 import picodroid.lifecycle.ViewModelStore;
 import picodroid.lifecycle.ViewModelStoreOwner;
 import picodroid.os.Bundle;
+import picodroid.util.AttributeSet;
 import picodroid.view.KeyEvent;
 import picodroid.view.LayoutInflater;
 import picodroid.view.View;
 
 public class Activity extends Context
     implements KeyEvent.Callback,
+        LayoutInflater.Factory,
         LifecycleOwner,
         ViewModelStoreOwner,
         HasDefaultViewModelProviderFactory {
@@ -51,6 +54,21 @@ public class Activity extends Context
    * created late (in {@code onResume}, say) starts at the host's state as Android's does.
    */
   private int mFragmentHostState;
+
+  /** The thread this Activity was created on, the main thread; see {@link #runOnUiThread}. */
+  private Thread mUiThread;
+
+  /**
+   * Mirrors {@code android.app.Activity#runOnUiThread(Runnable)}: runs {@code action} at once when
+   * called on the main thread, else posts it to the main thread's queue.
+   */
+  public final void runOnUiThread(Runnable action) {
+    if (Thread.currentThread() == mUiThread) {
+      action.run();
+    } else {
+      getMainExecutor().execute(action);
+    }
+  }
 
   /**
    * Mirrors {@code androidx.fragment.app.FragmentActivity#getSupportFragmentManager()}: the manager
@@ -190,6 +208,7 @@ public class Activity extends Context
   // matching callback. Each is skipped while the Activity has no manager.
 
   final void performCreate(Bundle savedInstanceState) {
+    mUiThread = Thread.currentThread();
     onCreate(savedInstanceState);
     mFragmentHostState = Fragment.CREATED;
     if (mFragments != null) {
@@ -250,6 +269,7 @@ public class Activity extends Context
       mFragments.dispatchStop();
     }
     onStop();
+    finishQueuedWork();
   }
 
   final void performDestroy() {
@@ -456,9 +476,36 @@ public class Activity extends Context
     setContentView(getLayoutInflater().inflate(layoutResID, null));
   }
 
-  /** Mirrors Android: an inflater that creates views with this Activity as their context. */
+  /**
+   * Mirrors Android: an inflater that creates views with this Activity as their context, and asks
+   * this Activity ({@link #onCreateView(String, Context, AttributeSet)}) for the view classes a
+   * layout names that are not the framework's.
+   */
   public LayoutInflater getLayoutInflater() {
     return LayoutInflater.from(this);
+  }
+
+  /**
+   * Mirrors {@code android.app.Activity#onCreateView(String, Context, AttributeSet)}, the {@link
+   * LayoutInflater.Factory} every Activity is: called while a layout is inflated for each element
+   * that names a class of the app's own. Override it to construct those views, since there is no
+   * reflection to do it by name:
+   *
+   * <pre>{@code
+   * @Override
+   * public View onCreateView(String name, Context context, AttributeSet attrs) {
+   *   if (name.equals("com.example.GaugeView")) {
+   *     return new GaugeView(context, attrs);
+   *   }
+   *   return super.onCreateView(name, context, attrs);
+   * }
+   * }</pre>
+   *
+   * The default returns {@code null}, and inflating such an element then fails.
+   */
+  @Override
+  public View onCreateView(String name, Context context, AttributeSet attrs) {
+    return null;
   }
 
   /**

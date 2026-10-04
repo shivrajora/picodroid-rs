@@ -3,11 +3,17 @@
     <!-- The chrome around the pages. The display is 320x240. -->
     <dimen name="header_height">26dp</dimen>
     <dimen name="footer_height">24dp</dimen>
-    <dimen name="page_height">190dp</dimen>
     <dimen name="margin">8dp</dimen>
     <dimen name="line_height">18dp</dimen>
+    <!-- A card is the page's width less a margin each side; two limit cards share that with a 4 dp gap. -->
+    <dimen name="card_width">304dp</dimen>
+    <dimen name="card_pad">12dp</dimen>
+    <dimen name="limit_card_width">150dp</dimen>
+    <!-- The display face, and its box with the font padding trimmed: the face's 66 px line less the
+         7 px of leading above its digits and 1 px of descent. -->
+    <dimen name="display_text">64sp</dimen>
+    <dimen name="display_box">58dp</dimen>
     <dimen name="corner_width">50dp</dimen>
-    <dimen name="title_width">100dp</dimen>
     <dimen name="plan_width">46dp</dimen>
     <dimen name="clock_width">48dp</dimen>
     <dimen name="dot_slot_width">24dp</dimen>
@@ -16,10 +22,7 @@
     <dimen name="page_dot_gap">5dp</dimen>
     <dimen name="page_dots_width">48dp</dimen>
     <dimen name="hint_width">52dp</dimen>
-    <dimen name="banner_width">166dp</dimen>
     <dimen name="hint_pad">4dp</dimen>
-    <dimen name="none">0dp</dimen>
-    <dimen name="hairline">1dp</dimen>
 
     <!-- Below warn_from a limit is comfortable; from bad_from it is nearly gone. -->
     <integer name="warn_from">60</integer>

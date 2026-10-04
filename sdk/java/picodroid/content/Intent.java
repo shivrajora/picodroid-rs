@@ -13,8 +13,8 @@ import picodroid.os.Bundle;
  * Implicit Intents (action / category / data resolution against a manifest) are out of scope.
  *
  * <pre>{@code
- * startActivity(new Intent(DetailActivity.class));
- * startService(new Intent(SyncService.class).putExtra("interval", 60));
+ * startActivity(new Intent(this, DetailActivity.class));
+ * startService(new Intent(this, SyncService.class).putExtra("interval", 60));
  * startActivity(getPackageManager().getLaunchIntentForPackage("com.example.weather"));
  * }</pre>
  */
@@ -44,6 +44,14 @@ public final class Intent {
     // getName() returns the Java-spec dot-form; the native lifecycle ops
     // resolve classes by internal slash-form, so normalize here.
     this.targetClassName = targetClass.getName().replace('.', '/');
+  }
+
+  /**
+   * Mirrors {@code android.content.Intent#Intent(Context, Class)}: an Intent for the component
+   * {@code cls} of the app {@code packageContext} belongs to, which is this app.
+   */
+  public Intent(Context packageContext, Class<?> cls) {
+    this(cls);
   }
 
   /** Internal-form class name (slash-separated), e.g. "app/MyService". */

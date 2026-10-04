@@ -11,8 +11,9 @@ pub mod view {
     /// `lv_obj_t*` cast to `i32` (declared in `View.java`).
     pub const NATIVE_HANDLE: usize = 0;
     // View.java declares the parent back-pointer, the listener, layout-params,
-    // cached-getter and drawing (`mCanvas`, `mDrawPending`, `mDrawTask`) fields
-    // after `nativeHandle` (18 fields in all); a
+    // cached-getter, background (`mBackground`, `mBackgroundTint`) and drawing
+    // (`mCanvas`, `mDrawPending`, `mDrawTask`) fields after `nativeHandle`
+    // (20 instance fields in all, and each static takes a slot too); a
     // subclass's own fields — e.g.
     // `CompoundButton.onCheckedChangeListener`, `LinearLayout.orientation` —
     // follow them. `TextView` and `Button` declare none, so inserting TextView

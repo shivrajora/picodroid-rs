@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  A page's view: what the pager gets at once. The page's own layout is inflated into it over
+  the following ticks, and it fades in when that has been painted.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:alpha="0"
+    android:background="?android:attr/colorBackground" />

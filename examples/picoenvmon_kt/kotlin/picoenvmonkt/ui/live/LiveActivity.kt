@@ -2,6 +2,7 @@
 package picoenvmonkt.ui.live
 
 import javax.inject.Inject
+import picodroid.content.ComponentName
 import picodroid.content.Intent
 import picodroid.content.ServiceConnection
 import picodroid.graphics.Theme
@@ -77,7 +78,7 @@ class LiveActivity : NavActivity(), ServiceConnection, SmoothedSensorListener {
 
         setContentView(root)
 
-        bindService(Intent(SensorLoggerService::class.java), this)
+        bindService(Intent(SensorLoggerService::class.java), this, BIND_AUTO_CREATE)
     }
 
     override fun onDestroy() {
@@ -89,7 +90,7 @@ class LiveActivity : NavActivity(), ServiceConnection, SmoothedSensorListener {
         }
     }
 
-    override fun onServiceConnected(binder: IBinder) {
+    override fun onServiceConnected(name: ComponentName, binder: IBinder) {
         val svc = (binder as SensorLoggerService.LocalBinder).service ?: return
         service = svc
         svc.addSmoothedListener(this)
@@ -110,7 +111,7 @@ class LiveActivity : NavActivity(), ServiceConnection, SmoothedSensorListener {
         loggerSwitch?.setChecked(logging)
     }
 
-    override fun onServiceDisconnected() {
+    override fun onServiceDisconnected(name: ComponentName) {
         service = null
     }
 

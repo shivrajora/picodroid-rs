@@ -4,6 +4,7 @@ package picodroid.view;
 import picodroid.concurrent.Executor;
 import picodroid.concurrent.Executors;
 import picodroid.content.Context;
+import picodroid.content.res.ColorStateList;
 import picodroid.graphics.Canvas;
 import picodroid.graphics.drawable.Drawable;
 
@@ -60,6 +61,12 @@ public class View {
 
   int id = NO_ID;
   Object tag;
+
+  /** What {@link #setBackground} was last given; null for none or a plain colour. */
+  private Drawable mBackground;
+
+  /** The tint set by {@link #setBackgroundTintList}, or null. */
+  private ColorStateList mBackgroundTint;
 
   /**
    * The canvas {@link #onDraw} draws on; non-null only for a view made with {@link #View(Context)},
@@ -168,6 +175,151 @@ public class View {
     public void run() {
       view.performDraw();
     }
+  }
+
+  /**
+   * Mirrors {@code android.view.View.MeasureSpec}: a size and how binding it is, packed in an int,
+   * as {@link #onMeasure} receives them.
+   */
+  public static class MeasureSpec {
+    private static final int MODE_SHIFT = 30;
+    private static final int MODE_MASK = 0x3 << MODE_SHIFT;
+
+    /** The parent sets no limit: the view may be any size it wants. */
+    public static final int UNSPECIFIED = 0 << MODE_SHIFT;
+
+    /** The parent has decided the size: the view gets exactly that. */
+    public static final int EXACTLY = 1 << MODE_SHIFT;
+
+    /** The view may be as large as it wants, up to the size given. */
+    public static final int AT_MOST = 2 << MODE_SHIFT;
+
+    // What the onMeasure now running reported; -1 until it calls setMeasuredDimension. Measuring
+    // happens on the main thread, one view at a time, so one pair serves every view. It lives
+    // here and not on View: a class's static fields take a slot in each of its instances, and
+    // nobody makes a MeasureSpec.
+    static int sWidth = -1;
+    static int sHeight;
+
+    private MeasureSpec() {}
+
+    public static int makeMeasureSpec(int size, int mode) {
+      return (size & ~MODE_MASK) | (mode & MODE_MASK);
+    }
+
+    public static int getMode(int measureSpec) {
+      return measureSpec & MODE_MASK;
+    }
+
+    public static int getSize(int measureSpec) {
+      return measureSpec & ~MODE_MASK;
+    }
+  }
+
+  /**
+   * Mirrors {@code android.view.View#onMeasure(int, int)}: decide how large this view wants to be,
+   * within what the two {@link MeasureSpec}s allow, and say so with {@link #setMeasuredDimension}.
+   * The default takes the size the spec gives, or for an {@code UNSPECIFIED} one the size the view
+   * already has.
+   *
+   * <p>Called for a view that draws itself (one made with {@link #View(Context)}), as it is added
+   * to a layout with a {@code wrap_content} dimension: the framework's widgets are sized by the
+   * renderer, which knows their content, and a fixed or {@code match_parent} size needs no asking.
+   * A {@code wrap_content} dimension is measured {@code UNSPECIFIED}; the other, when it is fixed,
+   * {@code EXACTLY}.
+   */
+  protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+    setMeasuredDimension(
+        getDefaultSize(getSuggestedMinimumWidth(), widthMeasureSpec),
+        getDefaultSize(getSuggestedMinimumHeight(), heightMeasureSpec));
+  }
+
+  /** Mirrors Android: what {@link #onMeasure} must call with the size it decided on. */
+  protected final void setMeasuredDimension(int measuredWidth, int measuredHeight) {
+    MeasureSpec.sWidth = measuredWidth < 0 ? 0 : measuredWidth;
+    MeasureSpec.sHeight = measuredHeight < 0 ? 0 : measuredHeight;
+  }
+
+  /**
+   * Mirrors {@code android.view.View#measure(int, int)}: runs {@link #onMeasure} and takes the size
+   * it reports, which {@link #getMeasuredWidth} then returns.
+   */
+  public final void measure(int widthMeasureSpec, int heightMeasureSpec) {
+    MeasureSpec.sWidth = -1;
+    onMeasure(widthMeasureSpec, heightMeasureSpec);
+    if (MeasureSpec.sWidth < 0) {
+      throw new IllegalStateException(
+          "View with id "
+              + getId()
+              + ": onMeasure() did not set the measured dimension by calling"
+              + " setMeasuredDimension()");
+    }
+    setSize(MeasureSpec.sWidth, MeasureSpec.sHeight);
+    invalidate();
+  }
+
+  /** Mirrors Android: the width {@link #onMeasure} last settled on; the laid-out width here. */
+  public final int getMeasuredWidth() {
+    return getWidth();
+  }
+
+  /** Mirrors Android: the height {@link #onMeasure} last settled on; the laid-out height. */
+  public final int getMeasuredHeight() {
+    return getHeight();
+  }
+
+  /** Mirrors Android: {@code size} unless the spec says otherwise (EXACTLY or AT_MOST). */
+  public static int getDefaultSize(int size, int measureSpec) {
+    return MeasureSpec.getMode(measureSpec) == MeasureSpec.UNSPECIFIED
+        ? size
+        : MeasureSpec.getSize(measureSpec);
+  }
+
+  /** Mirrors Android: {@code size} if the spec allows it, else what the spec imposes. */
+  public static int resolveSize(int size, int measureSpec) {
+    int mode = MeasureSpec.getMode(measureSpec);
+    int specSize = MeasureSpec.getSize(measureSpec);
+    if (mode == MeasureSpec.EXACTLY) {
+      return specSize;
+    }
+    if (mode == MeasureSpec.AT_MOST) {
+      return size < specSize ? size : specSize;
+    }
+    return size;
+  }
+
+  /** The width an unconstrained default measure settles on: the one the view has now. */
+  protected int getSuggestedMinimumWidth() {
+    return getWidth();
+  }
+
+  /** The height an unconstrained default measure settles on: the one the view has now. */
+  protected int getSuggestedMinimumHeight() {
+    return getHeight();
+  }
+
+  /**
+   * Takes the size a parent's LayoutParams give: a view that draws itself is asked how large it
+   * wants to be for a {@code wrap_content} dimension, every other size goes to the renderer.
+   */
+  final void applyLayoutSize(int width, int height) {
+    if (mCanvas != null && (width == WRAP_CONTENT || height == WRAP_CONTENT)) {
+      measure(measureSpecFor(width), measureSpecFor(height));
+      if (width != WRAP_CONTENT || height != WRAP_CONTENT) {
+        // The measured value stands for the wrapped dimension; the other is the layout's.
+        setSize(
+            width == WRAP_CONTENT ? MeasureSpec.sWidth : width,
+            height == WRAP_CONTENT ? MeasureSpec.sHeight : height);
+      }
+    } else {
+      setSize(width, height);
+    }
+  }
+
+  private static int measureSpecFor(int size) {
+    return size >= 0
+        ? MeasureSpec.makeMeasureSpec(size, MeasureSpec.EXACTLY)
+        : MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED);
   }
 
   /** Whether this view's widget has been freed ({@link ViewGroup#removeView}). */
@@ -314,10 +466,55 @@ public class View {
    * StateListDrawable}) can swap their fill on press/focus without changing the call site.
    */
   public void setBackground(Drawable drawable) {
+    if (drawable == mBackground) {
+      return; // the same instance again, as on Android: nothing to redo
+    }
+    mBackground = drawable;
     if (drawable != null) {
       drawable.applyTo(this);
+      if (mBackgroundTint != null) {
+        nativeSetBackgroundTint(mBackgroundTint.getDefaultColor());
+      }
     }
   }
+
+  /** Mirrors Android: the drawable last given to {@link #setBackground}, or {@code null}. */
+  public Drawable getBackground() {
+    return mBackground;
+  }
+
+  /**
+   * Mirrors {@code android.view.View#setBackgroundTintList(ColorStateList)}: recolours the
+   * background, keeping its shape (a {@link picodroid.graphics.drawable.GradientDrawable}'s corners
+   * and stroke stay). The way to change the colour of a dot or a pill without building a new
+   * drawable. A tint equal to the current one does nothing; {@code null} takes the tint off and
+   * puts the drawable's own colour back.
+   *
+   * <p>Divergences: the tint's colour replaces the background's and its alpha is ignored (the
+   * background keeps its own opacity, so a view with no background still shows none), and after a
+   * {@code null} only a background set with {@link #setBackground} gets its colour back.
+   */
+  public void setBackgroundTintList(ColorStateList tint) {
+    ColorStateList old = mBackgroundTint;
+    if (tint == null
+        ? old == null
+        : old != null && old.getDefaultColor() == tint.getDefaultColor()) {
+      return;
+    }
+    mBackgroundTint = tint;
+    if (tint != null) {
+      nativeSetBackgroundTint(tint.getDefaultColor());
+    } else if (mBackground != null) {
+      mBackground.applyTo(this);
+    }
+  }
+
+  /** Mirrors Android: the tint set by {@link #setBackgroundTintList}, or {@code null}. */
+  public ColorStateList getBackgroundTintList() {
+    return mBackgroundTint;
+  }
+
+  private native void nativeSetBackgroundTint(int argb);
 
   /**
    * Register a touch listener. The framework also flips this View's LVGL CLICKABLE flag so the
@@ -407,10 +604,25 @@ public class View {
 
   public native void setSize(int width, int height);
 
-  public native void setBackgroundColor(int argb);
+  /**
+   * Mirrors {@code android.view.View#setBackgroundColor(int)}: a plain fill in place of whatever
+   * background the view had.
+   */
+  public void setBackgroundColor(int argb) {
+    mBackground = null;
+    nativeSetBackgroundColor(argb);
+  }
 
-  /** Set visibility to one of {@link #VISIBLE}, {@link #INVISIBLE}, or {@link #GONE}. */
+  private native void nativeSetBackgroundColor(int argb);
+
+  /**
+   * Set visibility to one of {@link #VISIBLE}, {@link #INVISIBLE}, or {@link #GONE}. Setting the
+   * visibility the view already has does nothing, as on Android.
+   */
   public void setVisibility(int visibility) {
+    if (visibility == this.visibility) {
+      return;
+    }
     this.visibility = visibility;
     nativeSetVisibility(visibility);
   }
@@ -423,6 +635,9 @@ public class View {
   public native void setPadding(int left, int top, int right, int bottom);
 
   public void setEnabled(boolean enabled) {
+    if (enabled == this.enabled) {
+      return;
+    }
     this.enabled = enabled;
     nativeSetEnabled(enabled);
   }
@@ -432,7 +647,11 @@ public class View {
     return enabled;
   }
 
+  /** Sets the opacity, 0 to 1. Setting the alpha the view already has does nothing. */
   public void setAlpha(float alpha) {
+    if (alpha == this.alpha) {
+      return;
+    }
     this.alpha = alpha;
     nativeSetAlpha(alpha);
   }
@@ -581,6 +800,14 @@ public class View {
     return tag;
   }
 
+  /**
+   * The animator was cancelled mid-flight: the alpha is wherever its last frame left it, so the
+   * cached value {@link #setAlpha} compares against is read back from the renderer.
+   */
+  final void syncAlpha() {
+    alpha = nativeGetProperty(ViewPropertyAnimator.PROPERTY_ALPHA);
+  }
+
   private native void nativeSetVisibility(int visibility);
 
   private native void nativeSetEnabled(boolean enabled);
@@ -638,6 +865,15 @@ public class View {
    * picodroid.widget for {@link ViewGroup#addView(View, ViewGroup.LayoutParams)}'s weight handling.
    */
   native void nativeSetFlexGrow(int weight);
+
+  /** Space to keep clear around this view in a {@code LinearLayout}, in pixels. */
+  native void nativeSetMargins(int left, int top, int right, int bottom);
+
+  /**
+   * Places this view in a {@code FrameLayout}: against the edges or centre {@code gravity} names,
+   * moved by ({@code dx}, {@code dy}) pixels.
+   */
+  native void nativeSetFrameGravity(int gravity, int dx, int dy);
 
   /**
    * Synthesize a click event. Equivalent to {@code android.view.View#performClick()} — invokes the

@@ -24,13 +24,13 @@ pub(super) fn dispatch(
     method_name: &str,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    // Context.startService / stopService / bindService / unbindService —
+    // Context.startService / stopService / nativeBindService / unbindService —
     // matched on method name regardless of receiver class because the JVM
     // dispatches with the runtime subclass (Activity/Application/...).
     match method_name {
         m::startService => return Some(handle_start_service(handler, ctx)),
         m::stopService => return Some(handle_stop_service(handler, ctx)),
-        m::bindService => return Some(handle_bind_service(handler, ctx)),
+        m::nativeBindService => return Some(handle_bind_service(handler, ctx)),
         m::unbindService => return Some(handle_unbind_service(handler, ctx)),
         _ => {}
     }
@@ -135,18 +135,22 @@ fn handle_stop_service(
     Ok(None)
 }
 
+/// `Context.nativeBindService(Intent, ServiceConnection)`, the native half of
+/// `bindService`. Answers Android's boolean: whether the Service was found
+/// and the bind queued.
 fn handle_bind_service(
     handler: &mut PicodroidNativeHandler,
     ctx: &mut NativeContext<'_>,
 ) -> Result<Option<Value>, JvmError> {
+    const NOT_FOUND: Result<Option<Value>, JvmError> = Ok(Some(Value::Int(0)));
     let Some(Value::ObjectRef(intent_ref)) = ctx.args.get(1) else {
-        return Ok(None);
+        return NOT_FOUND;
     };
     let Some(Value::ObjectRef(conn_ref)) = ctx.args.get(2) else {
-        return Ok(None);
+        return NOT_FOUND;
     };
     let Some(class_name) = intent_target_class(ctx, *intent_ref) else {
-        return Ok(None);
+        return NOT_FOUND;
     };
     let owner = handler.current_activity().map(|(r, _)| r).unwrap_or(0);
     let queued = handler.enqueue_op(PendingOp::Service(PendingServiceOp::Bind {
@@ -158,7 +162,7 @@ fn handle_bind_service(
     if !queued {
         return Err(super::queue_full(ctx));
     }
-    Ok(None)
+    Ok(Some(Value::Int(1)))
 }
 
 fn handle_unbind_service(

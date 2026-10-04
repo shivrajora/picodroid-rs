@@ -1,9 +1,56 @@
 # `claudeusage`: what is still not Android (handover, 2026-09-30)
 
-Status: **open, nothing started.** Written after a review of `examples/claudeusage` on `main` at
-`73ceb866` (the `picodroid.lifecycle` commit). It lists every place the app still reads differently
-from the same app written for Android, grouped into work packages. Each package gives the
-evidence, the Android shape, the fix and how big it is.
+Status: **packages A to E landed 2026-10-01; F (owner decisions) is carried by
+[claudeusage-decisions-2026-10.md](claudeusage-decisions-2026-10.md).** Written after a review
+of `examples/claudeusage` on `main` at `73ceb866` (the `picodroid.lifecycle` commit). It lists
+every place the app still read differently from the same app written for Android, grouped into
+work packages. Each package gives the evidence, the Android shape, the fix and how big it is. The
+text below the outcome is the handover as written.
+
+## Outcome (2026-10-01)
+
+| Item | Result |
+|---|---|
+| A1, A3, A5 | Done as written. |
+| A2 | Done. The header was already 320 wide; the footer's fixed widths summed to 316, so with `layout_weight` its right-hand hint now ends on the margin like the header's (4 px right of where it was). Everything else is pixel-identical. |
+| A4 | Done: one `View` drawing three arcs, pixel-identical to the two stacked indicators. |
+| B1, B2, B3, B4 | Done, and the old forms removed: `ServiceConnection` and `bindService` have Android's signatures, with `ComponentName`, `Binder` and `Intent(Context, Class)`. The callbacks go through a static bridge on `Context`, so the "exact class only" upcall trap is gone for connections. Every app with a bound Service was migrated. `claudeusage` itself no longer binds (see D). |
+| B5, B6, B9 | Done. `DatagramPacket.getAddress()` changed its return type; `new InetAddress(int)` and the four-`int` form stay. |
+| B7 | The four `KEYCODE_BUTTON_*` constants exist. Mapping buttons to them is F1. |
+| B8, B10 | Recorded and left, as proposed. |
+| C1 | Done: one instance per file, synchronised, `apply()` writes on the background pool and coalesces, pending writes are flushed when an Activity stops and before the file is next read. The write was already a temp file and a rename (the truncating rewrite is only the fallback at the storage cap). A failed write no longer rolls the memory back, as on Android. Both app workarounds are deleted. One trap the list did not have: a pool worker needs the stack to write a file. `testbench_rp2040`'s default 4 KB workers overflowed in `prefs_demo` on the board; it now runs two at 8 KB, and 6144 is the default and the floor for `[background_pool] stack_bytes`. |
+| C2 | Option (a): `Executors.mainScheduledExecutor()` is the main-thread one, and `newSingleThreadScheduledExecutor()` is a thread of its own (`ScheduledThreadPoolExecutor`, pure Java). Six callers renamed. |
+| C3 | Done through `LV_WIDGETS_HAS_DEFAULT_VALUE 0`, which also empties a fresh `CheckBox` and `Spinner`. No other app had the workaround. |
+| C4, D1 to D4 | Done, one step further than sketched: the Service fills a `UsageRepository` (no `Context`) with one immutable `UsageData` per event, the ViewModel observes it and publishes one immutable `UsageUiState` only when a screen would be painted differently, and the Activity observes that for the chrome. The once-a-second look at the clock runs in the ViewModel while it is observed. The Service is started and never bound. The pages still take the tick after the chrome's. |
+| E1, E3 | Done: `picodroid.view.AsyncLayoutInflater`, slicing by time (8 ms a tick) and owning the out-of-memory retry. |
+| E2 | Done: `layout_margin*` and `MarginLayoutParams`; a `FrameLayout` places a child by gravity and margins, which is what expresses the pages' absolute geometry. Also `<include>`, `<View>`, `includeFontPadding` and `<shape>` drawables. The pages are XML and pixel-identical. |
+| E4 | Done in the SDK setters; `Line`, `BarView` and the `shown*` fields are deleted. |
+| E5 | `warmChrome` and `Host` deleted on the simulator's evidence (cold resolution and class initialisation are 15 µs of the first refresh's span), confirmed on `pico_display2_w` 2026-10-03: no `slow handler` line at the first refresh. |
+| E6 | All but one deferral gone, measured on `pico_display2_w` 2026-10-03: a page binds and paints in the tick its layout finishes, the Models page paints both cards at once, and a painted page repaints inside the `LiveData` call beside the chrome. The first paint of a page built before the data came still takes the next tick: with cold call sites and the chrome's repaint it measured 58 ms (`resolve=15 ms`). |
+| E7 | Done: `View.setBackgroundTintList`. |
+| E8 | Done: `onMeasure` and friends on `View`; a layout names a custom view class and `Activity.onCreateView(String, Context, AttributeSet)` constructs it. F2 would remove that override. |
+| E9 | Done at build time: styles expand into the layouts, `?attr/` reads the `AppTheme` style, and `Context.setTheme` hands the theme's colours to the widgets. |
+| F1 to F9 | Open: decisions for the owner, carried with recommendations by [claudeusage-decisions-2026-10.md](claudeusage-decisions-2026-10.md). |
+
+Verified: `pre-commit`; the whole simulator matrix in both shrink modes (152 rows pass, the
+size ratchet aside); `claudeusage` pixel for pixel against the pre-round build over the four
+pages, AUTO, a sync, a killed bridge and the status screen; and on `testbench_rp2040` hardware,
+in both shrink modes, `helloworld` with its `pdb` rows, `prefs_demo`, `qa_life`, `qa_lang`,
+`executorstress`, `resdemo`, `bugbash_ui`, `navdemo` and `dialogdemo`.
+
+On `pico_display2_w` (2026-10-03, `parity-metrics` build, the bridge live): no `slow handler`
+line across 25 page turns by key and by AUTO, five syncs (minute ticks and a manual one), AUTO
+toggled, and the first refresh. Render cost per page turn against a build of the pre-round
+`main` on the same board: 160 to 220 ms of LVGL work in the two seconds after a turn where the
+old build spent 235 to 255 ms, with the same 40 to 54 ms worst tick (the full-screen flush).
+Zero `slow handler` lines there too. The size ratchet is accepted at 1,008,204 B on
+`testbench_rp2040` and 1,531,308 B on `testbench_rp2350` (+38,220 B and +47,280 B, of which
+about 15 KB each was the `picodroid.lifecycle` round, FR-12); RAM is unchanged on both.
+
+New SDK surface has a self-checking example, `examples/layoutdemo`, with a row in
+`scripts/hil-tests.conf`. The tracker rows are in
+[claudeusage-android-shape-2026-09.md](claudeusage-android-shape-2026-09.md) (open) and
+[its completed twin](../completed/claudeusage-android-shape-2026-09.md) (section 10).
 
 Earlier rounds, for context:
 

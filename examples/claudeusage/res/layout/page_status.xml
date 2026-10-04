@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Shown instead of the data screens while there has never been any data: what is wrong, where
+  the bridge is expected, and when the next attempt is.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <FrameLayout
+        style="@style/Card"
+        android:layout_height="186dp"
+        android:layout_marginTop="2dp">
+
+        <FrameLayout
+            android:id="@+id/link_dot"
+            android:layout_width="12dp"
+            android:layout_height="12dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="24dp"
+            android:background="@drawable/link_dot" />
+
+        <TextView
+            android:id="@+id/headline"
+            style="@style/Line.Boxed"
+            android:layout_width="match_parent"
+            android:layout_marginTop="48dp"
+            android:gravity="center_horizontal" />
+
+        <TextView
+            android:id="@+id/advice"
+            style="@style/Line.Boxed"
+            android:layout_width="match_parent"
+            android:layout_marginTop="70dp"
+            android:gravity="center_horizontal"
+            android:textColor="@color/muted" />
+
+        <TextView
+            android:id="@+id/bridge"
+            style="@style/Line.Boxed"
+            android:layout_width="match_parent"
+            android:layout_marginTop="108dp"
+            android:gravity="center_horizontal"
+            android:textColor="@color/muted" />
+
+        <TextView
+            android:id="@+id/retry"
+            style="@style/Line.Boxed"
+            android:layout_width="match_parent"
+            android:layout_marginTop="130dp"
+            android:gravity="center_horizontal"
+            android:textColor="?attr/colorPrimary" />
+
+        <TextView
+            style="@style/Line.Boxed"
+            android:layout_width="match_parent"
+            android:layout_marginTop="156dp"
+            android:gravity="center_horizontal"
+            android:text="@string/status_retry_hint"
+            android:textColor="@color/faint" />
+    </FrameLayout>
+</FrameLayout>

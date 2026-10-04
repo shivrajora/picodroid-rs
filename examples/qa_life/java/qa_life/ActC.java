@@ -2,6 +2,7 @@
 package qa_life;
 
 import picodroid.app.Activity;
+import picodroid.content.ComponentName;
 import picodroid.content.Context;
 import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
@@ -17,7 +18,7 @@ public class ActC extends Activity {
   private final ServiceConnection conn =
       new ServiceConnection() {
         @Override
-        public void onServiceConnected(IBinder binder) {
+        public void onServiceConnected(ComponentName name, IBinder binder) {
           T.log("C.connected");
           binderSeen = binder;
           Svc s = ((Svc.LocalBinder) binder).service;
@@ -25,7 +26,7 @@ public class ActC extends Activity {
         }
 
         @Override
-        public void onServiceDisconnected() {
+        public void onServiceDisconnected(ComponentName name) {
           disconnects++;
           T.log("C.disconnected");
         }
@@ -40,7 +41,7 @@ public class ActC extends Activity {
         "C intent present and empty", in != null && in.getExtras() == null && !in.hasExtra("n"));
     T.check("C getStringExtra missing null", in == null || in.getStringExtra("nothing") == null);
     T.check("C package name", "qa_life".equals(getPackageName()));
-    bindService(new Intent(Svc.class), conn);
+    bindService(new Intent(Svc.class), conn, BIND_AUTO_CREATE);
     getSharedPreferences("life", Context.MODE_PRIVATE)
         .edit()
         .putInt("from_c", 1)

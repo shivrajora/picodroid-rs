@@ -88,6 +88,17 @@ pub(in crate::graphics) fn set_bg_color(h: Handle, argb: u32) {
     }
 }
 
+/// `View.setBackgroundTintList`: the colour alone. The opacity, the radius and
+/// the border are whatever the background set, so a rounded dot stays a dot
+/// and a view without a background still shows none.
+pub(in crate::graphics) fn set_bg_tint(h: Handle, argb: u32) {
+    let o = obj(h);
+    if o.is_null() {
+        return; // stale handle — mutating a destroyed View is a no-op
+    }
+    unsafe { lv_obj_set_style_bg_color(o, argb_to_lv_color(argb), 0) };
+}
+
 pub(in crate::graphics) fn set_padding(h: Handle, left: i32, top: i32, right: i32, bottom: i32) {
     let o = obj(h);
     if o.is_null() {
@@ -283,6 +294,34 @@ pub(in crate::graphics) fn frame(h: Handle) -> (i32, i32, i32, i32) {
             lv_obj_get_height(o),
         )
     }
+}
+
+/// `LayoutParams` margins: the space a `LinearLayout` (an LVGL flex layout)
+/// keeps clear around this child. Four sets, one refresh (style_batch.rs).
+pub(in crate::graphics) fn set_margins(h: Handle, left: i32, top: i32, right: i32, bottom: i32) {
+    let o = obj(h);
+    if o.is_null() {
+        return; // stale handle — mutating a destroyed View is a no-op
+    }
+    unsafe {
+        // PAD_TOP's flags are the ones a margin has: a layout update.
+        super::style_batch::with_one_refresh(o, LV_STYLE_PAD_TOP, || {
+            lv_obj_set_style_margin_left(o, left, 0);
+            lv_obj_set_style_margin_top(o, top, 0);
+            lv_obj_set_style_margin_right(o, right, 0);
+            lv_obj_set_style_margin_bottom(o, bottom, 0);
+        });
+    }
+}
+
+/// A `FrameLayout` child's place: against the corner, edge or centre its
+/// gravity names, moved by (`dx`, `dy`).
+pub(in crate::graphics) fn set_frame_gravity(h: Handle, gravity: i32, dx: i32, dy: i32) {
+    let o = obj(h);
+    if o.is_null() {
+        return; // stale handle — mutating a destroyed View is a no-op
+    }
+    unsafe { lv_obj_align(o, super::widgets::gravity::frame_align(gravity), dx, dy) };
 }
 
 pub(in crate::graphics) fn set_flex_grow(h: Handle, weight: i32) {

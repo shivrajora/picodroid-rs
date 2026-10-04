@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package claudeusage.data;
 
-import claudeusage.NetTestConfig;
+import claudeusage.BuildConfig;
 import claudeusage.util.TimeFormat;
 import picodroid.app.Service;
+import picodroid.concurrent.Executor;
 import picodroid.concurrent.Executors;
 import picodroid.concurrent.ScheduledExecutorService;
-import picodroid.concurrent.ScheduledFuture;
 import picodroid.concurrent.Thread;
 import picodroid.concurrent.TimeUnit;
 import picodroid.content.Context;
@@ -19,27 +19,21 @@ import picodroid.os.SystemClock;
 import picodroid.util.Log;
 
 /**
- * The started-and-bound Service that owns the numbers, the poll thread and the once-a-second tick.
- * The poll thread fetches from the bridge. The tick is a fixed-rate task on the main thread's
- * {@link ScheduledExecutorService}: it nudges the UI so countdowns and the staleness display keep
- * moving, and it runs only while a listener is registered, since it has nothing to do before one. A
- * task rather than a second thread because a thread is a 16 KB stack for one line of work a second,
- * and the tick keeps coming whatever the poll thread is blocked in.
- *
- * <p>Started so the numbers stay warm whichever screen is showing; bound so the Activity can read
- * them through the {@link LocalBinder}. The bridge's address is, in order: the {@link
- * #KEY_BRIDGE_HOST} preference when set; else whatever {@link BridgeDiscovery} finds on the LAN,
- * asked at boot and again while the bridge is unreachable; else the last address it found ({@link
+ * The started Service that keeps the numbers warm: it owns the poll thread that fetches from the
+ * bridge and publishes what comes back in the {@link UsageRepository}, which is all the screens
+ * know of it. Nothing binds to it. The bridge's address is, in order: the {@link #KEY_BRIDGE_HOST}
+ * preference when set; else whatever {@link BridgeDiscovery} finds on the LAN, asked at boot and
+ * again while the bridge is unreachable; else the last address it found ({@link
  * #KEY_BRIDGE_FOUND}); else the build-time host.
  *
- * <p>Threading: the poll thread never touches the fields the UI reads. It hands each result to the
- * main thread in a posted Runnable, and everything below the "main thread" banner is confined to
- * it, the tick included. The flags that cross are volatile; the poll thread idles on {@link #lock}.
- * The link's state comes from {@link ConnectivityManager} on the main thread, as on Android: {@code
- * onAvailable} wakes the poll thread, {@code onLost} paints the offline state at once and nothing
- * polls the link meanwhile.
+ * <p>Threading: the poll thread never touches the state the repository publishes. It hands each
+ * result to the main thread in a posted Runnable, and everything below the "main thread" banner is
+ * confined to it. The flags that cross are volatile; the poll thread idles on {@link #lock}. The
+ * link's state comes from {@link ConnectivityManager} on the main thread, as on Android: {@code
+ * onAvailable} wakes the poll thread, {@code onLost} publishes the offline state at once and
+ * nothing polls the link meanwhile.
  */
-public final class UsageService extends Service {
+public final class UsageService extends Service implements UsageRepository.Poller {
   public static final String TAG = "ClaudeUsage";
 
   /** The preferences file the app's settings live in. */
@@ -76,39 +70,12 @@ public final class UsageService extends Service {
    */
   private static final int LINK_WAIT_MS = 30_000;
 
-  /** Two and a half polls without a good reply and the numbers on screen are no longer "live". */
-  private static final int STALE_AFTER_MS = 150_000;
-
-  /** Limits the bridge itself has not refreshed for this long count as stale too. */
-  private static final int UPSTREAM_STALE_S = 900;
-
-  private static final int TICK_MS = 1000;
-
-  /**
-   * A fetch is bounded by the connect and read timeouts, 8 s together. One still running after this
-   * long is wedged, and the UI reports the PC as unreachable rather than "contacting" forever.
-   */
-  private static final int SYNC_OVERDUE_MS = 12_000;
-
   /** One trend sample per this long, {@link #TREND_SLOTS} of them: the last hour. */
-  private static final int TREND_PERIOD_MS = 150_000;
+  static final int TREND_PERIOD_MS = 150_000;
 
   public static final int TREND_SLOTS = 24;
 
-  /** What the UI implements. Both callbacks arrive on the main thread. */
-  public interface Listener {
-    /** New data, a new link state, or a sync starting or ending. */
-    void onUsageChanged();
-
-    /** Once a second while registered. */
-    void onTick();
-  }
-
-  public static class LocalBinder implements IBinder {
-    public UsageService service;
-  }
-
-  private final LocalBinder binder = new LocalBinder();
+  private final UsageRepository repository = UsageRepository.getInstance();
 
   private ConnectivityManager connectivity;
 
@@ -154,10 +121,16 @@ public final class UsageService extends Service {
   /**
    * The address being tried, {@code host:port}: pinned, discovered, or the fallback while discovery
    * finds nothing. Null only before the first probe of a unit that has never found the bridge.
+   * Written by the poll thread (and by {@code onCreate} before it starts).
    */
   private volatile String address;
 
   private volatile String url;
+
+  /** Set in {@code onCreate}, before the poll thread starts; both are safe from any thread. */
+  private Executor main;
+
+  private SharedPreferences prefs;
 
   // ── Poll thread only ───────────────────────────────────────────────────────
 
@@ -171,44 +144,26 @@ public final class UsageService extends Service {
 
   // ── Main thread only ───────────────────────────────────────────────────────
 
-  /** Not thread-safe, so the poll thread posts its one write here. */
-  private SharedPreferences prefs;
+  /** Samples the trend; a task on the main thread, so it costs no stack of its own. */
+  private final ScheduledExecutorService scheduler = Executors.mainScheduledExecutor();
 
-  private Listener listener;
-
-  /** Runs {@link #tick} once a second while a listener is registered. */
-  private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
-
-  private ScheduledFuture<?> ticking;
   private UsageSnapshot snapshot;
   private LinkState linkState = LinkState.JOINING;
   private String linkErr = "";
-  private boolean syncing;
-  private long syncStartedElapsedMs;
+  private long syncStartedElapsedMs = -1;
   private long lastGoodElapsedMs = -1;
   private long lastGoodWallMs;
   private long nextAttemptElapsedMs;
 
-  /** Session percent per slot, oldest first; -1 is a gap (no data for that slot). */
-  private final int[] trend = new int[TREND_SLOTS];
-
-  private int trendCount;
-  private long lastTrendElapsedMs = -1;
-
-  /** Once a second on the main thread; see {@link #ticking}. */
-  private void tick() {
-    recordTrend();
-    if (listener != null) {
-      listener.onTick();
-    }
-  }
+  /** Session percent per sample, oldest first; -1 is a gap. Replaced, never changed in place. */
+  private int[] trend = new int[0];
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
   @Override
   public void onCreate() {
     super.onCreate();
-    binder.service = this;
+    main = getMainExecutor();
     prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
     String pinned = prefs.getString(KEY_BRIDGE_HOST, null);
     if (pinned != null) {
@@ -216,7 +171,7 @@ public final class UsageService extends Service {
       Log.i(TAG, "service up, bridge pinned " + address);
     } else {
       discover = true;
-      fallback = withPort(NetTestConfig.HOST);
+      fallback = withPort(BuildConfig.BRIDGE_HOST);
       String found = prefs.getString(KEY_BRIDGE_FOUND, null);
       if (found != null) {
         setAddress(found);
@@ -224,6 +179,10 @@ public final class UsageService extends Service {
       Log.i(TAG, "service up, bridge by discovery, else " + (found != null ? found : fallback));
     }
     running = true;
+    publish();
+    repository.attach(this);
+    scheduler.scheduleAtFixedRate(
+        this::sampleTrend, TREND_PERIOD_MS, TREND_PERIOD_MS, TimeUnit.MILLISECONDS);
     // Android's shape: the framework says when the link comes and goes (a callback registered
     // while it is already up hears onAvailable shortly), so the poll thread never asks.
     connectivity = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
@@ -239,7 +198,7 @@ public final class UsageService extends Service {
     return host.indexOf(':') >= 0 ? host : host + ":" + UsageFetcher.PORT;
   }
 
-  /** The one write to the two address fields the UI reads; both are volatile. */
+  /** The one write to the two address fields; both are volatile. */
   private void setAddress(String hostPort) {
     address = hostPort;
     url = "http://" + hostPort + "/u";
@@ -250,14 +209,15 @@ public final class UsageService extends Service {
     return START_STICKY;
   }
 
+  /** Nothing binds: the screens read the {@link UsageRepository}. */
   @Override
   public IBinder onBind(Intent intent) {
-    return binder;
+    return null;
   }
 
   @Override
   public void onDestroy() {
-    listener = null;
+    repository.attach(null);
     scheduler.shutdownNow();
     running = false;
     connectivity.unregisterNetworkCallback(linkWatch);
@@ -267,19 +227,10 @@ public final class UsageService extends Service {
     super.onDestroy();
   }
 
-  // ── Client API (main thread) ───────────────────────────────────────────────
-
-  public void setListener(Listener l) {
-    listener = l;
-    if (l != null && ticking == null && running) {
-      ticking = scheduler.scheduleAtFixedRate(this::tick, TICK_MS, TICK_MS, TimeUnit.MILLISECONDS);
-    } else if (l == null && ticking != null) {
-      ticking.cancel(false);
-      ticking = null;
-    }
-  }
+  // ── Requests from the repository (any thread) ──────────────────────────────
 
   /** X button: fetch now rather than at the next poll. */
+  @Override
   public void refreshNow() {
     refreshRequested = true;
     synchronized (lock) {
@@ -287,98 +238,56 @@ public final class UsageService extends Service {
     }
   }
 
-  /**
-   * X held: ask the LAN for the bridge again before fetching, whatever the last answer was — the PC
-   * may have moved. Does nothing extra while a {@link #KEY_BRIDGE_HOST} pin is set.
-   */
+  /** X held: probe the LAN for the bridge before the next fetch, answered or not. */
+  @Override
   public void rediscover() {
     rediscoverRequested = true;
     refreshNow();
   }
 
+  // ── Main thread ────────────────────────────────────────────────────────────
+
+  /** Something changed: what is known now, as one new immutable value. */
+  private void publish() {
+    repository.setData(
+        new UsageData(
+            snapshot,
+            trend,
+            linkState,
+            linkErr,
+            address,
+            syncStartedElapsedMs,
+            lastGoodElapsedMs,
+            lastGoodWallMs,
+            nextAttemptElapsedMs));
+  }
+
+  /** The trend timer: one sample, published. */
+  private void sampleTrend() {
+    if (recordTrend()) {
+      publish();
+    }
+  }
+
   /**
-   * Shown on the status screen so a wrong address is obvious; null while the first discovery
-   * broadcast is still out.
+   * Adds one trend sample: the session percent now, or a gap while there are no live numbers.
+   * Returns false when there is nothing yet to put a gap in.
    */
-  public String bridgeAddress() {
-    return address;
-  }
-
-  public UsageSnapshot snapshot() {
-    return snapshot;
-  }
-
-  /** The link state to present: an overdue fetch counts as an unreachable PC. */
-  public LinkState linkState() {
-    if (syncing && SystemClock.elapsedRealtime() - syncStartedElapsedMs > SYNC_OVERDUE_MS) {
-      return LinkState.PC_OFF;
-    }
-    return linkState;
-  }
-
-  public String linkErr() {
-    return linkErr;
-  }
-
-  /** True while a fetch is in flight and not yet overdue. */
-  public boolean isSyncing() {
-    return syncing && SystemClock.elapsedRealtime() - syncStartedElapsedMs <= SYNC_OVERDUE_MS;
-  }
-
-  /** Wall-clock time of the last good reply, 0 if there has been none. */
-  public long lastGoodWallMs() {
-    return lastGoodWallMs;
-  }
-
-  /** Milliseconds since the last good reply, -1 if there has been none. */
-  public long sinceLastGoodMs() {
-    return lastGoodElapsedMs < 0 ? -1 : SystemClock.elapsedRealtime() - lastGoodElapsedMs;
-  }
-
-  public int secondsToNextAttempt() {
-    long ms = nextAttemptElapsedMs - SystemClock.elapsedRealtime();
-    return ms <= 0 ? 0 : (int) ((ms + 999) / 1000);
-  }
-
-  /** True when the numbers held are current enough to present as live. */
-  public boolean isFresh() {
-    if (snapshot == null || !snapshot.hasLimits() || lastGoodElapsedMs < 0) {
+  private boolean recordTrend() {
+    if (snapshot == null && trend.length == 0) {
       return false;
     }
-    if (SystemClock.elapsedRealtime() - lastGoodElapsedMs >= STALE_AFTER_MS) {
-      return false;
-    }
-    return snapshot.ageS >= 0 && snapshot.ageS < UPSTREAM_STALE_S;
-  }
-
-  public int trendCount() {
-    return trendCount;
-  }
-
-  public int trendAt(int i) {
-    return trend[i];
-  }
-
-  private void recordTrend() {
-    long now = SystemClock.elapsedRealtime();
-    if (lastTrendElapsedMs >= 0 && now - lastTrendElapsedMs < TREND_PERIOD_MS) {
-      return;
-    }
-    if (snapshot == null && trendCount == 0) {
-      return; // nothing yet to put a gap in
-    }
-    lastTrendElapsedMs = now;
-    int value = isFresh() ? snapshot.sessionPct : -1;
-    if (trendCount < TREND_SLOTS) {
-      trend[trendCount++] = value;
-    } else {
-      System.arraycopy(trend, 1, trend, 0, TREND_SLOTS - 1);
-      trend[TREND_SLOTS - 1] = value;
-    }
+    boolean fresh = repository.data().getValue().isFresh(SystemClock.elapsedRealtime());
+    int keep = trend.length < TREND_SLOTS ? trend.length : TREND_SLOTS - 1;
+    int[] next = new int[keep + 1];
+    System.arraycopy(trend, trend.length - keep, next, 0, keep);
+    next[keep] = fresh ? snapshot.sessionPct : -1;
+    trend = next;
+    return true;
   }
 
   private void applyResult(LinkState state, UsageSnapshot fresh, int retryMs) {
-    syncing = false;
+    syncStartedElapsedMs = -1;
     nextAttemptElapsedMs = SystemClock.elapsedRealtime() + retryMs;
     if (state != linkState) {
       Log.i(TAG, "state -> " + state.name());
@@ -404,15 +313,14 @@ public final class UsageService extends Service {
         lastGoodElapsedMs = SystemClock.elapsedRealtime();
         lastGoodWallMs = System.currentTimeMillis();
         Log.i(TAG, "sync ok s=" + fresh.sessionPct + " w=" + fresh.weeklyPct);
-        if (trendCount == 0) {
-          lastTrendElapsedMs = -1; // first sample straight away
-          recordTrend();
+        if (trend.length == 0 && snapshot.hasLimits()) {
+          // The first sample straight away, the rest on the timer.
+          trend = new int[] {snapshot.sessionPct};
         }
       }
     }
-    if (listener != null) {
-      listener.onUsageChanged();
-    }
+    // One value for the whole result: the screens repaint once, not once per field.
+    publish();
   }
 
   private void applyLinkOnly(LinkState state) {
@@ -420,18 +328,13 @@ public final class UsageService extends Service {
       Log.i(TAG, "state -> " + state.name());
       linkState = state;
       linkErr = "";
-      if (listener != null) {
-        listener.onUsageChanged();
-      }
+      publish();
     }
   }
 
   private void applySyncing() {
-    syncing = true;
     syncStartedElapsedMs = SystemClock.elapsedRealtime();
-    if (listener != null) {
-      listener.onUsageChanged();
-    }
+    publish();
   }
 
   // ── Poll thread ────────────────────────────────────────────────────────────
@@ -450,7 +353,7 @@ public final class UsageService extends Service {
       if (!linkUp) {
         // Joining still, or dropped (onLost painted NO_WIFI itself): onAvailable ends the wait.
         if (!everConnected) {
-          Executors.mainExecutor().execute(() -> applyLinkOnly(LinkState.JOINING));
+          main.execute(() -> applyLinkOnly(LinkState.JOINING));
         }
         idle(LINK_WAIT_MS);
         continue;
@@ -461,7 +364,7 @@ public final class UsageService extends Service {
         probed = true;
         probe();
       }
-      Executors.mainExecutor().execute(this::applySyncing);
+      main.execute(this::applySyncing);
 
       final UsageSnapshot fresh = new UsageSnapshot();
       final LinkState state = UsageFetcher.fetch(url, fresh);
@@ -472,7 +375,7 @@ public final class UsageService extends Service {
           state == LinkState.OK
               ? POLL_MS
               : (failures <= FAST_RETRIES ? RETRY_FAST_MS : RETRY_SLOW_MS);
-      Executors.mainExecutor().execute(() -> applyResult(state, gotReply ? fresh : null, wait));
+      main.execute(() -> applyResult(state, gotReply ? fresh : null, wait));
       idle(wait);
     }
   }
@@ -496,8 +399,7 @@ public final class UsageService extends Service {
     if (found != null) {
       if (!found.equals(address)) {
         setAddress(found);
-        Executors.mainExecutor()
-            .execute(() -> prefs.edit().putString(KEY_BRIDGE_FOUND, found).apply());
+        prefs.edit().putString(KEY_BRIDGE_FOUND, found).apply();
       }
     } else if (address == null) {
       setAddress(fallback);

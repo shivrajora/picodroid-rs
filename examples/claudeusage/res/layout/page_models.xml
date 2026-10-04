@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Per-model weekly caps, where the plan has them, and which models the week's tokens went to. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <FrameLayout
+        style="@style/Card"
+        android:layout_height="92dp"
+        android:layout_marginTop="2dp">
+
+        <TextView
+            style="@style/Line.Caption"
+            android:layout_marginLeft="@dimen/card_pad"
+            android:layout_marginTop="7dp"
+            android:text="@string/models_weekly_limit" />
+
+        <TextView
+            android:id="@+id/caps_note"
+            style="@style/Line.Boxed"
+            android:layout_width="142dp"
+            android:layout_marginLeft="150dp"
+            android:layout_marginTop="7dp"
+            android:gravity="right"
+            android:textColor="@color/faint" />
+
+        <include
+            layout="@layout/meter_row"
+            android:id="@+id/cap_0"
+            android:layout_marginTop="27dp" />
+
+        <include
+            layout="@layout/meter_row"
+            android:id="@+id/cap_1"
+            android:layout_marginTop="48dp" />
+
+        <include
+            layout="@layout/meter_row"
+            android:id="@+id/cap_2"
+            android:layout_marginTop="69dp" />
+    </FrameLayout>
+
+    <FrameLayout
+        style="@style/Card"
+        android:layout_height="92dp"
+        android:layout_marginTop="98dp">
+
+        <TextView
+            style="@style/Line.Caption"
+            android:layout_marginLeft="@dimen/card_pad"
+            android:layout_marginTop="7dp"
+            android:text="@string/models_tokens_week" />
+
+        <TextView
+            android:id="@+id/mix_note"
+            style="@style/Line.Boxed"
+            android:layout_width="142dp"
+            android:layout_marginLeft="150dp"
+            android:layout_marginTop="7dp"
+            android:gravity="right"
+            android:textColor="@color/faint" />
+
+        <include
+            layout="@layout/meter_row"
+            android:id="@+id/mix_0"
+            android:layout_marginTop="27dp" />
+
+        <include
+            layout="@layout/meter_row"
+            android:id="@+id/mix_1"
+            android:layout_marginTop="48dp" />
+
+        <include
+            layout="@layout/meter_row"
+            android:id="@+id/mix_2"
+            android:layout_marginTop="69dp" />
+    </FrameLayout>
+</FrameLayout>

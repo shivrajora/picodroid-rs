@@ -3,9 +3,8 @@ package claudeusage.ui;
 
 import claudeusage.R;
 import claudeusage.data.LinkState;
-import claudeusage.data.UsageService;
-import picodroid.os.Bundle;
-import picodroid.widget.FrameLayout;
+import picodroid.view.View;
+import picodroid.widget.TextView;
 
 /**
  * Shown instead of the data screens while there has never been any data: says what is wrong, where
@@ -13,33 +12,20 @@ import picodroid.widget.FrameLayout;
  * wrong address is the likeliest first-boot problem.
  */
 final class StatusPage extends UsagePage {
-  private FrameLayout card;
-  private FrameLayout dot;
-  private Line headline;
-  private Line advice;
-  private Line bridge;
-  private Line retry;
-  private int shownDot;
-
-  private String bridgeAt;
-  private String searching;
-  private String contacting;
-  private String retryingIn;
-  private String retrying;
-
-  @Override
-  public void onCreate(Bundle savedInstanceState) {
-    super.onCreate(savedInstanceState);
-    bridgeAt = getString(R.string.status_bridge);
-    searching = getString(R.string.status_searching);
-    contacting = getString(R.string.status_contacting);
-    retryingIn = getString(R.string.status_retrying_in);
-    retrying = getString(R.string.status_retrying);
-  }
+  private View dot;
+  private TextView headline;
+  private TextView advice;
+  private TextView bridge;
+  private TextView retry;
 
   @Override
   int titleRes() {
     return R.string.page_status;
+  }
+
+  @Override
+  int layoutRes() {
+    return R.layout.page_status;
   }
 
   /** Paints at once: it is what shows while there is no data. */
@@ -49,53 +35,36 @@ final class StatusPage extends UsagePage {
   }
 
   @Override
-  boolean buildNext() {
-    int inner = Ui.CARD_WIDTH;
-    switch (step++) {
-      case 0:
-        card = Ui.card(ctx, root, 2, Ui.PAGE_HEIGHT - 4, palette.card);
-        dot = Ui.box(ctx, Ui.CARD_WIDTH / 2 - 6, 24, 12, 12, palette.clay, 6);
-        shownDot = palette.clay;
-        card.addView(dot);
-        return true;
-      case 1:
-        headline = centred(48, palette.text, inner);
-        advice = centred(70, palette.muted, inner);
-        return true;
-      default:
-        bridge = centred(108, palette.muted, inner);
-        retry = centred(130, palette.clay, inner);
-        Ui.labelCentred(
-            ctx, card, ctx.getString(R.string.status_retry_hint), 0, 156, inner, palette.faint);
-        return false;
-    }
-  }
-
-  private Line centred(int y, int color, int width) {
-    return new Line(Ui.labelCentred(ctx, card, "", 0, y, width, color), "", color);
+  void onBind(View page) {
+    dot = page.findViewById(R.id.link_dot);
+    headline = page.findViewById(R.id.headline);
+    advice = page.findViewById(R.id.advice);
+    bridge = page.findViewById(R.id.bridge);
+    retry = page.findViewById(R.id.retry);
   }
 
   @Override
-  void update(UsageService repo, long nowMs) {
-    LinkState state = repo.linkState();
-    String err = repo.linkErr();
-    headline.show(ctx.getString(state.shortText(err)), palette.text);
-    int adviceRes = state.advice(err);
-    advice.show(adviceRes == 0 ? "" : ctx.getString(adviceRes), palette.muted);
-    String address = repo.bridgeAddress();
-    bridge.show(address == null ? searching : String.format(bridgeAt, address), palette.muted);
-    if (repo.isSyncing()) {
-      retry.show(contacting, palette.clay);
-    } else if (state == LinkState.JOINING || state == LinkState.NO_WIFI) {
-      retry.show("", palette.clay);
+  void update(UsageUiState state, long nowMs) {
+    LinkState link = state.link;
+    String err = state.linkErr;
+    headline.setText(getString(link.shortText(err)));
+    int adviceRes = link.advice(err);
+    advice.setText(adviceRes == 0 ? "" : getString(adviceRes));
+    bridge.setText(
+        state.address == null
+            ? getString(R.string.status_searching)
+            : getString(R.string.status_bridge, state.address));
+    if (state.syncing) {
+      retry.setText(getString(R.string.status_contacting));
+    } else if (link == LinkState.JOINING || link == LinkState.NO_WIFI) {
+      retry.setText("");
     } else {
-      int wait = repo.secondsToNextAttempt();
-      retry.show(wait > 0 ? String.format(retryingIn, wait) : retrying, palette.clay);
+      int wait = state.retrySeconds;
+      retry.setText(
+          wait > 0
+              ? getString(R.string.status_retrying_in, wait)
+              : getString(R.string.status_retrying));
     }
-    int color = state == LinkState.JOINING ? palette.clay : palette.bad;
-    if (color != shownDot) {
-      Ui.fill(dot, color, 6);
-      shownDot = color;
-    }
+    Ui.tint(dot, link == LinkState.JOINING ? palette.clay : palette.bad);
   }
 }

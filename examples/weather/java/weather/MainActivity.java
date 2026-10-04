@@ -150,7 +150,7 @@ public class MainActivity extends Activity implements SensorEventListener {
     Log.i(TAG, "ready");
 
     refresh();
-    timer = Executors.newSingleThreadScheduledExecutor();
+    timer = Executors.mainScheduledExecutor();
     timer.scheduleAtFixedRate(() -> refresh(), REFRESH_MINUTES, REFRESH_MINUTES, TimeUnit.MINUTES);
   }
 

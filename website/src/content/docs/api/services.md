@@ -48,10 +48,12 @@ public class CounterService extends Service {
         Log.i("CounterService", "onDestroy");
     }
 
-    // IBinder is an interface; LocalBinder just carries a direct reference to the
-    // service (single-process — there is no IPC stub generation).
-    public static class LocalBinder implements IBinder {
-        public CounterService service;
+    // The LocalBinder pattern, as on Android: the Binder hands out a direct
+    // reference to the service (single-process — there is no IPC stub generation).
+    public class LocalBinder extends Binder {
+        public CounterService getService() {
+            return CounterService.this;
+        }
     }
 }
 ```
@@ -73,7 +75,7 @@ On picodroid the OS never kills a running service, so `onStartCommand`'s return 
 
 | Method | What it does |
 |---|---|
-| `stopSelf()` | Stop this Service, as `stopService(new Intent(ThisService.class))` would. |
+| `stopSelf()` | Stop this Service, as `stopService(new Intent(this, ThisService.class))` would. |
 | `stopSelfResult(int startId)` | Stop only if `startId` is the one the most recent `onStartCommand` received: `true` and stopped, or `false` and still running because a newer start arrived. `startId` counts up per Service instance. |
 
 As with `stopService`, a Service that is also bound lives until its last client unbinds.
@@ -82,17 +84,24 @@ As with `stopService`, a Service that is also bound lives until its last client 
 
 At most 8 Services and 16 bound connections at a time. A `bindService` past the sixteenth is dropped with a warning in the log, and its `onServiceConnected` never arrives.
 
-## `picodroid.os.IBinder`
+## `picodroid.os.IBinder` and `picodroid.os.Binder`
 
-Marker **interface** for the object handed back from `onBind`. Implement it with your own `LocalBinder` that carries a reference to the service (no IPC stub generation in v1 — `LocalBinder` is just a Java reference handed across `bindService`):
+`IBinder` is the **interface** of the object handed back from `onBind`; `Binder` is the class to
+extend for it, as on Android. The LocalBinder pattern is a `Binder` subclass that hands out the
+service (no IPC stub generation — `LocalBinder` is just a Java reference handed across
+`bindService`):
 
 ```java
-public static class LocalBinder implements IBinder {
-    public CounterService service;
+public class LocalBinder extends Binder {
+    public CounterService getService() {
+        return CounterService.this;
+    }
 }
 ```
 
-Picodroid is single-process, so there is no AIDL / Messenger / true Binder IPC. Clients cast the `IBinder` they receive back to your `LocalBinder` type and read the field.
+Picodroid is single-process, so there is no AIDL / Messenger / true Binder IPC. Clients cast the
+`IBinder` they receive back to your `LocalBinder` type and call `getService()`. A class that only
+`implements IBinder` (the shape before `Binder` existed) still works.
 
 ## `picodroid.app.Notification` and `startForeground`
 
@@ -248,37 +257,48 @@ one operation per alarm slot, re-planned whenever the alarms change.
 The `Context` (your `Application`, an `Activity`, or another `Service`) drives the service lifecycle:
 
 ```java
+import picodroid.content.ComponentName;
 import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
 import picodroid.os.IBinder;
 
-Intent i = new Intent(CounterService.class);
+Intent i = new Intent(this, CounterService.class);
 
 // Fire-and-forget: invokes onStartCommand
 startService(i);
 
 // Bind: invokes onBind, then onServiceConnected on the next frame
 ServiceConnection conn = new ServiceConnection() {
-    public void onServiceConnected(IBinder binder) {
-        CounterService s = ((CounterService.LocalBinder) binder).service;
+    @Override
+    public void onServiceConnected(ComponentName name, IBinder service) {
+        CounterService s = ((CounterService.LocalBinder) service).getService();
         // call s.someMethod() ...
     }
-    public void onServiceDisconnected() {
+
+    @Override
+    public void onServiceDisconnected(ComponentName name) {
         // last unbind, owning Activity destroyed, or app exit — drop the reference
     }
 };
-bindService(i, conn);   // 2-arg; binding implicitly creates the service if needed
+bindService(i, conn, BIND_AUTO_CREATE);
 
 unbindService(conn);
 stopService(i);
 ```
 
-`bindService` takes just `(Intent, ServiceConnection)` — there is no `flags` parameter and no
-`Context.BIND_AUTO_CREATE` constant; binding always creates the service if it isn't running.
+`bindService(Intent, ServiceConnection, int flags)` and the two `ServiceConnection` callbacks have
+Android's signatures. `flags` is accepted for source compatibility: every binding creates the
+service if it isn't running, which is what `Context.BIND_AUTO_CREATE` asks for. It returns `false`
+when the Intent names no class of this app, and the connection then hears nothing. The
+`ComponentName` the callbacks receive names the Service's package and class.
 `onServiceConnected` arrives one frame after the bind ran `onBind`, as on Android, where it is a
 message on the main looper: the connect-time refresh most apps do there gets a frame of its own
 instead of sharing one with the Service's `onCreate`. An `unbindService` queued behind the bind
-still sees `onServiceConnected` before `onServiceDisconnected`.
+still sees `onServiceConnected` before `onServiceDisconnected`. The callbacks are ordinary
+interface calls, so a connection may inherit them from a base class.
+
+`new Intent(Context, Class)` is Android's constructor; `new Intent(Class)` is the same Intent
+without the context argument.
 
 A binding belongs to the Activity that made it and is released when that Activity is destroyed. `onServiceConnected` is delivered only while that Activity is still the one on top: if another Activity covered it before the callback's turn came, the callback is skipped. A binding made from an `Application` has no such owner. One divergence from Android: a binding made from inside a `Service` is owned by the foreground Activity at the time of the call, so it is released when that Activity finishes, not when the Service is destroyed.
 

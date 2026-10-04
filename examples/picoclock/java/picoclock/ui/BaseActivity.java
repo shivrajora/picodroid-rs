@@ -34,7 +34,7 @@ public abstract class BaseActivity extends picodroid.app.Activity implements Ala
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    bindService(new Intent(AlarmService.class), link);
+    bindService(new Intent(AlarmService.class), link, BIND_AUTO_CREATE);
   }
 
   /** Called by {@link ServiceLink} when the connection lands, and with null when it drops. */

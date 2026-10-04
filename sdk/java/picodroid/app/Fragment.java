@@ -355,6 +355,11 @@ public class Fragment {
     return requireContext().getString(resId);
   }
 
+  /** Mirrors Android: {@code requireContext().getString(resId, formatArgs)}. */
+  public final String getString(int resId, Object... formatArgs) {
+    return requireContext().getString(resId, formatArgs);
+  }
+
   public void startActivity(Intent intent) {
     requireActivity().startActivity(intent);
   }

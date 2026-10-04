@@ -16,15 +16,19 @@ import picodroid.concurrent.CountDownLatch;
 import picodroid.concurrent.ExecutorService;
 import picodroid.concurrent.Executors;
 import picodroid.concurrent.Future;
+import picodroid.concurrent.ScheduledExecutorService;
+import picodroid.concurrent.ScheduledFuture;
 import picodroid.concurrent.Thread;
 import picodroid.concurrent.TimeUnit;
+import picodroid.os.SystemClock;
 import picodroid.util.Log;
 
 /**
  * End-to-end checks of the {@code java.util.concurrent} core set in {@code picodroid.concurrent}:
  * fixed and single-thread pools, {@code submit}/{@code Future.get} (plain, timed, cancelled,
- * failed), shutdown/awaitTermination/rejection, the atomics under contention, and CountDownLatch.
- * Logs one PASS/FAIL line per check and {@code === PASSED ===} when all hold.
+ * failed), shutdown/awaitTermination/rejection, the atomics under contention, CountDownLatch, and
+ * the scheduled executor that runs on a thread of its own. Logs one PASS/FAIL line per check and
+ * {@code === PASSED ===} when all hold.
  */
 public class JucDemo extends Application {
   private static final String TAG = "JucDemo";
@@ -215,5 +219,65 @@ public class JucDemo extends Application {
 
     pool.shutdown();
     check("fixed pool terminates", pool.awaitTermination(2, TimeUnit.SECONDS));
+
+    scheduledOnItsOwnThread();
+  }
+
+  /**
+   * 10. {@code newSingleThreadScheduledExecutor()} is the JDK's: a thread of its own, so a task may
+   * block and {@code get()} from the calling thread does not deadlock on it.
+   */
+  private void scheduledOnItsOwnThread() throws Exception {
+    ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor();
+    final String caller = Thread.currentThread().getName();
+    long t0 = SystemClock.elapsedRealtime();
+    ScheduledFuture<String> once =
+        timer.schedule(() -> Thread.currentThread().getName(), 40, TimeUnit.MILLISECONDS);
+    String ranOn = once.get();
+    long waited = SystemClock.elapsedRealtime() - t0;
+    check(
+        "a scheduled Callable ran on the executor's own thread: " + ranOn,
+        ranOn != null && ranOn.startsWith("scheduled-") && !ranOn.equals(caller));
+    check("...after its delay: " + waited + " ms", waited >= 40 && once.isDone());
+
+    final AtomicInteger ticks = new AtomicInteger();
+    final CountDownLatch three = new CountDownLatch(3);
+    ScheduledFuture<?> rate =
+        timer.scheduleAtFixedRate(
+            () -> {
+              ticks.incrementAndGet();
+              three.countDown();
+            },
+            10,
+            20,
+            TimeUnit.MILLISECONDS);
+    boolean ticked = three.await(2, TimeUnit.SECONDS);
+    boolean stopped = rate.cancel(false);
+    int atCancel = ticks.get();
+    Thread.sleep(80);
+    check("a fixed-rate task ran three times", ticked);
+    check(
+        "...and not again once cancelled: " + ticks.get(),
+        stopped && rate.isCancelled() && ticks.get() <= atCancel + 1);
+
+    ScheduledFuture<?> never = timer.schedule(() -> ticks.set(-1), 5, TimeUnit.SECONDS);
+    check("getDelay counts down to the run", never.getDelay(TimeUnit.MILLISECONDS) > 4000);
+    check("a delayed task cancels before it runs", never.cancel(false) && never.isCancelled());
+
+    // shutdown(): a one-shot still due runs, and the executor then terminates.
+    final AtomicBoolean late = new AtomicBoolean();
+    timer.schedule(() -> late.set(true), 60, TimeUnit.MILLISECONDS);
+    timer.shutdown();
+    boolean rejected = false;
+    try {
+      timer.schedule(() -> {}, 1, TimeUnit.MILLISECONDS);
+    } catch (RejectedExecutionException e) {
+      rejected = true;
+    }
+    check("schedule after shutdown is rejected", rejected && timer.isShutdown());
+    check(
+        "the pending one-shot ran before termination",
+        timer.awaitTermination(2, TimeUnit.SECONDS) && late.get() && timer.isTerminated());
+    check("the cancelled task never ran", ticks.get() >= 3);
   }
 }

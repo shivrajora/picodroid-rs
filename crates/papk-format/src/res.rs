@@ -36,11 +36,17 @@
 //!     bool     (5): 0 / 1
 //!     layout   (6): offset (4-aligned) of [u32 word_count][u32 words…]
 //!     drawable (7): offset of [u16 len][ASSETS entry name]
+//!     style    (9): offset (4-aligned) of [u32 word_count][u32 words…]
 //!   blobs, in any order
 //! ```
 //!
 //! `id` resources (`@+id/title`, [`TYPE_ID`]) exist only as `R.id`
 //! constants; they have no table.
+//!
+//! A style's words are `(attr, value)` pairs from [`theme::attr`]: the
+//! colours a theme gives the framework's own widgets, which is all of a
+//! `<style>` the device needs. Everything else a style or a theme says is
+//! folded into the layouts that use it, at build time.
 //!
 //! The string table may hold more entries than `R.string` names: a literal
 //! `android:text="Hello"` in a layout is pooled as an anonymous string entry
@@ -55,6 +61,10 @@
 //!   attr_count × ([u32 attr][u32 value])
 //!   child_count × node
 //! ```
+//!
+//! A node of class [`layout::class::CUSTOM`] is a view class of the app's
+//! own; its first attribute is [`layout::attr::CLASS_NAME`], the class name
+//! as a pooled string, which the inflater hands to a factory.
 //!
 //! The `class` codes are [`layout::class`], the `attr` codes
 //! [`layout::attr`]. `sdk/java/picodroid/view/LayoutInflater.java` carries
@@ -78,6 +88,7 @@ pub const TYPE_LAYOUT: u8 = 6;
 pub const TYPE_DRAWABLE: u8 = 7;
 /// `R.id` — constants only, never present in the table.
 pub const TYPE_ID: u8 = 8;
+pub const TYPE_STYLE: u8 = 9;
 
 /// The `R` inner-class name of a type, or `None` for an unknown one.
 pub const fn type_name(ty: u8) -> Option<&'static str> {
@@ -90,6 +101,7 @@ pub const fn type_name(ty: u8) -> Option<&'static str> {
         TYPE_LAYOUT => "layout",
         TYPE_DRAWABLE => "drawable",
         TYPE_ID => "id",
+        TYPE_STYLE => "style",
         _ => return None,
     })
 }
@@ -136,6 +148,12 @@ pub mod layout {
         pub const LIST_VIEW: u8 = 16;
         pub const CIRCULAR_PROGRESS_INDICATOR: u8 = 17;
         pub const VIEW_PAGER2: u8 = 18;
+        /// A view class of the app's own, named by the node's first
+        /// attribute ([`super::attr::CLASS_NAME`]). No element name of its
+        /// own, so not in [`ALL`].
+        pub const CUSTOM: u8 = 19;
+        /// A plain `android.view.View`.
+        pub const VIEW: u8 = 20;
 
         /// `(XML element name, code)`.
         pub const ALL: &[(&str, u8)] = &[
@@ -157,6 +175,7 @@ pub mod layout {
             ("ListView", LIST_VIEW),
             ("CircularProgressIndicator", CIRCULAR_PROGRESS_INDICATOR),
             ("ViewPager2", VIEW_PAGER2),
+            ("View", VIEW),
         ];
     }
 
@@ -232,6 +251,22 @@ pub mod layout {
         pub const SWEEP_ANGLE: u32 = 41;
         /// f32 bits, pixels (`TextView.setTextSize(COMPLEX_UNIT_PX, ..)`).
         pub const TEXT_SIZE: u32 = 42;
+        /// Pixels. `layout_margin` is expanded to the four sides by the compiler.
+        pub const LAYOUT_MARGIN_LEFT: u32 = 43;
+        pub const LAYOUT_MARGIN_TOP: u32 = 44;
+        pub const LAYOUT_MARGIN_RIGHT: u32 = 45;
+        pub const LAYOUT_MARGIN_BOTTOM: u32 = 46;
+        /// 0 / 1.
+        pub const INCLUDE_FONT_PADDING: u32 = 47;
+        /// A `<shape>` drawable background, flattened: its `<solid>` colour
+        /// is `BACKGROUND`; these carry its corner radius (pixels) and its
+        /// stroke (pixels, ARGB).
+        pub const BACKGROUND_RADIUS: u32 = 48;
+        pub const BACKGROUND_STROKE_WIDTH: u32 = 49;
+        pub const BACKGROUND_STROKE_COLOR: u32 = 50;
+        /// String resource id (pooled): the class a `CUSTOM` node names.
+        /// Always the node's first attribute.
+        pub const CLASS_NAME: u32 = 51;
 
         /// `(constant name in LayoutInflater.java, code)`.
         pub const ALL: &[(&str, u32)] = &[
@@ -277,12 +312,52 @@ pub mod layout {
             ("START_ANGLE", START_ANGLE),
             ("SWEEP_ANGLE", SWEEP_ANGLE),
             ("TEXT_SIZE", TEXT_SIZE),
+            ("LAYOUT_MARGIN_LEFT", LAYOUT_MARGIN_LEFT),
+            ("LAYOUT_MARGIN_TOP", LAYOUT_MARGIN_TOP),
+            ("LAYOUT_MARGIN_RIGHT", LAYOUT_MARGIN_RIGHT),
+            ("LAYOUT_MARGIN_BOTTOM", LAYOUT_MARGIN_BOTTOM),
+            ("INCLUDE_FONT_PADDING", INCLUDE_FONT_PADDING),
+            ("BACKGROUND_RADIUS", BACKGROUND_RADIUS),
+            ("BACKGROUND_STROKE_WIDTH", BACKGROUND_STROKE_WIDTH),
+            ("BACKGROUND_STROKE_COLOR", BACKGROUND_STROKE_COLOR),
+            ("CLASS_NAME", CLASS_NAME),
         ];
     }
 
     /// Pack a node header word.
     pub const fn node_header(class: u8, attr_count: u8, child_count: u16) -> u32 {
         class as u32 | (attr_count as u32) << 8 | (child_count as u32) << 16
+    }
+}
+
+/// Codes of a style's word stream ([`TYPE_STYLE`]). Append only.
+pub mod theme {
+    /// The theme attributes the framework reads: the colours its own widgets
+    /// default to. Every value is ARGB.
+    pub mod attr {
+        pub const COLOR_PRIMARY: u32 = 1;
+        pub const COLOR_ON_PRIMARY: u32 = 2;
+        pub const COLOR_BACKGROUND: u32 = 3;
+        pub const COLOR_SURFACE: u32 = 4;
+        pub const TEXT_COLOR_PRIMARY: u32 = 5;
+        pub const TEXT_COLOR_SECONDARY: u32 = 6;
+        pub const COLOR_OUTLINE: u32 = 7;
+
+        /// `(item name in a <style>, without any `android:` prefix; constant
+        /// name in Resources.java; code)`.
+        pub const ALL: &[(&str, &str, u32)] = &[
+            ("colorPrimary", "COLOR_PRIMARY", COLOR_PRIMARY),
+            ("colorOnPrimary", "COLOR_ON_PRIMARY", COLOR_ON_PRIMARY),
+            ("colorBackground", "COLOR_BACKGROUND", COLOR_BACKGROUND),
+            ("colorSurface", "COLOR_SURFACE", COLOR_SURFACE),
+            ("textColorPrimary", "TEXT_COLOR_PRIMARY", TEXT_COLOR_PRIMARY),
+            (
+                "textColorSecondary",
+                "TEXT_COLOR_SECONDARY",
+                TEXT_COLOR_SECONDARY,
+            ),
+            ("colorOutline", "COLOR_OUTLINE", COLOR_OUTLINE),
+        ];
     }
 }
 
@@ -417,7 +492,17 @@ impl<'a> ResTable<'a> {
 
     /// The word stream of a layout resource.
     pub fn layout(&self, id: u32) -> Option<Layout<'a>> {
-        let offset = self.value_of(TYPE_LAYOUT, id)? as usize;
+        self.words(TYPE_LAYOUT, id)
+    }
+
+    /// The `(attr, value)` words of a style resource ([`theme::attr`]).
+    pub fn style(&self, id: u32) -> Option<Layout<'a>> {
+        self.words(TYPE_STYLE, id)
+    }
+
+    /// The `[u32 word_count][words]` blob behind `id`, when it is of type `ty`.
+    fn words(&self, ty: u8, id: u32) -> Option<Layout<'a>> {
+        let offset = self.value_of(ty, id)? as usize;
         let count_end = offset.checked_add(4)?;
         let c = self.data.get(offset..count_end)?;
         let count = u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as usize;
@@ -451,8 +536,8 @@ mod write {
     /// indices in insertion order; each `push_*` returns the new id.
     #[derive(Default)]
     pub struct ResTableBuilder {
-        /// Indexed by type; `types[0]` is unused.
-        types: [Vec<Entry>; 8],
+        /// Indexed by type; `types[0]` is unused, and so is `TYPE_ID`'s.
+        types: [Vec<Entry>; 10],
     }
 
     impl ResTableBuilder {
@@ -498,6 +583,11 @@ mod write {
 
         pub fn push_layout(&mut self, words: Vec<u32>) -> Result<u32, BuildError> {
             self.push(TYPE_LAYOUT, Entry::Words(words))
+        }
+
+        /// `words` are `(theme::attr code, value)` pairs.
+        pub fn push_style(&mut self, words: Vec<u32>) -> Result<u32, BuildError> {
+            self.push(TYPE_STYLE, Entry::Words(words))
         }
 
         pub fn build(&self) -> Result<Vec<u8>, BuildError> {

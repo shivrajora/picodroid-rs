@@ -45,7 +45,8 @@ impl GraphicsBackend for LvglBackend {
         match method {
             m::setPosition => Some(view::set_position(ctx.args, ctx.objects)),
             m::setSize => Some(view::set_size(ctx.args, ctx.objects)),
-            m::setBackgroundColor => Some(view::set_bg_color(ctx.args, ctx.objects)),
+            m::nativeSetBackgroundColor => Some(view::set_bg_color(ctx.args, ctx.objects)),
+            m::nativeSetBackgroundTint => Some(view::set_bg_tint(ctx.args, ctx.objects)),
             // setVisibility/setEnabled/setAlpha became Java wrappers (they
             // cache the value for the matching getter) around nativeSet*; the
             // bare names stay accepted so pre-rename PAPKs keep working.
@@ -64,6 +65,8 @@ impl GraphicsBackend for LvglBackend {
             m::nativeClose => Some(view::close(ctx.args, ctx.objects)),
             m::performClick => Some(view::perform_click(ctx.args, ctx.objects)),
             m::nativeSetFlexGrow => Some(view::set_flex_grow(ctx.args, ctx.objects)),
+            m::nativeSetMargins => Some(view::set_margins(ctx.args, ctx.objects)),
+            m::nativeSetFrameGravity => Some(view::set_frame_gravity(ctx.args, ctx.objects)),
             m::nativeRegisterClickListener => Some(view::register_click_listener(
                 ctx.args,
                 ctx.strings,
@@ -113,17 +116,15 @@ impl GraphicsBackend for LvglBackend {
     fn dispatch_text_view(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult {
         match method {
             m::nativeCreate => Some(widgets::text_view_native_create()),
-            m::setText => Some(widgets::text_view_set_text(
+            m::nativeSetText => Some(widgets::text_view_native_set_text(
                 ctx.args,
                 ctx.strings,
                 ctx.objects,
             )),
-            m::getText => Some(widgets::text_view_get_text(
+            m::nativeSetTextColor => Some(widgets::text_view_native_set_text_color(
                 ctx.args,
-                ctx.strings,
                 ctx.objects,
             )),
-            m::setTextColor => Some(widgets::text_view_set_text_color(ctx.args, ctx.objects)),
             m::nativeSetIncludeFontPadding => Some(
                 widgets::text_view_native_set_include_font_padding(ctx.args, ctx.objects),
             ),
@@ -149,8 +150,6 @@ impl GraphicsBackend for LvglBackend {
     fn dispatch_button(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult {
         match method {
             m::nativeCreate => Some(widgets::button_native_create(ctx.args, ctx.strings)),
-            m::setText => Some(widgets::button_set_text(ctx.args, ctx.strings, ctx.objects)),
-            m::getText => Some(widgets::button_get_text(ctx.args, ctx.strings, ctx.objects)),
             _ => None,
         }
     }

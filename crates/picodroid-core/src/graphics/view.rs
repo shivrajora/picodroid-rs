@@ -103,11 +103,19 @@ pub fn set_size(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, J
     Ok(None)
 }
 
-/// `View.setBackgroundColor(int argb)`
+/// `View.nativeSetBackgroundColor(int argb)`
 pub fn set_bg_color(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
     let id = extract_native_handle(args, objects)?;
     let argb = arg_int(args, 1)? as u32;
     with_gfx(|g| g.set_bg_color(Handle::from_java(id), argb));
+    Ok(None)
+}
+
+/// `View.nativeSetBackgroundTint(int argb)`
+pub fn set_bg_tint(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let argb = arg_int(args, 1)? as u32;
+    with_gfx(|g| g.set_bg_tint(Handle::from_java(id), argb));
     Ok(None)
 }
 
@@ -179,10 +187,15 @@ pub fn set_property(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value
     Ok(None)
 }
 
-/// `View.nativeGetProperty(int property)` — backs the matching getters.
+/// `View.nativeGetProperty(int property)` — backs the matching getters, and
+/// reads the alpha back after a cancelled animation (code 0, which has no
+/// setter here).
 pub fn get_property(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
     let id = extract_native_handle(args, objects)?;
-    let prop = view_property(arg_int(args, 1)?)?;
+    let prop = match arg_int(args, 1)? {
+        0 => ViewProperty::Alpha,
+        code => view_property(code)?,
+    };
     let value = with_gfx(|g| g.get_view_property(Handle::from_java(id), prop));
     Ok(Some(Value::Float(value)))
 }
@@ -389,6 +402,27 @@ pub fn set_flex_grow(args: &[Value], objects: &ObjectHeap) -> Result<Option<Valu
     let id = extract_native_handle(args, objects)?;
     let weight = arg_int(args, 1)?;
     with_gfx(|g| g.set_flex_grow(Handle::from_java(id), weight));
+    Ok(None)
+}
+
+/// `View.nativeSetMargins(int left, int top, int right, int bottom)`
+pub fn set_margins(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let (l, t, r, b) = (
+        arg_int(args, 1)?,
+        arg_int(args, 2)?,
+        arg_int(args, 3)?,
+        arg_int(args, 4)?,
+    );
+    with_gfx(|g| g.set_margins(Handle::from_java(id), l, t, r, b));
+    Ok(None)
+}
+
+/// `View.nativeSetFrameGravity(int gravity, int dx, int dy)`
+pub fn set_frame_gravity(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let (gravity, dx, dy) = (arg_int(args, 1)?, arg_int(args, 2)?, arg_int(args, 3)?);
+    with_gfx(|g| g.set_frame_gravity(Handle::from_java(id), gravity, dx, dy));
     Ok(None)
 }
 

@@ -43,21 +43,22 @@ public class UptimeLogService extends Service {
   /** How often the background Thread takes a sample, in milliseconds. */
   private static final int SAMPLE_INTERVAL_MS = 1000;
 
-  public static class LocalBinder implements IBinder {
-    public UptimeLogService service;
+  public class LocalBinder extends Binder {
+    public UptimeLogService getService() {
+      return UptimeLogService.this;
+    }
   }
 
   private final LocalBinder binder = new LocalBinder();
 ```
 
-`IBinder` is an **interface** — a marker for the object `onBind` returns. The LocalBinder pattern is just a tiny class that `implements IBinder` and carries a direct reference back to the service. Picodroid is single-process, so there's no IPC: clients cast the `IBinder` they receive back to `LocalBinder` and read `.service`. Note `implements IBinder`, not `extends` — `IBinder` is not a class.
+`IBinder` is the **interface** of the object `onBind` returns, and `Binder` is the class to extend for it, as on Android. The LocalBinder pattern is just a tiny `Binder` subclass that hands out the service. Picodroid is single-process, so there's no IPC: clients cast the `IBinder` they receive back to `LocalBinder` and call `getService()`.
 
-Wire the binder to the live instance in `onCreate`, which runs exactly once — on the first start *or* the first bind, whichever happens first:
+`onCreate` runs exactly once — on the first start *or* the first bind, whichever happens first:
 
 ```java
 @Override
 public void onCreate() {
-  binder.service = this;
   Log.i(TAG, "onCreate");
 }
 ```
@@ -218,28 +219,28 @@ Hold the listener-bearing views in fields, and bind at the end of `onCreate`. `b
   setContentView(root);
 
   Log.i(TAG, "bindService");
-  bindService(new Intent(UptimeLogService.class), this);
+  bindService(new Intent(this, UptimeLogService.class), this, BIND_AUTO_CREATE);
 }
 ```
 
-`onServiceConnected` is delivered between frames, with a **single** `IBinder` argument (no `ComponentName`). Cast it back to the `LocalBinder`, grab the typed handle, and do an initial read:
+`onServiceConnected` is delivered between frames, with Android's two arguments: the `ComponentName` of the service and its `IBinder`. Cast the binder back to the `LocalBinder`, grab the typed handle, and do an initial read:
 
 ```java
 @Override
-public void onServiceConnected(IBinder binder) {
-  service = ((UptimeLogService.LocalBinder) binder).service;
+public void onServiceConnected(ComponentName name, IBinder binder) {
+  service = ((UptimeLogService.LocalBinder) binder).getService();
   Log.i(TAG, "onServiceConnected");
   refresh();
 }
 
 @Override
-public void onServiceDisconnected() {
+public void onServiceDisconnected(ComponentName name) {
   Log.i(TAG, "onServiceDisconnected");
   service = null;
 }
 ```
 
-`onServiceDisconnected` takes **no** arguments. It fires when the service goes away (last unbind, the owning Activity destroyed, or app exit) — null the handle so nothing calls back into a dead reference.
+`onServiceDisconnected` fires when the service goes away (last unbind, the owning Activity destroyed, or app exit) — null the handle so nothing calls back into a dead reference.
 
 `refresh()` re-reads the snapshot into the reusable `samples` array and rebuilds the list. It's wired to the Refresh button and also called once on connect. Guard on `service == null` so a tap before the connection lands is a harmless no-op:
 

@@ -3,6 +3,7 @@ package picoenvmon.ui.history;
 
 import javax.inject.Inject;
 import picodroid.app.AlertDialog;
+import picodroid.content.ComponentName;
 import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
 import picodroid.graphics.Theme;
@@ -72,7 +73,7 @@ public class HistoryActivity extends NavActivity implements ServiceConnection {
 
     setContentView(root);
 
-    bindService(new Intent(SensorLoggerService.class), this);
+    bindService(new Intent(SensorLoggerService.class), this, BIND_AUTO_CREATE);
   }
 
   @Override
@@ -85,7 +86,7 @@ public class HistoryActivity extends NavActivity implements ServiceConnection {
   }
 
   @Override
-  public void onServiceConnected(IBinder binder) {
+  public void onServiceConnected(ComponentName name, IBinder binder) {
     SensorLoggerService svc = ((SensorLoggerService.LocalBinder) binder).service;
     sampleCount = svc.snapshot(SensorLoggerService.IDX_TEMPERATURE, samples, sampleTs);
     Log.i(EnvApp.TAG, "History bound, samples=" + sampleCount);
@@ -118,7 +119,7 @@ public class HistoryActivity extends NavActivity implements ServiceConnection {
   }
 
   @Override
-  public void onServiceDisconnected() {
+  public void onServiceDisconnected(ComponentName name) {
     Log.i(EnvApp.TAG, "History service disconnected");
   }
 

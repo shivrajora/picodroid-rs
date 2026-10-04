@@ -22,6 +22,12 @@ public class TextView extends View {
    */
   private static final int FONT_PAD_OFF = 0x10;
 
+  /**
+   * Bit of {@link #mLineMode} set once {@link #setTextColor} has run: {@link #mTextColor} is the
+   * colour on screen. Not a line mode either; until it is set the colour is the theme's.
+   */
+  private static final int TEXT_COLOR_SET = 0x20;
+
   /** {@link #setMaxLines}'s count sits above this shift in {@link #mLineMode}; 0 = no limit. */
   private static final int MAX_LINES_SHIFT = 8;
 
@@ -42,6 +48,12 @@ public class TextView extends View {
 
   /** The size last set by {@link #setTextSize}, in pixels; the face in use may differ. */
   private float mTextSize = DEFAULT_TEXT_SIZE;
+
+  /** The text on screen, never null; what {@link #setText} compares against. */
+  String mText = "";
+
+  /** The colour last set by {@link #setTextColor}; meaningful once {@link #TEXT_COLOR_SET}. */
+  private int mTextColor;
 
   /** The gravity last set by {@link #setGravity}; Android's default is {@code TOP | START}. */
   private int mGravity = Gravity.TOP | Gravity.START;
@@ -64,7 +76,21 @@ public class TextView extends View {
 
   private static native int nativeCreate();
 
-  public native void setText(String text);
+  /**
+   * Mirrors Android's {@code TextView.setText}: {@code null} is the empty string. Setting the text
+   * the view already shows does nothing: nothing is laid out or painted again, so a screen that
+   * refreshes every label on every update pays only for the ones that changed.
+   */
+  public void setText(String text) {
+    String next = text == null ? "" : text;
+    if (next.equals(mText)) {
+      return;
+    }
+    mText = next;
+    nativeSetText(next);
+  }
+
+  private native void nativeSetText(String text);
 
   /**
    * Mirrors Android's {@code TextView.getText()}: the label's current text as a {@link
@@ -72,9 +98,24 @@ public class TextView extends View {
    * unchanged. Returns an empty string for a label with no text. The full text, even while an
    * ellipsis is shown.
    */
-  public native CharSequence getText();
+  public CharSequence getText() {
+    return mText;
+  }
 
-  public native void setTextColor(int argb);
+  /**
+   * Mirrors Android's {@code TextView.setTextColor(int)}. Setting the colour the text already has
+   * does nothing.
+   */
+  public void setTextColor(int argb) {
+    if ((mLineMode & TEXT_COLOR_SET) != 0 && argb == mTextColor) {
+      return;
+    }
+    mLineMode |= TEXT_COLOR_SET;
+    mTextColor = argb;
+    nativeSetTextColor(argb);
+  }
+
+  private native void nativeSetTextColor(int argb);
 
   /**
    * Mirrors Android's {@code TextView.setTextSize(float)}: the text size in scaled pixels, which
@@ -194,7 +235,7 @@ public class TextView extends View {
     if (singleLine) {
       mLineMode |= SINGLE_LINE;
     } else {
-      mLineMode &= ELLIPSIZE_MASK | FONT_PAD_OFF;
+      mLineMode &= ELLIPSIZE_MASK | FONT_PAD_OFF | TEXT_COLOR_SET;
     }
     applyLineMode();
   }
@@ -270,9 +311,9 @@ public class TextView extends View {
     }
   }
 
-  /** Whether any line mode is set — the {@link #FONT_PAD_OFF} flag is not one. */
+  /** Whether any line mode is set — {@link #FONT_PAD_OFF} and {@link #TEXT_COLOR_SET} are not. */
   private boolean hasLineMode() {
-    return (mLineMode & ~FONT_PAD_OFF) != 0;
+    return (mLineMode & ~(FONT_PAD_OFF | TEXT_COLOR_SET)) != 0;
   }
 
   private void applyLineMode() {

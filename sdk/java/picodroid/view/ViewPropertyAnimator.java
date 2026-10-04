@@ -258,6 +258,7 @@ public class ViewPropertyAnimator {
    */
   public void cancel() {
     nativeCancel(view.nativeHandle);
+    view.syncAlpha();
   }
 
   private static native void nativeStart(

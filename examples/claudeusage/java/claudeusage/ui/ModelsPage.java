@@ -2,131 +2,51 @@
 package claudeusage.ui;
 
 import claudeusage.R;
-import claudeusage.data.UsageService;
 import claudeusage.data.UsageSnapshot;
 import claudeusage.util.TimeFormat;
-import picodroid.os.Bundle;
-import picodroid.widget.FrameLayout;
+import picodroid.view.View;
+import picodroid.widget.TextView;
 
 /** Per-model weekly caps, where the plan has them, and which models the week's tokens went to. */
 final class ModelsPage extends UsagePage {
-  private static final int CARD_HEIGHT = 92;
-  private static final int FIRST_ROW_Y = 27;
+  private static final int[] CAP_ROWS = {R.id.cap_0, R.id.cap_1, R.id.cap_2};
+  private static final int[] MIX_ROWS = {R.id.mix_0, R.id.mix_1, R.id.mix_2};
 
-  private FrameLayout capsCard;
-  private FrameLayout mixCard;
-  private Line capsNote;
-  private Line mixNote;
+  private TextView capsNote;
+  private TextView mixNote;
   private final MeterRow[] caps = new MeterRow[UsageSnapshot.MAX_MODELS];
   private final MeterRow[] mix = new MeterRow[UsageSnapshot.MAX_MODELS];
-
-  /** The first paint takes one card per tick: both at once cost the RP2350 57 ms. */
-  private int paintStep;
-
-  private String all;
-  private String noCaps;
-  private String resetsIn;
-  private String noTranscripts;
-  private String share;
-
-  @Override
-  public void onCreate(Bundle savedInstanceState) {
-    super.onCreate(savedInstanceState);
-    all = getString(R.string.models_all);
-    noCaps = getString(R.string.models_no_caps);
-    resetsIn = getString(R.string.resets_in);
-    noTranscripts = getString(R.string.no_transcripts);
-    share = getString(R.string.models_share);
-  }
-
-  @Override
-  void onBuildFailed() {
-    paintStep = 0;
-  }
 
   @Override
   int titleRes() {
     return R.string.page_models;
   }
 
-  /**
-   * A card's title row and note, then one meter row per step: three rows at once cost the RP2350
-   * 120 ms.
-   */
-  private static final int STEPS_PER_CARD = 1 + UsageSnapshot.MAX_MODELS;
-
   @Override
-  boolean buildNext() {
-    int s = step++;
-    if (s == 0) {
-      capsCard = Ui.card(ctx, root, 2, CARD_HEIGHT, palette.card);
-      Ui.label(
-          ctx,
-          capsCard,
-          ctx.getString(R.string.models_weekly_limit),
-          Ui.CARD_PAD,
-          7,
-          palette.muted);
-      capsNote = note(capsCard);
-      return true;
-    }
-    if (s < STEPS_PER_CARD) {
-      row(capsCard, caps, s - 1);
-      return true;
-    }
-    if (s == STEPS_PER_CARD) {
-      mixCard = Ui.card(ctx, root, 2 + CARD_HEIGHT + 4, CARD_HEIGHT, palette.card);
-      Ui.label(
-          ctx, mixCard, ctx.getString(R.string.models_tokens_week), Ui.CARD_PAD, 7, palette.muted);
-      mixNote = note(mixCard);
-      return true;
-    }
-    int i = s - STEPS_PER_CARD - 1;
-    row(mixCard, mix, i);
-    return i + 1 < mix.length;
-  }
-
-  private Line note(FrameLayout card) {
-    return new Line(
-        Ui.labelRight(ctx, card, "", 150, 7, Ui.CARD_WIDTH - 150 - Ui.CARD_PAD, palette.faint),
-        "",
-        palette.faint);
-  }
-
-  private void row(FrameLayout card, MeterRow[] into, int i) {
-    into[i] = new MeterRow(ctx, palette, card, FIRST_ROW_Y + i * MeterRow.HEIGHT);
+  int layoutRes() {
+    return R.layout.page_models;
   }
 
   @Override
-  boolean paintNext(UsageService repo, long nowMs) {
-    UsageSnapshot s = repo.snapshot();
-    if (s == null) {
-      return false;
+  void onBind(View page) {
+    capsNote = page.findViewById(R.id.caps_note);
+    mixNote = page.findViewById(R.id.mix_note);
+    for (int i = 0; i < caps.length; i++) {
+      caps[i] = new MeterRow(ctx, page.findViewById(CAP_ROWS[i]));
+      mix[i] = new MeterRow(ctx, page.findViewById(MIX_ROWS[i]));
     }
-    boolean stale = !repo.isFresh();
-    if (paintStep++ == 0) {
-      updateCaps(s, stale, nowMs);
-      return true;
-    }
-    updateMix(s);
-    return false;
   }
 
   @Override
-  void update(UsageService repo, long nowMs) {
-    UsageSnapshot s = repo.snapshot();
-    if (s == null) {
-      return;
-    }
-    boolean stale = !repo.isFresh();
-    updateCaps(s, stale, nowMs);
-    updateMix(s);
+  void update(UsageUiState state, long nowMs) {
+    updateCaps(state.snapshot, !state.fresh, nowMs);
+    updateMix(state.snapshot);
   }
 
   private void updateCaps(UsageSnapshot s, boolean stale, long nowMs) {
     // Row 0 is always the all-models cap, so the card is never empty on a plan without per-model
     // caps; the rest are whatever the account reports.
-    caps[0].show(all, s.weeklyPct, palette.severity(s.weeklyPct), stale);
+    caps[0].show(getString(R.string.models_all), s.weeklyPct, palette.severity(s.weeklyPct), stale);
     for (int i = 1; i < caps.length; i++) {
       int m = i - 1;
       if (m < s.modelCount) {
@@ -138,10 +58,10 @@ final class ModelsPage extends UsagePage {
     }
     long leftMs = s.weeklyReset > 0 ? s.weeklyReset * 1000L - nowMs : -1;
     if (s.modelCount == 0) {
-      capsNote.show(noCaps, palette.faint);
+      capsNote.setText(getString(R.string.models_no_caps));
     } else {
-      capsNote.show(
-          leftMs > 0 ? String.format(resetsIn, TimeFormat.duration(leftMs)) : "", palette.faint);
+      capsNote.setText(
+          leftMs > 0 ? getString(R.string.resets_in, TimeFormat.duration(leftMs)) : "");
     }
   }
 
@@ -153,6 +73,6 @@ final class ModelsPage extends UsagePage {
         mix[i].clear();
       }
     }
-    mixNote.show(s.mixCount == 0 ? noTranscripts : share, palette.faint);
+    mixNote.setText(getString(s.mixCount == 0 ? R.string.no_transcripts : R.string.models_share));
   }
 }

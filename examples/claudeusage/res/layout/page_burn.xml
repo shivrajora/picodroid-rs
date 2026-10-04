@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- How fast the session is filling, when it would run out, and the last hour's trend. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <FrameLayout
+        style="@style/Card"
+        android:layout_height="92dp"
+        android:layout_marginTop="2dp">
+
+        <TextView
+            style="@style/Line.Caption"
+            android:layout_marginLeft="@dimen/card_pad"
+            android:layout_marginTop="7dp"
+            android:text="@string/burn_title" />
+
+        <!-- The number and its unit share a row, so the unit follows the number's width. -->
+        <LinearLayout
+            android:layout_width="280dp"
+            android:layout_height="@dimen/display_box"
+            android:layout_marginLeft="@dimen/card_pad"
+            android:layout_marginTop="30dp"
+            android:orientation="horizontal"
+            android:gravity="left|bottom">
+
+            <TextView
+                android:id="@+id/rate"
+                style="@style/Line.Display" />
+
+            <!--
+              The padding lifts the 14 px unit so its baseline meets the number's: the display
+              face's box ends 11 px below the baseline (12 px of descent, 1 trimmed), the unit's 3.
+            -->
+            <TextView
+                style="@style/Line.Caption"
+                android:layout_marginLeft="8dp"
+                android:paddingBottom="8dp"
+                android:text="@string/burn_unit" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/eta"
+            style="@style/Line.Boxed"
+            android:layout_width="152dp"
+            android:layout_marginLeft="140dp"
+            android:layout_marginTop="32dp"
+            android:gravity="right"
+            android:textColor="@color/muted" />
+
+        <TextView
+            android:id="@+id/reset"
+            style="@style/Line.Boxed"
+            android:layout_width="152dp"
+            android:layout_marginLeft="140dp"
+            android:layout_marginTop="54dp"
+            android:gravity="right"
+            android:textColor="@color/muted" />
+    </FrameLayout>
+
+    <FrameLayout
+        style="@style/Card"
+        android:layout_height="92dp"
+        android:layout_marginTop="98dp">
+
+        <TextView
+            style="@style/Line.Caption"
+            android:layout_marginLeft="@dimen/card_pad"
+            android:layout_marginTop="7dp"
+            android:text="@string/burn_trend" />
+
+        <TextView
+            android:id="@+id/now"
+            style="@style/Line.Boxed"
+            android:layout_width="152dp"
+            android:layout_marginLeft="140dp"
+            android:layout_marginTop="7dp"
+            android:gravity="right"
+            android:textColor="@color/muted" />
+
+        <!-- One bar per sample of the last hour; the bars stand on y = 84. -->
+        <claudeusage.ui.TrendChart
+            android:id="@+id/trend"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="20dp"
+            android:layout_marginTop="34dp" />
+    </FrameLayout>
+</FrameLayout>

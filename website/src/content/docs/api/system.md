@@ -272,7 +272,8 @@ public interface Executor {
 |---------|---------|
 | `static Executor mainExecutor()` | The UI thread's executor. |
 | `static Executor backgroundExecutor()` | The framework's shared background pool. |
-| `static ScheduledExecutorService newSingleThreadScheduledExecutor()` | Delayed and periodic tasks on the main thread — [below](#delayed-and-periodic-work-scheduledexecutorservice). |
+| `static ScheduledExecutorService mainScheduledExecutor()` | Delayed and periodic tasks on the main thread — [below](#delayed-and-periodic-work-scheduledexecutorservice). Picodroid's own; no Android or JDK counterpart. |
+| `static ScheduledExecutorService newSingleThreadScheduledExecutor()` | Delayed and periodic tasks on a thread of its own, as in the JDK — [below](#delayed-and-periodic-work-scheduledexecutorservice). |
 | `static ExecutorService newFixedThreadPool(int nThreads)` | A pool of your own — see [`ExecutorService`](#executorservice-future-and-callable). |
 | `static ExecutorService newSingleThreadExecutor()` | One worker; tasks run strictly in order. |
 
@@ -286,7 +287,7 @@ import picodroid.concurrent.ScheduledExecutorService;
 import picodroid.concurrent.ScheduledFuture;
 import picodroid.concurrent.TimeUnit;
 
-ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+ScheduledExecutorService scheduler = Executors.mainScheduledExecutor();
 
 scheduler.schedule(() -> toast.cancel(), 2, TimeUnit.SECONDS);            // once
 ScheduledFuture<?> clock =
@@ -297,9 +298,14 @@ clock.cancel(false);        // one task
 scheduler.shutdownNow();    // all of them — call it from onDestroy
 ```
 
-`schedule` (a `Runnable` or a `Callable<V>`), `scheduleAtFixedRate`, `scheduleWithFixedDelay`, `execute`, `submit`, `shutdown`, `shutdownNow`, `isShutdown`, `isTerminated` and `awaitTermination` carry their JDK signatures and semantics, with one difference the name does not say: the executor's *single thread is the main thread*. The runtime keeps a table of sixteen deadlines that the 16 ms frame tick checks, and posts each due task to the main queue, so a scheduled task costs one table slot rather than a 16 KiB thread stack, and it may touch widgets directly. The price is the same as a `Handler`'s: a task that blocks stalls the UI while it runs, so hand blocking work to `backgroundExecutor()` from inside the task. Two consequences of the tick-driven design: a task runs within a frame of its due time when the main thread is idle (later if a Runnable ahead of it is slow), and nothing fires while the display is in low-power sleep.
+`schedule` (a `Runnable` or a `Callable<V>`), `scheduleAtFixedRate`, `scheduleWithFixedDelay`, `execute`, `submit`, `shutdown`, `shutdownNow`, `isShutdown`, `isTerminated` and `awaitTermination` carry their JDK signatures and semantics. There are two executors behind the interface, and which thread runs the tasks is the difference:
 
-A fixed-rate task keeps its schedule through a late run, but a run so late that the next due time has already passed is followed by one a full period later rather than by a burst of catch-up runs. A task that throws is logged, its future completes exceptionally, and if it was periodic it is not run again. `shutdown()` keeps the JDK's default policy — one-shot tasks still due run, periodic ones stop; `shutdownNow()` cancels everything. When the table is full, scheduling throws `RejectedExecutionException`, as it does after a shutdown. The sixteen slots are shared by every scheduler in the app.
+- `Executors.mainScheduledExecutor()` runs them on the *main thread*. This is the timer for UI work, in place of `Handler.postDelayed`.
+- `Executors.newSingleThreadScheduledExecutor()` is the JDK's: a thread of its own (a 16 KiB stack until `shutdown()`), whose tasks may block and must not touch views. Code ported from Android or the JDK that does I/O in a scheduled task behaves here as it did there. Its `shutdownNow()` also interrupts the worker.
+
+The rest of this section is about the main-thread executor. The runtime keeps a table of sixteen deadlines that the 16 ms frame tick checks, and posts each due task to the main queue, so a scheduled task costs one table slot rather than a 16 KiB thread stack, and it may touch widgets directly. The price is the same as a `Handler`'s: a task that blocks stalls the UI while it runs, so hand blocking work to `backgroundExecutor()` from inside the task. Two consequences of the tick-driven design: a task runs within a frame of its due time when the main thread is idle (later if a Runnable ahead of it is slow), and nothing fires while the display is in low-power sleep.
+
+A fixed-rate task keeps its schedule through a late run, but a run so late that the next due time has already passed is followed by one a full period later rather than by a burst of catch-up runs. A task that throws is logged, its future completes exceptionally, and if it was periodic it is not run again. `shutdown()` keeps the JDK's default policy — one-shot tasks still due run, periodic ones stop; `shutdownNow()` cancels everything. When the table is full, scheduling throws `RejectedExecutionException`, as it does after a shutdown. The sixteen slots are shared by every main-thread scheduler in the app; the own-thread executor has no such limit.
 
 A `ScheduledFuture<V>` is a `Future<V>` with `getDelay(TimeUnit)`: the time until the next run, zero or negative once due. A periodic task's future never completes normally — only when the task throws or is cancelled. Delays are measured on `SystemClock.elapsedRealtime()`, so setting the wall clock does not move them; a period or delay of zero or less throws `IllegalArgumentException`.
 
@@ -311,7 +317,7 @@ The pool is tuned via a `[background_pool]` section in [`board.toml`](/reference
 [background_pool]
 threads      = 4       # 1..=32 (default 4)
 priority     = 15      # must be 15, the JVM tier (default 15)
-stack_bytes  = 4096    # per-worker stack (default 4 KiB; the RP2350 boards set 6144 or 8192)
+stack_bytes  = 6144    # per-worker stack (default and minimum 6 KiB; 8192 where a job runs TLS, and on the RP2040)
 queue_depth  = 32      # shared job queue depth (default 32)
 ```
 

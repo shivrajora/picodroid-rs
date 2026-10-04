@@ -52,7 +52,7 @@ public class WifiActivity extends Activity {
   private boolean scanning;
   private String lastStatus = "";
 
-  private final ScheduledExecutorService poller = Executors.newSingleThreadScheduledExecutor();
+  private final ScheduledExecutorService poller = Executors.mainScheduledExecutor();
   private ScheduledFuture<?> poll;
 
   private final WifiManager.ScanResultsCallback onScan =

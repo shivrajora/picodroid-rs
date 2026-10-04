@@ -17,11 +17,13 @@ public class FrameLayout extends ViewGroup {
   private static native int nativeCreate();
 
   /**
-   * Mirrors {@code android.widget.FrameLayout.LayoutParams}. Adds {@code gravity} for child
-   * placement; FrameLayout otherwise positions children via {@link picodroid.view.View#setPosition
-   * setPosition}.
+   * Mirrors {@code android.widget.FrameLayout.LayoutParams}: {@code gravity} names the edge or
+   * centre the child is placed against on each axis ({@code TOP | LEFT} when it names none), and
+   * the margins move it in from there, so {@code leftMargin} and {@code topMargin} alone are the
+   * child's position. A child added without params is positioned with {@link
+   * picodroid.view.View#setPosition setPosition}.
    */
-  public static class LayoutParams extends ViewGroup.LayoutParams {
+  public static class LayoutParams extends ViewGroup.MarginLayoutParams {
     public int gravity;
 
     public LayoutParams(int width, int height) {

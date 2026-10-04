@@ -3,9 +3,11 @@ package claudeusage.ui;
 
 import claudeusage.R;
 import picodroid.content.res.Resources;
-import picodroid.graphics.Theme;
 
-/** The app's colours and thresholds, resolved once from {@code res/values}. */
+/**
+ * The colours and thresholds the code picks between at run time, resolved once from {@code
+ * res/values}. What a layout can say for itself, it says in XML.
+ */
 final class Palette {
   final int background;
   final int card;
@@ -58,17 +60,6 @@ final class Palette {
     ledBad = res.getColor(R.color.led_bad) & 0xFFFFFF;
     warnFrom = res.getInteger(R.integer.warn_from);
     badFrom = res.getInteger(R.integer.bad_from);
-  }
-
-  /** The framework widgets' defaults, so a Button or a border matches the app. */
-  void applyTheme() {
-    Theme.colorBackground = background;
-    Theme.colorSurface = card;
-    Theme.colorPrimary = clay;
-    Theme.colorOnPrimary = background;
-    Theme.colorText = text;
-    Theme.colorTextSecondary = muted;
-    Theme.colorOutline = track;
   }
 
   int severity(int pct) {

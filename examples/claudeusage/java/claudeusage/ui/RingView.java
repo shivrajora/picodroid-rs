@@ -2,102 +2,100 @@
 package claudeusage.ui;
 
 import picodroid.content.Context;
+import picodroid.graphics.Canvas;
+import picodroid.graphics.Paint;
+import picodroid.util.AttributeSet;
 import picodroid.view.View;
-import picodroid.view.ViewGroup;
-import picodroid.widget.CircularProgressIndicator;
 
 /**
- * A three-quarter ring gauge with a per-instance colour and an optional pace tick: a thin radial
- * mark at "how far through the window we are". Fill past the tick means the limit is being used
- * faster than the window replenishes it. Two {@link CircularProgressIndicator}s: the gauge, and an
- * overlay with a transparent track whose four-degree indicator is the tick.
+ * A three-quarter ring gauge with a per-instance colour and a pace tick: a thin radial mark at "how
+ * far through the window we are". Fill past the tick means the limit is being used faster than the
+ * window replenishes it. One view drawing the track, the fill and the tick.
  */
-final class RingView {
+final class RingView extends View {
   /** The dial opens at the bottom: 270 degrees from 7:30 round to 4:30. */
-  static final float START = 135f;
+  private static final float START = 135f;
 
-  static final float SWEEP = 270f;
+  private static final float SWEEP = 270f;
 
   private static final float TICK_SWEEP = 4f;
 
-  /** The tick stands proud of the ring on both sides, like the bar marker did. */
+  /** The ring's width, and its diameter when the layout leaves the size to the view. */
+  private static final int STROKE = 10;
+
+  private static final int DIAMETER = 104;
+
+  /**
+   * The tick stands proud of the ring on both sides; the view is this much larger than the ring all
+   * round to hold it.
+   */
   private static final int TICK_OVERHANG = 2;
 
-  private final CircularProgressIndicator ring;
-  private final CircularProgressIndicator tick;
+  private final Palette palette;
+  private final Paint paint = new Paint();
 
-  private int shownPct = -2;
-  private int shownColor;
-  private int shownMarker = -2;
-  private boolean shownDim;
+  private int pct = -1;
+  private int color;
+  private int marker = -1;
+  private boolean dim;
 
-  RingView(
-      Context ctx,
-      Palette p,
-      ViewGroup parent,
-      int x,
-      int y,
-      int diameter,
-      int stroke,
-      boolean withMarker) {
-    ring = new CircularProgressIndicator(ctx);
-    ring.setIndicatorSize(diameter);
-    ring.setPosition(x, y);
-    ring.setTrackThickness(stroke);
-    ring.setTrackColor(p.track);
-    ring.setIndicatorColor(p.good);
-    ring.setStartAngle(START);
-    ring.setSweepAngle(SWEEP);
-    parent.addView(ring);
-    shownColor = p.good;
-    if (withMarker) {
-      tick = new CircularProgressIndicator(ctx);
-      tick.setIndicatorSize(diameter + 2 * TICK_OVERHANG);
-      tick.setPosition(x - TICK_OVERHANG, y - TICK_OVERHANG);
-      tick.setTrackThickness(stroke + 2 * TICK_OVERHANG);
-      tick.setTrackColor(Ui.TRANSPARENT);
-      // Square ends make the tick's edges radial, so it reads as a mark rather than a dot.
-      tick.setTrackCornerRadius(0);
-      tick.setIndicatorColor(p.text);
-      tick.setSweepAngle(TICK_SWEEP);
-      tick.setProgress(100);
-      tick.setVisibility(View.INVISIBLE);
-      parent.addView(tick);
-    } else {
-      tick = null;
-    }
+  RingView(Context context, AttributeSet attrs) {
+    super(context);
+    palette = Palette.of(context.getResources());
+    color = palette.good;
+    paint.setStyle(Paint.Style.STROKE);
+  }
+
+  @Override
+  protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+    int size = DIAMETER + 2 * TICK_OVERHANG;
+    setMeasuredDimension(resolveSize(size, widthMeasureSpec), resolveSize(size, heightMeasureSpec));
   }
 
   /**
    * @param pct 0..100, or negative for "unknown" (an empty track)
    * @param color the fill colour
    * @param markerPct 0..100 for the pace tick, negative to hide it
+   * @param dim whether the ring is faded (stale numbers); the tick never is
    */
   void show(int pct, int color, int markerPct, boolean dim) {
-    if (pct != shownPct || color != shownColor) {
-      ring.setIndicatorColor(color);
-      ring.setProgress(pct < 0 ? 0 : pct);
-      shownPct = pct;
-      shownColor = color;
+    int marker = markerPct > 100 ? 100 : markerPct;
+    if (pct == this.pct && color == this.color && marker == this.marker && dim == this.dim) {
+      return;
     }
-    if (tick != null && markerPct != shownMarker) {
-      if (markerPct < 0) {
-        tick.setVisibility(View.INVISIBLE);
-      } else {
-        int clamped = markerPct > 100 ? 100 : markerPct;
-        // Centre the tick on the elapsed angle; the widget wraps past 360.
-        float start = START + SWEEP * clamped / 100f - TICK_SWEEP / 2f;
-        if (start >= 360f) {
-          start -= 360f;
-        }
-        tick.setStartAngle(start);
-        tick.setVisibility(View.VISIBLE);
+    this.pct = pct;
+    this.color = color;
+    this.marker = marker;
+    this.dim = dim;
+    invalidate();
+  }
+
+  @Override
+  protected void onDraw(Canvas canvas) {
+    // A stroke straddles its circle, so the circle sits half a stroke inside the ring's edge.
+    float near = TICK_OVERHANG + STROKE / 2f;
+    float far = getWidth() - near;
+    paint.setStrokeWidth(STROKE);
+    paint.setStrokeCap(Paint.Cap.ROUND);
+    paint.setColor(palette.track);
+    if (dim) {
+      paint.setAlpha(Ui.DIM_ALPHA);
+    }
+    canvas.drawArc(near, near, far, far, START, SWEEP, false, paint);
+    if (pct > 0) {
+      paint.setColor(color);
+      if (dim) {
+        paint.setAlpha(Ui.DIM_ALPHA);
       }
-      shownMarker = markerPct;
+      canvas.drawArc(near, near, far, far, START, SWEEP * pct / 100f, false, paint);
     }
-    if (dim != shownDim) {
-      ring.setAlpha(dim ? Ui.DIM : 1f);
-      shownDim = dim;
+    if (marker >= 0) {
+      // Square ends make the tick's edges radial, so it reads as a mark rather than a dot.
+      paint.setStrokeWidth(STROKE + 2 * TICK_OVERHANG);
+      paint.setStrokeCap(Paint.Cap.BUTT);
+      paint.setColor(palette.text);
+      float at = START + SWEEP * marker / 100f - TICK_SWEEP / 2f;
+      canvas.drawArc(near, near, far, far, at, TICK_SWEEP, false, paint);
     }
   }
 }

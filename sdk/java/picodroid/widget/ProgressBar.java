@@ -182,6 +182,9 @@ public class ProgressBar extends View {
    * #getProgressTintList()} but not shown, as Android applies it to the determinate drawable only.
    */
   public void setProgressTintList(ColorStateList tint) {
+    if (sameTint(tint, progressTint)) {
+      return;
+    }
     progressTint = tint;
     if (!indeterminate) {
       applyTint(0, tint);
@@ -196,6 +199,9 @@ public class ProgressBar extends View {
    * Colours the track behind the fill; otherwise as {@link #setProgressTintList(ColorStateList)}.
    */
   public void setProgressBackgroundTintList(ColorStateList tint) {
+    if (sameTint(tint, progressBackgroundTint)) {
+      return;
+    }
     progressBackgroundTint = tint;
     if (!indeterminate) {
       applyTint(1, tint);
@@ -219,6 +225,14 @@ public class ProgressBar extends View {
 
   public ColorStateList getIndeterminateTintList() {
     return indeterminateTint;
+  }
+
+  /** Whether {@code a} tints as {@code b} does: setting such a tint again changes nothing. */
+  private static boolean sameTint(ColorStateList a, ColorStateList b) {
+    if (a == null || b == null) {
+      return a == b;
+    }
+    return a.getDefaultColor() == b.getDefaultColor();
   }
 
   private void applyTint(int target, ColorStateList tint) {

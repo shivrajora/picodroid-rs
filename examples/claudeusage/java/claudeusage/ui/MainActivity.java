@@ -11,17 +11,20 @@ import picodroid.app.Activity;
 import picodroid.app.Fragment;
 import picodroid.app.FragmentManager;
 import picodroid.concurrent.Executors;
+import picodroid.concurrent.ScheduledExecutorService;
+import picodroid.concurrent.ScheduledFuture;
+import picodroid.concurrent.TimeUnit;
+import picodroid.content.Context;
 import picodroid.content.Intent;
-import picodroid.content.ServiceConnection;
 import picodroid.content.res.Resources;
 import picodroid.lifecycle.ViewModel;
 import picodroid.lifecycle.ViewModelProvider;
 import picodroid.os.Bundle;
-import picodroid.os.IBinder;
+import picodroid.util.AttributeSet;
 import picodroid.util.Log;
 import picodroid.view.KeyEvent;
-import picodroid.widget.FrameLayout;
-import picodroid.widget.LinearLayout;
+import picodroid.view.View;
+import picodroid.widget.TextView;
 import picodroid.widget.ViewPager2;
 
 /**
@@ -31,11 +34,11 @@ import picodroid.widget.ViewPager2;
  * the Activity's own. The status screen, shown while there is no data, is a Fragment laid over the
  * pager in the same container. The chrome is {@code res/layout/activity_main.xml}.
  *
- * <p>The numbers come from {@link UsageService}, started here so they stay warm and bound while the
- * screen is on. The Activity paints the chrome from them and publishes them in its {@link
- * UsageViewModel}; the pages observe that, and the Activity never looks for the page on screen.
- * Buttons, with the display landscape (A top-left, B bottom-left, X top-right, Y bottom-right);
- * each corner of the screen carries the hint for the button beside it:
+ * <p>The numbers come from {@link UsageService}, started here so they stay warm, by way of the
+ * {@link UsageViewModel}: the Activity observes its state for the chrome, the pages observe it for
+ * themselves, and the Activity never looks for the page on screen. Buttons, with the display
+ * landscape (A top-left, B bottom-left, X top-right, Y bottom-right); each corner of the screen
+ * carries the hint for the button beside it:
  *
  * <ul>
  *   <li>A previous screen, B next screen (both wrap); hold either to keep turning
@@ -49,7 +52,7 @@ import picodroid.widget.ViewPager2;
  * never leaves the app: this is an appliance, and BACK falling through to finish() would drop it to
  * a launcher nobody asked for.
  */
-public class MainActivity extends Activity implements UsageService.Listener, UsagePage.Host {
+public class MainActivity extends Activity {
   private static final String TAG = UsageService.TAG;
 
   private static final int PAGE_LIMITS = 0;
@@ -74,29 +77,12 @@ public class MainActivity extends Activity implements UsageService.Listener, Usa
     R.id.page_dot_0, R.id.page_dot_1, R.id.page_dot_2, R.id.page_dot_3
   };
 
-  private final ServiceConnection connection =
-      new ServiceConnection() {
-        @Override
-        public void onServiceConnected(IBinder binder) {
-          repo = ((UsageService.LocalBinder) binder).service;
-          // The first chrome paint costs the RP2350 some 20 ms and the listener's first tick
-          // thread a few more: each takes a tick of its own rather than the connect callback's.
-          Executors.mainExecutor().execute(MainActivity.this::onConnected);
-        }
-
-        @Override
-        public void onServiceDisconnected() {
-          repo = null;
-          model.publish(null);
-        }
-      };
-
   /** A page turned: the title, the hint and the dot follow; AUTO's countdown restarts. */
   private final ViewPager2.OnPageChangeCallback pageCallback =
       new ViewPager2.OnPageChangeCallback() {
         @Override
         public void onPageSelected(int position) {
-          autoSeconds = 0;
+          restartAuto();
           if (!statusShowing) {
             Log.i(TAG, "page -> " + pageTitles[position]);
           }
@@ -104,8 +90,10 @@ public class MainActivity extends Activity implements UsageService.Listener, Usa
         }
       };
 
-  /** Null until the Service is bound; every callback that reads it arrives after that. */
-  private UsageService repo;
+  /** AUTO's page turns; a task on the main thread, running only while the Activity is started. */
+  private final ScheduledExecutorService timer = Executors.mainScheduledExecutor();
+
+  private ScheduledFuture<?> autoTurn;
 
   private UsageViewModel model;
   private Palette palette;
@@ -113,54 +101,40 @@ public class MainActivity extends Activity implements UsageService.Listener, Usa
   private RgbLed led;
 
   private ViewPager2 pager;
-  private UsagePagerAdapter adapter;
-  private Line title;
-  private Line plan;
-  private Line clock;
-  private Line syncHint;
-  private Line homeHint;
-  private Line banner;
-  private FrameLayout statusDot;
-  private final FrameLayout[] pageDots = new FrameLayout[PAGE_COUNT];
+  private TextView title;
+  private TextView plan;
+  private TextView clock;
+  private TextView syncHint;
+  private TextView homeHint;
+  private TextView banner;
+  private View statusDot;
+  private final View[] pageDots = new View[PAGE_COUNT];
   private final String[] pageTitles = new String[PAGE_COUNT];
   private String statusTitle;
-  private int shownStatusColor;
-  private int shownPageDot = -1;
   private String hintAuto;
-  private String hintSync;
+  private String hintHome;
   private String planText = "";
   private UsageSnapshot planOf;
-  private String hintHome;
-  private String bannerAuto;
-  private String bannerUpdated;
-  private String bannerStale;
 
   /** Whether the status screen is laid over the pager (no data yet). */
   private boolean statusShowing;
 
-  private boolean dotsPending;
-  private boolean chromeWarmed;
   private boolean auto;
-  private int autoSeconds;
-  private boolean destroyed;
-  private long tickMinute = -1;
-  private LinkState tickState;
-  private boolean tickFresh;
+  private boolean started;
+
+  /** What the chrome last painted; null until the ViewModel has published. */
+  private UsageUiState state;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
+    setTheme(R.style.AppTheme);
     Resources res = getResources();
     palette = Palette.of(res);
-    palette.applyTheme();
     model = new ViewModelProvider(this).get(UsageViewModel.class);
     autoPeriod = res.getInteger(R.integer.auto_seconds);
     hintAuto = getString(R.string.hint_auto);
     hintHome = getString(R.string.hint_home);
-    hintSync = getString(R.string.hint_sync);
-    bannerAuto = getString(R.string.banner_auto);
-    bannerUpdated = getString(R.string.banner_updated);
-    bannerStale = getString(R.string.banner_stale);
     for (int i = 0; i < PAGE_COUNT; i++) {
       pageTitles[i] = getString(UsagePagerAdapter.titleRes(i));
     }
@@ -176,13 +150,12 @@ public class MainActivity extends Activity implements UsageService.Listener, Usa
     } else {
       auto = getSharedPreferences(UsageService.PREFS, MODE_PRIVATE).getBoolean(KEY_AUTO, false);
     }
-    // The first page builds behind the status screen while the board waits for WiFi and the
-    // first fetch: its one-off costs (loading the page's classes, the cold call sites) are paid in
-    // that idle time, and it paints the moment the data arrives.
-    adapter = new UsagePagerAdapter(this);
-    pager.setAdapter(adapter);
+    // The first page is inflated behind the status screen while the board waits for WiFi and the
+    // first fetch, and it paints the moment the data arrives.
+    pager.setAdapter(new UsagePagerAdapter(this));
 
-    startService(new Intent(UsageService.class));
+    startService(new Intent(this, UsageService.class));
+    model.state().observe(this, this::onState);
     Log.i(TAG, "ui ready");
   }
 
@@ -192,22 +165,35 @@ public class MainActivity extends Activity implements UsageService.Listener, Usa
     pager.setUserInputEnabled(false); // four buttons and no touch panel: keys turn the pages
     pager.registerOnPageChangeCallback(pageCallback);
 
-    title = new Line(findViewById(R.id.title), palette.text);
-    plan = new Line(findViewById(R.id.plan), palette.clay);
-    clock = new Line(findViewById(R.id.clock), palette.muted);
-    syncHint = new Line(findViewById(R.id.hint_sync), hintSync, palette.faint);
-    homeHint = new Line(findViewById(R.id.hint_home), hintAuto, palette.faint);
-    banner = new Line(findViewById(R.id.banner), palette.muted);
+    title = findViewById(R.id.title);
+    plan = findViewById(R.id.plan);
+    clock = findViewById(R.id.clock);
+    syncHint = findViewById(R.id.hint_sync);
+    homeHint = findViewById(R.id.hint_home);
+    banner = findViewById(R.id.banner);
 
     statusDot = findViewById(R.id.status_dot);
-    shownStatusColor = palette.faint;
-    Ui.fill(statusDot, palette.faint, 4);
-    LinearLayout dots = findViewById(R.id.page_dots);
-    dots.setSpacing(getResources().getDimensionPixelSize(R.dimen.page_dot_gap));
     for (int i = 0; i < PAGE_COUNT; i++) {
       pageDots[i] = findViewById(PAGE_DOT_IDS[i]);
-      Ui.fill(pageDots[i], palette.track, 3);
     }
+  }
+
+  /**
+   * The views of the app's own that the page layouts name: there is no reflection to construct them
+   * by, so the Activity, which is every layout's factory, does.
+   */
+  @Override
+  public View onCreateView(String name, Context context, AttributeSet attrs) {
+    if (name.equals("claudeusage.ui.RingView")) {
+      return new RingView(context, attrs);
+    }
+    if (name.equals("claudeusage.ui.TrendChart")) {
+      return new TrendChart(context, attrs);
+    }
+    if (name.equals("claudeusage.ui.WeekChart")) {
+      return new WeekChart(context, attrs);
+    }
+    return super.onCreateView(name, context, attrs);
   }
 
   /** There is no reflection to make a ViewModel by: the pages' provider asks here. */
@@ -217,67 +203,33 @@ public class MainActivity extends Activity implements UsageService.Listener, Usa
       @Override
       @SuppressWarnings("unchecked")
       public <T extends ViewModel> T create(Class<T> modelClass) {
+        if (modelClass != UsageViewModel.class) {
+          throw new IllegalArgumentException("Unknown ViewModel class " + modelClass.getName());
+        }
         return (T) new UsageViewModel();
       }
     };
   }
 
-  /** The first page is built: warm the chrome's data path while the board is still idle. */
-  @Override
-  public void onPageBuilt() {
-    if (!chromeWarmed) {
-      chromeWarmed = true;
-      Executors.mainExecutor().execute(this::warmChrome);
-    }
-  }
-
   // ── Lifecycle ──────────────────────────────────────────────────────────────
-
-  private void onConnected() {
-    if (destroyed || repo == null) {
-      return;
-    }
-    repo.setListener(this);
-    refresh();
-  }
 
   @Override
   public void onStart() {
     super.onStart();
-    bindService(new Intent(UsageService.class), connection);
-  }
-
-  @Override
-  public void onResume() {
-    super.onResume();
-    if (repo != null) {
-      repo.setListener(this);
-      refresh();
-    }
-  }
-
-  @Override
-  public void onPause() {
-    if (repo != null) {
-      repo.setListener(null);
-    }
-    super.onPause();
+    started = true;
+    restartAuto();
   }
 
   @Override
   public void onStop() {
-    if (repo != null) {
-      repo.setListener(null);
-      repo = null;
-    }
-    model.publish(null);
-    unbindService(connection);
+    started = false;
+    restartAuto();
     super.onStop();
   }
 
   @Override
   public void onDestroy() {
-    destroyed = true;
+    timer.shutdownNow();
     led.close();
     super.onDestroy();
   }
@@ -292,17 +244,14 @@ public class MainActivity extends Activity implements UsageService.Listener, Usa
   // ── Input ──────────────────────────────────────────────────────────────────
 
   /**
-   * Every key is consumed here, BACK included: an appliance never finishes to the launcher, and
-   * consuming BACK's press (without calling super) is what keeps the default {@code onKeyUp} from
-   * running {@code onBackPressed}, as on Android. A and B act here, on the press and again on every
-   * {@link #PAGE_TURN_REPEATS}th auto-repeat while held; X and Y only start tracking, so {@link
-   * #onKeyLongPress} and {@link #onKeyUp} can tell a hold from a press.
+   * The four keys are consumed here, BACK included: an appliance never finishes to the launcher,
+   * and consuming BACK's press (without calling super) is what keeps the default {@code onKeyUp}
+   * from running {@code onBackPressed}, as on Android. A and B act here, on the press and again on
+   * every {@link #PAGE_TURN_REPEATS}th auto-repeat while held; X and Y only start tracking, so
+   * {@link #onKeyLongPress} and {@link #onKeyUp} can tell a hold from a press.
    */
   @Override
   public boolean onKeyDown(int code, KeyEvent event) {
-    if (repo == null) {
-      return true;
-    }
     int repeat = event.getRepeatCount();
     switch (code) {
       case KeyEvent.KEYCODE_DPAD_UP:
@@ -321,20 +270,17 @@ public class MainActivity extends Activity implements UsageService.Listener, Usa
         }
         return true;
       default:
-        return true;
+        return super.onKeyDown(code, event);
     }
   }
 
   /** The long actions: X held looks for the bridge again, Y held toggles AUTO from any screen. */
   @Override
   public boolean onKeyLongPress(int code, KeyEvent event) {
-    if (repo == null) {
-      return true;
-    }
     switch (code) {
       case KeyEvent.KEYCODE_DPAD_CENTER:
         Log.i(TAG, "rediscover requested");
-        repo.rediscover();
+        model.rediscover();
         return true;
       case KeyEvent.KEYCODE_BACK:
         toggleAuto();
@@ -350,45 +296,62 @@ public class MainActivity extends Activity implements UsageService.Listener, Usa
    */
   @Override
   public boolean onKeyUp(int code, KeyEvent event) {
-    if (repo == null || !event.isTracking() || event.isCanceled()) {
-      return true;
-    }
     switch (code) {
       case KeyEvent.KEYCODE_DPAD_CENTER:
-        Log.i(TAG, "sync requested");
-        repo.refreshNow();
+        if (event.isTracking() && !event.isCanceled()) {
+          Log.i(TAG, "sync requested");
+          model.refreshNow();
+        }
         return true;
       case KeyEvent.KEYCODE_BACK:
-        if (!statusShowing && pager.getCurrentItem() != PAGE_LIMITS) {
-          autoSeconds = 0; // home restarts the AUTO countdown, as a turn does
+        if (event.isTracking()
+            && !event.isCanceled()
+            && !statusShowing
+            && pager.getCurrentItem() != PAGE_LIMITS) {
           pager.setCurrentItem(PAGE_LIMITS, false);
         }
         return true;
-      default:
+      case KeyEvent.KEYCODE_DPAD_UP:
+      case KeyEvent.KEYCODE_DPAD_DOWN:
         return true;
+      default:
+        return super.onKeyUp(code, event);
     }
   }
 
   private void toggleAuto() {
     auto = !auto;
-    autoSeconds = 0;
     Log.i(TAG, auto ? "auto on" : "auto off");
-    saveAuto(auto);
-    refreshChrome();
+    getSharedPreferences(UsageService.PREFS, MODE_PRIVATE)
+        .edit()
+        .putBoolean(KEY_AUTO, auto)
+        .apply();
+    restartAuto();
+    if (state != null) {
+      refreshChrome(state);
+    }
   }
 
   /**
-   * Off the main thread: the SDK's {@code apply()} writes LittleFS synchronously, and that write
-   * alone overran the slow-handler budget in the sim.
+   * Starts AUTO's countdown again from the top, or stops it: on a toggle, on any page change (a
+   * turn by hand restarts it, as going home does) and as the Activity starts and stops.
    */
-  private void saveAuto(final boolean on) {
-    Executors.backgroundExecutor()
-        .execute(
-            () ->
-                getSharedPreferences(UsageService.PREFS, MODE_PRIVATE)
-                    .edit()
-                    .putBoolean(KEY_AUTO, on)
-                    .apply());
+  private void restartAuto() {
+    if (autoTurn != null) {
+      autoTurn.cancel(false);
+      autoTurn = null;
+    }
+    if (auto && started) {
+      autoTurn =
+          timer.scheduleWithFixedDelay(this::autoTurn, autoPeriod, autoPeriod, TimeUnit.SECONDS);
+    }
+  }
+
+  /** AUTO's period is up: the next screen, while there are live numbers to cycle through. */
+  private void autoTurn() {
+    if (!statusShowing && state != null && state.fresh) {
+      turnPage(1);
+    }
   }
 
   /**
@@ -397,19 +360,28 @@ public class MainActivity extends Activity implements UsageService.Listener, Usa
    * scroll animation.
    */
   private void turnPage(int by) {
-    autoSeconds = 0;
     pager.setCurrentItem((pager.getCurrentItem() + by + PAGE_COUNT) % PAGE_COUNT, false);
   }
 
-  // ── Pages ──────────────────────────────────────────────────────────────────
+  // ── What the ViewModel publishes (main thread) ─────────────────────────────
+
+  /**
+   * A new state: the status screen comes or goes, and the chrome repaints. The pages observe the
+   * same state and repaint on a tick of their own, after this one: the chrome costs the RP2350 some
+   * 20 ms, and a page's repaint on top would overrun the budget.
+   */
+  private void onState(UsageUiState newState) {
+    state = newState;
+    syncStatus(newState);
+    refreshChrome(newState);
+  }
 
   /**
    * Lays the status screen over the pager while there has never been any data, and takes it away
-   * once there is: a fragment {@code replace} into the pager's container, committed on a tick of
-   * its own as the old page swap was.
+   * once there is: a fragment {@code replace} into the pager's container.
    */
-  private void syncStatus() {
-    boolean wantStatus = !model.hasData();
+  private void syncStatus(UsageUiState s) {
+    boolean wantStatus = !s.hasData();
     if (wantStatus == statusShowing) {
       return;
     }
@@ -425,147 +397,62 @@ public class MainActivity extends Activity implements UsageService.Listener, Usa
       }
       Log.i(TAG, "page -> " + pageTitles[pager.getCurrentItem()]);
     }
-    refreshPageChrome();
-  }
-
-  /**
-   * Runs the chrome's data-path formatting once, on placeholder values, while the board is still
-   * idle. The runtime resolves a call site once per app run, keyed by the caller's constant pool,
-   * so the first refresh with real data then finds these sites resolved and their classes
-   * initialised: on the RP2350 that refresh was the last slow tick from power-on (57 ms, of which
-   * 89 cold resolutions and the class initialisations were a third).
-   */
-  private void warmChrome() {
-    if (destroyed) {
-      return;
-    }
-    String at = TimeFormat.hm(System.currentTimeMillis());
-    String warmed =
-        String.format(bannerUpdated, at)
-            + String.format(bannerAuto, at)
-            + String.format(bannerStale, hintHome, TimeFormat.duration(60_000L))
-            + hintSync.toUpperCase();
-    Log.i(TAG, "chrome warm, " + warmed.length() + " chars");
-  }
-
-  // ── Service callbacks (main thread) ────────────────────────────────────────
-
-  @Override
-  public void onUsageChanged() {
-    refresh();
-  }
-
-  @Override
-  public void onTick() {
-    if (repo == null) {
-      return;
-    }
-    if (auto && !statusShowing && repo.isFresh() && ++autoSeconds >= autoPeriod) {
-      turnPage(1);
-      return;
-    }
-    // A full repaint builds a dozen strings just to find that none changed, which costs the
-    // RP2350 some 55 ms: over the slow-handler budget, every second. Everything on the data
-    // screens is minute-grained, so repaint only when the minute, the link or the freshness moved.
-    long minute = System.currentTimeMillis() / 60_000L;
-    LinkState state = repo.linkState();
-    boolean fresh = repo.isFresh();
-    if (statusShowing || minute != tickMinute || state != tickState || fresh != tickFresh) {
-      tickMinute = minute;
-      tickState = state;
-      tickFresh = fresh;
-      refresh();
-    }
-  }
-
-  private void refresh() {
-    if (destroyed || repo == null) {
-      return;
-    }
-    // The pages observe this. Each repaints on a tick of its own, after this one: the chrome
-    // below costs the RP2350 some 20 ms, and a page's repaint on top would overrun the budget.
-    model.publish(repo);
-    syncStatus();
-    refreshChrome();
   }
 
   /** The part of the chrome a page turn changes; cheap enough to share a tick with the turn. */
   private void refreshPageChrome() {
     int current = pager.getCurrentItem();
-    title.show(statusShowing ? statusTitle : pageTitles[current], palette.text);
-    homeHint.show(
-        current == PAGE_LIMITS || statusShowing ? hintAuto : hintHome,
-        auto && current == PAGE_LIMITS ? palette.clay : palette.faint);
-    int activeDot = statusShowing ? -1 : current;
-    if (activeDot != shownPageDot && !dotsPending) {
-      // Each fill costs the RP2350 some 4 ms inside the flex row, so the dots take their own tick.
-      dotsPending = true;
-      Executors.mainExecutor().execute(this::movePageDot);
+    title.setText(statusShowing ? statusTitle : pageTitles[current]);
+    homeHint.setText(current == PAGE_LIMITS || statusShowing ? hintAuto : hintHome);
+    homeHint.setTextColor(auto && current == PAGE_LIMITS ? palette.clay : palette.faint);
+    int active = statusShowing ? -1 : current;
+    for (int i = 0; i < PAGE_COUNT; i++) {
+      Ui.tint(pageDots[i], i == active ? palette.clay : palette.track);
     }
-  }
-
-  private void movePageDot() {
-    dotsPending = false;
-    if (destroyed) {
-      return;
-    }
-    int activeDot = statusShowing ? -1 : pager.getCurrentItem();
-    if (activeDot == shownPageDot) {
-      return;
-    }
-    if (shownPageDot >= 0) {
-      Ui.fill(pageDots[shownPageDot], palette.track, 3);
-    }
-    if (activeDot >= 0) {
-      Ui.fill(pageDots[activeDot], palette.clay, 3);
-    }
-    shownPageDot = activeDot;
   }
 
   /** Header, footer and LED: everything outside the page. */
-  private void refreshChrome() {
-    UsageSnapshot s = repo.snapshot();
-    boolean fresh = repo.isFresh();
-    LinkState state = repo.linkState();
-    long now = System.currentTimeMillis();
-
+  private void refreshChrome(UsageUiState s) {
+    UsageSnapshot snapshot = s.snapshot;
     refreshPageChrome();
-    if (s != planOf) {
-      planOf = s; // one upper-casing per snapshot, not per refresh
-      planText = s == null ? "" : s.plan.toUpperCase();
+    if (snapshot != planOf) {
+      planOf = snapshot; // one upper-casing per snapshot, not per refresh
+      planText = snapshot == null ? "" : snapshot.plan.toUpperCase();
     }
-    plan.show(!statusShowing ? planText : "", palette.clay);
-    clock.show(s != null ? TimeFormat.hm(now) : "", palette.muted);
-    syncHint.show(hintSync, repo.isSyncing() ? palette.clay : palette.faint);
+    plan.setText(statusShowing ? "" : planText);
+    clock.setText(snapshot != null ? TimeFormat.hm(s.minute * 60_000L) : "");
+    syncHint.setTextColor(s.syncing ? palette.clay : palette.faint);
 
     // Green: live. Amber: live numbers, but the last attempt failed. Red: not live.
-    int dot = fresh ? (state == LinkState.OK ? palette.good : palette.warn) : palette.bad;
-    if (state == LinkState.JOINING) {
+    int dot = s.fresh ? (s.link == LinkState.OK ? palette.good : palette.warn) : palette.bad;
+    if (s.link == LinkState.JOINING) {
       dot = palette.clay;
     }
-    if (dot != shownStatusColor) {
-      Ui.fill(statusDot, dot, 4);
-      shownStatusColor = dot;
-    }
+    Ui.tint(statusDot, dot);
 
     if (statusShowing) {
-      banner.show("", palette.muted);
-    } else if (fresh && state == LinkState.OK) {
+      banner.setText("");
+    } else if (s.fresh && s.link == LinkState.OK) {
       // AUTO is toggled from Limits only, so say it is on wherever the cycle has got to.
-      String at = TimeFormat.hm(repo.lastGoodWallMs());
-      banner.show(String.format(auto ? bannerAuto : bannerUpdated, at), palette.muted);
+      banner.setText(
+          getString(
+              auto ? R.string.banner_auto : R.string.banner_updated,
+              TimeFormat.hm(s.lastGoodWallMs)));
+      banner.setTextColor(palette.muted);
     } else {
-      long since = repo.sinceLastGoodMs();
-      String what = getString(state.shortText(repo.linkErr()));
+      String what = getString(s.link.shortText(s.linkErr));
       // While still fresh this is one missed poll: say so quietly. Once stale, say it in clay.
-      banner.show(
-          since >= 60_000L ? String.format(bannerStale, what, TimeFormat.duration(since)) : what,
-          fresh ? palette.muted : palette.clay);
+      banner.setText(
+          s.staleMinutes >= 1
+              ? getString(
+                  R.string.banner_stale, what, TimeFormat.duration(s.staleMinutes * 60_000L))
+              : what);
+      banner.setTextColor(s.fresh ? palette.muted : palette.clay);
     }
 
     int ledColor = 0;
-    if (fresh && s != null) {
-      int worst = s.sessionPct > s.weeklyPct ? s.sessionPct : s.weeklyPct;
+    if (s.fresh && snapshot != null) {
+      int worst = Math.max(snapshot.sessionPct, snapshot.weeklyPct);
       ledColor =
           worst >= palette.badFrom
               ? palette.ledBad

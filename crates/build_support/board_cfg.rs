@@ -762,7 +762,12 @@ pub fn emit_background_pool_config(out: &Path, board: &Option<ResolvedBoard>) {
     // is unsound (a `task_priority` test cross-checks the two numbers).
     const JVM_TIER: u32 = 15;
     const DEFAULT_PRIORITY: u32 = JVM_TIER;
-    const DEFAULT_STACK_BYTES: u32 = 4096;
+    // A worker runs whatever Java hands it, and the framework itself hands it
+    // file writes (`SharedPreferences.apply()`): LittleFS under the
+    // interpreter's frames overflowed a 4 KB worker on the RP2040 testbench
+    // (prefs_demo, 2026-10-01), so 6 KB is the default and the floor.
+    const DEFAULT_STACK_BYTES: u32 = 6144;
+    const MIN_STACK_BYTES: u32 = 6144;
     const DEFAULT_QUEUE_DEPTH: u32 = 32;
 
     let pool = board.as_ref().and_then(|b| b.cfg.background_pool.as_ref());
@@ -784,6 +789,12 @@ pub fn emit_background_pool_config(out: &Path, board: &Option<ResolvedBoard>) {
         priority == JVM_TIER,
         "[background_pool] priority must be {JVM_TIER}: every task that interprets Java \
          shares one FreeRTOS priority (docs/parity-audit.md THR-06), got {priority}"
+    );
+    assert!(
+        stack_bytes >= MIN_STACK_BYTES,
+        "[background_pool] stack_bytes must be at least {MIN_STACK_BYTES}: a worker writes \
+         files (SharedPreferences.apply()), and LittleFS under a Java frame overflows less; \
+         got {stack_bytes}"
     );
     assert!(
         (1..=32).contains(&threads),

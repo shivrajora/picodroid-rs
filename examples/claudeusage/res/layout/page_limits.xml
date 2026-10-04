@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The home screen: the 5-hour session and the weekly cap, as two ring gauges side by side. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <include
+        layout="@layout/limit_card"
+        android:id="@+id/session"
+        android:layout_marginLeft="@dimen/margin"
+        android:layout_marginTop="2dp" />
+
+    <include
+        layout="@layout/limit_card"
+        android:id="@+id/weekly"
+        android:layout_marginLeft="162dp"
+        android:layout_marginTop="2dp" />
+</FrameLayout>

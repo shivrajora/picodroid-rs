@@ -71,8 +71,7 @@ final class T {
   }
 
   /** The main-thread deadline table, the SDK's delayed-work shape. */
-  private static final ScheduledExecutorService TIMER =
-      Executors.newSingleThreadScheduledExecutor();
+  private static final ScheduledExecutorService TIMER = Executors.mainScheduledExecutor();
 
   static void later(int ms, Runnable r) {
     TIMER.schedule(r, ms, TimeUnit.MILLISECONDS);

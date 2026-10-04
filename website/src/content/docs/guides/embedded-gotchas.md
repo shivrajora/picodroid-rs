@@ -121,14 +121,14 @@ new Thread(() -> {
 
 `Thread.sleep(long)` is interruptible and throws `InterruptedException` like Android's; `SystemClock.sleep(int)` sleeps through interrupts, also like Android's. To hop threads use `Executors.mainExecutor().execute(Runnable)` or `Executors.backgroundExecutor().execute(Runnable)` — `execute` runs as soon as the queue drains and has no delay overload.
 
-For "do X in 500 ms" and "do X every second" use the JDK's `ScheduledExecutorService`, which is the delayed-work API here in place of `Handler.postDelayed` and `Timer`:
+For "do X in 500 ms" and "do X every second" use the JDK's `ScheduledExecutorService`, which is the delayed-work API here in place of `Handler.postDelayed` and `Timer`. `Executors.mainScheduledExecutor()` is the one whose tasks run on the main thread and may touch views:
 
 ```java
 import picodroid.concurrent.Executors;
 import picodroid.concurrent.ScheduledExecutorService;
 import picodroid.concurrent.TimeUnit;
 
-private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+private final ScheduledExecutorService scheduler = Executors.mainScheduledExecutor();
 
 scheduler.schedule(() -> status.setText("Saved"), 500, TimeUnit.MILLISECONDS);
 scheduler.scheduleAtFixedRate(this::onTick, 1, 1, TimeUnit.SECONDS);
@@ -323,14 +323,14 @@ A Service that is only bound — never started — is destroyed when its binding
 
 ```java
 // WRONG: bind-only — the service's ring buffer is wiped on every screen change.
-bindService(new Intent(SensorLoggerService.class), this);
+bindService(new Intent(this, SensorLoggerService.class), this, BIND_AUTO_CREATE);
 ```
 
 ```java
 // RIGHT: start (and foreground) the service so it survives Activity changes.
-Intent svc = new Intent(SensorLoggerService.class);
-startService(svc);                 // promotes to started; survives the screen leave
-bindService(svc, this);            // still bind to read its snapshot
+Intent svc = new Intent(this, SensorLoggerService.class);
+startService(svc);                           // promotes to started; survives the screen leave
+bindService(svc, this, BIND_AUTO_CREATE);    // still bind to read its snapshot
 ```
 
 Why: on Activity `finish()` the framework auto-unbinds that Activity's connections; if the service is neither started nor bound by anyone else, `onDestroy` runs immediately and its state is gone. A started (or foreground) service keeps running, so a later screen can bind the same instance and read accumulated data. See [background services](/tutorials/background-service/) and [the services API](/api/services/).

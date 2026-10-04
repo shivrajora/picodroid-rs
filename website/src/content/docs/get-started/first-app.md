@@ -293,7 +293,7 @@ Executors.backgroundExecutor().execute(() -> {
 
 `backgroundExecutor()` runs on a shared worker pool (configurable in [`board.toml`](/reference/porting-guide/#boardtoml-reference)); `mainExecutor()` hops back to the UI thread. Both are non-blocking and drop on queue saturation.
 
-For delayed or periodic work on the main thread — what `Handler.postDelayed` does on Android — use `Executors.newSingleThreadScheduledExecutor()`; see [api/system.md → ScheduledExecutorService](/api/system/#delayed-and-periodic-work-scheduledexecutorservice). It is not on `testbench_rp2040`.
+For delayed or periodic work on the main thread — what `Handler.postDelayed` does on Android — use `Executors.mainScheduledExecutor()`; see [api/system.md → ScheduledExecutorService](/api/system/#delayed-and-periodic-work-scheduledexecutorservice). It is not on `testbench_rp2040`.
 
 ## Porting to a New Platform
 

@@ -2,9 +2,11 @@
 package picodroid.content;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.zip.CRC32;
+import picodroid.concurrent.Executors;
 import picodroid.io.File;
 import picodroid.io.FileInputStream;
 import picodroid.io.FileOutputStream;
@@ -12,9 +14,16 @@ import picodroid.util.Log;
 
 /**
  * Typed key-value settings store mirroring {@code android.content.SharedPreferences}: obtain via
- * {@link Context#getSharedPreferences(String, int)} (or the picodroid-native {@link #open}), mutate
- * through {@link #edit()} / {@link Editor}. Not thread-safe; callers that share a SharedPreferences
- * instance across threads must synchronize externally.
+ * {@link Context#getSharedPreferences(String, int)}, mutate through {@link #edit()} / {@link
+ * Editor}.
+ *
+ * <p>As on Android, {@code getSharedPreferences} hands every caller the one instance of a file, and
+ * that instance is safe to read and edit from any thread. {@link Editor#apply()} changes what the
+ * getters return at once and leaves the file write to a background thread; {@link Editor#commit()}
+ * writes before it returns. A write still pending is finished when the Activity stops, as Android
+ * finishes its queued work there, and before the file is read again.
+ *
+ * <p>{@link #open} is picodroid's own: a separate instance read from the file on every call.
  */
 public final class SharedPreferences {
   private static final String TAG = "SharedPreferences";
@@ -35,7 +44,15 @@ public final class SharedPreferences {
   private static final int MAGIC = 0x50505246; // "PPRF" big-endian view
   private static final byte VERSION = 1;
 
+  /** The instances {@link #getInstance} handed out, one per file; guarded by the class. */
+  private static ArrayList<SharedPreferences> sInstances;
+
+  /** Every instance holding state its file does not have yet; guarded by the class. */
+  private static ArrayList<SharedPreferences> sUnwritten;
+
   final String name;
+
+  // The state in memory, guarded by this. An Editor replaces the arrays whole.
   String[] keys = new String[MAX_ENTRIES];
   byte[] types = new byte[MAX_ENTRIES];
   String[] strVals = new String[MAX_ENTRIES];
@@ -45,34 +62,246 @@ public final class SharedPreferences {
   int[] longValsHi = new int[MAX_ENTRIES];
   int count;
 
+  /** Counts the changes made in memory; guarded by this. */
+  private int mMemoryGeneration;
+
+  /** The {@link #mMemoryGeneration} the file holds; guarded by this. */
+  private int mDiskGeneration;
+
+  /** Held across a file write, so two writers cannot interleave. Taken before this. */
+  private final Object mWriteLock = new Object();
+
   private SharedPreferences(String name) {
     this.name = name;
   }
 
+  /**
+   * A new instance over the file {@code name}, read from storage now. Not an Android method: an
+   * Android app gets its preferences from {@link Context#getSharedPreferences}, which shares one
+   * instance per file. Two instances over one file do not see each other's changes.
+   */
   public static SharedPreferences open(String name) {
     if (!validName(name)) {
       throw new IllegalArgumentException("invalid preferences name");
     }
+    flushPending(name);
     SharedPreferences p = new SharedPreferences(name);
     p.load();
     return p;
   }
 
-  public boolean contains(String key) {
+  /** The one shared instance over the file {@code name}, as Android keeps per process. */
+  static SharedPreferences getInstance(String name) {
+    if (!validName(name)) {
+      throw new IllegalArgumentException("invalid preferences name");
+    }
+    synchronized (SharedPreferences.class) {
+      if (sInstances == null) {
+        sInstances = new ArrayList<SharedPreferences>();
+      }
+      for (int i = 0; i < sInstances.size(); i++) {
+        SharedPreferences p = sInstances.get(i);
+        if (p.name.equals(name)) {
+          return p;
+        }
+      }
+    }
+    // Read outside the class lock: it is file I/O. Two threads racing here both read the same
+    // file; the first to register wins and the other's copy is dropped.
+    SharedPreferences fresh = open(name);
+    synchronized (SharedPreferences.class) {
+      for (int i = 0; i < sInstances.size(); i++) {
+        SharedPreferences p = sInstances.get(i);
+        if (p.name.equals(name)) {
+          return p;
+        }
+      }
+      sInstances.add(fresh);
+      return fresh;
+    }
+  }
+
+  /**
+   * Writes every preferences file whose {@link Editor#apply} has not reached storage yet, in the
+   * calling thread: what {@link Context#finishQueuedWork} runs.
+   */
+  static void flushPending() {
+    flushPending(null);
+  }
+
+  /**
+   * Writes the unwritten instances over the file {@code name}, or all of them when null. Returns
+   * once each one's file holds what its memory held when this was called, a write another thread
+   * had under way included.
+   */
+  private static void flushPending(String name) {
+    ArrayList<SharedPreferences> pending = null;
+    synchronized (SharedPreferences.class) {
+      if (sUnwritten != null) {
+        for (int i = 0; i < sUnwritten.size(); i++) {
+          SharedPreferences p = sUnwritten.get(i);
+          if (name == null || p.name.equals(name)) {
+            if (pending == null) {
+              pending = new ArrayList<SharedPreferences>();
+            }
+            pending.add(p);
+          }
+        }
+      }
+    }
+    if (pending != null) {
+      for (int i = 0; i < pending.size(); i++) {
+        pending.get(i).writeToDisk();
+      }
+    }
+  }
+
+  /** The state in memory moved on: remember this instance until its file has caught up. */
+  void markUnwritten() {
+    synchronized (SharedPreferences.class) {
+      if (sUnwritten == null) {
+        sUnwritten = new ArrayList<SharedPreferences>();
+        Context.sQueuedWork = SharedPreferences::flushPending;
+      }
+      for (int i = 0; i < sUnwritten.size(); i++) {
+        if (sUnwritten.get(i) == this) {
+          return;
+        }
+      }
+      sUnwritten.add(this);
+    }
+  }
+
+  /**
+   * Brings the file up to the state in memory, unless it already has it; any thread. Atomic: the
+   * blob goes to a temporary file that is then renamed over the old one, so a power cut leaves the
+   * old file or the new one. Returns false when the write failed; the state in memory stays, as on
+   * Android, and the next write tries again.
+   */
+  boolean writeToDisk() {
+    synchronized (mWriteLock) {
+      byte[] blob = null;
+      int generation;
+      synchronized (this) {
+        generation = mMemoryGeneration;
+        if (generation != mDiskGeneration) {
+          blob = new byte[serializedSize()];
+          encode(blob);
+        }
+      }
+      if (blob != null && !writeBlob(blob)) {
+        return false; // still unwritten: the next write or flush tries again
+      }
+      synchronized (this) {
+        mDiskGeneration = generation;
+        if (generation == mMemoryGeneration) {
+          // Only now, with the write lock held and no apply able to slip in between the
+          // comparison and the removal: a reader that finds this instance gone from the
+          // unwritten list may trust the file.
+          synchronized (SharedPreferences.class) {
+            if (sUnwritten != null) {
+              sUnwritten.remove(this);
+            }
+          }
+        }
+      }
+      return true;
+    }
+  }
+
+  /** The background half of {@link Editor#apply}. */
+  private void writeBehind() {
+    writeToDisk();
+  }
+
+  /** Hands the file write to the framework's background pool. */
+  void scheduleWrite() {
+    // One task per apply and no "scheduled" flag: the pool drops a task when its queue is full,
+    // and a flag would then hold every later write back. A task that finds the file current
+    // returns at once, which is how several applies become one write.
+    Executors.backgroundExecutor().execute(this::writeBehind);
+  }
+
+  private boolean writeBlob(byte[] blob) {
+    int written = blob.length;
+    // Make sure /prefs exists. mkdir returns false if it already exists;
+    // we do not distinguish here.
+    File dir = new File(DIR);
+    if (!dir.exists()) {
+      dir.mkdir();
+    }
+
+    String tmp = tmpPath();
+    String finalPath = path();
+
+    // Clear any stale tmp from a prior failed commit.
+    File tmpFile = new File(tmp);
+    if (tmpFile.exists()) {
+      tmpFile.delete();
+    }
+
+    try {
+      FileOutputStream out = new FileOutputStream(tmp);
+      out.write(blob, 0, written);
+      out.close();
+    } catch (IOException e) {
+      tmpFile.delete();
+      // At the per-app storage cap the tmp file's own block is what is refused, so an
+      // atomic commit could never shrink or clear a store that filled the last block.
+      // A blob no larger than the file it replaces is rewritten in place instead: the
+      // cap never refuses a truncating rewrite, and a power cut mid-write only leaves a
+      // blob the CRC rejects on the next open, the same as a lost tmp would.
+      if (written <= new File(finalPath).length() && writeInPlace(finalPath, blob, written)) {
+        Log.i(TAG, "tmp write refused (" + e.getMessage() + "); rewrote in place");
+        return true;
+      }
+      Log.i(TAG, "tmp write failed: " + e.getMessage());
+      return false;
+    }
+
+    // Verify the write actually landed by comparing size.
+    File tmpAfter = new File(tmp);
+    if (tmpAfter.length() != (long) written) {
+      tmpAfter.delete();
+      Log.i(TAG, "tmp write short; aborting commit");
+      return false;
+    }
+
+    if (!tmpAfter.renameTo(new File(finalPath))) {
+      tmpAfter.delete();
+      Log.i(TAG, "atomic rename failed");
+      return false;
+    }
+    return true;
+  }
+
+  /** Truncate-and-rewrite `path`; {@code false} when the write or its size check fails. */
+  private static boolean writeInPlace(String path, byte[] blob, int written) {
+    try {
+      FileOutputStream out = new FileOutputStream(path);
+      out.write(blob, 0, written);
+      out.close();
+    } catch (IOException e) {
+      return false;
+    }
+    return new File(path).length() == (long) written;
+  }
+
+  public synchronized boolean contains(String key) {
     return indexOf(key) >= 0;
   }
 
-  public String getString(String key, String def) {
+  public synchronized String getString(String key, String def) {
     int i = indexOf(key);
     return (i >= 0 && types[i] == T_STRING) ? strVals[i] : def;
   }
 
-  public int getInt(String key, int def) {
+  public synchronized int getInt(String key, int def) {
     int i = indexOf(key);
     return (i >= 0 && types[i] == T_INT) ? intVals[i] : def;
   }
 
-  public long getLong(String key, long def) {
+  public synchronized long getLong(String key, long def) {
     int i = indexOf(key);
     if (i < 0 || types[i] != T_LONG) {
       return def;
@@ -80,12 +309,12 @@ public final class SharedPreferences {
     return (((long) longValsHi[i]) << 32) | (((long) longValsLo[i]) & 0xffffffffL);
   }
 
-  public float getFloat(String key, float def) {
+  public synchronized float getFloat(String key, float def) {
     int i = indexOf(key);
     return (i >= 0 && types[i] == T_FLOAT) ? Float.intBitsToFloat(intVals[i]) : def;
   }
 
-  public boolean getBoolean(String key, boolean def) {
+  public synchronized boolean getBoolean(String key, boolean def) {
     int i = indexOf(key);
     return (i >= 0 && types[i] == T_BOOL) ? (intVals[i] != 0) : def;
   }
@@ -96,7 +325,7 @@ public final class SharedPreferences {
    * android.content.SharedPreferences.getAll()}. The map is a fresh copy: mutating it does not
    * touch the stored preferences.
    */
-  public Map<String, ?> getAll() {
+  public synchronized Map<String, ?> getAll() {
     HashMap<String, Object> out = new HashMap<String, Object>();
     for (int i = 0; i < count; i++) {
       byte t = types[i];
@@ -298,7 +527,7 @@ public final class SharedPreferences {
     return true;
   }
 
-  // ── encode (called by Editor.commit) ───────────────────────────────────
+  // ── encode (called by writeToDisk, holding this) ───────────────────────
 
   int encode(byte[] out) {
     int p = 0;
@@ -419,7 +648,7 @@ public final class SharedPreferences {
    * the flag is applied first and the puts second — so {@code putString("a", "1").clear()} and
    * {@code clear().putString("a", "1")} both keep {@code a} — the merged state is published into
    * fresh arrays (a reused editor never aliases the live preferences), and the pending set is
-   * emptied so the editor can be used again.
+   * emptied so the editor can be used again. An editor itself belongs to one thread.
    */
   public static final class Editor {
     private static final String TAG = "SharedPreferences";
@@ -504,211 +733,131 @@ public final class SharedPreferences {
       return this;
     }
 
-    /** Atomically writes the pending state to disk. Returns false on I/O failure. */
+    /**
+     * Applies the pending changes to the preferences in memory and writes the file before
+     * returning. Returns false when the write failed; the changes stay in memory, as on Android.
+     */
     public boolean commit() {
-      // Merge: base state (unless cleared), then the pending puts/removes,
-      // into fresh arrays that the base will own outright.
-      String[] nk = new String[SharedPreferences.MAX_ENTRIES];
-      byte[] nt = new byte[SharedPreferences.MAX_ENTRIES];
-      String[] ns = new String[SharedPreferences.MAX_ENTRIES];
-      int[] ni = new int[SharedPreferences.MAX_ENTRIES];
-      int[] nlo = new int[SharedPreferences.MAX_ENTRIES];
-      int[] nhi = new int[SharedPreferences.MAX_ENTRIES];
-      int nc = 0;
-      if (!clearRequested) {
-        nc = base.count;
-        for (int i = 0; i < nc; i++) {
-          nk[i] = base.keys[i];
-          nt[i] = base.types[i];
-          ns[i] = base.strVals[i];
-          ni[i] = base.intVals[i];
-          nlo[i] = base.longValsLo[i];
-          nhi[i] = base.longValsHi[i];
-        }
-      }
-      for (int p = 0; p < count; p++) {
-        int i = -1;
-        for (int j = 0; j < nc; j++) {
-          if (nk[j].equals(keys[p])) {
-            i = j;
-            break;
-          }
-        }
-        if (types[p] == T_REMOVED) {
-          if (i >= 0) {
-            int last = nc - 1;
-            nk[i] = nk[last];
-            nt[i] = nt[last];
-            ns[i] = ns[last];
-            ni[i] = ni[last];
-            nlo[i] = nlo[last];
-            nhi[i] = nhi[last];
-            nk[last] = null;
-            ns[last] = null;
-            nc = last;
-          }
-          continue;
-        }
-        if (i < 0) {
-          if (nc >= SharedPreferences.MAX_ENTRIES) {
-            throw new IllegalArgumentException("preferences full");
-          }
-          i = nc;
-          nk[i] = keys[p];
-          nc = nc + 1;
-        }
-        nt[i] = types[p];
-        ns[i] = strVals[p];
-        ni[i] = intVals[p];
-        nlo[i] = longValsLo[p];
-        nhi[i] = longValsHi[p];
-      }
-
-      // Publish the merged state so serializedSize / encode can reuse the
-      // base's serializer; roll back on any failure below.
-      String[] sk = base.keys;
-      byte[] st = base.types;
-      String[] ss = base.strVals;
-      int[] si = base.intVals;
-      int[] sll = base.longValsLo;
-      int[] slh = base.longValsHi;
-      int sc = base.count;
-
-      base.keys = nk;
-      base.types = nt;
-      base.strVals = ns;
-      base.intVals = ni;
-      base.longValsLo = nlo;
-      base.longValsHi = nhi;
-      base.count = nc;
-
-      int need = base.serializedSize();
-      if (need > SharedPreferences.MAX_BLOB) {
-        base.keys = sk;
-        base.types = st;
-        base.strVals = ss;
-        base.intVals = si;
-        base.longValsLo = sll;
-        base.longValsHi = slh;
-        base.count = sc;
-        throw new IllegalArgumentException("preferences blob exceeds MAX_BLOB");
-      }
-
-      byte[] blob = new byte[need];
-      int written = base.encode(blob);
-      if (written != need) {
-        base.keys = sk;
-        base.types = st;
-        base.strVals = ss;
-        base.intVals = si;
-        base.longValsLo = sll;
-        base.longValsHi = slh;
-        base.count = sc;
-        Log.i(TAG, "encoder size mismatch");
-        return false;
-      }
-
-      // Make sure /prefs exists. mkdir returns false if it already exists;
-      // we do not distinguish here.
-      File dir = new File("/prefs");
-      if (!dir.exists()) {
-        dir.mkdir();
-      }
-
-      String tmp = base.tmpPath();
-      String finalPath = base.path();
-
-      // Clear any stale tmp from a prior failed commit.
-      File tmpFile = new File(tmp);
-      if (tmpFile.exists()) {
-        tmpFile.delete();
-      }
-
-      try {
-        FileOutputStream out = new FileOutputStream(tmp);
-        out.write(blob, 0, written);
-        out.close();
-      } catch (IOException e) {
-        tmpFile.delete();
-        // At the per-app storage cap the tmp file's own block is what is refused, so an
-        // atomic commit could never shrink or clear a store that filled the last block.
-        // A blob no larger than the file it replaces is rewritten in place instead: the
-        // cap never refuses a truncating rewrite, and a power cut mid-write only leaves a
-        // blob the CRC rejects on the next open, the same as a lost tmp would.
-        if (written <= new File(finalPath).length() && writeInPlace(finalPath, blob, written)) {
-          Log.i(TAG, "tmp write refused (" + e.getMessage() + "); rewrote in place");
-          return true;
-        }
-        base.keys = sk;
-        base.types = st;
-        base.strVals = ss;
-        base.intVals = si;
-        base.longValsLo = sll;
-        base.longValsHi = slh;
-        base.count = sc;
-        Log.i(TAG, "tmp write failed: " + e.getMessage());
-        return false;
-      }
-
-      // Verify the write actually landed by comparing size.
-      File tmpAfter = new File(tmp);
-      if (tmpAfter.length() != (long) written) {
-        tmpAfter.delete();
-        base.keys = sk;
-        base.types = st;
-        base.strVals = ss;
-        base.intVals = si;
-        base.longValsLo = sll;
-        base.longValsHi = slh;
-        base.count = sc;
-        Log.i(TAG, "tmp write short; aborting commit");
-        return false;
-      }
-
-      if (!tmpAfter.renameTo(new File(finalPath))) {
-        tmpAfter.delete();
-        base.keys = sk;
-        base.types = st;
-        base.strVals = ss;
-        base.intVals = si;
-        base.longValsLo = sll;
-        base.longValsHi = slh;
-        base.count = sc;
-        Log.i(TAG, "atomic rename failed");
-        return false;
-      }
-      // Committed: the editor starts a fresh pending set (Android's
-      // commitToMemory clears mModified / mClear).
-      for (int i = 0; i < count; i++) {
-        keys[i] = null;
-        strVals[i] = null;
-        types[i] = 0;
-      }
-      count = 0;
-      clearRequested = false;
-      return true;
+      commitToMemory();
+      return base.writeToDisk();
     }
 
     /**
-     * Commits the pending state like {@link #commit()}, discarding the result. Mirrors Android's
-     * {@code SharedPreferences.Editor.apply()} signature; unlike Android the write happens
-     * synchronously — LittleFS blobs are a few KB and picodroid's main loop is cooperative, so
-     * there is no async persistence queue to hand off to.
+     * Applies the pending changes to the preferences in memory at once and leaves the file write to
+     * a background thread, as {@code android.content.SharedPreferences.Editor#apply()} does: safe
+     * to call on the main thread. Several applies in a row cost one write.
      */
     public void apply() {
-      commit();
+      synchronized (base) {
+        // Listed as unwritten in the same step that changes the memory, so no reader of the
+        // file can come between the two.
+        commitToMemory();
+        base.markUnwritten();
+      }
+      base.scheduleWrite();
     }
 
-    /** Truncate-and-rewrite `path`; {@code false} when the write or its size check fails. */
-    private static boolean writeInPlace(String path, byte[] blob, int written) {
-      try {
-        FileOutputStream out = new FileOutputStream(path);
-        out.write(blob, 0, written);
-        out.close();
-      } catch (IOException e) {
-        return false;
+    /** Merges the pending set into the base's state and empties it; any thread. */
+    private void commitToMemory() {
+      synchronized (base) {
+        // Merge: base state (unless cleared), then the pending puts/removes,
+        // into fresh arrays that the base will own outright.
+        String[] nk = new String[SharedPreferences.MAX_ENTRIES];
+        byte[] nt = new byte[SharedPreferences.MAX_ENTRIES];
+        String[] ns = new String[SharedPreferences.MAX_ENTRIES];
+        int[] ni = new int[SharedPreferences.MAX_ENTRIES];
+        int[] nlo = new int[SharedPreferences.MAX_ENTRIES];
+        int[] nhi = new int[SharedPreferences.MAX_ENTRIES];
+        int nc = 0;
+        if (!clearRequested) {
+          nc = base.count;
+          for (int i = 0; i < nc; i++) {
+            nk[i] = base.keys[i];
+            nt[i] = base.types[i];
+            ns[i] = base.strVals[i];
+            ni[i] = base.intVals[i];
+            nlo[i] = base.longValsLo[i];
+            nhi[i] = base.longValsHi[i];
+          }
+        }
+        for (int p = 0; p < count; p++) {
+          int i = -1;
+          for (int j = 0; j < nc; j++) {
+            if (nk[j].equals(keys[p])) {
+              i = j;
+              break;
+            }
+          }
+          if (types[p] == T_REMOVED) {
+            if (i >= 0) {
+              int last = nc - 1;
+              nk[i] = nk[last];
+              nt[i] = nt[last];
+              ns[i] = ns[last];
+              ni[i] = ni[last];
+              nlo[i] = nlo[last];
+              nhi[i] = nhi[last];
+              nk[last] = null;
+              ns[last] = null;
+              nc = last;
+            }
+            continue;
+          }
+          if (i < 0) {
+            if (nc >= SharedPreferences.MAX_ENTRIES) {
+              throw new IllegalArgumentException("preferences full");
+            }
+            i = nc;
+            nk[i] = keys[p];
+            nc = nc + 1;
+          }
+          nt[i] = types[p];
+          ns[i] = strVals[p];
+          ni[i] = intVals[p];
+          nlo[i] = longValsLo[p];
+          nhi[i] = longValsHi[p];
+        }
+
+        // Publish the merged state so serializedSize can measure it; put the old one back when
+        // the result would not fit a file.
+        String[] sk = base.keys;
+        byte[] st = base.types;
+        String[] ss = base.strVals;
+        int[] si = base.intVals;
+        int[] sll = base.longValsLo;
+        int[] slh = base.longValsHi;
+        int sc = base.count;
+
+        base.keys = nk;
+        base.types = nt;
+        base.strVals = ns;
+        base.intVals = ni;
+        base.longValsLo = nlo;
+        base.longValsHi = nhi;
+        base.count = nc;
+
+        if (base.serializedSize() > SharedPreferences.MAX_BLOB) {
+          base.keys = sk;
+          base.types = st;
+          base.strVals = ss;
+          base.intVals = si;
+          base.longValsLo = sll;
+          base.longValsHi = slh;
+          base.count = sc;
+          throw new IllegalArgumentException("preferences blob exceeds MAX_BLOB");
+        }
+        base.mMemoryGeneration++;
+
+        // The editor starts a fresh pending set (Android's commitToMemory clears mModified /
+        // mClear).
+        for (int i = 0; i < count; i++) {
+          keys[i] = null;
+          strVals[i] = null;
+          types[i] = 0;
+        }
+        count = 0;
+        clearRequested = false;
       }
-      return new File(path).length() == (long) written;
     }
 
     private int indexOf(String key) {

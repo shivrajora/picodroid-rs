@@ -2,6 +2,7 @@
 package tutorial_service;
 
 import picodroid.app.Activity;
+import picodroid.content.ComponentName;
 import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
 import picodroid.graphics.Color;
@@ -75,7 +76,7 @@ public class LogViewerActivity extends Activity implements ServiceConnection {
     // binder between frames, and the framework auto-unbinds this connection when the Activity
     // finishes — but we still unbind explicitly in onDestroy below.
     Log.i(TAG, "bindService");
-    bindService(new Intent(UptimeLogService.class), this);
+    bindService(new Intent(this, UptimeLogService.class), this, BIND_AUTO_CREATE);
   }
 
   @Override
@@ -99,14 +100,14 @@ public class LogViewerActivity extends Activity implements ServiceConnection {
   }
 
   @Override
-  public void onServiceConnected(IBinder binder) {
-    service = ((UptimeLogService.LocalBinder) binder).service;
+  public void onServiceConnected(ComponentName name, IBinder binder) {
+    service = ((UptimeLogService.LocalBinder) binder).getService();
     Log.i(TAG, "onServiceConnected");
     refresh();
   }
 
   @Override
-  public void onServiceDisconnected() {
+  public void onServiceDisconnected(ComponentName name) {
     Log.i(TAG, "onServiceDisconnected");
     service = null;
   }

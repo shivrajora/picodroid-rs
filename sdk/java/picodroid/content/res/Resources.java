@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.content.res;
 
+import picodroid.graphics.Theme;
 import picodroid.util.DisplayMetrics;
 
 /**
@@ -40,6 +41,14 @@ public final class Resources {
    * @throws NotFoundException if {@code id} is not a string resource of this app
    */
   public native String getString(int id);
+
+  /**
+   * Mirrors Android: the string {@code id} used as a format, filled with {@code formatArgs} as
+   * {@code String.format} does.
+   */
+  public String getString(int id, Object... formatArgs) {
+    return String.format(getString(id), formatArgs);
+  }
 
   /** Mirrors Android: same as {@link #getString}; styled text does not exist here. */
   public CharSequence getText(int id) {
@@ -91,6 +100,52 @@ public final class Resources {
    * @throws NotFoundException if {@code id} is not a boolean resource of this app
    */
   public native boolean getBoolean(int id);
+
+  /**
+   * Makes the style {@code R.style.*} the theme: the colours it names become the defaults of the
+   * framework's own widgets ({@link Theme}). What {@code Context.setTheme} runs.
+   *
+   * <p>Only those colours live on the device. The rest of a theme is spent at build time: {@code
+   * ?attr/…} in a layout is the value from the app's {@code AppTheme} style, and a view's {@code
+   * style="@style/…"} is expanded into its attributes.
+   *
+   * @throws NotFoundException if {@code styleId} is not a style resource of this app
+   */
+  public void applyTheme(int styleId) {
+    int words = nativeStyleWord(styleId, -1);
+    for (int i = 0; i < words; i += 2) {
+      int color = nativeStyleWord(styleId, i + 1);
+      switch (nativeStyleWord(styleId, i)) {
+        case 1: // THEME_COLOR_PRIMARY
+          Theme.colorPrimary = color;
+          break;
+        case 2: // THEME_COLOR_ON_PRIMARY
+          Theme.colorOnPrimary = color;
+          break;
+        case 3: // THEME_COLOR_BACKGROUND
+          Theme.colorBackground = color;
+          break;
+        case 4: // THEME_COLOR_SURFACE
+          Theme.colorSurface = color;
+          break;
+        case 5: // THEME_TEXT_COLOR_PRIMARY
+          Theme.colorText = color;
+          break;
+        case 6: // THEME_TEXT_COLOR_SECONDARY
+          Theme.colorTextSecondary = color;
+          break;
+        case 7: // THEME_COLOR_OUTLINE
+          Theme.colorOutline = color;
+          break;
+        default:
+          // A theme attribute from a newer compiler: nothing here reads it.
+          break;
+      }
+    }
+  }
+
+  /** Word {@code index} of a style's stream; its length for {@code index} -1. */
+  private static native int nativeStyleWord(int style, int index);
 
   /**
    * Mirrors Android: the display's size and density. One density, so {@link DisplayMetrics#density}

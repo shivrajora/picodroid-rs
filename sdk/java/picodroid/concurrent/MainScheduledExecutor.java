@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.concurrent.RejectedExecutionException;
 
 /**
- * The {@link ScheduledExecutorService} behind {@link Executors#newSingleThreadScheduledExecutor()}.
+ * The {@link ScheduledExecutorService} behind {@link Executors#mainScheduledExecutor()}.
  *
  * <p>Its one thread is the main thread. The runtime keeps a small table of deadlines that its frame
  * tick checks, posting each due task to the main queue, so a scheduled task costs a table slot

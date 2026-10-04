@@ -2,8 +2,8 @@
 package claudeusage.ui;
 
 import claudeusage.R;
-import claudeusage.data.UsageService;
 import claudeusage.data.UsageSnapshot;
+import picodroid.view.View;
 
 /** The home screen: the 5-hour session and the weekly cap, as two ring gauges side by side. */
 final class LimitsPage extends UsagePage {
@@ -19,50 +19,21 @@ final class LimitsPage extends UsagePage {
   }
 
   @Override
-  boolean buildNext() {
-    switch (step++) {
-      case 0:
-        session =
-            new LimitCard(ctx, palette, root, Ui.MARGIN, R.string.card_session, SESSION_SECONDS);
-        return true;
-      case 1:
-        session.fillRing();
-        return true;
-      case 2:
-        session.fillCentre();
-        return true;
-      case 3:
-        session.fillFooter();
-        return true;
-      case 4:
-        weekly =
-            new LimitCard(
-                ctx,
-                palette,
-                root,
-                Ui.MARGIN + LimitCard.WIDTH + LimitCard.GAP,
-                R.string.card_weekly,
-                WEEK_SECONDS);
-        return true;
-      case 5:
-        weekly.fillRing();
-        return true;
-      case 6:
-        weekly.fillCentre();
-        return true;
-      default:
-        weekly.fillFooter();
-        return false;
-    }
+  int layoutRes() {
+    return R.layout.page_limits;
   }
 
   @Override
-  void update(UsageService repo, long nowMs) {
-    UsageSnapshot s = repo.snapshot();
-    if (s == null) {
-      return;
-    }
-    boolean stale = !repo.isFresh();
+  void onBind(View page) {
+    session =
+        new LimitCard(ctx, page.findViewById(R.id.session), R.string.card_session, SESSION_SECONDS);
+    weekly = new LimitCard(ctx, page.findViewById(R.id.weekly), R.string.card_weekly, WEEK_SECONDS);
+  }
+
+  @Override
+  void update(UsageUiState state, long nowMs) {
+    UsageSnapshot s = state.snapshot;
+    boolean stale = !state.fresh;
     session.show(s.sessionPct, s.sessionReset, nowMs, stale);
     weekly.show(s.weeklyPct, s.weeklyReset, nowMs, stale);
   }

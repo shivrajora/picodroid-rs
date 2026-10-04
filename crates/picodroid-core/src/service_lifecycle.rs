@@ -25,7 +25,6 @@
 
 #![cfg(not(test))]
 
-use crate::shrink_names::m;
 use pico_jvm::types::{JvmError, Value};
 use pico_jvm::{Jvm, SharedJvmHeap};
 
@@ -461,9 +460,12 @@ fn process_connected(
 ) -> crate::lifecycle::LifecycleControl {
     // Unbound before delivery (the app left before the turn came): a
     // connection the app no longer holds gets no callback.
-    if connection_find(conn_ref).is_none() {
+    let Some(service_class) = connection_find(conn_ref)
+        .and_then(|i| connections()[i].as_ref())
+        .map(|c| c.service_class)
+    else {
         return crate::lifecycle::LifecycleControl::Continue;
-    }
+    };
     // Only if the owner Activity is still the current (top) one. picodroid
     // frees a covered Activity's content view (handle_pop_op / the push path
     // park it), so a bind whose owner was since covered or replaced — e.g. a
@@ -481,7 +483,7 @@ fn process_connected(
     if !owner_is_live {
         return crate::lifecycle::LifecycleControl::Continue;
     }
-    invoke_connection_connected(jvm, conn_ref, binder_ref, heap, handler)
+    invoke_connection_connected(jvm, conn_ref, service_class, binder_ref, heap, handler)
 }
 
 fn process_unbind(
@@ -497,7 +499,7 @@ fn process_unbind(
     let class_name = connections()[conn_slot].as_ref().unwrap().service_class;
     connections()[conn_slot] = None;
 
-    if invoke_connection_disconnected(jvm, conn_ref, heap, handler).is_break() {
+    if invoke_connection_disconnected(jvm, conn_ref, class_name, heap, handler).is_break() {
         return crate::lifecycle::LifecycleControl::Break;
     }
 
@@ -704,23 +706,28 @@ fn invoke_service_returning_bool(
     }
 }
 
-fn invoke_connection_connected(
+/// The live Service of `class_name` as a callback argument, or `null` when it
+/// is already gone.
+fn service_value(class_name: &str) -> Value {
+    match registry_find(class_name).and_then(|i| registry()[i].as_ref()) {
+        Some(e) => Value::ObjectRef(e.obj_ref),
+        None => Value::Null,
+    }
+}
+
+/// Run a `Context.dispatchService*` bridge: it calls the connection from
+/// bytecode, with the Service's `ComponentName`.
+fn invoke_connection_bridge(
     jvm: &mut Jvm,
-    conn_ref: u16,
-    binder_ref: u16,
+    site_idx: usize,
+    args: &[Value],
     heap: &mut SharedJvmHeap,
     handler: &mut PicodroidNativeHandler,
 ) -> crate::lifecycle::LifecycleControl {
-    let conn_class = match heap.objects.class_name(conn_ref) {
-        Some(s) => s,
-        None => return crate::lifecycle::LifecycleControl::Continue,
-    };
-    let extra = [Value::ObjectRef(binder_ref)];
-    match jvm.invoke_instance_with_args(
-        conn_class,
-        m::onServiceConnected,
-        conn_ref,
-        &extra,
+    match jvm.invoke_static_with_args(
+        dispatch_class(site_idx),
+        dispatch_method(site_idx),
+        args,
         heap,
         handler,
     ) {
@@ -730,27 +737,37 @@ fn invoke_connection_connected(
     }
 }
 
-fn invoke_connection_disconnected(
+fn invoke_connection_connected(
     jvm: &mut Jvm,
     conn_ref: u16,
+    service_class: &str,
+    binder_ref: u16,
     heap: &mut SharedJvmHeap,
     handler: &mut PicodroidNativeHandler,
 ) -> crate::lifecycle::LifecycleControl {
-    let conn_class = match heap.objects.class_name(conn_ref) {
-        Some(s) => s,
-        None => return crate::lifecycle::LifecycleControl::Continue,
-    };
-    match jvm.invoke_instance(
-        conn_class,
-        m::onServiceDisconnected,
-        conn_ref,
+    let args = [
+        Value::ObjectRef(conn_ref),
+        service_value(service_class),
+        Value::ObjectRef(binder_ref),
+    ];
+    invoke_connection_bridge(jvm, dispatch_sites::SERVICE_CONNECTED, &args, heap, handler)
+}
+
+fn invoke_connection_disconnected(
+    jvm: &mut Jvm,
+    conn_ref: u16,
+    service_class: &str,
+    heap: &mut SharedJvmHeap,
+    handler: &mut PicodroidNativeHandler,
+) -> crate::lifecycle::LifecycleControl {
+    let args = [Value::ObjectRef(conn_ref), service_value(service_class)];
+    invoke_connection_bridge(
+        jvm,
+        dispatch_sites::SERVICE_DISCONNECTED,
+        &args,
         heap,
         handler,
-    ) {
-        Ok(()) => crate::lifecycle::LifecycleControl::Continue,
-        Err(JvmError::Interrupted) => crate::lifecycle::LifecycleControl::Break,
-        Err(_) => crate::lifecycle::LifecycleControl::Continue,
-    }
+    )
 }
 
 fn intent_ref_value(intent_ref: u16) -> Value {

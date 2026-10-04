@@ -39,8 +39,12 @@ public class DatagramPacket {
     this.length = length;
   }
 
-  public int getAddress() {
-    return address;
+  /**
+   * Mirrors {@code java.net.DatagramPacket#getAddress()}: where this packet is going, or after a
+   * {@code receive} where it came from.
+   */
+  public InetAddress getAddress() {
+    return new InetAddress(address);
   }
 
   public int getPort() {

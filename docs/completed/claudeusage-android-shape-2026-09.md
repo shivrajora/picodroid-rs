@@ -1,7 +1,7 @@
 # Completed: Roadmap: `claudeusage` toward Android shape
 
-Items closed out of [claudeusage-android-shape-2026-09.md](../designs/claudeusage-android-shape-2026-09.md), moved here on 2026-09-28 so the
-original lists only open work. Text is as it stood when moved; ids keep their meaning.
+Items closed out of [claudeusage-android-shape-2026-09.md](../designs/claudeusage-android-shape-2026-09.md), moved here on 2026-09-28 (and again on
+2026-10-01, section 10) so the original lists only open work. Text is as it stood when moved; ids keep their meaning.
 
 ## 1. App structure and lifecycle
 
@@ -73,6 +73,42 @@ From the review in [claudeusage-fragment-shape-2026-09.md](../designs/claudeusag
 | 53 | `UsagePage.onAttach`, `onCreate`, `onViewCreated` and `onDestroyView` never called `super`; Android throws `SuperNotCalledException`. | App choice | **closed** 2026-09-30: all four call it, as do the fragments of `fragmentdemo` and `pagerdemo`. The SDK still tolerates a skipped `super`, as `Activity` does; `fragments-2026-09.md` §5 says so. |
 | 56 | The roadmap said every build post was guarded by `isAdded()` and `getView()`; the code checked its own `root` field and `host.destroyed()`. | doc | **closed** 2026-09-30: the code is `gen != viewGen \|\| !isAdded() \|\| getView() == null`, and row 4 says why `viewGen` stays. |
 
+## 10. The remaining-shape round (2026-10-01)
+
+Closed by the work in
+[claudeusage-remaining-shape-2026-09.md](../designs/claudeusage-remaining-shape-2026-09.md); the
+letter-number in each row is that document's item. Rows 59 and up were first recorded there.
+
+| # | Deviation | Tag | Status |
+|---|---|---|---|
+| 3 | Theme colours set by assigning `picodroid.graphics.Theme` static fields. | SDK-shape | **closed** (E9): `res/values/themes.xml` declares `AppTheme` and `MainActivity.onCreate` calls `setTheme(R.style.AppTheme)`. Layouts and shapes read it with `?attr/…`, resolved when the app is built; styles carry the label kinds. `Palette.applyTheme` is gone. |
+| 4 | A page's view tree is built a few views per main-thread post, with a build token to survive a page turn mid-build. | App choice | **closed** (E1): each page is `res/layout/page_*.xml`, inflated by `AsyncLayoutInflater` a slice per tick into the empty host `onCreateView` returns. `buildNext`, `step`, `viewGen` and `restart` are gone; the callback checks the host is still the fragment's view. |
+| 5 | `catch (OutOfMemoryError \| RuntimeException)` around view building, retrying next tick. | App choice | **closed** (E3): the inflater owns the retry (an `OutOfMemoryError` part-way drops the partial tree and starts again on a later tick). No catch in the app. |
+| 13 | Every view placed in absolute pixels with `setPosition`/`setSize`; no XML, no LayoutParams, no weights. | App choice | **closed** (A2, E2, E8): the chrome uses `layout_weight` for its flexible children and `android:gravity` on the labels themselves (the four wrapper rows are gone; the footer's widths summed to 316, so its hint now ends on the margin like the header's, 4 px right of where it was). The pages are XML: a `FrameLayout` child is placed by `layout_margin*` and `layout_gravity`, repeated parts are `<include>`d, cards and dots are `<shape>` drawables, and `RingView`, `TrendChart` and `WeekChart` are elements made in `MainActivity.onCreateView` and sized by `onMeasure`. No `setPosition`, `setSize` or `setSpacing` left in the app. |
+| 14 | Screen size hard-coded as `Ui.WIDTH`/`Ui.HEIGHT`. | App choice | **closed**: the constants are gone with the code-built pages; the page layouts are `match_parent` with dp geometry inside the cards. |
+| 22 | `GradientDrawable` used as a fluent builder and re-allocated per colour change. | SDK-shape / App choice | **closed** (E7): `View.setBackgroundTintList` recolours a shape background in place (`Ui.tint`); the drawables come from `res/drawable`. |
+| 25 | Hand-written diffing of every on-screen value. | App choice | **closed** (E4): the SDK's setters do nothing when the value is unchanged (`setText`, `setTextColor`, `setAlpha`, `setVisibility`, `setEnabled`, the tint lists), as Android's do. `Line`, `BarView` and every `shown*` field are gone; a page calls `setText`. |
+| 26 | Repaint throttled by a minute counter instead of `TextClock`. | App choice | **closed** differently (D3): the timing is the UI's. `UsageViewModel` runs a once-a-second main-thread task only while it is observed and publishes a state only when one would be painted differently, which on the data screens is once a minute. There is still no `TextClock`. |
+| 32 | Cross-thread handoff via `Executors.mainExecutor().execute(...)`. | SDK-shape | **closed** (B6): `Context.getMainExecutor()` and `Activity.runOnUiThread` exist; the app uses the first. |
+| 33 | One `Listener` slot with both a data callback and a 1 Hz tick, set in `onResume`/`onPause`. | App choice | **closed** (D1, D2, D3): no `Listener`. The Service publishes into `UsageRepository`; the ViewModel observes that and the Activity observes the ViewModel for the chrome, as the pages do for themselves. The Service keeps only the trend sampling, on a 150 s timer. |
+| 52 | The pages' `LiveData` carries the bound `UsageService` itself, published on every change and every tick. | App choice | **closed** (D4, C4): the `LiveData` carries an immutable `UsageUiState`, published when something on screen changed; the ViewModel holds the repository, which has no `Context`. The Service is started and never bound. |
+| 58 | `UsagePage.Host`, for the one call a page made on its host (`onPageBuilt`, which warmed the chrome). | idiom preserved | **closed** (E5): `warmChrome` and `Host` are gone. With pack-time class linking the first refresh's cold cost is 15 µs of a 1 ms span in the simulator's `parity-metrics` trace (175 resolutions, 10 µs; class initialisation 5 µs), where it was a third of 57 ms on the board before. To confirm on the board. |
+| 59 | The ViewModel factory returned a `UsageViewModel` for any class asked. | App choice | **closed** (A1): it checks the class and throws `IllegalArgumentException` otherwise. |
+| 60 | The pace tick on the ring was a second `CircularProgressIndicator` stacked on the first. | App choice | **closed** (A4): `RingView` is one `View` drawing the track, the fill and the tick in `onDraw(Canvas)`; pixel-identical. |
+| 61 | `onKeyDown` / `onKeyUp` returned `true` for keys the app does not handle. | App choice | **closed** (A5): the default arms call `super`. |
+| 62 | The bridge fallback address came from the `NetTestConfig` test hook. | App choice | **closed** (A3): `picodroidBuildConfig { fieldFromProperty("BRIDGE_HOST", …) }` and `BuildConfig.BRIDGE_HOST`, with the same property and environment names. |
+| 63 | `ServiceConnection`, `bindService`, `Intent(Class)` and `IBinder` without `Binder` differed from Android's signatures. | SDK-shape | **closed** in the SDK (B1 to B4): Android's signatures, `ComponentName`, `Binder`, `Intent(Context, Class)`; the callbacks are interface calls, so a base class may declare them. The app itself no longer binds. |
+| 64 | `String.format(getString(id), args)` in a dozen places, with the format strings pre-resolved into fields. | SDK-shape | **closed** (B5): `getString(int, Object...)` on `Context`, `Fragment` and `Resources`; the fields are gone. |
+| 65 | `InetAddress.getByAddress(int, int, int, int)` and `new InetAddress(packet.getAddress())`. | SDK-shape | **closed** (B9): `getByAddress(byte[])`, and `DatagramPacket.getAddress()` returns the `InetAddress`. |
+| 66 | `SharedPreferences` was not thread-safe and `apply()` wrote synchronously; the app pushed one write to a background executor and another to the main thread. | SDK-semantics | **closed** (C1): one instance per file, safe from any thread; `apply()` writes behind. Both workarounds are deleted. |
+| 67 | `Executors.newSingleThreadScheduledExecutor()` ran its tasks on the main thread. | SDK-semantics | **closed** (C2): that one is `Executors.mainScheduledExecutor()`; the JDK name is a thread of its own. |
+| 68 | A `TextView` with no text showed "Text"; `Line` blanked every inflated label. | SDK-semantics | **closed** (C3): LVGL's widget defaults are off, so a label, a checkbox and a spinner start empty. |
+| 69 | The first chrome paint took a tick of its own after `onServiceConnected`, and the page dots another. | Perf | **closed** (E6, in part): there is no connect callback, and a dot's colour is one tint (a style set with no layout) so the dots share the page-turn tick. The page's own deferral stays: row 73 in the roadmap. |
+| 70 | A result from the poll thread reached the screens as three callbacks' worth of state. | App choice | **closed**: one immutable `UsageData` per result, so the first sync is one publish and one repaint (3,002 bytecodes in the simulator's trace where the first cut of the repository took 6,052). |
+| 71 | `Ui.java` held the pages' geometry as constants kept in step with `dimens` by hand. | App choice | **closed** (E2): the geometry is in the layouts; `Ui` is the stale-dimming constant and `tint`. |
+| 72 | `LinearLayout.setSpacing`, which Android does not have, spaced the page dots and the rate row. | SDK-shape | **closed** in the app (E2): `layout_marginRight` on the dots, `layout_marginLeft` on the unit. The SDK method stays for the apps that use it. |
+| 73 | A page repainted on the tick after the one that delivered the state, and the Models page painted its two cards on two ticks the first time. | Perf | **closed** (E6, 2026-10-03, on `pico_display2_w`): a page binds and paints in the tick its layout finishes, the Models page paints both cards at once, and a painted page repaints inside the `LiveData` call beside the chrome; no `slow handler` line across 25 turns, five syncs and the minute ticks. One deferral stays: the first paint of a page built before the data came takes the next tick, because with cold call sites and the chrome's repaint it measured 58 ms. |
+
 ## SDK asks (from this app's point of view)
 
 Ordered by how much Android shape each would buy back here.
@@ -91,6 +127,11 @@ Ordered by how much Android shape each would buy back here.
    from the event loop, a link already up is announced right after `register` returns.
 8. ~~`java.time` or at least `DateFormat`/`DateUtils` (item 44).~~ Shipped 2026-09-24 as a
    port of the JDK classes (fixed-offset zones only).
+4. ~~`Handler` / `View.postDelayed` or an equivalent one-shot timer on the main thread (item
+   30).~~ Answered 2026-09-26 by the scheduled executor, `Executors.mainScheduledExecutor()`
+   since 2026-10-01. `Handler` and `postDelayed` are rejected by design.
+7. ~~A `BuildConfig` block (item 43; gaps G7).~~ Shipped 2026-09-27
+   (`picodroidBuildConfig { fieldFromProperty(...) }`); `claudeusage` uses it since 2026-10-01.
 9. ~~`Fragment` and a `ViewPager2` (item 1).~~ Shipped 2026-09-27: `picodroid.app.Fragment`,
    `FragmentManager`, `FragmentTransaction`, `FragmentFactory` and `picodroid.widget.ViewPager2`,
    `FragmentStateAdapter`, `<ViewPager2>` in layouts; see

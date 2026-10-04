@@ -509,8 +509,8 @@ pub const APP_SERVICES_HANDLED: &[Row] = &[
     // picodroid/content/Context
     (
         "picodroid/content/Context",
-        "bindService",
-        "(Lpicodroid/content/Intent;Lpicodroid/content/ServiceConnection;)V",
+        "nativeBindService",
+        "(Lpicodroid/content/Intent;Lpicodroid/content/ServiceConnection;)Z",
     ),
     (
         "picodroid/content/Context",
@@ -666,12 +666,15 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/view/View", "nativeSetAlpha", "(F)V"),
     ("picodroid/view/View", "nativeSetEnabled", "(Z)V"),
     ("picodroid/view/View", "nativeSetFlexGrow", "(I)V"),
+    ("picodroid/view/View", "nativeSetFrameGravity", "(III)V"),
+    ("picodroid/view/View", "nativeSetMargins", "(IIII)V"),
     ("picodroid/view/View", "nativeSetFocusable", "(Z)V"),
     ("picodroid/view/View", "nativeSetProperty", "(IF)V"),
     ("picodroid/view/View", "nativeSetVisibility", "(I)V"),
     ("picodroid/view/View", "performClick", "()V"),
     ("picodroid/view/View", "performLongClickNative", "()V"),
-    ("picodroid/view/View", "setBackgroundColor", "(I)V"),
+    ("picodroid/view/View", "nativeSetBackgroundColor", "(I)V"),
+    ("picodroid/view/View", "nativeSetBackgroundTint", "(I)V"),
     ("picodroid/view/View", "setPadding", "(IIII)V"),
     ("picodroid/view/View", "setPosition", "(II)V"),
     ("picodroid/view/View", "setSize", "(II)V"),
@@ -685,9 +688,7 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/view/ViewPropertyAnimator", "nativeSetEndAction", "(ILjava/lang/Runnable;)V"),
     ("picodroid/view/ViewPropertyAnimator", "nativeStart", "(IIFIII)V"),
     // picodroid/widget/Button
-    ("picodroid/widget/Button", "getText", "()Ljava/lang/CharSequence;"),
     ("picodroid/widget/Button", "nativeCreate", "(Ljava/lang/String;)I"),
-    ("picodroid/widget/Button", "setText", "(Ljava/lang/String;)V"),
     // picodroid/widget/CheckBox
     ("picodroid/widget/CheckBox", "isChecked", "()Z"),
     ("picodroid/widget/CheckBox", "nativeCreate", "()I"),
@@ -796,15 +797,14 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/widget/Switch", "setChecked", "(Z)V"),
     ("picodroid/widget/Switch", "toggle", "()V"),
     // picodroid/widget/TextView
-    ("picodroid/widget/TextView", "getText", "()Ljava/lang/CharSequence;"),
     ("picodroid/widget/TextView", "nativeCreate", "()I"),
     ("picodroid/widget/TextView", "nativeGetLineHeight", "()I"),
     ("picodroid/widget/TextView", "nativeSetGravity", "(I)V"),
     ("picodroid/widget/TextView", "nativeSetIncludeFontPadding", "(Z)V"),
     ("picodroid/widget/TextView", "nativeSetLineMode", "(IIZ)V"),
+    ("picodroid/widget/TextView", "nativeSetText", "(Ljava/lang/String;)V"),
+    ("picodroid/widget/TextView", "nativeSetTextColor", "(I)V"),
     ("picodroid/widget/TextView", "nativeSetTextSize", "(F)V"),
-    ("picodroid/widget/TextView", "setText", "(Ljava/lang/String;)V"),
-    ("picodroid/widget/TextView", "setTextColor", "(I)V"),
     // picodroid/widget/TimePicker
     ("picodroid/widget/TimePicker", "getHour", "()I"),
     ("picodroid/widget/TimePicker", "getMinute", "()I"),
@@ -970,6 +970,11 @@ pub const RES_HANDLED: &[Row] = &[
         "picodroid/content/res/Resources",
         "getString",
         "(I)Ljava/lang/String;",
+    ),
+    (
+        "picodroid/content/res/Resources",
+        "nativeStyleWord",
+        "(II)I",
     ),
     // picodroid/view/LayoutInflater
     ("picodroid/view/LayoutInflater", "nativeWord", "(II)I"),

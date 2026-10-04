@@ -222,8 +222,7 @@ public class PagerDemoActivity extends Activity {
   }
 
   /** The main-thread deadline table, the SDK's delayed-work shape. */
-  private static final ScheduledExecutorService TIMER =
-      Executors.newSingleThreadScheduledExecutor();
+  private static final ScheduledExecutorService TIMER = Executors.mainScheduledExecutor();
 
   /** A little later, on the main thread: the pager's own ticks must run first. */
   private static void later(Runnable r) {

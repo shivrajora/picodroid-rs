@@ -3,265 +3,159 @@ package claudeusage.ui;
 
 import claudeusage.R;
 import claudeusage.data.UsageService;
-import claudeusage.data.UsageSnapshot;
 import picodroid.app.Fragment;
-import picodroid.concurrent.Executors;
+import picodroid.concurrent.Executor;
 import picodroid.content.Context;
 import picodroid.lifecycle.ViewModelProvider;
 import picodroid.os.Bundle;
 import picodroid.util.Log;
+import picodroid.view.AsyncLayoutInflater;
 import picodroid.view.LayoutInflater;
 import picodroid.view.View;
 import picodroid.view.ViewGroup;
-import picodroid.widget.FrameLayout;
 
 /**
  * One screen's content, between the header and the footer: a {@link Fragment}, either a page of the
  * {@code ViewPager2} or the status screen laid over it.
  *
- * <p>A page is built a few views at a time: each view costs the RP2350 several milliseconds of LVGL
- * work, and a whole screen inside one UI tick would stall input and trip the slow-handler watchdog.
- * {@link #onCreateView} therefore returns the page's empty root at once, and {@link #onViewCreated}
- * starts a chain of main-thread posts that call {@link #buildNext} once per tick until it returns
- * false, with the page invisible meanwhile. The first paint follows, once the service has data, and
- * ends in the fade-in. Every post checks the fragment is still added with its view, the Android
- * idiom for work posted from a fragment; a page turn mid-build simply strands the chain.
+ * <p>A page is a layout of twenty to forty views, and each view costs the RP2350 milliseconds: a
+ * whole screen inflated in one UI tick would stall input and trip the slow-handler watchdog. So
+ * {@link #onCreateView} returns an empty, transparent host at once, and {@link #onViewCreated}
+ * hands the page's own layout to an {@link AsyncLayoutInflater}, which builds it over the following
+ * ticks. Its callback binds the views; the first paint follows, once there is data, and ends in the
+ * fade-in.
  *
- * <p>The data comes from the Activity's {@link UsageViewModel}, which each page observes for as
- * long as its view lives. A page knows nothing else of its host, except that it may be a {@link
- * Host}.
+ * <p>What it paints is the Activity's {@link UsageViewModel} state, which each page observes for as
+ * long as its view lives. A page knows nothing else of its host.
  */
 abstract class UsagePage extends Fragment {
   private static final String TAG = UsageService.TAG;
 
-  /** What a page tells the Activity it is in, if that Activity cares to hear. */
-  interface Host {
-    /** A page finished building its views. */
-    void onPageBuilt();
-  }
-
   protected Context ctx;
   protected Palette palette;
-  FrameLayout root;
 
-  /** The header title, resolved once in {@link #onCreate}. */
-  String title;
-
-  protected int step;
-
-  private Host host;
+  private Executor main;
   private UsageViewModel model;
-  private int fadeMs;
-  private boolean built;
+  private boolean bound;
   private boolean painted;
-  private boolean failed;
   private boolean awaitingData;
-
-  /** Bumped whenever the view is created or destroyed: a post from an older view exits. */
-  private int viewGen;
-
-  private UsageSnapshot updatedSnapshot;
-  private boolean updatedFresh;
-  private long updatedMinute = -1;
-
-  private boolean repaintPending;
-
-  /** Posted once per publish while this page lives; allocated once rather than per second. */
-  @SuppressWarnings("UnnecessaryLambda")
-  private final Runnable repaint = this::repaint;
 
   /** The header title's string resource. */
   abstract int titleRes();
 
-  /** Adds the next few views. Returns true while there is more to build. */
-  abstract boolean buildNext();
+  /** The page's layout, inflated into the host. */
+  abstract int layoutRes();
 
-  /** Repaint from the service. Called once built, then every second; must diff. */
-  abstract void update(UsageService repo, long nowMs);
+  /** Finds the views {@link #update} writes to, in the inflated {@link #layoutRes}. */
+  abstract void onBind(View page);
 
-  /**
-   * The first paint, one part per tick, while the page is still invisible: a page whose whole
-   * {@link #update} overruns the RP2350's tick budget paints itself in parts here. Returns true
-   * while there is more to paint. The default paints everything at once.
-   */
-  boolean paintNext(UsageService repo, long nowMs) {
-    update(repo, nowMs);
-    return false;
-  }
+  /** Paints {@code state}. Called once bound, then for every new state. */
+  abstract void update(UsageUiState state, long nowMs);
 
-  /** Whether the first paint waits for data from the bridge; the status screen's does not. */
+  /** Whether the page shows the bridge's numbers and so waits for them; the status screen not. */
   boolean needsData() {
     return true;
   }
 
-  /** A build failed and the page is about to be built again from scratch: reset any counters. */
-  void onBuildFailed() {}
-
   @Override
   public void onAttach(Context context) {
     super.onAttach(context);
-    host = context instanceof Host ? (Host) context : null;
     ctx = context;
+    main = context.getMainExecutor();
     palette = Palette.of(getResources());
   }
 
   @Override
   public void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    title = getString(titleRes());
-    fadeMs = getResources().getInteger(R.integer.fade_ms);
     model = new ViewModelProvider(requireActivity()).get(UsageViewModel.class);
   }
 
   @Override
   public View onCreateView(
       LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
-    root = Ui.group(ctx, 0, 0, Ui.WIDTH, Ui.PAGE_HEIGHT, palette.background);
-    root.setAlpha(0f);
-    return root;
+    return inflater.inflate(R.layout.page_host, container, false);
   }
 
   @Override
   public void onViewCreated(View view, Bundle savedInstanceState) {
     super.onViewCreated(view, savedInstanceState);
-    model.usage().observe(getViewLifecycleOwner(), this::onUsage);
-    restart();
+    bound = false;
+    painted = false;
+    awaitingData = false;
+    model.state().observe(getViewLifecycleOwner(), this::onState);
+    final ViewGroup host = (ViewGroup) view;
+    new AsyncLayoutInflater(ctx)
+        .inflate(layoutRes(), host, (page, resid, parent) -> onInflated(host, page));
   }
 
   @Override
   public void onDestroyView() {
-    viewGen++;
-    root = null;
-    built = false;
+    bound = false;
     painted = false;
     super.onDestroyView();
   }
 
-  @Override
-  public void onDetach() {
-    host = null;
-    super.onDetach();
-  }
-
-  private void restart() {
-    step = 0;
-    repaintPending = false;
-    built = false;
-    painted = false;
-    failed = false;
-    awaitingData = false;
-    updatedMinute = -1;
-    final int gen = ++viewGen;
-    Executors.mainExecutor().execute(() -> buildStep(gen));
-  }
-
-  private boolean gone(int gen) {
+  /** Whether {@code host} is no longer this fragment's view: a post made for it has no work. */
+  private boolean gone(View host) {
     // Detached with the Activity when that is destroyed, so isAdded() covers a dead host too.
-    return gen != viewGen || !isAdded() || getView() == null;
+    return !isAdded() || getView() != host;
   }
 
-  private void buildStep(int gen) {
-    if (gone(gen)) {
+  /** The page's layout is whole: into the host with it, unless the page was turned meanwhile. */
+  private void onInflated(ViewGroup host, View page) {
+    if (gone(host)) {
+      page.close(); // never added anywhere: picodroid frees a view's widget only when told
       return;
     }
-    try {
-      if (buildNext()) {
-        Executors.mainExecutor().execute(() -> buildStep(gen));
-        return;
-      }
-      built = true;
-      Log.i(TAG, "built " + title);
-      if (host != null) {
-        host.onPageBuilt();
-      }
-      // The first paint takes its own ticks: with the last build step it overran the budget.
-      Executors.mainExecutor().execute(() -> firstPaint(gen));
-    } catch (OutOfMemoryError | RuntimeException e) {
-      fail(e);
-    }
+    host.addView(page);
+    onBind(page);
+    bound = true;
+    Log.i(TAG, "built " + getString(titleRes()));
+    firstPaint(host);
   }
 
-  /** The first paint, a part per tick while the page is invisible, then the fade-in. */
-  private void firstPaint(int gen) {
-    if (gone(gen) || !built || painted) {
+  /** The state this page can paint now, or null: a data page has nothing to paint before data. */
+  private UsageUiState paintable() {
+    UsageUiState state = model.state().getValue();
+    return state == null || (needsData() && !state.hasData()) ? null : state;
+  }
+
+  /** The first paint, while the page is still invisible, then the fade-in. */
+  private void firstPaint(View host) {
+    if (gone(host) || !bound || painted) {
       return;
     }
-    UsageService repo = model.usage().getValue();
-    if (repo == null || (needsData() && !model.hasData())) {
+    UsageUiState state = paintable();
+    if (state == null) {
       awaitingData = true; // built behind the status screen; painted when the data arrives
       return;
     }
     awaitingData = false;
-    try {
-      if (paintNext(repo, System.currentTimeMillis())) {
-        Executors.mainExecutor().execute(() -> firstPaint(gen));
-        return;
+    update(state, System.currentTimeMillis());
+    painted = true;
+    host.animate().alpha(1f).setDuration(getResources().getInteger(R.integer.fade_ms)).start();
+  }
+
+  /**
+   * The observer: something on screen changed. A painted page repaints in the call, beside the
+   * chrome: measured together on the RP2350 they stay inside the tick budget. The first paint of a
+   * page built before the data came does not: its call sites are cold, and with the chrome's
+   * repaint it overran the budget by a sixth, so that one takes the next tick.
+   */
+  private void onState(UsageUiState state) {
+    View host = getView();
+    if (!isAdded() || host == null) {
+      return;
+    }
+    if (painted) {
+      UsageUiState paintable = paintable();
+      if (paintable != null) {
+        update(paintable, System.currentTimeMillis());
       }
-      painted = true;
-      root.animate().alpha(1f).setDuration(fadeMs).start();
-    } catch (OutOfMemoryError | RuntimeException e) {
-      fail(e);
+    } else if (awaitingData) {
+      awaitingData = false;
+      main.execute(() -> firstPaint(host));
     }
-  }
-
-  /**
-   * A half-built page would stay invisible for good. Drop what was built; the service's next tick
-   * builds it again, by which time the collector has had a chance to run.
-   */
-  private void fail(Throwable e) {
-    Log.w(TAG, "page build failed: " + e);
-    failed = true;
-    built = false;
-    painted = false;
-    if (root != null) {
-      root.removeAllViews();
-    }
-    onBuildFailed();
-  }
-
-  /**
-   * The observer: the service has something new, or a second passed. LiveData delivers inside the
-   * Activity's own refresh, whose chrome repaint (~20 ms on the RP2350) and this page's (~30 ms)
-   * would overrun the slow-handler budget together, so the page takes the next tick.
-   */
-  private void onUsage(UsageService repo) {
-    if (repo == null || repaintPending) {
-      return;
-    }
-    repaintPending = true;
-    Executors.mainExecutor().execute(repaint);
-  }
-
-  /**
-   * Paint the first time once built and the data is there, else repaint when the snapshot, the
-   * freshness or the minute moved.
-   */
-  private void repaint() {
-    repaintPending = false;
-    UsageService repo = model.usage().getValue();
-    if (repo == null || !isAdded() || getView() == null) {
-      return;
-    }
-    long nowMs = System.currentTimeMillis();
-    if (failed) {
-      restart();
-      return;
-    }
-    if (!painted) {
-      if (awaitingData) {
-        firstPaint(viewGen);
-      }
-      return;
-    }
-    UsageSnapshot s = repo.snapshot();
-    boolean fresh = repo.isFresh();
-    long minute = nowMs / 60_000L;
-    if (s == updatedSnapshot && fresh == updatedFresh && minute == updatedMinute) {
-      return; // everything on the data screens is minute-grained; nothing to repaint
-    }
-    updatedSnapshot = s;
-    updatedFresh = fresh;
-    updatedMinute = minute;
-    update(repo, nowMs);
   }
 }

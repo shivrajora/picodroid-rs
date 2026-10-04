@@ -2,6 +2,7 @@
 package servicedemo;
 
 import picodroid.app.Application;
+import picodroid.content.ComponentName;
 import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
 import picodroid.os.IBinder;
@@ -24,17 +25,17 @@ public class ServiceDemoApp extends Application {
     ServiceConnection conn =
         new ServiceConnection() {
           @Override
-          public void onServiceConnected(IBinder binder) {
+          public void onServiceConnected(ComponentName name, IBinder binder) {
             CounterService svc = ((CounterService.LocalBinder) binder).service;
             Log.i("ServiceDemoApp", "bound, peek=" + svc.peek());
           }
 
           @Override
-          public void onServiceDisconnected() {
+          public void onServiceDisconnected(ComponentName name) {
             Log.i("ServiceDemoApp", "disconnected");
           }
         };
-    bindService(new Intent(CounterService.class), conn);
+    bindService(new Intent(CounterService.class), conn, BIND_AUTO_CREATE);
 
     // 3. unbind — onUnbind returns true, so the next bind triggers onRebind
     // (not onBind). The Service stays alive (still started).
@@ -46,16 +47,16 @@ public class ServiceDemoApp extends Application {
     ServiceConnection conn2 =
         new ServiceConnection() {
           @Override
-          public void onServiceConnected(IBinder binder) {
+          public void onServiceConnected(ComponentName name, IBinder binder) {
             CounterService svc = ((CounterService.LocalBinder) binder).service;
             Log.i("ServiceDemoApp", "stale=" + svc.tryStop(1));
             Log.i("ServiceDemoApp", "latest=" + svc.tryStop(2));
           }
 
           @Override
-          public void onServiceDisconnected() {}
+          public void onServiceDisconnected(ComponentName name) {}
         };
-    bindService(new Intent(CounterService.class), conn2);
+    bindService(new Intent(CounterService.class), conn2, BIND_AUTO_CREATE);
     unbindService(conn2);
 
     Log.i("ServiceDemoApp", "end");

@@ -107,7 +107,7 @@ To test that, turn on the equivalent of Android's *Don't keep activities* develo
 
 | Method | Description |
 |--------|-------------|
-| `startActivity(Intent intent)` | Push the Activity named by `new Intent(TargetActivity.class)` onto the stack. Triggers this.onPause → newActivity.{onCreate,onStart,onResume} → this.onStop. |
+| `startActivity(Intent intent)` | Push the Activity named by `new Intent(this, TargetActivity.class)` onto the stack. Triggers this.onPause → newActivity.{onCreate,onStart,onResume} → this.onStop. |
 | `finish()` | Pop this Activity. Triggers onPause → onStop → onDestroy on this Activity, and onRestart/onStart/onResume on the one below. If the stack is empty after the pop, the app exits. |
 | `startActivityForResult(Intent intent, int requestCode)` | Like `startActivity`, expecting a result: when the launched Activity finishes, its result arrives in `onActivityResult` here, before `onResume`. |
 | `setResult(int resultCode)` / `setResult(int resultCode, Intent data)` | In the launched Activity: the result reported to its launcher — `RESULT_OK` (-1), `RESULT_CANCELED` (0, the default when never called) or `RESULT_FIRST_USER` (1) and above. The Intent's extras are readable in the launcher's `onActivityResult`. |
@@ -116,8 +116,11 @@ To test that, turn on the equivalent of Android's *Don't keep activities* develo
 | `setContentView(View root)` | Sets the root of the widget tree and renders it to the display. |
 | `setContentView(int layoutResID)` | Inflates `R.layout.*` and makes it the content. See [resources](/guides/resources/). |
 | `<T extends View> T findViewById(int id)` | The view with that `android:id` / `setId` in the content, depth first, or `null`. Also on every `View`. |
-| `getLayoutInflater()` | A `LayoutInflater` for this Activity: `inflate(R.layout.row, parent, false)`. |
-| `getResources()` | The app's compiled `res/` tree: `getString`, `getText`, `getColor`, `getDimension`, `getDimensionPixelSize`, `getDimensionPixelOffset`, `getInteger`, `getBoolean`, and `getDisplayMetrics()`. `getString(int)` and `getColor(int)` are also on `Context`. |
+| `getLayoutInflater()` | A `LayoutInflater` for this Activity: `inflate(R.layout.row, parent, false)`. The Activity is its `LayoutInflater.Factory`. |
+| `onCreateView(String name, Context context, AttributeSet attrs)` | Override to construct the view classes of your own that a layout names; see [custom views](/guides/resources/#custom-views). The default returns `null`. |
+| `setTheme(int resid)` | Make `R.style.*` the app's theme: its colours become the framework widgets' defaults. Call it before `setContentView`. On `Context`. See [styles and the theme](/guides/resources/#styles-and-the-theme). |
+| `runOnUiThread(Runnable action)` | Run `action` now when called on the main thread, else post it there. `getMainExecutor()` (on `Context`) is the main thread's `Executor`. |
+| `getResources()` | The app's compiled `res/` tree: `getString`, `getText`, `getColor`, `getDimension`, `getDimensionPixelSize`, `getDimensionPixelOffset`, `getInteger`, `getBoolean`, and `getDisplayMetrics()`. `getString(int)`, `getString(int, Object...)` and `getColor(int)` are also on `Context`. |
 | `getSupportFragmentManager()` | The Activity's `FragmentManager`. See [Fragment](#picodroidappfragment). |
 | `getLifecycle()` | The Activity's `Lifecycle`: pass `this` to `LiveData.observe`. See [lifecycle](#picodroidlifecycle). |
 | `getViewModelStore()` / `getDefaultViewModelProviderFactory()` | What `new ViewModelProvider(activity)` uses; override the second to construct the Activity's ViewModels. See [lifecycle](#picodroidlifecycle). |
@@ -357,7 +360,7 @@ int semi   = Color.argb(128, 255, 0, 0);   // 0x80FF0000 (50% transparent red)
 
 ## `picodroid.graphics.Theme`
 
-App-wide color palette — static fields apps read at view-construction time. Customise by assigning to these fields **before any UI is built** (typically in `Application.onCreate`):
+App-wide color palette — static fields the framework's widgets read at view-construction time. The Android way to fill it is a theme: declare `<style name="AppTheme">` in `res/values` and call `setTheme(R.style.AppTheme)` in `onCreate` before any view exists ([styles and the theme](/guides/resources/#styles-and-the-theme)). An app without resources assigns the fields directly, **before any UI is built** (typically in `Application.onCreate`):
 
 ```java
 import picodroid.graphics.Color;
@@ -367,15 +370,15 @@ Theme.colorPrimary    = Color.argb(255,  80, 180, 120);
 Theme.colorBackground = Color.argb(255,  24,  24,  28);
 ```
 
-| Field | Default | Use |
-|-------|---------|-----|
-| `colorPrimary` | bluish accent | button fill, focused outlines, slider track |
-| `colorOnPrimary` | white | text/icons on top of `colorPrimary` |
-| `colorBackground` | near-black | page background |
-| `colorSurface` | dark grey | card / surface background |
-| `colorText` | near-white | primary body text |
-| `colorTextSecondary` | muted grey | secondary / muted body text |
-| `colorOutline` | dark grey | subtle separator / divider line |
+| Field | Theme item | Default | Use |
+|-------|------------|---------|-----|
+| `colorPrimary` | `colorPrimary` | bluish accent | button fill, focused outlines, slider track |
+| `colorOnPrimary` | `colorOnPrimary` | white | text/icons on top of `colorPrimary` |
+| `colorBackground` | `android:colorBackground` | near-black | page background |
+| `colorSurface` | `colorSurface` | dark grey | card / surface background |
+| `colorText` | `android:textColorPrimary` | near-white | primary body text |
+| `colorTextSecondary` | `android:textColorSecondary` | muted grey | secondary / muted body text |
+| `colorOutline` | `colorOutline` | dark grey | subtle separator / divider line |
 
 picodroid is single-app, so the palette is process-global rather than per-Activity. Views still need to read these values explicitly (`view.setBackgroundColor(Theme.colorBackground)`); there is no automatic cascading.
 
@@ -439,6 +442,7 @@ view.setPosition(10, 20);           // x=10, y=20
 view.setSize(200, 50);              // width=200, height=50
 view.setBackgroundColor(Color.BLUE);
 view.setBackground(drawable);       // or apply a Drawable (see GradientDrawable)
+view.setBackgroundTintList(ColorStateList.valueOf(Color.RED));  // recolour it, keep its shape
 view.setVisibility(View.VISIBLE);   // VISIBLE, INVISIBLE, or GONE
 view.setEnabled(false);             // grey out / disable interaction
 view.setTranslationX(8f);           // also setTranslationY, setRotation, setScaleX/Y + getters
@@ -462,11 +466,19 @@ and a second `close()` is a no-op.
 | `View.WRAP_CONTENT` | -2 | Passed to `setSize`: size to content. `MATCH_PARENT` (-1) is on [`ViewGroup.LayoutParams`](#picodroidviewviewgroup). |
 | `View.NO_ID` | -1 | What `getId()` returns for a view without an id; never matches in `findViewById`. |
 
-The values are Android's. The rest of the `View` surface, all mirroring `android.view.View`:
+The values are Android's. A setter given the value the view already has does nothing, as on
+Android: `setVisibility`, `setAlpha`, `setEnabled`, `setBackground` with the same instance, an equal
+tint, and on a `TextView` `setText` and `setTextColor`. A screen that writes every label on every
+update pays only for the ones that changed.
+
+The rest of the `View` surface, all mirroring `android.view.View`:
 
 | Method | Description |
 |--------|-------------|
-| `getVisibility()` / `isEnabled()` / `getAlpha()` | The value the app last set. `setAlpha(float)` takes 0.0–1.0; `getAlpha()` returns the target of a started alpha animation, not the per-frame value. |
+| `getVisibility()` / `isEnabled()` / `getAlpha()` | The value the app last set. `setAlpha(float)` takes 0.0–1.0; `getAlpha()` returns the target of a started alpha animation, not the per-frame value (after `animate().cancel()`, the value the animation stopped at). |
+| `getBackground()` | The `Drawable` last given to `setBackground` (an inflated `<shape>` included), or `null` for none or a plain colour. |
+| `setBackgroundTintList(ColorStateList)` / `getBackgroundTintList()` | Recolour the background, keeping its shape: the way to change a rounded dot's or pill's colour without a new drawable. The tint's colour replaces the background's and its alpha is ignored; `null` puts a drawable's own colour back. |
+| `onMeasure(int, int)` / `setMeasuredDimension` / `measure` / `getMeasuredWidth` / `getMeasuredHeight` / `resolveSize` / `getDefaultSize` / `View.MeasureSpec` | How a view that draws itself says what size it wants; see [custom views](/guides/resources/#custom-views). |
 | `setPadding(int left, int top, int right, int bottom)` | Inner padding in pixels. |
 | `getLeft()` / `getTop()` / `getWidth()` / `getHeight()` | Laid-out position relative to the parent (excluding translation) and size, in pixels. |
 | `getX()` / `getY()` | `getLeft() + getTranslationX()` and `getTop() + getTranslationY()`, as `float`. |
@@ -620,6 +632,16 @@ view.setLayoutParams(new ViewGroup.LayoutParams(
     ViewGroup.LayoutParams.MATCH_PARENT,
     ViewGroup.LayoutParams.WRAP_CONTENT));
 ```
+
+`addView(child)` applies the `LayoutParams` the child already carries (an inflated view's, or what
+`setLayoutParams` set), as on Android; a child with none keeps the size and position it was given
+directly.
+
+`ViewGroup.MarginLayoutParams` adds `leftMargin`, `topMargin`, `rightMargin`, `bottomMargin` and
+`setMargins(l, t, r, b)`; `LinearLayout.LayoutParams` and `FrameLayout.LayoutParams` extend it. A
+`LinearLayout` keeps the margins clear around the child; a `FrameLayout` places the child by them
+([below](#picodroidwidgetframelayout)). Margins are read when the child is added. In a layout file
+they are `android:layout_margin` and its per-side forms.
 
 ## `picodroid.view.MotionEvent`
 
@@ -851,7 +873,7 @@ import picodroid.text.TextUtils;
 import picodroid.widget.TextView;
 
 TextView label = new TextView();
-label.setText("Hello, World!");
+label.setText("Hello, World!");                 // null is the empty string
 label.setTextColor(Color.WHITE);
 String current = label.getText().toString();   // CharSequence, as on Android
 
@@ -1370,12 +1392,24 @@ scroll.addView(content);
 A simple container that stacks children (last `addView` is on top). Useful for overlays such as a status badge over an `ImageView`. Flat by default, like `LinearLayout` above.
 
 ```java
+import picodroid.view.Gravity;
 import picodroid.widget.FrameLayout;
 
 FrameLayout overlay = new FrameLayout();
 overlay.addView(background);
-overlay.addView(badge);
+
+// Bottom-right, 4 px in from each edge.
+FrameLayout.LayoutParams lp =
+    new FrameLayout.LayoutParams(24, 24, Gravity.RIGHT | Gravity.BOTTOM);
+lp.setMargins(0, 0, 4, 4);
+overlay.addView(badge, lp);
 ```
+
+`FrameLayout.LayoutParams` places a child as Android's does: against the corner, edge or centre its
+`gravity` names (`TOP | LEFT` when it names none), moved in by the margins on that side. With no
+gravity, `leftMargin` and `topMargin` are the child's position. A child added without params is
+positioned with `setPosition`. In a layout file these are `android:layout_gravity` and
+`android:layout_margin*`.
 
 ### `picodroid.widget.ViewPager2`
 

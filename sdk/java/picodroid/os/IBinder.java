@@ -2,12 +2,14 @@
 package picodroid.os;
 
 /**
- * Marker interface for the object returned by {@link Service#onBind}. Apps subclass it to expose a
- * typed handle to clients (the LocalBinder pattern):
+ * The interface of the object returned by {@link picodroid.app.Service#onBind}. Apps extend {@link
+ * Binder} to expose a typed handle to clients (the LocalBinder pattern):
  *
  * <pre>{@code
- * static class LocalBinder implements IBinder {
- *   MyService service;
+ * public class LocalBinder extends Binder {
+ *   public MyService getService() {
+ *     return MyService.this;
+ *   }
  * }
  * }</pre>
  *

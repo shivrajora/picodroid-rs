@@ -24,7 +24,21 @@ public abstract class ViewGroup extends View implements ViewParent {
 
   private int mChildCount;
 
+  /**
+   * Adds {@code child} to this layout with the {@link LayoutParams} it already carries (an inflated
+   * view's, or what {@link View#setLayoutParams} set), as on Android; a child without any keeps the
+   * size and position it was given directly.
+   */
   public void addView(View child) {
+    LayoutParams params = child == null ? null : child.getLayoutParams();
+    if (params != null) {
+      addView(child, params);
+    } else {
+      attach(child);
+    }
+  }
+
+  private void attach(View child) {
     checkNotReleased(child);
     nativeAddView(child);
     if (child == null) {
@@ -87,9 +101,9 @@ public abstract class ViewGroup extends View implements ViewParent {
   public void addView(View child, LayoutParams params) {
     if (params != null) {
       child.setLayoutParams(params);
-      child.setSize(params.width, params.height);
+      child.applyLayoutSize(params.width, params.height);
     }
-    addView(child);
+    attach(child);
     if (params instanceof picodroid.widget.LinearLayout.LayoutParams) {
       picodroid.widget.LinearLayout.LayoutParams lp =
           (picodroid.widget.LinearLayout.LayoutParams) params;
@@ -98,6 +112,35 @@ public abstract class ViewGroup extends View implements ViewParent {
         // ratios (1.5f : 1f -> 15 : 10) that a plain int cast would destroy.
         // LVGL's flex-grow is u8, capping effective weights at 25.5.
         child.nativeSetFlexGrow(Math.max(1, Math.round(lp.weight * 10)));
+      }
+    }
+    if (params instanceof picodroid.widget.FrameLayout.LayoutParams) {
+      // A FrameLayout places a child by its gravity and margins, as Android's does: from the
+      // corner (or centre) the gravity names, moved in by the margins on that side.
+      picodroid.widget.FrameLayout.LayoutParams lp =
+          (picodroid.widget.FrameLayout.LayoutParams) params;
+      int gravity = lp.gravity;
+      if ((gravity | lp.leftMargin | lp.topMargin | lp.rightMargin | lp.bottomMargin) != 0) {
+        int horizontal = gravity & Gravity.HORIZONTAL_GRAVITY_MASK;
+        int vertical = gravity & Gravity.VERTICAL_GRAVITY_MASK;
+        int dx =
+            horizontal == Gravity.RIGHT
+                ? -lp.rightMargin
+                : (horizontal == Gravity.CENTER_HORIZONTAL
+                    ? lp.leftMargin - lp.rightMargin
+                    : lp.leftMargin);
+        int dy =
+            vertical == Gravity.BOTTOM
+                ? -lp.bottomMargin
+                : (vertical == Gravity.CENTER_VERTICAL
+                    ? lp.topMargin - lp.bottomMargin
+                    : lp.topMargin);
+        child.nativeSetFrameGravity(gravity, dx, dy);
+      }
+    } else if (params instanceof MarginLayoutParams) {
+      MarginLayoutParams lp = (MarginLayoutParams) params;
+      if ((lp.leftMargin | lp.topMargin | lp.rightMargin | lp.bottomMargin) != 0) {
+        child.nativeSetMargins(lp.leftMargin, lp.topMargin, lp.rightMargin, lp.bottomMargin);
       }
     }
   }
@@ -188,6 +231,43 @@ public abstract class ViewGroup extends View implements ViewParent {
     public LayoutParams(LayoutParams source) {
       this.width = source.width;
       this.height = source.height;
+    }
+  }
+
+  /**
+   * Mirrors {@code android.view.ViewGroup.MarginLayoutParams}: layout parameters with space around
+   * the child, in pixels. A {@link picodroid.widget.LinearLayout} keeps the margins clear between
+   * its children; a {@link picodroid.widget.FrameLayout} places the child that far in from the edge
+   * its gravity names. Margins are read when the child is added: change them before {@link
+   * ViewGroup#addView}.
+   */
+  public static class MarginLayoutParams extends LayoutParams {
+    public int leftMargin;
+    public int topMargin;
+    public int rightMargin;
+    public int bottomMargin;
+
+    public MarginLayoutParams(int width, int height) {
+      super(width, height);
+    }
+
+    public MarginLayoutParams(LayoutParams source) {
+      super(source);
+    }
+
+    public MarginLayoutParams(MarginLayoutParams source) {
+      super(source);
+      this.leftMargin = source.leftMargin;
+      this.topMargin = source.topMargin;
+      this.rightMargin = source.rightMargin;
+      this.bottomMargin = source.bottomMargin;
+    }
+
+    public void setMargins(int left, int top, int right, int bottom) {
+      leftMargin = left;
+      topMargin = top;
+      rightMargin = right;
+      bottomMargin = bottom;
     }
   }
 }

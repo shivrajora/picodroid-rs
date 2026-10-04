@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  A FrameLayout places each child by its gravity and margins: from the corner (or centre) the
+  gravity names, moved in by the margins on that side.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/stage"
+    android:layout_width="@dimen/stage_width"
+    android:layout_height="80dp"
+    android:background="@drawable/panel">
+
+    <FrameLayout
+        android:id="@+id/at_margin"
+        android:layout_width="10dp"
+        android:layout_height="10dp"
+        android:layout_marginLeft="7dp"
+        android:layout_marginTop="9dp"
+        android:background="@color/accent" />
+
+    <FrameLayout
+        android:id="@+id/at_corner"
+        android:layout_width="10dp"
+        android:layout_height="10dp"
+        android:layout_gravity="right|bottom"
+        android:layout_marginRight="3dp"
+        android:layout_marginBottom="4dp"
+        android:background="@color/accent" />
+
+    <FrameLayout
+        android:id="@+id/at_centre"
+        android:layout_width="10dp"
+        android:layout_height="10dp"
+        android:layout_gravity="center"
+        android:background="@color/accent" />
+
+    <!-- A view class of the app's own: the Activity's onCreateView makes it, onMeasure sizes it. -->
+    <layoutdemo.Gauge
+        android:id="@+id/gauge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginLeft="40dp"
+        android:layout_marginTop="6dp" />
+
+    <layoutdemo.Gauge
+        android:id="@+id/wide_gauge"
+        android:layout_width="50dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginLeft="40dp" />
+
+    <!-- Another layout in place; the include's id and position replace its root's. -->
+    <include
+        layout="@layout/badge"
+        android:id="@+id/included"
+        android:layout_marginLeft="100dp"
+        android:layout_marginTop="30dp" />
+
+    <FrameLayout
+        android:id="@+id/outlined"
+        android:layout_width="16dp"
+        android:layout_height="16dp"
+        android:layout_gravity="center_vertical"
+        android:layout_marginLeft="4dp"
+        android:background="@drawable/outline" />
+
+    <TextView
+        android:id="@+id/trimmed"
+        style="@style/Caption"
+        android:layout_gravity="right"
+        android:includeFontPadding="false"
+        android:text="12" />
+</FrameLayout>

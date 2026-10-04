@@ -30,6 +30,14 @@ public class KeyEvent {
   public static final int KEYCODE_DPAD_RIGHT = 22;
   public static final int KEYCODE_DPAD_CENTER = 23;
 
+  // Android's codes for a gamepad's face buttons. No board maps a button to them yet (a board's
+  // buttons arrive as the DPAD / BACK codes its board.toml names), so today these are for an app
+  // that injects or compares them itself.
+  public static final int KEYCODE_BUTTON_A = 96;
+  public static final int KEYCODE_BUTTON_B = 97;
+  public static final int KEYCODE_BUTTON_X = 99;
+  public static final int KEYCODE_BUTTON_Y = 100;
+
   /**
    * Set on the release of a press whose long-press was handled, or whose dispatch was otherwise
    * abandoned: the release must not perform its action. Android's value.

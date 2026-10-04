@@ -5,6 +5,7 @@ import picodroid.app.Notification;
 import picodroid.app.Service;
 import picodroid.concurrent.Thread;
 import picodroid.content.Intent;
+import picodroid.os.Binder;
 import picodroid.os.IBinder;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
@@ -34,12 +35,14 @@ public class UptimeLogService extends Service {
   private static final int SAMPLE_INTERVAL_MS = 1000;
 
   /**
-   * Typed handle handed to clients. Picodroid is single-process, so the LocalBinder simply carries
-   * a direct reference to the Service — clients cast the {@link IBinder} they receive back to this
-   * type. Mirrors the pattern in {@code servicedemo} and {@code picoenvmon}.
+   * Typed handle handed to clients: Android's LocalBinder pattern. Picodroid is single-process, so
+   * the binder simply hands out the Service — clients cast the {@link IBinder} they receive back to
+   * this type and call {@link #getService}.
    */
-  public static class LocalBinder implements IBinder {
-    public UptimeLogService service;
+  public class LocalBinder extends Binder {
+    public UptimeLogService getService() {
+      return UptimeLogService.this;
+    }
   }
 
   private final LocalBinder binder = new LocalBinder();
@@ -60,9 +63,7 @@ public class UptimeLogService extends Service {
 
   @Override
   public void onCreate() {
-    // Wire the binder back to this instance up front so a bind that races the first start still
-    // resolves to a live Service. onCreate runs once, on the first start OR the first bind.
-    binder.service = this;
+    // onCreate runs once, on the first start OR the first bind, whichever happens first.
     Log.i(TAG, "onCreate");
   }
 

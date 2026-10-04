@@ -479,6 +479,16 @@ pub const LV_STATE_FOCUS_KEY: u32 = 1 << 4;
 /// `lv_align_t` (lv_area.h): `LV_ALIGN_TOP_LEFT`, the origin `lv_obj_set_pos`
 /// offsets from once a widget's own alignment is undone.
 pub const LV_ALIGN_TOP_LEFT: u8 = 1;
+// The other eight in-parent alignments: where a FrameLayout child's gravity
+// puts it (`widgets/gravity.rs::frame_align`).
+pub const LV_ALIGN_TOP_MID: u8 = 2;
+pub const LV_ALIGN_TOP_RIGHT: u8 = 3;
+pub const LV_ALIGN_BOTTOM_LEFT: u8 = 4;
+pub const LV_ALIGN_BOTTOM_MID: u8 = 5;
+pub const LV_ALIGN_BOTTOM_RIGHT: u8 = 6;
+pub const LV_ALIGN_LEFT_MID: u8 = 7;
+pub const LV_ALIGN_RIGHT_MID: u8 = 8;
+pub const LV_ALIGN_CENTER: u8 = 9;
 // Set while a widget is being edited (keypad/encoder edit mode). The framework
 // toggles it on NumberPicker during keypad edit mode for the theme-matching
 // secondary outline; EDITED (1 << 5) outranks FOCUS_KEY in style specificity,
@@ -677,6 +687,9 @@ extern "C" {
     /// from. Widgets whose constructor aligns them elsewhere (`lv_keyboard`
     /// is BOTTOM_MID) need it back at TOP_LEFT for absolute placement.
     pub fn lv_obj_set_align(obj: *mut lv_obj_t, align: u8);
+    /// `lv_obj_set_align` and `lv_obj_set_pos` in one: place `obj` against
+    /// `align` in its parent, offset by (`x_ofs`, `y_ofs`).
+    pub fn lv_obj_align(obj: *mut lv_obj_t, align: u8, x_ofs: i32, y_ofs: i32);
     /// Set just the x coordinate (preserves y). Used by ViewPropertyAnimator
     /// to animate axes independently — `lv_obj_set_pos` would clobber the
     /// other axis if a y-anim were running concurrently.
@@ -921,6 +934,28 @@ extern "C" {
     pub fn lv_obj_set_style_text_align(
         obj: *mut lv_obj_t,
         value: lv_text_align_t,
+        selector: lv_style_selector_t,
+    );
+
+    // Margin style: the space a flex layout keeps clear around a child.
+    pub fn lv_obj_set_style_margin_left(
+        obj: *mut lv_obj_t,
+        value: i32,
+        selector: lv_style_selector_t,
+    );
+    pub fn lv_obj_set_style_margin_top(
+        obj: *mut lv_obj_t,
+        value: i32,
+        selector: lv_style_selector_t,
+    );
+    pub fn lv_obj_set_style_margin_right(
+        obj: *mut lv_obj_t,
+        value: i32,
+        selector: lv_style_selector_t,
+    );
+    pub fn lv_obj_set_style_margin_bottom(
+        obj: *mut lv_obj_t,
+        value: i32,
         selector: lv_style_selector_t,
     );
 
@@ -1608,6 +1643,31 @@ mod tests {
                 "{name}: Rust FFI drifted from vendored lv_obj_style.h — these \
                  state bits were renumbered once already (v9.5.0), which is \
                  exactly the drift this guard exists to catch."
+            );
+        }
+    }
+
+    #[test]
+    fn lv_align_constants_match_vendored_header() {
+        let body = enum_body(LV_AREA_HEADER, "} lv_align_t").expect("lv_align_t enum not found");
+        for (rust_const, name) in [
+            (LV_ALIGN_TOP_LEFT, "LV_ALIGN_TOP_LEFT"),
+            (LV_ALIGN_TOP_MID, "LV_ALIGN_TOP_MID"),
+            (LV_ALIGN_TOP_RIGHT, "LV_ALIGN_TOP_RIGHT"),
+            (LV_ALIGN_BOTTOM_LEFT, "LV_ALIGN_BOTTOM_LEFT"),
+            (LV_ALIGN_BOTTOM_MID, "LV_ALIGN_BOTTOM_MID"),
+            (LV_ALIGN_BOTTOM_RIGHT, "LV_ALIGN_BOTTOM_RIGHT"),
+            (LV_ALIGN_LEFT_MID, "LV_ALIGN_LEFT_MID"),
+            (LV_ALIGN_RIGHT_MID, "LV_ALIGN_RIGHT_MID"),
+            (LV_ALIGN_CENTER, "LV_ALIGN_CENTER"),
+        ] {
+            let header_val = lookup_ordinal(body, "LV_ALIGN_", name)
+                .unwrap_or_else(|| panic!("{name} not found in vendored lv_area.h"));
+            assert_eq!(
+                u32::from(rust_const),
+                header_val,
+                "{name}: Rust FFI drifted from vendored lv_area.h — a FrameLayout child's \
+                 gravity picks its corner by these values."
             );
         }
     }

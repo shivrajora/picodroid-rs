@@ -3,37 +3,50 @@ package claudeusage.ui;
 
 import claudeusage.R;
 import picodroid.content.Context;
-import picodroid.view.ViewGroup;
+import picodroid.content.res.ColorStateList;
+import picodroid.view.View;
+import picodroid.widget.ProgressBar;
+import picodroid.widget.TextView;
 
-/** "Opus [===== ] 61%": a name, a bar and a figure on one line. */
+/**
+ * "Opus [===== ] 61%": a name, a bar and a figure on one line, over an inflated {@code
+ * res/layout/meter_row.xml}.
+ */
 final class MeterRow {
-  static final int HEIGHT = 21;
-
   private final Palette palette;
   private final String dash;
-  private final Line name;
-  private final Line figure;
-  private final BarView bar;
+  private final TextView name;
+  private final TextView figure;
+  private final ProgressBar bar;
 
-  MeterRow(Context ctx, Palette palette, ViewGroup card, int y) {
-    this.palette = palette;
+  MeterRow(Context ctx, View row) {
+    palette = Palette.of(ctx.getResources());
     dash = ctx.getString(R.string.dash);
-    name = new Line(Ui.label(ctx, card, "", Ui.CARD_PAD, y, palette.text), "", palette.text);
-    bar = new BarView(ctx, palette, card, 84, y + 5, 156, 8);
-    figure = new Line(Ui.labelRight(ctx, card, "", 246, y, 46, palette.text), "", palette.text);
+    name = row.findViewById(R.id.meter_name);
+    bar = row.findViewById(R.id.meter_bar);
+    figure = row.findViewById(R.id.meter_figure);
   }
 
+  /**
+   * @param pct 0..100, or negative for "unknown" (an empty track)
+   * @param color the bar's fill colour
+   * @param stale whether the figure is no longer live: the fill fades, the track stays
+   */
   void show(String label, int pct, int color, boolean stale) {
-    name.show(label, stale ? palette.muted : palette.text);
-    bar.setVisible(true);
-    bar.show(pct, color, stale);
-    figure.show(pct < 0 ? dash : pct + "%", stale ? palette.muted : palette.text);
+    int ink = stale ? palette.muted : palette.text;
+    name.setText(label);
+    name.setTextColor(ink);
+    bar.setVisibility(View.VISIBLE);
+    bar.setProgress(pct < 0 ? 0 : pct, true);
+    bar.setProgressTintList(ColorStateList.valueOf(color).withAlpha(stale ? Ui.DIM_ALPHA : 0xFF));
+    figure.setText(pct < 0 ? dash : pct + "%");
+    figure.setTextColor(ink);
   }
 
+  /** An unused row is blank, track included, not an empty gauge. */
   void clear() {
-    name.show("", palette.text);
-    bar.show(-1, palette.good, false);
-    bar.setVisible(false);
-    figure.show("", palette.text);
+    name.setText("");
+    bar.setVisibility(View.INVISIBLE);
+    figure.setText("");
   }
 }

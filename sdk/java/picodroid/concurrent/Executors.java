@@ -28,14 +28,24 @@ public final class Executors {
   }
 
   /**
-   * A {@link ScheduledExecutorService} for delayed and periodic tasks, mirroring {@code
-   * java.util.concurrent.Executors#newSingleThreadScheduledExecutor}. Its single thread is the
-   * <em>main</em> thread: the runtime's frame tick posts each task when it is due, so it costs no
-   * task stack and may touch widgets, and a task that blocks stalls the UI. Call {@code
-   * shutdownNow()} when the owner goes away (an Activity's {@code onDestroy}), or the tasks keep
-   * running against it.
+   * A {@link ScheduledExecutorService} for delayed and periodic tasks on a thread of its own,
+   * mirroring {@code java.util.concurrent.Executors#newSingleThreadScheduledExecutor}: its tasks
+   * may block, and must not touch views. The thread costs a task stack (16 KiB on the RP family)
+   * until {@code shutdown()}; for a timer that runs on the main thread and costs none, use {@link
+   * #mainScheduledExecutor()}.
    */
   public static ScheduledExecutorService newSingleThreadScheduledExecutor() {
+    return new ScheduledThreadPoolExecutor();
+  }
+
+  /**
+   * A {@link ScheduledExecutorService} whose tasks run on the <em>main</em> thread: what {@code
+   * Handler.postDelayed} is for on Android. The runtime's frame tick posts each task when it is
+   * due, so it costs no task stack and may touch widgets, and a task that blocks stalls the UI. Not
+   * an Android or JDK method. Call {@code shutdownNow()} when the owner goes away (an Activity's
+   * {@code onDestroy}), or the tasks keep running against it.
+   */
+  public static ScheduledExecutorService mainScheduledExecutor() {
     return new MainScheduledExecutor();
   }
 

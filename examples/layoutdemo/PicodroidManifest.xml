@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest package="layoutdemo" version="1.0">
+    <application activity="layoutdemo/LayoutDemoActivity" label="Layout Demo" />
+</manifest>

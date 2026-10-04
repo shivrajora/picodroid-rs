@@ -13,10 +13,14 @@ pub(in crate::graphics) fn create() -> i32 {
     handle_table::register(ptr)
 }
 
+/// Set the label's text: the object's own for a bare label, the child label's
+/// for a `Button` (see [`label_of`]).
 pub(in crate::graphics) fn set_text(id: i32, text: &str) {
-    with_cstr(text, |p| unsafe {
-        lv_label_set_text(handle_table::lookup(id), p)
-    });
+    let label = label_of(id);
+    if label.is_null() {
+        return; // stale handle — mutating a destroyed View is a no-op
+    }
+    with_cstr(text, |p| unsafe { lv_label_set_text(label, p) });
 }
 
 /// Run `f` on `text` as a NUL-terminated C string of any length. LVGL copies
@@ -53,38 +57,6 @@ fn label_of(id: i32) -> *mut lv_obj_t {
     } else {
         child
     }
-}
-
-/// Copy a label's text into `dst` (capped at 256 bytes): the byte length written, or `None` for
-/// a null label or text. In dots mode LVGL has overwritten the tail of its own buffer with the
-/// dots; setting the text to NULL ("refresh the current text") restores it until the next layout
-/// pass, so the copy is the whole text — what Android's `getText()` returns.
-/// Run `f` over the label's current text, whatever its length. `None` when
-/// there is no label or LVGL holds no text for it. Replaces a 256-byte
-/// copy that silently truncated `getText()` of anything longer (QA
-/// 2026-09-13).
-pub(in crate::graphics) fn with_label_text<R>(
-    label: *mut lv_obj_t,
-    f: impl FnOnce(&[u8]) -> R,
-) -> Option<R> {
-    if label.is_null() {
-        return None;
-    }
-    unsafe {
-        if lv_label_get_long_mode(label) == LV_LABEL_LONG_MODE_DOTS {
-            lv_label_set_text(label, core::ptr::null());
-        }
-        let text = lv_label_get_text(label);
-        if text.is_null() {
-            return None;
-        }
-        Some(f(cstr_bytes(text)))
-    }
-}
-
-/// Run `f` over the view's current text (see [`with_label_text`]).
-pub(in crate::graphics) fn with_text<R>(id: i32, f: impl FnOnce(&[u8]) -> R) -> Option<R> {
-    with_label_text(label_of(id), f)
 }
 
 /// The bytes of a NUL-terminated C string, without the terminator.

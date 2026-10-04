@@ -88,23 +88,6 @@ pub(in crate::graphics) fn create(text: &str) -> i32 {
     handle_table::register(btn)
 }
 
-/// Set the text on the button's child label.
-pub(in crate::graphics) fn set_text(id: i32, text: &str) {
-    super::text_view::with_cstr(text, |p| unsafe {
-        let label = lv_obj_get_child(handle_table::lookup(id), 0);
-        if !label.is_null() {
-            lv_label_set_text(label, p);
-        }
-    });
-}
-
-/// Read the text of the button's child label into `dst`; `None` when the
-/// button has no label child.
-pub(in crate::graphics) fn with_text<R>(id: i32, f: impl FnOnce(&[u8]) -> R) -> Option<R> {
-    let label = unsafe { lv_obj_get_child(handle_table::lookup(id), 0) };
-    super::text_view::with_label_text(label, f)
-}
-
 /// Synthetically fire `LV_EVENT_CLICKED` on the underlying widget.
 /// No-op if no click listener has been registered (no trampoline attached).
 pub(in crate::graphics) fn perform_click(id: i32) {

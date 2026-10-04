@@ -90,6 +90,16 @@ fn layout_word(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
     }
 }
 
+/// Static `(style, index)`: a word of a style's stream, or its length for
+/// index -1. A miss is a bad style id.
+fn style_word(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
+    let (id, index) = (arg_int(ctx, 0)?, arg_int(ctx, 1)?);
+    match crate::resources::style_word(id, index) {
+        Some(w) => Ok(Some(Value::Int(w))),
+        None => Err(not_found(ctx, "Style", id)),
+    }
+}
+
 pub fn dispatch(
     class_name: &str,
     method_name: &str,
@@ -110,6 +120,7 @@ pub fn dispatch(
         (c::picodroid_content_res_Resources, m::getBoolean) => {
             lookup(ctx, "Boolean", res::boolean, |b| Value::Int(b as i32))
         }
+        (c::picodroid_content_res_Resources, m::nativeStyleWord) => style_word(ctx),
         (c::picodroid_view_LayoutInflater, m::nativeWord) => layout_word(ctx),
         _ => return None,
     })

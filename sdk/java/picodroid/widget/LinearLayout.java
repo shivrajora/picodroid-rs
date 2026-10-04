@@ -36,15 +36,16 @@ public class LinearLayout extends ViewGroup {
    *
    * <p>Two divergences: an axis the gravity does not name keeps centring rather than falling back
    * to the start, and {@code FILL} places at the start instead of stretching the child. Per-child
-   * {@code LayoutParams.gravity} is not yet applied — that is part of the LayoutParams milestone.
+   * {@code LayoutParams.gravity} is not applied.
    */
   public native void setGravity(int gravity);
 
   /**
    * Mirrors {@code android.widget.LinearLayout.LayoutParams}. Adds {@code weight} (mapped to LVGL
-   * {@code lv_obj_set_flex_grow}) and {@code gravity} (per-child alignment along the cross axis).
+   * {@code lv_obj_set_flex_grow}) and {@code gravity} (per-child alignment along the cross axis,
+   * recorded but not applied) to the margins, which keep that much space clear around the child.
    */
-  public static class LayoutParams extends ViewGroup.LayoutParams {
+  public static class LayoutParams extends ViewGroup.MarginLayoutParams {
     public float weight;
     public int gravity;
 

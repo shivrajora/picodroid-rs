@@ -31,6 +31,10 @@ unsafe extern "C" fn value_changed_cb(e: *mut lv_event_t) {
 pub(in crate::graphics) fn create() -> i32 {
     let ptr = unsafe {
         let dd = lv_dropdown_create(lifecycle::screen_ptr());
+        // LVGL creates a dropdown with no options at all (lv_conf.h turns
+        // the "Option 1..3" defaults off); an empty list is what an adapter
+        // with no items shows, and it is never a null string to draw.
+        lv_dropdown_set_options(dd, c"".as_ptr());
         lv_obj_add_event_cb(
             dd,
             Some(value_changed_cb),

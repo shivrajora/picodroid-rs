@@ -4,12 +4,13 @@ package picodroid.concurrent;
 /**
  * An {@link ExecutorService} that runs tasks after a delay or periodically, mirroring {@code
  * java.util.concurrent.ScheduledExecutorService}. Obtain one from {@link
- * Executors#newSingleThreadScheduledExecutor()}.
+ * Executors#mainScheduledExecutor()}, whose tasks run on the main thread, or {@link
+ * Executors#newSingleThreadScheduledExecutor()}, which runs them on a thread of its own.
  *
- * <p>Delays are measured on {@code SystemClock.elapsedRealtime()} and resolved on the runtime's 16
- * ms frame tick, so a task runs within a frame of its due time when the main thread is idle. A task
- * that throws is dropped: its future completes exceptionally and, if it was periodic, it is not run
- * again.
+ * <p>Delays are measured on {@code SystemClock.elapsedRealtime()}. The main-thread executor
+ * resolves them on the runtime's 16 ms frame tick, so a task runs within a frame of its due time
+ * when the main thread is idle. A task that throws is dropped: its future completes exceptionally
+ * and, if it was periodic, it is not run again.
  */
 public interface ScheduledExecutorService extends ExecutorService {
   /** Runs {@code command} once, {@code delay} from now. */

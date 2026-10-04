@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      The app's theme. The framework's own widgets take their default colours from it
+      (setTheme in MainActivity), and ?attr/ in a layout reads it at build time.
+    -->
+    <style name="AppTheme">
+        <item name="android:colorBackground">@color/background</item>
+        <item name="colorSurface">@color/card</item>
+        <item name="colorPrimary">@color/clay</item>
+        <item name="colorOnPrimary">@color/background</item>
+        <item name="android:textColorPrimary">@color/text</item>
+        <item name="android:textColorSecondary">@color/muted</item>
+        <item name="colorOutline">@color/track</item>
+    </style>
+
+    <!-- One line of text, as wide as it is. -->
+    <style name="Line">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:singleLine">true</item>
+        <item name="android:textColor">?android:attr/textColorPrimary</item>
+    </style>
+
+    <!-- A caption: the secondary ink. -->
+    <style name="Line.Caption">
+        <item name="android:textColor">?android:attr/textColorSecondary</item>
+    </style>
+
+    <!--
+      A line in a box of a width the layout gives: the text sits where android:gravity puts it,
+      whatever its length.
+    -->
+    <style name="Line.Boxed">
+        <item name="android:layout_height">@dimen/line_height</item>
+    </style>
+
+    <!-- The one figure per page that has to read across the room, its font padding trimmed. -->
+    <style name="Line.Display">
+        <item name="android:textSize">@dimen/display_text</item>
+        <item name="android:includeFontPadding">false</item>
+    </style>
+
+    <!-- A rounded panel, as wide as the page less its margins. -->
+    <style name="Card">
+        <item name="android:layout_width">@dimen/card_width</item>
+        <item name="android:layout_marginLeft">@dimen/margin</item>
+        <item name="android:background">@drawable/card</item>
+    </style>
+</resources>

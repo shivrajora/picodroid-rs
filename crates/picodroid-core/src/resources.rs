@@ -78,6 +78,16 @@ pub fn layout_word(id: i32, index: i32) -> Option<i32> {
     table()?.layout(id as u32)?.word(index).map(|w| w as i32)
 }
 
+/// Word `index` of style `id`, or the stream's length for `index` -1;
+/// `None` for a bad id or past the end.
+pub fn style_word(id: i32, index: i32) -> Option<i32> {
+    let words = table()?.style(id as u32)?;
+    if index == -1 {
+        return i32::try_from(words.len()).ok();
+    }
+    words.word(usize::try_from(index).ok()?).map(|w| w as i32)
+}
+
 /// The ASSETS entry name behind drawable resource `id`.
 pub fn drawable_name(id: i32) -> Option<&'static str> {
     core::str::from_utf8(table()?.drawable_name(id as u32)?).ok()

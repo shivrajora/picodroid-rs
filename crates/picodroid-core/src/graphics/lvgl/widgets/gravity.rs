@@ -79,9 +79,57 @@ pub(crate) fn text_align(gravity: i32) -> lv_text_align_t {
     }
 }
 
+/// Where a `FrameLayout` child's `layout_gravity` puts it, as the `lv_align_t` its position is
+/// then an offset from. Each axis reads as it does for a `TextView`: the start unless the gravity
+/// pulls to the end or names the centre, which is Android's default of `TOP | START` for a
+/// gravity that says nothing, and `FILL`, which cannot stretch the child, as the start.
+pub(crate) fn frame_align(gravity: i32) -> u8 {
+    /// 0 start, 1 centre, 2 end.
+    fn place(field: i32) -> usize {
+        if field & AXIS_PULL_BEFORE != 0 {
+            0
+        } else if field & AXIS_PULL_AFTER != 0 {
+            2
+        } else if field & AXIS_SPECIFIED != 0 {
+            1
+        } else {
+            0
+        }
+    }
+    const ALIGN: [[u8; 3]; 3] = [
+        [LV_ALIGN_TOP_LEFT, LV_ALIGN_TOP_MID, LV_ALIGN_TOP_RIGHT],
+        [LV_ALIGN_LEFT_MID, LV_ALIGN_CENTER, LV_ALIGN_RIGHT_MID],
+        [
+            LV_ALIGN_BOTTOM_LEFT,
+            LV_ALIGN_BOTTOM_MID,
+            LV_ALIGN_BOTTOM_RIGHT,
+        ],
+    ];
+    let horizontal = place(gravity & AXIS_MASK);
+    let vertical = place((gravity >> VERTICAL_SHIFT) & AXIS_MASK);
+    ALIGN[vertical][horizontal]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frame_align_names_the_corner_edge_or_centre() {
+        assert_eq!(frame_align(NO_GRAVITY), LV_ALIGN_TOP_LEFT);
+        assert_eq!(frame_align(LEFT | TOP), LV_ALIGN_TOP_LEFT);
+        assert_eq!(frame_align(START), LV_ALIGN_TOP_LEFT);
+        assert_eq!(frame_align(RIGHT), LV_ALIGN_TOP_RIGHT);
+        assert_eq!(frame_align(END | BOTTOM), LV_ALIGN_BOTTOM_RIGHT);
+        assert_eq!(frame_align(BOTTOM), LV_ALIGN_BOTTOM_LEFT);
+        assert_eq!(frame_align(CENTER_HORIZONTAL), LV_ALIGN_TOP_MID);
+        assert_eq!(frame_align(CENTER_VERTICAL), LV_ALIGN_LEFT_MID);
+        assert_eq!(frame_align(CENTER), LV_ALIGN_CENTER);
+        assert_eq!(frame_align(CENTER_HORIZONTAL | BOTTOM), LV_ALIGN_BOTTOM_MID);
+        assert_eq!(frame_align(RIGHT | CENTER_VERTICAL), LV_ALIGN_RIGHT_MID);
+        // FILL sets both pulls on an axis: the start, since a child cannot be stretched.
+        assert_eq!(frame_align(FILL_VERTICAL | 0x07), LV_ALIGN_TOP_LEFT);
+    }
 
     #[test]
     fn text_align_reads_the_horizontal_field_only() {

@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Today's totals and a week of daily token counts, from the PC's local transcripts. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- Three figures over their captions; the first caption is the widest, so the columns are not equal. -->
+    <FrameLayout
+        style="@style/Card"
+        android:layout_height="60dp"
+        android:layout_marginTop="2dp">
+
+        <TextView
+            android:id="@+id/tokens_today"
+            style="@style/Line"
+            android:layout_marginLeft="@dimen/card_pad"
+            android:layout_marginTop="11dp"
+            android:text="@string/dash" />
+
+        <TextView
+            style="@style/Line.Caption"
+            android:layout_marginLeft="@dimen/card_pad"
+            android:layout_marginTop="31dp"
+            android:text="@string/history_tokens_today" />
+
+        <TextView
+            android:id="@+id/api_value"
+            style="@style/Line"
+            android:layout_marginLeft="124dp"
+            android:layout_marginTop="11dp"
+            android:text="@string/dash" />
+
+        <TextView
+            style="@style/Line.Caption"
+            android:layout_marginLeft="124dp"
+            android:layout_marginTop="31dp"
+            android:text="@string/history_api_value" />
+
+        <TextView
+            android:id="@+id/messages"
+            style="@style/Line"
+            android:layout_marginLeft="214dp"
+            android:layout_marginTop="11dp"
+            android:text="@string/dash" />
+
+        <TextView
+            style="@style/Line.Caption"
+            android:layout_marginLeft="214dp"
+            android:layout_marginTop="31dp"
+            android:text="@string/history_messages" />
+    </FrameLayout>
+
+    <FrameLayout
+        style="@style/Card"
+        android:layout_height="122dp"
+        android:layout_marginTop="66dp">
+
+        <TextView
+            style="@style/Line.Caption"
+            android:layout_marginLeft="@dimen/card_pad"
+            android:layout_marginTop="7dp"
+            android:text="@string/history_last_week" />
+
+        <TextView
+            android:id="@+id/peak"
+            style="@style/Line.Boxed"
+            android:layout_width="142dp"
+            android:layout_marginLeft="150dp"
+            android:layout_marginTop="7dp"
+            android:gravity="right"
+            android:textColor="@color/faint" />
+
+        <!-- One bar per day and its letter under it; the bars stand on y = 98. -->
+        <claudeusage.ui.WeekChart
+            android:id="@+id/week"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="@dimen/card_pad"
+            android:layout_marginTop="40dp" />
+    </FrameLayout>
+</FrameLayout>

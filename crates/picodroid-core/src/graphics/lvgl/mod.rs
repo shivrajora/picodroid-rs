@@ -119,6 +119,9 @@ impl Gfx for LvglGfx {
     fn set_bg_color(&mut self, h: Handle, argb: u32) {
         view_ops::set_bg_color(h, argb);
     }
+    fn set_bg_tint(&mut self, h: Handle, argb: u32) {
+        view_ops::set_bg_tint(h, argb);
+    }
 
     fn set_padding(&mut self, h: Handle, l: i32, t: i32, r: i32, b: i32) {
         view_ops::set_padding(h, l, t, r, b);
@@ -162,6 +165,14 @@ impl Gfx for LvglGfx {
         view_ops::set_flex_grow(h, weight);
     }
 
+    fn set_margins(&mut self, h: Handle, left: i32, top: i32, right: i32, bottom: i32) {
+        view_ops::set_margins(h, left, top, right, bottom);
+    }
+
+    fn set_frame_gravity(&mut self, h: Handle, gravity: i32, dx: i32, dy: i32) {
+        view_ops::set_frame_gravity(h, gravity, dx, dy);
+    }
+
     fn frame(&mut self, h: Handle) -> (i32, i32, i32, i32) {
         view_ops::frame(h)
     }
@@ -181,6 +192,7 @@ impl Gfx for LvglGfx {
 #[cfg(not(test))]
 fn property_code(p: ViewProperty) -> i32 {
     match p {
+        ViewProperty::Alpha => animations::PROPERTY_ALPHA,
         ViewProperty::TranslationX => animations::PROPERTY_TRANSLATION_X,
         ViewProperty::TranslationY => animations::PROPERTY_TRANSLATION_Y,
         ViewProperty::Rotation => animations::PROPERTY_ROTATION,

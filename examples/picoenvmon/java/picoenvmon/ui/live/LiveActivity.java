@@ -2,6 +2,7 @@
 package picoenvmon.ui.live;
 
 import javax.inject.Inject;
+import picodroid.content.ComponentName;
 import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
 import picodroid.graphics.Theme;
@@ -79,7 +80,7 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
 
     setContentView(root);
 
-    bindService(new Intent(SensorLoggerService.class), this);
+    bindService(new Intent(SensorLoggerService.class), this, BIND_AUTO_CREATE);
   }
 
   @Override
@@ -95,7 +96,7 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
   }
 
   @Override
-  public void onServiceConnected(IBinder binder) {
+  public void onServiceConnected(ComponentName name, IBinder binder) {
     service = ((SensorLoggerService.LocalBinder) binder).service;
     service.addSmoothedListener(this);
     // The bound Service is the source of truth for the logging state (Android LocalBinder pattern).
@@ -112,7 +113,7 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
   }
 
   @Override
-  public void onServiceDisconnected() {
+  public void onServiceDisconnected(ComponentName name) {
     service = null;
   }
 

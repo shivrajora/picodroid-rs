@@ -1,6 +1,6 @@
 ---
 title: "Resources, R and XML layouts"
-description: "Put strings, colours, dimensions, layouts and images under res/, reference them through the generated R class, and inflate XML layouts with setContentView(R.layout.main)."
+description: "Put strings, colours, dimensions, styles, layouts, shapes and images under res/, reference them through the generated R class, and inflate XML layouts with setContentView(R.layout.main)."
 ---
 
 An app may carry an Android-style `res/` directory. Gradle compiles it into a binary table inside
@@ -25,7 +25,10 @@ No XML parser runs on the device. Layouts are compiled to a stream of integers, 
 place out of flash. `R`'s fields are compile-time constants that `javac` inlines, so the `R` classes
 themselves are left out of the PAPK: resources cost an app its table and nothing else.
 [`examples/resdemo`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/resdemo) is a
-complete app that checks every call on this page.
+complete app that checks the values, the inflater and `findViewById`, and
+[`examples/layoutdemo`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/layoutdemo)
+one that checks margins, gravity, shapes, includes, styles, the theme, custom views and
+`AsyncLayoutInflater`.
 
 ## Directory layout
 
@@ -40,6 +43,7 @@ examples/resdemo/
     layout/activity_main.xml  R.layout.activity_main
     layout/row.xml
     drawable/logo.png         R.drawable.logo
+    drawable/card.xml         a <shape>, for android:background="@drawable/card"
 ```
 
 `res/` is opt-in: an app without one builds exactly as before, and its PAPK is byte-identical.
@@ -66,13 +70,14 @@ on Android.
 
 | Element | Java | Notes |
 |---|---|---|
-| `<string>` | `getResources().getString(id)`, `Context.getString(id)`, `getText(id)` | Android's whitespace and escape rules: `\n`, `\t`, `\'`, `\"`, `\\`, `\uXXXX`, and `"double quotes"` to keep spacing. Plain text only — no `<b>`, no plurals, no string arrays, no format-argument overload. |
+| `<string>` | `getString(id)` and `getString(id, Object... formatArgs)` on `Resources`, `Context` and `Fragment`; `getText(id)` | Android's whitespace and escape rules: `\n`, `\t`, `\'`, `\"`, `\\`, `\uXXXX`, and `"double quotes"` to keep spacing. The format-argument overload is `String.format` over the string. Plain text only — no `<b>`, no plurals, no string arrays. |
 | `<color>` | `getResources().getColor(id)`, `Context.getColor(id)` | `#RGB`, `#ARGB`, `#RRGGBB`, `#AARRGGBB`. |
 | `<dimen>` | `getDimension(id)` (float px), `getDimensionPixelSize(id)`, `getDimensionPixelOffset(id)` | `px`, `dp` and `sp` are accepted and are all **one pixel**: there is one density. `pt`, `mm`, `in` are refused. |
 | `<integer>` | `getInteger(id)` | Decimal or `0x…`. |
 | `<bool>` | `getBoolean(id)` | |
 
-A value may be a reference to another of the same type (`@color/accent`); chains are followed and
+A value may be a reference to another of the same type (`@color/accent`) or to the theme
+(`?attr/colorPrimary`, [below](#styles-and-the-theme)); chains are followed and
 cycles are a build error. An id of the wrong type, or one that does not exist, throws
 `Resources.NotFoundException`, as on Android.
 
@@ -109,14 +114,138 @@ cycles are a build error. An id of the wrong type, or one that does not exist, t
 - `<T extends View> T findViewById(int)` on `Activity` and on any `View`, depth first.
   `@+id/name` declares `R.id.name`.
 
-**Elements:** `LinearLayout`, `FrameLayout`, `ScrollView`, `RadioGroup`, `TextView`, `Button`,
-`ImageView`, `EditText`, `CheckBox`, `Switch`, `ToggleButton`, `RadioButton`, `ProgressBar`,
-`CircularProgressIndicator`, `SeekBar`, `Spinner`, `ListView`, `ViewPager2`. Each may also be
-written fully qualified (`<picodroid.widget.ViewPager2>`), the way Android requires for a view
-outside `android.widget`. A custom view class cannot be inflated — there is no reflection
-to construct it with — and `<include>` / `<merge>` are not supported yet; both are build errors.
-Create those views in Java and `addView` them into an inflated container. The same goes for a
-view that draws itself with `onDraw(Canvas)`.
+**Elements:** `LinearLayout`, `FrameLayout`, `ScrollView`, `RadioGroup`, `View`, `TextView`,
+`Button`, `ImageView`, `EditText`, `CheckBox`, `Switch`, `ToggleButton`, `RadioButton`,
+`ProgressBar`, `CircularProgressIndicator`, `SeekBar`, `Spinner`, `ListView`, `ViewPager2`. Each
+may also be written fully qualified (`<picodroid.widget.ViewPager2>`), the way Android requires
+for a view outside `android.widget`. `<include layout="@layout/row"/>` puts another layout in
+place of the element; `<merge>` is not supported and is a build error. Any other dotted name is
+[a view class of your own](#custom-views).
+
+### Margins and `FrameLayout` placement
+
+`layout_margin`, `layout_marginLeft/Top/Right/Bottom`, `layout_marginStart/End` and
+`layout_marginHorizontal/Vertical` become the child's `ViewGroup.MarginLayoutParams`, which both
+`LinearLayout.LayoutParams` and `FrameLayout.LayoutParams` extend:
+
+- In a `LinearLayout` a margin is space kept clear around the child, so
+  `android:layout_marginLeft="6dp"` on the second of two children is the gap between them.
+- In a `FrameLayout` a child is placed by its `layout_gravity` and its margins, as on Android:
+  against the corner, edge or centre the gravity names (`top|left` when it names none), moved in by
+  the margins on that side. `layout_marginLeft` and `layout_marginTop` alone are therefore the
+  child's x and y, which is how a pixel-exact panel is written in XML:
+
+```xml
+<FrameLayout
+    android:layout_width="304dp"
+    android:layout_height="92dp"
+    android:background="@drawable/card">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginLeft="12dp"
+        android:layout_marginTop="7dp"
+        android:text="@string/caption" />
+
+    <TextView
+        android:id="@+id/note"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="right|bottom"
+        android:layout_marginRight="12dp"
+        android:layout_marginBottom="7dp" />
+</FrameLayout>
+```
+
+The same params work from code (`new FrameLayout.LayoutParams(w, h, Gravity.CENTER)`,
+`lp.setMargins(l, t, r, b)`, `parent.addView(child, lp)`). They are read when the child is added.
+`ViewGroup.addView(child)` applies the `LayoutParams` the child already carries, so an inflated
+view needs no second argument. One divergence: a background with a stroke insets its children by
+the stroke's width (the renderer's border is inside the box), where Android draws the stroke under
+them.
+
+### `<include>`
+
+`<include layout="@layout/meter_row" android:id="@+id/cap_0" android:layout_marginTop="27dp"/>`
+compiles to the named layout's tree at that place. The include's `android:id`,
+`android:visibility` and `layout_*` attributes replace the included root's; any other attribute on
+an `<include>` is a build error. Find a view inside one instance with
+`findViewById(R.id.cap_0).findViewById(R.id.meter_name)`. The inclusion happens at build time, so
+it costs nothing on the device beyond the views themselves.
+
+### Custom views
+
+A view class of your own is named by its fully qualified class name, as on Android:
+
+```xml
+<com.example.ui.GaugeView
+    android:id="@+id/gauge"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:layout_marginLeft="40dp" />
+```
+
+There is no reflection to construct it by, so the inflater asks a `LayoutInflater.Factory`, and
+every `Activity` is one. Override `Activity.onCreateView(String name, Context context,
+AttributeSet attrs)` (the same method Android calls) and construct your views there:
+
+```java
+@Override
+public View onCreateView(String name, Context context, AttributeSet attrs) {
+  if (name.equals("com.example.ui.GaugeView")) {
+    return new GaugeView(context, attrs);
+  }
+  return super.onCreateView(name, context, attrs);
+}
+```
+
+The framework then applies the element's common attributes (`id`, `layout_*`, padding,
+`background`, `visibility`, `alpha`) to what you return. `attrs` is always empty: a layout is
+numbers by the time it reaches the device, and an attribute of the view's own (`app:…`) is
+reported and dropped at build time. A custom element cannot have children. Inflating one with no
+factory answering for it throws `InflateException`. `LayoutInflater.setFactory` installs a factory
+other than the Activity.
+
+A view that draws itself (`extends View`, `onDraw(Canvas)`) says how large it wants to be in
+`onMeasure`, which the framework calls when the view is added with a `wrap_content` dimension:
+
+```java
+@Override
+protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+  setMeasuredDimension(
+      resolveSize(bars * BAR_PITCH, widthMeasureSpec), resolveSize(HEIGHT, heightMeasureSpec));
+}
+```
+
+`View.MeasureSpec`, `measure`, `setMeasuredDimension`, `getMeasuredWidth/Height`, `resolveSize` and
+`getDefaultSize` are Android's. A `wrap_content` dimension is measured `UNSPECIFIED` and a fixed
+one `EXACTLY`; a view with two fixed (or `match_parent`) dimensions is not asked at all, and the
+framework's own widgets are sized by the renderer, which knows their content. Drawing views need a
+board with `Canvas`, which is every RP2350 board.
+
+### Inflating without stalling the UI
+
+On a board where every view costs milliseconds, a screen of thirty views inflated in one go is one
+long main-thread tick. `picodroid.view.AsyncLayoutInflater` (androidx's class) spreads it out:
+
+```java
+new AsyncLayoutInflater(context)
+    .inflate(R.layout.page_limits, container, (view, resid, parent) -> {
+      parent.addView(view);
+      // findViewById, first paint ...
+    });
+```
+
+Android inflates on a worker thread; views are made on the main thread here, so the work is cut
+into slices of a few milliseconds, one per tick of the main loop, and the callback runs on a tick
+of its own once the tree is whole. As on Android the view is not added to `parent`, which only
+supplies the root's `LayoutParams`. An `OutOfMemoryError` part-way drops what was built and starts
+again on a later tick. A callback that finds its screen gone (a fragment whose view was destroyed
+meanwhile) should call `view.close()`, because picodroid frees a view's widget when it is removed
+and this one was never added.
+[`examples/claudeusage`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/claudeusage)
+builds each of its pages this way.
 
 A Fragment needs no element of its own: give a `FrameLayout` an id and hand it to the
 transaction, `getSupportFragmentManager().beginTransaction().replace(R.id.container, fragment)`,
@@ -130,9 +259,9 @@ RP2350 boards.
 
 | Group | Attributes |
 |---|---|
-| Any view | `id`, `layout_width`, `layout_height` (`match_parent`, `wrap_content`, a dimension), `layout_weight`, `layout_gravity`, `padding`, `paddingLeft/Top/Right/Bottom`, `paddingStart/End`, `paddingHorizontal/Vertical`, `background` (a colour, `#AARRGGBB` with the alpha honoured, or `@android:color/transparent`, `black`, `white`), `visibility`, `enabled`, `focusable`, `alpha` |
+| Any view | `id`, `style`, `layout_width`, `layout_height` (`match_parent`, `wrap_content`, a dimension), `layout_weight`, `layout_gravity` (applied in a `FrameLayout`), `layout_margin` and its per-side forms, `padding`, `paddingLeft/Top/Right/Bottom`, `paddingStart/End`, `paddingHorizontal/Vertical`, `background` (a colour, `#AARRGGBB` with the alpha honoured; `@android:color/transparent`, `black`, `white`; or a `@drawable/` [shape](#drawables)), `visibility`, `enabled`, `focusable`, `alpha` |
 | `LinearLayout`, `RadioGroup` | `orientation`, `gravity` (where the children go) |
-| `TextView`, `Button` | `text`, `textColor`, `textSize` (a dimension, `sp` = `px`; snaps to the board's nearest compiled face), `gravity` (where the text sits in a view wider than it: `left`/`start`, `center_horizontal`/`center`, `right`/`end`; the vertical half is recorded, not drawn), `singleLine`, `maxLines`, `ellipsize` |
+| `TextView`, `Button` | `text`, `textColor`, `textSize` (a dimension, `sp` = `px`; snaps to the board's nearest compiled face), `gravity` (where the text sits in a view wider than it: `left`/`start`, `center_horizontal`/`center`, `right`/`end`; the vertical half is recorded, not drawn), `singleLine`, `maxLines`, `ellipsize`, `includeFontPadding` |
 | `EditText` | `text`, `hint`, `inputType` (`text`, `number`, `phone`, `datetime`, `textUri`, `textEmailAddress`, `textPassword`, `numberSigned`, `numberDecimal`) |
 | `CheckBox`, `RadioButton` | `text`, `checked` |
 | `Switch`, `ToggleButton` | `checked`; `textOn`, `textOff` on `ToggleButton` |
@@ -140,7 +269,7 @@ RP2350 boards.
 | `ProgressBar`, `SeekBar` | `progress`, `max`; `min`, `progressTint`, `progressBackgroundTint`, `indeterminateTint` on `ProgressBar` (`tint` is the older spelling of `indeterminateTint`). `min` and `max` are applied before `progress` whatever the XML order, as on Android. |
 | `CircularProgressIndicator` | `ProgressBar`'s `progress`, `min`, `max`, `progressTint` (the indicator) and `progressBackgroundTint` (the track), plus Material's `indicatorColor`, `trackColor`, `trackThickness`, `indicatorSize` (Android Studio writes them with the `app:` prefix) and picodroid's `startAngle`, `sweepAngle` (degrees) |
 
-An attribute the framework has no setter for — `textStyle`, `fontFamily`, `layout_margin`,
+An attribute the framework has no setter for — `textStyle`, `fontFamily`, `elevation`,
 `onClick` — is **reported as a build warning
 and dropped**, so a layout pasted from an Android project builds and tells you what it lost. A
 value that does not parse, an undefined reference, or an unknown element is a build error that names
@@ -152,14 +281,72 @@ A PNG under `res/drawable/` becomes `R.drawable.<name>` and is shown with
 `ImageView.setImageResource(R.drawable.logo)` or `android:src="@drawable/logo"`. It is decoded to
 RGB565 at build time and stored in the PAPK's ASSETS section exactly like a file under
 [`assets/`](/guides/assets/), so the same rules apply: PNG only, alpha is discarded, and each image
-costs `width × height × 2` bytes of flash. XML drawables (shapes, selectors, vectors) do not exist;
-use `GradientDrawable` from Java.
+costs `width × height × 2` bytes of flash.
+
+An XML file under `res/drawable/` is a `<shape>`: a filled rectangle with optional round corners
+and a stroke, for `android:background="@drawable/card"`.
+
+```xml
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="?attr/colorSurface" />
+    <corners android:radius="12dp" />
+    <stroke android:width="1dp" android:color="@color/outline" />
+</shape>
+```
+
+A shape is flattened at build time into the layouts that use it: the inflater gives the view a
+`GradientDrawable` with those numbers, so `getBackground()` returns one. It has no `R.drawable`
+entry and costs no flash of its own. Only `rectangle` (the default), `<solid>`, `<corners
+android:radius>` and `<stroke>` are supported; selectors, vectors, gradients and per-corner radii
+are build errors. To change such a background's colour at run time, tint it:
+`view.setBackgroundTintList(ColorStateList.valueOf(color))` recolours it and keeps the shape.
+
+## Styles and the theme
+
+```xml
+<resources>
+    <style name="AppTheme">
+        <item name="colorPrimary">@color/clay</item>
+        <item name="android:colorBackground">@color/background</item>
+        <item name="android:textColorPrimary">@color/text</item>
+    </style>
+
+    <style name="Line">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:singleLine">true</item>
+        <item name="android:textColor">?android:attr/textColorPrimary</item>
+    </style>
+
+    <!-- Inherits Line by its name; parent="..." names a parent explicitly. -->
+    <style name="Line.Caption">
+        <item name="android:textColor">?android:attr/textColorSecondary</item>
+    </style>
+</resources>
+```
+
+- `style="@style/Line.Caption"` on a layout element gives it the style's items, parents first; an
+  attribute written on the element itself wins. The expansion happens at build time, so a style
+  costs nothing on the device.
+- `?attr/name` (also `?android:attr/name` and `?name`) in a layout, a shape or a value is the item
+  `name` of the app's theme, which is the style called **`AppTheme`**. It too is resolved at build
+  time. A theme item may be anything a reference can be, including one of your own
+  (`<item name="captionSize">20sp</item>`).
+- `Context.setTheme(R.style.AppTheme)`, called in `onCreate` before `setContentView`, hands the
+  theme's colours to the framework's own widgets, which is what the device keeps of a style:
+  `colorPrimary`, `colorOnPrimary`, `android:colorBackground`, `colorSurface`,
+  `android:textColorPrimary`, `android:textColorSecondary` and `colorOutline` become
+  `picodroid.graphics.Theme`'s defaults. Every `<style>` has an `R.style` id (dots as underscores).
+
+Divergences: one theme per app rather than one per context; the theme `?attr/` reads is chosen by
+name, not by the manifest; no `TypedArray`, `obtainStyledAttributes` or `Theme.resolveAttribute`;
+a parent that is not one of the app's own styles (a framework theme) contributes nothing.
 
 ## What is not there
 
-Styles and themes (`style=`, `?attr/…`), `AttributeSet` and custom view constructors, string
-arrays and plurals, `getString(int, Object...)`, `getIdentifier`, `<include>` / `<merge>` /
-`ViewStub`, menus, animations and any qualified resource directory.
+String arrays and plurals, `getIdentifier`, `<merge>` / `ViewStub`, custom view attributes
+(`app:…`, `declare-styleable`), selector / vector / layer drawables, menus, animations and any
+qualified resource directory.
 
 ## Inspecting a package
 

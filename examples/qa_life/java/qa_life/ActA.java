@@ -2,6 +2,7 @@
 package qa_life;
 
 import picodroid.app.Activity;
+import picodroid.content.ComponentName;
 import picodroid.content.Context;
 import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
@@ -31,14 +32,14 @@ public class ActA extends Activity {
   private final ServiceConnection conn =
       new ServiceConnection() {
         @Override
-        public void onServiceConnected(IBinder binder) {
+        public void onServiceConnected(ComponentName name, IBinder binder) {
           T.log("A.connected");
           binderA = binder;
           pingFromA = ((Svc.LocalBinder) binder).service.ping();
         }
 
         @Override
-        public void onServiceDisconnected() {
+        public void onServiceDisconnected(ComponentName name) {
           disconnectsA++;
           T.log("A.disconnected");
         }
@@ -88,7 +89,7 @@ public class ActA extends Activity {
     // Service calls are asynchronous: nothing below has run until the next tick.
     startService(new Intent(Svc.class).putExtra("cmd", 1));
     startService(new Intent(Svc.class).putExtra("cmd", 2));
-    bindService(new Intent(Svc.class), conn);
+    bindService(new Intent(Svc.class), conn, BIND_AUTO_CREATE);
     T.check("startService is asynchronous", Svc.creates == 0 && binderA == null);
     startActivityForResult(new Intent(ActB.class).putExtra("q", 9), 5);
   }
@@ -224,7 +225,7 @@ public class ActA extends Activity {
         break;
       case 2:
         T.check("second unbind does not re-unbind", Svc.unbinds == 1);
-        bindService(new Intent(Svc.class), conn);
+        bindService(new Intent(Svc.class), conn, BIND_AUTO_CREATE);
         break;
       case 3:
         T.check(

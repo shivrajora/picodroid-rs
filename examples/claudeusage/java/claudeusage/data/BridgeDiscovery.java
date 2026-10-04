@@ -28,6 +28,9 @@ final class BridgeDiscovery {
   private static final int ATTEMPTS = 2;
   private static final int WAIT_MS = 1500;
 
+  /** 255.255.255.255: every host on the LAN. */
+  private static final byte[] BROADCAST = {(byte) 255, (byte) 255, (byte) 255, (byte) 255};
+
   private BridgeDiscovery() {}
 
   /** {@code host:port} of the first bridge to answer, or null when none did. */
@@ -39,7 +42,7 @@ final class BridgeDiscovery {
       s = new DatagramSocket();
       s.setBroadcast(true);
       s.setSoTimeout(WAIT_MS);
-      InetAddress everyone = InetAddress.getByAddress(255, 255, 255, 255);
+      InetAddress everyone = InetAddress.getByAddress(BROADCAST);
       DatagramPacket probe = new DatagramPacket(query, query.length, everyone, PORT);
       for (int attempt = 0; attempt < ATTEMPTS; attempt++) {
         s.send(probe);
@@ -86,6 +89,6 @@ final class BridgeDiscovery {
         return null;
       }
     }
-    return new InetAddress(in.getAddress()).getHostAddress() + ":" + port;
+    return in.getAddress().getHostAddress() + ":" + port;
   }
 }

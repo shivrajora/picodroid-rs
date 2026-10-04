@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package claudeusage.ui;
 
+import claudeusage.data.UsageSnapshot;
 import picodroid.content.Context;
 import picodroid.graphics.Canvas;
 import picodroid.graphics.Paint;
+import picodroid.util.AttributeSet;
 import picodroid.view.View;
 
 /**
@@ -24,6 +26,9 @@ final class WeekChart extends View {
   /** The letters' line starts this far below the bars' baseline. */
   private static final int LETTER_GAP = 3;
 
+  /** Room for one line of the letters' 14 px face. */
+  private static final int LETTER_LINE = 18;
+
   private final Palette palette;
   private final Paint paint = new Paint();
   private final int days;
@@ -36,17 +41,24 @@ final class WeekChart extends View {
    */
   private boolean sized;
 
-  WeekChart(Context ctx, Palette palette, int days) {
-    super(ctx);
-    this.palette = palette;
-    this.days = days;
+  WeekChart(Context context, AttributeSet attrs) {
+    super(context);
+    palette = Palette.of(context.getResources());
+    days = UsageSnapshot.DAYS;
     heights = new int[days];
     for (int d = 0; d < days; d++) {
       heights[d] = STUB;
     }
     paint.setTextAlign(Paint.Align.CENTER);
     paint.setTextSize(14);
-    setSize(days * COLUMN, BAR_MAX + LETTER_GAP + Ui.LINE_HEIGHT);
+  }
+
+  /** A column per day, the tallest bar and a line of text for the letters under it. */
+  @Override
+  protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+    setMeasuredDimension(
+        resolveSize(days * COLUMN, widthMeasureSpec),
+        resolveSize(BAR_MAX + LETTER_GAP + LETTER_LINE, heightMeasureSpec));
   }
 
   /**

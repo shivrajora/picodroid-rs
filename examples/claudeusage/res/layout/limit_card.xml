@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  One usage window: a ring gauge with the reset countdown inside it, the big percentage in the
+  ring's open bottom, and a pace line under that. Geometry is pixel art for the 320x240 panel:
+  the ring's rounded caps end 4 px above the top of the big number's digits.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="@dimen/limit_card_width"
+    android:layout_height="186dp"
+    android:background="@drawable/card">
+
+    <TextView
+        android:id="@+id/caption"
+        style="@style/Line.Boxed"
+        android:layout_width="match_parent"
+        android:layout_marginTop="4dp"
+        android:gravity="center_horizontal"
+        android:textColor="@color/muted" />
+
+    <!-- The ring is 104 px across; the view is 2 px larger all round for the pace tick. -->
+    <claudeusage.ui.RingView
+        android:id="@+id/ring"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginLeft="21dp"
+        android:layout_marginTop="22dp" />
+
+    <TextView
+        android:id="@+id/resets_label"
+        style="@style/Line.Boxed"
+        android:layout_width="84dp"
+        android:layout_marginLeft="33dp"
+        android:layout_marginTop="57dp"
+        android:gravity="center_horizontal"
+        android:textColor="@color/faint" />
+
+    <TextView
+        android:id="@+id/countdown"
+        style="@style/Line.Boxed"
+        android:layout_width="84dp"
+        android:layout_marginLeft="33dp"
+        android:layout_marginTop="77dp"
+        android:gravity="center_horizontal"
+        android:textColor="@color/muted" />
+
+    <TextView
+        android:id="@+id/detail"
+        style="@style/Line.Boxed"
+        android:layout_width="142dp"
+        android:layout_marginLeft="4dp"
+        android:layout_marginTop="165dp"
+        android:gravity="center_horizontal"
+        android:textColor="@color/faint" />
+
+    <!-- A row centres the tall face vertically, which a label cannot do for itself. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/display_box"
+        android:layout_marginTop="118dp"
+        android:orientation="horizontal"
+        android:gravity="center">
+
+        <TextView
+            android:id="@+id/number"
+            style="@style/Line.Display" />
+    </LinearLayout>
+</FrameLayout>

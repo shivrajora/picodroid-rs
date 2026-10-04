@@ -5,6 +5,8 @@ import java.io.IOException;
 import picodroid.app.AlarmManager;
 import picodroid.app.NotificationManager;
 import picodroid.app.usage.StorageStatsManager;
+import picodroid.concurrent.Executor;
+import picodroid.concurrent.Executors;
 import picodroid.content.pm.PackageManager;
 import picodroid.content.res.Resources;
 import picodroid.hardware.SensorManager;
@@ -13,6 +15,7 @@ import picodroid.io.FileInputStream;
 import picodroid.io.FileOutputStream;
 import picodroid.net.ConnectivityManager;
 import picodroid.net.wifi.WifiManager;
+import picodroid.os.IBinder;
 
 /**
  * Common base for {@code Application}, {@code Activity} and {@code Service}: provides
@@ -93,6 +96,14 @@ public class Context {
     return null;
   }
 
+  /**
+   * Mirrors Android: an {@link Executor} that runs its tasks on the main thread, the one that owns
+   * the views. The same executor as {@link Executors#mainExecutor()}.
+   */
+  public Executor getMainExecutor() {
+    return Executors.mainExecutor();
+  }
+
   /** The package manager: what this device has installed and can launch. */
   public PackageManager getPackageManager() {
     return PackageManager.getInstance();
@@ -106,9 +117,30 @@ public class Context {
     return Resources.getInstance();
   }
 
+  /**
+   * Mirrors {@code android.content.Context#setTheme(int)}: makes the style {@code R.style.*} this
+   * app's theme, so the framework's widgets take their default colours from it. Call it before any
+   * view is made: in {@code onCreate}, before {@code setContentView}.
+   *
+   * <p>There is one theme per app, not one per context: it lives in {@link
+   * picodroid.graphics.Theme}. A layout's {@code ?attr/…} references do not wait for this call;
+   * they are resolved when the app is built, against the style named {@code AppTheme}.
+   */
+  public void setTheme(int resid) {
+    getResources().applyTheme(resid);
+  }
+
   /** Mirrors Android: shorthand for {@code getResources().getString(id)}. */
   public final String getString(int id) {
     return getResources().getString(id);
+  }
+
+  /**
+   * Mirrors Android: the string {@code id} used as a format, filled with {@code formatArgs} as
+   * {@code String.format} does.
+   */
+  public final String getString(int id, Object... formatArgs) {
+    return getResources().getString(id, formatArgs);
   }
 
   /** Mirrors Android: shorthand for {@code getResources().getColor(id)}. */
@@ -122,11 +154,30 @@ public class Context {
   /**
    * Retrieve a {@link SharedPreferences} for the given name, the standard Android idiom: {@code
    * context.getSharedPreferences("settings", Context.MODE_PRIVATE).edit().putInt(...).apply()}.
-   * {@code mode} is accepted for source compatibility; only {@link #MODE_PRIVATE} semantics exist,
-   * every app's storage being private.
+   * Every call for one name returns the same instance, which is safe to use from any thread. {@code
+   * mode} is accepted for source compatibility; only {@link #MODE_PRIVATE} semantics exist, every
+   * app's storage being private.
    */
   public SharedPreferences getSharedPreferences(String name, int mode) {
-    return SharedPreferences.open(name);
+    return SharedPreferences.getInstance(name);
+  }
+
+  /**
+   * The file writes {@link SharedPreferences.Editor#apply} left to a background thread, as one
+   * task; null until there has been one, so an app without preferences never loads the class.
+   */
+  static volatile Runnable sQueuedWork;
+
+  /**
+   * Finishes, in the calling thread, the file writes {@link SharedPreferences.Editor#apply} left to
+   * a background thread. The framework calls it when an Activity stops, where Android waits for its
+   * queued work, so what was applied on a screen is stored by the time the screen is gone.
+   */
+  protected final void finishQueuedWork() {
+    Runnable work = sQueuedWork;
+    if (work != null) {
+      work.run();
+    }
   }
 
   /**
@@ -204,11 +255,47 @@ public class Context {
   public final native void stopService(Intent intent);
 
   /**
-   * Bind to a Service. Calls {@code onCreate} (first time) and {@code onBind}, then delivers the
-   * returned IBinder to {@code conn.onServiceConnected}. The binding is scoped to the calling
-   * Activity (or to the Application when called outside an Activity).
+   * Flag for {@link #bindService}: create the Service as long as the binding exists. The only
+   * binding there is here, so the flag is accepted and changes nothing.
    */
-  public final native void bindService(Intent intent, ServiceConnection conn);
+  public static final int BIND_AUTO_CREATE = 0x0001;
+
+  /**
+   * Bind to a Service. Mirrors {@code android.content.Context#bindService(Intent,
+   * ServiceConnection, int)}: calls {@code onCreate} (first time) and {@code onBind}, then delivers
+   * the returned IBinder to {@code conn.onServiceConnected}. The binding is scoped to the calling
+   * Activity (or to the Application when called outside an Activity). {@code flags} is accepted for
+   * source compatibility; every binding behaves as {@link #BIND_AUTO_CREATE}.
+   *
+   * @return whether the Service was found and the bind is under way; when {@code false}, {@code
+   *     conn} hears nothing
+   */
+  public boolean bindService(Intent service, ServiceConnection conn, int flags) {
+    if (conn == null) {
+      throw new IllegalArgumentException("connection is null");
+    }
+    return nativeBindService(service, conn);
+  }
+
+  private native boolean nativeBindService(Intent service, ServiceConnection conn);
+
+  /**
+   * Called by the framework with the binder a bind obtained. The call to {@code conn} is made here,
+   * in bytecode, so a connection whose callbacks a base class declares is found as any interface
+   * method is.
+   */
+  static void dispatchServiceConnected(ServiceConnection conn, Context service, IBinder binder) {
+    conn.onServiceConnected(componentOf(service), binder);
+  }
+
+  /** Called by the framework when a connection goes away. */
+  static void dispatchServiceDisconnected(ServiceConnection conn, Context service) {
+    conn.onServiceDisconnected(componentOf(service));
+  }
+
+  private static ComponentName componentOf(Context service) {
+    return service == null ? null : new ComponentName(service, service.getClass());
+  }
 
   /** Drop a connection previously established via {@link #bindService}. */
   public final native void unbindService(ServiceConnection conn);

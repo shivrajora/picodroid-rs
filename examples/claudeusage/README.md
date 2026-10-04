@@ -4,9 +4,11 @@ A desk display for Claude usage limits: the 5-hour session, the weekly cap, per-
 rate, and token history. Built for the `pico_display2_w` board (Pimoroni Pico Display Pack 2.0 on a
 Pico 2 W) and runs on any networked board or in the simulator.
 
-Picodroid has no TLS, so the device does not talk to Anthropic. A small bridge runs on the PC where
-you use Claude Code and serves the numbers over plain HTTP on your LAN. Your OAuth token stays on
-the PC; the device only ever receives percentages, reset times and token counts.
+The device does not talk to Anthropic. A small bridge runs on the PC where you use Claude Code and
+serves the numbers over plain HTTP on your LAN. Your OAuth token stays on the PC; the device only
+ever receives percentages, reset times and token counts. HTTP is a choice, not a limitation (the
+SDK has HTTPS): a bridge on your LAN has no certificate the device could verify without one pinned
+into the app, and what crosses the wire is usage figures.
 
 ## Run the bridge
 
@@ -116,11 +118,32 @@ display face of the board's `text_sizes` ladder (`platforms/rp/mcus/rp/rp2350.to
 the leading, so the digits sit where the layout puts them and take any colour. Until 2026-09-23
 they were pre-rendered sprites drawn onto the card colour.
 
-## Layout
+## How it is built
 
-The app is one Activity, declared in `PicodroidManifest.xml`, over a started-and-bound
-`UsageService` that polls the bridge. The header and footer are `res/layout/activity_main.xml`;
-colours, strings and thresholds live in `res/values/`. The four screens are built in code, a few
-views per tick, because inflating a whole screen in one tick overruns the RP2350's UI budget.
+The app is one Activity, declared in `PicodroidManifest.xml`, and it is written the way the same
+app would be for Android.
+
+- **The UI is in `res/`.** `layout/activity_main.xml` is the header, the pager and the footer;
+  each screen is a layout of its own (`page_limits.xml`, `page_models.xml`, `page_burn.xml`,
+  `page_history.xml`, `page_status.xml`), with the repeated parts included (`limit_card.xml`,
+  `meter_row.xml`). Cards and dots are `<shape>` drawables, the label kinds are styles, and the
+  colours come from the theme in `values/themes.xml`. The ring gauge and the two charts are view
+  classes of the app's own, named in the layouts and constructed in
+  `MainActivity.onCreateView(String, Context, AttributeSet)`.
+- **Pages are Fragments in a `ViewPager2`.** A page returns an empty host from `onCreateView` and
+  hands its layout to an `AsyncLayoutInflater`, which builds it over several ticks: a screen of
+  thirty views in one tick would stall the RP2350's UI.
+- **Data flows one way.** `UsageService` (started, never bound) owns the poll thread and puts
+  what it learns into `UsageRepository` as one immutable `UsageData`. `UsageViewModel` observes
+  that, adds the clock, and publishes one immutable `UsageUiState` through `LiveData`, only when a
+  screen would be painted differently: once a minute on the data screens, once a second while the
+  status screen counts down. The Activity observes it for the header, footer and LED, and each
+  page for itself.
+
+One thing here is for the RP2350's tick budget rather than for Android: a page whose layout was
+built before the first data arrived paints it on the tick after the one that delivered it, because
+that first paint resolves every call site cold and, together with the header's repaint, overran
+the budget on the board. Every later repaint happens inside the `LiveData` call.
+
 `docs/designs/claudeusage-android-shape-2026-09.md` lists every remaining departure from Android
 idiom and why.

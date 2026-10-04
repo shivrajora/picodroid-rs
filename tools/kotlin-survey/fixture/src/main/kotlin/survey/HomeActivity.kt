@@ -5,6 +5,7 @@ import picodroid.app.Activity
 import picodroid.app.AlertDialog
 import picodroid.concurrent.Executors
 import picodroid.concurrent.Thread
+import picodroid.content.ComponentName
 import picodroid.content.Context
 import picodroid.content.Intent
 import picodroid.content.ServiceConnection
@@ -34,12 +35,12 @@ class HomeActivity : Activity() {
 
     private val connection =
         object : ServiceConnection {
-            override fun onServiceConnected(binder: IBinder) {
+            override fun onServiceConnected(name: ComponentName, binder: IBinder) {
                 svc = (binder as? SensorService.LocalBinder)?.service
                 status.setText("connected: ${svc?.latest()}")
             }
 
-            override fun onServiceDisconnected() {
+            override fun onServiceDisconnected(name: ComponentName) {
                 svc = null
             }
         }
@@ -74,7 +75,7 @@ class HomeActivity : Activity() {
         root.addView(toggle)
         setContentView(root)
 
-        bindService(Intent(SensorService::class.java), connection)
+        bindService(Intent(SensorService::class.java), connection, BIND_AUTO_CREATE)
         val sm = SensorManager.getInstance()
         sm.getDefaultSensor(Sensor.TYPE_LIGHT)?.let {
             sm.registerListener(rawListener, it, SensorManager.SENSOR_DELAY_NORMAL)

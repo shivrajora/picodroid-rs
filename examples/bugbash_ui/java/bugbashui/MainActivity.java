@@ -3,6 +3,7 @@ package bugbashui;
 
 import picodroid.app.Activity;
 import picodroid.concurrent.Executors;
+import picodroid.content.ComponentName;
 import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
 import picodroid.os.Bundle;
@@ -86,12 +87,12 @@ public class MainActivity extends Activity {
       conns[i] =
           new ServiceConnection() {
             @Override
-            public void onServiceConnected(IBinder binder) {}
+            public void onServiceConnected(ComponentName name, IBinder binder) {}
 
             @Override
-            public void onServiceDisconnected() {}
+            public void onServiceDisconnected(ComponentName name) {}
           };
-      bindService(new Intent(ProbeService.class), conns[i]);
+      bindService(new Intent(ProbeService.class), conns[i], BIND_AUTO_CREATE);
       final int next = i + 1;
       Executors.mainExecutor().execute(() -> bindStep(next));
     } else {

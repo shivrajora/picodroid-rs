@@ -23,6 +23,9 @@ use super::handle::Handle;
 /// & co; the animated versions go straight to the backend's animation engine.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum ViewProperty {
+    /// Opacity, 0 to 1. Read only through this enum (after a cancelled
+    /// animation); `setAlpha` has a setter of its own.
+    Alpha,
     TranslationX,
     TranslationY,
     Rotation,
@@ -85,6 +88,9 @@ pub trait Gfx {
     /// `argb` is a packed `0xAARRGGBB` word; alpha is currently ignored by
     /// the LVGL backend (use [`Self::set_alpha`] for whole-widget opacity).
     fn set_bg_color(&mut self, h: Handle, argb: u32);
+    /// Recolour the background without touching its opacity, corners or
+    /// border: `View.setBackgroundTintList`.
+    fn set_bg_tint(&mut self, h: Handle, argb: u32);
     fn set_padding(&mut self, h: Handle, left: i32, top: i32, right: i32, bottom: i32);
     fn set_visibility(&mut self, h: Handle, v: Visibility);
     fn set_enabled(&mut self, h: Handle, on: bool);
@@ -121,6 +127,14 @@ pub trait Gfx {
     /// {@code LinearLayout.LayoutParams.weight} so weighted children expand
     /// to fill remaining space along the layout's main axis.
     fn set_flex_grow(&mut self, h: Handle, weight: i32);
+
+    /// `MarginLayoutParams` on a `LinearLayout` child: the space kept clear
+    /// around it, in pixels.
+    fn set_margins(&mut self, h: Handle, left: i32, top: i32, right: i32, bottom: i32);
+
+    /// A `FrameLayout` child's place: against what `gravity` (Android's
+    /// bits) names, offset by (`dx`, `dy`) pixels.
+    fn set_frame_gravity(&mut self, h: Handle, gravity: i32, dx: i32, dy: i32);
 
     /// Laid-out geometry (x, y, width, height) in parent-relative pixels,
     /// after forcing any pending layout pass. Backs View.getWidth/getHeight/

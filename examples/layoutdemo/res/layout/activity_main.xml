@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?android:attr/colorBackground">
+
+    <TextView
+        android:id="@+id/title"
+        style="@style/Caption.Large"
+        android:text="@string/title" />
+
+    <!-- Margins in a LinearLayout keep space clear between the children. -->
+    <LinearLayout
+        android:id="@+id/spaced"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <FrameLayout
+            android:id="@+id/first"
+            android:layout_width="10dp"
+            android:layout_height="10dp"
+            android:background="@color/accent" />
+
+        <FrameLayout
+            android:id="@+id/second"
+            android:layout_width="10dp"
+            android:layout_height="10dp"
+            android:layout_marginLeft="6dp"
+            android:layout_marginRight="9dp"
+            android:background="@color/accent" />
+
+        <FrameLayout
+            android:id="@+id/third"
+            android:layout_width="10dp"
+            android:layout_height="10dp"
+            android:background="@color/accent" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:id="@+id/stages"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+</LinearLayout>

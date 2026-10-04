@@ -114,6 +114,15 @@ pub const CONNECTIVITY_CHANGE: usize = if cfg!(has_multi_app) { 45 } else { 44 }
 /// fans scan completion out to the registered `ScanResultsCallback`s
 /// (lifecycle::net_events). Present on every board, like the one above.
 pub const WIFI_EVENT: usize = CONNECTIVITY_CHANGE + 1;
+/// A bind's IBinder on its way to the app: the static
+/// `Context.dispatchServiceConnected(conn, service, binder)` builds the
+/// `ComponentName` and calls `conn.onServiceConnected` in bytecode, where an
+/// interface call finds a callback a base class declares (the flat native
+/// lookup found only the connection's own class).
+pub const SERVICE_CONNECTED: usize = WIFI_EVENT + 1;
+/// The same for `conn.onServiceDisconnected`:
+/// `Context.dispatchServiceDisconnected(conn, service)`.
+pub const SERVICE_DISCONNECTED: usize = WIFI_EVENT + 2;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -169,6 +178,8 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     (c::picodroid_app_AlarmManager, m::fireAlarm),
     (c::picodroid_net_ConnectivityManager, m::fireLinkChange),
     (c::picodroid_net_wifi_WifiManager, m::fireEvent),
+    (c::picodroid_content_Context, m::dispatchServiceConnected),
+    (c::picodroid_content_Context, m::dispatchServiceDisconnected),
 ];
 
 #[cfg(test)]

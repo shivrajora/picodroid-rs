@@ -7,8 +7,72 @@ This page covers everything that landed in releases v0.4.0 through v0.35.0, and 
 
 ## Unreleased — on `main` since v0.35.0
 
-Not tagged yet. One change here needs action: **every `.papk` must be re-packed**, because the
-package format moved to major version 2.
+Not tagged yet. Two changes here need action: **every `.papk` must be re-packed**, because the
+package format moved to major version 2, and **three SDK signatures changed** to Android's
+(`ServiceConnection` / `bindService`, `Executors.newSingleThreadScheduledExecutor`,
+`DatagramPacket.getAddress`), in the first entry below.
+
+**Android-shaped app code: the `claudeusage` round (2026-10-01)**
+
+The remaining places where `examples/claudeusage` read differently from the same app written
+for Android, closed in the SDK. Several are source-incompatible; each says what to change.
+
+- **Breaking: `ServiceConnection` and `bindService` have Android's signatures.**
+  `onServiceConnected(ComponentName name, IBinder service)`,
+  `onServiceDisconnected(ComponentName name)` and
+  `boolean bindService(Intent, ServiceConnection, int flags)` with `Context.BIND_AUTO_CREATE`
+  replace the one-argument, no-argument and two-argument forms. Add the `ComponentName`
+  parameter to both callbacks and `BIND_AUTO_CREATE` to the bind. The callbacks are ordinary
+  interface calls now, so a connection may inherit them from a base class (the flat lookup that
+  found them only on the exact class is gone). New with them: `picodroid.content.ComponentName`,
+  `picodroid.os.Binder` (extend it for a LocalBinder; `implements IBinder` still works) and
+  `new Intent(Context, Class)`.
+- **Breaking: `Executors.newSingleThreadScheduledExecutor()` runs on a thread of its own**, as in
+  the JDK: its tasks may block and must not touch views. The main-thread scheduler it used to
+  return is `Executors.mainScheduledExecutor()`: rename the call where the tasks touch the UI
+  (every example did).
+- **Breaking: `DatagramPacket.getAddress()` returns an `InetAddress`**, not the packed `int`
+  (`getAddress().getRawAddress()` is the old value). `InetAddress.getByAddress(byte[])` and
+  `getAddress()` are new.
+- **`SharedPreferences` behaves as Android's.** `Context.getSharedPreferences` returns one
+  instance per file, safe from any thread. `apply()` changes memory at once and writes the file
+  on a background thread, so it is safe on the main thread; pending writes are finished when the
+  Activity stops and before the file is read again. `commit()` still writes before returning. A
+  write that fails leaves the new values in memory (it used to roll them back).
+  `SharedPreferences.open(name)` is unchanged: a separate instance read from the file.
+- **Board configuration:** `[background_pool] stack_bytes` now defaults to 6144 and the build
+  refuses less, because the framework itself puts file writes on a pool worker
+  (`SharedPreferences.apply()`); a 4 KB worker overflowed doing one on `testbench_rp2040`. That
+  board now runs two workers with 8 KB stacks in the RAM four with 4 KB took. Every other
+  board already set 6144 or more.
+- **A view with nothing set shows nothing.** A new `TextView` read "Text", a `CheckBox`
+  "Check box" and an empty `Spinner` "Option 1"; they are empty now.
+- **Setters do nothing when nothing changes**, as on Android: `View.setVisibility`, `setAlpha`,
+  `setEnabled`, `setBackground` with the same drawable, `TextView.setText` and `setTextColor`,
+  and the `ProgressBar` tint lists. `TextView.setText(null)` is the empty string, and
+  `getText()` no longer costs a native call.
+- **New on `View`:** `getBackground()`, `setBackgroundTintList(ColorStateList)` /
+  `getBackgroundTintList()` (recolour a background and keep its shape), and for a view that
+  draws itself `onMeasure` / `setMeasuredDimension` / `measure` / `getMeasuredWidth` /
+  `getMeasuredHeight` / `resolveSize` / `getDefaultSize` with `View.MeasureSpec`.
+- **New on `Context` / `Activity` / `Fragment` / `Resources`:** `getString(int, Object...)`,
+  `Context.getMainExecutor()`, `Activity.runOnUiThread(Runnable)`, `Context.setTheme(int)`,
+  `Activity.onCreateView(String, Context, AttributeSet)`. `KeyEvent.KEYCODE_BUTTON_A` / `_B` /
+  `_X` / `_Y` exist as constants (no board maps a button to them).
+- **Layouts say much more.** The resource compiler now takes `layout_margin` and its per-side
+  forms (`ViewGroup.MarginLayoutParams`), applies `layout_gravity` and margins in a
+  `FrameLayout`, and accepts `<include>`, `<View>`, `android:includeFontPadding`,
+  `style="@style/…"`, `?attr/…` against the app's `AppTheme` style, `<shape>` drawables as
+  backgrounds, and elements that name a view class of the app's own, which the Activity
+  constructs in `onCreateView`. `ViewGroup.addView(child)` applies the `LayoutParams` the child
+  carries. See [Resources, R and XML layouts](/guides/resources/); `examples/layoutdemo` checks
+  all of it.
+- **`picodroid.view.AsyncLayoutInflater`** (androidx's) inflates a layout over several ticks of
+  the main loop, a few milliseconds each, and calls back when the tree is whole.
+- `examples/claudeusage` is written with all of this: its pages are XML layouts inflated
+  asynchronously, its data flow is a repository, a `ViewModel` and one immutable UI state in a
+  `LiveData`, and the hand-written diffing, per-tick view building and `Theme` assignments are
+  gone. The four screens are pixel-identical to the code-built ones in the simulator.
 
 **Classes are linked when they are packed (PAPK v2) (2026-09-28)**
 
@@ -1413,7 +1477,7 @@ Shrink map: 2 new entries (`OnEditorActionListener`, `EditorInfo`); v0.4.0 entri
 **DI + Service framework (Preview).** Introduced the `picodroid.app.Service` lifecycle plus the manual DI components used by `picoenvmon`. New surface:
 
 - [`Service`](/api/services/#picodroidappservice) — `onCreate` / `onStartCommand` / `onBind` / `onUnbind` / `onRebind` / `onDestroy`.
-- [`IBinder`](/api/services/#picodroidosibinder), [`Notification`](/api/services/#picodroidappnotification-and-startforeground) (with `Notification.Builder`), and `startForeground(int, Notification)` for foreground services.
+- [`IBinder`](/api/services/#picodroidosibinder-and-picodroidosbinder), [`Notification`](/api/services/#picodroidappnotification-and-startforeground) (with `Notification.Builder`), and `startForeground(int, Notification)` for foreground services.
 - [`ServiceConnection`](/api/services/#picodroidcontentcontext--start--bind--stop) for binding lifecycle.
 - [Manual DI components](/api/services/#manual-di-applicationcomponent--activitysingletoncomponent): `ApplicationComponent`, `ActivitySingletonComponent`.
 

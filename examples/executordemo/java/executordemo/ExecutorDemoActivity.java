@@ -26,7 +26,7 @@ import picodroid.widget.TextView;
  * terminated. Each token is checked from the main thread, where the tasks run.
  */
 public class ExecutorDemoActivity extends Activity {
-  private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+  private final ScheduledExecutorService scheduler = Executors.mainScheduledExecutor();
   private ScheduledFuture<?> rate;
   private int rateRuns;
 

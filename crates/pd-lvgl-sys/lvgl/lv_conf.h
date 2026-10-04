@@ -297,7 +297,10 @@
 /*==================
  * WIDGETS
  *================*/
-#define LV_WIDGETS_HAS_DEFAULT_VALUE 1
+/* 0: a widget starts empty, as an Android view does. At 1 a fresh label reads
+ * "Text", a checkbox "Check box" and a dropdown "Option 1..3" until the app
+ * sets something, which a TextView with no text must never show. */
+#define LV_WIDGETS_HAS_DEFAULT_VALUE 0
 
 #define LV_USE_ANIMIMG    0
 #define LV_USE_ARC        1

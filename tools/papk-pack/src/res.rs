@@ -3,9 +3,10 @@
 //! an `R.java` out.
 //!
 //! ```text
-//!   res/values/*.xml     <string> <color> <dimen> <integer> <bool>
+//!   res/values/*.xml     <string> <color> <dimen> <integer> <bool> <style>
 //!   res/layout/*.xml     one view tree per file
 //!   res/drawable/*.png   packed into ASSETS as "res/drawable/<file>"
+//!   res/drawable/*.xml   <shape> backgrounds, flattened into the layouts that use them
 //! ```
 //!
 //! Both consumers — `papk-pack gen-r` before `compileJava`, `papk-pack
@@ -17,8 +18,16 @@
 //! There are no configurations: one display, one density (`dp` = `sp` =
 //! `px`), one locale. A `values-night/` or `drawable-hdpi/` directory is an
 //! error rather than something silently ignored. Every reference
-//! (`@color/accent`, `@dimen/gap`) is resolved here, at build time; the only
-//! thing a layout leaves for the device to look up is a string.
+//! (`@color/accent`, `@dimen/gap`, `?attr/colorPrimary`) is resolved here, at
+//! build time; the only thing a layout leaves for the device to look up is a
+//! string.
+//!
+//! Styles and the theme are a build-time matter too. `style="@style/Label"`
+//! on a view is expanded into the style's attributes, and `?attr/name` reads
+//! the item `name` of the app's theme, which is the `<style>` called
+//! [`APP_THEME`]. What reaches the device of a `<style>` is its
+//! `R.style` id and the few colours the framework's widgets default to
+//! (`papk_format::res::theme`), for `Context.setTheme`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -26,12 +35,19 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use papk_format::res::{
-    self as fmt, layout, ResTableBuilder, TYPE_BOOL, TYPE_COLOR, TYPE_DIMEN, TYPE_DRAWABLE,
-    TYPE_ID, TYPE_INTEGER, TYPE_LAYOUT, TYPE_STRING,
+    self as fmt, layout, theme, ResTableBuilder, TYPE_BOOL, TYPE_COLOR, TYPE_DIMEN, TYPE_DRAWABLE,
+    TYPE_ID, TYPE_INTEGER, TYPE_LAYOUT, TYPE_STRING, TYPE_STYLE,
 };
 
 /// The ASSETS-entry prefix of a `res/drawable/` image.
 pub const DRAWABLE_ASSET_PREFIX: &str = "res/drawable/";
+
+/// The `<style>` that is the app's theme: what `?attr/…` reads.
+pub const APP_THEME: &str = "AppTheme";
+
+/// How deep an `<include>`, a style's parents or a `?attr` chain may go
+/// before it is taken for a cycle.
+const MAX_NESTING: u32 = 16;
 
 /// A compiled `res/` tree.
 #[derive(Debug)]
@@ -49,6 +65,7 @@ pub struct Compiled {
 
 // ── A minimal DOM over xml-rs ─────────────────────────────────────────────────
 
+#[derive(Clone)]
 struct Element {
     name: String,
     /// `(namespace prefix, local name, value)`.
@@ -320,8 +337,23 @@ fn parse_ref(s: &str) -> Option<(&str, String)> {
 /// Raw `res/values` entries of one type: R name → `(text, where)`.
 type RawValues = BTreeMap<String, (String, String)>;
 
+/// One `<style>`: where it is, its explicit parent and its items in file
+/// order, each `(name without any "android:" prefix, text)`.
+struct Style {
+    at: String,
+    parent: Option<String>,
+    items: Vec<(String, String)>,
+}
+
 struct Values {
     raw: BTreeMap<u8, RawValues>,
+    /// By the name the XML gives, dots and all.
+    styles: BTreeMap<String, Style>,
+}
+
+/// An attribute or item name without its `android:` prefix.
+fn bare(name: &str) -> &str {
+    name.strip_prefix("android:").unwrap_or(name)
 }
 
 fn value_type(tag: &str) -> Option<u8> {
@@ -338,6 +370,7 @@ fn value_type(tag: &str) -> Option<u8> {
 impl Values {
     fn load(dir: &Path) -> Result<Self, String> {
         let mut raw: BTreeMap<u8, RawValues> = BTreeMap::new();
+        let mut styles: BTreeMap<String, Style> = BTreeMap::new();
         for path in sorted_files(dir, "xml")? {
             let root = parse_xml(&path)?;
             let at = path.display();
@@ -348,9 +381,18 @@ impl Values {
                 ));
             }
             for el in &root.children {
+                if el.name == "style" {
+                    let style = parse_style(el, &at.to_string())?;
+                    let name = el.attr("name").unwrap_or_default().to_string();
+                    if let Some(first) = styles.get(&name) {
+                        return Err(format!("{} is already defined at {}", style.at, first.at));
+                    }
+                    styles.insert(name, style);
+                    continue;
+                }
                 let Some(ty) = value_type(&el.name) else {
                     return Err(format!(
-                        "{at}: <{}> is not supported (string, color, dimen, integer, bool)",
+                        "{at}: <{}> is not supported (string, color, dimen, integer, bool, style)",
                         el.name
                     ));
                 };
@@ -374,7 +416,83 @@ impl Values {
                 }
             }
         }
-        Ok(Self { raw })
+        Ok(Self { raw, styles })
+    }
+
+    /// The text of `item` in `style`, looked for in the style itself and then
+    /// up its parents: the explicit `parent`, else the name before the last
+    /// dot (`Label.Faint` inherits `Label`), as on Android. A parent that is
+    /// not one of the app's styles (a framework theme) contributes nothing.
+    fn style_item(&self, style: &str, item: &str) -> Option<&str> {
+        let mut name = style.to_string();
+        for _ in 0..MAX_NESTING {
+            let s = self.styles.get(&name)?;
+            if let Some((_, text)) = s.items.iter().rev().find(|(n, _)| n == item) {
+                return Some(text.trim());
+            }
+            name = self.style_parent(&name, s)?;
+        }
+        None
+    }
+
+    fn style_parent(&self, name: &str, style: &Style) -> Option<String> {
+        match &style.parent {
+            Some(p) => {
+                let p = p.strip_prefix("@style/").unwrap_or(p);
+                (!p.is_empty()).then(|| p.to_string())
+            }
+            None => name.rsplit_once('.').map(|(head, _)| head.to_string()),
+        }
+    }
+
+    /// Every item `style` ends up with: its parents' and its own, a child's
+    /// item in place of a parent's of the same name.
+    fn style_items(&self, style: &str, from: &str) -> Result<Vec<(String, String)>, String> {
+        let mut chain = Vec::new();
+        let mut name = style.to_string();
+        loop {
+            let Some(s) = self.styles.get(&name) else {
+                if chain.is_empty() {
+                    return Err(format!("{from}: @style/{style} is not defined"));
+                }
+                break; // a framework parent: nothing of it lives here
+            };
+            if chain.len() as u32 >= MAX_NESTING {
+                return Err(format!("{from}: @style/{style} inherits from itself"));
+            }
+            chain.push(s);
+            match self.style_parent(&name, s) {
+                Some(parent) => name = parent,
+                None => break,
+            }
+        }
+        let mut items: Vec<(String, String)> = Vec::new();
+        for (name, text) in chain.iter().rev().flat_map(|s| s.items.iter()) {
+            items.retain(|(n, _)| n != name);
+            items.push((name.clone(), text.clone()));
+        }
+        Ok(items)
+    }
+
+    /// `?attr/name`, `?android:attr/name` or `?name` → the theme's text for
+    /// `name`. `None` when `text` is not a theme reference.
+    fn theme_text(&self, text: &str, from: &str) -> Option<Result<&str, String>> {
+        let attr = text.strip_prefix('?')?;
+        let name = attr
+            .strip_prefix("android:attr/")
+            .or_else(|| attr.strip_prefix("attr/"))
+            .or_else(|| attr.strip_prefix("android:"))
+            .unwrap_or(attr);
+        Some(self.style_item(APP_THEME, name).ok_or_else(|| {
+            if self.styles.contains_key(APP_THEME) {
+                format!("{from}: the theme (<style name=\"{APP_THEME}\">) has no item '{name}'")
+            } else {
+                format!(
+                    "{from}: '{text}' reads the app's theme, and there is no \
+                     <style name=\"{APP_THEME}\"> in res/values"
+                )
+            }
+        }))
     }
 
     fn names(&self, ty: u8) -> impl Iterator<Item = &String> {
@@ -407,9 +525,19 @@ impl Values {
         Err(format!("{from}: @{type_name}/{name} is a reference cycle"))
     }
 
-    /// `text` as a value of `ty`: a literal, or an `@ty/name` reference.
+    /// `text` as a value of `ty`: a literal, an `@ty/name` reference, or a
+    /// `?attr/name` reference into the theme.
     fn word(&self, ty: u8, text: &str, from: &str) -> Result<u32, String> {
-        let text = text.trim();
+        let mut text = text.trim();
+        for _ in 0..MAX_NESTING {
+            match self.theme_text(text, from) {
+                Some(themed) => text = themed?,
+                None => break,
+            }
+        }
+        if text.starts_with('?') {
+            return Err(format!("{from}: '{text}' is a theme reference cycle"));
+        }
         let literal = match parse_ref(text) {
             // The framework colours a layout can name without declaring them:
             // `@android:color/transparent` is how Android spells a flat container.
@@ -451,6 +579,91 @@ impl Values {
             _ => unreachable!("word() is for value-word types"),
         }
     }
+}
+
+fn parse_style(el: &Element, file: &str) -> Result<Style, String> {
+    let name = el
+        .attr("name")
+        .ok_or_else(|| format!("{file}: <style> without a name"))?;
+    r_name(name, &format!("{file}: <style>"))?;
+    let at = format!("{file}: <style name=\"{name}\">");
+    let mut items = Vec::new();
+    for item in &el.children {
+        if item.name != "item" {
+            return Err(format!("{at}: <{}> is not an <item>", item.name));
+        }
+        let item_name = item
+            .attr("name")
+            .ok_or_else(|| format!("{at}: <item> without a name"))?;
+        items.push((bare(item_name).to_string(), item.text.trim().to_string()));
+    }
+    Ok(Style {
+        at,
+        parent: el.attr("parent").map(str::to_string),
+        items,
+    })
+}
+
+// ── Shape drawables ───────────────────────────────────────────────────────────
+
+/// A `res/drawable/*.xml` `<shape>`: a filled rectangle with optional round
+/// corners and a stroke. It exists only at build time: a layout that names
+/// it as a background carries these four numbers instead.
+struct Shape {
+    color: u32,
+    radius: u32,
+    stroke_width: u32,
+    stroke_color: u32,
+}
+
+fn parse_shape(path: &Path, values: &Values) -> Result<Shape, String> {
+    let root = parse_xml(path)?;
+    let at = path.display().to_string();
+    if root.name != "shape" {
+        return Err(format!(
+            "{at}: <{}> is not supported; an XML drawable is a <shape>",
+            root.name
+        ));
+    }
+    if let Some(kind) = root.attr("shape") {
+        if kind != "rectangle" {
+            return Err(format!(
+                "{at}: shape=\"{kind}\" is not supported (rectangle, with <corners> for a \
+                 rounded one)"
+            ));
+        }
+    }
+    let mut shape = Shape {
+        color: 0,
+        radius: 0,
+        stroke_width: 0,
+        stroke_color: 0xFF00_0000,
+    };
+    let px = |text: &str, from: &str| -> Result<u32, String> {
+        let v = f32::from_bits(values.word(TYPE_DIMEN, text, from)?);
+        Ok(v.round().max(0.0) as u32)
+    };
+    for el in &root.children {
+        let from = format!("{at}: <{}>", el.name);
+        let need = |attr: &str| {
+            el.attr(attr)
+                .ok_or_else(|| format!("{from} needs android:{attr}"))
+        };
+        match el.name.as_str() {
+            "solid" => shape.color = values.word(TYPE_COLOR, need("color")?, &from)?,
+            "corners" => shape.radius = px(need("radius")?, &from)?,
+            "stroke" => {
+                shape.stroke_width = px(need("width")?, &from)?;
+                shape.stroke_color = values.word(TYPE_COLOR, need("color")?, &from)?;
+            }
+            other => {
+                return Err(format!(
+                    "{at}: <{other}> is not supported in a <shape> (solid, corners, stroke)"
+                ))
+            }
+        }
+    }
+    Ok(shape)
 }
 
 // ── Layouts ───────────────────────────────────────────────────────────────────
@@ -530,6 +743,9 @@ struct LayoutCompiler<'a> {
     named_strings: u16,
     ids: &'a BTreeMap<String, u16>,
     drawable_index: &'a BTreeMap<String, u16>,
+    shapes: &'a BTreeMap<String, Shape>,
+    /// Every layout by name, for `<include>`: `(file, root element)`.
+    layouts: &'a BTreeMap<String, (String, Element)>,
     warnings: &'a mut Vec<String>,
 }
 
@@ -600,6 +816,37 @@ impl LayoutCompiler<'_> {
             "layout_height" => one(a::LAYOUT_HEIGHT, self.size(text, from)?),
             "layout_weight" => one(a::LAYOUT_WEIGHT, self.float(text, from)?),
             "layout_gravity" => one(a::LAYOUT_GRAVITY, parse_flags(GRAVITY, text, from)?),
+            "layout_margin" => {
+                let m = self.pixels(text, from)?;
+                Ok(vec![
+                    (a::LAYOUT_MARGIN_LEFT, m),
+                    (a::LAYOUT_MARGIN_TOP, m),
+                    (a::LAYOUT_MARGIN_RIGHT, m),
+                    (a::LAYOUT_MARGIN_BOTTOM, m),
+                ])
+            }
+            "layout_marginHorizontal" => {
+                let m = self.pixels(text, from)?;
+                Ok(vec![
+                    (a::LAYOUT_MARGIN_LEFT, m),
+                    (a::LAYOUT_MARGIN_RIGHT, m),
+                ])
+            }
+            "layout_marginVertical" => {
+                let m = self.pixels(text, from)?;
+                Ok(vec![
+                    (a::LAYOUT_MARGIN_TOP, m),
+                    (a::LAYOUT_MARGIN_BOTTOM, m),
+                ])
+            }
+            "layout_marginLeft" | "layout_marginStart" => {
+                one(a::LAYOUT_MARGIN_LEFT, self.pixels(text, from)?)
+            }
+            "layout_marginTop" => one(a::LAYOUT_MARGIN_TOP, self.pixels(text, from)?),
+            "layout_marginRight" | "layout_marginEnd" => {
+                one(a::LAYOUT_MARGIN_RIGHT, self.pixels(text, from)?)
+            }
+            "layout_marginBottom" => one(a::LAYOUT_MARGIN_BOTTOM, self.pixels(text, from)?),
             "padding" => {
                 let p = self.pixels(text, from)?;
                 Ok(vec![
@@ -622,10 +869,22 @@ impl LayoutCompiler<'_> {
             "paddingRight" | "paddingEnd" => one(a::PADDING_RIGHT, self.pixels(text, from)?),
             "paddingBottom" => one(a::PADDING_BOTTOM, self.pixels(text, from)?),
             "background" => {
-                if text.trim().starts_with("@drawable/") {
-                    return Err(format!(
-                        "{from}: drawable backgrounds are not supported; use a color"
-                    ));
+                if let Some(name) = text.trim().strip_prefix("@drawable/") {
+                    let Some(shape) = self.shapes.get(&name.replace('.', "_")) else {
+                        return Err(format!(
+                            "{from}: a drawable background is a <shape> in res/drawable/{name}.xml \
+                             (an image is not supported here); or use a color"
+                        ));
+                    };
+                    let mut words = vec![(a::BACKGROUND, shape.color)];
+                    if shape.radius > 0 {
+                        words.push((a::BACKGROUND_RADIUS, shape.radius));
+                    }
+                    if shape.stroke_width > 0 {
+                        words.push((a::BACKGROUND_STROKE_WIDTH, shape.stroke_width));
+                        words.push((a::BACKGROUND_STROKE_COLOR, shape.stroke_color));
+                    }
+                    return Ok(words);
                 }
                 one(a::BACKGROUND, v.word(TYPE_COLOR, text, from)?)
             }
@@ -638,6 +897,7 @@ impl LayoutCompiler<'_> {
             "textSize" => one(a::TEXT_SIZE, v.word(TYPE_DIMEN, text, from)?),
             "hint" => one(a::HINT, self.string_id(text, from)?),
             "singleLine" => one(a::SINGLE_LINE, v.word(TYPE_BOOL, text, from)?),
+            "includeFontPadding" => one(a::INCLUDE_FONT_PADDING, v.word(TYPE_BOOL, text, from)?),
             "maxLines" => one(a::MAX_LINES, v.word(TYPE_INTEGER, text, from)?),
             "ellipsize" => one(a::ELLIPSIZE, parse_enum(ELLIPSIZE, text, from)?),
             "orientation" => one(a::ORIENTATION, parse_enum(ORIENTATION, text, from)?),
@@ -683,43 +943,153 @@ impl LayoutCompiler<'_> {
         }
     }
 
-    fn node(&mut self, el: &Element, file: &str, out: &mut Vec<u32>) -> Result<(), String> {
+    /// An element's attributes in the order they apply: the items of its
+    /// `style`, parents first, then its own, each of which replaces a style
+    /// item of the same name.
+    fn attributes(&self, el: &Element, file: &str) -> Result<Vec<(String, String)>, String> {
+        let mut attrs: Vec<(String, String)> = Vec::new();
+        if let Some((_, _, style)) = el
+            .attrs
+            .iter()
+            .find(|(prefix, name, _)| prefix.is_none() && name == "style")
+        {
+            let from = format!("{file}: <{}> style=\"{style}\"", el.name);
+            let name = style
+                .trim()
+                .strip_prefix("@style/")
+                .ok_or_else(|| format!("{from}: not a @style reference"))?;
+            attrs = self.values.style_items(name, &from)?;
+        }
+        for (prefix, name, text) in &el.attrs {
+            // Design-time attributes never reach the device, as on Android.
+            if prefix.as_deref() == Some("tools") || (prefix.is_none() && name == "style") {
+                continue;
+            }
+            attrs.retain(|(n, _)| n != name);
+            attrs.push((name.clone(), text.clone()));
+        }
+        Ok(attrs)
+    }
+
+    /// `<include layout="@layout/name"/>`: the named layout's tree in place
+    /// of the element, with the include's own id, visibility and `layout_*`
+    /// attributes in place of its root's.
+    fn include(
+        &mut self,
+        el: &Element,
+        file: &str,
+        out: &mut Vec<u32>,
+        depth: u32,
+    ) -> Result<(), String> {
+        let from = format!("{file}: <include>");
+        if depth >= MAX_NESTING {
+            return Err(format!(
+                "{from}: includes nested too deep (a layout that includes itself?)"
+            ));
+        }
+        if !el.children.is_empty() {
+            return Err(format!("{from} cannot have children"));
+        }
+        let target = el
+            .attrs
+            .iter()
+            .find(|(prefix, name, _)| prefix.is_none() && name == "layout")
+            .map(|(_, _, v)| v.trim())
+            .ok_or_else(|| format!("{from} needs layout=\"@layout/name\""))?;
+        let name = match parse_ref(target) {
+            Some(("layout", name)) => name,
+            _ => return Err(format!("{from}: '{target}' is not a @layout reference")),
+        };
+        let layouts = self.layouts;
+        let (inc_file, root) = layouts
+            .get(&name)
+            .ok_or_else(|| format!("{from}: @layout/{name} is not defined"))?;
+        let mut merged = root.clone();
+        for (prefix, attr, text) in &el.attrs {
+            if prefix.as_deref() == Some("tools") || (prefix.is_none() && attr == "layout") {
+                continue;
+            }
+            if attr != "id" && attr != "visibility" && !attr.starts_with("layout_") {
+                return Err(format!(
+                    "{from} {attr}=\"{text}\": an <include> takes android:id, android:visibility \
+                     and layout_* attributes only"
+                ));
+            }
+            merged.attrs.retain(|(_, n, _)| n != attr);
+            merged
+                .attrs
+                .push((prefix.clone(), attr.clone(), text.clone()));
+        }
+        self.node(&merged, inc_file, out, depth + 1)
+    }
+
+    fn node(
+        &mut self,
+        el: &Element,
+        file: &str,
+        out: &mut Vec<u32>,
+        depth: u32,
+    ) -> Result<(), String> {
+        if el.name == "include" {
+            return self.include(el, file, out, depth);
+        }
         // Android wants the fully qualified name for a view outside android.widget /
-        // android.view (androidx's ViewPager2, say). Every inflatable view here lives in
-        // picodroid.widget, so a layout may spell any of them either way.
+        // android.view (androidx's ViewPager2, say). Every framework view here lives in
+        // picodroid.widget, so a layout may spell any of them either way. Any other dotted
+        // name is a view class of the app's own: the layout carries the name, and a
+        // LayoutInflater.Factory (the Activity) makes the view, since nothing can reflect on it.
         let simple = el
             .name
             .strip_prefix("picodroid.widget.")
             .unwrap_or(&el.name);
-        let class = layout::class::ALL
+        let known = layout::class::ALL
             .iter()
             .find(|(n, _)| *n == simple)
-            .map(|&(_, c)| c)
-            .ok_or_else(|| {
+            .map(|&(_, c)| c);
+        let custom = known.is_none()
+            && el.name.contains('.')
+            && !el.name.starts_with("picodroid.widget.")
+            && el
+                .name
+                .split('.')
+                .all(|part| r_name(part, "").is_ok_and(|r| r == part));
+        let class = match known {
+            Some(code) => code,
+            None if custom => layout::class::CUSTOM,
+            None => {
                 let hint = match el.name.as_str() {
-                    "include" | "merge" => " (<include> and <merge> are not supported yet)",
-                    n if n.contains('.') => " (custom views cannot be inflated: no reflection)",
+                    "merge" => " (<merge> is not supported)",
+                    n if n.starts_with("picodroid.widget.") => {
+                        " (picodroid.widget has no such view)"
+                    }
+                    n if n.contains('.') => " (not a class name)",
                     _ => "",
                 };
                 let names: Vec<&str> = layout::class::ALL.iter().map(|(n, _)| *n).collect();
-                format!(
-                    "{file}: <{}> cannot be inflated{hint}. Supported: {}",
+                return Err(format!(
+                    "{file}: <{}> cannot be inflated{hint}. Supported: {}, <include>, or the \
+                     fully qualified name of a view class of the app's own",
                     el.name,
                     names.join(", ")
-                )
-            })?;
-        let mut words = Vec::new();
-        for (prefix, name, text) in &el.attrs {
-            // Design-time attributes never reach the device, as on Android.
-            if prefix.as_deref() == Some("tools") {
-                continue;
+                ));
             }
+        };
+        let mut words = Vec::new();
+        for (name, text) in self.attributes(el, file)? {
             let from = format!("{file}: <{}> {name}=\"{text}\"", el.name);
-            words.extend(self.attr(name, text, &from)?);
+            words.extend(self.attr(&name, &text, &from)?);
         }
         // Android reads `min`/`max` before `progress` whatever the XML order;
         // the inflater applies words in stream order, so put the range first.
         words.sort_by_key(|(code, _)| !matches!(*code, layout::attr::MIN | layout::attr::MAX));
+        if custom {
+            let from = format!("{file}: <{}>", el.name);
+            // First, where the inflater expects it: it needs the name before anything else.
+            words.insert(
+                0,
+                (layout::attr::CLASS_NAME, self.string_id(&el.name, &from)?),
+            );
+        }
         let attr_count = u8::try_from(words.len())
             .map_err(|_| format!("{file}: <{}> has too many attributes", el.name))?;
         let is_group = matches!(
@@ -743,7 +1113,7 @@ impl LayoutCompiler<'_> {
             out.push(value);
         }
         for child in &el.children {
-            self.node(child, file, out)?;
+            self.node(child, file, out, depth)?;
         }
         Ok(())
     }
@@ -813,17 +1183,46 @@ pub fn compile(res_dir: &Path) -> Result<Compiled, String> {
         Some(dir) => Values::load(dir)?,
         None => Values {
             raw: BTreeMap::new(),
+            styles: BTreeMap::new(),
         },
     };
 
     let mut drawables = Vec::new();
     let mut drawable_names = Vec::new();
+    let mut shapes: BTreeMap<String, Shape> = BTreeMap::new();
     if let Some(dir) = &drawable_dir {
-        for path in sorted_files(dir, "png")? {
+        let mut paths = Vec::new();
+        for entry in fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
+            let path = entry.map_err(|e| format!("{}: {e}", dir.display()))?.path();
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if !name.starts_with('.') {
+                paths.push(path);
+            }
+        }
+        paths.sort();
+        for path in paths {
+            let ext = path.extension().and_then(|e| e.to_str());
+            if !path.is_file() || !matches!(ext, Some("png" | "xml")) {
+                return Err(format!(
+                    "{}: only *.png images and *.xml shapes belong in {}",
+                    path.display(),
+                    dir.display()
+                ));
+            }
             let name = file_res_name(&path)?;
-            let file = path.file_name().unwrap().to_string_lossy();
-            drawables.push((format!("{DRAWABLE_ASSET_PREFIX}{file}"), path.clone()));
-            drawable_names.push(name);
+            if drawable_names.contains(&name) || shapes.contains_key(&name) {
+                return Err(format!(
+                    "{}: @drawable/{name} is defined twice",
+                    path.display()
+                ));
+            }
+            if ext == Some("xml") {
+                shapes.insert(name, parse_shape(&path, &values)?);
+            } else {
+                let file = path.file_name().unwrap().to_string_lossy();
+                drawables.push((format!("{DRAWABLE_ASSET_PREFIX}{file}"), path.clone()));
+                drawable_names.push(name);
+            }
         }
     }
 
@@ -852,6 +1251,10 @@ pub fn compile(res_dir: &Path) -> Result<Compiled, String> {
     let mut warnings = Vec::new();
     let mut streams = Vec::new();
     {
+        let by_name: BTreeMap<String, (String, Element)> = layouts
+            .iter()
+            .map(|(name, file, root)| (name.clone(), (file.clone(), root.clone())))
+            .collect();
         let mut lc = LayoutCompiler {
             values: &values,
             string_index: &string_index,
@@ -859,11 +1262,13 @@ pub fn compile(res_dir: &Path) -> Result<Compiled, String> {
             named_strings: string_index.len() as u16,
             ids: &ids,
             drawable_index: &drawable_index,
+            shapes: &shapes,
+            layouts: &by_name,
             warnings: &mut warnings,
         };
         for (_, file, root) in &layouts {
             let mut words = Vec::new();
-            lc.node(root, file, &mut words)?;
+            lc.node(root, file, &mut words, 0)?;
             streams.push(words);
         }
     }
@@ -897,6 +1302,30 @@ pub fn compile(res_dir: &Path) -> Result<Compiled, String> {
     }
     for (name, index) in &ids {
         symbols.push((TYPE_ID, name.clone(), fmt::res_id(TYPE_ID, *index)));
+    }
+    // Styles, by R name. The table keeps only what the framework reads of
+    // one: the theme colours its own widgets default to.
+    let mut style_names: Vec<(String, &String)> = values
+        .styles
+        .keys()
+        .map(|name| (name.replace('.', "_"), name))
+        .collect();
+    style_names.sort();
+    for (r, name) in style_names {
+        let from = &values.styles[name].at;
+        let mut words = Vec::new();
+        for (item, _, code) in theme::attr::ALL {
+            if let Some(text) = values.style_item(name, item) {
+                words.push(*code);
+                words.push(values.word(
+                    TYPE_COLOR,
+                    text,
+                    &format!("{from} <item name=\"{item}\">"),
+                )?);
+            }
+        }
+        let id = table.push_style(words).map_err(overflow)?;
+        symbols.push((TYPE_STYLE, r, id));
     }
 
     // Two names that differ only by '.' vs '_' collapse to one R field.
@@ -1080,7 +1509,7 @@ mod tests {
         android:text="@string/app_name"
         android:textColor="@color/accent"
         android:textSize="18sp"
-        android:layout_margin="4dp" />
+        android:elevation="4dp" />
     <Button
         android:id="@+id/ok"
         android:layout_width="0dp"
@@ -1137,9 +1566,9 @@ mod tests {
         ];
         assert_eq!(words, expected);
 
-        // layout_margin is reported, tools:context is not.
+        // An attribute with no setter is reported, tools:context is not.
         assert_eq!(c.warnings.len(), 1, "{:?}", c.warnings);
-        assert!(c.warnings[0].contains("layout_margin"));
+        assert!(c.warnings[0].contains("elevation"));
     }
 
     #[test]
@@ -1232,10 +1661,37 @@ mod tests {
             &wrap(r#"<color name="a">@color/b</color><color name="b">@color/a</color>"#)
         )])
         .contains("cycle"));
-        assert!(err(&[("values/a.xml", &wrap(r#"<style name="s"/>"#))]).contains("not supported"));
+        assert!(err(&[("values/a.xml", &wrap(r#"<plurals name="p"/>"#))]).contains("not supported"));
         assert!(err(&[("layout/Main.xml", "<TextView/>")]).contains("[a-z0-9_]"));
-        assert!(err(&[("layout/m.xml", "<com.example.Dial/>")]).contains("no reflection"));
-        assert!(err(&[("layout/m.xml", "<picodroid.widget.Dial/>")]).contains("no reflection"));
+        assert!(err(&[("layout/m.xml", "<Dial/>")]).contains("cannot be inflated"));
+        assert!(err(&[("layout/m.xml", "<picodroid.widget.Dial/>")]).contains("cannot be inflated"));
+        assert!(err(&[(
+            "layout/m.xml",
+            "<com.example.Dial><TextView/></com.example.Dial>"
+        )])
+        .contains("not a ViewGroup"));
+        assert!(err(&[(
+            "layout/m.xml",
+            r#"<TextView textColor="?attr/colorPrimary"/>"#
+        )])
+        .contains("AppTheme"));
+        assert!(
+            err(&[("layout/m.xml", r#"<TextView style="@style/Nope"/>"#)])
+                .contains("@style/Nope is not defined")
+        );
+        assert!(err(&[("layout/m.xml", r#"<include layout="@layout/m"/>"#)]).contains("too deep"));
+        assert!(
+            err(&[("layout/m.xml", r#"<include layout="@layout/nope"/>"#)])
+                .contains("@layout/nope is not defined")
+        );
+        assert!(err(&[
+            (
+                "layout/m.xml",
+                r#"<FrameLayout background="@drawable/pic"/>"#
+            ),
+            ("drawable/pic.xml", r#"<vector/>"#)
+        ])
+        .contains("is a <shape>"));
         assert!(
             err(&[("layout/m.xml", "<TextView><Button/></TextView>")]).contains("not a ViewGroup")
         );
@@ -1247,6 +1703,222 @@ mod tests {
             err(&[("layout/m.xml", r#"<ImageView src="@drawable/nope"/>"#)])
                 .contains("@drawable/nope is not defined")
         );
+    }
+
+    /// Collects a layout's words.
+    fn words_of(c: &Compiled, name: &str) -> Vec<u32> {
+        let t = ResTable::parse(&c.table).unwrap();
+        let l = t.layout(id_of(c, TYPE_LAYOUT, name)).unwrap();
+        (0..l.len()).map(|i| l.word(i).unwrap()).collect()
+    }
+
+    #[test]
+    fn margins_compile_to_the_four_sides() {
+        use layout::{attr as a, class as k, node_header};
+        let dir = tree(&[
+            ("values/values.xml", VALUES),
+            (
+                "layout/m.xml",
+                r#"<FrameLayout layout_margin="@dimen/gap">
+                     <TextView layout_marginLeft="3dp" layout_marginTop="4dp"
+                               layout_marginEnd="5dp" layout_marginBottom="6dp"
+                               includeFontPadding="false"/>
+                     <View layout_marginHorizontal="7dp" layout_marginVertical="8dp"/>
+                   </FrameLayout>"#,
+            ),
+        ]);
+        let c = compile(&dir).unwrap();
+        #[rustfmt::skip]
+        let expected = vec![
+            node_header(k::FRAME_LAYOUT, 4, 2),
+            a::LAYOUT_MARGIN_LEFT, 12, a::LAYOUT_MARGIN_TOP, 12,
+            a::LAYOUT_MARGIN_RIGHT, 12, a::LAYOUT_MARGIN_BOTTOM, 12,
+            node_header(k::TEXT_VIEW, 5, 0),
+            a::LAYOUT_MARGIN_LEFT, 3, a::LAYOUT_MARGIN_TOP, 4,
+            a::LAYOUT_MARGIN_RIGHT, 5, a::LAYOUT_MARGIN_BOTTOM, 6,
+            a::INCLUDE_FONT_PADDING, 0,
+            node_header(k::VIEW, 4, 0),
+            a::LAYOUT_MARGIN_LEFT, 7, a::LAYOUT_MARGIN_RIGHT, 7,
+            a::LAYOUT_MARGIN_TOP, 8, a::LAYOUT_MARGIN_BOTTOM, 8,
+        ];
+        assert_eq!(words_of(&c, "m"), expected);
+        assert!(c.warnings.is_empty(), "{:?}", c.warnings);
+    }
+
+    #[test]
+    fn a_shape_drawable_is_flattened_into_the_background() {
+        use layout::{attr as a, class as k, node_header};
+        let dir = tree(&[
+            ("values/values.xml", VALUES),
+            (
+                "drawable/card.xml",
+                r##"<shape shape="rectangle">
+                     <solid color="@color/accent"/>
+                     <corners radius="@dimen/gap"/>
+                     <stroke width="2dp" color="#102030"/>
+                   </shape>"##,
+            ),
+            (
+                "drawable/flat.xml",
+                r##"<shape><solid color="#000"/></shape>"##,
+            ),
+            (
+                "layout/m.xml",
+                r#"<FrameLayout background="@drawable/card">
+                     <View background="@drawable/flat"/>
+                   </FrameLayout>"#,
+            ),
+        ]);
+        let c = compile(&dir).unwrap();
+        #[rustfmt::skip]
+        let expected = vec![
+            node_header(k::FRAME_LAYOUT, 4, 1),
+            a::BACKGROUND, 0xFF33_66CC,
+            a::BACKGROUND_RADIUS, 12,
+            a::BACKGROUND_STROKE_WIDTH, 2,
+            a::BACKGROUND_STROKE_COLOR, 0xFF10_2030,
+            node_header(k::VIEW, 1, 0),
+            a::BACKGROUND, 0xFF00_0000,
+        ];
+        assert_eq!(words_of(&c, "m"), expected);
+        // A shape is a build-time thing: no R.drawable entry, nothing in ASSETS.
+        assert!(c.drawables.is_empty());
+        assert!(c.symbols.iter().all(|(ty, _, _)| *ty != TYPE_DRAWABLE));
+    }
+
+    #[test]
+    fn an_include_is_the_other_layout_in_place() {
+        use layout::{attr as a, class as k, node_header};
+        let dir = tree(&[
+            (
+                "layout/row.xml",
+                r#"<LinearLayout id="@+id/row" layout_width="match_parent" layout_height="20dp">
+                     <TextView id="@+id/name"/>
+                   </LinearLayout>"#,
+            ),
+            (
+                "layout/m.xml",
+                r#"<FrameLayout>
+                     <include layout="@layout/row" id="@+id/first" layout_marginTop="5dp"/>
+                     <include layout="@layout/row"/>
+                   </FrameLayout>"#,
+            ),
+        ]);
+        let c = compile(&dir).unwrap();
+        let id = |n: &str| id_of(&c, TYPE_ID, n);
+        #[rustfmt::skip]
+        let expected = vec![
+            node_header(k::FRAME_LAYOUT, 0, 2),
+            // The include's id replaces the root's; its margin is added.
+            node_header(k::LINEAR_LAYOUT, 4, 1),
+            a::LAYOUT_WIDTH, -1i32 as u32,
+            a::LAYOUT_HEIGHT, 20,
+            a::ID, id("first"),
+            a::LAYOUT_MARGIN_TOP, 5,
+            node_header(k::TEXT_VIEW, 1, 0),
+            a::ID, id("name"),
+            node_header(k::LINEAR_LAYOUT, 3, 1),
+            a::ID, id("row"),
+            a::LAYOUT_WIDTH, -1i32 as u32,
+            a::LAYOUT_HEIGHT, 20,
+            node_header(k::TEXT_VIEW, 1, 0),
+            a::ID, id("name"),
+        ];
+        assert_eq!(words_of(&c, "m"), expected);
+    }
+
+    #[test]
+    fn a_class_of_the_apps_own_carries_its_name() {
+        use layout::{attr as a, class as k, node_header};
+        let dir = tree(&[(
+            "layout/m.xml",
+            r#"<FrameLayout><com.example.ui.Dial id="@+id/dial" max="9" min="1"/></FrameLayout>"#,
+        )]);
+        let c = compile(&dir).unwrap();
+        let t = ResTable::parse(&c.table).unwrap();
+        let name = fmt::res_id(TYPE_STRING, 0);
+        assert_eq!(t.string(name), Some(&b"com.example.ui.Dial"[..]));
+        #[rustfmt::skip]
+        let expected = vec![
+            node_header(k::FRAME_LAYOUT, 0, 1),
+            node_header(k::CUSTOM, 4, 0),
+            // The name first, then the range before the rest, as for any view.
+            a::CLASS_NAME, name,
+            a::MAX, 9,
+            a::MIN, 1,
+            a::ID, id_of(&c, TYPE_ID, "dial"),
+        ];
+        assert_eq!(words_of(&c, "m"), expected);
+    }
+
+    const STYLES: &str = r##"<resources>
+    <color name="accent">#36C</color>
+    <color name="ink">#111</color>
+    <style name="AppTheme" parent="android:Theme.Material">
+        <item name="colorPrimary">@color/accent</item>
+        <item name="android:textColorPrimary">@color/ink</item>
+        <item name="android:colorBackground">#000</item>
+        <item name="gap">6dp</item>
+    </style>
+    <style name="Label">
+        <item name="android:singleLine">true</item>
+        <item name="android:textColor">?android:attr/textColorPrimary</item>
+    </style>
+    <style name="Label.Loud">
+        <item name="android:textColor">?attr/colorPrimary</item>
+        <item name="android:textSize">20sp</item>
+    </style>
+</resources>"##;
+
+    #[test]
+    fn a_style_is_expanded_and_the_theme_resolved_at_build_time() {
+        use layout::{attr as a, class as k, node_header};
+        let dir = tree(&[
+            ("values/styles.xml", STYLES),
+            (
+                "layout/m.xml",
+                r#"<LinearLayout padding="?attr/gap">
+                     <TextView style="@style/Label"/>
+                     <TextView style="@style/Label.Loud" textSize="14sp"/>
+                   </LinearLayout>"#,
+            ),
+        ]);
+        let c = compile(&dir).unwrap();
+        #[rustfmt::skip]
+        let expected = vec![
+            node_header(k::LINEAR_LAYOUT, 4, 2),
+            a::PADDING_LEFT, 6, a::PADDING_TOP, 6, a::PADDING_RIGHT, 6, a::PADDING_BOTTOM, 6,
+            node_header(k::TEXT_VIEW, 2, 0),
+            a::SINGLE_LINE, 1,
+            a::TEXT_COLOR, 0xFF11_1111,
+            // Label.Loud inherits Label by its name; its own colour wins, and the
+            // element's own text size replaces the style's.
+            node_header(k::TEXT_VIEW, 3, 0),
+            a::SINGLE_LINE, 1,
+            a::TEXT_COLOR, 0xFF33_66CC,
+            a::TEXT_SIZE, 14.0f32.to_bits(),
+        ];
+        assert_eq!(words_of(&c, "m"), expected);
+        assert!(c.warnings.is_empty(), "{:?}", c.warnings);
+
+        // R.style, dots as underscores; the table keeps the framework's colours.
+        assert_eq!(id_of(&c, TYPE_STYLE, "AppTheme"), 0x7f09_0000);
+        assert_eq!(id_of(&c, TYPE_STYLE, "Label"), 0x7f09_0001);
+        assert_eq!(id_of(&c, TYPE_STYLE, "Label_Loud"), 0x7f09_0002);
+        let t = ResTable::parse(&c.table).unwrap();
+        let theme_words = t.style(0x7f09_0000).unwrap();
+        let got: Vec<u32> = (0..theme_words.len())
+            .map(|i| theme_words.word(i).unwrap())
+            .collect();
+        #[rustfmt::skip]
+        let want = vec![
+            theme::attr::COLOR_PRIMARY, 0xFF33_66CC,
+            theme::attr::COLOR_BACKGROUND, 0xFF00_0000,
+            theme::attr::TEXT_COLOR_PRIMARY, 0xFF11_1111,
+        ];
+        assert_eq!(got, want);
+        assert_eq!(t.style(0x7f09_0001).unwrap().len(), 0);
+        assert!(r_java("p", &c.symbols).contains("public static final class style {"));
     }
 
     #[test]
@@ -1329,8 +2001,36 @@ mod tests {
                 "LayoutInflater {konst}"
             );
         }
+        // CUSTOM names no element of its own, so it is not in ALL.
+        assert_eq!(
+            inflater.get("CLASS_CUSTOM"),
+            Some(&(layout::class::CUSTOM as i64)),
+            "LayoutInflater CLASS_CUSTOM"
+        );
         let class_consts = inflater.keys().filter(|k| k.starts_with("CLASS_")).count();
-        assert_eq!(class_consts, layout::class::ALL.len(), "stale CLASS_ label");
+        assert_eq!(
+            class_consts,
+            layout::class::ALL.len() + 1,
+            "stale CLASS_ label"
+        );
+
+        // Resources.applyTheme spells the theme attribute codes the same way.
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../sdk/java/picodroid/content/res/Resources.java");
+        let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let mut themed = BTreeMap::new();
+        for line in text.lines() {
+            if let Some((case, name)) = line.trim().split_once(": // THEME_") {
+                let code = case
+                    .strip_prefix("case ")
+                    .and_then(|n| n.parse::<u32>().ok());
+                themed.insert(name.trim().to_string(), code.expect("a numeric case label"));
+            }
+        }
+        for (_, name, code) in theme::attr::ALL {
+            assert_eq!(themed.get(*name), Some(code), "Resources THEME_{name}");
+        }
+        assert_eq!(themed.len(), theme::attr::ALL.len(), "stale THEME_ label");
 
         let gravity = java_consts("view/Gravity.java");
         for (name, value) in GRAVITY {

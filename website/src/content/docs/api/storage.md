@@ -155,15 +155,17 @@ if (prefs.contains("device_name")) {
 | Class | Methods |
 |-------|---------|
 | `SharedPreferences` | `Context.getSharedPreferences(String name, int mode)` or `static open(String name)`; `contains(String)`, `getString(String, String def)`, `getInt(String, int def)`, `getLong(String, long def)`, `getFloat(String, float def)`, `getBoolean(String, boolean def)`, `getAll()`, `edit()` |
-| `Editor` | `putString`, `putInt`, `putLong`, `putFloat`, `putBoolean` (each returns the `Editor` for chaining), `remove(String)`, `clear()`, `commit()`, `apply()` (same as `commit()`, synchronous) |
+| `Editor` | `putString`, `putInt`, `putLong`, `putFloat`, `putBoolean` (each returns the `Editor` for chaining), `remove(String)`, `clear()`, `commit()` (writes the file before returning), `apply()` (changes memory at once, writes the file on a background thread) |
 
-`Context.getSharedPreferences(name, mode)` is the Android idiom and is available on every `Activity`, `Service` and `Application`; `mode` is accepted for source compatibility, since every app's storage is private. `SharedPreferences.open(name)` is the same call for code that has no `Context` at hand, such as a `@Provides` method. Each call reads the file afresh and returns a new instance.
+`Context.getSharedPreferences(name, mode)` is the Android idiom and is available on every `Activity`, `Service` and `Application`; `mode` is accepted for source compatibility, since every app's storage is private. As on Android, every call for one name returns the same instance, and that instance is safe to read and edit from any thread. `SharedPreferences.open(name)` is picodroid's own, for code that has no `Context` at hand, such as a `@Provides` method: each call reads the file afresh and returns a new, separate instance (two instances over one file do not see each other's changes until the file is read again).
+
+`apply()` is safe on the main thread: the getters return the new values at once, and the file write goes to the framework's background pool; several applies in a row cost one write. A write still pending is finished when the Activity stops, where Android waits for its queued work, and before the file is next read. `commit()` writes in the calling thread and returns whether the write succeeded. When a write fails the new values stay in memory, as on Android, and the next write tries again.
 
 An invalid name, a `null` or over-long key, a `null` or over-long string value, or a 65th entry throws `IllegalArgumentException`. An `Editor` records changes and applies them at `commit()`, a `clear()` first and the puts second whatever order they were called in, as on Android; after a commit the editor is empty and can be used again.
 
 `getAll()` returns a fresh `Map<String, ?>` of every stored preference, values boxed as `String`, `Integer`, `Long`, `Float` or `Boolean` (Android's signature; mutating the returned map does not touch the store).
 
-`commit()` is atomic with respect to power loss: it writes to a `.tmp` file, verifies the size, and only then renames into place. At the per-app storage cap the `.tmp` copy has no room; a commit whose blob is no larger than the stored one — a shrink, a `remove`, a `clear()` — is then rewritten in place instead (not power-loss atomic), so an app can always free its own preferences. A corrupt blob (failed CRC32) is silently treated as empty on the next `open()`. `SharedPreferences` instances are not thread-safe — synchronize externally if shared.
+A write, from `commit()` or `apply()`, is atomic with respect to power loss: it writes to a `.tmp` file, verifies the size, and only then renames into place. At the per-app storage cap the `.tmp` copy has no room; a commit whose blob is no larger than the stored one — a shrink, a `remove`, a `clear()` — is then rewritten in place instead (not power-loss atomic), so an app can always free its own preferences. A corrupt blob (failed CRC32) is silently treated as empty the next time the file is read. An `Editor` belongs to the thread that made it.
 
 ---
 

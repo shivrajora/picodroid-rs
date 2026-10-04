@@ -5,11 +5,10 @@
 //! `View` now since any view can be clickable; see [`super::view`].
 
 use pico_jvm::heap::StringTable;
-use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
 use super::super::lvgl::widgets::button as lvgl_button;
-use super::super::view::{extract_native_handle, extract_string_at};
+use super::super::view::extract_string_at;
 
 pub use lvgl_button::reset_button_state;
 pub use lvgl_button::{
@@ -23,27 +22,4 @@ pub fn button_native_create(
 ) -> Result<Option<Value>, JvmError> {
     let text = extract_string_at(args, 0, strings).unwrap_or("");
     Ok(Some(Value::Int(lvgl_button::create(text))))
-}
-
-/// `Button.setText(String text)`
-pub fn button_set_text(
-    args: &[Value],
-    strings: &StringTable,
-    objects: &ObjectHeap,
-) -> Result<Option<Value>, JvmError> {
-    let id = extract_native_handle(args, objects)?;
-    let text = extract_string_at(args, 1, strings)?;
-    lvgl_button::set_text(id, text);
-    Ok(None)
-}
-
-/// `Button.getText()` — the child label's text (see `TextView.getText`).
-pub fn button_get_text(
-    args: &[Value],
-    strings: &mut StringTable,
-    objects: &ObjectHeap,
-) -> Result<Option<Value>, JvmError> {
-    let id = extract_native_handle(args, objects)?;
-    lvgl_button::with_text(id, |text| super::text_view::intern_text(text, strings))
-        .unwrap_or_else(|| super::text_view::intern_text(&[], strings))
 }
