@@ -150,6 +150,7 @@ public class MainActivity extends Activity {
     } else {
       auto = getSharedPreferences(UsageService.PREFS, MODE_PRIVATE).getBoolean(KEY_AUTO, false);
     }
+    Log.i(TAG, auto ? "auto on (restored)" : "auto off");
     // The first page is inflated behind the status screen while the board waits for WiFi and the
     // first fetch, and it paints the moment the data arrives.
     pager.setAdapter(new UsagePagerAdapter(this));
@@ -350,6 +351,7 @@ public class MainActivity extends Activity {
   /** AUTO's period is up: the next screen, while there are live numbers to cycle through. */
   private void autoTurn() {
     if (!statusShowing && state != null && state.fresh) {
+      Log.i(TAG, "auto turn");
       turnPage(1);
     }
   }
