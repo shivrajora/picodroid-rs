@@ -68,7 +68,7 @@ For the full `board.toml` schema — required keys, valid `lv_key` values, how `
 
 ## Making widgets reachable
 
-A plain `View` is **not** focusable (the Android default). On a button board that means it never receives key events and the up/down buttons skip over it. Make it focusable and, if it should start selected, request focus:
+A plain `View` is **not** focusable (the Android default). On a button board that means it never receives key events and the up/down buttons skip over it. A view with a click listener **is** focusable on a board whose keys move the focus — `setOnClickListener` makes it so, as Android's `focusable="auto"` does — so a screen written with click listeners alone is reachable by the four keys. For anything else, make it focusable and, if it should start selected, request focus:
 
 ```java
 import picodroid.widget.Button;
@@ -156,6 +156,23 @@ While an `AlertDialog` shows it holds the keypad: A and B cycle the dialog's own
 :::note[Buttons in the host simulator]
 The simulator has no GPIO, so it synthesizes button edges into the same queue the device's GPIO interrupt fills, and everything after that is the device's own path: the LVGL keypad, focus navigation, the phantom-release filter, `OnKeyListener`, the Activity's key callbacks with auto-repeat and long-press, and the BACK chain. In the simulator window the host keyboard drives the buttons — Up and Down arrows are PREV and NEXT, Enter is ENTER, Backspace is BACK, and the digits `1`–`4` press the first to fourth declared button (Escape closes the simulator). Headless, the control channel takes `tap A`, `input keyevent --longpress 23` and the rest. See the headless-sim section of the [debugging guide](/guides/debugging/#driving-the-simulator-headlessly).
 :::
+
+## Value widgets by key
+
+Every stock widget works with the four keys ([app portability](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/app-portability-2026-10.md) K7). The ones that hold a value are **edited**: with the widget focused, X (SELECT) enters edit mode — the widget gets LVGL's edited outline — A/B change the value instead of moving the focus, and X commits or Y (BACK) leaves, neither reaching the app's `onBackPressed`. What A/B do is the widget's own:
+
+| Widget | SELECT, then A / B | Leave with |
+|---|---|---|
+| `NumberPicker` | +1 / −1 (`OnValueChangeListener`) | X or Y |
+| `SeekBar` | +1 / −1 (`onProgressChanged`) | X or Y |
+| `TimePicker` (each roller) | previous / next value (`onTimeChanged`) | X or Y |
+| `DatePicker` | the day before / after; X selects it (`onDateChanged`) | Y |
+| `Spinner` | X opens the list, A/B move the highlight, X picks (`onItemSelected`), Y closes | — |
+| `Switch`, `CheckBox`, `RadioButton`, `ToggleButton`, `Button`, a clickable row | X activates, no edit mode | — |
+| `EditText` | X opens the system keyboard ([below](#keyboard-on-button-boards)) | Y |
+| `AlertDialog` with items | the list has the focus: A/B move between rows, X picks, Y dismisses | Y |
+
+A screen with nothing focusable — an About page, a `ScrollView` of plain text — still answers A/B: they page its first `ScrollView`, as Android's `arrowScroll` scrolls when no view takes the arrow. `ViewPager2` has no key paging of its own; on a key board call `setCurrentItem` from `onKeyDown`, as the `claudeusage` chrome does.
 
 ## Lists and menus
 

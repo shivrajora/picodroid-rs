@@ -390,6 +390,13 @@ public class View {
   public void setOnClickListener(OnClickListener listener) {
     this.onClickListener = listener;
     nativeRegisterClickListener();
+    // Clickable implies focusable where a key moves the focus, as Android's
+    // {@code focusable="auto"} has it: a view written with a click listener alone is reachable
+    // by the four keys without a {@link #setFocusable} of its own
+    // (docs/designs/app-portability-2026-10.md K6).
+    if (listener != null && !focusable && !isInTouchMode()) {
+      setFocusable(true);
+    }
   }
 
   /**

@@ -47,6 +47,9 @@ pub type lv_obj_t = c_void;
 pub type lv_event_t = c_void;
 pub type lv_event_dsc_t = c_void;
 pub type lv_group_t = c_void;
+/// A widget class descriptor (`lv_obj_class_t`), opaque: only ever compared
+/// by address against the `lv_*_class` statics.
+pub type lv_obj_class_t = c_void;
 /// Opaque `lv_font_t`; only ever handed back to LVGL (`lv_font_get_line_height`,
 /// `lv_obj_set_style_text_font`).
 pub type lv_font_t = c_void;
@@ -180,6 +183,10 @@ pub const LV_EVENT_LONG_PRESSED_REPEAT: lv_event_code_t = 9;
 pub const LV_EVENT_CLICKED: lv_event_code_t = 10;
 pub const LV_EVENT_RELEASED: lv_event_code_t = 11;
 pub const LV_EVENT_GESTURE: lv_event_code_t = 16;
+/// A key reached the focused widget (after the widget's class acted on it).
+/// Position 21 in the v9.6.0 enum. What tells a TimePicker roller that the
+/// keys changed it, since `lv_roller_set_selected` sends no VALUE_CHANGED.
+pub const LV_EVENT_KEY: lv_event_code_t = 21;
 /// Fired when a Widget receives keypad/group focus, and when it loses it.
 /// Positions 23/24 in the v9.6.0 enum (…KEY(21), ROTARY(22), FOCUSED(23),
 /// DEFOCUSED(24), LEAVE…). Used to back `View.OnFocusChangeListener`.
@@ -763,6 +770,23 @@ extern "C" {
     pub fn lv_obj_get_parent(obj: *const lv_obj_t) -> *mut lv_obj_t;
     /// Reorder `obj` among its siblings; `-1` is the last (topmost) slot.
     pub fn lv_obj_move_to_index(obj: *mut lv_obj_t, index: i32);
+    /// The widget class `obj` was created as; compared against the class
+    /// statics below to tell a slider from a roller when the keypad asks
+    /// what the focused widget is (events/keypad.rs).
+    pub fn lv_obj_get_class(obj: *const lv_obj_t) -> *const lv_obj_class_t;
+    pub static lv_slider_class: lv_obj_class_t;
+    pub static lv_roller_class: lv_obj_class_t;
+    pub static lv_dropdown_class: lv_obj_class_t;
+    pub static lv_buttonmatrix_class: lv_obj_class_t;
+    /// Scroll by `(dx, dy)`, clamped to the content: the keypad's page step
+    /// on a `ScrollView` with nothing focusable inside.
+    pub fn lv_obj_scroll_by_bounded(
+        obj: *mut lv_obj_t,
+        dx: i32,
+        dy: i32,
+        anim_en: lv_anim_enable_t,
+    );
+    pub fn lv_group_get_obj_count(group: *mut lv_group_t) -> u32;
 
     // Restrict the axes a scrollable object will scroll/over-pull on.
     // Default is LV_DIR_ALL; set to LV_DIR_VER on ScrollView so horizontal
@@ -1251,6 +1275,9 @@ extern "C" {
     pub fn lv_dropdown_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
     pub fn lv_dropdown_set_options(obj: *mut lv_obj_t, options: *const c_char);
     pub fn lv_dropdown_get_selected(obj: *const lv_obj_t) -> u32;
+    /// Whether the option list is showing: while it is, the keypad's PREV/NEXT
+    /// walk it (events/keypad.rs::widget_remap).
+    pub fn lv_dropdown_is_open(obj: *mut lv_obj_t) -> bool;
 
     // Roller widget — vertically-scrolling option list. Used by TimePicker
     // (hour + minute) and could back a future date-roller variant.
@@ -1345,6 +1372,7 @@ mod tests {
             (LV_EVENT_GESTURE, "LV_EVENT_GESTURE"),
             (LV_EVENT_VALUE_CHANGED, "LV_EVENT_VALUE_CHANGED"),
             (LV_EVENT_READY, "LV_EVENT_READY"),
+            (LV_EVENT_KEY, "LV_EVENT_KEY"),
             (LV_EVENT_FOCUSED, "LV_EVENT_FOCUSED"),
             (LV_EVENT_DEFOCUSED, "LV_EVENT_DEFOCUSED"),
             (LV_EVENT_DELETE, "LV_EVENT_DELETE"),

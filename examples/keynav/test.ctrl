@@ -1,0 +1,37 @@
+# Control-channel script for this app's sim row (sim-run.sh::run_test) on the
+# four-button board: every stock value widget driven by UP (19), DOWN (20),
+# SELECT (23) and BACK (4). `wait <regex>` blocks until the log matches; every
+# other line goes to the simulator's control channel, the verbs `pdb input`
+# takes on hardware.
+wait KeyNav[]:] ready
+# The SeekBar has the focus: SELECT edits it, UP is +1 twice, SELECT commits.
+input keyevent 23
+input keyevent 19
+wait KeyNav[]:] seek 51
+input keyevent 19
+wait KeyNav[]:] seek 52
+input keyevent 23
+# DOWN to the Spinner: SELECT opens its list, DOWN moves to Green, SELECT picks it.
+input keyevent 20
+input keyevent 23
+input keyevent 20
+input keyevent 23
+wait KeyNav[]:] spinner 1
+# DOWN to the hour roller: SELECT edits, DOWN is 13, SELECT commits.
+input keyevent 20
+input keyevent 23
+input keyevent 20
+wait KeyNav[]:] time 13:30
+input keyevent 23
+# Past the minute roller to the clickable text, focusable because it is
+# clickable: SELECT opens the list dialog, DOWN moves to Green, SELECT picks it.
+input keyevent 20
+input keyevent 20
+input keyevent 23
+input keyevent 20
+input keyevent 23
+wait KeyNav[]:] picked 1
+# DOWN to Done and press it.
+input keyevent 20
+input keyevent 23
+wait KeyNav[]:] done

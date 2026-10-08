@@ -12,6 +12,25 @@ package format moved to major version 2, and **three SDK signatures changed** to
 (`ServiceConnection` / `bindService`, `Executors.newSingleThreadScheduledExecutor`,
 `DatagramPacket.getAddress`), in the first entry below.
 
+**Every stock widget on four keys (2026-10-06)**
+
+Stage 5 of [app portability](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/app-portability-2026-10.md):
+an app written for a touchscreen works on a four-button board without a key handler of its own.
+
+- **`SeekBar`, `TimePicker` and `DatePicker` are edited with the keys**, the way `NumberPicker`
+  already was: SELECT enters edit mode (LVGL's edited outline), UP/DOWN adjust — the day before and
+  after on a calendar, where SELECT picks the day — and SELECT or BACK leave without reaching
+  `onBackPressed`. A **`Spinner`**'s open list is walked with UP/DOWN and picked with SELECT; BACK
+  closes it. An **`AlertDialog` with items** gives its list the focus: UP/DOWN move between rows,
+  SELECT picks (the Settings → Display timeout list works by keys now).
+- **A view with a click listener is focusable** where keys move the focus (`View.isInTouchMode()`
+  false), as Android's `focusable="auto"` has it. A screen written with click listeners alone is
+  reachable without `setFocusable` calls; an app that laid out its focus order by hand may find a
+  clickable `TextView` has joined it.
+- **A screen with nothing focusable still answers UP/DOWN**: they page its first `ScrollView`.
+- `DatePicker` is one focus stop (the calendar's day grid), not two. `examples/keynav` drives all
+  of this from the simulator's control channel.
+
 **The layout vocabulary for one layout on every panel (2026-10-06)**
 
 Stage 4 of [app portability](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/app-portability-2026-10.md):

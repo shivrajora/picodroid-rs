@@ -616,20 +616,58 @@ fn focus_dialog_buttons(scrim_ptr: usize) {
         if group.is_null() {
             return;
         }
+        // A list dialog's matrix first: it joined the Activity's group when
+        // it was created (a button matrix is group-default), so move it to
+        // the dialog's, where PREV/NEXT walk its rows (keypad.rs::widget_remap)
+        // and SELECT picks one — and focus it, as Android focuses the list.
         let mut focus_target: *mut lv_obj_t = core::ptr::null_mut();
+        for slot in &LIST_SLOTS[..] {
+            if slot.dialog_handle == scrim_ptr && slot.matrix != 0 {
+                let matrix = slot.matrix as *mut lv_obj_t;
+                lv_group_remove_obj(matrix);
+                lv_group_add_obj(group, matrix);
+                focus_target = matrix;
+            }
+        }
         for slot in &BUTTON_MAP[..] {
             if slot.button_handle != 0 && slot.dialog_handle == scrim_ptr {
                 let btn = slot.button_handle as *mut lv_obj_t;
                 lv_group_add_obj(group, btn);
-                if focus_target.is_null() || slot.which == BUTTON_POSITIVE {
+                if focus_target.is_null()
+                    || slot.which == BUTTON_POSITIVE && !is_matrix(focus_target)
+                {
                     focus_target = btn;
                 }
             }
         }
         if !focus_target.is_null() {
             lv_group_focus_obj(focus_target);
+            // A keypad-focused matrix selects nothing until a key arrives,
+            // and that first key would only land on row 0: start there, so
+            // NEXT is row 1, as the keyboard starts on its first letter.
+            if is_matrix(focus_target) {
+                // Focused from a quiet pass, so the group set FOCUSED but not
+                // FOCUS_KEY, which is the state the matrix draws its selected
+                // row in (as `focus_system_keyboard` does for the keyboard).
+                lv_obj_add_state(focus_target, LV_STATE_FOCUS_KEY);
+                lv_buttonmatrix_set_selected_button(focus_target, 0);
+                lv_obj_invalidate(focus_target);
+            }
         }
     }
+}
+
+/// Whether `obj` is a list dialog's matrix.
+fn is_matrix(obj: *mut lv_obj_t) -> bool {
+    // SAFETY: a read of a registry of raw pointers, on the JVM task.
+    unsafe {
+        for entry in &MATRIX_MAP[..] {
+            if entry.0 == obj as usize {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 pub(in crate::graphics) fn dismiss(id: i32) {

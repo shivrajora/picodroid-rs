@@ -157,6 +157,7 @@ pub(in crate::graphics) fn set_min_size(h: Handle, width: i32, height: i32) {
     if o.is_null() {
         return; // stale handle — mutating a destroyed View is a no-op
     }
+    // SAFETY: `o` is the live object the handle table returned.
     unsafe {
         if width >= 0 {
             lv_obj_set_style_min_width(o, width, 0);
@@ -174,6 +175,7 @@ pub(in crate::graphics) fn set_max_width(h: Handle, width: i32) {
     if o.is_null() {
         return; // stale handle — mutating a destroyed View is a no-op
     }
+    // SAFETY: `o` is the live object the handle table returned.
     unsafe { lv_obj_set_style_max_width(o, width, 0) };
 }
 
