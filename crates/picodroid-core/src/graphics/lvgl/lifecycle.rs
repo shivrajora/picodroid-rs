@@ -100,6 +100,7 @@ pub(in crate::graphics) fn init(width: u16, height: u16) {
         lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
         lv_indev_set_read_cb(indev, Some(touch_read_cb));
         lv_indev_set_scroll_limit(indev, hal::display::SCROLL_LIMIT);
+        POINTER_INDEV.set(indev);
 
         // Cache a Handle for the screen so `LvglGfx::screen()` can return
         // a backend-neutral type. The screen pointer is stable post-init.
@@ -109,6 +110,9 @@ pub(in crate::graphics) fn init(width: u16, height: u16) {
         let scr = lv_screen_active();
         SCREEN_HANDLE.set(Handle::from_java(handle_table::register_pinned(scr)));
     }
+    // A board with no system button gets its BACK/HOME control on the top
+    // layer now, above every screen an app will load.
+    super::soft_nav::ensure();
 }
 
 pub(in crate::graphics) fn tick(ms: u32) {
@@ -133,11 +137,33 @@ pub(in crate::graphics) fn tick(ms: u32) {
     }
 }
 
+/// The pointer input device, kept so a wake can tell it to sit out the
+/// press that woke the panel.
+// SAFETY: widget-layer state, reached only from JVM tasks.
+static POINTER_INDEV: Core0<Cell<*mut lv_indev_t>> =
+    unsafe { Core0::new(Cell::new(core::ptr::null_mut())) };
+
 pub(in crate::graphics) fn sleep() {
     hal::display::display_sleep();
 }
 
+/// What woke the panel must not act on what it finds there: drop the queued
+/// key edges (their releases are dropped by the press-state filter), drain
+/// the touch ring, and have LVGL ignore the current press until it lifts.
+fn swallow_wake_input() {
+    while hal::gpio::drain_gpio_event().is_some() {}
+    crate::input_inject::reset_soft_keys();
+    while hal::touch_sampler::next().is_some() {}
+    LAST_DELIVERED.set(None);
+    let indev = POINTER_INDEV.get();
+    if !indev.is_null() {
+        // SAFETY: the pointer indev is created in `init` and never deleted.
+        unsafe { lv_indev_wait_release(indev) };
+    }
+}
+
 pub(in crate::graphics) fn wake() {
+    swallow_wake_input();
     hal::display::display_wake();
     // The full repaint below goes out through the identity rotation; make
     // sure the panel is told so before the first band, whatever sleep did
@@ -324,6 +350,8 @@ unsafe extern "C" fn touch_read_cb(_indev: *mut lv_indev_t, data: *mut lv_indev_
             data.point.x = x as i32;
             data.point.y = y as i32;
             data.state = LV_INDEV_STATE_PRESSED;
+            // A finger on the glass: the panel stays on (power.rs).
+            crate::power::user_activity();
         }
         None => data.state = LV_INDEV_STATE_RELEASED,
     }

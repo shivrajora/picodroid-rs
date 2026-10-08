@@ -461,7 +461,7 @@ and a second `close()` is a no-op.
 | Constant | Value | Description |
 |----------|-------|-------------|
 | `View.VISIBLE` | 0 | Widget is visible and takes up layout space |
-| `View.INVISIBLE` | 4 | Widget is invisible but still takes up layout space |
+| `View.INVISIBLE` | 4 | Widget is invisible but still takes up layout space; touches pass through it, as on Android |
 | `View.GONE` | 8 | Widget is invisible and takes no layout space |
 | `View.WRAP_CONTENT` | -2 | Passed to `setSize`: size to content. `MATCH_PARENT` (-1) is on [`ViewGroup.LayoutParams`](#picodroidviewviewgroup). |
 | `View.NO_ID` | -1 | What `getId()` returns for a view without an id; never matches in `findViewById`. |
@@ -480,6 +480,8 @@ The rest of the `View` surface, all mirroring `android.view.View`:
 | `setBackgroundTintList(ColorStateList)` / `getBackgroundTintList()` | Recolour the background, keeping its shape: the way to change a rounded dot's or pill's colour without a new drawable. The tint's colour replaces the background's and its alpha is ignored; `null` puts a drawable's own colour back. |
 | `onMeasure(int, int)` / `setMeasuredDimension` / `measure` / `getMeasuredWidth` / `getMeasuredHeight` / `resolveSize` / `getDefaultSize` / `View.MeasureSpec` | How a view that draws itself says what size it wants; see [custom views](/guides/resources/#custom-views). |
 | `setPadding(int left, int top, int right, int bottom)` | Inner padding in pixels. |
+| `setMinimumWidth(int)` / `setMinimumHeight(int)` / `getMinimumWidth()` / `getMinimumHeight()` | A floor under the laid-out size, as on Android: a `wrap_content` or weighted view never comes out smaller. `android:minWidth` / `android:minHeight` in a layout file. |
+| `setKeepScreenOn(boolean)` / `getKeepScreenOn()` | Hold the display on while this view lives ([display idle sleep](/reference/limits/#display-idle-sleep)). `android:keepScreenOn` in a layout file. |
 | `getLeft()` / `getTop()` / `getWidth()` / `getHeight()` | Laid-out position relative to the parent (excluding translation) and size, in pixels. |
 | `getX()` / `getY()` | `getLeft() + getTranslationX()` and `getTop() + getTranslationY()`, as `float`. |
 | `setId(int)` / `getId()` / `findViewById(int)` | The view's identifier (a layout's `android:id` sets it) and a depth-first search of this view and its descendants; `null` when nothing matches. |
@@ -902,7 +904,7 @@ int lineHeight = label.getLineHeight();   // the face actually in use
 - Without an ellipsize, a single-line view clips the text at its edge (a content-sized one grows to the text's width), and a max-lines view clips the lines past the limit.
 - `getText()` returns the full text while the ellipsis shows. A newline in the text still breaks the line.
 
-`setGravity(int)` / `getGravity()` take [`picodroid.view.Gravity`](#picodroidwidgetlinearlayout) constants. The horizontal part aligns the text; the vertical part is kept and returned but not drawn, since a label is as tall as its text. `setIncludeFontPadding(false)` strips the whitespace above the glyphs so the label box hugs them (default `true`), and `setPadding` is `View`'s.
+`setGravity(int)` / `getGravity()` take [`picodroid.view.Gravity`](#picodroidwidgetlinearlayout) constants. The horizontal part aligns the text; the vertical part is kept and returned but not drawn, since a label is as tall as its text. `setIncludeFontPadding(false)` strips the whitespace above the glyphs so the label box hugs them (default `true`), and `setPadding` is `View`'s. `setMaxWidth(int)` / `getMaxWidth()` cap a `wrap_content` label's width (`android:maxWidth`), so a long line wraps or ellipsizes instead of pushing its neighbours off the panel.
 
 ### `picodroid.widget.Button`
 
@@ -962,7 +964,7 @@ layout.addView(button);
 |--------|-------------|
 | `setOrientation(int)` | `HORIZONTAL` or `VERTICAL` (the default). |
 | `setSpacing(int px)` | Gap between adjacent children; 0 by default. A picodroid addition. |
-| `setGravity(int)` | Where the children go, in `picodroid.view.Gravity` constants, which may name both axes (`Gravity.BOTTOM` or-ed with `Gravity.RIGHT`). Call it after `setOrientation`. Two divergences: an axis the gravity does not name keeps centring rather than falling back to the start, and `FILL` places at the start instead of stretching. |
+| `setGravity(int)` | Where the children go, in `picodroid.view.Gravity` constants, which may name both axes (`Gravity.BOTTOM` or-ed with `Gravity.RIGHT`). Call it after `setOrientation`. An axis the gravity does not name falls back to the start, as on Android (`START \| TOP`: a column's children sit at the left, a row's at the top). One divergence: `FILL` places at the start instead of stretching the child. |
 
 `LinearLayout.LayoutParams(width, height, weight)` gives a child a share of the space left over, as on Android:
 
@@ -970,7 +972,7 @@ layout.addView(button);
 row.addView(label, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 ```
 
-Weights are relative, with one decimal of precision (`1.5f` against `1f` is 15 : 10), and cap at 25.5. The per-child `LayoutParams.gravity` field is stored but not applied yet.
+Weights are relative, with one decimal of precision (`1.5f` against `1f` is 15 : 10), and cap at 25.5. The per-child `LayoutParams.gravity` field (`android:layout_gravity` on a `LinearLayout` child) is stored but not applied: LVGL's flex layout has no per-item cross-axis alignment, and the layout compiler warns. To place one child differently, wrap it in a `FrameLayout` and give that the gravity. A `Space` with a weight is the Android way to push children apart ([below](#picodroidwidgetspace)).
 
 `picodroid.view.Gravity` has Android's constants and values: `NO_GRAVITY`, `TOP`, `BOTTOM`, `LEFT`, `RIGHT`, `START`, `END`, `CENTER_VERTICAL`, `CENTER_HORIZONTAL`, `CENTER`, `FILL_VERTICAL`, `FILL_HORIZONTAL`, `FILL`, and the masks.
 

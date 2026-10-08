@@ -637,6 +637,9 @@ public class LayoutInflater {
       case 51: // ATTR_CLASS_NAME
         // Read by one() before the view exists; never reaches here.
         break;
+      case 52: // ATTR_KEEP_SCREEN_ON
+        v.setKeepScreenOn(value != 0);
+        break;
       default:
         // An attribute from a newer compiler: skip it rather than fail the whole screen.
         break;

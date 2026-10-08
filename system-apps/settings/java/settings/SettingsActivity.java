@@ -10,51 +10,55 @@ import picodroid.os.Bundle;
 
 /**
  * The settings app's root (multi-app M3): About, Apps and Storage, one row each, then Wi-Fi on a
- * board that has it ({@code PackageManager.FEATURE_WIFI}). The header row is Home: a tap on it, or
- * BACK on a keypad board, finishes the app and the launcher comes back. Rows are {@link
- * Screens#ROW_HEIGHT} pixels from the top of the screen, the header first, so the bench taps About
- * at y = 60, Apps at 100, Storage at 140 and Wi-Fi at 180.
+ * board that has it ({@code PackageManager.FEATURE_WIFI}), then Display. The header row is Home: a
+ * tap on it, or BACK on a keypad board, finishes the app and the launcher comes back. Rows are
+ * {@link Screens#ROW_HEIGHT} pixels from the top of the screen, the header first, so the bench taps
+ * About at y = 60, Apps at 100, Storage at 140 and Wi-Fi at 180; Display follows Wi-Fi where there
+ * is one and takes its place where there is not.
  */
 public class SettingsActivity extends Activity {
   static final String TAG = "Settings";
 
   private Column column;
   /** Held so the rows stay reachable while their click listeners are live. */
-  private final View[] rows = new View[4];
+  private final View[] rows = new View[5];
+  /** The screens, in row order: the Wi-Fi row is left out on a board with no link. */
+  private String[] labels;
+  private Class<?>[] screens;
   /** Whether the rows are on screen: "ready" is logged once they are, then on every return. */
   private boolean built;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
+    boolean wifi = getPackageManager().hasSystemFeature(PackageManager.FEATURE_WIFI);
+    labels =
+        wifi
+            ? new String[] {"About", "Apps", "Storage", "Wi-Fi", "Display"}
+            : new String[] {"About", "Apps", "Storage", "Display"};
+    screens =
+        wifi
+            ? new Class<?>[] {
+              AboutActivity.class,
+              AppsActivity.class,
+              StorageActivity.class,
+              WifiActivity.class,
+              DisplayActivity.class
+            }
+            : new Class<?>[] {
+              AboutActivity.class, AppsActivity.class, StorageActivity.class, DisplayActivity.class
+            };
     column = new Column(this, "Settings", v -> finish());
     column.fill(null, i -> row(i), () -> ready());
   }
 
   private View row(int i) {
-    switch (i) {
-      case 0:
-        rows[0] =
-            Screens.row(this, "About", v -> startActivity(new Intent(AboutActivity.class)));
-        return rows[0];
-      case 1:
-        rows[1] = Screens.row(this, "Apps", v -> startActivity(new Intent(AppsActivity.class)));
-        return rows[1];
-      case 2:
-        rows[2] =
-            Screens.row(this, "Storage", v -> startActivity(new Intent(StorageActivity.class)));
-        return rows[2];
-      case 3:
-        // Only where there is a WiFi link to provision; the row is not built
-        // otherwise, so the column ends at Storage on every other board.
-        if (!getPackageManager().hasSystemFeature(PackageManager.FEATURE_WIFI)) {
-          return null;
-        }
-        rows[3] = Screens.row(this, "Wi-Fi", v -> startActivity(new Intent(WifiActivity.class)));
-        return rows[3];
-      default:
-        return null;
+    if (i >= labels.length) {
+      return null;
     }
+    final Class<?> screen = screens[i];
+    rows[i] = Screens.row(this, labels[i], v -> startActivity(new Intent(screen)));
+    return rows[i];
   }
 
   /** The rows are in: focus the first, and say so — the harness keys on this line. */

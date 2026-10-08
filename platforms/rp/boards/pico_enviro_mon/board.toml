@@ -20,10 +20,9 @@ fs_kb = 512
 has_json = true
 has_protobuf = true
 lv_mem_kb = 48
-# Disable idle-timeout display sleep — this is a live environmental monitor;
-# users watch the readings without interacting. Set to a positive ms value
-# (e.g. 60000) to re-enable.
-idle_timeout_ms = 0
+# The panel dozes after the default 60 s idle (power.rs; Settings → Display can
+# change it). An appliance app that must stay lit calls View.setKeepScreenOn(true)
+# on its root, as the apps built for this board do.
 
 # JVM tunables (CPU↔memory tradeoffs). All optional — uncomment to override.
 # Canonical guide: website/src/content/docs/reference/jvm-tunables.md

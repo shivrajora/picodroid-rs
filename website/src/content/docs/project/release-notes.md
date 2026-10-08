@@ -12,6 +12,55 @@ package format moved to major version 2, and **three SDK signatures changed** to
 (`ServiceConnection` / `bindService`, `Executors.newSingleThreadScheduledExecutor`,
 `DatagramPacket.getAddress`), in the first entry below.
 
+**The display dozes, the app keeps running (2026-10-06)**
+
+Stage 3 of [app portability](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/app-portability-2026-10.md):
+display sleep works on every board, because it no longer stops anything but the panel.
+
+- **Doze, not freeze.** After the screen timeout with no key or touch, the panel and backlight go
+  off and LVGL stops ticking; the main loop runs on, so Runnables, alarms, scheduled tasks,
+  network callbacks and the sensors continue. Any button wakes the panel, and so does a finger
+  where the controller is still read (the touch kit's GT911 sampler, the testbenches' XPT2046
+  polled inline); the wake press is swallowed, and the finger that woke it lands as no click.
+- **It is on by default everywhere now**, 60 s. The four boards that set `idle_timeout_ms = 0`
+  because the old sleep froze them no longer do; their apps (`claudeusage`, `picoenvmon`,
+  `weather`, `picoclock`'s face) hold the panel with the new **`View.setKeepScreenOn(true)`**
+  (`android:keepScreenOn="true"` in a layout). `picoclock`'s ringing alarm calls the new
+  **`Activity.setTurnScreenOn(true)`** to light a dozing panel.
+- **Settings → Display → Screen timeout** stores a choice (15 s to 5 min, or Never) at
+  `/system/display`; apps read and write it as **`Settings.System.SCREEN_OFF_TIMEOUT`** through
+  `Settings.System.getInt` / `putInt` with `Context.getContentResolver()`.
+- New: `PowerManager.isInteractive()` from `getSystemService(POWER_SERVICE)`; `KEYCODE_SLEEP`,
+  `KEYCODE_WAKEUP` and `KEYCODE_POWER` doze, wake and toggle (as soft keys from `input keyevent`
+  on any board). The simulator shows a black window while dozing; `examples/powerdemo` walks
+  every state.
+- Behaviour change: the old sleep also paused the sensor sampler and the tick source; neither
+  pauses now. The 16 ms tick continues while dozing (it only skips the render), which the design
+  doc's amendment records.
+
+**BACK, HOME and WAKE on every board (2026-10-06)**
+
+Stage 2 of [app portability](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/app-portability-2026-10.md):
+every board with a display meets an input profile, checked by the build, so an app written for
+four keys or a finger can always be left.
+
+- **Holding BACK for a second is HOME** on a board with no HOME key (`home_hold_ms`, default
+  1000). The app sees its 400 ms long-press first, then a release flagged `FLAG_CANCELED`, and the
+  launcher comes up; the log says `key: BACK held -> HOME`. An app that swallows BACK can no
+  longer keep the user.
+- **A touchscreen board with no button draws its own BACK/HOME control** (`soft_nav = true`; the
+  three testbenches): a round control in the bottom-left corner of the window, a tap for BACK, a
+  hold for HOME. It hides while the system keyboard is up and rides above a dialog.
+- **The build checks the board's input profile.** No touch: the four logical keys (`PREV`/19,
+  `NEXT`/20, `ENTER`/23, `ESC`/4) are required. Touch: a BACK or HOME `[[button]]`, or `soft_nav`.
+  `has_nav_keys` and `soft_nav` are cfgs; `board_cfg::input::*` carries the constants.
+- **`input keyevent` works on every board.** A key the board has no pin for is delivered as a soft
+  key — it reaches the framework and the app without touching the focus ring — so a test script
+  can send BACK or HOME to a testbench (`pdb input` and the simulator's control channel alike).
+  `--longpress 4` holds BACK long enough for HOME where that is what holding BACK means.
+- New: `KeyEvent.KEYCODE_POWER` / `ENTER` / `MENU` / `SLEEP` / `WAKEUP`,
+  `PackageManager.FEATURE_TOUCHSCREEN`, `View.isInTouchMode()` (true where no button moves focus).
+
 **One layout, every board: the floor and the panel's pitch (2026-10-05)**
 
 The first stage of [app portability](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/app-portability-2026-10.md):

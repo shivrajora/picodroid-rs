@@ -451,6 +451,18 @@ public class Activity extends Context
   public native void setResult(int resultCode, Intent data);
 
   /**
+   * Mirrors {@code android.app.Activity#setTurnScreenOn(boolean)}: an Activity that must be seen
+   * when it starts — an alarm ringing — asks for the display to wake if it is dozing. Takes effect
+   * at once, so call it from {@link #onCreate} (or {@link #onResume}). Nothing is held: the idle
+   * timer runs again from the wake; pair it with {@link View#setKeepScreenOn} to stay lit.
+   */
+  public void setTurnScreenOn(boolean turnScreenOn) {
+    nativeSetTurnScreenOn(turnScreenOn);
+  }
+
+  private native void nativeSetTurnScreenOn(boolean turnScreenOn);
+
+  /**
    * Called on the launching Activity when an Activity it started for a result finishes. Mirrors
    * {@code android.app.Activity#onActivityResult}. Default no-op; override to read the result.
    * {@code data} is {@code null} unless the child called {@code setResult(int, Intent)}.

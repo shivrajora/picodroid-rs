@@ -22,6 +22,17 @@ pub mod calibration;
 pub mod drawable;
 pub mod events;
 pub mod fps_overlay;
+pub mod keep_on;
+/// The on-screen BACK/HOME control of a `soft_nav` board; a no-op elsewhere
+/// so its callers (the keyboard, dialogs, init) need no cfg of their own.
+#[cfg(soft_nav)]
+pub mod soft_nav;
+#[cfg(not(soft_nav))]
+pub mod soft_nav {
+    pub fn ensure() {}
+    pub fn set_hidden(_hidden: bool) {}
+    pub fn raise() {}
+}
 // Scrolling with the panel's own frame memory, on the boards whose panel can
 // (`board_cfg::hw_vscroll`); its arithmetic is host-testable on its own.
 #[cfg(hw_vscroll)]

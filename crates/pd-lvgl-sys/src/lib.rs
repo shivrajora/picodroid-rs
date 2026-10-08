@@ -174,6 +174,9 @@ pub const LV_EVENT_ALL: lv_event_code_t = 0;
 pub const LV_EVENT_PRESSED: lv_event_code_t = 1;
 pub const LV_EVENT_PRESSING: lv_event_code_t = 2;
 pub const LV_EVENT_LONG_PRESSED: lv_event_code_t = 8;
+/// Sent every `long_press_repeat_time` after LONG_PRESSED while the press
+/// goes on: the clock behind hold-for-HOME on the soft-nav control.
+pub const LV_EVENT_LONG_PRESSED_REPEAT: lv_event_code_t = 9;
 pub const LV_EVENT_CLICKED: lv_event_code_t = 10;
 pub const LV_EVENT_RELEASED: lv_event_code_t = 11;
 pub const LV_EVENT_GESTURE: lv_event_code_t = 16;
@@ -462,6 +465,9 @@ pub const LV_OPA_COVER: u8 = 255;
 // Object flags (from lv_obj.h)
 pub const LV_OBJ_FLAG_HIDDEN: u32 = 1 << 0;
 pub const LV_OBJ_FLAG_CLICKABLE: u32 = 1 << 1;
+/// Take the keypad focus when clicked. Cleared on the soft-nav control, which
+/// must never sit in a focus ring.
+pub const LV_OBJ_FLAG_CLICK_FOCUSABLE: u32 = 1 << 2;
 pub const LV_OBJ_FLAG_CHECKABLE: u32 = 1 << 3;
 pub const LV_OBJ_FLAG_SCROLLABLE: u32 = 1 << 4;
 /// Scroll the object into view when it takes focus (a focused row in a
@@ -666,6 +672,9 @@ extern "C" {
     pub fn lv_indev_create() -> *mut lv_indev_t;
     pub fn lv_indev_set_type(indev: *mut lv_indev_t, indev_type: lv_indev_type_t);
     pub fn lv_indev_set_read_cb(indev: *mut lv_indev_t, read_cb: lv_indev_read_cb_t);
+    /// Ignore the current press until it is released: the finger that woke
+    /// the panel must not land as a click on what it finds there.
+    pub fn lv_indev_wait_release(indev: *mut lv_indev_t);
     pub fn lv_indev_set_scroll_limit(indev: *mut lv_indev_t, scroll_limit: u8);
     /// The indev that triggered the currently-running event. Read inside an
     /// `LV_EVENT_GESTURE` callback to recover gesture parameters.
@@ -749,6 +758,8 @@ extern "C" {
     /// active screen. Used by the keyboard outside-press hook to decide if
     /// a tap landed on the keyboard or one of its keys.
     pub fn lv_obj_get_parent(obj: *const lv_obj_t) -> *mut lv_obj_t;
+    /// Reorder `obj` among its siblings; `-1` is the last (topmost) slot.
+    pub fn lv_obj_move_to_index(obj: *mut lv_obj_t, index: i32);
 
     // Restrict the axes a scrollable object will scroll/over-pull on.
     // Default is LV_DIR_ALL; set to LV_DIR_VER on ScrollView so horizontal
@@ -1306,6 +1317,7 @@ mod tests {
             (LV_EVENT_PRESSED, "LV_EVENT_PRESSED"),
             (LV_EVENT_PRESSING, "LV_EVENT_PRESSING"),
             (LV_EVENT_LONG_PRESSED, "LV_EVENT_LONG_PRESSED"),
+            (LV_EVENT_LONG_PRESSED_REPEAT, "LV_EVENT_LONG_PRESSED_REPEAT"),
             (LV_EVENT_CLICKED, "LV_EVENT_CLICKED"),
             (LV_EVENT_RELEASED, "LV_EVENT_RELEASED"),
             (LV_EVENT_GESTURE, "LV_EVENT_GESTURE"),
@@ -1738,6 +1750,7 @@ mod tests {
         for (rust_const, name) in [
             (LV_OBJ_FLAG_HIDDEN, "LV_OBJ_FLAG_HIDDEN"),
             (LV_OBJ_FLAG_CLICKABLE, "LV_OBJ_FLAG_CLICKABLE"),
+            (LV_OBJ_FLAG_CLICK_FOCUSABLE, "LV_OBJ_FLAG_CLICK_FOCUSABLE"),
             (LV_OBJ_FLAG_CHECKABLE, "LV_OBJ_FLAG_CHECKABLE"),
             (LV_OBJ_FLAG_SCROLLABLE, "LV_OBJ_FLAG_SCROLLABLE"),
             (LV_OBJ_FLAG_GESTURE_BUBBLE, "LV_OBJ_FLAG_GESTURE_BUBBLE"),

@@ -179,6 +179,9 @@ pub fn run_app(apk_data: &[u8]) {
     crate::graphics::view::reset_swipe_listener_state();
     crate::graphics::view::reset_focus_change_listener_state();
     crate::graphics::lvgl::events::reset_key_event_queue();
+    crate::input_inject::reset_soft_keys();
+    crate::graphics::lvgl::keep_on::reset();
+    crate::power::reset_holds();
     crate::graphics::lvgl::events::reset_edit_mode();
     crate::graphics::lvgl::events::reset_activity_groups();
     crate::graphics::lvgl::handle_table::reset();

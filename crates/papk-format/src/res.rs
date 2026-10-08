@@ -267,6 +267,8 @@ pub mod layout {
         /// String resource id (pooled): the class a `CUSTOM` node names.
         /// Always the node's first attribute.
         pub const CLASS_NAME: u32 = 51;
+        /// 0 / 1: `View.setKeepScreenOn`.
+        pub const KEEP_SCREEN_ON: u32 = 52;
 
         /// `(constant name in LayoutInflater.java, code)`.
         pub const ALL: &[(&str, u32)] = &[
@@ -321,6 +323,7 @@ pub mod layout {
             ("BACKGROUND_STROKE_WIDTH", BACKGROUND_STROKE_WIDTH),
             ("BACKGROUND_STROKE_COLOR", BACKGROUND_STROKE_COLOR),
             ("CLASS_NAME", CLASS_NAME),
+            ("KEEP_SCREEN_ON", KEEP_SCREEN_ON),
         ];
     }
 

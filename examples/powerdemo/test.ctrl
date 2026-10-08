@@ -1,0 +1,35 @@
+# Control-channel script for this app's sim row (sim-run.sh::run_test): the
+# display's power states. `wait <regex>` blocks until the log matches — and
+# matches anywhere in the log so far, which is why every awaited line below
+# is distinct: the framework numbers each doze and names its cause. Every
+# other line goes to the simulator's control channel, the verbs `pdb input`
+# takes on hardware. SLEEP, WAKEUP and POWER are soft keys here (no board
+# maps them), delivered to the framework like any key.
+wait PowerDemo[]:] ready interactive=true
+# KEYCODE_SLEEP dozes the panel at once.
+input keyevent 223
+wait display: doze #1 \(sleep key\)
+# A tap wakes it and lands as no click: the button hears nothing.
+input tap 160 120
+wait display: wake #1 \(touch\)
+sleep 1
+# The next tap is a click; the app shortens the timeout to 2.5 s.
+input tap 160 120
+wait PowerDemo[]:] click 1
+wait PowerDemo[]:] timeout 2500 stored=true
+# KEYCODE_POWER toggles: doze, then KEYCODE_WAKEUP wakes — as a key, which is what
+# a soft key is to the idle timer; it is swallowed like any key that wakes.
+input keyevent 26
+wait display: doze #2 \(power key\)
+input keyevent 224
+wait display: wake #2 \(key\)
+# Nothing arrives for the shortened timeout: the timer dozes the panel.
+wait display: doze #3 after [0-9]+ ms idle
+input keyevent 224
+wait display: wake #3 \(key\)
+sleep 1
+# The second click holds the panel on; three seconds later it is still lit,
+# and the app puts the timeout back before it finishes.
+input tap 160 120
+wait PowerDemo[]:] click 2
+wait PowerDemo[]:] held interactive=true

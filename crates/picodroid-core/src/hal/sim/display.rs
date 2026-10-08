@@ -262,12 +262,23 @@ fn compose_scrolled(dst: &mut [u32], src: &[u32]) {
     }
 }
 
+/// Whether the emulated panel is asleep: the window then shows black, as a
+/// panel with DISPOFF and its backlight off does, until the wake repaint.
+static ASLEEP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub fn display_sleep() {
     println!("[sim] Display: sleep");
+    ASLEEP.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
 pub fn display_wake() {
     println!("[sim] Display: wake");
+    ASLEEP.store(false, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether the panel is asleep (`display_sleep` without a `display_wake`).
+pub fn asleep() -> bool {
+    ASLEEP.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 // ── Emulator-specific functions ─────────────────────────────────────────────
@@ -286,7 +297,11 @@ pub fn update_window() {
             // dispatcher will receive vs where you clicked when chasing
             // widget hit-test bugs that only repro on device.
             let scrolled = !vscroll_is_identity();
-            let buf: &[u32] = if scrolled || tap_debug_enabled() {
+            // A dark panel: show black whatever the frame memory holds.
+            static BLACK: [u32; NUM_PIXELS] = [0; NUM_PIXELS];
+            let buf: &[u32] = if asleep() {
+                &BLACK
+            } else if scrolled || tap_debug_enabled() {
                 let dst_ptr = core::ptr::addr_of_mut!(COMPOSE_BUF) as *mut u32;
                 let dst = core::slice::from_raw_parts_mut(dst_ptr, NUM_PIXELS);
                 let src_ptr = core::ptr::addr_of!(FRAMEBUF) as *const u32;
@@ -644,13 +659,13 @@ fn handle_touch_command(it: &mut core::str::SplitWhitespace<'_>) {
 /// integer. The name table is `pdb_protocol::keycodes` — the same one the
 /// host `pdb input` resolves with, so scripts move between the two front-ends
 /// unchanged.
-#[cfg(has_buttons)]
+#[cfg(any(has_buttons, has_touch))]
 fn input_keycode(tok: &str) -> Option<i32> {
     pdb_protocol::keycodes::keycode_from_name(tok).or_else(|| tok.trim().parse::<i32>().ok())
 }
 
 /// `input dpad <dir>` → Android keycode.
-#[cfg(has_buttons)]
+#[cfg(any(has_buttons, has_touch))]
 fn input_dpad_keycode(dir: &str) -> Option<i32> {
     pdb_protocol::keycodes::dpad_keycode(dir)
 }
@@ -658,15 +673,20 @@ fn input_dpad_keycode(dir: &str) -> Option<i32> {
 /// Android keycode → button pin. Shared with the graphics event layer and
 /// the PDB input handler; it sits beside the generated table because the
 /// three callers cannot reach each other's copies (see
-/// [`crate::board_cfg::buttons::keycode_to_pin`]).
-#[cfg(has_buttons)]
+/// [`crate::board_cfg::buttons::keycode_to_pin`]). Always compiled: a board
+/// with no buttons has an empty table, and the key verbs then take the
+/// soft-key path.
+#[cfg(any(has_buttons, has_touch))]
 use crate::board_cfg::buttons::keycode_to_pin;
 
 /// Handle `input keyevent|dpad|back [--longpress|--down|--up] …` — resolve to
-/// a button pin and inject the edges. `verb` is the already-lowercased
+/// a button pin and inject the edges, or, for a key this board has no pin
+/// for, queue it as a soft key (`input_inject::key_soft`) so the framework
+/// and the app still see the `KeyEvent`: how a script sends BACK or HOME to
+/// a board without either button. `verb` is the already-lowercased
 /// subcommand; the flags come before the key, as in `adb shell input keyevent
 /// --longpress KEYCODE`.
-#[cfg(has_buttons)]
+#[cfg(any(has_buttons, has_touch))]
 fn handle_key_verb(verb: &str, it: &mut core::str::SplitWhitespace<'_>) {
     use crate::input_inject::KeyHold;
 
@@ -688,17 +708,19 @@ fn handle_key_verb(verb: &str, it: &mut core::str::SplitWhitespace<'_>) {
         "back" => Some(pdb_protocol::keycodes::KEYCODE_BACK),
         _ => None,
     };
-    match code.and_then(keycode_to_pin) {
-        Some(pin) => crate::input_inject::key::<SimSink>(pin, hold),
-        None => println!("[sim] control channel: input {verb} — no button for that keycode"),
+    let Some(code) = code else {
+        println!("[sim] control channel: input {verb} — unknown key");
+        return;
+    };
+    match keycode_to_pin(code) {
+        Some(pin) => crate::input_inject::key::<SimSink>(pin, code, hold),
+        None => {
+            println!(
+                "[sim] control channel: input {verb} — no button for keycode {code}, sent as a soft key"
+            );
+            crate::input_inject::key_soft(code, hold);
+        }
     }
-}
-
-/// Button-less board: `input keyevent|dpad|back` have nothing to drive.
-#[cfg(not(has_buttons))]
-#[cfg_attr(test, allow(dead_code))]
-fn handle_key_verb(verb: &str, _it: &mut core::str::SplitWhitespace<'_>) {
-    println!("[sim] control channel: input {verb} — no buttons on this board");
 }
 
 #[cfg(any(has_buttons, has_touch))]

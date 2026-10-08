@@ -141,12 +141,82 @@ pub(super) fn focused_obj_for_edit_mode() -> (usize, bool) {
 // SAFETY: widget-layer state, reached only from JVM tasks.
 static KEY_HELD: Core0<Cell<bool>> = unsafe { Core0::new(Cell::new(false)) };
 
+// ── HOME on a held BACK ─────────────────────────────────────────────────────
+//
+// A board with a launcher but no HOME key reaches HOME by holding BACK for
+// `HOME_HOLD_MS` (docs/designs/app-portability-2026-10.md K2). The timer
+// runs here, on the raw edge, rather than in the Java queue: the edit-mode
+// filter swallows ESC presses while a picker is edited, and an app that
+// consumes BACK must still be left. The app sees its ordinary 400 ms
+// long-press on the way (the Java repeat engine does that), then the HOME,
+// then a release flagged cancelled so `onBackPressed` stays out of it.
+
+/// When the current BACK press landed, while it is held.
+#[cfg(has_buttons)]
+// SAFETY: widget-layer state, reached only from JVM tasks.
+static BACK_HELD_SINCE_MS: Core0<Cell<Option<u64>>> = unsafe { Core0::new(Cell::new(None)) };
+/// Whether this hold has already become HOME.
+#[cfg(has_buttons)]
+// SAFETY: widget-layer state, reached only from JVM tasks.
+static BACK_HOME_FIRED: Core0<Cell<bool>> = unsafe { Core0::new(Cell::new(false)) };
+/// Set when a hold became HOME, for the dispatcher to cancel the release.
+#[cfg(has_buttons)]
+// SAFETY: widget-layer state, reached only from JVM tasks.
+static BACK_UP_CANCELLED: Core0<Cell<bool>> = unsafe { Core0::new(Cell::new(false)) };
+
+/// A BACK edge: start or end the hold.
+#[cfg(has_buttons)]
+fn note_back_edge(rising: bool, edge_ms: u64) {
+    if rising {
+        BACK_HELD_SINCE_MS.set(None);
+        if BACK_HOME_FIRED.replace(false) {
+            BACK_UP_CANCELLED.set(true);
+        }
+    } else {
+        BACK_HELD_SINCE_MS.set(Some(edge_ms));
+        BACK_HOME_FIRED.set(false);
+    }
+}
+
+/// Once per read pass: a BACK held past the threshold becomes HOME, once.
+#[cfg(has_buttons)]
+fn check_back_hold(now_ms: u64) {
+    let Some(since) = BACK_HELD_SINCE_MS.get() else {
+        return;
+    };
+    if BACK_HOME_FIRED.get()
+        || now_ms.saturating_sub(since) < u64::from(crate::board_cfg::input::HOME_HOLD_MS)
+    {
+        return;
+    }
+    BACK_HOME_FIRED.set(true);
+    crate::pd_info!("key: BACK held -> HOME");
+    crate::input_inject::push_soft_key_press(crate::input_inject::KEYCODE_HOME);
+}
+
+/// Whether the BACK release being dispatched ends a hold that became HOME —
+/// read once by the dispatcher, which then flags it `FLAG_CANCELED`.
+pub fn take_back_up_cancelled() -> bool {
+    #[cfg(has_buttons)]
+    {
+        BACK_UP_CANCELLED.replace(false)
+    }
+    #[cfg(not(has_buttons))]
+    {
+        false
+    }
+}
+
 #[cfg(has_buttons)]
 pub(super) unsafe extern "C" fn keypad_read_cb(
     _indev: *mut lv_indev_t,
     data: *mut lv_indev_data_t,
 ) {
     let d = unsafe { &mut *data };
+    let now_us = crate::hal::system_clock::elapsed_realtime_nanos() as u64 / 1_000;
+    if crate::board_cfg::input::BACK_HOLD_IS_HOME {
+        check_back_hold(now_us / 1_000);
+    }
     // Drain until the first edge that survives the contact debounce; chatter
     // edges are consumed and discarded without ending the read pass.
     let debounced = loop {
@@ -165,6 +235,14 @@ pub(super) unsafe extern "C" fn keypad_read_cb(
     };
     if let Some(event) = debounced {
         KEY_HELD.set(!event.rising);
+        // A real edge: the panel stays on (power.rs).
+        crate::power::user_activity();
+        if crate::board_cfg::input::BACK_HOLD_IS_HOME
+            && super::pin_to_keycode(event.pin) == Some(crate::input_inject::KEYCODE_BACK)
+        {
+            let edge_ms = super::super::key_repeat::edge_time_ms(now_us, event.t_us);
+            note_back_edge(event.rising, edge_ms);
+        }
         let key = BUTTONS
             .iter()
             .find(|&&(p, _, _)| p == event.pin)

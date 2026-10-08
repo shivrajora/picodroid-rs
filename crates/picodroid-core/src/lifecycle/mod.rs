@@ -53,16 +53,56 @@ fn dispatch_method(idx: usize) -> &'static str {
     DISPATCH_SITES[idx].1
 }
 
-// `IDLE_TIMEOUT_MS: Option<u64>` — idle period (ms) after which the display
-// is put to sleep, or `None` to disable. Resolved from board.toml's
-// top-level `idle_timeout_ms` (default 60_000, `0` means disabled) by
-// `build.rs`. Gated on `has_buttons` because the wake path blocks on a
-// button IRQ — touch-only boards would never wake.
-#[cfg(all(not(feature = "sim"), has_buttons))]
-include!(concat!(env!("OUT_DIR"), "/sleep_config.rs"));
-
 fn now_ms() -> u64 {
     crate::hal::system_clock::elapsed_realtime_nanos() as u64 / 1_000_000
+}
+
+/// Once per tick: apply what the display's idle timer decided (power.rs) and
+/// say whether the panel is dark. A doze turns the panel and backlight off
+/// and silences a tone (its sequencer is driven by the LVGL tick, which
+/// stops). A wake swallows what woke it — the queued edges, the touch ring,
+/// the press LVGL would otherwise land — and repaints.
+///
+/// While dozing the input rings are not drained (LVGL is not ticking), so a
+/// pending edge or a finger on the glass is visible here as the wake. The
+/// sampler task keeps reading the GT911; the XPT2046 is polled inline.
+fn service_display_power() -> bool {
+    use crate::power::{DozeCause, Transition, WakeCause};
+    // A soft key counts as a key: `KEYCODE_WAKEUP` from `input keyevent`, or
+    // the soft-nav control, must wake a board that has no pin to press.
+    let key_pending =
+        crate::hal::gpio::has_pending_event() || crate::input_inject::soft_key_pending();
+    // The panel is probed only while dozing, when LVGL is not reading it:
+    // awake, the touch path stamps activity itself, and a second reader on
+    // an XPT2046 would eat the "unsettled first reading" the sampler
+    // discards and cost a bus transfer per tick.
+    let touch_pending =
+        !crate::power::is_interactive() && crate::hal::touch_sampler::latest().is_some();
+    match crate::power::poll(key_pending, touch_pending) {
+        Transition::None => !crate::power::is_interactive(),
+        Transition::Doze(cause) => {
+            #[cfg(has_audio)]
+            crate::media::stop();
+            crate::graphics::lvgl::with_gfx(|g| g.sleep());
+            let n = crate::power::doze_number();
+            match cause {
+                DozeCause::Idle(ms) => crate::pd_info!("display: doze #{} after {} ms idle", n, ms),
+                DozeCause::SleepKey => crate::pd_info!("display: doze #{} (sleep key)", n),
+                DozeCause::PowerKey => crate::pd_info!("display: doze #{} (power key)", n),
+            }
+            true
+        }
+        Transition::Wake(cause) => {
+            crate::graphics::lvgl::with_gfx(|g| g.wake());
+            let n = crate::power::doze_number();
+            match cause {
+                WakeCause::Key => crate::pd_info!("display: wake #{} (key)", n),
+                WakeCause::Touch => crate::pd_info!("display: wake #{} (touch)", n),
+                WakeCause::Request => crate::pd_info!("display: wake #{} (request)", n),
+            }
+            false
+        }
+    }
 }
 
 /// Render-time counter for `parity-metrics` device builds: the LVGL tick's
@@ -664,10 +704,9 @@ pub(crate) fn run_activity(
     // `MainTask::LvglTick` to the same queue. Posters of user Runnables
     // wake `recv_blocking` directly via the queue's send semantics.
     crate::executors::tick_source::start();
-    #[cfg(all(not(feature = "sim"), has_buttons))]
-    let mut last_input_ms: u64 = now_ms();
-    #[cfg(all(not(feature = "sim"), has_buttons))]
-    let mut sleeping: bool = false;
+    // The display's idle timer runs from here (power.rs): the first app of
+    // a boot, or the next after a hand-over, starts with a lit panel.
+    crate::power::user_activity();
 
     // Slow-handler watchdog: a handler that overruns the threshold stalls the
     // single-threaded UI tick. Resolve the threshold once; track the last-warn
@@ -709,39 +748,30 @@ pub(crate) fn run_activity(
             break;
         }
 
-        // Low-power sleep state: pause the tick source so the chip can
-        // enter deeper idle, and block on the GPIO wake semaphore until
-        // the next button edge IRQ.
-        #[cfg(all(not(feature = "sim"), has_buttons))]
-        if sleeping {
-            crate::hal::gpio::wait_for_button_event();
-            if !crate::hal::gpio::has_pending_event() {
-                // Stale signal latched during the awake phase — re-block.
-                continue;
-            }
-            // Discard the wake press AND its release edge so it doesn't reach
-            // LVGL focus navigation or Java OnKeyListener.
-            while crate::hal::gpio::drain_gpio_event().is_some() {}
-            with_gfx(|g| g.wake());
-            crate::executors::tick_source::resume();
-            crate::hardware::sensors::sampler::resume();
-            sleeping = false;
-            last_input_ms = now_ms();
-            continue;
-        }
-
         // Block until the tick source posts an LvglTick or a poster
         // submits a Runnable. Sub-ms wake on Runnable post.
         match main_queue::recv_blocking() {
             MainTask::LvglTick => {
-                #[cfg(all(feature = "parity-metrics", not(feature = "sim")))]
-                let tick_t0 = crate::hal::system_clock::elapsed_realtime_nanos();
-                with_gfx(|g| g.tick(crate::executors::tick_source::step_ms()));
-                #[cfg(all(feature = "parity-metrics", not(feature = "sim")))]
-                render_probe::record(
-                    crate::hal::system_clock::elapsed_realtime_nanos().wrapping_sub(tick_t0) as u64,
-                );
-                crate::graphics::lvgl::fps_overlay::update();
+                // Doze (power.rs; docs/designs/app-portability-2026-10.md
+                // K5): with the panel dark LVGL does not tick, so nothing
+                // renders and no input is dispatched — a pending edge or a
+                // finger on the glass is the wake instead. Everything else
+                // in this arm keeps running: Runnables, alarms, scheduled
+                // tasks, the network and the sensors do not know the panel
+                // is off. The step clock runs on, so the first awake tick
+                // feeds LVGL the whole dark interval and its clocks catch up.
+                let dozing = service_display_power();
+                if !dozing {
+                    #[cfg(all(feature = "parity-metrics", not(feature = "sim")))]
+                    let tick_t0 = crate::hal::system_clock::elapsed_realtime_nanos();
+                    with_gfx(|g| g.tick(crate::executors::tick_source::step_ms()));
+                    #[cfg(all(feature = "parity-metrics", not(feature = "sim")))]
+                    render_probe::record(
+                        crate::hal::system_clock::elapsed_realtime_nanos().wrapping_sub(tick_t0)
+                            as u64,
+                    );
+                    crate::graphics::lvgl::fps_overlay::update();
+                }
                 // Control-channel package verbs run here, on the JVM task,
                 // so the directory keeps one writer.
                 #[cfg(feature = "sim")]
@@ -750,14 +780,16 @@ pub(crate) fn run_activity(
                 crate::hal::sim::display::service_input_text();
                 // Watch only the Java dispatch, not g.tick's render above —
                 // rendering legitimately varies and would be a false positive.
-                let span_start = span_start();
-                dispatch_widget_events(jvm, heap, handler);
-                warn_if_slow(
-                    "widget events",
-                    span_start,
-                    slow_handler_ms,
-                    &mut last_slow_warn_ms,
-                );
+                if !dozing {
+                    let span_start = span_start();
+                    dispatch_widget_events(jvm, heap, handler);
+                    warn_if_slow(
+                        "widget events",
+                        span_start,
+                        slow_handler_ms,
+                        &mut last_slow_warn_ms,
+                    );
+                }
 
                 // Tone segment boundaries, before anything that runs Java:
                 // a late boundary is audible, and `dispatch_alarms` below can
@@ -810,26 +842,6 @@ pub(crate) fn run_activity(
                 crate::hal::display::update_window();
                 if !crate::hal::display::is_window_open() {
                     break;
-                }
-
-                #[cfg(all(not(feature = "sim"), has_buttons))]
-                {
-                    if crate::hal::gpio::has_pending_event() {
-                        last_input_ms = now_ms();
-                    }
-                    if let Some(timeout) = IDLE_TIMEOUT_MS {
-                        if now_ms() - last_input_ms >= timeout {
-                            // The tick source is about to stop, and it is what
-                            // advances a tone — anything still sounding would
-                            // sound forever. Silence it on the way down.
-                            #[cfg(has_audio)]
-                            crate::media::stop();
-                            crate::executors::tick_source::pause();
-                            crate::hardware::sensors::sampler::pause();
-                            with_gfx(|g| g.sleep());
-                            sleeping = true;
-                        }
-                    }
                 }
             }
             MainTask::Runnable(r) => {

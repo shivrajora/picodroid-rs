@@ -26,6 +26,8 @@ abstract class NavActivity : Activity() {
         val root = LinearLayout()
         root.setOrientation(LinearLayout.VERTICAL)
         root.setSize(240, 240)
+        // A live monitor is watched, not touched: hold the panel on while a screen shows.
+        root.setKeepScreenOn(true)
         root.setPadding(8, 6, 8, 6)
         root.setBackgroundColor(Theme.colorBackground)
         return root

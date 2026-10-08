@@ -207,6 +207,14 @@ const ACTION_UP: i32 = 1;
 const KEYCODE_HOME: i32 = 3;
 #[cfg(not(test))]
 const KEYCODE_BACK: i32 = 4;
+/// `KeyEvent.KEYCODE_POWER` / `SLEEP` / `WAKEUP`: display power keys the
+/// framework takes (power.rs).
+const KEYCODE_POWER: i32 = 26;
+const KEYCODE_SLEEP: i32 = 223;
+const KEYCODE_WAKEUP: i32 = 224;
+/// `KeyEvent.FLAG_CANCELED`: a release whose press's action must not run —
+/// here, the release of a BACK whose hold became HOME.
+const FLAG_CANCELED: i32 = 0x20;
 /// `KeyEvent.FLAG_LONG_PRESS`: set on the first repeat, the long-press.
 #[cfg(not(test))]
 const FLAG_LONG_PRESS: i32 = 0x80;
@@ -245,6 +253,32 @@ pub(super) fn dispatch_key_events(
     let now_us = crate::hal::system_clock::elapsed_realtime_nanos() as u64 / 1_000;
     let now_ms = now_us / 1_000;
 
+    // 0) Keys with no pin behind them (`input_inject::push_soft_key`): the
+    //    soft-nav control's BACK and HOME, the HOME a held BACK synthesises
+    //    on a board with no HOME key, and `input keyevent` for a key this
+    //    board lacks. Routed exactly as a pin's edge is, stamped with the
+    //    moment of dispatch, and ahead of the ring: a held BACK's HOME must
+    //    land before that BACK's own release.
+    while let Some(soft) = crate::input_inject::drain_soft_key() {
+        let down_ms = track_hold(soft.keycode, soft.action, now_ms);
+        let stop = route_key(
+            jvm,
+            heap,
+            handler,
+            KeyRecord {
+                keycode: soft.keycode,
+                action: soft.action,
+                repeat_count: soft.repeat,
+                flags: soft.flags,
+                down_ms,
+                event_ms: now_ms,
+            },
+        );
+        if stop {
+            return;
+        }
+    }
+
     while let Some(raw) = events::drain_key_event() {
         let keycode = match events::pin_to_keycode(raw.pin) {
             Some(k) => k,
@@ -252,66 +286,17 @@ pub(super) fn dispatch_key_events(
         };
         let action = if raw.rising { ACTION_UP } else { ACTION_DOWN };
         let edge_ms = edge_time_ms(now_us, raw.t_us);
-
-        // Hold bookkeeping before any of the routes below, so a release the
-        // framework consumes (HOME, a keyboard or dialog dismissal) still
-        // ends its key's repeats. HOME never reaches Java, so it never
-        // repeats either.
-        let down_ms = if keycode == KEYCODE_HOME {
-            edge_ms
-        } else if action == ACTION_UP {
-            key_repeat().release(keycode).unwrap_or(edge_ms)
-        } else {
-            key_repeat().press(keycode, edge_ms);
-            edge_ms
-        };
-
-        // 0) HOME goes to the launcher from anywhere, and nothing on the way
-        //    gets a say — not a focused View's OnKeyListener, not a showing
-        //    dialog, not `onBackPressed`. Android reserves HOME the same way:
-        //    an app cannot trap the user by consuming it. The op tears every
-        //    Activity down and returns, and the supervisor then runs
-        //    `packages::next_image()`, which hands back the launcher this
-        //    request just made pending.
-        if keycode == KEYCODE_HOME {
-            if action == ACTION_UP && crate::packages::request_home() {
-                use crate::native_handler::{PendingActivityOp, PendingOp};
-                handler.enqueue_op(PendingOp::Activity(PendingActivityOp::Launch));
-                crate::pd_info!("key: HOME -> launcher");
-            }
-            // Both edges are consumed: a board with no launcher swallows HOME
-            // rather than delivering a keycode no app is expected to handle,
-            // and the press must not reach `onKeyDown` either — it used to,
-            // which let an app watch for a key it could never act on.
-            continue;
-        }
-
-        // 1) BACK release first tries to dismiss the system soft keyboard
-        //    if it's visible. Consumed if so — Activity stays on screen.
-        if keycode == KEYCODE_BACK && action == ACTION_UP {
-            use crate::graphics::lvgl::widgets::keyboard;
-            if keyboard::hide_system() {
-                crate::pd_info!("key: BACK -> keyboard dismissed");
-                continue;
-            }
-        }
-
-        // 1b) BACK then dismisses a showing AlertDialog (Android's cancelable
-        //     default) before reaching the focused View or onBackPressed. This
-        //     is also the only way to dismiss a dialog on a keypad-only board
-        //     with no touch — and it stops the modal scrim from outliving its
-        //     Activity. See project_picoenvmon_alertdialog_leak.
-        if keycode == KEYCODE_BACK && action == ACTION_UP {
-            use crate::graphics::widgets;
-            if widgets::has_shown_dialog() {
-                widgets::dismiss_topmost_dialog();
-                crate::pd_info!("key: BACK -> dialog dismissed");
-                continue;
-            }
-        }
-
-        // 2) + 3) The focused View, then the Activity.
-        deliver_key(
+        // A BACK whose hold became HOME: its release arrives cancelled, as
+        // Android cancels the release after a handled long-press, so the
+        // default `onKeyUp` keeps `onBackPressed` out of the launcher's way.
+        let flags =
+            if keycode == KEYCODE_BACK && action == ACTION_UP && events::take_back_up_cancelled() {
+                FLAG_CANCELED
+            } else {
+                0
+            };
+        let down_ms = track_hold(keycode, action, edge_ms);
+        let stop = route_key(
             jvm,
             heap,
             handler,
@@ -319,25 +304,12 @@ pub(super) fn dispatch_key_events(
                 keycode,
                 action,
                 repeat_count: 0,
-                flags: 0,
+                flags,
                 down_ms,
                 event_ms: edge_ms,
             },
         );
-
-        // If this key initiated an Activity transition (startActivity /
-        // finish), stop draining the batch. The remaining queued keys belong
-        // to the *next* top Activity and must wait until the transition is
-        // applied (between frames). Without this, a fast burst whose key
-        // events land in a single tick — before the push/pop is processed — is
-        // delivered entirely to the *departing* Activity, e.g. double-launching
-        // it; combined with a deferred service bind that then mutates the
-        // first instance's freed views, that was the History-screen segfault.
-        // See project_picoenvmon_history_segfault. The held keys belong to
-        // the departing screen too: their repeats stop here, and their
-        // eventual release finds nothing tracked on the new one.
-        if handler.has_pending_activity_transition() {
-            key_repeat().reset();
+        if stop {
             return;
         }
     }
@@ -371,6 +343,115 @@ pub(super) fn dispatch_key_events(
             return;
         }
     }
+}
+
+/// Hold bookkeeping before any route, so a release the framework consumes
+/// (HOME, a keyboard or dialog dismissal) still ends its key's repeats.
+/// Returns `KeyEvent.getDownTime()` for the edge. HOME never reaches Java,
+/// so it never repeats either.
+#[cfg(not(test))]
+fn track_hold(keycode: i32, action: i32, edge_ms: u64) -> u64 {
+    if keycode == KEYCODE_HOME {
+        edge_ms
+    } else if action == ACTION_UP {
+        key_repeat().release(keycode).unwrap_or(edge_ms)
+    } else {
+        key_repeat().press(keycode, edge_ms);
+        edge_ms
+    }
+}
+
+/// Route one key edge — the framework's claims first, then the focused View
+/// and the Activity. Returns `true` when the key started an Activity
+/// transition and the caller must stop draining: the remaining queued keys
+/// belong to the *next* top Activity and must wait until the transition is
+/// applied (between frames). Without this, a fast burst whose key events
+/// land in a single tick — before the push/pop is processed — is delivered
+/// entirely to the *departing* Activity, e.g. double-launching it; combined
+/// with a deferred service bind that then mutates the first instance's freed
+/// views, that was the History-screen segfault. See
+/// project_picoenvmon_history_segfault. The held keys belong to the
+/// departing screen too: their repeats stop here, and their eventual release
+/// finds nothing tracked on the new one.
+#[cfg(not(test))]
+fn route_key(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
+    rec: KeyRecord,
+) -> bool {
+    let (keycode, action) = (rec.keycode, rec.action);
+
+    // 0) HOME goes to the launcher from anywhere, and nothing on the way
+    //    gets a say — not a focused View's OnKeyListener, not a showing
+    //    dialog, not `onBackPressed`. Android reserves HOME the same way:
+    //    an app cannot trap the user by consuming it. The op tears every
+    //    Activity down and returns, and the supervisor then runs
+    //    `packages::next_image()`, which hands back the launcher this
+    //    request just made pending.
+    if keycode == KEYCODE_HOME {
+        if action == ACTION_UP {
+            if crate::packages::request_home() {
+                use crate::native_handler::{PendingActivityOp, PendingOp};
+                handler.enqueue_op(PendingOp::Activity(PendingActivityOp::Launch));
+                crate::pd_info!("key: HOME -> launcher");
+            } else {
+                crate::pd_info!("key: HOME swallowed (nothing to go home to)");
+            }
+        }
+        // Both edges are consumed: a board with no launcher swallows HOME
+        // rather than delivering a keycode no app is expected to handle,
+        // and the press must not reach `onKeyDown` either — it used to,
+        // which let an app watch for a key it could never act on.
+        return false;
+    }
+
+    // 0b) The power keys are the framework's too (power.rs): SLEEP dozes,
+    //     WAKEUP wakes, POWER toggles — on the release, like HOME.
+    if keycode == KEYCODE_SLEEP || keycode == KEYCODE_WAKEUP || keycode == KEYCODE_POWER {
+        if action == ACTION_UP {
+            match keycode {
+                KEYCODE_SLEEP => crate::power::request_doze(crate::power::DozeCause::SleepKey),
+                KEYCODE_WAKEUP => crate::power::request_wake(),
+                _ => crate::power::request_toggle(),
+            }
+            crate::pd_info!("key: power key {} -> display", keycode);
+        }
+        return false;
+    }
+
+    // 1) BACK release first tries to dismiss the system soft keyboard
+    //    if it's visible. Consumed if so — Activity stays on screen.
+    if keycode == KEYCODE_BACK && action == ACTION_UP {
+        use crate::graphics::lvgl::widgets::keyboard;
+        if keyboard::hide_system() {
+            crate::pd_info!("key: BACK -> keyboard dismissed");
+            return false;
+        }
+    }
+
+    // 1b) BACK then dismisses a showing AlertDialog (Android's cancelable
+    //     default) before reaching the focused View or onBackPressed. This
+    //     is also the only way to dismiss a dialog on a keypad-only board
+    //     with no touch — and it stops the modal scrim from outliving its
+    //     Activity. See project_picoenvmon_alertdialog_leak.
+    if keycode == KEYCODE_BACK && action == ACTION_UP {
+        use crate::graphics::widgets;
+        if widgets::has_shown_dialog() {
+            widgets::dismiss_topmost_dialog();
+            crate::pd_info!("key: BACK -> dialog dismissed");
+            return false;
+        }
+    }
+
+    // 2) + 3) The focused View, then the Activity.
+    deliver_key(jvm, heap, handler, rec);
+
+    if handler.has_pending_activity_transition() {
+        key_repeat().reset();
+        return true;
+    }
+    false
 }
 
 /// Fill the recycled `KeyEvent` from `rec` and offer it to the focused View's

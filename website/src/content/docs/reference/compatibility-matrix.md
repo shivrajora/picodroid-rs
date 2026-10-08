@@ -150,7 +150,14 @@ The networking classes live in `picodroid.net`; the exceptions are the real `jav
 |---|---|---|
 | `SystemClock` | Partial | `elapsedRealtime`, `elapsedRealtimeNanos`, `sleep(int)`, `setCurrentTimeMillis` (always succeeds). No `uptimeMillis` or `currentThreadTimeMillis`. |
 | `Handler` / `Looper` / `Message` | Unsupported | Use `Executors.mainExecutor().execute(Runnable)` for "post to UI"; for delayed or repeating work on the main thread, `Executors.mainScheduledExecutor()` (`schedule`, `scheduleAtFixedRate`). `Context.getMainExecutor()` and `Activity.runOnUiThread(Runnable)` exist. There is no `postDelayed`. |
+| `PowerManager` | Partial | `isInteractive()` (whether the display is on), from `getSystemService(POWER_SERVICE)`. No wake locks: a dark panel does not stop the CPU, the app keeps running (docs/designs/app-portability-2026-10.md K5). Related: `View.setKeepScreenOn` / `getKeepScreenOn`, `Activity.setTurnScreenOn`, `KeyEvent.KEYCODE_POWER` / `SLEEP` / `WAKEUP`. |
 | `Bundle` | Partial | Intent extras, saved instance state and fragment arguments. `put` / `get` for `boolean`, `int`, `long`, `float`, `double`, `String`, `int[]`, `byte[]`, `String[]` and nested `Bundle`, with the default-taking getters; `get`, `containsKey`, `remove`, `clear`, `size`, `isEmpty`, `keySet`, `putAll`, the copy constructor. No `Parcelable` / `Serializable`, no `short` / `char` / `byte` scalars or `ArrayList` values. |
+
+### android.provider
+
+| API | Status | Notes / alternative |
+|---|---|---|
+| `Settings.System` | Partial | `getInt` / `putInt` for one setting, `SCREEN_OFF_TIMEOUT` (milliseconds, `0` never), stored at `/system/display` and read by the display's idle timer. Any other name reads as its default and refuses a write. `Context.getContentResolver()` returns the handle they take; there are no content providers. |
 
 ### android.hardware
 

@@ -891,6 +891,7 @@ impl LayoutCompiler<'_> {
             "visibility" => one(a::VISIBILITY, parse_enum(VISIBILITY, text, from)?),
             "enabled" => one(a::ENABLED, v.word(TYPE_BOOL, text, from)?),
             "focusable" => one(a::FOCUSABLE, v.word(TYPE_BOOL, text, from)?),
+            "keepScreenOn" => one(a::KEEP_SCREEN_ON, v.word(TYPE_BOOL, text, from)?),
             "alpha" => one(a::ALPHA, self.float(text, from)?),
             "text" => one(a::TEXT, self.string_id(text, from)?),
             "textColor" => one(a::TEXT_COLOR, v.word(TYPE_COLOR, text, from)?),

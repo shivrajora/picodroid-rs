@@ -18,6 +18,11 @@ input keyevent --down 20
 sleep 1
 input keyevent --up 20
 wait KeyDemo[]:] activity UP keyCode=20
+# BACK held past home_hold_ms is HOME on a board with no HOME key: the hold
+# becomes a HOME the framework takes (swallowed here, with no launcher in the
+# run), and the release arrives cancelled, so the demo is still up.
+input keyevent --longpress 4
+wait key: BACK held -> HOME
 # BACK is left to the Activity defaults: onBackPressed finishes the demo, and
 # the row ends the way a term row does.
 input back

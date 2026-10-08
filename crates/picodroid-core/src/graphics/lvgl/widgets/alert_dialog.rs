@@ -589,6 +589,9 @@ pub(in crate::graphics) fn show(id: i32) {
         return;
     }
     unsafe { lv_obj_remove_flag(scrim, LV_OBJ_FLAG_HIDDEN) };
+    // The scrim joined the top layer after the soft-nav control did; keep
+    // BACK reachable above it, as a cancelable dialog's outside stays live.
+    super::super::soft_nav::raise();
     focus_dialog_buttons(scrim as usize);
     if let Some(oldest) = shown_push(id) {
         crate::pd_warn!(

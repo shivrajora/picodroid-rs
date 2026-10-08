@@ -368,3 +368,7 @@ picodroid/widget/Toast
 picodroid/widget/ToggleButton
 picodroid/widget/ViewPager2
 picodroid/widget/ViewPager2$OnPageChangeCallback
+picodroid/content/ContentResolver
+picodroid/os/PowerManager
+picodroid/provider/Settings
+picodroid/provider/Settings$System

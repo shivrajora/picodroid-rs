@@ -48,6 +48,7 @@ public class View {
   OnFocusChangeListener onFocusChangeListener;
   ViewGroup.LayoutParams layoutParams;
   boolean focusable = false; // Android default for a plain View / ViewGroup.
+  boolean keepScreenOn = false;
 
   // App-set state cached for the getters, mirroring Android (where these live
   // in View's own flag/property fields, not the renderer): the framework
@@ -416,6 +417,28 @@ public class View {
   }
 
   /**
+   * Mirrors {@code android.view.View#setKeepScreenOn(boolean)}: while this view lives and the flag
+   * is set, the display's idle timer does not doze the panel. For a clock, a monitor or any screen
+   * that is watched without being touched; {@code android:keepScreenOn="true"} in a layout does the
+   * same. The hold ends when the view is destroyed or the flag is cleared. A {@code KEYCODE_SLEEP}
+   * still dozes the panel, as on Android.
+   */
+  public void setKeepScreenOn(boolean keepScreenOn) {
+    if (this.keepScreenOn == keepScreenOn) {
+      return;
+    }
+    this.keepScreenOn = keepScreenOn;
+    nativeSetKeepScreenOn(keepScreenOn);
+  }
+
+  /** Mirrors Android: whether {@link #setKeepScreenOn} is set. */
+  public boolean getKeepScreenOn() {
+    return keepScreenOn;
+  }
+
+  private native void nativeSetKeepScreenOn(boolean keepScreenOn);
+
+  /**
    * Request that this view take input focus. Mirrors {@code android.view.View#requestFocus()}:
    * returns {@code false} (without effect) if the view is not {@link #isFocusable() focusable},
    * otherwise {@code true} if it became the focused view.
@@ -682,6 +705,14 @@ public class View {
 
   /** Laid-out height in pixels. Mirrors {@code android.view.View#getHeight()}. */
   public native int getHeight();
+
+  /**
+   * Mirrors {@code android.view.View#isInTouchMode()}: whether the finger, not a focus ring, is
+   * what reaches views here. Fixed per board — true where no button moves focus (a touchscreen
+   * board), false on a board with navigation keys — rather than following the last input as
+   * Android's does.
+   */
+  public native boolean isInTouchMode();
 
   /**
    * Horizontal offset from the laid-out position, in pixels. Mirrors {@code

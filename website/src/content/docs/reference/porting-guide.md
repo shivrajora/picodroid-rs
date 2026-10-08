@@ -609,7 +609,7 @@ You don't edit `board.toml` to write an app, but it determines what your app can
 | `lv_mem_kb` | int | no | LVGL render-pool size in KiB (default 64; every board but `pico_touch_kit` sets 48). The pool is a static array, so it comes off the core-0 main stack's budget, which the linker script holds to at least 8,192 bytes. |
 | `text_sizes` | string | no | The pixel sizes of the Montserrat faces `TextView.setTextSize` can snap to, `;`-separated; the MCU toml's value applies when unset (`14;20;28;64` on the RP2350s, `14` on the RP2040). 14 is required; every other size must exist as a generated face in `crates/pd-lvgl-sys/lvgl/fonts/` (`scripts/gen-fonts.sh`). Flash per face: [Limits](/reference/limits/). |
 | `lv_mem_in_psram` | bool | no | Put the LVGL pool in the module's PSRAM instead of `.bss` (the MCU toml must declare `psram_kb`). Frees the pool's size from the main-stack budget; render targets stay in SRAM. Device builds only — the simulator keeps its `.bss` pool. |
-| `idle_timeout_ms` | int | no | Idle time before the display sleeps (default 60000; `0` disables sleep). Only takes effect on boards with `[[button]]` entries. |
+| `idle_timeout_ms` | int | no | The board's default screen timeout: idle time, with no key edge or touch, before the display dozes (default 60000; `0` never). Every board, touch or keys; Settings → Display stores a user's choice at `/system/display` (`Settings.System.SCREEN_OFF_TIMEOUT`), which overrides it. An app that must stay lit calls `View.setKeepScreenOn(true)`. |
 | `soft_nav` | bool | no | For a touchscreen board with no button: the framework draws a round BACK (tap) / HOME (hold) control in the bottom-left corner of the window, and `input keyevent` can send any key. Needs `[touch]`. The testbenches set it; a new touch board declares a `[[button]]` instead. |
 | `home_hold_ms` | int | no | How long BACK (or the soft-nav control) is held for HOME on a board with no HOME key; default 1000, allowed 500–5000. |
 | `handle_slots` | int | no | Size of the LVGL object handle table (default 256). Must be a power of two between 32 and 4096. |
@@ -752,7 +752,15 @@ ring exists, and `View.isInTouchMode()` is false) and `soft_nav` as cfgs, and
 `board_cfg::input::{HAS_NAV_KEYS, HAS_HOME_KEY, HAS_BACK_KEY, SOFT_NAV,
 HOME_HOLD_MS}` as constants.
 
-Declaring at least one `[[button]]` enables the idle display-sleep + wake-on-button feature (the sleep delay is `idle_timeout_ms`, default 60 s; set it to `0` to keep the panel always on, as `pico_enviro_mon` does). If the board has a touchscreen *and* buttons, set it to `0`: the sleep path counts only button edges as input, so touch can neither keep the panel awake nor wake it again. See [api/ui.md → Key events](/api/ui/#key-events) and the [Button-only navigation](/guides/button-navigation/) guide.
+Every board dozes its display after the screen timeout (`idle_timeout_ms`, default 60 s, or what
+Settings → Display stored) with no key edge or touch, and any button wakes it; so does a finger
+where the touch controller is read while the panel is dark (the GT911's sampler task, or the
+XPT2046 polled inline). The app keeps running with the panel off — Runnables, alarms, scheduled
+tasks, the network and the sensors continue — and the wake press is swallowed. An app that must
+stay lit holds the panel with `View.setKeepScreenOn(true)`; an Activity that must be seen when it
+starts (an alarm) calls `Activity.setTurnScreenOn(true)`. `KEYCODE_SLEEP`, `KEYCODE_WAKEUP` and
+`KEYCODE_POWER` on a `[[button]]` (or injected) doze, wake and toggle. See [api/ui.md → Key
+events](/api/ui/#key-events) and the [Button-only navigation](/guides/button-navigation/) guide.
 
 ### `[background_pool]` — optional thread-pool tuning
 

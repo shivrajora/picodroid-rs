@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest package="powerdemo" version="1.0">
+    <application activity="powerdemo/PowerDemoActivity" label="Power demo" />
+</manifest>

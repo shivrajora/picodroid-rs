@@ -32,6 +32,8 @@ public abstract class NavActivity extends Activity {
     root.setSize(240, 240);
     root.setPadding(8, 6, 8, 6);
     root.setBackgroundColor(Theme.colorBackground);
+    // A live monitor is watched, not touched: hold the panel on while a screen shows.
+    root.setKeepScreenOn(true);
     return root;
   }
 

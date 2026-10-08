@@ -91,19 +91,28 @@ pub fn handle(transport: &mut impl PdbTransport, len: u32) {
 // ── Key injection ────────────────────────────────────────────────────────────
 
 /// Resolves the Android keycode to a board button pin and injects edges.
-/// Active-low: PRESS = falling (`rising=false`), RELEASE = rising.
+/// Active-low: PRESS = falling (`rising=false`), RELEASE = rising. A key
+/// this board has no pin for goes through the soft-key queue instead
+/// (`input_inject::key_soft`): it reaches the framework and the app as a
+/// `KeyEvent` without touching LVGL's focus ring, which is what lets a
+/// script send BACK or HOME to a board that has neither button.
 fn inject_key(keycode: i32, meta: u8) -> (u8, &'static [u8]) {
-    let Some(pin) = keycode_to_pin(keycode) else {
-        return (STATUS_ERR, b"no such key");
-    };
-    crate::pd_info!("pdb: key {} -> pin {}", keycode, pin);
     let hold = match meta {
         KEY_META_DOWN => input_inject::KeyHold::Down,
         KEY_META_UP => input_inject::KeyHold::Up,
         KEY_META_LONG_PRESS => input_inject::KeyHold::LongPress,
         _ => input_inject::KeyHold::PressRelease,
     };
-    input_inject::key::<HalSink>(pin, hold);
+    match keycode_to_pin(keycode) {
+        Some(pin) => {
+            crate::pd_info!("pdb: key {} -> pin {}", keycode, pin);
+            input_inject::key::<HalSink>(pin, keycode, hold);
+        }
+        None => {
+            crate::pd_info!("pdb: key {} -> soft (no pin on this board)", keycode);
+            input_inject::key_soft(keycode, hold);
+        }
+    }
     (STATUS_OK, b"")
 }
 
