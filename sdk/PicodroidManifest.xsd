@@ -19,9 +19,17 @@
 
   <xs:element name="manifest">
     <xs:complexType>
-      <xs:sequence>
+      <xs:all>
         <xs:element name="application" type="ApplicationType" minOccurs="1" maxOccurs="1"/>
-      </xs:sequence>
+        <!-- The logical size the app lays out against. The runtime shows the app at exactly
+             that size on every panel: centred and letterboxed on a larger one, panned on a
+             smaller one. Absent: the app resizes to the panel. -->
+        <xs:element name="supports-screens" type="SupportsScreensType" minOccurs="0" maxOccurs="1"/>
+        <!-- A hardware feature the app uses (PackageManager.FEATURE_* names). With
+             required="true" the installer refuses the app on a board that lacks it;
+             the default is not required. -->
+        <xs:element name="uses-feature" type="UsesFeatureType" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:all>
       <!-- App package id, e.g. "helloworld" or "com.acme.app". Required. -->
       <xs:attribute name="package" type="xs:string" use="required"/>
       <!-- Optional; a blank/absent version defaults to "1.0" at build time. -->
@@ -45,6 +53,17 @@
     <!-- App icon: the name of a PNG under assets/ (48x48 recommended). -->
     <xs:attribute name="icon" type="xs:string" use="optional"/>
     <xs:assert test="count(@main-class | @activity | @application) = 1"/>
+  </xs:complexType>
+
+  <xs:complexType name="SupportsScreensType">
+    <xs:attribute name="design-width" type="xs:positiveInteger" use="required"/>
+    <xs:attribute name="design-height" type="xs:positiveInteger" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="UsesFeatureType">
+    <!-- e.g. picodroid.hardware.touchscreen, picodroid.hardware.wifi, picodroid.hardware.ethernet -->
+    <xs:attribute name="name" type="xs:string" use="required"/>
+    <xs:attribute name="required" type="xs:boolean" use="optional" default="false"/>
   </xs:complexType>
 
 </xs:schema>

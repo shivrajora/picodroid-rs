@@ -398,6 +398,8 @@ fn a_multi_app_board_needs_a_package_name() {
         version_code: None,
         label: None,
         icon: None,
+        design_size: None,
+        requires_features: None,
     });
     let main = super::test_support::t_main();
     bare.class("t/Main", &main);
@@ -484,6 +486,8 @@ fn papk_labelled(package: &str, version: &str, code: u32, label: &str) -> Vec<u8
         version_code: Some(code),
         label: Some(label),
         icon: Some("icon.png"),
+        design_size: None,
+        requires_features: None,
     });
     let main = super::test_support::t_main();
     b.class("t/Main", &main);
@@ -601,6 +605,8 @@ fn register_system_skips_bad_images_duplicates_and_overflow() {
         version_code: Some(1),
         label: None,
         icon: None,
+        design_size: None,
+        requires_features: None,
     });
     let main = super::test_support::t_main();
     future.class("t/Main", &main);

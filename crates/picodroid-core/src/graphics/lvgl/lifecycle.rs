@@ -110,9 +110,13 @@ pub(in crate::graphics) fn init(width: u16, height: u16) {
         let scr = lv_screen_active();
         SCREEN_HANDLE.set(Handle::from_java(handle_table::register_pinned(scr)));
     }
+    // The app may have declared a design size before the display existed
+    // (`run_app` runs first on a cold boot): the window takes effect now.
+    super::window::sync();
     // A board with no system button gets its BACK/HOME control on the top
     // layer now, above every screen an app will load.
     super::soft_nav::ensure();
+    super::menu_button::ensure();
 }
 
 pub(in crate::graphics) fn tick(ms: u32) {
@@ -178,15 +182,37 @@ pub(in crate::graphics) fn wake() {
     }
 }
 
+/// Where content roots go: the screen, or the compat window's object while
+/// an app with a design size runs (`window.rs`).
 pub(in crate::graphics) fn screen_handle() -> Handle {
-    SCREEN_HANDLE.get()
+    let content = CONTENT_HANDLE.get();
+    if content.is_null() {
+        SCREEN_HANDLE.get()
+    } else {
+        content
+    }
 }
 
-/// Raw screen pointer accessor for legacy callers (widgets that still use
-/// `engine::screen()` pre-step-7 migration). Goes away when widgets
-/// migrate to `with_gfx(|g| g.screen())`.
+/// The compat window's object (registered for the Java side) as the content
+/// parent, or the screen again when `pinned` is false and `obj` is the
+/// screen. Called by `window::sync` only.
+pub(super) fn set_content_parent(obj: *mut lv_obj_t, windowed: bool) {
+    CONTENT_HANDLE.set(if windowed {
+        Handle::from_java(handle_table::register(obj))
+    } else {
+        Handle::NULL
+    });
+}
+
+/// The handle `screen_handle` answers while a compat window is up, null
+/// otherwise (the pinned screen handle then).
+// SAFETY: widget-layer state, reached only from JVM tasks.
+static CONTENT_HANDLE: Core0<Cell<Handle>> = unsafe { Core0::new(Cell::new(Handle::NULL)) };
+
+/// Raw pointer every widget is created under before `addView` re-parents
+/// it: the screen, or the compat window's object (`window.rs`).
 pub(in crate::graphics) fn screen_ptr() -> *mut lv_obj_t {
-    unsafe { lv_screen_active() }
+    super::window::content_root()
 }
 
 /// Where a system overlay is parented: LVGL's top layer, above every screen.

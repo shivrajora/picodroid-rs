@@ -39,6 +39,9 @@ pub enum InstallError {
     NoPackageName,
     /// The package names a system app, which lives in firmware.
     SystemPackage,
+    /// The manifest requires a feature (`<uses-feature required="true">`)
+    /// this board lacks. Reported in Phase A, before any erase.
+    MissingFeature,
 }
 
 /// A data source and status reporter for PAPK install operations.

@@ -14,6 +14,7 @@ pub mod alarms;
 #[cfg(not(test))]
 pub mod bg_worker;
 pub mod board_cfg;
+pub mod board_features;
 // App startup: shared heap, class loaders, `run_app`. Needs the JVM natives
 // and the whole graphics tree, hence `cfg(not(test))` like they are.
 #[cfg(not(test))]

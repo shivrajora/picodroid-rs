@@ -42,6 +42,18 @@ pub fn dispatch(
         (c::picodroid_os_PowerManager, m::isInteractive) => Some(Ok(Some(Value::Int(i32::from(
             crate::power::is_interactive(),
         ))))),
+        // Which keys this board has (app-portability K2): a button mapped to
+        // the code, or BACK / HOME as the board synthesises them.
+        (c::picodroid_view_KeyCharacterMap, m::nativeDeviceHasKey) => {
+            // Static: args[0] = the key code.
+            let keycode = match ctx.args.first() {
+                Some(Value::Int(k)) => *k,
+                _ => -1,
+            };
+            Some(Ok(Some(Value::Int(i32::from(
+                crate::input_inject::device_has_key(keycode),
+            )))))
+        }
         // `Settings.System`: one setting is kept, the screen timeout.
         (c::picodroid_provider_Settings_System, m::nativeGetInt) => {
             // args[0] = name String, args[1] = default int.
@@ -184,15 +196,11 @@ pub fn dispatch(
         (c::picodroid_content_pm_PackageManager, m::hasSystemFeature) => {
             // args[0] = this, args[1] = feature name String
             let supported = match ctx.args.get(1) {
-                Some(Value::Reference(idx)) => match ctx.strings.resolve(*idx) {
-                    // The link kind, a build fact (board_cfg.rs emits
-                    // network_link_<kind> from board.toml's network_type).
-                    Some("picodroid.hardware.wifi") => cfg!(network_link_wifi),
-                    Some("picodroid.hardware.ethernet") => cfg!(network_link_ethernet),
-                    // A `[touch]` panel in board.toml.
-                    Some("picodroid.hardware.touchscreen") => cfg!(has_touch),
-                    _ => false,
-                },
+                // The one table the installer's `<uses-feature>` gate reads too.
+                Some(Value::Reference(idx)) => ctx
+                    .strings
+                    .resolve(*idx)
+                    .is_some_and(crate::board_features::has),
                 _ => false,
             };
             Some(Ok(Some(Value::Int(supported as i32))))

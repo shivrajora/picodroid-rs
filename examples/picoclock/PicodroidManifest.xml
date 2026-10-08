@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest package="picoclock" version="1.0">
     <application application="picoclock/ClockApp" label="Clock" />
+    <!-- Every screen is laid out in pixels against the EP-0172's panel (ui/Ui.java). On any
+         other board the runtime shows the app in a 320x480 window: centred on a larger panel,
+         panned on a smaller one. -->
+    <supports-screens design-width="320" design-height="480" />
 </manifest>

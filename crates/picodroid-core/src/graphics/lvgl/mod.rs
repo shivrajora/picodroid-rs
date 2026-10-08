@@ -33,6 +33,18 @@ pub mod soft_nav {
     pub fn set_hidden(_hidden: bool) {}
     pub fn raise() {}
 }
+// The options-menu control: a touch board's way to open the menu (K9); a
+// four-key board holds SELECT and draws nothing.
+#[cfg(has_touch)]
+pub mod menu_button;
+#[cfg(not(has_touch))]
+pub mod menu_button {
+    pub fn ensure() {}
+    pub fn set_available(_available: bool) {}
+    pub fn set_hidden(_hidden: bool) {}
+    pub fn raise() {}
+    pub fn reset() {}
+}
 // Scrolling with the panel's own frame memory, on the boards whose panel can
 // (`board_cfg::hw_vscroll`); its arithmetic is host-testable on its own.
 #[cfg(hw_vscroll)]
@@ -42,6 +54,7 @@ pub mod lifecycle;
 pub mod style_batch;
 pub mod view_ops;
 pub mod widgets;
+pub mod window;
 
 pub mod edit_mode;
 pub mod handle_table;
@@ -234,6 +247,28 @@ static mut GFX: LvglGfx = LvglGfx::new();
 #[cfg(not(test))]
 pub fn is_initialized() -> bool {
     INITIALIZED.load(Ordering::Relaxed)
+}
+/// No LVGL in the host test binary (the `window` tests exercise only the
+/// placement sums).
+#[cfg(test)]
+pub fn is_initialized() -> bool {
+    false
+}
+
+/// Whether the keypad-focused view has an `OnLongClickListener` of its own
+/// — then a held SELECT is its long click, not the options menu's opener
+/// (`Activity.nativeFocusTakesLongPress`, app-portability K9).
+#[cfg(not(test))]
+pub fn focused_view_takes_long_press() -> bool {
+    // SAFETY: LVGL getters on the UI task; a null group or focus reads as none.
+    let focused = unsafe {
+        let group = crate::lvgl_ffi::lv_group_get_default();
+        if group.is_null() {
+            return false;
+        }
+        crate::lvgl_ffi::lv_group_get_focused(group)
+    };
+    !focused.is_null() && widgets::button::lookup_long_click_obj(focused as usize).is_some()
 }
 
 /// The LVGL pool's `(free, total)` bytes. UI task only, like every LVGL call.

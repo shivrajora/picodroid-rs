@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest package="dragdemo" version="1.0">
     <application application="dragdemo/DragDemoApp" />
+    <!-- A drag needs a finger: the installer refuses this app on a board without touch. -->
+    <uses-feature name="picodroid.hardware.touchscreen" required="true" />
 </manifest>
