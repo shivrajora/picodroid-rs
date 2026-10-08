@@ -477,6 +477,9 @@ pub const LV_OBJ_FLAG_SCROLL_ON_FOCUS: u32 = 1 << 10;
 /// parent, so a gesture reaches the screen unless the object that wants it
 /// clears this — which is what registering a swipe listener does.
 pub const LV_OBJ_FLAG_GESTURE_BUBBLE: u32 = 1 << 15;
+/// LVGL's first free user flag. Marks a view that was clickable before
+/// `View.INVISIBLE` took that away, so `VISIBLE` can give it back.
+pub const LV_OBJ_FLAG_USER_1: u32 = 1 << 27;
 
 // Object states (from lv_obj_style.h; renumbered in v9.5.0, unchanged in v9.6.0).
 // The state bits were renumbered in v9.5.0 to leave room for LV_STATE_ALT
@@ -1002,6 +1005,25 @@ extern "C" {
         value: i32,
         selector: lv_style_selector_t,
     );
+    /// `View.setMinimumWidth/Height` and `TextView.setMaxWidth`: bounds on
+    /// the laid-out size that a content-sized or weighted view respects.
+    pub fn lv_obj_set_style_min_width(
+        obj: *mut lv_obj_t,
+        value: i32,
+        selector: lv_style_selector_t,
+    );
+    pub fn lv_obj_set_style_min_height(
+        obj: *mut lv_obj_t,
+        value: i32,
+        selector: lv_style_selector_t,
+    );
+    pub fn lv_obj_set_style_max_width(
+        obj: *mut lv_obj_t,
+        value: i32,
+        selector: lv_style_selector_t,
+    );
+    /// Whether `f` is set on `obj`.
+    pub fn lv_obj_has_flag(obj: *const lv_obj_t, f: u32) -> bool;
     pub fn lv_obj_set_style_pad_bottom(
         obj: *mut lv_obj_t,
         value: i32,
@@ -1754,6 +1776,7 @@ mod tests {
             (LV_OBJ_FLAG_CHECKABLE, "LV_OBJ_FLAG_CHECKABLE"),
             (LV_OBJ_FLAG_SCROLLABLE, "LV_OBJ_FLAG_SCROLLABLE"),
             (LV_OBJ_FLAG_GESTURE_BUBBLE, "LV_OBJ_FLAG_GESTURE_BUBBLE"),
+            (LV_OBJ_FLAG_USER_1, "LV_OBJ_FLAG_USER_1"),
         ] {
             let header_val = lookup_assigned_value(body, name)
                 .unwrap_or_else(|| panic!("{name} not found/parsable in vendored lv_obj.h"));

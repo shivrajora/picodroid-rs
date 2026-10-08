@@ -56,6 +56,8 @@ impl GraphicsBackend for LvglBackend {
             m::setPadding => Some(view::set_padding(ctx.args, ctx.objects)),
             m::nativeSetEnabled | m::setEnabled => Some(view::set_enabled(ctx.args, ctx.objects)),
             m::nativeSetKeepScreenOn => Some(view::set_keep_screen_on(ctx.args, ctx.objects)),
+            m::nativeSetMinimumSize => Some(view::set_minimum_size(ctx.args, ctx.objects)),
+            m::nativeSetMaxWidth => Some(view::set_max_width(ctx.args, ctx.objects)),
             m::nativeSetAlpha | m::setAlpha => Some(view::set_alpha(ctx.args, ctx.objects)),
             m::getLeft => Some(view::get_left(ctx.args, ctx.objects)),
             m::getTop => Some(view::get_top(ctx.args, ctx.objects)),

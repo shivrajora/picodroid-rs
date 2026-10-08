@@ -131,6 +131,11 @@ pub trait Gfx {
     /// `MarginLayoutParams` on a `LinearLayout` child: the space kept clear
     /// around it, in pixels.
     fn set_margins(&mut self, h: Handle, left: i32, top: i32, right: i32, bottom: i32);
+    /// `View.setMinimumWidth/Height`: a floor under the laid-out size; a
+    /// negative value leaves that axis alone.
+    fn set_min_size(&mut self, h: Handle, width: i32, height: i32);
+    /// `TextView.setMaxWidth`: a ceiling on the laid-out width.
+    fn set_max_width(&mut self, h: Handle, width: i32);
 
     /// A `FrameLayout` child's place: against what `gravity` (Android's
     /// bits) names, offset by (`dx`, `dy`) pixels.

@@ -49,6 +49,9 @@ public class View {
   ViewGroup.LayoutParams layoutParams;
   boolean focusable = false; // Android default for a plain View / ViewGroup.
   boolean keepScreenOn = false;
+  // Floors under the laid-out size (setMinimumWidth / setMinimumHeight); 0 = none, as on Android.
+  int minWidth;
+  int minHeight;
 
   // App-set state cached for the getters, mirroring Android (where these live
   // in View's own flag/property fields, not the renderer): the framework
@@ -289,14 +292,19 @@ public class View {
     return size;
   }
 
-  /** The width an unconstrained default measure settles on: the one the view has now. */
+  /**
+   * The width an unconstrained default measure settles on: the one the view has now, or the {@link
+   * #setMinimumWidth floor} if that is more.
+   */
   protected int getSuggestedMinimumWidth() {
-    return getWidth();
+    return Math.max(minWidth, getWidth());
   }
 
-  /** The height an unconstrained default measure settles on: the one the view has now. */
+  /**
+   * The height an unconstrained default measure settles on; see {@link #getSuggestedMinimumWidth}.
+   */
   protected int getSuggestedMinimumHeight() {
-    return getHeight();
+    return Math.max(minHeight, getHeight());
   }
 
   /**
@@ -437,6 +445,46 @@ public class View {
   }
 
   private native void nativeSetKeepScreenOn(boolean keepScreenOn);
+
+  /**
+   * Mirrors {@code android.view.View#setMinimumWidth(int)}: a floor under the laid-out width, so a
+   * {@code wrap_content} or weighted view never comes out narrower. {@code android:minWidth} in a
+   * layout file. A fixed width still wins, as on Android.
+   */
+  public void setMinimumWidth(int minWidth) {
+    if (this.minWidth == minWidth) {
+      return;
+    }
+    this.minWidth = minWidth;
+    nativeSetMinimumSize(minWidth, -1);
+  }
+
+  /** Mirrors Android: the floor under the laid-out height; {@code android:minHeight}. */
+  public void setMinimumHeight(int minHeight) {
+    if (this.minHeight == minHeight) {
+      return;
+    }
+    this.minHeight = minHeight;
+    nativeSetMinimumSize(-1, minHeight);
+  }
+
+  /** Mirrors Android: what {@link #setMinimumWidth} set, 0 for none. */
+  public int getMinimumWidth() {
+    return minWidth;
+  }
+
+  /** Mirrors Android: what {@link #setMinimumHeight} set, 0 for none. */
+  public int getMinimumHeight() {
+    return minHeight;
+  }
+
+  /** The two floors in one native: -1 leaves that axis alone. */
+  private native void nativeSetMinimumSize(int minWidth, int minHeight);
+
+  /**
+   * {@code TextView.setMaxWidth}'s ceiling, declared here because the renderer's op is a View's.
+   */
+  protected native void nativeSetMaxWidth(int maxWidth);
 
   /**
    * Request that this view take input focus. Mirrors {@code android.view.View#requestFocus()}:
@@ -646,8 +694,14 @@ public class View {
     if (visibility == this.visibility) {
       return;
     }
+    boolean wasInvisible = this.visibility == INVISIBLE;
     this.visibility = visibility;
     nativeSetVisibility(visibility);
+    // INVISIBLE is drawn at zero opacity; coming back, the renderer is opaque again and the
+    // view's own alpha has to be said once more.
+    if (visibility == VISIBLE && wasInvisible && alpha != 1f) {
+      nativeSetAlpha(alpha);
+    }
   }
 
   /** Returns the last app-set visibility. Mirrors {@code android.view.View#getVisibility()}. */

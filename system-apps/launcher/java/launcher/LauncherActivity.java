@@ -13,6 +13,7 @@ import picodroid.graphics.drawable.Drawable;
 import picodroid.graphics.drawable.GradientDrawable;
 import picodroid.text.TextUtils;
 import picodroid.util.Log;
+import picodroid.view.Gravity;
 import picodroid.view.View;
 import picodroid.widget.ImageView;
 import picodroid.widget.LinearLayout;
@@ -171,6 +172,9 @@ public class LauncherActivity extends Activity {
 
     LinearLayout row = new LinearLayout();
     row.setOrientation(LinearLayout.HORIZONTAL);
+    // Icon and label centred on the row's height; a LinearLayout's children sit at the top
+    // otherwise, as on Android.
+    row.setGravity(Gravity.CENTER_VERTICAL);
     row.setSize(width, ROW_HEIGHT);
     row.setPadding(8, 4, 8, 4);
     row.setSpacing(8);

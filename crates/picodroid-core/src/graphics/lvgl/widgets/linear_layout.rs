@@ -22,11 +22,14 @@ pub(in crate::graphics) fn create() -> i32 {
         style_batch::with_one_refresh(o, LV_STYLE_PAD_TOP, || {
             super::frame_layout::make_flat(o);
             lv_obj_set_flex_flow(o, LV_FLEX_FLOW_COLUMN);
+            // Android's default gravity, `START | TOP`: children at the
+            // start of both axes (gravity.rs::flex_align says the same for
+            // an axis a later `setGravity` leaves out).
             lv_obj_set_flex_align(
                 o,
                 LV_FLEX_ALIGN_START,
-                LV_FLEX_ALIGN_CENTER,
-                LV_FLEX_ALIGN_CENTER,
+                LV_FLEX_ALIGN_START,
+                LV_FLEX_ALIGN_START,
             );
         });
         o

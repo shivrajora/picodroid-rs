@@ -12,6 +12,23 @@ package format moved to major version 2, and **three SDK signatures changed** to
 (`ServiceConnection` / `bindService`, `Executors.newSingleThreadScheduledExecutor`,
 `DatagramPacket.getAddress`), in the first entry below.
 
+**The layout vocabulary for one layout on every panel (2026-10-06)**
+
+Stage 4 of [app portability](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/app-portability-2026-10.md):
+what a layout needs to say its shape in relationships rather than coordinates.
+
+- New: `picodroid.widget.Space` (`<Space>`), `View.setMinimumWidth` / `setMinimumHeight` /
+  `getMinimumWidth` / `getMinimumHeight` (`android:minWidth` / `minHeight`),
+  `TextView.setMaxWidth` / `getMaxWidth` (`android:maxWidth`).
+- **`View.INVISIBLE` keeps its room and lets touches through**, as on Android; it used to behave
+  as `GONE`. A view's alpha is kept across INVISIBLE and back.
+- **Behaviour change: a `LinearLayout`'s cross axis defaults to the start**, Android's
+  `START | TOP` — a column's children sit at the left edge, a row's at the top. They used to be
+  centred. A layout that relied on the centring sets `android:gravity="center_horizontal"` (or
+  `center_vertical`) on the `LinearLayout`.
+- `android:layout_gravity` on a `LinearLayout` child is recorded but not applied; the layout
+  compiler now says so, and `examples/layoutdemo` exercises the whole vocabulary.
+
 **The display dozes, the app keeps running (2026-10-06)**
 
 Stage 3 of [app portability](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/app-portability-2026-10.md):

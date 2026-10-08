@@ -292,6 +292,7 @@ F	PARITY_NONE
 F	PARITY_ODD
 F	PI
 F	POP_BACK_STACK_INCLUSIVE
+F	POWER_SERVICE
 F	PROPERTY_ALPHA
 F	PROPERTY_ROTATION
 F	PROPERTY_SCALE_X
@@ -321,6 +322,7 @@ F	SCALE_CENTER_CROP
 F	SCALE_FIT_CENTER
 F	SCALE_FIT_XY
 F	SCALE_TILE
+F	SCREEN_OFF_TIMEOUT
 F	SCROLL_STATE_DRAGGING
 F	SCROLL_STATE_IDLE
 F	SCROLL_STATE_SETTLING
@@ -594,6 +596,7 @@ F	ipAddress
 F	items
 F	itemsJoined
 F	itemsListener
+F	keepScreenOn
 F	key0
 F	key1
 F	keyCode
@@ -671,6 +674,7 @@ F	mLineMode
 F	mLiveData
 F	mManager
 F	mMaxState
+F	mMaxWidth
 F	mMemoryGeneration
 F	mMetrics
 F	mModels
@@ -728,7 +732,9 @@ F	message
 F	method
 F	min
 F	minDelay
+F	minHeight
 F	minValue
+F	minWidth
 F	minute
 F	month
 F	multiChoiceListener
@@ -1228,6 +1234,7 @@ M	getConfiguredNetworks
 M	getConnectTimeout
 M	getConnectionInfo
 M	getContentLength
+M	getContentResolver
 M	getContentText
 M	getContentTitle
 M	getContext
@@ -1299,6 +1306,7 @@ M	getItemCount
 M	getItemId
 M	getJSONArray
 M	getJSONObject
+M	getKeepScreenOn
 M	getKeyCode
 M	getKeyRepeatDelay
 M	getKeyRepeatTimeout
@@ -1319,6 +1327,7 @@ M	getMainExecutor
 M	getMax
 M	getMaxLines
 M	getMaxValue
+M	getMaxWidth
 M	getMaximumRange
 M	getMeasuredHeight
 M	getMeasuredWidth
@@ -1326,6 +1335,8 @@ M	getMetrics
 M	getMin
 M	getMinDelay
 M	getMinValue
+M	getMinimumHeight
+M	getMinimumWidth
 M	getMinute
 M	getMode
 M	getMonth
@@ -1499,6 +1510,7 @@ M	isHidden
 M	isInBackStack
 M	isInTouchMode
 M	isIndeterminate
+M	isInteractive
 M	isInterrupted
 M	isLeap
 M	isLeapYear
@@ -1635,6 +1647,7 @@ M	nativeDrawText
 M	nativeEndDraw
 M	nativeForget
 M	nativeFreeBytes
+M	nativeGetInt
 M	nativeGetLineHeight
 M	nativeGetProperty
 M	nativeHardware
@@ -1734,9 +1747,12 @@ M	nativeSetIncludeFontPadding
 M	nativeSetIndicatorColor
 M	nativeSetIndicatorDirection
 M	nativeSetInt
+M	nativeSetKeepScreenOn
 M	nativeSetLineMode
 M	nativeSetLong
 M	nativeSetMargins
+M	nativeSetMaxWidth
+M	nativeSetMinimumSize
 M	nativeSetMode
 M	nativeSetNode
 M	nativeSetNull
@@ -1752,6 +1768,7 @@ M	nativeSetTint
 M	nativeSetTrackColor
 M	nativeSetTrackCornerRadius
 M	nativeSetTrackThickness
+M	nativeSetTurnScreenOn
 M	nativeSetVisibility
 M	nativeShow
 M	nativeSkipField
@@ -2136,6 +2153,7 @@ M	setInputType
 M	setInterpolator
 M	setIs24HourView
 M	setItems
+M	setKeepScreenOn
 M	setLayoutParams
 M	setLength
 M	setLifecycleState
@@ -2144,10 +2162,13 @@ M	setMax
 M	setMaxLifecycle
 M	setMaxLines
 M	setMaxValue
+M	setMaxWidth
 M	setMeasuredDimension
 M	setMessage
 M	setMin
 M	setMinValue
+M	setMinimumHeight
+M	setMinimumWidth
 M	setMode
 M	setMultiChoiceItems
 M	setName
@@ -2229,6 +2250,7 @@ M	setTrackCornerRadius
 M	setTrackThickness
 M	setTranslationX
 M	setTranslationY
+M	setTurnScreenOn
 M	setUncaughtExceptionHandler
 M	setUserInputEnabled
 M	setValue
@@ -2408,8 +2430,3 @@ M	x
 M	y
 M	yield
 M	yield0
-M	nativeSetKeepScreenOn
-M	nativeSetTurnScreenOn
-M	isInteractive
-M	nativeGetInt
-M	nativePutInt

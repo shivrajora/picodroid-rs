@@ -154,6 +154,9 @@ pub mod layout {
         pub const CUSTOM: u8 = 19;
         /// A plain `android.view.View`.
         pub const VIEW: u8 = 20;
+        /// `android.widget.Space`: an invisible view that takes room, weighted
+        /// in a `LinearLayout` to push its neighbours apart.
+        pub const SPACE: u8 = 21;
 
         /// `(XML element name, code)`.
         pub const ALL: &[(&str, u8)] = &[
@@ -176,6 +179,7 @@ pub mod layout {
             ("CircularProgressIndicator", CIRCULAR_PROGRESS_INDICATOR),
             ("ViewPager2", VIEW_PAGER2),
             ("View", VIEW),
+            ("Space", SPACE),
         ];
     }
 
@@ -269,6 +273,10 @@ pub mod layout {
         pub const CLASS_NAME: u32 = 51;
         /// 0 / 1: `View.setKeepScreenOn`.
         pub const KEEP_SCREEN_ON: u32 = 52;
+        /// Pixels: `View.setMinimumWidth` / `setMinimumHeight`, `TextView.setMaxWidth`.
+        pub const MIN_WIDTH: u32 = 53;
+        pub const MIN_HEIGHT: u32 = 54;
+        pub const MAX_WIDTH: u32 = 55;
 
         /// `(constant name in LayoutInflater.java, code)`.
         pub const ALL: &[(&str, u32)] = &[
@@ -324,6 +332,9 @@ pub mod layout {
             ("BACKGROUND_STROKE_COLOR", BACKGROUND_STROKE_COLOR),
             ("CLASS_NAME", CLASS_NAME),
             ("KEEP_SCREEN_ON", KEEP_SCREEN_ON),
+            ("MIN_WIDTH", MIN_WIDTH),
+            ("MIN_HEIGHT", MIN_HEIGHT),
+            ("MAX_WIDTH", MAX_WIDTH),
         ];
     }
 

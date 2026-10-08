@@ -180,6 +180,14 @@ impl Gfx for LvglGfx {
         view_ops::set_margins(h, left, top, right, bottom);
     }
 
+    fn set_min_size(&mut self, h: Handle, width: i32, height: i32) {
+        view_ops::set_min_size(h, width, height);
+    }
+
+    fn set_max_width(&mut self, h: Handle, width: i32) {
+        view_ops::set_max_width(h, width);
+    }
+
     fn set_frame_gravity(&mut self, h: Handle, gravity: i32, dx: i32, dy: i32) {
         view_ops::set_frame_gravity(h, gravity, dx, dy);
     }

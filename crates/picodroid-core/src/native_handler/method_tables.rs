@@ -679,6 +679,8 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/view/View", "nativeSetAlpha", "(F)V"),
     ("picodroid/view/View", "nativeSetEnabled", "(Z)V"),
     ("picodroid/view/View", "nativeSetKeepScreenOn", "(Z)V"),
+    ("picodroid/view/View", "nativeSetMaxWidth", "(I)V"),
+    ("picodroid/view/View", "nativeSetMinimumSize", "(II)V"),
     ("picodroid/view/View", "nativeSetFlexGrow", "(I)V"),
     ("picodroid/view/View", "nativeSetFrameGravity", "(III)V"),
     ("picodroid/view/View", "nativeSetMargins", "(IIII)V"),

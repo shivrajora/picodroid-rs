@@ -114,13 +114,24 @@ cycles are a build error. An id of the wrong type, or one that does not exist, t
 - `<T extends View> T findViewById(int)` on `Activity` and on any `View`, depth first.
   `@+id/name` declares `R.id.name`.
 
-**Elements:** `LinearLayout`, `FrameLayout`, `ScrollView`, `RadioGroup`, `View`, `TextView`,
-`Button`, `ImageView`, `EditText`, `CheckBox`, `Switch`, `ToggleButton`, `RadioButton`,
-`ProgressBar`, `CircularProgressIndicator`, `SeekBar`, `Spinner`, `ListView`, `ViewPager2`. Each
-may also be written fully qualified (`<picodroid.widget.ViewPager2>`), the way Android requires
-for a view outside `android.widget`. `<include layout="@layout/row"/>` puts another layout in
-place of the element; `<merge>` is not supported and is a build error. Any other dotted name is
-[a view class of your own](#custom-views).
+**Elements:** `LinearLayout`, `FrameLayout`, `ScrollView`, `RadioGroup`, `View`, `Space`,
+`TextView`, `Button`, `ImageView`, `EditText`, `CheckBox`, `Switch`, `ToggleButton`,
+`RadioButton`, `ProgressBar`, `CircularProgressIndicator`, `SeekBar`, `Spinner`, `ListView`,
+`ViewPager2`. Each may also be written fully qualified (`<picodroid.widget.ViewPager2>`), the way
+Android requires for a view outside `android.widget`. `<include layout="@layout/row"/>` puts
+another layout in place of the element; `<merge>` is not supported and is a build error. Any
+other dotted name is [a view class of your own](#custom-views).
+
+**Writing a layout once for every board.** Every board is at least 240×240 logical pixels, and a
+`dp` is one of them; lay out against that floor and let the rest stretch: `match_parent` and
+`layout_weight` take the room a wider panel adds, a weighted `<Space>` pushes neighbours to the
+edges, `android:minWidth` / `android:minHeight` floor a `wrap_content` view, `android:maxWidth`
+caps a label so a long line wraps or ellipsizes instead of pushing the row off the panel, and
+`android:visibility="invisible"` keeps a view's room while it is hidden (`gone` gives it up).
+`android:keepScreenOn="true"` on a root holds the display on while that screen shows.
+`android:layout_gravity` on a `LinearLayout` child is not applied (the compiler warns): wrap that
+child in a `FrameLayout`, or set the parent's `android:gravity`. The design is
+[app portability](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/app-portability-2026-10.md).
 
 ### Margins and `FrameLayout` placement
 

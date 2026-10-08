@@ -176,6 +176,7 @@ picodroid/concurrent/ThreadPoolExecutor
 picodroid/concurrent/TimeUnit
 picodroid/content/ActivityNotFoundException
 picodroid/content/ComponentName
+picodroid/content/ContentResolver
 picodroid/content/Context
 picodroid/content/DialogInterface
 picodroid/content/DialogInterface$OnClickListener
@@ -264,6 +265,7 @@ picodroid/os/Build
 picodroid/os/Build$VERSION
 picodroid/os/Bundle
 picodroid/os/IBinder
+picodroid/os/PowerManager
 picodroid/os/Runtime
 picodroid/os/StatFs
 picodroid/os/SystemClock
@@ -280,6 +282,8 @@ picodroid/protobuf/CodedOutputStream$OutOfSpaceException
 picodroid/protobuf/InvalidProtocolBufferException
 picodroid/protobuf/MessageLite
 picodroid/protobuf/WireFormat
+picodroid/provider/Settings
+picodroid/provider/Settings$System
 picodroid/text/InputType
 picodroid/text/TextUtils
 picodroid/text/TextUtils$TruncateAt
@@ -357,6 +361,7 @@ picodroid/widget/ScrollView
 picodroid/widget/SeekBar
 picodroid/widget/SeekBar$OnSeekBarChangeListener
 picodroid/widget/Snackbar
+picodroid/widget/Space
 picodroid/widget/Spinner
 picodroid/widget/SwipeRefreshLayout
 picodroid/widget/SwipeRefreshLayout$OnRefreshListener
@@ -368,7 +373,3 @@ picodroid/widget/Toast
 picodroid/widget/ToggleButton
 picodroid/widget/ViewPager2
 picodroid/widget/ViewPager2$OnPageChangeCallback
-picodroid/content/ContentResolver
-picodroid/os/PowerManager
-picodroid/provider/Settings
-picodroid/provider/Settings$System

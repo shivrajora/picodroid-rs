@@ -227,6 +227,24 @@ pub fn set_enabled(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>
     Ok(None)
 }
 
+/// `View.nativeSetMinimumSize(int width, int height)`: the floors
+/// `setMinimumWidth` / `setMinimumHeight` set, -1 for an axis left alone.
+pub fn set_minimum_size(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let width = arg_int(args, 1)?;
+    let height = arg_int(args, 2)?;
+    with_gfx(|g| g.set_min_size(Handle::from_java(id), width, height));
+    Ok(None)
+}
+
+/// `View.nativeSetMaxWidth(int)`: `TextView.setMaxWidth`'s ceiling.
+pub fn set_max_width(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let width = arg_int(args, 1)?;
+    with_gfx(|g| g.set_max_width(Handle::from_java(id), width));
+    Ok(None)
+}
+
 /// `View.nativeSetKeepScreenOn(boolean)`: hold the display on while this
 /// view lives (power.rs; docs/designs/app-portability-2026-10.md K5).
 pub fn set_keep_screen_on(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
