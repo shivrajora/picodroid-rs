@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- On a touch board the inflated row shows at once (res/layout/row.xml hides it until a key). -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/row_label"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingLeft="@dimen/gap"
+    android:text="@string/row_text"
+    android:visibility="visible" />

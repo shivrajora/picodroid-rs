@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A landscape window (wider than tall): two columns of content fit. -->
+<resources>
+    <integer name="columns">2</integer>
+</resources>

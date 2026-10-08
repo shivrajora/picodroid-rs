@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A window at least 320 dp wide: the Pico Display 2, the testbenches, the touch kit. -->
+<resources>
+    <string name="geometry">wide</string>
+</resources>
