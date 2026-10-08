@@ -976,6 +976,18 @@ Weights are relative, with one decimal of precision (`1.5f` against `1f` is 15 :
 
 `picodroid.view.Gravity` has Android's constants and values: `NO_GRAVITY`, `TOP`, `BOTTOM`, `LEFT`, `RIGHT`, `START`, `END`, `CENTER_VERTICAL`, `CENTER_HORIZONTAL`, `CENTER`, `FILL_VERTICAL`, `FILL_HORIZONTAL`, `FILL`, and the masks.
 
+### `picodroid.widget.Space`
+
+A view that draws nothing and takes room, as `android.widget.Space`. Given a weight in a `LinearLayout` it pushes its neighbours apart, a header's title to the left and its icon to the right whatever the panel's width:
+
+```java
+header.addView(title);
+header.addView(new Space(this), new LinearLayout.LayoutParams(0, 0, 1f));
+header.addView(icon);
+```
+
+In a layout file it is `<Space>`.
+
 ### `picodroid.widget.CompoundButton`
 
 Abstract base for the two-state widgets below — `Switch`, `ToggleButton`, `CheckBox` and `RadioButton`. Mirrors

@@ -16,7 +16,7 @@ public class Build {
 
   /** Version strings. */
   public static class VERSION {
-    /** The firmware release, e.g. {@code 0.35.0}. */
+    /** The firmware release, e.g. {@code 0.36.0}. */
     public static final String RELEASE = Build.nativeRelease();
   }
 

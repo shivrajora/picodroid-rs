@@ -3,7 +3,7 @@ title: "Known issues & current limits"
 description: "User-visible limitations in the current release: networking constraints, concurrency limits, simulator/hardware gaps, and platform caveats."
 ---
 
-What doesn't work (yet), as of v0.35.0 and `main` since. Items here are confirmed and tracked — not speculative.
+What doesn't work (yet), as of v0.36.0. Items here are confirmed and tracked — not speculative.
 
 ## Networking (Pico 2 W)
 

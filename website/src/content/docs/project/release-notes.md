@@ -3,11 +3,19 @@ title: "Release notes"
 description: "User-facing changes for Picodroid v0.4.0 onward."
 ---
 
-This page covers everything that landed in releases v0.4.0 through v0.35.0, and what is on `main` since. Earlier history is in `git log v0.1.0...v0.3.0`.
+This page covers everything that landed in releases v0.4.0 through v0.36.0. Earlier history is in `git log v0.1.0...v0.3.0`.
 
-## Unreleased — on `main` since v0.35.0
+## v0.36.0 — 2026-10-08
 
-Not tagged yet. Two changes here need action: **every `.papk` must be re-packed**, because the
+The write-once release. An app written for one board now runs on every board: the framework
+scales a design size to the panel, gives every board BACK, HOME and WAKE, drives every stock
+widget from four keys, picks resources by window size and input, and offers the options menu as
+the one place an app's actions live. Apps can ask what board they landed on
+(`Resources.getConfiguration`, `KeyCharacterMap.deviceHasKey`), and the display dozes while the
+app keeps running. `picodroid.lifecycle` brings `ViewModel` and `LiveData`. Classes are linked
+when they are packed (PAPK v2), which makes calls about a fifth faster on the RP2350.
+
+Two changes here need action: **every `.papk` must be re-packed**, because the
 package format moved to major version 2, and **three SDK signatures changed** to Android's
 (`ServiceConnection` / `bindService`, `Executors.newSingleThreadScheduledExecutor`,
 `DatagramPacket.getAddress`), in the first entry below.
@@ -329,6 +337,15 @@ for Android, closed in the SDK. Several are source-incompatible; each says what 
 - `pdb list` no longer hangs on Linux when the reply is an exact multiple of 64 bytes.
 - Device builds work on both stable and nightly `cargo`: the RP2350 linker flags no longer
   depend on how the toolchain spells the target triple.
+
+**Map v0.36.0 (2026-10-08)**
+
+- Map v0.36.0, cut for the release, gives the classes added since v0.35.0 their names (+35
+  classes, 348 → 383: `picodroid.lifecycle`, the options menu's `Menu` and `MenuItem`,
+  `Configuration`, `KeyCharacterMap`, `PowerManager`, `Settings.System`, `AsyncLayoutInflater`,
+  `View.MeasureSpec`, `ViewGroup.MarginLayoutParams`, `Space`, `ComponentName`, `Binder` and the
+  rest), and it also names the 251 members they declare (2257 → 2508). The member floor stays
+  at v0.17.0. `Build.VERSION.RELEASE` reads `0.36.0`.
 
 ## v0.35.0 — 2026-09-27
 
