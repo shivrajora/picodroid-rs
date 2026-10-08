@@ -60,6 +60,7 @@ F	DEFAULT_REQUEST
 F	DEFAULT_TEXT_SIZE
 F	DEFAULT_TRACK_THICKNESS
 F	DENSITY_DEFAULT
+F	DENSITY_DPI_UNDEFINED
 F	DESTROYED
 F	DIR
 F	DIRECTION_IN
@@ -83,6 +84,7 @@ F	ERROR_NETWORK_NOT_FOUND
 F	EXACTLY
 F	FADE_MS
 F	FEATURE_ETHERNET
+F	FEATURE_TOUCHSCREEN
 F	FEATURE_WIFI
 F	FEBRUARY
 F	FILES_DIR
@@ -90,6 +92,7 @@ F	FILL
 F	FILL_AND_STROKE
 F	FILL_HORIZONTAL
 F	FILL_VERTICAL
+F	FIRST
 F	FIXED_DELAY
 F	FIXED_RATE
 F	FLAG_CANCELED
@@ -160,6 +163,8 @@ F	ISO_LOCAL_TIME
 F	JANUARY
 F	JULY
 F	JUNE
+F	KEYBOARD_NOKEYS
+F	KEYBOARD_UNDEFINED
 F	KEYCODE_BACK
 F	KEYCODE_BUTTON_A
 F	KEYCODE_BUTTON_B
@@ -170,7 +175,12 @@ F	KEYCODE_DPAD_DOWN
 F	KEYCODE_DPAD_LEFT
 F	KEYCODE_DPAD_RIGHT
 F	KEYCODE_DPAD_UP
+F	KEYCODE_ENTER
 F	KEYCODE_HOME
+F	KEYCODE_MENU
+F	KEYCODE_POWER
+F	KEYCODE_SLEEP
+F	KEYCODE_WAKEUP
 F	KEY_REPEAT_DELAY_MS
 F	K_ARRAY
 F	K_BOOL
@@ -247,6 +257,9 @@ F	NANOS_PER_DAY
 F	NANOS_PER_HOUR
 F	NANOS_PER_MINUTE
 F	NANOS_PER_SECOND
+F	NAVIGATION_DPAD
+F	NAVIGATION_NONAV
+F	NAVIGATION_UNDEFINED
 F	NET_CAPABILITY_INTERNET
 F	NET_CAPABILITY_NOT_CONGESTED
 F	NET_CAPABILITY_NOT_METERED
@@ -257,6 +270,7 @@ F	NET_CAPABILITY_NOT_VPN
 F	NET_CAPABILITY_TRUSTED
 F	NET_CAPABILITY_VALIDATED
 F	NEW
+F	NONE
 F	NOON
 F	NORM_PRIORITY
 F	NOTIFICATION_SERVICE
@@ -279,6 +293,9 @@ F	OP_REPLACE
 F	OP_SET_MAX_LIFECYCLE
 F	OP_SHOW
 F	ORIENTATION_HORIZONTAL
+F	ORIENTATION_LANDSCAPE
+F	ORIENTATION_PORTRAIT
+F	ORIENTATION_UNDEFINED
 F	ORIENTATION_VERTICAL
 F	PACKET_BYTES
 F	PARITY_EVEN
@@ -286,6 +303,7 @@ F	PARITY_NONE
 F	PARITY_ODD
 F	PI
 F	POP_BACK_STACK_INCLUSIVE
+F	POWER_SERVICE
 F	PROPERTY_ALPHA
 F	PROPERTY_ROTATION
 F	PROPERTY_SCALE_X
@@ -315,6 +333,9 @@ F	SCALE_CENTER_CROP
 F	SCALE_FIT_CENTER
 F	SCALE_FIT_XY
 F	SCALE_TILE
+F	SCREEN_HEIGHT_DP_UNDEFINED
+F	SCREEN_OFF_TIMEOUT
+F	SCREEN_WIDTH_DP_UNDEFINED
 F	SCROLL_STATE_DRAGGING
 F	SCROLL_STATE_IDLE
 F	SCROLL_STATE_SETTLING
@@ -335,6 +356,7 @@ F	SENSOR_STATUS_UNRELIABLE
 F	SEPTEMBER
 F	SINGLE_LINE
 F	SLICE_MS
+F	SMALLEST_SCREEN_WIDTH_DP_UNDEFINED
 F	SOURCE_BUILD
 F	SOURCE_NONE
 F	SOURCE_STORED
@@ -412,6 +434,9 @@ F	TONE_SUP_RADIO_NOTAVAIL
 F	TONE_SUP_RINGTONE
 F	TOP
 F	TOP_BOTTOM
+F	TOUCHSCREEN_FINGER
+F	TOUCHSCREEN_NOTOUCH
+F	TOUCHSCREEN_UNDEFINED
 F	TRANSMIT_TIME_OFFSET
 F	TRANSPARENT
 F	TRANSPORT_BLUETOOTH
@@ -540,6 +565,7 @@ F	downEvent
 F	downKeyCode
 F	downTarget
 F	downTime
+F	dpi
 F	dueMs
 F	duration
 F	durationMs
@@ -560,6 +586,7 @@ F	gradientEnd
 F	gradientOrientation
 F	gradientStart
 F	gravity
+F	groupId
 F	handle
 F	handler
 F	hasGradient
@@ -584,12 +611,15 @@ F	instance
 F	intVals
 F	interpolatorCode
 F	ipAddress
+F	itemId
 F	items
 F	itemsJoined
 F	itemsListener
+F	keepScreenOn
 F	key0
 F	key1
 F	keyCode
+F	keyboard
 F	keys
 F	lastSampleEvent
 F	layoutParams
@@ -664,6 +694,7 @@ F	mLineMode
 F	mLiveData
 F	mManager
 F	mMaxState
+F	mMaxWidth
 F	mMemoryGeneration
 F	mMetrics
 F	mModels
@@ -676,6 +707,9 @@ F	mOffscreenPageLimit
 F	mOpen
 F	mOpenLeft
 F	mOps
+F	mOptionsMenu
+F	mOptionsMenuCreated
+F	mOptionsMenuDialog
 F	mOrientation
 F	mPackage
 F	mPager
@@ -721,7 +755,9 @@ F	message
 F	method
 F	min
 F	minDelay
+F	minHeight
 F	minValue
+F	minWidth
 F	minute
 F	month
 F	multiChoiceListener
@@ -730,6 +766,7 @@ F	name
 F	nano
 F	nanos
 F	nativeHandle
+F	navigation
 F	negativeListener
 F	negativeText
 F	netId
@@ -754,6 +791,7 @@ F	onSeekBarChangeListener
 F	onSwipeListener
 F	onTouchListener
 F	onValueChangeListener
+F	order
 F	orientation
 F	owner
 F	packageName
@@ -803,10 +841,13 @@ F	scaleXTo
 F	scaleYTo
 F	scaledDensity
 F	scanGenerationSeen
+F	screenHeightDp
+F	screenWidthDp
 F	second
 F	seconds
 F	sensor
 F	shutdown
+F	smallestScreenWidthDp
 F	spiId
 F	ssid
 F	startAngle
@@ -834,6 +875,7 @@ F	timestamp
 F	title
 F	topMargin
 F	totalSeconds
+F	touchscreen
 F	trackColor
 F	trackCornerRadius
 F	trackThickness
@@ -854,6 +896,7 @@ F	versionCode
 F	versionName
 F	view
 F	visibility
+F	visible
 F	watcherCount
 F	watchers
 F	weight
@@ -981,6 +1024,7 @@ M	clearCapabilities
 M	clearCheck
 M	clearState
 M	close
+M	closeOptionsMenu
 M	colon
 M	commit
 M	commitAllowingStateLoss
@@ -1069,6 +1113,8 @@ M	destroyView
 M	detach
 M	detachChild
 M	detachFragment
+M	deviceHasKey
+M	deviceHasKeys
 M	digit
 M	disconnect
 M	dismiss
@@ -1131,6 +1177,7 @@ M	findActiveByWho
 M	findButton
 M	findFragmentById
 M	findFragmentByTag
+M	findItem
 M	findViewById
 M	findViewTraversal
 M	finish
@@ -1217,10 +1264,12 @@ M	getCipherSuite
 M	getClassName
 M	getColor
 M	getColorForState
+M	getConfiguration
 M	getConfiguredNetworks
 M	getConnectTimeout
 M	getConnectionInfo
 M	getContentLength
+M	getContentResolver
 M	getContentText
 M	getContentTitle
 M	getContext
@@ -1265,6 +1314,7 @@ M	getFragments
 M	getFreeBlocksLong
 M	getFreeBytes
 M	getGravity
+M	getGroupId
 M	getHeaderField
 M	getHeaderFieldKey
 M	getHeight
@@ -1292,6 +1342,7 @@ M	getItemCount
 M	getItemId
 M	getJSONArray
 M	getJSONObject
+M	getKeepScreenOn
 M	getKeyCode
 M	getKeyRepeatDelay
 M	getKeyRepeatTimeout
@@ -1312,12 +1363,16 @@ M	getMainExecutor
 M	getMax
 M	getMaxLines
 M	getMaxValue
+M	getMaxWidth
 M	getMaximumRange
 M	getMeasuredHeight
 M	getMeasuredWidth
+M	getMetrics
 M	getMin
 M	getMinDelay
 M	getMinValue
+M	getMinimumHeight
+M	getMinimumWidth
 M	getMinute
 M	getMode
 M	getMonth
@@ -1335,6 +1390,7 @@ M	getOffset
 M	getOnFocusChangeListener
 M	getOnItemClickListener
 M	getOnItemSelectedListener
+M	getOrder
 M	getOrientation
 M	getOutputStream
 M	getPackage
@@ -1402,6 +1458,7 @@ M	getText
 M	getTextAlign
 M	getTextSize
 M	getTimeZone
+M	getTitle
 M	getTop
 M	getTotalBytes
 M	getTotalBytesRead
@@ -1436,8 +1493,10 @@ M	hasExtra
 M	hasFocus
 M	hasLineMode
 M	hasObservers
+M	hasOptionsMenuItems
 M	hasSystemFeature
 M	hasTransport
+M	hasVisibleItems
 M	hash
 M	hashCode
 M	hide
@@ -1459,6 +1518,7 @@ M	invalidEndTag
 M	invalidTag
 M	invalidWireType
 M	invalidate
+M	invalidateOptionsMenu
 M	is24HourView
 M	isAdded
 M	isAddingToBackStack
@@ -1489,8 +1549,11 @@ M	isFocusable
 M	isFocused
 M	isHidden
 M	isInBackStack
+M	isInTouchMode
 M	isIndeterminate
+M	isInteractive
 M	isInterrupted
+M	isLayoutSizeAtLeast
 M	isLeap
 M	isLeapYear
 M	isLetter
@@ -1527,6 +1590,7 @@ M	keys
 M	lambda$dataSetChanged$6
 M	lambda$fireEvent$0
 M	lambda$new$0
+M	lambda$openOptionsMenu$0
 M	lambda$registerNetworkCallback$0
 M	lambda$startSwap$1
 M	lambda$static$0
@@ -1615,6 +1679,7 @@ M	nativeCreateWithMax
 M	nativeCreateWithText
 M	nativeCurrentSsid
 M	nativeDataBytes
+M	nativeDeviceHasKey
 M	nativeDisconnect
 M	nativeDismiss
 M	nativeDoubleValue
@@ -1624,8 +1689,10 @@ M	nativeDrawLine
 M	nativeDrawRect
 M	nativeDrawText
 M	nativeEndDraw
+M	nativeFocusTakesLongPress
 M	nativeForget
 M	nativeFreeBytes
+M	nativeGetInt
 M	nativeGetLineHeight
 M	nativeGetProperty
 M	nativeHardware
@@ -1725,12 +1792,16 @@ M	nativeSetIncludeFontPadding
 M	nativeSetIndicatorColor
 M	nativeSetIndicatorDirection
 M	nativeSetInt
+M	nativeSetKeepScreenOn
 M	nativeSetLineMode
 M	nativeSetLong
 M	nativeSetMargins
+M	nativeSetMaxWidth
+M	nativeSetMinimumSize
 M	nativeSetMode
 M	nativeSetNode
 M	nativeSetNull
+M	nativeSetOptionsMenuAvailable
 M	nativeSetProgress
 M	nativeSetProperty
 M	nativeSetRange
@@ -1743,6 +1814,7 @@ M	nativeSetTint
 M	nativeSetTrackColor
 M	nativeSetTrackCornerRadius
 M	nativeSetTrackThickness
+M	nativeSetTurnScreenOn
 M	nativeSetVisibility
 M	nativeShow
 M	nativeSkipField
@@ -1813,6 +1885,7 @@ M	onCheckedChanged
 M	onCleared
 M	onClick
 M	onCreate
+M	onCreateOptionsMenu
 M	onCreateView
 M	onDateChanged
 M	onDestroy
@@ -1838,11 +1911,15 @@ M	onLongPress
 M	onLosing
 M	onLost
 M	onMeasure
+M	onMenuItemClick
 M	onNothingSelected
+M	onOptionsItemSelected
+M	onOptionsMenuClosed
 M	onPageScrollStateChanged
 M	onPageScrolled
 M	onPageSelected
 M	onPause
+M	onPrepareOptionsMenu
 M	onPrimaryPage
 M	onProgressChanged
 M	onReady
@@ -1882,6 +1959,7 @@ M	openFileInput
 M	openFileOutput
 M	openGpio
 M	openI2cDevice
+M	openOptionsMenu
 M	openPwm
 M	openSpiDevice
 M	openUartDevice
@@ -1942,6 +2020,7 @@ M	post
 M	postInvalidate
 M	postValue
 M	pow
+M	prepareOptionsMenu
 M	prolepticMonth
 M	pushAngles
 M	pushLimit
@@ -2013,6 +2092,7 @@ M	remove
 M	removeAllViews
 M	removeCapability
 M	removeFragment
+M	removeItem
 M	removeNetwork
 M	removeObserver
 M	removeObservers
@@ -2127,6 +2207,7 @@ M	setInputType
 M	setInterpolator
 M	setIs24HourView
 M	setItems
+M	setKeepScreenOn
 M	setLayoutParams
 M	setLength
 M	setLifecycleState
@@ -2135,10 +2216,13 @@ M	setMax
 M	setMaxLifecycle
 M	setMaxLines
 M	setMaxValue
+M	setMaxWidth
 M	setMeasuredDimension
 M	setMessage
 M	setMin
 M	setMinValue
+M	setMinimumHeight
+M	setMinimumWidth
 M	setMode
 M	setMultiChoiceItems
 M	setName
@@ -2154,6 +2238,7 @@ M	setOnItemClickListener
 M	setOnItemSelectedListener
 M	setOnKeyListener
 M	setOnLongClickListener
+M	setOnMenuItemClickListener
 M	setOnReadyListener
 M	setOnRefreshListener
 M	setOnSeekBarChangeListener
@@ -2214,17 +2299,20 @@ M	setTime
 M	setTimeout
 M	setTint
 M	setTitle
+M	setTo
 M	setToDefaults
 M	setTrackColor
 M	setTrackCornerRadius
 M	setTrackThickness
 M	setTranslationX
 M	setTranslationY
+M	setTurnScreenOn
 M	setUncaughtExceptionHandler
 M	setUserInputEnabled
 M	setValue
 M	setViewLifecycleState
 M	setVisibility
+M	setVisible
 M	setWifiEnabled
 M	settled
 M	show
@@ -2332,6 +2420,7 @@ M	v
 M	validName
 M	valueOf
 M	values
+M	visibleItems
 M	w
 M	with
 M	withAlpha

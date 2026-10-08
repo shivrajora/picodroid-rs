@@ -5,14 +5,19 @@ import picodroid.app.Activity;
 import picodroid.content.ComponentName;
 import picodroid.content.Context;
 import picodroid.content.Intent;
+import picodroid.content.pm.PackageManager;
 import picodroid.content.res.ColorStateList;
+import picodroid.content.res.Configuration;
 import picodroid.graphics.Theme;
 import picodroid.graphics.drawable.GradientDrawable;
 import picodroid.os.Bundle;
 import picodroid.util.AttributeSet;
+import picodroid.util.DisplayMetrics;
 import picodroid.util.Log;
 import picodroid.view.AsyncLayoutInflater;
 import picodroid.view.Gravity;
+import picodroid.view.KeyCharacterMap;
+import picodroid.view.KeyEvent;
 import picodroid.view.LayoutInflater;
 import picodroid.view.View;
 import picodroid.view.ViewGroup;
@@ -64,6 +69,9 @@ public class LayoutDemoActivity extends Activity {
             && ((ViewGroup.MarginLayoutParams) lp).leftMargin == 6
             && ((ViewGroup.MarginLayoutParams) lp).rightMargin == 9);
 
+    checkVocabulary();
+    checkConfiguration();
+
     FrameLayout stages = findViewById(R.id.stages);
     LayoutInflater inflater = getLayoutInflater();
     check("the Activity is the inflater's factory", inflater.getFactory() == this);
@@ -104,6 +112,42 @@ public class LayoutDemoActivity extends Activity {
               report();
             });
     returned[0] = true;
+  }
+
+  /**
+   * The rest of the vocabulary a layout written once needs (docs/designs/app-portability-2026-10.md
+   * D4): a weighted Space, minimum and maximum sizes, INVISIBLE keeping its room, and a column's
+   * children at the start of the cross axis.
+   */
+  private void checkVocabulary() {
+    View vocab = findViewById(R.id.vocab);
+    View spacer = findViewById(R.id.spacer);
+    View rightBox = findViewById(R.id.right_box);
+    check("Space: weighted, it fills the gap", spacer.getWidth() == vocab.getWidth() - 20);
+    check("Space: the neighbour sits at the far edge", rightBox.getLeft() == vocab.getWidth() - 10);
+
+    View floored = findViewById(R.id.floored);
+    check(
+        "minWidth/minHeight floor a wrap_content view",
+        floored.getWidth() == 30 && floored.getHeight() == 12);
+    check(
+        "getMinimumWidth/Height",
+        floored.getMinimumWidth() == 30 && floored.getMinimumHeight() == 12);
+    TextView capped = findViewById(R.id.capped);
+    check("maxWidth caps a wrap_content label", capped.getWidth() > 0 && capped.getWidth() <= 40);
+    check("getMaxWidth", capped.getMaxWidth() == 40);
+
+    View ghost = findViewById(R.id.ghost);
+    View afterGhost = findViewById(R.id.after_ghost);
+    check("INVISIBLE from the layout", ghost.getVisibility() == View.INVISIBLE);
+    check("INVISIBLE keeps its room", afterGhost.getLeft() == ghost.getLeft() + 10);
+    ghost.setVisibility(View.GONE);
+    check("GONE gives it up", afterGhost.getLeft() == capped.getLeft() + capped.getWidth());
+    ghost.setVisibility(View.INVISIBLE);
+    check("INVISIBLE again takes it back", afterGhost.getLeft() == ghost.getLeft() + 10);
+
+    View atStart = findViewById(R.id.at_start);
+    check("a column's child sits at the start of the cross axis", atStart.getLeft() == 0);
   }
 
   /** Every element of the app's own that a layout names comes here to be made. */
@@ -244,6 +288,60 @@ public class LayoutDemoActivity extends Activity {
         "Intent(Context, Class)",
         "layoutdemo/LayoutDemoActivity"
             .equals(new Intent(this, LayoutDemoActivity.class).getTargetClassName()));
+  }
+
+  /**
+   * What the app can learn about the board it landed on: the window's size and the input profile
+   * ({@code Resources.getConfiguration()}), and which keys exist ({@code
+   * KeyCharacterMap.deviceHasKey}). Logged in one line each so a sim row can assert the exact
+   * values per board; the checks hold on every board.
+   */
+  private void checkConfiguration() {
+    Configuration c = getResources().getConfiguration();
+    Log.i(TAG, "config " + c);
+    check(
+        "config: window size",
+        c.screenWidthDp == getDisplay().getWidth() && c.screenHeightDp == getDisplay().getHeight());
+    check(
+        "config: smallest side",
+        c.smallestScreenWidthDp == Math.min(c.screenWidthDp, c.screenHeightDp));
+    check("config: floor", c.smallestScreenWidthDp >= 240);
+    check(
+        "config: orientation",
+        c.orientation
+            == (c.screenWidthDp > c.screenHeightDp
+                ? Configuration.ORIENTATION_LANDSCAPE
+                : Configuration.ORIENTATION_PORTRAIT));
+    check("config: density", c.densityDpi == DisplayMetrics.DENSITY_DEFAULT);
+    // Touch mode and the navigation field are two views of the same board fact.
+    check(
+        "config: navigation vs touch mode",
+        (c.navigation == Configuration.NAVIGATION_DPAD)
+            == !findViewById(R.id.first).isInTouchMode());
+    check(
+        "config: touchscreen vs feature",
+        (c.touchscreen == Configuration.TOUCHSCREEN_FINGER)
+            == getPackageManager().hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN));
+    check("config: a copy is equal", new Configuration(c).toString().equals(c.toString()));
+    check(
+        "config: defaults are undefined",
+        new Configuration().orientation == Configuration.ORIENTATION_UNDEFINED);
+
+    boolean back = KeyCharacterMap.deviceHasKey(KeyEvent.KEYCODE_BACK);
+    boolean home = KeyCharacterMap.deviceHasKey(KeyEvent.KEYCODE_HOME);
+    boolean up = KeyCharacterMap.deviceHasKey(KeyEvent.KEYCODE_DPAD_UP);
+    boolean center = KeyCharacterMap.deviceHasKey(KeyEvent.KEYCODE_DPAD_CENTER);
+    Log.i(TAG, "keys back=" + back + " home=" + home + " up=" + up + " center=" + center);
+    // Every board has BACK one way or another (a key, or the on-screen control).
+    check("keys: BACK everywhere", back);
+    // The four navigation keys come together, and only with DPAD navigation.
+    check(
+        "keys: dpad matches navigation",
+        up == center && up == (c.navigation == Configuration.NAVIGATION_DPAD));
+    check("keys: no such key", !KeyCharacterMap.deviceHasKey(KeyEvent.KEYCODE_BUTTON_A));
+    boolean[] both =
+        KeyCharacterMap.deviceHasKeys(new int[] {KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_BUTTON_A});
+    check("keys: deviceHasKeys", both.length == 2 && both[0] && !both[1]);
   }
 
   private void check(String what, boolean ok) {

@@ -35,7 +35,7 @@ public class DisplayDemoActivity extends Activity {
     Log.i("DisplayDemo", "Display ready");
 
     ScrollView scroll = new ScrollView();
-    scroll.setSize(320, 240);
+    scroll.setSize(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT);
 
     LinearLayout root = new LinearLayout();
     root.setOrientation(LinearLayout.VERTICAL);

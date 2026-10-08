@@ -111,6 +111,17 @@ pub mod buttons {
     }
 }
 
+/// The board's input profile (docs/designs/app-portability-2026-10.md K1–K4):
+/// whether keys move a focus ring, which system keys exist, whether the
+/// framework draws the soft-nav control, and how long BACK is held for HOME.
+pub mod input {
+    include!(concat!(env!("OUT_DIR"), "/input_profile.rs"));
+
+    /// Whether holding BACK is HOME here: a board with a launcher to go to
+    /// and no HOME key of its own (K2).
+    pub const BACK_HOLD_IS_HOME: bool = cfg!(has_multi_app) && !HAS_HOME_KEY;
+}
+
 // ── Guard rails ──────────────────────────────────────────────────────────────
 //
 // Everything above is generated from board.toml, so every invariant worth

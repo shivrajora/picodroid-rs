@@ -4,13 +4,14 @@ package picodroid.util;
 import picodroid.graphics.Display;
 
 /**
- * Mirrors {@code android.util.DisplayMetrics}: the display's size and density, as {@link
- * picodroid.content.res.Resources#getDisplayMetrics()} hands it out. There is one density: {@link
- * #density} and {@link #scaledDensity} are 1 and {@link #densityDpi} is {@link #DENSITY_DEFAULT},
- * so a {@code dp} or an {@code sp} is a pixel, the rule the layout compiler applies to {@code res/}
- * too. {@link #xdpi} and {@link #ydpi} are the same nominal 160 rather than the panel's true pitch,
- * so a point, inch or millimetre through {@link TypedValue#applyDimension} is a size in a 160 dpi
- * world, not a ruler measurement.
+ * Mirrors {@code android.util.DisplayMetrics}: the display's size, density and pixel pitch, as
+ * {@link picodroid.content.res.Resources#getDisplayMetrics()} hands it out. There is one density:
+ * {@link #density} and {@link #scaledDensity} are 1 and {@link #densityDpi} is {@link
+ * #DENSITY_DEFAULT}, so a {@code dp} or an {@code sp} is one logical pixel, the rule the layout
+ * compiler applies to {@code res/} too. {@link #xdpi} and {@link #ydpi} are the panel's true pitch
+ * (the board file's {@code [display] dpi}), so a point, inch or millimetre through {@link
+ * TypedValue#applyDimension} is a ruler measurement, and {@code 7 mm} is a fingertip on every
+ * board.
  */
 public class DisplayMetrics {
   /** Mirrors Android: the reference density, one {@code dp} per pixel. */
@@ -26,13 +27,6 @@ public class DisplayMetrics {
 
   /** Mirrors Android: fills in the one configuration this display has. */
   public void setToDefaults() {
-    Display display = Display.getInstance();
-    widthPixels = display.getWidth();
-    heightPixels = display.getHeight();
-    density = 1f;
-    densityDpi = DENSITY_DEFAULT;
-    scaledDensity = 1f;
-    xdpi = DENSITY_DEFAULT;
-    ydpi = DENSITY_DEFAULT;
+    Display.getInstance().getMetrics(this);
   }
 }

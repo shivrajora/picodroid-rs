@@ -693,6 +693,28 @@ impl PicodroidNativeHandler {
                 }
                 Some(Ok(None))
             }
+            // The options menu (app-portability K9): whether the resumed
+            // Activity has one, for the touch boards' menu control; and
+            // whether the focused view takes a long press itself, which
+            // keeps a held SELECT from opening the menu over it.
+            (_, m::nativeSetOptionsMenuAvailable) => {
+                // Static: args[0] = boolean.
+                let on = matches!(ctx.args.first(), Some(Value::Int(v)) if *v != 0);
+                crate::graphics::lvgl::menu_button::set_available(on);
+                Some(Ok(None))
+            }
+            (_, m::nativeFocusTakesLongPress) => Some(Ok(Some(Value::Int(i32::from(
+                crate::graphics::lvgl::focused_view_takes_long_press(),
+            ))))),
+            (_, m::nativeSetTurnScreenOn) => {
+                // args[0] = this, args[1] = boolean. An Activity that must
+                // be seen (an alarm ringing) wakes a dozing display at once
+                // (power.rs); false asks nothing.
+                if matches!(ctx.args.get(1), Some(Value::Int(on)) if *on != 0) {
+                    crate::power::request_wake();
+                }
+                Some(Ok(None))
+            }
             (_, m::recreate) => {
                 // args[0] = this. Same shape as finish(): one queued op per
                 // Activity, and an Activity off the stack is ignored.

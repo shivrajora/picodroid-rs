@@ -179,6 +179,14 @@ pub fn run_app(apk_data: &[u8]) {
     crate::graphics::view::reset_swipe_listener_state();
     crate::graphics::view::reset_focus_change_listener_state();
     crate::graphics::lvgl::events::reset_key_event_queue();
+    crate::graphics::lvgl::events::reset_held_keys();
+    crate::input_inject::reset_soft_keys();
+    crate::graphics::lvgl::keep_on::reset();
+    crate::power::reset_holds();
+    // The previous app's compat window, if it had one; this app's is set
+    // once its manifest has been read below.
+    crate::graphics::lvgl::window::set_design(None);
+    crate::graphics::lvgl::menu_button::reset();
     crate::graphics::lvgl::events::reset_edit_mode();
     crate::graphics::lvgl::events::reset_activity_groups();
     crate::graphics::lvgl::handle_table::reset();
@@ -316,10 +324,24 @@ pub fn run_app(apk_data: &[u8]) {
     // `ImageView.setImageSource("name.png")` resolves at runtime. Empty for
     // legacy v1.0 papks and any v1.1 papk built without `--assets-dir`.
     crate::graphics::assets::init_from_papk(&apk);
-    // Likewise its RESOURCES section, behind `Context.getResources()`,
+    // The compat window (docs/designs/app-portability-2026-10.md D5): an app
+    // with a design size runs at that logical size on this panel. Before the
+    // resources open, which pick their configuration variants by it. And the
+    // features it requires: the installer refuses an app the board cannot
+    // serve, so this only catches an image that reached flash another way
+    // (`flash.sh`, the sim's app path) — said once, then the app runs.
+    crate::graphics::lvgl::window::set_design(apk.design_size());
+    // Its RESOURCES section, behind `Context.getResources()`,
     // `LayoutInflater` and `ImageView.setImageResource`. Absent without a
     // `res/` tree.
     crate::resources::init_from_papk(&apk);
+    if let Some(required) = apk.requires_features() {
+        for feature in required.split(',').filter(|f| !f.is_empty()) {
+            if !crate::board_features::has(feature) {
+                crate::pd_warn!("app requires {}, which this board lacks", feature);
+            }
+        }
+    }
     #[cfg(feature = "parity-metrics")]
     crate::pd_info!(
         "launch: classes={} us assets+res={} us",

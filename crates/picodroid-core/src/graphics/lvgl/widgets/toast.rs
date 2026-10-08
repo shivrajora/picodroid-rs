@@ -56,11 +56,27 @@ static ELAPSED_MS: Core0<Cell<u64>> = unsafe { Core0::new(Cell::new(0)) };
 
 // ── LVGL ops ────────────────────────────────────────────────────────────────
 
+/// The toast's box for a window `w` x `h` pixels: `(width, height, x, y)`. A
+/// lozenge 40 px tall, inset 20 px from each side up to 280 px wide, resting
+/// 20 px above the bottom edge. The same 200x40 at (20,180) a 240x240 panel
+/// always had; a wider or taller window moves it, a 320x480 panel's toast is
+/// no longer at a third of the height.
+fn toast_box(w: i32, h: i32) -> (i32, i32, i32, i32) {
+    let width = (w - 40).clamp(200, 280).min(w);
+    let height = 40;
+    (width, height, (w - width) / 2, (h - height - 20).max(0))
+}
+
 /// Create a hidden toast container with `text`. Returns the Java-side
-/// `nativeHandle`. The toast is parked at the bottom-center of the screen.
+/// `nativeHandle`. The toast is parked at the bottom-center of the window,
+/// on the overlay layer so it survives a `setContentView` and stays put
+/// while a screen pans.
 pub(in crate::graphics) fn create(text: &str, duration: i32) -> i32 {
-    let scr = lifecycle::screen_ptr();
-    let toast = unsafe { lv_obj_create(scr) };
+    let layer = lifecycle::overlay_layer();
+    // SAFETY: the top layer is a live LVGL object for the display's lifetime.
+    let toast = unsafe { lv_obj_create(layer) };
+    let (win_w, win_h) = lifecycle::window_size();
+    let (width, height, x, y) = toast_box(win_w, win_h);
 
     unsafe {
         // Hidden until show() — avoids a one-frame flash before the caller
@@ -74,11 +90,8 @@ pub(in crate::graphics) fn create(text: &str, duration: i32) -> i32 {
         lv_obj_set_style_bg_color(toast, lv_color_hex(0x303030), 0);
         lv_obj_set_style_bg_opa(toast, 220, 0);
 
-        lv_obj_set_size(toast, 200, 40);
-        // Position at lower-center for a 240×240 panel; the constants are
-        // a reasonable default. Apps that need a different anchor can call
-        // setPosition via View ops in a future enhancement.
-        lv_obj_set_pos(toast, 20, 180);
+        lv_obj_set_size(toast, width, height);
+        lv_obj_set_pos(toast, x, y);
 
         let label = lv_label_create(toast);
         let mut buf = [0u8; 128];

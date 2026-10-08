@@ -397,6 +397,30 @@ fn run(path: &Path) -> Result<(), String> {
                 papk_format::res::res_id(ty, 0)
             );
         }
+        // The configuration variants, as the directories that made them.
+        for block in table.overrides() {
+            use papk_format::res::config::{ORIENTATION_LAND, ORIENTATION_PORT, TOUCH_FINGER};
+            let q = block.qualifiers;
+            let mut spec = String::new();
+            for (v, tag) in [(q.sw_dp, "sw"), (q.w_dp, "w"), (q.h_dp, "h")] {
+                if v != 0 {
+                    spec.push_str(&format!("-{tag}{v}dp"));
+                }
+            }
+            match q.orientation {
+                ORIENTATION_LAND => spec.push_str("-land"),
+                ORIENTATION_PORT => spec.push_str("-port"),
+                _ => {}
+            }
+            if q.touch != 0 {
+                spec.push_str(if q.touch == TOUCH_FINGER {
+                    "-finger"
+                } else {
+                    "-notouch"
+                });
+            }
+            println!("  variant{spec:<14} {:>4} overrides", block.len());
+        }
     }
 
     Ok(())

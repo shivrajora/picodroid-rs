@@ -296,6 +296,20 @@ unsafe extern "C" fn dialog_item_click_cb(e: *mut lv_event_t) {
 
 // ── LVGL ops (called from widgets/alert_dialog.rs Java shim) ────────────────
 
+/// The card's width for a window `w` pixels wide: five eighths of it, never
+/// narrower than the 200 px every 240- and 320-wide panel has always had
+/// (so no tap coordinate moves there; `scripts/board-lib.sh::settings_dialog_ok`
+/// aims at that card) and never wider than 360 on a wide panel.
+fn dialog_card_width(w: i32) -> i32 {
+    (w * 5 / 8).clamp(200, 360).min(w)
+}
+
+/// What fits inside the card: its width less the 12 px padding each side.
+/// The button row and a list dialog's matrix span it (176 on the 200 card).
+fn dialog_content_width() -> i32 {
+    dialog_card_width(lifecycle::window_size().0) - 24
+}
+
 /// Build the modal scrim + card and add the title/message labels. Returns
 /// `(scrim, card)`; the caller appends any list matrix and then the button
 /// row (flex-column order = creation order). `card` height defaults to 160
@@ -305,8 +319,12 @@ unsafe fn build_dialog_shell(
     message: &str,
     card_h: i32,
 ) -> (*mut lv_obj_t, *mut lv_obj_t) {
-    let scr = lifecycle::screen_ptr();
-    let scrim = lv_obj_create(scr);
+    // On the overlay layer, above the screen: a dialog must not pan with an
+    // oversized content root, and it belongs to the Activity, not to the
+    // root a `setContentView` replaces (the shown-dialog stack ties its life
+    // to the Activity's). See `lifecycle::overlay_layer`.
+    let layer = lifecycle::overlay_layer();
+    let scrim = lv_obj_create(layer);
     lv_obj_add_event_cb(
         scrim,
         Some(scrim_delete_cb),
@@ -314,13 +332,11 @@ unsafe fn build_dialog_shell(
         core::ptr::null_mut(),
     );
 
-    // Modal scrim: fullscreen, dim, click-absorbing. The whole display, not
-    // a 240 px square: on the 320-wide testbench a tap beside the scrim used
-    // to reach the rows behind the dialog and open a second one.
-    let (screen_w, screen_h) = (
-        i32::from(crate::hal::display::WIDTH),
-        i32::from(crate::hal::display::HEIGHT),
-    );
+    // Modal scrim: the whole window, dim, click-absorbing. The whole window,
+    // not a 240 px square: on the 320-wide testbench a tap beside the scrim
+    // used to reach the rows behind the dialog and open a second one.
+    let (screen_w, screen_h) = lifecycle::window_size();
+    let card_w = dialog_card_width(screen_w);
     lv_obj_add_flag(scrim, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(scrim, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_pos(scrim, 0, 0);
@@ -334,11 +350,11 @@ unsafe fn build_dialog_shell(
 
     // Card: vertical flex with title, message, and a button row.
     let card = lv_obj_create(scrim);
-    lv_obj_set_size(card, 200, card_h);
-    // Center the card on the display. Vertical offset keeps the card
+    lv_obj_set_size(card, card_w, card_h);
+    // Center the card in the window. Vertical offset keeps the card
     // centered as it grows for list content.
     let card_y = ((screen_h - card_h) / 2).max(8);
-    lv_obj_set_pos(card, ((screen_w - 200) / 2).max(0), card_y);
+    lv_obj_set_pos(card, ((screen_w - card_w) / 2).max(0), card_y);
     lv_obj_set_style_bg_color(card, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
     // The card's content is laid out to fit it; without this LVGL still
@@ -383,7 +399,7 @@ unsafe fn add_button_row(
     neutral_text: &str,
 ) {
     let btn_row = lv_obj_create(card);
-    lv_obj_set_size(btn_row, 176, 50);
+    lv_obj_set_size(btn_row, dialog_content_width(), 50);
     lv_obj_set_style_bg_opa(btn_row, 0, 0);
     // A transparent row, not a boxed one: the theme gives every plain
     // object a border, which drew a frame around the two buttons.
@@ -400,8 +416,9 @@ unsafe fn add_button_row(
         LV_FLEX_ALIGN_CENTER,
     );
 
-    // Three buttons share the 176px row only at a narrower width; with one
-    // or two, keep the roomier 80px Android-ish buttons.
+    // Three buttons share the 176px row (on the narrowest card) only at a
+    // narrower width; with one or two, keep the roomier 80px Android-ish
+    // buttons.
     let n_buttons = (!positive_text.is_empty()) as i32
         + (!negative_text.is_empty()) as i32
         + (!neutral_text.is_empty()) as i32;
@@ -517,7 +534,11 @@ pub(in crate::graphics) fn create_with_list(
         map.push(MAP_TERMINATOR.as_ptr() as *const c_char);
 
         let matrix = lv_buttonmatrix_create(card);
-        lv_obj_set_size(matrix, 176, (n_items as i32 * 28).min(160));
+        lv_obj_set_size(
+            matrix,
+            dialog_content_width(),
+            (n_items as i32 * 28).min(160),
+        );
         lv_obj_set_style_bg_opa(matrix, 0, 0);
         lv_obj_set_style_pad_left(matrix, 2, 0);
         lv_obj_set_style_pad_right(matrix, 2, 0);
@@ -568,6 +589,10 @@ pub(in crate::graphics) fn show(id: i32) {
         return;
     }
     unsafe { lv_obj_remove_flag(scrim, LV_OBJ_FLAG_HIDDEN) };
+    // The scrim joined the top layer after the soft-nav control did; keep
+    // BACK reachable above it, as a cancelable dialog's outside stays live.
+    super::super::soft_nav::raise();
+    super::super::menu_button::raise();
     focus_dialog_buttons(scrim as usize);
     if let Some(oldest) = shown_push(id) {
         crate::pd_warn!(
@@ -592,20 +617,58 @@ fn focus_dialog_buttons(scrim_ptr: usize) {
         if group.is_null() {
             return;
         }
+        // A list dialog's matrix first: it joined the Activity's group when
+        // it was created (a button matrix is group-default), so move it to
+        // the dialog's, where PREV/NEXT walk its rows (keypad.rs::widget_remap)
+        // and SELECT picks one — and focus it, as Android focuses the list.
         let mut focus_target: *mut lv_obj_t = core::ptr::null_mut();
+        for slot in &LIST_SLOTS[..] {
+            if slot.dialog_handle == scrim_ptr && slot.matrix != 0 {
+                let matrix = slot.matrix as *mut lv_obj_t;
+                lv_group_remove_obj(matrix);
+                lv_group_add_obj(group, matrix);
+                focus_target = matrix;
+            }
+        }
         for slot in &BUTTON_MAP[..] {
             if slot.button_handle != 0 && slot.dialog_handle == scrim_ptr {
                 let btn = slot.button_handle as *mut lv_obj_t;
                 lv_group_add_obj(group, btn);
-                if focus_target.is_null() || slot.which == BUTTON_POSITIVE {
+                if focus_target.is_null()
+                    || slot.which == BUTTON_POSITIVE && !is_matrix(focus_target)
+                {
                     focus_target = btn;
                 }
             }
         }
         if !focus_target.is_null() {
             lv_group_focus_obj(focus_target);
+            // A keypad-focused matrix selects nothing until a key arrives,
+            // and that first key would only land on row 0: start there, so
+            // NEXT is row 1, as the keyboard starts on its first letter.
+            if is_matrix(focus_target) {
+                // Focused from a quiet pass, so the group set FOCUSED but not
+                // FOCUS_KEY, which is the state the matrix draws its selected
+                // row in (as `focus_system_keyboard` does for the keyboard).
+                lv_obj_add_state(focus_target, LV_STATE_FOCUS_KEY);
+                lv_buttonmatrix_set_selected_button(focus_target, 0);
+                lv_obj_invalidate(focus_target);
+            }
         }
     }
+}
+
+/// Whether `obj` is a list dialog's matrix.
+fn is_matrix(obj: *mut lv_obj_t) -> bool {
+    // SAFETY: a read of a registry of raw pointers, on the JVM task.
+    unsafe {
+        for entry in &MATRIX_MAP[..] {
+            if entry.0 == obj as usize {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 pub(in crate::graphics) fn dismiss(id: i32) {

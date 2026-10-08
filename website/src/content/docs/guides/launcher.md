@@ -61,7 +61,8 @@ On a single-app board `startActivity` with a package target always throws `Activ
 - An app whose last Activity finishes returns to the launcher.
 - On a board with buttons, BACK finishes the top Activity, as always. From the app's only Activity that returns to the launcher. The launcher itself ignores BACK.
 - On a board with a HOME key (a `[[button]]` with `keycode = 3`; `pico_touch_kit` has one) HOME returns to the launcher from any app, at any depth. The running app is torn down through its normal lifecycle and cannot intercept the key; the log says `key: HOME -> launcher`. With the launcher already in front, or on a firmware without one, HOME does nothing.
-- A touch-only board has neither button. An app started from the launcher must finish itself (a Close button, or `finish()` when its work is done). Otherwise it runs until the next install or reset.
+- On a board with BACK but no HOME key (the four-button boards), **holding BACK for a second is HOME**: the log says `key: BACK held -> HOME`, the app's release arrives cancelled, and the launcher comes up. An app that swallows BACK cannot keep the user.
+- A touch-only board with no button (`soft_nav = true`) has a round control in the bottom-left corner of the window: a tap is BACK, a hold is HOME. An app may still finish itself with a Close button, as before.
 - A device without a launcher (a single-app board, or a firmware built without one) waits for a `pdb install` after the app finishes, as it always did.
 - If the launcher itself exits, the device starts it again once. A second exit in a row leaves the device waiting for a `pdb install`, so a broken launcher cannot loop.
 

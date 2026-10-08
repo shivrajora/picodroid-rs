@@ -38,12 +38,10 @@ network_type = "cyw43"
 # HTTPS (docs/designs/tls-2026-09.md): pd-tls behind the platform's `tls`
 # feature, which the board feature forwards; build.rs checks they agree.
 has_tls = true
-lv_dpi = 166
 lv_mem_kb = 48
-# Disable idle-timeout display sleep — this is a live environmental monitor;
-# users watch the readings without interacting. Set to a positive ms value
-# (e.g. 60000) to re-enable.
-idle_timeout_ms = 0
+# The panel dozes after the default 60 s idle (power.rs; Settings → Display can
+# change it). An appliance app that must stay lit calls View.setKeepScreenOn(true)
+# on its root, as the apps built for this board do.
 
 # FreeRTOS+TCP heap tuning (defaults in parentheses — see
 # picodroid-core/net-freertos-tcp/FreeRTOSIPConfig.h). picoenvmon is the canonical
@@ -117,6 +115,10 @@ pin_bl = 20
 # pin_rst omitted — Enviro+ Pack ties RST high in hardware; build.rs emits PIN_RST = None.
 width = 240
 height = 240
+# 240x240 over a 1.54" diagonal. Physical pixels per inch: DisplayMetrics.xdpi and the
+# touch-target floor read it; LVGL's theme does not (LV_DPI_DEF is pinned to 160
+# on every board, docs/designs/app-portability-2026-10.md D3).
+dpi = 220
 madctl = 0x00
 band_height = 27
 scroll_limit = 10

@@ -173,6 +173,16 @@ pub(in crate::graphics) fn create() -> i32 {
             LV_EVENT_VALUE_CHANGED,
             core::ptr::null_mut(),
         );
+        // A key-driven change (`lv_roller_set_selected` from LVGL's own key
+        // handler, docs/designs/app-portability-2026-10.md K7) sends no
+        // VALUE_CHANGED; the KEY event, which runs after the class handled
+        // it, is the same notice.
+        lv_obj_add_event_cb(
+            hour,
+            Some(value_changed_cb),
+            LV_EVENT_KEY,
+            core::ptr::null_mut(),
+        );
 
         let minute = lv_roller_create(container);
         lv_roller_set_options(
@@ -185,6 +195,16 @@ pub(in crate::graphics) fn create() -> i32 {
             minute,
             Some(value_changed_cb),
             LV_EVENT_VALUE_CHANGED,
+            core::ptr::null_mut(),
+        );
+        // A key-driven change (`lv_roller_set_selected` from LVGL's own key
+        // handler, docs/designs/app-portability-2026-10.md K7) sends no
+        // VALUE_CHANGED; the KEY event, which runs after the class handled
+        // it, is the same notice.
+        lv_obj_add_event_cb(
+            minute,
+            Some(value_changed_cb),
+            LV_EVENT_KEY,
             core::ptr::null_mut(),
         );
 
@@ -202,6 +222,16 @@ pub(in crate::graphics) fn create() -> i32 {
             am_pm,
             Some(value_changed_cb),
             LV_EVENT_VALUE_CHANGED,
+            core::ptr::null_mut(),
+        );
+        // A key-driven change (`lv_roller_set_selected` from LVGL's own key
+        // handler, docs/designs/app-portability-2026-10.md K7) sends no
+        // VALUE_CHANGED; the KEY event, which runs after the class handled
+        // it, is the same notice.
+        lv_obj_add_event_cb(
+            am_pm,
+            Some(value_changed_cb),
+            LV_EVENT_KEY,
             core::ptr::null_mut(),
         );
 

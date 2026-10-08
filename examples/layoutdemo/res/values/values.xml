@@ -8,6 +8,7 @@
     <dimen name="stage_width">200dp</dimen>
     <string name="title">Layout demo</string>
     <string name="count">%d of %s</string>
+    <string name="long_line">A line far longer than forty pixels of panel</string>
 
     <!-- The theme: the framework's widgets take these, and ?attr/ in a layout reads them. -->
     <style name="AppTheme">

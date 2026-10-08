@@ -25,6 +25,9 @@ pub mod view {
 pub mod display {
     pub const WIDTH: usize = 0;
     pub const HEIGHT: usize = 1;
+    /// The panel's physical pixel pitch (`[display] dpi`), what
+    /// `Display.getMetrics` hands out as `xdpi`/`ydpi`.
+    pub const DPI: usize = 2;
 }
 
 pub mod motion_event {

@@ -122,12 +122,25 @@ unsafe extern "C" fn action_click_cb(e: *mut lv_event_t) {
 
 // ── LVGL ops ────────────────────────────────────────────────────────────────
 
+/// The bar's box for a window `w` x `h` pixels: `(width, height, x, y)`. Full
+/// width less a 10 px gutter each side, 44 px tall, 8 px above the bottom
+/// edge: the 220x44 at (10,188) a 240x240 panel always had, following the
+/// window on the others.
+fn bar_box(w: i32, h: i32) -> (i32, i32, i32, i32) {
+    let height = 44;
+    ((w - 20).max(0), height, 10, (h - height - 8).max(0))
+}
+
 /// Build a hidden snackbar bar with `text`. The bar parks at the bottom-
-/// center of the screen and stays hidden until [`show`] is called. Returns
-/// the Java-side `nativeHandle`.
+/// center of the window, on the overlay layer (see `lifecycle::overlay_layer`),
+/// and stays hidden until [`show`] is called. Returns the Java-side
+/// `nativeHandle`.
 pub(in crate::graphics) fn create(text: &str, duration: i32) -> i32 {
-    let scr = lifecycle::screen_ptr();
-    let bar = unsafe { lv_obj_create(scr) };
+    let layer = lifecycle::overlay_layer();
+    // SAFETY: the top layer is a live LVGL object for the display's lifetime.
+    let bar = unsafe { lv_obj_create(layer) };
+    let (win_w, win_h) = lifecycle::window_size();
+    let (width, height, x, y) = bar_box(win_w, win_h);
 
     unsafe {
         // Hidden until show() — avoids a one-frame flash before the typical
@@ -146,9 +159,8 @@ pub(in crate::graphics) fn create(text: &str, duration: i32) -> i32 {
         lv_obj_set_style_pad_top(bar, 6, 0);
         lv_obj_set_style_pad_bottom(bar, 6, 0);
 
-        lv_obj_set_size(bar, 220, 44);
-        // Bottom-center on a 240×240 panel, leaving a small gutter.
-        lv_obj_set_pos(bar, 10, 188);
+        lv_obj_set_size(bar, width, height);
+        lv_obj_set_pos(bar, x, y);
 
         // Horizontal flex: label on the left, action button on the right.
         lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);

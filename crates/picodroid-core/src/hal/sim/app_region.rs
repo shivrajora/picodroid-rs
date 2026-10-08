@@ -263,6 +263,9 @@ fn describe(error: Option<InstallError>) -> String {
         ),
         Some(InstallError::NoPackageName) => "the manifest has no package-name".to_string(),
         Some(InstallError::SystemPackage) => "names a system app".to_string(),
+        Some(InstallError::MissingFeature) => {
+            "requires a feature this board lacks (uses-feature)".to_string()
+        }
         Some(InstallError::Incompat) => "built for another framework-map-version".to_string(),
         Some(other) => format!("{other:?}"),
         None => "unknown".to_string(),

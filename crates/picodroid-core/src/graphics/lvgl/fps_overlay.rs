@@ -92,14 +92,16 @@ pub fn update() {
     }
 }
 
-/// Create the LVGL label in the top-right corner of the screen.
+/// Create the LVGL label in the top-right corner of the window, on the
+/// overlay layer so it rides above every screen and never pans with one.
 unsafe fn create_label() {
-    let screen = lv_screen_active();
-    FPS_LABEL.set(lv_label_create(screen));
+    let layer = lv_layer_top();
+    FPS_LABEL.set(lv_label_create(layer));
     lv_label_set_text(FPS_LABEL.get(), c"-- FPS".as_ptr());
 
     // Position in top-right corner (leave a small margin).
-    lv_obj_set_pos(FPS_LABEL.get(), (hal::display::WIDTH - 70) as i32, 2);
+    let win_w = lv_display_get_horizontal_resolution(lv_display_get_default());
+    lv_obj_set_pos(FPS_LABEL.get(), win_w - 70, 2);
 
     // Green text on dark background.
     lv_obj_set_style_text_color(FPS_LABEL.get(), lv_color_hex(0x00FF00), 0);

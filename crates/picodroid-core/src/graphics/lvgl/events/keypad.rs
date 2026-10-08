@@ -3,6 +3,8 @@
 //! stepping) and `keypad_read_cb`, the indev callback that feeds both the
 //! LVGL keypad and that queue from one GPIO event.
 
+#[cfg(has_buttons)]
+use super::super::edit_mode::EditKind;
 use super::*;
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
@@ -117,20 +119,111 @@ pub fn reset_edit_mode() {
 #[cfg(not(has_buttons))]
 pub fn reset_edit_mode() {}
 
-/// The active group's focused widget as a raw pointer (0 if none), plus
-/// whether it is a registered NumberPicker — the edit-mode filter's inputs.
+/// The active group's focused widget as a raw pointer (0 if none), plus how
+/// it is edited, if it is a value widget — the edit-mode filter's inputs.
 #[cfg(has_buttons)]
-pub(super) fn focused_obj_for_edit_mode() -> (usize, bool) {
+pub(super) fn focused_obj_for_edit_mode() -> (usize, Option<EditKind>) {
     unsafe {
         let group = lv_group_get_default();
         if group.is_null() {
-            return (0, false);
+            return (0, None);
         }
         let focused = lv_group_get_focused(group) as usize;
-        (
-            focused,
-            super::super::widgets::number_picker::is_number_picker(focused),
-        )
+        (focused, edit_kind_of(focused))
+    }
+}
+
+/// How the four keys edit the focused widget once SELECT has entered edit
+/// mode (docs/designs/app-portability-2026-10.md K7): a NumberPicker steps
+/// through Java; a slider, a roller (the TimePicker) takes LVGL's UP/DOWN;
+/// a calendar's matrix (the DatePicker) takes LEFT/RIGHT and keeps SELECT for
+/// the day. `None` for a widget that is not edited — a button or row, which
+/// SELECT activates, and a dropdown, whose open list the keys walk without an
+/// edit mode (`widget_remap`).
+#[cfg(has_buttons)]
+fn edit_kind_of(focused: usize) -> Option<EditKind> {
+    if focused == 0 {
+        return None;
+    }
+    if super::super::widgets::number_picker::is_number_picker(focused) {
+        return Some(EditKind::Step);
+    }
+    // SAFETY: `focused` is the live object the group just reported; the
+    // class statics are LVGL's own.
+    unsafe {
+        let class = lv_obj_get_class(focused as *const lv_obj_t);
+        if class == &raw const lv_slider_class || class == &raw const lv_roller_class {
+            return Some(EditKind::Keys {
+                prev: LV_KEY_UP,
+                next: LV_KEY_DOWN,
+                enter_passes: false,
+            });
+        }
+        if class == &raw const lv_buttonmatrix_class && !super::in_modal_group() {
+            return Some(EditKind::Keys {
+                prev: LV_KEY_LEFT,
+                next: LV_KEY_RIGHT,
+                enter_passes: true,
+            });
+        }
+    }
+    None
+}
+
+/// Outside edit mode, what the focused widget makes of a key on its own
+/// (K7): a dropdown with its list open walks the list on PREV/NEXT and takes
+/// SELECT and BACK for itself (pick, close) rather than Java; a dialog's list
+/// (a button matrix in the modal group) walks its rows on PREV/NEXT. `None`
+/// leaves the key as it is.
+#[cfg(has_buttons)]
+fn widget_remap(key: u32, focused: usize) -> Option<u32> {
+    if focused == 0 {
+        return None;
+    }
+    let o = focused as *mut lv_obj_t;
+    // SAFETY: `focused` is the live object the group just reported.
+    unsafe {
+        let class = lv_obj_get_class(o);
+        if class == &raw const lv_dropdown_class && lv_dropdown_is_open(o) {
+            return Some(match key {
+                LV_KEY_PREV => LV_KEY_UP,
+                LV_KEY_NEXT => LV_KEY_DOWN,
+                k => k,
+            });
+        }
+        if class == &raw const lv_buttonmatrix_class && super::in_modal_group() {
+            return match key {
+                LV_KEY_PREV => Some(LV_KEY_UP),
+                LV_KEY_NEXT => Some(LV_KEY_DOWN),
+                _ => None,
+            };
+        }
+    }
+    None
+}
+
+/// A screen with nothing focusable — an About page, a ScrollView of plain
+/// text — still answers the keys: PREV/NEXT page its first ScrollView, as
+/// Android's `arrowScroll` does when no view takes the arrow. The key is
+/// delivered on as well; an app that handles DPAD itself still hears it.
+#[cfg(has_buttons)]
+fn scroll_lone_scroll_view(key: u32) {
+    if !matches!(key, LV_KEY_PREV | LV_KEY_NEXT) {
+        return;
+    }
+    // SAFETY: the group and the scroller are live LVGL objects.
+    unsafe {
+        let group = lv_group_get_default();
+        if group.is_null() || lv_group_get_obj_count(group) != 0 {
+            return;
+        }
+        let sv = super::super::widgets::scroll_view::first_live();
+        if sv.is_null() {
+            return;
+        }
+        let step = (lv_obj_get_height(sv) / 4).max(1);
+        let dy = if key == LV_KEY_PREV { step } else { -step };
+        lv_obj_scroll_by_bounded(sv, 0, dy, LV_ANIM_ON);
     }
 }
 
@@ -141,12 +234,103 @@ pub(super) fn focused_obj_for_edit_mode() -> (usize, bool) {
 // SAFETY: widget-layer state, reached only from JVM tasks.
 static KEY_HELD: Core0<Cell<bool>> = unsafe { Core0::new(Cell::new(false)) };
 
+/// The LVGL key the last press edge was given and that is still down, if
+/// any (docs/designs/app-portability-2026-10.md Stage 10). A quiet read
+/// pass reports it pressed again, so LVGL's keypad clock runs on it: a
+/// held ENTER long-presses the focused widget (`OnLongClickListener`), a
+/// held PREV/NEXT walks the focus ring at LVGL's repeat rate. The newest
+/// press wins (LVGL's keypad knows one key at a time); a press the edit
+/// mode or a remap kept from LVGL holds nothing.
+#[cfg(has_buttons)]
+// SAFETY: widget-layer state, reached only from JVM tasks.
+static LVGL_KEY_HELD: Core0<Cell<Option<(u8, u32)>>> = unsafe { Core0::new(Cell::new(None)) };
+
+// ── HOME on a held BACK ─────────────────────────────────────────────────────
+//
+// A board with a launcher but no HOME key reaches HOME by holding BACK for
+// `HOME_HOLD_MS` (docs/designs/app-portability-2026-10.md K2). The timer
+// runs here, on the raw edge, rather than in the Java queue: the edit-mode
+// filter swallows ESC presses while a picker is edited, and an app that
+// consumes BACK must still be left. The app sees its ordinary 400 ms
+// long-press on the way (the Java repeat engine does that), then the HOME,
+// then a release flagged cancelled so `onBackPressed` stays out of it.
+
+/// When the current BACK press landed, while it is held.
+#[cfg(has_buttons)]
+// SAFETY: widget-layer state, reached only from JVM tasks.
+static BACK_HELD_SINCE_MS: Core0<Cell<Option<u64>>> = unsafe { Core0::new(Cell::new(None)) };
+/// Whether this hold has already become HOME.
+#[cfg(has_buttons)]
+// SAFETY: widget-layer state, reached only from JVM tasks.
+static BACK_HOME_FIRED: Core0<Cell<bool>> = unsafe { Core0::new(Cell::new(false)) };
+/// Set when a hold became HOME, for the dispatcher to cancel the release.
+#[cfg(has_buttons)]
+// SAFETY: widget-layer state, reached only from JVM tasks.
+static BACK_UP_CANCELLED: Core0<Cell<bool>> = unsafe { Core0::new(Cell::new(false)) };
+
+/// A BACK edge: start or end the hold.
+#[cfg(has_buttons)]
+fn note_back_edge(rising: bool, edge_ms: u64) {
+    if rising {
+        BACK_HELD_SINCE_MS.set(None);
+        if BACK_HOME_FIRED.replace(false) {
+            BACK_UP_CANCELLED.set(true);
+        }
+    } else {
+        BACK_HELD_SINCE_MS.set(Some(edge_ms));
+        BACK_HOME_FIRED.set(false);
+    }
+}
+
+/// Once per read pass: a BACK held past the threshold becomes HOME, once.
+#[cfg(has_buttons)]
+fn check_back_hold(now_ms: u64) {
+    let Some(since) = BACK_HELD_SINCE_MS.get() else {
+        return;
+    };
+    if BACK_HOME_FIRED.get()
+        || now_ms.saturating_sub(since) < u64::from(crate::board_cfg::input::HOME_HOLD_MS)
+    {
+        return;
+    }
+    BACK_HOME_FIRED.set(true);
+    crate::pd_info!("key: BACK held -> HOME");
+    crate::input_inject::push_soft_key_press(crate::input_inject::KEYCODE_HOME);
+}
+
+/// Whether the BACK release being dispatched ends a hold that became HOME —
+/// read once by the dispatcher, which then flags it `FLAG_CANCELED`.
+pub fn take_back_up_cancelled() -> bool {
+    #[cfg(has_buttons)]
+    {
+        BACK_UP_CANCELLED.replace(false)
+    }
+    #[cfg(not(has_buttons))]
+    {
+        false
+    }
+}
+
+#[cfg(has_buttons)]
+/// Forget a key held across an app reset.
+#[cfg(has_buttons)]
+pub(super) fn reset_held() {
+    LVGL_KEY_HELD.set(None);
+    KEY_HELD.set(false);
+}
+#[cfg(not(has_buttons))]
+pub(super) fn reset_held() {}
+
 #[cfg(has_buttons)]
 pub(super) unsafe extern "C" fn keypad_read_cb(
     _indev: *mut lv_indev_t,
     data: *mut lv_indev_data_t,
 ) {
     let d = unsafe { &mut *data };
+    let now_us = crate::hal::system_clock::elapsed_realtime_nanos() as u64 / 1_000;
+    if crate::board_cfg::input::BACK_HOLD_IS_HOME {
+        check_back_hold(now_us / 1_000);
+    }
     // Drain until the first edge that survives the contact debounce; chatter
     // edges are consumed and discarded without ending the read pass.
     let debounced = loop {
@@ -165,6 +349,14 @@ pub(super) unsafe extern "C" fn keypad_read_cb(
     };
     if let Some(event) = debounced {
         KEY_HELD.set(!event.rising);
+        // A real edge: the panel stays on (power.rs).
+        crate::power::user_activity();
+        if crate::board_cfg::input::BACK_HOLD_IS_HOME
+            && super::pin_to_keycode(event.pin) == Some(crate::input_inject::KEYCODE_BACK)
+        {
+            let edge_ms = super::super::key_repeat::edge_time_ms(now_us, event.t_us);
+            note_back_edge(event.rising, edge_ms);
+        }
         let key = BUTTONS
             .iter()
             .find(|&&(p, _, _)| p == event.pin)
@@ -177,12 +369,12 @@ pub(super) unsafe extern "C" fn keypad_read_cb(
 
         // Run mapped keys through the edit-mode filter; unmapped pins keep
         // the historical behavior (Java queue only, nothing for the indev).
+        let (focused, kind) = focused_obj_for_edit_mode();
         let decision = match key {
             Some(k) => {
-                let (focused, is_picker) = focused_obj_for_edit_mode();
                 let (decision, transition) = unsafe {
                     let em = &raw mut EDIT_MODE;
-                    (*em).filter(k, !event.rising, focused, is_picker)
+                    (*em).filter(k, !event.rising, focused, kind)
                 };
                 apply_edit_transition(transition);
                 decision
@@ -209,6 +401,20 @@ pub(super) unsafe extern "C" fn keypad_read_cb(
             None => decision,
         };
 
+        // The focused widget's own keys: an open dropdown's list, a dialog's
+        // list (K7). Those keys are the widget's and do not reach Java.
+        let decision = match decision.lvgl_key.and_then(|k| widget_remap(k, focused)) {
+            Some(remapped) => super::super::edit_mode::Decision {
+                lvgl_key: Some(remapped),
+                forward_java: false,
+                step: None,
+            },
+            None => decision,
+        };
+        if let Some(k) = decision.lvgl_key {
+            scroll_lone_scroll_view(k);
+        }
+
         if decision.forward_java {
             push_key_event_raw(event.pin, event.rising, event.t_us);
         }
@@ -223,6 +429,17 @@ pub(super) unsafe extern "C" fn keypad_read_cb(
                 LV_INDEV_STATE_PRESSED
             };
         }
+        // What LVGL holds between edges: this press, or nothing once its
+        // pin — or any pin, when the press never reached LVGL — comes up.
+        match (event.rising, decision.lvgl_key) {
+            (false, Some(k)) => LVGL_KEY_HELD.set(Some((event.pin, k))),
+            (false, None) => {}
+            (true, _) => {
+                if LVGL_KEY_HELD.get().is_none_or(|(pin, _)| pin == event.pin) {
+                    LVGL_KEY_HELD.set(None);
+                }
+            }
+        }
         // An ENTER or ESC edge can activate a widget or trigger BACK, and the
         // resulting Activity push/pop (with its keypad-group swap) only runs
         // in the lifecycle drain *after* this read pass. Stop the pass at
@@ -235,7 +452,14 @@ pub(super) unsafe extern "C" fn keypad_read_cb(
         let activation = matches!(key, Some(LV_KEY_ENTER) | Some(LV_KEY_ESC));
         d.continue_reading = hal::gpio::has_pending_event() && !activation;
     } else {
-        d.state = LV_INDEV_STATE_RELEASED;
+        // No edge: the key LVGL was last given is still down, or nothing is.
+        match LVGL_KEY_HELD.get() {
+            Some((_, k)) => {
+                d.key = k;
+                d.state = LV_INDEV_STATE_PRESSED;
+            }
+            None => d.state = LV_INDEV_STATE_RELEASED,
+        }
         d.continue_reading = false;
         // A quiet pass with every key up: the key that opened the system
         // keyboard has been released, so the keyboard may take the focus

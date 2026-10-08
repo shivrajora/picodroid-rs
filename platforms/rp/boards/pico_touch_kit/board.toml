@@ -57,25 +57,10 @@ network_type = "cyw43"
 # HTTPS (docs/designs/tls-2026-09.md): pd-tls behind the platform's `tls`
 # feature, which the board feature forwards; build.rs checks they agree.
 has_tls = true
-# 320x480 across a 3.5" diagonal is 165 dpi. LVGL's default is 130, which would
-# under-scale every padding and font on a panel this dense.
-lv_dpi = 165
 
-# No idle display blank on this board. The default is 60 s, and lifecycle.rs
-# compiles that path in for any board with buttons — but its notion of "user
-# activity" is a GPIO edge and its wake path blocks on a button IRQ. This is
-# the first board with a touchscreen AND buttons, and on it neither half holds:
-# a finger on the glass does not refresh the idle timer, so the panel blanks
-# mid-use, and once blanked a finger cannot bring it back. With no backlight
-# pin to dim, DISPOFF just leaves the panel dark and the board looks dead.
-#
-# 0 disables sleep outright (build_support::emit_sleep_config -> None). The
-# real fix is to make touch a first-class input for both halves: refresh the
-# timer on touch activity, and make the GT911's INT line on GP11 signal the
-# same wake semaphore the buttons do. That needs per-pin IRQ work in
-# platforms/rp/src/hal/rp/gpio.rs and a way for the wake path to tell a touch
-# wake from the stale-signal re-block. Restore the default here when it lands.
-idle_timeout_ms = 0
+# The panel dozes after the default 60 s idle and a finger or a button wakes it
+# (power.rs: the GT911 is sampled while asleep, so a touch refreshes the timer
+# and wakes the panel; Settings → Display changes the timeout).
 
 # The LVGL pool can live in the module's PSRAM (hal/rp/psram.rs brings it up
 # at every boot; XIP window 1 at 0x11000000), and it is the one tenant cold
@@ -130,6 +115,10 @@ pin_rst = 7
 # the panel through DISPOFF; it just cannot also cut the light.
 width = 320
 height = 480
+# 320x480 over a 3.5" diagonal. Physical pixels per inch: DisplayMetrics.xdpi and the
+# touch-target floor read it; LVGL's theme does not (LV_DPI_DEF is pinned to 160
+# on every board, docs/designs/app-portability-2026-10.md D3).
+dpi = 165
 # Portrait, BGR panel order. 0x48 is MX | BGR, which is what the vendor
 # firmware selects; landscape 480x320 is 0x28 with width and height swapped.
 #

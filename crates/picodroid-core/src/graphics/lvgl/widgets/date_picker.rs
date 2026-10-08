@@ -47,6 +47,11 @@ pub(in crate::graphics) fn create() -> i32 {
             LV_EVENT_VALUE_CHANGED,
             core::ptr::null_mut(),
         );
+        // Both the calendar and its day matrix are group-default, which
+        // would make a DatePicker two focus stops on a key board. The matrix
+        // is the one the keys edit (keypad.rs::edit_kind_of); the container
+        // leaves the ring. A no-op without a group (a touch board).
+        lv_group_remove_obj(cal);
         cal
     };
     handle_table::register(ptr)

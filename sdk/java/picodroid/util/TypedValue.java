@@ -5,9 +5,9 @@ package picodroid.util;
  * Mirrors the unit side of {@code android.util.TypedValue}: the {@code COMPLEX_UNIT_*} constants
  * that {@link picodroid.widget.TextView#setTextSize(int, float)} takes, and {@link
  * #applyDimension}, which turns a value in one of them into pixels. There is one density here
- * ({@code px}, {@code dp} and {@code sp} are the same pixel), so those three convert exactly;
- * points, inches and millimetres scale by {@link DisplayMetrics#xdpi}, which is the nominal 160,
- * not the panel's true pitch.
+ * ({@code px}, {@code dp} and {@code sp} are the same logical pixel), so those three convert
+ * exactly; points, inches and millimetres scale by {@link DisplayMetrics#xdpi}, the panel's true
+ * pitch, so they are ruler measurements.
  */
 public final class TypedValue {
   public static final int COMPLEX_UNIT_PX = 0;

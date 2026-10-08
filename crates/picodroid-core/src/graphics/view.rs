@@ -162,6 +162,14 @@ pub fn get_height(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>,
     frame_component(args, objects, |f| f.3)
 }
 
+/// `View.isInTouchMode()`: a build fact — true unless a button moves the
+/// focus ring (`has_nav_keys`, docs/designs/app-portability-2026-10.md K6).
+pub fn is_in_touch_mode() -> Result<Option<Value>, JvmError> {
+    Ok(Some(Value::Int(i32::from(
+        !crate::board_cfg::input::HAS_NAV_KEYS,
+    ))))
+}
+
 /// Decode a `ViewPropertyAnimator.PROPERTY_*` code (the Java side shares them
 /// between the animator and `View`'s transform accessors) into the trait's
 /// backend-neutral enum. Alpha / x / y have their own setters and never come
@@ -216,6 +224,33 @@ pub fn set_enabled(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>
     let id = extract_native_handle(args, objects)?;
     let on = arg_int(args, 1)? != 0;
     with_gfx(|g| g.set_enabled(Handle::from_java(id), on));
+    Ok(None)
+}
+
+/// `View.nativeSetMinimumSize(int width, int height)`: the floors
+/// `setMinimumWidth` / `setMinimumHeight` set, -1 for an axis left alone.
+pub fn set_minimum_size(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let width = arg_int(args, 1)?;
+    let height = arg_int(args, 2)?;
+    with_gfx(|g| g.set_min_size(Handle::from_java(id), width, height));
+    Ok(None)
+}
+
+/// `View.nativeSetMaxWidth(int)`: `TextView.setMaxWidth`'s ceiling.
+pub fn set_max_width(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let width = arg_int(args, 1)?;
+    with_gfx(|g| g.set_max_width(Handle::from_java(id), width));
+    Ok(None)
+}
+
+/// `View.nativeSetKeepScreenOn(boolean)`: hold the display on while this
+/// view lives (power.rs; docs/designs/app-portability-2026-10.md K5).
+pub fn set_keep_screen_on(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let on = arg_int(args, 1)? != 0;
+    super::lvgl::keep_on::set(id, on);
     Ok(None)
 }
 

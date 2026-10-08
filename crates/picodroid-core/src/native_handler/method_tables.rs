@@ -358,6 +358,22 @@ pub const OS_HANDLED: &[Row] = &[
         "(I)Ljava/lang/String;",
     ),
     // picodroid/os/Build
+    ("picodroid/os/PowerManager", "isInteractive", "()Z"),
+    (
+        "picodroid/view/KeyCharacterMap",
+        "nativeDeviceHasKey",
+        "(I)Z",
+    ),
+    (
+        "picodroid/provider/Settings$System",
+        "nativeGetInt",
+        "(Ljava/lang/String;I)I",
+    ),
+    (
+        "picodroid/provider/Settings$System",
+        "nativePutInt",
+        "(Ljava/lang/String;I)Z",
+    ),
     ("picodroid/os/Build", "nativeBoard", "()Ljava/lang/String;"),
     (
         "picodroid/os/Build",
@@ -539,6 +555,13 @@ pub const CORE_HANDLED: &[Row] = &[
         "getIntent",
         "()Lpicodroid/content/Intent;",
     ),
+    ("picodroid/app/Activity", "nativeSetTurnScreenOn", "(Z)V"),
+    (
+        "picodroid/app/Activity",
+        "nativeSetOptionsMenuAvailable",
+        "(Z)V",
+    ),
+    ("picodroid/app/Activity", "nativeFocusTakesLongPress", "()Z"),
     ("picodroid/app/Activity", "setResult", "(I)V"),
     (
         "picodroid/app/Activity",
@@ -650,6 +673,7 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/view/View", "getLeft", "()I"),
     ("picodroid/view/View", "getTop", "()I"),
     ("picodroid/view/View", "getWidth", "()I"),
+    ("picodroid/view/View", "isInTouchMode", "()Z"),
     ("picodroid/view/View", "nativeBeginDraw", "(Lpicodroid/graphics/Canvas;)V"),
     ("picodroid/view/View", "nativeClose", "()V"),
     ("picodroid/view/View", "nativeCreateView", "()I"),
@@ -665,6 +689,9 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/view/View", "nativeRequestFocus", "()Z"),
     ("picodroid/view/View", "nativeSetAlpha", "(F)V"),
     ("picodroid/view/View", "nativeSetEnabled", "(Z)V"),
+    ("picodroid/view/View", "nativeSetKeepScreenOn", "(Z)V"),
+    ("picodroid/view/View", "nativeSetMaxWidth", "(I)V"),
+    ("picodroid/view/View", "nativeSetMinimumSize", "(II)V"),
     ("picodroid/view/View", "nativeSetFlexGrow", "(I)V"),
     ("picodroid/view/View", "nativeSetFrameGravity", "(III)V"),
     ("picodroid/view/View", "nativeSetMargins", "(IIII)V"),

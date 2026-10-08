@@ -147,6 +147,8 @@ picodroid/app/FragmentTransaction
 picodroid/app/Notification
 picodroid/app/Notification$Builder
 picodroid/app/NotificationManager
+picodroid/app/OptionsMenu
+picodroid/app/OptionsMenu$Item
 picodroid/app/PendingIntent
 picodroid/app/Service
 picodroid/app/usage/StorageStats
@@ -176,6 +178,7 @@ picodroid/concurrent/ThreadPoolExecutor
 picodroid/concurrent/TimeUnit
 picodroid/content/ActivityNotFoundException
 picodroid/content/ComponentName
+picodroid/content/ContentResolver
 picodroid/content/Context
 picodroid/content/DialogInterface
 picodroid/content/DialogInterface$OnClickListener
@@ -191,6 +194,7 @@ picodroid/content/pm/PackageInstaller
 picodroid/content/pm/PackageManager
 picodroid/content/pm/PackageManager$NameNotFoundException
 picodroid/content/res/ColorStateList
+picodroid/content/res/Configuration
 picodroid/content/res/Resources
 picodroid/content/res/Resources$NotFoundException
 picodroid/debug/DisplayDebug
@@ -264,6 +268,7 @@ picodroid/os/Build
 picodroid/os/Build$VERSION
 picodroid/os/Bundle
 picodroid/os/IBinder
+picodroid/os/PowerManager
 picodroid/os/Runtime
 picodroid/os/StatFs
 picodroid/os/SystemClock
@@ -280,6 +285,8 @@ picodroid/protobuf/CodedOutputStream$OutOfSpaceException
 picodroid/protobuf/InvalidProtocolBufferException
 picodroid/protobuf/MessageLite
 picodroid/protobuf/WireFormat
+picodroid/provider/Settings
+picodroid/provider/Settings$System
 picodroid/text/InputType
 picodroid/text/TextUtils
 picodroid/text/TextUtils$TruncateAt
@@ -296,11 +303,15 @@ picodroid/view/GestureDetector$OnGestureListener
 picodroid/view/GestureDetector$SimpleOnGestureListener
 picodroid/view/Gravity
 picodroid/view/InflateException
+picodroid/view/KeyCharacterMap
 picodroid/view/KeyEvent
 picodroid/view/KeyEvent$Callback
 picodroid/view/KeyEvent$DispatcherState
 picodroid/view/LayoutInflater
 picodroid/view/LayoutInflater$Factory
+picodroid/view/Menu
+picodroid/view/MenuItem
+picodroid/view/MenuItem$OnMenuItemClickListener
 picodroid/view/MotionEvent
 picodroid/view/OnKeyListener
 picodroid/view/OnSwipeListener
@@ -357,6 +368,7 @@ picodroid/widget/ScrollView
 picodroid/widget/SeekBar
 picodroid/widget/SeekBar$OnSeekBarChangeListener
 picodroid/widget/Snackbar
+picodroid/widget/Space
 picodroid/widget/Spinner
 picodroid/widget/SwipeRefreshLayout
 picodroid/widget/SwipeRefreshLayout$OnRefreshListener

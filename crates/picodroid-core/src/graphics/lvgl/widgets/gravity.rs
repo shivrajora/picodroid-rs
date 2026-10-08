@@ -40,10 +40,10 @@ fn axis_align(field: i32) -> Option<lv_flex_align_t> {
 /// `vertical_flow`, a row otherwise. Which Android axis is the main one follows the flow: the
 /// vertical bits drive a column, the horizontal bits a row.
 ///
-/// An axis the gravity leaves out keeps the default the layout was created with — the start of
-/// the main axis, as an Android `LinearLayout` defaults to `START | TOP`, and the centre of the
-/// cross axis, which is a picodroid divergence that predates per-axis routing and that no
-/// caller has had a way to ask for anything else.
+/// An axis the gravity leaves out falls back to its start, as an Android `LinearLayout` defaults
+/// to `START | TOP`: a column's children sit at the left edge, a row's at the top. (Until
+/// 2026-10-06 the cross axis centred instead, a divergence that predated per-axis routing; one
+/// layout then gave one set of pixels on Android and another here.)
 ///
 /// `Gravity.START` and `Gravity.END` carry a relative-direction bit above the two fields; masking
 /// each field drops it, so they land on `LEFT` and `RIGHT` as they do in a left-to-right locale.
@@ -57,7 +57,7 @@ pub(crate) fn flex_align(gravity: i32, vertical_flow: bool) -> (lv_flex_align_t,
     };
     (
         axis_align(main).unwrap_or(LV_FLEX_ALIGN_START),
-        axis_align(cross).unwrap_or(LV_FLEX_ALIGN_CENTER),
+        axis_align(cross).unwrap_or(LV_FLEX_ALIGN_START),
     )
 }
 
@@ -201,13 +201,16 @@ mod tests {
     }
 
     #[test]
-    fn an_unspecified_axis_keeps_the_layouts_default() {
+    fn an_unspecified_axis_is_androids_start() {
+        // Android's LinearLayout default is top|start on both axes
+        // (app-portability D4); a row that wants its children centred says
+        // so with CENTER_VERTICAL.
         assert_eq!(
             flex_align(NO_GRAVITY, COLUMN),
-            (LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER)
+            (LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START)
         );
-        // Only the main axis named: the cross keeps centring, as before.
-        assert_eq!(flex_align(BOTTOM, COLUMN).1, LV_FLEX_ALIGN_CENTER);
+        // Only the main axis named: the cross axis stays at start.
+        assert_eq!(flex_align(BOTTOM, COLUMN).1, LV_FLEX_ALIGN_START);
     }
 
     #[test]

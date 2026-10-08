@@ -122,13 +122,61 @@ pub(in crate::graphics) fn set_visibility(h: Handle, v: Visibility) {
     }
     unsafe {
         match v {
-            Visibility::Visible => lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN),
-            // Both INVISIBLE and GONE map to the HIDDEN flag — Android's
-            // GONE additionally collapses layout space, but we don't
-            // distinguish at this layer today.
-            Visibility::Invisible | Visibility::Gone => lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN),
+            Visibility::Visible => {
+                lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
+                // Back from INVISIBLE: opaque again (the Java side then
+                // re-applies any alpha of its own), and clickable again if it
+                // was before.
+                lv_obj_set_style_opa(o, LV_OPA_COVER, 0);
+                if lv_obj_has_flag(o, LV_OBJ_FLAG_USER_1) {
+                    lv_obj_remove_flag(o, LV_OBJ_FLAG_USER_1);
+                    lv_obj_add_flag(o, LV_OBJ_FLAG_CLICKABLE);
+                }
+            }
+            // INVISIBLE keeps its place in the layout and draws nothing, and
+            // touches pass through it, as on Android: transparent, and not
+            // clickable for the while (USER_1 remembers that it was).
+            Visibility::Invisible => {
+                lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_style_opa(o, 0, 0);
+                if lv_obj_has_flag(o, LV_OBJ_FLAG_CLICKABLE) {
+                    lv_obj_remove_flag(o, LV_OBJ_FLAG_CLICKABLE);
+                    lv_obj_add_flag(o, LV_OBJ_FLAG_USER_1);
+                }
+            }
+            // GONE takes no layout space either.
+            Visibility::Gone => lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN),
         }
     }
+}
+
+/// `View.setMinimumWidth/Height`: a floor under the laid-out size. A
+/// negative value leaves that axis as it is.
+pub(in crate::graphics) fn set_min_size(h: Handle, width: i32, height: i32) {
+    let o = obj(h);
+    if o.is_null() {
+        return; // stale handle — mutating a destroyed View is a no-op
+    }
+    // SAFETY: `o` is the live object the handle table returned.
+    unsafe {
+        if width >= 0 {
+            lv_obj_set_style_min_width(o, width, 0);
+        }
+        if height >= 0 {
+            lv_obj_set_style_min_height(o, height, 0);
+        }
+    }
+}
+
+/// `TextView.setMaxWidth`: a ceiling on the laid-out width, so a
+/// content-sized label wraps or ellipsizes instead of growing.
+pub(in crate::graphics) fn set_max_width(h: Handle, width: i32) {
+    let o = obj(h);
+    if o.is_null() {
+        return; // stale handle — mutating a destroyed View is a no-op
+    }
+    // SAFETY: `o` is the live object the handle table returned.
+    unsafe { lv_obj_set_style_max_width(o, width, 0) };
 }
 
 pub(in crate::graphics) fn set_enabled(h: Handle, on: bool) {

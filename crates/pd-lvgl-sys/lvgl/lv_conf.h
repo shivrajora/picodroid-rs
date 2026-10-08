@@ -75,8 +75,12 @@
  * moment the render gets cheaper
  * (docs/designs/scroll-performance-2026-09.md S3). */
 #define LV_DEF_REFR_PERIOD  16
+/* The theme's unit: `LV_DPX(n)` is n pixels at 160, on every board. The build
+ * defines it too (build_support/lvgl.rs); this is the boardless fallback. The
+ * panel's physical pitch is `[display] dpi` in board.toml and is not an LVGL
+ * matter (docs/designs/app-portability-2026-10.md D3). */
 #ifndef LV_DPI_DEF
-#define LV_DPI_DEF          130
+#define LV_DPI_DEF          160
 #endif
 
 /*=================

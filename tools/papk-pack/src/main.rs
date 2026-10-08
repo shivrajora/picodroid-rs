@@ -65,6 +65,12 @@ struct Args {
     label: Option<String>,
     /// `--icon`: name of a packed asset, written as `icon`.
     icon: Option<String>,
+    /// `--design-size <WxH>`: the logical size the app lays out against,
+    /// written as `design-width` / `design-height`.
+    design_size: Option<(u16, u16)>,
+    /// `--requires-feature <name>`, repeatable: written comma-joined as
+    /// `requires-features`.
+    requires_features: Vec<String>,
     /// `--pad-asset <bytes>`: append a synthetic asset so the output reaches
     /// at least this size.
     pad_asset: Option<usize>,
@@ -97,6 +103,9 @@ struct RepackManifest {
     version_code: Option<u32>,
     label: Option<String>,
     icon: Option<String>,
+    design_width: Option<u16>,
+    design_height: Option<u16>,
+    requires_features: Vec<String>,
 }
 
 const WELL_KNOWN_KEYS: &[&[u8]] = &[
@@ -109,6 +118,9 @@ const WELL_KNOWN_KEYS: &[&[u8]] = &[
     keys::VERSION_CODE,
     keys::LABEL,
     keys::ICON,
+    keys::DESIGN_WIDTH,
+    keys::DESIGN_HEIGHT,
+    keys::REQUIRES_FEATURES,
 ];
 
 /// Read a PAPK back into the pieces `build_papk` takes. Sections are copied
@@ -163,6 +175,22 @@ fn load_repack_source(bytes: &[u8]) -> Result<(RepackSource, RepackManifest), St
                 manifest.version_code = value.parse().ok();
                 continue;
             }
+            k if k == keys::DESIGN_WIDTH => {
+                manifest.design_width = value.parse().ok();
+                continue;
+            }
+            k if k == keys::DESIGN_HEIGHT => {
+                manifest.design_height = value.parse().ok();
+                continue;
+            }
+            k if k == keys::REQUIRES_FEATURES => {
+                manifest.requires_features = value
+                    .split(',')
+                    .filter(|f| !f.is_empty())
+                    .map(str::to_string)
+                    .collect();
+                continue;
+            }
             k => {
                 debug_assert!(!WELL_KNOWN_KEYS.contains(&k));
                 let key = String::from_utf8(k.to_vec())
@@ -208,6 +236,8 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
     let mut version_code: Option<u32> = None;
     let mut label = None;
     let mut icon = None;
+    let mut design_size: Option<(u16, u16)> = None;
+    let mut requires_features: Vec<String> = Vec::new();
     let mut repack: Option<PathBuf> = None;
     let mut pad_asset: Option<usize> = None;
     let mut res_dir: Option<PathBuf> = None;
@@ -262,6 +292,21 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
             "--icon" => {
                 i += 1;
                 icon = Some(args.get(i).ok_or("--icon requires a value")?.clone());
+            }
+            "--design-size" => {
+                i += 1;
+                let raw = args.get(i).ok_or("--design-size requires a value")?;
+                design_size = Some(parse_design_size(raw)?);
+            }
+            "--requires-feature" => {
+                i += 1;
+                let name = args.get(i).ok_or("--requires-feature requires a value")?;
+                if name.is_empty() || name.contains(',') {
+                    return Err(format!(
+                        "--requires-feature takes one feature name, got '{name}'"
+                    ));
+                }
+                requires_features.push(name.clone());
             }
             "--classes-dir" => {
                 i += 1;
@@ -346,6 +391,10 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
         version_code = version_code.or(m.version_code);
         label = label.or(m.label);
         icon = icon.or(m.icon);
+        design_size = design_size.or(m.design_width.zip(m.design_height));
+        if requires_features.is_empty() {
+            requires_features = m.requires_features;
+        }
         source = Some(src);
     }
 
@@ -378,12 +427,23 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
             version_code,
             label,
             icon,
+            design_size,
+            requires_features,
             pad_asset,
             res_dir,
             resources: Vec::new(),
         },
         source,
     ))
+}
+
+/// `--design-size WxH`: two positive integers.
+fn parse_design_size(raw: &str) -> Result<(u16, u16), String> {
+    let bad = || format!("--design-size must be <width>x<height> in pixels, got '{raw}'");
+    let (w, h) = raw.split_once('x').ok_or_else(bad)?;
+    let w: u16 = w.parse().ok().filter(|n| *n >= 1).ok_or_else(bad)?;
+    let h: u16 = h.parse().ok().filter(|n| *n >= 1).ok_or_else(bad)?;
+    Ok((w, h))
 }
 
 /// Spell the manifest entry class the way the packed class files do: an
@@ -421,6 +481,7 @@ fn print_usage() {
          \x20 --version <x.y> \\\n\
          \x20 --framework-map-version <semver> \\\n\
          \x20 [--version-code <n>] [--label <text>] [--icon <asset.png>] \\\n\
+         \x20 [--design-size <WxH>] [--requires-feature <name>]... \\\n\
          \x20 --classes-dir <dir> | --repack <in.papk> \\\n\
          \x20 [--assets-dir <dir>] [--res-dir <dir>] \\\n\
          \x20 [--shrink-map <map.toml>] \\\n\
@@ -438,6 +499,10 @@ fn print_usage() {
          an app-shrunk (cut-app) map renames the manifest entry class itself.\n\
          --version-code, --label and --icon are the app identity a launcher shows;\n\
          --icon must name a file that --assets-dir packs (48x48 recommended).\n\
+         --design-size is the logical size the app lays out against (<supports-screens>);\n\
+         the runtime shows it at exactly that size on every panel. --requires-feature\n\
+         names a feature the board must have (<uses-feature required=\"true\">); the\n\
+         installer refuses the app elsewhere.\n\
          --repack copies the classes, assets and manifest of an existing PAPK and\n\
          applies the flags above over its manifest; --pad-asset appends a synthetic\n\
          asset so the output is at least that many bytes (test fixtures)."
@@ -767,6 +832,8 @@ fn build_papk(
         unreachable!("parse_args enforces exactly one entry-point flag")
     };
 
+    let requires_features =
+        (!args.requires_features.is_empty()).then(|| args.requires_features.join(","));
     let mut builder = PapkBuilder::new(ManifestSpec {
         entry,
         package_name: &args.package_name,
@@ -775,6 +842,8 @@ fn build_papk(
         version_code: args.version_code,
         label: args.label.as_deref(),
         icon: args.icon.as_deref(),
+        design_size: args.design_size,
+        requires_features: requires_features.as_deref(),
     });
     for (k, v) in extras {
         builder.manifest_entry(k, v);
@@ -1000,6 +1069,8 @@ mod pack_integration {
             version_code: None,
             label: None,
             icon: None,
+            design_size: None,
+            requires_features: Vec::new(),
             pad_asset: None,
             res_dir: None,
             resources: Vec::new(),
@@ -1045,6 +1116,8 @@ mod pack_integration {
             version_code: None,
             label: None,
             icon: None,
+            design_size: None,
+            requires_features: Vec::new(),
             pad_asset: None,
             res_dir: None,
             resources: Vec::new(),
@@ -1060,6 +1133,41 @@ mod pack_integration {
             stride: 0,
             data: vec![0u8; side as usize * side as usize * 2],
         }
+    }
+
+    #[test]
+    fn a_design_size_is_width_x_height() {
+        assert_eq!(parse_design_size("320x240"), Ok((320, 240)));
+        for bad in ["320", "320x", "x240", "0x240", "320x240x1", "320 x 240"] {
+            assert!(parse_design_size(bad).is_err(), "{bad} parsed");
+        }
+        let (args, _) = parse_argv(&[
+            "papk-pack".to_string(),
+            "--main-class".into(),
+            "a/B".into(),
+            "--package-name".into(),
+            "a".into(),
+            "--version".into(),
+            "1".into(),
+            "--framework-map-version".into(),
+            "0.0.0".into(),
+            "--classes-dir".into(),
+            "x".into(),
+            "--output".into(),
+            "o.papk".into(),
+            "--design-size".into(),
+            "240x240".into(),
+            "--requires-feature".into(),
+            "picodroid.hardware.touchscreen".into(),
+            "--requires-feature".into(),
+            "picodroid.hardware.wifi".into(),
+        ])
+        .unwrap();
+        assert_eq!(args.design_size, Some((240, 240)));
+        assert_eq!(
+            args.requires_features,
+            vec!["picodroid.hardware.touchscreen", "picodroid.hardware.wifi"]
+        );
     }
 
     #[test]

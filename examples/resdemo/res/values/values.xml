@@ -8,5 +8,7 @@
     <dimen name="hairline">0.5dp</dimen>
     <dimen name="title_size">20sp</dimen>
     <integer name="max_taps">10</integer>
+    <!-- Overridden in values-land/ on a landscape window. -->
+    <integer name="columns">1</integer>
     <bool name="show_logo">true</bool>
 </resources>

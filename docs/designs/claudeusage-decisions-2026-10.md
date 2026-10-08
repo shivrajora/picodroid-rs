@@ -31,6 +31,10 @@ commit; what is still open is under "Engineering leftovers" below.
 
 ## F1. What the four buttons are
 
+> Settled 2026-10-05 by [app-portability-2026-10.md](app-portability-2026-10.md) K1: option 1, the
+> DPAD/BACK mapping, is the KEYS input profile; HOME is BACK held for a second (K2), which is
+> what lets this app stop swallowing BACK.
+
 **Today.** `platforms/rp/boards/pico_display2_w/board.toml` maps A, B, X, Y to key codes 19, 20,
 23, 4 (`KEYCODE_DPAD_UP`, `DPAD_DOWN`, `DPAD_CENTER`, `BACK`) through LVGL's `PREV`/`NEXT`/`ENTER`/`ESC`.
 The `KEYCODE_BUTTON_A/B/X/Y` constants (96, 97, 99, 100) exist on `picodroid.view.KeyEvent` since

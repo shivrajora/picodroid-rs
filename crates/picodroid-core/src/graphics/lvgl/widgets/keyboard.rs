@@ -60,21 +60,21 @@ unsafe extern "C" fn keyboard_ready_cb(e: *mut lv_event_t) {
 
 const SYSTEM_KEYBOARD_SLIDE_DURATION_MS: u32 = 200;
 
-/// The system keyboard's height: seven twelfths of the display, kept
+/// The system keyboard's height: seven twelfths of the window, kept
 /// between 140 px (the 240 px panels, where the form keeps the top 100 px)
 /// and 200 px (a 480 px panel needs no more for four rows of keys).
 fn system_keyboard_height() -> i32 {
-    (crate::hal::display::HEIGHT as i32 * 7 / 12).clamp(140, 200)
+    (lifecycle::window_size().1 * 7 / 12).clamp(140, 200)
 }
 
 /// Where the keyboard rests: flush with the bottom edge, full width.
 fn system_keyboard_rest_y() -> i32 {
-    crate::hal::display::HEIGHT as i32 - system_keyboard_height()
+    lifecycle::window_size().1 - system_keyboard_height()
 }
 
 /// Off the bottom edge, where the slide starts.
 fn system_keyboard_offscreen_y() -> i32 {
-    crate::hal::display::HEIGHT as i32
+    lifecycle::window_size().1
 }
 
 // SAFETY: widget-layer state, reached only from JVM tasks.
@@ -164,8 +164,11 @@ unsafe fn ensure_system_keyboard() -> *mut lv_obj_t {
         if !SYSTEM_KEYBOARD.get().is_null() {
             return SYSTEM_KEYBOARD.get();
         }
-        let scr = lifecycle::screen_ptr();
-        let kb = lv_keyboard_create(scr);
+        // On the overlay layer, above the screen: the keyboard belongs to the
+        // framework, not to the content root a `setContentView` replaces, and
+        // it must not pan with an oversized root. See `lifecycle::overlay_layer`.
+        let layer = lifecycle::overlay_layer();
+        let kb = lv_keyboard_create(layer);
         // The constructor aligns a keyboard to the parent's BOTTOM_MID, which
         // turns every `set_y` into an offset *below* the bottom edge: at rest
         // y=100 the keyboard used to sit at 200, mostly off screen. Back to
@@ -175,11 +178,7 @@ unsafe fn ensure_system_keyboard() -> *mut lv_obj_t {
         // the top 100px for the form.
         lv_obj_set_align(kb, LV_ALIGN_TOP_LEFT);
         lv_obj_set_pos(kb, 0, system_keyboard_rest_y());
-        lv_obj_set_size(
-            kb,
-            crate::hal::display::WIDTH as i32,
-            system_keyboard_height(),
-        );
+        lv_obj_set_size(kb, lifecycle::window_size().0, system_keyboard_height());
         lv_obj_set_style_bg_opa(kb, LV_OPA_COVER, 0);
         // Hidden until the first show_system_for call.
         lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
@@ -243,6 +242,10 @@ pub(in crate::graphics) fn show_system_for(ta: *mut lv_obj_t, et_obj_ref: u16) {
             /* INTERP_LINEAR */ 0,
         );
         SYSTEM_KEYBOARD_VISIBLE.set(true);
+        // The soft-nav control sits where the keyboard's bottom-left key
+        // does; the keyboard has its own dismiss affordances.
+        super::super::soft_nav::set_hidden(true);
+        super::super::menu_button::set_hidden(true);
         // On a keypad board the keyboard takes the focus while it shows:
         // `keypad_remap` then turns PREV/NEXT into LEFT/RIGHT, which walk
         // its keys, and ENTER presses the selected one (LVGL's own path).
@@ -273,6 +276,8 @@ pub fn hide_system() -> bool {
         animations::cancel(SYSTEM_KEYBOARD_HANDLE.get());
         lv_obj_add_flag(SYSTEM_KEYBOARD.get(), LV_OBJ_FLAG_HIDDEN);
         SYSTEM_KEYBOARD_VISIBLE.set(false);
+        super::super::soft_nav::set_hidden(false);
+        super::super::menu_button::set_hidden(false);
         SYSTEM_KEYBOARD_BOUND_ET.set(0);
         SYSTEM_KEYBOARD_FOCUS_PENDING.set(false);
         events::detach_screen_press_hook();

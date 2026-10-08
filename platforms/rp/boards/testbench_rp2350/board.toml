@@ -29,6 +29,13 @@ has_protobuf = true
 # linker script asserts (build_support/flash_layout.rs).
 lv_mem_kb = 48
 
+# No button on this board, so the framework draws the BACK/HOME control in a corner
+# of the panel (tap = BACK, hold = HOME) and a touch wakes the display: the TOUCH
+# input profile's escape for a board that cannot grow a system button
+# (docs/designs/app-portability-2026-10.md K3). A new touch board declares a
+# [[button]] instead.
+soft_nav = true
+
 [display]
 driver = "st7789"
 spi_id = 1
@@ -39,6 +46,10 @@ pin_rst = 15
 pin_bl = 13
 width = 320
 height = 240
+# 320x240 over a 2.8" diagonal. Physical pixels per inch: DisplayMetrics.xdpi and the
+# touch-target floor read it; LVGL's theme does not (LV_DPI_DEF is pinned to 160
+# on every board, docs/designs/app-portability-2026-10.md D3).
+dpi = 143
 madctl = 0x60
 band_height = 20
 scroll_limit = 30

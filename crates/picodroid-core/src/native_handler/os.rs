@@ -38,6 +38,47 @@ pub fn dispatch(
             })
         }
         // ── Build, StatFs, StorageStatsManager (multi-app M3b) ───────────
+        // Display power (power.rs; docs/designs/app-portability-2026-10.md K5).
+        (c::picodroid_os_PowerManager, m::isInteractive) => Some(Ok(Some(Value::Int(i32::from(
+            crate::power::is_interactive(),
+        ))))),
+        // Which keys this board has (app-portability K2): a button mapped to
+        // the code, or BACK / HOME as the board synthesises them.
+        (c::picodroid_view_KeyCharacterMap, m::nativeDeviceHasKey) => {
+            // Static: args[0] = the key code.
+            let keycode = match ctx.args.first() {
+                Some(Value::Int(k)) => *k,
+                _ => -1,
+            };
+            Some(Ok(Some(Value::Int(i32::from(
+                crate::input_inject::device_has_key(keycode),
+            )))))
+        }
+        // `Settings.System`: one setting is kept, the screen timeout.
+        (c::picodroid_provider_Settings_System, m::nativeGetInt) => {
+            // args[0] = name String, args[1] = default int.
+            let default = match ctx.args.get(1) {
+                Some(Value::Int(d)) => *d,
+                _ => 0,
+            };
+            let value = match setting_name(ctx.args.first(), ctx.strings) {
+                Some("screen_off_timeout") => crate::power::timeout_ms()
+                    .map(|ms| ms.min(i32::MAX as u64) as i32)
+                    .unwrap_or(0),
+                _ => default,
+            };
+            Some(Ok(Some(Value::Int(value))))
+        }
+        (c::picodroid_provider_Settings_System, m::nativePutInt) => {
+            // args[0] = name String, args[1] = value int.
+            let stored = match (setting_name(ctx.args.first(), ctx.strings), ctx.args.get(1)) {
+                (Some("screen_off_timeout"), Some(Value::Int(ms))) if *ms >= 0 => {
+                    crate::power::set_timeout_ms(*ms as u32)
+                }
+                _ => false,
+            };
+            Some(Ok(Some(Value::Int(i32::from(stored)))))
+        }
         (c::picodroid_os_Build, m::nativeBoard) => {
             Some(interned(ctx, crate::board_cfg::build_info::BOARD))
         }
@@ -155,13 +196,11 @@ pub fn dispatch(
         (c::picodroid_content_pm_PackageManager, m::hasSystemFeature) => {
             // args[0] = this, args[1] = feature name String
             let supported = match ctx.args.get(1) {
-                Some(Value::Reference(idx)) => match ctx.strings.resolve(*idx) {
-                    // The link kind, a build fact (board_cfg.rs emits
-                    // network_link_<kind> from board.toml's network_type).
-                    Some("picodroid.hardware.wifi") => cfg!(network_link_wifi),
-                    Some("picodroid.hardware.ethernet") => cfg!(network_link_ethernet),
-                    _ => false,
-                },
+                // The one table the installer's `<uses-feature>` gate reads too.
+                Some(Value::Reference(idx)) => ctx
+                    .strings
+                    .resolve(*idx)
+                    .is_some_and(crate::board_features::has),
                 _ => false,
             };
             Some(Ok(Some(Value::Int(supported as i32))))
@@ -284,5 +323,16 @@ fn alarm_set(ctx: &mut NativeContext<'_>) -> i32 {
             );
             1
         }
+    }
+}
+
+/// The `String` argument naming a `Settings.System` key, if it is one.
+fn setting_name<'a>(
+    arg: Option<&Value>,
+    strings: &'a pico_jvm::heap::StringTable,
+) -> Option<&'a str> {
+    match arg {
+        Some(Value::Reference(idx)) => strings.resolve(*idx),
+        _ => None,
     }
 }

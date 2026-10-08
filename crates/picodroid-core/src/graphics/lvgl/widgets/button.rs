@@ -44,6 +44,68 @@ static LONG_CLICK_QUEUE: Core0<LocalRing<usize, CLICK_QUEUE_SIZE>> =
 // SAFETY: a listener registry, reached only from JVM tasks.
 static VIEW_LONG_CLICK_MAP: Core0<PtrMap<MAX_CLICK_VIEWS>> = unsafe { Core0::new(PtrMap::new()) };
 
+// ── Minimum touch target (touch boards) ─────────────────────────────────────
+//
+// A clickable view smaller than a fingertip gets its press area grown to the
+// board's minimum target, without moving a pixel of layout: Android's 48 dp
+// rule, here 7 mm at the panel's real pitch (`[display] dpi`), so a layout
+// tuned on a dense panel stays tappable on a coarse one
+// (docs/designs/app-portability-2026-10.md D7). The growth is capped so two
+// small neighbours' areas do not swallow each other.
+
+#[cfg(has_touch)]
+mod touch_target {
+    use crate::lvgl_ffi::*;
+
+    /// Seven millimetres in panel pixels, rounded: `dpi * 7 / 25.4`.
+    const TARGET_PX: i32 = (crate::board_cfg::display::PHYSICAL_DPI as i32 * 70 + 127) / 254;
+
+    /// Size `obj`'s extended click area now and again whenever its layout
+    /// changes.
+    ///
+    /// # Safety
+    /// `obj` is a live LVGL object (the caller just looked it up in the
+    /// handle table).
+    pub(super) unsafe fn watch(obj: *mut lv_obj_t) {
+        // SAFETY: `obj` is live per the contract above; the callback reads
+        // only the object LVGL hands it.
+        unsafe {
+            lv_obj_add_event_cb(
+                obj,
+                Some(size_changed_cb),
+                LV_EVENT_SIZE_CHANGED,
+                core::ptr::null_mut(),
+            );
+            apply(obj);
+        }
+    }
+
+    unsafe extern "C" fn size_changed_cb(e: *mut lv_event_t) {
+        // SAFETY: LVGL calls this with the event of a live object.
+        unsafe { apply(lv_event_get_target_obj(e)) }
+    }
+
+    /// Half the shortfall of the shorter edge against the target, on every
+    /// side, at most a quarter of the target.
+    pub(super) fn growth(width: i32, height: i32) -> i32 {
+        let short = width.min(height);
+        if short <= 0 {
+            return 0;
+        }
+        ((TARGET_PX - short) / 2).clamp(0, TARGET_PX / 4)
+    }
+
+    /// # Safety
+    /// `obj` is a live LVGL object.
+    unsafe fn apply(obj: *mut lv_obj_t) {
+        // SAFETY: `obj` is live per the contract above.
+        unsafe {
+            let grow = growth(lv_obj_get_width(obj), lv_obj_get_height(obj));
+            lv_obj_set_ext_click_area(obj, grow);
+        }
+    }
+}
+
 // ── LVGL trampoline ─────────────────────────────────────────────────────────
 
 unsafe extern "C" fn view_click_cb(e: *mut lv_event_t) {
@@ -119,6 +181,8 @@ pub(in crate::graphics) fn register_click_listener(id: i32, obj_ref: u16) -> boo
             Upsert::Inserted => {
                 let obj = raw_ptr as *mut lv_obj_t;
                 lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+                #[cfg(has_touch)]
+                touch_target::watch(obj);
                 lv_obj_add_event_cb(
                     obj,
                     Some(view_click_cb),

@@ -50,10 +50,10 @@ examples/resdemo/
 `R` is generated into the manifest's `package`, the same package as the app's own classes, so no
 import is needed.
 
-There are **no resource configurations**. A picodroid device has one display, one density and one
-locale, so `values-night/`, `drawable-hdpi/`, `layout-land/` and the like are a build error rather
-than something silently ignored. File-based names (`layout/`, `drawable/`) must be `[a-z0-9_]`, as
-on Android.
+There is one density and one locale, so `values-night/`, `drawable-hdpi/` and the like are a build
+error rather than something silently ignored. What may vary is the window and the input:
+[configuration variants](#configuration-variants) of `values/` and `layout/`. File-based names
+(`layout/`, `drawable/`) must be `[a-z0-9_]`, as on Android.
 
 ## Values
 
@@ -114,13 +114,30 @@ cycles are a build error. An id of the wrong type, or one that does not exist, t
 - `<T extends View> T findViewById(int)` on `Activity` and on any `View`, depth first.
   `@+id/name` declares `R.id.name`.
 
-**Elements:** `LinearLayout`, `FrameLayout`, `ScrollView`, `RadioGroup`, `View`, `TextView`,
-`Button`, `ImageView`, `EditText`, `CheckBox`, `Switch`, `ToggleButton`, `RadioButton`,
-`ProgressBar`, `CircularProgressIndicator`, `SeekBar`, `Spinner`, `ListView`, `ViewPager2`. Each
-may also be written fully qualified (`<picodroid.widget.ViewPager2>`), the way Android requires
-for a view outside `android.widget`. `<include layout="@layout/row"/>` puts another layout in
-place of the element; `<merge>` is not supported and is a build error. Any other dotted name is
-[a view class of your own](#custom-views).
+**Elements:** `LinearLayout`, `FrameLayout`, `ScrollView`, `RadioGroup`, `View`, `Space`,
+`TextView`, `Button`, `ImageView`, `EditText`, `CheckBox`, `Switch`, `ToggleButton`,
+`RadioButton`, `ProgressBar`, `CircularProgressIndicator`, `SeekBar`, `Spinner`, `ListView`,
+`ViewPager2`. Each may also be written fully qualified (`<picodroid.widget.ViewPager2>`), the way
+Android requires for a view outside `android.widget`. `<include layout="@layout/row"/>` puts
+another layout in place of the element; `<merge>` is not supported and is a build error. Any
+other dotted name is [a view class of your own](#custom-views).
+
+**Writing a layout once for every board.** Every board is at least 240×240 logical pixels, and a
+`dp` is one of them; lay out against that floor and let the rest stretch: `match_parent` and
+`layout_weight` take the room a wider panel adds, a weighted `<Space>` pushes neighbours to the
+edges, `android:minWidth` / `android:minHeight` floor a `wrap_content` view, `android:maxWidth`
+caps a label so a long line wraps or ellipsizes instead of pushing the row off the panel, and
+`android:visibility="invisible"` keeps a view's room while it is hidden (`gone` gives it up).
+`android:keepScreenOn="true"` on a root holds the display on while that screen shows.
+`android:layout_gravity` on a `LinearLayout` child is not applied (the compiler warns): wrap that
+child in a `FrameLayout`, or set the parent's `android:gravity`. A root that is still larger than
+the panel is not clipped: the screen pans to it (a drag on a touch board, the focus on a four-key
+one), which keeps the app usable and is the sign to fix the layout. The simulator and a debug build
+say which it was after each `setContentView` — `[layout] fit ok 320x240 in 320x240`, or
+`[layout] overflow 320x480 in 320x240: the screen pans 0 right, 240 down` — and the nightly runs
+each flagship app on a 240×240, a 320×240 and a 320×480 board expecting `fit ok`
+(`./scripts/sim.sh --app yourapp --board pico_enviro_mon` tries the smallest). The design is
+[app portability](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/app-portability-2026-10.md).
 
 ### Margins and `FrameLayout` placement
 
@@ -342,11 +359,42 @@ Divergences: one theme per app rather than one per context; the theme `?attr/` r
 name, not by the manifest; no `TypedArray`, `obtainStyledAttributes` or `Theme.resolveAttribute`;
 a parent that is not one of the app's own styles (a framework theme) contributes nothing.
 
+## Configuration variants
+
+A board's window is 240×240, 320×240 or 320×480 and it has a touch panel or four keys; a layout that
+needs more than `match_parent` and weights to look right on all of them says so with Android's
+qualified directories, in the subset that can differ here:
+
+| Qualifier | Matches when | Example |
+|---|---|---|
+| `sw<N>dp` | the window's shorter side is at least N | `values-sw320dp/` |
+| `w<N>dp` | the window is at least N wide | `layout-w320dp/` |
+| `h<N>dp` | the window is at least N tall | `values-h480dp/` |
+| `land` / `port` | the window is wider than tall / at least as tall as wide | `layout-land/` |
+| `notouch` / `finger` | the board has no touch panel / has one | `values-notouch/` |
+
+They combine in that order, each at most once (`layout-w320dp-land/`), as `aapt` requires. A
+variant directory **overrides**: every name in `values-land/values.xml` must exist in
+`res/values/`, and every `layout-finger/row.xml` must have a `res/layout/row.xml` — `R` is the
+base's, so the app compiles against one set of ids and every id resolves on every board. Where
+several variants match, Android's precedence picks: a `sw` bound beats a `w` bound beats an `h`
+bound beats orientation beats touch, and a larger bound beats a smaller one. The choice is made
+once, when the app's resources open, against the same window
+`Resources.getConfiguration()` reports (an app with a `<supports-screens>` design size sees its
+design size); nothing changes while the app runs. A variant value's `@` references resolve against
+the base with the variant laid over it; a variant layout's resolve against the base values.
+
+Drawables and styles do not vary (`drawable-land/`, or a `<style>` in a variant, is a build error),
+and neither do density, locale, night or screen-size buckets (`values-night/`, `layout-xlarge/`).
+`papk-info` lists the variants a package carries; the simulator logs which applied:
+`[res] 320x240dp land notouch: 2 of 3 variants apply`. `examples/resdemo` carries one of each kind
+and checks them on four boards.
+
 ## What is not there
 
 String arrays and plurals, `getIdentifier`, `<merge>` / `ViewStub`, custom view attributes
-(`app:…`, `declare-styleable`), selector / vector / layer drawables, menus, animations and any
-qualified resource directory.
+(`app:…`, `declare-styleable`), selector / vector / layer drawables, menus, animations, and the
+resource configurations outside the subset above (density, locale, night, screen-size buckets).
 
 ## Inspecting a package
 

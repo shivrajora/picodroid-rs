@@ -81,6 +81,20 @@ const KNOWN_SENSOR_KINDS: &[&str] = &["bme688", "ltr559"];
 /// already treats a pin with no table entry.
 const KNOWN_LV_KEYS: &[&str] = &["PREV", "NEXT", "ENTER", "ESC", "NONE"];
 
+/// The Android keycode each LVGL key stands for: the four logical keys of
+/// the KEYS input profile (docs/designs/app-portability-2026-10.md K1). A
+/// `[[button]]` that names one of these `lv_key`s must carry its keycode, and
+/// a `NONE` button (Java only, no LVGL key) must not carry any of them: a
+/// BACK that is not ESC would reach `onBackPressed` without cancelling the
+/// focused widget, and a DPAD key that is not PREV/NEXT/ENTER would not move
+/// focus. Keycodes are `picodroid.view.KeyEvent`'s.
+const LV_KEY_KEYCODES: &[(&str, i32)] = &[
+    ("PREV", 19),  // KEYCODE_DPAD_UP
+    ("NEXT", 20),  // KEYCODE_DPAD_DOWN
+    ("ENTER", 23), // KEYCODE_DPAD_CENTER
+    ("ESC", 4),    // KEYCODE_BACK
+];
+
 /// Display controllers a `[display] driver` may name. Each emits a
 /// `display_<driver>` cfg that gates the driver module in
 /// `crates/pd-drivers/src/` and the concrete type in the family's display
@@ -287,6 +301,7 @@ pub fn parse_board_toml(path: &str) -> BoardConfig {
         }
     }
     flush_array!(section, sensors, buttons, cur_sensor, cur_button, path);
+    validate_buttons(&buttons, path);
     BoardConfig {
         props,
         sensors,
@@ -334,10 +349,46 @@ fn finish_button(fields: &HashMap<String, String>, path: &str) -> ButtonDecl {
         .get("keycode")
         .unwrap_or_else(|| panic!("{path}: [[button]] pin={pin} missing 'keycode'"));
     let keycode = parse_i32_value(keycode_str);
+    if keycode <= 0 {
+        panic!(
+            "{path}: [[button]] pin={pin} keycode={keycode}: must be a positive Android keycode"
+        );
+    }
+    match LV_KEY_KEYCODES.iter().find(|(k, _)| *k == lv_key) {
+        Some((_, expected)) if *expected != keycode => panic!(
+            "{path}: [[button]] pin={pin} lv_key={lv_key} needs keycode {expected}, not {keycode} \
+             (the four logical keys are PREV=19 DPAD_UP, NEXT=20 DPAD_DOWN, ENTER=23 DPAD_CENTER, \
+             ESC=4 BACK; docs/designs/app-portability-2026-10.md K1)"
+        ),
+        None if LV_KEY_KEYCODES.iter().any(|(_, k)| *k == keycode) => panic!(
+            "{path}: [[button]] pin={pin} keycode={keycode} is a navigation key and needs its \
+             lv_key, not NONE (PREV=19, NEXT=20, ENTER=23, ESC=4)"
+        ),
+        _ => {}
+    }
     ButtonDecl {
         pin,
         lv_key,
         keycode,
+    }
+}
+
+/// Every `[[button]]` of a board together: no two may share a pin (one edge
+/// would mean two keys) or a keycode (`keycode_to_pin`, which `pdb input`
+/// and the simulator use, would only ever find the first).
+fn validate_buttons(buttons: &[ButtonDecl], path: &str) {
+    for (i, a) in buttons.iter().enumerate() {
+        for b in &buttons[i + 1..] {
+            if a.pin == b.pin {
+                panic!("{path}: two [[button]] entries declare pin {}", a.pin);
+            }
+            if a.keycode == b.keycode {
+                panic!(
+                    "{path}: pins {} and {} both declare keycode {}",
+                    a.pin, b.pin, a.keycode
+                );
+            }
+        }
     }
 }
 
@@ -942,7 +993,7 @@ driver = "st7789"
 [[button]]
 pin = 15
 lv_key = "NONE"
-keycode = 4
+keycode = 3
 "#,
         );
         let sensors: Vec<_> = cfg
@@ -956,8 +1007,79 @@ keycode = 4
             .iter()
             .map(|b| (b.pin, b.lv_key.as_str(), b.keycode))
             .collect();
-        assert_eq!(buttons, [(12, "PREV", 19), (15, "NONE", 4)]);
+        assert_eq!(buttons, [(12, "PREV", 19), (15, "NONE", 3)]);
         assert_eq!(cfg.display.as_ref().unwrap()["driver"], "st7789");
+    }
+
+    /// The four logical keys are a fixed pairing (docs/designs/app-portability-2026-10.md
+    /// K1): an LVGL navigation key with the wrong Android keycode would move
+    /// focus and tell Java something else.
+    #[test]
+    #[should_panic(expected = "needs keycode 4")]
+    fn a_navigation_lv_key_must_carry_its_keycode() {
+        parse(
+            "pair",
+            r#"
+[[button]]
+pin = 15
+lv_key = "ESC"
+keycode = 3
+"#,
+        );
+    }
+
+    /// The reverse: a navigation keycode delivered as a Java-only `NONE`
+    /// button would reach `onBackPressed` without cancelling the focused widget.
+    #[test]
+    #[should_panic(expected = "needs its lv_key")]
+    fn a_navigation_keycode_may_not_be_java_only() {
+        parse(
+            "none",
+            r#"
+[[button]]
+pin = 15
+lv_key = "NONE"
+keycode = 4
+"#,
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "declare pin 12")]
+    fn two_buttons_on_one_pin_are_refused() {
+        parse(
+            "dup-pin",
+            r#"
+[[button]]
+pin = 12
+lv_key = "PREV"
+keycode = 19
+
+[[button]]
+pin = 12
+lv_key = "NEXT"
+keycode = 20
+"#,
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "both declare keycode 19")]
+    fn two_buttons_with_one_keycode_are_refused() {
+        parse(
+            "dup-key",
+            r#"
+[[button]]
+pin = 12
+lv_key = "PREV"
+keycode = 19
+
+[[button]]
+pin = 13
+lv_key = "PREV"
+keycode = 19
+"#,
+        );
     }
 
     #[test]

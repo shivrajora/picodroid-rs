@@ -104,11 +104,16 @@ pub fn build(
         .warnings(false)
         .extra_warnings(false);
 
+    // One theme DPI on every board (docs/designs/app-portability-2026-10.md
+    // D3): LVGL's default theme sizes its padding, radii and borders in
+    // `LV_DPX` units, which are pixels at 160. Pinning it here means the same
+    // logical layout gives the same pixels on every panel, so an app that
+    // fits one 320x240 board fits the other. The panel's real pitch is
+    // `[display] dpi`, which sizes touch targets and `DisplayMetrics.xdpi`.
+    build.define("LV_DPI_DEF", "160");
+
     // Board-specific LVGL overrides (take precedence over lv_conf.h via #ifndef guards).
     if let Some(cfg) = board_cfg {
-        if let Some(dpi) = cfg.get("lv_dpi") {
-            build.define("LV_DPI_DEF", dpi.as_str());
-        }
         // The pool's size. A device gets the board's `lv_mem_kb` as is
         // (lv_conf.h's own 64 KB when the key is absent); the host's pool
         // is the same figure scaled by `HOST_LV_POOL_PERCENT`, whether or

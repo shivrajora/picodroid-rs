@@ -9,6 +9,7 @@ import picodroid.concurrent.Executors;
 import picodroid.concurrent.Thread;
 import picodroid.content.Context;
 import picodroid.content.res.ColorStateList;
+import picodroid.content.res.Configuration;
 import picodroid.graphics.Canvas;
 import picodroid.graphics.Color;
 import picodroid.graphics.Display;
@@ -21,6 +22,8 @@ import picodroid.util.DisplayMetrics;
 import picodroid.util.Log;
 import picodroid.util.TypedValue;
 import picodroid.view.Gravity;
+import picodroid.view.KeyCharacterMap;
+import picodroid.view.KeyEvent;
 import picodroid.view.View;
 import picodroid.view.ViewGroup;
 import picodroid.widget.ArrayAdapter;
@@ -154,6 +157,20 @@ public class QaUiActivity extends Activity {
     check("display singleton", d == Display.getInstance() && d == getDisplay());
     check("display size", d.getWidth() > 0 && d.getHeight() > 0);
     Log.i(TAG, "display " + d.getWidth() + "x" + d.getHeight());
+    Configuration c = getResources().getConfiguration();
+    check(
+        "configuration is the window",
+        c.screenWidthDp == d.getWidth() && c.screenHeightDp == d.getHeight());
+    check(
+        "configuration floor",
+        c.smallestScreenWidthDp >= 240 && c.densityDpi == DisplayMetrics.DENSITY_DEFAULT);
+    check(
+        "configuration input profile",
+        c.touchscreen != Configuration.TOUCHSCREEN_UNDEFINED
+            && (c.navigation == Configuration.NAVIGATION_DPAD) == !new View(this).isInTouchMode()
+            && c.keyboard == Configuration.KEYBOARD_NOKEYS);
+    check("BACK on every board", KeyCharacterMap.deviceHasKey(KeyEvent.KEYCODE_BACK));
+    Log.i(TAG, "config " + c);
   }
 
   void tree() {
@@ -397,16 +414,21 @@ public class QaUiActivity extends Activity {
         dm.density == 1f
             && dm.scaledDensity == 1f
             && dm.densityDpi == DisplayMetrics.DENSITY_DEFAULT);
+    // The panel's real pitch, from the board file: a plausible pixel density, square pixels.
+    check("panel dpi", dm.xdpi >= 50f && dm.xdpi <= 600f && dm.xdpi == dm.ydpi);
     check(
         "px dip sp identity",
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_PX, 7f, dm) == 7f
             && TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 7f, dm) == 7f
             && TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 7f, dm) == 7f);
+    // A point, an inch and a millimetre are ruler measurements at the panel's real pitch: 72 pt,
+    // 1 in and 25.4 mm are each one inch of pixels.
+    float inch = dm.xdpi;
     check(
-        "pt in mm nominal at 160 dpi",
-        Math.abs(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_PT, 72f, dm) - 160f) < 0.01f
-            && TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_IN, 1f, dm) == 160f
-            && Math.abs(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_MM, 25.4f, dm) - 160f)
+        "pt in mm at the panel's pitch",
+        Math.abs(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_PT, 72f, dm) - inch) < 0.01f
+            && TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_IN, 1f, dm) == inch
+            && Math.abs(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_MM, 25.4f, dm) - inch)
                 < 0.01f);
     check("unknown unit is zero", TypedValue.applyDimension(99, 7f, dm) == 0f);
 

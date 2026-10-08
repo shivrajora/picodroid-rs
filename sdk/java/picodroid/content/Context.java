@@ -16,6 +16,7 @@ import picodroid.io.FileOutputStream;
 import picodroid.net.ConnectivityManager;
 import picodroid.net.wifi.WifiManager;
 import picodroid.os.IBinder;
+import picodroid.os.PowerManager;
 
 /**
  * Common base for {@code Application}, {@code Activity} and {@code Service}: provides
@@ -57,6 +58,12 @@ public class Context {
   public static final String WIFI_SERVICE = "wifi";
 
   /**
+   * Name for {@link #getSystemService}: retrieves the {@link PowerManager}, which says whether the
+   * display is on.
+   */
+  public static final String POWER_SERVICE = "power";
+
+  /**
    * File-creation mode for {@link #getSharedPreferences} and {@link #openFileOutput}: accessible
    * only to this app, which on Picodroid every file is — the storage sandbox keeps each app inside
    * its own directory.
@@ -93,7 +100,18 @@ public class Context {
     if (WIFI_SERVICE.equals(name)) {
       return WifiManager.getInstance();
     }
+    if (POWER_SERVICE.equals(name)) {
+      return PowerManager.getInstance();
+    }
     return null;
+  }
+
+  /**
+   * Mirrors Android: the handle {@link picodroid.provider.Settings.System} takes. There are no
+   * content providers here, so it is only that.
+   */
+  public ContentResolver getContentResolver() {
+    return ContentResolver.INSTANCE;
   }
 
   /**

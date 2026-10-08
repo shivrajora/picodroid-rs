@@ -32,8 +32,6 @@ network_type = "cyw43"
 # HTTPS (docs/designs/tls-2026-09.md): pd-tls behind the platform's `tls`
 # feature, which the board feature forwards; build.rs checks they agree.
 has_tls = true
-# 320x240 over a 2.0" diagonal.
-lv_dpi = 200
 # 48 KB, not lv_conf.h's 64 KB default: the W boards' radio statics leave the
 # core-0 main stack short otherwise (see testbench_rp2350w/board.toml).
 lv_mem_kb = 48
@@ -49,8 +47,9 @@ lv_mem_kb = 48
 # 184 KB in use across its four pages and never drops under 117 KB free
 # (docs/designs/ram-headroom-2026-09.md §6).
 hot_ram_kb = 60
-# An always-on desk display: never sleep the panel on idle.
-idle_timeout_ms = 0
+# The panel dozes after the default 60 s idle (power.rs; Settings → Display can
+# change it). An appliance app that must stay lit calls View.setKeepScreenOn(true)
+# on its root, as the apps built for this board do.
 
 # FreeRTOS+TCP heap tuning, as on pico_enviro_mon_w: this board's apps make
 # small HTTP-client exchanges, never bulk transfers.
@@ -73,6 +72,10 @@ pin_bl = 20
 # pin_rst omitted — the pack ties RST high in hardware; build.rs emits PIN_RST = None.
 width = 320
 height = 240
+# 320x240 over a 2.0" diagonal. Physical pixels per inch: DisplayMetrics.xdpi and the
+# touch-target floor read it; LVGL's theme does not (LV_DPI_DEF is pinned to 160
+# on every board, docs/designs/app-portability-2026-10.md D3).
+dpi = 200
 # Landscape, verified on hardware 2026-09-21 (A top-left, B bottom-left,
 # X top-right, Y bottom-right). 0xA0 flips the image 180 degrees,
 # 0x70 / 0xE0 mirror it.

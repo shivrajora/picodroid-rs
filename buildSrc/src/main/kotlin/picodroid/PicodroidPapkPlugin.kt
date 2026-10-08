@@ -431,6 +431,9 @@ class PicodroidPapkPlugin : Plugin<Project> {
             versionCode.set(manifest.versionCode)
             manifest.label?.let { label.set(it) }
             manifest.icon?.let { icon.set(it) }
+            manifest.designWidth?.let { designWidth.set(it) }
+            manifest.designHeight?.let { designHeight.set(it) }
+            requiresFeatures.set(manifest.requiredFeatures)
             this.frameworkMapVersion.set(frameworkMapVersion)
             manifest.mainClass?.let { mainClass.set(it) }
             manifest.activity?.let { activity.set(it) }

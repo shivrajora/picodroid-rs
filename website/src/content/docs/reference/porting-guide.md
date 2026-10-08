@@ -606,11 +606,12 @@ You don't edit `board.toml` to write an app, but it determines what your app can
 | `hot_ram_kb` | int | no | RAM for the hot sets that execute from SRAM: the JVM's invoke, field and constant-pool helpers and the LVGL and FreeRTOS functions listed in `mcus/rp/hot-ram-*.txt`. Taken out of the heap arena, like the MCU toml's `jvm_loop_ram_kb`. Must agree with the `hot-in-ram` Cargo feature (which `chip-rp2350` enables), or the build stops. Every RP2350 board sets 48; absent means none. |
 | `has_network` | bool | no | If `true`, compiles in the networking stack (FreeRTOS+TCP + a link driver). Needs `network_type`. |
 | `network_type` | string | no | Required when `has_network = true`. Must be a row of `build_support::board_cfg::KNOWN_NETWORK_TYPES` (`"cyw43"` = wifi today); the build emits `network_<type>` and `network_link_<kind>` and checks the kind against the forwarded `picodroid-core/network-<kind>` feature. |
-| `lv_dpi` | int | no | Override LVGL's reported DPI (default 130). Used for small-screen boards. |
 | `lv_mem_kb` | int | no | LVGL render-pool size in KiB (default 64; every board but `pico_touch_kit` sets 48). The pool is a static array, so it comes off the core-0 main stack's budget, which the linker script holds to at least 8,192 bytes. |
 | `text_sizes` | string | no | The pixel sizes of the Montserrat faces `TextView.setTextSize` can snap to, `;`-separated; the MCU toml's value applies when unset (`14;20;28;64` on the RP2350s, `14` on the RP2040). 14 is required; every other size must exist as a generated face in `crates/pd-lvgl-sys/lvgl/fonts/` (`scripts/gen-fonts.sh`). Flash per face: [Limits](/reference/limits/). |
 | `lv_mem_in_psram` | bool | no | Put the LVGL pool in the module's PSRAM instead of `.bss` (the MCU toml must declare `psram_kb`). Frees the pool's size from the main-stack budget; render targets stay in SRAM. Device builds only — the simulator keeps its `.bss` pool. |
-| `idle_timeout_ms` | int | no | Idle time before the display sleeps (default 60000; `0` disables sleep). Only takes effect on boards with `[[button]]` entries. |
+| `idle_timeout_ms` | int | no | The board's default screen timeout: idle time, with no key edge or touch, before the display dozes (default 60000; `0` never). Every board, touch or keys; Settings → Display stores a user's choice at `/system/display` (`Settings.System.SCREEN_OFF_TIMEOUT`), which overrides it. An app that must stay lit calls `View.setKeepScreenOn(true)`. |
+| `soft_nav` | bool | no | For a touchscreen board with no button: the framework draws a round BACK (tap) / HOME (hold) control in the bottom-left corner of the window, and `input keyevent` can send any key. Needs `[touch]`. The testbenches set it; a new touch board declares a `[[button]]` instead. |
+| `home_hold_ms` | int | no | How long BACK (or the soft-nav control) is held for HOME on a board with no HOME key; default 1000, allowed 500–5000. |
 | `handle_slots` | int | no | Size of the LVGL object handle table (default 256). Must be a power of two between 32 and 4096. |
 | `has_json` | bool | no | If `true`, ships `picodroid.json` (`JSONObject`/`JSONArray`/`JSONException` and the native node pool behind them). Off by default: a board that leaves it off drops those classes from its embedded SDK and compiles the parser out, and apps built for it fail the API contract if they reference them. |
 | `has_protobuf` | bool | no | If `true`, ships `picodroid.protobuf` (`CodedInputStream`/`CodedOutputStream`/`MessageLite`/`WireFormat`/`InvalidProtocolBufferException` and the native wire codec behind them). Off by default, like `has_json`: a board that leaves it off drops those classes from its embedded SDK and compiles the codec out, and apps built for it fail the API contract if they reference them. |
@@ -638,7 +639,8 @@ The flash layout is laid out top-down from the end of flash — the app region, 
 | `pin_dc`, `pin_cs` | int | Data/command and chip-select GPIOs. |
 | `pin_bl` | int | Backlight pin (optional; a module may light the panel from power, as the 52Pi EP-0172 does). Omitted, the driver's backlight calls become no-ops and idle sleep blanks the panel through DISPOFF alone. |
 | `pin_rst` | int | Reset pin (optional; some displays don't expose one). |
-| `width`, `height` | int | Panel dimensions in pixels (**required** when `[display]` is present). |
+| `width`, `height` | int | Panel dimensions in pixels (**required** when `[display]` is present). Each must be at least 240: that is the floor every app is laid out against, and a layout that fits 240×240 fits every board. |
+| `dpi` | int | The panel's physical pixel pitch (**required**): pixels per inch along the diagonal, `sqrt(w² + h²) / inches` — a 2.8" 320×240 is 143, a 2.0" 320×240 is 200. It is what `DisplayMetrics.xdpi`/`ydpi` report and what sizes the minimum touch target on a touch board. It does not change LVGL's theme: `LV_DPI_DEF` is pinned to 160 on every board so one logical layout gives one set of pixels. The old top-level `lv_dpi` key, which did scale the theme, is refused. |
 | `madctl` | int (hex) | Memory-access-control register (controls rotation / mirroring). |
 | `band_height` | int | LVGL partial-render band in pixels (**required**). |
 | `draw_buffers` | int | `1` (default) or `2`. With two band buffers LVGL renders the next band while the panel is still taking the previous one — worth it only on a family whose display flush is asynchronous (`HalDisplay::write_pixels_start`), and it costs a second buffer of `width × band_height × 2` bytes. Refused when `[touch]` names a controller on the display's SPI bus (the XPT2046): a transfer left running would share the bus with the touch read. |
@@ -726,9 +728,39 @@ any app sees them. BACK dismisses the soft keyboard, then a showing dialog,
 then goes to the focused View's `OnKeyListener`, and finally to
 `Activity.onBackPressed` — an app can override that last step. HOME goes
 straight to the launcher on a multi-app board and cannot be intercepted at all,
-as on Android.
+as on Android. A board with no HOME key gets it by holding BACK for
+`home_hold_ms` (default 1000): the app sees its 400 ms long-press, then a
+release flagged `FLAG_CANCELED`.
 
-Declaring at least one `[[button]]` enables the idle display-sleep + wake-on-button feature (the sleep delay is `idle_timeout_ms`, default 60 s; set it to `0` to keep the panel always on, as `pico_enviro_mon` does). If the board has a touchscreen *and* buttons, set it to `0`: the sleep path counts only button edges as input, so touch can neither keep the panel awake nor wake it again. See [api/ui.md → Key events](/api/ui/#key-events) and the [Button-only navigation](/guides/button-navigation/) guide.
+**Every board with a display meets one input profile**, checked by the build
+(`build_support::board_cfg::check_input_conformance`;
+[docs/designs/app-portability-2026-10.md](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/app-portability-2026-10.md)
+K1–K4):
+
+- **KEYS** (no `[touch]`): the four logical keys as `[[button]]` entries —
+  `PREV` (19 `DPAD_UP`), `NEXT` (20 `DPAD_DOWN`), `ENTER` (23 `DPAD_CENTER`),
+  `ESC` (4 `BACK`). Each `lv_key` must carry that keycode, and no two buttons
+  may share a pin or a keycode. Every stock widget navigates with these four.
+- **TOUCH** (a `[touch]` panel): plus at least one system button — a
+  `[[button]]` with `keycode = 4` (BACK; held for HOME) or `keycode = 3`
+  (HOME). A board that cannot grow one sets the top-level `soft_nav = true`
+  and the framework draws the BACK/HOME control in the window's bottom-left
+  corner instead (the testbenches). `soft_nav` needs a touch panel.
+
+The build emits `has_nav_keys` (any `PREV`/`NEXT`/`ENTER` button: a focus
+ring exists, and `View.isInTouchMode()` is false) and `soft_nav` as cfgs, and
+`board_cfg::input::{HAS_NAV_KEYS, HAS_HOME_KEY, HAS_BACK_KEY, SOFT_NAV,
+HOME_HOLD_MS}` as constants.
+
+Every board dozes its display after the screen timeout (`idle_timeout_ms`, default 60 s, or what
+Settings → Display stored) with no key edge or touch, and any button wakes it; so does a finger
+where the touch controller is read while the panel is dark (the GT911's sampler task, or the
+XPT2046 polled inline). The app keeps running with the panel off — Runnables, alarms, scheduled
+tasks, the network and the sensors continue — and the wake press is swallowed. An app that must
+stay lit holds the panel with `View.setKeepScreenOn(true)`; an Activity that must be seen when it
+starts (an alarm) calls `Activity.setTurnScreenOn(true)`. `KEYCODE_SLEEP`, `KEYCODE_WAKEUP` and
+`KEYCODE_POWER` on a `[[button]]` (or injected) doze, wake and toggle. See [api/ui.md → Key
+events](/api/ui/#key-events) and the [Button-only navigation](/guides/button-navigation/) guide.
 
 ### `[background_pool]` — optional thread-pool tuning
 

@@ -1227,3 +1227,10 @@ would take ~24 B more each); `rename` is not charged to the quota;
 - Not re-checked and still listed as open in §6: the overlapping-slide window,
   intent extras across packages, the Settings boot-app override, and store /
   signatures / TLS / permissions / OTA (now `app-store-roadmap-2026-09.md` A3).
+
+### A7 (2026-10-05) — BACK and HOME on touch-only boards
+
+The "Touch-only boards have no BACK" item above and A2's open BACK affordance are taken over by
+[app-portability-2026-10.md](app-portability-2026-10.md) K2/K3: every board gets BACK, HOME and
+WAKE; a board without a HOME key reaches it by holding BACK for a second, and the button-less
+testbenches declare `soft_nav = true` for an OS-drawn corner control. Status lives in that doc's §4.

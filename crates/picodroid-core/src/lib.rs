@@ -14,6 +14,7 @@ pub mod alarms;
 #[cfg(not(test))]
 pub mod bg_worker;
 pub mod board_cfg;
+pub mod board_features;
 // App startup: shared heap, class loaders, `run_app`. Needs the JVM natives
 // and the whole graphics tree, hence `cfg(not(test))` like they are.
 #[cfg(not(test))]
@@ -91,6 +92,7 @@ pub mod notification;
 #[cfg(not(test))]
 pub mod os;
 pub mod pd_log;
+pub mod power;
 pub mod resources;
 // Shape guards for the 2026-09-13 QA fixes that live in `cfg(not(test))`
 // modules — the sim's `qa_*` apps cover the behaviour, these keep the shape.

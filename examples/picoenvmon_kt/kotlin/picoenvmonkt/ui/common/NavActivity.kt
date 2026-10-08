@@ -25,7 +25,11 @@ abstract class NavActivity : Activity() {
     protected fun makeScreenRoot(): LinearLayout {
         val root = LinearLayout()
         root.setOrientation(LinearLayout.VERTICAL)
-        root.setSize(240, 240)
+        // The whole panel, whichever board this runs on (match_parent): the app was first
+        // written against the Enviro+'s 240x240 and must look the same on a wider or taller one.
+        root.setSize(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT)
+        // A live monitor is watched, not touched: hold the panel on while a screen shows.
+        root.setKeepScreenOn(true)
         root.setPadding(8, 6, 8, 6)
         root.setBackgroundColor(Theme.colorBackground)
         return root

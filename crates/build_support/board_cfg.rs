@@ -448,6 +448,7 @@ pub fn emit_neutral(out: &Path, board: &Option<ResolvedBoard>, pins: Pins) {
     emit_audio_config(out, board);
     emit_sensor_config(out, board);
     emit_button_config(out, board);
+    emit_input_profile(out, board);
     emit_background_pool_config(out, board);
     emit_net_config(out, board);
     emit_sleep_config(out, board);
@@ -752,6 +753,145 @@ pub fn emit_button_config(out: &Path, board: &Option<ResolvedBoard>) {
     write_generated(out, "button_config.rs", &code);
 }
 
+/// What a board's input amounts to, once checked against the input profiles
+/// of docs/designs/app-portability-2026-10.md (K1–K4).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct InputProfile {
+    /// At least one PREV/NEXT/ENTER button: a focus ring exists and keys
+    /// move it. Clickable views become focusable on such a board (K6).
+    pub nav_keys: bool,
+    /// A `[[button]]` with `keycode = 3`.
+    pub home_key: bool,
+    /// A `[[button]]` with `keycode = 4`.
+    pub back_key: bool,
+    /// `soft_nav = true`: the framework draws a corner control that is BACK
+    /// on a tap and HOME on a hold, for a touch board with no system button.
+    pub soft_nav: bool,
+    /// How long BACK is held for HOME where there is no HOME key (K2).
+    pub home_hold_ms: u32,
+}
+
+/// The default hold for HOME on BACK, and the bounds a board may set.
+pub const DEFAULT_HOME_HOLD_MS: u32 = 1000;
+const HOME_HOLD_RANGE: core::ops::RangeInclusive<u32> = 500..=5000;
+
+/// Check `b` against the input profiles and say which one it meets.
+///
+/// A board with a display must give every app BACK, HOME and WAKE (K2):
+/// - KEYS profile (no touchscreen): the four logical keys, `PREV`, `NEXT`,
+///   `ENTER` and `ESC`, each with its Android keycode (`config::finish_button`
+///   checks the pairing). HOME is BACK held.
+/// - TOUCH profile: the panel plus a system button — a BACK or HOME
+///   `[[button]]` — or `soft_nav = true` for a board that cannot grow one.
+///   Any button wakes the panel; the finger does where the controller is
+///   sampled while asleep (Stage 3).
+///
+/// A multi-app board reaches HOME through one of those by construction, so
+/// nothing more is asked. A headless board passes.
+pub fn check_input_conformance(b: &ResolvedBoard) -> InputProfile {
+    let has_lv_key = |k: &str| b.cfg.buttons.iter().any(|d| d.lv_key == k);
+    let has_keycode = |c: i32| b.cfg.buttons.iter().any(|d| d.keycode == c);
+    let soft_nav = b.cfg.props.get("soft_nav").map(String::as_str) == Some("true");
+    let home_hold_ms = b
+        .cfg
+        .props
+        .get("home_hold_ms")
+        .map(|v| {
+            v.parse::<u32>().unwrap_or_else(|_| {
+                panic!("board '{}': home_hold_ms = {v:?}: expected u32", b.name)
+            })
+        })
+        .unwrap_or(DEFAULT_HOME_HOLD_MS);
+    assert!(
+        HOME_HOLD_RANGE.contains(&home_hold_ms),
+        "board '{}': home_hold_ms = {home_hold_ms}: outside {HOME_HOLD_RANGE:?}",
+        b.name
+    );
+    let profile = InputProfile {
+        nav_keys: ["PREV", "NEXT", "ENTER"].iter().any(|k| has_lv_key(k)),
+        home_key: has_keycode(3),
+        back_key: has_keycode(4),
+        soft_nav,
+        home_hold_ms,
+    };
+
+    let has_display = b.cfg.display.is_some();
+    let has_touch = b.cfg.touch.is_some();
+    if soft_nav && !has_touch {
+        panic!(
+            "board '{}': soft_nav = true needs a [touch] panel to tap the control with",
+            b.name
+        );
+    }
+    if !has_display {
+        return profile;
+    }
+    if has_touch {
+        if !(profile.back_key || profile.home_key || soft_nav) {
+            panic!(
+                "board '{}': a touchscreen board needs a system button — a [[button]] with \
+                 keycode = 4 (BACK, held for HOME) or keycode = 3 (HOME) — so every app can be \
+                 left and the panel woken; a board that cannot grow one sets `soft_nav = true` \
+                 (docs/designs/app-portability-2026-10.md K3)",
+                b.name
+            );
+        }
+    } else {
+        let missing: Vec<&str> = ["PREV", "NEXT", "ENTER", "ESC"]
+            .into_iter()
+            .filter(|k| !has_lv_key(k))
+            .collect();
+        if !missing.is_empty() {
+            panic!(
+                "board '{}': a board with no touchscreen needs the four logical keys as \
+                 [[button]] entries — PREV (DPAD_UP 19), NEXT (DPAD_DOWN 20), ENTER \
+                 (DPAD_CENTER 23), ESC (BACK 4) — missing {missing:?} \
+                 (docs/designs/app-portability-2026-10.md K1)",
+                b.name
+            );
+        }
+    }
+    profile
+}
+
+/// Emit `OUT_DIR/input_profile.rs` — the board's [`InputProfile`] as consts —
+/// plus the `has_nav_keys` and `soft_nav` cfgs, after
+/// [`check_input_conformance`]. A boardless build has no keys and no soft nav.
+pub fn emit_input_profile(out: &Path, board: &Option<ResolvedBoard>) {
+    println!("cargo:rustc-check-cfg=cfg(has_nav_keys)");
+    println!("cargo:rustc-check-cfg=cfg(soft_nav)");
+    let profile = board
+        .as_ref()
+        .map(check_input_conformance)
+        .unwrap_or(InputProfile {
+            home_hold_ms: DEFAULT_HOME_HOLD_MS,
+            ..InputProfile::default()
+        });
+    if profile.nav_keys {
+        println!("cargo:rustc-cfg=has_nav_keys");
+    }
+    if profile.soft_nav {
+        println!("cargo:rustc-cfg=soft_nav");
+    }
+    write_generated(
+        out,
+        "input_profile.rs",
+        &format!(
+            "// Generated by build.rs — do not edit\n\
+             pub const HAS_NAV_KEYS: bool = {};\n\
+             pub const HAS_HOME_KEY: bool = {};\n\
+             pub const HAS_BACK_KEY: bool = {};\n\
+             pub const SOFT_NAV: bool = {};\n\
+             pub const HOME_HOLD_MS: u32 = {};\n",
+            profile.nav_keys,
+            profile.home_key,
+            profile.back_key,
+            profile.soft_nav,
+            profile.home_hold_ms
+        ),
+    );
+}
+
 /// Emit background thread pool constants from board.toml's optional
 /// `[background_pool]` section. Missing keys fall back to defaults
 /// (4 workers, the JVM priority tier, 4 KiB stack, 32-deep queue).
@@ -1004,10 +1144,45 @@ fn read_jvm_u32(
     v
 }
 
-/// Emit `OUT_DIR/display_dims.rs` — the four board-neutral display constants,
+/// The smallest logical edge a board may declare, in pixels: the floor every
+/// app is laid out against (docs/designs/app-portability-2026-10.md D1).
+pub const MIN_LOGICAL_EDGE: u32 = 240;
+
+/// `[display] dpi`: the panel's physical pixel pitch, pixels per inch along
+/// the diagonal (`sqrt(w² + h²) / inches`). It sizes touch targets and is what
+/// `DisplayMetrics.xdpi`/`ydpi` report. It does not scale LVGL's theme any
+/// more: `LV_DPI_DEF` is pinned to 160 on every board (D3), and the old
+/// top-level `lv_dpi` key, which did, is refused so a stale board file is
+/// noticed rather than silently ignored.
+fn physical_dpi(display: &HashMap<String, String>, board: &Option<ResolvedBoard>) -> u16 {
+    if props(board).is_some_and(|p| p.contains_key("lv_dpi")) {
+        panic!(
+            "board.toml: `lv_dpi` is no longer read (LVGL's theme DPI is pinned to 160 on every \
+             board). Declare the panel's physical pitch as `[display] dpi = <pixels per inch>` \
+             instead; docs/designs/app-portability-2026-10.md D2/D3."
+        );
+    }
+    let raw = display.get("dpi").unwrap_or_else(|| {
+        panic!(
+            "[display] missing 'dpi': the panel's physical pixel pitch, pixels per inch along \
+             the diagonal (sqrt(width² + height²) / diagonal inches; a 2.8\" 320x240 is 143). \
+             It sizes touch targets and DisplayMetrics.xdpi."
+        )
+    });
+    let dpi: u16 = raw
+        .parse()
+        .unwrap_or_else(|_| panic!("[display] dpi = {raw:?}: expected an integer"));
+    assert!(
+        (50..=600).contains(&dpi),
+        "[display] dpi = {dpi}: not a plausible pixel pitch (50..=600)"
+    );
+    dpi
+}
+
+/// Emit `OUT_DIR/display_dims.rs` — the board-neutral display constants,
 /// without any of the pin/SPI wiring that `config::emit_display_config`
 /// carries. Shared crates need the geometry (band buffer sizing, coordinate
-/// clamping); only the family HAL needs the pins.
+/// clamping) and the panel's pitch; only the family HAL needs the pins.
 pub fn emit_display_dims(out: &Path, board: &Option<ResolvedBoard>) {
     println!("cargo:rustc-check-cfg=cfg(has_display)");
     println!("cargo:rustc-check-cfg=cfg(hw_vscroll)");
@@ -1025,13 +1200,25 @@ pub fn emit_display_dims(out: &Path, board: &Option<ResolvedBoard>) {
                 .unwrap_or_else(|| panic!("[display] missing '{key}'"))
                 .as_str()
         };
+        let edge = |key: &str| -> u32 {
+            get(key)
+                .parse()
+                .unwrap_or_else(|_| panic!("[display] {key} = {:?}: expected u32", get(key)))
+        };
+        let (width, height) = (edge("width"), edge("height"));
+        // The floor every app is written to (docs/designs/app-portability-2026-10.md
+        // D1): a layout that fits 240x240 logical pixels fits every board, so
+        // a panel below it would be the one board apps could not count on.
+        assert!(
+            width >= MIN_LOGICAL_EDGE && height >= MIN_LOGICAL_EDGE,
+            "[display] {width}x{height}: below the {MIN_LOGICAL_EDGE}x{MIN_LOGICAL_EDGE} floor \
+             every app is laid out against (docs/designs/app-portability-2026-10.md D1)"
+        );
+        code.push_str(&format!("pub const SCREEN_WIDTH: u16 = {width};\n"));
+        code.push_str(&format!("pub const SCREEN_HEIGHT: u16 = {height};\n"));
         code.push_str(&format!(
-            "pub const SCREEN_WIDTH: u16 = {};\n",
-            get("width")
-        ));
-        code.push_str(&format!(
-            "pub const SCREEN_HEIGHT: u16 = {};\n",
-            get("height")
+            "pub const PHYSICAL_DPI: u16 = {};\n",
+            physical_dpi(d, board)
         ));
         code.push_str(&format!(
             "pub const BAND_HEIGHT: usize = {};\n",
@@ -1050,6 +1237,7 @@ pub fn emit_display_dims(out: &Path, board: &Option<ResolvedBoard>) {
         // Must match config::emit_display_config's boardless defaults.
         code.push_str("pub const SCREEN_WIDTH: u16 = 320;\n");
         code.push_str("pub const SCREEN_HEIGHT: u16 = 240;\n");
+        code.push_str("pub const PHYSICAL_DPI: u16 = 160;\n");
         code.push_str("pub const BAND_HEIGHT: usize = 20;\n");
         code.push_str("pub const SCROLL_LIMIT: u8 = 30;\n");
         code.push_str("pub const DRAW_BUFFERS: usize = 1;\n");
