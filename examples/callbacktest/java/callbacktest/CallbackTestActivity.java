@@ -39,7 +39,7 @@ public class CallbackTestActivity extends Activity {
 
     LinearLayout root = new LinearLayout();
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT);
+    root.setSize(320, 240);
 
     Button btn = new Button("b");
     btn.setSize(100, 30);

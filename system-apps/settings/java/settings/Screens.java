@@ -5,7 +5,6 @@ import picodroid.app.Activity;
 import picodroid.graphics.Color;
 import picodroid.graphics.drawable.GradientDrawable;
 import picodroid.text.TextUtils;
-import picodroid.view.Gravity;
 import picodroid.view.View;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.ScrollView;
@@ -113,9 +112,6 @@ final class Screens {
   private static View build(Activity a, String label, TextView tail, View.OnClickListener onClick) {
     LinearLayout row = new LinearLayout();
     row.setOrientation(LinearLayout.HORIZONTAL);
-    // Label and tail centred on the row's height: Android's LinearLayout puts a row's
-    // children at the top unless told otherwise, and so does this one.
-    row.setGravity(Gravity.CENTER_VERTICAL);
     row.setSize(a.getDisplay().getWidth(), ROW_HEIGHT);
     row.setPadding(PAD_X, 0, PAD_X, 0);
     row.setSpacing(0);

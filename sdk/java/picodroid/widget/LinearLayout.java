@@ -34,19 +34,16 @@ public class LinearLayout extends ViewGroup {
    * its length and a {@link #VERTICAL} one across it, and the vertical bits the other way round, as
    * on Android; call it after {@link #setOrientation}, which is what decides which is which.
    *
-   * <p>An axis the gravity does not name falls back to its start, as on Android ({@code START |
-   * TOP}). One divergence: {@code FILL} places at the start instead of stretching the child.
-   * Per-child {@code LayoutParams.gravity} is not applied (LVGL's flex layout has no per-item
-   * cross-axis alignment): wrap the one child that needs its own placement in a {@link
-   * FrameLayout}, or push children apart with a weighted {@link Space}.
+   * <p>Two divergences: an axis the gravity does not name keeps centring rather than falling back
+   * to the start, and {@code FILL} places at the start instead of stretching the child. Per-child
+   * {@code LayoutParams.gravity} is not applied.
    */
   public native void setGravity(int gravity);
 
   /**
    * Mirrors {@code android.widget.LinearLayout.LayoutParams}. Adds {@code weight} (mapped to LVGL
    * {@code lv_obj_set_flex_grow}) and {@code gravity} (per-child alignment along the cross axis,
-   * recorded but not applied; see {@link #setGravity}) to the margins, which keep that much space
-   * clear around the child.
+   * recorded but not applied) to the margins, which keep that much space clear around the child.
    */
   public static class LayoutParams extends ViewGroup.MarginLayoutParams {
     public float weight;

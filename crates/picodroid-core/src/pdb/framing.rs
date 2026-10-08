@@ -74,10 +74,6 @@ impl<T: PdbTransport> InstallTransport for Framed<'_, T> {
             InstallError::Incompat => (STATUS_INCOMPAT, b"framework-map-version mismatch"),
             InstallError::NoPackageName => (STATUS_ERR, b"no package-name in the manifest"),
             InstallError::SystemPackage => (STATUS_ERR, b"system package"),
-            InstallError::MissingFeature => (
-                STATUS_ERR,
-                b"requires a feature this board lacks (uses-feature)",
-            ),
             // A single-app firmware never produces this (its plan always
             // replaces), and the formatted line is the one place that would
             // pull `core::fmt` into an image that otherwise logs via defmt.

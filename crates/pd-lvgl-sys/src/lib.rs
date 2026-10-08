@@ -47,9 +47,6 @@ pub type lv_obj_t = c_void;
 pub type lv_event_t = c_void;
 pub type lv_event_dsc_t = c_void;
 pub type lv_group_t = c_void;
-/// A widget class descriptor (`lv_obj_class_t`), opaque: only ever compared
-/// by address against the `lv_*_class` statics.
-pub type lv_obj_class_t = c_void;
 /// Opaque `lv_font_t`; only ever handed back to LVGL (`lv_font_get_line_height`,
 /// `lv_obj_set_style_text_font`).
 pub type lv_font_t = c_void;
@@ -177,16 +174,9 @@ pub const LV_EVENT_ALL: lv_event_code_t = 0;
 pub const LV_EVENT_PRESSED: lv_event_code_t = 1;
 pub const LV_EVENT_PRESSING: lv_event_code_t = 2;
 pub const LV_EVENT_LONG_PRESSED: lv_event_code_t = 8;
-/// Sent every `long_press_repeat_time` after LONG_PRESSED while the press
-/// goes on: the clock behind hold-for-HOME on the soft-nav control.
-pub const LV_EVENT_LONG_PRESSED_REPEAT: lv_event_code_t = 9;
 pub const LV_EVENT_CLICKED: lv_event_code_t = 10;
 pub const LV_EVENT_RELEASED: lv_event_code_t = 11;
 pub const LV_EVENT_GESTURE: lv_event_code_t = 16;
-/// A key reached the focused widget (after the widget's class acted on it).
-/// Position 21 in the v9.6.0 enum. What tells a TimePicker roller that the
-/// keys changed it, since `lv_roller_set_selected` sends no VALUE_CHANGED.
-pub const LV_EVENT_KEY: lv_event_code_t = 21;
 /// Fired when a Widget receives keypad/group focus, and when it loses it.
 /// Positions 23/24 in the v9.6.0 enum (…KEY(21), ROTARY(22), FOCUSED(23),
 /// DEFOCUSED(24), LEAVE…). Used to back `View.OnFocusChangeListener`.
@@ -472,9 +462,6 @@ pub const LV_OPA_COVER: u8 = 255;
 // Object flags (from lv_obj.h)
 pub const LV_OBJ_FLAG_HIDDEN: u32 = 1 << 0;
 pub const LV_OBJ_FLAG_CLICKABLE: u32 = 1 << 1;
-/// Take the keypad focus when clicked. Cleared on the soft-nav control, which
-/// must never sit in a focus ring.
-pub const LV_OBJ_FLAG_CLICK_FOCUSABLE: u32 = 1 << 2;
 pub const LV_OBJ_FLAG_CHECKABLE: u32 = 1 << 3;
 pub const LV_OBJ_FLAG_SCROLLABLE: u32 = 1 << 4;
 /// Scroll the object into view when it takes focus (a focused row in a
@@ -484,9 +471,6 @@ pub const LV_OBJ_FLAG_SCROLL_ON_FOCUS: u32 = 1 << 10;
 /// parent, so a gesture reaches the screen unless the object that wants it
 /// clears this — which is what registering a swipe listener does.
 pub const LV_OBJ_FLAG_GESTURE_BUBBLE: u32 = 1 << 15;
-/// LVGL's first free user flag. Marks a view that was clickable before
-/// `View.INVISIBLE` took that away, so `VISIBLE` can give it back.
-pub const LV_OBJ_FLAG_USER_1: u32 = 1 << 27;
 
 // Object states (from lv_obj_style.h; renumbered in v9.5.0, unchanged in v9.6.0).
 // The state bits were renumbered in v9.5.0 to leave room for LV_STATE_ALT
@@ -593,8 +577,8 @@ extern "C" {
     pub fn lv_display_flush_ready(disp: *mut lv_display_t);
     pub fn lv_display_get_default() -> *mut lv_display_t;
     /// The display's logical size — what the screen and its layers are laid
-    /// out in: the panel. (An app's compat window is an object on the
-    /// screen, `graphics/lvgl/window.rs`, not a display resolution.)
+    /// out in. Equal to the panel today; an app run in a compat window
+    /// (docs/designs/app-portability-2026-10.md D5) sees its design size here.
     pub fn lv_display_get_horizontal_resolution(disp: *const lv_display_t) -> i32;
     pub fn lv_display_get_vertical_resolution(disp: *const lv_display_t) -> i32;
     /// The layer LVGL draws above every screen: where system overlays (toast,
@@ -682,9 +666,6 @@ extern "C" {
     pub fn lv_indev_create() -> *mut lv_indev_t;
     pub fn lv_indev_set_type(indev: *mut lv_indev_t, indev_type: lv_indev_type_t);
     pub fn lv_indev_set_read_cb(indev: *mut lv_indev_t, read_cb: lv_indev_read_cb_t);
-    /// Ignore the current press until it is released: the finger that woke
-    /// the panel must not land as a click on what it finds there.
-    pub fn lv_indev_wait_release(indev: *mut lv_indev_t);
     pub fn lv_indev_set_scroll_limit(indev: *mut lv_indev_t, scroll_limit: u8);
     /// The indev that triggered the currently-running event. Read inside an
     /// `LV_EVENT_GESTURE` callback to recover gesture parameters.
@@ -768,30 +749,6 @@ extern "C" {
     /// active screen. Used by the keyboard outside-press hook to decide if
     /// a tap landed on the keyboard or one of its keys.
     pub fn lv_obj_get_parent(obj: *const lv_obj_t) -> *mut lv_obj_t;
-    /// Reorder `obj` among its siblings; `-1` is the last (topmost) slot.
-    pub fn lv_obj_move_to_index(obj: *mut lv_obj_t, index: i32);
-    /// The widget class `obj` was created as; compared against the class
-    /// statics below to tell a slider from a roller when the keypad asks
-    /// what the focused widget is (events/keypad.rs).
-    pub fn lv_obj_get_class(obj: *const lv_obj_t) -> *const lv_obj_class_t;
-    pub static lv_slider_class: lv_obj_class_t;
-    pub static lv_roller_class: lv_obj_class_t;
-    pub static lv_dropdown_class: lv_obj_class_t;
-    pub static lv_buttonmatrix_class: lv_obj_class_t;
-    /// Scroll by `(dx, dy)`, clamped to the content: the keypad's page step
-    /// on a `ScrollView` with nothing focusable inside.
-    pub fn lv_obj_scroll_by_bounded(
-        obj: *mut lv_obj_t,
-        dx: i32,
-        dy: i32,
-        anim_en: lv_anim_enable_t,
-    );
-    pub fn lv_group_get_obj_count(group: *mut lv_group_t) -> u32;
-    /// How far the content reaches past the right / bottom edge, i.e. how
-    /// far the object can still scroll that way: the `[layout]` fit check
-    /// reads them off the screen after a `setContentView`.
-    pub fn lv_obj_get_scroll_right(obj: *const lv_obj_t) -> i32;
-    pub fn lv_obj_get_scroll_bottom(obj: *const lv_obj_t) -> i32;
 
     // Restrict the axes a scrollable object will scroll/over-pull on.
     // Default is LV_DIR_ALL; set to LV_DIR_VER on ScrollView so horizontal
@@ -1034,25 +991,6 @@ extern "C" {
         value: i32,
         selector: lv_style_selector_t,
     );
-    /// `View.setMinimumWidth/Height` and `TextView.setMaxWidth`: bounds on
-    /// the laid-out size that a content-sized or weighted view respects.
-    pub fn lv_obj_set_style_min_width(
-        obj: *mut lv_obj_t,
-        value: i32,
-        selector: lv_style_selector_t,
-    );
-    pub fn lv_obj_set_style_min_height(
-        obj: *mut lv_obj_t,
-        value: i32,
-        selector: lv_style_selector_t,
-    );
-    pub fn lv_obj_set_style_max_width(
-        obj: *mut lv_obj_t,
-        value: i32,
-        selector: lv_style_selector_t,
-    );
-    /// Whether `f` is set on `obj`.
-    pub fn lv_obj_has_flag(obj: *const lv_obj_t, f: u32) -> bool;
     pub fn lv_obj_set_style_pad_bottom(
         obj: *mut lv_obj_t,
         value: i32,
@@ -1280,9 +1218,6 @@ extern "C" {
     pub fn lv_dropdown_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
     pub fn lv_dropdown_set_options(obj: *mut lv_obj_t, options: *const c_char);
     pub fn lv_dropdown_get_selected(obj: *const lv_obj_t) -> u32;
-    /// Whether the option list is showing: while it is, the keypad's PREV/NEXT
-    /// walk it (events/keypad.rs::widget_remap).
-    pub fn lv_dropdown_is_open(obj: *mut lv_obj_t) -> bool;
 
     // Roller widget — vertically-scrolling option list. Used by TimePicker
     // (hour + minute) and could back a future date-roller variant.
@@ -1371,13 +1306,11 @@ mod tests {
             (LV_EVENT_PRESSED, "LV_EVENT_PRESSED"),
             (LV_EVENT_PRESSING, "LV_EVENT_PRESSING"),
             (LV_EVENT_LONG_PRESSED, "LV_EVENT_LONG_PRESSED"),
-            (LV_EVENT_LONG_PRESSED_REPEAT, "LV_EVENT_LONG_PRESSED_REPEAT"),
             (LV_EVENT_CLICKED, "LV_EVENT_CLICKED"),
             (LV_EVENT_RELEASED, "LV_EVENT_RELEASED"),
             (LV_EVENT_GESTURE, "LV_EVENT_GESTURE"),
             (LV_EVENT_VALUE_CHANGED, "LV_EVENT_VALUE_CHANGED"),
             (LV_EVENT_READY, "LV_EVENT_READY"),
-            (LV_EVENT_KEY, "LV_EVENT_KEY"),
             (LV_EVENT_FOCUSED, "LV_EVENT_FOCUSED"),
             (LV_EVENT_DEFOCUSED, "LV_EVENT_DEFOCUSED"),
             (LV_EVENT_DELETE, "LV_EVENT_DELETE"),
@@ -1805,11 +1738,9 @@ mod tests {
         for (rust_const, name) in [
             (LV_OBJ_FLAG_HIDDEN, "LV_OBJ_FLAG_HIDDEN"),
             (LV_OBJ_FLAG_CLICKABLE, "LV_OBJ_FLAG_CLICKABLE"),
-            (LV_OBJ_FLAG_CLICK_FOCUSABLE, "LV_OBJ_FLAG_CLICK_FOCUSABLE"),
             (LV_OBJ_FLAG_CHECKABLE, "LV_OBJ_FLAG_CHECKABLE"),
             (LV_OBJ_FLAG_SCROLLABLE, "LV_OBJ_FLAG_SCROLLABLE"),
             (LV_OBJ_FLAG_GESTURE_BUBBLE, "LV_OBJ_FLAG_GESTURE_BUBBLE"),
-            (LV_OBJ_FLAG_USER_1, "LV_OBJ_FLAG_USER_1"),
         ] {
             let header_val = lookup_assigned_value(body, name)
                 .unwrap_or_else(|| panic!("{name} not found/parsable in vendored lv_obj.h"));

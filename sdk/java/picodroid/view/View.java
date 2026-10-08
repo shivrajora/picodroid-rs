@@ -48,10 +48,6 @@ public class View {
   OnFocusChangeListener onFocusChangeListener;
   ViewGroup.LayoutParams layoutParams;
   boolean focusable = false; // Android default for a plain View / ViewGroup.
-  boolean keepScreenOn = false;
-  // Floors under the laid-out size (setMinimumWidth / setMinimumHeight); 0 = none, as on Android.
-  int minWidth;
-  int minHeight;
 
   // App-set state cached for the getters, mirroring Android (where these live
   // in View's own flag/property fields, not the renderer): the framework
@@ -292,19 +288,14 @@ public class View {
     return size;
   }
 
-  /**
-   * The width an unconstrained default measure settles on: the one the view has now, or the {@link
-   * #setMinimumWidth floor} if that is more.
-   */
+  /** The width an unconstrained default measure settles on: the one the view has now. */
   protected int getSuggestedMinimumWidth() {
-    return Math.max(minWidth, getWidth());
+    return getWidth();
   }
 
-  /**
-   * The height an unconstrained default measure settles on; see {@link #getSuggestedMinimumWidth}.
-   */
+  /** The height an unconstrained default measure settles on: the one the view has now. */
   protected int getSuggestedMinimumHeight() {
-    return Math.max(minHeight, getHeight());
+    return getHeight();
   }
 
   /**
@@ -390,13 +381,6 @@ public class View {
   public void setOnClickListener(OnClickListener listener) {
     this.onClickListener = listener;
     nativeRegisterClickListener();
-    // Clickable implies focusable where a key moves the focus, as Android's
-    // {@code focusable="auto"} has it: a view written with a click listener alone is reachable
-    // by the four keys without a {@link #setFocusable} of its own
-    // (docs/designs/app-portability-2026-10.md K6).
-    if (listener != null && !focusable && !isInTouchMode()) {
-      setFocusable(true);
-    }
   }
 
   /**
@@ -430,68 +414,6 @@ public class View {
   public boolean isFocusable() {
     return focusable;
   }
-
-  /**
-   * Mirrors {@code android.view.View#setKeepScreenOn(boolean)}: while this view lives and the flag
-   * is set, the display's idle timer does not doze the panel. For a clock, a monitor or any screen
-   * that is watched without being touched; {@code android:keepScreenOn="true"} in a layout does the
-   * same. The hold ends when the view is destroyed or the flag is cleared. A {@code KEYCODE_SLEEP}
-   * still dozes the panel, as on Android.
-   */
-  public void setKeepScreenOn(boolean keepScreenOn) {
-    if (this.keepScreenOn == keepScreenOn) {
-      return;
-    }
-    this.keepScreenOn = keepScreenOn;
-    nativeSetKeepScreenOn(keepScreenOn);
-  }
-
-  /** Mirrors Android: whether {@link #setKeepScreenOn} is set. */
-  public boolean getKeepScreenOn() {
-    return keepScreenOn;
-  }
-
-  private native void nativeSetKeepScreenOn(boolean keepScreenOn);
-
-  /**
-   * Mirrors {@code android.view.View#setMinimumWidth(int)}: a floor under the laid-out width, so a
-   * {@code wrap_content} or weighted view never comes out narrower. {@code android:minWidth} in a
-   * layout file. A fixed width still wins, as on Android.
-   */
-  public void setMinimumWidth(int minWidth) {
-    if (this.minWidth == minWidth) {
-      return;
-    }
-    this.minWidth = minWidth;
-    nativeSetMinimumSize(minWidth, -1);
-  }
-
-  /** Mirrors Android: the floor under the laid-out height; {@code android:minHeight}. */
-  public void setMinimumHeight(int minHeight) {
-    if (this.minHeight == minHeight) {
-      return;
-    }
-    this.minHeight = minHeight;
-    nativeSetMinimumSize(-1, minHeight);
-  }
-
-  /** Mirrors Android: what {@link #setMinimumWidth} set, 0 for none. */
-  public int getMinimumWidth() {
-    return minWidth;
-  }
-
-  /** Mirrors Android: what {@link #setMinimumHeight} set, 0 for none. */
-  public int getMinimumHeight() {
-    return minHeight;
-  }
-
-  /** The two floors in one native: -1 leaves that axis alone. */
-  private native void nativeSetMinimumSize(int minWidth, int minHeight);
-
-  /**
-   * {@code TextView.setMaxWidth}'s ceiling, declared here because the renderer's op is a View's.
-   */
-  protected native void nativeSetMaxWidth(int maxWidth);
 
   /**
    * Request that this view take input focus. Mirrors {@code android.view.View#requestFocus()}:
@@ -701,14 +623,8 @@ public class View {
     if (visibility == this.visibility) {
       return;
     }
-    boolean wasInvisible = this.visibility == INVISIBLE;
     this.visibility = visibility;
     nativeSetVisibility(visibility);
-    // INVISIBLE is drawn at zero opacity; coming back, the renderer is opaque again and the
-    // view's own alpha has to be said once more.
-    if (visibility == VISIBLE && wasInvisible && alpha != 1f) {
-      nativeSetAlpha(alpha);
-    }
   }
 
   /** Returns the last app-set visibility. Mirrors {@code android.view.View#getVisibility()}. */
@@ -766,14 +682,6 @@ public class View {
 
   /** Laid-out height in pixels. Mirrors {@code android.view.View#getHeight()}. */
   public native int getHeight();
-
-  /**
-   * Mirrors {@code android.view.View#isInTouchMode()}: whether the finger, not a focus ring, is
-   * what reaches views here. Fixed per board — true where no button moves focus (a touchscreen
-   * board), false on a board with navigation keys — rather than following the last input as
-   * Android's does.
-   */
-  public native boolean isInTouchMode();
 
   /**
    * Horizontal offset from the laid-out position, in pixels. Mirrors {@code

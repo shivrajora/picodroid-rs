@@ -244,22 +244,6 @@ pub fn install(
         coordinator.cancel_park_request();
         return false;
     }
-    // Likewise an app that requires a feature this board lacks
-    // (`<uses-feature required="true">`, docs/designs/app-portability-2026-10.md
-    // D9): refused before any erase, with the installed apps intact.
-    let required = papk_format::find_manifest_value_in_prefix(
-        &peek_buf[..peeked],
-        papk_format::keys::REQUIRES_FEATURES,
-    );
-    if required.is_some_and(|list| {
-        list.split(',')
-            .any(|f| !f.is_empty() && !directory.has_feature(f))
-    }) {
-        transport.report_error(InstallError::MissingFeature);
-        coordinator.release();
-        coordinator.cancel_park_request();
-        return false;
-    }
 
     // ── Placement (docs/designs/multi-app-2026-09.md D5) ─────────────────
     // `package-name` is the second manifest entry, so it is inside the peek
@@ -534,11 +518,6 @@ mod tests {
     impl PackageDirectory for TestDirectory {
         const CAN_COMPACT: bool = false;
 
-        /// The test board has exactly one feature.
-        fn has_feature(&self, feature: &str) -> bool {
-            feature == PRESENT_FEATURE
-        }
-
         fn rescan(&mut self, flash: &impl PapkFlash) {
             self.region_sectors = (flash.region_len() / META_SIZE) as u32;
         }
@@ -599,7 +578,6 @@ mod tests {
             InstallError::NoRoom { .. } => "no_room",
             InstallError::NoPackageName => "no_package_name",
             InstallError::SystemPackage => "system_package",
-            InstallError::MissingFeature => "missing_feature",
         }
     }
 
@@ -791,27 +769,6 @@ mod tests {
         }
     }
 
-    /// The one feature [`TestDirectory`] has.
-    const PRESENT_FEATURE: &str = "test.hardware.present";
-
-    /// A compatible PAPK whose manifest requires `features` (comma-joined).
-    fn papk_requiring(features: &str) -> Vec<u8> {
-        use papk_format::{EntryPoint, ManifestSpec, PapkBuilder};
-        PapkBuilder::new(ManifestSpec {
-            entry: EntryPoint::MainClass("demo/Main"),
-            package_name: "demo",
-            version: "1.0",
-            framework_map_version: FW,
-            version_code: None,
-            label: None,
-            icon: None,
-            design_size: None,
-            requires_features: Some(features),
-        })
-        .build()
-        .expect("test PAPK")
-    }
-
     /// Build a real PAPK declaring `fmv` as its framework-map-version.
     ///
     /// Hand-rolled bytes would drift from the format; this goes through the
@@ -827,8 +784,6 @@ mod tests {
             version_code: None,
             label: None,
             icon: None,
-            design_size: None,
-            requires_features: None,
         })
         .build()
         .expect("test PAPK")
@@ -889,34 +844,6 @@ mod tests {
         // The core was parked before the check, so it must be let go again.
         assert!(r.events.contains(&Ev::Release));
         assert!(r.events.contains(&Ev::CancelPark));
-    }
-
-    /// The feature gate sits right after the compat gate: an app requiring a
-    /// feature the board lacks is refused with flash untouched, one that
-    /// requires only what the board has installs.
-    #[test]
-    fn a_required_feature_the_board_lacks_is_refused_with_flash_untouched() {
-        let papk = papk_requiring("test.hardware.present,test.hardware.absent");
-        let r = run(papk.len() as u32, wire(&papk), true, 1 << 20, None);
-        assert!(
-            r.events.contains(&Ev::Error("missing_feature")),
-            "expected a missing-feature rejection, got {:?}",
-            r.events
-        );
-        assert!(!r.events.iter().any(|e| matches!(e, Ev::EraseRun(..))));
-        assert!(!r.events.iter().any(|e| matches!(e, Ev::Commit(_))));
-        assert!(!r.reset);
-        assert!(r.events.contains(&Ev::Release));
-        assert!(r.events.contains(&Ev::CancelPark));
-
-        let papk = papk_requiring(PRESENT_FEATURE);
-        let r = run(papk.len() as u32, wire(&papk), true, 1 << 20, None);
-        assert!(
-            !r.events.iter().any(|e| matches!(e, Ev::Error(_))),
-            "an app requiring a present feature was refused: {:?}",
-            r.events
-        );
-        assert!(r.events.contains(&Ev::Commit(papk.len() as u32)));
     }
 
     /// The matching case: a PAPK built against this firmware's own version

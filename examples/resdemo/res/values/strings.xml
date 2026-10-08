@@ -4,6 +4,4 @@
     <string name="greeting">Hello from res/values</string>
     <string name="count_label">Taps</string>
     <string name="row_text">An inflated row</string>
-    <!-- Overridden in values-w320dp/ on a window at least 320 dp wide. -->
-    <string name="geometry">narrow</string>
 </resources>

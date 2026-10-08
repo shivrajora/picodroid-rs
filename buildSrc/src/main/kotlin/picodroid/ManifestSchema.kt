@@ -23,18 +23,6 @@ data class PicodroidManifest(
     val mainClass: String?,
     val activity: String?,
     val application: String?,
-    /**
-     * `<supports-screens design-width design-height>`: the logical size the app lays out
-     * against, which the runtime shows at exactly that size on every panel. Null: the app
-     * resizes to the panel.
-     */
-    val designWidth: Int? = null,
-    val designHeight: Int? = null,
-    /**
-     * The `<uses-feature name required="true">` names, in document order. A feature not
-     * marked required is informational and dropped here: nothing acts on it.
-     */
-    val requiredFeatures: List<String> = emptyList(),
 ) {
     companion object {
         fun parse(file: File): PicodroidManifest {
@@ -71,43 +59,6 @@ data class PicodroidManifest(
             val label = app.getAttribute("label").ifBlank { null }
             val icon = app.getAttribute("icon").ifBlank { null }
 
-            val screens = root.getElementsByTagName("supports-screens")
-            var designWidth: Int? = null
-            var designHeight: Int? = null
-            if (screens.length > 0) {
-                val el = screens.item(0) as org.w3c.dom.Element
-                fun side(attr: String): Int {
-                    val text = el.getAttribute(attr)
-                    return text.toIntOrNull()?.takeIf { it >= 1 }
-                        ?: throw GradleException(
-                            "${file.name}: <supports-screens> $attr must be a positive integer, got '$text'"
-                        )
-                }
-                designWidth = side("design-width")
-                designHeight = side("design-height")
-            }
-
-            val features = root.getElementsByTagName("uses-feature")
-            val requiredFeatures = (0 until features.length).mapNotNull { i ->
-                val el = features.item(i) as org.w3c.dom.Element
-                val name = el.getAttribute("name").ifBlank {
-                    throw GradleException("${file.name}: <uses-feature> missing 'name' attribute")
-                }
-                if (name.contains(',')) {
-                    throw GradleException("${file.name}: <uses-feature> name must not contain ',': '$name'")
-                }
-                // Picodroid's default is "not required" (docs/designs/app-portability-2026-10.md
-                // D9): the stock widgets work on every input profile, so only an app that reads
-                // raw touch, say, has to insist.
-                when (val required = el.getAttribute("required").ifBlank { "false" }) {
-                    "true" -> name
-                    "false" -> null
-                    else -> throw GradleException(
-                        "${file.name}: <uses-feature> required must be 'true' or 'false', got '$required'"
-                    )
-                }
-            }
-
             val set = listOfNotNull(mainClass, activity, application)
             if (set.isEmpty()) {
                 throw GradleException(
@@ -129,9 +80,6 @@ data class PicodroidManifest(
                 mainClass = mainClass,
                 activity = activity,
                 application = application,
-                designWidth = designWidth,
-                designHeight = designHeight,
-                requiredFeatures = requiredFeatures,
             )
         }
     }

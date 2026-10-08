@@ -62,9 +62,6 @@ public class ClockActivity extends BaseActivity {
     setButton.setOnClickListener(v -> startActivity(new Intent(SetTimeActivity.class)));
     root.addView(setButton);
 
-    // A clock face is read from across the room: hold the panel on while it shows. The
-    // screens behind it (alarms, set time) let the display doze on the board's timeout.
-    root.setKeepScreenOn(true);
     setContentView(root);
     redraw();
   }

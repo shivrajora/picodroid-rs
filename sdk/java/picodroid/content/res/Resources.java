@@ -13,12 +13,9 @@ import picodroid.util.DisplayMetrics;
  * res/drawable/*.png} into a binary table inside the app's PAPK, and generates {@code R.java} next
  * to the app's own sources. Lookups read that table in place; no XML is parsed on the device.
  *
- * <p>One density ({@code dp}, {@code sp} and {@code px} are all one pixel) and one locale, so
- * {@code values-night/} or {@code drawable-hdpi/} are a build error. What may vary is the window
- * and the input: {@code values-} and {@code layout-} directories qualified with {@code sw<N>dp},
- * {@code w<N>dp}, {@code h<N>dp}, {@code land} / {@code port} and {@code notouch} / {@code finger},
- * in that order, override the base values on a board that matches — chosen once when the app
- * starts, by the same {@link #getConfiguration() configuration} this class reports.
+ * <p>There are no resource configurations: one display, one density ({@code dp}, {@code sp} and
+ * {@code px} are all one pixel) and one locale, so qualified directories such as {@code
+ * values-night/} are a build error.
  */
 public final class Resources {
   private static Resources sInstance;
@@ -36,15 +33,6 @@ public final class Resources {
       sInstance = new Resources();
     }
     return sInstance;
-  }
-
-  /**
-   * Mirrors Android: the screen and input this app runs with — its window's size in dp, whether the
-   * board has a touch panel and whether it has navigation keys. A fresh snapshot each call; nothing
-   * in it changes while the app runs.
-   */
-  public Configuration getConfiguration() {
-    return Configuration.current();
   }
 
   /**

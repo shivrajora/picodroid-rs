@@ -2,7 +2,6 @@
 package resdemo;
 
 import picodroid.app.Activity;
-import picodroid.content.res.Configuration;
 import picodroid.content.res.Resources;
 import picodroid.os.Bundle;
 import picodroid.util.Log;
@@ -43,16 +42,6 @@ public class ResDemoActivity extends Activity {
     check("getDimensionPixelOffset", res.getDimensionPixelOffset(R.dimen.gap) == 8);
     check("getInteger", res.getInteger(R.integer.max_taps) == 10);
     check("getBoolean", res.getBoolean(R.bool.show_logo));
-    // Configuration variants: values-w320dp/ and values-land/ override two base values; which
-    // apply follows the app's window, the same window Resources.getConfiguration() reports.
-    Configuration config = res.getConfiguration();
-    boolean wide = config.screenWidthDp >= 320;
-    boolean land = config.orientation == Configuration.ORIENTATION_LANDSCAPE;
-    String geometry = res.getString(R.string.geometry);
-    int columns = res.getInteger(R.integer.columns);
-    Log.i(TAG, "variants geometry=" + geometry + " columns=" + columns + " for " + config);
-    check("values-w320dp", geometry.equals(wide ? "wide" : "narrow"));
-    check("values-land", columns == (land ? 2 : 1));
 
     boolean threw = false;
     try {
@@ -111,12 +100,7 @@ public class ResDemoActivity extends Activity {
     View attached = inflater.inflate(R.layout.row, rows, true);
     check("attachToRoot returns root", attached == rows && rows.getChildCount() == 1);
     View row = rows.getChildAt(0);
-    // res/layout-finger/row.xml shows the row at once on a touch board; the base hides it.
-    boolean finger = config.touchscreen == Configuration.TOUCHSCREEN_FINGER;
-    check(
-        "row attributes",
-        row.getId() == R.id.row_label
-            && row.getVisibility() == (finger ? View.VISIBLE : View.INVISIBLE));
+    check("row attributes", row.getId() == R.id.row_label && row.getVisibility() == View.INVISIBLE);
     row.setVisibility(View.VISIBLE);
     View detached = inflater.inflate(R.layout.row, rows, false);
     check(

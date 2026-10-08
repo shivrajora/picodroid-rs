@@ -25,9 +25,6 @@
 //! lets one implementation serve both without either paying for the other's
 //! routing.
 
-use crate::util::local::Core0;
-use crate::util::local_ring::LocalRing;
-
 /// Gap between a key PRESS and its RELEASE so the two edges land in distinct
 /// LVGL ticks — the keypad indev drains one edge per read, so a shorter gap
 /// can lose the release entirely.
@@ -62,179 +59,6 @@ pub const SWIPE_DEFAULT_MS: u32 = 300;
 /// way, exactly as on Android; an app handles those anyway.
 pub const LONG_PRESS_HOLD_MS: u32 =
     crate::graphics::lvgl::key_repeat::KEY_REPEAT_TIMEOUT_MS as u32 + 150;
-
-/// `KeyEvent.KEYCODE_HOME` / `KEYCODE_BACK`: the two system keys every board
-/// has (docs/designs/app-portability-2026-10.md K2), by code here because the
-/// soft-key path is compiled on boards without a `[[button]]` table.
-pub const KEYCODE_HOME: i32 = 3;
-pub const KEYCODE_BACK: i32 = 4;
-/// `KeyEvent.KEYCODE_MENU`: opens the Activity's options menu (K9).
-pub const KEYCODE_MENU: i32 = 82;
-/// `KeyEvent.ACTION_DOWN` / `ACTION_UP`.
-pub const ACTION_DOWN: i32 = 0;
-pub const ACTION_UP: i32 = 1;
-/// `KeyEvent.FLAG_CANCELED`: a release whose press's action must not run.
-pub const FLAG_CANCELED: i32 = 0x20;
-/// `KeyEvent.FLAG_LONG_PRESS`: the repeat that is the long-press.
-pub const FLAG_LONG_PRESS: i32 = 0x80;
-
-// ── Soft keys: edges with no pin behind them ────────────────────────────────
-//
-// Three things produce a key the GPIO ring cannot carry: the soft-nav
-// control of a board with no system button (BACK on a tap, HOME on a hold),
-// the HOME a held BACK synthesises on a board with no HOME key, and `input
-// keyevent` for a key this board lacks. They queue here, and the framework's
-// key dispatch drains this queue ahead of the ring and routes each entry
-// exactly as it routes a pin's edge — HOME to the launcher, BACK through the
-// keyboard, the dialogs and `onBackPressed`. An entry is stamped with the
-// moment of dispatch; nothing here needs a hold timer of its own.
-
-/// One soft key edge, in `KeyEvent` terms.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SoftKey {
-    pub keycode: i32,
-    /// [`ACTION_DOWN`] or [`ACTION_UP`].
-    pub action: i32,
-    /// `KeyEvent.getRepeatCount()`: 1 on the synthetic long-press repeat.
-    pub repeat: i32,
-    pub flags: i32,
-}
-
-const SOFT_KEY_QUEUE_SIZE: usize = 8;
-const EMPTY_SOFT_KEY: SoftKey = SoftKey {
-    keycode: 0,
-    action: 0,
-    repeat: 0,
-    flags: 0,
-};
-// Filled by LVGL callbacks, the control channel and PDB, drained by the key
-// dispatch; the sim's reader thread hands a verb to the UI task's injector
-// before anything is queued.
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static SOFT_KEYS: Core0<LocalRing<SoftKey, SOFT_KEY_QUEUE_SIZE>> =
-    unsafe { Core0::new(LocalRing::new(EMPTY_SOFT_KEY)) };
-
-/// Queue one soft key edge. `false` when the queue is full (the edge is lost,
-/// as a full GPIO ring loses one).
-pub fn push_soft_key(key: SoftKey) -> bool {
-    SOFT_KEYS.push(key)
-}
-
-/// Queue a press and its release.
-pub fn push_soft_key_press(keycode: i32) {
-    push_soft_key(SoftKey {
-        keycode,
-        action: ACTION_DOWN,
-        repeat: 0,
-        flags: 0,
-    });
-    push_soft_key(SoftKey {
-        keycode,
-        action: ACTION_UP,
-        repeat: 0,
-        flags: 0,
-    });
-}
-
-/// Pop the oldest queued soft key, if any.
-pub fn drain_soft_key() -> Option<SoftKey> {
-    SOFT_KEYS.pop()
-}
-
-/// Whether a soft key is queued: while the display dozes nothing drains the
-/// queue, so this is the wake, as a pending GPIO edge is (power.rs).
-pub fn soft_key_pending() -> bool {
-    !SOFT_KEYS.is_empty()
-}
-
-/// Clear the queue between app runs.
-pub fn reset_soft_keys() {
-    SOFT_KEYS.clear();
-}
-
-/// Whether holding BACK is HOME on this board (K2): a launcher to go to and
-/// no HOME key.
-fn back_hold_is_home() -> bool {
-    crate::board_cfg::input::BACK_HOLD_IS_HOME
-}
-
-/// Drive `keycode` as `hold` says on a board with no pin for it. A long
-/// press of BACK where that is HOME becomes HOME, as the finger's would; any
-/// other long press is the press, the long-press repeat and a cancelled
-/// release, which is what the hardware path delivers for a handled hold.
-pub fn key_soft(keycode: i32, hold: KeyHold) {
-    match hold {
-        KeyHold::PressRelease => push_soft_key_press(keycode),
-        KeyHold::LongPress if keycode == KEYCODE_BACK && back_hold_is_home() => {
-            push_soft_key_press(KEYCODE_HOME)
-        }
-        KeyHold::LongPress => {
-            push_soft_key(SoftKey {
-                keycode,
-                action: ACTION_DOWN,
-                repeat: 0,
-                flags: 0,
-            });
-            push_soft_key(SoftKey {
-                keycode,
-                action: ACTION_DOWN,
-                repeat: 1,
-                flags: FLAG_LONG_PRESS,
-            });
-            push_soft_key(SoftKey {
-                keycode,
-                action: ACTION_UP,
-                repeat: 0,
-                flags: FLAG_CANCELED,
-            });
-        }
-        KeyHold::Down => {
-            push_soft_key(SoftKey {
-                keycode,
-                action: ACTION_DOWN,
-                repeat: 0,
-                flags: 0,
-            });
-        }
-        KeyHold::Up => {
-            push_soft_key(SoftKey {
-                keycode,
-                action: ACTION_UP,
-                repeat: 0,
-                flags: 0,
-            });
-        }
-    }
-}
-
-/// How long `keyevent --longpress` holds `keycode`: past the long-press
-/// timeout, or — for BACK where holding it is HOME — past that hold, so the
-/// verb does on a board what a finger does.
-pub fn long_press_hold_ms(keycode: i32) -> u32 {
-    if keycode == KEYCODE_BACK && back_hold_is_home() {
-        crate::board_cfg::input::HOME_HOLD_MS + 150
-    } else {
-        LONG_PRESS_HOLD_MS
-    }
-}
-
-/// Whether this board can produce `keycode` — `KeyCharacterMap.deviceHasKey`
-/// (docs/designs/app-portability-2026-10.md K2): a button `board.toml` maps
-/// to the code, or the two system keys every board has one way or another:
-/// BACK and HOME from the on-screen control where there is no button, HOME
-/// from holding BACK where there is no HOME key.
-pub fn device_has_key(keycode: i32) -> bool {
-    if crate::board_cfg::buttons::keycode_to_pin(keycode).is_some() {
-        return true;
-    }
-    match keycode {
-        KEYCODE_BACK => cfg!(soft_nav) || crate::board_cfg::input::HAS_BACK_KEY,
-        KEYCODE_HOME => {
-            cfg!(soft_nav) || crate::board_cfg::input::HAS_HOME_KEY || back_hold_is_home()
-        }
-        _ => false,
-    }
-}
 
 /// Settle after a key verb's release, before the next verb. Two queued verbs
 /// would otherwise put a release and the next press microseconds apart, and
@@ -315,20 +139,20 @@ pub fn release<S: InputSink>(pin: u8) {
     S::gpio_inject(pin, true);
 }
 
-/// Press, hold `hold_ms` — past the long-press timeout — and release:
-/// Android's `input keyevent --longpress`.
-pub fn long_press<S: InputSink>(pin: u8, hold_ms: u32) {
+/// Press, hold past the long-press timeout, release — Android's
+/// `input keyevent --longpress`.
+pub fn long_press<S: InputSink>(pin: u8) {
     S::gpio_inject(pin, false);
-    S::delay_ms(hold_ms);
+    S::delay_ms(LONG_PRESS_HOLD_MS);
     S::gpio_inject(pin, true);
 }
 
-/// Drive `pin`, which carries `keycode`, as `hold` says — one verb, settled
-/// after its release so the next verb's press is a distinct edge.
-pub fn key<S: InputSink>(pin: u8, keycode: i32, hold: KeyHold) {
+/// Drive `pin` as `hold` says — one verb, settled after its release so the
+/// next verb's press is a distinct edge.
+pub fn key<S: InputSink>(pin: u8, hold: KeyHold) {
     match hold {
         KeyHold::PressRelease => press_release::<S>(pin),
-        KeyHold::LongPress => long_press::<S>(pin, long_press_hold_ms(keycode)),
+        KeyHold::LongPress => long_press::<S>(pin),
         KeyHold::Down => press::<S>(pin),
         KeyHold::Up => release::<S>(pin),
     }
@@ -433,7 +257,7 @@ mod tests {
     /// repeat by then.
     #[test]
     fn a_long_press_holds_past_the_repeat_timeout() {
-        let evs = record(|| long_press::<Rec>(3, LONG_PRESS_HOLD_MS));
+        let evs = record(|| long_press::<Rec>(3));
         assert_eq!(evs[0], Ev::Gpio(3, false));
         assert!(matches!(evs[1], Ev::Delay(ms)
             if ms as u64 > crate::graphics::lvgl::key_repeat::KEY_REPEAT_TIMEOUT_MS));
@@ -447,23 +271,23 @@ mod tests {
         assert_eq!(KeyHold::from_flag("--up"), Some(KeyHold::Up));
         assert_eq!(KeyHold::from_flag("--sideways"), None);
         assert_eq!(
-            record(|| key::<Rec>(5, 19, KeyHold::Down)),
+            record(|| key::<Rec>(5, KeyHold::Down)),
             vec![Ev::Gpio(5, false)]
         );
         assert_eq!(
-            record(|| key::<Rec>(5, 19, KeyHold::Up)),
+            record(|| key::<Rec>(5, KeyHold::Up)),
             vec![Ev::Gpio(5, true), Ev::Delay(KEY_SETTLE_MS)]
         );
         let mut expect = record(|| press_release::<Rec>(5));
         expect.push(Ev::Delay(KEY_SETTLE_MS));
-        assert_eq!(record(|| key::<Rec>(5, 19, KeyHold::PressRelease)), expect);
+        assert_eq!(record(|| key::<Rec>(5, KeyHold::PressRelease)), expect);
     }
 
     /// A verb's release is followed by a settle longer than the contact
     /// debounce, so a queued next verb's press is not eaten as chatter.
     #[test]
     fn a_key_verb_settles_past_the_debounce_after_its_release() {
-        let evs = record(|| key::<Rec>(5, 19, KeyHold::LongPress));
+        let evs = record(|| key::<Rec>(5, KeyHold::LongPress));
         assert!(matches!(evs.last(), Some(Ev::Delay(ms))
             if *ms * 1_000 > crate::graphics::lvgl::key_debounce::DEBOUNCE_WINDOW_US));
     }

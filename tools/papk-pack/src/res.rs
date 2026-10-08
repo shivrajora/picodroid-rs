@@ -15,11 +15,8 @@
 //! the table it is packed with agree by construction rather than through a
 //! file passed between them.
 //!
-//! One density (`dp` = `sp` = `px`) and one locale, and a closed subset of
-//! configuration qualifiers for `values-…` and `layout-…` directories
-//! (`papk_format::res::config`: `sw<N>dp`, `w<N>dp`, `h<N>dp`, `land`,
-//! `port`, `notouch`, `finger`), compiled to override blocks the runtime
-//! ranks once per launch. A `values-night/` or `drawable-hdpi/` directory is an
+//! There are no configurations: one display, one density (`dp` = `sp` =
+//! `px`), one locale. A `values-night/` or `drawable-hdpi/` directory is an
 //! error rather than something silently ignored. Every reference
 //! (`@color/accent`, `@dimen/gap`, `?attr/colorPrimary`) is resolved here, at
 //! build time; the only thing a layout leaves for the device to look up is a
@@ -38,10 +35,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use papk_format::res::{
-    self as fmt,
-    config::{QualifierError, Qualifiers},
-    layout, theme, OverrideValue, ResTableBuilder, TYPE_BOOL, TYPE_COLOR, TYPE_DIMEN,
-    TYPE_DRAWABLE, TYPE_ID, TYPE_INTEGER, TYPE_LAYOUT, TYPE_STRING, TYPE_STYLE,
+    self as fmt, layout, theme, ResTableBuilder, TYPE_BOOL, TYPE_COLOR, TYPE_DIMEN, TYPE_DRAWABLE,
+    TYPE_ID, TYPE_INTEGER, TYPE_LAYOUT, TYPE_STRING, TYPE_STYLE,
 };
 
 /// The ASSETS-entry prefix of a `res/drawable/` image.
@@ -344,7 +339,6 @@ type RawValues = BTreeMap<String, (String, String)>;
 
 /// One `<style>`: where it is, its explicit parent and its items in file
 /// order, each `(name without any "android:" prefix, text)`.
-#[derive(Clone)]
 struct Style {
     at: String,
     parent: Option<String>,
@@ -423,20 +417,6 @@ impl Values {
             }
         }
         Ok(Self { raw, styles })
-    }
-
-    /// These values with `other`'s laid over them: what a configuration
-    /// variant's references resolve against (its own redefinitions first,
-    /// then the base), as Android resolves them at run time.
-    fn overlay(&self, other: &Values) -> Values {
-        let mut raw = self.raw.clone();
-        for (ty, names) in &other.raw {
-            raw.entry(*ty).or_default().extend(names.clone());
-        }
-        Values {
-            raw,
-            styles: self.styles.clone(),
-        }
     }
 
     /// The text of `item` in `style`, looked for in the style itself and then
@@ -911,10 +891,6 @@ impl LayoutCompiler<'_> {
             "visibility" => one(a::VISIBILITY, parse_enum(VISIBILITY, text, from)?),
             "enabled" => one(a::ENABLED, v.word(TYPE_BOOL, text, from)?),
             "focusable" => one(a::FOCUSABLE, v.word(TYPE_BOOL, text, from)?),
-            "keepScreenOn" => one(a::KEEP_SCREEN_ON, v.word(TYPE_BOOL, text, from)?),
-            "minWidth" => one(a::MIN_WIDTH, self.pixels(text, from)?),
-            "minHeight" => one(a::MIN_HEIGHT, self.pixels(text, from)?),
-            "maxWidth" => one(a::MAX_WIDTH, self.pixels(text, from)?),
             "alpha" => one(a::ALPHA, self.float(text, from)?),
             "text" => one(a::TEXT, self.string_id(text, from)?),
             "textColor" => one(a::TEXT_COLOR, v.word(TYPE_COLOR, text, from)?),
@@ -1137,21 +1113,6 @@ impl LayoutCompiler<'_> {
             out.push(value);
         }
         for child in &el.children {
-            // LVGL's flex layout has no per-item cross-axis alignment, so a
-            // LinearLayout child's layout_gravity is carried in its
-            // LayoutParams but never applied (LinearLayout.setGravity's note).
-            if matches!(
-                class,
-                layout::class::LINEAR_LAYOUT | layout::class::RADIO_GROUP
-            ) && child.attr("layout_gravity").is_some()
-            {
-                self.warnings.push(format!(
-                    "{file}: <{}> ignores android:layout_gravity on a child of <{}> (no per-child \
-                     cross-axis alignment); wrap the child in a FrameLayout and give that the \
-                     gravity, or set the parent's android:gravity",
-                    child.name, el.name
-                ));
-            }
             self.node(child, file, out, depth)?;
         }
         Ok(())
@@ -1183,41 +1144,10 @@ fn index_of<'a>(names: impl Iterator<Item = &'a String>) -> Result<BTreeMap<Stri
 }
 
 /// Compile the `res/` tree at `res_dir`.
-fn unsupported_dir(path: &Path) -> String {
-    format!(
-        "{}: not a supported resource directory (values, layout, drawable, or values-<q> / \
-         layout-<q> for the configurations sw<N>dp, w<N>dp, h<N>dp, land, port, notouch, finger)",
-        path.display()
-    )
-}
-
-/// Why a `values-…` / `layout-…` directory's qualifiers were refused.
-fn qualifier_error(spec: &str, e: QualifierError) -> String {
-    match e {
-        QualifierError::Unsupported => format!(
-            "'{spec}' is not a supported configuration — there are no density, locale or night \
-             configurations here; a directory may name sw<N>dp, w<N>dp, h<N>dp, land, port, \
-             notouch, finger"
-        ),
-        QualifierError::Order => format!(
-            "'{spec}': qualifiers go in Android's order, each once: sw<N>dp, w<N>dp, h<N>dp, \
-             land|port, notouch|finger"
-        ),
-        QualifierError::BadNumber => {
-            format!("'{spec}': a size qualifier is <N>dp with N from 1 to 65535")
-        }
-    }
-}
-
 pub fn compile(res_dir: &Path) -> Result<Compiled, String> {
     let mut values_dir = None;
     let mut layout_dir = None;
     let mut drawable_dir = None;
-    // Configuration variants (docs/designs/app-portability-2026-10.md D8):
-    // `values-<q>` and `layout-<q>`, each one override block. Sorted by name
-    // below so the block order, and with it `R`-free ids, is reproducible.
-    let mut variant_values: Vec<(Qualifiers, PathBuf)> = Vec::new();
-    let mut variant_layouts: Vec<(Qualifiers, PathBuf)> = Vec::new();
     for entry in fs::read_dir(res_dir).map_err(|e| format!("{}: {e}", res_dir.display()))? {
         let path = entry
             .map_err(|e| format!("{}: {e}", res_dir.display()))?
@@ -1231,28 +1161,16 @@ pub fn compile(res_dir: &Path) -> Result<Compiled, String> {
             "layout" => &mut layout_dir,
             "drawable" => &mut drawable_dir,
             _ => {
-                if let Some((base, spec)) = name.split_once('-') {
-                    let list = match base {
-                        "values" => &mut variant_values,
-                        "layout" => &mut variant_layouts,
-                        "drawable" => {
-                            return Err(format!(
-                                "{}: drawables cannot vary by configuration; one image serves \
-                                 every board",
-                                path.display()
-                            ))
-                        }
-                        _ => return Err(unsupported_dir(&path)),
-                    };
-                    let q = Qualifiers::parse(spec)
-                        .map_err(|e| format!("{}: {}", path.display(), qualifier_error(spec, e)))?;
-                    if !path.is_dir() {
-                        return Err(format!("{}: expected a directory", path.display()));
-                    }
-                    list.push((q, path.clone()));
-                    continue;
-                }
-                return Err(unsupported_dir(&path));
+                let hint = if name.contains('-') {
+                    " — there are no resource configurations (one display, one density, one \
+                     locale), so qualified directories are not supported"
+                } else {
+                    ""
+                };
+                return Err(format!(
+                    "{}: not a supported resource directory (values, layout, drawable){hint}",
+                    path.display()
+                ));
             }
         };
         if !path.is_dir() {
@@ -1319,27 +1237,6 @@ pub fn compile(res_dir: &Path) -> Result<Compiled, String> {
             layouts.push((name, file, root));
         }
     }
-    // A variant layout redefines a base layout, under the same id; its ids
-    // join the app's `R.id`.
-    variant_layouts.sort_by(|a, b| a.1.cmp(&b.1));
-    let mut variant_layout_files: Vec<(usize, String, String, Element)> = Vec::new();
-    for (dir_index, (_, dir)) in variant_layouts.iter().enumerate() {
-        for path in sorted_files(dir, "xml")? {
-            let name = file_res_name(&path)?;
-            if !layouts.iter().any(|(n, _, _)| *n == name) {
-                return Err(format!(
-                    "{}: @layout/{name} exists only in {}; a variant overrides a layout that \
-                     res/layout/ defines",
-                    path.display(),
-                    dir.display()
-                ));
-            }
-            let root = parse_xml(&path)?;
-            let file = path.display().to_string();
-            collect_ids(&root, &file, &mut id_names)?;
-            variant_layout_files.push((dir_index, name, file, root));
-        }
-    }
     let string_index = index_of(values.names(TYPE_STRING))?;
     let ids = index_of(id_names.iter())?;
     let drawable_index = index_of(drawable_names.iter())?;
@@ -1353,7 +1250,6 @@ pub fn compile(res_dir: &Path) -> Result<Compiled, String> {
     let mut pooled = Vec::new();
     let mut warnings = Vec::new();
     let mut streams = Vec::new();
-    let mut variant_streams = Vec::new();
     {
         let by_name: BTreeMap<String, (String, Element)> = layouts
             .iter()
@@ -1374,13 +1270,6 @@ pub fn compile(res_dir: &Path) -> Result<Compiled, String> {
             let mut words = Vec::new();
             lc.node(root, file, &mut words, 0)?;
             streams.push(words);
-        }
-        // A variant layout's references resolve against the base values and
-        // base layouts (`<include>`), like any layout's.
-        for (_, _, file, root) in &variant_layout_files {
-            let mut words = Vec::new();
-            lc.node(root, file, &mut words, 0)?;
-            variant_streams.push(words);
         }
     }
 
@@ -1437,66 +1326,6 @@ pub fn compile(res_dir: &Path) -> Result<Compiled, String> {
         }
         let id = table.push_style(words).map_err(overflow)?;
         symbols.push((TYPE_STYLE, r, id));
-    }
-
-    // Configuration variants, one override block per directory: the ids a
-    // `values-<q>` directory redefines, then the layouts a `layout-<q>` one
-    // does. A variant may only redefine what the base defines; `R` is the
-    // base's. Values resolve against the base with the variant laid over it.
-    let id_of: BTreeMap<(u8, &str), u32> = symbols
-        .iter()
-        .map(|(ty, name, id)| ((*ty, name.as_str()), *id))
-        .collect();
-    variant_values.sort_by(|a, b| a.1.cmp(&b.1));
-    for (q, dir) in &variant_values {
-        let vv = Values::load(dir)?;
-        if let Some((name, style)) = vv.styles.iter().next() {
-            return Err(format!(
-                "{}: <style name=\"{name}\"> — styles cannot vary by configuration",
-                style.at
-            ));
-        }
-        let merged = values.overlay(&vv);
-        let mut pairs = Vec::new();
-        for ty in [TYPE_STRING, TYPE_COLOR, TYPE_DIMEN, TYPE_INTEGER, TYPE_BOOL] {
-            for name in vv.names(ty) {
-                let (text, from) = &vv.raw[&ty][name];
-                let id = *id_of.get(&(ty, name.as_str())).ok_or_else(|| {
-                    format!(
-                        "{from}: @{}/{name} exists only in {}; a variant overrides a value that \
-                         res/values/ defines",
-                        fmt::type_name(ty).unwrap_or("?"),
-                        dir.display()
-                    )
-                })?;
-                let value = if ty == TYPE_STRING {
-                    let text = unescape_string(merged.resolve_text(TYPE_STRING, name, from)?)
-                        .map_err(|e| format!("{from}: {e}"))?;
-                    OverrideValue::Bytes(text.into_bytes())
-                } else {
-                    OverrideValue::Value(merged.word(ty, text, from)?)
-                };
-                pairs.push((id, value));
-            }
-        }
-        table.push_overrides(*q, pairs).map_err(overflow)?;
-    }
-    let mut variant_streams = variant_streams.into_iter();
-    let mut layout_pairs: Vec<Vec<(u32, OverrideValue)>> =
-        (0..variant_layouts.len()).map(|_| Vec::new()).collect();
-    for (dir_index, name, _, _) in &variant_layout_files {
-        let words = variant_streams
-            .next()
-            .expect("one stream per variant layout");
-        layout_pairs[*dir_index].push((
-            id_of[&(TYPE_LAYOUT, name.as_str())],
-            OverrideValue::Words(words),
-        ));
-    }
-    for ((q, _), pairs) in variant_layouts.iter().zip(layout_pairs) {
-        if !pairs.is_empty() {
-            table.push_overrides(*q, pairs).map_err(overflow)?;
-        }
     }
 
     // Two names that differ only by '.' vs '_' collapse to one R field.
@@ -1740,58 +1569,6 @@ mod tests {
         // An attribute with no setter is reported, tools:context is not.
         assert_eq!(c.warnings.len(), 1, "{:?}", c.warnings);
         assert!(c.warnings[0].contains("elevation"));
-    }
-
-    #[test]
-    fn configuration_variants_become_override_blocks() {
-        let dir = tree(&[
-            ("values/values.xml", VALUES),
-            (
-                "values-w320dp/strings.xml",
-                r#"<resources><string name="app_name">Wide</string></resources>"#,
-            ),
-            ("layout/main.xml", LAYOUT),
-            ("layout-land/main.xml", LAYOUT),
-        ]);
-        let c = compile(&dir).unwrap();
-        let t = ResTable::parse(&c.table).unwrap();
-        let blocks: Vec<fmt::Overrides> = t.overrides().collect();
-        assert_eq!(blocks.len(), 2);
-        assert_eq!(blocks[0].qualifiers.w_dp, 320);
-        assert_eq!(
-            blocks[1].qualifiers.orientation,
-            fmt::config::ORIENTATION_LAND
-        );
-        let app_name = id_of(&c, TYPE_STRING, "app_name");
-        let main = id_of(&c, TYPE_LAYOUT, "main");
-        // The base reads as before; `R` gained nothing.
-        assert_eq!(t.string(app_name), Some(&b"Res Demo"[..]));
-        assert!(!c
-            .symbols
-            .iter()
-            .any(|(ty, _, _)| *ty == fmt::TYPE_OVERRIDES));
-        // A wide landscape window takes both.
-        let sel = [0u8, 1];
-        let r = t.with(&sel);
-        assert_eq!(r.string(app_name), Some(&b"Wide"[..]));
-        assert!(blocks[1].value(main).is_some());
-        assert_eq!(r.layout(main).unwrap().len(), t.layout(main).unwrap().len());
-
-        let err = |files: &[(&str, &str)]| compile(&tree(files)).unwrap_err();
-        let wrap = |body: &str| format!("<resources>{body}</resources>");
-        assert!(err(&[
-            ("values/a.xml", &wrap(r#"<string name="a">x</string>"#)),
-            ("values-land/a.xml", &wrap(r#"<string name="b">y</string>"#)),
-        ])
-        .contains("exists only in"));
-        assert!(err(&[("values-land-sw320dp/a.xml", "<resources/>")]).contains("order"));
-        assert!(err(&[("values-w320/a.xml", "<resources/>")]).contains("<N>dp"));
-        assert!(err(&[("drawable-land/x.xml", "<shape/>")]).contains("cannot vary"));
-        assert!(err(&[
-            ("layout/m.xml", "<FrameLayout/>"),
-            ("layout-port/other.xml", "<FrameLayout/>"),
-        ])
-        .contains("exists only in"));
     }
 
     #[test]

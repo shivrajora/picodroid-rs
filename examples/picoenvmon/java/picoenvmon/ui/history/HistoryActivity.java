@@ -65,10 +65,9 @@ public class HistoryActivity extends NavActivity implements ServiceConnection {
     root.addView(statusLine);
 
     list = new ListView();
+    list.setSize(224, 170);
     list.setOnItemClickListener((parent, view, position, id) -> showSampleDialog(position));
-    // Weighted: the list grows with the panel and the hint bar stays on the bottom edge.
-    root.addView(
-        list, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+    root.addView(list);
 
     installHintBar(root, "A:Up  B:Down  X:Info  Y:Back");
 

@@ -71,11 +71,6 @@ pub fn push_activity_group() {
         lv_group_set_default(group);
         if !KEYPAD_INDEV.get().is_null() {
             lv_indev_set_group(KEYPAD_INDEV.get(), group);
-            // The key that moved the keypad to this group is still down; its
-            // release must not land on whatever this group focuses (a dialog
-            // picked on SELECT's press used to be reopened by SELECT's release
-            // clicking the row beneath it).
-            lv_indev_wait_release(KEYPAD_INDEV.get());
         }
         ACTIVITY_GROUPS[ACTIVITY_GROUP_DEPTH.get()] = group;
         ACTIVITY_GROUP_DEPTH.set(ACTIVITY_GROUP_DEPTH.get() + 1);
@@ -112,11 +107,6 @@ pub fn pop_activity_group() {
         lv_group_set_default(active);
         if !KEYPAD_INDEV.get().is_null() {
             lv_indev_set_group(KEYPAD_INDEV.get(), active);
-            // The key that moved the keypad to this group is still down; its
-            // release must not land on whatever this group focuses (a dialog
-            // picked on SELECT's press used to be reopened by SELECT's release
-            // clicking the row beneath it).
-            lv_indev_wait_release(KEYPAD_INDEV.get());
         }
         if !group.is_null() {
             lv_group_delete(group);
@@ -142,11 +132,6 @@ pub fn enter_modal_group() -> *mut lv_group_t {
         lv_group_set_default(MODAL_GROUP.get());
         if !KEYPAD_INDEV.get().is_null() {
             lv_indev_set_group(KEYPAD_INDEV.get(), MODAL_GROUP.get());
-            // The key that moved the keypad to this group is still down; its
-            // release must not land on whatever this group focuses (a dialog
-            // picked on SELECT's press used to be reopened by SELECT's release
-            // clicking the row beneath it).
-            lv_indev_wait_release(KEYPAD_INDEV.get());
         }
         MODAL_GROUP.get()
     }
@@ -168,11 +153,6 @@ pub fn leave_modal_group() {
         lv_group_set_default(top);
         if !KEYPAD_INDEV.get().is_null() {
             lv_indev_set_group(KEYPAD_INDEV.get(), top);
-            // The key that moved the keypad to this group is still down; its
-            // release must not land on whatever this group focuses (a dialog
-            // picked on SELECT's press used to be reopened by SELECT's release
-            // clicking the row beneath it).
-            lv_indev_wait_release(KEYPAD_INDEV.get());
         }
         lv_group_delete(MODAL_GROUP.get());
         MODAL_GROUP.set(core::ptr::null_mut());
@@ -208,31 +188,15 @@ pub fn reset_activity_groups() {
             lv_group_set_default(core::ptr::null_mut());
             if !KEYPAD_INDEV.get().is_null() {
                 lv_indev_set_group(KEYPAD_INDEV.get(), core::ptr::null_mut());
-                // The key that moved the keypad to this group is still down; its
-                // release must not land on whatever this group focuses (a dialog
-                // picked on SELECT's press used to be reopened by SELECT's release
-                // clicking the row beneath it).
-                lv_indev_wait_release(KEYPAD_INDEV.get());
             }
         }
     }
-}
-
-/// Whether a dialog holds the keypad: its list and buttons are what the keys
-/// walk, so the keypad reads a focused button matrix as the dialog's list.
-#[cfg(has_buttons)]
-pub fn in_modal_group() -> bool {
-    !MODAL_GROUP.get().is_null()
 }
 
 // No-button boards have no keypad indev — the group machinery is inert, but the
 // lifecycle still calls these so they exist as no-ops.
 #[cfg(not(has_buttons))]
 pub fn push_activity_group() {}
-#[cfg(not(has_buttons))]
-pub fn in_modal_group() -> bool {
-    false
-}
 #[cfg(not(has_buttons))]
 pub fn pop_activity_group() {}
 #[cfg(not(has_buttons))]

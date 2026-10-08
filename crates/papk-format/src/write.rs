@@ -68,12 +68,6 @@ pub struct ManifestSpec<'a> {
     pub label: Option<&'a str>,
     /// `icon`, the name of an ASSETS entry; absent means no icon.
     pub icon: Option<&'a str>,
-    /// `design-width` / `design-height`: the logical size the app lays out
-    /// against (its compat window); absent means resizeable.
-    pub design_size: Option<(u16, u16)>,
-    /// `requires-features`: the required feature names, comma-joined;
-    /// absent means nothing required.
-    pub requires_features: Option<&'a str>,
 }
 
 /// One asset for the ASSETS section.
@@ -290,18 +284,6 @@ impl<'a> PapkBuilder<'a> {
             push_bytes_u16(&mut data, keys::ICON, BuildError::NameTooLong)?;
             push_bytes_u16(&mut data, icon.as_bytes(), BuildError::ValueTooLong)?;
         }
-        if let Some((w, h)) = self.manifest.design_size {
-            let w = alloc::string::ToString::to_string(&w);
-            push_bytes_u16(&mut data, keys::DESIGN_WIDTH, BuildError::NameTooLong)?;
-            push_bytes_u16(&mut data, w.as_bytes(), BuildError::ValueTooLong)?;
-            let h = alloc::string::ToString::to_string(&h);
-            push_bytes_u16(&mut data, keys::DESIGN_HEIGHT, BuildError::NameTooLong)?;
-            push_bytes_u16(&mut data, h.as_bytes(), BuildError::ValueTooLong)?;
-        }
-        if let Some(features) = self.manifest.requires_features {
-            push_bytes_u16(&mut data, keys::REQUIRES_FEATURES, BuildError::NameTooLong)?;
-            push_bytes_u16(&mut data, features.as_bytes(), BuildError::ValueTooLong)?;
-        }
         for (k, v) in &self.extras {
             push_bytes_u16(&mut data, k.as_bytes(), BuildError::NameTooLong)?;
             push_bytes_u16(&mut data, v.as_bytes(), BuildError::ValueTooLong)?;
@@ -412,8 +394,6 @@ mod tests {
             version_code: None,
             label: None,
             icon: None,
-            design_size: None,
-            requires_features: None,
         }
     }
 

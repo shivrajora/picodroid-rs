@@ -6,7 +6,6 @@ import picodroid.graphics.Theme
 import picodroid.os.Bundle
 import picodroid.util.Log
 import picodroid.widget.ArrayAdapter
-import picodroid.widget.LinearLayout
 import picodroid.widget.ListView
 import picodroid.widget.TextView
 import picoenvmonkt.TAG
@@ -63,18 +62,14 @@ class HomeActivity : NavActivity() {
         root.addView(title)
 
         val list = ListView()
+        list.setSize(224, 188)
         list.setAdapter(ArrayAdapter<String>(labels))
         // Android-faithful 4-arg item-click: A/B move the row highlight, X (ENTER) activates the
         // focused row -> open its destination.
         list.setOnItemClickListener { _, _, position, _ ->
             startActivity(Intent(destinations[position]))
         }
-        // The list takes the height the title and the hint bar leave (android:layout_weight="1"),
-        // so the hint bar sits on the bottom edge of every panel.
-        root.addView(
-            list,
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f),
-        )
+        root.addView(list)
         menu = list
 
         installHintBar(root, "A:Up  B:Down  X:Open  Y:Exit")

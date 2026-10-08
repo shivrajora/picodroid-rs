@@ -22,13 +22,6 @@ public class PackageManager {
   /** Feature name for {@link #hasSystemFeature}: the board has an Ethernet link. */
   public static final String FEATURE_ETHERNET = "picodroid.hardware.ethernet";
 
-  /**
-   * Feature name for {@link #hasSystemFeature}: the board has a touchscreen. Every board has BACK,
-   * HOME and the four navigation keys or a touch panel, so an app only needs to ask when it reads
-   * raw touch (drags, gestures) and has no key path for the same action.
-   */
-  public static final String FEATURE_TOUCHSCREEN = "picodroid.hardware.touchscreen";
-
   /** Thrown when a package name is not installed on this device. */
   public static class NameNotFoundException extends Exception {
     public NameNotFoundException() {}
@@ -52,8 +45,7 @@ public class PackageManager {
   }
 
   /**
-   * Whether the device has the named feature ({@link #FEATURE_WIFI}, {@link #FEATURE_ETHERNET},
-   * {@link #FEATURE_TOUCHSCREEN}).
+   * Whether the device has the named feature ({@link #FEATURE_WIFI}, {@link #FEATURE_ETHERNET}).
    */
   public native boolean hasSystemFeature(String name);
 

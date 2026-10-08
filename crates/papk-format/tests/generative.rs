@@ -74,8 +74,6 @@ struct GenSpec {
     version_code: Option<u32>,
     label: Option<String>,
     icon: Option<String>,
-    design: Option<(u16, u16)>,
-    features: Option<String>,
     extras: Vec<(String, String)>,
     classes: Vec<(String, Vec<u8>)>,
     assets: Vec<GenAsset>,
@@ -139,9 +137,6 @@ fn gen_spec(rng: &mut XorShift, max_class_blob: usize, max_asset_data: usize) ->
         let len = 1 + rng.below(16);
         rng.ascii_string(len)
     });
-    let design =
-        (rng.below(2) == 1).then(|| (240 + rng.below(81) as u16, 240 + rng.below(241) as u16));
-    let features = (rng.below(2) == 1).then(|| "picodroid.hardware.touchscreen".to_string());
     GenSpec {
         entry_kind,
         entry,
@@ -151,8 +146,6 @@ fn gen_spec(rng: &mut XorShift, max_class_blob: usize, max_asset_data: usize) ->
         version_code,
         label,
         icon,
-        design,
-        features,
         extras,
         classes,
         assets,
@@ -173,8 +166,6 @@ fn build(spec: &GenSpec) -> Vec<u8> {
         version_code: spec.version_code,
         label: spec.label.as_deref(),
         icon: spec.icon.as_deref(),
-        design_size: spec.design,
-        requires_features: spec.features.as_deref(),
     });
     for (k, v) in &spec.extras {
         b.manifest_entry(k, v);
@@ -230,16 +221,6 @@ fn round_trip_200_random_papks() {
         if let Some(icon) = &spec.icon {
             expected.push((keys::ICON.to_vec(), icon.as_bytes().to_vec()));
         }
-        if let Some((w, h)) = spec.design {
-            expected.push((keys::DESIGN_WIDTH.to_vec(), w.to_string().into_bytes()));
-            expected.push((keys::DESIGN_HEIGHT.to_vec(), h.to_string().into_bytes()));
-        }
-        if let Some(features) = &spec.features {
-            expected.push((
-                keys::REQUIRES_FEATURES.to_vec(),
-                features.as_bytes().to_vec(),
-            ));
-        }
         for (k, v) in &spec.extras {
             expected.push((k.as_bytes().to_vec(), v.as_bytes().to_vec()));
         }
@@ -257,12 +238,6 @@ fn round_trip_200_random_papks() {
         assert_eq!(p.version(), Some(spec.version.as_str()));
         assert_eq!(p.version_code(), spec.version_code, "case {case}");
         assert_eq!(p.label(), spec.label.as_deref(), "case {case}");
-        assert_eq!(p.design_size(), spec.design, "case {case}");
-        assert_eq!(
-            p.requires_features(),
-            spec.features.as_deref(),
-            "case {case}"
-        );
         assert_eq!(p.icon(), spec.icon.as_deref(), "case {case}");
         for (k, v) in &spec.extras {
             assert_eq!(p.manifest_value(k.as_bytes()), Some(v.as_str()));

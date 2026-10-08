@@ -29,8 +29,6 @@ pub fn papk(package: &str, extra: usize) -> alloc::vec::Vec<u8> {
         version_code: Some(1),
         label: None,
         icon: None,
-        design_size: None,
-        requires_features: None,
     });
     b.class("t/Main", &main);
     if extra > 0 {

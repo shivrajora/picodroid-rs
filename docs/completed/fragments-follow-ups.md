@@ -208,17 +208,3 @@ The plan, as written:
 - **Cost.** `PICODROID_SLOW_HANDLER_MS=10 ./scripts/sim.sh --app fragmentdemo`: no span per
   tick beyond what an Activity switch shows. The sim already measured a `replace` at 0–1 ms
   against 54–67 ms for an Activity round trip.
-
-## FR-11: Keys on a board without buttons
-
-**Status: closed 2026-10-06 by
-[designs/app-portability-2026-10.md](../designs/app-portability-2026-10.md) K8: a soft-key queue
-on every board, fed by `pdb input`, the sim control channel and the soft-nav control, drained
-ahead of the GPIO ring; `input keyevent` sends any key to any board, and `fragmentdemo` runs on
-the testbench too. As written when open:** `input back` and `input keyevent` are refused on `testbench_rp2350`
-(`no buttons on this board`: the verb resolves keycodes to pins on the device side, as
-`pdb input` does), which is why `fragmentdemo` pins `pico_display2_w`. Android's
-`input keyevent` works on any device. A simulator-only fallback that delivers the `KeyEvent`
-to the foreground Activity when the board has no pin for it would let key-driven rows run on
-the default board; it would be the one place the sim's input path differs from the device's,
-so say so in the control channel's help text if it is added.

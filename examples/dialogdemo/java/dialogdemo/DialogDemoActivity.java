@@ -24,7 +24,7 @@ public class DialogDemoActivity extends Activity {
 
     LinearLayout root = new LinearLayout();
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT);
+    root.setSize(240, 240);
     root.setPadding(10, 10, 10, 10);
 
     TextView title = new TextView();

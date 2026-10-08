@@ -9,7 +9,6 @@ import picodroid.concurrent.Executors;
 import picodroid.concurrent.Thread;
 import picodroid.content.Context;
 import picodroid.content.res.ColorStateList;
-import picodroid.content.res.Configuration;
 import picodroid.graphics.Canvas;
 import picodroid.graphics.Color;
 import picodroid.graphics.Display;
@@ -22,8 +21,6 @@ import picodroid.util.DisplayMetrics;
 import picodroid.util.Log;
 import picodroid.util.TypedValue;
 import picodroid.view.Gravity;
-import picodroid.view.KeyCharacterMap;
-import picodroid.view.KeyEvent;
 import picodroid.view.View;
 import picodroid.view.ViewGroup;
 import picodroid.widget.ArrayAdapter;
@@ -157,20 +154,6 @@ public class QaUiActivity extends Activity {
     check("display singleton", d == Display.getInstance() && d == getDisplay());
     check("display size", d.getWidth() > 0 && d.getHeight() > 0);
     Log.i(TAG, "display " + d.getWidth() + "x" + d.getHeight());
-    Configuration c = getResources().getConfiguration();
-    check(
-        "configuration is the window",
-        c.screenWidthDp == d.getWidth() && c.screenHeightDp == d.getHeight());
-    check(
-        "configuration floor",
-        c.smallestScreenWidthDp >= 240 && c.densityDpi == DisplayMetrics.DENSITY_DEFAULT);
-    check(
-        "configuration input profile",
-        c.touchscreen != Configuration.TOUCHSCREEN_UNDEFINED
-            && (c.navigation == Configuration.NAVIGATION_DPAD) == !new View(this).isInTouchMode()
-            && c.keyboard == Configuration.KEYBOARD_NOKEYS);
-    check("BACK on every board", KeyCharacterMap.deviceHasKey(KeyEvent.KEYCODE_BACK));
-    Log.i(TAG, "config " + c);
   }
 
   void tree() {

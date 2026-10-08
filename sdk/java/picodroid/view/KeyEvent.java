@@ -30,15 +30,6 @@ public class KeyEvent {
   public static final int KEYCODE_DPAD_RIGHT = 22;
   public static final int KEYCODE_DPAD_CENTER = 23;
 
-  // System keys a board may carry beyond the four navigation keys and BACK/HOME. POWER, SLEEP and
-  // WAKEUP are handled by the framework (display sleep); MENU opens the options menu; ENTER is what
-  // a keyboard's return key sends. Android's values.
-  public static final int KEYCODE_POWER = 26;
-  public static final int KEYCODE_ENTER = 66;
-  public static final int KEYCODE_MENU = 82;
-  public static final int KEYCODE_SLEEP = 223;
-  public static final int KEYCODE_WAKEUP = 224;
-
   // Android's codes for a gamepad's face buttons. No board maps a button to them yet (a board's
   // buttons arrive as the DPAD / BACK codes its board.toml names), so today these are for an app
   // that injects or compares them itself.

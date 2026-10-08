@@ -47,9 +47,8 @@ lv_mem_kb = 48
 # 184 KB in use across its four pages and never drops under 117 KB free
 # (docs/designs/ram-headroom-2026-09.md §6).
 hot_ram_kb = 60
-# The panel dozes after the default 60 s idle (power.rs; Settings → Display can
-# change it). An appliance app that must stay lit calls View.setKeepScreenOn(true)
-# on its root, as the apps built for this board do.
+# An always-on desk display: never sleep the panel on idle.
+idle_timeout_ms = 0
 
 # FreeRTOS+TCP heap tuning, as on pico_enviro_mon_w: this board's apps make
 # small HTTP-client exchanges, never bulk transfers.

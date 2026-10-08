@@ -46,8 +46,6 @@ public class TextView extends View {
    */
   private int mLineMode;
 
-  private int mMaxWidth = Integer.MAX_VALUE;
-
   /** The size last set by {@link #setTextSize}, in pixels; the face in use may differ. */
   private float mTextSize = DEFAULT_TEXT_SIZE;
 
@@ -294,24 +292,6 @@ public class TextView extends View {
    * Mirrors Android: the limit set by {@link #setMaxLines}, 1 under {@link #setSingleLine}, {@code
    * Integer.MAX_VALUE} for none.
    */
-  /**
-   * Mirrors {@code android.widget.TextView#setMaxWidth(int)}: a ceiling on a {@code wrap_content}
-   * label's width, in pixels, so a long line wraps or ellipsizes instead of pushing its neighbours
-   * off the panel. {@code android:maxWidth} in a layout file. {@code Integer.MAX_VALUE} lifts it.
-   */
-  public void setMaxWidth(int maxPixels) {
-    if (mMaxWidth == maxPixels) {
-      return;
-    }
-    mMaxWidth = maxPixels;
-    nativeSetMaxWidth(maxPixels == Integer.MAX_VALUE ? 0x1FFF : maxPixels);
-  }
-
-  /** Mirrors Android: the ceiling {@link #setMaxWidth} set, {@code Integer.MAX_VALUE} for none. */
-  public int getMaxWidth() {
-    return mMaxWidth;
-  }
-
   public int getMaxLines() {
     if ((mLineMode & SINGLE_LINE) != 0) {
       return 1;

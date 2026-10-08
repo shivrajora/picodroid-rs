@@ -58,9 +58,21 @@ network_type = "cyw43"
 # feature, which the board feature forwards; build.rs checks they agree.
 has_tls = true
 
-# The panel dozes after the default 60 s idle and a finger or a button wakes it
-# (power.rs: the GT911 is sampled while asleep, so a touch refreshes the timer
-# and wakes the panel; Settings → Display changes the timeout).
+# No idle display blank on this board. The default is 60 s, and lifecycle.rs
+# compiles that path in for any board with buttons — but its notion of "user
+# activity" is a GPIO edge and its wake path blocks on a button IRQ. This is
+# the first board with a touchscreen AND buttons, and on it neither half holds:
+# a finger on the glass does not refresh the idle timer, so the panel blanks
+# mid-use, and once blanked a finger cannot bring it back. With no backlight
+# pin to dim, DISPOFF just leaves the panel dark and the board looks dead.
+#
+# 0 disables sleep outright (build_support::emit_sleep_config -> None). The
+# real fix is to make touch a first-class input for both halves: refresh the
+# timer on touch activity, and make the GT911's INT line on GP11 signal the
+# same wake semaphore the buttons do. That needs per-pin IRQ work in
+# platforms/rp/src/hal/rp/gpio.rs and a way for the wake path to tell a touch
+# wake from the stale-signal re-block. Restore the default here when it lands.
+idle_timeout_ms = 0
 
 # The LVGL pool can live in the module's PSRAM (hal/rp/psram.rs brings it up
 # at every boot; XIP window 1 at 0x11000000), and it is the one tenant cold

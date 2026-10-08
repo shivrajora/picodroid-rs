@@ -82,14 +82,4 @@ pub trait PackageDirectory {
 
     /// Installed (non-system) apps.
     fn installed_count(&self) -> u32;
-
-    /// Whether the board has `feature`, by the name
-    /// `PackageManager.hasSystemFeature` uses (`picodroid.hardware.touchscreen`,
-    /// …). The installer refuses an app whose manifest requires one the
-    /// board lacks (`requires-features`). A directory that cannot say
-    /// answers yes.
-    fn has_feature(&self, feature: &str) -> bool {
-        let _ = feature;
-        true
-    }
 }

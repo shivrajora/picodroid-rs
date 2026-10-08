@@ -182,17 +182,6 @@ pub mod keys {
     pub const LABEL: &[u8] = b"label";
     /// Name of the ASSETS entry holding the app icon (e.g. `"icon.png"`).
     pub const ICON: &[u8] = b"icon";
-    /// `<supports-screens design-width>`: the logical width the app lays
-    /// out against, decimal text. With [`DESIGN_HEIGHT`] it is the compat
-    /// window the runtime shows the app in on every panel
-    /// (docs/designs/app-portability-2026-10.md D5). Absent: resizeable.
-    pub const DESIGN_WIDTH: &[u8] = b"design-width";
-    /// `<supports-screens design-height>`; see [`DESIGN_WIDTH`].
-    pub const DESIGN_HEIGHT: &[u8] = b"design-height";
-    /// The `<uses-feature required="true">` names, comma-separated, as
-    /// `PackageManager.hasSystemFeature` spells them. The installer refuses
-    /// the app on a board that lacks one. Absent: nothing required.
-    pub const REQUIRES_FEATURES: &[u8] = b"requires-features";
 }
 
 // ── Error type ────────────────────────────────────────────────────────────────
@@ -654,21 +643,6 @@ impl<'a> Papk<'a> {
     /// does not set one.
     pub fn version_code(&self) -> Option<u32> {
         self.manifest_value(keys::VERSION_CODE)?.parse().ok()
-    }
-
-    /// The design size (`design-width` × `design-height`) the app lays out
-    /// against, when it declares one; both keys must be present and parse.
-    /// `None` is a resizeable app.
-    pub fn design_size(&self) -> Option<(u16, u16)> {
-        let w = self.manifest_value(keys::DESIGN_WIDTH)?.parse().ok()?;
-        let h = self.manifest_value(keys::DESIGN_HEIGHT)?.parse().ok()?;
-        Some((w, h))
-    }
-
-    /// The required feature names, comma-separated, or `None` when the app
-    /// requires nothing.
-    pub fn requires_features(&self) -> Option<&'a str> {
-        self.manifest_value(keys::REQUIRES_FEATURES)
     }
 
     /// Verify this PAPK's shrink-map version is compatible with the firmware.

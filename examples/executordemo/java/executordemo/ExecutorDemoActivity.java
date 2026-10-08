@@ -37,7 +37,7 @@ public class ExecutorDemoActivity extends Activity {
 
     LinearLayout root = new LinearLayout();
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT);
+    root.setSize(320, 240);
 
     TextView tv = new TextView();
     tv.setText("ExecutorDemo");

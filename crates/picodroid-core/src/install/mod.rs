@@ -47,9 +47,6 @@ impl PackageDirectory for CoreDirectory {
     fn installed_count(&self) -> u32 {
         crate::packages::installed_count()
     }
-    fn has_feature(&self, feature: &str) -> bool {
-        crate::board_features::has(feature)
-    }
 }
 
 /// Install, then reboot. See [`pd_install::run_install`].

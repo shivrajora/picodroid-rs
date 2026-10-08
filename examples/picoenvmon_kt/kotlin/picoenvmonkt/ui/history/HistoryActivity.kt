@@ -11,7 +11,6 @@ import picodroid.os.Bundle
 import picodroid.os.IBinder
 import picodroid.util.Log
 import picodroid.widget.ArrayAdapter
-import picodroid.widget.LinearLayout
 import picodroid.widget.ListView
 import picodroid.widget.TextView
 import picoenvmonkt.IDX_TEMPERATURE
@@ -68,12 +67,9 @@ class HistoryActivity : NavActivity(), ServiceConnection {
         statusLine = status
 
         val rows = ListView()
+        rows.setSize(224, 170)
         rows.setOnItemClickListener { _, _, position, _ -> showSampleDialog(position) }
-        // Weighted: the list grows with the panel and the hint bar stays on the bottom edge.
-        root.addView(
-            rows,
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f),
-        )
+        root.addView(rows)
         list = rows
 
         installHintBar(root, "A:Up  B:Down  X:Info  Y:Back")

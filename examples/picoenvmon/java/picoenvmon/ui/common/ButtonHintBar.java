@@ -22,7 +22,7 @@ public final class ButtonHintBar {
   public static LinearLayout create(String hints) {
     LinearLayout bar = new LinearLayout();
     bar.setOrientation(LinearLayout.HORIZONTAL);
-    bar.setSize(LinearLayout.LayoutParams.MATCH_PARENT, 18);
+    bar.setSize(224, 18);
 
     TextView label = new TextView();
     label.setText(hints);

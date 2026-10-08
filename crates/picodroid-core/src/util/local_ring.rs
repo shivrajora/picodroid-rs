@@ -48,11 +48,6 @@ impl<T: Copy, const N: usize> LocalRing<T, N> {
         true
     }
 
-    /// Whether nothing is queued.
-    pub fn is_empty(&self) -> bool {
-        self.tail.get() == self.head.get()
-    }
-
     /// Take the oldest element.
     pub fn pop(&self) -> Option<T> {
         let tail = self.tail.get();

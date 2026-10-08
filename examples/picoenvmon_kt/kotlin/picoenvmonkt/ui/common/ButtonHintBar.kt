@@ -21,7 +21,7 @@ import picodroid.widget.TextView
 fun createHintBar(hints: String): LinearLayout {
     val bar = LinearLayout()
     bar.setOrientation(LinearLayout.HORIZONTAL)
-    bar.setSize(LinearLayout.LayoutParams.MATCH_PARENT, 18)
+    bar.setSize(224, 18)
 
     val label = TextView()
     label.setText(hints)

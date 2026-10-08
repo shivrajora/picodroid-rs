@@ -285,7 +285,7 @@ Why: `setInputType` mirrors `android.widget.TextView.setInputType`, but the clas
 
 Symptom: after the board idles to sleep, the first button press only wakes the screen — it does not navigate or click.
 
-On every board, after the screen timeout (`idle_timeout_ms`, 60 s by default; Settings → Display can change it) with no key or touch, the display dozes while your app keeps running. The press or tap that wakes it is discarded so it never reaches LVGL focus nav, your `OnKeyListener` or a click listener. A second press is needed to actually act. This is by design, as on a phone, and the simulator does it too (its window goes black).
+On a button board, after `idle_timeout_ms` of no input the display sleeps. The press that wakes it (and its release edge) is discarded so it never reaches LVGL focus nav or your `OnKeyListener`. A second press is needed to actually act. This is by design, and does not apply to the simulator or to touch-only boards. On a board with both touch and buttons, touch is invisible to this path entirely — it neither delays sleep nor wakes the panel — which is why `pico_touch_kit` disables the timeout.
 
 ```java
 // WRONG: assuming the first post-sleep press triggers your handler.
@@ -297,7 +297,7 @@ button.setOnKeyListener((v, event) -> { advance(); return true; });
 // Keep handlers idempotent so a double-tap to wake-then-act is harmless.
 ```
 
-Why: the wake drains the queued edges and the touch ring and tells LVGL to sit out the press. A screen that is watched rather than touched — a clock, a monitor — holds the panel on with `View.setKeepScreenOn(true)` on its root instead of fighting the timer; the board default can be tuned with `idle_timeout_ms` in `board.toml` (`0` never). While the display dozes only the render stops: `ScheduledExecutorService` tasks, alarms and callbacks still fire. See [system limits](/reference/limits/#display-idle-sleep).
+Why: the wake path drains both edges of the wake press before resuming the tick source. Tune or disable the timeout via `idle_timeout_ms` in `board.toml` (default 60000 ms, `0` disables). Every button board in the tree sets it to `0` today, so you meet this on a board of your own that leaves the key out. While the display sleeps the UI tick is paused: tasks of a `ScheduledExecutorService` do not fire until the wake. See [system limits](/reference/limits/).
 
 ## StringBuilder is byte-oriented and small
 

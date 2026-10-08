@@ -5,7 +5,6 @@ import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
-import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.*
 
@@ -40,19 +39,6 @@ abstract class PapkPackTask : DefaultTask() {
     @get:Input
     @get:Optional
     abstract val icon: Property<String>
-
-    /** `design-width` / `design-height` manifest keys, from `<supports-screens>`; unset means resizeable. */
-    @get:Input
-    @get:Optional
-    abstract val designWidth: Property<Int>
-
-    @get:Input
-    @get:Optional
-    abstract val designHeight: Property<Int>
-
-    /** `requires-features` manifest key: the `<uses-feature required="true">` names. */
-    @get:Input
-    abstract val requiresFeatures: ListProperty<String>
 
     @get:Input
     @get:Optional
@@ -133,8 +119,6 @@ abstract class PapkPackTask : DefaultTask() {
         )
         label.orNull?.let { args += listOf("--label", it) }
         icon.orNull?.let { args += listOf("--icon", it) }
-        designWidth.orNull?.let { args += listOf("--design-size", "${it}x${designHeight.get()}") }
-        requiresFeatures.get().forEach { args += listOf("--requires-feature", it) }
         assetsDir.orNull?.let { args += listOf("--assets-dir", it.asFile.absolutePath) }
         resDir.orNull?.let { args += listOf("--res-dir", it.asFile.absolutePath) }
         shrinkMapFile.orNull?.let { args += listOf("--shrink-map", it.asFile.absolutePath) }

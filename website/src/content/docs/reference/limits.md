@@ -112,24 +112,13 @@ first-visit class parsing and socket set-up take the native footprint from
 `examples/gcstress_kt` is the collector stress lane for Kotlin-specific churn
 (lambda proxies, `Ref` boxes, autoboxing, `Pair`, map entry views).
 
-## Screens
-
-Every board is at least **240×240 logical pixels** (`board.toml` is refused below that), a `dp`
-is one of them on every board, and the panels are 240×240, 320×240 and 320×480. A layout that
-stretches (`match_parent`, weights) fills whichever it lands on; one that cannot declares a
-`<supports-screens>` design size and runs in a window of that size — centred on a larger panel,
-panned on a smaller one — and a root larger than its window pans rather than clips. The
-simulator and a debug build log `[layout] fit ok WxH in WxH` or `[layout] overflow …` after each
-`setContentView`. Resource directories may vary by `sw<N>dp`, `w<N>dp`, `h<N>dp`, `land`/`port`
-and `notouch`/`finger` only. See [Apps on every board](/guides/every-board/).
-
 ## Display idle sleep
 
-On every board, the simulator included, the panel **dozes** after the screen timeout with no key edge or touch: **60 seconds** by default (`idle_timeout_ms`), or what Settings → Display stored (`Settings.System.SCREEN_OFF_TIMEOUT`, `0` for never). The backlight and panel go off and LVGL stops ticking; **the app keeps running** — Runnables, alarms, `ScheduledExecutorService` tasks, network callbacks and the sensors continue, and `PowerManager.isInteractive()` says false. Any button wakes the panel, and so does a finger where the controller is read while dark (the touch kit's GT911 sampler task; the testbenches' XPT2046 polled inline). `KEYCODE_SLEEP` dozes at once, `KEYCODE_WAKEUP` wakes, `KEYCODE_POWER` toggles. The log numbers each transition: `display: doze #3 after 60000 ms idle`, `display: wake #3 (touch)`.
+On `has_buttons` boards (not the simulator, not touch-only boards), the panel sleeps after **60 seconds** with no button input (the default `idle_timeout_ms`). Setting `idle_timeout_ms = 0` disables sleep — `pico_enviro_mon`, `pico_enviro_mon_w`, `pico_display2_w` and `pico_touch_kit` do this.
 
-The wake behavior affects input handling: the keypress that wakes the panel **and its release edge are both swallowed**, and the finger that wakes it lands as no click. They wake the display but do not reach LVGL focus navigation, your `OnKeyListener` or a click listener — so a user pressing a sleeping screen wakes it without also navigating or clicking. The first *new* press after wake behaves normally.
+The wake behavior has one quirk that affects input handling: the keypress that wakes the panel **and its release edge are both swallowed**. They wake the display but do not reach LVGL focus navigation or your `OnKeyListener` — so a user pressing a button on a sleeping screen wakes it without also navigating or clicking. The first *new* press after wake behaves normally.
 
-A screen that is watched rather than touched holds the panel on with `View.setKeepScreenOn(true)` on its root (`android:keepScreenOn="true"` in a layout): `claudeusage`, `picoenvmon`, `weather` and `picoclock`'s face do. The hold ends with the view; a `KEYCODE_SLEEP` still dozes. An Activity that must be seen when it starts — `picoclock`'s ringing alarm — calls `Activity.setTurnScreenOn(true)`. See "Input and idle power" in [your first app](/get-started/first-app/).
+Sleep only exists on button-driven boards because the wake path blocks on a button IRQ; a touch-only board would never wake. On a board with **both** a touchscreen and buttons the feature is still compiled in, but it only understands buttons: a finger on the glass neither refreshes the idle timer nor wakes a sleeping panel, so the screen can blank mid-use and only a button press brings it back. Set `idle_timeout_ms = 0` on such a board, as `pico_touch_kit` does. See "Input and idle power" in [your first app](/get-started/first-app/).
 
 ## Tuning these limits
 

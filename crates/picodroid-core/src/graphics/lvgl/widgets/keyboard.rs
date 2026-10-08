@@ -242,10 +242,6 @@ pub(in crate::graphics) fn show_system_for(ta: *mut lv_obj_t, et_obj_ref: u16) {
             /* INTERP_LINEAR */ 0,
         );
         SYSTEM_KEYBOARD_VISIBLE.set(true);
-        // The soft-nav control sits where the keyboard's bottom-left key
-        // does; the keyboard has its own dismiss affordances.
-        super::super::soft_nav::set_hidden(true);
-        super::super::menu_button::set_hidden(true);
         // On a keypad board the keyboard takes the focus while it shows:
         // `keypad_remap` then turns PREV/NEXT into LEFT/RIGHT, which walk
         // its keys, and ENTER presses the selected one (LVGL's own path).
@@ -276,8 +272,6 @@ pub fn hide_system() -> bool {
         animations::cancel(SYSTEM_KEYBOARD_HANDLE.get());
         lv_obj_add_flag(SYSTEM_KEYBOARD.get(), LV_OBJ_FLAG_HIDDEN);
         SYSTEM_KEYBOARD_VISIBLE.set(false);
-        super::super::soft_nav::set_hidden(false);
-        super::super::menu_button::set_hidden(false);
         SYSTEM_KEYBOARD_BOUND_ET.set(0);
         SYSTEM_KEYBOARD_FOCUS_PENDING.set(false);
         events::detach_screen_press_hook();

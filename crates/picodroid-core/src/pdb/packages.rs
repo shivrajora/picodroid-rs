@@ -152,8 +152,6 @@ mod tests {
             version_code: Some(7),
             label,
             icon: None,
-            design_size: None,
-            requires_features: None,
         });
         let main = crate::packages::test_support::t_main();
         b.class("t/Main", &main);

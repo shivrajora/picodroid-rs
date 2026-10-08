@@ -127,8 +127,6 @@ public class MainActivity extends Activity implements SensorEventListener {
     root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
     root.setSize(width, height);
-    // A weather display is glanced at, not touched: hold the panel on.
-    root.setKeepScreenOn(true);
     root.setPadding(PAD, 6, PAD, 6);
     root.setSpacing(2);
     sky(NIGHT_CLEAR_TOP, NIGHT_CLEAR_BOTTOM);

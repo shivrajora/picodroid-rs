@@ -459,8 +459,6 @@ public class LayoutInflater {
         throw new InflateException("a custom view without its class name");
       case 20: // CLASS_VIEW
         return new View(mContext);
-      case 21: // CLASS_SPACE
-        return new picodroid.widget.Space(mContext);
       default:
         // A layout compiled for a newer framework than this one.
         throw new InflateException("unknown view class code " + cls);
@@ -638,20 +636,6 @@ public class LayoutInflater {
         break;
       case 51: // ATTR_CLASS_NAME
         // Read by one() before the view exists; never reaches here.
-        break;
-      case 52: // ATTR_KEEP_SCREEN_ON
-        v.setKeepScreenOn(value != 0);
-        break;
-      case 53: // ATTR_MIN_WIDTH
-        v.setMinimumWidth(value);
-        break;
-      case 54: // ATTR_MIN_HEIGHT
-        v.setMinimumHeight(value);
-        break;
-      case 55: // ATTR_MAX_WIDTH
-        if (v instanceof TextView) {
-          ((TextView) v).setMaxWidth(value);
-        }
         break;
       default:
         // An attribute from a newer compiler: skip it rather than fail the whole screen.

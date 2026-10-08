@@ -64,19 +64,11 @@ HOME goes straight to the launcher on a multi-app board, from any app at any dep
 
 A touchscreen board with no button at all (`soft_nav = true`; the testbenches) gets the same two gestures from a small round control the framework draws in the bottom-left corner of the window: a tap is BACK, a hold is HOME. It hides while the system keyboard is up and rides above a dialog's scrim. See [Apps on every board](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/app-portability-2026-10.md) for the input profiles every board meets.
 
-An app that wants to show a hint such as "A: up" only where there is an A asks
-`KeyCharacterMap.deviceHasKey(KeyEvent.KEYCODE_DPAD_UP)`; BACK and HOME answer true on every board,
-the control and the hold included. `getResources().getConfiguration()` says the same thing at the
-profile level — `navigation` is `NAVIGATION_DPAD` where the four keys exist, `touchscreen` is
-`TOUCHSCREEN_FINGER` where a panel does — and gives the window's size in dp, which is what to branch
-on for a two-column layout. Handle the keys regardless: an app that handles `KEYCODE_DPAD_UP` works
-wherever the key exists, and the hint is the only thing that should depend on the answer.
-
 For the full `board.toml` schema — required keys, valid `lv_key` values, how `[[button]]` differs from `[touch]` — see the [porting guide](/reference/porting-guide/). The board files live in [`platforms/rp/boards`](https://github.com/shivrajora/picodroid-rs/tree/main/platforms/rp/boards).
 
 ## Making widgets reachable
 
-A plain `View` is **not** focusable (the Android default). On a button board that means it never receives key events and the up/down buttons skip over it. A view with a click listener **is** focusable on a board whose keys move the focus — `setOnClickListener` makes it so, as Android's `focusable="auto"` does — so a screen written with click listeners alone is reachable by the four keys. For anything else, make it focusable and, if it should start selected, request focus:
+A plain `View` is **not** focusable (the Android default). On a button board that means it never receives key events and the up/down buttons skip over it. Make it focusable and, if it should start selected, request focus:
 
 ```java
 import picodroid.widget.Button;
@@ -165,23 +157,6 @@ While an `AlertDialog` shows it holds the keypad: A and B cycle the dialog's own
 The simulator has no GPIO, so it synthesizes button edges into the same queue the device's GPIO interrupt fills, and everything after that is the device's own path: the LVGL keypad, focus navigation, the phantom-release filter, `OnKeyListener`, the Activity's key callbacks with auto-repeat and long-press, and the BACK chain. In the simulator window the host keyboard drives the buttons — Up and Down arrows are PREV and NEXT, Enter is ENTER, Backspace is BACK, and the digits `1`–`4` press the first to fourth declared button (Escape closes the simulator). Headless, the control channel takes `tap A`, `input keyevent --longpress 23` and the rest. See the headless-sim section of the [debugging guide](/guides/debugging/#driving-the-simulator-headlessly).
 :::
 
-## Value widgets by key
-
-Every stock widget works with the four keys ([app portability](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/app-portability-2026-10.md) K7). The ones that hold a value are **edited**: with the widget focused, X (SELECT) enters edit mode — the widget gets LVGL's edited outline — A/B change the value instead of moving the focus, and X commits or Y (BACK) leaves, neither reaching the app's `onBackPressed`. What A/B do is the widget's own:
-
-| Widget | SELECT, then A / B | Leave with |
-|---|---|---|
-| `NumberPicker` | +1 / −1 (`OnValueChangeListener`) | X or Y |
-| `SeekBar` | +1 / −1 (`onProgressChanged`) | X or Y |
-| `TimePicker` (each roller) | previous / next value (`onTimeChanged`) | X or Y |
-| `DatePicker` | the day before / after; X selects it (`onDateChanged`) | Y |
-| `Spinner` | X opens the list, A/B move the highlight, X picks (`onItemSelected`), Y closes | — |
-| `Switch`, `CheckBox`, `RadioButton`, `ToggleButton`, `Button`, a clickable row | X activates, no edit mode | — |
-| `EditText` | X opens the system keyboard ([below](#keyboard-on-button-boards)) | Y |
-| `AlertDialog` with items | the list has the focus: A/B move between rows, X picks, Y dismisses | Y |
-
-A screen with nothing focusable — an About page, a `ScrollView` of plain text — still answers A/B: they page its first `ScrollView`, as Android's `arrowScroll` scrolls when no view takes the arrow. `ViewPager2` has no key paging of its own; on a key board call `setCurrentItem` from `onKeyDown`, as the `claudeusage` chrome does.
-
 ## Lists and menus
 
 `ListView` rows are focusable automatically — you don't call `setFocusable` on them. A/B move the row highlight, X (ENTER) activates the highlighted row. The activation path is unified: a row reached by ENTER on a button board and a row tapped in the touch sim both fire the **same** `onItemClick`.
@@ -205,43 +180,6 @@ Each `lv_list` button row consumes the board's small 48 KB LVGL render pool. Pas
 :::
 
 For a worked multi-screen example using this hub + `startActivity` pattern, see the [multi-screen app tutorial](/tutorials/multi-screen-app/).
-
-## The options menu
-
-The write-once action surface. Declare the Activity's actions once and the framework finds a way to
-open them on every board — a MENU key where a board has one, **holding SELECT** on a four-key
-board (when the focused view has no `OnLongClickListener` of its own; a tap stays its click),
-and a round menu control the framework draws bottom-right on a touch board while the resumed
-Activity has a menu. The menu shows as a list dialog, walked with UP/DOWN and picked with SELECT
-or a tap, and the pick reaches `onOptionsItemSelected`:
-
-```java
-@Override
-public boolean onCreateOptionsMenu(Menu menu) {
-  menu.add(Menu.NONE, ID_REFRESH, Menu.NONE, "Refresh");
-  menu.add(Menu.NONE, ID_UNITS, Menu.NONE, "Toggle units");
-  MenuItem about = menu.add(Menu.NONE, ID_ABOUT, Menu.NONE, "About");
-  about.setOnMenuItemClickListener(item -> { showAbout(); return true; }); // took the pick
-  return true;
-}
-
-@Override
-public boolean onOptionsItemSelected(MenuItem item) {
-  switch (item.getItemId()) {
-    case ID_REFRESH: refresh(); return true;
-    case ID_UNITS: toggleUnits(); return true;
-    default: return super.onOptionsItemSelected(item);
-  }
-}
-```
-
-`onCreateOptionsMenu` runs once after the first `onResume`; `invalidateOptionsMenu()` runs it
-again, `onPrepareOptionsMenu` runs before each show (return false to keep the menu closed), and
-`openOptionsMenu()` / `closeOptionsMenu()` do what they say. An empty menu is offered nowhere: no
-control is drawn and a held SELECT does nothing. `onOptionsMenuClosed` follows a pick or
-`closeOptionsMenu`; a menu dismissed with BACK does not report it. A key you map by hand in
-`onKeyDown` still works — the menu is for the actions that would otherwise need a button the
-board does not have. `examples/menudemo` drives all three openers from the simulator.
 
 ## Focus styling
 

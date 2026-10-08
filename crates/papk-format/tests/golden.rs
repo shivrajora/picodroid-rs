@@ -155,8 +155,6 @@ mod rebuild {
             version_code: None,
             label: None,
             icon: None,
-            design_size: None,
-            requires_features: None,
         });
         b.class("fixture/Main", MAIN_CLASS);
         b

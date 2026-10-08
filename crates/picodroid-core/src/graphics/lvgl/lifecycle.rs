@@ -100,7 +100,6 @@ pub(in crate::graphics) fn init(width: u16, height: u16) {
         lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
         lv_indev_set_read_cb(indev, Some(touch_read_cb));
         lv_indev_set_scroll_limit(indev, hal::display::SCROLL_LIMIT);
-        POINTER_INDEV.set(indev);
 
         // Cache a Handle for the screen so `LvglGfx::screen()` can return
         // a backend-neutral type. The screen pointer is stable post-init.
@@ -110,13 +109,6 @@ pub(in crate::graphics) fn init(width: u16, height: u16) {
         let scr = lv_screen_active();
         SCREEN_HANDLE.set(Handle::from_java(handle_table::register_pinned(scr)));
     }
-    // The app may have declared a design size before the display existed
-    // (`run_app` runs first on a cold boot): the window takes effect now.
-    super::window::sync();
-    // A board with no system button gets its BACK/HOME control on the top
-    // layer now, above every screen an app will load.
-    super::soft_nav::ensure();
-    super::menu_button::ensure();
 }
 
 pub(in crate::graphics) fn tick(ms: u32) {
@@ -141,33 +133,11 @@ pub(in crate::graphics) fn tick(ms: u32) {
     }
 }
 
-/// The pointer input device, kept so a wake can tell it to sit out the
-/// press that woke the panel.
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static POINTER_INDEV: Core0<Cell<*mut lv_indev_t>> =
-    unsafe { Core0::new(Cell::new(core::ptr::null_mut())) };
-
 pub(in crate::graphics) fn sleep() {
     hal::display::display_sleep();
 }
 
-/// What woke the panel must not act on what it finds there: drop the queued
-/// key edges (their releases are dropped by the press-state filter), drain
-/// the touch ring, and have LVGL ignore the current press until it lifts.
-fn swallow_wake_input() {
-    while hal::gpio::drain_gpio_event().is_some() {}
-    crate::input_inject::reset_soft_keys();
-    while hal::touch_sampler::next().is_some() {}
-    LAST_DELIVERED.set(None);
-    let indev = POINTER_INDEV.get();
-    if !indev.is_null() {
-        // SAFETY: the pointer indev is created in `init` and never deleted.
-        unsafe { lv_indev_wait_release(indev) };
-    }
-}
-
 pub(in crate::graphics) fn wake() {
-    swallow_wake_input();
     hal::display::display_wake();
     // The full repaint below goes out through the identity rotation; make
     // sure the panel is told so before the first band, whatever sleep did
@@ -182,37 +152,15 @@ pub(in crate::graphics) fn wake() {
     }
 }
 
-/// Where content roots go: the screen, or the compat window's object while
-/// an app with a design size runs (`window.rs`).
 pub(in crate::graphics) fn screen_handle() -> Handle {
-    let content = CONTENT_HANDLE.get();
-    if content.is_null() {
-        SCREEN_HANDLE.get()
-    } else {
-        content
-    }
+    SCREEN_HANDLE.get()
 }
 
-/// The compat window's object (registered for the Java side) as the content
-/// parent, or the screen again when `pinned` is false and `obj` is the
-/// screen. Called by `window::sync` only.
-pub(super) fn set_content_parent(obj: *mut lv_obj_t, windowed: bool) {
-    CONTENT_HANDLE.set(if windowed {
-        Handle::from_java(handle_table::register(obj))
-    } else {
-        Handle::NULL
-    });
-}
-
-/// The handle `screen_handle` answers while a compat window is up, null
-/// otherwise (the pinned screen handle then).
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static CONTENT_HANDLE: Core0<Cell<Handle>> = unsafe { Core0::new(Cell::new(Handle::NULL)) };
-
-/// Raw pointer every widget is created under before `addView` re-parents
-/// it: the screen, or the compat window's object (`window.rs`).
+/// Raw screen pointer accessor for legacy callers (widgets that still use
+/// `engine::screen()` pre-step-7 migration). Goes away when widgets
+/// migrate to `with_gfx(|g| g.screen())`.
 pub(in crate::graphics) fn screen_ptr() -> *mut lv_obj_t {
-    super::window::content_root()
+    unsafe { lv_screen_active() }
 }
 
 /// Where a system overlay is parented: LVGL's top layer, above every screen.
@@ -376,8 +324,6 @@ unsafe extern "C" fn touch_read_cb(_indev: *mut lv_indev_t, data: *mut lv_indev_
             data.point.x = x as i32;
             data.point.y = y as i32;
             data.state = LV_INDEV_STATE_PRESSED;
-            // A finger on the glass: the panel stays on (power.rs).
-            crate::power::user_activity();
         }
         None => data.state = LV_INDEV_STATE_RELEASED,
     }

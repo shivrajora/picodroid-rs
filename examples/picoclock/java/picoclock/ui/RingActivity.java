@@ -82,9 +82,6 @@ public class RingActivity extends BaseActivity {
     stop.setOnClickListener(v -> dismiss());
     root.addView(stop);
 
-    // An alarm must be seen: wake a dozing panel and hold it while ringing.
-    setTurnScreenOn(true);
-    root.setKeepScreenOn(true);
     setContentView(root);
     redraw();
   }

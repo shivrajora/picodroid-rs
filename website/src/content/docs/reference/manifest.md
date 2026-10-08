@@ -51,15 +51,6 @@ The `<manifest>` root:
     there, or the build fails at configuration time, and it should be a small
     square: 48×48 is the convention; `papk-pack` warns past 64×64 or when the
     sides differ.
-- **`<supports-screens design-width=".." design-height=".."/>` (optional).**
-  The logical size the app lays out against; both attributes are positive
-  integers and both are required when the element is present. The runtime
-  shows the app at exactly that size on every panel. Absent: the app resizes
-  to the panel. See [Screens and features](#screens-and-features).
-- **`<uses-feature name=".." required="true|false"/>` (optional, repeatable).**
-  A hardware feature the app uses, by its `PackageManager.FEATURE_*` name;
-  `required` defaults to `false`. The installer refuses an app that requires
-  a feature the board lacks.
 
 The exact error strings, so you can grep this page if you hit one:
 
@@ -71,10 +62,6 @@ The exact error strings, so you can grep this page if you hit one:
 - `<file>: <application> sets multiple of 'main-class'/'activity'/'application' — pick one`
 - `<file>: <manifest> version-code must be a positive integer, got '<value>'`
 - `<app>: PicodroidManifest.xml icon="<name>" is not a file under assets/`
-- `<file>: <supports-screens> design-width must be a positive integer, got '<value>'` (and
-  `design-height`)
-- `<file>: <uses-feature> missing 'name' attribute`
-- `<file>: <uses-feature> required must be 'true' or 'false', got '<value>'`
 
 ### DOCTYPE is rejected
 
@@ -221,51 +208,6 @@ They reach the PAPK as the `version-code`, `label` and `icon` manifest keys
 missing code reads as 1, a missing label as the package name, a missing icon as
 none.
 
-## Screens and features
-
-Two more elements, both optional, from
-[app portability](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/app-portability-2026-10.md):
-
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<manifest package="picoclock" version="1.0">
-    <application application="picoclock/ClockApp" label="Clock" />
-    <supports-screens design-width="320" design-height="480" />
-    <uses-feature name="picodroid.hardware.touchscreen" required="true" />
-</manifest>
-```
-
-**`<supports-screens>`** names the logical size the app was laid out against. The
-runtime then shows the app in a window of exactly that size on every board —
-`Display.getWidth()`/`getHeight()`, every `dp`, every coordinate the app uses and
-every overlay the framework draws are the design's. On a larger panel the window
-is centred and the rest of the panel stays dark; on a smaller one the window
-starts at the panel's origin and the screen pans to what does not fit (a drag on
-a touch board, the focus on a four-key one). The simulator logs the placement at
-launch: `window 320x240 @ (0,120) on the 320x480 panel`, or
-`window: the 320x240 panel` when nothing was declared. Declare a design size for
-an app drawn in pixels against one panel; leave it out — the default — for an
-app whose layout stretches with `match_parent` and `layout_weight`, which runs
-at the panel's own size (see
-[Writing a layout once for every board](/guides/resources/#layouts)).
-
-**`<uses-feature>`** declares a hardware feature by the name
-`PackageManager.hasSystemFeature` answers to: `picodroid.hardware.touchscreen`,
-`picodroid.hardware.wifi`, `picodroid.hardware.ethernet`. With
-`required="true"` the installer — `pdb install`, the launcher's installer and
-the simulator's `apps install` — refuses the app on a board that lacks the
-feature, before anything is erased:
-`device rejected install: ERR — requires a feature this board lacks (uses-feature)`.
-The default is `required="false"`, which is informational: the stock widgets
-work with a finger and with four keys alike, so only an app that reads raw
-touch (a drawing pad, a drag demo) has to insist. A board whose firmware was
-flashed with such an app directly, bypassing the installer, runs it and logs
-`app requires <feature>, which this board lacks` once.
-
-They reach the PAPK as the `design-width`, `design-height` and
-`requires-features` (comma-separated, required ones only) manifest keys;
-`papk-pack` takes them as `--design-size WxH` and `--requires-feature <name>`.
-
 ## How it is wired
 
 Each app's `build.gradle.kts` applies a single plugin:
@@ -328,8 +270,7 @@ flash.
 
 - **MANIFEST** holds the values of this page as key/value strings: the entry
   point (`application`, `activity` or `main-class`), `package-name`, `version`,
-  `framework-map-version`, and `version-code`, `label`, `icon`, `design-width`,
-  `design-height` and `requires-features` when set.
+  `framework-map-version`, and `version-code`, `label` and `icon` when set.
 - **CLASSES** holds every `.class` file with a *link table* `papk-pack` built
   for it (the record a class loader would otherwise parse at run time, a hash of
   each superclass and interface name, a signature hash per method and a 4-byte
