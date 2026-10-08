@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest package="menudemo" version="1.0">
+    <application activity="menudemo/MenuDemoActivity" label="Menu demo" />
+</manifest>

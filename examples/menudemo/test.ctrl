@@ -1,0 +1,18 @@
+# Control-channel script for this app's sim rows (sim-run.sh::run_test, sim rows only).
+# On the four-key board a held SELECT on the focused Button — which has no long press of
+# its own — opens the options menu; the list takes the focus with its first row selected,
+# so DOWN moves and SELECT picks. KEYCODE_MENU (82) has no pin here and arrives as a soft
+# key; the third row has its own OnMenuItemClickListener.
+wait MenuDemo[]:] ready
+input keyevent --longpress 23
+wait MenuDemo[]:] menu shown #1
+input keyevent 20
+input keyevent 23
+wait MenuDemo[]:] selected Toggle units id=2
+input keyevent 82
+wait MenuDemo[]:] menu shown #2
+input keyevent 20
+input keyevent 20
+input keyevent 23
+wait MenuDemo[]:] about via listener
+input back

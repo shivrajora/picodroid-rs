@@ -15,6 +15,8 @@ import picodroid.os.Bundle;
 import picodroid.util.AttributeSet;
 import picodroid.view.KeyEvent;
 import picodroid.view.LayoutInflater;
+import picodroid.view.Menu;
+import picodroid.view.MenuItem;
 import picodroid.view.View;
 
 public class Activity extends Context
@@ -242,6 +244,10 @@ public class Activity extends Context
 
   final void performResume() {
     onResume();
+    // The options menu is built once the Activity is up, as Android prepares its panel after
+    // resume; the framework then knows whether to offer a way to open it (the menu control
+    // on a touch board).
+    prepareOptionsMenu();
     mFragmentHostState = Fragment.RESUMED;
     if (mFragments != null) {
       mFragments.dispatchResume();
@@ -363,6 +369,18 @@ public class Activity extends Context
       event.startTracking();
       return true;
     }
+    if (keyCode == KeyEvent.KEYCODE_MENU) {
+      return true; // acts on the release, in onKeyUp
+    }
+    if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER
+        && event.getRepeatCount() == 0
+        && hasOptionsMenuItems()
+        && !nativeFocusTakesLongPress()) {
+      // A held SELECT opens the options menu on a board with no MENU key, when the focused
+      // view has no long press of its own; a tap stays the view's click (K9).
+      event.startTracking();
+      return true;
+    }
     return false;
   }
 
@@ -375,6 +393,10 @@ public class Activity extends Context
    */
   @Override
   public boolean onKeyLongPress(int keyCode, KeyEvent event) {
+    if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER && hasOptionsMenuItems()) {
+      openOptionsMenu();
+      return true; // cancels the release, so the focused view is not clicked
+    }
     return false;
   }
 
@@ -391,8 +413,113 @@ public class Activity extends Context
       onBackPressed();
       return true;
     }
+    if (keyCode == KeyEvent.KEYCODE_MENU) {
+      openOptionsMenu(); // as Android's window does on the MENU key's release
+      return true;
+    }
     return false;
   }
+
+  // ── Options menu (docs/designs/app-portability-2026-10.md K9) ────────────────────────────
+
+  private OptionsMenu mOptionsMenu;
+  private boolean mOptionsMenuCreated;
+  private AlertDialog mOptionsMenuDialog;
+
+  /**
+   * Mirrors Android: add this Activity's actions to {@code menu}. Called once after the first
+   * {@link #onResume}, again after {@link #invalidateOptionsMenu}; return true to have a menu. The
+   * framework presents it as a list: a MENU key opens it where a board has one, holding SELECT on a
+   * four-key board (when the focused view has no long press of its own), a tap on the menu control
+   * the framework draws bottom-right on a touch board. The default adds nothing, and an empty menu
+   * is offered nowhere.
+   */
+  public boolean onCreateOptionsMenu(Menu menu) {
+    return true;
+  }
+
+  /** Mirrors Android: called before the menu shows; return false to keep it closed. */
+  public boolean onPrepareOptionsMenu(Menu menu) {
+    return true;
+  }
+
+  /**
+   * Mirrors Android: an item was picked and its own {@link MenuItem.OnMenuItemClickListener}, if
+   * any, did not consume it. Return true when handled.
+   */
+  public boolean onOptionsItemSelected(MenuItem item) {
+    return false;
+  }
+
+  /** Mirrors Android: the menu went away after a pick or {@link #closeOptionsMenu}. */
+  public void onOptionsMenuClosed(Menu menu) {}
+
+  /**
+   * Mirrors Android: rebuild the menu through {@link #onCreateOptionsMenu} before it next shows.
+   */
+  public void invalidateOptionsMenu() {
+    closeOptionsMenu();
+    mOptionsMenuCreated = false;
+    prepareOptionsMenu();
+  }
+
+  /** Mirrors Android: show the options menu now, if it has visible items. */
+  public void openOptionsMenu() {
+    prepareOptionsMenu();
+    if (mOptionsMenuDialog != null
+        || !onPrepareOptionsMenu(mOptionsMenu)
+        || !mOptionsMenu.hasVisibleItems()) {
+      return;
+    }
+    final OptionsMenu.Item[] shown = mOptionsMenu.visibleItems();
+    String[] titles = new String[shown.length];
+    for (int i = 0; i < shown.length; i++) {
+      titles[i] = String.valueOf(shown[i].getTitle());
+    }
+    mOptionsMenuDialog =
+        new AlertDialog.Builder(this)
+            .setItems(
+                titles,
+                (dialog, which) -> {
+                  mOptionsMenuDialog = null;
+                  OptionsMenu.Item item = shown[which];
+                  if (item.isEnabled() && !item.fireClick()) {
+                    onOptionsItemSelected(item);
+                  }
+                  onOptionsMenuClosed(mOptionsMenu);
+                })
+            .show();
+  }
+
+  /** Mirrors Android: dismiss the options menu if it is showing. */
+  public void closeOptionsMenu() {
+    AlertDialog d = mOptionsMenuDialog;
+    if (d != null) {
+      mOptionsMenuDialog = null;
+      d.dismiss();
+      onOptionsMenuClosed(mOptionsMenu);
+    }
+  }
+
+  private void prepareOptionsMenu() {
+    if (!mOptionsMenuCreated) {
+      mOptionsMenu = new OptionsMenu();
+      onCreateOptionsMenu(mOptionsMenu);
+      mOptionsMenuCreated = true;
+    }
+    nativeSetOptionsMenuAvailable(mOptionsMenu.hasVisibleItems());
+  }
+
+  private boolean hasOptionsMenuItems() {
+    prepareOptionsMenu();
+    return mOptionsMenu.hasVisibleItems();
+  }
+
+  /** Whether the focused view has an {@code OnLongClickListener}: then a held SELECT is its. */
+  private static native boolean nativeFocusTakesLongPress();
+
+  /** Tells the framework whether to offer a way to open the menu (the touch control). */
+  private static native void nativeSetOptionsMenuAvailable(boolean available);
 
   /**
    * Android's batched-repeat callback; this framework never sends one. The default does nothing.
