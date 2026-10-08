@@ -147,6 +147,8 @@ picodroid/app/FragmentTransaction
 picodroid/app/Notification
 picodroid/app/Notification$Builder
 picodroid/app/NotificationManager
+picodroid/app/OptionsMenu
+picodroid/app/OptionsMenu$Item
 picodroid/app/PendingIntent
 picodroid/app/Service
 picodroid/app/usage/StorageStats
@@ -192,6 +194,7 @@ picodroid/content/pm/PackageInstaller
 picodroid/content/pm/PackageManager
 picodroid/content/pm/PackageManager$NameNotFoundException
 picodroid/content/res/ColorStateList
+picodroid/content/res/Configuration
 picodroid/content/res/Resources
 picodroid/content/res/Resources$NotFoundException
 picodroid/debug/DisplayDebug
@@ -300,11 +303,15 @@ picodroid/view/GestureDetector$OnGestureListener
 picodroid/view/GestureDetector$SimpleOnGestureListener
 picodroid/view/Gravity
 picodroid/view/InflateException
+picodroid/view/KeyCharacterMap
 picodroid/view/KeyEvent
 picodroid/view/KeyEvent$Callback
 picodroid/view/KeyEvent$DispatcherState
 picodroid/view/LayoutInflater
 picodroid/view/LayoutInflater$Factory
+picodroid/view/Menu
+picodroid/view/MenuItem
+picodroid/view/MenuItem$OnMenuItemClickListener
 picodroid/view/MotionEvent
 picodroid/view/OnKeyListener
 picodroid/view/OnSwipeListener

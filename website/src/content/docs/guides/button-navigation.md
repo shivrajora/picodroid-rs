@@ -64,6 +64,14 @@ HOME goes straight to the launcher on a multi-app board, from any app at any dep
 
 A touchscreen board with no button at all (`soft_nav = true`; the testbenches) gets the same two gestures from a small round control the framework draws in the bottom-left corner of the window: a tap is BACK, a hold is HOME. It hides while the system keyboard is up and rides above a dialog's scrim. See [Apps on every board](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/app-portability-2026-10.md) for the input profiles every board meets.
 
+An app that wants to show a hint such as "A: up" only where there is an A asks
+`KeyCharacterMap.deviceHasKey(KeyEvent.KEYCODE_DPAD_UP)`; BACK and HOME answer true on every board,
+the control and the hold included. `getResources().getConfiguration()` says the same thing at the
+profile level — `navigation` is `NAVIGATION_DPAD` where the four keys exist, `touchscreen` is
+`TOUCHSCREEN_FINGER` where a panel does — and gives the window's size in dp, which is what to branch
+on for a two-column layout. Handle the keys regardless: an app that handles `KEYCODE_DPAD_UP` works
+wherever the key exists, and the hint is the only thing that should depend on the answer.
+
 For the full `board.toml` schema — required keys, valid `lv_key` values, how `[[button]]` differs from `[touch]` — see the [porting guide](/reference/porting-guide/). The board files live in [`platforms/rp/boards`](https://github.com/shivrajora/picodroid-rs/tree/main/platforms/rp/boards).
 
 ## Making widgets reachable
@@ -197,6 +205,43 @@ Each `lv_list` button row consumes the board's small 48 KB LVGL render pool. Pas
 :::
 
 For a worked multi-screen example using this hub + `startActivity` pattern, see the [multi-screen app tutorial](/tutorials/multi-screen-app/).
+
+## The options menu
+
+The write-once action surface. Declare the Activity's actions once and the framework finds a way to
+open them on every board — a MENU key where a board has one, **holding SELECT** on a four-key
+board (when the focused view has no `OnLongClickListener` of its own; a tap stays its click),
+and a round menu control the framework draws bottom-right on a touch board while the resumed
+Activity has a menu. The menu shows as a list dialog, walked with UP/DOWN and picked with SELECT
+or a tap, and the pick reaches `onOptionsItemSelected`:
+
+```java
+@Override
+public boolean onCreateOptionsMenu(Menu menu) {
+  menu.add(Menu.NONE, ID_REFRESH, Menu.NONE, "Refresh");
+  menu.add(Menu.NONE, ID_UNITS, Menu.NONE, "Toggle units");
+  MenuItem about = menu.add(Menu.NONE, ID_ABOUT, Menu.NONE, "About");
+  about.setOnMenuItemClickListener(item -> { showAbout(); return true; }); // took the pick
+  return true;
+}
+
+@Override
+public boolean onOptionsItemSelected(MenuItem item) {
+  switch (item.getItemId()) {
+    case ID_REFRESH: refresh(); return true;
+    case ID_UNITS: toggleUnits(); return true;
+    default: return super.onOptionsItemSelected(item);
+  }
+}
+```
+
+`onCreateOptionsMenu` runs once after the first `onResume`; `invalidateOptionsMenu()` runs it
+again, `onPrepareOptionsMenu` runs before each show (return false to keep the menu closed), and
+`openOptionsMenu()` / `closeOptionsMenu()` do what they say. An empty menu is offered nowhere: no
+control is drawn and a held SELECT does nothing. `onOptionsMenuClosed` follows a pick or
+`closeOptionsMenu`; a menu dismissed with BACK does not report it. A key you map by hand in
+`onKeyDown` still works — the menu is for the actions that would otherwise need a button the
+board does not have. `examples/menudemo` drives all three openers from the simulator.
 
 ## Focus styling
 

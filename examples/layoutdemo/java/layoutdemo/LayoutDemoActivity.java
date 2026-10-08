@@ -5,14 +5,19 @@ import picodroid.app.Activity;
 import picodroid.content.ComponentName;
 import picodroid.content.Context;
 import picodroid.content.Intent;
+import picodroid.content.pm.PackageManager;
 import picodroid.content.res.ColorStateList;
+import picodroid.content.res.Configuration;
 import picodroid.graphics.Theme;
 import picodroid.graphics.drawable.GradientDrawable;
 import picodroid.os.Bundle;
 import picodroid.util.AttributeSet;
+import picodroid.util.DisplayMetrics;
 import picodroid.util.Log;
 import picodroid.view.AsyncLayoutInflater;
 import picodroid.view.Gravity;
+import picodroid.view.KeyCharacterMap;
+import picodroid.view.KeyEvent;
 import picodroid.view.LayoutInflater;
 import picodroid.view.View;
 import picodroid.view.ViewGroup;
@@ -65,6 +70,7 @@ public class LayoutDemoActivity extends Activity {
             && ((ViewGroup.MarginLayoutParams) lp).rightMargin == 9);
 
     checkVocabulary();
+    checkConfiguration();
 
     FrameLayout stages = findViewById(R.id.stages);
     LayoutInflater inflater = getLayoutInflater();
@@ -282,6 +288,60 @@ public class LayoutDemoActivity extends Activity {
         "Intent(Context, Class)",
         "layoutdemo/LayoutDemoActivity"
             .equals(new Intent(this, LayoutDemoActivity.class).getTargetClassName()));
+  }
+
+  /**
+   * What the app can learn about the board it landed on: the window's size and the input profile
+   * ({@code Resources.getConfiguration()}), and which keys exist ({@code
+   * KeyCharacterMap.deviceHasKey}). Logged in one line each so a sim row can assert the exact
+   * values per board; the checks hold on every board.
+   */
+  private void checkConfiguration() {
+    Configuration c = getResources().getConfiguration();
+    Log.i(TAG, "config " + c);
+    check(
+        "config: window size",
+        c.screenWidthDp == getDisplay().getWidth() && c.screenHeightDp == getDisplay().getHeight());
+    check(
+        "config: smallest side",
+        c.smallestScreenWidthDp == Math.min(c.screenWidthDp, c.screenHeightDp));
+    check("config: floor", c.smallestScreenWidthDp >= 240);
+    check(
+        "config: orientation",
+        c.orientation
+            == (c.screenWidthDp > c.screenHeightDp
+                ? Configuration.ORIENTATION_LANDSCAPE
+                : Configuration.ORIENTATION_PORTRAIT));
+    check("config: density", c.densityDpi == DisplayMetrics.DENSITY_DEFAULT);
+    // Touch mode and the navigation field are two views of the same board fact.
+    check(
+        "config: navigation vs touch mode",
+        (c.navigation == Configuration.NAVIGATION_DPAD)
+            == !findViewById(R.id.first).isInTouchMode());
+    check(
+        "config: touchscreen vs feature",
+        (c.touchscreen == Configuration.TOUCHSCREEN_FINGER)
+            == getPackageManager().hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN));
+    check("config: a copy is equal", new Configuration(c).toString().equals(c.toString()));
+    check(
+        "config: defaults are undefined",
+        new Configuration().orientation == Configuration.ORIENTATION_UNDEFINED);
+
+    boolean back = KeyCharacterMap.deviceHasKey(KeyEvent.KEYCODE_BACK);
+    boolean home = KeyCharacterMap.deviceHasKey(KeyEvent.KEYCODE_HOME);
+    boolean up = KeyCharacterMap.deviceHasKey(KeyEvent.KEYCODE_DPAD_UP);
+    boolean center = KeyCharacterMap.deviceHasKey(KeyEvent.KEYCODE_DPAD_CENTER);
+    Log.i(TAG, "keys back=" + back + " home=" + home + " up=" + up + " center=" + center);
+    // Every board has BACK one way or another (a key, or the on-screen control).
+    check("keys: BACK everywhere", back);
+    // The four navigation keys come together, and only with DPAD navigation.
+    check(
+        "keys: dpad matches navigation",
+        up == center && up == (c.navigation == Configuration.NAVIGATION_DPAD));
+    check("keys: no such key", !KeyCharacterMap.deviceHasKey(KeyEvent.KEYCODE_BUTTON_A));
+    boolean[] both =
+        KeyCharacterMap.deviceHasKeys(new int[] {KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_BUTTON_A});
+    check("keys: deviceHasKeys", both.length == 2 && both[0] && !both[1]);
   }
 
   private void check(String what, boolean ok) {

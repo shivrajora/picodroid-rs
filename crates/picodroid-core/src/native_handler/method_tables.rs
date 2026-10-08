@@ -360,6 +360,11 @@ pub const OS_HANDLED: &[Row] = &[
     // picodroid/os/Build
     ("picodroid/os/PowerManager", "isInteractive", "()Z"),
     (
+        "picodroid/view/KeyCharacterMap",
+        "nativeDeviceHasKey",
+        "(I)Z",
+    ),
+    (
         "picodroid/provider/Settings$System",
         "nativeGetInt",
         "(Ljava/lang/String;I)I",
@@ -551,6 +556,12 @@ pub const CORE_HANDLED: &[Row] = &[
         "()Lpicodroid/content/Intent;",
     ),
     ("picodroid/app/Activity", "nativeSetTurnScreenOn", "(Z)V"),
+    (
+        "picodroid/app/Activity",
+        "nativeSetOptionsMenuAvailable",
+        "(Z)V",
+    ),
+    ("picodroid/app/Activity", "nativeFocusTakesLongPress", "()Z"),
     ("picodroid/app/Activity", "setResult", "(I)V"),
     (
         "picodroid/app/Activity",

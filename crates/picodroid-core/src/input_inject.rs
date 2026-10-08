@@ -68,6 +68,8 @@ pub const LONG_PRESS_HOLD_MS: u32 =
 /// soft-key path is compiled on boards without a `[[button]]` table.
 pub const KEYCODE_HOME: i32 = 3;
 pub const KEYCODE_BACK: i32 = 4;
+/// `KeyEvent.KEYCODE_MENU`: opens the Activity's options menu (K9).
+pub const KEYCODE_MENU: i32 = 82;
 /// `KeyEvent.ACTION_DOWN` / `ACTION_UP`.
 pub const ACTION_DOWN: i32 = 0;
 pub const ACTION_UP: i32 = 1;
@@ -213,6 +215,24 @@ pub fn long_press_hold_ms(keycode: i32) -> u32 {
         crate::board_cfg::input::HOME_HOLD_MS + 150
     } else {
         LONG_PRESS_HOLD_MS
+    }
+}
+
+/// Whether this board can produce `keycode` — `KeyCharacterMap.deviceHasKey`
+/// (docs/designs/app-portability-2026-10.md K2): a button `board.toml` maps
+/// to the code, or the two system keys every board has one way or another:
+/// BACK and HOME from the on-screen control where there is no button, HOME
+/// from holding BACK where there is no HOME key.
+pub fn device_has_key(keycode: i32) -> bool {
+    if crate::board_cfg::buttons::keycode_to_pin(keycode).is_some() {
+        return true;
+    }
+    match keycode {
+        KEYCODE_BACK => cfg!(soft_nav) || crate::board_cfg::input::HAS_BACK_KEY,
+        KEYCODE_HOME => {
+            cfg!(soft_nav) || crate::board_cfg::input::HAS_HOME_KEY || back_hold_is_home()
+        }
+        _ => false,
     }
 }
 
