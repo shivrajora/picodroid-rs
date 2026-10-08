@@ -313,7 +313,7 @@ run_enviro_smoke() {
   local tag="${lane}[${mode}]"
   local log_file="$RUN_LOG_DIR/${lane}.${mode}.log"
   local build_log="$RUN_LOG_DIR/${lane}.${mode}.build.log"
-  local patterns="${logtag}[]:] Home.onCreate"
+  local patterns="${logtag}[]:] Home.onCreate;\[layout\] fit ok"
 
   TOTAL=$((TOTAL + 1))
   sim_log "--- [$TOTAL] $tag (board smoke, 25s) ---"
@@ -369,40 +369,60 @@ run_enviro_smoke() {
 # back, then reinstall and uninstall helloworld through the package verbs
 # while the launcher runs.
 run_launcher_smoke() {
-  local mode="$1"
+  local mode="$1" board="${2:-testbench_rp2350}" input="${3:-touch}"
   local app=helloworld lane=launcher
+  # The default board keeps the lane's historical name; the Stage 6 screen
+  # matrix (docs/designs/app-portability-2026-10.md §6) runs the same lane
+  # on the other geometries under the board's name.
+  [[ "$board" != testbench_rp2350 ]] && lane="launcher-${board}"
+  local board_feature="board-${board//_/-}"
   local tag="${lane}[${mode}]"
   local log_file="$RUN_LOG_DIR/${lane}.${mode}.log"
   local build_log="$RUN_LOG_DIR/${lane}.${mode}.build.log"
-  local patterns="Launcher[]:] ready: 1 apps;Launcher[]:] launch helloworld;HelloWorld[]:] hi;apps: installed helloworld;apps: uninstalled helloworld;apps: \(none installed\)"
+  local patterns="Launcher[]:] ready: 1 apps;Launcher[]:] launch helloworld;HelloWorld[]:] hi;apps: installed helloworld;apps: uninstalled helloworld;apps: \(none installed\);\[layout\] fit ok"
+  # A four-key board has no touchscreen: an app that requires one
+  # (examples/dragdemo, `<uses-feature required="true">`) must be refused by
+  # the installer with the installed apps intact (app-portability D9).
+  local gate_app=dragdemo gate_path=""
+  if [[ "$input" == keys ]]; then
+    gate_path="$REPO_ROOT/build/apks/sim-run/${mode}/${lane}-${gate_app}.papk"
+    patterns+=";apps: install refused: requires a feature this board lacks"
+  fi
 
   TOTAL=$((TOTAL + 1))
-  sim_log "--- [$TOTAL] $tag (launcher smoke, 90s) ---"
+  sim_log "--- [$TOTAL] $tag (launcher smoke on $board, 90s) ---"
 
-  local apk_path="$REPO_ROOT/build/apks/sim-run/${mode}/${app}.papk"
-  local launcher_path="$REPO_ROOT/build/apks/sim-run/${mode}/launcher.papk"
-  local -a apk_args=(--app "$app" -o "$apk_path" --board testbench_rp2350)
-  local -a launcher_args=(--app launcher -o "$launcher_path" --board testbench_rp2350)
+  local apk_path="$REPO_ROOT/build/apks/sim-run/${mode}/${lane}-${app}.papk"
+  local launcher_path="$REPO_ROOT/build/apks/sim-run/${mode}/${lane}-launcher.papk"
+  local -a apk_args=(--app "$app" -o "$apk_path" --board "$board")
+  local -a launcher_args=(--app launcher -o "$launcher_path" --board "$board")
   if [[ "$mode" == "shrink" ]]; then
     apk_args+=(--shrink)
     launcher_args+=(--shrink)
   fi
+  local -a gate_args=()
+  if [[ -n "$gate_path" ]]; then
+    gate_args=(--app "$gate_app" -o "$gate_path" --board "$board")
+    [[ "$mode" == "shrink" ]] && gate_args+=(--shrink)
+  fi
   if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1 \
-     || ! bash "$SCRIPT_DIR/build-apk.sh" "${launcher_args[@]}" >> "$build_log" 2>&1; then
+     || ! bash "$SCRIPT_DIR/build-apk.sh" "${launcher_args[@]}" >> "$build_log" 2>&1 \
+     || { [[ -n "$gate_path" ]] && ! bash "$SCRIPT_DIR/build-apk.sh" "${gate_args[@]}" >> "$build_log" 2>&1; }; then
     sim_log "  BUILD FAILED (APK)"
     echo "ERROR $tag (apk build failed)" >> "$RESULTS_FILE"
     ERROR=$((ERROR + 1))
     return
   fi
 
-  # The same binary run_test built for this mode (a cargo no-op).
+  # On the default board the same binary run_test built for this mode (a
+  # cargo no-op); another board is its own build.
   local -a cargo_env=(PICODROID_APK_PATH="sim-runtime")
   [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
   if ! env "${cargo_env[@]}" cargo build \
     --release \
     --target "$HOST_TARGET" \
     --no-default-features \
-    --features "sim,board-testbench-rp2350,line-numbers" >> "$build_log" 2>&1; then
+    --features "sim,${board_feature},line-numbers" >> "$build_log" 2>&1; then
     sim_log "  BUILD FAILED (sim)"
     echo "ERROR $tag (sim build failed)" >> "$RESULTS_FILE"
     ERROR=$((ERROR + 1))
@@ -436,13 +456,23 @@ run_launcher_smoke() {
   launcher_send() { printf '%s\n' "$1" > "$fifo"; }
 
   if launcher_wait "\[Launcher\] ready" 1; then
-    launcher_send "input tap 120 20"
+    # Open the first row: a tap on a touch board, SELECT on the row the
+    # launcher focuses first on a four-key one.
+    case "$input" in
+      keys) launcher_send "input keyevent 23" ;;
+      *) launcher_send "input tap 120 20" ;;
+    esac
     if launcher_wait "\[Launcher\] ready" 2; then
       launcher_send "apps install $apk_path"
       if launcher_wait "apps: installed" 1; then
         launcher_send "apps uninstall $app"
         launcher_wait "apps: uninstalled" 1 || true
         sleep 1
+        if [[ -n "$gate_path" ]]; then
+          launcher_send "apps install $gate_path"
+          launcher_wait "apps: install refused" 1 || true
+          sleep 1
+        fi
       fi
     fi
   fi
@@ -726,7 +756,7 @@ run_settings_smoke() {
   local tag="${lane}[${mode}]"
   local log_file="$RUN_LOG_DIR/${lane}.${mode}.log"
   local build_log="$RUN_LOG_DIR/${lane}.${mode}.build.log"
-  local patterns="Launcher[]:] ready: 2 apps;Settings[]:] ready;Settings[]:] about;Settings[]:] storage helloworld;Settings[]:] apps 1;Settings[]:] uninstalled helloworld;Settings[]:] apps 0;apps: \(none installed\);Launcher[]:] ready: 1 apps"
+  local patterns="Launcher[]:] ready: 2 apps;Settings[]:] ready;Settings[]:] about;Settings[]:] storage helloworld;Settings[]:] apps 1;Settings[]:] uninstalled helloworld;Settings[]:] apps 0;apps: \(none installed\);Launcher[]:] ready: 1 apps;\[layout\] fit ok"
 
   TOTAL=$((TOTAL + 1))
   sim_log "--- [$TOTAL] $tag (settings smoke, 120s) ---"
@@ -854,7 +884,7 @@ run_settings_wifi_smoke() {
   local log_file="$RUN_LOG_DIR/${lane}.${mode}.log"
   local build_log="$RUN_LOG_DIR/${lane}.${mode}.build.log"
   local fs_image="$RUN_LOG_DIR/${lane}.${mode}.fs.img"
-  local patterns="Launcher[]:] ready: 2 apps;Settings[]:] ready;Settings[]:] wifi 0 networks;Settings[]:] wifi scan done;Settings[]:] wifi 3 networks;Settings[]:] wifi pick picodroid-lab;Settings[]:] wifi password picodroid-lab;Settings[]:] wifi connect picodroid-lab;wifi: joined \"picodroid-lab\";Settings[]:] wifi connected picodroid-lab"
+  local patterns="Launcher[]:] ready: 2 apps;Settings[]:] ready;Settings[]:] wifi 0 networks;Settings[]:] wifi scan done;Settings[]:] wifi 3 networks;Settings[]:] wifi pick picodroid-lab;Settings[]:] wifi password picodroid-lab;Settings[]:] wifi connect picodroid-lab;wifi: joined \"picodroid-lab\";Settings[]:] wifi connected picodroid-lab;\[layout\] fit ok"
   local password
   case "$input" in
     touch) password=picodroid ;;
@@ -1008,7 +1038,7 @@ run_enviro_w_smoke() {
   local tag="${lane}[${mode}]"
   local log_file="$RUN_LOG_DIR/${lane}.${mode}.log"
   local build_log="$RUN_LOG_DIR/${lane}.${mode}.build.log"
-  local patterns="${logtag}[]:] Home.onCreate;net: up;http: serving on port 8080"
+  local patterns="${logtag}[]:] Home.onCreate;net: up;http: serving on port 8080;\[layout\] fit ok"
 
   TOTAL=$((TOTAL + 1))
   sim_log "--- [$TOTAL] $tag (WiFi board smoke, 25s) ---"
@@ -1241,14 +1271,19 @@ for MODE in "${MODES[@]}"; do
   fi
 
   # Enviro-board smoke: full runs and `--app picoenvmon` (the CI hook; the
-  # conf matrix has no picoenvmon row, so that invocation reaches only this).
+  # conf's picoenvmon rows, the other two geometries of the Stage 6 screen
+  # matrix, ran in the loop above).
   if [[ -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "picoenvmon" ]]; then
     run_enviro_smoke "$MODE"
     run_enviro_w_smoke "$MODE"
   fi
-  # The launcher lane (multi-app M2); `--app launcher` reaches only this.
+  # The launcher lane (multi-app M2) on its board and, for the Stage 6 screen
+  # matrix, on the 240x240 four-key board and the 320x480 touch board;
+  # `--app launcher` reaches only these.
   if [[ -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "launcher" ]]; then
     run_launcher_smoke "$MODE"
+    run_launcher_smoke "$MODE" pico_enviro_mon keys
+    run_launcher_smoke "$MODE" pico_touch_kit touch
   fi
   # The settings lane (multi-app M3); `--app settings` reaches only this.
   if [[ -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "settings" ]]; then

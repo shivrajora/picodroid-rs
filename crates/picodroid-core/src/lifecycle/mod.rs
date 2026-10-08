@@ -771,6 +771,10 @@ pub(crate) fn run_activity(
                             as u64,
                     );
                     crate::graphics::lvgl::fps_overlay::update();
+                    // One `[layout] fit ok` / `overflow` line per
+                    // setContentView, now that the tick laid the root out.
+                    #[cfg(any(feature = "sim", debug_assertions))]
+                    crate::graphics::display::fit_check_after_tick();
                 }
                 // Control-channel package verbs run here, on the JVM task,
                 // so the directory keeps one writer.

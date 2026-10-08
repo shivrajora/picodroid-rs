@@ -75,7 +75,7 @@ public class SettingsActivity extends NavActivity {
     // headroom or it clips top/bottom. Two things steal that headroom: the row's 2 px theme
     // border and its padding. A borderless background (stroke 0) zeroes the border, and zero
     // vertical padding plus a 34 px height give the full circle room to render.
-    row.setSize(224, 34);
+    row.setSize(LinearLayout.LayoutParams.MATCH_PARENT, 34);
     row.setPadding(4, 0, 4, 0);
     row.setBackground(new GradientDrawable().setColor(Theme.colorBackground));
 
@@ -107,7 +107,7 @@ public class SettingsActivity extends NavActivity {
       LinearLayout root, String label, int min, int max, int step, int initialValue) {
     LinearLayout row = new LinearLayout();
     row.setOrientation(LinearLayout.HORIZONTAL);
-    row.setSize(224, 30);
+    row.setSize(LinearLayout.LayoutParams.MATCH_PARENT, 30);
     row.setPadding(4, 2, 4, 2);
 
     TextView lbl = new TextView();

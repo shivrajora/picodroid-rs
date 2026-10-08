@@ -12,6 +12,99 @@ package format moved to major version 2, and **three SDK signatures changed** to
 (`ServiceConnection` / `bindService`, `Executors.newSingleThreadScheduledExecutor`,
 `DatagramPacket.getAddress`), in the first entry below.
 
+**The options menu: actions without buttons (2026-10-06)**
+
+Stage 11 of [app portability](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/app-portability-2026-10.md):
+`Activity.onCreateOptionsMenu(Menu)` / `onOptionsItemSelected(MenuItem)` as the one place an
+app's actions live, with `onPrepareOptionsMenu`, `onOptionsMenuClosed`, `openOptionsMenu`,
+`closeOptionsMenu` and `invalidateOptionsMenu`; `picodroid.view.Menu` and `MenuItem` (with
+`OnMenuItemClickListener`). The framework shows the menu as a list and opens it from a MENU key,
+from **holding SELECT** on a four-key board when the focused view has no long press of its own,
+and from a round **menu control** it draws bottom-right on a touch board while the resumed
+Activity has a menu. `examples/menudemo`; see
+[Button-only navigation](/guides/button-navigation/#the-options-menu).
+
+**Held keys reach LVGL (2026-10-06)**
+
+Stage 10 of [app portability](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/app-portability-2026-10.md):
+a key stays pressed for LVGL while it is held, so LVGL's own clock runs on it — **a held SELECT
+long-clicks the focused view** (`OnLongClickListener`, with the click suppressed when it is
+consumed, as a touch long-press does) and **a held UP or DOWN walks the focus ring** at LVGL's
+repeat rate. The Java side is unchanged: `onKeyDown` repeats and `onKeyLongPress` arrive as
+before. A key held across a screen change is ignored by the new screen until it is released.
+`keydemo` shows both.
+
+**Resource directories that vary by window and input (2026-10-06)**
+
+Stage 9 of [app portability](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/app-portability-2026-10.md):
+Android's qualified resource directories, in the subset that can differ between picodroid boards.
+
+- **`values-<q>/` and `layout-<q>/`** with `sw<N>dp`, `w<N>dp`, `h<N>dp`, `land` / `port` and
+  `notouch` / `finger`, combined in that order (`layout-w320dp-land/`). A variant overrides what
+  `res/values/` and `res/layout/` define — every name must exist in the base, so `R` and every id
+  are one set — and the runtime picks the matching variants once, when the app starts, by
+  Android's precedence against the app's window (its `<supports-screens>` design size, else the
+  panel) and the board's input. The PAPK stays board-independent; an older firmware reads the
+  base values. See [Configuration variants](/guides/resources/#configuration-variants).
+- Density, locale and night directories remain a build error, as do drawable variants and styles
+  in a variant. `papk-info` lists a package's variants; the simulator logs the choice
+  (`[res] 320x240dp land notouch: 2 of 3 variants apply`). `examples/resdemo` carries one of each
+  kind and the nightly checks them on four boards.
+
+**What an app can learn about the board it landed on (2026-10-06)**
+
+Stage 8 of [app portability](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/app-portability-2026-10.md).
+
+- **`Resources.getConfiguration()`** returns a `picodroid.content.res.Configuration`:
+  `screenWidthDp` / `screenHeightDp` / `smallestScreenWidthDp` (the app's window in dp, which is a
+  pixel), `densityDpi` (160), `orientation`, `touchscreen` (`TOUCHSCREEN_FINGER` where the board
+  has a panel, else `NOTOUCH`), `navigation` (`NAVIGATION_DPAD` where it has the four keys, else
+  `NONAV`) and `keyboard` (`KEYBOARD_NOKEYS`), with `isLayoutSizeAtLeast`, `setTo` and
+  `setToDefaults`. A snapshot: nothing in it changes while an app runs.
+- **`KeyCharacterMap.deviceHasKey(int)`** and `deviceHasKeys(int[])` say which keys this board can
+  produce — its buttons as `board.toml` maps them, plus BACK and HOME on every board (the
+  on-screen control, or holding BACK). Use it for hints such as "A: up"; handle the keys
+  regardless. `PackageManager.FEATURE_TOUCHSCREEN` is listed in the compatibility matrix.
+- `layoutdemo` prints both on each of the four geometries and the nightly asserts the values.
+
+**An app drawn for one panel runs on every panel (2026-10-06)**
+
+Stage 7 of [app portability](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/app-portability-2026-10.md):
+two new manifest elements, documented in the
+[manifest reference](/reference/manifest/#screens-and-features).
+
+- **`<supports-screens design-width=".." design-height=".."/>`** — the logical size the app
+  was laid out against. The runtime shows the app in a window of exactly that size on every board:
+  `Display.getWidth()`/`getHeight()`, `match_parent` and every coordinate are the design's. On a
+  larger panel the window is centred; on a smaller one the screen pans to what does not fit, as
+  it already did for an oversized root. picoclock (320×480) and claudeusage (320×240) declare
+  theirs and now run on the Enviro+, the Pico Display 2 and the touch kit alike. Leave it out for
+  an app whose layout stretches — the default, and what every other app does.
+- **`<uses-feature name=".." required="true"/>`** — the installer (`pdb install`, the
+  launcher, the simulator's `apps install`) refuses an app that requires a feature the board
+  lacks, before anything is erased: `requires a feature this board lacks (uses-feature)`. The
+  names are `PackageManager`'s (`picodroid.hardware.touchscreen`, `wifi`, `ethernet`); the
+  default is `required="false"`, which is informational. `dragdemo` requires the touchscreen.
+- The PAPK carries them as `design-width`, `design-height` and `requires-features`; `papk-pack`
+  takes `--design-size WxH` and `--requires-feature <name>`.
+
+**One layout on three panels, checked every night (2026-10-06)**
+
+Stage 6 of [app portability](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/app-portability-2026-10.md):
+the proof that a resizeable app fits every board.
+
+- **The `[layout]` line.** After each `setContentView`, the simulator and a debug build log
+  `[layout] fit ok 320x240 in 320x240` when the root fits the window, or
+  `[layout] overflow 320x480 in 320x240: the screen pans 0 right, 240 down` when it does not. An
+  oversized root is not clipped — the screen pans to it under a drag, or as the focus moves — but
+  the line is the sign to let the layout stretch instead. Release firmware does not log it.
+- **The nightly screen matrix.** The same PAPK of calculator, picoenvmon, weather and the launcher
+  runs on a 240×240, a 320×240 and a 320×480 board expecting `fit ok` (`scripts/hil-tests.conf`
+  and the launcher lanes of `sim-run.sh`, which now take a board and an input profile).
+- **picoenvmon and PicoEnvMonKt** size from the panel (`match_parent` root and rows, weighted
+  lists) instead of the Enviro+'s 240×240, so the hint bar sits on the bottom edge of any panel;
+  five demos that sized their root to one panel use `match_parent` too.
+
 **Every stock widget on four keys (2026-10-06)**
 
 Stage 5 of [app portability](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/app-portability-2026-10.md):

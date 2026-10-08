@@ -62,22 +62,17 @@ pub fn get_instance(objects: &mut ObjectHeap) -> Result<Option<Value>, JvmError>
     // idempotent so this is safe across PDB hot-reloads.
     with_gfx(|g| g.init(hal::display::WIDTH, hal::display::HEIGHT));
 
+    // The app's window, not the panel: an app with a design size lays out
+    // against that size wherever it runs (graphics/lvgl/window.rs).
+    let (width, height) = super::lvgl::window::size();
     let idx = objects
         .alloc(c::picodroid_graphics_Display)
         .ok_or(JvmError::StackOverflow)?;
     objects
-        .set_field(
-            idx,
-            fields::display::WIDTH,
-            Value::Int(hal::display::WIDTH as i32),
-        )
+        .set_field(idx, fields::display::WIDTH, Value::Int(width as i32))
         .ok_or(JvmError::StackOverflow)?;
     objects
-        .set_field(
-            idx,
-            fields::display::HEIGHT,
-            Value::Int(hal::display::HEIGHT as i32),
-        )
+        .set_field(idx, fields::display::HEIGHT, Value::Int(height as i32))
         .ok_or(JvmError::StackOverflow)?;
     objects
         .set_field(
@@ -140,7 +135,77 @@ pub fn set_content_view(args: &[Value], objects: &ObjectHeap) -> Result<Option<V
         // for the first-time path.
         g.set_visibility(h, Visibility::Visible);
     });
+    #[cfg(any(feature = "sim", debug_assertions))]
+    FIT_PENDING.set(true);
     Ok(None)
+}
+
+/// Set by `setContentView`, cleared by [`fit_check_after_tick`] once LVGL
+/// has laid the new root out.
+// SAFETY: widget-layer state, reached only from JVM tasks.
+#[cfg(any(feature = "sim", debug_assertions))]
+static FIT_PENDING: Core0<Cell<bool>> = unsafe { Core0::new(Cell::new(false)) };
+
+/// The `[layout]` line (docs/designs/app-portability-2026-10.md D6): after
+/// the first LVGL tick that follows a `setContentView`, say whether the
+/// root fits the window or how far the screen now pans to show it. A
+/// resizeable app is meant to fit every board; the nightly screen matrix
+/// asserts `fit ok` on each geometry. Sim and debug builds only — release
+/// firmware has no reader for it.
+#[cfg(any(feature = "sim", debug_assertions))]
+pub fn fit_check_after_tick() {
+    if !FIT_PENDING.replace(false) {
+        return;
+    }
+    let root_id = CURRENT_ROOT_ID.get();
+    if root_id == 0 {
+        return;
+    }
+    let root = super::lvgl::handle_table::lookup(root_id);
+    if root.is_null() {
+        return;
+    }
+    let (win_w, win_h) = super::lvgl::window::size();
+    use crate::lvgl_ffi::{
+        lv_area_t, lv_obj_get_coords, lv_obj_get_scroll_bottom, lv_obj_get_scroll_right,
+        lv_obj_update_layout,
+    };
+    // SAFETY: `root` is a live view (the handle table resolved it) and the
+    // window object or screen exists while an app runs; these are LVGL
+    // getters on the UI task, after the tick that laid the tree out (the
+    // explicit update is a no-op then, and the guarantee when it was not).
+    let (w, h, over_x, over_y) = unsafe {
+        // The app's window (window.rs): the screen, or the design-sized
+        // object a `<supports-screens>` app runs in.
+        let scr = super::lvgl::window::content_root();
+        lv_obj_update_layout(scr);
+        let mut a = lv_area_t {
+            x1: 0,
+            y1: 0,
+            x2: 0,
+            y2: 0,
+        };
+        lv_obj_get_coords(root, &mut a);
+        (
+            a.x2 - a.x1 + 1,
+            a.y2 - a.y1 + 1,
+            lv_obj_get_scroll_right(scr).max(0),
+            lv_obj_get_scroll_bottom(scr).max(0),
+        )
+    };
+    if over_x == 0 && over_y == 0 {
+        crate::pd_info!("[layout] fit ok {}x{} in {}x{}", w, h, win_w, win_h);
+    } else {
+        crate::pd_info!(
+            "[layout] overflow {}x{} in {}x{}: the screen pans {} right, {} down",
+            w,
+            h,
+            win_w,
+            win_h,
+            over_x,
+            over_y
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

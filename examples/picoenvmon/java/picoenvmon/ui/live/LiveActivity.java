@@ -124,7 +124,7 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
     // headroom or it clips top/bottom. Two things steal that headroom: the row's 2 px theme
     // border and its padding. A borderless background (stroke 0) zeroes the border, and zero
     // vertical padding plus a 34 px height give the full circle room to render.
-    row.setSize(224, 34);
+    row.setSize(LinearLayout.LayoutParams.MATCH_PARENT, 34);
     row.setPadding(8, 0, 8, 0);
     row.setBackground(new GradientDrawable().setColor(Theme.colorBackground));
 
@@ -163,7 +163,7 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
   private void buildTile(LinearLayout parent, int idx, String label, GradientDrawable bg) {
     LinearLayout tile = new LinearLayout();
     tile.setOrientation(LinearLayout.HORIZONTAL);
-    tile.setSize(224, 26);
+    tile.setSize(LinearLayout.LayoutParams.MATCH_PARENT, 26);
     tile.setPadding(8, 4, 8, 4);
     tile.setBackground(bg);
 

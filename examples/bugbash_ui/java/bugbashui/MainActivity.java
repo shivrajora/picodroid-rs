@@ -41,7 +41,7 @@ public class MainActivity extends Activity {
     Log.i(TAG, "Main.onCreate");
     LinearLayout root = new LinearLayout();
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(240, 240);
+    root.setSize(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT);
     TextView title = new TextView();
     title.setText("bug bash");
     root.addView(title);

@@ -593,8 +593,8 @@ extern "C" {
     pub fn lv_display_flush_ready(disp: *mut lv_display_t);
     pub fn lv_display_get_default() -> *mut lv_display_t;
     /// The display's logical size — what the screen and its layers are laid
-    /// out in. Equal to the panel today; an app run in a compat window
-    /// (docs/designs/app-portability-2026-10.md D5) sees its design size here.
+    /// out in: the panel. (An app's compat window is an object on the
+    /// screen, `graphics/lvgl/window.rs`, not a display resolution.)
     pub fn lv_display_get_horizontal_resolution(disp: *const lv_display_t) -> i32;
     pub fn lv_display_get_vertical_resolution(disp: *const lv_display_t) -> i32;
     /// The layer LVGL draws above every screen: where system overlays (toast,
@@ -787,6 +787,11 @@ extern "C" {
         anim_en: lv_anim_enable_t,
     );
     pub fn lv_group_get_obj_count(group: *mut lv_group_t) -> u32;
+    /// How far the content reaches past the right / bottom edge, i.e. how
+    /// far the object can still scroll that way: the `[layout]` fit check
+    /// reads them off the screen after a `setContentView`.
+    pub fn lv_obj_get_scroll_right(obj: *const lv_obj_t) -> i32;
+    pub fn lv_obj_get_scroll_bottom(obj: *const lv_obj_t) -> i32;
 
     // Restrict the axes a scrollable object will scroll/over-pull on.
     // Default is LV_DIR_ALL; set to LV_DIR_VER on ScrollView so horizontal

@@ -58,14 +58,16 @@ public class HomeActivity extends NavActivity {
     root.addView(title);
 
     menu = new ListView();
-    menu.setSize(224, 188);
     menu.setAdapter(new ArrayAdapter<String>(LABELS));
     // Android-faithful 4-arg item-click: A/B move the row highlight, X (ENTER) activates the
     // focused
     // row -> open its destination.
     menu.setOnItemClickListener(
         (parent, view, position, id) -> startActivity(new Intent(DESTINATIONS[position])));
-    root.addView(menu);
+    // The list takes the height the title and the hint bar leave (android:layout_weight="1"),
+    // so the hint bar sits on the bottom edge of every panel.
+    root.addView(
+        menu, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
 
     installHintBar(root, "A:Up  B:Down  X:Open  Y:Exit");
 

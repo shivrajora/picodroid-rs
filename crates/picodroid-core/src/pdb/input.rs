@@ -213,9 +213,10 @@ mod tests {
         );
     }
 
-    /// A shared-encoder keyevent for a keycode no board maps reaches the
-    /// handler's own policy answer — the wire round trip works end to end
-    /// without injecting anything.
+    /// A shared-encoder keyevent for a keycode no board pin carries reaches
+    /// the handler's own policy answer — the soft-key queue (app-portability
+    /// K8), accepted like Android's `input keyevent` accepts any code — so
+    /// the wire round trip works end to end.
     #[test]
     fn an_unmapped_keycode_is_the_handlers_answer_not_the_decoders() {
         let mut buf = [0u8; MAX_INPUT_PAYLOAD];
@@ -224,9 +225,8 @@ mod tests {
             meta: pdb_protocol::KEY_META_DOWN_UP,
         }
         .encode(&mut buf);
-        assert_eq!(
-            response_of(&buf[..n]),
-            (STATUS_ERR, Vec::from(&b"no such key"[..]))
-        );
+        assert_eq!(response_of(&buf[..n]), (STATUS_OK, Vec::new()));
+        assert!(input_inject::soft_key_pending());
+        input_inject::reset_soft_keys();
     }
 }

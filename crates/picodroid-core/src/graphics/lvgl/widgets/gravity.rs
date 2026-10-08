@@ -201,13 +201,16 @@ mod tests {
     }
 
     #[test]
-    fn an_unspecified_axis_keeps_the_layouts_default() {
+    fn an_unspecified_axis_is_androids_start() {
+        // Android's LinearLayout default is top|start on both axes
+        // (app-portability D4); a row that wants its children centred says
+        // so with CENTER_VERTICAL.
         assert_eq!(
             flex_align(NO_GRAVITY, COLUMN),
-            (LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER)
+            (LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START)
         );
-        // Only the main axis named: the cross keeps centring, as before.
-        assert_eq!(flex_align(BOTTOM, COLUMN).1, LV_FLEX_ALIGN_CENTER);
+        // Only the main axis named: the cross axis stays at start.
+        assert_eq!(flex_align(BOTTOM, COLUMN).1, LV_FLEX_ALIGN_START);
     }
 
     #[test]
