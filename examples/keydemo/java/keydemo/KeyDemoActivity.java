@@ -53,7 +53,27 @@ public class KeyDemoActivity extends Activity implements OnKeyListener {
     Button focus = new Button("Focus me");
     focus.setSize(200, 50);
     focus.setOnKeyListener(this);
+    // A key stays pressed for LVGL while it is held (app portability, Stage 10): SELECT held
+    // past the long-press time long-clicks the focused view, and a held DOWN walks the focus
+    // ring at LVGL's repeat rate, so the rows below report the focus arriving.
+    focus.setOnLongClickListener(
+        v -> {
+          show("view LONGCLICK");
+          return true;
+        });
     root.addView(focus);
+    for (int i = 1; i <= 3; i++) {
+      Button row = new Button("Row " + i);
+      row.setSize(200, 30);
+      final int n = i;
+      row.setOnFocusChangeListener(
+          (v, hasFocus) -> {
+            if (hasFocus) {
+              show("focus row " + n);
+            }
+          });
+      root.addView(row);
+    }
 
     setContentView(root);
     focus.requestFocus();

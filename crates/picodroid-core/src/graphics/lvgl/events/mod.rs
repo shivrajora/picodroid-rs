@@ -77,6 +77,12 @@ pub fn reset_key_event_queue() {
     KEY_EVENT_QUEUE.clear();
 }
 
+/// Forget a key held across an app reset (Stage 10): the next app's first
+/// quiet read pass must not see a phantom press.
+pub fn reset_held_keys() {
+    keypad::reset_held();
+}
+
 /// Return the Java `View` object reference for LVGL's currently focused
 /// widget, if one is registered as a key listener via
 /// [`register_view_key_listener`].

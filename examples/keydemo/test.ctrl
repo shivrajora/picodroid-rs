@@ -7,6 +7,9 @@ wait KeyDemo[]:] ready
 # The focused Button's OnKeyListener takes DPAD_CENTER.
 input keyevent 23
 wait KeyDemo[]:] view UP keyCode=23
+# SELECT held past LVGL's long-press time: the focused Button's OnLongClickListener.
+input keyevent --longpress 23
+wait KeyDemo[]:] view LONGCLICK
 # A long hold of DPAD_UP: onKeyLongPress, then a cancelled release.
 input keyevent --longpress 19
 wait KeyDemo[]:] activity UP keyCode=19 canceled
@@ -18,6 +21,8 @@ input keyevent --down 20
 sleep 1
 input keyevent --up 20
 wait KeyDemo[]:] activity UP keyCode=20
+# …and LVGL walked the focus ring while DOWN was held.
+wait KeyDemo[]:] focus row 3
 # BACK held past home_hold_ms is HOME on a board with no HOME key: the hold
 # becomes a HOME the framework takes (swallowed here, with no launcher in the
 # run), and the release arrives cancelled, so the demo is still up.

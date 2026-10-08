@@ -234,6 +234,17 @@ fn scroll_lone_scroll_view(key: u32) {
 // SAFETY: widget-layer state, reached only from JVM tasks.
 static KEY_HELD: Core0<Cell<bool>> = unsafe { Core0::new(Cell::new(false)) };
 
+/// The LVGL key the last press edge was given and that is still down, if
+/// any (docs/designs/app-portability-2026-10.md Stage 10). A quiet read
+/// pass reports it pressed again, so LVGL's keypad clock runs on it: a
+/// held ENTER long-presses the focused widget (`OnLongClickListener`), a
+/// held PREV/NEXT walks the focus ring at LVGL's repeat rate. The newest
+/// press wins (LVGL's keypad knows one key at a time); a press the edit
+/// mode or a remap kept from LVGL holds nothing.
+#[cfg(has_buttons)]
+// SAFETY: widget-layer state, reached only from JVM tasks.
+static LVGL_KEY_HELD: Core0<Cell<Option<(u8, u32)>>> = unsafe { Core0::new(Cell::new(None)) };
+
 // ── HOME on a held BACK ─────────────────────────────────────────────────────
 //
 // A board with a launcher but no HOME key reaches HOME by holding BACK for
@@ -299,6 +310,16 @@ pub fn take_back_up_cancelled() -> bool {
         false
     }
 }
+
+#[cfg(has_buttons)]
+/// Forget a key held across an app reset.
+#[cfg(has_buttons)]
+pub(super) fn reset_held() {
+    LVGL_KEY_HELD.set(None);
+    KEY_HELD.set(false);
+}
+#[cfg(not(has_buttons))]
+pub(super) fn reset_held() {}
 
 #[cfg(has_buttons)]
 pub(super) unsafe extern "C" fn keypad_read_cb(
@@ -408,6 +429,17 @@ pub(super) unsafe extern "C" fn keypad_read_cb(
                 LV_INDEV_STATE_PRESSED
             };
         }
+        // What LVGL holds between edges: this press, or nothing once its
+        // pin — or any pin, when the press never reached LVGL — comes up.
+        match (event.rising, decision.lvgl_key) {
+            (false, Some(k)) => LVGL_KEY_HELD.set(Some((event.pin, k))),
+            (false, None) => {}
+            (true, _) => {
+                if LVGL_KEY_HELD.get().is_none_or(|(pin, _)| pin == event.pin) {
+                    LVGL_KEY_HELD.set(None);
+                }
+            }
+        }
         // An ENTER or ESC edge can activate a widget or trigger BACK, and the
         // resulting Activity push/pop (with its keypad-group swap) only runs
         // in the lifecycle drain *after* this read pass. Stop the pass at
@@ -420,7 +452,14 @@ pub(super) unsafe extern "C" fn keypad_read_cb(
         let activation = matches!(key, Some(LV_KEY_ENTER) | Some(LV_KEY_ESC));
         d.continue_reading = hal::gpio::has_pending_event() && !activation;
     } else {
-        d.state = LV_INDEV_STATE_RELEASED;
+        // No edge: the key LVGL was last given is still down, or nothing is.
+        match LVGL_KEY_HELD.get() {
+            Some((_, k)) => {
+                d.key = k;
+                d.state = LV_INDEV_STATE_PRESSED;
+            }
+            None => d.state = LV_INDEV_STATE_RELEASED,
+        }
         d.continue_reading = false;
         // A quiet pass with every key up: the key that opened the system
         // keyboard has been released, so the keyboard may take the focus
