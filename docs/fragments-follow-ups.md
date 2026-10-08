@@ -73,15 +73,3 @@ patterns). A row whose bridge `sim-run` starts itself (as `net-lib.sh::start_net
 starts the TLS listener), with a `test.ctrl` that waits for data and presses B four times and
 patterns `page -> Models`, `page -> Burn rate`, `page -> History`, `page -> Limits`, would
 exercise the port every night; FR-8's `heapcensus` numbers ([completed/fragments-follow-ups.md](completed/fragments-follow-ups.md)) could be asserted there too.
-
-## FR-11: Keys on a board without buttons
-
-**Status: open, small; taken over by
-[designs/app-portability-2026-10.md](designs/app-portability-2026-10.md) K8 (a soft-key queue on
-every board, used by `pdb input`, the sim control channel and the soft-nav overlay).** `input back` and `input keyevent` are refused on `testbench_rp2350`
-(`no buttons on this board`: the verb resolves keycodes to pins on the device side, as
-`pdb input` does), which is why `fragmentdemo` pins `pico_display2_w`. Android's
-`input keyevent` works on any device. A simulator-only fallback that delivers the `KeyEvent`
-to the foreground Activity when the board has no pin for it would let key-driven rows run on
-the default board; it would be the one place the sim's input path differs from the device's,
-so say so in the control channel's help text if it is added.

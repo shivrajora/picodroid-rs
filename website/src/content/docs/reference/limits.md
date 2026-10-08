@@ -112,6 +112,17 @@ first-visit class parsing and socket set-up take the native footprint from
 `examples/gcstress_kt` is the collector stress lane for Kotlin-specific churn
 (lambda proxies, `Ref` boxes, autoboxing, `Pair`, map entry views).
 
+## Screens
+
+Every board is at least **240×240 logical pixels** (`board.toml` is refused below that), a `dp`
+is one of them on every board, and the panels are 240×240, 320×240 and 320×480. A layout that
+stretches (`match_parent`, weights) fills whichever it lands on; one that cannot declares a
+`<supports-screens>` design size and runs in a window of that size — centred on a larger panel,
+panned on a smaller one — and a root larger than its window pans rather than clips. The
+simulator and a debug build log `[layout] fit ok WxH in WxH` or `[layout] overflow …` after each
+`setContentView`. Resource directories may vary by `sw<N>dp`, `w<N>dp`, `h<N>dp`, `land`/`port`
+and `notouch`/`finger` only. See [Apps on every board](/guides/every-board/).
+
 ## Display idle sleep
 
 On every board, the simulator included, the panel **dozes** after the screen timeout with no key edge or touch: **60 seconds** by default (`idle_timeout_ms`), or what Settings → Display stored (`Settings.System.SCREEN_OFF_TIMEOUT`, `0` for never). The backlight and panel go off and LVGL stops ticking; **the app keeps running** — Runnables, alarms, `ScheduledExecutorService` tasks, network callbacks and the sensors continue, and `PowerManager.isInteractive()` says false. Any button wakes the panel, and so does a finger where the controller is read while dark (the touch kit's GT911 sampler task; the testbenches' XPT2046 polled inline). `KEYCODE_SLEEP` dozes at once, `KEYCODE_WAKEUP` wakes, `KEYCODE_POWER` toggles. The log numbers each transition: `display: doze #3 after 60000 ms idle`, `display: wake #3 (touch)`.
