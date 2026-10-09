@@ -56,7 +56,6 @@ counterpart's name, so the API reads the same; you just import `picodroid.*`
 | `ViewConfiguration` | Partial | `getLongPressTimeout`, `getKeyRepeatTimeout`, `getKeyRepeatDelay` (static, fixed per build). No touch slop, fling velocities or `get(Context)`. |
 | `LayoutInflater` | Partial | `from`, `inflate(int, ViewGroup)`, `inflate(int, ViewGroup, boolean)`, and `Activity.setContentView(int)` / `getLayoutInflater()`. Layouts are compiled to binary at build time over a fixed attribute set. `<include>`, `style=` and `?attr/` are resolved at build time. A view class of the app's own is made by a `LayoutInflater.Factory` (`setFactory` / `getFactory`; every `Activity` is one, through `onCreateView(String, Context, AttributeSet)`), since there is no reflection; its `AttributeSet` is always empty. No `<merge>`, `Factory2` or custom attributes. See [resources](/guides/resources/). |
 | `AsyncLayoutInflater` (`picodroid.view`) | Partial | androidx's `inflate(int, ViewGroup, OnInflateFinishedListener)`. Inflates on the main thread in slices of a few milliseconds per tick (Android: on a worker thread) and calls back on a tick of its own; retries after an `OutOfMemoryError`. A callback that no longer wants the view should `close()` it. |
-| `Menu` | Unsupported | No menu resources or options menu. |
 
 ### android.widget
 
