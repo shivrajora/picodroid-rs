@@ -511,3 +511,7 @@ one commit per finding:
   `setFocusable(true)` EditText already did; and `ensure_in_group` sets the border styles whether
   or not it added the view (a stock widget is in the group already), which is where the border
   used to be skipped.
+- **F6.** The launcher drew a focus ring on the touch kit, whose BACK and HOME buttons give it a
+  keypad indev and a default group but no key that moves the focus. The border styles are set
+  only where `has_nav_keys` — the fact `View.isInTouchMode()` already reports — so a programmatic
+  `requestFocus()` on a touch-only board no longer paints a selection nobody can move.

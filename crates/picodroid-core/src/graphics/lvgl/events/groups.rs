@@ -266,12 +266,19 @@ pub(super) unsafe fn ensure_in_group(group: *mut lv_group_t, raw: *mut lv_obj_t)
     // textarea in the default group as it is created, so for every stock
     // widget the add above is skipped — and the border with it, when it
     // sat inside that branch: a focused Button was a flat button (QA F5).
-    // Setting a local style property again is idempotent.
-    for state in [LV_STATE_FOCUSED, LV_STATE_FOCUS_KEY] {
-        let sel = LV_PART_MAIN | state;
-        lv_obj_set_style_border_width(raw, FOCUS_BORDER_PX, sel);
-        lv_obj_set_style_border_color(raw, lv_color_hex(FOCUS_BORDER_RGB), sel);
-        lv_obj_set_style_border_opa(raw, LV_OPA_COVER, sel);
+    // Setting a local style property again is idempotent. Only where a key
+    // moves the focus: a board whose buttons are BACK and HOME alone has a
+    // keypad indev and a default group, so a focusable view lands in a
+    // ring here too, but nothing walks it, and a ring drawn on the first
+    // row of a touch-only screen reads as a selection (the launcher on the
+    // touch kit, QA F6). `View.isInTouchMode()` is the same fact.
+    if crate::board_cfg::input::HAS_NAV_KEYS {
+        for state in [LV_STATE_FOCUSED, LV_STATE_FOCUS_KEY] {
+            let sel = LV_PART_MAIN | state;
+            lv_obj_set_style_border_width(raw, FOCUS_BORDER_PX, sel);
+            lv_obj_set_style_border_color(raw, lv_color_hex(FOCUS_BORDER_RGB), sel);
+            lv_obj_set_style_border_opa(raw, LV_OPA_COVER, sel);
+        }
     }
     lv_obj_add_flag(raw, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
 }
