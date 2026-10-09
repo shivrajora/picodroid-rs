@@ -520,3 +520,9 @@ one commit per finding:
   now names the disabled rows, which get `LV_BUTTONMATRIX_CTRL_DISABLED`: dimmed, skipped by the
   keypad's walk, and inert to a tap or ENTER, so the list stays open as Android's does.
   `AlertDialog.Builder.setDisabledItems` is package-private, for the options menu only.
+- **F8.** Press-outside never dismissed the keyboard inside a design-size window or on the
+  app's own root: the hook sat on the screen object and saw only presses that reached it. It is
+  on the pointer input device now (`lv_indev_add_event_cb`), which LVGL hands every press before
+  the pressed object, with that object as the parameter; a press on the keyboard or on the field
+  it types into keeps it up, anything else dismisses. keyboarddemo's "Tap me to dismiss" strip
+  does what it says.

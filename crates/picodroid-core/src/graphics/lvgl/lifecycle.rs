@@ -142,10 +142,16 @@ pub(in crate::graphics) fn tick(ms: u32) {
 }
 
 /// The pointer input device, kept so a wake can tell it to sit out the
-/// press that woke the panel.
+/// press that woke the panel, and so the soft keyboard can listen for a
+/// press anywhere on it.
 // SAFETY: widget-layer state, reached only from JVM tasks.
 static POINTER_INDEV: Core0<Cell<*mut lv_indev_t>> =
     unsafe { Core0::new(Cell::new(core::ptr::null_mut())) };
+
+/// The pointer input device: created in `init`, never deleted; null before.
+pub(in crate::graphics) fn pointer_indev() -> *mut lv_indev_t {
+    POINTER_INDEV.get()
+}
 
 pub(in crate::graphics) fn sleep() {
     hal::display::display_sleep();

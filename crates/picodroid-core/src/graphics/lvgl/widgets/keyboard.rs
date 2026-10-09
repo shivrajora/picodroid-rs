@@ -137,8 +137,13 @@ unsafe extern "C" fn system_keyboard_ready_cb(_e: *mut lv_event_t) {
     hide_system();
 }
 
-unsafe extern "C" fn screen_press_outside_cb(e: *mut lv_event_t) {
-    let target = unsafe { lv_event_get_target_obj(e) };
+/// `LV_EVENT_PRESSED` on the pointer device while the keyboard is up
+/// (`events::attach_pointer_press_hook`): the pressed object rides as the
+/// event's parameter. A press on the keyboard or one of its keys, or on
+/// the field it is typing into, keeps it up; a press anywhere else — the
+/// app's own views included — dismisses it, as Android's does.
+unsafe extern "C" fn pointer_press_outside_cb(e: *mut lv_event_t) {
+    let target = unsafe { lv_event_get_param(e) } as *mut lv_obj_t;
     if target.is_null() {
         return;
     }
@@ -146,12 +151,10 @@ unsafe extern "C" fn screen_press_outside_cb(e: *mut lv_event_t) {
     if kb.is_null() {
         return;
     }
-    // Walk parent chain — if we hit the keyboard, this press was on the
-    // keyboard itself or one of its keys, so do nothing. Otherwise the
-    // tap landed outside and we dismiss.
+    let ta = SYSTEM_KEYBOARD_BOUND_TA.get();
     let mut cur: *mut lv_obj_t = target;
     while !cur.is_null() {
-        if cur == kb {
+        if cur == kb || (!ta.is_null() && cur == ta) {
             return;
         }
         cur = unsafe { lv_obj_get_parent(cur) };
@@ -253,10 +256,10 @@ pub(in crate::graphics) fn show_system_for(ta: *mut lv_obj_t, et_obj_ref: u16) {
         // release would land on the keyboard's first key. `keypad_read_cb`
         // moves the focus on its next quiet pass (`take_pending_focus`).
         SYSTEM_KEYBOARD_FOCUS_PENDING.set(true);
-        // Attach press-outside dismiss after the EditText's PRESSED event
-        // has finished bubbling — the screen-level callback will not
-        // receive the same press that opened us.
-        events::attach_screen_press_hook(Some(screen_press_outside_cb));
+        // Press-outside dismiss, attached now that the press that opened
+        // us has been and gone (we are shown from the field's click, after
+        // LVGL's pass): the hook sees only the presses that follow.
+        events::attach_pointer_press_hook(Some(pointer_press_outside_cb));
     }
 }
 
@@ -280,7 +283,7 @@ pub fn hide_system() -> bool {
         super::super::menu_button::set_hidden(false);
         SYSTEM_KEYBOARD_BOUND_ET.set(0);
         SYSTEM_KEYBOARD_FOCUS_PENDING.set(false);
-        events::detach_screen_press_hook();
+        events::detach_pointer_press_hook();
         // The field it was typing into takes the keypad focus back. The
         // bound textarea is live: `unbind_if_deleting` clears it before its
         // Activity's tree is freed.
@@ -475,8 +478,8 @@ pub fn reset_keyboard_state() {
     SYSTEM_KEYBOARD_BOUND_TA.set(core::ptr::null_mut());
     SYSTEM_KEYBOARD_FOCUS_PENDING.set(false);
     PENDING_EDITOR_ACTION.set(None);
-    // Same lifetime as the system keyboard — the screen press hook is
-    // attached only while the keyboard is visible, so the cached cb
-    // pointer must die alongside the screen on reload.
-    events::reset_screen_press_hook_state();
+    // The press hook is attached only while the keyboard is visible; the
+    // pointer device it sits on outlives the reload, so it is detached
+    // rather than forgotten.
+    events::detach_pointer_press_hook();
 }

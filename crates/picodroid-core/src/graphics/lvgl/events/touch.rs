@@ -285,63 +285,69 @@ pub fn take_click_suppressed(handle: usize) -> bool {
     CLICK_SUPPRESS.remove(handle)
 }
 
-// ── Screen-level press hook (single-slot, used by soft keyboard dismiss) ────
+// ── Pointer press hook (single-slot, used by soft keyboard dismiss) ─────────
 //
-// Soft keyboard's press-outside-to-dismiss attaches a transient callback to
-// the active screen for `LV_EVENT_PRESSED`. We track the currently-attached
-// fn pointer in a static so:
+// The soft keyboard's press-outside-to-dismiss attaches a transient callback
+// for `LV_EVENT_PRESSED` to the pointer input device. LVGL sends a press to
+// the device's own list before the pressed object's, whatever that object's
+// bubbling, so every press on the panel reaches it: on the bare screen, on
+// the app's root, inside a compat window. A hook on the screen *object* saw
+// only presses that reached the screen itself — a tap on the app's own
+// container, or anywhere inside a design-size window, left the keyboard up
+// (QA F8). We track the attached fn pointer in a static so:
 //   - re-attach during the same visibility cycle is a no-op (idempotent),
 //   - detach knows which cb to remove.
 // Single-slot is sufficient: the keyboard is the only consumer today and
 // the plan explicitly defers generalizing until a second one appears.
 
 use crate::lvgl_ffi::{
-    lv_event_cb_t, lv_obj_add_event_cb, lv_obj_remove_event_cb, lv_screen_active, LV_EVENT_PRESSED,
+    lv_event_cb_t, lv_indev_add_event_cb, lv_indev_remove_event_cb_with_user_data, LV_EVENT_PRESSED,
 };
 
 // SAFETY: widget-layer state, reached only from JVM tasks.
-pub(super) static SCREEN_PRESS_HOOK: Core0<Cell<lv_event_cb_t>> =
+pub(super) static POINTER_PRESS_HOOK: Core0<Cell<lv_event_cb_t>> =
     unsafe { Core0::new(Cell::new(None)) };
 
-/// Attach `cb` to the active screen as an `LV_EVENT_PRESSED` listener.
-/// Idempotent — a second call detaches whatever was previously attached
-/// before re-attaching, so only one screen hook is ever live.
+/// Attach `cb` to the pointer device as an `LV_EVENT_PRESSED` listener; the
+/// pressed object is the event's parameter. Idempotent — a second call
+/// detaches whatever was previously attached before re-attaching, so only
+/// one hook is ever live. A no-op before the device exists.
 ///
 /// Note: we don't short-circuit when the previous and current `cb` are
 /// the same fn pointer because Rust's `unpredictable_function_pointer_comparisons`
 /// lint correctly warns that fn-pointer equality isn't reliable across
 /// codegen units. Detach-then-re-attach is two cheap LVGL list
 /// operations and is unconditionally correct.
-pub fn attach_screen_press_hook(cb: lv_event_cb_t) {
+pub fn attach_pointer_press_hook(cb: lv_event_cb_t) {
+    let indev = super::super::lifecycle::pointer_indev();
+    if indev.is_null() {
+        return;
+    }
+    // SAFETY: the pointer device is created in `lifecycle::init` and never
+    // deleted; a null `cb` is a valid "nothing" to LVGL's list.
     unsafe {
-        if let Some(prev) = SCREEN_PRESS_HOOK.get() {
-            lv_obj_remove_event_cb(lv_screen_active(), Some(prev));
+        if let Some(prev) = POINTER_PRESS_HOOK.get() {
+            lv_indev_remove_event_cb_with_user_data(indev, Some(prev), core::ptr::null_mut());
         }
         if cb.is_some() {
-            lv_obj_add_event_cb(
-                lv_screen_active(),
-                cb,
-                LV_EVENT_PRESSED,
-                core::ptr::null_mut(),
-            );
+            lv_indev_add_event_cb(indev, cb, LV_EVENT_PRESSED, core::ptr::null_mut());
         }
-        SCREEN_PRESS_HOOK.set(cb);
+        POINTER_PRESS_HOOK.set(cb);
     }
 }
 
-/// Detach the screen-level press hook, if one is attached.
-pub fn detach_screen_press_hook() {
-    unsafe {
-        if let Some(prev) = SCREEN_PRESS_HOOK.get() {
-            lv_obj_remove_event_cb(lv_screen_active(), Some(prev));
-            SCREEN_PRESS_HOOK.set(None);
+/// Detach the pointer press hook, if one is attached. The device outlives
+/// every app and screen, so this is also what an app reload calls: a
+/// registration left behind would fire on the next app's presses.
+pub fn detach_pointer_press_hook() {
+    let indev = super::super::lifecycle::pointer_indev();
+    if let Some(prev) = POINTER_PRESS_HOOK.get() {
+        if !indev.is_null() {
+            // SAFETY: as in `attach_pointer_press_hook`.
+            unsafe {
+                lv_indev_remove_event_cb_with_user_data(indev, Some(prev), core::ptr::null_mut());
+            }
         }
+        POINTER_PRESS_HOOK.set(None);
     }
-}
-
-pub fn reset_screen_press_hook_state() {
-    // The screen widget itself is being torn down, so we only need to
-    // drop our cached pointer — the underlying event_cb registration
-    // dies with the screen.
-    SCREEN_PRESS_HOOK.set(None);
 }

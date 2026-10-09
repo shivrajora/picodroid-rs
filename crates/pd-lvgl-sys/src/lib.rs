@@ -703,6 +703,23 @@ extern "C" {
     /// one of `LV_DIR_LEFT/RIGHT/TOP/BOTTOM` (or NONE if no gesture).
     pub fn lv_indev_get_gesture_dir(indev: *const lv_indev_t) -> lv_dir_t;
     pub fn lv_indev_set_group(indev: *mut lv_indev_t, group: *mut lv_group_t);
+    /// An input device's own event list. `LV_EVENT_PRESSED` and the other
+    /// press and key events go here before they go to the pressed object,
+    /// whatever that object's bubbling, with the object as the event's
+    /// parameter (`lv_event_get_param`). Returns the descriptor, unused here.
+    pub fn lv_indev_add_event_cb(
+        indev: *mut lv_indev_t,
+        event_cb: lv_event_cb_t,
+        filter: lv_event_code_t,
+        user_data: *mut c_void,
+    ) -> *mut c_void;
+    /// Remove every registration of `event_cb` with `user_data` from the
+    /// device's list; returns how many went.
+    pub fn lv_indev_remove_event_cb_with_user_data(
+        indev: *mut lv_indev_t,
+        event_cb: lv_event_cb_t,
+        user_data: *mut c_void,
+    ) -> u32;
 
     // Groups (keypad focus navigation)
     pub fn lv_group_create() -> *mut lv_group_t;
