@@ -151,10 +151,11 @@ static FIT_PENDING: Core0<Cell<bool>> = unsafe { Core0::new(Cell::new(false)) };
 
 /// The `[layout]` line (docs/designs/app-portability-2026-10.md D6): after
 /// the first LVGL tick that follows a `setContentView`, say whether the
-/// root fits the window or how far the screen now pans to show it. A
-/// resizeable app is meant to fit every board; the nightly screen matrix
-/// asserts `fit ok` on each geometry. Sim and debug builds only — release
-/// firmware has no reader for it.
+/// root's tree fits the window, how far the screen pans to show the root,
+/// or how far the tree reaches past the window's edge inside a layout
+/// that does not scroll. A resizeable app is meant to fit every board;
+/// the nightly screen matrix asserts `fit ok` on each geometry. Sim and
+/// debug builds only — release firmware has no reader for it.
 #[cfg(any(feature = "sim", debug_assertions))]
 pub fn fit_check_after_tick() {
     if !FIT_PENDING.replace(false) {
@@ -177,7 +178,7 @@ pub fn fit_check_after_tick() {
     // window object or screen exists while an app runs; these are LVGL
     // getters on the UI task, after the tick that laid the tree out (the
     // explicit update is a no-op then, and the guarantee when it was not).
-    let (w, h, over_x, over_y) = unsafe {
+    let (w, h, pan_x, pan_y, cut_x, cut_y) = unsafe {
         // The app's window (window.rs): the screen, or the design-sized
         // object a `<supports-screens>` app runs in.
         let scr = super::lvgl::window::content_root();
@@ -189,25 +190,90 @@ pub fn fit_check_after_tick() {
             y2: 0,
         };
         lv_obj_get_coords(root, &mut a);
+        let mut win = a;
+        lv_obj_get_coords(scr, &mut win);
+        // Past the window's edge inside the tree. The window's own scroll
+        // extent sees only its direct child, the root; a `match_parent`
+        // root never overflows — its children do, inside it, cut by the
+        // edge with nothing to pan to (QA F3).
+        let (reach_x, reach_y) = reach(root, 0);
         (
             a.x2 - a.x1 + 1,
             a.y2 - a.y1 + 1,
             lv_obj_get_scroll_right(scr).max(0),
             lv_obj_get_scroll_bottom(scr).max(0),
+            (reach_x - win.x2).max(0),
+            (reach_y - win.y2).max(0),
         )
     };
-    if over_x == 0 && over_y == 0 {
+    if pan_x == 0 && pan_y == 0 && cut_x == 0 && cut_y == 0 {
         crate::pd_info!("[layout] fit ok {}x{} in {}x{}", w, h, win_w, win_h);
-    } else {
+    } else if pan_x > 0 || pan_y > 0 {
         crate::pd_info!(
             "[layout] overflow {}x{} in {}x{}: the screen pans {} right, {} down",
             w,
             h,
             win_w,
             win_h,
-            over_x,
-            over_y
+            pan_x.max(cut_x),
+            pan_y.max(cut_y)
         );
+    } else {
+        crate::pd_info!(
+            "[layout] overflow {}x{} in {}x{}: content is cut {} past the right edge, {} past the bottom",
+            w,
+            h,
+            win_w,
+            win_h,
+            cut_x,
+            cut_y
+        );
+    }
+}
+
+/// The farthest right and bottom edge in `obj`'s tree that is on show
+/// without scrolling: `obj`'s own, then through every child that is shown
+/// and laid out by its parent, stopping at a scroll container, whose
+/// content is reached by scrolling it (a `ScrollView`, a list) — a
+/// picodroid layout does not scroll, so what it holds past its edge is
+/// cut. Bounded in depth; a view tree is a dozen levels at most.
+///
+/// # Safety
+/// `obj` must be a live LVGL object, read on the UI task.
+#[cfg(any(feature = "sim", debug_assertions))]
+unsafe fn reach(obj: *mut crate::lvgl_ffi::lv_obj_t, depth: u32) -> (i32, i32) {
+    use crate::lvgl_ffi::{
+        lv_area_t, lv_obj_get_child, lv_obj_get_child_count, lv_obj_get_coords, lv_obj_has_flag,
+        LV_OBJ_FLAG_FLOATING, LV_OBJ_FLAG_HIDDEN, LV_OBJ_FLAG_SCROLLABLE,
+    };
+    const MAX_DEPTH: u32 = 16;
+    let mut a = lv_area_t {
+        x1: 0,
+        y1: 0,
+        x2: 0,
+        y2: 0,
+    };
+    // SAFETY: `obj` is live (the caller's contract; a child LVGL just
+    // listed is live too), and these are getters on the UI task.
+    unsafe {
+        lv_obj_get_coords(obj, &mut a);
+        let (mut rx, mut ry) = (a.x2, a.y2);
+        if depth >= MAX_DEPTH || lv_obj_has_flag(obj, LV_OBJ_FLAG_SCROLLABLE) {
+            return (rx, ry);
+        }
+        for i in 0..lv_obj_get_child_count(obj) {
+            let child = lv_obj_get_child(obj, i as i32);
+            if child.is_null()
+                || lv_obj_has_flag(child, LV_OBJ_FLAG_HIDDEN)
+                || lv_obj_has_flag(child, LV_OBJ_FLAG_FLOATING)
+            {
+                continue;
+            }
+            let (cx, cy) = reach(child, depth + 1);
+            rx = rx.max(cx);
+            ry = ry.max(cy);
+        }
+        (rx, ry)
     }
 }
 

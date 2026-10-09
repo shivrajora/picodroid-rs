@@ -477,6 +477,9 @@ pub const LV_OBJ_FLAG_CLICKABLE: u32 = 1 << 1;
 pub const LV_OBJ_FLAG_CLICK_FOCUSABLE: u32 = 1 << 2;
 pub const LV_OBJ_FLAG_CHECKABLE: u32 = 1 << 3;
 pub const LV_OBJ_FLAG_SCROLLABLE: u32 = 1 << 4;
+/// Neither scrolled with the parent nor laid out by it: the `[layout]`
+/// check leaves such a child out, as LVGL's own scroll extent does.
+pub const LV_OBJ_FLAG_FLOATING: u32 = 1 << 18;
 /// Scroll the object into view when it takes focus (a focused row in a
 /// list taller than the screen, as Android's ScrollView does).
 pub const LV_OBJ_FLAG_SCROLL_ON_FOCUS: u32 = 1 << 10;
@@ -1812,6 +1815,7 @@ mod tests {
             (LV_OBJ_FLAG_CHECKABLE, "LV_OBJ_FLAG_CHECKABLE"),
             (LV_OBJ_FLAG_SCROLLABLE, "LV_OBJ_FLAG_SCROLLABLE"),
             (LV_OBJ_FLAG_GESTURE_BUBBLE, "LV_OBJ_FLAG_GESTURE_BUBBLE"),
+            (LV_OBJ_FLAG_FLOATING, "LV_OBJ_FLAG_FLOATING"),
             (LV_OBJ_FLAG_USER_1, "LV_OBJ_FLAG_USER_1"),
         ] {
             let header_val = lookup_assigned_value(body, name)

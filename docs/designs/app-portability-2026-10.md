@@ -492,3 +492,9 @@ one commit per finding:
   `window::reset_pan` scrolls the screen (and the window object) back to the origin on every
   `setContentView` and when a pop uncovers a parked root — every Activity starts at its own
   origin, as on Android. The keys board pans again from the focused view on the next key.
+- **F3.** `[layout] fit ok` while content is cut. A3's measure (the screen's scroll extent) sees
+  only the root; the guide's `match_parent` root never overflows, its children do, inside it,
+  and a layout does not scroll. `fit_check_after_tick` now also walks the root's tree down to the
+  first scroll container and reports what reaches past the window as
+  `overflow … content is cut X past the right edge, Y past the bottom`; the pan form is kept for
+  an oversized root. The rows that assert `fit ok` still do.

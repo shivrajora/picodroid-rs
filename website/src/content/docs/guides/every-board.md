@@ -37,13 +37,19 @@ Lay out against the 240×240 floor and let the rest take the room a larger panel
   `LinearLayout` is not applied (the compiler warns): wrap the child in a `FrameLayout`.
 
 A root that is still larger than the panel is not clipped — the screen pans to it, under a drag
-or as the focus moves — which keeps the app usable and is the sign to fix the layout. The simulator
-and a debug build say which it was after each `setContentView`:
+or as the focus moves — which keeps the app usable and is the sign to fix the layout. A
+`match_parent` root never overflows, but its children can, inside it: a layout does not scroll, so
+what it holds past the panel's edge is simply cut, with nothing to pan to. The simulator and a
+debug build say which it was after each `setContentView`:
 
 ```text
 [layout] fit ok 320x240 in 320x240
 [layout] overflow 320x480 in 320x240: the screen pans 0 right, 240 down
+[layout] overflow 240x240 in 240x240: content is cut 0 past the right edge, 36 past the bottom
 ```
+
+The check looks through every layout down to the first `ScrollView` or list, whose content is
+reached by scrolling it; the third line means the rows that do not fit a panel need one.
 
 Try the smallest board first: `./scripts/sim.sh --app yourapp --board pico_enviro_mon`.
 See [Resources, R and XML layouts](/guides/resources/) for the vocabulary.
