@@ -560,6 +560,8 @@ F	defaultHandler
 F	defaultZone
 F	density
 F	densityDpi
+F	disabledMask
+F	dismissListener
 F	doOutput
 F	downEvent
 F	downKeyCode
@@ -846,6 +848,7 @@ F	screenWidthDp
 F	second
 F	seconds
 F	sensor
+F	showing
 F	shutdown
 F	smallestScreenWidthDp
 F	spiId
@@ -920,7 +923,8 @@ M	access$008
 M	access$076
 M	access$100
 M	access$1002
-M	access$1100
+M	access$1102
+M	access$1200
 M	access$200
 M	access$302
 M	access$402
@@ -1118,6 +1122,7 @@ M	deviceHasKeys
 M	digit
 M	disconnect
 M	dismiss
+M	dismissed
 M	dispatch
 M	dispatchCreate
 M	dispatchDestroy
@@ -1189,6 +1194,7 @@ M	fireButtonClick
 M	fireCheckedChanged
 M	fireClick
 M	fireDateChanged
+M	fireDismiss
 M	fireEditorAction
 M	fireEvent
 M	fireFocusChange
@@ -1569,6 +1575,7 @@ M	isRemoving
 M	isResumed
 M	isSavable
 M	isSecured
+M	isShowing
 M	isShutdown
 M	isStateSaved
 M	isStateful
@@ -1591,6 +1598,7 @@ M	lambda$dataSetChanged$6
 M	lambda$fireEvent$0
 M	lambda$new$0
 M	lambda$openOptionsMenu$0
+M	lambda$openOptionsMenu$1
 M	lambda$registerNetworkCallback$0
 M	lambda$startSwap$1
 M	lambda$static$0
@@ -2177,6 +2185,7 @@ M	setDate
 M	setDefault
 M	setDefaultUncaughtExceptionHandler
 M	setDirection
+M	setDisabledItems
 M	setDoOutput
 M	setDuration
 M	setEditText
@@ -2232,6 +2241,7 @@ M	setOffscreenPageLimit
 M	setOnCheckedChangeListener
 M	setOnClickListener
 M	setOnDateChangedListener
+M	setOnDismissListener
 M	setOnEditorActionListener
 M	setOnFocusChangeListener
 M	setOnItemClickListener

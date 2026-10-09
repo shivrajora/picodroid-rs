@@ -238,8 +238,8 @@ public boolean onOptionsItemSelected(MenuItem item) {
 `onCreateOptionsMenu` runs once after the first `onResume`; `invalidateOptionsMenu()` runs it
 again, `onPrepareOptionsMenu` runs before each show (return false to keep the menu closed), and
 `openOptionsMenu()` / `closeOptionsMenu()` do what they say. An empty menu is offered nowhere: no
-control is drawn and a held SELECT does nothing. `onOptionsMenuClosed` follows a pick or
-`closeOptionsMenu`; a menu dismissed with BACK does not report it. A key you map by hand in
+control is drawn and a held SELECT does nothing. `onOptionsMenuClosed` follows a pick,
+`closeOptionsMenu` or a BACK that dismissed the list. A key you map by hand in
 `onKeyDown` still works — the menu is for the actions that would otherwise need a button the
 board does not have. `examples/menudemo` drives all three openers from the simulator.
 

@@ -123,6 +123,9 @@ pub const SERVICE_CONNECTED: usize = WIFI_EVENT + 1;
 /// The same for `conn.onServiceDisconnected`:
 /// `Context.dispatchServiceDisconnected(conn, service)`.
 pub const SERVICE_DISCONNECTED: usize = WIFI_EVENT + 2;
+/// A dialog the framework dismissed itself (BACK): `AlertDialog.fireDismiss()`
+/// runs the Java `OnDismissListener` for widgets already torn down natively.
+pub const ALERT_DIALOG_DISMISS: usize = WIFI_EVENT + 3;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -180,6 +183,7 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     (c::picodroid_net_wifi_WifiManager, m::fireEvent),
     (c::picodroid_content_Context, m::dispatchServiceConnected),
     (c::picodroid_content_Context, m::dispatchServiceDisconnected),
+    (c::picodroid_app_AlertDialog, m::fireDismiss),
 ];
 
 #[cfg(test)]

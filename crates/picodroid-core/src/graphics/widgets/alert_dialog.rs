@@ -9,8 +9,10 @@ use super::super::lvgl::widgets::alert_dialog as lvgl_dialog;
 use super::super::view::extract_string_at;
 
 pub use lvgl_dialog::reset_alert_dialog_state;
-pub use lvgl_dialog::{dismiss_topmost_dialog, has_shown_dialog};
-pub use lvgl_dialog::{drain_click_queue, drain_item_click_queue, lookup_dialog_obj};
+pub use lvgl_dialog::{cancel_topmost_dialog, dismiss_topmost_dialog, has_shown_dialog};
+pub use lvgl_dialog::{
+    drain_click_queue, drain_dismiss_queue, drain_item_click_queue, lookup_dialog_obj,
+};
 
 #[inline]
 fn arg_int(args: &[Value], i: usize) -> Result<i32, JvmError> {

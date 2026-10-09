@@ -434,11 +434,14 @@ fn route_key(
     //     default) before reaching the focused View or onBackPressed. This
     //     is also the only way to dismiss a dialog on a keypad-only board
     //     with no touch — and it stops the modal scrim from outliving its
-    //     Activity. See project_picoenvmon_alertdialog_leak.
+    //     Activity. See project_picoenvmon_alertdialog_leak. The Java
+    //     `AlertDialog` hears of it through `fireDismiss`
+    //     (`dispatch_alert_dialog_dismissals`), so its `OnDismissListener`
+    //     runs — the options menu knows it closed.
     if keycode == KEYCODE_BACK && action == ACTION_UP {
         use crate::graphics::widgets;
         if widgets::has_shown_dialog() {
-            widgets::dismiss_topmost_dialog();
+            widgets::cancel_topmost_dialog();
             crate::pd_info!("key: BACK -> dialog dismissed");
             return false;
         }

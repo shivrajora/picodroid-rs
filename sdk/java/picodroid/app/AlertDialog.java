@@ -25,6 +25,11 @@ public class AlertDialog implements DialogInterface {
   // panel cannot keep dismissed dialogs around for a re-show), so a dismissed dialog cannot be
   // shown again and a second dismiss has nothing to do.
   private int nativeHandle;
+  // True from show() until the dialog goes away, however it goes: dismiss(), a button, a pick in
+  // a plain item list, or BACK, which the framework answers natively and reports through
+  // fireDismiss.
+  private boolean showing;
+  private DialogInterface.OnDismissListener dismissListener;
   private DialogInterface.OnClickListener positiveListener;
   private DialogInterface.OnClickListener negativeListener;
   private DialogInterface.OnClickListener neutralListener;
@@ -48,6 +53,21 @@ public class AlertDialog implements DialogInterface {
               + " a new one");
     }
     nativeShow(nativeHandle);
+    showing = true;
+  }
+
+  /** Mirrors {@code Dialog#isShowing}: true from {@link #show} until the dialog is dismissed. */
+  public boolean isShowing() {
+    return showing;
+  }
+
+  /**
+   * Mirrors {@code Dialog#setOnDismissListener}: {@code listener} runs once, when the dialog goes
+   * away — after {@link #dismiss}, a button or a pick in a plain item list, and after BACK, which
+   * dismisses a showing dialog as Android's cancelable default does.
+   */
+  public void setOnDismissListener(DialogInterface.OnDismissListener listener) {
+    dismissListener = listener;
   }
 
   /**
@@ -62,6 +82,27 @@ public class AlertDialog implements DialogInterface {
     }
     nativeHandle = 0;
     nativeDismiss(handle);
+    dismissed();
+  }
+
+  /**
+   * Invoked from the native event loop after the framework dismissed the dialog itself: BACK tears
+   * the widgets down natively before Java hears of it, so the handle is dead by now and only the
+   * Java side is left to close.
+   */
+  void fireDismiss() {
+    if (nativeHandle == 0) {
+      return;
+    }
+    nativeHandle = 0;
+    dismissed();
+  }
+
+  private void dismissed() {
+    showing = false;
+    if (dismissListener != null) {
+      dismissListener.onDismiss(this);
+    }
   }
 
   @Override
@@ -196,6 +237,7 @@ public class AlertDialog implements DialogInterface {
     private DialogInterface.OnClickListener itemsListener;
     private DialogInterface.OnMultiChoiceClickListener multiChoiceListener;
     private boolean[] checkedItems;
+    private DialogInterface.OnDismissListener dismissListener;
 
     public Builder() {}
 
@@ -294,6 +336,15 @@ public class AlertDialog implements DialogInterface {
       return this;
     }
 
+    /**
+     * Mirrors {@code AlertDialog.Builder#setOnDismissListener}; see {@link
+     * AlertDialog#setOnDismissListener}.
+     */
+    public Builder setOnDismissListener(DialogInterface.OnDismissListener listener) {
+      this.dismissListener = listener;
+      return this;
+    }
+
     public AlertDialog create() {
       AlertDialog d;
       if (itemsJoined != null) {
@@ -325,6 +376,7 @@ public class AlertDialog implements DialogInterface {
       d.positiveListener = positiveListener;
       d.negativeListener = negativeListener;
       d.neutralListener = neutralListener;
+      d.dismissListener = dismissListener;
       d.nativeRegisterButtonClickListener();
       return d;
     }

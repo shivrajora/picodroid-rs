@@ -457,7 +457,10 @@ public class Activity extends Context
     return false;
   }
 
-  /** Mirrors Android: the menu went away after a pick or {@link #closeOptionsMenu}. */
+  /**
+   * Mirrors Android: the menu went away — after a pick, {@link #closeOptionsMenu}, or BACK, which
+   * dismisses the list as it does any dialog.
+   */
   public void onOptionsMenuClosed(Menu menu) {}
 
   /**
@@ -494,12 +497,21 @@ public class Activity extends Context
             .setItems(
                 titles,
                 (dialog, which) -> {
-                  mOptionsMenuDialog = null;
                   OptionsMenu.Item item = shown[which];
                   if (item.isEnabled() && !item.fireClick()) {
                     onOptionsItemSelected(item);
                   }
-                  onOptionsMenuClosed(mOptionsMenu);
+                })
+            // However the list goes away — the pick above, closeOptionsMenu(), BACK — the menu
+            // closes here, once. BACK dismisses the list natively, and the Activity used to keep
+            // it as showing: the next MENU "closed" it again and only the one after that opened
+            // it (QA round 2, R1).
+            .setOnDismissListener(
+                dialog -> {
+                  if (mOptionsMenuDialog == dialog) {
+                    mOptionsMenuDialog = null;
+                    onOptionsMenuClosed(mOptionsMenu);
+                  }
                 })
             .show();
   }
@@ -508,9 +520,7 @@ public class Activity extends Context
   public void closeOptionsMenu() {
     AlertDialog d = mOptionsMenuDialog;
     if (d != null) {
-      mOptionsMenuDialog = null;
-      d.dismiss();
-      onOptionsMenuClosed(mOptionsMenu);
+      d.dismiss(); // its dismiss listener clears the field and runs onOptionsMenuClosed
     }
   }
 

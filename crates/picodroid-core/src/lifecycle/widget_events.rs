@@ -301,6 +301,29 @@ pub(super) fn dispatch_alert_dialog_item_clicks(
     }
 }
 
+/// Drain the dialogs the framework dismissed itself — BACK, in
+/// `input::route_key` — and invoke `fireDismiss()` on each, which runs the
+/// Java `OnDismissListener` and turns `isShowing()` false. The object ref is
+/// rooted by the queue until here (`visit_dialog_obj_roots`).
+#[cfg(not(test))]
+pub(super) fn dispatch_alert_dialog_dismissals(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
+) {
+    use crate::graphics::widgets;
+
+    while let Some(obj_ref) = widgets::drain_dialog_dismiss_queue() {
+        let _ = jvm.invoke_instance(
+            dispatch_class(dispatch_sites::ALERT_DIALOG_DISMISS),
+            dispatch_method(dispatch_sites::ALERT_DIALOG_DISMISS),
+            obj_ref,
+            heap,
+            handler,
+        );
+    }
+}
+
 /// Drain the Snackbar action-click queue and invoke `fireActionClick()` on
 /// each matching Snackbar. The Java side runs the registered Runnable then
 /// dismisses the snackbar.

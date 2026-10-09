@@ -37,11 +37,12 @@ mod toggle_button;
 pub use alert_dialog::{
     alert_dialog_native_create, alert_dialog_native_create_with_list, alert_dialog_native_dismiss,
     alert_dialog_native_perform_item_click, alert_dialog_native_show,
-    alert_dialog_register_button_click_listener, dismiss_topmost_dialog, has_shown_dialog,
-    reset_alert_dialog_state,
+    alert_dialog_register_button_click_listener, cancel_topmost_dialog, dismiss_topmost_dialog,
+    has_shown_dialog, reset_alert_dialog_state,
 };
 pub use alert_dialog::{
     drain_click_queue as drain_dialog_click_queue,
+    drain_dismiss_queue as drain_dialog_dismiss_queue,
     drain_item_click_queue as drain_dialog_item_click_queue, lookup_dialog_obj,
 };
 pub use animator::drain_completed_end_action;

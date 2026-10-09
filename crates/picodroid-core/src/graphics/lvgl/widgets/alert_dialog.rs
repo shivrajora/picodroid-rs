@@ -221,17 +221,67 @@ pub fn has_shown_dialog() -> bool {
     unsafe { SHOWN_LEN > 0 }
 }
 
-/// Dismiss the most-recently-shown dialog (BACK / cancel). Returns `true` if
-/// one was dismissed, `false` if none were showing.
-pub fn dismiss_topmost_dialog() -> bool {
-    let id = unsafe {
+/// The Java handle id of the most-recently-shown dialog, if any is showing.
+fn topmost_shown_id() -> Option<i32> {
+    // SAFETY: a read of the shown stack, on the JVM task that pushes and
+    // pops it.
+    unsafe {
         if SHOWN_LEN == 0 {
-            return false;
+            None
+        } else {
+            Some(SHOWN[SHOWN_LEN - 1])
         }
-        SHOWN[SHOWN_LEN - 1]
+    }
+}
+
+/// Dismiss the most-recently-shown dialog without telling its Java object:
+/// an Activity's teardown, where nothing is left to listen. Returns `true`
+/// if one was dismissed, `false` if none were showing.
+pub fn dismiss_topmost_dialog() -> bool {
+    let Some(id) = topmost_shown_id() else {
+        return false;
     };
     dismiss(id); // also pops it from SHOWN
     true
+}
+
+// ── Dialogs the framework dismissed, for Java ───────────────────────────────
+//
+// BACK tears the topmost dialog down here, natively, before Java hears of
+// it. The Java `AlertDialog` is told afterwards (`fireDismiss`, drained by
+// `lifecycle::dispatch_alert_dialog_dismissals`) so its `OnDismissListener`
+// runs and `isShowing()` turns false — the options menu learns it closed
+// from that; it used to stay "showing" and the next MENU closed it again
+// (QA round 2, R1). The object refs wait here until the drain and are GC
+// roots meanwhile: the map entry that rooted them went with the scrim.
+// SAFETY: filled and drained on JVM tasks.
+static DISMISS_QUEUE: Core0<LocalRing<u16, MAX_SHOWN>> = unsafe { Core0::new(LocalRing::new(0)) };
+
+/// BACK: dismiss the most-recently-shown dialog and queue its Java object
+/// for `fireDismiss`. Returns `true` if one was dismissed, `false` if none
+/// were showing.
+pub fn cancel_topmost_dialog() -> bool {
+    let Some(id) = topmost_shown_id() else {
+        return false;
+    };
+    let obj_ref = if handle_table::is_live(id) {
+        DIALOG_OBJ_MAP.lookup(handle_table::lookup(id) as usize)
+    } else {
+        None
+    };
+    dismiss(id); // also pops it from SHOWN
+    if let Some(obj_ref) = obj_ref {
+        if !DISMISS_QUEUE.push(obj_ref) {
+            crate::pd_warn!("AlertDialog: dismiss queue full, a listener is skipped");
+        }
+    }
+    true
+}
+
+/// Drain one framework-dismissed dialog: the Java object to call
+/// `fireDismiss` on.
+pub fn drain_dismiss_queue() -> Option<u16> {
+    DISMISS_QUEUE.pop()
 }
 
 // ── LVGL trampoline ─────────────────────────────────────────────────────────
@@ -834,7 +884,8 @@ pub fn drain_click_queue() -> Option<(usize, i32)> {
 /// would otherwise be swept, after which its button click can't dispatch. See
 /// `events::visit_view_listener_roots`.
 pub fn visit_dialog_obj_roots(visit: &mut dyn FnMut(u16)) {
-    DIALOG_OBJ_MAP.visit(visit)
+    DIALOG_OBJ_MAP.visit(visit);
+    DISMISS_QUEUE.for_each(visit);
 }
 
 /// Look up the Java `AlertDialog` object index for a dialog's raw scrim
@@ -851,6 +902,7 @@ pub fn reset_alert_dialog_state() {
         DIALOG_OBJ_MAP.reset();
         CLICK_QUEUE.clear();
         ITEM_QUEUE.clear();
+        DISMISS_QUEUE.clear();
         for slot in &mut LIST_SLOTS[..] {
             slot.dialog_handle = 0;
             slot.matrix = 0;
