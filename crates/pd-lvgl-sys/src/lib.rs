@@ -786,6 +786,9 @@ extern "C" {
         dy: i32,
         anim_en: lv_anim_enable_t,
     );
+    /// Scroll so that `(x, y)` of the content sits at the object's origin:
+    /// `(0, 0)` puts the screen back at its top-left after it panned.
+    pub fn lv_obj_scroll_to(obj: *mut lv_obj_t, x: i32, y: i32, anim_en: lv_anim_enable_t);
     pub fn lv_group_get_obj_count(group: *mut lv_group_t) -> u32;
     /// How far the content reaches past the right / bottom edge, i.e. how
     /// far the object can still scroll that way: the `[layout]` fit check

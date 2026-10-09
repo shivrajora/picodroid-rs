@@ -116,6 +116,28 @@ pub fn content_root() -> *mut lv_obj_t {
     }
 }
 
+/// Put the screen back at its origin. The screen pans to show an oversized
+/// root or window (D6, A4), and the pan is the screen's, not the root's: it
+/// would otherwise carry over to the next content root — an Activity pushed
+/// from a panned screen opened scrolled, showing its blank lower half. Every
+/// Activity starts at its own origin on Android, so `setContentView` and the
+/// return to a parked root call this. A no-op before LVGL exists.
+pub fn reset_pan() {
+    if !super::is_initialized() {
+        return;
+    }
+    // SAFETY: LVGL is initialised; the active screen exists for the
+    // program's life, and `CONTAINER`, when set, is live until `sync`
+    // deletes it. A scroll of zero is a no-op.
+    unsafe {
+        lv_obj_scroll_to(lv_screen_active(), 0, 0, LV_ANIM_OFF);
+        let c = CONTAINER.get();
+        if !c.is_null() {
+            lv_obj_scroll_to(c, 0, 0, LV_ANIM_OFF);
+        }
+    }
+}
+
 /// What the app about to run declared. `None` is resizeable: the window is
 /// the screen. Applied now when LVGL is up, else by [`sync`] when it comes
 /// up (`lifecycle::init`).

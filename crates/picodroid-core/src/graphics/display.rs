@@ -135,6 +135,9 @@ pub fn set_content_view(args: &[Value], objects: &ObjectHeap) -> Result<Option<V
         // for the first-time path.
         g.set_visibility(h, Visibility::Visible);
     });
+    // A new root starts at the window's origin: the pan the previous root
+    // left on the screen is not its own.
+    super::lvgl::window::reset_pan();
     #[cfg(any(feature = "sim", debug_assertions))]
     FIT_PENDING.set(true);
     Ok(None)

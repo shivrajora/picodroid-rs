@@ -65,6 +65,9 @@ pub(super) fn restore_top_view(handler: &mut crate::native_handler::PicodroidNat
         with_gfx(|g| g.set_visibility(Handle::from_java(saved), Visibility::Visible));
         display::set_current_root_id(saved);
         handler.set_current_root_handle(0);
+        // The child panned the screen for its own root; the uncovered one
+        // shows from its origin, as a fresh `setContentView` would.
+        crate::graphics::lvgl::window::reset_pan();
     }
 }
 

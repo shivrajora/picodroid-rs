@@ -474,3 +474,14 @@ the board lacks. Verified: `examples/menudemo` row on `pico_display2_w` (held SE
 soft MENU, an item's own listener), and on `testbench_rp2350` by tapping the control and a row
 (screenshots) — a sim row cannot drive a dialog by soft keys there, since soft keys reach Java but
 not the LVGL keypad, which a touch board does not have.
+
+### A7 (2026-10-08) — Simulator QA fixes
+
+What [qa-app-portability-2026-10-results.md](../qa-app-portability-2026-10-results.md) found,
+one commit per finding:
+
+- **F2.** The screen's pan belongs to the screen, so it carried over from one content root to the
+  next: an Activity pushed from a panned picoclock opened scrolled to its blank lower half.
+  `window::reset_pan` scrolls the screen (and the window object) back to the origin on every
+  `setContentView` and when a pop uncovers a parked root — every Activity starts at its own
+  origin, as on Android. The keys board pans again from the focused view on the next key.
