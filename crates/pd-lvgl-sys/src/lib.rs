@@ -385,6 +385,10 @@ pub const PD_CANVAS_MAX_BYTES: usize = 2048;
 
 // Button-matrix control flags (`lv_buttonmatrix.h`). Only the subset the
 // AlertDialog choice lists need.
+/// The button is disabled, as `LV_STATE_DISABLED` disables a widget: drawn
+/// in that state, skipped by the keypad's walk, and sending no
+/// `VALUE_CHANGED` for a tap or ENTER.
+pub const LV_BUTTONMATRIX_CTRL_DISABLED: u16 = 0x0040;
 /// Toggle `LV_STATE_CHECKED` on the button when clicked.
 pub const LV_BUTTONMATRIX_CTRL_CHECKABLE: u16 = 0x0080;
 /// The button is currently checked.
@@ -1995,6 +1999,10 @@ mod tests {
         let body = enum_body(LV_BTNMATRIX_HEADER, "} lv_buttonmatrix_ctrl_t")
             .expect("lv_buttonmatrix_ctrl_t not found");
         for (rust_const, name) in [
+            (
+                LV_BUTTONMATRIX_CTRL_DISABLED as u32,
+                "LV_BUTTONMATRIX_CTRL_DISABLED",
+            ),
             (
                 LV_BUTTONMATRIX_CTRL_CHECKABLE as u32,
                 "LV_BUTTONMATRIX_CTRL_CHECKABLE",

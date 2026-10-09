@@ -515,3 +515,8 @@ one commit per finding:
   keypad indev and a default group but no key that moves the focus. The border styles are set
   only where `has_nav_keys` — the fact `View.isInTouchMode()` already reports — so a programmatic
   `requestFocus()` on a touch-only board no longer paints a selection nobody can move.
+- **F7.** A disabled `MenuItem` was drawn enabled and a pick on it closed the menu. For a plain
+  item list the mask `nativeCreateWithList` already takes (the checked rows of the choice modes)
+  now names the disabled rows, which get `LV_BUTTONMATRIX_CTRL_DISABLED`: dimmed, skipped by the
+  keypad's walk, and inert to a tap or ENTER, so the list stays open as Android's does.
+  `AlertDialog.Builder.setDisabledItems` is package-private, for the options menu only.

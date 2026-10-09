@@ -474,7 +474,8 @@ pub(in crate::graphics) fn create(
 /// Build a list dialog: title + optional message + a button-matrix of
 /// `items` (joined by `'\n'`) + the OK/cancel button row. `mode` selects
 /// plain items (0), single-choice (1), or multi-choice (2); `checked_mask`
-/// seeds the initial checked rows for the choice modes (bit i = row i).
+/// seeds the initial checked rows for the choice modes (bit i = row i),
+/// and for plain items names the rows that are disabled.
 /// Per Android, when `message` is non-empty it wins and the list is dropped.
 #[allow(clippy::too_many_arguments)] // mirrors the Java nativeCreateWithList signature
 pub(in crate::graphics) fn create_with_list(
@@ -564,6 +565,17 @@ pub(in crate::graphics) fn create_with_list(
                 lv_buttonmatrix_set_button_ctrl(matrix, i, LV_BUTTONMATRIX_CTRL_CHECKABLE);
                 if checked_mask & (1 << i) != 0 {
                     lv_buttonmatrix_set_button_ctrl(matrix, i, LV_BUTTONMATRIX_CTRL_CHECKED);
+                }
+            }
+        } else {
+            // Plain items: the mask is the disabled rows — an options menu's
+            // `MenuItem.setEnabled(false)`. LVGL draws such a row in its
+            // disabled state, the keypad's walk skips it, and a tap or ENTER
+            // on it sends no VALUE_CHANGED, so the dialog stays open as
+            // Android's menu does over a disabled item (QA F7).
+            for i in 0..n_items as u32 {
+                if checked_mask & (1 << i) != 0 {
+                    lv_buttonmatrix_set_button_ctrl(matrix, i, LV_BUTTONMATRIX_CTRL_DISABLED);
                 }
             }
         }

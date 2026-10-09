@@ -126,6 +126,8 @@ public class AlertDialog implements DialogInterface {
   private static native int nativeCreate(
       String title, String message, String positiveText, String negativeText, String neutralText);
 
+  // `checkedMask`: bit i is row i — the rows initially checked for the choice modes, the rows
+  // disabled for LIST_MODE_ITEMS.
   private static native int nativeCreateWithList(
       String title,
       String message,
@@ -190,6 +192,7 @@ public class AlertDialog implements DialogInterface {
     private String itemsJoined;
     private int listMode = LIST_MODE_ITEMS;
     private int checkedMask;
+    private int disabledMask;
     private DialogInterface.OnClickListener itemsListener;
     private DialogInterface.OnMultiChoiceClickListener multiChoiceListener;
     private boolean[] checkedItems;
@@ -237,6 +240,17 @@ public class AlertDialog implements DialogInterface {
       this.itemsJoined = joinItems(items);
       this.listMode = LIST_MODE_ITEMS;
       this.itemsListener = listener;
+      return this;
+    }
+
+    /**
+     * The rows of a {@link #setItems} list that are disabled, bit {@code i} for row {@code i}:
+     * drawn dimmed, skipped by the keys, and inert to a tap, the dialog staying open — how the
+     * framework presents a disabled {@code MenuItem} of the options menu. Not an Android API (there
+     * the list's adapter decides); for the framework's own use.
+     */
+    Builder setDisabledItems(int mask) {
+      this.disabledMask = mask;
       return this;
     }
 
@@ -293,7 +307,7 @@ public class AlertDialog implements DialogInterface {
                     neutralText == null ? "" : neutralText,
                     itemsJoined,
                     listMode,
-                    checkedMask));
+                    listMode == LIST_MODE_ITEMS ? disabledMask : checkedMask));
         d.listMode = listMode;
         d.itemsListener = itemsListener;
         d.multiChoiceListener = multiChoiceListener;

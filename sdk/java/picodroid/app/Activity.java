@@ -473,11 +473,18 @@ public class Activity extends Context
     }
     final OptionsMenu.Item[] shown = mOptionsMenu.visibleItems();
     String[] titles = new String[shown.length];
+    // A disabled item is listed dimmed and cannot be picked; the list stays open over it, as
+    // Android's menu does.
+    int disabled = 0;
     for (int i = 0; i < shown.length; i++) {
       titles[i] = String.valueOf(shown[i].getTitle());
+      if (!shown[i].isEnabled()) {
+        disabled |= 1 << i;
+      }
     }
     mOptionsMenuDialog =
         new AlertDialog.Builder(this)
+            .setDisabledItems(disabled)
             .setItems(
                 titles,
                 (dialog, which) -> {
