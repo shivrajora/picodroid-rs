@@ -14,6 +14,8 @@ public abstract class CompoundButton extends View {
 
   protected CompoundButton(int nativeHandle) {
     super(nativeHandle);
+    // Focusable by default, as on Android (see Button).
+    setFocusable(true);
   }
 
   /** Returns whether this widget is currently in the checked state. */

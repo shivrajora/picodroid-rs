@@ -501,3 +501,13 @@ one commit per finding:
 - **F4.** The snackbar at 240 wide clipped its action behind a scrollbar, and at 320 showed a
   scrollbar sliver. The bar no longer scrolls; the label takes the width left beside the action
   and wraps, and the bar's height follows its content up from the bottom edge.
+- **F5.** A focused Button showed no focus border on a keys board. The border is set by
+  `set_view_focusable`, which only `View.setFocusable` (or K6's click-listener rule) reaches; a
+  stock Button, CheckBox, Switch, SeekBar or Spinner is a stop for the keys regardless, because
+  LVGL adds a widget with a `group_def` to the default group as it is created, so keydemo's rows
+  were walked without the border, and its `requestFocus()` on a Button returned false (the view
+  was not "focusable") while LVGL's own focus on the first group member made it look as though it
+  had worked. Those widgets are focusable by default now, as on Android, through the same
+  `setFocusable(true)` EditText already did; and `ensure_in_group` sets the border styles whether
+  or not it added the view (a stock widget is in the group already), which is where the border
+  used to be skipped.

@@ -255,18 +255,23 @@ pub fn leave_modal_group() {}
 pub(super) unsafe fn ensure_in_group(group: *mut lv_group_t, raw: *mut lv_obj_t) {
     if lv_obj_get_group(raw) != group {
         lv_group_add_obj(group, raw);
-        // Keypad focus has to be visible on a board whose only input is four
-        // buttons. The theme's focus outline is drawn *outside* the object
-        // and is clipped away for the common list shape — a full-width row
-        // in a zero-padding column — so a focusable view also gets a border,
-        // drawn inside its bounds. Both states: keypad navigation sets
-        // FOCUS_KEY on top of FOCUSED.
-        for state in [LV_STATE_FOCUSED, LV_STATE_FOCUS_KEY] {
-            let sel = LV_PART_MAIN | state;
-            lv_obj_set_style_border_width(raw, FOCUS_BORDER_PX, sel);
-            lv_obj_set_style_border_color(raw, lv_color_hex(FOCUS_BORDER_RGB), sel);
-            lv_obj_set_style_border_opa(raw, LV_OPA_COVER, sel);
-        }
+    }
+    // Keypad focus has to be visible on a board whose only input is four
+    // buttons. The theme's focus outline is drawn *outside* the object and
+    // is clipped away for the common list shape — a full-width row in a
+    // zero-padding column — so a focusable view also gets a border, drawn
+    // inside its bounds. Both states: keypad navigation sets FOCUS_KEY on
+    // top of FOCUSED. Set whether or not the view was in the group already:
+    // LVGL puts a button, checkbox, switch, slider, dropdown, roller or
+    // textarea in the default group as it is created, so for every stock
+    // widget the add above is skipped — and the border with it, when it
+    // sat inside that branch: a focused Button was a flat button (QA F5).
+    // Setting a local style property again is idempotent.
+    for state in [LV_STATE_FOCUSED, LV_STATE_FOCUS_KEY] {
+        let sel = LV_PART_MAIN | state;
+        lv_obj_set_style_border_width(raw, FOCUS_BORDER_PX, sel);
+        lv_obj_set_style_border_color(raw, lv_color_hex(FOCUS_BORDER_RGB), sel);
+        lv_obj_set_style_border_opa(raw, LV_OPA_COVER, sel);
     }
     lv_obj_add_flag(raw, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
 }

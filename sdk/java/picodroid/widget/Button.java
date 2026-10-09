@@ -14,6 +14,10 @@ public class Button extends TextView {
   public Button(String text) {
     super(nativeCreate(text));
     mText = text == null ? "" : text;
+    // Focusable by default, as on Android: a stop for the keys without a `setFocusable(true)`
+    // of its own, and `requestFocus()` works. LVGL walks a button either way; this is what
+    // gives it the focus border a keys board draws (app-portability A7, F5).
+    setFocusable(true);
   }
 
   public Button(Context ctx, String text) {

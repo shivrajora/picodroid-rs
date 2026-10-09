@@ -9,14 +9,17 @@ public class SeekBar extends View {
 
   public SeekBar() {
     super(nativeCreate());
+    setFocusable(true); // as on Android (see Button)
   }
 
   public SeekBar(int max) {
     super(nativeCreateWithMax(max));
+    setFocusable(true);
   }
 
   public SeekBar(Context ctx) {
     super(nativeCreate());
+    setFocusable(true);
   }
 
   private static native int nativeCreate();
