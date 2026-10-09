@@ -261,6 +261,5 @@ These are the places the author would probe first; none is a known defect.
 
 ## Results
 
-| Scenario | Board | Result | Evidence (image, log line) | Note |
-|---|---|---|---|---|
-| | | | | |
+Run on 2026-10-08: the table, the findings and the captures are in
+[qa-app-portability-2026-10-results.md](qa-app-portability-2026-10-results.md).
