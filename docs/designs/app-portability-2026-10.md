@@ -526,3 +526,6 @@ one commit per finding:
   the pressed object, with that object as the parameter; a press on the keyboard or on the field
   it types into keeps it up, anything else dismisses. keyboarddemo's "Tap me to dismiss" strip
   does what it says.
+- **F9.** The menu control stayed tappable with the list open and a second tap did nothing.
+  MENU's release toggles the menu, as Android's window does: open when closed, closed when open;
+  the control is left visible as the thing that toggles it.

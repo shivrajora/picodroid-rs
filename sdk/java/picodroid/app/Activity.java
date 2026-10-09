@@ -414,7 +414,13 @@ public class Activity extends Context
       return true;
     }
     if (keyCode == KeyEvent.KEYCODE_MENU) {
-      openOptionsMenu(); // as Android's window does on the MENU key's release
+      // As Android's window does on the MENU key's release: a toggle, so a second MENU — the
+      // touch board's menu control stays tappable while the list is open — closes the menu.
+      if (mOptionsMenuDialog != null) {
+        closeOptionsMenu();
+      } else {
+        openOptionsMenu();
+      }
       return true;
     }
     return false;
