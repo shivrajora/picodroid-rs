@@ -82,6 +82,17 @@ pub(in crate::graphics) fn create() -> i32 {
             lv_obj_set_style_outline_pad(o, 3, LV_STATE_EDITED);
             lv_obj_set_style_outline_opa(o, 127, LV_STATE_EDITED);
             lv_obj_set_style_outline_color(o, lv_theme_get_color_secondary(o), LV_STATE_EDITED);
+            // The group's quiet focus — the first stop of a screen that opens
+            // on a picker — sets FOCUSED alone; FOCUS_KEY joins once a key
+            // moves the focus. The same outline for that state, where a key
+            // can move it (groups.rs::ensure_in_group), so the focus is seen
+            // before the first key (QA round 2, R4).
+            if crate::board_cfg::input::HAS_NAV_KEYS {
+                lv_obj_set_style_outline_width(o, 3, LV_STATE_FOCUSED);
+                lv_obj_set_style_outline_pad(o, 3, LV_STATE_FOCUSED);
+                lv_obj_set_style_outline_opa(o, 127, LV_STATE_FOCUSED);
+                lv_obj_set_style_outline_color(o, lv_theme_get_color_primary(o), LV_STATE_FOCUSED);
+            }
         });
 
         let label = lv_label_create(o);
