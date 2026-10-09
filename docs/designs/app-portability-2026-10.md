@@ -529,3 +529,37 @@ one commit per finding:
 - **F9.** The menu control stayed tappable with the list open and a second tap did nothing.
   MENU's release toggles the menu, as Android's window does: open when closed, closed when open;
   the control is left visible as the thing that toggles it.
+
+### A8 (2026-10-09) — Round-2 QA fixes
+
+What [qa-app-portability-round2-2026-10-results.md](../qa-app-portability-round2-2026-10-results.md)
+found around the A7 fixes, one commit per finding:
+
+- **R1.** A menu dismissed with BACK stayed "showing" to the Activity: BACK tore the list down
+  natively and the Java `AlertDialog` never heard, so the next MENU closed the dead dialog again
+  and only the one after opened it. `AlertDialog` now has `setOnDismissListener` and
+  `isShowing()` (Android's `Dialog` API), `dismiss()` runs the listener, and the native BACK
+  path (`cancel_topmost_dialog`) queues the dialog's Java object for `fireDismiss`, drained
+  after the keys each tick, so the listener runs for that dismissal too. The options menu is
+  closed through that one listener for every way the list goes — a pick, `closeOptionsMenu`,
+  BACK — and `onOptionsMenuClosed` now follows a BACK dismissal, which A6 had left out.
+- **R2.** A held SELECT on the open list picked its row *and* reopened the menu: LVGL picked on
+  ENTER's press, the dialog closed in the drain, and the same press then reached
+  `Activity.onKeyDown` with no dialog showing, where the repeat made it the long press that
+  opens the menu. `keypad.rs::widget_remap` now gives a showing dialog every key but BACK — a
+  dialog window takes every key from the Activity beneath it, as on Android — and a release
+  follows its press (`push_key_event_raw`, on the press-state filter that already dropped a
+  release without a press): a press the dialog took is released nowhere, and a press the
+  Activity saw (SELECT on a button whose click then showed a dialog) is released in Java even
+  though the dialog holds the keypad by then, so the key tracking and the repeat engine end
+  with the key. The menudemo row holds both (`examples/menudemo/test.ctrl`).
+- **R3.** The focus border grew a CheckBox or RadioButton and its siblings shifted while it was
+  focused: an `lv_checkbox` sizes itself from its content plus its main-part border. The border
+  goes on the box (`LV_PART_INDICATOR`, a fixed size) for those two.
+- **R4.** A NumberPicker that held the focus at rest showed nothing: its outline was for
+  `FOCUS_KEY` and `EDITED`, and the group's quiet focus sets `FOCUSED` alone. The same outline
+  for `FOCUSED`, where the board has navigation keys.
+- **R5.** The demos the fit check named: resdemo's logo is 48 px (the check reads the dimen),
+  menudemo's hint wraps, callbacktest's column scrolls, keynav's root is the window and its text
+  scroller 28 px tall. The guide says that a cut by a non-scrolling layout smaller than the
+  window is not what the line measures.

@@ -42,6 +42,26 @@ Plus one plan correction: the two-row menu list's rows on the testbench are at y
 62 (the plan's tap lands on the card above the first row and does nothing, which looked like a
 pass in round 1's F7 evidence).
 
+## Fixed (2026-10-09, the same day)
+
+One commit per finding on `main`, each verified again in the simulator (the same captures on
+`pico_display2_w`, `pico_enviro_mon` and `testbench_rp2350`, the per-app sim rows for menudemo,
+keynav, callbacktest, resdemo, dialogdemo, keydemo, picoenvmon, picoclock and qa_ui: 36 rows PASS
+in both shrink modes, `./scripts/test.sh` and `./scripts/pre-commit` green); amendment A8 of the
+design doc records each.
+
+| # | Commit | What changed |
+|---|---|---|
+| R1 | `6b470570` | `AlertDialog.setOnDismissListener` / `isShowing()`; the native BACK path queues the dialog's Java object for `fireDismiss`, so the listener runs; the options menu closes through that one listener for a pick, `closeOptionsMenu` and BACK, and `onOptionsMenuClosed` now follows BACK. MENU, BACK, MENU → `menu shown #2` by key and by the touch control |
+| R2 | `42aa4a26` | a showing dialog takes every key but BACK (`keypad.rs::widget_remap`), and a release follows its press (`push_key_event_raw`). A held SELECT on the open list: `selected Refresh`, `menu closed`, the next SELECT clicks the Button; the menudemo row drives both |
+| R3 | `8ecf2267` | the focus border sits on an `lv_checkbox`'s box (`LV_PART_INDICATOR`), a fixed size; callbacktest's rows no longer move between DOWN ×2 and ×3 |
+| R4 | `08b2987a` | the NumberPicker's outline for `FOCUSED` too, where the board has navigation keys; picoenvmon Settings opens with `Temp Hi` outlined |
+| R5 | `b6662cdc` | resdemo's logo 48 px (the check reads the dimen), menudemo's hint wraps, callbacktest's column scrolls, keynav's root is the window (its default was 160×160) and its text scroller 28 px; all four say `fit ok` on every panel; the guide names the clip the line does not measure |
+| R6, R7 | — | notes, left as they are |
+
+The plan's tap row is corrected in `eb0dc9c6`'s successor `cb1ce390` (y 76, not 62). The size
+ratchet is accepted in the commit after A8, both boards re-measured on the final tree.
+
 ## Defects
 
 ### R1 — MENU after a BACK-dismissed menu does nothing useful
