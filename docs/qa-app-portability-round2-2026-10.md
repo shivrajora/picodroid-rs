@@ -162,8 +162,9 @@ Verify: menudemo has no disabled item, so patch it as round 1 did
 examples/menudemo` after). `pico_display2_w`, `-- "input keyevent --longpress 23"`: Refresh
 dimmed, two rows; then `… "input keyevent 23"`: nothing selected, the list **still open**
 (round 1: `menu closed #1`); then `… "input keyevent 20" "input keyevent 23"`: `selected Toggle
-units id=2`. Testbench: `"input tap 297 217" "input tap 160 62"` leaves the list open; a tap on
-the second row picks.
+units id=2`. Testbench: `"input tap 297 217" "input tap 160 76"` leaves the list open; a tap on
+the second row (y 105) picks. (A two-row list sits lower than a three-row one: its rows are at
+y 76 and 105, and a tap at y 62 lands on the card above the first row and does nothing.)
 
 Probe: the disabled mask rides on the checked-rows mask of the choice modes. (a) dialogdemo's
 single- and multi-choice dialogs (`./scripts/sim-run.sh --app dialogdemo --no-email --no-pull`,
