@@ -802,6 +802,7 @@ extern "C" {
     /// what the focused widget is (events/keypad.rs).
     pub fn lv_obj_get_class(obj: *const lv_obj_t) -> *const lv_obj_class_t;
     pub static lv_slider_class: lv_obj_class_t;
+    pub static lv_checkbox_class: lv_obj_class_t;
     pub static lv_roller_class: lv_obj_class_t;
     pub static lv_dropdown_class: lv_obj_class_t;
     pub static lv_buttonmatrix_class: lv_obj_class_t;

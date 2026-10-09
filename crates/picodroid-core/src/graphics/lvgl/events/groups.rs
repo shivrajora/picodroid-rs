@@ -273,8 +273,18 @@ pub(super) unsafe fn ensure_in_group(group: *mut lv_group_t, raw: *mut lv_obj_t)
     // row of a touch-only screen reads as a selection (the launcher on the
     // touch kit, QA F6). `View.isInTouchMode()` is the same fact.
     if crate::board_cfg::input::HAS_NAV_KEYS {
+        // A checkbox (a RadioButton is one too) sizes itself from its text
+        // plus its own border, so a border on it grew it by the border's
+        // width all round while it was focused and its siblings shifted
+        // (QA round 2, R3). Its box, a fixed size, carries the border
+        // instead.
+        let part = if lv_obj_get_class(raw) == &raw const lv_checkbox_class {
+            LV_PART_INDICATOR
+        } else {
+            LV_PART_MAIN
+        };
         for state in [LV_STATE_FOCUSED, LV_STATE_FOCUS_KEY] {
-            let sel = LV_PART_MAIN | state;
+            let sel = part | state;
             lv_obj_set_style_border_width(raw, FOCUS_BORDER_PX, sel);
             lv_obj_set_style_border_color(raw, lv_color_hex(FOCUS_BORDER_RGB), sel);
             lv_obj_set_style_border_opa(raw, LV_OPA_COVER, sel);
