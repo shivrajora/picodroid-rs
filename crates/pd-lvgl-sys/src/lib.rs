@@ -292,6 +292,9 @@ pub const LV_ARC_MODE_REVERSE: lv_arc_mode_t = 2;
 /// `max_height` style, so setting it lifts a cap. Guarded by
 /// `lv_coord_max_matches_vendored_header`.
 pub const LV_COORD_MAX: i32 = (1 << 29) - 1;
+/// `LV_SIZE_CONTENT = LV_COORD_SET_SPEC(LV_COORD_MAX)` (lv_area.h): a size
+/// that follows the object's children. Guarded with `LV_COORD_MAX`.
+pub const LV_SIZE_CONTENT: i32 = LV_COORD_MAX | (1 << 29);
 
 /// Roller scrolling mode (lv_roller.h:36-39). NORMAL stops at the ends;
 /// INFINITE wraps around. Picodroid's TimePicker uses INFINITE so the
@@ -1713,6 +1716,14 @@ mod tests {
             (1i32 << shift) - 1,
             "LV_COORD_MAX drifted from vendored lv_area.h — TextView's line cap clears \
              max_height by setting it to this default."
+        );
+        // LV_COORD_TYPE_SPEC is `1 << LV_COORD_TYPE_SHIFT`; LV_SIZE_CONTENT ors
+        // it into LV_COORD_MAX.
+        assert_eq!(
+            LV_SIZE_CONTENT,
+            LV_COORD_MAX | (1i32 << shift),
+            "LV_SIZE_CONTENT drifted from vendored lv_area.h — the snackbar's height \
+             follows its content through it."
         );
     }
 

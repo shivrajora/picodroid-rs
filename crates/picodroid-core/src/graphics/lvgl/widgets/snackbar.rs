@@ -122,13 +122,14 @@ unsafe extern "C" fn action_click_cb(e: *mut lv_event_t) {
 
 // ── LVGL ops ────────────────────────────────────────────────────────────────
 
-/// The bar's box for a window `w` x `h` pixels: `(width, height, x, y)`. Full
-/// width less a 10 px gutter each side, 44 px tall, 8 px above the bottom
-/// edge: the 220x44 at (10,188) a 240x240 panel always had, following the
-/// window on the others.
-fn bar_box(w: i32, h: i32) -> (i32, i32, i32, i32) {
-    let height = 44;
-    ((w - 20).max(0), height, 10, (h - height - 8).max(0))
+/// The bar's box for a window `w` pixels wide: `(width, x, bottom_gap)`.
+/// Full width less a 10 px gutter each side, 8 px above the bottom edge:
+/// the 220 wide at x 10, bottom at 232, a 240x240 panel always had,
+/// following the window on the others. The height follows the content —
+/// 44 px for a one-line message beside the 32 px action — so a message
+/// that wraps grows the bar upward rather than past its edge (QA F4).
+fn bar_box(w: i32) -> (i32, i32, i32) {
+    ((w - 20).max(0), 10, 8)
 }
 
 /// Build a hidden snackbar bar with `text`. The bar parks at the bottom-
@@ -139,8 +140,8 @@ pub(in crate::graphics) fn create(text: &str, duration: i32) -> i32 {
     let layer = lifecycle::overlay_layer();
     // SAFETY: the top layer is a live LVGL object for the display's lifetime.
     let bar = unsafe { lv_obj_create(layer) };
-    let (win_w, win_h) = lifecycle::window_size();
-    let (width, height, x, y) = bar_box(win_w, win_h);
+    let (win_w, _) = lifecycle::window_size();
+    let (width, x, bottom_gap) = bar_box(win_w);
 
     unsafe {
         // Hidden until show() — avoids a one-frame flash before the typical
@@ -159,8 +160,14 @@ pub(in crate::graphics) fn create(text: &str, duration: i32) -> i32 {
         lv_obj_set_style_pad_top(bar, 6, 0);
         lv_obj_set_style_pad_bottom(bar, 6, 0);
 
-        lv_obj_set_size(bar, width, height);
-        lv_obj_set_pos(bar, x, y);
+        // Never a scroll container: a message wider than the room beside the
+        // action wraps (below) instead of pushing the action past the edge
+        // behind a scrollbar.
+        lv_obj_remove_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_scrollbar_mode(bar, LV_SCROLLBAR_MODE_OFF);
+        lv_obj_set_size(bar, width, LV_SIZE_CONTENT);
+        lv_obj_set_align(bar, LV_ALIGN_BOTTOM_LEFT);
+        lv_obj_set_pos(bar, x, -bottom_gap);
 
         // Horizontal flex: label on the left, action button on the right.
         lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
@@ -178,6 +185,10 @@ pub(in crate::graphics) fn create(text: &str, duration: i32) -> i32 {
         buf[len] = 0;
         lv_label_set_text(label, buf.as_ptr() as *const c_char);
         lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
+        // The width left beside the action, wrapping onto further lines;
+        // the action keeps its own width at the end of the row.
+        lv_obj_set_flex_grow(label, 1);
+        lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_WRAP);
     }
 
     let indefinite = duration == DURATION_INDEFINITE;

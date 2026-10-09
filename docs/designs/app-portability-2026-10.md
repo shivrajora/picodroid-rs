@@ -498,3 +498,6 @@ one commit per finding:
   first scroll container and reports what reaches past the window as
   `overflow … content is cut X past the right edge, Y past the bottom`; the pan form is kept for
   an oversized root. The rows that assert `fit ok` still do.
+- **F4.** The snackbar at 240 wide clipped its action behind a scrollbar, and at 320 showed a
+  scrollbar sliver. The bar no longer scrolls; the label takes the width left beside the action
+  and wraps, and the bar's height follows its content up from the bottom edge.
