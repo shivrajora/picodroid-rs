@@ -480,6 +480,13 @@ not the LVGL keypad, which a touch board does not have.
 What [qa-app-portability-2026-10-results.md](../qa-app-portability-2026-10-results.md) found,
 one commit per finding:
 
+- **F1.** BACK from a child Activity of picoclock on a 320×240 board ended the simulator in an
+  OOM abort. Not the window path: the sim's D3 check (`View.close()` under a Java-owned
+  container) took the window object for a Java container — it is in the handle table, as the
+  content parent — and reported, and the handle sanitizer's backtrace capture for that report
+  asked the 408 KB arena for 192 KB in one block. The check now passes the window object, and
+  both sanitizer captures run off the simulated heap, so a genuine report panics as designed.
+  The picoclock rows push and pop Alarms and Set time (`examples/picoclock/test.ctrl`).
 - **F2.** The screen's pan belongs to the screen, so it carried over from one content root to the
   next: an Activity pushed from a panned picoclock opened scrolled to its blank lower half.
   `window::reset_pan` scrolls the screen (and the window object) back to the origin on every

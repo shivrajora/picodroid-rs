@@ -1,0 +1,25 @@
+# Control-channel script for picoclock's sim rows (sim-run.sh::run_test): push a child
+# Activity and BACK out of it, twice, on both rows' boards with one script. The touch kit shows
+# the 320x480 face as it is: Alarms is at (80,440), Set time at (240,440). The testbench runs it
+# in a 320x480 window on a 320x240 panel (app-portability A4): a tap at y=440 clamps to the
+# panel's last row, which is the clock face, the drag pans the window up by 240 rows, and the
+# buttons are then at (100,200) and (240,200). Every stray tap lands on the face, an empty part
+# of the alarm list or the calendar, none of which pushes, pops or opens anything. The second
+# push proves the first pop was survived: BACK from Alarms used to end the windowed board in an
+# OOM abort (QA F1, docs/qa-app-portability-2026-10-results.md).
+wait \[layout\] fit ok
+input tap 80 440
+input swipe 160 200 160 40 300
+sleep 1
+input tap 100 200
+wait activity: push picoclock/ui/AlarmListActivity
+input back
+wait activity: pop picoclock/ui/AlarmListActivity
+sleep 1
+input tap 240 440
+input swipe 160 200 160 40 300
+sleep 1
+input tap 240 200
+wait activity: push picoclock/ui/SetTimeActivity
+input back
+wait activity: pop picoclock/ui/SetTimeActivity

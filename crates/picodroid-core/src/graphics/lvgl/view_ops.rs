@@ -252,12 +252,21 @@ pub(in crate::graphics) fn delete(h: Handle) {
 /// claudeusage D3 leak. `View.close()` routes a parented view through
 /// `removeView`, so this fires only when a widget was put under a Java view
 /// without `addView` recording the parent. The content root sits under the
-/// screen, which no Java object parents, so a screen parent passes.
+/// screen, or under the compat window's object (window.rs), neither of which
+/// a Java object parents, so either passes. The window object is in the
+/// handle table (it is what `Display.setContentView` parents to), which is
+/// why it is named here rather than left to the registration test: taking
+/// it for a Java container made every BACK from a child Activity of a
+/// windowed app report D3, and the sanitizer's backtrace capture then
+/// died as an OOM under the heap cap (QA F1).
 #[cfg(feature = "sim")]
 fn check_not_under_java_parent(h: Handle, o: *mut lv_obj_t) {
     let parent = unsafe { lv_obj_get_parent(o) };
     if parent.is_null() || unsafe { lv_obj_get_parent(parent) }.is_null() {
         return; // no parent, or the parent is a screen
+    }
+    if parent == super::window::content_root() {
+        return; // the compat window: the framework's, with no Java child list
     }
     if handle_table::is_registered(parent) {
         handle_table::report_close_under_java_parent(h.to_java());

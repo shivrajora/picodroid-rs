@@ -239,6 +239,10 @@ mod imp {
         if !sanitizer::enabled() {
             return;
         }
+        // Symbolising a backtrace allocates far more than the capped arena
+        // has to spare (192 KB in one block on a 408 KB model): off the
+        // model, or the report dies as an OOM abort before it names the bug.
+        let _bypass = crate::host::heap_bypass();
         let backtrace = std::backtrace::Backtrace::force_capture();
         panic!(
             "handle-sanitizer: View.close() under a Java-owned container (nativeHandle {id}). \
@@ -350,6 +354,10 @@ mod imp {
     #[cold]
     #[inline(never)]
     fn report_use_after_delete(id: i32, gen_now: u16) -> ! {
+        // Off the simulated heap, as in `report_close_under_java_parent`:
+        // the capture is host work and must not be what runs out.
+        #[cfg(feature = "sim")]
+        let _bypass = crate::host::heap_bypass();
         let backtrace = std::backtrace::Backtrace::force_capture();
         panic!(
             "handle-sanitizer: nativeHandle {id} is stale (its slot's generation is now \
