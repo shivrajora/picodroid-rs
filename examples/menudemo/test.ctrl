@@ -15,4 +15,19 @@ input keyevent 20
 input keyevent 20
 input keyevent 23
 wait MenuDemo[]:] about via listener
+# A menu dismissed with BACK is closed to the Activity too (onOptionsMenuClosed), so the
+# next MENU opens it rather than "closing" it again.
+input keyevent 82
+wait MenuDemo[]:] menu shown #3
+input keyevent 4
+wait MenuDemo[]:] menu closed #3
+input keyevent 82
+wait MenuDemo[]:] menu shown #4
+# A held SELECT on the open list picks its first row and nothing more: the hold is the
+# list's, not the Activity's, so the menu does not reopen, and the next SELECT is the
+# focused Button's click.
+input keyevent --longpress 23
+wait MenuDemo[]:] selected Refresh id=1
+input keyevent 23
+wait MenuDemo[]:] clicked
 input back

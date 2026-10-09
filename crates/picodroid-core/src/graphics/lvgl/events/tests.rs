@@ -49,9 +49,9 @@ fn focus_helpers_short_circuit_on_null_handle() {
 #[test]
 fn key_event_queue_roundtrips_in_fifo_order() {
     reset_key_event_queue();
-    push_key_event_raw(12, false, 0);
-    push_key_event_raw(13, true, 0);
-    push_key_event_raw(14, false, 0);
+    push_key_event_raw(12, false, 0, true);
+    push_key_event_raw(13, true, 0, true);
+    push_key_event_raw(14, false, 0, true);
 
     let a = drain_key_event().unwrap();
     assert_eq!(a.pin, 12);
@@ -71,7 +71,7 @@ fn key_event_queue_wraps_around() {
     reset_key_event_queue();
     for cycle in 0..4 {
         for i in 0..KEY_EVENT_QUEUE_SIZE - 1 {
-            push_key_event_raw(i as u8, cycle % 2 == 0, 0);
+            push_key_event_raw(i as u8, cycle % 2 == 0, 0, true);
         }
         for i in 0..KEY_EVENT_QUEUE_SIZE - 1 {
             let e = drain_key_event().unwrap();

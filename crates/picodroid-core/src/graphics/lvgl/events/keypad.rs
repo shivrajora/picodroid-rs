@@ -48,8 +48,19 @@ pub(super) static mut KEY_PRESS_FILTER: super::super::key_filter::KeyPressFilter
 pub(super) static mut KEY_DEBOUNCE: super::super::key_debounce::KeyDebounce =
     super::super::key_debounce::KeyDebounce::new();
 
+/// Queue one edge for Java. `forward` is the fan-out's decision for a
+/// press; a release follows its press instead — the press-state filter
+/// forwards a release only for a press it saw — so the press a dialog's
+/// list or the keyboard took is released nowhere, and the press the Activity
+/// did see (SELECT on a button whose click then showed a dialog) is released
+/// in Java whatever the dialog makes of the release, so the `KeyEvent`
+/// tracking and the repeat engine behind it end with the key rather than
+/// long-pressing it forever (QA round 2, R2).
 #[cfg(has_buttons)]
-pub(super) fn push_key_event_raw(pin: u8, rising: bool, t_us: u32) {
+pub(super) fn push_key_event_raw(pin: u8, rising: bool, t_us: u32, forward: bool) {
+    if !rising && !forward {
+        return;
+    }
     unsafe {
         // `&raw mut` then deref: forming `&mut KEY_PRESS_FILTER` directly trips
         // the `static_mut_refs` lint (Rust 2024 compat). See handle_table.rs /
@@ -172,31 +183,42 @@ fn edit_kind_of(focused: usize) -> Option<EditKind> {
 
 /// Outside edit mode, what the focused widget makes of a key on its own
 /// (K7): a dropdown with its list open walks the list on PREV/NEXT and takes
-/// SELECT and BACK for itself (pick, close) rather than Java; a dialog's list
-/// (a button matrix in the modal group) walks its rows on PREV/NEXT. `None`
-/// leaves the key as it is.
+/// SELECT and BACK for itself (pick, close) rather than Java; a showing
+/// dialog takes every key but BACK — PREV/NEXT walk its list's rows, ENTER
+/// picks one or presses the focused button — as Android's dialog window
+/// takes every key from the Activity beneath it. The Activity's own SELECT
+/// handling (a held SELECT opens the options menu) used to see the press
+/// that had just picked a menu item, and a hold reopened the menu it closed
+/// (QA round 2, R2). `None` leaves the key as it is.
 #[cfg(has_buttons)]
 fn widget_remap(key: u32, focused: usize) -> Option<u32> {
+    let modal = super::in_modal_group();
+    if modal && key == LV_KEY_ESC {
+        return None; // BACK: `input.rs` dismisses the dialog
+    }
     if focused == 0 {
-        return None;
+        return if modal { Some(key) } else { None };
     }
     let o = focused as *mut lv_obj_t;
     // SAFETY: `focused` is the live object the group just reported.
     unsafe {
         let class = lv_obj_get_class(o);
+        if modal {
+            if class == &raw const lv_buttonmatrix_class {
+                return Some(match key {
+                    LV_KEY_PREV => LV_KEY_UP,
+                    LV_KEY_NEXT => LV_KEY_DOWN,
+                    k => k,
+                });
+            }
+            return Some(key);
+        }
         if class == &raw const lv_dropdown_class && lv_dropdown_is_open(o) {
             return Some(match key {
                 LV_KEY_PREV => LV_KEY_UP,
                 LV_KEY_NEXT => LV_KEY_DOWN,
                 k => k,
             });
-        }
-        if class == &raw const lv_buttonmatrix_class && super::in_modal_group() {
-            return match key {
-                LV_KEY_PREV => Some(LV_KEY_UP),
-                LV_KEY_NEXT => Some(LV_KEY_DOWN),
-                _ => None,
-            };
         }
     }
     None
@@ -415,9 +437,7 @@ pub(super) unsafe extern "C" fn keypad_read_cb(
             scroll_lone_scroll_view(k);
         }
 
-        if decision.forward_java {
-            push_key_event_raw(event.pin, event.rising, event.t_us);
-        }
+        push_key_event_raw(event.pin, event.rising, event.t_us, decision.forward_java);
         if let Some((obj, direction)) = decision.step {
             super::super::widgets::number_picker::push_step(obj, direction);
         }
