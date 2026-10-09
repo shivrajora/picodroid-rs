@@ -63,8 +63,9 @@ what a failure looks like. "Expected" lines are exact substrings unless marked r
    the snackbar hugs the bottom edge, full width; on `pico_enviro_mon` it is not wider than
    the panel.
 3. `./scripts/sim-shot.sh shots/q1-kbd.png 10 --app keyboarddemo --board testbench_rp2350 --
-   "input tap 120 40"` (tap the field): the keyboard rises from the bottom, the BACK control
-   hides while it is up (it would sit under the keyboard's bottom-left key).
+   "input tap 120 55"` (tap the field; `120 40` lands 2 px above it): the keyboard rises from
+   the bottom, the BACK control hides while it is up (it would sit under the keyboard's
+   bottom-left key).
 4. Theme chrome: the four boards that used to set `lv_dpi` (enviro, display2_w, touch kit,
    testbench) now render the same padding. Compare `shots/q1-dialog-*.png` across boards: the
    dialog's button height and list-row spacing are identical in pixels.
@@ -191,8 +192,9 @@ what a failure looks like. "Expected" lines are exact substrings unless marked r
 1. `./scripts/sim-run.sh --app resdemo --no-email` (ten PASS): each geometry's log has its
    `[res] WxHdp … : N of 3 variants apply` line and `variants geometry=… columns=…`.
 2. `./scripts/sim-shot.sh shots/q9-res-<board>.png 8 --app resdemo --board <board>` on
-   `testbench_rp2350` (finger: the inflated row is **visible** at once) and `pico_display2_w`
-   (notouch: the row is invisible until a key). `ResDemo PASS` in both logs.
+   `testbench_rp2350` (finger) and `pico_display2_w` (notouch): the inflated row is visible at
+   once on both (`ResDemoActivity` sets it VISIBLE right after the visibility check); only the
+   `row attributes` check line differs. `ResDemo PASS` in both logs.
 3. `./scripts/papk-info.sh build/apks/resdemo.papk` shows `overrides 3` and three `variant-…`
    lines. A directory with an unsupported qualifier (`examples/resdemo/res/values-night/`,
    any file) must fail the APK build with a message naming the supported ones — remove it after.
