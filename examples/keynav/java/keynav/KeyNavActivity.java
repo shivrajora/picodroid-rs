@@ -32,6 +32,9 @@ public class KeyNavActivity extends Activity {
     super.onCreate(savedInstanceState);
     LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
+    // The window, not the default 160x160, which clipped the last three stops out of sight on
+    // every board; and the column fits a 240-tall panel (QA round 2, R5).
+    root.setSize(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
 
     SeekBar seek = new SeekBar(this);
     seek.setMax(100);
@@ -75,7 +78,7 @@ public class KeyNavActivity extends Activity {
 
     // Plain text, no focusable inside: the keys scroll it.
     ScrollView scroll = new ScrollView(this);
-    scroll.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 40));
+    scroll.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 28));
     LinearLayout lines = new LinearLayout(this);
     lines.setOrientation(LinearLayout.VERTICAL);
     for (int i = 0; i < 12; i++) {

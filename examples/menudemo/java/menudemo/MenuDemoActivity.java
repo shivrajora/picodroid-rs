@@ -43,6 +43,8 @@ public class MenuDemoActivity extends Activity {
     status = new TextView();
     status.setText("Hold SELECT, press MENU or tap the menu control");
     status.setTextColor(Color.CYAN);
+    // The width of the column, so the hint wraps on a 240-wide panel rather than running off it.
+    status.setSize(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
     root.addView(status);
 
     // A focusable Button with no long press of its own: holding SELECT on it opens the menu.

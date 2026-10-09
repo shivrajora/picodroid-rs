@@ -134,7 +134,8 @@ public class ResDemoActivity extends Activity {
     check(
         "match_parent root",
         root.getWidth() == getDisplay().getWidth() && root.getHeight() == getDisplay().getHeight());
-    check("@dimen size", logo != null && logo.getWidth() == 64 && logo.getHeight() == 64);
+    int logoPx = res.getDimensionPixelSize(R.dimen.logo);
+    check("@dimen size", logo != null && logo.getWidth() == logoPx && logo.getHeight() == logoPx);
     // Content width: the display less the 8 px padding. A LinearLayout draws no border, as on
     // Android (it carried the LVGL theme's 2 px card border until 2026-09-24).
     View greeting = findViewById(R.id.greeting);

@@ -4,7 +4,8 @@
     <color name="accent">#FFB300</color>
     <color name="title">@color/accent</color>
     <dimen name="gap">8dp</dimen>
-    <dimen name="logo">64dp</dimen>
+    <!-- 48, not 64: with the two inflated rows the layout is 240 tall on the Enviro+ (QA round 2, R5). -->
+    <dimen name="logo">48dp</dimen>
     <dimen name="hairline">0.5dp</dimen>
     <dimen name="title_size">20sp</dimen>
     <integer name="max_taps">10</integer>

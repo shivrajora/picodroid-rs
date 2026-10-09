@@ -11,6 +11,7 @@ import picodroid.widget.CheckBox;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.RadioButton;
 import picodroid.widget.RadioGroup;
+import picodroid.widget.ScrollView;
 import picodroid.widget.SeekBar;
 import picodroid.widget.Spinner;
 import picodroid.widget.Switch;
@@ -37,9 +38,11 @@ public class CallbackTestActivity extends Activity {
     // constructors below parent to the screen and crash if it's still null.
     getDisplay();
 
+    // Ten widgets stacked are taller than a 240-tall panel, so the column scrolls (its height
+    // its content's, or the ScrollView would have nothing to scroll).
     LinearLayout root = new LinearLayout();
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT);
+    root.setSize(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
 
     Button btn = new Button("b");
     btn.setSize(100, 30);
@@ -133,7 +136,10 @@ public class CallbackTestActivity extends Activity {
       Log.i("CBT", "TOAST_DURATION");
     }
 
-    setContentView(root);
+    ScrollView scroll = new ScrollView();
+    scroll.setSize(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT);
+    scroll.addView(root);
+    setContentView(scroll);
     Log.i("CBT", "SETUP_DONE");
   }
 }

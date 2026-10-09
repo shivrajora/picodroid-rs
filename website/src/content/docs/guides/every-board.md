@@ -48,6 +48,11 @@ debug build say which it was after each `setContentView`:
 [layout] overflow 240x240 in 240x240: content is cut 0 past the right edge, 36 past the bottom
 ```
 
+The cut is measured against the window's edge. A layout that is smaller than the window and
+does not scroll — a root left at its default size, a column given a fixed height — clips its own
+children just the same, and that is not reported: give such a root `match_parent`, or make it a
+`ScrollView`, and read the line again.
+
 The check looks through every layout down to the first `ScrollView` or list, whose content is
 reached by scrolling it; the third line means the rows that do not fit a panel need one.
 
