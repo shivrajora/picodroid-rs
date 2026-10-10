@@ -727,6 +727,7 @@ F	mRootParent
 F	mRootVisibility
 F	mSavedFragmentState
 F	mScrollState
+F	mSized
 F	mSmooth
 F	mStart
 F	mState
@@ -1577,6 +1578,7 @@ M	isSavable
 M	isSecured
 M	isShowing
 M	isShutdown
+M	isSized
 M	isStateSaved
 M	isStateful
 M	isSupported
@@ -1813,6 +1815,7 @@ M	nativeSetOptionsMenuAvailable
 M	nativeSetProgress
 M	nativeSetProperty
 M	nativeSetRange
+M	nativeSetSize
 M	nativeSetString
 M	nativeSetText
 M	nativeSetTextColor

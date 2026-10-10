@@ -704,7 +704,7 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/view/View", "nativeSetBackgroundTint", "(I)V"),
     ("picodroid/view/View", "setPadding", "(IIII)V"),
     ("picodroid/view/View", "setPosition", "(II)V"),
-    ("picodroid/view/View", "setSize", "(II)V"),
+    ("picodroid/view/View", "nativeSetSize", "(II)V"),
     // picodroid/view/ViewGroup
     ("picodroid/view/ViewGroup", "getChildCount", "()I"),
     ("picodroid/view/ViewGroup", "nativeAddView", "(Lpicodroid/view/View;)V"),

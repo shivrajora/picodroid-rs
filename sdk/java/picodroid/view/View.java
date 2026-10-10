@@ -47,6 +47,10 @@ public class View {
   OnLongClickListener onLongClickListener;
   OnFocusChangeListener onFocusChangeListener;
   ViewGroup.LayoutParams layoutParams;
+
+  /** Set by {@link #setSize}; read by {@code Activity.setContentView} to size an unsized root. */
+  private boolean mSized;
+
   boolean focusable = false; // Android default for a plain View / ViewGroup.
   boolean keepScreenOn = false;
   // Floors under the laid-out size (setMinimumWidth / setMinimumHeight); 0 = none, as on Android.
@@ -680,7 +684,27 @@ public class View {
 
   public native void setPosition(int x, int y);
 
-  public native void setSize(int width, int height);
+  /**
+   * Sets this view's size: pixels, or {@link ViewGroup.LayoutParams#MATCH_PARENT} / {@link
+   * ViewGroup.LayoutParams#WRAP_CONTENT}. A parent layout calls it with the child's layout params;
+   * an app calls it on a view it places itself. A content root that was never sized fills the
+   * window ({@link picodroid.app.Activity#setContentView(View)}).
+   */
+  public void setSize(int width, int height) {
+    mSized = true;
+    nativeSetSize(width, height);
+  }
+
+  private native void nativeSetSize(int width, int height);
+
+  /**
+   * Whether {@link #setSize} was ever called on this view, by the app, a parent layout or the
+   * inflater. picodroid-only: {@link picodroid.app.Activity#setContentView(View)} reads it to give
+   * an unsized root the window.
+   */
+  public final boolean isSized() {
+    return mSized;
+  }
 
   /**
    * Mirrors {@code android.view.View#setBackgroundColor(int)}: a plain fill in place of whatever
@@ -942,7 +966,9 @@ public class View {
    * Records the {@link ViewGroup.LayoutParams} that the parent layout should apply to this child.
    * The framework reads {@code width}/{@code height} during {@link ViewGroup#addView(View,
    * ViewGroup.LayoutParams)} and forwards them to {@link #setSize}; subclass-specific fields like
-   * {@code LinearLayout.LayoutParams.weight} are applied by the parent layout itself.
+   * {@code LinearLayout.LayoutParams.weight} are applied by the parent layout itself. On a view
+   * that becomes an Activity's content root, {@link picodroid.app.Activity#setContentView(View)}
+   * applies the width and height itself.
    */
   public void setLayoutParams(ViewGroup.LayoutParams params) {
     this.layoutParams = params;
