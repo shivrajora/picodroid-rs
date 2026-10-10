@@ -3,9 +3,20 @@ title: "Release notes"
 description: "User-facing changes for Picodroid v0.4.0 onward."
 ---
 
-This page covers everything that landed in releases v0.4.0 through v0.36.0. Earlier history is in `git log v0.1.0...v0.3.0`.
+This page covers everything that landed in releases v0.4.0 through v0.37.0. Earlier history is in `git log v0.1.0...v0.3.0`.
 
-## Unreleased
+## v0.37.0 — 2026-10-10
+
+The Android-idioms release. App code that follows Android's usual patterns now works without
+picodroid-specific workarounds. The manifest takes Android's `<activity>`, `<service>` and
+`android:theme`, and the build checks every component an `Intent` names. `Class.forName` and
+`Class.newInstance` let the framework construct ViewModels, fragments and custom views by name,
+so the factory overrides apps used to need are gone. The platform sets the wall clock from NTP
+and keeps the time zone as a user setting. `java.io` streams and `Adapter.getView` with
+`convertView` are here too.
+
+One change here needs action: **a `BaseAdapter` subclass must now implement `getView`**, in the
+`Adapter.getView` entry below.
 
 **The Android-shaped manifest: `<activity>`, `<service>`, `android:theme` (2026-10-09)**
 
@@ -58,6 +69,7 @@ unset, and `picoclock` shows the right time after a power cut (roadmap R2) with 
 zone as its default offset. The simulator syncs against the real pool; `PICODROID_SIM_NTP_SERVER=off`
 keeps it from doing so. Log lines: `time: synced from pool.ntp.org (…), rtt N ms, step N ms`,
 `time: zone UTC+05:30`, `time: automatic off`.
+
 **`java.io` streams (2026-10-09)**
 
 The `java.io` stream hierarchy, as pure-Java classes on every board: `InputStream` /
@@ -83,6 +95,15 @@ and gained `addAll`, `insert`, `remove`, `getPosition`. `ViewGroup.addView(View,
 **Action needed:** a `BaseAdapter` subclass must now implement `getView` (it was not part of the
 interface before). Roadmap T3.4.
 Doc: [`ListView`](/api/ui/#picodroidwidgetlistview).
+
+**Map v0.37.0 (2026-10-10)**
+
+- Map v0.37.0, cut for the release, gives the classes added since v0.36.0 their names (+20
+  classes, 383 → 403: the `java.io` streams, readers and writers, `ClassNotFoundException`,
+  `InstantiationException`, `IllegalAccessException` and `ReflectiveOperationException`,
+  `ViewModelProvider.NewInstanceFactory`, `Settings.Global` and the socket streams). It also
+  names the 63 members they declare (2508 → 2571). The member floor stays at v0.17.0.
+  `Build.VERSION.RELEASE` reads `0.37.0`.
 
 ## v0.36.0 — 2026-10-08
 
