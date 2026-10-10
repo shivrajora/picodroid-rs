@@ -412,6 +412,32 @@ public class MainActivity extends Activity {
   }
 
   private void stepChurn() {
+    // A replace that evicts more fragments than one op implies (six added to the container)
+    // used to overflow the transaction's fixed expansion buffers.
+    HeadlessFragment[] many = new HeadlessFragment[6];
+    for (int i = 0; i < many.length; i++) {
+      many[i] = new HeadlessFragment();
+      fm.beginTransaction().add(R.id.container, many[i]).commitNow();
+    }
+    boolean replacedMany;
+    try {
+      fm.beginTransaction()
+          .replace(R.id.container, new HeadlessFragment(), "many")
+          .addToBackStack(null)
+          .commit();
+      fm.executePendingTransactions();
+      replacedMany = fm.findFragmentByTag("many") != null && !detail.isAdded();
+    } catch (RuntimeException e) {
+      T.log("replace of many threw " + e);
+      replacedMany = false;
+    }
+    fm.popBackStackImmediate();
+    for (HeadlessFragment h : many) {
+      fm.beginTransaction().remove(h).commitNow();
+    }
+    T.check(
+        "replace evicting six fragments",
+        replacedMany && fm.findFragmentByTag("detail") == detail && detail.isAdded());
     backStackChanges = 0;
     boolean popped = true;
     for (int i = 0; i < 10; i++) {

@@ -259,8 +259,11 @@ public class FragmentTransaction {
    * expanded list replaces the recorded one so a pop reverses exactly what ran.
    */
   void executeOps() {
-    int[] ints = new int[mOps * 6 + 12];
-    Fragment[] frags = new Fragment[mOps * 2 + 4];
+    // A replace expands to one remove per fragment already in its container plus its add, so
+    // size the expansion by what is added now rather than by a fixed slack per op.
+    int added = mManager.mAdded.size();
+    int[] ints = new int[(mOps + added) * 3 + 12];
+    Fragment[] frags = new Fragment[mOps + added + 4];
     int n = 0;
     for (int i = 0; i < mOps; i++) {
       int cmd = mInts[i * 3];
