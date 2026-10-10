@@ -799,6 +799,7 @@ java/time/LocalTime	SECONDS_PER_DAY	I
 java/time/LocalTime	SECONDS_PER_HOUR	I
 java/time/LocalTime	SECONDS_PER_MINUTE	I
 java/time/LocalTime	appendTo	(Ljava/lang/StringBuilder;)V
+java/time/LocalTime	appendTo	(Ljava/lang/StringBuilder;Z)V
 java/time/LocalTime	atDate	(Ljava/time/LocalDate;)Ljava/time/LocalDateTime;
 java/time/LocalTime	compareTo	(Ljava/lang/Object;)I
 java/time/LocalTime	compareTo	(Ljava/time/LocalTime;)I

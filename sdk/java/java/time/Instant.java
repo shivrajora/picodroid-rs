@@ -242,9 +242,17 @@ public final class Instant implements Temporal, Comparable<Instant> {
     return ((int) (seconds ^ (seconds >>> 32))) + 51 * nanos;
   }
 
-  /** ISO-8601 in UTC, as the JDK prints it: {@code 2026-09-23T14:05:09Z}. */
+  /**
+   * ISO-8601 in UTC, as the JDK's {@code ISO_INSTANT} prints it: {@code 2026-09-23T14:05:09Z},
+   * seconds always present.
+   */
   @Override
   public String toString() {
-    return LocalDateTime.ofEpochSecond(seconds, nanos, ZoneOffset.UTC).toString() + "Z";
+    LocalDateTime dt = LocalDateTime.ofEpochSecond(seconds, nanos, ZoneOffset.UTC);
+    StringBuilder buf = new StringBuilder(24);
+    dt.toLocalDate().appendTo(buf);
+    buf.append('T');
+    dt.toLocalTime().appendTo(buf, true);
+    return buf.append('Z').toString();
   }
 }

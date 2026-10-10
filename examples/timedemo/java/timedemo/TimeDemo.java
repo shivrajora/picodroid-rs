@@ -266,6 +266,10 @@ public class TimeDemo extends Application {
     check(
         "instant toString",
         Instant.ofEpochSecond(1_000_000_000L).toString().equals("2001-09-09T01:46:40Z"));
+    // ISO_INSTANT always prints the seconds, LocalDateTime.toString drops a :00.
+    check(
+        "instant toString keeps :00 seconds",
+        Instant.EPOCH.toString().equals("1970-01-01T00:00:00Z"));
     check(
         "instant compare",
         Instant.EPOCH.isBefore(Instant.ofEpochSecond(1))

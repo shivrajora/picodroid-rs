@@ -455,10 +455,15 @@ public final class LocalTime implements Temporal, Comparable<LocalTime> {
   }
 
   void appendTo(StringBuilder buf) {
+    appendTo(buf, false);
+  }
+
+  /** {@code alwaysSeconds} prints {@code :00} too, as {@code ISO_INSTANT} does. */
+  void appendTo(StringBuilder buf, boolean alwaysSeconds) {
     twoDigits(buf, hour);
     buf.append(':');
     twoDigits(buf, minute);
-    if (second > 0 || nano > 0) {
+    if (alwaysSeconds || second > 0 || nano > 0) {
       buf.append(':');
       twoDigits(buf, second);
       if (nano > 0) {
