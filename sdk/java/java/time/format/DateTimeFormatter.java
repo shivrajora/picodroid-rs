@@ -89,16 +89,27 @@ public final class DateTimeFormatter {
     while (i < n) {
       char c = pattern.charAt(i);
       if (c == '\'') {
-        int close = pattern.indexOf('\'', i + 1);
-        if (close < 0) {
-          throw new IllegalArgumentException("Pattern ends with an incomplete string literal");
+        if (i + 1 < n && pattern.charAt(i + 1) == '\'') {
+          out.append('\''); // '' outside a literal is one apostrophe
+          i += 2;
+          continue;
         }
-        if (close == i + 1) {
-          out.append('\'');
-        } else {
-          out.append(pattern.substring(i + 1, close));
+        // A quoted literal; '' inside it is one apostrophe, as in the JDK.
+        int j = i + 1;
+        while (true) {
+          int close = pattern.indexOf('\'', j);
+          if (close < 0) {
+            throw new IllegalArgumentException("Pattern ends with an incomplete string literal");
+          }
+          out.append(pattern.substring(j, close));
+          if (close + 1 < n && pattern.charAt(close + 1) == '\'') {
+            out.append('\'');
+            j = close + 2;
+            continue;
+          }
+          i = close + 1;
+          break;
         }
-        i = close + 1;
         continue;
       }
       if (!isLetter(c)) {

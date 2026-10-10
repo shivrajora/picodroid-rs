@@ -378,6 +378,12 @@ public class TimeDemo extends Application {
         DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")
             .format(LocalDateTime.of(2001, 9, 9, 1, 46, 40))
             .equals("2001-09-09T01:46:40"));
+    // Inside a quoted literal, '' is one apostrophe, as in the JDK.
+    check(
+        "format escaped quote",
+        DateTimeFormatter.ofPattern("h 'o''clock' a")
+            .format(LocalTime.of(9, 0))
+            .equals("9 o'clock AM"));
     check(
         "format yy",
         DateTimeFormatter.ofPattern("dd/MM/yy")
