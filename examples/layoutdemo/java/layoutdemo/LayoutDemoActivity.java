@@ -40,7 +40,19 @@ public class LayoutDemoActivity extends Activity {
   private static final String TAG = "LayoutDemo";
 
   private int failures;
-  private int gauges;
+
+  /** How many {@link Gauge}s the inflater has constructed, and whether each got an empty set. */
+  static int gauges;
+
+  static boolean emptyAttrs = true;
+
+  /** {@link Gauge}'s constructor reports here: the inflater made one, with these attributes. */
+  static void gaugeMade(AttributeSet attrs) {
+    gauges++;
+    if (attrs == null || attrs.getAttributeCount() != 0) {
+      emptyAttrs = false;
+    }
+  }
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -76,7 +88,7 @@ public class LayoutDemoActivity extends Activity {
     LayoutInflater inflater = getLayoutInflater();
     check("the Activity is the inflater's factory", inflater.getFactory() == this);
     View stage = inflater.inflate(R.layout.stage, stages, false);
-    check("inflate made the custom views through onCreateView", gauges == 2);
+    check("inflate made the custom views by reflection", gauges == 2 && emptyAttrs);
     stages.addView(stage); // the one-argument add reads the LayoutParams the inflater set
     checkStage("sync", stage);
 
@@ -148,17 +160,6 @@ public class LayoutDemoActivity extends Activity {
 
     View atStart = findViewById(R.id.at_start);
     check("a column's child sits at the start of the cross axis", atStart.getLeft() == 0);
-  }
-
-  /** Every element of the app's own that a layout names comes here to be made. */
-  @Override
-  public View onCreateView(String name, Context context, AttributeSet attrs) {
-    if (name.equals("layoutdemo.Gauge")) {
-      gauges++;
-      check("factory: an empty AttributeSet", attrs != null && attrs.getAttributeCount() == 0);
-      return new Gauge(context, attrs);
-    }
-    return super.onCreateView(name, context, attrs);
   }
 
   private void checkStage(String how, View stage) {

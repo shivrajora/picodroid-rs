@@ -12,7 +12,7 @@ import picodroid.view.View;
  * far through the window we are". Fill past the tick means the limit is being used faster than the
  * window replenishes it. One view drawing the track, the fill and the tick.
  */
-final class RingView extends View {
+public final class RingView extends View {
   /** The dial opens at the bottom: 270 degrees from 7:30 round to 4:30. */
   private static final float START = 135f;
 
@@ -39,7 +39,7 @@ final class RingView extends View {
   private int marker = -1;
   private boolean dim;
 
-  RingView(Context context, AttributeSet attrs) {
+  public RingView(Context context, AttributeSet attrs) {
     super(context);
     palette = Palette.of(context.getResources());
     color = palette.good;

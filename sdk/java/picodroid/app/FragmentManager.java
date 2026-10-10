@@ -6,7 +6,6 @@ import java.util.List;
 import picodroid.concurrent.Executors;
 import picodroid.lifecycle.Lifecycle;
 import picodroid.os.Bundle;
-import picodroid.util.Log;
 import picodroid.view.View;
 import picodroid.view.ViewGroup;
 
@@ -344,20 +343,12 @@ public class FragmentManager {
   }
 
   /**
-   * Re-create the fragments {@link #saveAllState} recorded, at INITIALIZING, through the factory.
-   * Without one nothing is restored, with a warning: Android's default factory reflects on the
-   * class name, and there is no reflection here.
+   * Re-create the fragments {@link #saveAllState} recorded, at INITIALIZING, through the factory:
+   * the one set with {@link #setFragmentFactory}, else the default, which constructs each class by
+   * name through its public no-argument constructor.
    */
   void restoreSaveState(Bundle state) {
     int n = state.getInt("n", 0);
-    if (mFactory == null) {
-      Log.w(
-          "FragmentManager",
-          n
-              + " saved fragment(s) not restored: no FragmentFactory (setFragmentFactory before"
-              + " super.onCreate)");
-      return;
-    }
     for (int i = 0; i < n; i++) {
       Bundle fs = state.getBundle("f" + i);
       if (fs == null) {

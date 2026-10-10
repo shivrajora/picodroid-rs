@@ -144,6 +144,10 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
     c::java_lang_InterruptedException,
     c::java_lang_IllegalThreadStateException,
     c::java_lang_IllegalMonitorStateException,
+    c::java_lang_ReflectiveOperationException,
+    c::java_lang_ClassNotFoundException,
+    c::java_lang_InstantiationException,
+    c::java_lang_IllegalAccessException,
     c::java_util_concurrent_ExecutionException,
     c::java_util_concurrent_CancellationException,
     c::java_util_concurrent_TimeoutException,
@@ -177,8 +181,11 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
 /// `native` by the SDK, have no class file and are outside the diff by
 /// construction.
 pub const BUILTIN_SDK_HANDLED: &[(&str, &str, &str)] = &[
-    // java/lang/Class
+    // java/lang/Class (`forName` / `newInstance` are interpreter prechecks,
+    // interpreter/ops_reflect.rs)
     (c::java_lang_Class, m::getName, d::__String),
+    (c::java_lang_Class, m::forName, d::String__Class),
+    (c::java_lang_Class, m::newInstance, d::__Object),
     // java/lang/Math
     (c::java_lang_Math, m::abs, "(D)D"),
     (c::java_lang_Math, m::abs, "(F)F"),
@@ -330,7 +337,13 @@ const OBJECT_METHODS: &[BuiltinMethodRow] = &[
     (m::getClass, &[d::__Class]),
 ];
 
-const CLASS_METHODS: &[BuiltinMethodRow] = &[("<init>", &[]), (m::getName, &[])];
+const CLASS_METHODS: &[BuiltinMethodRow] = &[
+    ("<init>", &[]),
+    (m::getName, &[]),
+    // Answered by the interpreter (ops_reflect.rs), not an arm.
+    (m::forName, &[d::String__Class]),
+    (m::newInstance, &[d::__Object]),
+];
 
 /// `dispatch_throwable` and `dispatch_init_only` serve the same names.
 const THROWABLE_METHODS: &[BuiltinMethodRow] = &[

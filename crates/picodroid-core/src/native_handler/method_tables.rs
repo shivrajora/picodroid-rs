@@ -564,6 +564,14 @@ pub const APP_SERVICES_HANDLED: &[Row] = &[
 
 /// `native_handler/mod.rs` self-arms (Log, Runtime, Activity wildcard ops…)
 pub const CORE_HANDLED: &[Row] = &[
+    // picodroid/view/LayoutInflater: served by the interpreter's precheck
+    // (pico_jvm interpreter/ops_reflect.rs), which runs the view's
+    // `(Context, AttributeSet)` constructor as a frame; no arm here.
+    (
+        "picodroid/view/LayoutInflater",
+        "nativeNewView",
+        "(Ljava/lang/Class;Lpicodroid/content/Context;Lpicodroid/util/AttributeSet;)Lpicodroid/view/View;",
+    ),
     // picodroid/app/Activity
     ("picodroid/app/Activity", "finish", "()V"),
     ("picodroid/app/Activity", "recreate", "()V"),

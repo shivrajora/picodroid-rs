@@ -160,7 +160,9 @@ fn precheck_flag(class: &str, name: &str, desc: &str) -> u8 {
         || (set && matches!(name, m::add | m::contains | m::remove))
         || (class == c::java_util_ArrayList && matches!(name, m::contains | m::remove | m::sort))
         || (class == c::java_lang_Enum && name == m::valueOf)
-        || (name == m::getClass && desc == d::__Class);
+        || (name == m::getClass && desc == d::__Class)
+        || (class == c::java_lang_Class && matches!(name, m::forName | m::newInstance))
+        || (class == c::picodroid_view_LayoutInflater && name == m::nativeNewView);
     if precheck {
         flags::PRECHECK
     } else {
@@ -648,6 +650,25 @@ pub const BUILTIN_SUPER: &[(&str, &str)] = &[
     (
         c::java_lang_IllegalMonitorStateException,
         c::java_lang_RuntimeException,
+    ),
+    // Reflection-lite (`Class.forName` / `newInstance`, ops_reflect.rs):
+    // the JDK's checked family, so a `catch (ClassNotFoundException e)`
+    // written for Android matches here.
+    (
+        c::java_lang_ReflectiveOperationException,
+        c::java_lang_Exception,
+    ),
+    (
+        c::java_lang_ClassNotFoundException,
+        c::java_lang_ReflectiveOperationException,
+    ),
+    (
+        c::java_lang_InstantiationException,
+        c::java_lang_ReflectiveOperationException,
+    ),
+    (
+        c::java_lang_IllegalAccessException,
+        c::java_lang_ReflectiveOperationException,
     ),
     // picodroid.concurrent's ExecutorService/Future (pure Java) throw these
     // by their JDK names, alloc-by-name like the java.net family.

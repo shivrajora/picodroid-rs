@@ -1222,6 +1222,7 @@ M	floorDiv
 M	floorMod
 M	flush
 M	flushPending
+M	forName
 M	forget
 M	format
 M	frequencyOf
@@ -1725,6 +1726,7 @@ M	nativeListen
 M	nativeLongValue
 M	nativeNewArray
 M	nativeNewObject
+M	nativeNewView
 M	nativePackageName
 M	nativeParse
 M	nativePerformItemClick

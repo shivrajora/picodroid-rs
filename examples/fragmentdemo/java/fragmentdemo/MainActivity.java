@@ -2,7 +2,6 @@
 package fragmentdemo;
 
 import picodroid.app.Activity;
-import picodroid.app.Fragment;
 import picodroid.app.FragmentFactory;
 import picodroid.app.FragmentManager;
 import picodroid.app.FragmentTransaction;
@@ -48,27 +47,22 @@ public class MainActivity extends Activity {
   /** What {@code postValue} delivered, a tick after it was posted. */
   private static String posted;
 
-  /** The Android shape: data the Activity and its fragments share, minus the views. */
-  static final class DemoViewModel extends ViewModel {
+  /**
+   * The Android shape: data the Activity and its fragments share, minus the views. Public with a
+   * public no-argument constructor, which is what the default factory ({@code
+   * ViewModelProvider.NewInstanceFactory}) constructs it through.
+   */
+  public static final class DemoViewModel extends ViewModel {
     final MutableLiveData<String> line = new MutableLiveData<>();
+
+    public DemoViewModel() {
+      modelsMade++;
+    }
 
     @Override
     protected void onCleared() {
       modelsCleared++;
     }
-  }
-
-  /** No reflection to make a ViewModel by: {@code new ViewModelProvider(this)} asks here. */
-  @Override
-  public ViewModelProvider.Factory getDefaultViewModelProviderFactory() {
-    return new ViewModelProvider.Factory() {
-      @Override
-      @SuppressWarnings("unchecked")
-      public <T extends ViewModel> T create(Class<T> modelClass) {
-        modelsMade++;
-        return (T) new DemoViewModel();
-      }
-    };
   }
 
   private int id;
@@ -94,22 +88,8 @@ public class MainActivity extends Activity {
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
-    // Before super.onCreate, as on Android: the restore runs inside it.
-    getSupportFragmentManager()
-        .setFragmentFactory(
-            new FragmentFactory() {
-              @Override
-              public Fragment instantiate(String className) {
-                T.log("factory");
-                if (className.equals(HomeFragment.class.getName())) {
-                  return new HomeFragment();
-                }
-                if (className.equals(DetailFragment.class.getName())) {
-                  return new DetailFragment();
-                }
-                return super.instantiate(className);
-              }
-            });
+    // No FragmentFactory: the restore inside super.onCreate re-creates the saved fragments
+    // through their public no-argument constructors, as Android's default factory does.
     super.onCreate(savedInstanceState);
     id = ++instances;
     fm = getSupportFragmentManager();
@@ -130,7 +110,7 @@ public class MainActivity extends Activity {
       home = (HomeFragment) fm.findFragmentByTag("home");
       detail = (DetailFragment) fm.findFragmentByTag("detail");
       T.check("back stack restored", fm.getBackStackEntryCount() == 1);
-      T.check("factory made both", T.count("factory") == 2);
+      T.check("the default factory made both", home != null && detail != null);
       T.check(
           "home restored at CREATED with its state",
           home != null && home.n == 2 && home.counter == 42 && !home.isAdded());
@@ -382,8 +362,11 @@ public class MainActivity extends Activity {
         "another key, another instance",
         new ViewModelProvider(this).get("second", DemoViewModel.class) != model && modelsMade == 2);
     T.check(
-        "no factory, no new ViewModel",
-        throwsState(() -> new ViewModelProvider(this, null).get("third", DemoViewModel.class)));
+        "a kept key is not made again",
+        new ViewModelProvider(this, new ViewModelProvider.NewInstanceFactory())
+                    .get("second", DemoViewModel.class)
+                != model
+            && modelsMade == 2);
   }
 
   private void stepHeadless() {

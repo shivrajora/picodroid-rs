@@ -132,6 +132,7 @@ fn builtin_method_rows_name_real_arms() {
     let interpreter = concat!(
         include_str!("../../interpreter/ops_invoke.rs"),
         include_str!("../../interpreter/ops_indy.rs"),
+        include_str!("../../interpreter/ops_reflect.rs"),
         include_str!("../../interpreter/coll_fastpath.rs"),
     );
     let mut missing = alloc::vec::Vec::new();
@@ -150,7 +151,10 @@ fn builtin_method_rows_name_real_arms() {
                 // Resolved by the interpreter before dispatch.
                 (c::java_lang_Object, m::getClass)
                 | (c::java_util_ArrayList, m::sort)
-                | (c::java_lang_Enum, m::valueOf) => interpreter.contains(&literal),
+                | (c::java_lang_Enum, m::valueOf)
+                | (c::java_lang_Class, m::forName | m::newInstance) => {
+                    interpreter.contains(&literal)
+                }
                 _ => source.contains(&literal),
             };
             if !served {

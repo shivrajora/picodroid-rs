@@ -13,7 +13,7 @@ import picodroid.view.View;
  * colour, with the day's letter under it. One view drawing bars and letters, where it used to be
  * fourteen views.
  */
-final class WeekChart extends View {
+public final class WeekChart extends View {
   static final int COLUMN = 40;
 
   /** The busiest day's bar, in pixels. */
@@ -41,7 +41,7 @@ final class WeekChart extends View {
    */
   private boolean sized;
 
-  WeekChart(Context context, AttributeSet attrs) {
+  public WeekChart(Context context, AttributeSet attrs) {
     super(context);
     palette = Palette.of(context.getResources());
     days = UsageSnapshot.DAYS;

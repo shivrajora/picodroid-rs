@@ -916,6 +916,23 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             self.sort_list_with_comparator(frames, args)?;
             return Ok(Some(None));
         }
+        // Reflection-lite (ops_reflect.rs): `Class.forName` needs the
+        // class-object cache, `newInstance` and the inflater's view
+        // constructor run `<init>` (and `<clinit>`) as frames.
+        if class_name == c::java_lang_Class {
+            if method_name == m::forName && descriptor == d::String__Class {
+                return self.class_for_name(args).map(Some);
+            }
+            if method_name == m::newInstance && descriptor == d::__Object {
+                return self.class_new_instance(frames, args).map(Some);
+            }
+        }
+        if class_name == c::picodroid_view_LayoutInflater
+            && method_name == m::nativeNewView
+            && descriptor == d::Class_Context_AttributeSet__View
+        {
+            return self.inflater_new_view(frames, args).map(Some);
+        }
         Ok(None)
     }
 

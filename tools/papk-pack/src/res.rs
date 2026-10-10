@@ -767,6 +767,11 @@ struct LayoutCompiler<'a> {
     /// Every layout by name, for `<include>`: `(file, root element)`.
     layouts: &'a BTreeMap<String, (String, Element)>,
     warnings: &'a mut Vec<String>,
+    /// A custom view's class name as the packed class files spell it: the
+    /// `--shrink-app` map renames the app's classes, and the inflater looks
+    /// the name up at run time (`Class.forName`), so the layout must carry
+    /// the renamed one. `None` keeps the XML spelling.
+    rename_class: &'a dyn Fn(&str) -> Option<String>,
 }
 
 impl LayoutCompiler<'_> {
@@ -1108,10 +1113,11 @@ impl LayoutCompiler<'_> {
         words.sort_by_key(|(code, _)| !matches!(*code, layout::attr::MIN | layout::attr::MAX));
         if custom {
             let from = format!("{file}: <{}>", el.name);
+            let stored = (self.rename_class)(&el.name).unwrap_or_else(|| el.name.clone());
             // First, where the inflater expects it: it needs the name before anything else.
             words.insert(
                 0,
-                (layout::attr::CLASS_NAME, self.string_id(&el.name, &from)?),
+                (layout::attr::CLASS_NAME, self.string_id(&stored, &from)?),
             );
         }
         let attr_count = u8::try_from(words.len())
@@ -1210,6 +1216,15 @@ fn qualifier_error(spec: &str, e: QualifierError) -> String {
 }
 
 pub fn compile(res_dir: &Path) -> Result<Compiled, String> {
+    compile_with(res_dir, &|_| None)
+}
+
+/// [`compile`], with custom view class names in layouts spelled through
+/// `rename_class` (the `--shrink-app` map; see `LayoutCompiler::rename_class`).
+pub fn compile_with(
+    res_dir: &Path,
+    rename_class: &dyn Fn(&str) -> Option<String>,
+) -> Result<Compiled, String> {
     let mut values_dir = None;
     let mut layout_dir = None;
     let mut drawable_dir = None;
@@ -1369,6 +1384,7 @@ pub fn compile(res_dir: &Path) -> Result<Compiled, String> {
             shapes: &shapes,
             layouts: &by_name,
             warnings: &mut warnings,
+            rename_class,
         };
         for (_, file, root) in &layouts {
             let mut words = Vec::new();

@@ -27,6 +27,7 @@ mod ops_invoke;
 mod ops_locals;
 mod ops_math;
 mod ops_monitor;
+mod ops_reflect;
 mod ops_stack;
 mod ops_wide;
 

@@ -422,7 +422,7 @@ The catch: because the compiler sees the JDK's full interfaces, it will also acc
 
 ## `java.lang.Class`
 
-Class literals (`MyType.class`) and reflection-lite. `Class<?>` is the only reflective surface — there's no `Field` or `Method` API in v1.
+Class literals (`MyType.class`) and reflection-lite: `getName()`, `forName(String)` and `newInstance()`. There is no `Field`, `Method` or `Constructor` API, no member discovery and no access check.
 
 ```java
 Class<?> c = String.class;
@@ -431,9 +431,14 @@ boolean same = (s.getClass() == String.class);  // true — Class instances are 
 
 // Each evaluation of `T.class` returns the same Class instance
 boolean stable = (Direction.class == Direction.class);  // true
+
+// By name, as getName() spells it (so it holds when the shrinker renames the app's classes):
+Class<?> k = Class.forName(Gauge.class.getName());       // ClassNotFoundException if not packed
+Object g = k.newInstance();                              // the public no-argument constructor;
+                                                         // InstantiationException otherwise
 ```
 
-`toString()` is `"class " + getName()`. `forName`, `newInstance` and member discovery are out of scope.
+`toString()` is `"class " + getName()`. `forName` finds a class packed with the app or the framework (every class is in flash already; nothing is loaded) and `newInstance()` runs the no-argument constructor, initialising the class first if it never was. This is what the framework uses to construct a ViewModel (`ViewModelProvider.NewInstanceFactory`), a saved Fragment (the default `FragmentFactory`) and a custom view a layout names (`LayoutInflater`), as Android does, so none of those needs a factory of the app's own. `IllegalAccessException` is declared but never thrown: there are no access checks.
 
 `Object.getClass()` returns the runtime `Class<?>` of any reference. Useful for type-safe equality (`.getClass() == Foo.class`) and for log dispatch keyed by class identity.
 

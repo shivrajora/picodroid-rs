@@ -13,7 +13,7 @@ import picodroid.view.View;
  * session was. Slots without a sample are short stubs in the track colour. One view drawing its
  * bars, where it used to be one view per bar.
  */
-final class TrendChart extends View {
+public final class TrendChart extends View {
   static final int BAR_WIDTH = 8;
   static final int BAR_PITCH = 11;
 
@@ -29,7 +29,7 @@ final class TrendChart extends View {
   /** Percent per slot, or -1 for a slot with no sample yet. */
   private final int[] values;
 
-  TrendChart(Context context, AttributeSet attrs) {
+  public TrendChart(Context context, AttributeSet attrs) {
     super(context);
     palette = Palette.of(context.getResources());
     values = new int[UsageService.TREND_SLOTS];

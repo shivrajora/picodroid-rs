@@ -147,3 +147,7 @@ B__String	(B)Ljava/lang/String;
 S__String	(S)Ljava/lang/String;
 B__Byte	(B)Ljava/lang/Byte;
 S__Short	(S)Ljava/lang/Short;
+__V	()V
+String__Class	(Ljava/lang/String;)Ljava/lang/Class;
+Context_AttributeSet__V	(Lpicodroid/content/Context;Lpicodroid/util/AttributeSet;)V
+Class_Context_AttributeSet__View	(Ljava/lang/Class;Lpicodroid/content/Context;Lpicodroid/util/AttributeSet;)Lpicodroid/view/View;

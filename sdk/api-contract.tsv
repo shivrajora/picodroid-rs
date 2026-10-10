@@ -94,11 +94,14 @@ java/lang/Character	toUpperCase
 java/lang/Character	valueOf	
 java/lang/Class
 java/lang/Class	<init>	
+java/lang/Class	forName	(Ljava/lang/String;)Ljava/lang/Class;
 java/lang/Class	getName	
 java/lang/Class	getName	()Ljava/lang/String;
 java/lang/Class	name	Ljava/lang/String;
+java/lang/Class	newInstance	()Ljava/lang/Object;
 java/lang/Class	toString	()Ljava/lang/String;
 java/lang/ClassCastException
+java/lang/ClassNotFoundException
 java/lang/Cloneable
 java/lang/Comparable
 java/lang/Comparable	compareTo	(Ljava/lang/Object;)I
@@ -155,11 +158,13 @@ java/lang/Float	toString	()Ljava/lang/String;
 java/lang/Float	toString	(F)Ljava/lang/String;
 java/lang/Float	valueOf	(F)Ljava/lang/Float;
 java/lang/Float	valueOf	(Ljava/lang/String;)Ljava/lang/Float;
+java/lang/IllegalAccessException
 java/lang/IllegalArgumentException
 java/lang/IllegalMonitorStateException
 java/lang/IllegalStateException
 java/lang/IllegalThreadStateException
 java/lang/IndexOutOfBoundsException
+java/lang/InstantiationException
 java/lang/Integer
 java/lang/Integer	<init>	
 java/lang/Integer	byteValue	
@@ -272,6 +277,7 @@ java/lang/Object	toString
 java/lang/Object	wait	()V
 java/lang/Object	wait	(J)V
 java/lang/OutOfMemoryError
+java/lang/ReflectiveOperationException
 java/lang/Runnable
 java/lang/Runnable	run	()V
 java/lang/RuntimeException
@@ -1091,16 +1097,19 @@ javax/net/ssl/SSLPeerUnverifiedException
 @extends	java/lang/ArrayStoreException	java/lang/RuntimeException
 @extends	java/lang/Byte	java/lang/Number
 @extends	java/lang/ClassCastException	java/lang/RuntimeException
+@extends	java/lang/ClassNotFoundException	java/lang/ReflectiveOperationException
 @extends	java/lang/Double	java/lang/Number
 @extends	java/lang/Error	java/lang/Throwable
 @extends	java/lang/Exception	java/lang/Throwable
 @extends	java/lang/ExceptionInInitializerError	java/lang/Error
 @extends	java/lang/Float	java/lang/Number
+@extends	java/lang/IllegalAccessException	java/lang/ReflectiveOperationException
 @extends	java/lang/IllegalArgumentException	java/lang/RuntimeException
 @extends	java/lang/IllegalMonitorStateException	java/lang/RuntimeException
 @extends	java/lang/IllegalStateException	java/lang/RuntimeException
 @extends	java/lang/IllegalThreadStateException	java/lang/IllegalArgumentException
 @extends	java/lang/IndexOutOfBoundsException	java/lang/RuntimeException
+@extends	java/lang/InstantiationException	java/lang/ReflectiveOperationException
 @extends	java/lang/Integer	java/lang/Number
 @extends	java/lang/InterruptedException	java/lang/Exception
 @extends	java/lang/Long	java/lang/Number
@@ -1108,6 +1117,7 @@ javax/net/ssl/SSLPeerUnverifiedException
 @extends	java/lang/NullPointerException	java/lang/RuntimeException
 @extends	java/lang/NumberFormatException	java/lang/IllegalArgumentException
 @extends	java/lang/OutOfMemoryError	java/lang/Error
+@extends	java/lang/ReflectiveOperationException	java/lang/Exception
 @extends	java/lang/RuntimeException	java/lang/Exception
 @extends	java/lang/Short	java/lang/Number
 @extends	java/lang/StackOverflowError	java/lang/Error

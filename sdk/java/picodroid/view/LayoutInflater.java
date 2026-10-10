@@ -403,18 +403,36 @@ public class LayoutInflater {
     return v;
   }
 
-  /** A view of the app's own, by class name: only a {@link Factory} can make one. */
+  /**
+   * A view of the app's own, by class name: the {@link Factory} first (an Activity's {@code
+   * onCreateView}, which returns null unless overridden), else the class's {@code (Context,
+   * AttributeSet)} constructor by reflection, as Android does.
+   */
   private View custom(String name) {
     View v = mFactory == null ? null : mFactory.onCreateView(name, mContext, NO_ATTRIBUTES);
+    if (v != null) {
+      return v;
+    }
+    Class<?> cls;
+    try {
+      cls = Class.forName(name);
+    } catch (ClassNotFoundException e) {
+      throw new InflateException("Error inflating class " + name + ": class not found");
+    }
+    v = nativeNewView(cls, mContext, NO_ATTRIBUTES);
     if (v == null) {
       throw new InflateException(
-          "Error inflating class "
-              + name
-              + ": no LayoutInflater.Factory made it (there is no reflection; override"
-              + " Activity.onCreateView(String, Context, AttributeSet))");
+          "Error inflating class " + name + ": no (Context, AttributeSet) constructor");
     }
     return v;
   }
+
+  /**
+   * {@code new <cls>(context, attrs)}, or null when {@code cls} is not a concrete class with that
+   * constructor. The interpreter runs the constructor as a frame (there is no {@code
+   * java.lang.reflect.Constructor}).
+   */
+  private static native View nativeNewView(Class<?> cls, Context context, AttributeSet attrs);
 
   private View create(int cls) {
     switch (cls) {

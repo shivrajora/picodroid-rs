@@ -131,13 +131,14 @@ public class Activity extends Context
   }
 
   /**
-   * The factory behind {@code new ViewModelProvider(activity)}. Override it to make this Activity's
-   * ViewModels: Android's default reflects on the class, and there is no reflection here, so the
-   * default is {@code null} and such a provider throws for a ViewModel that does not exist yet.
+   * The factory behind {@code new ViewModelProvider(activity)}: {@link
+   * ViewModelProvider.NewInstanceFactory}, which constructs the ViewModel class through its public
+   * no-argument constructor, as Android's default does. Override it for ViewModels that take
+   * arguments.
    */
   @Override
   public ViewModelProvider.Factory getDefaultViewModelProviderFactory() {
-    return null;
+    return ViewModelProvider.NewInstanceFactory.getInstance();
   }
 
   /**
@@ -650,20 +651,9 @@ public class Activity extends Context
   /**
    * Mirrors {@code android.app.Activity#onCreateView(String, Context, AttributeSet)}, the {@link
    * LayoutInflater.Factory} every Activity is: called while a layout is inflated for each element
-   * that names a class of the app's own. Override it to construct those views, since there is no
-   * reflection to do it by name:
-   *
-   * <pre>{@code
-   * @Override
-   * public View onCreateView(String name, Context context, AttributeSet attrs) {
-   *   if (name.equals("com.example.GaugeView")) {
-   *     return new GaugeView(context, attrs);
-   *   }
-   *   return super.onCreateView(name, context, attrs);
-   * }
-   * }</pre>
-   *
-   * The default returns {@code null}, and inflating such an element then fails.
+   * that names a class of the app's own. The default returns {@code null}, and the inflater then
+   * constructs the class through its public {@code (Context, AttributeSet)} constructor, as on
+   * Android; override it to make such views some other way.
    */
   @Override
   public View onCreateView(String name, Context context, AttributeSet attrs) {

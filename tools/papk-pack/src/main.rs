@@ -876,7 +876,24 @@ fn compile_resources(args: &mut Args, assets: &mut Vec<Asset>) -> Result<(), Str
     if !dir.is_dir() {
         return Err(format!("--res-dir '{}' is not a directory", dir.display()));
     }
-    let compiled = res::compile(dir)?;
+    // A custom view the layout names is looked up by that name at run time
+    // (`Class.forName`), so under `--shrink-app` the layout carries the
+    // class's renamed spelling, as the manifest entry does.
+    let map = match args.shrink_map.as_deref() {
+        Some(p) => Some(
+            class_shrink::mapping::ShrinkMap::load(p)
+                .map_err(|e| format!("--shrink-map {}: {e}", p.display()))?,
+        ),
+        None => None,
+    };
+    let rename = |dotted: &str| -> Option<String> {
+        let slashed = dotted.replace('.', "/");
+        map.as_ref()?
+            .classes
+            .get(&slashed)
+            .map(|renamed| renamed.replace('/', "."))
+    };
+    let compiled = res::compile_with(dir, &rename)?;
     for w in &compiled.warnings {
         eprintln!("Warning: {w}");
     }

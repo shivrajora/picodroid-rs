@@ -25,7 +25,7 @@ import picodroid.os.SystemClock;
  * once-a-second task on the main thread looks at the clock and publishes a new state only when one
  * would be painted differently, which on the data screens is once a minute.
  */
-final class UsageViewModel extends ViewModel {
+public final class UsageViewModel extends ViewModel {
   private static final int TICK_MS = 1000;
 
   private final UsageRepository repository = UsageRepository.getInstance();

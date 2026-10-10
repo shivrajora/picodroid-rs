@@ -2,38 +2,38 @@
 package picodroid.app;
 
 /**
- * Creates fragment instances by class name when a {@link FragmentManager} restores the fragments a
- * destroyed Activity had. Mirrors {@code androidx.fragment.app.FragmentFactory}, minus the {@code
- * ClassLoader} parameter: there is no reflection on this runtime, so the default cannot construct
- * anything and an app that wants its fragments back after a re-creation installs its own before
- * {@code super.onCreate}:
- *
- * <pre>{@code
- * getSupportFragmentManager().setFragmentFactory(new FragmentFactory() {
- *   @Override public Fragment instantiate(String className) {
- *     if (className.equals(HomeFragment.class.getName())) return new HomeFragment();
- *     if (className.equals(DetailFragment.class.getName())) return new DetailFragment();
- *     return super.instantiate(className);
- *   }
- * });
- * super.onCreate(savedInstanceState);
- * }</pre>
- *
- * <p>Compare with {@code X.class.getName()}, never a string literal: a shrunk build renames app
- * classes, and {@code getName()} follows the rename while a literal does not.
+ * Makes fragments by class name when the framework re-creates saved ones, mirroring {@code
+ * androidx.fragment.app.FragmentFactory}. The default constructs the class through its public
+ * no-argument constructor ({@code Class.forName(className).newInstance()}), as Android's does, so
+ * an app only installs a factory ({@link FragmentManager#setFragmentFactory}, before {@code
+ * super.onCreate}) for fragments that take constructor arguments. {@link #instantiate} takes the
+ * class name alone, with no {@code ClassLoader}.
  */
 public class FragmentFactory {
   public FragmentFactory() {}
 
   /**
    * Return a new instance of the fragment class named {@code className} (as {@code
-   * getClass().getName()} spelled it when the state was saved). The default throws.
+   * getClass().getName()} spelled it when the state was saved).
+   *
+   * @throws RuntimeException when the class is not packed with the app or has no public no-argument
+   *     constructor (Android's {@code Fragment.InstantiationException})
    */
   public Fragment instantiate(String className) {
-    throw new IllegalStateException(
-        "No FragmentFactory for "
-            + className
-            + ": override FragmentFactory.instantiate and setFragmentFactory before"
-            + " super.onCreate");
+    try {
+      return (Fragment) Class.forName(className).newInstance();
+    } catch (ClassNotFoundException e) {
+      throw new RuntimeException(
+          "Unable to instantiate fragment "
+              + className
+              + ": make sure class name exists, is public, and has an empty constructor that is"
+              + " public");
+    } catch (InstantiationException | IllegalAccessException e) {
+      throw new RuntimeException(
+          "Unable to instantiate fragment "
+              + className
+              + ": could not find Fragment constructor (override FragmentFactory.instantiate for"
+              + " one that takes arguments)");
+    }
   }
 }

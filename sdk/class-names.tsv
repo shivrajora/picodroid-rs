@@ -24,6 +24,7 @@ java/lang/CharSequence
 java/lang/Character
 java/lang/Class
 java/lang/ClassCastException
+java/lang/ClassNotFoundException
 java/lang/CloneNotSupportedException
 java/lang/Cloneable
 java/lang/Comparable
@@ -33,11 +34,13 @@ java/lang/Error
 java/lang/Exception
 java/lang/ExceptionInInitializerError
 java/lang/Float
+java/lang/IllegalAccessException
 java/lang/IllegalArgumentException
 java/lang/IllegalMonitorStateException
 java/lang/IllegalStateException
 java/lang/IllegalThreadStateException
 java/lang/IndexOutOfBoundsException
+java/lang/InstantiationException
 java/lang/Integer
 java/lang/InterruptedException
 java/lang/Iterable
@@ -50,6 +53,7 @@ java/lang/Number
 java/lang/NumberFormatException
 java/lang/Object
 java/lang/OutOfMemoryError
+java/lang/ReflectiveOperationException
 java/lang/Runnable
 java/lang/RuntimeException
 java/lang/Short
@@ -234,6 +238,7 @@ picodroid/lifecycle/Observer
 picodroid/lifecycle/ViewModel
 picodroid/lifecycle/ViewModelProvider
 picodroid/lifecycle/ViewModelProvider$Factory
+picodroid/lifecycle/ViewModelProvider$NewInstanceFactory
 picodroid/lifecycle/ViewModelStore
 picodroid/lifecycle/ViewModelStoreOwner
 picodroid/media/AudioManager

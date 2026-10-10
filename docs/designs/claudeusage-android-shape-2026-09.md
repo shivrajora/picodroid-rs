@@ -84,7 +84,7 @@ What the move onto Fragments left un-Android, from the review in
 |---|---|---|---|
 | 54 | `picodroid.app.Fragment`, `picodroid.widget.ViewPager2`, `picodroid.lifecycle.*` where Android has `androidx.fragment.app`, `androidx.viewpager2.*`, `androidx.lifecycle`; `FragmentStateAdapter(Activity)` where Android takes a `FragmentActivity`. | SDK-shape | kept: flattening androidx into `picodroid.*` is the project rule. A layout may now spell the element `<picodroid.widget.ViewPager2>`, the fully qualified form Android requires; the app keeps the short one. |
 | 55 | `pager.setUserInputEnabled(false)`. | idiom preserved | kept: four buttons and no touch panel, so keys turn the pages. The Android API used as intended. |
-| 57 | `MainActivity.getDefaultViewModelProviderFactory()` is overridden to construct `UsageViewModel`, and `onCreateView(String, Context, AttributeSet)` to construct the three custom views the layouts name; on Android both are reflection. | SDK-forced (no reflection) | kept: owner decision F2. Both overrides are valid Android code. |
+| 57 | `MainActivity.getDefaultViewModelProviderFactory()` is overridden to construct `UsageViewModel`, and `onCreateView(String, Context, AttributeSet)` to construct the three custom views the layouts name; on Android both are reflection. | SDK-forced (no reflection) | closed 2026-10-09 by F2 ([class-newinstance-2026-10.md](class-newinstance-2026-10.md)): both overrides are gone; the default factory and the inflater construct the classes as Android does. |
 
 ## 10. Left after the remaining-shape round (2026-10-01)
 

@@ -60,5 +60,86 @@ public class ClassLit extends Application {
         rcName.length() > 0 && rcName.indexOf('/') < 0 && !rcName.equals(sc.getName())
             ? "iface literal ok"
             : "iface literal WRONG");
+
+    reflectionLite();
+  }
+
+  /** Made through {@code Class.newInstance()}: its static initialiser must run first. */
+  public static final class Made {
+    static int made;
+    static final int SEED = seed();
+
+    static int seed() {
+      return 42;
+    }
+
+    public Made() {
+      made++;
+    }
+  }
+
+  /** Not constructible: abstract. */
+  public abstract static class Shape {}
+
+  /** Not constructible through {@code newInstance()}: no no-argument constructor. */
+  public static final class Sized {
+    public Sized(int size) {}
+  }
+
+  /**
+   * Reflection-lite (docs/designs/class-newinstance-2026-10.md): {@code Class.forName} by the name
+   * {@code getName()} spells (so it holds under {@code --shrink-app} too), {@code newInstance()}
+   * through the no-argument constructor with the class initialised first, and the three refusals.
+   */
+  private static void reflectionLite() {
+    try {
+      Class<?> c = Class.forName(ClassLit.class.getName());
+      Log.i("ClassLit", c == ClassLit.class ? "forName ok" : "forName WRONG: " + c.getName());
+      Class<?> s = Class.forName(String.class.getName());
+      Log.i("ClassLit", s == String.class ? "forName builtin ok" : "forName builtin WRONG");
+    } catch (ClassNotFoundException e) {
+      Log.i("ClassLit", "forName WRONG: " + e.getMessage());
+    }
+    try {
+      Class.forName("classlit.Nope");
+      Log.i("ClassLit", "forName miss WRONG");
+    } catch (ClassNotFoundException e) {
+      Log.i("ClassLit", "forName miss ok: " + e.getMessage());
+    }
+    try {
+      Object o = Made.class.newInstance();
+      Object p = Made.class.newInstance();
+      Log.i(
+          "ClassLit",
+          o instanceof Made && p instanceof Made && o != p && Made.made == 2 && Made.SEED == 42
+              ? "newInstance ok"
+              : "newInstance WRONG made=" + Made.made);
+    } catch (InstantiationException | IllegalAccessException e) {
+      Log.i("ClassLit", "newInstance WRONG: " + e);
+    }
+    try {
+      Object made = Shape.class.newInstance();
+      Log.i("ClassLit", "abstract refused WRONG: " + made);
+    } catch (InstantiationException e) {
+      Log.i("ClassLit", "abstract refused ok");
+    } catch (IllegalAccessException e) {
+      Log.i("ClassLit", "abstract refused WRONG: access");
+    }
+    try {
+      Object made = Sized.class.newInstance();
+      Log.i("ClassLit", "no ctor refused WRONG: " + made);
+    } catch (InstantiationException e) {
+      Log.i("ClassLit", "no ctor refused ok");
+    } catch (IllegalAccessException e) {
+      Log.i("ClassLit", "no ctor refused WRONG: access");
+    }
+    try {
+      Object made = String.class.newInstance();
+      Log.i("ClassLit", "builtin refused WRONG: " + made);
+    } catch (InstantiationException e) {
+      Log.i("ClassLit", "builtin refused ok");
+    } catch (IllegalAccessException e) {
+      Log.i("ClassLit", "builtin refused WRONG: access");
+    }
   }
 }

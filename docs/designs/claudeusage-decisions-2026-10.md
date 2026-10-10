@@ -17,7 +17,7 @@ not an app bug.
 | # | Question | Recommendation | Size |
 |---|---|---|---|
 | F1 | What the four buttons are | Keep the DPAD/BACK mapping. Offer raw `BUTTON_*` codes as an opt-in later, if an app asks. | none now |
-| F2 | A constructor-only `Class.newInstance()` | **Do it.** It deletes three overrides in this app alone and makes custom views in XML work like Android's. | 2 days |
+| F2 | A constructor-only `Class.newInstance()` | **Do it.** It deletes three overrides in this app alone and makes custom views in XML work like Android's. **Built 2026-10-09**, [class-newinstance-2026-10.md](class-newinstance-2026-10.md). | 2 days |
 | F3 | `picodroid.concurrent` / `picodroid.net` versus the JDK names | Defer. A rename across every app for a benefit only ported code sees. | 1 week |
 | F4 | An Android-shaped manifest | **Do the small half:** `<activity>`, `<service>` and `android:theme`. Leave permissions. | 2 days |
 | F5 | Who sets the clock | A platform time service; apps stop calling `SystemClock.setCurrentTimeMillis`. **Built 2026-10-09**, [time-service-2026-10.md](time-service-2026-10.md). | 3 days |
@@ -62,7 +62,15 @@ model per app.
 
 ## F2. A constructor-only `Class.newInstance()`
 
-**Today.** `sdk/java/java/lang/Class.java` exposes `getName()` only; its comment says reflection
+> Built 2026-10-09: [class-newinstance-2026-10.md](class-newinstance-2026-10.md). `forName` came
+> with it after all (two of the three consumers only hold a class name); the two-argument view
+> form is a framework-private `LayoutInflater` native rather than a `Class` method. The three
+> overrides are gone from `claudeusage`, `fragmentdemo` and `layoutdemo`. Of the costs listed:
+> the packer maps layout class names under `--shrink-app`; link roots were never a thing (the
+> packer packs every class); a missing `(Context, AttributeSet)` constructor is an
+> `InflateException` naming the class.
+
+**Today (as of 2026-10-03).** `sdk/java/java/lang/Class.java` exposes `getName()` only; its comment says reflection
 is "intentionally out of scope". That one decision costs this app three overrides, all of which
 Android does by reflection:
 

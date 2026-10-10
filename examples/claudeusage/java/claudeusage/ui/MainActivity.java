@@ -14,13 +14,10 @@ import picodroid.concurrent.Executors;
 import picodroid.concurrent.ScheduledExecutorService;
 import picodroid.concurrent.ScheduledFuture;
 import picodroid.concurrent.TimeUnit;
-import picodroid.content.Context;
 import picodroid.content.Intent;
 import picodroid.content.res.Resources;
-import picodroid.lifecycle.ViewModel;
 import picodroid.lifecycle.ViewModelProvider;
 import picodroid.os.Bundle;
-import picodroid.util.AttributeSet;
 import picodroid.util.Log;
 import picodroid.view.KeyEvent;
 import picodroid.view.View;
@@ -177,39 +174,6 @@ public class MainActivity extends Activity {
     for (int i = 0; i < PAGE_COUNT; i++) {
       pageDots[i] = findViewById(PAGE_DOT_IDS[i]);
     }
-  }
-
-  /**
-   * The views of the app's own that the page layouts name: there is no reflection to construct them
-   * by, so the Activity, which is every layout's factory, does.
-   */
-  @Override
-  public View onCreateView(String name, Context context, AttributeSet attrs) {
-    if (name.equals("claudeusage.ui.RingView")) {
-      return new RingView(context, attrs);
-    }
-    if (name.equals("claudeusage.ui.TrendChart")) {
-      return new TrendChart(context, attrs);
-    }
-    if (name.equals("claudeusage.ui.WeekChart")) {
-      return new WeekChart(context, attrs);
-    }
-    return super.onCreateView(name, context, attrs);
-  }
-
-  /** There is no reflection to make a ViewModel by: the pages' provider asks here. */
-  @Override
-  public ViewModelProvider.Factory getDefaultViewModelProviderFactory() {
-    return new ViewModelProvider.Factory() {
-      @Override
-      @SuppressWarnings("unchecked")
-      public <T extends ViewModel> T create(Class<T> modelClass) {
-        if (modelClass != UsageViewModel.class) {
-          throw new IllegalArgumentException("Unknown ViewModel class " + modelClass.getName());
-        }
-        return (T) new UsageViewModel();
-      }
-    };
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────

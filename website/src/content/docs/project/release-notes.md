@@ -7,6 +7,23 @@ This page covers everything that landed in releases v0.4.0 through v0.36.0. Earl
 
 ## Unreleased
 
+**Reflection-lite: `Class.forName` and `Class.newInstance` (2026-10-09)**
+
+Decision F2 of the [claudeusage decisions](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/claudeusage-decisions-2026-10.md),
+written up in [class-newinstance-2026-10.md](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/class-newinstance-2026-10.md).
+`java.lang.Class` gains `forName(String)` and `newInstance()` with the JDK's signatures and
+checked exceptions (`ClassNotFoundException`, `InstantiationException`, `IllegalAccessException`,
+new builtins), served by the interpreter: a constructor is found by descriptor and run as a frame,
+the class initialised first. The framework uses them where Android uses reflection, so three
+overrides every multi-screen app carried are gone: `ViewModelProvider.NewInstanceFactory` (new,
+the default `getDefaultViewModelProviderFactory()`) makes a ViewModel through its public
+no-argument constructor, the default `FragmentFactory` re-creates saved fragments by name, and
+`LayoutInflater` constructs a custom view a layout names through its public `(Context,
+AttributeSet)` constructor when `Activity.onCreateView` returns null (its default).
+`claudeusage`, `fragmentdemo` and `layoutdemo` lose those overrides; under `--shrink-app` the
+packer now writes a layout's custom class name through the shrink map. No `Method`, `Field` or
+`Constructor`, no member discovery, no access checks.
+
 **The platform sets the clock (2026-10-09)**
 
 Decision F5 of the [claudeusage decisions](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/claudeusage-decisions-2026-10.md),

@@ -123,7 +123,7 @@ To test that, turn on the equivalent of Android's *Don't keep activities* develo
 | `getResources()` | The app's compiled `res/` tree: `getString`, `getText`, `getColor`, `getDimension`, `getDimensionPixelSize`, `getDimensionPixelOffset`, `getInteger`, `getBoolean`, and `getDisplayMetrics()`. `getString(int)`, `getString(int, Object...)` and `getColor(int)` are also on `Context`. |
 | `getSupportFragmentManager()` | The Activity's `FragmentManager`. See [Fragment](#picodroidappfragment). |
 | `getLifecycle()` | The Activity's `Lifecycle`: pass `this` to `LiveData.observe`. See [lifecycle](#picodroidlifecycle). |
-| `getViewModelStore()` / `getDefaultViewModelProviderFactory()` | What `new ViewModelProvider(activity)` uses; override the second to construct the Activity's ViewModels. See [lifecycle](#picodroidlifecycle). |
+| `getViewModelStore()` / `getDefaultViewModelProviderFactory()` | What `new ViewModelProvider(activity)` uses; the second is `ViewModelProvider.NewInstanceFactory` (the public no-argument constructor) unless overridden for ViewModels that take arguments. See [lifecycle](#picodroidlifecycle). |
 | `getDisplay()` | Returns the `Display` singleton. |
 
 See [`examples/navdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/navdemo) for a multi-Activity back-stack demo and [`examples/dialogdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/dialogdemo) for an `onBackPressed` override pattern.
@@ -178,7 +178,7 @@ The callbacks arrive in Android's order: `onAttach(Context)`, `onCreate(Bundle)`
 
 **Finding fragments.** `findFragmentById(containerId)`, `findFragmentByTag(tag)`, `getFragments()`, and `putFragment(bundle, key, fragment)` / `getFragment(bundle, key)` to keep a reference to one in a Bundle; `isStateSaved()` and `isDestroyed()` on the manager. On a fragment `getActivity()` / `requireActivity()`, `getContext()` / `requireContext()`, `getView()` / `requireView()`, `getArguments()` / `requireArguments()`, `getParentFragmentManager()`, `getTag()`, `getId()` (its container's id), `isAdded()`, `isResumed()`, `isVisible()`, `isHidden()`, `isDetached()`, `isRemoving()`, `isStateSaved()`, `getLayoutInflater()`, `getString(int)`, `getResources()`, `startActivity(Intent)`. The `require*` forms throw `IllegalStateException` where the plain ones return `null`.
 
-**Saved state.** When the host saves its state (before a `recreate()` or a reclaim, see [saved instance state](#saved-instance-state)), every fragment's `onSaveInstanceState` Bundle is saved with it under Android's key, `android:support:fragments`, along with its arguments, tag, container, back stack membership and the back stack itself. The next instance's `super.onCreate` re-creates them, and they get the Bundle back in `onCreate` and `onCreateView`. There is no reflection on this runtime, so re-creation goes through a `FragmentFactory` the app installs **before** `super.onCreate`:
+**Saved state.** When the host saves its state (before a `recreate()` or a reclaim, see [saved instance state](#saved-instance-state)), every fragment's `onSaveInstanceState` Bundle is saved with it under Android's key, `android:support:fragments`, along with its arguments, tag, container, back stack membership and the back stack itself. The next instance's `super.onCreate` re-creates them through the `FragmentFactory`, whose default constructs each fragment by its saved class name through its public no-argument constructor, as Android's does. A fragment that takes constructor arguments needs a factory installed **before** `super.onCreate`:
 
 ```java
 @Override
@@ -186,9 +186,8 @@ protected void onCreate(Bundle savedInstanceState) {
   getSupportFragmentManager().setFragmentFactory(new FragmentFactory() {
     @Override
     public Fragment instantiate(String className) {
-      if (className.equals(HomeFragment.class.getName())) return new HomeFragment();
-      if (className.equals(DetailFragment.class.getName())) return new DetailFragment();
-      return super.instantiate(className);
+      if (className.equals(DetailFragment.class.getName())) return new DetailFragment(repository);
+      return super.instantiate(className);   // the default: Class.forName(className).newInstance()
     }
   });
   super.onCreate(savedInstanceState);
@@ -199,7 +198,7 @@ protected void onCreate(Bundle savedInstanceState) {
 }
 ```
 
-Compare with `X.class.getName()`, never a string literal: a shrunk build renames app classes and `getName()` follows the rename. Without a factory nothing is restored and the log says so. `FragmentManager.saveFragmentInstanceState(fragment)` and `Fragment.setInitialSavedState(Bundle)` carry one fragment's state by hand, as Android's `SavedState` does.
+Compare with `X.class.getName()`, never a string literal: a shrunk build renames app classes and `getName()` follows the rename. A saved fragment whose class has no public no-argument constructor and no factory throws `RuntimeException` from the restore, as Android's `Fragment.InstantiationException` does. `FragmentManager.saveFragmentInstanceState(fragment)` and `Fragment.setInitialSavedState(Bundle)` carry one fragment's state by hand, as Android's `SavedState` does.
 
 **What differs from Android.** A view a fragment gives up in `onDestroyView` is freed at once, LVGL widgets and all, so every field holding one of its children is dead afterwards and the next `onCreateView` builds a fresh tree (Android keeps detached trees; a panel cannot). Lifecycle states are `int` constants on `Fragment` rather than a `Lifecycle.State` enum. `FragmentFactory.instantiate` takes the class name alone (no `ClassLoader`). Views are appended to their container in the order fragments reach `VIEW_CREATED`. An override that skips `super` is tolerated, as on `Activity` (Android throws `SuperNotCalledException`); call it anyway. A fragment is not a `LifecycleOwner` or a `ViewModelStoreOwner` itself: observe with `getViewLifecycleOwner()` and share a `ViewModel` through `requireActivity()` (see [lifecycle](#picodroidlifecycle)). Not provided: child fragment managers, `startActivityForResult` on a fragment (use the Activity's), transitions and animations, `setRetainInstance`, menus, the Fragment Result API. Every method runs on the main thread. A second `setContentView` after fragments have views stales them like any other view of the old tree: remove the fragments first.
 
@@ -223,17 +222,8 @@ final class ReadingViewModel extends ViewModel {
 }
 
 public class MainActivity extends Activity {
-  // No reflection on this runtime: say how this Activity's ViewModels are made.
-  @Override
-  public ViewModelProvider.Factory getDefaultViewModelProviderFactory() {
-    return new ViewModelProvider.Factory() {
-      @Override
-      @SuppressWarnings("unchecked")
-      public <T extends ViewModel> T create(Class<T> modelClass) {
-        return (T) new ReadingViewModel();
-      }
-    };
-  }
+  // ReadingViewModel has a public no-argument constructor, so the default factory
+  // (ViewModelProvider.NewInstanceFactory) makes it; nothing to override.
 }
 
 public class ReadingFragment extends Fragment {
@@ -253,9 +243,9 @@ public class ReadingFragment extends Fragment {
 
 **Owners.** An `Activity` is a `LifecycleOwner`: its `getLifecycle()` is `CREATED` after `onCreate` returns, `STARTED` after `onStart`, `RESUMED` after `onResume`, and steps back down before `onPause`, `onStop` and `onDestroy` run. A fragment's `getViewLifecycleOwner()` follows its view the same way and is destroyed before `onDestroyView`; each view gets a new one, and the call throws while there is no view. `Lifecycle.getCurrentState()` returns an `int` (`Lifecycle.DESTROYED`, `INITIALIZED`, `CREATED`, `STARTED`, `RESUMED`); compare with `>=` where Android says `isAtLeast`. An app can be an owner of its own: implement `LifecycleOwner`, hold a `new Lifecycle()` and move it with `setCurrentState`.
 
-**`ViewModel` and `ViewModelProvider`.** `new ViewModelProvider(owner).get(X.class)` returns the owner's `X`, creating it on the first call; `get(key, X.class)` keeps several of one class. An `Activity` is the `ViewModelStoreOwner`. The instance is made by a `ViewModelProvider.Factory`: the one passed as the constructor's second argument, else the owner's `getDefaultViewModelProviderFactory()`, which returns `null` unless the Activity overrides it; with neither, `get` throws `IllegalStateException` for a ViewModel that does not exist yet. `onCleared()` runs when the owning Activity is destroyed.
+**`ViewModel` and `ViewModelProvider`.** `new ViewModelProvider(owner).get(X.class)` returns the owner's `X`, creating it on the first call; `get(key, X.class)` keeps several of one class. An `Activity` is the `ViewModelStoreOwner`. The instance is made by a `ViewModelProvider.Factory`: the one passed as the constructor's second argument, else the owner's `getDefaultViewModelProviderFactory()`, which for an Activity is `ViewModelProvider.NewInstanceFactory`, `modelClass.newInstance()` through the public no-argument constructor, as on Android. A ViewModel that takes arguments gets a factory of its own (override the default, or pass one); a class the default cannot construct throws `RuntimeException("Cannot create an instance of …")`. `onCleared()` runs when the owning Activity is destroyed.
 
-**What differs from Android.** A `ViewModel` lives as long as its Activity *instance*: there are no configuration changes here, and after `recreate()` or a reclaim the new instance starts with a new ViewModel, as an Android app does after process death (keep what must survive in `onSaveInstanceState`). There is no default reflective factory. Lifecycle states are `int`s. Not provided: `Lifecycle.addObserver` with `LifecycleObserver` / `DefaultLifecycleObserver` and `Lifecycle.Event`, `Transformations`, `MediatorLiveData`, `SavedStateHandle`, `AndroidViewModel`, `viewModelScope`, and a fragment as its own `LifecycleOwner` or `ViewModelStoreOwner`.
+**What differs from Android.** A `ViewModel` lives as long as its Activity *instance*: there are no configuration changes here, and after `recreate()` or a reclaim the new instance starts with a new ViewModel, as an Android app does after process death (keep what must survive in `onSaveInstanceState`). Lifecycle states are `int`s. Not provided: `Lifecycle.addObserver` with `LifecycleObserver` / `DefaultLifecycleObserver` and `Lifecycle.Event`, `Transformations`, `MediatorLiveData`, `SavedStateHandle`, `AndroidViewModel`, `viewModelScope`, and a fragment as its own `LifecycleOwner` or `ViewModelStoreOwner`.
 
 See [`examples/claudeusage/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/claudeusage) (`UsageViewModel`, observed by four pager pages) and the lifecycle step of [`examples/fragmentdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/fragmentdemo).
 

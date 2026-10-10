@@ -122,6 +122,12 @@ pub fn dispatch(
         }
         (c::picodroid_content_res_Resources, m::nativeStyleWord) => style_word(ctx),
         (c::picodroid_view_LayoutInflater, m::nativeWord) => layout_word(ctx),
+        // Served before any handler by the interpreter's precheck
+        // (pico_jvm interpreter/ops_reflect.rs), which runs the view's
+        // `(Context, AttributeSet)` constructor as a frame: a handler arm
+        // cannot run Java. This arm is the method table's anchor for the
+        // row and is never reached while the precheck stands.
+        (c::picodroid_view_LayoutInflater, m::nativeNewView) => Err(JvmError::NoSuchMethod),
         _ => return None,
     })
 }
