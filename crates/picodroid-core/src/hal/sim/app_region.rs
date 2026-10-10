@@ -266,6 +266,7 @@ fn describe(error: Option<InstallError>) -> String {
         Some(InstallError::MissingFeature) => {
             "requires a feature this board lacks (uses-feature)".to_string()
         }
+        Some(InstallError::InvalidPapk) => "not a structurally valid PAPK".to_string(),
         Some(InstallError::Incompat) => "built for another framework-map-version".to_string(),
         Some(other) => format!("{other:?}"),
         None => "unknown".to_string(),

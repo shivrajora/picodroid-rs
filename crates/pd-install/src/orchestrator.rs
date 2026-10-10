@@ -300,6 +300,40 @@ pub fn install(
         return false;
     }
 
+    // ── Check the image before it becomes the app ─────────────────────────
+    // The host's `pdb install` validates the file, but the device must not
+    // trust that: a seed install, another transport or a stub payload that
+    // passes the compat gate (no map version reads as compatible with an
+    // unshrunk firmware) would otherwise be committed, the old copy evicted,
+    // and the rescan would then drop the garbled run — a device that
+    // reports success and reboots with the app gone. The run is readable
+    // through the mapping now, as the rescan after the commit reads it.
+    let run_sectors_now = run_sectors(papk_len as usize);
+    // The stream is done, so no erase or program is in flight and the
+    // mapping is readable; the plan placed the image after the run's meta
+    // sector, inside the region by `max_data_size`.
+    // SAFETY: `PapkFlash` maps `region_len` readable bytes at `mapped_base`.
+    let image_ok = unsafe {
+        let data = flash
+            .mapped_base()
+            .add((plan.first_sector as usize + 1) * META_SIZE);
+        let image = core::slice::from_raw_parts(data, papk_len as usize);
+        papk_format::validate_structure(image).is_ok()
+    };
+    if !image_ok {
+        // SAFETY: the JVM core is still parked (this is before the success
+        // report that precedes the reset), and the run is the one this
+        // install erased and streamed, nothing an installed app owns.
+        unsafe { flash.erase_run(plan.first_sector, run_sectors_now) };
+        // The erase before the stream may have taken an old copy in place;
+        // the directory must say so rather than list an app that is gone.
+        directory.rescan(flash);
+        transport.report_error(InstallError::InvalidPapk);
+        coordinator.release();
+        coordinator.cancel_park_request();
+        return false;
+    }
+
     // ── Commit metadata, retire the old copy, respond ─────────────────────
     unsafe { flash.commit_metadata(papk_len, plan.flags, plan.seq) };
     if let Some((first, sectors)) = plan.evict_after {
@@ -600,6 +634,7 @@ mod tests {
             InstallError::NoPackageName => "no_package_name",
             InstallError::SystemPackage => "system_package",
             InstallError::MissingFeature => "missing_feature",
+            InstallError::InvalidPapk => "invalid_papk",
         }
     }
 
@@ -665,7 +700,9 @@ mod tests {
         log: Log,
         /// An erased region of `max` + one meta sector, so the directory's
         /// scan after a commit finds nothing and the plan is always "sector 0".
-        region: &'static [u8],
+        /// `write_page` lands in it, as on flash, so the pre-commit image
+        /// check reads what was streamed.
+        region: Box<[u8]>,
         /// Page index whose write fails, if any.
         fail_page: Option<u32>,
         /// Everything handed to `write_page`, concatenated.
@@ -692,6 +729,12 @@ mod tests {
             }
             self.log.push(Ev::Write(page_index));
             self.written.extend_from_slice(page);
+            // The plan is always sector 0 here: the image starts one meta
+            // sector in.
+            let at = META_SIZE + page_index as usize * page.len();
+            if let Some(dst) = self.region.get_mut(at..at + page.len()) {
+                dst.copy_from_slice(page);
+            }
             true
         }
         unsafe fn write_meta_header(&mut self, len: u32, _flags: u32, _seq: u32) {
@@ -752,8 +795,7 @@ mod tests {
             log: Log(ptr),
             parks,
         };
-        let region: &'static [u8] =
-            Box::leak(alloc::vec![0xFFu8; max + META_SIZE].into_boxed_slice());
+        let region = alloc::vec![0xFFu8; max + META_SIZE].into_boxed_slice();
         let mut f = MockFlash {
             log: Log(ptr),
             region,
@@ -1061,6 +1103,33 @@ mod tests {
         assert!(r.events.contains(&Ev::CancelPark));
         assert!(!r.events.iter().any(|e| matches!(e, Ev::Commit(_))));
         assert!(!r.reset);
+    }
+
+    /// A payload whose manifest passes the compat gate but whose body is
+    /// not a valid PAPK (here: cut short inside the class section) must not
+    /// be committed: the old copy would already be gone and the rescan
+    /// would drop the new run, so the device would report success and
+    /// reboot with no app. The run is erased again and the host told.
+    #[test]
+    fn a_streamed_payload_that_is_not_a_papk_is_erased_and_refused() {
+        let mut bytes = papk_with_fmv(FW);
+        bytes.truncate(bytes.len() - 8);
+        assert!(papk_format::validate_structure(&bytes).is_err());
+        let r = run(bytes.len() as u32, wire(&bytes), true, 1 << 20, None);
+        assert!(r.events.contains(&Ev::Error("invalid_papk")));
+        assert!(!r.events.iter().any(|e| matches!(e, Ev::Commit(_))));
+        assert!(!r.events.contains(&Ev::Success));
+        assert!(r.events.contains(&Ev::Release));
+        assert!(r.events.contains(&Ev::CancelPark));
+        assert!(!r.reset);
+        // Erased before the stream, and again after the refusal.
+        let sectors = run_sectors(bytes.len());
+        let erases = r
+            .events
+            .iter()
+            .filter(|e| **e == Ev::EraseRun(0, sectors))
+            .count();
+        assert_eq!(erases, 2, "{:?}", r.events);
     }
 
     #[test]

@@ -78,6 +78,7 @@ impl<T: PdbTransport> InstallTransport for Framed<'_, T> {
                 STATUS_ERR,
                 b"requires a feature this board lacks (uses-feature)",
             ),
+            InstallError::InvalidPapk => (STATUS_ERR, b"not a structurally valid PAPK"),
             // A single-app firmware never produces this (its plan always
             // replaces), and the formatted line is the one place that would
             // pull `core::fmt` into an image that otherwise logs via defmt.

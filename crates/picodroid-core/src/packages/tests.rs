@@ -372,6 +372,27 @@ fn duplicates_resolve_to_the_higher_seq_and_the_loser_is_cleaned_up() {
     assert_eq!(placed(), vec![("com.a".into(), 4, 2, 2)]);
 }
 
+/// A payload whose manifest passes the pre-erase gates but whose body is
+/// not a valid PAPK (cut short inside the class section): refused after the
+/// stream and its run erased, instead of a reported success that reboots
+/// into no app.
+#[test]
+fn a_garbled_payload_is_refused_and_its_run_erased() {
+    let _g = test_support::lock();
+    let mut r = fresh(16, 1);
+    do_install(&mut r, &papk_of_sectors("com.a", 2)).unwrap();
+    let mut cut = papk("com.a", 0);
+    cut.truncate(cut.len() - 8);
+    assert!(papk_format::validate_structure(&cut).is_err());
+    // Reported as a refusal (it used to be a success with no app behind
+    // it), and the stub's run is erased: meta sector and image alike.
+    let err = do_install(&mut r, &cut).unwrap_err();
+    assert_eq!(err, InstallError::InvalidPapk);
+    assert_eq!(installed_count(), 0);
+    assert!(r.sector(0).iter().all(|&b| b == 0xFF), "stub meta erased");
+    assert!(r.sector(1).iter().all(|&b| b == 0xFF), "stub image erased");
+}
+
 #[test]
 fn a_single_app_board_replaces_whatever_is_installed() {
     let _g = test_support::lock();

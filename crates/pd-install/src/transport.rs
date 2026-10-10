@@ -42,6 +42,10 @@ pub enum InstallError {
     /// The manifest requires a feature (`<uses-feature required="true">`)
     /// this board lacks. Reported in Phase A, before any erase.
     MissingFeature,
+    /// The streamed bytes are not a structurally valid PAPK. Found after
+    /// the stream, before the commit: the run is erased again and nothing
+    /// that was installed is touched.
+    InvalidPapk,
 }
 
 /// A data source and status reporter for PAPK install operations.
