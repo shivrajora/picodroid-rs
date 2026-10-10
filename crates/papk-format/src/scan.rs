@@ -20,7 +20,7 @@
 //!   walked only as far as buffered. Merging toward strict breaks device
 //!   installs whose manifest straddles the peek boundary.
 
-use crate::{FILE_HEADER_LEN, SECTION_HEADER_LEN, SUPPORTED_VERSION_MAJOR};
+use crate::{Papk, PapkError, FILE_HEADER_LEN, SECTION_HEADER_LEN, SUPPORTED_VERSION_MAJOR};
 
 /// Reasons a buffer fails PAPK structural validation. Distinct from "manifest
 /// key absent" (see `find_manifest_value`'s `None`) — these all mean the file
@@ -48,6 +48,12 @@ pub enum StructuralError {
     /// link table out of bounds, a table that does not derive from its
     /// class bytes, or a bad index.
     Classes(class_link::LinkError),
+    /// The ASSETS section (when present) is out of bounds, mis-tagged, or
+    /// its records do not add up to the count it declares.
+    Assets(PapkError),
+    /// The RESOURCES section (when present) is out of bounds, mis-tagged,
+    /// or its table does not parse.
+    Resources(PapkError),
 }
 
 impl core::fmt::Display for StructuralError {
@@ -64,6 +70,8 @@ impl core::fmt::Display for StructuralError {
             Self::ClassesOutOfBounds => "classes offset points past end of file",
             Self::ClassesBadMagic => "classes section header is not 'CLSS'",
             Self::Classes(e) => return write!(f, "classes section: {e}"),
+            Self::Assets(e) => return write!(f, "assets section: {e:?}"),
+            Self::Resources(e) => return write!(f, "resources section: {e:?}"),
         };
         f.write_str(s)
     }
@@ -196,12 +204,29 @@ fn validate(bytes: &[u8], deep: bool) -> Result<(), StructuralError> {
     }
     let classes = &bytes[clss_start..clss_end];
     if deep {
-        classes_section_valid(classes).map_err(StructuralError::Classes)
+        classes_section_valid(classes).map_err(StructuralError::Classes)?;
     } else {
         class_link::ClassSection::parse(classes)
             .map(|_| ())
-            .map_err(StructuralError::Classes)
+            .map_err(StructuralError::Classes)?;
     }
+
+    // The optional sections. `Papk::parse` and its accessors bound-check
+    // both at load time; this gate has to agree with them, or an image the
+    // device will refuse (or whose icon and resources vanish at run time)
+    // passes install and the boot scan.
+    let papk = Papk::parse(bytes).map_err(StructuralError::Assets)?;
+    if let Some(declared) = papk.asset_count().map_err(StructuralError::Assets)? {
+        let yielded = papk
+            .assets()
+            .map_err(StructuralError::Assets)?
+            .map_or(0, |iter| iter.count());
+        if yielded as u32 != declared {
+            return Err(StructuralError::Assets(PapkError::Truncated));
+        }
+    }
+    papk.resources().map_err(StructuralError::Resources)?;
+    Ok(())
 }
 
 /// STRICT whole-file manifest scan (`pdb install` pre-flight semantics):

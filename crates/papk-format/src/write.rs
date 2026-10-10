@@ -417,6 +417,67 @@ mod tests {
         }
     }
 
+    /// `validate_structure` is the install and boot-scan gate; an image it
+    /// accepts must load. It used to stop after the classes, so a file cut
+    /// short inside its assets, or one whose assets or resources offset
+    /// pointed past the end, passed the gate and was then refused by
+    /// `Papk::parse` or lost its icon at run time.
+    #[test]
+    fn validate_structure_checks_the_assets_and_resources_sections() {
+        let mut table = crate::res::ResTableBuilder::new();
+        table.push_string("Hello").unwrap();
+        let table = table.build().unwrap();
+        let mut b = PapkBuilder::new(spec());
+        b.class(MAIN_NAME, MAIN);
+        b.asset(AssetSpec {
+            name: "a.png",
+            width: 4,
+            height: 4,
+            cf: 0x12,
+            stride: 0,
+            data: &[7u8; 64],
+        });
+        b.resources(&table);
+        let file = b.build().unwrap();
+        assert!(crate::validate_structure(&file).is_ok());
+
+        // Cut short inside the resources (the last section).
+        let cut = &file[..file.len() - 8];
+        assert!(Papk::parse(cut).unwrap().resources().is_err());
+        assert!(matches!(
+            crate::validate_structure(cut),
+            Err(crate::StructuralError::Resources(_))
+        ));
+
+        // An assets offset past the end: Papk::parse refuses it, so must the gate.
+        let mut hostile = file.clone();
+        hostile[20..24].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(Papk::parse(&hostile).is_err());
+        assert!(matches!(
+            crate::validate_structure(&hostile),
+            Err(crate::StructuralError::Assets(_))
+        ));
+
+        // An asset record cut short: fewer records than declared.
+        let mut without_resources = PapkBuilder::new(spec());
+        without_resources.class(MAIN_NAME, MAIN);
+        without_resources.asset(AssetSpec {
+            name: "a.png",
+            width: 4,
+            height: 4,
+            cf: 0x12,
+            stride: 0,
+            data: &[7u8; 64],
+        });
+        let file = without_resources.build().unwrap();
+        let cut = &file[..file.len() - 8];
+        assert!(crate::validate_structure(&file).is_ok());
+        assert!(matches!(
+            crate::validate_structure(cut),
+            Err(crate::StructuralError::Assets(_))
+        ));
+    }
+
     /// The header is 28 bytes with or without a RESOURCES section; the
     /// section's presence shows only in `resources_offset` and the count.
     #[test]
