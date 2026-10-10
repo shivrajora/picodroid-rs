@@ -764,6 +764,7 @@ F	mView
 F	mViewLifecycle
 F	mViewModelStore
 F	mWho
+F	mWidgetListener
 F	mWriteLock
 F	main
 F	mark
@@ -2291,6 +2292,7 @@ M	setNegativeButton
 M	setNeutralButton
 M	setOffscreenPageLimit
 M	setOnCheckedChangeListener
+M	setOnCheckedChangeWidgetListener
 M	setOnClickListener
 M	setOnDateChangedListener
 M	setOnDismissListener

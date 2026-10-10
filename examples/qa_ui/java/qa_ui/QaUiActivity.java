@@ -111,6 +111,9 @@ public class QaUiActivity extends Activity {
   private final boolean[] checkLast = new boolean[1];
   private SeekBar seekBar;
   private final int[] seekChanged = new int[1];
+  private RadioGroup tapGroup;
+  private RadioButton tapB;
+  private final boolean[] tapAppSaw = new boolean[1];
   private Spinner spinner;
   private final int[] spinnerSelected = new int[] {-1};
 
@@ -574,6 +577,19 @@ public class QaUiActivity extends Activity {
         "check(-1) clears like clearCheck",
         rg.getCheckedRadioButtonId() == View.NO_ID && !viaParams.isChecked() && lastId[0] == -1);
     root.removeView(rg);
+    // An app listener on a member button must not displace the group's own: a tap on that
+    // button still moves the group's selection (checked in deferredEvents).
+    tapGroup = new RadioGroup(this);
+    RadioButton tapA = new RadioButton(this);
+    tapA.setId(11);
+    tapB = new RadioButton(this);
+    tapB.setId(12);
+    tapGroup.addView(tapA);
+    tapGroup.addView(tapB);
+    root.addView(tapGroup);
+    tapGroup.check(11);
+    tapB.setOnCheckedChangeListener((b, c) -> tapAppSaw[0] = c);
+    tapB.performCheckedChange();
   }
 
   void seekProgress() {
@@ -1091,6 +1107,10 @@ public class QaUiActivity extends Activity {
             + checkLast[0]);
     check("performProgressChange delivered", seekChanged[0] == 1);
     check("performItemSelected delivered", spinnerSelected[0] == spinner.getSelectedItemPosition());
+    check(
+        "radio tap reaches the group past an app listener",
+        tapGroup.getCheckedRadioButtonId() == 12 && tapB.isChecked() && tapAppSaw[0]);
+    root.removeView(tapGroup);
   }
 
   void sizes() {

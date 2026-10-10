@@ -12,6 +12,13 @@ import picodroid.view.View;
 public abstract class CompoundButton extends View {
   OnCheckedChangeListener onCheckedChangeListener;
 
+  /**
+   * The framework's own listener (a {@link RadioGroup} tracking its buttons), kept apart from the
+   * app's so neither displaces the other; mirrors Android's {@code
+   * setOnCheckedChangeWidgetListener}.
+   */
+  OnCheckedChangeListener mWidgetListener;
+
   protected CompoundButton(int nativeHandle) {
     super(nativeHandle);
     // Focusable by default, as on Android (see Button).
@@ -41,9 +48,18 @@ public abstract class CompoundButton extends View {
 
   protected native void nativeRegisterCheckedChangeListener();
 
+  void setOnCheckedChangeWidgetListener(OnCheckedChangeListener listener) {
+    this.mWidgetListener = listener;
+    nativeRegisterCheckedChangeListener();
+  }
+
   void fireCheckedChanged() {
+    boolean checked = isChecked();
+    if (mWidgetListener != null) {
+      mWidgetListener.onCheckedChanged(this, checked);
+    }
     if (onCheckedChangeListener != null) {
-      onCheckedChangeListener.onCheckedChanged(this, isChecked());
+      onCheckedChangeListener.onCheckedChanged(this, checked);
     }
   }
 

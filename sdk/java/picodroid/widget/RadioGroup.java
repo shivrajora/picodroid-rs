@@ -9,8 +9,8 @@ import picodroid.view.View;
  * single-selection across the {@link RadioButton}s added to it.
  *
  * <p>As on Android, the group wires its own internal checked-change listener onto each RadioButton
- * it tracks — call {@link #setOnCheckedChangeListener} on the <em>group</em>, not on individual
- * buttons. Buttons added without an explicit id get one auto-assigned so {@link
+ * it tracks, in a slot of its own, so an app's {@code setOnCheckedChangeListener} on a member
+ * button coexists with it. Buttons added without an explicit id get one auto-assigned so {@link
  * #getCheckedRadioButtonId()} stays meaningful.
  */
 public class RadioGroup extends LinearLayout {
@@ -52,7 +52,7 @@ public class RadioGroup extends LinearLayout {
     }
     buttons[buttonCount++] = button;
     button.mGroup = this;
-    button.setOnCheckedChangeListener(
+    button.setOnCheckedChangeWidgetListener(
         (buttonView, isChecked) -> {
           if (isChecked) {
             // Uncheck the previous selection without re-firing (setChecked
