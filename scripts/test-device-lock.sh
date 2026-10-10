@@ -157,6 +157,19 @@ check "timed-out waiter left no ticket" queue_empty
 check "timeout took ~1 s" [ $(( $(date +%s) - start )) -le 3 ]
 check "pinned owner releases" rc_is 0 env PICODROID_DEVICE_OWNER=soak "$DL" release
 check "free after pinned release" is_free
+# A --pin acquire that had to queue must still write a pinned lease; it used
+# to record live_pid="" pinned=0, which the next sweep removed.
+lock_as A acquire >/dev/null
+env PICODROID_DEVICE_OWNER=soak "$DL" acquire --pin --wait 10 --note queued-soak >/dev/null 2>&1 &
+pw=$!
+sleep 0.5
+lock_as A release >/dev/null
+wait "$pw"; prc=$?
+check "queued --pin acquire succeeds" [ $prc -eq 0 ]
+check "queued --pin lease is pinned" [ "$(field pinned)" == 1 ]
+check "queued --pin lease survives a sweep" is_held
+check "queued --pin lease is soak's" [ "$(field owner)" == soak ]
+env PICODROID_DEVICE_OWNER=soak "$DL" release >/dev/null
 
 # 10. ghost tickets are pruned
 mkdir -p "$DIR/queue"

@@ -493,7 +493,7 @@ cmd_acquire() {
     sweep
     if ! holder_valid && ! legacy_holder_line >/dev/null \
        && [[ "$(queue_list | head -1)" == "$(basename "$ticket")" ]]; then
-      take_lease "$note" 0
+      take_lease "$note" "$pin"
       rm -f "$ticket"
       meta_unlock
       trap - EXIT
