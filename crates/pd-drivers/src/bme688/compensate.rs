@@ -23,7 +23,10 @@ pub fn pressure(raw: u32, c: &CalibData, t_fine: i32) -> u32 {
     let var2: i32 = ((((var1 >> 2) * (var1 >> 2)) >> 11) * (c.par_p6 as i32)) >> 2;
     let var2: i32 = var2 + ((var1 * (c.par_p5 as i32)) << 1);
     let var2: i32 = (var2 >> 2) + ((c.par_p4 as i32) << 16);
-    let var1: i32 = ((((c.par_p3 as i32) * (((var1 >> 2) * (var1 >> 2)) >> 13)) >> 3)
+    // Bosch's calc_pressure scales par_p3 by 32 here (`par_p3 << 5`); the
+    // port had dropped the shift, so the term was 32x too small (a few Pa
+    // away from 25 C, more at the extremes).
+    let var1: i32 = (((((c.par_p3 as i32) << 5) * (((var1 >> 2) * (var1 >> 2)) >> 13)) >> 3)
         + (((c.par_p2 as i32) * var1) >> 1))
         >> 18;
     let var1: i32 = ((32768 + var1) * (c.par_p1 as i32)) >> 15;

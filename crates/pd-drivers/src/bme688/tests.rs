@@ -59,6 +59,49 @@ fn pressure_compensation_plausible() {
     );
 }
 
+/// Bosch's BME68x `calc_pressure` (32-bit integer variant, the API's
+/// reference), transcribed independently of the port so a dropped shift or
+/// a wrong constant in `compensate::pressure` shows up as a mismatch. The
+/// cubic tail is widened to i64 as the port does (the C relies on wrap).
+fn bosch_pressure(pres_adc: u32, c: &CalibData, t_fine: i32) -> u32 {
+    let mut var1: i32 = (t_fine >> 1) - 64000;
+    let mut var2: i32 = ((((var1 >> 2) * (var1 >> 2)) >> 11) * (c.par_p6 as i32)) >> 2;
+    var2 += (var1 * (c.par_p5 as i32)) << 1;
+    var2 = (var2 >> 2) + ((c.par_p4 as i32) << 16);
+    var1 = (((((var1 >> 2) * (var1 >> 2)) >> 13) * ((c.par_p3 as i32) << 5)) >> 3)
+        + (((c.par_p2 as i32) * var1) >> 1);
+    var1 >>= 18;
+    var1 = ((32768 + var1) * (c.par_p1 as i32)) >> 15;
+    let mut p: u32 = 1_048_576u32.wrapping_sub(pres_adc);
+    p = p.wrapping_sub((var2 as u32) >> 12).wrapping_mul(3125);
+    p = if p >= 0x8000_0000 {
+        (p / (var1 as u32)) << 1
+    } else {
+        (p << 1) / (var1 as u32)
+    };
+    let p64 = p as i64;
+    let v1 = (((c.par_p9 as i64) * (((p64 >> 3) * (p64 >> 3)) >> 13)) >> 12) as i32;
+    let v2 = (((p64 >> 2) * (c.par_p8 as i64)) >> 13) as i32;
+    let v3 = (((p64 >> 8) * (p64 >> 8) * (p64 >> 8) * (c.par_p10 as i64)) >> 17) as i32;
+    (p as i32 + ((v1 + v2 + v3 + ((c.par_p7 as i32) << 7)) >> 4)) as u32
+}
+
+#[test]
+fn pressure_compensation_matches_bosch_reference() {
+    let c = test_calib();
+    // Room temperature, then well away from it on both sides, where the
+    // par_p3 term (which the port scaled 32x too small) is visible.
+    for t_fine in [128_000i32, 40_000, 220_000, -20_000] {
+        for raw in [0x80000u32, 0x60000, 0xA0000] {
+            assert_eq!(
+                compensate::pressure(raw, &c, t_fine),
+                bosch_pressure(raw, &c, t_fine),
+                "raw {raw:#x} t_fine {t_fine}"
+            );
+        }
+    }
+}
+
 #[test]
 fn humidity_compensation_plausible() {
     let c = test_calib();
