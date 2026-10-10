@@ -25,6 +25,9 @@ public abstract class ZoneId {
     if (zoneId.equals("Z")) {
       return ZoneOffset.UTC;
     }
+    if (zoneId.isEmpty()) {
+      throw new DateTimeException("Invalid ID for ZoneOffset, invalid format: ");
+    }
     char c = zoneId.charAt(0);
     if (c == '+' || c == '-') {
       return ZoneOffset.of(zoneId);

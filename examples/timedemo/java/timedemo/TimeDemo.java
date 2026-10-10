@@ -45,6 +45,11 @@ public class TimeDemo extends Application {
     return v;
   }
 
+  /** An empty string Error Prone cannot fold into the zone-id checks. */
+  static String blank() {
+    return "";
+  }
+
   /** Swallows a result whose only purpose was to throw on the way here. */
   static void sink(Object o) {
     if (o == null) {
@@ -344,6 +349,11 @@ public class TimeDemo extends Application {
   static void portSpecific() {
     check("region id throws", throwsDateTime(() -> sink(ZoneId.of("Europe/London"))));
     check("unknown TimeZone is GMT", TimeZone.getTimeZone("Europe/London").getRawOffset() == 0);
+    // An empty id is a DateTimeException for ZoneId.of (not a string-index fault) and GMT for
+    // TimeZone.getTimeZone, as in the JDK. (`blank()` keeps the literal away from Error Prone's
+    // InvalidZoneId / InvalidTimeZoneID checks, which read constants only.)
+    check("empty zone id throws", throwsDateTime(() -> sink(ZoneId.of(blank()))));
+    check("empty TimeZone is GMT", TimeZone.getTimeZone(blank()).getRawOffset() == 0);
     TimeZone.setDefault(null);
     check("default zone starts at UTC", ZoneId.systemDefault().equals(ZoneOffset.UTC));
   }
