@@ -104,6 +104,10 @@ pub extern "C" fn picodroid_net_ip_event(up: u32, ip_nbo: u32) {
     // move and tells `ConnectivityManager` (lifecycle::net_events).
     if transition.is_some() {
         crate::hal::net_edge::LINK_CHANGES.note();
+        // And the platform's side: the time task syncs on a fresh link
+        // (docs/designs/time-service-2026-10.md). This runs on the IP task,
+        // a task context, so the kernel notification is allowed here.
+        crate::time_service::task::link_changed();
     }
 }
 

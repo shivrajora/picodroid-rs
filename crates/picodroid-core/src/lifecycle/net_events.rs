@@ -32,6 +32,11 @@ pub(super) fn dispatch_connectivity(
         return;
     }
     *seen = generation;
+    // The time task takes the same edge from here, on the JVM task: on the
+    // simulator the link flips on host threads that cannot notify a kernel
+    // task, and this loop is the first task context to see them. On the
+    // device the IP hook already woke it; a second wake costs one pass.
+    crate::time_service::task::link_changed();
     let up = crate::hal::net::is_network_up();
     match jvm.invoke_static_with_args(
         dispatch_class(dispatch_sites::CONNECTIVITY_CHANGE),

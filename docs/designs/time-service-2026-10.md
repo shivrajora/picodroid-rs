@@ -58,18 +58,25 @@ like every core task and charged to the boot budget from one constant
 `has_network`). Priority: the background tier below the interpreter on the device; the JVM tier in
 the simulator, for the same starvation reason the TLS handshake task has (`net/tls.rs`).
 
-The loop: sleep up to a second; on each wake read `LINK_CHANGES.generation()` and
-`is_network_up()`. A fresh link means "sync now" with a clean retry ladder. When the link is up,
-automatic time is on and the due time has passed: resolve `pool.ntp.org` (afresh each time, so
-the pool rotates), one UDP exchange with a 3 s receive timeout, anchor. Success schedules the next
-exchange six hours out; failure walks 5 s, 15 s, 60 s, then five minutes. A kick
-(`request_sync_now`) from a JVM task brings the due time forward: the TLS layer uses it when a
-handshake finds the clock unset, Settings when automatic time is turned back on.
+The loop is event-driven, the shape of Android's `NetworkTimeUpdateService` (which listens for
+the connectivity broadcast and schedules its next poll with `AlarmManager`): the task sleeps on a
+kernel notification until the next sync is due, hours away, and with the link down or automatic
+time off it sleeps with no timeout at all. Three things wake it early: a link edge
+(`link_changed`), a caller that needs the clock now (`request_sync_now`: the TLS layer about to
+refuse a handshake, Settings turning automatic time back on), and nothing else. On every wake it
+re-reads the link state. A fresh link means "sync now" with a clean retry ladder. When the link
+is up, automatic time is on and the due time has passed: resolve `pool.ntp.org` (afresh each
+time, so the pool rotates), one UDP exchange with a 3 s receive timeout, anchor. Success
+schedules the next exchange six hours out; failure walks 5 s, 15 s, 60 s, then five minutes.
 
-Why polling and not a wake-up from the link driver: the simulator's link events come from host
-threads outside the kernel (the Wi-Fi fake's join verdict is a `std::thread`), where no kernel
-primitive may be touched; a one-second poll on a task that is otherwise asleep for hours costs
-nothing anyone can measure, and the sched-diag monitor does not count a 1 s sleep as polling.
+Who delivers the link edge: on the device, the IP stack's event hook
+(`picodroid_net_ip_event`, which runs on the IP task) right after it bumps `LINK_CHANGES`. The
+simulator's link flips come from host threads outside the kernel (the Wi-Fi fake's join verdict
+is a `std::thread`, the control channel's `net up|down` another), where no kernel primitive may
+be touched, so there the edge reaches the task the way it reaches `ConnectivityManager`: the UI
+loop sees `LINK_CHANGES` move and kicks from the JVM task (`lifecycle::net_events`). A link
+already up at boot needs no edge, since the first pass syncs at once; a simulator run with no
+Activity loop and a link that comes up later is woken by the first `wait_for_wall_clock`.
 
 ### 3.2 The exchange
 
@@ -169,3 +176,7 @@ hh:mm:05 and relies on the bridge's time).
   `AlarmManager` is not excluded there.
 - 2026-10-09: the task is named `timesync`, not `time`: `time` is an SDK member name and the
   literal guard rejects it as a Rust string.
+- 2026-10-10: the one-second link poll is gone. The first build polled because the simulator's
+  link edges arrive on host threads; routing the edge through the UI loop's existing
+  `LINK_CHANGES` dispatch (a task context) made the task fully event-driven on both platforms,
+  which is also Android's shape (§3.1).

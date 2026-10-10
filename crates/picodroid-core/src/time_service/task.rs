@@ -8,14 +8,23 @@
 //! retries along [`RETRY_MS`]. Nothing here runs on the UI task: the DNS
 //! lookup and the UDP receive block, and a tick is 16 ms.
 //!
-//! The link is watched by polling `hal::net_edge::LINK_CHANGES` once a
-//! second rather than by a wake-up from the link driver: the simulator's
-//! link events come from host threads outside the kernel, where no kernel
-//! primitive may be touched, and a one-second poll on a task that is
-//! otherwise asleep for hours costs nothing anyone can measure. What does
-//! wake it early is [`request_sync_now`], from a JVM task: the TLS layer
-//! about to refuse a handshake for want of a clock, or Settings turning
-//! automatic time back on.
+//! Event-driven, the shape of Android's `NetworkTimeUpdateService`: that
+//! service listens for the connectivity broadcast and asks `AlarmManager`
+//! for its next poll; this task sleeps on a kernel notification until the
+//! next sync is due (hours), and is woken early by a link edge
+//! ([`link_changed`]) or by a caller that needs the clock now
+//! ([`request_sync_now`]: the TLS layer about to refuse a handshake, or
+//! Settings turning automatic time back on). With the link down, or
+//! automatic time off, it sleeps with no timeout at all. Nothing polls.
+//!
+//! Who delivers the link edge: on the device, the IP stack's event hook
+//! (`hal::freertos_tcp::picodroid_net_ip_event`, on the IP task). The
+//! simulator's link flips come from host threads outside the kernel, where
+//! no kernel primitive may be touched, so there the edge reaches this task
+//! the way it reaches `ConnectivityManager`: the UI loop sees
+//! `LINK_CHANGES` move and kicks from the JVM task
+//! (`lifecycle::net_events`). A link already up at boot needs no edge: the
+//! first pass syncs at once.
 //!
 //! The simulator's host sockets reach the real `pool.ntp.org`, so a sim run
 //! with a network board anchors itself the way a device does;
@@ -37,8 +46,6 @@ const REPLY_TIMEOUT_MS: u32 = 3000;
 const RESYNC_MS: u64 = 6 * 60 * 60 * 1000;
 /// Retry ladder after a failed exchange, then the last entry forever.
 const RETRY_MS: [u64; 4] = [5_000, 15_000, 60_000, 5 * 60 * 1000];
-/// How often the sleeping task looks at the link.
-const POLL_MS: u64 = 1000;
 /// How long `wait_for_wall_clock` is prepared to wait, and how often it
 /// looks: a lookup plus one exchange is well under two seconds on a joined
 /// link, so a caller that waits this long had no network to speak of.
@@ -74,10 +81,18 @@ pub fn spawn() {
     }
 }
 
-/// Ask the task to sync as soon as the link allows. From a JVM task only
-/// (a kernel notification); a no-op before the task runs.
+/// Ask the task to sync as soon as the link allows. From a task context
+/// only (a kernel notification); a no-op before the task runs.
 pub fn request_sync_now() {
     KICK.store(true, Ordering::Release);
+    link_changed();
+}
+
+/// The link went up or down: wake the task so it looks at the link now
+/// (the connectivity event Android's time service subscribes to). From a
+/// task context only; a no-op before the task runs. The task reads the
+/// link state itself, so a stale or repeated wake costs one pass.
+pub fn link_changed() {
     let t = TASK.load(Ordering::Acquire);
     if t != 0 {
         rtos::task_notify(t);
@@ -122,7 +137,6 @@ fn run() {
             rtos::task_wait_notification(Timeout::Forever);
         }
     }
-    let mut seen = crate::hal::net_edge::LINK_CHANGES.generation();
     // Due at once: a link already up at boot (the simulator's, or a device
     // whose join beat this task) is served on the first pass.
     let mut due_at: u64 = 0;
@@ -131,9 +145,7 @@ fn run() {
     loop {
         let now = now_ms();
         let up = net::is_network_up();
-        let generation = crate::hal::net_edge::LINK_CHANGES.generation();
-        if generation != seen || up != was_up {
-            seen = generation;
+        if up != was_up {
             was_up = up;
             if up {
                 // A fresh link: sync now, with a clean retry ladder.
@@ -159,12 +171,17 @@ fn run() {
                 }
             }
         }
+        // Sleep until the next sync is due, or until a link edge or a
+        // caller wakes it; with no link, or automatic time off, there is
+        // nothing to wake for but those. A notification is a wake-up, not
+        // a message: everything above is re-read on return.
         let wait = if up && super::auto_time() {
-            due_at.saturating_sub(now_ms()).clamp(1, POLL_MS)
+            let ms = due_at.saturating_sub(now_ms()).max(1);
+            Timeout::Ms(ms.min(u32::MAX as u64) as u32)
         } else {
-            POLL_MS
+            Timeout::Forever
         };
-        rtos::task_wait_notification(Timeout::Ms(wait as u32));
+        rtos::task_wait_notification(wait);
     }
 }
 
