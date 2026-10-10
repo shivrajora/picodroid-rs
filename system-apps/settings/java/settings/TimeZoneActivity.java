@@ -7,14 +7,20 @@ import picodroid.app.AlarmManager;
 import picodroid.content.Context;
 import picodroid.os.Bundle;
 import picodroid.util.Log;
-import picodroid.view.View;
+import picodroid.widget.ArrayAdapter;
+import picodroid.widget.LinearLayout;
+import picodroid.widget.ListView;
 
 /**
- * The time zone list: one row per fixed offset, UTC-12:00 to UTC+14:00, whole hours plus the
+ * The time zone list: one entry per fixed offset, UTC-12:00 to UTC+14:00, whole hours plus the
  * fractional ones in use, the current zone marked. A tap (or SELECT) stores the pick through {@link
  * AlarmManager#setTimeZone} and returns to Date &amp; time. There is no tz database on the device
  * (picoclock-roadmap R4), so a zone is an offset, never a region, and daylight saving is the user
  * moving it twice a year. The pick is logged as {@code time zone <id>}.
+ *
+ * <p>A {@link ListView} under the header rather than a {@link Column} of rows: 38 rows each with a
+ * click listener of their own would overrun the framework's click-listener table (32), and a list
+ * is the Android shape for a pick anyway.
  */
 public class TimeZoneActivity extends Activity {
   private static final String TAG = SettingsActivity.TAG;
@@ -26,29 +32,22 @@ public class TimeZoneActivity extends Activity {
     780, 840
   };
 
-  private Column column;
-  private final View[] rows = new View[OFFSETS.length];
-  private int current;
-
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    int minutes = TimeZone.getDefault().getRawOffset() / 60_000;
-    current = indexOf(minutes);
-    column = new Column(this, "Time zone", v -> finish());
-    column.fill(null, i -> row(i), () -> rows[current].requestFocus());
-  }
-
-  private View row(int i) {
-    if (i >= OFFSETS.length) {
-      return null;
+    int current = TimeZone.getDefault().getRawOffset() / 60_000;
+    String[] labels = new String[OFFSETS.length];
+    for (int i = 0; i < OFFSETS.length; i++) {
+      labels[i] = OFFSETS[i] == current ? id(OFFSETS[i]) + "  (current)" : id(OFFSETS[i]);
     }
-    final String id = id(OFFSETS[i]);
-    rows[i] =
-        i == current
-            ? Screens.row(this, id, "current", v -> pick(id))
-            : Screens.row(this, id, v -> pick(id));
-    return rows[i];
+    LinearLayout root = Screens.column(this);
+    root.addView(Screens.header(this, "Time zone", v -> finish()));
+    ListView list = new ListView(this);
+    list.setSize(getDisplay().getWidth(), getDisplay().getHeight() - Screens.ROW_HEIGHT);
+    list.setAdapter(new ArrayAdapter<String>(this, labels));
+    list.setOnItemClickListener((parent, view, position, id) -> pick(id(OFFSETS[position])));
+    root.addView(list);
+    setContentView(root);
   }
 
   private void pick(String id) {
@@ -67,20 +66,5 @@ public class TimeZoneActivity extends Activity {
     int h = abs / 60;
     int m = abs % 60;
     return (minutes < 0 ? "GMT-" : "GMT+") + (h < 10 ? "0" : "") + h + (m < 10 ? ":0" : ":") + m;
-  }
-
-  private static int indexOf(int minutes) {
-    for (int i = 0; i < OFFSETS.length; i++) {
-      if (OFFSETS[i] == minutes) {
-        return i;
-      }
-    }
-    return indexOf(0);
-  }
-
-  @Override
-  public void onDestroy() {
-    column.stop();
-    super.onDestroy();
   }
 }
