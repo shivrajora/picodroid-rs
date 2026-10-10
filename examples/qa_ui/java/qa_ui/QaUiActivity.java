@@ -555,6 +555,19 @@ public class QaUiActivity extends Activity {
         rg.getCheckedRadioButtonId() == 2 && !rb[1].isChecked());
     rg.check(99);
     check("check(unknown id) keeps state", rg.getCheckedRadioButtonId() == 2);
+    // The inflater and LinearLayout callers add through addView(view, params); the group
+    // must track those too, not only addView(view).
+    RadioButton viaParams = new RadioButton(this);
+    viaParams.setText("opt3");
+    viaParams.setId(4);
+    rg.addView(
+        viaParams,
+        new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+    viaParams.setChecked(true);
+    check(
+        "tracked via addView(view, params)",
+        rg.getCheckedRadioButtonId() == 4 && !rb[1].isChecked() && lastId[0] == 4);
     root.removeView(rg);
   }
 

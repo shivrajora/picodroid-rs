@@ -2003,6 +2003,7 @@ M	onUnavailable
 M	onUnbind
 M	onUnbindPage
 M	onValueChange
+M	onViewAdded
 M	onViewCreated
 M	onViewStateRestored
 M	one

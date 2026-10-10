@@ -30,9 +30,12 @@ public class RadioGroup extends LinearLayout {
     super();
   }
 
+  /**
+   * Every {@code addView} overload funnels through here, so a button added with layout params (what
+   * the inflater and LinearLayout callers do) is tracked like one added bare.
+   */
   @Override
-  public void addView(View child) {
-    super.addView(child);
+  protected void onViewAdded(View child) {
     if (child instanceof RadioButton) {
       track((RadioButton) child);
     }

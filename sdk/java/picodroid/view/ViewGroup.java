@@ -60,7 +60,15 @@ public abstract class ViewGroup extends View implements ViewParent {
     }
     mChildren[mChildCount++] = child;
     child.mParent = this;
+    onViewAdded(child);
   }
+
+  /**
+   * Called after {@code child} joined this group through any {@link #addView} overload (the
+   * inflater's included). Mirrors {@code android.view.ViewGroup#onViewAdded}; the default does
+   * nothing.
+   */
+  protected void onViewAdded(View child) {}
 
   private native void nativeAddView(View child);
 
