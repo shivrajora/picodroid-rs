@@ -91,8 +91,15 @@ public class RadioGroup extends LinearLayout {
     }
   }
 
-  /** Mirrors {@code RadioGroup#check(int)}: select {@code id}, unchecking the previous button. */
+  /**
+   * Mirrors {@code RadioGroup#check(int)}: select {@code id}, unchecking the previous button.
+   * {@link View#NO_ID} clears the selection, as {@link #clearCheck()} does.
+   */
   public void check(int id) {
+    if (id == View.NO_ID) {
+      clearCheck();
+      return;
+    }
     if (id == checkedId) {
       return;
     }

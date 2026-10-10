@@ -568,6 +568,11 @@ public class QaUiActivity extends Activity {
     check(
         "tracked via addView(view, params)",
         rg.getCheckedRadioButtonId() == 4 && !rb[1].isChecked() && lastId[0] == 4);
+    // check(-1) is Android's documented way to clear: id goes to -1 and the listener hears it.
+    rg.check(View.NO_ID);
+    check(
+        "check(-1) clears like clearCheck",
+        rg.getCheckedRadioButtonId() == View.NO_ID && !viaParams.isChecked() && lastId[0] == -1);
     root.removeView(rg);
   }
 
