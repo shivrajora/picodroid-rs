@@ -7,7 +7,6 @@ import picodroid.app.Application;
 import picodroid.net.HttpInputStream;
 import picodroid.net.HttpURLConnection;
 import picodroid.net.NetworkInfo;
-import picodroid.net.SntpClient;
 import picodroid.net.URL;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
@@ -50,7 +49,6 @@ public class HttpsGet extends Application {
       return;
     }
 
-    syncClock();
     get(LOCAL + ":8443/", "local");
     // The listener's other ports must be refused in the handshake
     // (scripts/tls-listener.py): a leaf past its validity, a chain under a
@@ -61,18 +59,6 @@ public class HttpsGet extends Application {
     get("https://api.anthropic.com/", "ecdsa/gts");
     get("https://api.open-meteo.com/", "rsa/isrg");
     Log.i(TAG, "Done.");
-  }
-
-  /** Anchor the wall clock: certificate validity is checked against it. */
-  private void syncClock() {
-    SntpClient client = new SntpClient();
-    if (client.requestTime("pool.ntp.org", 3000)) {
-      long now = client.getNtpTime() + SystemClock.elapsedRealtime() - client.getNtpTimeReference();
-      SystemClock.setCurrentTimeMillis(now);
-      Log.i(TAG, "ntp: synced, rtt=" + client.getRoundTripTime() + "ms");
-    } else {
-      Log.i(TAG, "ntp: no reply (the wall clock may already be set)");
-    }
   }
 
   private void get(String url, String label) {

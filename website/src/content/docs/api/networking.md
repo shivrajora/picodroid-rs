@@ -316,8 +316,9 @@ above applies unchanged; the difference is what `connect()` does on the wire:
   public host under those roots works: `api.anthropic.com`, `api.github.com`,
   `api.open-meteo.com`, …
 - Validity is checked against the wall clock, which **must have been set**: the runtime
-  refuses to handshake with the clock unset rather than skip the check. Anchor it once the
-  network is up, with `SntpClient` below.
+  refuses to handshake with the clock unset rather than skip the check. The platform's time
+  service sets it from the network once the link is up (below); a handshake that beats the
+  first exchange waits up to 8 s for it.
 
 Failures throw `javax.net.ssl.SSLHandshakeException` (an `IOException`) whose message
 names the reason: `wall clock not set`, `not issued by a known root`, `rejected
@@ -348,13 +349,21 @@ own task, which exists only for the handshake. Any thread may call `connect()`; 
 `connect()`, it blocks the caller, so the main thread is the wrong place for it. Design and
 measurements: `docs/designs/tls-2026-09.md`.
 
-## Wall clock: `SntpClient`
+## Wall clock: the time service and `SntpClient`
 
-`System.currentTimeMillis()` counts from boot until an app anchors it; there is no
-battery-backed clock. `picodroid.net.SntpClient` is the shape of Android's
-`android.net.SntpClient`: one request yields the server's time and the monotonic reference
-it was read against, and the caller anchors the clock, as Android's network time service
-does.
+There is no battery-backed clock, so `System.currentTimeMillis()` counts from boot until the
+platform's **time service** anchors it: on every board with a network, a framework task runs one
+SNTP exchange against `pool.ntp.org` seconds after the link comes up, and again every six hours
+(retrying at 5 s, 15 s, 60 s, then five minutes after a failure). Apps do nothing; the log shows
+`time: synced from pool.ntp.org (…), rtt 22 ms, step 0 ms`. `Settings.Global.AUTO_TIME`
+(Settings → Date & time, "Automatic date & time") turns it off, and the zone every app sees
+through `TimeZone.getDefault()` is set on the same page
+([`java.time`](/api/core/#javatime)). This is Android's shape: an app cannot be the one that
+keeps the clock.
+
+`picodroid.net.SntpClient` stays for an app that wants its own server or the round-trip
+figure. It is the shape of Android's `android.net.SntpClient`: one request yields the server's
+time and the monotonic reference it was read against, and the caller anchors the clock:
 
 ```java
 import picodroid.net.SntpClient;
@@ -370,9 +379,11 @@ if (client.requestTime("pool.ntp.org", 3000)) {
 `requestTime(String host, int timeoutMs)` sends one request and returns `false` on any failure
 (resolution, timeout, a malformed reply) without throwing; `getRoundTripTime()` is how long the
 exchange took, in milliseconds. It blocks for up to the timeout, so call it off the main thread.
-The anchor is lost at a reset. Do this once the network is up and before the first `https` request. Under the simulator,
-`PICODROID_SIM_WALL_CLOCK=1` anchors the clock to the host's at boot instead, for tests that
-should not depend on an NTP round trip.
+The anchor is lost at a reset, and the time service's next exchange moves the clock back to the
+pool's time. Under the simulator the time service reaches the real pool through the host's
+sockets; `PICODROID_SIM_WALL_CLOCK=1` anchors the clock to the host's at boot as well, for tests
+that should not depend on an NTP round trip, and `PICODROID_SIM_NTP_SERVER=off` (or `=<host>`)
+keeps the service from syncing, or points it elsewhere.
 
 ## Error handling
 

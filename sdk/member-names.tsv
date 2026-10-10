@@ -23,6 +23,7 @@ F	ASSOCIATING
 F	ATTACHED
 F	AT_MOST
 F	AUGUST
+F	AUTO_TIME
 F	BIND_AUTO_CREATE
 F	BLACK
 F	BLUE
@@ -557,7 +558,6 @@ F	date
 F	dateChangedListener
 F	day
 F	defaultHandler
-F	defaultZone
 F	density
 F	densityDpi
 F	disabledMask
@@ -795,6 +795,7 @@ F	onTouchListener
 F	onValueChangeListener
 F	order
 F	orientation
+F	overrideZone
 F	owner
 F	packageName
 F	parent
@@ -802,6 +803,7 @@ F	path
 F	pattern
 F	periodMs
 F	pin
+F	platformZone
 F	poolSeq
 F	port
 F	pos
@@ -1490,6 +1492,7 @@ M	getWifiState
 M	getX
 M	getY
 M	getYear
+M	gmtId
 M	grow
 M	handleUpEvent
 M	has
@@ -1687,6 +1690,7 @@ M	nativeCreateWithMax
 M	nativeCreateWithText
 M	nativeCurrentSsid
 M	nativeDataBytes
+M	nativeDefaultOffsetMinutes
 M	nativeDeviceHasKey
 M	nativeDisconnect
 M	nativeDismiss
@@ -1818,6 +1822,7 @@ M	nativeSetText
 M	nativeSetTextColor
 M	nativeSetTextSize
 M	nativeSetTextarea
+M	nativeSetTimeZone
 M	nativeSetTint
 M	nativeSetTrackColor
 M	nativeSetTrackCornerRadius
@@ -2306,6 +2311,7 @@ M	setTextOn
 M	setTextSize
 M	setTheme
 M	setTime
+M	setTimeZone
 M	setTimeout
 M	setTint
 M	setTitle

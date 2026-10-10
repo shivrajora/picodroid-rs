@@ -66,8 +66,18 @@ public class NetworkManager implements Runnable {
   private final LatestReadings latestReadings;
   private final Formatter formatter;
 
-  private static final long NTP_RESYNC_MS = 6L * 3600 * 1000;
-  private static final long NTP_RETRY_MS = 5L * 60 * 1000;
+  /**
+   * The platform's time service anchors the wall clock from the network
+   * (docs/designs/time-service-2026-10.md); this job only watches for it, often while the clock is
+   * unset (the weather fetch waits on it), rarely once it is.
+   */
+  private static final long CLOCK_RECHECK_MS = 6L * 3600 * 1000;
+
+  private static final long CLOCK_WAIT_MS = 5_000;
+
+  /** Epoch ms of 2001-01-01: a wall clock below it has not been anchored this boot. */
+  private static final long CLOCK_SET_THRESHOLD_MS = 978_307_200_000L;
+
   private static final long WEATHER_REFRESH_MS = 15L * 60 * 1000;
   private static final long WEATHER_RETRY_MS = 5L * 60 * 1000;
 
@@ -91,7 +101,9 @@ public class NetworkManager implements Runnable {
   private boolean started;
   private boolean timeSynced;
 
-  /** Next NTP attempt, on the monotonic elapsed-ms clock. 0 = as soon as the stack is up. */
+  /**
+   * Next look at the wall clock, on the monotonic elapsed-ms clock. 0 = as soon as the stack is up.
+   */
   private long ntpDueAtMs;
 
   /** Next weather fetch, elapsed-ms clock. 0 = as soon as the stack is up. */
@@ -146,7 +158,7 @@ public class NetworkManager implements Runnable {
     return url;
   }
 
-  /** Whether an SNTP sync has anchored the wall clock this boot. */
+  /** Whether the platform's time service has anchored the wall clock this boot. */
   public boolean isTimeSynced() {
     return timeSynced;
   }
@@ -301,20 +313,20 @@ public class NetworkManager implements Runnable {
     long nowMs = SystemClock.elapsedRealtimeNanos() / 1_000_000;
     try {
       if (nowMs >= ntpDueAtMs) {
-        boolean ok = SntpClient.sync();
+        boolean ok = System.currentTimeMillis() >= CLOCK_SET_THRESHOLD_MS;
         if (ok != timeSynced) {
           timeSynced = ok;
+          Log.i(TAG, ok ? "clock: set by the platform" : "clock: not set");
           notifyChanged();
         }
-        ntpDueAtMs = nowMs + (ok ? NTP_RESYNC_MS : NTP_RETRY_MS);
+        ntpDueAtMs = nowMs + (ok ? CLOCK_RECHECK_MS : CLOCK_WAIT_MS);
       }
       if (nowMs >= weatherDueAtMs && !timeSynced) {
         // The HTTPS handshake checks open-meteo's certificate against the
-        // wall clock and the runtime refuses to run one while the clock is
-        // unset, so the fetch waits for NTP; both retry cadences are 5 min,
-        // and a sync that lands in this job serves the fetch right below.
+        // wall clock, which the platform's time service anchors once the
+        // link is up; the fetch waits for that rather than racing it.
         Log.i(TAG, "weather: waiting for the clock");
-        weatherDueAtMs = nowMs + WEATHER_RETRY_MS;
+        weatherDueAtMs = nowMs + CLOCK_WAIT_MS;
       }
       if (nowMs >= weatherDueAtMs) {
         String w = WeatherFetcher.fetch();
@@ -330,7 +342,7 @@ public class NetworkManager implements Runnable {
       Log.i(TAG, "net: housekeeping unexpected: " + e);
     } finally {
       if (ntpDueAtMs <= nowMs) {
-        ntpDueAtMs = nowMs + NTP_RETRY_MS;
+        ntpDueAtMs = nowMs + CLOCK_WAIT_MS;
       }
       if (weatherDueAtMs <= nowMs) {
         weatherDueAtMs = nowMs + WEATHER_RETRY_MS;

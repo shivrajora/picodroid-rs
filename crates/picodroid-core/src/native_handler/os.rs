@@ -27,6 +27,39 @@ pub fn dispatch(
             let millis = nanos / 1_000_000 + crate::os::system_clock::wall_offset_ms();
             Some(Ok(Some(Value::Long(millis))))
         }
+        // The platform zone (`time_service`): what `TimeZone.getDefault()`
+        // reads, and what Settings → Date & time writes through
+        // `AlarmManager.setTimeZone`. Minutes east of UTC.
+        (c::java_util_TimeZone, m::nativeDefaultOffsetMinutes) => Some(Ok(Some(Value::Int(
+            crate::time_service::zone_offset_minutes(),
+        )))),
+        (c::picodroid_app_AlarmManager, m::nativeSetTimeZone) => {
+            let stored = setting_name(ctx.args.first(), ctx.strings)
+                .and_then(crate::time_service::parse_offset_minutes)
+                .is_some_and(crate::time_service::set_zone_offset_minutes);
+            Some(Ok(Some(Value::Int(i32::from(stored)))))
+        }
+        // `Settings.Global`: one setting is kept, automatic time.
+        (c::picodroid_provider_Settings_Global, m::nativeGetInt) => {
+            let default = match ctx.args.get(1) {
+                Some(Value::Int(d)) => *d,
+                _ => 0,
+            };
+            let value = match setting_name(ctx.args.first(), ctx.strings) {
+                Some("auto_time") => i32::from(crate::time_service::auto_time()),
+                _ => default,
+            };
+            Some(Ok(Some(Value::Int(value))))
+        }
+        (c::picodroid_provider_Settings_Global, m::nativePutInt) => {
+            let stored = match (setting_name(ctx.args.first(), ctx.strings), ctx.args.get(1)) {
+                (Some("auto_time"), Some(Value::Int(v))) => {
+                    crate::time_service::set_auto_time(*v != 0)
+                }
+                _ => false,
+            };
+            Some(Ok(Some(Value::Int(i32::from(stored)))))
+        }
         // `Context.getPackageName()`: invokevirtual dispatches with the
         // receiver's class (an Activity or Application subclass), so match
         // the method alone; no other served method shares the name.
@@ -326,7 +359,8 @@ fn alarm_set(ctx: &mut NativeContext<'_>) -> i32 {
     }
 }
 
-/// The `String` argument naming a `Settings.System` key, if it is one.
+/// The `String` argument naming a `Settings.System` / `Settings.Global`
+/// key, if it is one.
 fn setting_name<'a>(
     arg: Option<&Value>,
     strings: &'a pico_jvm::heap::StringTable,

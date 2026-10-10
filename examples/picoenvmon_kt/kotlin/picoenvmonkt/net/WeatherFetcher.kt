@@ -21,9 +21,10 @@ import picoenvmonkt.TAG
  * The `https` URL is all it takes (docs/designs/tls-2026-09.md): `connect()` runs the TLS 1.3
  * handshake and verifies open-meteo's chain against the compiled-in roots. The certificate's
  * validity is checked against the wall clock, and the runtime refuses to handshake while the clock
- * is unset, so NetworkManager only posts this fetch once `sntpSync()` has anchored the clock. The
- * handshake itself runs on a task of its own (40 KB stack, spawned for the call); the record layer
- * runs on the pool worker, which the board's `[background_pool] stack_bytes` was re-measured for.
+ * is unset, so NetworkManager only posts this fetch once the platform's time service has anchored
+ * the clock. The handshake itself runs on a task of its own (40 KB stack, spawned for the call);
+ * the record layer runs on the pool worker, which the board's `[background_pool] stack_bytes` was
+ * re-measured for.
  *
  * The fetch runs as a NetworkManager housekeeping job on a shared background-pool worker, so it no
  * longer delays dashboard serving — but it must still be time-bounded: a stalled endpoint with no

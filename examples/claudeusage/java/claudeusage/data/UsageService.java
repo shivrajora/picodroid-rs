@@ -286,6 +286,9 @@ public final class UsageService extends Service implements UsageRepository.Polle
     return true;
   }
 
+  /** Epoch ms of 2001-01-01: a wall clock below it has not been anchored this boot. */
+  private static final long CLOCK_SET_THRESHOLD_MS = 978_307_200_000L;
+
   private void applyResult(LinkState state, UsageSnapshot fresh, int retryMs) {
     syncStartedElapsedMs = -1;
     nextAttemptElapsedMs = SystemClock.elapsedRealtime() + retryMs;
@@ -297,9 +300,12 @@ public final class UsageService extends Service implements UsageRepository.Polle
     if (fresh != null) {
       if (fresh.bridgeEpochS > 0) {
         TimeFormat.setUtcOffsetMinutes(fresh.tzMinutes);
+        // The platform's time service anchors the clock from the network
+        // (docs/designs/time-service-2026-10.md); the bridge's time is the
+        // fallback while that has not happened yet, as on a LAN with no
+        // route out. The two agree to within SNTP error once it has.
         long wall = fresh.bridgeEpochS * 1000L;
-        long drift = System.currentTimeMillis() - wall;
-        if (drift > 2000 || drift < -2000) {
+        if (System.currentTimeMillis() < CLOCK_SET_THRESHOLD_MS) {
           SystemClock.setCurrentTimeMillis(wall);
         }
       }

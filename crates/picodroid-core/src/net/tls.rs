@@ -169,6 +169,12 @@ const HANDSHAKE_STACK_BYTES: u32 = 40 * 1024;
 /// with about 3 KB did not survive it. Between those, the bound errs high.
 const CLOSE_NOTIFY_STACK_BYTES: u32 = 8 * 1024;
 
+/// How long a handshake waits for the platform time task to anchor the
+/// clock before failing closed: a DNS lookup and one SNTP exchange on a
+/// joined link take well under two seconds; the margin covers a busy pool
+/// server and one retry.
+const WALL_CLOCK_WAIT_MS: u32 = 8000;
+
 /// The handshake task's priority. On the device, the background tier below
 /// the interpreter's: time slicing is off, so a compute-bound handshake at
 /// the JVM's own priority would hold core 0 from the UI for the length of a
@@ -216,6 +222,13 @@ fn handshake(
     host: &str,
     seed: [u8; 32],
 ) -> Result<Box<TlsSession<HalSocket>>, TlsFail> {
+    // Certificate validity is checked against the wall clock. The platform
+    // time task anchors it from the network once the link is up; a request
+    // that races the first exchange waits for it here rather than failing
+    // closed, for at most one exchange's worth of time.
+    if WallClock::now().is_none() {
+        crate::time_service::task::wait_for_wall_clock(WALL_CLOCK_WAIT_MS);
+    }
     let job = Box::into_raw(Box::new(HandshakeJob {
         session,
         host: host.into(),
@@ -362,7 +375,9 @@ pub fn throw_tls_fail(
         TlsFail::Handshake(OpenError { tls, certificate }) => match certificate {
             Failure::NoClock => (
                 c::javax_net_ssl_SSLHandshakeException,
-                "wall clock not set; sync the time first (SntpClient)".into(),
+                "wall clock not set; the network time service has not synced yet \
+                 (no reply from pool.ntp.org, or automatic time is off)"
+                    .into(),
             ),
             Failure::NoAnchor => (
                 c::javax_net_ssl_SSLHandshakeException,

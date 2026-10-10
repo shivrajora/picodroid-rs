@@ -2,6 +2,7 @@
 package picodroid.app;
 
 import picodroid.content.Intent;
+import picodroid.os.SystemClock;
 
 /**
  * Schedules an Activity to start at a time, mirroring {@code android.app.AlarmManager}: obtain it
@@ -22,7 +23,11 @@ import picodroid.content.Intent;
  * battery-backed clock. An app re-registers what it still wants on its next start, the way an
  * Android app re-registers after {@code BOOT_COMPLETED}.
  *
- * <p>Multi-app boards only.
+ * <p>The clock and the zone are set here too, as on Android: {@link #setTime} and {@link
+ * #setTimeZone}. Settings → Date &amp; time is their caller; the platform time service keeps the
+ * clock itself from the network (docs/designs/time-service-2026-10.md), so an app has no reason to.
+ *
+ * <p>Alarms: multi-app boards only. {@code setTime} and {@code setTimeZone} work on every board.
  */
 public final class AlarmManager {
   /** Wall-clock time, waking the device if it sleeps. Android's value. */
@@ -98,6 +103,34 @@ public final class AlarmManager {
   }
 
   /**
+   * Set the wall clock to {@code millis} (Unix epoch), as {@code SystemClock.setCurrentTimeMillis}
+   * does. Android requires {@code SET_TIME} for this; permissions are not enforced here, and the
+   * time service's next sync moves the clock back to the network's time while automatic time is on.
+   */
+  public void setTime(long millis) {
+    SystemClock.setCurrentTimeMillis(millis);
+  }
+
+  /**
+   * Set the platform zone, the one {@code TimeZone.getDefault()} reads, to the fixed offset {@code
+   * timeZone} names: {@code "UTC"}, {@code "GMT"}, {@code "Z"}, {@code "+01:00"}, {@code "-0330"},
+   * {@code "GMT+05:30"}, {@code "UTC+9"}. Stored across reboots. There is no tz database on the
+   * device, so a region id such as {@code "Europe/London"} is refused rather than read as GMT.
+   * Android requires {@code SET_TIME_ZONE}; permissions are not enforced here.
+   *
+   * @throws IllegalArgumentException for an id that is not a fixed offset between UTC-12:00 and
+   *     UTC+14:00
+   */
+  public void setTimeZone(String timeZone) {
+    if (timeZone == null) {
+      throw new NullPointerException("timeZone");
+    }
+    if (!nativeSetTimeZone(timeZone)) {
+      throw new IllegalArgumentException("not a fixed-offset zone: " + timeZone);
+    }
+  }
+
+  /**
    * Deliver a fired alarm: the framework calls this on the UI thread, in the app that set it and
    * once it is running again. Rebuilding the Intent here rather than natively keeps one code path
    * for starting an Activity — the same {@code startActivity} every app calls.
@@ -126,6 +159,9 @@ public final class AlarmManager {
       int value0,
       String key1,
       int value1);
+
+  /** Parse and store the platform zone; false for an id that is not a fixed offset in range. */
+  private static native boolean nativeSetTimeZone(String timeZone);
 
   /** Whether an alarm was armed under this identity and has now been removed. */
   private static native boolean nativeCancel(int requestCode, String className);

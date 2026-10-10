@@ -281,7 +281,14 @@ pub const NET_HANDLED: &[Row] = &[
 pub const OS_HANDLED: &[Row] = &[
     // java/lang/System
     ("java/lang/System", "currentTimeMillis", "()J"),
+    // java/util/TimeZone (the platform zone, time_service)
+    ("java/util/TimeZone", "nativeDefaultOffsetMinutes", "()I"),
     // picodroid/app/AlarmManager
+    (
+        "picodroid/app/AlarmManager",
+        "nativeSetTimeZone",
+        "(Ljava/lang/String;)Z",
+    ),
     (
         "picodroid/app/AlarmManager",
         "nativeSet",
@@ -371,6 +378,16 @@ pub const OS_HANDLED: &[Row] = &[
     ),
     (
         "picodroid/provider/Settings$System",
+        "nativePutInt",
+        "(Ljava/lang/String;I)Z",
+    ),
+    (
+        "picodroid/provider/Settings$Global",
+        "nativeGetInt",
+        "(Ljava/lang/String;I)I",
+    ),
+    (
+        "picodroid/provider/Settings$Global",
         "nativePutInt",
         "(Ljava/lang/String;I)Z",
     ),

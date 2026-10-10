@@ -33,6 +33,7 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
     c::picodroid_os_PowerManager,
     c::picodroid_view_KeyCharacterMap,
     c::picodroid_provider_Settings_System,
+    c::picodroid_provider_Settings_Global,
     c::picodroid_os_StatFs,
     c::picodroid_app_AlarmManager,
     c::picodroid_app_usage_StorageStatsManager,

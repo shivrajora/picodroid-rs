@@ -9,12 +9,20 @@ import java.time.ZoneOffset;
  * A fixed-offset time zone. There is no tz database on the device, so a zone is an offset from UTC
  * and never observes daylight saving. {@link #getTimeZone(String)} understands {@code GMT}, {@code
  * UTC} and {@code GMT+hh:mm} and, like the JDK, falls back to GMT for an id it does not know.
- * {@link #setDefault} installs the zone {@link ZoneId#systemDefault()} and the {@code now()}
- * methods of {@code java.time} use: an app that learns its offset from the network (SNTP carries
- * none; a bridge or a settings screen can) sets it here once.
+ *
+ * <p>{@link #getDefault()} is the platform zone: the offset the user picked in Settings → Date
+ * &amp; time, kept by the framework across reboots and shared by every app, as on Android. It is
+ * what {@link ZoneId#systemDefault()} and the {@code now()} methods of {@code java.time} use. Its
+ * id is {@code UTC} or {@code GMT+05:30}. {@link #setDefault} overrides it for this process only,
+ * as Android's does; nothing an app does changes the platform zone (that is {@code
+ * AlarmManager.setTimeZone}, which Settings calls).
  */
 public class TimeZone {
-  private static TimeZone defaultZone;
+  /** The process override from {@link #setDefault}, or null while the platform zone applies. */
+  private static TimeZone overrideZone;
+
+  /** The platform zone as last read, rebuilt when its offset moves. */
+  private static TimeZone platformZone;
 
   private final String id;
   private final int rawOffsetMillis;
@@ -24,17 +32,21 @@ public class TimeZone {
     this.rawOffsetMillis = rawOffsetMillis;
   }
 
-  /** The process default, UTC until {@link #setDefault} is called. */
+  /** The platform zone, or the override installed with {@link #setDefault}. */
   public static TimeZone getDefault() {
-    if (defaultZone == null) {
-      defaultZone = new TimeZone("UTC", 0);
+    if (overrideZone != null) {
+      return overrideZone;
     }
-    return defaultZone;
+    int offsetMillis = nativeDefaultOffsetMinutes() * 60_000;
+    if (platformZone == null || platformZone.rawOffsetMillis != offsetMillis) {
+      platformZone = new TimeZone(gmtId(offsetMillis / 60_000), offsetMillis);
+    }
+    return platformZone;
   }
 
-  /** Installs {@code zone} as the default; {@code null} restores UTC. */
+  /** Installs {@code zone} as this process's default; {@code null} restores the platform zone. */
   public static void setDefault(TimeZone zone) {
-    defaultZone = zone;
+    overrideZone = zone;
   }
 
   public static TimeZone getTimeZone(String id) {
@@ -51,6 +63,21 @@ public class TimeZone {
   public static TimeZone getTimeZone(ZoneId zoneId) {
     int seconds = zoneId.getRules().getOffset(Instant.EPOCH).getTotalSeconds();
     return new TimeZone(zoneId.getId(), seconds * 1000);
+  }
+
+  /** The id of a fixed offset: {@code UTC} for zero, else {@code GMT+hh:mm} / {@code GMT-hh:mm}. */
+  static String gmtId(int offsetMinutes) {
+    if (offsetMinutes == 0) {
+      return "UTC";
+    }
+    int abs = offsetMinutes < 0 ? -offsetMinutes : offsetMinutes;
+    int h = abs / 60;
+    int m = abs % 60;
+    return (offsetMinutes < 0 ? "GMT-" : "GMT+")
+        + (h < 10 ? "0" : "")
+        + h
+        + (m < 10 ? ":0" : ":")
+        + m;
   }
 
   public String getID() {
@@ -83,4 +110,7 @@ public class TimeZone {
   public String toString() {
     return id;
   }
+
+  /** The platform zone's offset, minutes east of UTC (the framework's `/system/time` store). */
+  private static native int nativeDefaultOffsetMinutes();
 }

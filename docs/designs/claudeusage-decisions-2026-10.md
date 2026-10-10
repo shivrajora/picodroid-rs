@@ -20,7 +20,7 @@ not an app bug.
 | F2 | A constructor-only `Class.newInstance()` | **Do it.** It deletes three overrides in this app alone and makes custom views in XML work like Android's. | 2 days |
 | F3 | `picodroid.concurrent` / `picodroid.net` versus the JDK names | Defer. A rename across every app for a benefit only ported code sees. | 1 week |
 | F4 | An Android-shaped manifest | **Do the small half:** `<activity>`, `<service>` and `android:theme`. Leave permissions. | 2 days |
-| F5 | Who sets the clock | A platform time service; apps stop calling `SystemClock.setCurrentTimeMillis`. | 3 days |
+| F5 | Who sets the clock | A platform time service; apps stop calling `SystemClock.setCurrentTimeMillis`. **Built 2026-10-09**, [time-service-2026-10.md](time-service-2026-10.md). | 3 days |
 | F6 | HTTP or HTTPS to the bridge | Keep HTTP; say so in the README (done). | none |
 | F7 | `NsdManager` | Defer until the network stack has multicast DNS. | weeks |
 | F8 | Protobuf builders | Keep the mutable messages; record it. | none |
@@ -179,7 +179,14 @@ not enforced.
 
 ## F5. Who sets the clock
 
-**Today.** `UsageService` calls `SystemClock.setCurrentTimeMillis(wall)` from the bridge's reply
+> Built 2026-10-09 as option 1, both steps: [time-service-2026-10.md](time-service-2026-10.md).
+> The SNTP anchor is a platform task; the zone is `/system/time`, set from Settings → Date & time
+> through `AlarmManager.setTimeZone` and read through `TimeZone.getDefault()`;
+> `Settings.Global.AUTO_TIME` turns the anchor off. `SystemClock.setCurrentTimeMillis` stays
+> public (Android's shape; permissions are not enforced, see F4) with no app left needing it;
+> `claudeusage` uses the bridge's time only while the clock is unset.
+
+**Today (as of 2026-10-03).** `UsageService` calls `SystemClock.setCurrentTimeMillis(wall)` from the bridge's reply
 (`data/UsageService.java`, the bridge time at the hh:mm:05 mark that the pixel A/B relies on) and
 `TimeFormat` keeps a static zone offset (tracker row 35). `picodroid.net.SntpClient` exists and
 leaves anchoring to each app. Settings has no time or zone page.

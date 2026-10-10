@@ -208,6 +208,15 @@ const BEFORE_POOL: &[BootTask] = &[
         stack_bytes: bytes(FS_STACK_WORDS),
         sim_real: true, // sim_boot spawns the fs worker
     },
+    // The platform time task (`time_service::task`), created after the
+    // pool on both platforms: `boot_tasks.rs` spawns it after the link
+    // task, `sim_boot` after the debug bridge.
+    #[cfg(has_network)]
+    BootTask {
+        name: picodroid_core::time_service::TASK_NAME,
+        stack_bytes: picodroid_core::time_service::TASK_STACK_BYTES,
+        sim_real: true, // sim_boot spawns it through the seam
+    },
     #[cfg(any_sensor)]
     BootTask {
         name: "sensor",

@@ -100,6 +100,9 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
     // the whole cost; `no_bodiless_java_framework_classes` in picodroid-core
     // keeps it that way.
     c::java_lang_System,
+    // `TimeZone.getDefault()` reads the platform zone through one native,
+    // served by the platform handler like `System.currentTimeMillis`.
+    c::java_util_TimeZone,
     c::java_lang_Runnable,
     c::java_util_Collections,
     c::java_util_List,

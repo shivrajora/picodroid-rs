@@ -217,28 +217,19 @@ Why: the missing-glyph placeholder renders `□` for any codepoint outside the s
 
 ## HTTPS needs a TLS board and a set clock
 
-Symptom: an `https://` request throws `SSLHandshakeException: wall clock not set…` on a board that has just booted, or `UnsupportedOperationException` on a board built without TLS.
+Symptom: an `https://` request throws `SSLHandshakeException: wall clock not set…`, or `UnsupportedOperationException` on a board built without TLS.
 
-`https` URLs work on every board built with `has_tls = true` — the RP2350 WiFi boards. `URL.openConnection()` returns a `picodroid.net.ssl.HttpsURLConnection` and `connect()` runs a TLS 1.3 handshake that checks the certificate's validity against the wall clock. There is no battery-backed clock, so the runtime refuses to handshake until an app has set it.
-
-```java
-// WRONG: first request after boot, clock never set — SSLHandshakeException.
-HttpURLConnection c = new URL("https://api.example.com/v1/x").openConnection();
-c.connect();
-```
+`https` URLs work on every board built with `has_tls = true` — the RP2350 WiFi boards. `URL.openConnection()` returns a `picodroid.net.ssl.HttpsURLConnection` and `connect()` runs a TLS 1.3 handshake that checks the certificate's validity against the wall clock. There is no battery-backed clock; the platform's time service sets it from `pool.ntp.org` seconds after the link comes up, and a handshake that gets there first waits up to 8 s for it. The exception therefore means the network has no route to the pool (a LAN without internet, UDP 123 filtered), or automatic time was turned off in Settings → Date & time. An app on such a network sets the clock itself, from whatever it trusts:
 
 ```java
 import javax.net.ssl.SSLHandshakeException;
 import picodroid.net.HttpURLConnection;
-import picodroid.net.SntpClient;
 import picodroid.net.URL;
 import picodroid.os.SystemClock;
 
-// RIGHT: on a background thread, once the network is up — set the clock, then connect.
-SntpClient ntp = new SntpClient();
-if (ntp.requestTime("pool.ntp.org", 3000)) {
-  SystemClock.setCurrentTimeMillis(
-      ntp.getNtpTime() + SystemClock.elapsedRealtime() - ntp.getNtpTimeReference());
+// On a network with no route to the pool: anchor the clock from a server of your own, once.
+if (System.currentTimeMillis() < 978_307_200_000L) {   // before 2001: never set this boot
+  SystemClock.setCurrentTimeMillis(epochMillisFromYourServer);
 }
 HttpURLConnection c = new URL("https://api.example.com/v1/x").openConnection();
 c.setConnectTimeout(10000);

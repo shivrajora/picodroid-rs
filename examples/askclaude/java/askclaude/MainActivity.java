@@ -17,7 +17,6 @@ import picodroid.json.JSONObject;
 import picodroid.net.HttpInputStream;
 import picodroid.net.HttpOutputStream;
 import picodroid.net.HttpURLConnection;
-import picodroid.net.SntpClient;
 import picodroid.net.URL;
 import picodroid.os.Bundle;
 import picodroid.os.SystemClock;
@@ -55,7 +54,6 @@ public class MainActivity extends Activity implements SensorEventListener {
   private TextView statusView;
   private int promptIndex;
   private boolean busy;
-  private boolean clockSynced;
   private boolean hasReply;
 
   /** Latest room readings, once a board with the sensors has reported one. */
@@ -186,7 +184,6 @@ public class MainActivity extends Activity implements SensorEventListener {
     String status;
     String reply;
     try {
-      syncClockOnce();
       JSONObject body = new JSONObject();
       body.put("model", BuildConfig.MODEL);
       body.put("max_tokens", MAX_TOKENS);
@@ -260,22 +257,6 @@ public class MainActivity extends Activity implements SensorEventListener {
               setStatus(finalStatus);
               busy = false;
             });
-  }
-
-  /** Certificate validity is checked against the wall clock: anchor it before the first request. */
-  private void syncClockOnce() {
-    if (clockSynced) {
-      return;
-    }
-    SntpClient client = new SntpClient();
-    if (client.requestTime("pool.ntp.org", 3000)) {
-      long now = client.getNtpTime() + SystemClock.elapsedRealtime() - client.getNtpTimeReference();
-      SystemClock.setCurrentTimeMillis(now);
-      Log.i(TAG, "ntp: synced");
-      clockSynced = true;
-    } else {
-      Log.i(TAG, "ntp: no reply");
-    }
   }
 
   private static String readAll(HttpInputStream in) throws IOException {

@@ -25,7 +25,7 @@ told not to, so:
   site; the `*Kt` facade is registered but never parsed); file-private ones are
   top-level `private const val`.
 - **Stateless utilities are top-level functions** with `@file:JvmName(...)`
-  (`TimeFormat`, `SntpClient`, `WeatherFetcher`, `ButtonHintBar`): plain
+  (`TimeFormat`, `WeatherFetcher`, `ButtonHintBar`): plain
   `invokestatic`, no `INSTANCE`, no `<clinit>`.
 - **`@JvmField`** on every field read or written across classes
   (`ThresholdConfig`'s thresholds, `LocalBinder.service`); `private val/var`

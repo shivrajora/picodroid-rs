@@ -127,7 +127,7 @@ if (!NetworkInfo.isConnected()) {
 
 An `https` URL works on every board with `has_tls = true` in its `board.toml`, which is each of the four WiFi boards: `URL.openConnection()` returns an `HttpsURLConnection`, and `connect()` runs a TLS 1.3 handshake that checks the server's name and verifies its chain against a root store compiled into the firmware.
 
-The certificate's validity is checked against the wall clock, and a board has no battery-backed clock: the runtime refuses the handshake (`SSLHandshakeException`) until the app has set the time. Do it once the network is up and before the first request, with [`SntpClient`](/api/networking/#wall-clock-sntpclient). In the simulator `PICODROID_SIM_WALL_CLOCK=1` anchors the clock to the host's instead. See [HTTPS](/api/networking/#https) for what is checked, what it costs and what is not there.
+The certificate's validity is checked against the wall clock, and a board has no battery-backed clock: the platform's [time service](/api/networking/#wall-clock-the-time-service-and-sntpclient) sets it from the network seconds after the link comes up, and a handshake that gets there first waits for it (up to 8 s) before refusing with `SSLHandshakeException`. Nothing for the app to do. In the simulator `PICODROID_SIM_WALL_CLOCK=1` anchors the clock to the host's at boot as well. See [HTTPS](/api/networking/#https) for what is checked, what it costs and what is not there.
 
 ## Try it: netdemo and http_get
 

@@ -11,7 +11,8 @@ What doesn't work (yet), as of v0.36.0. Items here are confirmed and tracked —
 - **TLS is RP2350-only and minimal.** `https://` works on boards with `has_tls = true` (every
   RP2350 WiFi board; the RP2040 has no flash for it): TLS 1.3, `TLS_AES_128_GCM_SHA256`, P-256
   key exchange, a compiled-in store of 14 roots, no client certificates, no session resumption.
-  A handshake is 1.1–2.0 s and needs the wall clock set (`SntpClient`), or it is refused. See
+  A handshake is 1.1–2.0 s and needs the wall clock set, which the platform's time service does
+  from the network once the link is up (a handshake that beats it waits up to 8 s). See
   [HTTPS](/api/networking/#https).
 - **Socket throughput is chunked.** Socket I/O crosses the native boundary in 256-byte chunks; large transfers work correctly but pay a per-chunk cost.
 - **The device closes HTTP connections with RST.** After a complete response the FreeRTOS+TCP side resets rather than closing cleanly, so a client sees a transport error alongside a full, correct payload (`curl` exits 56 with `http_code` 200). Scripts probing a device HTTP server must judge success by the status code and body, not the client's exit code. Simulator connections close normally.

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoclock;
 
+import java.util.TimeZone;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import picodroid.content.SharedPreferences;
@@ -36,7 +37,10 @@ public final class AlarmStore {
   public AlarmStore(SharedPreferences prefs) {
     this.prefs = prefs;
     used = prefs.getInt(KEY_USED, 0);
-    offsetMinutes = prefs.getInt(KEY_OFFSET, 0);
+    // The platform zone (Settings → Date & time) unless the user picked one on
+    // the Set-time screen; the platform's time service sets the clock itself,
+    // so on a joined board the screen is the fallback it was meant to be.
+    offsetMinutes = prefs.getInt(KEY_OFFSET, TimeZone.getDefault().getRawOffset() / 60_000);
     for (int i = 0; i < MAX_ALARMS; i++) {
       Alarm a = new Alarm(i);
       a.hour = prefs.getInt(key(i, "h"), a.hour);

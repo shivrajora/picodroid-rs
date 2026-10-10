@@ -286,6 +286,7 @@ picodroid/protobuf/InvalidProtocolBufferException
 picodroid/protobuf/MessageLite
 picodroid/protobuf/WireFormat
 picodroid/provider/Settings
+picodroid/provider/Settings$Global
 picodroid/provider/Settings$System
 picodroid/text/InputType
 picodroid/text/TextUtils

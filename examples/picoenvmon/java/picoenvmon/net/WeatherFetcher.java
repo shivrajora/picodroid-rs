@@ -21,11 +21,11 @@ import picoenvmon.EnvApp;
  * the TLS 1.3 handshake and verifies open-meteo's Let's Encrypt chain against the compiled-in
  * roots. Two things follow from that. The certificate's validity is checked against the wall clock,
  * and the runtime refuses to handshake while the clock is unset, so {@link NetworkManager} only
- * posts this fetch once {@link SntpClient#sync} has anchored the clock. And the handshake runs on a
- * task of its own with a 40 KB stack, spawned for the call and freed after it, so it costs the pool
- * worker nothing; what does run on the worker is the record layer (AES-GCM over the reply), which
- * is why the board's {@code [background_pool] stack_bytes} was re-measured after this move (see the
- * board.toml comment).
+ * posts this fetch once the platform's time service has anchored the clock. And the handshake runs
+ * on a task of its own with a 40 KB stack, spawned for the call and freed after it, so it costs the
+ * pool worker nothing; what does run on the worker is the record layer (AES-GCM over the reply),
+ * which is why the board's {@code [background_pool] stack_bytes} was re-measured after this move
+ * (see the board.toml comment).
  *
  * <p>The fetch runs as a NetworkManager housekeeping job on a shared background-pool worker, so it
  * never delays dashboard serving — but it must still be time-bounded: a stalled endpoint with no

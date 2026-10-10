@@ -5,6 +5,27 @@ description: "User-facing changes for Picodroid v0.4.0 onward."
 
 This page covers everything that landed in releases v0.4.0 through v0.36.0. Earlier history is in `git log v0.1.0...v0.3.0`.
 
+## Unreleased
+
+**The platform sets the clock (2026-10-09)**
+
+Decision F5 of the [claudeusage decisions](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/claudeusage-decisions-2026-10.md),
+written up in [time-service-2026-10.md](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/time-service-2026-10.md).
+On every board with a network a framework task anchors the wall clock from `pool.ntp.org`
+seconds after the link comes up and every six hours after; an `https` handshake that gets there
+first waits for it instead of being refused. The zone is a user setting: **Settings → Date &
+time** has "Automatic date & time" (`Settings.Global.AUTO_TIME`, new), a time-zone list
+(UTC-12:00 to UTC+14:00, stored at `/system/time`, written through the new
+`AlarmManager.setTimeZone`; `AlarmManager.setTime` too) and the time now. `TimeZone.getDefault()`
+and so `ZoneId.systemDefault()` and every `now()` read that zone, the same for every app;
+`setDefault` still overrides it per process. `SystemClock.setCurrentTimeMillis` and `SntpClient`
+are unchanged and no longer needed: `https_get`, `weather`, `askclaude` and both `picoenvmon`
+twins lost their SNTP code, `claudeusage` takes the bridge's time only while the clock is
+unset, and `picoclock` shows the right time after a power cut (roadmap R2) with the platform
+zone as its default offset. The simulator syncs against the real pool; `PICODROID_SIM_NTP_SERVER=off`
+keeps it from doing so. Log lines: `time: synced from pool.ntp.org (…), rtt N ms, step N ms`,
+`time: zone UTC+05:30`, `time: automatic off`.
+
 ## v0.36.0 — 2026-10-08
 
 The write-once release. An app written for one board now runs on every board: the framework

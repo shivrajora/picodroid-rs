@@ -194,6 +194,12 @@ fn run(model: &'static BootBudgetModel) {
         "pdb task"
     );
 
+    // The platform time task, where a device creates it (after the bridge,
+    // before the JVM task): the host's sockets reach the real NTP pool, so
+    // a network board's simulator anchors its clock the way the device does.
+    #[cfg(has_network)]
+    crate::time_service::task::spawn();
+
     // The JVM task, through the same seam every other task uses — so its
     // stack size and its boot-budget charge come from the platform's
     // registered hooks rather than from two more arguments here.

@@ -348,8 +348,8 @@ crc.reset();                   // back to an empty stream
 The JDK's date-time classes, ported to the SDK so an app stops doing epoch arithmetic by hand:
 `LocalDate`, `LocalTime`, `LocalDateTime`, `Instant`, `Duration`, `ZoneOffset`, `ZoneId`,
 `Month`, `DayOfWeek`, `Year`, `DateTimeFormatter`, `ChronoUnit`, and `java.util.TimeZone` for
-the process default zone. The methods keep their JDK signatures, so the code you would write on
-Android compiles and runs unchanged:
+the default zone. The methods keep their JDK signatures, so the code you would write on Android
+compiles and runs unchanged:
 
 ```java
 import java.time.*;
@@ -357,12 +357,11 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.TimeZone;
 
-// The wall clock counts from boot until something sets it (SNTP, a bridge, a settings screen).
-SystemClock.setCurrentTimeMillis(epochMillisFromTheNetwork);
-// There is no tz database: the zone is one fixed offset, installed once as the process default.
+// The wall clock is the platform's: the time service anchors it from the network after the
+// join, and the zone is what the user picked in Settings → Date & time. Nothing to set up.
+LocalDateTime now = LocalDateTime.now();                       // in the platform zone
+// TimeZone.setDefault still overrides the zone for this process, as on Android:
 TimeZone.setDefault(TimeZone.getTimeZone("GMT+05:30"));
-
-LocalDateTime now = LocalDateTime.now();                       // in the default zone
 String clock = now.format(DateTimeFormatter.ofPattern("HH:mm"));
 String date  = now.toLocalDate().format(DateTimeFormatter.ofPattern("EEE, d MMM yyyy"));
 
@@ -379,10 +378,10 @@ What is not there, and what to do instead:
 
 | Missing | Instead |
 |---|---|
-| Region zones (`ZoneId.of("Europe/London")` throws `DateTimeException`), daylight saving | A fixed offset: `ZoneOffset.ofHours(1)`, `ZoneId.of("UTC+01:00")`; learn the offset from whatever sets the clock. |
+| Region zones (`ZoneId.of("Europe/London")` throws `DateTimeException`), daylight saving | A fixed offset: `ZoneOffset.ofHours(1)`, `ZoneId.of("UTC+01:00")`. `TimeZone.getDefault()` / `ZoneId.systemDefault()` is the platform zone (UTC until the user picks one in Settings → Date & time; its id reads `UTC` or `GMT+05:30`), stored across reboots and the same for every app; `setDefault` overrides it for the process. |
 | `ZonedDateTime`, `OffsetDateTime`, `Period`, `TemporalField` / `ChronoField`, `TemporalAdjusters` | `LocalDateTime.ofInstant(instant, zone)` and `toInstant(offset)` cross between the time-line and local fields; `ChronoUnit.X.between` and `plusX` cover the arithmetic. |
 | Locale-aware text, `DateTimeFormatter.ofLocalizedDate`, parsing with a pattern | `ofPattern` with `y u M L d D E a H h m s S` and `'…'` literals (English month and day names); `LocalDate.parse` and friends read ISO-8601. |
-| `Clock`, `Instant.now()` before the clock is set | `now()` reads `System.currentTimeMillis()`, which counts from boot until `SystemClock.setCurrentTimeMillis`. |
+| `Clock`, `Instant.now()` before the clock is set | `now()` reads `System.currentTimeMillis()`, which counts from boot until the platform's time service anchors it (seconds after a WiFi board joins) or `SystemClock.setCurrentTimeMillis` does. |
 
 The package is left out of the `testbench_rp2040` image (`framework_class_excludes`, about 67 KB
 of class files it does not have room for), where `verifyApiContract --board` rejects an app that uses it.

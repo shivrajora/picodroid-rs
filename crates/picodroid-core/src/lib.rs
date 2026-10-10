@@ -117,6 +117,7 @@ pub mod shrink_names;
 #[cfg(all(feature = "sim", not(test)))]
 pub mod sim_boot;
 pub mod task_priority;
+pub mod time_service;
 pub mod util;
 
 #[cfg(test)]

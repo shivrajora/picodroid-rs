@@ -10,6 +10,11 @@ Completed items: [completed/picoclock-roadmap.md](../completed/picoclock-roadmap
 Items are grouped by what they change rather than by size, and ordered within
 each group by how much they are worth.
 
+R2 (network time) closed on 2026-10-09 from outside the app: the platform's time service
+([time-service-2026-10.md](time-service-2026-10.md)) anchors the clock after every join and the
+zone is a Settings page; the Set-time screen is the fallback it was meant to be. Moved to
+[completed/picoclock-roadmap.md](../completed/picoclock-roadmap.md).
+
 One complaint about this app turned out not to be about this app at all: the
 Set-time screen scrolls at 3-8 fps and tears, for reasons that live in the
 framework's render and input path rather than in `picoclock`. That is profiled
@@ -18,17 +23,6 @@ and scoped separately in
 is an app change, so nothing about it is listed below.
 
 ## 2. Making the clock right
-
-### R2. Network time
-
-The board has WiFi and `examples/picoenvmon` already carries an SNTP client. A
-sync button on the set-time screen, and an automatic sync on the first
-successful join, would turn the manual set from the only path into a fallback.
-This matters more here than on hardware with a battery-backed clock, because
-every power cut currently ends with a user turning a stepper.
-
-Worth doing alongside: a "last synced" line, and a periodic re-sync, since a
-free-running oscillator drifts.
 
 ### R3. Say when an alarm was missed
 

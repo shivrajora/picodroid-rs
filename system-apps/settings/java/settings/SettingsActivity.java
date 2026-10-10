@@ -10,18 +10,20 @@ import picodroid.os.Bundle;
 
 /**
  * The settings app's root (multi-app M3): About, Apps and Storage, one row each, then Wi-Fi on a
- * board that has it ({@code PackageManager.FEATURE_WIFI}), then Display. The header row is Home: a
- * tap on it, or BACK on a keypad board, finishes the app and the launcher comes back. Rows are
- * {@link Screens#ROW_HEIGHT} pixels from the top of the screen, the header first, so the bench taps
- * About at y = 60, Apps at 100, Storage at 140 and Wi-Fi at 180; Display follows Wi-Fi where there
- * is one and takes its place where there is not.
+ * board that has it ({@code PackageManager.FEATURE_WIFI}), then Display and Date &amp; time. The
+ * header row is Home: a tap on it, or BACK on a keypad board, finishes the app and the launcher
+ * comes back. Rows are {@link Screens#ROW_HEIGHT} pixels from the top of the screen, the header
+ * first, so the bench taps About at y = 60, Apps at 100, Storage at 140 and Wi-Fi at 180; Display
+ * follows Wi-Fi where there is one and takes its place where there is not, and Date &amp; time
+ * follows Display (y = 220 without Wi-Fi, 260 with it: past a 240-pixel panel, which the column
+ * scrolls to).
  */
 public class SettingsActivity extends Activity {
   static final String TAG = "Settings";
 
   private Column column;
   /** Held so the rows stay reachable while their click listeners are live. */
-  private final View[] rows = new View[5];
+  private final View[] rows = new View[6];
   /** The screens, in row order: the Wi-Fi row is left out on a board with no link. */
   private String[] labels;
   private Class<?>[] screens;
@@ -34,8 +36,8 @@ public class SettingsActivity extends Activity {
     boolean wifi = getPackageManager().hasSystemFeature(PackageManager.FEATURE_WIFI);
     labels =
         wifi
-            ? new String[] {"About", "Apps", "Storage", "Wi-Fi", "Display"}
-            : new String[] {"About", "Apps", "Storage", "Display"};
+            ? new String[] {"About", "Apps", "Storage", "Wi-Fi", "Display", "Date & time"}
+            : new String[] {"About", "Apps", "Storage", "Display", "Date & time"};
     screens =
         wifi
             ? new Class<?>[] {
@@ -43,10 +45,15 @@ public class SettingsActivity extends Activity {
               AppsActivity.class,
               StorageActivity.class,
               WifiActivity.class,
-              DisplayActivity.class
+              DisplayActivity.class,
+              DateTimeActivity.class
             }
             : new Class<?>[] {
-              AboutActivity.class, AppsActivity.class, StorageActivity.class, DisplayActivity.class
+              AboutActivity.class,
+              AppsActivity.class,
+              StorageActivity.class,
+              DisplayActivity.class,
+              DateTimeActivity.class
             };
     column = new Column(this, "Settings", v -> finish());
     column.fill(null, i -> row(i), () -> ready());

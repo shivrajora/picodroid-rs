@@ -18,7 +18,6 @@ import picodroid.json.JSONException;
 import picodroid.net.HttpInputStream;
 import picodroid.net.HttpURLConnection;
 import picodroid.net.NetworkInfo;
-import picodroid.net.SntpClient;
 import picodroid.net.URL;
 import picodroid.os.Bundle;
 import picodroid.os.SystemClock;
@@ -103,7 +102,6 @@ public class MainActivity extends Activity implements SensorEventListener {
 
   private int page;
   private boolean busy;
-  private boolean clockSynced;
   private ScheduledExecutorService timer;
   private int skyTop;
   private int skyBottom;
@@ -381,7 +379,6 @@ public class MainActivity extends Activity implements SensorEventListener {
       post(null, "No network");
       return;
     }
-    syncClockOnce();
     long t0 = SystemClock.elapsedRealtime();
     try {
       Forecast f = Forecast.parse(get(url()));
@@ -411,22 +408,6 @@ public class MainActivity extends Activity implements SensorEventListener {
     } catch (JSONException e) {
       Log.i(TAG, "fetch failed: bad reply: " + e.getMessage());
       post(null, "Bad reply");
-    }
-  }
-
-  /** Certificate validity is checked against the wall clock: anchor it before the first request. */
-  private void syncClockOnce() {
-    if (clockSynced) {
-      return;
-    }
-    SntpClient client = new SntpClient();
-    if (client.requestTime("pool.ntp.org", 3000)) {
-      long now = client.getNtpTime() + SystemClock.elapsedRealtime() - client.getNtpTimeReference();
-      SystemClock.setCurrentTimeMillis(now);
-      Log.i(TAG, "ntp: synced");
-      clockSynced = true;
-    } else {
-      Log.i(TAG, "ntp: no reply (the wall clock may already be set)");
     }
   }
 

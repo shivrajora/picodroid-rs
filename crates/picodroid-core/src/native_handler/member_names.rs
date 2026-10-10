@@ -382,8 +382,11 @@ mod tests {
                     // (`input text`, `hal/sim/display.rs`) and `open`, an
                     // auth-mode word in `PICODROID_WIFI_AUTH` and the
                     // simulator's `PICODROID_SIM_WIFI_NETWORKS`
-                    // (`hal/wifi.rs`, `hal/sim/wifi.rs`).
+                    // (`hal/wifi.rs`, `hal/sim/wifi.rs`). `UTC` is a zone-id
+                    // prefix `time_service::parse_offset_minutes` strips
+                    // from the text `AlarmManager.setTimeZone` is given.
                     let prose = [
+                        "UTC",
                         "text",
                         "open",
                         "read",

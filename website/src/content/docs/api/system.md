@@ -36,11 +36,11 @@ SystemClock.setCurrentTimeMillis(epochMillis);  // anchor the wall clock; always
 | `static void sleep(int ms)` | Sleep; not interruptible (`Thread.sleep` is). |
 | `static long elapsedRealtimeNanos()` | Nanoseconds since boot. |
 | `static long elapsedRealtime()` | Milliseconds since boot. It never jumps — setting the wall clock leaves it alone — which makes it the right base for a delay. |
-| `static boolean setCurrentTimeMillis(long millis)` | Anchors the wall clock, after which `System.currentTimeMillis()` returns epoch time. Typically fed from an SNTP sync ([`SntpClient`](/api/networking/#wall-clock-sntpclient)). Always `true`: Android's permission-denied case does not apply. |
+| `static boolean setCurrentTimeMillis(long millis)` | Anchors the wall clock, after which `System.currentTimeMillis()` returns epoch time. The platform's [time service](/api/networking/#wall-clock-the-time-service-and-sntpclient) does this from the network, so an app only calls it to set the clock by hand on a board with no network. Always `true`: Android's `SET_TIME` permission is not enforced here. |
 
 ## `java.lang.System.currentTimeMillis()`
 
-The wall clock. There is no battery-backed RTC on the Pico, so the value counts milliseconds from boot until something calls `SystemClock.setCurrentTimeMillis`; from then on it is Unix-epoch time. Setting the clock makes the value jump, so measure intervals that must survive a clock sync with `SystemClock.elapsedRealtime()` instead.
+The wall clock. There is no battery-backed RTC on the Pico, so the value counts milliseconds from boot until the platform's time service anchors it from the network (seconds after the link comes up on a WiFi board) or something calls `SystemClock.setCurrentTimeMillis`; from then on it is Unix-epoch time. Setting the clock makes the value jump, so measure intervals that must survive a clock sync with `SystemClock.elapsedRealtime()` instead. Below 2001-01-01 (`978_307_200_000`) the clock has not been set this boot; that is the line `picoclock` and `picoenvmon` draw for "clock not set".
 
 ```java
 long start = System.currentTimeMillis();

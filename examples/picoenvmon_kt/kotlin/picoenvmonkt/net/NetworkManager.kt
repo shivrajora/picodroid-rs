@@ -24,8 +24,16 @@ private const val JOIN_WAIT_LIMIT_MS = 30_000
 private const val RETRY_POLL_MS = 5_000
 private const val MAX_LISTENERS = 2
 
-private const val NTP_RESYNC_MS = 6L * 3600 * 1000
-private const val NTP_RETRY_MS = 5L * 60 * 1000
+/**
+ * The platform's time service anchors the wall clock from the network
+ * (docs/designs/time-service-2026-10.md); this job only watches for it, often while the clock is
+ * unset (the weather fetch waits on it), rarely once it is.
+ */
+private const val CLOCK_RECHECK_MS = 6L * 3600 * 1000
+private const val CLOCK_WAIT_MS = 5_000L
+
+/** Epoch ms of 2001-01-01: a wall clock below it has not been anchored this boot. */
+private const val CLOCK_SET_THRESHOLD_MS = 978_307_200_000L
 private const val WEATHER_REFRESH_MS = 15L * 60 * 1000
 private const val WEATHER_RETRY_MS = 5L * 60 * 1000
 
@@ -266,20 +274,20 @@ constructor(private val latestReadings: LatestReadings, private val formatter: F
         val nowMs = SystemClock.elapsedRealtimeNanos() / 1_000_000
         try {
             if (nowMs >= ntpDueAtMs) {
-                val ok = sntpSync()
+                val ok = System.currentTimeMillis() >= CLOCK_SET_THRESHOLD_MS
                 if (ok != isTimeSynced) {
                     isTimeSynced = ok
+                    Log.i(TAG, if (ok) "clock: set by the platform" else "clock: not set")
                     notifyChanged()
                 }
-                ntpDueAtMs = nowMs + (if (ok) NTP_RESYNC_MS else NTP_RETRY_MS)
+                ntpDueAtMs = nowMs + (if (ok) CLOCK_RECHECK_MS else CLOCK_WAIT_MS)
             }
             if (nowMs >= weatherDueAtMs && !isTimeSynced) {
-                // The HTTPS handshake checks open-meteo's certificate against the wall clock and
-                // the runtime refuses to run one while the clock is unset, so the fetch waits for
-                // NTP; both retry cadences are 5 min, and a sync that lands in this job serves
-                // the fetch right below.
+                // The HTTPS handshake checks open-meteo's certificate against the wall clock,
+                // which the platform's time service anchors once the link is up; the fetch
+                // waits for that rather than racing it.
                 Log.i(TAG, "weather: waiting for the clock")
-                weatherDueAtMs = nowMs + WEATHER_RETRY_MS
+                weatherDueAtMs = nowMs + CLOCK_WAIT_MS
             }
             if (nowMs >= weatherDueAtMs) {
                 val w = fetchWeather()
@@ -295,7 +303,7 @@ constructor(private val latestReadings: LatestReadings, private val formatter: F
             Log.i(TAG, "net: housekeeping unexpected: $e")
         } finally {
             if (ntpDueAtMs <= nowMs) {
-                ntpDueAtMs = nowMs + NTP_RETRY_MS
+                ntpDueAtMs = nowMs + CLOCK_WAIT_MS
             }
             if (weatherDueAtMs <= nowMs) {
                 weatherDueAtMs = nowMs + WEATHER_RETRY_MS

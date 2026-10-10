@@ -18,9 +18,10 @@ import picodroid.os.SystemClock;
  * }
  * }</pre>
  *
- * <p>The wall clock counts from boot until it is anchored, so an app that verifies TLS
- * certificates, stamps records or shows a clock does this once the network is up. Boards have no
- * battery-backed clock; the anchor is lost at reset.
+ * <p>Apps do not need to: the platform's time service runs this exchange itself once the link is up
+ * and every few hours after, so the wall clock is set before the first HTTPS handshake and {@code
+ * TimeZone.getDefault()} carries the user's zone (Settings → Date &amp; time). The class stays for
+ * an app that wants a server of its own, or the round-trip figure.
  */
 public class SntpClient {
   private static final int NTP_PORT = 123;

@@ -756,7 +756,7 @@ run_settings_smoke() {
   local tag="${lane}[${mode}]"
   local log_file="$RUN_LOG_DIR/${lane}.${mode}.log"
   local build_log="$RUN_LOG_DIR/${lane}.${mode}.build.log"
-  local patterns="Launcher[]:] ready: 2 apps;Settings[]:] ready;Settings[]:] about;Settings[]:] storage helloworld;Settings[]:] apps 1;Settings[]:] uninstalled helloworld;Settings[]:] apps 0;apps: \(none installed\);Launcher[]:] ready: 1 apps;\[layout\] fit ok"
+  local patterns="Launcher[]:] ready: 2 apps;Settings[]:] ready;Settings[]:] about;Settings[]:] storage helloworld;Settings[]:] date-time;Settings[]:] time zone GMT-12:00;Settings[]:] date-time auto 0;Settings[]:] date-time auto 1;Settings[]:] apps 1;Settings[]:] uninstalled helloworld;Settings[]:] apps 0;apps: \(none installed\);Launcher[]:] ready: 1 apps;\[layout\] fit ok"
 
   TOTAL=$((TOTAL + 1))
   sim_log "--- [$TOTAL] $tag (settings smoke, 120s) ---"
@@ -832,6 +832,21 @@ run_settings_smoke() {
       settings_wait "\[Settings\] storage helloworld" 1 || true
       settings_send "input tap 120 20"                     # back
       settings_wait "\[Settings\] ready" 3 || true
+      # Date & time (docs/designs/time-service-2026-10.md): the row after
+      # Display on this no-WiFi board; its zone list's first row is GMT-12:00,
+      # and the automatic toggle is the page's first row.
+      settings_send "input tap 120 220"                    # Date & time
+      if settings_wait "\[Settings\] date-time" 1; then
+        settings_send "input tap 120 100"                  # Time zone
+        settings_send "input tap 120 60"                   # GMT-12:00
+        settings_wait "\[Settings\] time zone GMT-12:00" 1 || true
+        settings_send "input tap 120 60"                   # Automatic off
+        settings_wait "\[Settings\] date-time auto 0" 1 || true
+        settings_send "input tap 120 60"                   # Automatic on
+        settings_wait "\[Settings\] date-time auto 1" 1 || true
+      fi
+      settings_send "input tap 120 20"                     # back
+      settings_wait "\[Settings\] ready" 4 || true
       settings_send "input tap 120 100"                    # Apps
       if settings_wait "\[Settings\] apps 1" 1; then
         settings_send "input tap 120 60"                   # helloworld → the dialog
@@ -841,7 +856,7 @@ run_settings_smoke() {
         settings_wait "apps: (none installed)" 1 || true
       fi
       settings_send "input tap 120 20"                     # back to the root
-      settings_wait "\[Settings\] ready" 4 || true
+      settings_wait "\[Settings\] ready" 5 || true
       settings_send "input tap 120 20"                     # Home
       settings_wait "\[Launcher\] ready: 1 apps" 1 || true
     fi

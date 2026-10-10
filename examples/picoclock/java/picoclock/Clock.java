@@ -3,14 +3,15 @@ package picoclock;
 
 /**
  * Wall-clock arithmetic: epoch milliseconds to and from a local civil date, and the display strings
- * the screens show. Integer only — there is no {@code java.util.Date}, {@code Calendar} or {@code
- * TimeZone} on this platform, and no timezone database either, so "local" here means UTC shifted by
- * a single offset the user picks on the Set-time screen.
+ * the screens show. Integer only — there is no {@code java.util.Date} or {@code Calendar} on this
+ * platform, and no timezone database either, so "local" here means UTC shifted by a single offset:
+ * the platform zone (Settings → Date &amp; time, {@code TimeZone.getDefault()}) unless the user
+ * picked one on the Set-time screen.
  *
- * <p>The board has no battery-backed RTC. {@code System.currentTimeMillis()} counts from whatever
- * {@link picodroid.os.SystemClock#setCurrentTimeMillis} last set, and from zero after a cold boot,
- * which is why {@link #isSet} exists: the clock screen says "clock not set" rather than showing
- * 1970 as if it meant something.
+ * <p>The board has no battery-backed RTC. {@code System.currentTimeMillis()} counts from zero after
+ * a cold boot until the platform's time service anchors it from the network (seconds after the
+ * join) or the Set-time screen does by hand, which is why {@link #isSet} exists: the clock screen
+ * says "clock not set" rather than showing 1970 as if it meant something.
  */
 public final class Clock {
   public static final long MS_PER_SECOND = 1000L;

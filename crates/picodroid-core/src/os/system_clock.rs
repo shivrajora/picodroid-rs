@@ -64,11 +64,11 @@ pub fn elapsed_realtime_nanos() -> Result<Option<Value>, JvmError> {
 //
 // The 64-bit offset is kept in a store/load-only seqlock (two AtomicU32
 // halves + a version word): thumbv6m/thumbv8m have no 64-bit atomics, and
-// thumbv6m has no CAS at all. Single-writer by design — the one network
-// thread syncs the clock; concurrent setters would be a last-write-wins
-// race on the halves, which readers survive (they retry while the seq is
-// odd or moving) but which could mix two writers' halves. Don't add a
-// second caller without adding a mutex.
+// thumbv6m has no CAS at all. Writers are serialised by the `AtomicSection`
+// below, which suspends the scheduler across the three stores: two writers
+// (the platform time task re-anchoring while an app or Settings sets the
+// clock by hand) cannot interleave their halves, and the later one simply
+// wins. Readers retry while the seq is odd or moving.
 //
 // The writer runs its three stores inside an `AtomicSection`. Without it a
 // task preempted between the odd and the even store (a higher-priority
@@ -114,9 +114,9 @@ pub fn set_current_time_millis(args: &[Value]) -> Result<Option<Value>, JvmError
 }
 
 /// Anchor the wall clock so that `System.currentTimeMillis()` reads
-/// `millis` now. The single-writer rule above applies to callers of this
-/// too: the simulator's boot (`PICODROID_SIM_WALL_CLOCK`) runs before any
-/// Java thread exists, so it is the one exception that is not a race.
+/// `millis` now. Callers: the platform time task (`time_service::task`),
+/// `SystemClock.setCurrentTimeMillis` from Java, and the simulator's boot
+/// (`PICODROID_SIM_WALL_CLOCK`), which runs before any task exists.
 pub fn anchor_wall_clock(millis: i64) {
     let elapsed_ms = platform::elapsed_realtime_nanos() / 1_000_000;
     let offset = (millis - elapsed_ms) as u64;

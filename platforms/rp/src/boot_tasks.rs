@@ -142,6 +142,14 @@ pub fn start_tasks(boot_apk: Option<&'static [u8]>) -> ! {
     )
     .unwrap();
 
+    // The platform time task (network boards): waits for the link, anchors
+    // the wall clock from pool.ntp.org, re-anchors every few hours
+    // (docs/designs/time-service-2026-10.md). Through the seam, so it is
+    // core-0 pinned like every other core task and charged to the boot
+    // budget from `time_service::TASK_STACK_BYTES`.
+    #[cfg(has_network)]
+    picodroid_core::time_service::task::spawn();
+
     // JVM task: runs the app in a loop, rebooting when a new install arrives.
     // Pinned to core 0; all JVM child threads are also pinned to core 0 so the
     // single-core safety assumption of SharedJvmState remains valid.
