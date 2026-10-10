@@ -118,6 +118,14 @@ lock_as A acquire >/dev/null
 check "run nests inside an existing lease" rc_is 0 lock_as A run -- true
 check "nested run keeps the lease" is_held
 lock_as A release >/dev/null
+# A plain shell session (no owner env, no Claude id) derives its owner from
+# $PPID, which differs at every depth: the nested run must hand its identity
+# down or require_device_lock inside it sees a stranger's lease.
+check "nested run keeps a shell session's identity" rc_is 0 \
+  env -u PICODROID_DEVICE_OWNER -u PICODROID_DEVICE_OWNER_PID -u CLAUDE_PID -u CLAUDE_CODE_SESSION_ID \
+  bash -c '"$0" acquire >/dev/null && "$0" run -- bash -c "SCRIPT_DIR=\"$1\"; source \"$1/lib.sh\"; require_device_lock nested.sh"; rc=$?; "$0" release >/dev/null 2>&1; exit $rc' \
+  "$DL" "$SCRIPT_DIR"
+check "shell session released after the nested run" is_free
 
 # 7. break
 lock_as A acquire >/dev/null

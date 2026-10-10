@@ -641,6 +641,12 @@ cmd_run() {
   local rc=0
   if holder_valid && [[ "$H_OWNER" == "$OWNER" ]]; then
     meta_unlock
+    # The child must see the identity this lease was taken under. A shell
+    # session's owner is derived from $PPID, which differs at every depth,
+    # so without this a nested require_device_lock saw a stranger's lease
+    # and exited 75 (Claude sessions were spared only because their
+    # session id is the same at every depth).
+    export PICODROID_DEVICE_OWNER="$OWNER" PICODROID_DEVICE_OWNER_PID="$LIVE_PID"
     "${cmd[@]}" 8>&- || rc=$?
     return "$rc"
   fi
