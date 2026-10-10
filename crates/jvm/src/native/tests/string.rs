@@ -155,6 +155,11 @@ fn string_trim() {
     let s = ctx.intern(S_PADDED);
     let result = ctx.dispatch(m::trim, d::__String, &[s]).unwrap().unwrap();
     assert_eq!(ctx.resolve(result), "hi");
+    // Java's trim removes every char <= U+0020: NUL, VT, unit separator
+    // (what a serial/UART payload carries), not just ASCII whitespace.
+    let s = ctx.intern(b"\x0b\x00abc\x1f \t");
+    let result = ctx.dispatch(m::trim, d::__String, &[s]).unwrap().unwrap();
+    assert_eq!(ctx.resolve(result), "abc");
 }
 
 // ── String enhancement tests ────────────────────────────────────────────

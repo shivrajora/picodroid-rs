@@ -294,9 +294,9 @@ pub(crate) fn dispatch(
             if let Some(Value::Reference(idx)) = ctx.args.first() {
                 let owned: alloc::vec::Vec<u8> = {
                     let s = ctx.strings.resolve(*idx).unwrap_or("");
-                    s.trim_matches(|c: char| c.is_ascii_whitespace())
-                        .as_bytes()
-                        .to_vec()
+                    // Java trims every code unit <= U+0020 (NUL, VT, the
+                    // C0 controls), not only the five ASCII whitespace chars.
+                    s.trim_matches(|c: char| c <= '\u{20}').as_bytes().to_vec()
                 };
                 let r = ctx
                     .strings
