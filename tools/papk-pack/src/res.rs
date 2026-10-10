@@ -1126,7 +1126,22 @@ impl LayoutCompiler<'_> {
             }
         };
         let mut words = Vec::new();
-        for (name, text) in self.attributes(el, file)? {
+        // Android resolves `padding` over `paddingHorizontal`/`Vertical`
+        // over the per-side values whatever the attribute order (View's
+        // constructor and MarginLayoutParams both apply the shorthand after
+        // the loop); the inflater applies words in stream order with the
+        // last write winning, so the shorthands are emitted last. A stable
+        // sort keeps every other attribute where it was.
+        let mut attrs = self.attributes(el, file)?;
+        attrs.sort_by_key(|(name, _)| match name.as_str() {
+            "padding" | "layout_margin" => 2,
+            "paddingHorizontal"
+            | "paddingVertical"
+            | "layout_marginHorizontal"
+            | "layout_marginVertical" => 1,
+            _ => 0,
+        });
+        for (name, text) in attrs {
             let from = format!("{file}: <{}> {name}=\"{text}\"", el.name);
             words.extend(self.attr(&name, &text, &from)?);
         }
@@ -2016,6 +2031,45 @@ mod tests {
         ];
         assert_eq!(words_of(&c, "m"), expected);
         assert!(c.warnings.is_empty(), "{:?}", c.warnings);
+    }
+
+    /// Android's `padding` beats `paddingLeft` (and `layout_margin` beats
+    /// `layout_marginTop`) whatever the XML order; the inflater's
+    /// last-write-wins used to make the outcome depend on attribute order.
+    #[test]
+    fn shorthand_padding_and_margin_win_whatever_the_attribute_order() {
+        use layout::{attr as a, class as k, node_header};
+        let dir = tree(&[
+            ("values/values.xml", VALUES),
+            (
+                "layout/p.xml",
+                r#"<FrameLayout>
+                     <TextView padding="8dp" paddingLeft="2dp"/>
+                     <TextView paddingLeft="2dp" padding="8dp"/>
+                     <View layout_marginTop="4dp" layout_margin="9dp"/>
+                     <View paddingVertical="5dp" paddingTop="1dp"/>
+                   </FrameLayout>"#,
+            ),
+        ]);
+        let c = compile(&dir).unwrap();
+        #[rustfmt::skip]
+        let expected = vec![
+            node_header(k::FRAME_LAYOUT, 0, 4),
+            node_header(k::TEXT_VIEW, 5, 0),
+            a::PADDING_LEFT, 2,
+            a::PADDING_LEFT, 8, a::PADDING_TOP, 8, a::PADDING_RIGHT, 8, a::PADDING_BOTTOM, 8,
+            node_header(k::TEXT_VIEW, 5, 0),
+            a::PADDING_LEFT, 2,
+            a::PADDING_LEFT, 8, a::PADDING_TOP, 8, a::PADDING_RIGHT, 8, a::PADDING_BOTTOM, 8,
+            node_header(k::VIEW, 5, 0),
+            a::LAYOUT_MARGIN_TOP, 4,
+            a::LAYOUT_MARGIN_LEFT, 9, a::LAYOUT_MARGIN_TOP, 9,
+            a::LAYOUT_MARGIN_RIGHT, 9, a::LAYOUT_MARGIN_BOTTOM, 9,
+            node_header(k::VIEW, 3, 0),
+            a::PADDING_TOP, 1,
+            a::PADDING_TOP, 5, a::PADDING_BOTTOM, 5,
+        ];
+        assert_eq!(words_of(&c, "p"), expected);
     }
 
     #[test]
