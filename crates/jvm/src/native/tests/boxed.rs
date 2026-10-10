@@ -553,3 +553,53 @@ fn enum_hash_code_is_the_ordinal() {
     );
     assert_eq!(h.unwrap(), Some(Value::Int(2)));
 }
+
+#[test]
+fn parse_double_takes_only_javas_infinity_and_nan_spellings() {
+    // Java accepts "Infinity"/"-Infinity"/"NaN" (plus an optional sign) and
+    // a trailing f/F/d/D on a numeric literal only. Rust's parser also took
+    // "inf", "nan", "INFINITY" and "Infinityd", which Java rejects with
+    // NumberFormatException.
+    let mut cx = StrCtx::new();
+    let parse = |cx: &mut StrCtx, text: &'static [u8]| {
+        let s = cx.intern(text);
+        dispatch_on(cx, c::java_lang_Double, m::parseDouble, d::String__D, &[s])
+    };
+    for (text, want) in [
+        (&b"Infinity"[..], f64::INFINITY),
+        (b"+Infinity", f64::INFINITY),
+        (b"-Infinity", f64::NEG_INFINITY),
+        (b" 1.5f ", 1.5),
+        (b"-2d", -2.0),
+        (b"1e3", 1000.0),
+    ] {
+        assert_eq!(
+            parse(&mut cx, text),
+            Ok(Some(Value::Double(want))),
+            "{text:?}"
+        );
+    }
+    let Ok(Some(Value::Double(nan))) = parse(&mut cx, b"NaN") else {
+        panic!("NaN");
+    };
+    assert!(nan.is_nan());
+    for text in [
+        &b"nan"[..],
+        b"inf",
+        b"infinity",
+        b"INFINITY",
+        b"Infinityd",
+        b"-inf",
+        b"1.5x",
+    ] {
+        let r = parse(&mut cx, text);
+        let Err(JvmError::Exception(idx)) = r else {
+            panic!("parseDouble({text:?}) = {r:?}");
+        };
+        assert_eq!(
+            cx.objects.class_name(idx),
+            Some(c::java_lang_NumberFormatException),
+            "{text:?}"
+        );
+    }
+}

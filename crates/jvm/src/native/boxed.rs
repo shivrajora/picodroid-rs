@@ -574,10 +574,50 @@ fn parse_f64(ctx: &mut NativeContext<'_>) -> Result<f64, JvmError> {
         return Err(super::throw_named(ctx, c::java_lang_NullPointerException));
     }
     let s = resolve_str(ctx, 0)?.trim();
-    // Java's FP grammar allows a trailing type suffix ("1.5f", "2d").
-    let s = match s.as_bytes().last() {
-        Some(b'f' | b'F' | b'd' | b'D') if s.len() > 1 => &s[..s.len() - 1],
-        _ => s,
+    // Java's FP grammar allows a trailing type suffix ("1.5f", "2d") on a
+    // numeric literal only: "Infinityd" is malformed.
+    let (sign, unsigned) = match s.as_bytes().first() {
+        Some(b'+') => ("+", &s[1..]),
+        Some(b'-') => ("-", &s[1..]),
+        _ => ("", s),
     };
+    // Rust's parser also takes "inf", "infinity" and "nan" in any case;
+    // Java accepts exactly "Infinity" and "NaN" (with an optional sign).
+    match unsigned {
+        "Infinity" => {
+            return Ok(if sign == "-" {
+                f64::NEG_INFINITY
+            } else {
+                f64::INFINITY
+            })
+        }
+        "NaN" => return Ok(f64::NAN),
+        _ => {}
+    }
+    if unsigned
+        .bytes()
+        .any(|b| !(b.is_ascii_digit() || matches!(b, b'.' | b'e' | b'E' | b'+' | b'-')))
+    {
+        // Strip one trailing type suffix, then every byte must be numeric.
+        let body = match unsigned.as_bytes().last() {
+            Some(b'f' | b'F' | b'd' | b'D') if unsigned.len() > 1 => {
+                &unsigned[..unsigned.len() - 1]
+            }
+            _ => unsigned,
+        };
+        if body.starts_with(['+', '-'])
+            || body
+                .bytes()
+                .any(|b| !(b.is_ascii_digit() || matches!(b, b'.' | b'e' | b'E' | b'+' | b'-')))
+        {
+            return Err(number_format_exception(ctx));
+        }
+        // Parse the unsigned body and apply the sign: no buffer is built, so
+        // nothing here can fail on a full heap (native_handler/alloc_scan).
+        let v = body
+            .parse::<f64>()
+            .map_err(|_| number_format_exception(ctx))?;
+        return Ok(if sign == "-" { -v } else { v });
+    }
     s.parse::<f64>().map_err(|_| number_format_exception(ctx))
 }
