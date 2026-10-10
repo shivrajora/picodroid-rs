@@ -12,7 +12,7 @@ What remains is **follow-up work, not blockers**. Each item below is
 self-contained: evidence, impact, and where to start. None of them prevents
 the demos from passing today.
 
-Completed items: [completed/networking-followups-2026-08.md](completed/networking-followups-2026-08.md) — NET-2, NET-4, NET-5, NET-6, NET-7, NET-10, NET-11.
+Completed items: [completed/networking-followups-2026-08.md](completed/networking-followups-2026-08.md) — NET-2, NET-4, NET-5, NET-6, NET-7, NET-10, NET-11, NET-12.
 
 ## NET-1: `apsta` / `ampdu_rx_factor` iovars fail with BCME -5 (NOTDOWN)
 
@@ -123,21 +123,6 @@ WPA2 verified unaffected on HW.
   DatagramSocket/HTTP, `InetAddress.getByName`, `ServerSocket.setSoTimeout`,
   SDK throws clauses, the `netexception` sim-roster example, and the
   exception-taxonomy section in `website/.../api/networking.md`.
-
-## NET-12: the board sometimes never joins WiFi after a power cycle — OPEN 2026-09-19
-
-Seen while chasing NET-11 on `pico_enviro_mon_w` (main f717b80b, debug build): 8 of about 250
-power cycles never answered a ping within 90 s. The log shows `net: down` a few seconds after
-`wifi: join ... requested`, then the app's `net: still no network after 30s`, and no `net: up`
-afterwards; one such boot stayed down 11 minutes until a probe reset brought it back, so the
-retry path did not recover by itself. The next power cycle always joined. Nothing else is known:
-whether the join request fails, the driver never retries, or the AP refuses the association has
-not been looked at, and neither has whether a probe-reset boot (chip not power-cycled) shows it.
-The ARP fix for NET-11 (bench rule in
-[completed/networking-followups-2026-08.md](completed/networking-followups-2026-08.md)) does not touch it: 1 of the 30 boots run with that fix in place failed
-the same way. First step: catch one with RTT attached at `DEFMT_LOG=debug` and read the cyw43
-join-state word and link status (recipes in the validation notes below); `scratchpad`-style
-harness = power cycle, ping with a 90 s limit, keep the RTT log of the boots that time out.
 
 ## Validation environment (for whoever picks these up)
 

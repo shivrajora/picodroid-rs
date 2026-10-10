@@ -138,9 +138,18 @@ int cyw43_hal_pin_read(int pin) {
 extern void picodroid_cyw43_log_str(const char *msg);
 
 /* Minimal printf subset for CYW43_PRINTF/DEBUG/INFO/WARN: handles
- * %% %c %s %d %i %u %x %X with optional '-', '0', width, and 'l'
- * modifiers — everything the vendored driver's messages use.  No
- * floating point, no heap. */
+ * %% %c %s %d %i %u %x %X with optional '-', '0', ' ', '+', width, and
+ * 'l' modifiers — everything the vendored driver's messages use.  No
+ * floating point, no heap. An unknown conversion is emitted raw, and its
+ * argument is NOT consumed, so every later argument shifts by one: when
+ * a driver message prints oddly, extend the subset rather than read the
+ * numbers.
+ *
+ * Line-buffered: a message accumulates until its '\n' (or the buffer
+ * fills) and reaches defmt as one line, so a message the driver prints in
+ * several calls — the async-event dump is three PRINTFs per event — is one
+ * log line, not three fragments. The driver prints only under its own
+ * lock (poll, ioctls), so one static buffer serves every caller. */
 static void fmt_putc(char *buf, size_t cap, size_t *pos, char c) {
     if (*pos + 1 < cap) {
         buf[*pos] = c;
@@ -181,27 +190,45 @@ static void fmt_number(char *buf, size_t cap, size_t *pos, unsigned long v,
     }
 }
 
+static char log_line[160];
+static size_t log_pos;
+
+/* Hand the buffered line to defmt (which adds its own newline). */
+static void log_flush(void) {
+    if (log_pos == 0) {
+        return;
+    }
+    log_line[(log_pos < sizeof(log_line) - 1) ? log_pos : sizeof(log_line) - 1] = '\0';
+    picodroid_cyw43_log_str(log_line);
+    log_pos = 0;
+}
+
 void picodroid_cyw43_log_fmt(const char *fmt, ...) {
-    char buf[160];
-    size_t pos = 0;
+    char *buf = log_line;
+    size_t pos = log_pos;
     va_list ap;
     va_start(ap, fmt);
     for (const char *p = fmt; *p != '\0'; p++) {
         if (*p != '%') {
-            /* defmt adds its own newline; drop trailing ones */
-            if (*p != '\n') {
-                fmt_putc(buf, sizeof(buf), &pos, *p);
+            if (*p == '\n') {
+                log_pos = pos;
+                log_flush();
+                pos = 0;
+            } else {
+                fmt_putc(buf, sizeof(log_line), &pos, *p);
             }
             continue;
         }
         p++;
         if (*p == '%') {
-            fmt_putc(buf, sizeof(buf), &pos, '%');
+            fmt_putc(buf, sizeof(log_line), &pos, '%');
             continue;
         }
         int left = 0, zero_pad = 0, width = 0, longs = 0;
-        while (*p == '-' || *p == '0') {
-            if (*p == '-') left = 1; else zero_pad = 1;
+        /* ' ' and '+' (a sign slot: the driver's "[% 8d]" tick stamp)
+         * are accepted and ignored, so the argument is still consumed. */
+        while (*p == '-' || *p == '0' || *p == ' ' || *p == '+') {
+            if (*p == '-') left = 1; else if (*p == '0') zero_pad = 1;
             p++;
         }
         while (*p >= '0' && *p <= '9') {
@@ -214,42 +241,42 @@ void picodroid_cyw43_log_fmt(const char *fmt, ...) {
         }
         switch (*p) {
             case 'c':
-                fmt_putc(buf, sizeof(buf), &pos, (char)va_arg(ap, int));
+                fmt_putc(buf, sizeof(log_line), &pos, (char)va_arg(ap, int));
                 break;
             case 's': {
                 const char *s = va_arg(ap, const char *);
                 if (s == NULL) s = "(null)";
                 int len = (int)strlen(s);
                 int pad = width - len;
-                if (!left) while (pad-- > 0) fmt_putc(buf, sizeof(buf), &pos, ' ');
+                if (!left) while (pad-- > 0) fmt_putc(buf, sizeof(log_line), &pos, ' ');
                 /* Map newlines to '|' so multiline strings (e.g. clmver)
                  * survive the single-line defmt log. */
-                for (; *s; s++) fmt_putc(buf, sizeof(buf), &pos, (*s == '\n' || *s == '\r') ? '|' : *s);
-                if (left) while (pad-- > 0) fmt_putc(buf, sizeof(buf), &pos, ' ');
+                for (; *s; s++) fmt_putc(buf, sizeof(log_line), &pos, (*s == '\n' || *s == '\r') ? '|' : *s);
+                if (left) while (pad-- > 0) fmt_putc(buf, sizeof(log_line), &pos, ' ');
                 break;
             }
             case 'd':
             case 'i':
-                fmt_number(buf, sizeof(buf), &pos,
+                fmt_number(buf, sizeof(log_line), &pos,
                            longs ? (unsigned long)va_arg(ap, long)
                                  : (unsigned long)(long)va_arg(ap, int),
                            10, 1, 0, width, zero_pad, left);
                 break;
             case 'u':
-                fmt_number(buf, sizeof(buf), &pos,
+                fmt_number(buf, sizeof(log_line), &pos,
                            longs ? va_arg(ap, unsigned long)
                                  : (unsigned long)va_arg(ap, unsigned int),
                            10, 0, 0, width, zero_pad, left);
                 break;
             case 'x':
             case 'X':
-                fmt_number(buf, sizeof(buf), &pos,
+                fmt_number(buf, sizeof(log_line), &pos,
                            longs ? va_arg(ap, unsigned long)
                                  : (unsigned long)va_arg(ap, unsigned int),
                            16, 0, (*p == 'X'), width, zero_pad, left);
                 break;
             case 'p':
-                fmt_number(buf, sizeof(buf), &pos,
+                fmt_number(buf, sizeof(log_line), &pos,
                            (unsigned long)(uintptr_t)va_arg(ap, void *),
                            16, 0, 0, 8, 1, 0);
                 break;
@@ -258,14 +285,17 @@ void picodroid_cyw43_log_fmt(const char *fmt, ...) {
                 break;
             default:
                 /* Unknown specifier: emit it raw so nothing is lost */
-                fmt_putc(buf, sizeof(buf), &pos, '%');
-                fmt_putc(buf, sizeof(buf), &pos, *p);
+                fmt_putc(buf, sizeof(log_line), &pos, '%');
+                fmt_putc(buf, sizeof(log_line), &pos, *p);
                 break;
         }
     }
     va_end(ap);
-    buf[(pos < sizeof(buf) - 1) ? pos : sizeof(buf) - 1] = '\0';
-    picodroid_cyw43_log_str(buf);
+    log_pos = pos;
+    /* A line the buffer cannot hold goes out as it stands. */
+    if (log_pos >= sizeof(log_line) - 1) {
+        log_flush();
+    }
 }
 
 void cyw43_hal_pin_low(int pin) {

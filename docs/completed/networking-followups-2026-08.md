@@ -206,3 +206,140 @@ buffer to drain before closing. Repro: `curl -s -m 25 -o /dev/null -w
 http://<board>:8080/` in a 0.3 s loop for 2 min; a hang reads `200 28 0.3 25.0`.
 `pdb sysmon` cannot help on this board until its task cap is fixed
 (docs/quality-roadmap.md, "`pdb sysmon` shows no task table on the W board").
+
+## NET-12: the board sometimes never joins WiFi after a power cycle — FIXED 2026-10-09
+
+*As opened (2026-09-19).* Seen while chasing NET-11 on `pico_enviro_mon_w` (main f717b80b,
+debug build): 8 of about 250 power cycles never answered a ping within 90 s. The log showed
+`net: down` a few seconds after `wifi: join ... requested`, then the app's `net: still no
+network after 30s`, and no `net: up` afterwards; one such boot stayed down 11 minutes until a
+probe reset brought it back. The next power cycle always joined.
+
+*Cause, in two halves.* The link driver (`platforms/rp/src/hal/rp/cyw43/link.rs`) issued
+exactly one join per request and then only mirrored the chip's verdict, and the vendored
+cyw43 driver retries nothing after a verdict of its own. So any join that ended without the
+station associated — NONET because the access point missed the probe, a deauth, a link lost
+during the handshake, or no verdict at all — left the board off the network until the next
+boot. Which of those it was could not be told from `net: down` (that line is only the IP
+stack's first 3-second initialisation retry finding the link not up; it says nothing about
+the join), so the fix started with evidence: the chip's async events are now logged on every
+build (`cyw43: [<ms>] ASYNC(<flags>,<NAME>,<status>,<reason>,<itf>)`, the driver's own
+`CYW43_TRACE_ASYNC_EV` dump through a now line-buffered log shim), and the supervisor below
+logs the driver's join-state word when it retries.
+
+The boot that failed on the bench (cycle 13 of the first instrumented run) read:
+
+```text
+cyw43: [  8766] ASYNC(…,PSK_SUP,4,15,0)     supplicant AUTHENTICATED, reason WPA_PSK_TMO:
+                                               the 4-way handshake timed out (M1 never came)
+cyw43: [  9705] ASYNC(…,AUTH,2,0,0)         the driver's own rejoin: an auth timeout, ignored
+cyw43: [  9705] ASYNC(…,PSK_SUP,4,0,0)      AUTHENTICATED again, reason OTHER
+wifi: join failed: bad password
+wifi: rejoin "…" (bad password; attempt 1, join state 0x4)
+wifi: join "…" requested (retry)
+cyw43: …ASSOC, LINK, PSK_SUP,6 (KEYED)…
+wifi: associated
+net: up, ip 192.168.1.121                      6 s after the verdict
+```
+
+`cyw43_ctrl.c`'s `EV_PSK_SUP` handler treats status 4/8/10 with reason 15 as a timeout and
+schedules its internal rejoin, but files every other status/reason pair — including the
+plain "authenticated, reason other" progress event the rejoin produces — as
+`WIFI_JOIN_STATE_BADAUTH`. Nothing retries after BADAUTH, so the join state sat at 0x4 for
+ever. The handshake timeout itself is the access point under load (the bench AP serves the
+house); the chip is 2.4 GHz only and the AP is shared, so a few percent of boots catching an
+EAPOL timeout is unsurprising. The "11 minutes until a probe reset" boot is the same state:
+only a re-init of the chip ever issued another join.
+
+*Fix.* `crates/picodroid-core/src/hal/wifi_join.rs` — `JoinSupervisor`, a pure policy with
+host tests, fed the mirrored station status by any link driver: NoNet / Fail / Down (lost
+after being up, or dropped during the join) / no verdict within 15 s (then a leave first, so
+a stale join-state word cannot swallow the new attempt) → rejoin after 3 s, doubling to 60 s,
+the ladder reset by a successful join; BadAuth → the whole ladder (six tries, 3 s to 60 s),
+then one every 5 minutes (Android disables a network for 5 minutes after three
+authentication failures, but the chip reports a handshake that timed out under load with
+the same verdict as a wrong password — three times in a row on run 3b's cycle 74 — so the
+verdict alone cannot be trusted that early); an explicit leave or Forget clears the wanted network. `link.rs` keeps the wanted
+credentials (boot's configured network, or the app's last join) and executes the retries
+(`wifi: rejoin "<ssid>" (<why>; attempt N, join state 0x…)`). `NetworkInterface_CYW43.c`
+also calls `FreeRTOS_NetworkDown` when a link that was up goes down, so the stack runs its
+network-down path (`net: down`, sockets failing fast, `ConnectivityManager.onLost`) and
+brings DHCP back the moment the station is re-associated — a lost link used to leave the
+stack believing it was up.
+
+*Bench.* `pico_enviro_mon_w` slot, the AP "ATT69vkRev", instrumented debug firmware,
+power cycle → RTT attach → wait for `net: up` with a 120 s limit (the RTT ring keeps the
+whole boot log, so no `probe-rs run` reset is needed). First run, 28 cycles: one boot hit
+the sequence above and the first retry joined it (`net: up` 6 s after the verdict). Second
+run, 125 cycles: 4 boots (3.2 %, the rate NET-12 was opened with) hit the same handshake
+timeout, every one of them rejoined — `net: up` 6, 7 and 9 s after the verdict on three,
+and 55 s on the fourth, which is the second finding. No boot stayed down.
+
+*The second half: a self-join the driver never counts.* On that fourth boot (cycle 116) the
+retry got `SET_SSID` status 3 — NONET, the AP did not answer the probe — three times over
+35 s, the AP being out of reach. The chip's firmware keeps trying the SSID it was given,
+and at 58 s it joined by itself: `ASSOC_REQ_IE, AUTH 0, ASSOC_RESP_IE, LINK (up), JOIN,
+PSK_SUP 6 (KEYED)`. The driver's join-state word then read **0xe03**: authenticated,
+linked and keyed, with the verdict nibble still NONET, because `EV_AUTH` status 0 resets
+the verdict only after BADAUTH. `WIFI_JOIN_STATE_ALL` is 0x0e01, so the collapse to
+link-up never happened, `cyw43_wifi_link_status` kept answering NONET, and the station was
+on the network with nothing above it knowing. That is the "11 minutes until a probe reset"
+boot of the original report: a self-join after a verdict, invisible for ever. The
+supervisor's next retry (24 s later) re-issued the join and `net: up` followed at 62 s;
+`NetworkInterface_CYW43.c` now also performs the collapse the driver skipped
+(`vCollapseSelfJoin`, in `picodroid_cyw43_sta_status` on the link task: all three progress
+bits set → the word back to bare ACTIVE and the interface up, the driver's own step), so a
+self-join counts the moment it completes. Third run, the firmware with that in, 77 cycles
+past midnight with the access point visibly busier: 9 boots needed a rejoin (one to three
+retries each; `net: up` 6 to 31 s after attach), none stayed down. Cycle 42 showed a retry
+landing on a self-join the chip had just begun (`join state 0x203`, authenticated), the
+two joins racing to the same end; a due retry now waits up to 5 s while the word shows
+progress bits over a failure verdict, since the collapse above cancels it once the station
+keys. Cycle 74 took three consecutive `bad password` verdicts, one short of the ladder's
+old give-up; the ladder now runs to its cap (six tries) before the 5-minute holdoff. Fourth
+run, with those two in, 10 cycles before it was cut short for the next finding: 3 boots
+needed a rejoin (cycle 10 took an auth timeout, a NONET and another auth timeout before the
+fourth attempt joined at 33 s), none stayed down. Its cycle 8 showed the verdict-wipes-progress shape of
+the self-join: `AUTH 0`, then `PSK_SUP` status 8 reason 0 filed as BADAUTH (an assignment,
+which erased the AUTH bit), then `PSK_SUP 6` — the handshake completed — leaving the word at
+**0x804**, keyed over a bad-password verdict, which the all-three-bits collapse did not
+match; the retry re-issued the join and `net: up` took 19 s instead of 3. KEYED is only ever
+set by the supplicant reporting the handshake complete (association and link included), and
+cannot be the open-network preset once a verdict has overwritten the word, so the collapse
+now fires on KEYED over any failure verdict. Fifth run, the final firmware, 150 cycles
+(00:34–01:26): 149 joined, 7 of them after a rejoin (one retry on five, two on one, four on
+cycle 45 where the AP refused for 55 s; `net: up` 6–52 s after attach), one by that
+collapse alone (cycle 147: the verdict, KEYED 56 ms later, `associated` with no retry), and
+one cycle that is a harness artifact (its log holds no boot line, only the display doze
+60 s after the previous boot: the port cycle did not reset the board). No boot stayed down.
+Across the five runs, 437 power cycles with the supervisor in: 0 boots stuck, 30 boots that
+would have been (6.9 %; the first run's 3.2 % matched the report, the later ones ran past
+midnight on a busier access point).
+
+*An episode that was not the firmware.* The first attempt at the third run (23:35–23:52) had
+11 clean joins and then six boots in a row that got NONET on every join and retry for the
+whole 120 s window, from a fresh power cycle each time, while the bench host on the same
+access point reached the gateway and saw the SSID on 2.4 GHz (channel 6), and
+`pico_touch_kit` flashed with the same credentials over its own probe joined in 4 s. Fifteen
+minutes later the same board joined again with firmware 3 and with firmware 4, within
+seconds of each other, so neither the port change nor the supervisor was involved. The
+board was invisible to the access point, or the access point to it, for a quarter of an
+hour; a client-side lockout after the wrong-password boot's twenty failed handshakes is the
+candidate, not shown. What the firmware did through it is the point: `wifi: rejoin … (no
+such network; attempt 5)` every 60 s, and a join as soon as the network answered.
+
+*A genuine wrong password* (`PICODROID_WIFI_PASS=definitely-wrong-password`, same trace)
+looks different from the transient: the association completes (`AUTH 0, ASSOC, LINK up,
+JOIN, SET_SSID 0`), then 4 s later `PSK_SUP` status 8 reason 14 (waiting for M1, reason
+DEAUTH) and `DEAUTH_IND` reason 15 (the AP's 4-way-handshake timeout: our M2 carried a
+wrong MIC) — `bad password`, every time. The chip re-associates by itself and fails the
+same way every 5 s; the supervisor's retries ran at 3, 6 and 12 s (`join state 0x601`:
+authenticated and linked, never keyed, so the self-join collapse above does not fire)
+and then stepped back to one every 5 minutes, the status staying *Wrong password*. The
+transient of the first finding never shows a `DEAUTH_IND`: its `PSK_SUP` status 4 reason
+0 follows the driver's own key-timeout rejoin, which is the line a fork fix would draw.
+
+*Not done.* The two classification gaps stay in the vendored driver (`EV_PSK_SUP`'s
+catch-all, `EV_AUTH` resetting only BADAUTH); the port and the supervisor absorb both,
+and a fork change would need the wrong-password signature above folded into its handler
+first. A chip re-init as a last resort was not added: every retry seen recovered.
