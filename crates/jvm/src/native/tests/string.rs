@@ -521,6 +521,11 @@ fn string_index_of_honours_from_index() {
     assert_eq!(d(&mut ctx, m::indexOf, so, &[s, a, Value::Int(4)]), -1);
     assert_eq!(d(&mut ctx, m::indexOf, so, &[s, a, Value::Int(-5)]), 0);
     assert_eq!(d(&mut ctx, m::indexOf, so, &[s, a, Value::Int(99)]), -1);
+    // An empty needle is found at min(fromIndex, length()), as in Java:
+    // "abcabc".indexOf("", 99) == 6, not -1.
+    let empty = ctx.intern(b"");
+    assert_eq!(d(&mut ctx, m::indexOf, so, &[s, empty, Value::Int(99)]), 6);
+    assert_eq!(d(&mut ctx, m::indexOf, so, &[s, empty, Value::Int(2)]), 2);
     assert_eq!(
         d(
             &mut ctx,

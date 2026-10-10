@@ -172,6 +172,9 @@ pub(crate) fn dispatch(
                     // indexOf(String[, int])
                     let sa = ctx.strings.resolve(*a).unwrap_or("");
                     let sb = ctx.strings.resolve(*b).unwrap_or("");
+                    // Java clamps fromIndex to the length first, so an
+                    // empty needle past the end is found at length().
+                    let from = from.min(sa.len());
                     let result = sa
                         .get(from..)
                         .and_then(|tail| tail.find(sb))
