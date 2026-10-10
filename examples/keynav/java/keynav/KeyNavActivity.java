@@ -30,11 +30,10 @@ public class KeyNavActivity extends Activity {
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
+    // An unsized content root is the window, as on Android (setContentView gives it
+    // match_parent); the column fits a 240-tall panel (QA round 2, R5).
     LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    // The window, not the default 160x160, which clipped the last three stops out of sight on
-    // every board; and the column fits a 240-tall panel (QA round 2, R5).
-    root.setSize(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
 
     SeekBar seek = new SeekBar(this);
     seek.setMax(100);

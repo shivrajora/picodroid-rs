@@ -32,6 +32,11 @@ pub mod net_edge;
 // only boards with a WiFi link (and the host tests) compile it.
 #[cfg(any(test, network_link_wifi))]
 pub mod wifi;
+// The join supervisor (networking-followups NET-12): keeps the wanted
+// network joined when the chip's own join ends without it. Pure, so the
+// host tests pin the retry ladder.
+#[cfg(any(test, network_link_wifi))]
+pub mod wifi_join;
 // Bounded register spins: the only sanctioned way to wait on hardware state
 // without the RTOS, and each one named and capped.
 pub mod spin;

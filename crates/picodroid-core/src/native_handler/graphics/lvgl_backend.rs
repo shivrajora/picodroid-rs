@@ -44,7 +44,7 @@ impl GraphicsBackend for LvglBackend {
     fn dispatch_view(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult {
         match method {
             m::setPosition => Some(view::set_position(ctx.args, ctx.objects)),
-            m::setSize => Some(view::set_size(ctx.args, ctx.objects)),
+            m::nativeSetSize => Some(view::set_size(ctx.args, ctx.objects)),
             m::nativeSetBackgroundColor => Some(view::set_bg_color(ctx.args, ctx.objects)),
             m::nativeSetBackgroundTint => Some(view::set_bg_tint(ctx.args, ctx.objects)),
             // setVisibility/setEnabled/setAlpha became Java wrappers (they

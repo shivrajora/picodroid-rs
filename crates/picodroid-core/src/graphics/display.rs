@@ -178,7 +178,7 @@ pub fn fit_check_after_tick() {
     // window object or screen exists while an app runs; these are LVGL
     // getters on the UI task, after the tick that laid the tree out (the
     // explicit update is a no-op then, and the guarantee when it was not).
-    let (w, h, pan_x, pan_y, cut_x, cut_y) = unsafe {
+    let (w, h, pan_x, pan_y, cut_x, cut_y, by, short_x, short_y) = unsafe {
         // The app's window (window.rs): the screen, or the design-sized
         // object a `<supports-screens>` app runs in.
         let scr = super::lvgl::window::content_root();
@@ -192,22 +192,48 @@ pub fn fit_check_after_tick() {
         lv_obj_get_coords(root, &mut a);
         let mut win = a;
         lv_obj_get_coords(scr, &mut win);
-        // Past the window's edge inside the tree. The window's own scroll
-        // extent sees only its direct child, the root; a `match_parent`
-        // root never overflows — its children do, inside it, cut by the
-        // edge with nothing to pan to (QA F3).
-        let (reach_x, reach_y) = reach(root, 0);
+        // Past the window's edge inside the tree, and past the edge of a
+        // layout inside it. The window's own scroll extent sees only its
+        // direct child, the root; a `match_parent` root never overflows —
+        // its children do, inside it, cut by the edge with nothing to pan
+        // to (QA F3). A layout smaller than the window cuts its children at
+        // its own edge the same way, short of the window's (round 2, B2).
+        let r = reach(root, 0);
+        let win_cut_x = (r.right - win.x2).max(0);
+        let win_cut_y = (r.bottom - win.y2).max(0);
+        // Name the layout when it cuts more than the window does; a
+        // `match_parent` root's edge is the window's, so the window form
+        // stands for it.
+        let by = (r.clip_x > win_cut_x || r.clip_y > win_cut_y).then_some(r.by);
         (
             a.x2 - a.x1 + 1,
             a.y2 - a.y1 + 1,
             lv_obj_get_scroll_right(scr).max(0),
             lv_obj_get_scroll_bottom(scr).max(0),
-            (reach_x - win.x2).max(0),
-            (reach_y - win.y2).max(0),
+            win_cut_x.max(r.clip_x),
+            win_cut_y.max(r.clip_y),
+            by,
+            (win.x2 - a.x2).max(0),
+            (win.y2 - a.y2).max(0),
         )
     };
     if pan_x == 0 && pan_y == 0 && cut_x == 0 && cut_y == 0 {
-        crate::pd_info!("[layout] fit ok {}x{} in {}x{}", w, h, win_w, win_h);
+        if short_x > 0 || short_y > 0 {
+            // A root an app sized itself, smaller than the window (B1's
+            // symptom before a content root defaulted to the window): the
+            // tree fits, and part of the panel is blank.
+            crate::pd_info!(
+                "[layout] fit ok {}x{} in {}x{} (the root stops {} short of the right edge, {} short of the bottom)",
+                w,
+                h,
+                win_w,
+                win_h,
+                short_x,
+                short_y
+            );
+        } else {
+            crate::pd_info!("[layout] fit ok {}x{} in {}x{}", w, h, win_w, win_h);
+        }
     } else if pan_x > 0 || pan_y > 0 {
         crate::pd_info!(
             "[layout] overflow {}x{} in {}x{}: the screen pans {} right, {} down",
@@ -217,6 +243,18 @@ pub fn fit_check_after_tick() {
             win_h,
             pan_x.max(cut_x),
             pan_y.max(cut_y)
+        );
+    } else if let Some((bw, bh)) = by {
+        crate::pd_info!(
+            "[layout] overflow {}x{} in {}x{}: content is cut {} past the right edge, {} past the bottom (by a {}x{} layout)",
+            w,
+            h,
+            win_w,
+            win_h,
+            cut_x,
+            cut_y,
+            bw,
+            bh
         );
     } else {
         crate::pd_info!(
@@ -231,17 +269,48 @@ pub fn fit_check_after_tick() {
     }
 }
 
+/// What [`reach`] found in a view tree: the farthest right and bottom
+/// edge on show, and the most a non-scrolling layout in the tree cuts off
+/// its own children, per axis, with the size of the layout that cuts the
+/// most.
+#[cfg(any(feature = "sim", debug_assertions))]
+#[derive(Clone, Copy)]
+struct Reach {
+    right: i32,
+    bottom: i32,
+    clip_x: i32,
+    clip_y: i32,
+    /// Width and height of the layout behind the larger of the two clips.
+    by: (i32, i32),
+}
+
+#[cfg(any(feature = "sim", debug_assertions))]
+impl Reach {
+    /// Fold in a cut of `x` by `y` (either may be negative: nothing cut)
+    /// made by a layout of size `by`.
+    fn cut(&mut self, x: i32, y: i32, by: (i32, i32)) {
+        let (x, y) = (x.max(0), y.max(0));
+        if x.max(y) > self.clip_x.max(self.clip_y) {
+            self.by = by;
+        }
+        self.clip_x = self.clip_x.max(x);
+        self.clip_y = self.clip_y.max(y);
+    }
+}
+
 /// The farthest right and bottom edge in `obj`'s tree that is on show
-/// without scrolling: `obj`'s own, then through every child that is shown
-/// and laid out by its parent, stopping at a scroll container, whose
-/// content is reached by scrolling it (a `ScrollView`, a list) — a
-/// picodroid layout does not scroll, so what it holds past its edge is
-/// cut. Bounded in depth; a view tree is a dozen levels at most.
+/// without scrolling, and what the tree's layouts cut: `obj`'s own edge,
+/// then through every child that is shown and laid out by its parent,
+/// stopping at a scroll container, whose content is reached by scrolling
+/// it (a `ScrollView`, a list) — a picodroid layout does not scroll, so
+/// what it holds past its edge is cut, at that edge, whether or not the
+/// window's is further out. Bounded in depth; a view tree is a dozen
+/// levels at most.
 ///
 /// # Safety
 /// `obj` must be a live LVGL object, read on the UI task.
 #[cfg(any(feature = "sim", debug_assertions))]
-unsafe fn reach(obj: *mut crate::lvgl_ffi::lv_obj_t, depth: u32) -> (i32, i32) {
+unsafe fn reach(obj: *mut crate::lvgl_ffi::lv_obj_t, depth: u32) -> Reach {
     use crate::lvgl_ffi::{
         lv_area_t, lv_obj_get_child, lv_obj_get_child_count, lv_obj_get_coords, lv_obj_has_flag,
         LV_OBJ_FLAG_FLOATING, LV_OBJ_FLAG_HIDDEN, LV_OBJ_FLAG_SCROLLABLE,
@@ -257,10 +326,17 @@ unsafe fn reach(obj: *mut crate::lvgl_ffi::lv_obj_t, depth: u32) -> (i32, i32) {
     // listed is live too), and these are getters on the UI task.
     unsafe {
         lv_obj_get_coords(obj, &mut a);
-        let (mut rx, mut ry) = (a.x2, a.y2);
+        let mut r = Reach {
+            right: a.x2,
+            bottom: a.y2,
+            clip_x: 0,
+            clip_y: 0,
+            by: (0, 0),
+        };
         if depth >= MAX_DEPTH || lv_obj_has_flag(obj, LV_OBJ_FLAG_SCROLLABLE) {
-            return (rx, ry);
+            return r;
         }
+        let size = (a.x2 - a.x1 + 1, a.y2 - a.y1 + 1);
         for i in 0..lv_obj_get_child_count(obj) {
             let child = lv_obj_get_child(obj, i as i32);
             if child.is_null()
@@ -269,11 +345,15 @@ unsafe fn reach(obj: *mut crate::lvgl_ffi::lv_obj_t, depth: u32) -> (i32, i32) {
             {
                 continue;
             }
-            let (cx, cy) = reach(child, depth + 1);
-            rx = rx.max(cx);
-            ry = ry.max(cy);
+            let c = reach(child, depth + 1);
+            r.right = r.right.max(c.right);
+            r.bottom = r.bottom.max(c.bottom);
+            // What `obj` cuts off this child at its own edge, then what the
+            // child's layouts cut inside it.
+            r.cut(c.right - a.x2, c.bottom - a.y2, size);
+            r.cut(c.clip_x, c.clip_y, c.by);
         }
-        (rx, ry)
+        r
     }
 }
 

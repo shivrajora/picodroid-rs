@@ -98,3 +98,20 @@ power cycle rejoined from the store (`requested (stored)`). A wrong password sav
 read Wrong password (`join failed: bad password`); a firmware built with `.wifi-creds.env` then
 joined at boot anyway (`requested (build)`), and one built without fell back to the stored wrong
 password and failed as expected. The board was left provisioned with the right password.
+
+### 2026-10-09 — the join is supervised (NET-12)
+
+The link driver used to issue one join per request and only mirror the verdict; a join that
+ended without the station associated stayed that way until the next boot (the ~3 % of power
+cycles of networking-followups NET-12, root-caused to a handshake timeout the vendored driver
+files as BADAUTH, and to a self-join after a NONET verdict the driver never counts — the port
+now performs that collapse itself). `hal::wifi_join::JoinSupervisor` (core, pure, host-tested) now keeps the
+wanted network joined: NoNet / Fail / Down / no verdict within 15 s → rejoin after 3 s doubling
+to 60 s; BadAuth → the whole ladder (six tries), then one every 5 min (Android's
+authentication-failure disable, after a ladder long enough to outlast the transient the chip
+reports with the same verdict); a leave or Forget clears it. What the Wi-Fi screen shows is unchanged — the
+status cycles *Connecting* → *Wrong password* / *Not found* → *Connecting* on its own — and a
+lost link is reported to the IP stack (`FreeRTOS_NetworkDown`), so `ConnectivityManager` sees
+`onLost` then `onAvailable`. The chip's async events are logged on every build
+(`cyw43: [ms] ASYNC(flags,NAME,status,reason,itf)`), which is what the diagnosis needed. Write-up:
+[completed/networking-followups-2026-08.md](../completed/networking-followups-2026-08.md) NET-12.
