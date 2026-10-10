@@ -384,10 +384,15 @@ fn parse_spec(fmt: &[u8], mut i: usize) -> Option<(Spec, usize)> {
         }
         i += 1;
     }
-    // Width
+    // Width. A run of digits that does not fit is malformed (Java fails
+    // the parse too); saturating keeps a 32-bit target from panicking on
+    // "%99999999999d" and the caller then refuses it.
     while let Some(&b) = fmt.get(i) {
         if b.is_ascii_digit() {
-            s.width = s.width * 10 + (b - b'0') as usize;
+            s.width = s
+                .width
+                .saturating_mul(10)
+                .saturating_add((b - b'0') as usize);
             i += 1;
         } else {
             break;
@@ -399,13 +404,18 @@ fn parse_spec(fmt: &[u8], mut i: usize) -> Option<(Spec, usize)> {
         let mut p = 0usize;
         while let Some(&b) = fmt.get(i) {
             if b.is_ascii_digit() {
-                p = p * 10 + (b - b'0') as usize;
+                p = p.saturating_mul(10).saturating_add((b - b'0') as usize);
                 i += 1;
             } else {
                 break;
             }
         }
         s.precision = Some(p);
+    }
+    // Java parses width and precision as an int: anything past i32::MAX is
+    // an IllegalFormatException, never a wrapped field size.
+    if s.width > i32::MAX as usize || s.precision.is_some_and(|p| p > i32::MAX as usize) {
+        return None;
     }
     // Conversion
     s.conv = *fmt.get(i)?;

@@ -344,3 +344,23 @@ fn format_explicit_index_out_of_range_throws() {
         c::java_util_MissingFormatArgumentException
     );
 }
+
+#[test]
+fn format_width_past_int_range_throws_instead_of_wrapping() {
+    // "%99999999999d" overflowed the usize width on a 32-bit target (a
+    // panic with overflow checks, a wrapped width without); Java fails the
+    // parse. Both the width and the precision are bounded to an int.
+    let mut ctx = StrCtx::new();
+    let n = ctx.box_primitive(c::java_lang_Integer, Value::Int(1));
+    assert_eq!(
+        ctx.fmt_throws(b"%99999999999999999999999d", &[n]),
+        c::java_util_UnknownFormatConversionException
+    );
+    let n = ctx.box_primitive(c::java_lang_Integer, Value::Int(1));
+    assert_eq!(
+        ctx.fmt_throws(b"%.99999999999999999999999d", &[n]),
+        c::java_util_UnknownFormatConversionException
+    );
+    let n = ctx.box_primitive(c::java_lang_Integer, Value::Int(1));
+    assert_eq!(ctx.fmt(b"%3d", &[n]), "  1");
+}
