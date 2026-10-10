@@ -314,15 +314,24 @@ pub mod config {
             .ok_or(QualifierError::BadNumber)
     }
 
+    /// How many matching blocks [`best_first`] can rank: the qualifiers ride
+    /// along in a fixed array, so a longer `out` is used only this far.
+    pub const MAX_RANKED: usize = 16;
+
     /// Rank the blocks that match `c`, best first, into `out` as indices into
-    /// `blocks`; returns how many were written (at most `out.len()`, the
-    /// rest dropped — the runtime keeps a handful). No allocation.
+    /// `blocks`; returns how many were written (at most `out.len()` and
+    /// [`MAX_RANKED`], the rest dropped — the runtime keeps a handful). No
+    /// allocation.
     pub fn best_first<I>(blocks: I, c: &Config, out: &mut [u8]) -> usize
     where
         I: IntoIterator<Item = Qualifiers>,
     {
+        // The positions below are bounded by `out.len()`, so an `out` longer
+        // than `kept` used to index past it on the 17th match.
+        let cap = out.len().min(MAX_RANKED);
+        let out = &mut out[..cap];
         let mut n = 0usize;
-        let mut kept: [Qualifiers; 16] = [Qualifiers::none(); 16];
+        let mut kept: [Qualifiers; MAX_RANKED] = [Qualifiers::none(); MAX_RANKED];
         for (i, q) in blocks.into_iter().enumerate() {
             if i > u8::MAX as usize || !q.matches(c) {
                 continue;
@@ -355,6 +364,23 @@ pub mod config {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        /// `out` longer than the ranking array: the 17th match used to index
+        /// past `kept`; now the ranking is capped at MAX_RANKED.
+        #[test]
+        fn best_first_with_a_long_output_is_capped_not_out_of_bounds() {
+            let q = Qualifiers::parse("finger").unwrap();
+            let c = Config {
+                w_dp: 320,
+                h_dp: 240,
+                touch: true,
+            };
+            let mut out = [0u8; 32];
+            let n = best_first(core::iter::repeat_n(q, 20), &c, &mut out);
+            assert_eq!(n, MAX_RANKED);
+            let mut short = [0u8; 4];
+            assert_eq!(best_first(core::iter::repeat_n(q, 20), &c, &mut short), 4);
+        }
 
         #[test]
         fn directory_names_parse_in_androids_order() {
