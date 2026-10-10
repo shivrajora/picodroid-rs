@@ -15,10 +15,13 @@ pub fn clock_params(pclk_hz: u32, freq_hz: f64) -> (u8, u16) {
     // Integer approximation: truncate freq to u32, clamp to ≥ 1 Hz
     let freq_u32 = (freq_hz as u32).max(1);
     let period = pclk_hz / freq_u32;
-    // Smallest div_int such that wrap = period / div_int fits in u16.
+    // Smallest div_int such that period / div_int fits in u16 + 1 counts.
     let div_int = period.div_ceil(65536).clamp(1, 255) as u8;
-    // Rounded division for wrap
-    let wrap = ((period + div_int as u32 / 2) / div_int as u32).clamp(1, 65535) as u16;
+    // The counter runs 0..=TOP, so the period is TOP + 1 counts: rounded
+    // division, then minus one (a TOP of period / div ran one count slow,
+    // 1 kHz as 999.98 Hz, 10 MHz as 9.6 MHz).
+    let counts = (period + div_int as u32 / 2) / div_int as u32;
+    let wrap = counts.saturating_sub(1).clamp(1, 65535) as u16;
     (div_int, wrap)
 }
 
@@ -47,15 +50,15 @@ mod tests {
     #[test]
     fn clock_params_1khz_at_125mhz_needs_div2() {
         // period = 125_000; div_int = ceil(125000/65536) = 2,
-        // wrap = round(125000/2) = 62500
-        assert_eq!(clock_params(RP2040_PCLK, 1000.0), (2, 62500));
+        // wrap = round(125000/2) - 1 = 62499 (62500 counts per period)
+        assert_eq!(clock_params(RP2040_PCLK, 1000.0), (2, 62499));
     }
 
     #[test]
     fn clock_params_1khz_at_150mhz_needs_div3() {
         // period = 150_000; div_int = ceil(150000/65536) = 3,
-        // wrap = round(150000/3) = 50000
-        assert_eq!(clock_params(RP2350_PCLK, 1000.0), (3, 50000));
+        // wrap = round(150000/3) - 1 = 49999
+        assert_eq!(clock_params(RP2350_PCLK, 1000.0), (3, 49999));
     }
 
     #[test]
@@ -69,8 +72,30 @@ mod tests {
 
     #[test]
     fn clock_params_20khz_div1() {
-        // period = 6250 at 125 MHz: div_int = 1, wrap = 6250
-        assert_eq!(clock_params(RP2040_PCLK, 20_000.0), (1, 6250));
+        // period = 6250 at 125 MHz: div_int = 1, wrap = 6249
+        assert_eq!(clock_params(RP2040_PCLK, 20_000.0), (1, 6249));
+    }
+
+    #[test]
+    fn clock_params_hit_the_requested_frequency() {
+        // freq = pclk / (div * (wrap + 1)): the off-by-one in TOP made every
+        // output one count slow (10 MHz came out as 9.6 MHz).
+        // Requests whose period is a whole number of clocks, so the only
+        // error left is the one this pins (`period / freq` truncates, which
+        // is the pre-existing resolution limit above a few MHz).
+        for (pclk, hz) in [
+            (RP2040_PCLK, 1_000.0),
+            (RP2040_PCLK, 5_000_000.0),
+            (RP2350_PCLK, 1_000_000.0),
+            (RP2350_PCLK, 50.0),
+        ] {
+            let (div, wrap) = clock_params(pclk, hz);
+            let actual = pclk as f64 / (div as f64 * (wrap as f64 + 1.0));
+            assert!(
+                (actual - hz).abs() / hz < 0.0005,
+                "{hz} Hz at {pclk}: div {div} wrap {wrap} -> {actual} Hz"
+            );
+        }
     }
 
     #[test]
