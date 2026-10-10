@@ -256,7 +256,19 @@ public final class ArraysKt {
     return out;
   }
 
+  /** {@code java.util.Arrays.rangeCheck}, which the stdlib's {@code fill} delegates to. */
+  private static void rangeCheck(int length, int from, int to) {
+    if (from > to) {
+      throw new IllegalArgumentException("fromIndex(" + from + ") > toIndex(" + to + ")");
+    }
+    if (from < 0 || to > length) {
+      throw new ArrayIndexOutOfBoundsException(
+          "fromIndex(" + from + "), toIndex(" + to + "), length " + length);
+    }
+  }
+
   public static void fill(int[] array, int element, int from, int to) {
+    rangeCheck(array.length, from, to);
     if (from == 0 && to == array.length) {
       Arrays.fill(array, element);
       return;
@@ -371,6 +383,7 @@ public final class ArraysKt {
   }
 
   public static void fill(float[] array, float element, int from, int to) {
+    rangeCheck(array.length, from, to);
     if (from == 0 && to == array.length) {
       Arrays.fill(array, element);
       return;

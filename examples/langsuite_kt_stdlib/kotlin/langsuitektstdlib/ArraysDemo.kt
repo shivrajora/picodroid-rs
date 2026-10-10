@@ -69,6 +69,15 @@ object ArraysDemo {
         check("IntArray(n) / fill", filled.joinToString() == "7, 7, 7")
         filled.fill(1, 1, 3)
         check("fill range", filled.joinToString() == "7, 1, 1")
+        // java.util.Arrays.fill's contract: an inverted range is an IllegalArgumentException,
+        // not a silent no-op.
+        var inverted = false
+        try {
+            filled.fill(9, 2, 1)
+        } catch (e: IllegalArgumentException) {
+            inverted = true
+        }
+        check("fill inverted range throws", inverted && filled.joinToString() == "7, 1, 1")
         val sq = IntArray(4) { it * it }
         check("IntArray init", sq.joinToString() == "0, 1, 4, 9")
         check(
