@@ -159,6 +159,19 @@ object StringsDemo {
                 "".toIntOrNull() == null &&
                 "+3".toIntOrNull() == 3,
         )
+        // The JVM stdlib's grammar: surrounding whitespace, a type suffix, NaN and Infinity.
+        val nan: Double = "NaN".toDoubleOrNull() ?: 0.0
+        check(
+            "toDoubleOrNull jvm grammar",
+            " 1.5 ".toDoubleOrNull() == 1.5 &&
+                "1.5f".toDoubleOrNull() == 1.5 &&
+                "2d".toDoubleOrNull() == 2.0 &&
+                "Infinity".toDoubleOrNull() == Double.POSITIVE_INFINITY &&
+                "-Infinity".toDoubleOrNull() == Double.NEGATIVE_INFINITY &&
+                nan != nan &&
+                "1.5x".toDoubleOrNull() == null &&
+                "nan".toDoubleOrNull() == null,
+        )
         check(
             "toIntOrNull overflow",
             "99999999999".toIntOrNull() == null &&

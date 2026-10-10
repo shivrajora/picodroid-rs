@@ -672,43 +672,75 @@ public final class StringsKt {
     return Long.valueOf(result);
   }
 
-  private static boolean isDecimal(String s) {
-    int len = s.length();
+  /**
+   * The JVM stdlib's {@code screenFloatValue} grammar: optional surrounding whitespace (chars up to
+   * U+0020), an optional sign, then {@code NaN}, {@code Infinity} or a decimal/exponent number with
+   * an optional {@code f}/{@code F}/{@code d}/{@code D} suffix. Hexadecimal floats are not served.
+   * Returns the text {@code parseDouble} should see, or {@code null}.
+   */
+  private static String decimalText(String s) {
+    int start = 0;
+    int end = s.length();
+    while (start < end && s.charAt(start) <= ' ') {
+      start++;
+    }
+    while (end > start && s.charAt(end - 1) <= ' ') {
+      end--;
+    }
+    if (start == end) {
+      return null;
+    }
+    String t = s.substring(start, end);
     int i = 0;
-    if (len > 0 && (s.charAt(0) == '-' || s.charAt(0) == '+')) {
+    int n = t.length();
+    if (t.charAt(0) == '+' || t.charAt(0) == '-') {
       i = 1;
     }
-    int digits = 0;
+    String body = t.substring(i);
+    if (body.equals("NaN") || body.equals("Infinity")) {
+      return t;
+    }
+    int last = n - 1;
+    char suffix = n > i ? t.charAt(last) : 0;
+    if (suffix == 'f' || suffix == 'F' || suffix == 'd' || suffix == 'D') {
+      n = last;
+    }
+    boolean digits = false;
     boolean dot = false;
     boolean exp = false;
-    int expDigits = 0;
-    for (; i < len; i++) {
-      char c = s.charAt(i);
+    boolean expDigits = false;
+    for (; i < n; i++) {
+      char c = t.charAt(i);
       if (c >= '0' && c <= '9') {
         if (exp) {
-          expDigits++;
+          expDigits = true;
         } else {
-          digits++;
+          digits = true;
         }
       } else if (c == '.' && !dot && !exp) {
         dot = true;
-      } else if ((c == 'e' || c == 'E') && !exp && digits > 0) {
+      } else if ((c == 'e' || c == 'E') && digits && !exp) {
         exp = true;
-        if (i + 1 < len && (s.charAt(i + 1) == '-' || s.charAt(i + 1) == '+')) {
+        if (i + 1 < n && (t.charAt(i + 1) == '+' || t.charAt(i + 1) == '-')) {
           i++;
         }
       } else {
-        return false;
+        return null;
       }
     }
-    return digits > 0 && (!exp || expDigits > 0);
+    if (!digits || (exp && !expDigits)) {
+      return null;
+    }
+    return t.substring(0, n);
   }
 
   public static Float toFloatOrNull(String s) {
-    return isDecimal(s) ? Float.valueOf(Float.parseFloat(s)) : null;
+    String t = decimalText(s);
+    return t == null ? null : Float.valueOf(Float.parseFloat(t));
   }
 
   public static Double toDoubleOrNull(String s) {
-    return isDecimal(s) ? Double.valueOf(Double.parseDouble(s)) : null;
+    String t = decimalText(s);
+    return t == null ? null : Double.valueOf(Double.parseDouble(t));
   }
 }
