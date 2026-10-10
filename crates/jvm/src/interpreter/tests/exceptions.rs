@@ -972,6 +972,27 @@ mod runtime_faults {
     }
 
     #[test]
+    fn monitorenter_on_null_throws_catchable_null_pointer_exception() {
+        // JVMS 6.5: `synchronized (null) {}` is a NullPointerException the
+        // method can catch; it used to end the run with InvalidReference.
+        for body in [&[0x01u8, 0xC2][..], &[0x01, 0xC3]] {
+            for catch in [
+                c::java_lang_NullPointerException,
+                c::java_lang_RuntimeException,
+            ] {
+                let r = run(faulting_class(body, Some(catch)));
+                assert_eq!(r.unwrap(), Some(Value::Int(7)), "catch {catch}");
+            }
+            match run(faulting_class(body, None)) {
+                Err(JvmError::UncaughtException {
+                    exception_class, ..
+                }) => assert_eq!(exception_class, c::java_lang_NullPointerException),
+                other => panic!("expected uncaught NPE, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
     fn array_index_out_of_bounds_throws_catchable_exception() {
         // iconst_2; newarray int; iconst_5; iaload; pop
         let body = &[0x05, 0xBC, 0x0A, 0x08, 0x2E, 0x57];
