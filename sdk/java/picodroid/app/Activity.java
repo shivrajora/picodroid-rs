@@ -212,6 +212,8 @@ public class Activity extends Context
 
   final void performCreate(Bundle savedInstanceState) {
     mUiThread = Thread.currentThread();
+    // The manifest's android:theme, before any view exists, as Android applies it.
+    getResources().applyManifestTheme();
     onCreate(savedInstanceState);
     mFragmentHostState = Fragment.CREATED;
     if (mFragments != null) {

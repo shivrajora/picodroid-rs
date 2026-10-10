@@ -27,10 +27,12 @@
 //!
 //! Styles and the theme are a build-time matter too. `style="@style/Label"`
 //! on a view is expanded into the style's attributes, and `?attr/name` reads
-//! the item `name` of the app's theme, which is the `<style>` called
-//! [`APP_THEME`]. What reaches the device of a `<style>` is its
-//! `R.style` id and the few colours the framework's widgets default to
-//! (`papk_format::res::theme`), for `Context.setTheme`.
+//! the item `name` of the app's theme: the `<style>` the manifest's
+//! `android:theme` names, else the one called [`APP_THEME`]. What reaches
+//! the device of a `<style>` is its `R.style` id and the few colours the
+//! framework's widgets default to (`papk_format::res::theme`), for
+//! `Context.setTheme` and for the manifest theme the framework applies
+//! before the first Activity's `onCreate`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -47,8 +49,20 @@ use papk_format::res::{
 /// The ASSETS-entry prefix of a `res/drawable/` image.
 pub const DRAWABLE_ASSET_PREFIX: &str = "res/drawable/";
 
-/// The `<style>` that is the app's theme: what `?attr/…` reads.
+/// The `<style>` that is the app's theme when the manifest names none:
+/// what `?attr/…` reads.
 pub const APP_THEME: &str = "AppTheme";
+
+/// The `R.style` id of `style` in `compiled`, as `R.style.<name>` spells it
+/// (dots as underscores); `None` when `res/values` defines no such style.
+pub fn style_id(compiled: &Compiled, style: &str) -> Option<u32> {
+    let r = style.replace('.', "_");
+    compiled
+        .symbols
+        .iter()
+        .find(|(ty, name, _)| *ty == TYPE_STYLE && *name == r)
+        .map(|(_, _, id)| *id)
+}
 
 /// How deep an `<include>`, a style's parents or a `?attr` chain may go
 /// before it is taken for a cycle.
@@ -355,6 +369,8 @@ struct Values {
     raw: BTreeMap<u8, RawValues>,
     /// By the name the XML gives, dots and all.
     styles: BTreeMap<String, Style>,
+    /// The style `?attr/…` reads: the manifest's theme, else [`APP_THEME`].
+    theme: String,
 }
 
 /// An attribute or item name without its `android:` prefix.
@@ -422,7 +438,11 @@ impl Values {
                 }
             }
         }
-        Ok(Self { raw, styles })
+        Ok(Self {
+            raw,
+            styles,
+            theme: APP_THEME.to_string(),
+        })
     }
 
     /// These values with `other`'s laid over them: what a configuration
@@ -436,6 +456,7 @@ impl Values {
         Values {
             raw,
             styles: self.styles.clone(),
+            theme: self.theme.clone(),
         }
     }
 
@@ -503,13 +524,14 @@ impl Values {
             .or_else(|| attr.strip_prefix("attr/"))
             .or_else(|| attr.strip_prefix("android:"))
             .unwrap_or(attr);
-        Some(self.style_item(APP_THEME, name).ok_or_else(|| {
-            if self.styles.contains_key(APP_THEME) {
-                format!("{from}: the theme (<style name=\"{APP_THEME}\">) has no item '{name}'")
+        let theme = self.theme.as_str();
+        Some(self.style_item(theme, name).ok_or_else(|| {
+            if self.styles.contains_key(theme) {
+                format!("{from}: the theme (<style name=\"{theme}\">) has no item '{name}'")
             } else {
                 format!(
                     "{from}: '{text}' reads the app's theme, and there is no \
-                     <style name=\"{APP_THEME}\"> in res/values"
+                     <style name=\"{theme}\"> in res/values"
                 )
             }
         }))
@@ -1215,15 +1237,21 @@ fn qualifier_error(spec: &str, e: QualifierError) -> String {
     }
 }
 
+/// [`compile_with`] with no renames and the default theme: what the tests
+/// call; the binary always has a manifest to answer those from.
+#[cfg(test)]
 pub fn compile(res_dir: &Path) -> Result<Compiled, String> {
-    compile_with(res_dir, &|_| None)
+    compile_with(res_dir, &|_| None, None)
 }
 
 /// [`compile`], with custom view class names in layouts spelled through
-/// `rename_class` (the `--shrink-app` map; see `LayoutCompiler::rename_class`).
+/// `rename_class` (the `--shrink-app` map; see `LayoutCompiler::rename_class`)
+/// and `?attr/…` read from the style `theme` names (the manifest's
+/// `android:theme`; `None` is [`APP_THEME`]).
 pub fn compile_with(
     res_dir: &Path,
     rename_class: &dyn Fn(&str) -> Option<String>,
+    theme: Option<&str>,
 ) -> Result<Compiled, String> {
     let mut values_dir = None;
     let mut layout_dir = None;
@@ -1276,13 +1304,17 @@ pub fn compile_with(
         *slot = Some(path);
     }
 
-    let values = match &values_dir {
+    let mut values = match &values_dir {
         Some(dir) => Values::load(dir)?,
         None => Values {
             raw: BTreeMap::new(),
             styles: BTreeMap::new(),
+            theme: APP_THEME.to_string(),
         },
     };
+    if let Some(theme) = theme {
+        values.theme = theme.to_string();
+    }
 
     let mut drawables = Vec::new();
     let mut drawable_names = Vec::new();
@@ -1575,12 +1607,14 @@ pub fn gen_r_main(args: &[String]) -> Result<(), String> {
     let mut res_dir = None;
     let mut package = None;
     let mut out_dir = None;
+    let mut theme = None;
     let mut it = args.iter();
     while let Some(flag) = it.next() {
         let slot = match flag.as_str() {
             "--res-dir" => &mut res_dir,
             "--package" => &mut package,
             "--out-dir" => &mut out_dir,
+            "--theme" => &mut theme,
             other => return Err(format!("gen-r: unknown argument: {other}")),
         };
         *slot = Some(
@@ -1593,7 +1627,7 @@ pub fn gen_r_main(args: &[String]) -> Result<(), String> {
     let package = package.ok_or("gen-r: --package is required")?;
     let out_dir = PathBuf::from(out_dir.ok_or("gen-r: --out-dir is required")?);
 
-    let compiled = compile(&res_dir)?;
+    let compiled = compile_with(&res_dir, &|_| None, theme.as_deref())?;
     let dir = out_dir.join(package.replace('.', "/"));
     fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let file = dir.join("R.java");
@@ -2108,6 +2142,35 @@ mod tests {
         <item name="android:textSize">20sp</item>
     </style>
 </resources>"##;
+
+    /// The manifest's `android:theme` names the style `?attr/` reads, and
+    /// `style_id` finds its id for the manifest; without a name, `AppTheme`.
+    #[test]
+    fn the_manifest_theme_replaces_apptheme_by_name() {
+        let dir = tree(&[
+            (
+                "values/styles.xml",
+                r##"<resources>
+                     <style name="AppTheme"><item name="gap">6dp</item></style>
+                     <style name="Dark.Theme"><item name="gap">9dp</item></style>
+                   </resources>"##,
+            ),
+            ("layout/m.xml", r#"<LinearLayout padding="?attr/gap"/>"#),
+        ]);
+        let by_default = compile(&dir).unwrap();
+        let dark = compile_with(&dir, &|_| None, Some("Dark.Theme")).unwrap();
+        assert_ne!(
+            by_default.table, dark.table,
+            "a different theme, a different padding"
+        );
+        assert_eq!(
+            style_id(&dark, "Dark.Theme"),
+            Some(id_of(&dark, TYPE_STYLE, "Dark_Theme"))
+        );
+        assert_eq!(style_id(&dark, "Nope"), None);
+        let err = compile_with(&dir, &|_| None, Some("Nope")).unwrap_err();
+        assert!(err.contains("<style name=\"Nope\">"), "{err}");
+    }
 
     #[test]
     fn a_style_is_expanded_and_the_theme_resolved_at_build_time() {

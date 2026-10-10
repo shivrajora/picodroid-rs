@@ -121,6 +121,11 @@ pub fn dispatch(
             lookup(ctx, "Boolean", res::boolean, |b| Value::Int(b as i32))
         }
         (c::picodroid_content_res_Resources, m::nativeStyleWord) => style_word(ctx),
+        // The manifest's `android:theme` (`R.style` id, 0 for none), which
+        // `Resources.applyManifestTheme` applies before the first `onCreate`.
+        (c::picodroid_content_res_Resources, m::nativeManifestTheme) => {
+            Ok(Some(Value::Int(res::manifest_theme() as i32)))
+        }
         (c::picodroid_view_LayoutInflater, m::nativeWord) => layout_word(ctx),
         // Served before any handler by the interpreter's precheck
         // (pico_jvm interpreter/ops_reflect.rs), which runs the view's

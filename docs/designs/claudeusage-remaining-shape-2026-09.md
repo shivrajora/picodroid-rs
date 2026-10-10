@@ -29,7 +29,7 @@ text below the outcome is the handover as written.
 | E6 | All but one deferral gone, measured on `pico_display2_w` 2026-10-03: a page binds and paints in the tick its layout finishes, the Models page paints both cards at once, and a painted page repaints inside the `LiveData` call beside the chrome. The first paint of a page built before the data came still takes the next tick: with cold call sites and the chrome's repaint it measured 58 ms (`resolve=15 ms`). |
 | E7 | Done: `View.setBackgroundTintList`. |
 | E8 | Done: `onMeasure` and friends on `View`; a layout names a custom view class and `Activity.onCreateView(String, Context, AttributeSet)` constructs it. F2 would remove that override. |
-| E9 | Done at build time: styles expand into the layouts, `?attr/` reads the `AppTheme` style, and `Context.setTheme` hands the theme's colours to the widgets. |
+| E9 | Done at build time: styles expand into the layouts, `?attr/` reads the `AppTheme` style, and `Context.setTheme` hands the theme's colours to the widgets. 2026-10-09 (F4): the manifest's `android:theme` names the style and the framework applies it before `onCreate`; the `setTheme` call is gone. |
 | F1 to F9 | Open: decisions for the owner, carried with recommendations by [claudeusage-decisions-2026-10.md](claudeusage-decisions-2026-10.md). |
 
 Verified: `pre-commit`; the whole simulator matrix in both shrink modes (152 rows pass, the

@@ -193,6 +193,16 @@ pub mod keys {
     /// `PackageManager.hasSystemFeature` spells them. The installer refuses
     /// the app on a board that lacks one. Absent: nothing required.
     pub const REQUIRES_FEATURES: &[u8] = b"requires-features";
+    /// The `<activity android:name>` classes of an Android-shaped manifest,
+    /// comma-separated, slash form (docs/designs/manifest-components-2026-10.md).
+    /// Absent: the short form, which declares only the entry point.
+    pub const ACTIVITIES: &[u8] = b"activities";
+    /// The `<service android:name>` classes, comma-separated, slash form.
+    pub const SERVICES: &[u8] = b"services";
+    /// `<application android:theme>` as the `R.style` id of that style,
+    /// decimal text; the framework applies it before the first Activity's
+    /// `onCreate`. Absent: no manifest theme (an app may still `setTheme`).
+    pub const THEME: &[u8] = b"theme";
 }
 
 // ── Error type ────────────────────────────────────────────────────────────────
@@ -669,6 +679,24 @@ impl<'a> Papk<'a> {
     /// requires nothing.
     pub fn requires_features(&self) -> Option<&'a str> {
         self.manifest_value(keys::REQUIRES_FEATURES)
+    }
+
+    /// The declared `<activity>` classes, comma-separated, slash form; `None`
+    /// for a short-form manifest.
+    pub fn activities(&self) -> Option<&'a str> {
+        self.manifest_value(keys::ACTIVITIES)
+    }
+
+    /// The declared `<service>` classes, comma-separated, slash form; `None`
+    /// for a short-form manifest.
+    pub fn services(&self) -> Option<&'a str> {
+        self.manifest_value(keys::SERVICES)
+    }
+
+    /// The manifest theme's `R.style` id, or `None` when the manifest names
+    /// none.
+    pub fn theme(&self) -> Option<u32> {
+        self.manifest_value(keys::THEME)?.parse().ok()
     }
 
     /// Verify this PAPK's shrink-map version is compatible with the firmware.

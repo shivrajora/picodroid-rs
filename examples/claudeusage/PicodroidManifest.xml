@@ -1,6 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest package="claudeusage" version="1.0">
-    <application activity="claudeusage/ui/MainActivity" label="Claude Usage" />
+    <!-- The Android-shaped form (docs/designs/manifest-components-2026-10.md): the theme the
+         framework applies before onCreate, the one Activity (its MAIN intent filter makes it the
+         entry) and the Service the Activity starts; the packer checks that each class is packed and
+         extends the right base, and the build that no undeclared component is started. -->
+    <application android:theme="@style/AppTheme" label="Claude Usage">
+        <activity android:name=".ui.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <service android:name=".data.UsageService" />
+    </application>
     <!-- The pages are drawn for the Pico Display 2's 320x240 (res/values/values.xml); other
          boards show the app in a window of that size. -->
     <supports-screens design-width="320" design-height="240" />

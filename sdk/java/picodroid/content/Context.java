@@ -141,8 +141,11 @@ public class Context {
    * view is made: in {@code onCreate}, before {@code setContentView}.
    *
    * <p>There is one theme per app, not one per context: it lives in {@link
-   * picodroid.graphics.Theme}. A layout's {@code ?attr/…} references do not wait for this call;
-   * they are resolved when the app is built, against the style named {@code AppTheme}.
+   * picodroid.graphics.Theme}. A manifest that names the theme ({@code <application
+   * android:theme="@style/AppTheme">}) has it applied before the first Activity's {@code onCreate},
+   * so this call is for an app that picks a theme at run time. A layout's {@code ?attr/…}
+   * references do not wait for either; they are resolved when the app is built, against the
+   * manifest's theme, else the style named {@code AppTheme}.
    */
   public void setTheme(int resid) {
     getResources().applyTheme(resid);

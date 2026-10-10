@@ -57,10 +57,10 @@ public class LayoutDemoActivity extends Activity {
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    setTheme(R.style.AppTheme);
-    check("setTheme: colorPrimary", Theme.colorPrimary == getColor(R.color.accent));
-    check("setTheme: textColorPrimary", Theme.colorText == getColor(R.color.ink));
-    check("setTheme: colorSurface", Theme.colorSurface == getColor(R.color.panel));
+    // No setTheme: the manifest's android:theme is applied before onCreate (F4).
+    check("manifest theme: colorPrimary", Theme.colorPrimary == getColor(R.color.accent));
+    check("manifest theme: textColorPrimary", Theme.colorText == getColor(R.color.ink));
+    check("manifest theme: colorSurface", Theme.colorSurface == getColor(R.color.panel));
 
     setContentView(R.layout.activity_main);
     TextView title = findViewById(R.id.title);

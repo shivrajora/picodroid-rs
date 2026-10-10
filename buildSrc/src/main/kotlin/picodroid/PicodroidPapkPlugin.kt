@@ -357,6 +357,7 @@ class PicodroidPapkPlugin : Plugin<Project> {
             val genR = target.tasks.register("generateR", GenerateRTask::class.java) {
                 resDir.set(appResDir)
                 packageName.set(manifest.packageName)
+                manifest.theme?.let { theme.set(it) }
                 compilerSources.from(resCompilerSources)
                 outputDir.set(target.layout.buildDirectory.dir("generated/picodroid-r"))
                 this.hostTarget.set(hostTarget)
@@ -421,8 +422,19 @@ class PicodroidPapkPlugin : Plugin<Project> {
         javaExt.sourceSets.getByName("main").java.srcDir(genBuildConfig.flatMap { it.outputDir })
         compileJava.configure { dependsOn(genBuildConfig) }
 
+        // The declared surface of an Android-shaped manifest against the code
+        // (docs/designs/manifest-components-2026-10.md): a no-op for the short form.
+        val verifyManifest = target.tasks.register("verifyManifest", ManifestComponentsTask::class.java) {
+            group = "verification"
+            description = "Check that every Service / Activity the code starts is declared in PicodroidManifest.xml"
+            classesDir.set(rawClassesInput)
+            manifestActivities.set(manifest.activities)
+            manifestServices.set(manifest.services)
+        }
+        target.tasks.named("check") { dependsOn(verifyManifest) }
+
         val packPapk = target.tasks.register("packPapk", PapkPackTask::class.java) {
-            dependsOn(verifyApiContract)
+            dependsOn(verifyApiContract, verifyManifest)
             classesDir.set(packClassesInput)
             // The PAPK identity is the manifest's package= attribute — the
             // package directory keys on it — not the Gradle project name.
@@ -438,6 +450,9 @@ class PicodroidPapkPlugin : Plugin<Project> {
             manifest.mainClass?.let { mainClass.set(it) }
             manifest.activity?.let { activity.set(it) }
             manifest.application?.let { application.set(it) }
+            manifestActivities.set(manifest.activities)
+            manifestServices.set(manifest.services)
+            manifest.theme?.let { theme.set(it) }
             if (appAssetsDir.isDirectory) {
                 assetsDir.set(appAssetsDir)
             }

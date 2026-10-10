@@ -31,6 +31,18 @@ unsafe impl Sync for Selection {}
 /// Android's precedence, chosen once by [`init_from_papk`].
 static SELECTED: Selection = Selection(core::cell::Cell::new(([0; MAX_SELECTED], 0)));
 
+/// The manifest's `android:theme` as an `R.style` id, 0 when the manifest
+/// names none (docs/designs/manifest-components-2026-10.md). Read by
+/// `Resources.applyManifestTheme` before the first Activity's `onCreate`.
+/// An atomic (load/store only, thumbv6m has no RMW) rather than a cell, so
+/// it needs no `Sync` promise.
+static MANIFEST_THEME: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+/// The manifest theme's `R.style` id, or 0.
+pub fn manifest_theme() -> u32 {
+    MANIFEST_THEME.load(core::sync::atomic::Ordering::Relaxed)
+}
+
 /// Point the registry at `papk`'s RESOURCES section. A package without one
 /// (no `res/` tree, or any PAPK below v1.2) leaves it empty, and every
 /// lookup then misses.
@@ -39,6 +51,10 @@ static SELECTED: Selection = Selection(core::cell::Cell::new(([0; MAX_SELECTED],
 /// (`boot::run_app`'s `apk_static`); [`clear`] drops the slice before the
 /// package can change.
 pub fn init_from_papk(papk: &Papk<'static>) {
+    MANIFEST_THEME.store(
+        papk.theme().unwrap_or(0),
+        core::sync::atomic::Ordering::Relaxed,
+    );
     let section = match papk.resources_section() {
         Ok(Some((_, data))) if ResTable::parse(data).is_ok() => Some(data),
         Ok(None) => None,
@@ -90,6 +106,7 @@ pub fn init_from_papk(papk: &Papk<'static>) {
 pub fn clear() {
     TABLE.0.set(None);
     SELECTED.0.set(([0; MAX_SELECTED], 0));
+    MANIFEST_THEME.store(0, core::sync::atomic::Ordering::Relaxed);
 }
 
 fn table() -> Option<ResTable<'static>> {

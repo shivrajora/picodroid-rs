@@ -71,7 +71,7 @@ Items 44 and 45 are closed; see [completed/claudeusage-android-shape-2026-09.md]
 
 | # | Deviation | Tag | Round 1 |
 |---|---|---|---|
-| 49 | `PicodroidManifest.xml` with a slash-separated class path, no `<activity>`, no `<service>`, no permissions; the theme is chosen by name (`AppTheme`), not by `android:theme`. | SDK-shape | kept: owner decision F4. |
+| 49 | `PicodroidManifest.xml` with a slash-separated class path, no `<activity>`, no `<service>`, no permissions; the theme is chosen by name (`AppTheme`), not by `android:theme`. | SDK-shape | closed 2026-10-09 by F4 ([manifest-components-2026-10.md](manifest-components-2026-10.md)): the manifest declares the Activity, the Service and `android:theme`; permissions stay unenforced and are read and ignored. |
 | 50 | Gradle plugin `picodroid-papk` instead of `com.android.application`. | SDK-forced | open |
 
 ## 9. Fragment shape (2026-09-30)

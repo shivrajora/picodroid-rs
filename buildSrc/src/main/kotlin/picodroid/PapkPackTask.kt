@@ -66,6 +66,19 @@ abstract class PapkPackTask : DefaultTask() {
     @get:Optional
     abstract val application: Property<String>
 
+    /** Declared `<activity android:name>` classes, slash form (`activities` manifest key). */
+    @get:Input
+    abstract val manifestActivities: ListProperty<String>
+
+    /** Declared `<service android:name>` classes, slash form (`services` manifest key). */
+    @get:Input
+    abstract val manifestServices: ListProperty<String>
+
+    /** `<application android:theme>`: the `<style>` the packer resolves `?attr/` against and writes as `theme`. */
+    @get:Input
+    @get:Optional
+    abstract val theme: Property<String>
+
     @get:InputDirectory
     @get:Optional
     @get:PathSensitive(PathSensitivity.RELATIVE)
@@ -135,6 +148,9 @@ abstract class PapkPackTask : DefaultTask() {
         icon.orNull?.let { args += listOf("--icon", it) }
         designWidth.orNull?.let { args += listOf("--design-size", "${it}x${designHeight.get()}") }
         requiresFeatures.get().forEach { args += listOf("--requires-feature", it) }
+        manifestActivities.get().forEach { args += listOf("--activity-decl", it) }
+        manifestServices.get().forEach { args += listOf("--service", it) }
+        theme.orNull?.let { args += listOf("--theme", it) }
         assetsDir.orNull?.let { args += listOf("--assets-dir", it.asFile.absolutePath) }
         resDir.orNull?.let { args += listOf("--res-dir", it.asFile.absolutePath) }
         shrinkMapFile.orNull?.let { args += listOf("--shrink-map", it.asFile.absolutePath) }

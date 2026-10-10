@@ -350,7 +350,7 @@ int semi   = Color.argb(128, 255, 0, 0);   // 0x80FF0000 (50% transparent red)
 
 ## `picodroid.graphics.Theme`
 
-App-wide color palette — static fields the framework's widgets read at view-construction time. The Android way to fill it is a theme: declare `<style name="AppTheme">` in `res/values` and call `setTheme(R.style.AppTheme)` in `onCreate` before any view exists ([styles and the theme](/guides/resources/#styles-and-the-theme)). An app without resources assigns the fields directly, **before any UI is built** (typically in `Application.onCreate`):
+App-wide color palette — static fields the framework's widgets read at view-construction time. The Android way to fill it is a theme: declare `<style name="AppTheme">` in `res/values` and name it in the manifest, `<application android:theme="@style/AppTheme">`, which the framework applies before the first Activity's `onCreate`; or call `setTheme(R.style.AppTheme)` in `onCreate` before any view exists ([styles and the theme](/guides/resources/#styles-and-the-theme)). An app without resources assigns the fields directly, **before any UI is built** (typically in `Application.onCreate`):
 
 ```java
 import picodroid.graphics.Color;

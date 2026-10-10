@@ -19,7 +19,7 @@ not an app bug.
 | F1 | What the four buttons are | Keep the DPAD/BACK mapping. Offer raw `BUTTON_*` codes as an opt-in later, if an app asks. | none now |
 | F2 | A constructor-only `Class.newInstance()` | **Do it.** It deletes three overrides in this app alone and makes custom views in XML work like Android's. **Built 2026-10-09**, [class-newinstance-2026-10.md](class-newinstance-2026-10.md). | 2 days |
 | F3 | `picodroid.concurrent` / `picodroid.net` versus the JDK names | Defer. A rename across every app for a benefit only ported code sees. | 1 week |
-| F4 | An Android-shaped manifest | **Do the small half:** `<activity>`, `<service>` and `android:theme`. Leave permissions. | 2 days |
+| F4 | An Android-shaped manifest | **Do the small half:** `<activity>`, `<service>` and `android:theme`. Leave permissions. **Built 2026-10-09**, [manifest-components-2026-10.md](manifest-components-2026-10.md). | 2 days |
 | F5 | Who sets the clock | A platform time service; apps stop calling `SystemClock.setCurrentTimeMillis`. **Built 2026-10-09**, [time-service-2026-10.md](time-service-2026-10.md). | 3 days |
 | F6 | HTTP or HTTPS to the bridge | Keep HTTP; say so in the README (done). | none |
 | F7 | `NsdManager` | Defer until the network stack has multicast DNS. | weeks |
@@ -27,7 +27,9 @@ not an app bug.
 | F9 | The polling Service | Keep; record it. | none |
 
 Beyond F, the size-ratchet accept and the `pico_display2_w` check went in with the round's
-commit; what is still open is under "Engineering leftovers" below.
+commit; what is still open is under "Engineering leftovers" below. **Status 2026-10-09:** F2, F4
+and F5 are built (their design docs are linked in the table); F1, F6, F8 and F9 are recorded as
+decided; F3 and F7 stay deferred.
 
 ## F1. What the four buttons are
 
@@ -152,7 +154,14 @@ written here; then the import friction is measurable instead of assumed. If it i
 
 ## F4. The manifest
 
-**Today.** `buildSrc/src/main/kotlin/picodroid/ManifestSchema.kt` reads `package`, `version`,
+> Built 2026-10-09: [manifest-components-2026-10.md](manifest-components-2026-10.md). `<activity>`,
+> `<service>` and `android:theme`, the short form kept; an undeclared Service (or Activity, once
+> activities are declared) is a build error from a Gradle `verifyManifest` task over the bytecode,
+> since the packer has no bytecode walker and no link roots (it packs every class); the theme is
+> applied before the first `onCreate`. `<uses-permission>` is read and ignored, and the reference
+> page says permissions are not enforced. Intent filters beyond `MAIN` are not read.
+
+**Today (as of 2026-10-03).** `buildSrc/src/main/kotlin/picodroid/ManifestSchema.kt` reads `package`, `version`,
 `version-code` and one `<application>` element with exactly one of `main-class`, `activity`,
 `application`, plus `label` and `icon`. `examples/claudeusage/PicodroidManifest.xml` is three lines.
 `UsageService` is declared nowhere; `startService(new Intent(this, UsageService.class))` names the

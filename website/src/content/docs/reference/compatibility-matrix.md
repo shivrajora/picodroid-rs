@@ -258,8 +258,10 @@ failure to a report while experimenting.
   [resources](/guides/resources/)), but there is one display, density and
   locale: qualified directories (`values-night/`, `drawable-hdpi/`) are a
   build error, and plurals and string arrays do not exist. Styles and the
-  theme are resolved at build time: there is one theme per app (the style
-  named `AppTheme`), and `Context.setTheme` hands its colours to the widgets.
+  theme are resolved at build time: there is one theme per app (the style the
+  manifest's `android:theme` names, else the one called `AppTheme`), applied
+  before the first `onCreate` when the manifest names it, else by
+  `Context.setTheme`, which hands its colours to the widgets.
 - **No `Handler`/`Looper`.** The main loop is an executor-driven dispatcher;
   use `Executors.mainExecutor()`, and the scheduled executor for delayed work.
 - **Custom `Interpolator`s fall back to linear.** Standard interpolators

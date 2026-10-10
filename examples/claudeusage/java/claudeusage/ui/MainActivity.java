@@ -125,7 +125,6 @@ public class MainActivity extends Activity {
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    setTheme(R.style.AppTheme);
     Resources res = getResources();
     palette = Palette.of(res);
     model = new ViewModelProvider(this).get(UsageViewModel.class);

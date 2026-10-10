@@ -7,6 +7,22 @@ This page covers everything that landed in releases v0.4.0 through v0.36.0. Earl
 
 ## Unreleased
 
+**The Android-shaped manifest: `<activity>`, `<service>`, `android:theme` (2026-10-09)**
+
+Decision F4 of the [claudeusage decisions](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/claudeusage-decisions-2026-10.md),
+written up in [manifest-components-2026-10.md](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/manifest-components-2026-10.md).
+`PicodroidManifest.xml` reads Android's shape beside the short form: `<activity android:name>`
+children (the `MAIN` intent filter, else the first, is the entry), `<service android:name>`
+children, and `android:theme="@style/Name"` on `<application>`, which `?attr/` resolves against
+and the framework applies before the first Activity's `onCreate`, so the app's `setTheme` call
+goes. Declared components are checked at build time: `papk-pack` that each is packed and extends
+the right base, and a new Gradle `verifyManifest` task that every `new Intent(X.class)` the code
+starts names a declared component, with the element to add in the error (Android refuses these at
+run time). `<uses-permission>` is read and ignored; nothing is enforced. The short form declares
+nothing and is unchanged; `claudeusage`, `layoutdemo`, `servicedemo` and `tutorial_service` move.
+Three manifest keys: `activities`, `services`, `theme`. See [the manifest
+reference](/reference/manifest/#the-android-form).
+
 **Reflection-lite: `Class.forName` and `Class.newInstance` (2026-10-09)**
 
 Decision F2 of the [claudeusage decisions](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/claudeusage-decisions-2026-10.md),

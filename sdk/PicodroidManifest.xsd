@@ -42,9 +42,17 @@
 
   <!--
     The entry point: exactly one of main-class / activity / application names
-    the class the runtime launches.
+    the class the runtime launches (the short form), or the Android form
+    declares the components as children and the <activity> with the MAIN
+    intent filter (else the first) is the entry.
   -->
   <xs:complexType name="ApplicationType">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="activity" type="ActivityType"/>
+      <xs:element name="service" type="ComponentType"/>
+      <!-- Read and ignored: nothing enforces a permission on this platform. -->
+      <xs:element name="uses-permission" type="ComponentType"/>
+    </xs:choice>
     <xs:attribute name="main-class" type="xs:string" use="optional"/>
     <xs:attribute name="activity" type="xs:string" use="optional"/>
     <xs:attribute name="application" type="xs:string" use="optional"/>
@@ -52,7 +60,32 @@
     <xs:attribute name="label" type="xs:string" use="optional"/>
     <!-- App icon: the name of a PNG under assets/ (48x48 recommended). -->
     <xs:attribute name="icon" type="xs:string" use="optional"/>
-    <xs:assert test="count(@main-class | @activity | @application) = 1"/>
+    <!-- The style that is the app's theme (@style/Name), applied before the
+         first Activity's onCreate; absent, the style called AppTheme. The build
+         reads this as android:theme too; the prefixed spelling is not modelled
+         here (no namespace), so a schema-validated manifest writes "theme". -->
+    <xs:attribute name="theme" type="xs:string" use="optional"/>
+    <xs:assert test="count(@main-class | @activity | @application) = 1 or count(activity) >= 1"/>
+  </xs:complexType>
+
+  <!-- A declared component: name (android:name at build time) is the class,
+       dotted, slash-form or relative to the manifest package (".Main"). -->
+  <xs:complexType name="ComponentType">
+    <xs:attribute name="name" type="xs:string" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="ActivityType">
+    <xs:sequence>
+      <xs:element name="intent-filter" minOccurs="0" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:choice minOccurs="0" maxOccurs="unbounded">
+            <xs:element name="action" type="ComponentType"/>
+            <xs:element name="category" type="ComponentType"/>
+          </xs:choice>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+    <xs:attribute name="name" type="xs:string" use="required"/>
   </xs:complexType>
 
   <xs:complexType name="SupportsScreensType">

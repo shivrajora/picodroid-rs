@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest package="servicedemo" version="1.0">
-    <application application="servicedemo/ServiceDemoApp" />
+    <!-- The short-form entry with a declared Service: the build refuses an Intent to a Service
+         that is not declared here, as Android does at run time. -->
+    <application application="servicedemo/ServiceDemoApp">
+        <service android:name="servicedemo.CounterService" />
+    </application>
 </manifest>

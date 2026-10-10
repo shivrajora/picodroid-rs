@@ -159,6 +159,28 @@ public final class Resources {
   /** Word {@code index} of a style's stream; its length for {@code index} -1. */
   private static native int nativeStyleWord(int style, int index);
 
+  private static boolean sManifestThemeApplied;
+
+  /**
+   * Framework-internal: apply the theme the manifest names ({@code <application
+   * android:theme="@style/…">}) once per app, before the first Activity's {@code onCreate}, as
+   * Android does. An app that calls {@link #applyTheme} or {@code Context.setTheme} itself
+   * afterwards still wins; one that names no manifest theme is unaffected.
+   */
+  public void applyManifestTheme() {
+    if (sManifestThemeApplied) {
+      return;
+    }
+    sManifestThemeApplied = true;
+    int style = nativeManifestTheme();
+    if (style != 0) {
+      applyTheme(style);
+    }
+  }
+
+  /** The manifest theme's {@code R.style} id, or 0 when the manifest names none. */
+  private static native int nativeManifestTheme();
+
   /**
    * Mirrors Android: the display's size and density. One density, so {@link DisplayMetrics#density}
    * is 1 and a {@code dp} is a pixel; see {@link DisplayMetrics}.

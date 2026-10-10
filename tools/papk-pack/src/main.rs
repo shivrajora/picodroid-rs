@@ -79,6 +79,19 @@ struct Args {
     /// RESOURCES section data — compiled from `res_dir`, or copied from the
     /// `--repack` input. Empty means no section.
     resources: Vec<u8>,
+    /// `--activity-decl <class>`, repeatable: the manifest's declared
+    /// activities, written comma-joined as `activities` and checked to be
+    /// packed `Activity` subclasses.
+    activities: Vec<String>,
+    /// `--service <class>`, repeatable: as `activities`, for `Service`.
+    services: Vec<String>,
+    /// `--theme <style>`: the `<style>` the manifest names as the app's
+    /// theme; `?attr/` resolves against it and its `R.style` id is written
+    /// as `theme`. Without it the style called `AppTheme` serves `?attr/`
+    /// and nothing is written.
+    theme: Option<String>,
+    /// The resolved `theme` id, once `compile_resources` has run.
+    theme_id: Option<u32>,
 }
 
 /// Sections copied from a `--repack` input: the classes and assets verbatim,
@@ -238,6 +251,9 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
     let mut icon = None;
     let mut design_size: Option<(u16, u16)> = None;
     let mut requires_features: Vec<String> = Vec::new();
+    let mut activities: Vec<String> = Vec::new();
+    let mut services: Vec<String> = Vec::new();
+    let mut theme: Option<String> = None;
     let mut repack: Option<PathBuf> = None;
     let mut pad_asset: Option<usize> = None;
     let mut res_dir: Option<PathBuf> = None;
@@ -307,6 +323,31 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
                     ));
                 }
                 requires_features.push(name.clone());
+            }
+            "--activity-decl" | "--service" => {
+                let flag = args[i].clone();
+                i += 1;
+                let name = args
+                    .get(i)
+                    .ok_or_else(|| format!("{flag} requires a value"))?;
+                if name.is_empty() || name.contains(',') || name.contains('.') {
+                    return Err(format!(
+                        "{flag} takes one class in slash form (pkg/Class), got '{name}'"
+                    ));
+                }
+                if flag == "--service" {
+                    services.push(name.clone());
+                } else {
+                    activities.push(name.clone());
+                }
+            }
+            "--theme" => {
+                i += 1;
+                let name = args.get(i).ok_or("--theme requires a value")?;
+                if name.is_empty() {
+                    return Err("--theme takes a <style> name".into());
+                }
+                theme = Some(name.clone());
             }
             "--classes-dir" => {
                 i += 1;
@@ -432,6 +473,10 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
             pad_asset,
             res_dir,
             resources: Vec::new(),
+            activities,
+            services,
+            theme,
+            theme_id: None,
         },
         source,
     ))
@@ -465,6 +510,73 @@ fn shrink_entry_point(args: &mut Args) -> Result<(), String> {
             if shrunk != name {
                 args.entry_original = Some(name.to_string());
                 *slot = Some(shrunk);
+            }
+        }
+    }
+    // The declared components name packed classes too.
+    for list in [&mut args.activities, &mut args.services] {
+        for name in list.iter_mut() {
+            *name = shrunk_class(name, Some(map))?;
+        }
+    }
+    Ok(())
+}
+
+/// The declared `<activity>` / `<service>` classes of an Android-shaped
+/// manifest (docs/designs/manifest-components-2026-10.md): each must be
+/// packed and extend the right framework base, which is what Android's
+/// `ActivityNotFoundException` and silently dropped `startService` would say
+/// at run time. The superclass chain is walked through the packed classes;
+/// a chain that leaves them without reaching the base (a framework base
+/// other than `Activity` / `Service`, which this tool does not have) is let
+/// through.
+fn validate_components(args: &Args, classes: &[(String, Vec<u8>)]) -> Result<(), String> {
+    let map = args.shrink_map.as_deref();
+    let bases = [
+        (
+            "activity",
+            &args.activities,
+            shrunk_class("picodroid/app/Activity", map)?,
+        ),
+        (
+            "service",
+            &args.services,
+            shrunk_class("picodroid/app/Service", map)?,
+        ),
+    ];
+    for (tag, declared, base) in bases {
+        for name in declared.iter() {
+            let Some((_, bytes)) = classes.iter().find(|(n, _)| n == name) else {
+                return Err(format!(
+                    "manifest <{tag} android:name=\"{}\"> is not among the packed classes",
+                    name.replace('/', ".")
+                ));
+            };
+            let mut cls = classcheck::super_class_name(bytes);
+            let mut hops = 0;
+            while let Some(c) = cls {
+                if c == base {
+                    break;
+                }
+                hops += 1;
+                if hops > 32 {
+                    break;
+                }
+                match classes.iter().find(|(n, _)| *n == c) {
+                    Some((_, b)) => cls = classcheck::super_class_name(b),
+                    None => {
+                        // A framework class: Activity/Service themselves end
+                        // here as a miss, everything else is unknown to us.
+                        if c.starts_with("java/") || c == "java/lang/Object" {
+                            return Err(format!(
+                                "manifest <{tag} android:name=\"{}\"> does not extend picodroid.app.{}",
+                                name.replace('/', "."),
+                                if tag == "activity" { "Activity" } else { "Service" }
+                            ));
+                        }
+                        break;
+                    }
+                }
             }
         }
     }
@@ -834,6 +946,13 @@ fn build_papk(
 
     let requires_features =
         (!args.requires_features.is_empty()).then(|| args.requires_features.join(","));
+    // The Android-shaped manifest's declared surface and theme
+    // (docs/designs/manifest-components-2026-10.md), as extra entries; a
+    // short-form manifest writes none of them.
+    let activities = args.activities.join(",");
+    let services = args.services.join(",");
+    let theme_id = args.theme_id.map(|id| id.to_string());
+    let key = |k: &'static [u8]| std::str::from_utf8(k).expect("manifest keys are ASCII");
     let mut builder = PapkBuilder::new(ManifestSpec {
         entry,
         package_name: &args.package_name,
@@ -847,6 +966,15 @@ fn build_papk(
     });
     for (k, v) in extras {
         builder.manifest_entry(k, v);
+    }
+    if !activities.is_empty() {
+        builder.manifest_entry(key(papk_format::keys::ACTIVITIES), &activities);
+    }
+    if !services.is_empty() {
+        builder.manifest_entry(key(papk_format::keys::SERVICES), &services);
+    }
+    if let Some(id) = &theme_id {
+        builder.manifest_entry(key(papk_format::keys::THEME), id);
     }
     for (name, bytes) in classes {
         builder.class(name, bytes);
@@ -871,6 +999,11 @@ fn build_papk(
 /// `assets`, next to the `assets/` images and sorted with them.
 fn compile_resources(args: &mut Args, assets: &mut Vec<Asset>) -> Result<(), String> {
     let Some(dir) = args.res_dir.as_deref() else {
+        if let Some(theme) = &args.theme {
+            return Err(format!(
+                "the manifest names android:theme=\"@style/{theme}\", and the app has no res/ tree to define it in"
+            ));
+        }
         return Ok(());
     };
     if !dir.is_dir() {
@@ -893,9 +1026,16 @@ fn compile_resources(args: &mut Args, assets: &mut Vec<Asset>) -> Result<(), Str
             .get(&slashed)
             .map(|renamed| renamed.replace('/', "."))
     };
-    let compiled = res::compile_with(dir, &rename)?;
+    let compiled = res::compile_with(dir, &rename, args.theme.as_deref())?;
     for w in &compiled.warnings {
         eprintln!("Warning: {w}");
+    }
+    if let Some(theme) = &args.theme {
+        args.theme_id = Some(res::style_id(&compiled, theme).ok_or_else(|| {
+            format!(
+                "the manifest names android:theme=\"@style/{theme}\", and res/values defines no <style name=\"{theme}\">"
+            )
+        })?);
     }
     for (name, path) in &compiled.drawables {
         assets.push(decode_png_to_rgb565(path, name.clone())?);
@@ -972,6 +1112,10 @@ fn main() {
             // catches a typo'd `activity=`/`main-class=`/`application=` at
             // build time instead of a runtime NoSuchMethod on device.
             if let Err(msg) = validate_entry_point(&args, &classes) {
+                eprintln!("Error: {msg}");
+                std::process::exit(1);
+            }
+            if let Err(msg) = validate_components(&args, &classes) {
                 eprintln!("Error: {msg}");
                 std::process::exit(1);
             }
@@ -1091,6 +1235,10 @@ mod pack_integration {
             pad_asset: None,
             res_dir: None,
             resources: Vec::new(),
+            activities: Vec::new(),
+            services: Vec::new(),
+            theme: None,
+            theme_id: None,
         };
 
         let classes = collect_classes(args.classes_dir.as_deref().unwrap()).unwrap();
@@ -1138,6 +1286,10 @@ mod pack_integration {
             pad_asset: None,
             res_dir: None,
             resources: Vec::new(),
+            activities: Vec::new(),
+            services: Vec::new(),
+            theme: None,
+            theme_id: None,
         }
     }
 
@@ -1178,8 +1330,17 @@ mod pack_integration {
             "picodroid.hardware.touchscreen".into(),
             "--requires-feature".into(),
             "picodroid.hardware.wifi".into(),
+            "--activity-decl".into(),
+            "a/Main".into(),
+            "--service".into(),
+            "a/Svc".into(),
+            "--theme".into(),
+            "Dark".into(),
         ])
         .unwrap();
+        assert_eq!(args.activities, vec!["a/Main".to_string()]);
+        assert_eq!(args.services, vec!["a/Svc".to_string()]);
+        assert_eq!(args.theme.as_deref(), Some("Dark"));
         assert_eq!(args.design_size, Some((240, 240)));
         assert_eq!(
             args.requires_features,

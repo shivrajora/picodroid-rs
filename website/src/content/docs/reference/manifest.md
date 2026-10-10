@@ -43,7 +43,9 @@ The `<manifest>` root:
   installs by it. Anything else fails the build.
 - **`<application>` (required).** At least one must exist. Only the first
   `<application>` element is read; any extras are silently ignored. Besides
-  the entry point (below) it takes two optional identity attributes:
+  the entry point (below), its optional `android:theme` and its component
+  children (see [The Android form](#the-android-form)) it takes two optional
+  identity attributes:
   - **`label`** — the display name a launcher shows; defaults to the package
     name.
   - **`icon`** — the file name of a PNG under the app's `assets/` directory
@@ -75,6 +77,16 @@ The exact error strings, so you can grep this page if you hit one:
   `design-height`)
 - `<file>: <uses-feature> missing 'name' attribute`
 - `<file>: <uses-feature> required must be 'true' or 'false', got '<value>'`
+- `<file>: <activity> missing 'android:name' attribute` (and `<service>`)
+- `<file>: <activity> '<class>' is declared twice` (and `<service>`)
+- `<file>: <activity> android:theme is not supported — there is one theme per app; put android:theme on <application>`
+- `<file>: two activities carry the MAIN intent filter ('<a>', '<b>'); one app has one entry`
+- `<file>: <application> does not take <<tag>> (supported: <activity>, <service>, <uses-permission>)`
+- `<file>: <application> android:theme must name a <style>, got '<value>'`
+- `<file>: <application activity="<class>"> is not among the declared <activity> elements — declare it, or drop the attribute (…)`
+- `PicodroidManifest.xml declares components, and the code starts some it does not declare (Android refuses these at run time; declare them under <application>):` followed by the `<service android:name=…/>` / `<activity …/>` lines to add (the `verifyManifest` task)
+- `manifest <service android:name="<class>"> is not among the packed classes` and `… does not extend picodroid.app.Service` (and `<activity>` / `Activity`; `papk-pack`)
+- `the manifest names android:theme="@style/<Name>", and res/values defines no <style name="<Name>">` (and `… the app has no res/ tree to define it in`)
 
 ### DOCTYPE is rejected
 
@@ -113,14 +125,67 @@ editors still get structure and attribute autocomplete.
 ## Entry-point styles
 
 The `<application>` element must set **exactly one** of three attributes, and
-its value must be non-blank. Setting none, or more than one, is a build error
-(see the strings above).
+its value must be non-blank, or declare the entry as an `<activity>` child
+([The Android form](#the-android-form)). Setting none, or more than one, is a
+build error (see the strings above).
 
 Every value is a **JVM internal name** in slash form: `pkg/Class`, never the
 dotted `pkg.Class`. The leading segment is the package, separated from the class
 name by `/`. (Nested packages use more slashes: `com/example/foo/MyApp`.) The
 dotted form would not match the compiled class's internal name and would fail at
 runtime.
+
+### The Android form
+
+The shape an Android manifest has, with what this platform reads of it
+([manifest-components-2026-10.md](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/manifest-components-2026-10.md)):
+
+```xml
+<manifest package="claudeusage" version="1.0">
+    <application android:theme="@style/AppTheme" label="Claude Usage">
+        <activity android:name=".ui.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <service android:name=".data.UsageService" />
+    </application>
+</manifest>
+```
+
+- **`<activity android:name="…">`**, repeatable. The one with the `MAIN` intent
+  filter is the entry; without one, the first declared. Names are read as
+  Android reads them: dotted (`claudeusage.ui.MainActivity`), slash-form, or
+  relative to the manifest `package` with a leading dot. The short-form
+  `activity=` attribute may stay beside the children and must then name one of
+  them.
+- **`<service android:name="…">`**, repeatable. Declared components are
+  checked twice at build time: `papk-pack` checks that each class is packed and
+  extends `picodroid.app.Activity` / `Service`, and the Gradle `verifyManifest`
+  task checks that every `new Intent(X.class)` the code starts names a declared
+  component (every Service, and every Activity once activities are declared).
+  Android refuses an undeclared component at run time; here the build does, with
+  the element to add. `Intent.setClassName` is dynamic and is not checked.
+- **`android:theme="@style/Name"`** on `<application>`: the `<style>` in
+  `res/values` that `?attr/…` resolves against at build time and that the
+  framework applies before the first Activity's `onCreate`, as Android does, so
+  the app does not call `setTheme`. Without it, the style called `AppTheme`
+  serves `?attr/` and nothing is applied ([styles and the
+  theme](/guides/resources/#styles-and-the-theme)). One theme per app: an
+  `android:theme` on an `<activity>` is a build error.
+- **`<uses-permission>`** is read and ignored. Nothing on this platform enforces
+  a permission (WiFi, the network and the LEDs are open to every app); the
+  element is accepted so an Android manifest's lines do not break the build, and
+  it grants nothing.
+- Not read: `<meta-data>`, `<receiver>`, `<provider>`, anything in an
+  `<intent-filter>` but the `MAIN` action. An unknown child of `<application>`
+  fails the build naming what is supported. The bare spellings `name=` and
+  `theme=` are accepted beside the `android:` ones.
+
+A short-form manifest (`activity=` / `application=` / `main-class=` alone)
+declares nothing and nothing is checked; that is every example but
+`claudeusage`, `layoutdemo`, `servicedemo` and `tutorial_service`.
 
 ### `application=` — full app with lifecycle
 
@@ -329,7 +394,9 @@ flash.
 - **MANIFEST** holds the values of this page as key/value strings: the entry
   point (`application`, `activity` or `main-class`), `package-name`, `version`,
   `framework-map-version`, and `version-code`, `label`, `icon`, `design-width`,
-  `design-height` and `requires-features` when set.
+  `design-height` and `requires-features` when set; an Android-form manifest
+  adds `activities` and `services` (comma-joined, slash form) and `theme` (the
+  theme's `R.style` id, decimal).
 - **CLASSES** holds every `.class` file with a *link table* `papk-pack` built
   for it (the record a class loader would otherwise parse at run time, a hash of
   each superclass and interface name, a signature hash per method and a 4-byte
@@ -389,8 +456,9 @@ identical in the shrunk and unshrunk PAPK. Only the references baked into your
 override) are rewritten, and the firmware's copies are rewritten the same way.
 
 Under `--shrink --shrink-app` your own classes are renamed too (`myapp/MyApp`
-→ `c/A`) and `papk-pack` spells the manifest entry through the per-app map, so
-the manifest you write keeps saying `myapp/MyApp` while the packed manifest
+→ `c/A`) and `papk-pack` spells the manifest entry, the declared `activities`
+and `services`, and a layout's custom view class names through the per-app map,
+so the manifest you write keeps saying `myapp/MyApp` while the packed manifest
 names the class that is actually in the PAPK. The entry points Rust invokes by
 name — `main` and the generated `injectMembers` — are kept by `sdk/keep.toml`.
 You never need a keep entry for your own classes in either mode. See

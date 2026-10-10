@@ -1013,6 +1013,11 @@ pub const MEDIA_HANDLED: &[Row] = &[
 
 /// `native_handler/res.rs`
 pub const RES_HANDLED: &[Row] = &[
+    (
+        "picodroid/content/res/Resources",
+        "nativeManifestTheme",
+        "()I",
+    ),
     // picodroid/content/res/Resources
     ("picodroid/content/res/Resources", "getBoolean", "(I)Z"),
     ("picodroid/content/res/Resources", "getColor", "(I)I"),

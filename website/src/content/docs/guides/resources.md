@@ -346,14 +346,17 @@ are build errors. To change such a background's colour at run time, tint it:
   attribute written on the element itself wins. The expansion happens at build time, so a style
   costs nothing on the device.
 - `?attr/name` (also `?android:attr/name` and `?name`) in a layout, a shape or a value is the item
-  `name` of the app's theme, which is the style called **`AppTheme`**. It too is resolved at build
-  time. A theme item may be anything a reference can be, including one of your own
-  (`<item name="captionSize">20sp</item>`).
-- `Context.setTheme(R.style.AppTheme)`, called in `onCreate` before `setContentView`, hands the
-  theme's colours to the framework's own widgets, which is what the device keeps of a style:
-  `colorPrimary`, `colorOnPrimary`, `android:colorBackground`, `colorSurface`,
+  `name` of the app's theme: the style the manifest names with `<application
+  android:theme="@style/AppTheme">` ([the Android form](/reference/manifest/#the-android-form)),
+  else the style called **`AppTheme`**. It too is resolved at build time. A theme item may be
+  anything a reference can be, including one of your own (`<item name="captionSize">20sp</item>`).
+- The theme's colours reach the framework's own widgets, which is what the device keeps of a
+  style: `colorPrimary`, `colorOnPrimary`, `android:colorBackground`, `colorSurface`,
   `android:textColorPrimary`, `android:textColorSecondary` and `colorOutline` become
-  `picodroid.graphics.Theme`'s defaults. Every `<style>` has an `R.style` id (dots as underscores).
+  `picodroid.graphics.Theme`'s defaults. With `android:theme` in the manifest the framework applies
+  them before the first Activity's `onCreate`, as Android does; without it an app calls
+  `Context.setTheme(R.style.AppTheme)` in `onCreate` before `setContentView`. Every `<style>` has
+  an `R.style` id (dots as underscores).
 
 Divergences: one theme per app rather than one per context; the theme `?attr/` reads is chosen by
 name, not by the manifest; no `TypedArray`, `obtainStyledAttributes` or `Theme.resolveAttribute`;

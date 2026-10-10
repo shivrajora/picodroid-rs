@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest package="tutorial_service" version="1.0">
-    <application application="tutorial_service/TutorialServiceApp" />
+    <application application="tutorial_service/TutorialServiceApp">
+        <service android:name="tutorial_service.UptimeLogService" />
+    </application>
 </manifest>

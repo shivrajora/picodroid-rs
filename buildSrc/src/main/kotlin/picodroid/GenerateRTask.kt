@@ -28,6 +28,11 @@ abstract class GenerateRTask : DefaultTask() {
     @get:Input
     abstract val packageName: Property<String>
 
+    /** `<application android:theme>`: the style `?attr/` resolves against; null means `AppTheme`. */
+    @get:Input
+    @get:Optional
+    abstract val theme: Property<String>
+
     /**
      * The compiler's own sources: ids are whatever this code assigns, so a
      * changed compiler must regenerate `R.java` even over an unchanged `res/`.
@@ -61,7 +66,7 @@ abstract class GenerateRTask : DefaultTask() {
             "--res-dir", resDir.get().asFile.absolutePath,
             "--package", packageName.get(),
             "--out-dir", out.absolutePath,
-        )
+        ) + (theme.orNull?.let { listOf("--theme", it) } ?: emptyList())
         ProcessRun.runOrThrow(ProcessBuilder(args).directory(repoRoot), "papk-pack gen-r")
     }
 }

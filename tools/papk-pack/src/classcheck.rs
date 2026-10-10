@@ -93,6 +93,53 @@ pub fn class_has_method(
 
 /// Skip a fields-or-methods table: count(2) + each member (8 fixed bytes +
 /// its attributes). Returns the position just after the table.
+/// The class file's superclass, slash form; `None` for `java/lang/Object`
+/// (which has none), an unparseable file, or a constant pool this reader
+/// does not understand.
+pub fn super_class_name(data: &[u8]) -> Option<String> {
+    if data.len() < 10 || &data[0..4] != b"\xCA\xFE\xBA\xBE" {
+        return None;
+    }
+    let cp_count = u16_at(data, 8)? as usize;
+    let mut utf8: Vec<Option<&[u8]>> = vec![None; cp_count];
+    let mut class_name_idx: Vec<Option<u16>> = vec![None; cp_count];
+    let mut p = 10usize;
+    let mut i = 1usize;
+    while i < cp_count {
+        let tag = *data.get(p)?;
+        p += 1;
+        match tag {
+            1 => {
+                let len = u16_at(data, p)? as usize;
+                p += 2;
+                utf8[i] = Some(data.get(p..p + len)?);
+                p += len;
+            }
+            5 | 6 => {
+                p += 8;
+                i += 1;
+            }
+            7 => {
+                class_name_idx[i] = Some(u16_at(data, p)?);
+                p += 2;
+            }
+            8 | 16 | 19 | 20 => p += 2,
+            15 => p += 3,
+            3 | 4 | 9 | 10 | 11 | 12 | 17 | 18 => p += 4,
+            _ => return None,
+        }
+        i += 1;
+    }
+    // access_flags, this_class, super_class
+    let super_idx = u16_at(data, p + 4)? as usize;
+    if super_idx == 0 {
+        return None;
+    }
+    let name_idx = (*class_name_idx.get(super_idx)?)? as usize;
+    let name = (*utf8.get(name_idx)?)?;
+    Some(String::from_utf8_lossy(name).into_owned())
+}
+
 fn skip_members(data: &[u8], mut p: usize) -> Option<usize> {
     let count = u16_at(data, p)? as usize;
     p += 2;
@@ -141,6 +188,15 @@ mod tests {
         0x00, 0x09, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, // public static main, 0 attrs
         0x00, 0x00, // class attributes_count = 0
     ];
+
+    #[test]
+    fn reads_the_superclass() {
+        assert_eq!(
+            super_class_name(CLASS_WITH_MAIN).as_deref(),
+            Some("java/lang/Object")
+        );
+        assert_eq!(super_class_name(b"not a class file"), None);
+    }
 
     #[test]
     fn finds_static_main() {

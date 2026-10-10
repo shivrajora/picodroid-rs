@@ -838,6 +838,7 @@ F	sHeight
 F	sInstance
 F	sInstances
 F	sMainExecutor
+F	sManifestThemeApplied
 F	sQueuedWork
 F	sUnwritten
 F	sWidth
@@ -967,6 +968,7 @@ M	apply
 M	applyDimension
 M	applyLayoutSize
 M	applyLineMode
+M	applyManifestTheme
 M	applyTheme
 M	applyTint
 M	applyTo
@@ -1724,6 +1726,7 @@ M	nativeLastError
 M	nativeLength
 M	nativeListen
 M	nativeLongValue
+M	nativeManifestTheme
 M	nativeNewArray
 M	nativeNewObject
 M	nativeNewView
