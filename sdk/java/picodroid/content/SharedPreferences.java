@@ -676,7 +676,8 @@ public final class SharedPreferences {
     public Editor putString(String key, String value) {
       checkKey(key);
       if (value == null) {
-        throw new IllegalArgumentException("value is null");
+        // Android: "Passing null for this argument is equivalent to calling remove()".
+        return remove(key);
       }
       if (value.length() > SharedPreferences.MAX_STRING_VAL) {
         throw new IllegalArgumentException("value too long");

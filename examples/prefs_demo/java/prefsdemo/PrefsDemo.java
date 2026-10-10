@@ -106,6 +106,9 @@ public class PrefsDemo extends Application {
     SharedPreferences r = SharedPreferences.open("demo4");
     check("missing after remove", !r.contains("k1"));
     check("sibling survives remove", r.contains("k2"));
+    // Android: putString(key, null) is the same as remove(key).
+    r.edit().putString("k2", null).commit();
+    check("putString(null) removes", !SharedPreferences.open("demo4").contains("k2"));
   }
 
   static void testClear() {
