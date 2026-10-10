@@ -704,3 +704,43 @@ fn string_join_unknown_descriptor_is_not_served() {
         .dispatch(c::java_lang_String, m::join, &mut nctx)
         .is_none());
 }
+
+#[test]
+fn string_split_honours_limit() {
+    // split(String, int): a positive limit caps the parts (the last one
+    // holds the rest), a negative one keeps trailing empty strings, zero is
+    // the one-arg behaviour. The limit used to be ignored.
+    fn split(
+        ctx: &mut StrCtx,
+        s: &'static [u8],
+        d: &'static [u8],
+        limit: i32,
+    ) -> alloc::vec::Vec<alloc::string::String> {
+        let s = ctx.intern(s);
+        let d = ctx.intern(d);
+        let r = ctx
+            .dispatch(
+                m::split,
+                "(Ljava/lang/String;I)[Ljava/lang/String;",
+                &[s, d, Value::Int(limit)],
+            )
+            .unwrap()
+            .unwrap();
+        let Value::ArrayRef(arr) = r else {
+            panic!("expected ArrayRef");
+        };
+        let n = ctx.arrays.length(arr).unwrap() as usize;
+        (0..n)
+            .map(|i| {
+                let v = crate::array_heap::decode_ref(ctx.arrays.load(arr, i).unwrap());
+                alloc::string::String::from(ctx.resolve(v))
+            })
+            .collect()
+    }
+    let mut ctx = StrCtx::new();
+    assert_eq!(split(&mut ctx, b"a,b,,", b",", -1), ["a", "b", "", ""]);
+    assert_eq!(split(&mut ctx, b"a,b,c", b",", 2), ["a", "b,c"]);
+    assert_eq!(split(&mut ctx, b"a,b,c", b",", 1), ["a,b,c"]);
+    assert_eq!(split(&mut ctx, b"a,b,,", b",", 0), ["a", "b"]);
+    assert_eq!(split(&mut ctx, b"a,b,,", b",", 10), ["a", "b", "", ""]);
+}

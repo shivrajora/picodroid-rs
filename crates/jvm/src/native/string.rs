@@ -528,11 +528,18 @@ pub(crate) fn dispatch(
             }
         }
         m::split => {
-            // split(String delim) — literal delimiter, no regex
+            // split(String delim[, int limit]) — literal delimiter, no regex.
+            // Java's limit: positive caps the number of parts (the last one
+            // keeps the rest), negative keeps every part, zero (the one-arg
+            // overload) drops trailing empty strings.
             let (Some(Value::Reference(idx)), Some(Value::Reference(delim_idx))) =
                 (ctx.args.first(), ctx.args.get(1))
             else {
                 return Some(Err(JvmError::InvalidReference));
+            };
+            let limit = match ctx.args.get(2) {
+                Some(Value::Int(l)) => *l,
+                _ => 0,
             };
             // Collect segments as owned byte vectors to avoid borrow conflicts.
             let segments: alloc::vec::Vec<alloc::vec::Vec<u8>> = {
@@ -541,14 +548,21 @@ pub(crate) fn dispatch(
                 if delim.is_empty() {
                     alloc::vec![s.as_bytes().to_vec()]
                 } else {
+                    // splitn with no cap is split: one collect for both forms
+                    // (the native arms' allocation sites are counted).
+                    let cap = if limit > 0 {
+                        limit as usize
+                    } else {
+                        usize::MAX
+                    };
                     let mut parts: alloc::vec::Vec<alloc::vec::Vec<u8>> = s
-                        .split(delim)
+                        .splitn(cap, delim)
                         .map(|part| part.as_bytes().to_vec())
                         .collect();
                     // Java limit-0 semantics: trailing empty strings are
                     // discarded ("a,b,," -> ["a","b"], ",," -> []). A
                     // no-match input stays [input], even when empty.
-                    if parts.len() > 1 {
+                    if limit == 0 && parts.len() > 1 {
                         while parts.last().is_some_and(|p| p.is_empty()) {
                             parts.pop();
                         }
