@@ -254,8 +254,8 @@ only a re-init of the chip ever issued another join.
 *Fix.* `crates/picodroid-core/src/hal/wifi_join.rs` — `JoinSupervisor`, a pure policy with
 host tests, fed the mirrored station status by any link driver: NoNet / Fail / Down (lost
 after being up, or dropped during the join) / no verdict within 15 s (then a leave first, so
-a stale join-state word cannot swallow the new attempt) → rejoin after 3 s, doubling to 60 s,
-the ladder reset by a successful join; BadAuth → the whole ladder (six tries, 3 s to 60 s),
+a stale join-state word cannot swallow the new attempt) → rejoin after 3 s, doubling to 60 s
+(NoNet, a missed probe: after 1 s, doubling), the ladder reset by a successful join; BadAuth → the whole ladder (six tries, 3 s to 60 s),
 then one every 5 minutes (Android disables a network for 5 minutes after three
 authentication failures, but the chip reports a handshake that timed out under load with
 the same verdict as a wrong password — three times in a row on run 3b's cycle 74 — so the
