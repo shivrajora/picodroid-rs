@@ -34,8 +34,8 @@ hot_ram_kb = 60
 
 # Multi-app (docs/designs/multi-app-2026-09.md D1/D2). 16 MB of flash makes this
 # the roomiest board on the bench by a wide margin: the app region takes nearly
-# 10 MB and LittleFS 4 MB, and the program image keeps the same 2304 KB ceiling
-# the other W boards get. That last number is deliberate — handing the image
+# 10 MB and LittleFS 4 MB, and the program image keeps a ceiling close to the
+# 2304 KB the other W boards get. That last number is deliberate — handing the image
 # the leftover 10 MB would turn the flash gate in scripts/lib.sh into a formality
 # on this board while it stays a real constraint everywhere else.
 # 2026-09-29: the app region gave up 256 KB (10240 → 9984 KB) for the same
@@ -44,9 +44,16 @@ hot_ram_kb = 60
 # was 35.6 KB over at the 2026-09-29 HIL nightly, debug ~94 KB over — once the
 # framework's class link tables moved into flash (docs/designs/class-link-2026-09.md).
 # LittleFS and the app region moved, so the first flash after this reformats them.
-# FLASH 2304K @0x10000000 | FS_FLASH 4096K @0x10240000 | PAPK_FLASH 9984K @0x10640000
+# 2026-10-10: another 256 KB (9984 → 9728 KB), program region 2560 KB. The
+# v0.37 framework (time service, Class.forName, manifest components, java.io)
+# put the debug image — no LTO, no name shrink, line numbers — 7.2 KB over
+# 2304 KB in CI; the display board's debug image had 12.5 KB left. This board
+# is the largest image and has 16 MB, so it alone takes the step; the 4 MB W
+# boards keep 2304 KB until their own debug link needs more.
+# Moved again, so the first flash after this reformats LittleFS and the apps.
+# FLASH 2560K @0x10000000 | FS_FLASH 4096K @0x10280000 | PAPK_FLASH 9728K @0x10680000
 max_installed_apps = 16
-app_region_kb = 9984
+app_region_kb = 9728
 fs_kb = 4096
 # picodroid.json (JSONObject/JSONArray, native node pool). On here for the same
 # reason as the other RP2350 boards: the program region has the room.
