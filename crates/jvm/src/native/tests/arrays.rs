@@ -451,3 +451,29 @@ fn arrays_to_string_null() {
     };
     assert_eq!(s, "null");
 }
+
+#[test]
+fn arrays_copy_of_negative_length_throws_negative_array_size() {
+    // Java: Arrays.copyOf(a, -1) throws NegativeArraySizeException (the
+    // same class `new int[-1]` throws); it used to be an uncatchable
+    // InvalidReference fault.
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let idx = make_int_array(&mut arrays, &[1, 2, 3]);
+    let r = arrays_dispatch(
+        m::copyOf,
+        "([II)[I",
+        &[Value::ArrayRef(idx), Value::Int(-1)],
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+    );
+    let Err(JvmError::Exception(exc)) = r else {
+        panic!("copyOf(a, -1) = {r:?}");
+    };
+    assert_eq!(
+        objects.class_name(exc),
+        Some(c::java_lang_NegativeArraySizeException)
+    );
+}

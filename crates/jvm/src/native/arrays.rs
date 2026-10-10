@@ -201,6 +201,14 @@ fn dispatch_copy_of(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmErr
     let arr = extract_array(ctx)?;
     let new_len = match ctx.args.get(1).copied().unwrap_or(Value::Null) {
         Value::Int(n) if n >= 0 => n as usize,
+        // Java: a negative length is a catchable NegativeArraySizeException,
+        // as `new int[-1]` throws, not a VM fault.
+        Value::Int(_) => {
+            return Err(super::throw_named(
+                ctx,
+                c::java_lang_NegativeArraySizeException,
+            ))
+        }
         _ => return Err(JvmError::InvalidReference),
     };
     let atype = ctx.arrays.atype(arr).ok_or(JvmError::InvalidReference)?;
