@@ -22,6 +22,7 @@ import picodroid.os.Bundle;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
 import picodroid.view.KeyEvent;
+import picodroid.view.ViewGroup;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.ScrollView;
 import picodroid.widget.TextView;
@@ -76,16 +77,22 @@ public class MainActivity extends Activity implements SensorEventListener {
     title.setTextColor(Color.rgb(255, 200, 80));
     root.addView(title);
 
+    // The prompt wraps at the panel's width (two lines at most) and the reply takes the rest of
+    // the column: the root is the window, whichever board this is.
     promptView = new TextView(this);
     promptView.setTextColor(Color.rgb(200, 200, 200));
     promptView.setMaxLines(2);
-    root.addView(promptView);
+    root.addView(
+        promptView,
+        new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
     ScrollView scroll = new ScrollView(this);
     replyView = new TextView(this);
     replyView.setText("A/B: pick a prompt   X: ask   Y: clear");
+    replyView.setSize(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
     scroll.addView(replyView);
-    root.addView(scroll);
+    root.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
     statusView = new TextView(this);
     statusView.setTextColor(Color.rgb(120, 200, 120));

@@ -135,29 +135,14 @@ pub const CONTRACT_HINTS: &[(&str, &str, &str)] = &[
     ("java/lang/Float", "isNaN", "a NaN is the only value that is != itself"),
     ("java/lang/Double", "isNaN", "a NaN is the only value that is != itself"),
     (
-        "java/io/BufferedReader",
-        "",
-        "no java.io streams — read files with picodroid.io.FileInputStream into a byte[]",
-    ),
-    (
-        "java/io/InputStreamReader",
-        "",
-        "no java.io streams — read files with picodroid.io.FileInputStream into a byte[]",
-    ),
-    (
         "java/io/FileReader",
         "",
-        "no java.io streams — read files with picodroid.io.FileInputStream into a byte[]",
+        "no FileReader — wrap picodroid.io.FileInputStream in an InputStreamReader",
     ),
     (
         "java/io/FileWriter",
         "",
-        "no java.io streams — write files with picodroid.io.FileOutputStream",
-    ),
-    (
-        "java/io/PrintWriter",
-        "",
-        "no java.io streams — write files with picodroid.io.FileOutputStream",
+        "no FileWriter — wrap picodroid.io.FileOutputStream in an OutputStreamWriter",
     ),
 ];
 
@@ -251,11 +236,21 @@ mod tests {
         .to_string()
     }
 
+    /// A hierarchy edge of an SDK class file: `("@extends" | "@implements",
+    /// child, parent)`, original names.
+    type Edge = (&'static str, String, String);
+
     /// Class and member rows of every SDK `java/**` / `javax/**` class file
-    /// (original names — the shrink lane loads shrunk ones), plus how many
-    /// such classes were seen (the non-vacuity guard).
-    fn sdk_rows() -> (BTreeSet<Row>, usize) {
+    /// (original names — the shrink lane loads shrunk ones), how many such
+    /// classes were seen (the non-vacuity guard), and their superclass and
+    /// `java/**` interface edges. The edges matter once a `java/**` class
+    /// extends another with a class file (`BufferedReader extends Reader`):
+    /// javac names the static type as the owner of an inherited call
+    /// (`bufferedReader.read(char[])` is owned by `BufferedReader`, declared
+    /// by `Reader`), and the verifier walks `@extends` to find it.
+    fn sdk_rows() -> (BTreeSet<Row>, usize, BTreeSet<Edge>) {
         let mut rows = BTreeSet::new();
+        let mut edges = BTreeSet::new();
         let mut classes = 0;
         for bytes in crate::framework_classes::class_bytes() {
             let cf = ClassFile::parse(bytes).expect("parse framework class");
@@ -267,6 +262,21 @@ mod tests {
             }
             classes += 1;
             rows.insert(row(class, "", ""));
+            if let Some(sup) = cf.super_class_name() {
+                let sup = unshrink_class(core::str::from_utf8(sup).expect("super name is UTF-8"));
+                if sup != "java/lang/Object" {
+                    edges.insert(("@extends", class.to_string(), sup.to_string()));
+                }
+            }
+            for f in cf.interfaces() {
+                let Some(iface) = cf.iface_name(f) else {
+                    continue;
+                };
+                let iface = unshrink_class(core::str::from_utf8(iface).expect("interface name"));
+                if iface.starts_with("java/") || iface.starts_with("javax/") {
+                    edges.insert(("@implements", class.to_string(), iface.to_string()));
+                }
+            }
             for m in cf.methods() {
                 if m.access_flags & ACC_PRIVATE != 0 {
                     continue;
@@ -292,7 +302,7 @@ mod tests {
                 rows.insert((class.to_string(), name, unshrink_descriptor(&desc)));
             }
         }
-        (rows, classes)
+        (rows, classes, edges)
     }
 
     fn builtin_rows(table: &[(&str, &[BuiltinMethodRow])], rows: &mut BTreeSet<Row>) {
@@ -317,7 +327,7 @@ mod tests {
 
     /// The contract as the runtime tables define it right now.
     fn generate() -> Contract {
-        let (mut rows, sdk_classes) = sdk_rows();
+        let (mut rows, sdk_classes, sdk_edges) = sdk_rows();
 
         // Every name the JVM resolves at all: builtins, the hierarchy tables'
         // keys and values, and the name-only classes.
@@ -371,7 +381,7 @@ mod tests {
             );
         }
 
-        let text = render(&rows);
+        let text = render(&rows, &sdk_edges);
         Contract {
             rows,
             sdk_classes,
@@ -379,7 +389,7 @@ mod tests {
         }
     }
 
-    fn render(rows: &BTreeSet<Row>) -> String {
+    fn render(rows: &BTreeSet<Row>, sdk_edges: &BTreeSet<Edge>) -> String {
         let mut out = String::new();
         out.push_str(
             "# sdk/api-contract.tsv — the java/** and javax/** surface pico-jvm serves.\n\
@@ -404,8 +414,10 @@ mod tests {
              #   owner<TAB>name<TAB>desc          member served with exactly this descriptor\n\
              #   owner<TAB>name<TAB>              member served for any descriptor (native\n\
              #                                    dispatch is keyed on (class, name))\n\
-             #   @extends<TAB>child<TAB>parent    builtin superclass edge (BUILTIN_SUPER)\n\
-             #   @implements<TAB>class<TAB>iface  builtin interface edge (BUILTIN_INTERFACES)\n\
+             #   @extends<TAB>child<TAB>parent    superclass edge (BUILTIN_SUPER, or an SDK\n\
+             #                                    java/** class file's superclass)\n\
+             #   @implements<TAB>class<TAB>iface  interface edge (BUILTIN_INTERFACES, or an SDK\n\
+             #                                    java/** class file's java/** interfaces)\n\
              #   @nameonly<TAB>class              resolves as a catch / super / cast type only,\n\
              #                                    never instantiated\n\
              #   @hint<TAB>owner|prefix*<TAB>name|<empty><TAB>text\n\
@@ -453,6 +465,9 @@ mod tests {
                     unshrink_class(i)
                 ));
             }
+        }
+        for (kind, child, parent) in sdk_edges {
+            edges.insert(format!("{kind}\t{child}\t{parent}"));
         }
         for e in &edges {
             let _ = writeln!(out, "{e}");

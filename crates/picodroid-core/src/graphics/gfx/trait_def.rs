@@ -123,6 +123,11 @@ pub trait Gfx {
     /// Detach and delete every child of `h`. Maps to LVGL's `lv_obj_clean`.
     fn remove_all_children(&mut self, h: Handle);
 
+    /// Move `h` to `index` among its parent's children (`addView(child,
+    /// index)`). Maps to LVGL's `lv_obj_move_to_index`; a stale handle is a
+    /// no-op.
+    fn move_to_index(&mut self, h: Handle, index: i32);
+
     /// Apply a flex-grow factor to `h`. Used by
     /// {@code LinearLayout.LayoutParams.weight} so weighted children expand
     /// to fill remaining space along the layout's main axis.

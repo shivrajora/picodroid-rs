@@ -476,6 +476,13 @@ unsafe impl Sync for lv_image_dsc_t {}
 // Opacity constants
 pub const LV_OPA_COVER: u8 = 255;
 
+/// `lv_border_side_t` (lv_style.h): a C enum. Only ever passed by value in a
+/// register, so the C side's enum width (int, or a byte under
+/// `-fshort-enums`) does not matter to the call.
+pub type lv_border_side_t = u32;
+/// `LV_BORDER_SIDE_BOTTOM`: the separator line under a list row.
+pub const LV_BORDER_SIDE_BOTTOM: lv_border_side_t = 0x01;
+
 // Object flags (from lv_obj.h)
 pub const LV_OBJ_FLAG_HIDDEN: u32 = 1 << 0;
 pub const LV_OBJ_FLAG_CLICKABLE: u32 = 1 << 1;
@@ -1007,6 +1014,16 @@ extern "C" {
     // Object flags
     pub fn lv_obj_add_flag(obj: *mut lv_obj_t, f: u32);
     pub fn lv_obj_remove_flag(obj: *mut lv_obj_t, f: u32);
+
+    // ListView rows (widgets/list_view.rs): stretch an adapter's row view to
+    // the list's width and give it the list button's padding and separator.
+    pub fn lv_obj_set_width(obj: *mut lv_obj_t, w: i32);
+    pub fn lv_obj_set_style_pad_all(obj: *mut lv_obj_t, value: i32, selector: lv_style_selector_t);
+    pub fn lv_obj_set_style_border_side(
+        obj: *mut lv_obj_t,
+        value: lv_border_side_t,
+        selector: lv_style_selector_t,
+    );
 
     // Object state
     pub fn lv_obj_has_state(obj: *mut lv_obj_t, state: u32) -> bool;

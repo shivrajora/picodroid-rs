@@ -27,8 +27,9 @@ soft-nav control), `pico_touch_kit` (320×480 touch, BACK and HOME buttons).
 
 Lay out against the 240×240 floor and let the rest take the room a larger panel adds:
 
-- `match_parent` on the root; `layout_weight` on the child that should grow; a weighted
-  `<Space>` to push neighbours to the edges.
+- The root is the window by default: `setContentView` gives an unsized root `match_parent` both
+  ways, as Android does, and a root you size yourself is clipped at that size. `layout_weight` on
+  the child that should grow; a weighted `<Space>` to push neighbours to the edges.
 - `android:minWidth` / `minHeight` floor a `wrap_content` view; `android:maxWidth` caps a label so
   a long line wraps or ellipsizes instead of pushing the row off the panel.
 - `android:visibility="invisible"` keeps a view's room while it is hidden (`gone` gives it up).
@@ -44,17 +45,18 @@ debug build say which it was after each `setContentView`:
 
 ```text
 [layout] fit ok 320x240 in 320x240
+[layout] fit ok 160x160 in 320x240 (the root stops 160 short of the right edge, 80 short of the bottom)
 [layout] overflow 320x480 in 320x240: the screen pans 0 right, 240 down
 [layout] overflow 240x240 in 240x240: content is cut 0 past the right edge, 36 past the bottom
+[layout] overflow 320x240 in 320x240: content is cut 0 past the right edge, 92 past the bottom (by a 160x160 layout)
 ```
 
-The cut is measured against the window's edge. A layout that is smaller than the window and
-does not scroll — a root left at its default size, a column given a fixed height — clips its own
-children just the same, and that is not reported: give such a root `match_parent`, or make it a
-`ScrollView`, and read the line again.
-
 The check looks through every layout down to the first `ScrollView` or list, whose content is
-reached by scrolling it; the third line means the rows that do not fit a panel need one.
+reached by scrolling it, and measures a cut at the edge that makes it: the window's, or that of a
+layout smaller than the window that does not scroll — a column given a fixed height — which
+clips its own children just the same. The fourth line means the rows that do not fit a panel need
+a `ScrollView`; the fifth names the layout to give `match_parent` or a `ScrollView`. The second
+is a root sized smaller than the window by the app, with the rest of the panel blank.
 
 Try the smallest board first: `./scripts/sim.sh --app yourapp --board pico_enviro_mon`.
 See [Resources, R and XML layouts](/guides/resources/) for the vocabulary.

@@ -11,8 +11,20 @@
 # build_support/names.rs turns each row into a `c::<ident>` const (value =
 # the active shrink map's target under --shrink, the original otherwise)
 # that Rust names the class through; never spell one as a literal.
+java/io/BufferedReader
+java/io/ByteArrayInputStream
+java/io/ByteArrayOutputStream
+java/io/Closeable
 java/io/IOException
+java/io/InputStream
+java/io/InputStreamReader
 java/io/InterruptedIOException
+java/io/OutputStream
+java/io/OutputStreamWriter
+java/io/PrintWriter
+java/io/Reader
+java/io/UnsupportedEncodingException
+java/io/Writer
 java/lang/Appendable
 java/lang/ArithmeticException
 java/lang/ArrayIndexOutOfBoundsException
@@ -259,6 +271,8 @@ picodroid/net/NetworkRequest$Builder
 picodroid/net/ServerSocket
 picodroid/net/SntpClient
 picodroid/net/Socket
+picodroid/net/SocketInputStream
+picodroid/net/SocketOutputStream
 picodroid/net/URL
 picodroid/net/ssl/HttpsURLConnection
 picodroid/net/wifi/ScanResult

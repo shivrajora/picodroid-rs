@@ -70,6 +70,40 @@ volatile uint32_t instr_rx_ok, instr_rx_drop_nobuf, instr_rx_drop_queue,
  * 1-2 s earlier during association; join→lease latency re-checked on HW
  * (docs/networking-followups-2026-08.md NET-2).
  */
+/*
+ * The driver's join-state word carries a verdict in its low nibble (ACTIVE,
+ * FAIL, NONET, BADAUTH) and the join's progress in bits 9..11 (AUTH, LINK,
+ * KEYED). A good AUTH resets the verdict only after BADAUTH, so when the
+ * chip's firmware joins by itself after a NONET verdict — it keeps trying
+ * the SSID it was given — the word reads 0xe03: authenticated, linked and
+ * keyed, "no such network". The driver never collapses that to link-up,
+ * so the station was on the network and nothing here knew (NET-12, bench
+ * cycle 116: 45 s with the AP out of reach, then a self-join the driver
+ * kept filing as NONET). A verdict can also land mid-join and wipe the
+ * progress already made (every verdict is an assignment), after which the
+ * chip finishes the handshake anyway: PSK_SUP status 8 filed as BADAUTH,
+ * then KEYED, reads 0x804 (run 4, cycle 8). KEYED is only ever set by the
+ * supplicant reporting the 4-way handshake complete, which needs the
+ * association and the link, and it cannot be the open-network preset
+ * once a verdict has overwritten the word; so KEYED over a failure
+ * verdict means joined whatever the other bits say, and
+ * picodroid_cyw43_sta_status performs the collapse the driver skipped —
+ * the word back to bare ACTIVE and the interface up, exactly its own
+ * WIFI_JOIN_STATE_ALL step — so a later link-down reads as one.
+ */
+#define STA_JOIN_KIND_MASK (0x000fu)
+#define STA_JOIN_ACTIVE    (0x0001u)
+#define STA_JOIN_KEYED     (0x0800u)
+
+static void vCollapseSelfJoin(void) {
+    uint32_t w = cyw43_state.wifi_join_state;
+    uint32_t kind = w & STA_JOIN_KIND_MASK;
+    if ((w & STA_JOIN_KEYED) != 0 && kind != 0 && kind != STA_JOIN_ACTIVE) {
+        cyw43_state.wifi_join_state = STA_JOIN_ACTIVE;
+        xInterfaceUp = pdTRUE;
+    }
+}
+
 static BaseType_t xCYW43_LinkIsUp(void) {
     return (xInterfaceUp != pdFALSE &&
             cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) >= CYW43_LINK_JOIN)
@@ -210,6 +244,9 @@ void cyw43_cb_process_ethernet(void *cb_data, int itf, size_t len, const uint8_t
  * join was issued and no EV_LINK has arrived), 2 associated (link up).
  */
 int picodroid_cyw43_sta_status(void) {
+    /* Called on the link task, which is where the driver's event handling
+     * writes the word too (cyw43_poll and the join's ioctls run there). */
+    vCollapseSelfJoin();
     int s = cyw43_wifi_link_status(&cyw43_state, CYW43_ITF_STA);
     if (s < 0) {
         return s;
@@ -224,6 +261,23 @@ int picodroid_cyw43_sta_status(void) {
  * the Rust side keeps opaque. */
 int picodroid_cyw43_scan_active(void) {
     return cyw43_wifi_scan_active(&cyw43_state) ? 1 : 0;
+}
+
+/* The driver's raw join-state word (WIFI_JOIN_STATE_* in cyw43_ctrl.c),
+ * logged by the join supervisor when it retries: tells a join that never
+ * got its SET_SSID verdict (0x0001) from one that authenticated and lost
+ * the link (0x0201) or keyed and never linked (0x0a01). */
+uint32_t picodroid_cyw43_join_state(void) {
+    return cyw43_state.wifi_join_state;
+}
+
+/* Log every async event the chip sends (cyw43_dump_async_event). */
+void picodroid_cyw43_trace_events(int on) {
+    if (on) {
+        cyw43_state.trace_flags |= CYW43_TRACE_ASYNC_EV;
+    } else {
+        cyw43_state.trace_flags &= ~(uint32_t)CYW43_TRACE_ASYNC_EV;
+    }
 }
 
 /* Start an active scan of every channel; results reach `cb` from inside
@@ -243,10 +297,26 @@ void cyw43_cb_tcpip_set_link_up(cyw43_t *self, int itf) {
     }
 }
 
+/*
+ * The driver reports the link gone (EV_LINK down, EV_DISASSOC): a deauth
+ * from the AP, the AP rebooting, the station out of range. The stack
+ * only learns of a lost link from the driver, so tell it once per loss:
+ * the IP task then runs its network-down path (the `net: down` hook,
+ * every socket's send failing fast instead of timing out) and retries
+ * pfInitialise every 3 s, which brings DHCP back the moment the join
+ * supervisor (hal/rp/cyw43/link.rs) has the station re-associated. A
+ * link-down during a join (never up) is not a loss to the stack, which
+ * never saw it up. Called inside cyw43_poll on the link task, which may
+ * post to the IP task's queue.
+ */
 void cyw43_cb_tcpip_set_link_down(cyw43_t *self, int itf) {
     (void)self;
     if (itf == CYW43_ITF_STA) {
+        BaseType_t xWasUp = xInterfaceUp;
         xInterfaceUp = pdFALSE;
+        if (xWasUp != pdFALSE && pxRegisteredInterface != NULL) {
+            FreeRTOS_NetworkDown(pxRegisteredInterface);
+        }
     }
 }
 

@@ -15,7 +15,23 @@ Two costs are worth knowing: an app path is at most 185 bytes (LittleFS itself a
 
 ## `picodroid.io` — Files
 
-`picodroid.io.File`, `FileInputStream`, and `FileOutputStream` provide a stripped-down `java.io`-style API.
+`picodroid.io.File`, `FileInputStream`, and `FileOutputStream` provide a stripped-down `java.io`-style API. `FileInputStream` **is a** `java.io.InputStream` and `FileOutputStream` **is a** `java.io.OutputStream`, so they wrap in the `java.io` readers and writers exactly as on Android (see [`java.io` streams](/api/core/#javaio-streams)):
+
+```java
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+
+try (PrintWriter out = new PrintWriter(openFileOutput("log.txt", MODE_APPEND))) {
+    out.println("boot " + SystemClock.uptimeMillis());
+}
+try (BufferedReader in = new BufferedReader(new InputStreamReader(openFileInput("log.txt")))) {
+    String line;
+    while ((line = in.readLine()) != null) {
+        Log.i("FS", line);
+    }
+}
+```
 
 Each `read()` / `write()` is independent — there is no native file handle to keep open, so `close()` is a no-op (it is provided so the streams can still be used in try-with-resources blocks).
 
@@ -56,8 +72,8 @@ The read side reports failure the way `java.io.File`'s predicates do — `false`
 | Class | Selected methods |
 |-------|------------------|
 | `File` | constructor `File(String path)`; `getPath()`, `getAbsolutePath()`, `getName()`, `getParent()`, `getParentFile()`, `exists()`, `isFile()`, `isDirectory()`, `length()`, `delete()`, `mkdir()`, `mkdirs()`, `createNewFile()` (throws `IOException`), `renameTo(File)`, `list()`, `listFiles()` |
-| `FileInputStream` | constructors `(File)`, `(String path)`; `read(byte[], int, int)`, `read(byte[])`, `available()`, `close()` |
-| `FileOutputStream` | constructors `(File)`, `(String)`, `(String, boolean append)`; `write(byte[], int, int)`, `write(byte[])`, `write(int)` (all throw `IOException`), `flush()`, `close()` |
+| `FileInputStream` (extends `java.io.InputStream`) | constructors `(File)`, `(String path)`; `read()`, `read(byte[], int, int)`, `read(byte[])`, `available()`, `close()`, and `InputStream`'s `skip` |
+| `FileOutputStream` (extends `java.io.OutputStream`) | constructors `(File)`, `(String)`, `(String, boolean append)`; `write(byte[], int, int)`, `write(byte[])`, `write(int)` (all throw `IOException`), `flush()`, `close()` |
 
 `list()` returns the names in a directory in the filesystem's order, and `listFiles()` the same entries as `File`s under the directory's path; both return `null` for a path that is not a directory. `mkdirs()` creates the missing ancestors too and, as on Android, is `true` only when it created the directory — `false` when it already existed. `createNewFile()` is `false` when the path already exists. A `File` has the one constructor: build a child path by concatenation (`new File(dir.getPath() + "/" + name)`).
 

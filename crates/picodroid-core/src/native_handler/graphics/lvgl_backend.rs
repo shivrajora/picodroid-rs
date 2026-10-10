@@ -44,7 +44,7 @@ impl GraphicsBackend for LvglBackend {
     fn dispatch_view(&mut self, method: &str, ctx: &mut NativeContext<'_>) -> DispatchResult {
         match method {
             m::setPosition => Some(view::set_position(ctx.args, ctx.objects)),
-            m::setSize => Some(view::set_size(ctx.args, ctx.objects)),
+            m::nativeSetSize => Some(view::set_size(ctx.args, ctx.objects)),
             m::nativeSetBackgroundColor => Some(view::set_bg_color(ctx.args, ctx.objects)),
             m::nativeSetBackgroundTint => Some(view::set_bg_tint(ctx.args, ctx.objects)),
             // setVisibility/setEnabled/setAlpha became Java wrappers (they
@@ -112,6 +112,7 @@ impl GraphicsBackend for LvglBackend {
             m::nativeAddView => Some(view_group::add_view(ctx.args, ctx.strings, ctx.objects)),
             m::nativeRemoveView => Some(view_group::remove_view(ctx.args, ctx.objects)),
             m::nativeRemoveAllViews => Some(view_group::remove_all_views(ctx.args, ctx.objects)),
+            m::nativeMoveChildTo => Some(view_group::move_child_to(ctx.args, ctx.objects)),
             m::getChildCount => Some(view_group::get_child_count(ctx.args, ctx.objects)),
             _ => None,
         }
@@ -319,6 +320,7 @@ impl GraphicsBackend for LvglBackend {
             m::nativeRegisterItemClickListener => Some(
                 widgets::list_view_register_item_click_listener(ctx.args, ctx.objects),
             ),
+            m::nativeStyleRow => Some(widgets::list_view_style_row(ctx.args, ctx.objects)),
             _ => None,
         }
     }

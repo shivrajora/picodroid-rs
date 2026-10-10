@@ -261,6 +261,26 @@ boards benefit.
   debug-profile images only (flash-string-budget §4).
 - **T2.5 — the upcall enabler (E2).** **DONE** — both sessions. Builtin and
   embedder arms can upcall; T3.4 is unblocked.
+- **T3.3 — `java.io` streams. DONE 2026-10-09**, with T3.4 in
+  `designs/java-io-streams-2026-10.md`. `InputStream`, `OutputStream`,
+  `Reader`, `Writer` (abstract), `ByteArrayInputStream`/`OutputStream`,
+  `InputStreamReader`, `BufferedReader.readLine`, `OutputStreamWriter`,
+  `PrintWriter` as pure-Java SDK classes; `picodroid.io.File*` and
+  `picodroid.net.Http*` streams re-parented; `Socket.getInputStream()`/
+  `getOutputStream()`. *What differed from the plan:* no "abstract builtins"
+  — bodied `java/**` class files needed no JVM table rows at all, only two
+  name-only classes (`Closeable`, `UnsupportedEncodingException`); the real
+  work was the compile-time contract learning SDK class-file `@extends`
+  edges and the "chars are bytes" decision (no charset decoding; a UTF-8
+  line survives `readLine` because it is built with `append(char)`).
+- **T3.4 — `getView` + convertView. DONE 2026-10-09.** Rows are Java views
+  built by `getView`, kept as the list's children, re-bound through
+  `convertView` on every `notifyDataSetChanged`; `ArrayAdapter` gained the
+  layout-resource constructors; `ViewGroup.addView(child, index)`. *What
+  differed:* no ~12-row pool — rows never scroll out of existence here, so
+  the pool is the row set and `setAdapter` starts fresh (Android clears its
+  recycler then too); and the Java loop replaced the `nativeBindAdapter`
+  upcall loop rather than extending it.
 - **T2.6 — JSON. DONE 2026-09-04.** `picodroid.json.JSONObject`/`JSONArray`/
   `JSONException` with Android's full `org.json` surface for the two classes.
   Native node pool (`picodroid-core/src/json/`: pool, strict RFC 8259 parser,

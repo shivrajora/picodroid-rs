@@ -461,6 +461,67 @@ try (Gpio led = pm.openGpio("GP25")) {
 
 Multiple resources in one `try` close in reverse-declaration order. See [`examples/trywithresourcesdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/trywithresourcesdemo) for a worked example.
 
+## `java.io` streams
+
+The `java.io` stream hierarchy, as pure-Java classes on every board: `InputStream` and
+`OutputStream` (abstract), `ByteArrayInputStream` / `ByteArrayOutputStream`, `Reader` and
+`Writer` (abstract), `InputStreamReader`, `BufferedReader` with `readLine()`,
+`OutputStreamWriter` and `PrintWriter`. `picodroid.io.FileInputStream` / `FileOutputStream`,
+`picodroid.net.HttpInputStream` / `HttpOutputStream` and `Socket.getInputStream()` /
+`getOutputStream()` are `java.io` streams, so the Android idioms work as written:
+
+```java
+import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+
+// Lines from an HTTP body, a file or a socket
+BufferedReader r = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+String line;
+while ((line = r.readLine()) != null) {
+    Log.i("NET", line);
+}
+
+// Every byte of a stream
+static byte[] readAll(InputStream in) throws IOException {
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    byte[] buf = new byte[64];
+    int n;
+    while ((n = in.read(buf)) != -1) {
+        out.write(buf, 0, n);
+    }
+    return out.toByteArray();
+}
+
+// Lines to a socket
+PrintWriter out = new PrintWriter(socket.getOutputStream(), /*autoFlush=*/true);
+out.println("HELLO");
+```
+
+An app's own stream subclasses `InputStream` and implements `read()`; `read(byte[])`, `skip`
+and the rest come from the base class, as in the JDK (override `read(byte[], int, int)` for
+speed). `InputStream`, `OutputStream`, `Reader` and `Writer` implement `java.io.Closeable`, which
+is an `AutoCloseable`, so every stream works in try-with-resources.
+
+**Chars are bytes.** Strings here are byte-backed, so a reader hands each byte up as one `char`
+and a writer sends each `char`'s low byte; there is no charset decoding. The charset-name
+constructors (`InputStreamReader(in, "UTF-8")`, `OutputStreamWriter(out, "UTF-8")`) accept any
+name and report it from `getEncoding()`; `UnsupportedEncodingException` is declared, never
+thrown. A UTF-8 line comes out of `readLine()` byte for byte, so it logs and displays correctly;
+`ByteArrayOutputStream.toString()` builds its string the way `new String(byte[])` does (bytes
+above 0x7F become `?`). `PrintWriter` ends lines with `\n` and never throws `IOException` — a
+failed write sets the flag `checkError()` reports.
+
+`BufferedReader`'s default buffer is 128 chars (pass a size for larger reads). On
+`testbench_rp2040` the reader and writer classes are dropped from the framework (`InputStream`,
+`OutputStream` and the `ByteArray*` streams stay); `verifyApiContract --board testbench_rp2040`
+rejects an app that uses them there. Not provided:
+`FileReader` / `FileWriter` (wrap `picodroid.io.FileInputStream` in an `InputStreamReader`, or
+`FileOutputStream` in an `OutputStreamWriter`), `DataInputStream`, `BufferedInputStream`,
+`StringReader` / `StringWriter`, and `java.nio.charset`.
+
 ## Enums
 
 Java `enum` declarations are supported. Each enum constant is a singleton; `values()`, `valueOf(String)`, `name()`, `ordinal()`, and `switch (myEnum)` all work. `valueOf` throws `IllegalArgumentException` for a name that is not a constant, as in Java.

@@ -560,13 +560,6 @@ impl PicodroidNativeHandler {
         // Arms that need access to `self` stay here.
         use crate::util::log::{self, LogLevel};
         match (class_name, method_name) {
-            // Sits here rather than with the other ListView arms in
-            // `graphics/` because it calls *back* into Java:
-            // `invoke_java` needs the arm to lend back this very `&mut self`,
-            // and the graphics sub-dispatchers only receive `&mut LvglBackend`.
-            (c::picodroid_widget_ListView, m::nativeBindAdapter) => {
-                Some(crate::graphics::widgets::list_view_bind_adapter(self, ctx))
-            }
             (c::picodroid_util_Log, m::v) => {
                 Some(log::log(LogLevel::Verbose, ctx.args, ctx.strings).map(|_| None))
             }

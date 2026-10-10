@@ -56,6 +56,23 @@ public class Socket implements AutoCloseable {
   /** Set receive timeout in milliseconds (0 = infinite). */
   public native void setTimeout(int millis);
 
+  /**
+   * A {@link java.io.InputStream} over {@link #recv}: wrap it in an {@code InputStreamReader} and
+   * {@code BufferedReader} to read lines. A new wrapper each call; all share this socket, and
+   * closing any one closes it.
+   */
+  public java.io.InputStream getInputStream() throws IOException {
+    return new SocketInputStream(this);
+  }
+
+  /**
+   * A {@link java.io.OutputStream} over {@link #send}: wrap it in a {@code PrintWriter} to write
+   * lines. A new wrapper each call; all share this socket, and closing any one closes it.
+   */
+  public java.io.OutputStream getOutputStream() throws IOException {
+    return new SocketOutputStream(this);
+  }
+
   @Override
   public native void close();
 

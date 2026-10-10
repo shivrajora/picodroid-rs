@@ -86,14 +86,17 @@ extern "C" {
     /// Disassociate the STA interface.
     fn cyw43_wifi_leave(self_: *mut Cyw43State, itf: i32) -> i32;
 
-    // The three helpers in NetworkInterface_CYW43.c behind `WifiManager`:
-    // the STA state folded with the port's interface-up flag, whether a
-    // scan is running, and a scan start that owns the options struct.
+    // The helpers in NetworkInterface_CYW43.c behind `WifiManager` and the
+    // join supervisor: the STA state folded with the port's interface-up
+    // flag, whether a scan is running, a scan start that owns the options
+    // struct, the driver's raw join-state word, and the async-event trace.
     fn picodroid_cyw43_sta_status() -> i32;
     fn picodroid_cyw43_scan_active() -> i32;
     fn picodroid_cyw43_scan_start(
         cb: Option<unsafe extern "C" fn(*mut core::ffi::c_void, *const ScanResult) -> i32>,
     ) -> i32;
+    fn picodroid_cyw43_join_state() -> u32;
+    fn picodroid_cyw43_trace_events(on: i32);
 }
 
 /// `cyw43_ev_scan_result_t` (cyw43_ll.h), field for field: the driver
@@ -123,6 +126,27 @@ pub struct ScanResult {
 /// [`init`] must have succeeded; a field read, safe from the link task.
 pub unsafe fn sta_status() -> i32 {
     picodroid_cyw43_sta_status()
+}
+
+/// The driver's raw join-state word, for the log when a join is retried:
+/// bit 0 a join is active, 0x200 authenticated, 0x400 link up, 0x800
+/// keyed; a kind of 2/3/4 in the low nibble is FAIL/NONET/BADAUTH
+/// (`cyw43_ctrl.c`).
+///
+/// # Safety
+/// [`init`] must have succeeded; a field read, safe from the link task.
+pub unsafe fn join_state() -> u32 {
+    picodroid_cyw43_join_state()
+}
+
+/// Log every async event the chip sends (`cyw43: [ms] ASYNC(flags,NAME,
+/// status,reason,itf)`): the join's AUTH/LINK/SET_SSID/PSK_SUP sequence,
+/// a DEAUTH_IND from the AP, and each scan sighting while a scan runs.
+///
+/// # Safety
+/// [`init`] must have succeeded; call only from the CYW43 task.
+pub unsafe fn trace_events(on: bool) {
+    picodroid_cyw43_trace_events(on as i32)
 }
 
 /// Whether a scan started with [`scan_start`] is still running.

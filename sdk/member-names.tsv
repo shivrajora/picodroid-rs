@@ -30,6 +30,7 @@ F	BLUE
 F	BOARD
 F	BOTTOM
 F	BSSID
+F	BUF_SIZE
 F	BUTT
 F	BUTTON_NEGATIVE
 F	BUTTON_NEUTRAL
@@ -39,6 +40,7 @@ F	CENTER
 F	CENTER_HORIZONTAL
 F	CENTER_VERTICAL
 F	CENTURIES
+F	CHUNK
 F	COMPLETED
 F	COMPLEX_UNIT_DIP
 F	COMPLEX_UNIT_IN
@@ -55,6 +57,7 @@ F	DAYS_0000_TO_1970
 F	DAYS_PER_CYCLE
 F	DECADES
 F	DECEMBER
+F	DEFAULT_BUFFER_SIZE
 F	DEFAULT_CAPABILITIES
 F	DEFAULT_INDICATOR_SIZE
 F	DEFAULT_REQUEST
@@ -356,6 +359,7 @@ F	SENSOR_STATUS_ACCURACY_MEDIUM
 F	SENSOR_STATUS_UNRELIABLE
 F	SEPTEMBER
 F	SINGLE_LINE
+F	SKIP_CHUNK
 F	SLICE_MS
 F	SMALLEST_SCREEN_WIDTH_DP_UNDEFINED
 F	SOURCE_BUILD
@@ -523,11 +527,13 @@ F	app
 F	appBytes
 F	applicationInfo
 F	armed
+F	autoFlush
 F	base
 F	begun
 F	bottomMargin
 F	boundView
 F	broadcast
+F	buf
 F	built
 F	buttonCount
 F	buttons
@@ -535,9 +541,11 @@ F	callable
 F	callback
 F	callbacks
 F	capabilities
+F	cb
 F	checkedId
 F	checkedItems
 F	checkedMask
+F	chunk
 F	clearRequested
 F	color
 F	colorBackground
@@ -573,6 +581,7 @@ F	duration
 F	durationMs
 F	editorActionListener
 F	enabled
+F	encoding
 F	endAction
 F	error
 F	eventTime
@@ -603,6 +612,7 @@ F	hour
 F	i2cId
 F	id
 F	imageHandle
+F	in
 F	indeterminate
 F	indeterminateTint
 F	indicatorColor
@@ -628,6 +638,7 @@ F	layoutParams
 F	leftMargin
 F	length
 F	level
+F	limit
 F	listMode
 F	listener
 F	longPressFired
@@ -672,6 +683,7 @@ F	mDrawPending
 F	mDrawTask
 F	mExecuting
 F	mFactory
+F	mFieldId
 F	mFlags
 F	mFragment
 F	mFragmentHostState
@@ -722,11 +734,15 @@ F	mPendingData
 F	mPopFlags
 F	mPos
 F	mPostValueRunnable
+F	mResource
 F	mRoot
 F	mRootParent
 F	mRootVisibility
+F	mRowCount
+F	mRows
 F	mSavedFragmentState
 F	mScrollState
+F	mSized
 F	mSmooth
 F	mStart
 F	mState
@@ -750,6 +766,7 @@ F	mViewModelStore
 F	mWho
 F	mWriteLock
 F	main
+F	mark
 F	max
 F	maxRange
 F	maxValue
@@ -764,6 +781,7 @@ F	minute
 F	month
 F	multiChoiceListener
 F	n
+F	nChars
 F	name
 F	nano
 F	nanos
@@ -776,6 +794,7 @@ F	networkId
 F	neutralListener
 F	neutralText
 F	nextAutoId
+F	nextChar
 F	nextId
 F	nextNetId
 F	ntpTime
@@ -795,6 +814,7 @@ F	onTouchListener
 F	onValueChangeListener
 F	order
 F	orientation
+F	out
 F	overrideZone
 F	owner
 F	packageName
@@ -853,7 +873,9 @@ F	seconds
 F	sensor
 F	showing
 F	shutdown
+F	skipLf
 F	smallestScreenWidthDp
+F	socket
 F	spiId
 F	ssid
 F	startAngle
@@ -888,6 +910,7 @@ F	trackThickness
 F	translationXTo
 F	translationYTo
 F	transports
+F	trouble
 F	type
 F	types
 F	uartId
@@ -940,6 +963,7 @@ M	accumulate
 M	activeCountChanged
 M	activeStateChanged
 M	add
+M	addAll
 M	addAndGet
 M	addCapability
 M	addExact
@@ -1011,6 +1035,7 @@ M	capabilitiesOf
 M	ceil
 M	check
 M	checkDouble
+M	checkError
 M	checkHeader
 M	checkHour
 M	checkIndex
@@ -1164,7 +1189,9 @@ M	encode
 M	encodeZigZag32
 M	encodeZigZag64
 M	enqueue
+M	ensureCapacity
 M	ensureNotExecuting
+M	ensureOpen
 M	equals
 M	execPendingActions
 M	execSingle
@@ -1311,6 +1338,7 @@ M	getDouble
 M	getDownTime
 M	getDuration
 M	getEllipsize
+M	getEncoding
 M	getEpochSecond
 M	getErrorStream
 M	getEventTime
@@ -1414,6 +1442,7 @@ M	getParentFile
 M	getParentFragmentManager
 M	getPath
 M	getPort
+M	getPosition
 M	getPriority
 M	getProgress
 M	getProgressBackgroundTintList
@@ -1520,8 +1549,10 @@ M	incrementProgressBy
 M	indeterminate
 M	indexOf
 M	inflate
+M	inflateRow
 M	infoAt
 M	initStream
+M	insert
 M	instantiate
 M	intValue
 M	interrupt
@@ -1583,6 +1614,7 @@ M	isSavable
 M	isSecured
 M	isShowing
 M	isShutdown
+M	isSized
 M	isStateSaved
 M	isStateful
 M	isSupported
@@ -1635,6 +1667,8 @@ M	makeMeasureSpec
 M	makeTag
 M	makeText
 M	malformedVarint
+M	mark
+M	markSupported
 M	markUnwritten
 M	matches
 M	max
@@ -1674,7 +1708,6 @@ M	nativeAvailable
 M	nativeAvailableBytes
 M	nativeBeginDraw
 M	nativeBind
-M	nativeBindAdapter
 M	nativeBindService
 M	nativeBoard
 M	nativeBoolValue
@@ -1727,6 +1760,7 @@ M	nativeLength
 M	nativeListen
 M	nativeLongValue
 M	nativeManifestTheme
+M	nativeMoveChildTo
 M	nativeNewArray
 M	nativeNewObject
 M	nativeNewView
@@ -1822,6 +1856,7 @@ M	nativeSetOptionsMenuAvailable
 M	nativeSetProgress
 M	nativeSetProperty
 M	nativeSetRange
+M	nativeSetSize
 M	nativeSetString
 M	nativeSetText
 M	nativeSetTextColor
@@ -1840,6 +1875,7 @@ M	nativeStart
 M	nativeStartScan
 M	nativeStatus
 M	nativeStringValue
+M	nativeStyleRow
 M	nativeStyleWord
 M	nativeToString
 M	nativeTotalBytes
@@ -1858,6 +1894,7 @@ M	newFixedThreadPool
 M	newInstance
 M	newSingleThreadExecutor
 M	newSingleThreadScheduledExecutor
+M	newTextView
 M	next
 M	nextPoolId
 M	node
@@ -2039,6 +2076,8 @@ M	postInvalidate
 M	postValue
 M	pow
 M	prepareOptionsMenu
+M	print
+M	println
 M	prolepticMonth
 M	pushAngles
 M	pushLimit
@@ -2078,6 +2117,7 @@ M	readInt32
 M	readInt32LE
 M	readInt64
 M	readLength
+M	readLine
 M	readRawByte
 M	readRawBytes
 M	readRawVarint32
@@ -2092,6 +2132,7 @@ M	readTimestamp
 M	readUInt32
 M	readUInt64
 M	readValue
+M	ready
 M	reassociate
 M	receive
 M	reconnect
@@ -2345,6 +2386,7 @@ M	sin
 M	size
 M	sizeLimitExceeded
 M	sizeUnparented
+M	skip
 M	skipField
 M	skipMessage
 M	sleep

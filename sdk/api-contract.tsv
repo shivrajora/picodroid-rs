@@ -20,8 +20,10 @@
 #   owner<TAB>name<TAB>desc          member served with exactly this descriptor
 #   owner<TAB>name<TAB>              member served for any descriptor (native
 #                                    dispatch is keyed on (class, name))
-#   @extends<TAB>child<TAB>parent    builtin superclass edge (BUILTIN_SUPER)
-#   @implements<TAB>class<TAB>iface  builtin interface edge (BUILTIN_INTERFACES)
+#   @extends<TAB>child<TAB>parent    superclass edge (BUILTIN_SUPER, or an SDK
+#                                    java/** class file's superclass)
+#   @implements<TAB>class<TAB>iface  interface edge (BUILTIN_INTERFACES, or an SDK
+#                                    java/** class file's java/** interfaces)
 #   @nameonly<TAB>class              resolves as a catch / super / cast type only,
 #                                    never instantiated
 #   @hint<TAB>owner|prefix*<TAB>name|<empty><TAB>text
@@ -43,8 +45,163 @@
 #   java/lang/CloneNotSupportedException (name only) — catch_type in every clone() override that calls super.clone(); Object.clone never throws it here
 #
 # ── Classes and members ──
+java/io/BufferedReader
+java/io/BufferedReader	<init>	(Ljava/io/Reader;)V
+java/io/BufferedReader	<init>	(Ljava/io/Reader;I)V
+java/io/BufferedReader	DEFAULT_BUFFER_SIZE	I
+java/io/BufferedReader	cb	[C
+java/io/BufferedReader	close	()V
+java/io/BufferedReader	in	Ljava/io/Reader;
+java/io/BufferedReader	nChars	I
+java/io/BufferedReader	nextChar	I
+java/io/BufferedReader	read	()I
+java/io/BufferedReader	read	([CII)I
+java/io/BufferedReader	readLine	()Ljava/lang/String;
+java/io/BufferedReader	ready	()Z
+java/io/BufferedReader	skip	(J)J
+java/io/BufferedReader	skipLf	Z
+java/io/ByteArrayInputStream
+java/io/ByteArrayInputStream	<init>	([B)V
+java/io/ByteArrayInputStream	<init>	([BII)V
+java/io/ByteArrayInputStream	available	()I
+java/io/ByteArrayInputStream	buf	[B
+java/io/ByteArrayInputStream	close	()V
+java/io/ByteArrayInputStream	count	I
+java/io/ByteArrayInputStream	mark	(I)V
+java/io/ByteArrayInputStream	mark	I
+java/io/ByteArrayInputStream	markSupported	()Z
+java/io/ByteArrayInputStream	pos	I
+java/io/ByteArrayInputStream	read	()I
+java/io/ByteArrayInputStream	read	([BII)I
+java/io/ByteArrayInputStream	reset	()V
+java/io/ByteArrayInputStream	skip	(J)J
+java/io/ByteArrayOutputStream
+java/io/ByteArrayOutputStream	<init>	()V
+java/io/ByteArrayOutputStream	<init>	(I)V
+java/io/ByteArrayOutputStream	buf	[B
+java/io/ByteArrayOutputStream	close	()V
+java/io/ByteArrayOutputStream	count	I
+java/io/ByteArrayOutputStream	reset	()V
+java/io/ByteArrayOutputStream	size	()I
+java/io/ByteArrayOutputStream	toByteArray	()[B
+java/io/ByteArrayOutputStream	toString	()Ljava/lang/String;
+java/io/ByteArrayOutputStream	toString	(Ljava/lang/String;)Ljava/lang/String;
+java/io/ByteArrayOutputStream	write	(I)V
+java/io/ByteArrayOutputStream	write	([BII)V
+java/io/ByteArrayOutputStream	writeTo	(Ljava/io/OutputStream;)V
+java/io/Closeable
+java/io/Closeable	close	()V
 java/io/IOException
+java/io/InputStream
+java/io/InputStream	<init>	()V
+java/io/InputStream	SKIP_CHUNK	I
+java/io/InputStream	available	()I
+java/io/InputStream	close	()V
+java/io/InputStream	mark	(I)V
+java/io/InputStream	markSupported	()Z
+java/io/InputStream	read	()I
+java/io/InputStream	read	([B)I
+java/io/InputStream	read	([BII)I
+java/io/InputStream	reset	()V
+java/io/InputStream	skip	(J)J
+java/io/InputStreamReader
+java/io/InputStreamReader	<init>	(Ljava/io/InputStream;)V
+java/io/InputStreamReader	<init>	(Ljava/io/InputStream;Ljava/lang/String;)V
+java/io/InputStreamReader	BUF_SIZE	I
+java/io/InputStreamReader	buf	[B
+java/io/InputStreamReader	close	()V
+java/io/InputStreamReader	encoding	Ljava/lang/String;
+java/io/InputStreamReader	getEncoding	()Ljava/lang/String;
+java/io/InputStreamReader	in	Ljava/io/InputStream;
+java/io/InputStreamReader	limit	I
+java/io/InputStreamReader	pos	I
+java/io/InputStreamReader	read	()I
+java/io/InputStreamReader	read	([CII)I
+java/io/InputStreamReader	ready	()Z
 java/io/InterruptedIOException
+java/io/OutputStream
+java/io/OutputStream	<init>	()V
+java/io/OutputStream	close	()V
+java/io/OutputStream	flush	()V
+java/io/OutputStream	write	(I)V
+java/io/OutputStream	write	([B)V
+java/io/OutputStream	write	([BII)V
+java/io/OutputStreamWriter
+java/io/OutputStreamWriter	<init>	(Ljava/io/OutputStream;)V
+java/io/OutputStreamWriter	<init>	(Ljava/io/OutputStream;Ljava/lang/String;)V
+java/io/OutputStreamWriter	CHUNK	I
+java/io/OutputStreamWriter	chunk	[B
+java/io/OutputStreamWriter	close	()V
+java/io/OutputStreamWriter	encoding	Ljava/lang/String;
+java/io/OutputStreamWriter	flush	()V
+java/io/OutputStreamWriter	getEncoding	()Ljava/lang/String;
+java/io/OutputStreamWriter	out	Ljava/io/OutputStream;
+java/io/OutputStreamWriter	write	(I)V
+java/io/OutputStreamWriter	write	(Ljava/lang/String;)V
+java/io/OutputStreamWriter	write	([CII)V
+java/io/PrintWriter
+java/io/PrintWriter	<init>	(Ljava/io/OutputStream;)V
+java/io/PrintWriter	<init>	(Ljava/io/OutputStream;Z)V
+java/io/PrintWriter	<init>	(Ljava/io/Writer;)V
+java/io/PrintWriter	<init>	(Ljava/io/Writer;Z)V
+java/io/PrintWriter	append	(C)Ljava/io/PrintWriter;
+java/io/PrintWriter	append	(C)Ljava/io/Writer;
+java/io/PrintWriter	append	(Ljava/lang/CharSequence;)Ljava/io/PrintWriter;
+java/io/PrintWriter	append	(Ljava/lang/CharSequence;)Ljava/io/Writer;
+java/io/PrintWriter	autoFlush	Z
+java/io/PrintWriter	checkError	()Z
+java/io/PrintWriter	close	()V
+java/io/PrintWriter	flush	()V
+java/io/PrintWriter	out	Ljava/io/Writer;
+java/io/PrintWriter	print	(C)V
+java/io/PrintWriter	print	(D)V
+java/io/PrintWriter	print	(F)V
+java/io/PrintWriter	print	(I)V
+java/io/PrintWriter	print	(J)V
+java/io/PrintWriter	print	(Ljava/lang/Object;)V
+java/io/PrintWriter	print	(Ljava/lang/String;)V
+java/io/PrintWriter	print	(Z)V
+java/io/PrintWriter	print	([C)V
+java/io/PrintWriter	println	()V
+java/io/PrintWriter	println	(C)V
+java/io/PrintWriter	println	(D)V
+java/io/PrintWriter	println	(F)V
+java/io/PrintWriter	println	(I)V
+java/io/PrintWriter	println	(J)V
+java/io/PrintWriter	println	(Ljava/lang/Object;)V
+java/io/PrintWriter	println	(Ljava/lang/String;)V
+java/io/PrintWriter	println	(Z)V
+java/io/PrintWriter	println	([C)V
+java/io/PrintWriter	trouble	Z
+java/io/PrintWriter	write	(I)V
+java/io/PrintWriter	write	(Ljava/lang/String;)V
+java/io/PrintWriter	write	(Ljava/lang/String;II)V
+java/io/PrintWriter	write	([C)V
+java/io/PrintWriter	write	([CII)V
+java/io/Reader
+java/io/Reader	<init>	()V
+java/io/Reader	SKIP_CHUNK	I
+java/io/Reader	close	()V
+java/io/Reader	mark	(I)V
+java/io/Reader	markSupported	()Z
+java/io/Reader	read	()I
+java/io/Reader	read	([C)I
+java/io/Reader	read	([CII)I
+java/io/Reader	ready	()Z
+java/io/Reader	reset	()V
+java/io/Reader	skip	(J)J
+java/io/UnsupportedEncodingException
+java/io/Writer
+java/io/Writer	<init>	()V
+java/io/Writer	append	(C)Ljava/io/Writer;
+java/io/Writer	append	(Ljava/lang/CharSequence;)Ljava/io/Writer;
+java/io/Writer	close	()V
+java/io/Writer	flush	()V
+java/io/Writer	write	(I)V
+java/io/Writer	write	(Ljava/lang/String;)V
+java/io/Writer	write	(Ljava/lang/String;II)V
+java/io/Writer	write	([C)V
+java/io/Writer	write	([CII)V
 java/lang/Appendable
 java/lang/ArithmeticException
 java/lang/ArrayIndexOutOfBoundsException
@@ -1090,8 +1247,15 @@ javax/net/ssl/SSLHandshakeException
 javax/net/ssl/SSLPeerUnverifiedException
 #
 # ── Hierarchy ──
+@extends	java/io/BufferedReader	java/io/Reader
+@extends	java/io/ByteArrayInputStream	java/io/InputStream
+@extends	java/io/ByteArrayOutputStream	java/io/OutputStream
 @extends	java/io/IOException	java/lang/Exception
+@extends	java/io/InputStreamReader	java/io/Reader
 @extends	java/io/InterruptedIOException	java/io/IOException
+@extends	java/io/OutputStreamWriter	java/io/Writer
+@extends	java/io/PrintWriter	java/io/Writer
+@extends	java/io/UnsupportedEncodingException	java/io/IOException
 @extends	java/lang/ArithmeticException	java/lang/RuntimeException
 @extends	java/lang/ArrayIndexOutOfBoundsException	java/lang/IndexOutOfBoundsException
 @extends	java/lang/ArrayStoreException	java/lang/RuntimeException
@@ -1131,6 +1295,12 @@ javax/net/ssl/SSLPeerUnverifiedException
 @extends	java/net/SocketException	java/io/IOException
 @extends	java/net/SocketTimeoutException	java/io/InterruptedIOException
 @extends	java/net/UnknownHostException	java/io/IOException
+@extends	java/time/DateTimeException	java/lang/RuntimeException
+@extends	java/time/DayOfWeek	java/lang/Enum
+@extends	java/time/Month	java/lang/Enum
+@extends	java/time/ZoneId$Fixed	java/time/ZoneId
+@extends	java/time/ZoneOffset	java/time/ZoneId
+@extends	java/time/temporal/ChronoUnit	java/lang/Enum
 @extends	java/util/ConcurrentModificationException	java/lang/RuntimeException
 @extends	java/util/IllegalFormatConversionException	java/util/IllegalFormatException
 @extends	java/util/IllegalFormatException	java/lang/IllegalArgumentException
@@ -1147,6 +1317,11 @@ javax/net/ssl/SSLPeerUnverifiedException
 @extends	javax/net/ssl/SSLException	java/io/IOException
 @extends	javax/net/ssl/SSLHandshakeException	javax/net/ssl/SSLException
 @extends	javax/net/ssl/SSLPeerUnverifiedException	javax/net/ssl/SSLException
+@implements	java/io/Closeable	java/lang/AutoCloseable
+@implements	java/io/InputStream	java/io/Closeable
+@implements	java/io/OutputStream	java/io/Closeable
+@implements	java/io/Reader	java/io/Closeable
+@implements	java/io/Writer	java/io/Closeable
 @implements	java/lang/Boolean	java/lang/Comparable
 @implements	java/lang/Byte	java/lang/Comparable
 @implements	java/lang/Character	java/lang/Comparable
@@ -1160,6 +1335,22 @@ javax/net/ssl/SSLPeerUnverifiedException
 @implements	java/lang/String	java/lang/Comparable
 @implements	java/lang/StringBuilder	java/lang/Appendable
 @implements	java/lang/StringBuilder	java/lang/CharSequence
+@implements	java/time/Duration	java/lang/Comparable
+@implements	java/time/Duration	java/time/temporal/TemporalAmount
+@implements	java/time/Instant	java/lang/Comparable
+@implements	java/time/Instant	java/time/temporal/Temporal
+@implements	java/time/LocalDate	java/time/chrono/ChronoLocalDate
+@implements	java/time/LocalDateTime	java/time/chrono/ChronoLocalDateTime
+@implements	java/time/LocalTime	java/lang/Comparable
+@implements	java/time/LocalTime	java/time/temporal/Temporal
+@implements	java/time/Year	java/lang/Comparable
+@implements	java/time/ZoneOffset	java/lang/Comparable
+@implements	java/time/chrono/ChronoLocalDate	java/lang/Comparable
+@implements	java/time/chrono/ChronoLocalDate	java/time/temporal/Temporal
+@implements	java/time/chrono/ChronoLocalDateTime	java/lang/Comparable
+@implements	java/time/chrono/ChronoLocalDateTime	java/time/temporal/Temporal
+@implements	java/time/temporal/ChronoUnit	java/time/temporal/TemporalUnit
+@implements	java/time/temporal/Temporal	java/time/temporal/TemporalAccessor
 @implements	java/util/ArrayList	java/lang/Iterable
 @implements	java/util/ArrayList	java/util/Collection
 @implements	java/util/ArrayList	java/util/List
@@ -1180,6 +1371,7 @@ javax/net/ssl/SSLPeerUnverifiedException
 @implements	java/util/List	java/util/Collection
 @implements	java/util/Set	java/lang/Iterable
 @implements	java/util/Set	java/util/Collection
+@implements	java/util/zip/CRC32	java/util/zip/Checksum
 #
 # ── Name-only classes ──
 @nameonly	java/lang/CloneNotSupportedException
@@ -1210,8 +1402,5 @@ javax/net/ssl/SSLPeerUnverifiedException
 @hint	java/util/Arrays	equals	compare the elements in a loop
 @hint	java/lang/Float	isNaN	a NaN is the only value that is != itself
 @hint	java/lang/Double	isNaN	a NaN is the only value that is != itself
-@hint	java/io/BufferedReader		no java.io streams — read files with picodroid.io.FileInputStream into a byte[]
-@hint	java/io/InputStreamReader		no java.io streams — read files with picodroid.io.FileInputStream into a byte[]
-@hint	java/io/FileReader		no java.io streams — read files with picodroid.io.FileInputStream into a byte[]
-@hint	java/io/FileWriter		no java.io streams — write files with picodroid.io.FileOutputStream
-@hint	java/io/PrintWriter		no java.io streams — write files with picodroid.io.FileOutputStream
+@hint	java/io/FileReader		no FileReader — wrap picodroid.io.FileInputStream in an InputStreamReader
+@hint	java/io/FileWriter		no FileWriter — wrap picodroid.io.FileOutputStream in an OutputStreamWriter

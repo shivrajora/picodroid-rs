@@ -185,6 +185,10 @@ impl Gfx for LvglGfx {
         view_ops::remove_all_children(h);
     }
 
+    fn move_to_index(&mut self, h: Handle, index: i32) {
+        view_ops::move_to_index(h, index);
+    }
+
     fn set_flex_grow(&mut self, h: Handle, weight: i32) {
         view_ops::set_flex_grow(h, weight);
     }

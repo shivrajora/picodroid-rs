@@ -18,6 +18,7 @@ import picodroid.view.LayoutInflater;
 import picodroid.view.Menu;
 import picodroid.view.MenuItem;
 import picodroid.view.View;
+import picodroid.view.ViewGroup;
 
 public class Activity extends Context
     implements KeyEvent.Callback,
@@ -631,9 +632,29 @@ public class Activity extends Context
    */
   public native Intent getIntent();
 
+  /**
+   * Mirrors Android: {@code root} becomes this Activity's content and fills the window. A root the
+   * app sized itself ({@link View#setSize}, or the inflater from its {@code layout_width} / {@code
+   * layout_height}) keeps that size; a root given {@link View#setLayoutParams layout params} and no
+   * size takes their width and height. Before 2026-10-09 an unsized root kept the renderer's
+   * default (160x160) and clipped its children at that edge.
+   */
   public void setContentView(View root) {
+    if (!root.isSized()) {
+      ViewGroup.LayoutParams lp = root.getLayoutParams();
+      root.setSize(
+          lp != null ? lp.width : ViewGroup.LayoutParams.MATCH_PARENT,
+          lp != null ? lp.height : ViewGroup.LayoutParams.MATCH_PARENT);
+    }
     mContentView = root;
     Display.getInstance().setContentView(root);
+  }
+
+  /** Mirrors Android: installs {@code root} as the content view at the size {@code params} give. */
+  public void setContentView(View root, ViewGroup.LayoutParams params) {
+    root.setLayoutParams(params);
+    root.setSize(params.width, params.height);
+    setContentView(root);
   }
 
   /** Mirrors Android: inflates {@code R.layout.*} and makes it this Activity's content. */

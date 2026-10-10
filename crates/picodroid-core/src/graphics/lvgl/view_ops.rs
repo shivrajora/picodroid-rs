@@ -316,6 +316,17 @@ pub(in crate::graphics) fn remove_child(_parent: Handle, child: Handle) {
     unsafe { lv_obj_delete(c) };
 }
 
+pub(in crate::graphics) fn move_to_index(h: Handle, index: i32) {
+    let o = obj(h);
+    if o.is_null() {
+        return; // stale handle: nothing to move
+    }
+    // SAFETY: `o` is a live object (null was just excluded) on the JVM task
+    // that owns LVGL; `lv_obj_move_to_index` refuses an out-of-range index
+    // and a parentless object.
+    unsafe { lv_obj_move_to_index(o, index) };
+}
+
 pub(in crate::graphics) fn remove_all_children(h: Handle) {
     let o = obj(h);
     if o.is_null() {

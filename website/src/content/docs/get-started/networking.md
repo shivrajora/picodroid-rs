@@ -68,7 +68,9 @@ net: up, ip 192.168.1.42     ← joined + DHCP lease acquired
 net: down                    ← link lost, or the join has not succeeded yet
 ```
 
-Each line is printed once per change of state: a join that keeps failing logs one `net: down`, not one per retry. The join itself logs `wifi: join "MyAP" requested (stored)` — or `(build)` — then `wifi: associated`, or `wifi: join failed: bad password` / `no such network`.
+Each line is printed once per change of state: a join that keeps failing logs one `net: down`, not one per retry. The join itself logs `wifi: join "MyAP" requested (stored)` — or `(build)` — then `wifi: associated`, or `wifi: join failed: bad password` / `no such network`. Between them the chip's own events appear as `cyw43: [<ms>] ASYNC(…,SET_SSID,…)`, `AUTH`, `LINK`, `PSK_SUP`: the sequence a join goes through, and where it stopped when it did not complete.
+
+The firmware keeps the network joined. A join that ends without the station associated — the access point missed it, the link dropped during the handshake, the chip never gave a verdict — is retried after 3 s, then 6, 12, 24, 48 and every 60 s, each one logged as `wifi: rejoin "MyAP" (no such network; attempt 2, join state 0x3)`; a link lost later (the access point rebooted, the board moved out of range) is rejoined the same way, with `net: down` at the loss and `net: up` once DHCP has a lease again. A wrong password rides the same ladder (six tries over about two and a half minutes, since an access point under load can fail the handshake in a way that reads the same) and is then tried once every 5 minutes: the status stays *Wrong password* until a new one is saved. The retries stop on `disconnect()` or **Forget**.
 
 ## The simulator's WiFi
 

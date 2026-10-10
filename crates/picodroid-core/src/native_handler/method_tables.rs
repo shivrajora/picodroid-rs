@@ -729,10 +729,15 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/view/View", "nativeSetBackgroundTint", "(I)V"),
     ("picodroid/view/View", "setPadding", "(IIII)V"),
     ("picodroid/view/View", "setPosition", "(II)V"),
-    ("picodroid/view/View", "setSize", "(II)V"),
+    ("picodroid/view/View", "nativeSetSize", "(II)V"),
     // picodroid/view/ViewGroup
     ("picodroid/view/ViewGroup", "getChildCount", "()I"),
     ("picodroid/view/ViewGroup", "nativeAddView", "(Lpicodroid/view/View;)V"),
+    (
+        "picodroid/view/ViewGroup",
+        "nativeMoveChildTo",
+        "(Lpicodroid/view/View;I)V",
+    ),
     ("picodroid/view/ViewGroup", "nativeRemoveAllViews", "()V"),
     ("picodroid/view/ViewGroup", "nativeRemoveView", "(Lpicodroid/view/View;)V"),
     // picodroid/view/ViewPropertyAnimator
@@ -794,13 +799,13 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/widget/LinearLayout", "setSpacing", "(I)V"),
     // picodroid/widget/ListView
     ("picodroid/widget/ListView", "addItem", "(Ljava/lang/String;)V"),
-    (
-        "picodroid/widget/ListView",
-        "nativeBindAdapter",
-        "(Lpicodroid/widget/Adapter;)V",
-    ),
     ("picodroid/widget/ListView", "nativeCreate", "()I"),
     ("picodroid/widget/ListView", "nativeRegisterItemClickListener", "()V"),
+    (
+        "picodroid/widget/ListView",
+        "nativeStyleRow",
+        "(Lpicodroid/view/View;)V",
+    ),
     // picodroid/widget/NumberPicker
     ("picodroid/widget/NumberPicker", "nativeCreate", "()I"),
     ("picodroid/widget/NumberPicker", "nativeRegisterPicker", "()V"),
