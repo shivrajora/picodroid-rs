@@ -259,27 +259,34 @@ pub(crate) fn dispatch(
             Some(Value::Reference(idx)) => {
                 // Copy bytes to owned storage first so the immutable borrow
                 // on ctx.strings ends before we call intern_dyn (mutable).
-                let owned: Result<alloc::vec::Vec<u8>, JvmError> = {
+                // A negative or out-of-range index is Java's
+                // StringIndexOutOfBoundsException (as charAt throws), not
+                // the array flavour: a catch of the former must match.
+                let owned: Option<alloc::vec::Vec<u8>> = {
                     let s = ctx.strings.resolve(*idx).unwrap_or("");
                     let bytes = s.as_bytes();
                     let start = match ctx.args.get(1) {
-                        Some(Value::Int(n)) => *n as usize,
+                        Some(Value::Int(n)) => usize::try_from(*n).ok(),
                         _ => return Some(Err(JvmError::InvalidReference)),
                     };
                     let end = match ctx.args.get(2) {
-                        Some(Value::Int(n)) => *n as usize,
-                        None => bytes.len(),
+                        Some(Value::Int(n)) => usize::try_from(*n).ok(),
+                        None => Some(bytes.len()),
                         _ => return Some(Err(JvmError::InvalidReference)),
                     };
-                    if start > end || end > bytes.len() {
-                        Err(JvmError::ArrayIndexOutOfBounds)
-                    } else {
-                        Ok(bytes[start..end].to_vec())
+                    match (start, end) {
+                        (Some(start), Some(end)) if start <= end && end <= bytes.len() => {
+                            Some(bytes[start..end].to_vec())
+                        }
+                        _ => None,
                     }
                 };
                 match owned {
-                    Err(e) => Some(Err(e)),
-                    Ok(v) => {
+                    None => Some(Err(super::throw_named(
+                        ctx,
+                        c::java_lang_StringIndexOutOfBoundsException,
+                    ))),
+                    Some(v) => {
                         let r = ctx
                             .strings
                             .intern_dyn_owned(v)

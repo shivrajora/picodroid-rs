@@ -749,3 +749,43 @@ fn string_split_honours_limit() {
     assert_eq!(split(&mut ctx, b"a,b,,", b",", 0), ["a", "b"]);
     assert_eq!(split(&mut ctx, b"a,b,,", b",", 10), ["a", "b", "", ""]);
 }
+
+#[test]
+fn string_substring_out_of_range_throws_string_index_exception() {
+    // Java: StringIndexOutOfBoundsException for a negative, reversed or
+    // past-the-end range (a catch of that class must match), not the array
+    // flavour the arm used to return.
+    let mut ctx = StrCtx::new();
+    let s = ctx.intern(b"abc");
+    for (args, desc) in [
+        (alloc::vec![s, Value::Int(-1)], "(I)Ljava/lang/String;"),
+        (alloc::vec![s, Value::Int(4)], "(I)Ljava/lang/String;"),
+        (
+            alloc::vec![s, Value::Int(0), Value::Int(10)],
+            d::I_I__String,
+        ),
+        (alloc::vec![s, Value::Int(2), Value::Int(1)], d::I_I__String),
+        (
+            alloc::vec![s, Value::Int(-1), Value::Int(1)],
+            d::I_I__String,
+        ),
+    ] {
+        let r = ctx.dispatch(m::substring, desc, &args);
+        let Err(JvmError::Exception(idx)) = r else {
+            panic!("substring{args:?} = {r:?}");
+        };
+        assert_eq!(
+            ctx.objects.class_name(idx),
+            Some(c::java_lang_StringIndexOutOfBoundsException)
+        );
+    }
+    let r = ctx
+        .dispatch(
+            m::substring,
+            d::I_I__String,
+            &[s, Value::Int(1), Value::Int(3)],
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(ctx.resolve(r), "bc");
+}
