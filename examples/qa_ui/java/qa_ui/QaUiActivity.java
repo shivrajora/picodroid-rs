@@ -1156,6 +1156,9 @@ public class QaUiActivity extends Activity {
     cancelled.start();
     cancelled.cancel();
     check("cancel returns", true);
+    // A zero-duration animation applies at once and has no slot to retire: its end action must
+    // still run (Android runs it), not stay parked until some later animation of the view.
+    clickButton.animate().alpha(1f).setDuration(0).withEndAction(() -> endFired[0] += 10).start();
   }
 
   void dialogs() {
@@ -1429,7 +1432,8 @@ public class QaUiActivity extends Activity {
     check("replaced click listener delivered once", clicksSecond[0] == 1 && clicksFirst[0] == 2);
     clickButton.setOnClickListener(null);
     clickButton.performClick();
-    check("animation end action fired once", endFired[0] == 1);
+    check("animation end action fired once", endFired[0] % 10 == 1);
+    check("zero-duration end action fired", endFired[0] / 10 % 10 == 1);
     Log.i(
         TAG,
         "endFired="

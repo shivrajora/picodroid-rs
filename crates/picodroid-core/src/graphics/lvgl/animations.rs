@@ -320,9 +320,14 @@ pub fn set_end_action(handle: i32, obj_ref: u16) {
         for entry in &mut END_ACTIONS[..] {
             if entry.0 == 0 {
                 *entry = (handle, obj_ref);
-                return;
+                break;
             }
         }
+        // Nothing animating for this view (a zero-duration chain applied at
+        // once, or a stale handle): the action is due now. Without this it
+        // sat in the table, GC-rooted, until some later animation of the
+        // same view retired and fired it.
+        maybe_fire_end_action(handle);
     }
 }
 
