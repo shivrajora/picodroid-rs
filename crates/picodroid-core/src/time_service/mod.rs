@@ -145,6 +145,12 @@ pub fn parse_offset_minutes(id: &str) -> Option<i32> {
         b'-' => (-1, &rest[1..]),
         _ => return None,
     };
+    // str::parse accepts a sign of its own, which would let "GMT+-1" and
+    // "++5" through; the groups after the sign are plain digits (ZoneId.of
+    // rejects anything else).
+    if !digits.bytes().all(|b| b.is_ascii_digit() || b == b':') {
+        return None;
+    }
     let (h, m) = match digits.len() {
         1 | 2 => (digits.parse::<i32>().ok()?, 0),
         4 => (
@@ -345,6 +351,11 @@ mod tests {
         assert_eq!(parse_offset_minutes("GMT+15"), None);
         assert_eq!(parse_offset_minutes("+01:60"), None);
         assert_eq!(parse_offset_minutes("+1:00"), None);
+        // A second sign inside the digit groups is not an offset.
+        assert_eq!(parse_offset_minutes("GMT+-1"), None);
+        assert_eq!(parse_offset_minutes("++5"), None);
+        assert_eq!(parse_offset_minutes("+-130"), None);
+        assert_eq!(parse_offset_minutes("+-1:30"), None);
         assert_eq!(parse_offset_minutes(""), None);
     }
 
