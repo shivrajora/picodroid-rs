@@ -42,6 +42,19 @@ pub fn add_view(
     Ok(None)
 }
 
+/// `ViewGroup.nativeMoveChildTo(View child, int index)`: `addView(child, index)`
+/// has attached the child last; this slides it to `index` in the widget's
+/// child order, which is what layout and a `ListView` click resolve by.
+pub fn move_child_to(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    let child = extract_handle_at(args, 1, objects)?;
+    let index = match args.get(2) {
+        Some(Value::Int(i)) => *i,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    with_gfx(|g| g.move_to_index(Handle::from_java(child), index));
+    Ok(None)
+}
+
 /// `ViewGroup.removeView(View child)`
 pub fn remove_view(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
     let parent = extract_native_handle(args, objects)?;

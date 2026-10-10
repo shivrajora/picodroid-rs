@@ -110,6 +110,9 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
     // A legal lambda SAM (`AutoCloseable c = () -> ...`): without a row the
     // proxy's interface canonicalises to "unknown" and `instanceof` fails.
     c::java_lang_AutoCloseable,
+    // What the SDK's java.io streams, readers and writers implement; extends
+    // AutoCloseable through BUILTIN_INTERFACES.
+    c::java_io_Closeable,
     // Classfile-less classes that user code may `new`, `checkcast` or
     // `instanceof` (every name in the interpreter's `BUILTIN_SUPER` /
     // `BUILTIN_INTERFACES` tables). A `new` of a name missing here yields
@@ -148,6 +151,7 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
     c::java_util_NoSuchElementException,
     c::java_io_IOException,
     c::java_io_InterruptedIOException,
+    c::java_io_UnsupportedEncodingException,
     c::java_net_SocketTimeoutException,
     c::java_net_SocketException,
     c::java_net_ConnectException,
@@ -652,6 +656,7 @@ pub const BUILTIN_INTERFACE_METHODS: &[(&str, &[BuiltinMethodRow])] = &[
     ),
     (c::java_lang_Comparable, &[(m::compareTo, &[d::Object__I])]),
     (c::java_lang_AutoCloseable, &[(m::close, &["()V"])]),
+    (c::java_io_Closeable, &[(m::close, &["()V"])]),
     (
         c::java_util_zip_Checksum,
         &[

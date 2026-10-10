@@ -52,28 +52,53 @@ unsafe extern "C" fn list_map_delete_cb(e: *mut lv_event_t) {
 }
 
 unsafe extern "C" fn row_click_cb(e: *mut lv_event_t) {
-    let row = unsafe { lv_event_get_target_obj(e) };
+    // The *current* target is the row the callback is registered on. An
+    // adapter's row may be a layout whose child bubbles the click up
+    // (LV_OBJ_FLAG_EVENT_BUBBLE); the original target would then be the
+    // child, which is no child of the list and would never resolve.
+    let row = unsafe { lv_event_get_current_target_obj(e) };
     ITEM_CLICK_QUEUE.push(row as usize);
 }
 
-pub(in crate::graphics) fn create() -> i32 {
-    let ptr = unsafe { lv_list_create(lifecycle::screen_ptr()) };
-    // A list scrolls vertically too; whether a step may use the panel is
-    // decided per step (hw_scroll.rs), and a themed list with its border
-    // will be refused until an app strips it.
-    #[cfg(hw_vscroll)]
-    super::super::hw_scroll::watch(ptr);
-    handle_table::register(ptr)
+/// Separator under each row (RGB888): the default theme's grey list divider.
+const ROW_SEPARATOR_RGB: u32 = 0x00BD_BDBD;
+/// Row padding in pixels: the default theme's `PAD_SMALL` on a small panel.
+const ROW_PAD: i32 = 10;
+
+/// `ListView.nativeStyleRow`: make an adapter-built row view (already a child
+/// of the list) behave like a row `lv_list_add_button` makes — stretched to
+/// the list's width, padded, separated, clickable, keypad-focusable in the
+/// Activity's group, highlighted when focused, and enqueueing the item click.
+pub(in crate::graphics) fn style_row(row_id: i32) {
+    let row = handle_table::lookup(row_id);
+    if row.is_null() {
+        return; // released between getView and here: nothing to style
+    }
+    // SAFETY: `row` is a live object the handle table just resolved, on the
+    // JVM task that owns LVGL; the style setters only write its style
+    // properties and flags.
+    unsafe {
+        lv_obj_set_width(row, lv_pct(100));
+        lv_obj_set_style_pad_all(row, ROW_PAD, LV_PART_MAIN);
+        lv_obj_set_style_border_width(row, 1, LV_PART_MAIN);
+        lv_obj_set_style_border_color(row, lv_color_hex(ROW_SEPARATOR_RGB), LV_PART_MAIN);
+        lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, LV_PART_MAIN);
+        // A label is not clickable by default; a layout is. Either way the
+        // row itself must take the click and the keypad focus.
+        lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_CLICK_FOCUSABLE);
+    }
+    row_make_interactive(row);
 }
 
-pub(in crate::graphics) fn add_item(id: i32, text: &str) {
-    let mut buf = [0u8; 128];
-    let len = text.len().min(127);
-    buf[..len].copy_from_slice(&text.as_bytes()[..len]);
-    buf[len] = 0;
+/// The part of a row's setup shared by native text rows and adapter rows:
+/// focus-group membership, the click trampoline and the focus highlight.
+/// `row` must be a live, non-null `lv_obj_t` (both callers just created or
+/// resolved it).
+fn row_make_interactive(row: *mut lv_obj_t) {
+    // SAFETY: `row` is live and non-null (see above) and this runs on the
+    // JVM task that owns LVGL. The group pointer is checked before use, and
+    // the callback registered takes no user data.
     unsafe {
-        let list = handle_table::lookup(id);
-        let row = lv_list_add_button(list, core::ptr::null(), buf.as_ptr() as *const c_char);
         // Make the row keypad-traversable: join the active Activity focus
         // group. Idempotent if `lv_list_add_button` already auto-joined it, and
         // a no-op when no group is active (non-button boards, or before the
@@ -102,6 +127,28 @@ pub(in crate::graphics) fn add_item(id: i32, text: &str) {
             lv_obj_set_style_bg_color(row, lv_color_hex(FOCUS_HIGHLIGHT_RGB), sel);
             lv_obj_set_style_bg_opa(row, LV_OPA_COVER, sel);
         }
+    }
+}
+
+pub(in crate::graphics) fn create() -> i32 {
+    let ptr = unsafe { lv_list_create(lifecycle::screen_ptr()) };
+    // A list scrolls vertically too; whether a step may use the panel is
+    // decided per step (hw_scroll.rs), and a themed list with its border
+    // will be refused until an app strips it.
+    #[cfg(hw_vscroll)]
+    super::super::hw_scroll::watch(ptr);
+    handle_table::register(ptr)
+}
+
+pub(in crate::graphics) fn add_item(id: i32, text: &str) {
+    let mut buf = [0u8; 128];
+    let len = text.len().min(127);
+    buf[..len].copy_from_slice(&text.as_bytes()[..len]);
+    buf[len] = 0;
+    unsafe {
+        let list = handle_table::lookup(id);
+        let row = lv_list_add_button(list, core::ptr::null(), buf.as_ptr() as *const c_char);
+        row_make_interactive(row);
     }
 }
 

@@ -276,7 +276,7 @@ mod device {
                         } else {
                             // Conversion never came ready — skip it; the
                             // mailbox keeps the last good reading.
-                            self.note_err("ready");
+                            self.note_err("never-ready");
                             self.state = BmeState::Idle;
                         }
                     }

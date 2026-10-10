@@ -1175,7 +1175,7 @@ list.addItem("Item 3");
 ```
 
 **Adapter-backed (the Tier 2 `Adapter` pattern, since v0.10.0).** Bind an `ArrayAdapter` and
-receive typed click callbacks. Each item renders via its `toString()`:
+receive typed click callbacks. Each item renders as a `TextView` showing its `toString()`:
 
 ```java
 import picodroid.widget.ArrayAdapter;
@@ -1189,16 +1189,59 @@ list.setAdapter(new ArrayAdapter<String>(rows));
 list.setOnItemClickListener((parent, view, position, id) -> open(position));
 ```
 
+**Custom rows: `getView` and `convertView`.** As on Android, an adapter builds each row in
+`getView(position, convertView, parent)` and re-binds the `convertView` it is handed back:
+
+```java
+class ReadingAdapter extends BaseAdapter {
+  private final Reading[] data;
+  ReadingAdapter(Reading[] data) { this.data = data; }
+
+  @Override public int getCount() { return data.length; }
+  @Override public Object getItem(int i) { return data[i]; }
+  @Override public long getItemId(int i) { return i; }
+
+  @Override
+  public View getView(int position, View convertView, ViewGroup parent) {
+    LinearLayout row = (LinearLayout) convertView;
+    if (row == null) {                       // first time: build the row
+      row = new LinearLayout(ctx);
+      row.setOrientation(LinearLayout.VERTICAL);
+      row.addView(new TextView(ctx));
+      row.addView(new TextView(ctx));
+    }
+    Reading r = data[position];              // every time: bind the data
+    ((TextView) row.getChildAt(0)).setText(r.name);
+    ((TextView) row.getChildAt(1)).setText(r.value + " " + r.unit);
+    return row;
+  }
+}
+```
+
+`ListView` asks `getView` for every position and keeps the rows as its children in position
+order (`getChildAt(i)` is row *i*). `notifyDataSetChanged()` offers each existing row back as
+`convertView`, so a data change re-binds rows in place instead of rebuilding them; a position
+past the new count frees its row, and `setAdapter` always starts from fresh rows. Whatever view
+`getView` returns is stretched to the list's width, padded, made clickable and keypad-focusable
+and highlighted when focused, and `onItemClick` receives it as `view`. A row returned instead of
+the `convertView` frees the `convertView`; do not add the row to `parent` yourself. A layout
+resource works too: `LayoutInflater.from(ctx).inflate(R.layout.row, parent, false)` on a `null`
+`convertView`, then `findViewById` into it.
+
 > **The `Adapter` family.** `ListView` extends `AdapterView<Adapter>`. The pieces:
-> - `Adapter` — interface: `getCount()`, `getItem(int)`, `getItemId(int)`.
+> - `Adapter` — interface: `getCount()`, `getItem(int)`, `getItemId(int)`,
+>   `getView(int, View, ViewGroup)`.
 > - `BaseAdapter` — abstract base with `notifyDataSetChanged()` (call after mutating data).
-> - `ArrayAdapter<T>` — concrete `BaseAdapter` over a `T[]`, or built incrementally with
->   `add(T)` / `clear()`; renders each item's `toString()`. Constructors take an optional
->   `Context` and/or `T[]`.
+> - `ArrayAdapter<T>` — concrete `BaseAdapter` over a `T[]` or a `List<T>`, or built
+>   incrementally with `add` / `addAll` / `insert` / `remove` / `clear` (`getPosition` finds an
+>   item); renders each item's `toString()` in a `TextView`, or in Android's layout-resource form
+>   — `new ArrayAdapter<>(ctx, R.layout.row, items)` inflates `row` (a `TextView`) per item, and
+>   `new ArrayAdapter<>(ctx, R.layout.row, R.id.title, items)` puts the text into that child.
 > - `AdapterView<T>.setOnItemClickListener(OnItemClickListener)` — the 4-arg `onItemClick` above.
 >
-> On memory-constrained boards the LVGL renderer makes very long focusable lists expensive — keep
-> adapter-backed data lists modest in length.
+> Every row is a live widget — there is no off-screen recycling — so on memory-constrained boards
+> the LVGL renderer makes very long focusable lists expensive; keep adapter-backed data lists
+> modest in length (a dozen rows is comfortable everywhere).
 
 ### `picodroid.widget.CheckBox`
 

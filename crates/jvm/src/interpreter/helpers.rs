@@ -731,6 +731,13 @@ pub const BUILTIN_SUPER: &[(&str, &str)] = &[
     // InterruptedIOException, NOT SocketException (real-Java quirk).
     (c::java_io_IOException, c::java_lang_Exception),
     (c::java_io_InterruptedIOException, c::java_io_IOException),
+    // Declared by InputStreamReader / OutputStreamWriter's charset constructors
+    // (never thrown here: every charset name is accepted) so an app's catch
+    // clause resolves.
+    (
+        c::java_io_UnsupportedEncodingException,
+        c::java_io_IOException,
+    ),
     (
         c::java_net_SocketTimeoutException,
         c::java_io_InterruptedIOException,
@@ -808,6 +815,12 @@ pub const BUILTIN_SUPER: &[(&str, &str)] = &[
 /// by the receiver's runtime class — so a `.java` file would document
 /// nothing, serve nothing, and cost its `.class` size on every board.
 pub const BUILTIN_INTERFACES: &[(&str, &[&str])] = &[
+    // An interface-extends edge: `java/io/Closeable extends AutoCloseable`.
+    // The interface walk consults this table for interfaces too, so every
+    // SDK class file that `implements Closeable` (the java.io streams,
+    // readers and writers) is an `AutoCloseable` for instanceof and
+    // try-with-resources.
+    (c::java_io_Closeable, &[c::java_lang_AutoCloseable]),
     (
         c::java_util_ArrayList,
         &[

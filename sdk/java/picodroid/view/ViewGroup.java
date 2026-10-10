@@ -65,6 +65,27 @@ public abstract class ViewGroup extends View implements ViewParent {
   private native void nativeAddView(View child);
 
   /**
+   * Adds {@code child} at {@code index} among this group's children, as on Android; {@code -1} (or
+   * any index past the end) appends. The child's own {@link LayoutParams}, if any, apply.
+   */
+  public void addView(View child, int index) {
+    addView(child, index, child == null ? null : child.getLayoutParams());
+  }
+
+  /** Adds {@code child} at {@code index} with {@code params}; see {@link #addView(View, int)}. */
+  public void addView(View child, int index, LayoutParams params) {
+    addView(child, params);
+    if (child != null && index >= 0 && index < mChildCount - 1) {
+      // The child sits last in mChildren (attach appends): slide it down to index.
+      System.arraycopy(mChildren, index, mChildren, index + 1, mChildCount - 1 - index);
+      mChildren[index] = child;
+      nativeMoveChildTo(child, index);
+    }
+  }
+
+  private native void nativeMoveChildTo(View child, int index);
+
+  /**
    * Drops {@code child} from this group's list without touching its widget, and clears its parent.
    * Returns whether it was a child. {@link #removeView} and {@link View#close} free the widget
    * next; {@link #addView} moving a view to another parent does not.

@@ -5,6 +5,34 @@ description: "User-facing changes for Picodroid v0.4.0 onward."
 
 This page covers everything that landed in releases v0.4.0 through v0.36.0. Earlier history is in `git log v0.1.0...v0.3.0`.
 
+## Unreleased
+
+**`java.io` streams (2026-10-09)**
+
+The `java.io` stream hierarchy, as pure-Java classes on every board: `InputStream` /
+`OutputStream`, `ByteArrayInputStream` / `ByteArrayOutputStream`, `Reader` / `Writer`,
+`InputStreamReader`, `BufferedReader` with `readLine()`, `OutputStreamWriter` and `PrintWriter`.
+`picodroid.io.FileInputStream` / `FileOutputStream` and `HttpInputStream` / `HttpOutputStream`
+now extend them, and `Socket` gained `getInputStream()` / `getOutputStream()`, so
+`new BufferedReader(new InputStreamReader(conn.getInputStream()))` and
+`new PrintWriter(socket.getOutputStream(), true)` work as written. Chars are bytes (no charset
+decoding; a UTF-8 line survives `readLine()`). An app's own stream subclasses `InputStream` and
+implements `read()`. Roadmap T3.3; `examples/qa_io` pins it.
+Doc: [`java.io` streams](/api/core/#javaio-streams).
+
+**`Adapter.getView` and `convertView` (2026-10-09)**
+
+`Adapter` has Android's `getView(int position, View convertView, ViewGroup parent)`; a
+`BaseAdapter` subclass builds any row it likes and re-binds the `convertView` it is handed back.
+`ListView` keeps the rows as its children in position order (`getChildAt(i)`), re-binds them in
+place on `notifyDataSetChanged()`, frees the surplus, starts fresh on `setAdapter`, and passes the
+row to `onItemClick` as `view`. `ArrayAdapter` renders a `TextView` per item or inflates Android's
+layout-resource constructors (`(Context, int resource[, int textViewResourceId], T[] | List<T>)`),
+and gained `addAll`, `insert`, `remove`, `getPosition`. `ViewGroup.addView(View, int index)`.
+**Action needed:** a `BaseAdapter` subclass must now implement `getView` (it was not part of the
+interface before). Roadmap T3.4.
+Doc: [`ListView`](/api/ui/#picodroidwidgetlistview).
+
 ## v0.36.0 — 2026-10-08
 
 The write-once release. An app written for one board now runs on every board: the framework

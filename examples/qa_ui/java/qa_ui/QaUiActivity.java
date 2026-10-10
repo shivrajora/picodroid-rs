@@ -742,6 +742,112 @@ public class QaUiActivity extends Activity {
     root.addView(plain);
     check("addItem list has no adapter", plain.getAdapter() == null);
     root.removeView(plain);
+    getViewRecycling();
+  }
+
+  /** A two-line row adapter in the Android shape: build on null, re-bind the convertView. */
+  static final class RowAdapter extends picodroid.widget.BaseAdapter {
+    final Context ctx;
+    final String[] titles;
+
+    /** How many of {@link #titles} the adapter currently reports: lowered to shrink the list. */
+    int visible;
+
+    int built = 0;
+    int rebound = 0;
+
+    RowAdapter(Context ctx, String[] titles) {
+      this.ctx = ctx;
+      this.titles = titles;
+      this.visible = titles.length;
+    }
+
+    @Override
+    public int getCount() {
+      return visible;
+    }
+
+    @Override
+    public Object getItem(int position) {
+      return titles[position];
+    }
+
+    @Override
+    public View getView(int position, View convertView, ViewGroup parent) {
+      LinearLayout row = (LinearLayout) convertView;
+      if (row == null) {
+        row = new LinearLayout(ctx);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.addView(new TextView(ctx));
+        row.addView(new TextView(ctx));
+        built++;
+      } else {
+        rebound++;
+      }
+      ((TextView) row.getChildAt(0)).setText(titles[position]);
+      ((TextView) row.getChildAt(1)).setText("row " + position);
+      return row;
+    }
+  }
+
+  void getViewRecycling() {
+    ListView lv = new ListView(this);
+    lv.setSize(200, 120);
+    root.addView(lv);
+    RowAdapter rows = new RowAdapter(this, new String[] {"alpha", "beta", "gamma"});
+    lv.setAdapter(rows);
+    check("getView built every row", rows.built == 3 && rows.rebound == 0);
+    check("rows are the list's children", lv.getChildCount() == 3);
+    View second = lv.getChildAt(1);
+    check(
+        "getChildAt is the row getView returned",
+        second instanceof LinearLayout
+            && ((TextView) ((LinearLayout) second).getChildAt(0))
+                .getText()
+                .toString()
+                .equals("beta"));
+    rows.titles[1] = "BETA";
+    rows.notifyDataSetChanged();
+    check("notify re-binds every row in place", rows.built == 3 && rows.rebound == 3);
+    check("convertView kept its identity", lv.getChildAt(1) == second);
+    check(
+        "re-bound row shows the new item",
+        ((TextView) ((LinearLayout) second).getChildAt(0)).getText().toString().equals("BETA"));
+    RowAdapter more = new RowAdapter(this, new String[] {"a", "b", "c", "d", "e"});
+    lv.setAdapter(more);
+    check("a new adapter starts from fresh rows", more.built == 5 && lv.getChildCount() == 5);
+    check("the old adapter's rows were freed", second.getParent() == null);
+    View first = lv.getChildAt(0);
+    more.visible = 2;
+    more.notifyDataSetChanged();
+    check(
+        "fewer rows frees the surplus",
+        lv.getChildCount() == 2 && lv.getChildAt(0) == first && more.built == 5);
+    more.visible = 4;
+    more.notifyDataSetChanged();
+    check(
+        "growth re-binds the kept rows and builds the rest",
+        lv.getChildCount() == 4 && more.built == 7 && lv.getChildAt(0) == first);
+    ArrayAdapter<String> plainText = new ArrayAdapter<String>(this, new String[] {"one", "two"});
+    lv.setAdapter(plainText);
+    check(
+        "ArrayAdapter rows are TextViews",
+        lv.getChildCount() == 2
+            && lv.getChildAt(1) instanceof TextView
+            && ((TextView) lv.getChildAt(1)).getText().toString().equals("two"));
+    plainText.add("three");
+    plainText.notifyDataSetChanged();
+    check("ArrayAdapter growth appends a row", lv.getChildCount() == 3);
+    check("ArrayAdapter.getPosition", plainText.getPosition("three") == 2);
+    plainText.remove("two");
+    plainText.insert("zero", 0);
+    plainText.notifyDataSetChanged();
+    check(
+        "ArrayAdapter insert/remove re-bind in place",
+        lv.getChildCount() == 3
+            && ((TextView) lv.getChildAt(0)).getText().toString().equals("zero")
+            && ((TextView) lv.getChildAt(2)).getText().toString().equals("three"));
+    root.removeView(lv);
   }
 
   void editText() {

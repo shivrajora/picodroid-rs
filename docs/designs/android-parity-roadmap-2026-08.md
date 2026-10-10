@@ -239,16 +239,21 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
   ~~today throws, gated on exactly this milestone~~ works since 2026-09-14,
   `a97321ee`, from a Java-side child list rather than a reverse map). (C) `res/drawable/` →
   `ImageView.setImageResource(int)`. (D) AttributeSet and styles later.
-- **T3.3 — `java.io` stream hierarchy.** `InputStream`/`OutputStream` as
-  abstract builtins; re-parent the `File*` and `Http*` streams;
-  `Socket.getInputStream()`/`getOutputStream()`; `InputStreamReader` and
-  `BufferedReader.readLine()`. The biggest "code from the internet just
-  works" enabler. (The typed-exceptions design excluded socket streams from
-  *its own* scope, not permanently.)
-- **T3.4 — `Adapter.getView` + convertView recycling** (E2 done; unblocked),
-  pooled to the ~12-row cap. Deliberately instead of `RecyclerView`.
-  `ListView.nativeBindAdapter` already pulls `getCount`/`getItem` from
-  native, so this adds the per-row *View* and the recycling pool.
+- ~~**T3.3 — `java.io` stream hierarchy.**~~ **Done 2026-10-09** —
+  `designs/java-io-streams-2026-10.md`. `InputStream`/`OutputStream`/`Reader`/
+  `Writer` as pure-Java SDK classes (not builtins: no natives were needed),
+  the `File*` and `Http*` streams re-parented, `Socket.getInputStream()`/
+  `getOutputStream()`, `InputStreamReader`, `BufferedReader.readLine()`,
+  plus `ByteArray*`, `OutputStreamWriter` and `PrintWriter`. Chars are bytes
+  (no charset decoding). Left: `java.io.File` twins of `picodroid.io`,
+  `FileReader`/`FileWriter`, `Data*`/`Buffered*` byte streams.
+- ~~**T3.4 — `Adapter.getView` + convertView recycling**~~ **Done 2026-10-09**,
+  same doc. `getView` on `Adapter`, `ArrayAdapter.getView` with the
+  layout-resource constructors, `ListView` rows as Java children re-bound
+  through `convertView` on every refresh, `ViewGroup.addView(child, index)`.
+  *Not* pooled to a cap: rows never scroll out of existence, so the pool is
+  the row set; virtualization is the follow-up if a long list needs it. The
+  `nativeBindAdapter` upcall loop is gone (the loop is Java).
 
 ## Ordering
 
@@ -261,10 +266,10 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
 6. ~~T2.6 JSON~~ (done 2026-09-04) + ~~T2.3 Thread parity~~ (done)
 7. ~~T3.1 Bundle → `onCreate(Bundle)` → save/restore~~ (done 2026-09-19;
    follow-ups D, E, F done; G, H pending)
-8. ~~T2.5 upcall~~ (done) → T3.4 convertView recycling
+8. ~~T2.5 upcall~~ (done) → ~~T3.4 convertView recycling~~ (done 2026-10-09)
 9. ~~T3.2 resource system (A → B → C)~~ (done 2026-09-19; D — styles and
    `AttributeSet` — remains)
-10. T3.3 `java.io`
+10. ~~T3.3 `java.io`~~ (done 2026-10-09)
 
 ## Not doing, and why
 
@@ -365,7 +370,8 @@ Unchanged and still open: T1.3 (none of its list exists — no
 T1.4's `TextView.setGravity`, `append` and `EditText.setSelection`
 (`setTextSize` shipped 2026-09-23); T1.5 in full; T1.6's edge callback; T1.9's
 password masking; T2.8 pickers-as-dialogs; T3.1 Bundle; T3.2 resources/XML
-layouts; T3.3 `java.io` streams; T3.4 `getView`/convertView; T3.5 Canvas; E3
+layouts; ~~T3.3 `java.io` streams; T3.4 `getView`/convertView~~ (both done
+2026-10-09, `designs/java-io-streams-2026-10.md`); T3.5 Canvas; E3
 phase 2 (restricted compile classpath).
 
 ## Amendment 2026-09-19 — T3.2 (A)–(C) landed

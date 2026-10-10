@@ -27,7 +27,8 @@ public class NetException extends Application {
     boolean okAccept = acceptTimeout();
     boolean okRecv = recvTimeout();
     boolean okResolve = resolveLiteral();
-    if (okConnect && okAccept && okRecv && okResolve) {
+    boolean okStreams = streamLoopback();
+    if (okConnect && okAccept && okRecv && okResolve && okStreams) {
       Log.i(TAG, "ALL PASS");
     } else {
       Log.i(TAG, "FAILURES — see above");
@@ -100,6 +101,63 @@ public class NetException extends Application {
       return true;
     } catch (IOException e) {
       Log.i(TAG, "FAIL recv-timeout: wrong type, message=" + e.getMessage());
+      return false;
+    } finally {
+      if (accepted != null) {
+        accepted.close();
+      }
+      client.close();
+      if (server != null) {
+        server.close();
+      }
+    }
+  }
+
+  /**
+   * The java.io view of a socket (roadmap T3.3): a line written through {@code PrintWriter} over
+   * {@code getOutputStream()} arrives through {@code BufferedReader} over {@code getInputStream()}
+   * on the accepted side, a long write loops over the 256-byte send cap, and the peer's close reads
+   * as end-of-stream (-1 / null), never as an exception.
+   */
+  private boolean streamLoopback() {
+    ServerSocket server = null;
+    Socket client = new Socket();
+    Socket accepted = null;
+    try {
+      server = new ServerSocket(38208);
+      client.connect(InetAddress.getByName("127.0.0.1").getRawAddress(), 38208);
+      accepted = server.accept();
+      accepted.setTimeout(2000);
+      client.setTimeout(2000);
+      java.io.PrintWriter out = new java.io.PrintWriter(client.getOutputStream(), true);
+      out.println("hello stream");
+      StringBuilder big = new StringBuilder();
+      for (int i = 0; i < 700; i++) {
+        big.append((char) ('a' + (i % 26)));
+      }
+      out.println(big.toString());
+      if (out.checkError()) {
+        Log.i(TAG, "FAIL stream-loopback: PrintWriter reported an error");
+        return false;
+      }
+      java.io.BufferedReader in =
+          new java.io.BufferedReader(new java.io.InputStreamReader(accepted.getInputStream()));
+      String first = in.readLine();
+      String second = in.readLine();
+      if (!"hello stream".equals(first) || second == null || second.length() != 700) {
+        Log.i(TAG, "FAIL stream-loopback: got " + first + " / " + second);
+        return false;
+      }
+      client.close();
+      String eof = in.readLine();
+      if (eof != null) {
+        Log.i(TAG, "FAIL stream-loopback: expected null after the peer closed, got " + eof);
+        return false;
+      }
+      Log.i(TAG, "PASS stream-loopback: 2 lines, " + second.length() + " chars, eof");
+      return true;
+    } catch (IOException e) {
+      Log.i(TAG, "FAIL stream-loopback: " + e.getMessage());
       return false;
     } finally {
       if (accepted != null) {
