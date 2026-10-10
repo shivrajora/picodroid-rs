@@ -34,12 +34,25 @@ pub const FIFO_DEPTH: u8 = 16;
 /// Maximum bytes per interrupt-driven I2C transaction.
 pub const MAX_XFER_LEN: usize = 64;
 
+/// DW I2C minimums for the SCL counts (RP2040 datasheet 4.3.14: `IC_*_HCNT`
+/// at least 6, `IC_*_LCNT` at least 8); below them the controller's state
+/// machine misbehaves and the bus is dead until a reboot.
+pub const MIN_HCNT: u16 = 6;
+pub const MIN_LCNT: u16 = 8;
+
 /// Compute SCL high/low counts for the given peripheral clock and bus speed.
-/// Duty cycle is 40% high / 60% low.
+/// Duty cycle is 40% high / 60% low. The counts saturate at the 16-bit
+/// registers (a `setSpeed` of a few Hz used to wrap them through `as u16`)
+/// and never go below the controller's minimums (a `setSpeed(-1)` read as
+/// 4 GHz used to program 0/0).
 pub fn scl_counts(pclk_hz: u32, speed_hz: u32) -> (u16, u16) {
     let period = pclk_hz / speed_hz.max(1);
-    let lcnt = (period * 3 / 5) as u16;
-    let hcnt = (period - lcnt as u32) as u16;
+    let lcnt = u16::try_from(period * 3 / 5)
+        .unwrap_or(u16::MAX)
+        .max(MIN_LCNT);
+    let hcnt = u16::try_from(period.saturating_sub(lcnt as u32))
+        .unwrap_or(u16::MAX)
+        .max(MIN_HCNT);
     (hcnt, lcnt)
 }
 
@@ -159,6 +172,17 @@ mod tests {
         let (hcnt, lcnt) = scl_counts(125_000_000, 0);
         // speed.max(1) ⇒ period = pclk. lcnt/hcnt saturate to u16.
         assert!(hcnt > 0 || lcnt > 0);
+    }
+
+    #[test]
+    fn scl_counts_saturate_and_keep_the_controller_minimums() {
+        // 1 Hz: period 150e6, lcnt 90e6 — used to wrap through `as u16`.
+        assert_eq!(scl_counts(150_000_000, 1), (u16::MAX, u16::MAX));
+        // setSpeed(-1) arrives as u32::MAX: period 0 used to program 0/0.
+        assert_eq!(scl_counts(150_000_000, u32::MAX), (MIN_HCNT, MIN_LCNT));
+        // The ordinary rates are untouched.
+        assert_eq!(scl_counts(125_000_000, 100_000), (500, 750));
+        assert_eq!(scl_counts(150_000_000, 400_000), (150, 225));
     }
 
     // ── ic_con_for_speed ──────────────────────────────────────────────────
