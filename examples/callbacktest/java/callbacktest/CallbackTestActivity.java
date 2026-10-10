@@ -136,8 +136,8 @@ public class CallbackTestActivity extends Activity {
       Log.i("CBT", "TOAST_DURATION");
     }
 
+    // The unsized ScrollView is the window once it is the content root (setContentView).
     ScrollView scroll = new ScrollView();
-    scroll.setSize(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT);
     scroll.addView(root);
     setContentView(scroll);
     Log.i("CBT", "SETUP_DONE");
