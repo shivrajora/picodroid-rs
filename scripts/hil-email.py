@@ -14,6 +14,7 @@ Usage:
 """
 
 import argparse
+from html import escape as html_escape
 import os
 import smtplib
 import sys
@@ -65,7 +66,12 @@ def parse_results(results_path):
         if not line:
             continue
         status, _, app = line.partition(" ")
-        entries.append((status.strip(), app.strip()))
+        # An ERROR row carries its reason: `ERROR app[mode] (timed out)`.
+        # The reason is not part of the name, or the same test would be a
+        # different app from one night to the next and never "known" or
+        # "recovered".
+        app = app.strip().split(" (", 1)[0]
+        entries.append((status.strip(), app))
     return entries
 
 
@@ -141,28 +147,40 @@ def classify_failures(entries, history):
     return new_fails, known_fails, recovered
 
 
+def log_basename(app):
+    """The log file a result row's name maps to, without the `.log`.
+
+    Rows are `app[mode]` and `app:pdb-cmd[mode]` (hil-run.sh, sim-run.sh);
+    the runners write `app.mode.log` and `app.pdb-cmd.mode.log`. A row
+    without a `[mode]` (older runs) maps to `app` / `app.pdb-cmd`.
+    """
+    name, mode = app, None
+    if app.endswith("]") and "[" in app:
+        name, _, mode = app[:-1].rpartition("[")
+    if ":" in name:
+        base_app, _, pdb_suffix = name.partition(":")
+        name = f"{base_app}.{pdb_suffix}"
+    return f"{name}.{mode}" if mode else name
+
+
 def read_log_tail(log_dir, run_id, app, max_lines=LOG_TAIL_LINES):
     """Read the last N lines of an app's log (RTT or PDB)."""
     run_dir = Path(log_dir) / run_id
+    base = log_basename(app)
 
-    # PDB test: app name is "helloworld:pdb-ping" → log is "helloworld.pdb-ping.log"
-    if ":" in app:
-        base_app, _, pdb_suffix = app.partition(":")
-        log_file = run_dir / f"{base_app}.{pdb_suffix}.log"
+    # Standard layout: logs/<run_id>/<app>.<mode>.log; fall back to the
+    # older spellings so a report over an old run still finds something.
+    candidates = [
+        run_dir / f"{base}.log",
+        run_dir / f"{app}.log",
+        Path(log_dir) / f"{run_id}-{app}.log",
+    ]
+    for log_file in candidates:
         if log_file.exists():
-            lines = log_file.read_text().splitlines()
+            lines = log_file.read_text(errors="replace").splitlines()
             tail = lines[-max_lines:] if len(lines) > max_lines else lines
             return "\n".join(tail)
-
-    # Standard layout: logs/<run_id>/<app>.log; fall back to flat naming for old runs.
-    log_file = run_dir / f"{app}.log"
-    if not log_file.exists():
-        log_file = Path(log_dir) / f"{run_id}-{app}.log"
-    if not log_file.exists():
-        return "(no log file found)"
-    lines = log_file.read_text().splitlines()
-    tail = lines[-max_lines:] if len(lines) > max_lines else lines
-    return "\n".join(tail)
+    return "(no log file found)"
 
 
 def format_known_since(since, open_ended):
@@ -258,7 +276,7 @@ def build_html(entries, log_dir, run_id, sha, suite="HIL", triage_html=""):
                 f'<div style="margin:12px 0;">'
                 f'<strong style="color:{color};">{app}</strong>'
                 f'<pre style="background:#f5f5f5;padding:10px;border-radius:4px;'
-                f'font-size:12px;overflow-x:auto;max-height:300px;">{log_text}</pre>'
+                f'font-size:12px;overflow-x:auto;max-height:300px;">{html_escape(log_text)}</pre>'
                 f'</div>'
             )
 
