@@ -999,7 +999,13 @@ mod write {
 
         fn push(&mut self, ty: u8, entry: Entry) -> Result<u32, BuildError> {
             let list = &mut self.types[ty as usize];
-            let index = u16::try_from(list.len()).map_err(|_| BuildError::TooManyEntries)?;
+            // The directory holds the count as a u16, so the last index is
+            // u16::MAX - 1: a 65536th entry used to be accepted and then
+            // written as a count of zero, hiding the whole type.
+            let index = u16::try_from(list.len())
+                .ok()
+                .filter(|&i| i < u16::MAX)
+                .ok_or(BuildError::TooManyEntries)?;
             list.push(entry);
             Ok(res_id(ty, index))
         }
@@ -1015,7 +1021,7 @@ mod write {
 
         pub fn push_string(&mut self, text: &str) -> Result<u32, BuildError> {
             if text.len() > u16::MAX as usize {
-                return Err(BuildError::ValueTooLong);
+                return Err(crate::BuildError::ValueTooLong);
             }
             self.push(TYPE_STRING, Entry::Bytes(text.as_bytes().to_vec()))
         }
@@ -1064,7 +1070,8 @@ mod write {
                 let count = self.types[ty as usize].len();
                 out.push(ty);
                 out.push(0);
-                out.extend_from_slice(&(count as u16).to_le_bytes());
+                let count16 = u16::try_from(count).map_err(|_| BuildError::TooManyEntries)?;
+                out.extend_from_slice(&count16.to_le_bytes());
                 let off = u32::try_from(values_offset).map_err(|_| BuildError::TooLarge)?;
                 out.extend_from_slice(&off.to_le_bytes());
                 values_offset += count * 4;
@@ -1166,6 +1173,25 @@ mod tests {
         assert_eq!(res_type(id), Some(TYPE_COLOR));
         assert_eq!(res_entry(id), 3);
         assert_eq!(res_type(0x0102_0003), None);
+    }
+
+    /// The directory's count is a u16: the builder must stop at 65535
+    /// entries. The 65536th push used to succeed and `build` then wrote a
+    /// count of zero, so every lookup in that type came back None.
+    #[test]
+    fn builder_refuses_a_65536th_entry_instead_of_writing_a_zero_count() {
+        let mut b = ResTableBuilder::new();
+        for _ in 0..u16::MAX {
+            b.push_value(TYPE_BOOL, 1).unwrap();
+        }
+        assert_eq!(
+            b.push_value(TYPE_BOOL, 1),
+            Err(crate::BuildError::TooManyEntries)
+        );
+        let table = b.build().unwrap();
+        let t = ResTable::parse(&table).unwrap();
+        assert_eq!(t.entry_count(TYPE_BOOL), u16::MAX);
+        assert_eq!(t.value(res_id(TYPE_BOOL, u16::MAX - 1)), Some(1));
     }
 
     #[test]
