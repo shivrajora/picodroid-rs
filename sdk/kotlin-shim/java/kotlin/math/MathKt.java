@@ -11,15 +11,17 @@ public final class MathKt {
 
   private static final double LN2 = 0.6931471805599453;
 
-  // Java's Math.round is floor(x + 0.5) (-2.5 -> -2); pico-jvm's builtin rounds half away from
-  // zero (libm), so the shim spells the Java rule out to stay identical on both.
+  // Java's Math.round rounds half up (-2.5 -> -2), and since Java 7 does so exactly: the
+  // textbook floor(x + 0.5) rounds twice (0.49999997f + 0.5f is 1.0f; 2^23 + 1 + 0.5f is
+  // 2^23 + 2), so the shim compares the exact fraction `value - floor(value)` against one half.
   // `value != value` is the NaN test; Float.isNaN(F) / Double.isNaN(D) are not pico-jvm builtins.
   @SuppressWarnings("IdentityBinaryExpression")
   public static int roundToInt(float value) {
     if (value != value) {
       throw new IllegalArgumentException("Cannot round NaN value.");
     }
-    return (int) Math.floor(value + 0.5f);
+    float f = (float) Math.floor(value);
+    return (int) (value - f >= 0.5f ? f + 1 : f);
   }
 
   @SuppressWarnings("IdentityBinaryExpression")
@@ -33,7 +35,8 @@ public final class MathKt {
     if (value < Integer.MIN_VALUE) {
       return Integer.MIN_VALUE;
     }
-    return (int) Math.floor(value + 0.5);
+    double f = Math.floor(value);
+    return (int) (value - f >= 0.5 ? f + 1 : f);
   }
 
   @SuppressWarnings("IdentityBinaryExpression")
@@ -41,7 +44,8 @@ public final class MathKt {
     if (value != value) {
       throw new IllegalArgumentException("Cannot round NaN value.");
     }
-    return (long) Math.floor(value + 0.5);
+    double f = Math.floor(value);
+    return (long) (value - f >= 0.5 ? f + 1 : f);
   }
 
   public static double truncate(double value) {

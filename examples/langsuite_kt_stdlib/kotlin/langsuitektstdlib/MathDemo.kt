@@ -83,6 +83,15 @@ object MathDemo {
             2.5.roundToInt() == 3 && (-3.5).roundToInt() == -3 && 1.49.roundToInt() == 1,
         )
         check("roundToLong", 2.5.roundToLong() == 3L && 1e10.roundToLong() == 10000000000L)
+        // Math.round since Java 7 is exact: no floor(x + 0.5) double rounding below half a ULP
+        // or on large odd integers.
+        check(
+            "roundToInt exact",
+            0.49999997f.roundToInt() == 0 &&
+                8388609f.roundToInt() == 8388609 &&
+                0.49999999999999994.roundToInt() == 0 &&
+                4503599627370497.0.roundToLong() == 4503599627370497L,
+        )
         check(
             "max / min",
             max(3, 7) == 7 &&
