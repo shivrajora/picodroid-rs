@@ -529,6 +529,12 @@ fn decide(
             }
         }
         State::Firing { wake_gen, attempts } => {
+            // The same rule as for an armed row: a queued launch is about to
+            // replace the running stack, and a re-wake would overwrite the
+            // package the user just asked for with this alarm's owner.
+            if launch_pending {
+                return None;
+            }
             if owner_is_running {
                 table[i] = None;
                 Some(Action::Fire(fire_from(entry, now)))
@@ -919,6 +925,22 @@ mod tests {
         assert_eq!(len(), 1, "still armed");
         let f = fired(poll_as(1_000, Some(APP), 1));
         assert_eq!(f.request_code, 0);
+    }
+
+    #[test]
+    fn a_wake_in_flight_does_not_jump_a_queued_launch() {
+        // The alarm woke OTHER once; OTHER ran and left without delivering.
+        // Back in the launcher the user taps an app (a launch is queued):
+        // the re-wake must wait, or it overwrites the pending package.
+        let _g = guard();
+        set(OTHER, RING, 0, Clock::Rtc, 1_000, &[]).unwrap();
+        assert_eq!(woke(poll_as(1_000, Some("launcher"), 1)), OTHER);
+        assert!(
+            poll(now(1_100), Some("launcher"), 2, &always_installed, true).is_none(),
+            "a queued launch holds the re-wake back"
+        );
+        assert_eq!(len(), 1, "still firing, not dropped");
+        assert_eq!(woke(poll_as(1_200, Some("launcher"), 2)), OTHER);
     }
 
     #[test]
