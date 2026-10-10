@@ -109,6 +109,11 @@ object StringsDemo {
         check("reversed", name.reversed() == "ocip")
         check("replace", "a-b-c".replace("-", "+") == "a+b+c" && "aXa".replace('a', 'o') == "oXo")
         check("replace ignoreCase", "aAa".replace("a", "x", ignoreCase = true) == "xxx")
+        // An empty oldValue inserts before every char and at the end, with or without ignoreCase.
+        check(
+            "replace empty old",
+            "ab".replace("", "-") == "-a-b-" && "ab".replace("", "-", ignoreCase = true) == "-a-b-",
+        )
         check("split", "a,b,c".split(",").size == 3 && "a,b,c".split(",")[1] == "b")
         check("split multi delim", "a, b; c".split(", ", "; ").joinToString("|") == "a|b|c")
         check("split empty parts", "a,,b".split(",").size == 3 && ",a,".split(",").size == 3)

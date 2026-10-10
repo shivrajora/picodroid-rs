@@ -403,15 +403,12 @@ public final class StringsKt {
   }
 
   /**
-   * Case-sensitive replace goes to the builtin (an empty {@code oldValue} is left unchanged:
-   * documented).
+   * Case-sensitive replace goes to the builtin; an empty {@code oldValue} inserts {@code newValue}
+   * before every char and at the end, as the stdlib does with or without {@code ignoreCase}.
    */
   public static String replace(String s, String oldValue, String newValue, boolean ignoreCase) {
-    if (!ignoreCase) {
+    if (!ignoreCase || oldValue.isEmpty()) {
       return s.replace(oldValue, newValue);
-    }
-    if (oldValue.isEmpty()) {
-      return s;
     }
     StringBuilder sb = new StringBuilder();
     int cur = 0;
