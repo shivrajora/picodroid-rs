@@ -1051,6 +1051,14 @@ mod write {
             qualifiers: config::Qualifiers,
             pairs: Vec<(u32, OverrideValue)>,
         ) -> Result<u16, BuildError> {
+            // A byte value carries a u16 length prefix, as push_string's
+            // does; a longer one used to be written with a wrapped prefix.
+            if pairs
+                .iter()
+                .any(|(_, v)| matches!(v, OverrideValue::Bytes(b) if b.len() > u16::MAX as usize))
+            {
+                return Err(crate::BuildError::ValueTooLong);
+            }
             let id = self.push(TYPE_OVERRIDES, Entry::Block(qualifiers, pairs))?;
             Ok(res_entry(id))
         }
@@ -1192,6 +1200,25 @@ mod tests {
         let t = ResTable::parse(&table).unwrap();
         assert_eq!(t.entry_count(TYPE_BOOL), u16::MAX);
         assert_eq!(t.value(res_id(TYPE_BOOL, u16::MAX - 1)), Some(1));
+    }
+
+    /// An override string longer than its u16 length prefix is refused like
+    /// a base string is, instead of being written with a wrapped prefix.
+    #[test]
+    fn builder_refuses_an_over_long_override_string() {
+        let mut b = ResTableBuilder::new();
+        let s = b.push_string("x").unwrap();
+        let q = config::Qualifiers::parse("land").unwrap();
+        let r = b.push_overrides(
+            q,
+            alloc::vec![(s, OverrideValue::Bytes(alloc::vec![b'a'; 65_536]))],
+        );
+        assert_eq!(r, Err(crate::BuildError::ValueTooLong));
+        let ok = b.push_overrides(
+            q,
+            alloc::vec![(s, OverrideValue::Bytes(alloc::vec![b'a'; 65_535]))],
+        );
+        assert!(ok.is_ok());
     }
 
     #[test]
