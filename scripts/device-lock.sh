@@ -677,11 +677,13 @@ cmd_run() {
 
 command -v flock >/dev/null 2>&1 || die "flock (util-linux) is required"
 
-# --slot / --board are accepted anywhere on the line; everything else goes
-# to the subcommand.
+# --slot / --board are accepted anywhere on the line before `--`; everything
+# else goes to the subcommand, and everything after `--` is the command that
+# `run` executes, opaque to this scan (its own --board is its own business).
 args=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --) args+=("$@"); break ;;
     --slot) GLOBAL_SLOT_OPT="${2:-}"; [[ $# -gt 1 ]] && shift ;;
     --slot=*) GLOBAL_SLOT_OPT="${1#--slot=}" ;;
     --board) GLOBAL_BOARD_OPT="${2:-}"; [[ $# -gt 1 ]] && shift ;;

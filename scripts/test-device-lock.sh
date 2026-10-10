@@ -126,6 +126,10 @@ check "nested run keeps a shell session's identity" rc_is 0 \
   bash -c '"$0" acquire >/dev/null && "$0" run -- bash -c "SCRIPT_DIR=\"$1\"; source \"$1/lib.sh\"; require_device_lock nested.sh"; rc=$?; "$0" release >/dev/null 2>&1; exit $rc' \
   "$DL" "$SCRIPT_DIR"
 check "shell session released after the nested run" is_free
+# Everything after `--` belongs to the command, --board included.
+check "run passes --board after -- to the command" \
+  grep -q 'arg=--board' <<<"$(lock_as A run -- printf 'arg=%s\n' a --board b c 2>/dev/null)"
+check "run released after the passthrough" is_free
 
 # 7. break
 lock_as A acquire >/dev/null
