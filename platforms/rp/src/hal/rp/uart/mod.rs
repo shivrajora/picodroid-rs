@@ -8,15 +8,11 @@ use rp235x_hal::pac;
 #[cfg(feature = "chip-rp2040")]
 use rp_pico::hal::pac;
 
-// Compute UARTIBRD / UARTFBRD from baud rate.
-//   BRD = PCLK / (16 * baud)
-//   brd_x64 = (PCLK * 4) / baud  (avoids floats; gives ibrd in upper bits, fbrd in lower 6)
+pub mod math;
+
+/// UARTIBRD / UARTFBRD for `baudrate` at this chip's peripheral clock.
 fn baud_divisors(baudrate: i32) -> (u16, u8) {
-    let baud = baudrate as u64;
-    let brd_x64 = (PCLK_HZ as u64 * 4) / baud;
-    let ibrd = (brd_x64 >> 6) as u16;
-    let fbrd = (brd_x64 & 0x3F) as u8;
-    (ibrd, fbrd)
+    math::baud_divisors(PCLK_HZ, baudrate)
 }
 
 // Apply complete UART config (disable → reprogram → re-enable).

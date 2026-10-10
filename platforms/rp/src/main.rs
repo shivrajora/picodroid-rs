@@ -75,6 +75,9 @@ mod hal_rp_pwm_math_tests;
 #[cfg(test)]
 #[path = "hal/rp/spi/xfer.rs"]
 mod hal_rp_spi_xfer_tests;
+#[cfg(test)]
+#[path = "hal/rp/uart/math.rs"]
+mod hal_rp_uart_math_tests;
 // Text scans over the cyw43 port's C config (no hardware deps).
 #[cfg(test)]
 #[path = "hal/rp/cyw43/config_guard.rs"]
