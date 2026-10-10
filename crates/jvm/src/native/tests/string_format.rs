@@ -303,3 +303,44 @@ fn builtin_dispatch_hash_column_matches_names() {
         );
     }
 }
+
+// ── Explicit argument indices (`%1$s`, `%<s`), the strings.xml idiom ─────
+
+#[test]
+fn format_explicit_index_reorders_args() {
+    let mut ctx = StrCtx::new();
+    let a = ctx.intern(b"a");
+    let b = ctx.intern(b"b");
+    assert_eq!(ctx.fmt(b"%2$s-%1$s", &[a, b]), "b-a");
+}
+
+#[test]
+fn format_explicit_index_mixes_with_ordinary_and_zero_flag() {
+    let mut ctx = StrCtx::new();
+    let n = ctx.box_primitive(c::java_lang_Integer, Value::Int(7));
+    let s = ctx.intern(b"x");
+    // An explicit index does not advance the ordinary index: the `%s`
+    // after `%1$03d` still takes the first argument.
+    assert_eq!(ctx.fmt(b"%1$03d/%s", &[n, s]), "007/7");
+}
+
+#[test]
+fn format_previous_argument_flag() {
+    let mut ctx = StrCtx::new();
+    let n = ctx.box_primitive(c::java_lang_Integer, Value::Int(255));
+    assert_eq!(ctx.fmt(b"%d=%<x=%<05X", &[n]), "255=ff=000FF");
+}
+
+#[test]
+fn format_explicit_index_out_of_range_throws() {
+    let mut ctx = StrCtx::new();
+    let a = ctx.intern(b"a");
+    assert_eq!(
+        ctx.fmt_throws(b"%2$s", &[a]),
+        c::java_util_MissingFormatArgumentException
+    );
+    assert_eq!(
+        ctx.fmt_throws(b"%<s", &[]),
+        c::java_util_MissingFormatArgumentException
+    );
+}

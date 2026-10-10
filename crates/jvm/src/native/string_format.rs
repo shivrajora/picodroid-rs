@@ -2,7 +2,8 @@
 //! `java.lang.String.format(String, Object[])` — Java-subset printf formatter.
 //!
 //! Supports conversions `%s %d %x %X %o %c %b %f %e %g %n %%` with flags
-//! (`-`, `0`, `+`, ` `, `,`, `#`), width, and precision. Mismatched arguments
+//! (`-`, `0`, `+`, ` `, `,`, `#`, `<`), width, precision and the explicit
+//! argument index (`%1$s`, the strings.xml idiom). Mismatched arguments
 //! or bad specifiers throw the matching `IllegalFormatException` subclass.
 
 use alloc::vec::Vec;
@@ -24,6 +25,11 @@ struct Spec {
     width: usize,
     precision: Option<usize>,
     conv: u8,
+    /// `%2$s`: the 1-based explicit argument index, as in the Formatter
+    /// grammar `%[argument_index$][flags][width][.precision]conversion`.
+    arg_index: Option<usize>,
+    /// `%<s`: reuse the argument of the previous specifier.
+    prev: bool,
 }
 
 /// Make room for `n` more bytes in a formatter buffer without aborting.
@@ -348,9 +354,26 @@ fn numeric_sign(neg: bool, spec: &Spec) -> &'static [u8] {
 /// On success returns `(Spec, new_index)` pointing past the conversion char.
 fn parse_spec(fmt: &[u8], mut i: usize) -> Option<(Spec, usize)> {
     let mut s = Spec::default();
+    // Argument index: digits followed by `$`. Digits followed by anything
+    // else are the `0` flag and the width, parsed below from the same spot.
+    let mut j = i;
+    let mut n = 0usize;
+    while let Some(&b) = fmt.get(j) {
+        if b.is_ascii_digit() {
+            n = n.saturating_mul(10).saturating_add((b - b'0') as usize);
+            j += 1;
+        } else {
+            break;
+        }
+    }
+    if j > i && fmt.get(j) == Some(&b'$') {
+        s.arg_index = Some(n);
+        i = j + 1;
+    }
     // Flags
     loop {
         match fmt.get(i).copied()? {
+            b'<' => s.prev = true,
             b'-' => s.minus = true,
             b'0' => s.zero = true,
             b'+' => s.plus = true,
@@ -388,6 +411,31 @@ fn parse_spec(fmt: &[u8], mut i: usize) -> Option<(Spec, usize)> {
     s.conv = *fmt.get(i)?;
     i += 1;
     Some((s, i))
+}
+
+/// The argument a specifier consumes, by Java's three rules: `%<s` reuses
+/// the previous specifier's argument, `%2$s` names one explicitly (without
+/// moving the ordinary index), and a bare `%s` takes the next ordinary one.
+/// `None` is the `MissingFormatArgumentException` case: no argument at that
+/// index, or `%<s` with no previous specifier.
+fn take_arg(
+    spec: &Spec,
+    args: &[Value],
+    ordinary: &mut usize,
+    last: &mut Option<usize>,
+) -> Option<Value> {
+    let idx = if spec.prev {
+        (*last)?
+    } else if let Some(n) = spec.arg_index {
+        n.checked_sub(1)?
+    } else {
+        let p = *ordinary;
+        *ordinary += 1;
+        p
+    };
+    let v = *args.get(idx)?;
+    *last = Some(idx);
+    Some(v)
 }
 
 pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>, JvmError>> {
@@ -430,6 +478,7 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
         return Some(Err(e));
     }
     let mut arg_pos = 0usize;
+    let mut last_arg: Option<usize> = None;
     let mut i = 0usize;
 
     while i < fmt_bytes.len() {
@@ -458,14 +507,15 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                 out.push(if spec.conv == b'%' { b'%' } else { b'\n' });
             }
             b's' | b'S' => {
-                if arg_pos >= args.len() {
-                    return Some(Err(fmt_err(
-                        ctx,
-                        c::java_util_MissingFormatArgumentException,
-                    )));
-                }
-                let v = args[arg_pos];
-                arg_pos += 1;
+                let v = match take_arg(&spec, &args, &mut arg_pos, &mut last_arg) {
+                    Some(v) => v,
+                    None => {
+                        return Some(Err(fmt_err(
+                            ctx,
+                            c::java_util_MissingFormatArgumentException,
+                        )))
+                    }
+                };
                 if let Err(e) = stringify(ctx, v, &mut scratch) {
                     return Some(Err(e));
                 }
@@ -479,14 +529,15 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                 }
             }
             b'b' | b'B' => {
-                if arg_pos >= args.len() {
-                    return Some(Err(fmt_err(
-                        ctx,
-                        c::java_util_MissingFormatArgumentException,
-                    )));
-                }
-                let v = args[arg_pos];
-                arg_pos += 1;
+                let v = match take_arg(&spec, &args, &mut arg_pos, &mut last_arg) {
+                    Some(v) => v,
+                    None => {
+                        return Some(Err(fmt_err(
+                            ctx,
+                            c::java_util_MissingFormatArgumentException,
+                        )))
+                    }
+                };
                 let truthy = match unbox(ctx, v) {
                     Value::Null => false,
                     Value::Int(n) if matches!(v, Value::ObjectRef(_)) => n != 0,
@@ -511,14 +562,15 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                 }
             }
             b'c' | b'C' => {
-                if arg_pos >= args.len() {
-                    return Some(Err(fmt_err(
-                        ctx,
-                        c::java_util_MissingFormatArgumentException,
-                    )));
-                }
-                let v = args[arg_pos];
-                arg_pos += 1;
+                let v = match take_arg(&spec, &args, &mut arg_pos, &mut last_arg) {
+                    Some(v) => v,
+                    None => {
+                        return Some(Err(fmt_err(
+                            ctx,
+                            c::java_util_MissingFormatArgumentException,
+                        )))
+                    }
+                };
                 if spec.precision.is_some() {
                     return Some(Err(fmt_err(
                         ctx,
@@ -544,14 +596,15 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                 }
             }
             b'd' => {
-                if arg_pos >= args.len() {
-                    return Some(Err(fmt_err(
-                        ctx,
-                        c::java_util_MissingFormatArgumentException,
-                    )));
-                }
-                let v = args[arg_pos];
-                arg_pos += 1;
+                let v = match take_arg(&spec, &args, &mut arg_pos, &mut last_arg) {
+                    Some(v) => v,
+                    None => {
+                        return Some(Err(fmt_err(
+                            ctx,
+                            c::java_util_MissingFormatArgumentException,
+                        )))
+                    }
+                };
                 // A precision is an IllegalFormatPrecisionException on an
                 // integral conversion, as in Java (QA 2026-09-13: `%.2d` was
                 // accepted); a non-integral argument is a conversion error.
@@ -585,14 +638,15 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                 }
             }
             b'x' | b'X' => {
-                if arg_pos >= args.len() {
-                    return Some(Err(fmt_err(
-                        ctx,
-                        c::java_util_MissingFormatArgumentException,
-                    )));
-                }
-                let v = args[arg_pos];
-                arg_pos += 1;
+                let v = match take_arg(&spec, &args, &mut arg_pos, &mut last_arg) {
+                    Some(v) => v,
+                    None => {
+                        return Some(Err(fmt_err(
+                            ctx,
+                            c::java_util_MissingFormatArgumentException,
+                        )))
+                    }
+                };
                 if spec.precision.is_some() {
                     return Some(Err(fmt_err(
                         ctx,
@@ -627,14 +681,15 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                 }
             }
             b'o' => {
-                if arg_pos >= args.len() {
-                    return Some(Err(fmt_err(
-                        ctx,
-                        c::java_util_MissingFormatArgumentException,
-                    )));
-                }
-                let v = args[arg_pos];
-                arg_pos += 1;
+                let v = match take_arg(&spec, &args, &mut arg_pos, &mut last_arg) {
+                    Some(v) => v,
+                    None => {
+                        return Some(Err(fmt_err(
+                            ctx,
+                            c::java_util_MissingFormatArgumentException,
+                        )))
+                    }
+                };
                 if spec.precision.is_some() {
                     return Some(Err(fmt_err(
                         ctx,
@@ -663,14 +718,15 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                 }
             }
             b'f' | b'e' | b'E' | b'g' | b'G' => {
-                if arg_pos >= args.len() {
-                    return Some(Err(fmt_err(
-                        ctx,
-                        c::java_util_MissingFormatArgumentException,
-                    )));
-                }
-                let v = args[arg_pos];
-                arg_pos += 1;
+                let v = match take_arg(&spec, &args, &mut arg_pos, &mut last_arg) {
+                    Some(v) => v,
+                    None => {
+                        return Some(Err(fmt_err(
+                            ctx,
+                            c::java_util_MissingFormatArgumentException,
+                        )))
+                    }
+                };
                 let f = match as_float(ctx, v) {
                     Some(f) => f,
                     None => {
