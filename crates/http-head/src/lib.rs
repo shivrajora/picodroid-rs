@@ -106,7 +106,7 @@ pub fn parse_decimal(s: &[u8]) -> i64 {
         if !b.is_ascii_digit() {
             return -1;
         }
-        acc = acc.saturating_mul(10) + (b - b'0') as i64;
+        acc = acc.saturating_mul(10).saturating_add((b - b'0') as i64);
     }
     acc
 }
@@ -579,5 +579,9 @@ mod tests {
         assert_eq!(parse_decimal(b""), -1);
         assert_eq!(parse_decimal(b"12a"), -1);
         assert_eq!(parse_decimal(b"-1"), -1);
+        // A value past i64 saturates instead of overflowing the final add
+        // (a panic with overflow checks on, a negative wrap without).
+        assert_eq!(parse_decimal(b"99999999999999999999"), i64::MAX);
+        assert_eq!(parse_decimal(b"9223372036854775807"), i64::MAX);
     }
 }
