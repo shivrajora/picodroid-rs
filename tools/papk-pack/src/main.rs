@@ -119,6 +119,9 @@ struct RepackManifest {
     design_width: Option<u16>,
     design_height: Option<u16>,
     requires_features: Vec<String>,
+    activities: Vec<String>,
+    services: Vec<String>,
+    theme_id: Option<u32>,
 }
 
 const WELL_KNOWN_KEYS: &[&[u8]] = &[
@@ -134,6 +137,9 @@ const WELL_KNOWN_KEYS: &[&[u8]] = &[
     keys::DESIGN_WIDTH,
     keys::DESIGN_HEIGHT,
     keys::REQUIRES_FEATURES,
+    keys::ACTIVITIES,
+    keys::SERVICES,
+    keys::THEME,
 ];
 
 /// Read a PAPK back into the pieces `build_papk` takes. Sections are copied
@@ -202,6 +208,26 @@ fn load_repack_source(bytes: &[u8]) -> Result<(RepackSource, RepackManifest), St
                     .filter(|f| !f.is_empty())
                     .map(str::to_string)
                     .collect();
+                continue;
+            }
+            // The declared components and theme are well-known too: copied
+            // as extras they were written twice when the flags named them
+            // as well, and the input's values came first.
+            k if k == keys::ACTIVITIES || k == keys::SERVICES => {
+                let list = value
+                    .split(',')
+                    .filter(|f| !f.is_empty())
+                    .map(str::to_string)
+                    .collect();
+                if k == keys::ACTIVITIES {
+                    manifest.activities = list;
+                } else {
+                    manifest.services = list;
+                }
+                continue;
+            }
+            k if k == keys::THEME => {
+                manifest.theme_id = value.parse().ok();
                 continue;
             }
             k => {
@@ -406,6 +432,7 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
 
     // Under --repack the input supplies every value no flag overrides.
     let mut source = None;
+    let mut repack_theme_id: Option<u32> = None;
     if let Some(path) = &repack {
         if classes_dir.is_some()
             || assets_dir.is_some()
@@ -435,6 +462,17 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
         design_size = design_size.or(m.design_width.zip(m.design_height));
         if requires_features.is_empty() {
             requires_features = m.requires_features;
+        }
+        if activities.is_empty() {
+            activities = m.activities;
+        }
+        if services.is_empty() {
+            services = m.services;
+        }
+        // A `--theme` names a style the input's resources would have to hold;
+        // without it the input's resolved theme id carries over.
+        if theme.is_none() {
+            repack_theme_id = m.theme_id;
         }
         source = Some(src);
     }
@@ -476,7 +514,7 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
             activities,
             services,
             theme,
-            theme_id: None,
+            theme_id: repack_theme_id,
         },
         source,
     ))
@@ -1453,6 +1491,9 @@ mod pack_integration {
         original.version_code = Some(3);
         original.label = Some("Fixture".into());
         original.icon = Some("logo.png".into());
+        original.activities = vec!["fixture/Main".into()];
+        original.services = vec!["fixture/Svc".into()];
+        original.theme_id = Some(0x7f0a_0000);
         let extras = vec![("x-note".to_string(), "kept".to_string())];
         let assets = [square("logo.png", 8)];
         let bytes = build_papk(&original, &classes, &assets, &extras).unwrap();
@@ -1461,12 +1502,18 @@ mod pack_integration {
         assert_eq!(src.classes, classes);
         assert_eq!(src.assets.len(), 1);
         assert_eq!(src.assets[0].name, "logo.png");
+        // The declared components and the theme are well-known values, not
+        // extras: copied as extras they were written twice on a repack that
+        // also named them, with the input's values first.
         assert_eq!(src.extras, extras);
         assert_eq!(manifest.main_class.as_deref(), Some("fixture/Main"));
         assert_eq!(manifest.package_name.as_deref(), Some("fixture"));
         assert_eq!(manifest.version_code, Some(3));
         assert_eq!(manifest.label.as_deref(), Some("Fixture"));
         assert_eq!(manifest.icon.as_deref(), Some("logo.png"));
+        assert_eq!(manifest.activities, vec!["fixture/Main".to_string()]);
+        assert_eq!(manifest.services, vec!["fixture/Svc".to_string()]);
+        assert_eq!(manifest.theme_id, Some(0x7f0a_0000));
 
         // A repack that only renames the package changes nothing else.
         let mut renamed = original;
@@ -1478,6 +1525,23 @@ mod pack_integration {
         assert_eq!(parsed.label(), Some("Fixture"));
         assert_eq!(parsed.icon(), Some("logo.png"));
         assert_eq!(parsed.manifest_value(b"x-note"), Some("kept"));
+        for (key, want) in [
+            (keys::ACTIVITIES, "fixture/Main"),
+            (keys::SERVICES, "fixture/Svc"),
+            (keys::THEME, "2131361792"),
+        ] {
+            let values: Vec<&[u8]> = parsed
+                .manifest()
+                .unwrap()
+                .filter(|e| e.key == key)
+                .map(|e| e.value)
+                .collect();
+            assert_eq!(
+                values,
+                vec![want.as_bytes()],
+                "{key:?} written exactly once"
+            );
+        }
         let entry = parsed.classes().unwrap().next().unwrap();
         assert_eq!(entry.data, class_bytes.as_slice());
 
