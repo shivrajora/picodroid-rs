@@ -426,3 +426,121 @@ fn iterator_detects_concurrent_modification() {
         Some(c::java_util_ConcurrentModificationException)
     );
 }
+
+/// `map.keySet().iterator()`.
+fn make_map_key_iterator(strings: &mut StringTable, objects: &mut ObjectHeap, map: Value) -> Value {
+    let keyset = dispatch_map(m::keySet, d::__Set, &[map], strings, objects)
+        .unwrap()
+        .unwrap();
+    let mut arrays = ArrayHeap::new();
+    let mut ctx = NativeContext {
+        classes: Classes::linear(&[]),
+        descriptor: d::__Iterator,
+        args: &[keyset],
+        strings,
+        objects,
+        arrays: &mut arrays,
+        upcall: None,
+    };
+    BuiltinHandler
+        .dispatch(c::java_util_HashMap_KeySet, m::iterator, &mut ctx)
+        .unwrap()
+        .unwrap()
+        .unwrap()
+}
+
+/// A structural change that leaves the size alone — `remove(k); put(other)`
+/// — shifts the backing buffer under the iterator; java.util counts
+/// modifications, not elements, and fails fast all the same. The iterator
+/// used to compare lengths and skipped or repeated an element in silence.
+#[test]
+fn iterator_detects_equal_size_structural_changes() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    // List: remove the head, append another: still 3 long.
+    let list = Value::ObjectRef(objects.alloc(c::java_util_ArrayList).unwrap());
+    dispatch_list("<init>", "()V", &[list], &mut objects).unwrap();
+    for v in [1, 2, 3] {
+        dispatch_list(m::add, d::Object__Z, &[list, Value::Int(v)], &mut objects).unwrap();
+    }
+    let iter = make_list_iterator(&mut objects, list);
+    assert_eq!(
+        dispatch_iter(m::next, d::__Object, &[iter], &mut objects),
+        Ok(Some(Value::Int(1)))
+    );
+    dispatch_list(
+        m::remove,
+        d::I__Object,
+        &[list, Value::Int(0)],
+        &mut objects,
+    )
+    .unwrap();
+    dispatch_list(m::add, d::Object__Z, &[list, Value::Int(4)], &mut objects).unwrap();
+    let r = dispatch_iter(m::next, d::__Object, &[iter], &mut objects);
+    let Err(JvmError::Exception(e)) = r else {
+        panic!("{r:?}");
+    };
+    assert_eq!(
+        objects.class_name(e),
+        Some(c::java_util_ConcurrentModificationException)
+    );
+
+    // Map: a value replaced under its key is not a structural change, so
+    // the iteration goes on, as in java.util.
+    let map = make_map(&mut strings, &mut objects);
+    for (k, v) in [(1, 10), (2, 20)] {
+        dispatch_map(
+            m::put,
+            d::Object_Object__Object,
+            &[map, Value::Int(k), Value::Int(v)],
+            &mut strings,
+            &mut objects,
+        )
+        .unwrap();
+    }
+    let keys = make_map_key_iterator(&mut strings, &mut objects, map);
+    assert_eq!(
+        dispatch_iter(m::next, d::__Object, &[keys], &mut objects),
+        Ok(Some(Value::Int(1)))
+    );
+    dispatch_map(
+        m::put,
+        d::Object_Object__Object,
+        &[map, Value::Int(1), Value::Int(99)],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap();
+    assert_eq!(
+        dispatch_iter(m::next, d::__Object, &[keys], &mut objects),
+        Ok(Some(Value::Int(2))),
+        "put over an existing key is not structural"
+    );
+    // remove(1); put(3): still two entries, but the buffer moved.
+    let keys = make_map_key_iterator(&mut strings, &mut objects, map);
+    dispatch_iter(m::next, d::__Object, &[keys], &mut objects).unwrap();
+    dispatch_map(
+        m::remove,
+        d::Object__Object,
+        &[map, Value::Int(1)],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap();
+    dispatch_map(
+        m::put,
+        d::Object_Object__Object,
+        &[map, Value::Int(3), Value::Int(30)],
+        &mut strings,
+        &mut objects,
+    )
+    .unwrap();
+    let r = dispatch_iter(m::next, d::__Object, &[keys], &mut objects);
+    let Err(JvmError::Exception(e)) = r else {
+        panic!("{r:?}");
+    };
+    assert_eq!(
+        objects.class_name(e),
+        Some(c::java_util_ConcurrentModificationException)
+    );
+}

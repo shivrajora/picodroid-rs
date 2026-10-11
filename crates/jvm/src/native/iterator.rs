@@ -26,11 +26,11 @@ pub(crate) fn dispatch(
         }
         m::next => {
             let (source, pos, expected) = match ctx.objects.iter_get(obj_idx) {
-                Some(s) => (s.source, s.position, s.expected_len),
+                Some(s) => (s.source, s.position, s.expected_mods),
                 None => return Some(Err(JvmError::InvalidReference)),
             };
             let len = source_len(ctx, &source);
-            if len != expected {
+            if source_mods(ctx, &source) != expected {
                 // Fail fast, like java.util: the source changed behind the
                 // iterator (bugbash S6).
                 return Some(Err(super::throw_named(
@@ -73,7 +73,7 @@ pub(crate) fn dispatch(
         }
         m::remove => {
             let (source, last, expected) = match ctx.objects.iter_get(obj_idx) {
-                Some(s) => (s.source, s.last_returned, s.expected_len),
+                Some(s) => (s.source, s.last_returned, s.expected_mods),
                 None => return Some(Err(JvmError::InvalidReference)),
             };
             // remove() before next(), or twice in a row.
@@ -83,7 +83,7 @@ pub(crate) fn dispatch(
                     c::java_lang_IllegalStateException,
                 )));
             };
-            if source_len(ctx, &source) != expected {
+            if source_mods(ctx, &source) != expected {
                 return Some(Err(super::throw_named(
                     ctx,
                     c::java_util_ConcurrentModificationException,
@@ -98,9 +98,11 @@ pub(crate) fn dispatch(
             if !removed {
                 return Some(Err(JvmError::InvalidReference));
             }
+            // The removal counted as a modification; this iterator made it.
+            let mods = source_mods(ctx, &source);
             if let Some(state) = ctx.objects.iter_get_mut(obj_idx) {
                 state.position = at;
-                state.expected_len -= 1;
+                state.expected_mods = mods;
                 state.last_returned = None;
             }
             Some(Ok(None))
@@ -116,6 +118,16 @@ fn source_len(ctx: &NativeContext<'_>, source: &IterSource) -> usize {
         IterSource::MapKeys(buf_idx)
         | IterSource::MapValues(buf_idx)
         | IterSource::MapEntries(buf_idx) => ctx.objects.map_len(*buf_idx),
+    }
+}
+
+/// The source collection's structural-modification count.
+fn source_mods(ctx: &NativeContext<'_>, source: &IterSource) -> u32 {
+    match source {
+        IterSource::List(buf_idx) => ctx.objects.list_mod_count(*buf_idx),
+        IterSource::MapKeys(buf_idx)
+        | IterSource::MapValues(buf_idx)
+        | IterSource::MapEntries(buf_idx) => ctx.objects.map_mod_count(*buf_idx),
     }
 }
 

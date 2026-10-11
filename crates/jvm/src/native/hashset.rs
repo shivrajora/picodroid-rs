@@ -111,7 +111,7 @@ pub(crate) fn dispatch(
                         source: IterSource::MapKeys(buf_idx),
                         position: 0,
                         owner,
-                        expected_len: ctx.objects.map_len(buf_idx),
+                        expected_mods: ctx.objects.map_mod_count(buf_idx),
                         last_returned: None,
                     },
                 )

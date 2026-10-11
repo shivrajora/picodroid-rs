@@ -196,7 +196,7 @@ pub(crate) fn dispatch_view(
                         source,
                         position: 0,
                         owner: recv,
-                        expected_len: ctx.objects.map_len(buf_idx),
+                        expected_mods: ctx.objects.map_mod_count(buf_idx),
                         last_returned: None,
                     },
                 )

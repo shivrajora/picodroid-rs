@@ -158,6 +158,13 @@ pub struct ObjectHeap {
     /// a bare `long`/`double`.
     pub(super) list_bufs: Vec<Option<Vec<Slot>>>,
     pub(super) map_bufs: Vec<Option<Vec<(Slot, Slot)>>>,
+    /// Structural-modification counts, one per buffer (java.util's
+    /// `modCount`): bumped by every add, insert, remove and clear, never by
+    /// a `set` or a `put` over an existing key. A live iterator compares
+    /// against the count it started from, so a `remove(k); put(other)` that
+    /// leaves the size alone still fails fast.
+    pub(super) list_mods: Vec<u32>,
+    pub(super) map_mods: Vec<u32>,
     /// Sparse list of lambda proxy metadata, keyed by object index.
     pub(super) lambda_proxies: Vec<(u16, LambdaProxy)>,
     /// `Integer.valueOf` & co. must hand back the same object for the range
@@ -220,6 +227,8 @@ impl ObjectHeap {
             sb_bufs: Vec::new(),
             list_bufs: Vec::new(),
             map_bufs: Vec::new(),
+            list_mods: Vec::new(),
+            map_mods: Vec::new(),
             lambda_proxies: Vec::new(),
             boxed_cache: [None, None, None, None, None],
             bool_cache: [BOX_NONE; 2],

@@ -176,7 +176,7 @@ fn an_iterator_the_registry_cannot_hold_is_refused_not_aborted() {
         source: iter_store::IterSource::List(0),
         position: 0,
         owner: 0,
-        expected_len: 0,
+        expected_mods: 0,
         last_returned: None,
     };
     let mut heap = ObjectHeap::new();

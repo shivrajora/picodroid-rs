@@ -24,12 +24,14 @@ pub struct IteratorState {
     /// keeps the temporary's buffer — and the references inside it — alive
     /// for the whole loop even though nothing else holds the collection.
     pub owner: u16,
-    /// Backing length at creation, maintained by this iterator's own
-    /// `remove()`. java.util iterators are fail-fast: `next()` compares this
-    /// against the live length and throws ConcurrentModificationException on
-    /// a mismatch — without it, mutating the source mid-loop silently
-    /// skipped or repeated elements (bugbash S6).
-    pub expected_len: usize,
+    /// The source's structural-modification count at creation, moved along
+    /// by this iterator's own `remove()`. java.util iterators are fail-fast:
+    /// `next()` compares this against the live count and throws
+    /// ConcurrentModificationException on a mismatch — without it, mutating
+    /// the source mid-loop silently skipped or repeated elements (bugbash
+    /// S6). A count, not a length: `remove(k); put(other)` leaves the size
+    /// alone and still shifts the backing buffer under the iterator.
+    pub expected_mods: u32,
     /// Index of the element the last `next()` returned — what `remove()`
     /// removes. `None` before the first `next()` and after each `remove()`
     /// (Java's IllegalStateException contract).

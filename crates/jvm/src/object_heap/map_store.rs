@@ -28,12 +28,29 @@ impl ObjectHeap {
     pub fn map_alloc(&mut self) -> Option<u16> {
         if let Some(idx) = self.map_bufs.iter().position(|s| s.is_none()) {
             self.map_bufs[idx] = Some(Vec::new());
+            if let Some(m) = self.map_mods.get_mut(idx) {
+                *m = 0;
+            }
             return Some(idx as u16);
         }
         let idx = self.map_bufs.len() as u16;
         reserve_fallible(&mut self.map_bufs, 1).ok()?;
+        reserve_fallible(&mut self.map_mods, 1).ok()?;
         self.map_bufs.push(Some(Vec::new()));
+        self.map_mods.push(0);
         Some(idx)
+    }
+
+    /// The map's structural-modification count (java.util's `modCount`):
+    /// entries added or removed, never a value replaced under its key.
+    pub fn map_mod_count(&self, idx: u16) -> u32 {
+        self.map_mods.get(idx as usize).copied().unwrap_or(0)
+    }
+
+    fn bump_map_mods(&mut self, idx: u16) {
+        if let Some(m) = self.map_mods.get_mut(idx as usize) {
+            *m = m.wrapping_add(1);
+        }
     }
 
     /// Free a map buffer slot (GC hook). No-op if `idx` is out of range.
@@ -91,6 +108,7 @@ impl ObjectHeap {
         } else {
             reserve_fallible(buf, 1)?;
             buf.push((key, value));
+            self.bump_map_mods(idx);
             Ok(None)
         }
     }
@@ -116,6 +134,7 @@ impl ObjectHeap {
         if let Some(Some(buf)) = self.map_bufs.get_mut(idx as usize) {
             reserve_fallible(buf, 1)?;
             buf.push((key, value));
+            self.bump_map_mods(idx);
         }
         Ok(())
     }
@@ -131,7 +150,9 @@ impl ObjectHeap {
     pub fn map_remove(&mut self, idx: u16, key: Value, strings: &StringTable) -> Option<Value> {
         let pos = self.map_find_key(idx, key, strings)?;
         let buf = self.map_bufs.get_mut(idx as usize)?.as_mut()?;
-        buf.remove(pos).1.to_value()
+        let removed = buf.remove(pos).1.to_value();
+        self.bump_map_mods(idx);
+        removed
     }
 
     /// Returns `true` if the map contains `key`.
@@ -161,6 +182,7 @@ impl ObjectHeap {
         if let Some(Some(buf)) = self.map_bufs.get_mut(idx as usize) {
             if i < buf.len() {
                 buf.remove(i);
+                self.bump_map_mods(idx);
                 return true;
             }
         }
@@ -174,6 +196,7 @@ impl ObjectHeap {
             // `OutOfMemoryError` (QA 2026-09-13), and a buffer kept for
             // reuse would keep the arena as full as before.
             *buf = Vec::new();
+            self.bump_map_mods(idx);
         }
     }
 

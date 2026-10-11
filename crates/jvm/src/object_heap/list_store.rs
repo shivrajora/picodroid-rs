@@ -20,11 +20,16 @@ impl ObjectHeap {
     pub fn list_alloc(&mut self) -> Option<u16> {
         if let Some(idx) = self.list_bufs.iter().position(|s| s.is_none()) {
             self.list_bufs[idx] = Some(Vec::new());
+            if let Some(m) = self.list_mods.get_mut(idx) {
+                *m = 0;
+            }
             return Some(idx as u16);
         }
         let idx = self.list_bufs.len() as u16;
         reserve_fallible(&mut self.list_bufs, 1).ok()?;
+        reserve_fallible(&mut self.list_mods, 1).ok()?;
         self.list_bufs.push(Some(Vec::new()));
+        self.list_mods.push(0);
         Some(idx)
     }
 
@@ -60,8 +65,20 @@ impl ObjectHeap {
         if let Some(Some(buf)) = self.list_bufs.get_mut(idx as usize) {
             reserve_fallible(buf, 1)?;
             buf.push(v);
+            self.bump_list_mods(idx);
         }
         Ok(())
+    }
+
+    /// The list's structural-modification count (java.util's `modCount`).
+    pub fn list_mod_count(&self, idx: u16) -> u32 {
+        self.list_mods.get(idx as usize).copied().unwrap_or(0)
+    }
+
+    fn bump_list_mods(&mut self, idx: u16) {
+        if let Some(m) = self.list_mods.get_mut(idx as usize) {
+            *m = m.wrapping_add(1);
+        }
     }
 
     /// Insert `v` at position `i`, shifting subsequent elements right.
@@ -73,6 +90,7 @@ impl ObjectHeap {
             reserve_fallible(buf, 1)?;
             let pos = i.min(buf.len());
             buf.insert(pos, v);
+            self.bump_list_mods(idx);
         }
         Ok(())
     }
@@ -92,7 +110,9 @@ impl ObjectHeap {
     pub fn list_remove(&mut self, idx: u16, i: usize) -> Option<Value> {
         let buf = self.list_bufs.get_mut(idx as usize)?.as_mut()?;
         if i < buf.len() {
-            buf.remove(i).to_value()
+            let removed = buf.remove(i).to_value();
+            self.bump_list_mods(idx);
+            removed
         } else {
             None
         }
@@ -106,6 +126,7 @@ impl ObjectHeap {
             // `OutOfMemoryError` (QA 2026-09-13), and a buffer kept for
             // reuse would keep the arena as full as before.
             *buf = Vec::new();
+            self.bump_list_mods(idx);
         }
     }
 

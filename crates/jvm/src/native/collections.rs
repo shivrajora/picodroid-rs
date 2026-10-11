@@ -182,7 +182,7 @@ pub(crate) fn dispatch(
                         source: IterSource::List(buf_idx),
                         position: 0,
                         owner,
-                        expected_len: ctx.objects.list_len(buf_idx),
+                        expected_mods: ctx.objects.list_mod_count(buf_idx),
                         last_returned: None,
                     },
                 )
