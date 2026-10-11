@@ -497,6 +497,11 @@ public class FragmentManager {
       }
       if ((flags & POP_BACK_STACK_INCLUSIVE) == 0) {
         index++;
+      } else {
+        // Android also consumes the same-named entries directly beneath the one found.
+        while (index > 0 && name.equals(mBackStack.get(index - 1).name())) {
+          index--;
+        }
       }
       if (index >= size) {
         return false;

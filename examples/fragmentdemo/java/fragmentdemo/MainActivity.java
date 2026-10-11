@@ -458,6 +458,23 @@ public class MainActivity extends Activity {
     T.check(
         "churn destroyed the transients only",
         T.count("Detail11.onDetach") == 1 && T.count("Home1.onCreate(null)") == 1);
+    // popBackStack(name, POP_BACK_STACK_INCLUSIVE) also consumes the same-named entries directly
+    // beneath the one found, as Android does; it used to pop one.
+    int base = fm.getBackStackEntryCount();
+    for (String name : new String[] {"dup", "dup", "top"}) {
+      fm.beginTransaction()
+          .replace(R.id.container, new HeadlessFragment(), "named")
+          .addToBackStack(name)
+          .commit();
+      fm.executePendingTransactions();
+    }
+    T.check("three named entries pushed", fm.getBackStackEntryCount() == base + 3);
+    fm.popBackStackImmediate("dup", FragmentManager.POP_BACK_STACK_INCLUSIVE);
+    T.check(
+        "inclusive pop takes every same-named entry beneath",
+        fm.getBackStackEntryCount() == base
+            && fm.findFragmentByTag("detail") == detail
+            && detail.isResumed());
   }
 
   private void afterBack1() {
