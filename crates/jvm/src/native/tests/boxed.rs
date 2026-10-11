@@ -612,13 +612,16 @@ fn string_constructors_parse_like_parse_x() {
     let mut strings = StringTable::new();
     let mut objects = ObjectHeap::new();
     let mut arrays = ArrayHeap::new();
+    // The String parameter as the loaded class files spell it (shrunk under
+    // PICODROID_SHRINK=1), which is what `is_string_arg` matches.
+    let desc = alloc::format!("{})V", d::p_String);
     let mut construct = |class: &'static str, text: &'static [u8]| -> Result<Value, JvmError> {
         let obj = objects.alloc(class).unwrap();
         let s = Value::Reference(strings.intern(text).unwrap());
         let args = [Value::ObjectRef(obj), s];
         let mut ctx = NativeContext {
             classes: Classes::linear(&[]),
-            descriptor: "(Ljava/lang/String;)V",
+            descriptor: &desc,
             args: &args,
             strings: &mut strings,
             objects: &mut objects,
