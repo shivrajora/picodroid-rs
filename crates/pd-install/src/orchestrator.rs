@@ -313,14 +313,24 @@ pub fn install(
     // mapping is readable; the plan placed the image after the run's meta
     // sector, inside the region by `max_data_size`.
     // SAFETY: `PapkFlash` maps `region_len` readable bytes at `mapped_base`.
-    let image_ok = unsafe {
+    let image_fault = unsafe {
         let data = flash
             .mapped_base()
             .add((plan.first_sector as usize + 1) * META_SIZE);
         let image = core::slice::from_raw_parts(data, papk_len as usize);
-        papk_format::validate_structure(image).is_ok()
+        if papk_format::validate_structure(image).is_err() {
+            Some(InstallError::InvalidPapk)
+        } else if image_requires_a_missing_feature(image, directory) {
+            // The pre-erase check read only the peek; a `requires-features`
+            // entry the builder writes last straddles it behind a long
+            // label or icon name and read as "nothing required". The whole
+            // manifest is in flash now, so the gate is final here.
+            Some(InstallError::MissingFeature)
+        } else {
+            None
+        }
     };
-    if !image_ok {
+    if let Some(fault) = image_fault {
         // SAFETY: the JVM core is still parked (this is before the success
         // report that precedes the reset), and the run is the one this
         // install erased and streamed, nothing an installed app owns.
@@ -328,7 +338,7 @@ pub fn install(
         // The erase before the stream may have taken an old copy in place;
         // the directory must say so rather than list an app that is gone.
         directory.rescan(flash);
-        transport.report_error(InstallError::InvalidPapk);
+        transport.report_error(fault);
         coordinator.release();
         coordinator.cancel_park_request();
         return false;
@@ -348,6 +358,19 @@ pub fn install(
     // the host sees completion; the caller then resets both cores.
     transport.report_success();
     true
+}
+
+/// Whether the installed image's manifest requires a feature `directory`
+/// lacks. The same manifest walk as the pre-erase check, over the whole
+/// image instead of the peek (it needs no alignment, unlike the class
+/// section reader); an image whose manifest does not parse requires
+/// nothing (it is refused on structure first).
+fn image_requires_a_missing_feature(image: &[u8], directory: &impl PackageDirectory) -> bool {
+    papk_format::find_manifest_value_in_prefix(image, papk_format::keys::REQUIRES_FEATURES)
+        .is_some_and(|list| {
+            list.split(',')
+                .any(|f| !f.is_empty() && !directory.has_feature(f))
+        })
 }
 
 /// Where the run goes: the directory's plan, compacting the region first
@@ -952,6 +975,64 @@ mod tests {
         assert!(r.events.contains(&Ev::CancelPark));
 
         let papk = papk_requiring(PRESENT_FEATURE);
+        let r = run(papk.len() as u32, wire(&papk), true, 1 << 20, None);
+        assert!(
+            !r.events.iter().any(|e| matches!(e, Ev::Error(_))),
+            "an app requiring a present feature was refused: {:?}",
+            r.events
+        );
+        assert!(r.events.contains(&Ev::Commit(papk.len() as u32)));
+    }
+
+    /// [`papk_requiring`] with a label long enough to push the
+    /// `requires-features` entry (the builder writes it last) past the
+    /// install peek.
+    fn papk_requiring_behind_a_long_label(features: &str) -> Vec<u8> {
+        use papk_format::{EntryPoint, ManifestSpec, PapkBuilder};
+        let label: alloc::string::String = core::iter::repeat('L').take(600).collect();
+        let papk = PapkBuilder::new(ManifestSpec {
+            entry: EntryPoint::MainClass("demo/Main"),
+            package_name: "demo",
+            version: "1.0",
+            framework_map_version: FW,
+            version_code: None,
+            label: Some(&label),
+            icon: None,
+            design_size: None,
+            requires_features: Some(features),
+        })
+        .build()
+        .expect("test PAPK");
+        assert!(
+            papk_format::find_manifest_value_in_prefix(
+                &papk[..PEEK_BUF_LEN.min(papk.len())],
+                papk_format::keys::REQUIRES_FEATURES,
+            )
+            .is_none(),
+            "the fixture must straddle the peek for the test to mean anything"
+        );
+        papk
+    }
+
+    /// A `requires-features` entry the peek cannot see is still a gate: the
+    /// whole manifest is re-read from flash before the commit, and an app
+    /// requiring a feature the board lacks is refused there — its run
+    /// erased, nothing committed. It used to install.
+    #[test]
+    fn a_required_feature_behind_the_peek_is_still_refused() {
+        let papk = papk_requiring_behind_a_long_label("test.hardware.absent");
+        let r = run(papk.len() as u32, wire(&papk), true, 1 << 20, None);
+        assert!(
+            r.events.contains(&Ev::Error("missing_feature")),
+            "expected a missing-feature rejection, got {:?}",
+            r.events
+        );
+        assert!(!r.events.iter().any(|e| matches!(e, Ev::Commit(_))));
+        assert!(!r.reset);
+        assert!(r.events.contains(&Ev::Release));
+        assert!(r.events.contains(&Ev::CancelPark));
+
+        let papk = papk_requiring_behind_a_long_label(PRESENT_FEATURE);
         let r = run(papk.len() as u32, wire(&papk), true, 1 << 20, None);
         assert!(
             !r.events.iter().any(|e| matches!(e, Ev::Error(_))),
