@@ -642,3 +642,33 @@ fn a_class_with_malformed_bytecode_does_not_link() {
         );
     }
 }
+
+// ── Superclass chains must leave the set ─────────────────────────────────
+
+#[test]
+fn a_superclass_cycle_does_not_build() {
+    use crate::build::simple_class;
+    let a_self = simple_class(b"A", b"A", None);
+    assert_eq!(
+        build_section(&[&a_self]),
+        Err(LinkError::SuperCycle { idx: 0 }),
+        "A extends A"
+    );
+    let a = simple_class(b"A", b"B", None);
+    let b = simple_class(b"B", b"A", None);
+    assert_eq!(
+        build_section(&[&a, &b]),
+        Err(LinkError::SuperCycle { idx: 0 }),
+        "A extends B extends A"
+    );
+    // A chain that leaves the set is fine, however deep.
+    let c = simple_class(b"C", b"B", None);
+    let b = simple_class(b"B", b"A", None);
+    let a = simple_class(b"A", b"java/lang/Object", None);
+    let section = build_section(&[&c, &b, &a]).expect("C extends B extends A extends Object");
+    let aligned = aligned(&section);
+    ClassSection::parse(as_bytes(&aligned, section.len()))
+        .expect("parses")
+        .validate()
+        .expect("validates");
+}

@@ -213,6 +213,7 @@ fn build_section_impl(classes: &[&[u8]], expected: Option<&[&[u8]]>) -> Result<V
             links[i][SUPER_IDX_WORD] = j as u16;
         }
     }
+    crate::section::check_super_chains(n, |i| Link::new(&links[i]).ok()?.super_idx())?;
 
     // The literal pool: every String constant of the set, each distinct
     // byte string once, in order of first appearance. A row remembers the

@@ -330,6 +330,7 @@ impl<'a> ClassSection<'a> {
                 return Err(LinkError::BadSuperIndex { idx: i as u16 });
             }
         }
+        check_super_chains(self.count, |i| self.class(i)?.link.super_idx())?;
         let index = self.index();
         let mut seen = [0u64; MAX_CLASSES / 64];
         for (n, e) in index.iter().enumerate() {
@@ -369,4 +370,27 @@ impl<'a> ClassSection<'a> {
         }
         Ok(())
     }
+}
+
+/// Every class's superclass chain must leave the set within `n` steps: a
+/// chain that revisits a class (`A extends A`, `A extends B extends A`)
+/// would send the runtime's unbounded super-chain walks round for ever.
+/// `super_of(i)` is the set index of class `i`'s superclass, `None` when
+/// the superclass is outside the set.
+pub(crate) fn check_super_chains(
+    n: usize,
+    super_of: impl Fn(usize) -> Option<usize>,
+) -> Result<(), LinkError> {
+    for i in 0..n {
+        let mut cur = i;
+        let mut steps = 0;
+        while let Some(sup) = super_of(cur) {
+            steps += 1;
+            if steps > n {
+                return Err(LinkError::SuperCycle { idx: i as u16 });
+            }
+            cur = sup;
+        }
+    }
+    Ok(())
 }
