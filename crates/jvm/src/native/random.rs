@@ -29,6 +29,18 @@ const MASK: i64 = (1i64 << 48) - 1;
 /// worst-case race is two instances getting the same seed.
 static SEED_UNIQUIFIER: AtomicU32 = AtomicU32::new(0x9E37_79B9);
 
+/// Fold a word of entropy into the default seeds. The uniquifier alone only
+/// multiplies from a constant, so without this the n-th `new Random()` after
+/// every reset drew the same sequence; the embedder mixes in whatever
+/// differs between boots (the free-running timer, the wall clock, a TRNG
+/// word) when it starts a JVM — the JDK's `seedUniquifier() ^ nanoTime()`.
+pub fn mix_seed_entropy(word: u32) {
+    let prev = SEED_UNIQUIFIER.load(Ordering::Relaxed);
+    // Multiply before the XOR so a small word still moves every bit.
+    let mixed = prev ^ word.wrapping_mul(0x9E37_79B9).rotate_left(13);
+    SEED_UNIQUIFIER.store(mixed, Ordering::Relaxed);
+}
+
 fn next_uniquifier() -> i64 {
     // Multiplier mirrors the JDK's `seedUniquifier` shape (truncated to 32 bits).
     let prev = SEED_UNIQUIFIER.load(Ordering::Relaxed);

@@ -154,3 +154,43 @@ fn random_next_bytes_partial_tail() {
     // Length must be unchanged (no overrun).
     assert_eq!(r.arrays.length(arr_idx), Some(7));
 }
+
+/// The seed a `new Random()` (no argument) draws.
+fn default_seed() -> i64 {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let this = objects.alloc(c::java_util_Random).unwrap();
+    let mut ctx = NativeContext {
+        classes: Classes::linear(&[]),
+        descriptor: "()V",
+        args: &[Value::ObjectRef(this)],
+        strings: &mut strings,
+        objects: &mut objects,
+        arrays: &mut arrays,
+        upcall: None,
+    };
+    BuiltinHandler
+        .dispatch(c::java_util_Random, "<init>", &mut ctx)
+        .expect("Random.<init>() not handled")
+        .expect("Random.<init>() returned error");
+    match ctx.objects.get_field(this, 0) {
+        Some(Value::Long(s)) => s,
+        other => panic!("seed slot holds {other:?}"),
+    }
+}
+
+/// The embedder folds boot-time entropy into the default seeds: two JVM
+/// starts that mix in different words draw different `new Random()` seeds.
+/// Without the fold the uniquifier only multiplied from a constant, so the
+/// n-th default-seeded Random after every reset was the same.
+#[test]
+fn default_seeds_follow_the_entropy_the_embedder_mixes_in() {
+    crate::native::random::mix_seed_entropy(0x0000_0001);
+    let a = default_seed();
+    crate::native::random::mix_seed_entropy(0x0000_0002);
+    let b = default_seed();
+    assert_ne!(a, b, "different entropy words must give different seeds");
+    // Each construction still advances the uniquifier on its own.
+    assert_ne!(default_seed(), default_seed());
+}

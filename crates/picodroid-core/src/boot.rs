@@ -224,6 +224,15 @@ pub fn run_app(apk_data: &[u8]) {
     // sandbox); copied out because the image may be replaced by an install.
     crate::packages::set_running(apk_for_count.package_name());
     let mut jvm = Jvm::with_capacity(FRAMEWORK_CLASS_COUNT + apk_class_count);
+    // `new Random()` seeds from a uniquifier that only multiplies from a
+    // constant: fold in what differs between boots — the free-running
+    // timer's reading now and the wall clock when the time service has set
+    // one — so the n-th default-seeded Random is not the same every reset.
+    {
+        let nanos = crate::hal::system_clock::elapsed_realtime_nanos();
+        let wall = nanos / 1_000_000 + crate::os::system_clock::wall_offset_ms();
+        pico_jvm::native::random::mix_seed_entropy(nanos as u32 ^ (wall as u32).rotate_left(7));
+    }
     let heap = shared_heap();
     heap.class_objects.resolve.configure(resolve_cache_sizes());
     // A new app run: the class data behind every native's name is about to
