@@ -15,6 +15,12 @@
 # With an app package prefix (e.g. `helloworld/`), also proves --shrink-app
 # renamed the app's own classes: the embedded PAPK must not spell the
 # prefix anywhere but a string literal, and helloworld has none.
+#
+# A class the runtime names that no committed map covers yet is not a leak:
+# a name added between releases keeps its original spelling until the next
+# cut folds it in (website reference/shrinker.md, the append-only rule), in
+# the firmware's `c::` const and in every PAPK alike. Such names are listed
+# in sdk/class-names.tsv; the check reports them and goes on.
 set -euo pipefail
 
 ELF="${1:?usage: check-shrunk-image.sh <elf> [<app-package-prefix>]}"
@@ -47,7 +53,49 @@ grep -oE '(L?(java|javax|picodroid)/[A-Za-z0-9_$/]+;?)' "$tmp/strings6.txt" \
 # a class the shrinker maps — log/help prose, the API-hint advice strings.
 # Keep this list short; every entry is a spelling the image ships on purpose.
 allow='^(picodroid/net/|picodroid/pio/)$'
-grep -vE "$allow" "$leaks" > "$tmp/real.txt" || true
+grep -vE "$allow" "$leaks" > "$tmp/candidates.txt" || true
+
+# Names no committed map covers: in sdk/class-names.tsv but in no
+# `from =` row. The maps are append-only supersets, so the union over the
+# directory is the newest map's class set.
+SDK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../sdk" && pwd)"
+grep -h '^from *= *"' "$SDK_DIR"/shrink-maps/*.toml \
+  | sed -E 's/^from *= *"([^"]+)".*/\1/' | sort -u > "$tmp/mapped.txt"
+grep -vE '^(#|$)' "$SDK_DIR/class-names.tsv" | cut -f1 | sort -u \
+  | comm -23 - "$tmp/mapped.txt" > "$tmp/unmapped.txt"
+
+# `strings` runs adjacent literals together, so a candidate is the name
+# with whatever followed it in flash. It is tolerated when it is an unmapped
+# name followed by nothing that spells another package path; any candidate
+# containing a mapped name is a leak.
+: > "$tmp/real.txt"
+: > "$tmp/pending.txt"
+while IFS= read -r cand; do
+  [[ -n "$cand" ]] || continue
+  bare="${cand#L}"
+  bare="${bare%;}"
+  tolerated=
+  if ! grep -qF -f "$tmp/mapped.txt" <<< "$bare"; then
+    while IFS= read -r u; do
+      [[ -n "$u" && "$bare" == "$u"* ]] || continue
+      rest="${bare#"$u"}"
+      if ! grep -qE '(java|javax|picodroid)/' <<< "$rest"; then
+        tolerated=$u
+        break
+      fi
+    done < "$tmp/unmapped.txt"
+  fi
+  if [[ -n "$tolerated" ]]; then
+    echo "$tolerated" >> "$tmp/pending.txt"
+  else
+    echo "$cand" >> "$tmp/real.txt"
+  fi
+done < "$tmp/candidates.txt"
+
+if [[ -s "$tmp/pending.txt" ]]; then
+  echo "note: $ELF spells class names no shrink map covers yet (un-shrunk until the next release cut):" >&2
+  sort -u "$tmp/pending.txt" | sed 's/^/    /' >&2
+fi
 
 if [[ -s "$tmp/real.txt" ]]; then
   echo "ERROR: --shrink image $ELF still spells original Java names:" >&2
