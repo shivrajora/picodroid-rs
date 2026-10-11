@@ -90,6 +90,15 @@ pub(super) fn handle_push_op(
     if reclaim_covered_activities(jvm, heap, handler).is_break() {
         return LifecycleControl::Break;
     }
+    // A full stack refuses the launch before anything is built or paused:
+    // the push used to be attempted after the new instance was constructed
+    // and the covered Activity's `onPause` had run, and its rollback put
+    // the view back without an `onResume`, so the visible Activity stayed
+    // paused and the instance was orphaned without a callback.
+    if handler.activity_depth() >= crate::native_handler::state::MAX_ACTIVITY_STACK {
+        log_error!("activity stack full: not starting {}", new_class);
+        return LifecycleControl::Continue;
+    }
     // Framework owns instantiation: allocate the Activity and run its
     // no-arg constructor before the lifecycle callbacks.
     let new_ref = match instantiate_component(jvm, new_class, heap, handler) {

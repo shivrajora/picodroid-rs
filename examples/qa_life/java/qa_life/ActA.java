@@ -140,7 +140,16 @@ public class ActA extends Activity {
       afterB();
     } else if (resumes == 3) {
       afterC();
+    } else if (resumes == 4) {
+      afterD();
     }
+  }
+
+  private void afterD() {
+    T.check("D chain unwound to A", ActD.checked && T.count("D.onCreate") == ActD.created);
+    T.check("every D paused on its way out", ActD.resumes == ActD.pauses);
+    T.report();
+    finish();
   }
 
   private void afterB() {
@@ -274,8 +283,8 @@ public class ActA extends Activity {
         return;
       case 9:
         T.check("service stayed stopped through the burst", Svc.destroys == 2 && Svc.creates == 2);
-        T.report();
-        finish();
+        // Fill the Activity stack; the report comes once the chain has unwound (afterD).
+        startActivity(new Intent(ActD.class));
         return;
       default:
         return;
