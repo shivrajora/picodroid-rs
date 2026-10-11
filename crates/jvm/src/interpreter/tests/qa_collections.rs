@@ -119,7 +119,8 @@ fn key_class() -> &'static [u8] {
         lo(v), // getfield other.v
         0xA0,
         0x00,
-        0x07, // if_icmpne +7 -> iconst_0
+        0x05, // if_icmpne +5 -> iconst_0 (+7 ran off the end of the code,
+        // which the interpreter took as a return and the linker now refuses)
         0x04, // iconst_1
         0xAC, // ireturn
         0x03, // iconst_0
