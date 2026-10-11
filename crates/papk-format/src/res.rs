@@ -762,6 +762,14 @@ impl<'a> ResTable<'a> {
                 return Err(PapkError::Truncated);
             }
         }
+        // Every override block must fit its bytes: `overrides()` used to drop
+        // a malformed one and shift the indices after it, so `best_first`
+        // and `Resolved::value_of` disagreed on a corrupt table.
+        for i in 0..table.entry_count(TYPE_OVERRIDES) {
+            if table.override_block(i).is_none() {
+                return Err(PapkError::Truncated);
+            }
+        }
         Ok(table)
     }
 
@@ -1245,6 +1253,35 @@ mod tests {
             alloc::vec![(s, OverrideValue::Bytes(alloc::vec![b'a'; 65_535]))],
         );
         assert!(ok.is_ok());
+    }
+
+    /// An override block that does not fit its bytes fails `parse`, where it
+    /// used to be dropped by `overrides()` alone — shifting the indices of
+    /// the blocks after it, so `best_first` and `Resolved::value_of` named
+    /// different blocks on a corrupt table.
+    #[test]
+    fn a_malformed_override_block_fails_parse() {
+        use config::Qualifiers;
+        let mut b = ResTableBuilder::new();
+        let name = b.push_string("narrow").unwrap();
+        b.push_overrides(
+            Qualifiers::parse("w320dp").unwrap(),
+            vec![(name, OverrideValue::Bytes(b"wide".to_vec()))],
+        )
+        .unwrap();
+        b.push_overrides(
+            Qualifiers::parse("land").unwrap(),
+            vec![(name, OverrideValue::Bytes(b"landscape".to_vec()))],
+        )
+        .unwrap();
+        let mut data = b.build().unwrap();
+        let second = ResTable::parse(&data)
+            .unwrap()
+            .value(res_id(TYPE_OVERRIDES, 1))
+            .unwrap() as usize;
+        // The block's pair count, past anything the table holds.
+        data[second + 8..second + 12].copy_from_slice(&0x00FF_FFFFu32.to_le_bytes());
+        assert_eq!(ResTable::parse(&data).err(), Some(PapkError::Truncated));
     }
 
     #[test]
