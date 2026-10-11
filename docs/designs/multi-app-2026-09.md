@@ -111,7 +111,9 @@ shrink, line numbers) outgrew 2048K once the framework's class link tables
 moved into flash (docs/designs/class-link-2026-09.md). `pico_touch_kit`
 followed the same day for the same reason (its release image without
 `--shrink` was 35.6 KB over at the HIL nightly): `FLASH` 2304K, `FS_FLASH`
-4096K at `0x10240000`, `PAPK_FLASH` 9984K at `0x10640000`.
+4096K at `0x10240000`, `PAPK_FLASH` 9984K at `0x10640000`. On 2026-10-10 its
+debug image outgrew that too (7.2 KB over after v0.37), and it went to `FLASH`
+2560K, `FS_FLASH` 4096K at `0x10280000`, `PAPK_FLASH` 9728K at `0x10680000`.
 
 RP2040 is byte-identical to today (BOOT2, `FLASH` 896K−0x100, `FS_FLASH`
 128K at `0x100E0000`, `PAPK_FLASH` 1024K at `0x10100000`). The formula is

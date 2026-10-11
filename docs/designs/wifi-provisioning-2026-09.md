@@ -106,7 +106,7 @@ ended without the station associated stayed that way until the next boot (the ~3
 cycles of networking-followups NET-12, root-caused to a handshake timeout the vendored driver
 files as BADAUTH, and to a self-join after a NONET verdict the driver never counts — the port
 now performs that collapse itself). `hal::wifi_join::JoinSupervisor` (core, pure, host-tested) now keeps the
-wanted network joined: NoNet / Fail / Down / no verdict within 15 s → rejoin after 3 s doubling
+wanted network joined: NoNet / Fail / Down / no verdict within 15 s → rejoin after 3 s doubling (NoNet: 1 s doubling)
 to 60 s; BadAuth → the whole ladder (six tries), then one every 5 min (Android's
 authentication-failure disable, after a ladder long enough to outlast the transient the chip
 reports with the same verdict); a leave or Forget clears it. What the Wi-Fi screen shows is unchanged — the

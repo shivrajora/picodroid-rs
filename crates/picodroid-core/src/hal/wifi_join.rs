@@ -17,7 +17,12 @@
 //! - A verdict of `NoNet`, `Fail` or `Down` (lost after being up, or the
 //!   driver gave up without a verdict) schedules a rejoin after a backoff
 //!   that doubles from [`BACKOFF_FIRST_MS`] to [`BACKOFF_MAX_MS`] and
-//!   resets once the station is joined.
+//!   resets once the station is joined. `NoNet` starts lower, at
+//!   [`NONET_BACKOFF_FIRST_MS`]: the AP missed one probe, a join scan
+//!   takes under a second, and the AP is usually there on the next one —
+//!   on the bench (2026-10-10) one boot in ten drew that verdict, and a
+//!   boot that drew it five times in a row spent 93 s on the 3 s ladder
+//!   before the sixth join landed.
 //! - A `Joining` that has not become `Joined` within [`JOIN_TIMEOUT_MS`]
 //!   is treated as lost: the chip is told to leave first, so a stale
 //!   join-state word cannot swallow the new attempt, then rejoined.
@@ -37,6 +42,11 @@ use crate::hal::wifi::Status;
 pub const JOIN_TIMEOUT_MS: u32 = 15_000;
 /// The first retry's delay; doubles per consecutive failure.
 pub const BACKOFF_FIRST_MS: u32 = 3_000;
+/// The first retry's delay after `NoNet` (a missed probe): the join scan
+/// itself is under a second, so a quick second look costs nothing, and the
+/// doubling (1, 2, 4, 8, 16, 32, 60 s) still stops hammering an AP that
+/// is really gone.
+pub const NONET_BACKOFF_FIRST_MS: u32 = 1_000;
 /// The longest delay between two retries.
 pub const BACKOFF_MAX_MS: u32 = 60_000;
 /// How many consecutive bad-password verdicts stay on the backoff
@@ -182,7 +192,7 @@ impl JoinSupervisor {
         let delay = if reason == Reason::BadAuth && self.failures >= BADAUTH_ATTEMPTS {
             BADAUTH_HOLDOFF_MS
         } else {
-            backoff_ms(self.failures)
+            backoff_ms(reason, self.failures)
         };
         self.failures = self.failures.saturating_add(1);
         self.phase = Phase::Waiting(now_ms.wrapping_add(delay), reason);
@@ -195,11 +205,16 @@ impl Default for JoinSupervisor {
     }
 }
 
-/// The delay before retry number `failures + 1`: doubling from
-/// [`BACKOFF_FIRST_MS`], capped at [`BACKOFF_MAX_MS`].
-pub fn backoff_ms(failures: u32) -> u32 {
+/// The delay before retry number `failures + 1` for `reason`: doubling
+/// from [`BACKOFF_FIRST_MS`] ([`NONET_BACKOFF_FIRST_MS`] for `NoNet`),
+/// capped at [`BACKOFF_MAX_MS`].
+pub fn backoff_ms(reason: Reason, failures: u32) -> u32 {
+    let first = match reason {
+        Reason::NoNet => NONET_BACKOFF_FIRST_MS,
+        _ => BACKOFF_FIRST_MS,
+    };
     let shift = failures.min(16);
-    (BACKOFF_FIRST_MS.saturating_mul(1u32 << shift)).min(BACKOFF_MAX_MS)
+    (first.saturating_mul(1u32 << shift)).min(BACKOFF_MAX_MS)
 }
 
 #[cfg(test)]
@@ -226,13 +241,28 @@ mod tests {
 
     #[test]
     fn backoff_doubles_to_the_cap() {
-        assert_eq!(backoff_ms(0), 3_000);
-        assert_eq!(backoff_ms(1), 6_000);
-        assert_eq!(backoff_ms(2), 12_000);
-        assert_eq!(backoff_ms(3), 24_000);
-        assert_eq!(backoff_ms(4), 48_000);
-        assert_eq!(backoff_ms(5), 60_000);
-        assert_eq!(backoff_ms(40), 60_000);
+        assert_eq!(backoff_ms(Reason::Fail, 0), 3_000);
+        assert_eq!(backoff_ms(Reason::Fail, 1), 6_000);
+        assert_eq!(backoff_ms(Reason::Fail, 2), 12_000);
+        assert_eq!(backoff_ms(Reason::Fail, 3), 24_000);
+        assert_eq!(backoff_ms(Reason::Fail, 4), 48_000);
+        assert_eq!(backoff_ms(Reason::Fail, 5), 60_000);
+        assert_eq!(backoff_ms(Reason::Fail, 40), 60_000);
+        assert_eq!(backoff_ms(Reason::Down, 0), 3_000);
+        assert_eq!(backoff_ms(Reason::BadAuth, 0), 3_000);
+        assert_eq!(backoff_ms(Reason::Stuck, 0), 3_000);
+    }
+
+    #[test]
+    fn a_missed_probe_is_retried_sooner_and_still_doubles_to_the_cap() {
+        assert_eq!(backoff_ms(Reason::NoNet, 0), 1_000);
+        assert_eq!(backoff_ms(Reason::NoNet, 1), 2_000);
+        assert_eq!(backoff_ms(Reason::NoNet, 2), 4_000);
+        assert_eq!(backoff_ms(Reason::NoNet, 3), 8_000);
+        assert_eq!(backoff_ms(Reason::NoNet, 4), 16_000);
+        assert_eq!(backoff_ms(Reason::NoNet, 5), 32_000);
+        assert_eq!(backoff_ms(Reason::NoNet, 6), 60_000);
+        assert_eq!(backoff_ms(Reason::NoNet, 40), 60_000);
     }
 
     #[test]
@@ -259,17 +289,32 @@ mod tests {
         let mut s = JoinSupervisor::new();
         s.issued(0);
         assert_eq!(s.observe(Status::Joining, 1_000), None);
-        // The verdict lands at 4 s; the retry is due 3 s later.
+        // The verdict lands at 4 s; the retry is due 1 s later.
         assert_eq!(s.observe(Status::NoNet, 4_000), None);
-        assert_eq!(s.observe(Status::NoNet, 6_999), None);
+        assert_eq!(s.observe(Status::NoNet, 4_999), None);
         assert_eq!(
-            s.observe(Status::NoNet, 7_000),
+            s.observe(Status::NoNet, 5_000),
             Some(Retry {
                 reason: Reason::NoNet,
                 leave_first: false,
                 attempt: 1
             })
         );
+    }
+
+    #[test]
+    fn the_rung_is_shared_across_verdicts_and_the_base_follows_the_latest() {
+        // Bench cycle 20 of 2026-10-10: NONET, then the retry's AUTH timed
+        // out (FAIL). The second retry is the second rung of the 3 s ladder.
+        let mut s = JoinSupervisor::new();
+        s.issued(0);
+        assert_eq!(s.observe(Status::NoNet, 1_500), None);
+        let (fired, r) = run(&mut s, Status::NoNet, 1_500, 10_000).expect("retry");
+        assert_eq!((fired, r.reason, r.attempt), (2_500, Reason::NoNet, 1));
+        s.issued(fired);
+        assert_eq!(s.observe(Status::Fail, 8_800), None);
+        let (fired, r) = run(&mut s, Status::Fail, 8_800, 60_000).expect("retry");
+        assert_eq!((fired, r.reason, r.attempt), (14_800, Reason::Fail, 2));
     }
 
     #[test]
@@ -300,8 +345,9 @@ mod tests {
             s.issued(fired);
             t = fired + 1_000;
         }
-        assert_eq!(gaps, vec![3_000, 6_000, 12_000, 24_000, 48_000, 60_000]);
-        // Joined: the ladder starts over.
+        assert_eq!(gaps, vec![1_000, 2_000, 4_000, 8_000, 16_000, 32_000]);
+        // Joined: the ladder starts over, and a lost link waits the full
+        // first step.
         s.observe(Status::Joined, t);
         assert!(!s.is_pending());
         s.observe(Status::Down, t + 1_000);
@@ -421,9 +467,9 @@ mod tests {
         let mut s = JoinSupervisor::new();
         let start = u32::MAX - 2_000;
         s.issued(start);
-        assert_eq!(s.observe(Status::NoNet, start.wrapping_add(1_000)), None);
+        assert_eq!(s.observe(Status::Fail, start.wrapping_add(1_000)), None);
         let due = start.wrapping_add(4_000);
-        assert_eq!(s.observe(Status::NoNet, due.wrapping_sub(1)), None);
-        assert!(s.observe(Status::NoNet, due).is_some());
+        assert_eq!(s.observe(Status::Fail, due.wrapping_sub(1)), None);
+        assert!(s.observe(Status::Fail, due).is_some());
     }
 }
