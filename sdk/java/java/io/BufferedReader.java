@@ -46,8 +46,12 @@ public class BufferedReader extends Reader {
 
   /** Refills the buffer; false at end of stream. */
   private boolean fill() throws IOException {
-    int n = in.read(cb, 0, cb.length);
-    if (n <= 0) {
+    int n;
+    do {
+      // A read that answers 0 (nothing yet, not the end) is tried again, as the JDK does.
+      n = in.read(cb, 0, cb.length);
+    } while (n == 0);
+    if (n < 0) {
       nextChar = 0;
       nChars = 0;
       return false;

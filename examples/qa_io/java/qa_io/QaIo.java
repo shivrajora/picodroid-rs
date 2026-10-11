@@ -213,6 +213,36 @@ public class QaIo extends Application {
     String stillAtEof = r.readLine();
     check("readLine null at eof", atEof == null && stillAtEof == null);
     r.close();
+    // A stream that answers 0 ("nothing yet") is not at its end: the readers try again, as the
+    // JDK's do; they used to take 0 for EOF.
+    final byte[] late = ascii("ok\n");
+    InputStream zeroFirst =
+        new InputStream() {
+          int calls;
+          int pos;
+
+          @Override
+          public int read() {
+            return pos < late.length ? late[pos++] & 0xFF : -1;
+          }
+
+          @Override
+          public int read(byte[] b, int off, int len) {
+            if (calls++ == 0) {
+              return 0;
+            }
+            if (pos >= late.length) {
+              return -1;
+            }
+            int n = Math.min(len, late.length - pos);
+            System.arraycopy(late, pos, b, off, n);
+            pos += n;
+            return n;
+          }
+        };
+    BufferedReader patient = new BufferedReader(new InputStreamReader(zeroFirst));
+    check("a zero-length read is not the end of the stream", "ok".equals(patient.readLine()));
+    patient.close();
     boolean closed = false;
     try {
       r.readLine();
