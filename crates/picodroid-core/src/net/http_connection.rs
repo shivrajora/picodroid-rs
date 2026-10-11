@@ -804,6 +804,19 @@ fn parse_response_head(
             };
             conn.status_code = status;
             conn.chunked = crate::net::http_head::is_chunked(head);
+            // A chunked body refills into `rx_buf[head_len..]` for the whole
+            // response (the head stays for the header accessors), so a head
+            // that leaves less than one chunk of window would make every
+            // refill a zero-length read — "unexpected end of stream inside
+            // chunked body" on a well-formed response. Refuse it as a head
+            // too large, the same answer a head over the buffer gets.
+            if conn.chunked && body_off > RX_BUF_SIZE - IO_CHUNK {
+                return Err(throw_io_exception(
+                    objects,
+                    strings,
+                    "response headers too large",
+                ));
+            }
             // A chunked response has no usable Content-Length (RFC 9112
             // forbids combining them; the framing wins).
             conn.content_length = if conn.chunked { -1 } else { content_length };
