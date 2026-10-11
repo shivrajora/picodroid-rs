@@ -192,6 +192,11 @@ mod graphics_fields_tests;
 #[cfg(test)]
 #[path = "net/fields.rs"]
 mod net_fields_tests;
+// DatagramPacket window marshalling (`send`'s payload, `receive`'s buffer
+// and copy-back), pure over the JVM heaps; `net` is `cfg(not(test))`.
+#[cfg(test)]
+#[path = "net/datagram_window.rs"]
+mod net_datagram_window_tests;
 // The picodroid.protobuf field-slot table, likewise.
 #[cfg(test)]
 #[path = "native_handler/protobuf/fields.rs"]

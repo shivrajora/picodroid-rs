@@ -13,7 +13,9 @@ use super::helpers::{
 use super::socket_table;
 use crate::shrink_names::c;
 
-const BUF_SIZE: usize = 256;
+use super::datagram_window::{
+    packet_window, payload_of, receive_buffer, store_payload, MAX_DATAGRAM,
+};
 
 /// DatagramSocket.nativeCreate(int localPort) -> int handle
 ///
@@ -59,16 +61,7 @@ pub fn send_native(
         Some(Value::ObjectRef(idx)) => *idx,
         _ => return Err(JvmError::InvalidReference),
     };
-
-    // Read packet fields.
-    let arr_idx = match objects.get_field(pkt_idx, fields::datagram_packet::DATA) {
-        Some(Value::ArrayRef(idx)) => idx,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let length = match objects.get_field(pkt_idx, fields::datagram_packet::LENGTH) {
-        Some(Value::Int(v)) => v as usize,
-        _ => return Err(JvmError::InvalidReference),
-    };
+    let window = packet_window(pkt_idx, objects)?;
     let addr = match objects.get_field(pkt_idx, fields::datagram_packet::ADDRESS) {
         Some(Value::Int(v)) => v as u32,
         _ => return Err(JvmError::InvalidReference),
@@ -77,25 +70,27 @@ pub fn send_native(
         Some(Value::Int(v)) => v as u16,
         _ => return Err(JvmError::InvalidReference),
     };
-
-    let send_len = length.min(BUF_SIZE);
-    let mut buf = [0u8; BUF_SIZE];
-    for (i, b) in buf.iter_mut().enumerate().take(send_len) {
-        *b = arrays
-            .load(arr_idx, i)
-            .ok_or(JvmError::ArrayIndexOutOfBounds)? as u8;
+    if window.length > MAX_DATAGRAM {
+        return Err(throw_named_exception(
+            objects,
+            strings,
+            c::java_io_IOException,
+            "datagram too large",
+        ));
     }
+    let payload = payload_of(arrays, &window)?;
 
-    crate::hal::net::udp_sendto(ptr, &buf[..send_len], addr, port)
+    crate::hal::net::udp_sendto(ptr, &payload, addr, port)
         .map_err(|e| throw_net_exception(objects, strings, e, NetOpCtx::Send))?;
     Ok(None)
 }
 
 /// DatagramSocket.receive(DatagramPacket packet)
 ///
-/// A `setTimeout` expiry finally surfaces as `java/net/SocketTimeoutException`
-/// (the device HAL reports it as `-EWOULDBLOCK`), matching
-/// `java.net.DatagramSocket.receive`.
+/// Fills the packet's window and sets its `length` to the bytes received;
+/// a datagram longer than the window is cut to it. A `setTimeout` expiry
+/// finally surfaces as `java/net/SocketTimeoutException` (the device HAL
+/// reports it as `-EWOULDBLOCK`), matching `java.net.DatagramSocket.receive`.
 pub fn receive_native(
     args: &[Value],
     objects: &mut ObjectHeap,
@@ -108,24 +103,12 @@ pub fn receive_native(
         Some(Value::ObjectRef(idx)) => *idx,
         _ => return Err(JvmError::InvalidReference),
     };
-
-    // Read the packet's data array ref to know where to write.
-    let arr_idx = match objects.get_field(pkt_idx, fields::datagram_packet::DATA) {
-        Some(Value::ArrayRef(idx)) => idx,
-        _ => return Err(JvmError::InvalidReference),
-    };
-
-    let mut buf = [0u8; BUF_SIZE];
+    let window = packet_window(pkt_idx, objects)?;
+    let mut buf = receive_buffer(arrays, &window)?;
     let (n, src_addr, src_port) = crate::hal::net::udp_recvfrom(ptr, &mut buf)
         .map_err(|e| throw_net_exception(objects, strings, e, NetOpCtx::Recv))?;
-
-    // Copy received bytes into the packet's data array.
-    let copy_len: usize = n.min(BUF_SIZE);
-    for (i, &b) in buf.iter().enumerate().take(copy_len) {
-        arrays
-            .store(arr_idx, i, b as i32)
-            .ok_or(JvmError::ArrayIndexOutOfBounds)?;
-    }
+    let n = n.min(buf.len());
+    store_payload(arrays, &window, &buf[..n])?;
 
     // Update packet fields.
     objects

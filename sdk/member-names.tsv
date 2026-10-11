@@ -534,6 +534,7 @@ F	bottomMargin
 F	boundView
 F	broadcast
 F	buf
+F	bufLength
 F	built
 F	buttonCount
 F	buttons
@@ -1020,6 +1021,7 @@ M	bindService
 M	bindView
 M	bit
 M	box
+M	bufferLength
 M	build
 M	buildId
 M	buildRequestHeaders
@@ -2210,6 +2212,7 @@ M	set
 M	setARGB
 M	setAction
 M	setAdapter
+M	setAddress
 M	setAlpha
 M	setAntiAlias
 M	setArguments
@@ -2232,6 +2235,7 @@ M	setCurrentItem
 M	setCurrentState
 M	setCurrentTimeMillis
 M	setDaemon
+M	setData
 M	setDataSize
 M	setDate
 M	setDefault
@@ -2313,6 +2317,7 @@ M	setOrientation
 M	setPackage
 M	setPadding
 M	setParity
+M	setPort
 M	setPosition
 M	setPositiveButton
 M	setPriority

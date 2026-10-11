@@ -214,6 +214,16 @@ fn slot_expectations() -> Vec<(&'static str, &'static str, usize)> {
             net::datagram_packet::PORT,
         ),
         (
+            c::picodroid_net_DatagramPacket,
+            "offset",
+            net::datagram_packet::OFFSET,
+        ),
+        (
+            c::picodroid_net_DatagramPacket,
+            "bufLength",
+            net::datagram_packet::BUF_LENGTH,
+        ),
+        (
             c::picodroid_net_HttpInputStream,
             "handle",
             net::http_input_stream::HANDLE,

@@ -21,6 +21,10 @@ pub mod datagram_packet {
     pub const LENGTH: usize = 1;
     pub const ADDRESS: usize = 2;
     pub const PORT: usize = 3;
+    pub const OFFSET: usize = 4;
+    /// The receive window's full size (`java.net.DatagramPacket.bufLength`):
+    /// `receive` fills up to this and sets `LENGTH` to what arrived.
+    pub const BUF_LENGTH: usize = 5;
 }
 
 pub mod http_input_stream {

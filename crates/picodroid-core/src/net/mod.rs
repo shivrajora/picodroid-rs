@@ -2,6 +2,7 @@
 //! picodroid.net — Java networking API native implementations.
 
 pub mod datagram_socket;
+pub mod datagram_window;
 pub mod fields;
 pub mod helpers;
 pub mod http_connection;
