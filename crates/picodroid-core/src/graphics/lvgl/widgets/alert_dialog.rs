@@ -925,11 +925,7 @@ pub fn reset_alert_dialog_state() {
 // ── Internals ───────────────────────────────────────────────────────────────
 
 unsafe fn set_label_text(label: *mut lv_obj_t, text: &str) {
-    let mut buf = [0u8; 192];
-    let len = text.len().min(191);
-    buf[..len].copy_from_slice(&text.as_bytes()[..len]);
-    buf[len] = 0;
-    unsafe { lv_label_set_text(label, buf.as_ptr() as *const c_char) };
+    super::text_view::with_cstr(text, |p| unsafe { lv_label_set_text(label, p) });
 }
 
 fn register_button(button_handle: usize, dialog_handle: usize, which: i32) {

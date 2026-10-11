@@ -11,7 +11,6 @@
 //! registration to avoid emitting events on widgets that don't care.
 
 use crate::lvgl_ffi::*;
-use core::ffi::c_char;
 
 use super::super::handle_table;
 use super::super::lifecycle;
@@ -138,12 +137,8 @@ pub(in crate::graphics) fn create(text: &str) -> i32 {
     let btn = unsafe { lv_button_create(lifecycle::screen_ptr()) };
     let label = unsafe { lv_label_create(btn) };
 
-    let mut buf = [0u8; 128];
-    let len = text.len().min(127);
-    buf[..len].copy_from_slice(&text.as_bytes()[..len]);
-    buf[len] = 0;
     unsafe {
-        lv_label_set_text(label, buf.as_ptr() as *const c_char);
+        super::text_view::with_cstr(text, |p| lv_label_set_text(label, p));
         lv_obj_center(label);
     }
 

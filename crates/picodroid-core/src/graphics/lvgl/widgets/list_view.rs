@@ -17,7 +17,6 @@
 //! invalidate (`lv_obj_get_index` is not bound, hence the linear scan).
 
 use crate::lvgl_ffi::*;
-use core::ffi::c_char;
 
 use super::super::handle_table;
 use super::super::lifecycle;
@@ -141,13 +140,13 @@ pub(in crate::graphics) fn create() -> i32 {
 }
 
 pub(in crate::graphics) fn add_item(id: i32, text: &str) {
-    let mut buf = [0u8; 128];
-    let len = text.len().min(127);
-    buf[..len].copy_from_slice(&text.as_bytes()[..len]);
-    buf[len] = 0;
     unsafe {
         let list = handle_table::lookup(id);
-        let row = lv_list_add_button(list, core::ptr::null(), buf.as_ptr() as *const c_char);
+        if list.is_null() {
+            return; // stale handle — mutating a destroyed View is a no-op
+        }
+        let row =
+            super::text_view::with_cstr(text, |p| lv_list_add_button(list, core::ptr::null(), p));
         row_make_interactive(row);
     }
 }

@@ -2,7 +2,6 @@
 //! LVGL impl of `Spinner` (LVGL `lv_dropdown`).
 
 use crate::lvgl_ffi::*;
-use core::ffi::c_char;
 
 use super::super::handle_table;
 use super::super::lifecycle;
@@ -47,11 +46,13 @@ pub(in crate::graphics) fn create() -> i32 {
 }
 
 pub(in crate::graphics) fn set_items(id: i32, items: &str) {
-    let mut buf = [0u8; 128];
-    let len = items.len().min(127);
-    buf[..len].copy_from_slice(&items.as_bytes()[..len]);
-    buf[len] = 0;
-    unsafe { lv_dropdown_set_options(handle_table::lookup(id), buf.as_ptr() as *const c_char) };
+    let dd = handle_table::lookup(id);
+    if dd.is_null() {
+        return; // stale handle — mutating a destroyed View is a no-op
+    }
+    // Any length: a 128-byte buffer here showed twenty "Option NN" items as
+    // twelve and a fragment, and nothing past the twelfth could be picked.
+    super::text_view::with_cstr(items, |p| unsafe { lv_dropdown_set_options(dd, p) });
 }
 
 pub(in crate::graphics) fn get_selected(id: i32) -> i32 {

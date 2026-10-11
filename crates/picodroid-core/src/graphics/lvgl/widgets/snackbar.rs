@@ -21,7 +21,6 @@ use crate::lvgl_ffi::*;
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
 use core::cell::Cell;
-use core::ffi::c_char;
 
 use super::super::handle_table;
 use super::super::lifecycle;
@@ -179,11 +178,7 @@ pub(in crate::graphics) fn create(text: &str, duration: i32) -> i32 {
         );
 
         let label = lv_label_create(bar);
-        let mut buf = [0u8; 128];
-        let len = text.len().min(127);
-        buf[..len].copy_from_slice(&text.as_bytes()[..len]);
-        buf[len] = 0;
-        lv_label_set_text(label, buf.as_ptr() as *const c_char);
+        super::text_view::with_cstr(text, |p| lv_label_set_text(label, p));
         lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
         // The width left beside the action, wrapping onto further lines;
         // the action keeps its own width at the end of the row.
@@ -215,11 +210,7 @@ pub(in crate::graphics) fn set_action(id: i32, label_text: &str) {
         let btn = lv_button_create(bar);
         lv_obj_set_size(btn, 70, 32);
         let lbl = lv_label_create(btn);
-        let mut buf = [0u8; 32];
-        let len = label_text.len().min(31);
-        buf[..len].copy_from_slice(&label_text.as_bytes()[..len]);
-        buf[len] = 0;
-        lv_label_set_text(lbl, buf.as_ptr() as *const c_char);
+        super::text_view::with_cstr(label_text, |p| lv_label_set_text(lbl, p));
         lv_obj_center(lbl);
         lv_obj_add_event_cb(
             btn,

@@ -15,7 +15,6 @@
 use crate::lvgl_ffi::*;
 use crate::util::local::Core0;
 use core::cell::Cell;
-use core::ffi::c_char;
 
 use super::super::handle_table;
 use super::super::lifecycle;
@@ -94,11 +93,7 @@ pub(in crate::graphics) fn create(text: &str, duration: i32) -> i32 {
         lv_obj_set_pos(toast, x, y);
 
         let label = lv_label_create(toast);
-        let mut buf = [0u8; 128];
-        let len = text.len().min(127);
-        buf[..len].copy_from_slice(&text.as_bytes()[..len]);
-        buf[len] = 0;
-        lv_label_set_text(label, buf.as_ptr() as *const c_char);
+        super::text_view::with_cstr(text, |p| lv_label_set_text(label, p));
         lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
         lv_obj_center(label);
     }

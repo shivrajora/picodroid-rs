@@ -2,7 +2,6 @@
 //! LVGL impl of `CheckBox` (LVGL `lv_checkbox`).
 
 use crate::lvgl_ffi::*;
-use core::ffi::c_char;
 
 use super::super::handle_table;
 use super::super::lifecycle;
@@ -49,13 +48,11 @@ pub(in crate::graphics) fn create() -> i32 {
 }
 
 pub(in crate::graphics) fn set_text(id: i32, text: &str) {
-    let mut buf = [0u8; 128];
-    let len = text.len().min(127);
-    buf[..len].copy_from_slice(&text.as_bytes()[..len]);
-    buf[len] = 0;
-    unsafe {
-        lv_checkbox_set_text(handle_table::lookup(id), buf.as_ptr() as *const c_char);
+    let cb = handle_table::lookup(id);
+    if cb.is_null() {
+        return; // stale handle — mutating a destroyed View is a no-op
     }
+    super::text_view::with_cstr(text, |p| unsafe { lv_checkbox_set_text(cb, p) });
 }
 
 pub(in crate::graphics) fn is_checked(id: i32) -> bool {
