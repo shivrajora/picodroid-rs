@@ -725,12 +725,12 @@ public class View {
     if (visibility == this.visibility) {
       return;
     }
-    boolean wasInvisible = this.visibility == INVISIBLE;
     this.visibility = visibility;
     nativeSetVisibility(visibility);
-    // INVISIBLE is drawn at zero opacity; coming back, the renderer is opaque again and the
-    // view's own alpha has to be said once more.
-    if (visibility == VISIBLE && wasInvisible && alpha != 1f) {
+    // INVISIBLE and alpha share the renderer's one opacity: INVISIBLE is drawn at zero, and every
+    // return to VISIBLE (from INVISIBLE or GONE) sets it opaque again, so the view's own alpha has
+    // to be said once more.
+    if (visibility == VISIBLE && alpha != 1f) {
       nativeSetAlpha(alpha);
     }
   }
@@ -755,13 +755,19 @@ public class View {
     return enabled;
   }
 
-  /** Sets the opacity, 0 to 1. Setting the alpha the view already has does nothing. */
+  /**
+   * Sets the opacity, 0 to 1. Setting the alpha the view already has does nothing. While the view
+   * is {@link #INVISIBLE} the value is only remembered (the renderer's opacity is what hides the
+   * view) and applied when it becomes {@link #VISIBLE} again.
+   */
   public void setAlpha(float alpha) {
     if (alpha == this.alpha) {
       return;
     }
     this.alpha = alpha;
-    nativeSetAlpha(alpha);
+    if (visibility != INVISIBLE) {
+      nativeSetAlpha(alpha);
+    }
   }
 
   /**
