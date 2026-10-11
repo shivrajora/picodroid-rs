@@ -215,3 +215,89 @@ fn new_on_an_exhausted_heap_collects_and_re_executes() {
         Ok(Some(Value::Int(20_000)))
     );
 }
+
+/// Two hand-built frames: `catcher()I` waiting at an invoke inside a
+/// `catch (OutOfMemoryError)` region, and above it `lam()I` (`iconst_5;
+/// ireturn`) whose `int` is to be boxed for an erased SAM. `catcher`
+/// answers 1 when the boxed value comes back, -1 when the call threw
+/// `OutOfMemoryError`.
+fn catcher_and_lam() -> &'static [u8] {
+    let mut a = Asm::new();
+    let this = a.class("T");
+    let obj = a.class(OBJ);
+    let oome = a.class(c::java_lang_OutOfMemoryError);
+    // 0..3: the "invoke" the frame above was pushed for (nop; nop; nop)
+    // 3: pop (the boxed result); 4: iconst_1; 5: ireturn
+    // 6: pop (the OOME); 7: iconst_m1; 8: ireturn
+    let catcher = [0x00, 0x00, 0x00, 0x57, 0x04, 0xAC, 0x57, 0x02, 0xAC];
+    a.finish_methods(
+        0x0001,
+        this,
+        obj,
+        &[],
+        &[
+            Method {
+                access: 0x0008,
+                name: "catcher",
+                desc: "()I",
+                max_stack: 1,
+                max_locals: 0,
+                code: &catcher,
+                exc: &[[0, 6, 6, oome]],
+            },
+            Method {
+                access: 0x0008,
+                name: "lam",
+                desc: "()I",
+                max_stack: 1,
+                max_locals: 0,
+                code: &[0x08, 0xAC], // iconst_5; ireturn
+                exc: &[],
+            },
+        ],
+    )
+}
+
+/// A boxed return on an exhausted heap is the catchable `OutOfMemoryError`
+/// at the return, like any other refused allocation. It used to leave `run`
+/// as the hard `StackOverflow` signal, uncatchable and skipping the monitor
+/// releases of the frames it dropped.
+#[test]
+fn a_boxed_return_on_an_exhausted_heap_throws_a_catchable_out_of_memory_error() {
+    let classes = [ClassFile::parse(spelled(catcher_and_lam())).expect("parse failed")];
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut statics = StaticFieldStore::new();
+    let mut gc_state = GcState::new();
+    let mut class_objects = ClassObjectCache::new();
+    let mut handler = NoopHandler;
+    objects.ensure_oom_reserve();
+    // `catcher` is parked at its invoke (inst_pc 1, resuming at 3); `lam`
+    // returns an `int` the erased SAM wants boxed.
+    let mut catcher = Frame::new(0, 0, &[], 0, 1).expect("frame");
+    catcher.inst_pc = 1;
+    catcher.pc = 3;
+    let mut lam = Frame::new(0, 1, &[], 0, 1).expect("frame");
+    lam.box_return = b'I';
+    let mut frames = vec![catcher, lam];
+    // No further allocation: the box cannot be made.
+    let r = with_budget(0, || {
+        execute_frames(
+            Classes::linear(&classes),
+            &mut strings,
+            &mut objects,
+            &mut arrays,
+            &mut statics,
+            &mut gc_state,
+            &mut class_objects,
+            &mut handler,
+            &mut frames,
+        )
+    });
+    assert_eq!(
+        r,
+        Ok(Some(Value::Int(-1))),
+        "the OutOfMemoryError from the boxed return must reach catcher's handler"
+    );
+}

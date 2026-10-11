@@ -555,6 +555,49 @@ fn truncate_frames<H: NativeMethodHandler>(
     }
 }
 
+/// One collection: sweep, report, prune the handler's slot-keyed state and
+/// reset the pacing counter. Returns the bytes freed. The run loop calls it
+/// at the pacing threshold or after an allocator refused and the opcode
+/// rewound; a boxed return calls it in place for its one retry.
+#[inline(never)]
+fn collect_garbage<H: NativeMethodHandler>(
+    ex: &mut Executor<'_, H>,
+    frames: &mut [Frame],
+) -> usize {
+    // Sample pre-sweep live bytes so handlers can track a heap high-water
+    // mark — GC fires at peak pressure, so this is the natural sample point.
+    let pre_gc_used = ex.objects.live_bytes() + ex.arrays.live_bytes() + ex.strings.live_bytes();
+    let t0 = ex.handler.clock_nanos();
+    let handler = &*ex.handler;
+    let freed = crate::gc::collect(
+        frames,
+        ex.objects,
+        ex.arrays,
+        ex.strings,
+        ex.statics,
+        ex.class_objects,
+        ex.gc_state,
+        |visit| handler.gc_visit_roots(visit),
+    );
+    let t1 = ex.handler.clock_nanos();
+    ex.handler
+        .report_gc(t1.wrapping_sub(t0), freed, pre_gc_used);
+    prune_monitors(&mut *ex.handler, &*ex.objects, &*ex.arrays, &*ex.strings);
+    ex.gc_state.alloc_count = 0;
+    #[cfg(feature = "mem-diag")]
+    {
+        let post_gc_live =
+            ex.objects.live_bytes() + ex.arrays.live_bytes() + ex.strings.live_bytes();
+        ex.gc_state.note_gc_cycle(freed, pre_gc_used, post_gc_live);
+        if crate::mem_diag::offensive() {
+            if let Err(m) = crate::mem_diag::integrity_check(ex.objects, ex.arrays, ex.strings) {
+                panic!("mem-diag post-GC integrity violation: {m}");
+            }
+        }
+    }
+    freed
+}
+
 /// Let the handler drop the monitors — and any other slot-keyed native
 /// state — of entities a collection just freed (see
 /// [`NativeMethodHandler::monitors_prune`] and
@@ -785,8 +828,33 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
                 0xac..=0xb0 => {
                     let mut v = frame.pop()?;
                     if frame.box_return != 0 {
-                        v = helpers::box_primitive(ex.objects, frame.box_return, v)
-                            .ok_or(JvmError::StackOverflow)?;
+                        let kind = frame.box_return;
+                        let boxed = match helpers::box_primitive(ex.objects, kind, v) {
+                            Some(boxed) => Some(boxed),
+                            None => {
+                                // The box is an allocation like a native
+                                // arm's: collect and retry once (`v` is a
+                                // primitive, so nothing of it needs rooting
+                                // across the sweep); a heap that gives
+                                // nothing back makes it the catchable
+                                // `OutOfMemoryError`, thrown at the return —
+                                // not a hard exit that left `run` with the
+                                // synchronized frames' monitors still held.
+                                if collect_garbage(ex, frames) == 0 {
+                                    None
+                                } else {
+                                    helpers::box_primitive(ex.objects, kind, v)
+                                }
+                            }
+                        };
+                        match boxed {
+                            Some(boxed) => v = boxed,
+                            None => {
+                                let e = ex.oom_object()?;
+                                handle_exception(ex, frames, e, base_depth)?;
+                                continue;
+                            }
+                        }
                     }
                     pop_frame(ex, frames)?;
                     if frames.len() == base_depth {
@@ -923,45 +991,11 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
                 // would spin forever (bugbash J5's long[]-livelock).
                 let for_failed_alloc = ex.need_gc();
                 ex.set_need_gc(false);
-                // Sample pre-sweep live bytes so handlers can track a heap
-                // high-water mark — GC fires at peak pressure, so this is the
-                // natural sample point.
-                let pre_gc_used =
-                    ex.objects.live_bytes() + ex.arrays.live_bytes() + ex.strings.live_bytes();
-                let t0 = ex.handler.clock_nanos();
-                let handler = &*ex.handler;
-                let freed = crate::gc::collect(
-                    frames,
-                    ex.objects,
-                    ex.arrays,
-                    ex.strings,
-                    ex.statics,
-                    ex.class_objects,
-                    ex.gc_state,
-                    |visit| handler.gc_visit_roots(visit),
-                );
-                let t1 = ex.handler.clock_nanos();
-                ex.handler
-                    .report_gc(t1.wrapping_sub(t0), freed, pre_gc_used);
-                prune_monitors(&mut *ex.handler, &*ex.objects, &*ex.arrays, &*ex.strings);
-                ex.gc_state.alloc_count = 0;
+                let freed = collect_garbage(ex, frames);
                 if for_failed_alloc && freed == 0 {
                     let e = ex.oom_object()?;
                     handle_exception(ex, frames, e, base_depth)?;
                     continue;
-                }
-                #[cfg(feature = "mem-diag")]
-                {
-                    let post_gc_live =
-                        ex.objects.live_bytes() + ex.arrays.live_bytes() + ex.strings.live_bytes();
-                    ex.gc_state.note_gc_cycle(freed, pre_gc_used, post_gc_live);
-                    if crate::mem_diag::offensive() {
-                        if let Err(m) =
-                            crate::mem_diag::integrity_check(ex.objects, ex.arrays, ex.strings)
-                        {
-                            panic!("mem-diag post-GC integrity violation: {m}");
-                        }
-                    }
                 }
             }
 
