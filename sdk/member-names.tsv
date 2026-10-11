@@ -547,6 +547,7 @@ F	checkedId
 F	checkedItems
 F	checkedMask
 F	chunk
+F	chunkLen
 F	clearRequested
 F	color
 F	colorBackground
@@ -1137,6 +1138,7 @@ M	date
 M	daysUntil
 M	debugPoolNodes
 M	decode
+M	decodeChar
 M	decodeZigZag32
 M	decodeZigZag64
 M	decrementAndGet
@@ -1189,9 +1191,11 @@ M	elapsedRealtime
 M	elapsedRealtimeNanos
 M	enableNetwork
 M	encode
+M	encodeChar
 M	encodeZigZag32
 M	encodeZigZag64
 M	enqueue
+M	ensureBytes
 M	ensureCapacity
 M	ensureNotExecuting
 M	ensureOpen

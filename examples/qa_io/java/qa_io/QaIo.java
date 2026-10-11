@@ -287,6 +287,39 @@ public class QaIo extends Application {
     check(
         "readLine keeps UTF-8 bytes",
         back.length == 5 && (back[3] & 0xff) == 0xC3 && (back[4] & 0xff) == 0xA9);
+    // The reader decodes UTF-8 (one char per code point) even across its buffer end, and a String
+    // built from a UTF-8 byte array keeps the bytes; a malformed byte becomes '?'.
+    InputStreamReader decoded =
+        new InputStreamReader(
+            new ByteArrayInputStream(
+                new byte[] {
+                  (byte) 0xC3, (byte) 0xA9, (byte) 0xE2, (byte) 0x82, (byte) 0xAC, 'z', (byte) 0xC3
+                }));
+    check(
+        "InputStreamReader decodes UTF-8 chars",
+        decoded.read() == 0xE9
+            && decoded.read() == 0x20AC
+            && decoded.read() == 'z'
+            && decoded.read() == 0xFFFD
+            && decoded.read() == -1);
+    String kept = new String(new byte[] {'c', (byte) 0xC3, (byte) 0xA9});
+    String broken = new String(new byte[] {'a', (byte) 0xC3, 'b'});
+    check(
+        "String(byte[]) keeps valid UTF-8 and marks a malformed byte",
+        kept.getBytes().length == 3 && (kept.getBytes()[1] & 0xff) == 0xC3 && "a?b".equals(broken));
+    ByteArrayOutputStream encoded = new ByteArrayOutputStream();
+    OutputStreamWriter w = new OutputStreamWriter(encoded);
+    w.write(0xE9);
+    w.write("é");
+    w.flush();
+    byte[] enc = encoded.toByteArray();
+    check(
+        "OutputStreamWriter encodes a char as UTF-8 and writes a String's bytes as they are",
+        enc.length == 4
+            && (enc[0] & 0xff) == 0xC3
+            && (enc[1] & 0xff) == 0xA9
+            && (enc[2] & 0xff) == 0xC3
+            && (enc[3] & 0xff) == 0xA9);
 
     BufferedReader chunks = readerOver("abcdef");
     char[] six = new char[6];

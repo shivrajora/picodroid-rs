@@ -505,14 +505,16 @@ and the rest come from the base class, as in the JDK (override `read(byte[], int
 speed). `InputStream`, `OutputStream`, `Reader` and `Writer` implement `java.io.Closeable`, which
 is an `AutoCloseable`, so every stream works in try-with-resources.
 
-**Chars are bytes.** Strings here are byte-backed, so a reader hands each byte up as one `char`
-and a writer sends each `char`'s low byte; there is no charset decoding. The charset-name
-constructors (`InputStreamReader(in, "UTF-8")`, `OutputStreamWriter(out, "UTF-8")`) accept any
-name and report it from `getEncoding()`; `UnsupportedEncodingException` is declared, never
-thrown. A UTF-8 line comes out of `readLine()` byte for byte, so it logs and displays correctly;
-`ByteArrayOutputStream.toString()` builds its string the way `new String(byte[])` does (bytes
-above 0x7F become `?`). `PrintWriter` ends lines with `\n` and never throws `IOException` — a
-failed write sets the flag `checkError()` reports.
+**Strings are UTF-8 bytes.** `charAt` and `length()` count bytes, and a reader decodes UTF-8
+(the default charset, and what every charset name decodes): an ASCII byte is one `char`, a
+two- or three-byte sequence one `char` of the BMP, a malformed byte `U+FFFD`. A writer encodes
+each `char` back to UTF-8, so a String's chars (already UTF-8) pass through one to one. The
+charset-name constructors (`InputStreamReader(in, "UTF-8")`, `OutputStreamWriter(out, "UTF-8")`)
+accept any name and report it from `getEncoding()`; `UnsupportedEncodingException` is declared,
+never thrown. A UTF-8 line comes out of `readLine()` byte for byte, so it logs and displays
+correctly; `ByteArrayOutputStream.toString()` builds its string the way `new String(byte[])` does
+(valid UTF-8 kept, each byte of an invalid sequence `?`). `PrintWriter` ends lines with `\n` and
+never throws `IOException` — a failed write sets the flag `checkError()` reports.
 
 `BufferedReader`'s default buffer is 128 chars (pass a size for larger reads). On
 `testbench_rp2040` the reader and writer classes are dropped from the framework (`InputStream`,

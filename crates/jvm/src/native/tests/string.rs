@@ -867,3 +867,30 @@ fn string_replace_char_with_a_char_above_0x7f() {
         .unwrap();
     assert_eq!(ctx.resolve(r), "23_C");
 }
+
+/// `new String(byte[])` keeps a valid UTF-8 sequence (the table is UTF-8,
+/// so `"café".getBytes()` round-trips) and marks each byte of a malformed
+/// one `?`; it used to turn every byte from 0x80 up into `?`.
+#[test]
+fn string_from_bytes_keeps_valid_utf8_and_marks_malformed_bytes() {
+    let mut ctx = StrCtx::new();
+    let build = |ctx: &mut StrCtx, bytes: &[u8]| -> alloc::string::String {
+        let arr = ctx
+            .arrays
+            .alloc(crate::array_heap::ATYPE_BYTE, bytes.len() as u16)
+            .unwrap();
+        for (i, &b) in bytes.iter().enumerate() {
+            ctx.arrays.store(arr, i, b as i8 as i32).unwrap();
+        }
+        let placeholder = Value::ObjectRef(ctx.objects.alloc(c::java_lang_String).unwrap());
+        let r = ctx
+            .dispatch("<init>", "([B)V", &[placeholder, Value::ArrayRef(arr)])
+            .unwrap()
+            .unwrap();
+        ctx.resolve(r).into()
+    };
+    assert_eq!(build(&mut ctx, "café €".as_bytes()), "café €");
+    assert_eq!(build(&mut ctx, &[b'a', 0xC3, b'b']), "a?b");
+    assert_eq!(build(&mut ctx, &[0xE2, 0x82]), "??", "a sequence cut short");
+    assert_eq!(build(&mut ctx, &[0xFF, b'x', 0x80]), "?x?");
+}

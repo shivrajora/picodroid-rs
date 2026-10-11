@@ -34,7 +34,35 @@ public class OutputStreamWriter extends Writer {
 
   @Override
   public void write(int c) throws IOException {
-    out.write(c);
+    encodeChar((char) c);
+    out.write(chunk, 0, chunkLen);
+    chunkLen = 0;
+  }
+
+  private int chunkLen;
+
+  /**
+   * Appends {@code c} to {@code chunk} as UTF-8 (the default charset, and what every charset name
+   * here encodes): one byte for ASCII, two or three for the rest of the BMP; a lone surrogate has
+   * no encoding and becomes {@code ?}. {@link #write(String)} sends a String's bytes, which are
+   * UTF-8 already, as they are.
+   */
+  private void encodeChar(char c) {
+    if (chunk == null) {
+      chunk = new byte[CHUNK];
+    }
+    if (c < 0x80) {
+      chunk[chunkLen++] = (byte) c;
+    } else if (c < 0x800) {
+      chunk[chunkLen++] = (byte) (0xC0 | (c >> 6));
+      chunk[chunkLen++] = (byte) (0x80 | (c & 0x3F));
+    } else if (c >= 0xD800 && c <= 0xDFFF) {
+      chunk[chunkLen++] = (byte) '?';
+    } else {
+      chunk[chunkLen++] = (byte) (0xE0 | (c >> 12));
+      chunk[chunkLen++] = (byte) (0x80 | ((c >> 6) & 0x3F));
+      chunk[chunkLen++] = (byte) (0x80 | (c & 0x3F));
+    }
   }
 
   @Override
@@ -48,14 +76,16 @@ public class OutputStreamWriter extends Writer {
     if (chunk == null) {
       chunk = new byte[CHUNK];
     }
-    while (len > 0) {
-      int n = Math.min(len, chunk.length);
-      for (int i = 0; i < n; i++) {
-        chunk[i] = (byte) cbuf[off + i];
+    for (int i = 0; i < len; i++) {
+      if (chunkLen > chunk.length - 3) {
+        out.write(chunk, 0, chunkLen);
+        chunkLen = 0;
       }
-      out.write(chunk, 0, n);
-      off += n;
-      len -= n;
+      encodeChar(cbuf[off + i]);
+    }
+    if (chunkLen > 0) {
+      out.write(chunk, 0, chunkLen);
+      chunkLen = 0;
     }
   }
 

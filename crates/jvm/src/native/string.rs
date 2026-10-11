@@ -41,6 +41,26 @@ pub(crate) fn char_bytes(c: i32, out: &mut [u8; 3]) -> &[u8] {
     &out[..len]
 }
 
+/// Make `bytes` valid UTF-8 in place: every byte of a malformed sequence
+/// becomes `?`, valid sequences (ASCII included) stay as they are.
+pub(crate) fn replace_invalid_utf8(bytes: &mut [u8]) {
+    let mut at = 0;
+    while at < bytes.len() {
+        match core::str::from_utf8(&bytes[at..]) {
+            Ok(_) => return,
+            Err(e) => {
+                let bad = at + e.valid_up_to();
+                // `error_len` is `None` for a sequence cut short by the end.
+                let bad_len = e.error_len().unwrap_or(bytes.len() - bad);
+                for b in &mut bytes[bad..bad + bad_len] {
+                    *b = b'?';
+                }
+                at = bad + bad_len;
+            }
+        }
+    }
+}
+
 pub(crate) fn dispatch(
     method_name: &str,
     ctx: &mut NativeContext<'_>,
@@ -62,10 +82,11 @@ pub(crate) fn dispatch(
         // invokespecial` shape reaches native dispatch); this arm interns the
         // bytes and returns the string Reference, and `finalize_invoke`
         // swaps every stack/locals occurrence of the placeholder for it —
-        // see the `<init>` special case there. Bytes ≥ 0x80 map to '?': the
-        // string table is byte-backed ASCII (charAt/length count bytes), so
-        // a 1:1 byte→char mapping is kept rather than multi-byte UTF-8
-        // replacement.
+        // see the `<init>` special case there. The bytes are the string's
+        // bytes (the table is UTF-8 and `charAt`/`length` count bytes):
+        // a valid UTF-8 sequence is kept as it is, so `new String(utf8)`
+        // round-trips, and each byte of an invalid one becomes `?` (the
+        // table refuses what is not UTF-8).
         "<init>" if ctx.descriptor == "([B)V" || ctx.descriptor == "([BII)V" => {
             let Some(Value::ArrayRef(arr)) = ctx.args.get(1) else {
                 return Some(Err(JvmError::InvalidReference));
@@ -96,9 +117,9 @@ pub(crate) fn dispatch(
                     Some(v) => v,
                     None => return Some(Err(JvmError::InvalidReference)),
                 };
-                let b = v as u8;
-                bytes.push(if b < 0x80 { b } else { b'?' });
+                bytes.push(v as u8);
             }
+            replace_invalid_utf8(&mut bytes);
             let r = ctx
                 .strings
                 .intern_dyn_owned(bytes)
