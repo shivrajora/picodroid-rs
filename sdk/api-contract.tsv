@@ -131,6 +131,7 @@ java/io/OutputStreamWriter	<init>	(Ljava/io/OutputStream;)V
 java/io/OutputStreamWriter	<init>	(Ljava/io/OutputStream;Ljava/lang/String;)V
 java/io/OutputStreamWriter	CHUNK	I
 java/io/OutputStreamWriter	chunk	[B
+java/io/OutputStreamWriter	chunkLen	I
 java/io/OutputStreamWriter	close	()V
 java/io/OutputStreamWriter	encoding	Ljava/lang/String;
 java/io/OutputStreamWriter	flush	()V
@@ -419,6 +420,7 @@ java/lang/Math	toIntExact	(J)I
 java/lang/Math	toRadians	
 java/lang/Math	toRadians	(D)D
 java/lang/NegativeArraySizeException
+java/lang/NoClassDefFoundError
 java/lang/NullPointerException
 java/lang/Number
 java/lang/NumberFormatException
@@ -958,6 +960,7 @@ java/time/format/DateTimeFormatter	ISO_LOCAL_DATE_TIME	Ljava/time/format/DateTim
 java/time/format/DateTimeFormatter	ISO_LOCAL_TIME	Ljava/time/format/DateTimeFormatter;
 java/time/format/DateTimeFormatter	MONTHS	[Ljava/lang/String;
 java/time/format/DateTimeFormatter	format	(Ljava/time/temporal/TemporalAccessor;)Ljava/lang/String;
+java/time/format/DateTimeFormatter	isoFraction	Z
 java/time/format/DateTimeFormatter	ofPattern	(Ljava/lang/String;)Ljava/time/format/DateTimeFormatter;
 java/time/format/DateTimeFormatter	pattern	Ljava/lang/String;
 java/time/format/DateTimeFormatter	toString	()Ljava/lang/String;
@@ -1279,6 +1282,7 @@ javax/net/ssl/SSLPeerUnverifiedException
 @extends	java/lang/InterruptedException	java/lang/Exception
 @extends	java/lang/Long	java/lang/Number
 @extends	java/lang/NegativeArraySizeException	java/lang/RuntimeException
+@extends	java/lang/NoClassDefFoundError	java/lang/Error
 @extends	java/lang/NullPointerException	java/lang/RuntimeException
 @extends	java/lang/NumberFormatException	java/lang/IllegalArgumentException
 @extends	java/lang/OutOfMemoryError	java/lang/Error
