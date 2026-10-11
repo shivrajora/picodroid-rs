@@ -34,11 +34,32 @@ fn owns_map_buf(class_name: Option<&str>) -> bool {
     )
 }
 
+/// Room in a mark bitmap for `slots` entries, taken before marking starts:
+/// the collector runs on the fullest heap there is, and a `resize` that
+/// had to grow a bitmap mid-mark was an infallible allocation that aborted
+/// the firmware from inside the one routine meant to relieve the pressure
+/// (first seen under the `qa_oom` budget once the collection stores grew a
+/// word per buffer). `false` when the heap refuses; the capacity stays
+/// across cycles (`GcState::clear` keeps it), so this is one allocation per
+/// high-water mark, not per collection.
+fn reserve_marks(bits: &mut Vec<u8>, slots: usize) -> bool {
+    // Manual div_ceil: the crate's MSRV (1.70) predates usize::div_ceil.
+    let bytes = (slots + 7) / 8;
+    bits.try_reserve(bytes).is_ok()
+}
+
 fn mark_bit(bits: &mut Vec<u8>, idx: u16) {
     let i = idx as usize;
     let byte = i / 8;
     let bit = i % 8;
     if byte >= bits.len() {
+        // Within the capacity `reserve_marks` took, so no allocation here.
+        // Past it is a slot the heap does not hold (a reference left in a
+        // root to a slot beyond the current table): nothing the sweep could
+        // free, so nothing to mark.
+        if byte >= bits.capacity() {
+            return;
+        }
         bits.resize(byte + 1, 0);
     }
     bits[byte] |= 1 << bit;
@@ -377,6 +398,14 @@ pub fn collect(
     let obj_marks = &mut gc.obj_marks;
     let arr_marks = &mut gc.arr_marks;
     let str_marks = &mut gc.str_marks;
+    if !(reserve_marks(obj_marks, objects.slot_count())
+        && reserve_marks(arr_marks, arrays.slot_count())
+        && reserve_marks(str_marks, strings.total_len()))
+    {
+        // No room to even mark: nothing freed, nothing wrongly freed, and
+        // the caller sees an exhausted heap (a catchable `OutOfMemoryError`).
+        return 0;
+    }
     let work = &mut gc.work;
     #[cfg(feature = "mem-diag")]
     let offensive = crate::mem_diag::offensive();
