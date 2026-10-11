@@ -137,8 +137,7 @@ pub fn build(
         // board says — and the draw-buffer hook beside lv_conf.h goes with
         // it, so render targets stay in SRAM
         // (docs/designs/psram-lvgl-fluid-scroll-2026-09.md §4).
-        if cfg.get("lv_mem_in_psram").map(String::as_str) == Some("true")
-            && crate::config::is_embedded()
+        if crate::board_cfg::bool_key(cfg, "lv_mem_in_psram", false) && crate::config::is_embedded()
         {
             let mcu = mcu.unwrap_or_else(|| {
                 panic!("board.toml: lv_mem_in_psram = true needs the MCU descriptor")

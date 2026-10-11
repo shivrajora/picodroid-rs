@@ -203,7 +203,7 @@ pub const CANVAS_CLASSES: &[&str] = &["picodroid/graphics/Canvas", "picodroid/gr
 pub fn has_json(board: &Option<ResolvedBoard>) -> bool {
     match props(board) {
         None => true,
-        Some(p) => p.get("has_json").map(String::as_str) == Some("true"),
+        Some(p) => bool_key(p, "has_json", false),
     }
 }
 
@@ -215,7 +215,7 @@ pub fn has_json(board: &Option<ResolvedBoard>) -> bool {
 pub fn has_protobuf(board: &Option<ResolvedBoard>) -> bool {
     match props(board) {
         None => true,
-        Some(p) => p.get("has_protobuf").map(String::as_str) == Some("true"),
+        Some(p) => bool_key(p, "has_protobuf", false),
     }
 }
 
@@ -229,7 +229,7 @@ pub fn has_protobuf(board: &Option<ResolvedBoard>) -> bool {
 pub fn has_tls(board: &Option<ResolvedBoard>) -> bool {
     match props(board) {
         None => std::env::var("CARGO_FEATURE_TLS").is_ok(),
-        Some(p) => p.get("has_tls").map(String::as_str) == Some("true"),
+        Some(p) => bool_key(p, "has_tls", false),
     }
 }
 
@@ -256,7 +256,7 @@ pub fn has_canvas(board: &Option<ResolvedBoard>) -> bool {
 pub fn has_canvas_in(props: Option<&HashMap<String, String>>) -> bool {
     match props {
         None => true,
-        Some(p) => p.get("has_canvas").map(String::as_str) != Some("false"),
+        Some(p) => bool_key(p, "has_canvas", true),
     }
 }
 
@@ -291,7 +291,7 @@ pub fn multi_app(board: &Option<ResolvedBoard>) -> bool {
 pub fn emit_lvgl_cfgs(board: &Option<ResolvedBoard>) {
     println!("cargo:rustc-check-cfg=cfg(lv_mem_in_psram)");
     let Some(b) = board else { return };
-    if b.cfg.props.get("lv_mem_in_psram").map(String::as_str) != Some("true") {
+    if !bool_key(&b.cfg.props, "lv_mem_in_psram", false) {
         return;
     }
     let (path, mcu) = b.mcu();
@@ -528,6 +528,55 @@ fn props(board: &Option<ResolvedBoard>) -> Option<&HashMap<String, String>> {
     board.as_ref().map(|b| &b.cfg.props)
 }
 
+/// A boolean board.toml key: exactly `true` or `false`, `default` when
+/// absent, and a build error naming the key for anything else. The keys
+/// used to be compared as strings against one spelling each, with the
+/// default on the other side of the comparison, so `has_canvas = 0` turned
+/// Canvas *on* and `has_json = True` turned JSON *off*.
+pub fn bool_key(props: &HashMap<String, String>, key: &str, default: bool) -> bool {
+    match props.get(key).map(|v| v.trim()) {
+        None => default,
+        Some("true") => true,
+        Some("false") => false,
+        Some(other) => panic!("board.toml: {key} must be `true` or `false` (got `{other}`)"),
+    }
+}
+
+#[cfg(test)]
+mod bool_key_tests {
+    use super::bool_key;
+    use std::collections::HashMap;
+
+    fn props(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn true_false_and_default() {
+        let p = props(&[("a", "true"), ("b", "false"), ("c", " true ")]);
+        assert!(bool_key(&p, "a", false));
+        assert!(!bool_key(&p, "b", true));
+        assert!(bool_key(&p, "c", false));
+        assert!(bool_key(&p, "missing", true));
+        assert!(!bool_key(&p, "missing", false));
+    }
+
+    #[test]
+    #[should_panic(expected = "has_canvas must be `true` or `false` (got `0`)")]
+    fn a_number_is_refused() {
+        bool_key(&props(&[("has_canvas", "0")]), "has_canvas", true);
+    }
+
+    #[test]
+    #[should_panic(expected = "has_json must be `true` or `false` (got `True`)")]
+    fn a_capitalised_spelling_is_refused() {
+        bool_key(&props(&[("has_json", "True")]), "has_json", false);
+    }
+}
+
 fn write_generated(out: &Path, name: &str, body: &str) {
     let path = out.join(name);
     let mut f = File::create(&path).unwrap_or_else(|e| panic!("create {name}: {e}"));
@@ -641,7 +690,7 @@ pub fn emit_network_cfgs(board: &Option<ResolvedBoard>) {
     }
 
     let Some(p) = props(board) else { return };
-    if p.get("has_network").map(String::as_str) != Some("true") {
+    if !bool_key(p, "has_network", false) {
         return;
     }
     println!("cargo:rustc-cfg=has_network");
@@ -791,7 +840,7 @@ const HOME_HOLD_RANGE: core::ops::RangeInclusive<u32> = 500..=5000;
 pub fn check_input_conformance(b: &ResolvedBoard) -> InputProfile {
     let has_lv_key = |k: &str| b.cfg.buttons.iter().any(|d| d.lv_key == k);
     let has_keycode = |c: i32| b.cfg.buttons.iter().any(|d| d.keycode == c);
-    let soft_nav = b.cfg.props.get("soft_nav").map(String::as_str) == Some("true");
+    let soft_nav = bool_key(&b.cfg.props, "soft_nav", false);
     let home_hold_ms = b
         .cfg
         .props
@@ -924,6 +973,11 @@ pub fn emit_background_pool_config(out: &Path, board: &Option<ResolvedBoard>) {
     let priority = read("priority", DEFAULT_PRIORITY);
     let stack_bytes = read("stack_bytes", DEFAULT_STACK_BYTES);
     let queue_depth = read("queue_depth", DEFAULT_QUEUE_DEPTH);
+    assert!(
+        queue_depth >= 1,
+        "[background_pool] queue_depth must be at least 1: a pool whose queue holds nothing \
+         refuses every submit, got {queue_depth}"
+    );
 
     assert!(
         priority == JVM_TIER,
