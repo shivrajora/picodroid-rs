@@ -461,14 +461,15 @@ public final class StringsKt {
     }
     String s = cs.toString();
     ArrayList<Object> out = new ArrayList<Object>();
-    int cur = 0;
+    int cur = 0; // where the next part starts
+    int search = 0; // where the next delimiter is looked for
     int len = s.length();
     while (limit == 0 || out.size() < limit - 1) {
       int at = -1;
       int width = 0;
-      for (int i = cur; i <= len && at < 0; i++) {
+      for (int i = search; i <= len && at < 0; i++) {
         for (String d : delimiters) {
-          if (!d.isEmpty() && regionMatches(s, i, d, ignoreCase)) {
+          if (regionMatches(s, i, d, ignoreCase)) {
             at = i;
             width = d.length();
             break;
@@ -480,6 +481,9 @@ public final class StringsKt {
       }
       out.add(s.substring(cur, at));
       cur = at + width;
+      // An empty delimiter matches at every index; the stdlib moves the search on by one so
+      // "abc".split("") is ["", "a", "b", "c", ""] rather than a loop. It used to be ignored.
+      search = width == 0 ? at + 1 : cur;
     }
     out.add(s.substring(cur));
     return out;

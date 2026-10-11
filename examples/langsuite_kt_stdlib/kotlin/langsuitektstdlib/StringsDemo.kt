@@ -120,6 +120,8 @@ object StringsDemo {
         check("split limit", "a,b,c".split(",", limit = 2)[1] == "b,c")
         check("split char", "1:2:3".split(':').map { it.toInt() }.sum() == 6)
         check("split ignoreCase", "aXbxc".split("x", ignoreCase = true).size == 3)
+        // The stdlib's empty delimiter matches between every char (and at both ends).
+        check("split empty delimiter", "abc".split("").joinToString("|") == "|a|b|c|")
         check("split no match", "abc".split(",").size == 1 && "abc".split(",")[0] == "abc")
         check(
             "substringBefore / After",
