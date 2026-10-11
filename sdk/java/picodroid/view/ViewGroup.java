@@ -213,7 +213,16 @@ public abstract class ViewGroup extends View implements ViewParent {
 
   private native void nativeRemoveAllViews();
 
-  public native int getChildCount();
+  /** The children added through {@link #addView}, as {@link #getChildAt} indexes them. */
+  public int getChildCount() {
+    return mChildCount;
+  }
+
+  /**
+   * The widget's own child count. It can differ from {@link #getChildCount()}: a widget may own
+   * children of its own (a SwipeRefreshLayout's spinner), and a ListView's rows are all widgets.
+   */
+  protected native int nativeGetChildCount();
 
   /**
    * The child at {@code index} in {@link #addView} order, or {@code null} when there is none, as on

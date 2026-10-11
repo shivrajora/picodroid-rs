@@ -66,6 +66,14 @@ public class ListView extends AdapterView<Adapter> {
   }
 
   /**
+   * The rows, as on Android: the adapter's and {@link #addItem}'s alike (every row is a widget).
+   */
+  @Override
+  public int getChildCount() {
+    return nativeGetChildCount();
+  }
+
+  /**
    * Binds {@code adapter} and builds its rows from scratch: as on Android, a new adapter never sees
    * the old adapter's rows as {@code convertView} (its recycler is cleared), so every position gets
    * {@code getView(position, null, this)} and the previous rows are freed.

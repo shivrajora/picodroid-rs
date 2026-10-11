@@ -42,6 +42,7 @@ import picodroid.widget.ScrollView;
 import picodroid.widget.SeekBar;
 import picodroid.widget.Snackbar;
 import picodroid.widget.Spinner;
+import picodroid.widget.SwipeRefreshLayout;
 import picodroid.widget.Switch;
 import picodroid.widget.TextView;
 import picodroid.widget.Toast;
@@ -959,6 +960,12 @@ public class QaUiActivity extends Activity {
   }
 
   void containers() {
+    SwipeRefreshLayout srl = new SwipeRefreshLayout(this);
+    TextView pulled = new TextView(this);
+    srl.addView(pulled);
+    check(
+        "SwipeRefreshLayout counts its Java children, not its spinner",
+        srl.getChildCount() == 1 && srl.getChildAt(0) == pulled && srl.getChildAt(1) == null);
     DatePicker dp = new DatePicker(this);
     check(
         "DatePicker starts on 1 January 2026",

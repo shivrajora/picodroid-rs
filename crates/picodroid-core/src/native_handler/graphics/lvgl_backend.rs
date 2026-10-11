@@ -113,7 +113,7 @@ impl GraphicsBackend for LvglBackend {
             m::nativeRemoveView => Some(view_group::remove_view(ctx.args, ctx.objects)),
             m::nativeRemoveAllViews => Some(view_group::remove_all_views(ctx.args, ctx.objects)),
             m::nativeMoveChildTo => Some(view_group::move_child_to(ctx.args, ctx.objects)),
-            m::getChildCount => Some(view_group::get_child_count(ctx.args, ctx.objects)),
+            m::nativeGetChildCount => Some(view_group::get_child_count(ctx.args, ctx.objects)),
             _ => None,
         }
     }
