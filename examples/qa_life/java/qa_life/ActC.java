@@ -8,12 +8,18 @@ import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
 import picodroid.os.Bundle;
 import picodroid.os.IBinder;
+import picodroid.widget.TextView;
 
-/** Binds the service, writes a preference, then finishes without unbinding. */
+/**
+ * Binds the service, writes a preference, then finishes without unbinding. Leaves a task behind
+ * that touches its TextView after the finish: the widget went with the screen, and the touch must
+ * be an IllegalStateException the task can catch, not a null widget handed to the renderer.
+ */
 public class ActC extends Activity {
   static IBinder binderSeen = null;
   static int disconnects = 0;
   static int pingFromC = -1;
+  static int staleTouches = 0;
 
   private final ServiceConnection conn =
       new ServiceConnection() {
@@ -47,7 +53,22 @@ public class ActC extends Activity {
         .putInt("from_c", 1)
         .putString("who", "C")
         .commit();
+    TextView label = new TextView(this);
+    label.setText("C");
+    setContentView(label);
     T.later(200, () -> finish());
+    // Fires after the finish, with A back on screen and C's widgets gone.
+    T.later(700, () -> touchStaleView(label));
+  }
+
+  private static void touchStaleView(TextView label) {
+    try {
+      label.setText("late");
+      T.check("a finished Activity's view refuses a late setText", false);
+    } catch (IllegalStateException e) {
+      staleTouches++;
+      T.check("a finished Activity's view refuses a late setText", true);
+    }
   }
 
   @Override

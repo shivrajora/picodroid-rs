@@ -86,16 +86,34 @@ pub fn dispatch(
     result
 }
 
+/// Why the receiver (`args[0]`) has no widget behind it, if it has none.
+enum Dead {
+    /// Handle 0: `ViewGroup.removeView` (or a close) freed it.
+    Released,
+    /// A non-zero handle the table no longer holds: the widget went with
+    /// its Activity's screen, and the Java object outlived it.
+    Stale,
+}
+
+fn dead_receiver(ctx: &NativeContext<'_>) -> Option<Dead> {
+    let Some(Value::ObjectRef(idx)) = ctx.args.first() else {
+        return None;
+    };
+    match ctx
+        .objects
+        .get_field(*idx, crate::graphics::fields::view::NATIVE_HANDLE)
+    {
+        Some(Value::Int(0)) => Some(Dead::Released),
+        Some(Value::Int(h)) if !crate::graphics::lvgl::handle_table::is_live(h) => {
+            Some(Dead::Stale)
+        }
+        _ => None,
+    }
+}
+
 /// Whether the receiver (`args[0]`) is a view whose handle is 0.
 fn released_receiver(ctx: &NativeContext<'_>) -> bool {
-    match ctx.args.first() {
-        Some(Value::ObjectRef(idx)) => matches!(
-            ctx.objects
-                .get_field(*idx, crate::graphics::fields::view::NATIVE_HANDLE),
-            Some(Value::Int(0))
-        ),
-        _ => false,
-    }
+    matches!(dead_receiver(ctx), Some(Dead::Released))
 }
 
 fn dispatch_with<B: GraphicsBackend>(
@@ -108,14 +126,28 @@ fn dispatch_with<B: GraphicsBackend>(
     // has no widget for any View arm: an IllegalStateException the app can
     // read, never a null or dangling widget pointer for LVGL (on the boards
     // without a generational handle table the freed pointer was reused and
-    // the touch kit hung re-parenting it; QA 2026-09-13). The View family's
-    // only static native, `nativeCreate`, has no receiver to check.
-    if is_view(class_name) && released_receiver(ctx) {
-        return Some(Err(super::throw_exception(
-            ctx,
-            c::java_lang_IllegalStateException,
-            "this view was released by removeView; picodroid frees a removed view, create a new one",
-        )));
+    // the touch kit hung re-parenting it; QA 2026-09-13). The same for a
+    // stale handle: a finished Activity's Views keep non-zero handles the
+    // table no longer resolves, and a main-executor task it left running
+    // (`sw.setChecked`, `editText.setText`) handed LVGL the null lookup
+    // unchecked — a sanitizer panic in the sim, a HardFault on device. The
+    // View family's only static native, `nativeCreate`, has no receiver to
+    // check.
+    if is_view(class_name) {
+        if released_receiver(ctx) {
+            return Some(Err(super::throw_exception(
+                ctx,
+                c::java_lang_IllegalStateException,
+                "this view was released by removeView; picodroid frees a removed view, create a new one",
+            )));
+        }
+        if matches!(dead_receiver(ctx), Some(Dead::Stale)) {
+            return Some(Err(super::throw_exception(
+                ctx,
+                c::java_lang_IllegalStateException,
+                "this view's widget is gone: its Activity finished; drop the reference and build the view again",
+            )));
+        }
     }
 
     // Class-specific first — these take precedence over inherited View methods
