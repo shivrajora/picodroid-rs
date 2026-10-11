@@ -217,26 +217,6 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
 
         let probed = self.class_objects.resolve.method(key);
 
-        // invokestatic triggers class initialization. A site whose entry
-        // already says "initialised" skips the probe (a scan of the
-        // initialised-class list by name); the flag is set below, after the
-        // site resolves, the first time the probe comes back clear.
-        let mut mark_static_init = false;
-        if opcode == 0xb8 && !probed.is_some_and(|hit| hit.init) {
-            let (class_bytes, _, _) = cf.cp_methodref(cp_idx).ok_or(JvmError::InvalidBytecode)?;
-            #[cfg(feature = "parity-metrics")]
-            let t0 = self.handler.clock_nanos();
-            let pending = self.ensure_class_initialized(class_bytes)?;
-            #[cfg(feature = "parity-metrics")]
-            crate::parity::count_clinit_time(self.handler.clock_nanos().saturating_sub(t0));
-            if pending {
-                let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
-                frame.pc = frame.inst_pc;
-                return Ok(());
-            }
-            mark_static_init = true;
-        }
-
         // Resolve on a miss. Both branches walk the superclass chain per JVMS
         // §5.4.3.3: invokevirtual / invokeinterface start from the receiver's
         // runtime class, invokestatic / invokespecial from the CP-declared
@@ -273,11 +253,39 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 }
             }
         };
-        if mark_static_init {
-            self.class_objects.resolve.mark_method_init(key);
-        }
         #[cfg(feature = "parity-metrics")]
         crate::parity::count_resolve_time(self.handler.clock_nanos().saturating_sub(resolve_start));
+
+        // invokestatic triggers class initialization — of the class that
+        // *declares* the method (JVMS §5.5), which resolution has just found:
+        // `Sub.f()` for an `f` inherited from `Base` runs `Base.<clinit>`, not
+        // `Sub.<clinit>` (the CP-named class used to be initialised instead,
+        // as `getstatic` once did — M8). A site whose entry already says
+        // "initialised" skips the probe; the flag is set the first time the
+        // probe comes back clear. The arguments are still on the caller's
+        // stack, so a pending `<clinit>` can rewind to re-execute the invoke.
+        if opcode == 0xb8 && !hit.init {
+            #[cfg(feature = "parity-metrics")]
+            let t0 = self.handler.clock_nanos();
+            let pending = match hit.target {
+                Target::Java { ci, .. } => self.ensure_class_initialized_at(ci)?,
+                // A `native` static on a class with a class file still has
+                // that class's statics to prepare; a builtin has nothing.
+                Target::Native { .. } => {
+                    let (class_bytes, _, _) =
+                        cf.cp_methodref(cp_idx).ok_or(JvmError::InvalidBytecode)?;
+                    self.ensure_class_initialized(class_bytes)?
+                }
+            };
+            #[cfg(feature = "parity-metrics")]
+            crate::parity::count_clinit_time(self.handler.clock_nanos().saturating_sub(t0));
+            if pending {
+                let frame = frames.last_mut().ok_or(JvmError::InvalidBytecode)?;
+                frame.pc = frame.inst_pc;
+                return Ok(());
+            }
+            self.class_objects.resolve.mark_method_init(key);
+        }
 
         // `StringBuilder.append(Object)` / `String.valueOf(Object)` take an
         // arbitrary object; run its `toString()` before the native arm sees

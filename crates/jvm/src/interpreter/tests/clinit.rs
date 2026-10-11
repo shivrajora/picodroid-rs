@@ -658,6 +658,85 @@ mod declaring_class {
         );
     }
 
+    /// `Super` with `static int m() { return 7; }` and a `<clinit>` that
+    /// sets its `static int X`.
+    fn with_static_method(name: &str, sup: &str, value: u8) -> &'static [u8] {
+        let mut a = Asm::new();
+        let this = a.class(name);
+        let sup = a.class(sup);
+        a.static_field("X", "I");
+        let f = a.fieldref(this, "X", "I");
+        let clinit = [0x10, value, 0xB3, hi(f), lo(f), 0xB1]; // bipush v; putstatic; return
+        let m = [0x10, 7, 0xAC]; // bipush 7; ireturn
+        a.finish_methods(
+            0x0001,
+            this,
+            sup,
+            &[],
+            &[
+                Method {
+                    access: 0x0008,
+                    name: "<clinit>",
+                    desc: "()V",
+                    max_stack: 1,
+                    max_locals: 0,
+                    code: &clinit,
+                    exc: &[],
+                },
+                Method {
+                    access: 0x0009,
+                    name: "m",
+                    desc: "()I",
+                    max_stack: 1,
+                    max_locals: 0,
+                    code: &m,
+                    exc: &[],
+                },
+            ],
+        )
+    }
+
+    /// `static int m() { return <class>.m(); }`
+    fn caller_invoke(class: &str) -> &'static [u8] {
+        let mut a = Asm::new();
+        let this = a.class("Caller");
+        let obj = a.class(c::java_lang_Object);
+        let target = a.class(class);
+        let mr = a.methodref(0x0A, target, "m", "()I");
+        let code = [0xB8, hi(mr), lo(mr), 0xAC]; // invokestatic; ireturn
+        a.finish(0x0001, this, obj, &[], Some((1, &code, &[])))
+    }
+
+    #[test]
+    fn invokestatic_through_subclass_initialises_only_the_declaring_class() {
+        let sup = with_static_method("Super", c::java_lang_Object, 7);
+        let sub = with_static(0x0001, "Sub", "Super", "F", 1);
+        let (r, statics) = run_last(&[sup, sub, caller_invoke("Sub")]);
+        assert_eq!(r.unwrap(), Some(Value::Int(7)));
+        assert!(statics.is_initialized(0), "Super ran");
+        assert!(
+            !statics.is_initialized(1),
+            "Sub.m names Super's method: Sub's <clinit> must not run (JVMS §5.5)"
+        );
+        assert!(
+            statics.slot(1, 0).is_none(),
+            "Sub's statics are not even prepared"
+        );
+    }
+
+    #[test]
+    fn invokestatic_on_the_declaring_class_runs_its_clinit_first() {
+        let sup = with_static_method("Super", c::java_lang_Object, 7);
+        let (r, statics) = run_last(&[sup, caller_invoke("Super")]);
+        assert_eq!(r.unwrap(), Some(Value::Int(7)));
+        assert!(statics.is_initialized(0), "Super ran");
+        assert_eq!(
+            statics.get_by_index(statics.slot(0, 0).unwrap()),
+            Value::Int(7),
+            "Super.<clinit> ran before m()"
+        );
+    }
+
     #[test]
     fn putstatic_through_subclass_writes_the_declaring_slot() {
         let sup = with_static(0x0001, "Super", c::java_lang_Object, "X", 7);
