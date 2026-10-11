@@ -8,6 +8,9 @@ closed every host-testable item; what remains needs the bench or a product decis
 
 ## Still open
 
+The actionable handoff for these — reproduction, fix, verification recipe per item — is
+`docs/bugscan-2026-10-open-items.md`.
+
 ### A. Device-only (needs the bench)
 
 #### A1. SPI ISR can overrun the 8-deep RX FIFO — confirmed by reading
