@@ -190,6 +190,19 @@ pub fn start_write(spi_id: u8, data: &[u8]) {
     cortex_m::asm::dsb();
 }
 
+/// Whether either of the SPI peripheral's channels is still busy. The wait
+/// in `spi::write_raw_finish` asks this before believing a DMA write that
+/// has not signalled is over.
+pub fn busy(spi_id: u8) -> bool {
+    let p = crate::hal::chip::periph::steal();
+    let (tx_ch, rx_ch) = match spi_id {
+        0 => (CH_SPI0_TX, CH_SPI0_RX),
+        _ => (CH_SPI1_TX, CH_SPI1_RX),
+    };
+    p.DMA.ch(tx_ch).ch_ctrl_trig().read().busy().bit_is_set()
+        || p.DMA.ch(rx_ch).ch_ctrl_trig().read().busy().bit_is_set()
+}
+
 /// Abort any in-progress DMA transfer for the given SPI peripheral.
 /// Called from the timeout recovery path in `spi.rs`.
 pub fn abort(spi_id: u8) {

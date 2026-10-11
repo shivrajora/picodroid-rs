@@ -7,7 +7,7 @@ use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use freertos_rust::{Duration, InterruptContext, Semaphore};
 
 use xfer::{
-    clock_divisors, controller_finished, may_queue_tx, SpiOp, SpiXferState, SMALL_XFER_THRESHOLD,
+    clock_divisors, may_queue_tx, transfer_finished, SpiOp, SpiXferState, SMALL_XFER_THRESHOLD,
     SPI_FIFO_DEPTH, SPI_XFER_POLL_MS, SPI_XFER_TIMEOUT_MS,
 };
 
@@ -299,6 +299,13 @@ macro_rules! finish_isr_xfer {
         // the controller's own account of being finished: everything queued
         // has been shifted out, the shifter is idle, the RX FIFO is empty.
         // What is lost then is one sample, not five seconds.
+        //
+        // A DMA write is a different question: the ISR path's byte counters
+        // describe whatever ISR transfer ran last, and `BSY` alone drops for
+        // a moment at every TX-FIFO underrun between bursts. So the kind in
+        // `SpiXferState` picks the predicate, and a DMA write is finished only
+        // once both channels have retired with the FIFO drained
+        // (xfer::transfer_finished).
         let mut waited_ms: u32 = 0;
         let signalled = loop {
             if done.take(Duration::ms(SPI_XFER_POLL_MS)).is_ok() {
@@ -307,9 +314,12 @@ macro_rules! finish_isr_xfer {
             waited_ms = waited_ms.saturating_add(SPI_XFER_POLL_MS);
             let st = spi_state($spi_id);
             let sr = $spi.sspsr().read();
-            if controller_finished(
+            if transfer_finished(
+                st.op,
                 st.tx_idx,
                 st.len,
+                super::dma::busy($spi_id),
+                sr.tfe().bit_is_set(),
                 sr.bsy().bit_is_set(),
                 sr.rne().bit_is_set(),
             ) {
@@ -318,15 +328,25 @@ macro_rules! finish_isr_xfer {
                 let first = !SHORT_READ_REPORTED.load(Ordering::Relaxed);
                 SHORT_READ_REPORTED.store(true, Ordering::Relaxed);
                 if first {
-                    defmt::warn!(
-                        "spi{}: transfer finished with {} of {} bytes read back \
-                         ({} RX overruns so far); completing it from the \
-                         controller's state (further occurrences are silent)",
-                        $spi_id,
-                        st.rx_idx,
-                        st.len,
-                        RX_OVERRUNS.load(Ordering::Relaxed)
-                    );
+                    if st.op == SpiOp::DmaWrite {
+                        defmt::warn!(
+                            "spi{}: DMA write of {} bytes retired without its \
+                             completion interrupt; completing it from the \
+                             controller's state (further occurrences are silent)",
+                            $spi_id,
+                            st.len
+                        );
+                    } else {
+                        defmt::warn!(
+                            "spi{}: transfer finished with {} of {} bytes read back \
+                             ({} RX overruns so far); completing it from the \
+                             controller's state (further occurrences are silent)",
+                            $spi_id,
+                            st.rx_idx,
+                            st.len,
+                            RX_OVERRUNS.load(Ordering::Relaxed)
+                        );
+                    }
                 }
                 SHORT_READS.store(
                     SHORT_READS.load(Ordering::Relaxed).saturating_add(1),
@@ -357,9 +377,10 @@ macro_rules! finish_isr_xfer {
             // One take clears it: the semaphore is binary, so it holds at most
             // one.
             let _ = done.take(Duration::zero());
-            let state = spi_state($spi_id);
-            state.op = SpiOp::Idle;
         }
+        // The ISR sets Idle itself; the DMA path has no ISR of its own, and
+        // the next waiter must not read this transfer's kind as its own.
+        spi_state($spi_id).op = SpiOp::Idle;
         // spin-ok: one byte-time drain after the interrupt-signalled completion
         while $spi.sspsr().read().bsy().bit_is_set() {}
     }};
@@ -533,6 +554,17 @@ pub fn write_raw_start(spi_id: u8, data: &[u8]) {
         0 => p.SPI0.sspimsc().write(|w| unsafe { w.bits(0) }),
         _ => p.SPI1.sspimsc().write(|w| unsafe { w.bits(0) }),
     }
+
+    // Record the kind (and clear the ISR path's counters) so the wait in
+    // `write_raw_finish` judges this write by the DMA channels, not by
+    // whatever full-duplex transfer the ISR ran last.
+    let state = spi_state(spi_id);
+    state.op = SpiOp::DmaWrite;
+    state.tx_ptr = data.as_ptr();
+    state.rx_ptr = core::ptr::null_mut();
+    state.len = data.len();
+    state.tx_idx = 0;
+    state.rx_idx = 0;
 
     super::dma::start_write(spi_id, data);
     write_owner(spi_id).store(picodroid_core::rtos::task_current(), Ordering::Relaxed);

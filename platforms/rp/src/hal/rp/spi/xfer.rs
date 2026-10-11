@@ -18,12 +18,15 @@ pub const SPI_XFER_POLL_MS: u32 = 2;
 /// device that is not answering, which is a fault to report, not to wait out.
 pub const SPI_XFER_TIMEOUT_MS: u32 = 5_000;
 
-/// What the interrupt-driven path is doing. Write-only transfers go through
-/// DMA, so the ISR only ever sees full-duplex work.
-#[derive(Clone, Copy, PartialEq)]
+/// What the bus is doing between a start and its `finish_isr_xfer!`. The ISR
+/// only ever sees full-duplex work; a write-only transfer goes through DMA,
+/// which never touches the byte counters, so the kind is what tells the
+/// waiter which account of "finished" to believe (see [`transfer_finished`]).
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum SpiOp {
     Idle,
     FullDuplex,
+    DmaWrite,
 }
 
 pub struct SpiXferState {
@@ -62,6 +65,35 @@ impl SpiXferState {
 /// timeout cap (docs/qa-2026-09-13-followups.md item 1).
 pub fn controller_finished(tx_idx: usize, len: usize, busy: bool, rx_not_empty: bool) -> bool {
     tx_idx >= len && !busy && !rx_not_empty
+}
+
+/// Whether a DMA write is over although its completion interrupt (the RX
+/// drain channel's) has not arrived: both channels have retired, the TX FIFO
+/// has drained and the shifter is idle. `BSY` alone is not enough — it drops
+/// for a moment whenever the TX FIFO underruns between two DMA bursts, which
+/// is exactly when a band is still in flight.
+pub fn dma_write_finished(dma_busy: bool, tx_fifo_empty: bool, busy: bool) -> bool {
+    !dma_busy && tx_fifo_empty && !busy
+}
+
+/// The waiter's question, answered for the kind of transfer actually in
+/// flight. An `Idle` state means the completion has been signalled and the
+/// credit is about to be (or has been) taken: not finished *here*, the next
+/// `take` collects it.
+pub fn transfer_finished(
+    op: SpiOp,
+    tx_idx: usize,
+    len: usize,
+    dma_busy: bool,
+    tx_fifo_empty: bool,
+    busy: bool,
+    rx_not_empty: bool,
+) -> bool {
+    match op {
+        SpiOp::FullDuplex => controller_finished(tx_idx, len, busy, rx_not_empty),
+        SpiOp::DmaWrite => dma_write_finished(dma_busy, tx_fifo_empty, busy),
+        SpiOp::Idle => false,
+    }
 }
 
 /// Whether the ISR may queue one more TX byte. Bounded by the bytes
@@ -141,6 +173,79 @@ mod tests {
     #[test]
     fn a_zero_length_transfer_is_finished() {
         assert!(controller_finished(0, 0, false, false));
+    }
+
+    // ── The DMA write's own account ──────────────────────────────────────
+
+    #[test]
+    fn a_dma_write_is_not_finished_while_a_channel_is_busy() {
+        // The TX FIFO underran between two bursts: BSY is low for a moment,
+        // the FIFO is empty, and the band is nowhere near done.
+        assert!(!dma_write_finished(true, true, false));
+    }
+
+    #[test]
+    fn a_dma_write_is_not_finished_while_the_fifo_or_shifter_holds_bytes() {
+        assert!(!dma_write_finished(false, false, false));
+        assert!(!dma_write_finished(false, true, true));
+    }
+
+    #[test]
+    fn a_retired_dma_write_with_an_idle_bus_is_finished() {
+        assert!(dma_write_finished(false, true, false));
+    }
+
+    // ── The dispatcher reads the kind, not stale counters ────────────────
+
+    #[test]
+    fn a_dma_write_is_judged_by_the_channels_not_by_the_last_isr_transfer() {
+        // The previous ISR transfer left tx_idx == len; a DMA band in flight
+        // with BSY momentarily low must still not count as finished (A4).
+        assert!(!transfer_finished(
+            SpiOp::DmaWrite,
+            30,
+            30,
+            true,
+            true,
+            false,
+            false
+        ));
+        assert!(transfer_finished(
+            SpiOp::DmaWrite,
+            0,
+            0,
+            false,
+            true,
+            false,
+            false
+        ));
+    }
+
+    #[test]
+    fn a_full_duplex_transfer_ignores_the_dma_channels() {
+        assert!(transfer_finished(
+            SpiOp::FullDuplex,
+            30,
+            30,
+            true,
+            false,
+            false,
+            false
+        ));
+    }
+
+    #[test]
+    fn an_idle_state_is_never_finished_here() {
+        // The ISR has already given the credit; the next take collects it.
+        assert!(!transfer_finished(
+            SpiOp::Idle,
+            30,
+            30,
+            false,
+            true,
+            false,
+            false
+        ));
     }
 
     // ── The refill bound ─────────────────────────────────────────────────
