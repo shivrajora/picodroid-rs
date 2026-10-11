@@ -5,6 +5,11 @@
 //! `lv_color_t`; the rest of the graphics layer goes through [`Gfx`] and
 //! opaque [`Handle`]s.
 
+// The host test build compiles every submodule for their pure unit tests,
+// but `impl Gfx for LvglGfx` and the native arms that call the rest are
+// `cfg(not(test))`, so under test the widget code is unreferenced.
+#![cfg_attr(test, allow(dead_code))]
+
 #[cfg_attr(test, allow(unused_imports))]
 use core::sync::atomic::{AtomicBool, Ordering};
 

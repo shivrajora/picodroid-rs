@@ -658,8 +658,8 @@ fn hashmap_int_then_string_keys_shared_heap() {
     // StringBuilder usage (simulating "v1=" + v1)
     let _sb = objects.alloc(c::java_lang_StringBuilder).unwrap();
     let sb_buf = objects.sb_alloc().unwrap();
-    objects.sb_append_bytes(sb_buf, b"v1=");
-    objects.sb_append_int(sb_buf, 10);
+    objects.sb_append_bytes(sb_buf, b"v1=").unwrap();
+    objects.sb_append_int(sb_buf, 10).unwrap();
     let sb_bytes = objects.sb_contents_slice(sb_buf).to_vec();
     let _str_idx = strings.intern_dyn(&sb_bytes).unwrap();
 

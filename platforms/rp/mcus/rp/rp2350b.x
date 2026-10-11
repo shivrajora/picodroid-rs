@@ -23,5 +23,9 @@ SECTIONS {
     } > FLASH
 } INSERT BEFORE .text;
 
-/* Tell cortex-m-rt to start .text after .start_block */
-_stext = ADDR(.start_block) + SIZEOF(.start_block);
+/* Tell cortex-m-rt to start .text after .start_block. .text carries
+   16-byte-aligned input sections and the IMAGE_DEF block ends 8-aligned, so
+   round up here: an explicit section address is not aligned by the linker,
+   which otherwise warns "address of section .text is not a multiple of
+   alignment (16)". */
+_stext = ALIGN(ADDR(.start_block) + SIZEOF(.start_block), 16);

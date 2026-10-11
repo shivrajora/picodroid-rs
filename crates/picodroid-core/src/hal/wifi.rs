@@ -36,6 +36,7 @@ pub const SCAN_MAX: usize = 12;
 /// sandbox and is swept per package: the network belongs to the device.
 pub const STORE_DIR: &str = "/system";
 pub const STORE_PATH: &str = "/system/wifi";
+#[cfg(not(test))]
 const STORE_TMP: &str = "/system/wifi.tmp";
 
 /// A network's security, as a scan reports it and as a join needs it.

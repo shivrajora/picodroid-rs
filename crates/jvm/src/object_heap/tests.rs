@@ -180,7 +180,7 @@ fn string_builder_instances_are_distinct() {
 fn sb_append_bytes_and_contents() {
     let mut heap = ObjectHeap::new();
     let b = heap.sb_alloc().unwrap();
-    heap.sb_append_bytes(b, b"hello");
+    heap.sb_append_bytes(b, b"hello").unwrap();
     assert_eq!(heap.sb_contents_slice(b), b"hello");
     assert_eq!(heap.sb_len(b), 5);
 }
@@ -189,7 +189,7 @@ fn sb_append_bytes_and_contents() {
 fn sb_alloc_creates_fresh_buffer() {
     let mut heap = ObjectHeap::new();
     let a = heap.sb_alloc().unwrap();
-    heap.sb_append_bytes(a, b"hello");
+    heap.sb_append_bytes(a, b"hello").unwrap();
     let b = heap.sb_alloc().unwrap();
     assert_eq!(heap.sb_len(b), 0);
     assert_eq!(heap.sb_len(a), 5);
@@ -199,7 +199,7 @@ fn sb_alloc_creates_fresh_buffer() {
 fn sb_char_at() {
     let mut heap = ObjectHeap::new();
     let b = heap.sb_alloc().unwrap();
-    heap.sb_append_bytes(b, b"abc");
+    heap.sb_append_bytes(b, b"abc").unwrap();
     assert_eq!(heap.sb_char_at(b, 0), Some(b'a'));
     assert_eq!(heap.sb_char_at(b, 2), Some(b'c'));
     assert_eq!(heap.sb_char_at(b, 3), None);
@@ -209,7 +209,7 @@ fn sb_char_at() {
 fn sb_append_int_zero() {
     let mut heap = ObjectHeap::new();
     let b = heap.sb_alloc().unwrap();
-    heap.sb_append_int(b, 0);
+    heap.sb_append_int(b, 0).unwrap();
     assert_eq!(heap.sb_contents_slice(b), b"0");
 }
 
@@ -217,7 +217,7 @@ fn sb_append_int_zero() {
 fn sb_append_int_positive() {
     let mut heap = ObjectHeap::new();
     let b = heap.sb_alloc().unwrap();
-    heap.sb_append_int(b, 12345);
+    heap.sb_append_int(b, 12345).unwrap();
     assert_eq!(heap.sb_contents_slice(b), b"12345");
 }
 
@@ -225,7 +225,7 @@ fn sb_append_int_positive() {
 fn sb_append_int_negative() {
     let mut heap = ObjectHeap::new();
     let b = heap.sb_alloc().unwrap();
-    heap.sb_append_int(b, -42);
+    heap.sb_append_int(b, -42).unwrap();
     assert_eq!(heap.sb_contents_slice(b), b"-42");
 }
 
@@ -234,7 +234,7 @@ fn sb_append_no_truncation() {
     let mut heap = ObjectHeap::new();
     let b = heap.sb_alloc().unwrap();
     let long_str = [b'x'; 70];
-    heap.sb_append_bytes(b, &long_str);
+    heap.sb_append_bytes(b, &long_str).unwrap();
     assert_eq!(heap.sb_len(b), 70);
 }
 
@@ -245,11 +245,11 @@ fn sb_append_no_truncation() {
 fn sb_interleaved_builders_stay_independent() {
     let mut heap = ObjectHeap::new();
     let outer = heap.sb_alloc().unwrap();
-    heap.sb_append_bytes(outer, b"foo");
+    heap.sb_append_bytes(outer, b"foo").unwrap();
     let inner = heap.sb_alloc().unwrap();
-    heap.sb_append_bytes(inner, b"bar");
+    heap.sb_append_bytes(inner, b"bar").unwrap();
     // Interleave: appending to the older builder still reaches it.
-    heap.sb_append_int(outer, 7);
+    heap.sb_append_int(outer, 7).unwrap();
     assert_eq!(heap.sb_contents_slice(inner), b"bar");
     assert_eq!(heap.sb_contents_slice(outer), b"foo7");
 }
@@ -259,17 +259,17 @@ fn sb_nested_builders_preserve_content() {
     let mut heap = ObjectHeap::new();
     // Outer: "hi " + (inner) + 42
     let outer = heap.sb_alloc().unwrap();
-    heap.sb_append_bytes(outer, b"hi ");
+    heap.sb_append_bytes(outer, b"hi ").unwrap();
     // Inner: "Hello, World!" + " bye "
     let inner = heap.sb_alloc().unwrap();
-    heap.sb_append_bytes(inner, b"Hello, World!");
-    heap.sb_append_bytes(inner, b" bye ");
+    heap.sb_append_bytes(inner, b"Hello, World!").unwrap();
+    heap.sb_append_bytes(inner, b" bye ").unwrap();
     assert_eq!(heap.sb_contents_slice(inner), b"Hello, World! bye ");
     // Outer is untouched by the inner builder's appends.
     assert_eq!(heap.sb_contents_slice(outer), b"hi ");
     let inner_bytes = heap.sb_contents_slice(inner).to_vec();
-    heap.sb_append_bytes(outer, &inner_bytes);
-    heap.sb_append_int(outer, 42);
+    heap.sb_append_bytes(outer, &inner_bytes).unwrap();
+    heap.sb_append_int(outer, 42).unwrap();
     assert_eq!(heap.sb_contents_slice(outer), b"hi Hello, World! bye 42");
 }
 
@@ -277,7 +277,7 @@ fn sb_nested_builders_preserve_content() {
 fn sb_free_releases_slot_for_reuse() {
     let mut heap = ObjectHeap::new();
     let a = heap.sb_alloc().unwrap();
-    heap.sb_append_bytes(a, b"gone");
+    heap.sb_append_bytes(a, b"gone").unwrap();
     heap.sb_free(a);
     // The freed slot is handed out again, zeroed.
     let b = heap.sb_alloc().unwrap();
@@ -344,8 +344,8 @@ fn list_alloc_returns_sequential_indices() {
 fn list_add_and_get() {
     let mut heap = ObjectHeap::new();
     let idx = heap.list_alloc().unwrap();
-    heap.list_add(idx, Value::Int(10));
-    heap.list_add(idx, Value::Int(20));
+    heap.list_add(idx, Value::Int(10)).unwrap();
+    heap.list_add(idx, Value::Int(20)).unwrap();
     assert_eq!(heap.list_len(idx), 2);
     assert_eq!(heap.list_get(idx, 0), Some(Value::Int(10)));
     assert_eq!(heap.list_get(idx, 1), Some(Value::Int(20)));
@@ -356,7 +356,7 @@ fn list_add_and_get() {
 fn list_set_returns_old_value() {
     let mut heap = ObjectHeap::new();
     let idx = heap.list_alloc().unwrap();
-    heap.list_add(idx, Value::Int(1));
+    heap.list_add(idx, Value::Int(1)).unwrap();
     let old = heap.list_set(idx, 0, Value::Int(99));
     assert_eq!(old, Some(Value::Int(1)));
     assert_eq!(heap.list_get(idx, 0), Some(Value::Int(99)));
@@ -366,9 +366,9 @@ fn list_set_returns_old_value() {
 fn list_remove_returns_value_and_shifts() {
     let mut heap = ObjectHeap::new();
     let idx = heap.list_alloc().unwrap();
-    heap.list_add(idx, Value::Int(1));
-    heap.list_add(idx, Value::Int(2));
-    heap.list_add(idx, Value::Int(3));
+    heap.list_add(idx, Value::Int(1)).unwrap();
+    heap.list_add(idx, Value::Int(2)).unwrap();
+    heap.list_add(idx, Value::Int(3)).unwrap();
     let removed = heap.list_remove(idx, 1);
     assert_eq!(removed, Some(Value::Int(2)));
     assert_eq!(heap.list_len(idx), 2);
@@ -379,9 +379,9 @@ fn list_remove_returns_value_and_shifts() {
 fn list_insert_shifts_right() {
     let mut heap = ObjectHeap::new();
     let idx = heap.list_alloc().unwrap();
-    heap.list_add(idx, Value::Int(1));
-    heap.list_add(idx, Value::Int(3));
-    heap.list_insert(idx, 1, Value::Int(2));
+    heap.list_add(idx, Value::Int(1)).unwrap();
+    heap.list_add(idx, Value::Int(3)).unwrap();
+    heap.list_insert(idx, 1, Value::Int(2)).unwrap();
     assert_eq!(heap.list_len(idx), 3);
     assert_eq!(heap.list_get(idx, 1), Some(Value::Int(2)));
     assert_eq!(heap.list_get(idx, 2), Some(Value::Int(3)));
@@ -391,8 +391,8 @@ fn list_insert_shifts_right() {
 fn list_clear_empties_list() {
     let mut heap = ObjectHeap::new();
     let idx = heap.list_alloc().unwrap();
-    heap.list_add(idx, Value::Int(1));
-    heap.list_add(idx, Value::Int(2));
+    heap.list_add(idx, Value::Int(1)).unwrap();
+    heap.list_add(idx, Value::Int(2)).unwrap();
     heap.list_clear(idx);
     assert_eq!(heap.list_len(idx), 0);
 }
@@ -411,8 +411,8 @@ fn list_free_slot_is_reused() {
 fn list_iter_yields_elements() {
     let mut heap = ObjectHeap::new();
     let idx = heap.list_alloc().unwrap();
-    heap.list_add(idx, Value::Int(7));
-    heap.list_add(idx, Value::Int(8));
+    heap.list_add(idx, Value::Int(7)).unwrap();
+    heap.list_add(idx, Value::Int(8)).unwrap();
     let collected: alloc::vec::Vec<Value> = heap.list_iter(idx).collect();
     assert_eq!(collected, [Value::Int(7), Value::Int(8)]);
 }

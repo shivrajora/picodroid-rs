@@ -127,7 +127,7 @@ impl<'p> Multicore<'p> {
     }
 
     /// Get the available |Core| instances.
-    pub fn cores(&mut self) -> &'p mut [Core] {
+    pub fn cores(&mut self) -> &mut [Core<'p>] {
         &mut self.cores
     }
 }
@@ -251,7 +251,7 @@ impl<'p> Core<'p> {
                 1,
                 vector_table as usize,
                 stack_ptr as usize,
-                core1_startup::<F> as usize,
+                core1_startup::<F> as *const () as usize,
             ];
 
             let mut seq = 0;

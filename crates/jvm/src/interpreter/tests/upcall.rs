@@ -1019,7 +1019,7 @@ fn a_claim_up_the_chain_is_remembered_and_taken_first() {
         claim: true,
     };
     let site = SiteKey::cp(0, twice);
-    let mut call = |h: &mut Harness, handler: &mut Claimer| {
+    let call = |h: &mut Harness, handler: &mut Claimer| {
         handler.seen.clear();
         execute(
             &h.classes,

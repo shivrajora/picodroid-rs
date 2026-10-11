@@ -246,12 +246,3 @@ uint32_t picodroid_get_runtime_counter(void) {
     return TIMER0_TIMERAWL;
 }
 
-/* ---- Interrupt priority validation stub ---- */
-
-/* portmacrocommon.h defines portASSERT_IF_INTERRUPT_PRIORITY_INVALID() as
- * vPortValidateInterruptPriority() whenever configASSERT is defined (even
- * as an empty macro via FreeRTOS.h's default).  port.c only compiles the
- * real body when configASSERT_DEFINED==1, which requires the user to
- * explicitly define configASSERT with a non-trivial expansion.  Provide a
- * no-op stub so the linker is satisfied without enabling full asserts. */
-void vPortValidateInterruptPriority(void) {}

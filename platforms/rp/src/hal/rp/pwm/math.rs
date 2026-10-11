@@ -66,7 +66,15 @@ mod tests {
         for pclk in [RP2040_PCLK, RP2350_PCLK] {
             let (div_int, wrap) = clock_params(pclk, 50.0);
             assert!((1..=255).contains(&div_int));
-            assert!(wrap <= 65535);
+            // `wrap` is a u16 by type; the check is that a 50 Hz period, which
+            // needs more than 65536 counts at these clocks, was not clamped but
+            // divided: the chosen pair reproduces it to within one division step.
+            let period = pclk / 50;
+            let got = div_int as u32 * (wrap as u32 + 1);
+            assert!(
+                got.abs_diff(period) <= div_int as u32,
+                "{pclk}: {div_int} x {wrap}"
+            );
         }
     }
 

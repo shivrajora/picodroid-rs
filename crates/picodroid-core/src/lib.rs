@@ -132,6 +132,7 @@ mod test_platform;
 // Activity stack + pending-op FIFO — hardware-free state machine.
 #[cfg(test)]
 #[path = "native_handler/state.rs"]
+#[allow(dead_code)]
 mod native_handler_state_tests;
 // picodroid/io natives over `TestHal`'s in-memory map (bounds checks — the
 // negative-length read panic, bugbash F6 — and the storage sandbox).
@@ -142,6 +143,7 @@ mod native_handler_io_tests;
 // for the same HAL reasons as native_handler.
 #[cfg(test)]
 #[path = "os/system_clock.rs"]
+#[allow(dead_code)]
 mod os_system_clock_tests;
 // Native-class registry + its cross-check: every SDK class declaring a
 // `native` method must appear in the registry, or virtual dispatch fails at
@@ -186,6 +188,7 @@ mod native_member_names_tests;
 // (`graphics::fields` and `net` are `cfg(not(test))`).
 #[cfg(test)]
 #[path = "graphics/fields.rs"]
+#[allow(dead_code)]
 mod graphics_fields_tests;
 // The picodroid.net field-slot table, so `native_field_tables_tests` can
 // check it against the class files (`net` itself is `cfg(not(test))`).
@@ -196,6 +199,7 @@ mod net_fields_tests;
 // and copy-back), pure over the JVM heaps; `net` is `cfg(not(test))`.
 #[cfg(test)]
 #[path = "net/datagram_window.rs"]
+#[allow(dead_code)]
 mod net_datagram_window_tests;
 // The picodroid.protobuf field-slot table, likewise.
 #[cfg(test)]

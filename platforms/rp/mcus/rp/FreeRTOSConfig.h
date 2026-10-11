@@ -22,6 +22,14 @@
 
 #define configTICK_RATE_HZ                      1000
 
+/* Asserts are off: no handler, no code. The expression is still seen by the
+ * compiler (unevaluated, inside sizeof), so the variables the kernel keeps
+ * only for its asserts -- tasks.c's xCurrentCoreID and pxTCB -- count as
+ * used and gcc stops warning about them. Defining the macro at all sets
+ * configASSERT_DEFINED, which adds the kernel's StaticXxx_t size checks (no-ops
+ * here) and, on ARM_CM33, the port's own vPortValidateInterruptPriority(). */
+#define configASSERT( x )                       ( ( void ) sizeof( x ) )
+
 /* Task priorities and stack */
 #define configMAX_PRIORITIES                    32
 #define configMINIMAL_STACK_SIZE                128

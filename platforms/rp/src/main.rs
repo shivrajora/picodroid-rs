@@ -64,18 +64,23 @@ picodroid_core::declare_sim_global_allocator!();
 // whose tests live in a file that is *not* listed here has tests that never
 // run — `pwm` and `adc` were exactly that until 2026-09.
 #[cfg(test)]
+#[allow(dead_code)] // only their tests reference them on the host
 #[path = "hal/rp/adc/math.rs"]
 mod hal_rp_adc_math_tests;
 #[cfg(test)]
+#[allow(dead_code)] // only their tests reference them on the host
 #[path = "hal/rp/i2c/timing.rs"]
 mod hal_rp_i2c_timing_tests;
 #[cfg(test)]
+#[allow(dead_code)] // only their tests reference them on the host
 #[path = "hal/rp/pwm/math.rs"]
 mod hal_rp_pwm_math_tests;
 #[cfg(test)]
+#[allow(dead_code)] // only their tests reference them on the host
 #[path = "hal/rp/spi/xfer.rs"]
 mod hal_rp_spi_xfer_tests;
 #[cfg(test)]
+#[allow(dead_code)] // only their tests reference them on the host
 #[path = "hal/rp/uart/math.rs"]
 mod hal_rp_uart_math_tests;
 // Text scans over the cyw43 port's C config (no hardware deps).
