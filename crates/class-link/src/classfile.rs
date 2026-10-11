@@ -577,6 +577,9 @@ pub fn derive(
                 let code_len = c.u32()? as usize;
                 code_offset = c.pos;
                 c.skip(code_len)?;
+                // The interpreter indexes the code on the strength of this
+                // check, run here once at pack time and again at install.
+                crate::bytecode::check_code(&class[code_offset..code_offset + code_len])?;
                 let exc = c.u16()? as usize;
                 c.skip(8 * exc)?;
                 let subs = c.u16()? as usize;

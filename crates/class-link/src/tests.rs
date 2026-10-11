@@ -600,3 +600,45 @@ fn error_display_names_the_index() {
     assert!(s.contains("Methodref") && s.contains("#8"));
     assert!(!LinkError::Truncated.as_str().is_empty());
 }
+
+// ── Bytecode constraints are checked where the table is derived ──────────
+
+#[test]
+fn a_class_with_malformed_bytecode_does_not_link() {
+    use crate::build::simple_class;
+    // A well-formed method links and round-trips through a section.
+    let ok = simple_class(b"Fine", b"java/lang/Object", Some(&[0x04, 0xAC]));
+    link_class(&ok).expect("iconst_1; ireturn links");
+    build_section(&[&ok]).expect("a section of it builds");
+    // A truncated `wide`, a `tableswitch` with `low = i32::MIN`, a negative
+    // `npairs` and a branch out of the code are each refused at the
+    // instruction, so the interpreter never indexes past `code`.
+    let mut huge_table = vec![0x03, 0xAA, 0, 0];
+    for w in [13i32, i32::MIN, 1, 13, 13] {
+        huge_table.extend_from_slice(&w.to_be_bytes());
+    }
+    huge_table.push(0xB1);
+    let mut negative_pairs = vec![0x03, 0xAB, 0, 0];
+    for w in [9i32, -1] {
+        negative_pairs.extend_from_slice(&w.to_be_bytes());
+    }
+    negative_pairs.push(0xB1);
+    for (code, pc) in [
+        (&[0xC4u8, 0x15, 0x00][..], 0u16),
+        (&huge_table[..], 1),
+        (&negative_pairs[..], 1),
+        (&[0xA7, 0x00, 0x40, 0xB1][..], 0),
+    ] {
+        let class = simple_class(b"Broken", b"java/lang/Object", Some(code));
+        assert_eq!(
+            link_class(&class),
+            Err(LinkError::BadBytecode { pc }),
+            "{code:x?}"
+        );
+        assert_eq!(
+            build_section(&[&class]),
+            Err(LinkError::BadBytecode { pc }),
+            "{code:x?}"
+        );
+    }
+}

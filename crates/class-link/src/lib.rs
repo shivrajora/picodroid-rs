@@ -46,6 +46,7 @@ compile_error!(
     "class-link reads little-endian tables in place; big-endian targets are unsupported"
 );
 
+pub mod bytecode;
 pub mod classfile;
 pub mod descriptor;
 mod error;

@@ -68,6 +68,15 @@ pub enum LinkError {
     BadSuperIndex { idx: u16 },
     /// More distinct string constants than a pool can number.
     TooManyLiterals,
+    /// A method's bytecode fails the static constraints the interpreter
+    /// relies on: an operand or a branch target outside the code, a
+    /// malformed switch table, an opcode no class file may hold
+    /// (`crate::bytecode`). `pc` is the offending instruction.
+    BadBytecode { pc: u16 },
+    /// A class's superclass chain never reaches a class outside the set:
+    /// `A extends A`, or a longer loop. The runtime walks the chain
+    /// unbounded.
+    SuperCycle { idx: u16 },
     /// The builder's one allocation was refused.
     OutOfMemory,
     /// A builder invariant failed: a bug, not an input problem.
@@ -105,6 +114,8 @@ impl LinkError {
             Self::BadLiteral => "string literal pool inconsistent",
             Self::BadSuperIndex { .. } => "superclass index does not name the superclass",
             Self::TooManyLiterals => "too many distinct string constants for one section",
+            Self::BadBytecode { .. } => "malformed bytecode (operand, branch or switch table)",
+            Self::SuperCycle { .. } => "superclass chain loops",
             Self::OutOfMemory => "out of memory",
             Self::Internal => "internal linker error",
         }
@@ -125,9 +136,10 @@ impl core::fmt::Display for LinkError {
                 write!(f, " (cp #{cp})")
             }
             Self::WordMismatch { word } | Self::BadOffset { word } => write!(f, " (word {word})"),
-            Self::NameMismatch { idx } | Self::BadSuperIndex { idx } => {
+            Self::NameMismatch { idx } | Self::BadSuperIndex { idx } | Self::SuperCycle { idx } => {
                 write!(f, " (class {idx})")
             }
+            Self::BadBytecode { pc } => write!(f, " (pc {pc})"),
             Self::DuplicateClass { a, b } | Self::HashCollision { a, b } => {
                 write!(f, " (classes {a} and {b})")
             }

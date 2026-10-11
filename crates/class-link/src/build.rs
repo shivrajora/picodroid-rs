@@ -112,22 +112,50 @@ pub fn class_index(names: &[&[u8]]) -> Result<Vec<IndexEntry>, LinkError> {
 /// public. For tests and fixtures that need several distinct, linkable
 /// classes without a compiler; `name` is the JVM internal name.
 pub fn minimal_class(name: &[u8]) -> Vec<u8> {
-    const OBJECT: &[u8] = b"java/lang/Object";
-    let mut out: Vec<u8> = Vec::with_capacity(48 + name.len());
+    simple_class(name, b"java/lang/Object", None)
+}
+
+/// A public `class <name> extends <sup>` with no fields and, when `code`
+/// is given, one `static int m()` whose `Code` is exactly those bytes
+/// (`max_stack` 4, `max_locals` 4, no exception table). For tests and
+/// fixtures; nothing checks that the bytecode makes sense.
+pub fn simple_class(name: &[u8], sup: &[u8], code: Option<&[u8]>) -> Vec<u8> {
+    let mut out: Vec<u8> = Vec::with_capacity(96 + name.len() + sup.len());
     out.extend_from_slice(&[0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34]);
-    out.extend_from_slice(&5u16.to_be_bytes()); // cp_count: entries #1..#4
+    let cp_count: u16 = if code.is_some() { 8 } else { 5 };
+    out.extend_from_slice(&cp_count.to_be_bytes()); // entries #1..#(cp_count - 1)
     out.extend_from_slice(&[0x07, 0x00, 0x02]); // #1 Class -> #2
     out.push(0x01); // #2 Utf8 name
     out.extend_from_slice(&(name.len() as u16).to_be_bytes());
     out.extend_from_slice(name);
     out.extend_from_slice(&[0x07, 0x00, 0x04]); // #3 Class -> #4
-    out.push(0x01); // #4 Utf8 java/lang/Object
-    out.extend_from_slice(&(OBJECT.len() as u16).to_be_bytes());
-    out.extend_from_slice(OBJECT);
+    out.push(0x01); // #4 Utf8 superclass
+    out.extend_from_slice(&(sup.len() as u16).to_be_bytes());
+    out.extend_from_slice(sup);
+    if code.is_some() {
+        out.extend_from_slice(&[0x01, 0x00, 0x01, b'm']); // #5 Utf8 "m"
+        out.extend_from_slice(&[0x01, 0x00, 0x03, b'(', b')', b'I']); // #6 Utf8 "()I"
+        out.extend_from_slice(&[0x01, 0x00, 0x04, b'C', b'o', b'd', b'e']); // #7 Utf8 "Code"
+    }
     out.extend_from_slice(&0x0021u16.to_be_bytes()); // ACC_PUBLIC | ACC_SUPER
     out.extend_from_slice(&1u16.to_be_bytes()); // this_class
     out.extend_from_slice(&3u16.to_be_bytes()); // super_class
-    out.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0]); // no interfaces, fields, methods, attributes
+    out.extend_from_slice(&[0, 0, 0, 0]); // no interfaces, no fields
+    match code {
+        None => out.extend_from_slice(&[0, 0]),
+        Some(code) => {
+            out.extend_from_slice(&1u16.to_be_bytes()); // methods_count
+            out.extend_from_slice(&0x0008u16.to_be_bytes()); // ACC_STATIC
+            out.extend_from_slice(&[0x00, 0x05, 0x00, 0x06, 0x00, 0x01]); // name, desc, 1 attr
+            out.extend_from_slice(&[0x00, 0x07]); // Code
+            out.extend_from_slice(&((12 + code.len()) as u32).to_be_bytes());
+            out.extend_from_slice(&[0x00, 0x04, 0x00, 0x04]); // max_stack, max_locals
+            out.extend_from_slice(&(code.len() as u32).to_be_bytes());
+            out.extend_from_slice(code);
+            out.extend_from_slice(&[0, 0, 0, 0]); // no exception table, no sub-attributes
+        }
+    }
+    out.extend_from_slice(&[0, 0]); // no class attributes
     out
 }
 
