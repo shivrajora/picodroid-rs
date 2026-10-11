@@ -133,10 +133,12 @@ static mut MATRIX_MAP: [(usize, usize); MAX_LIST_DIALOGS] = [(0, 0); MAX_LIST_DI
 
 // ── Button → dialog mapping (each LVGL button knows its parent dialog) ──────
 //
-// Two entries per dialog max (positive + negative). Stored as
-// (button_ptr, dialog_ptr, which).
+// Three entries per dialog (positive, negative, neutral). Stored as
+// (button_ptr, dialog_ptr, which). Sized to the dialog table: at 16 the
+// map filled under eight three-button dialogs and `register_button`
+// returned in silence, so the button never dispatched.
 
-const MAX_BUTTONS: usize = 16;
+const MAX_BUTTONS: usize = MAX_DIALOGS * 3;
 
 #[derive(Copy, Clone)]
 struct ButtonEntry {
@@ -942,6 +944,7 @@ fn register_button(button_handle: usize, dialog_handle: usize, which: i32) {
                 return;
             }
         }
+        warn_full("alert-dialog-button");
     }
 }
 
