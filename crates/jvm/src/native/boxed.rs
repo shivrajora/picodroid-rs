@@ -38,7 +38,17 @@ macro_rules! boxed_dispatch {
                 else {
                     return Some(Err(JvmError::InvalidReference));
                 };
-                let val = $ctx.args.get(1).copied().unwrap_or(Value::Null);
+                // `new Integer("42")`: the String constructor parses as the
+                // class's `parseX` does; it used to store the String
+                // reference itself as the value.
+                let val = if is_string_arg($ctx) {
+                    match ctor_value_from_string($class, $ctx) {
+                        Ok(v) => v,
+                        Err(e) => return Some(Err(e)),
+                    }
+                } else {
+                    $ctx.args.get(1).copied().unwrap_or(Value::Null)
+                };
                 // A builtin object gets its slots on first write; a write the
                 // heap cannot honour is an allocation failure, surfaced as
                 // OutOfMemoryError rather than a box with no value.
@@ -386,6 +396,39 @@ pub(crate) fn dispatch_short(
     boxed_dispatch!(c::java_lang_Short, Value::Int(0), ctx, method_name)
 }
 
+/// The value a wrapper's `String` constructor stores (`new Integer("42")`,
+/// `new Boolean("true")`, …; the String is `args[1]`, after `this`): parsed
+/// as the class's `parseX` parses it, with the same exceptions —
+/// `NumberFormatException` for malformed or out-of-range text (and `null`
+/// to the integral types), `NullPointerException` for `null` to `Float` /
+/// `Double`; `Boolean` never throws and is `true` only for `"true"`
+/// ignoring case. `Character` has no String constructor.
+fn ctor_value_from_string(
+    class: &'static str,
+    ctx: &mut NativeContext<'_>,
+) -> Result<Value, JvmError> {
+    Ok(match class {
+        c::java_lang_Boolean => Value::Int(
+            matches!(resolve_str(ctx, 1), Ok(s) if s.eq_ignore_ascii_case("true")) as i32,
+        ),
+        c::java_lang_Long => Value::Long(parse_long_at(ctx, 1)?),
+        c::java_lang_Float => Value::Float(parse_f64_at(ctx, 1)? as f32),
+        c::java_lang_Double => Value::Double(parse_f64_at(ctx, 1)?),
+        c::java_lang_Byte => ranged(parse_int_at(ctx, 1)?, i8::MIN as i32, i8::MAX as i32, ctx)?,
+        c::java_lang_Short => ranged(parse_int_at(ctx, 1)?, i16::MIN as i32, i16::MAX as i32, ctx)?,
+        _ => Value::Int(parse_int_at(ctx, 1)?),
+    })
+}
+
+/// `v` as an `Int`, or the NumberFormatException an out-of-range
+/// `parseByte` / `parseShort` throws.
+fn ranged(v: i32, min: i32, max: i32, ctx: &mut NativeContext<'_>) -> Result<Value, JvmError> {
+    if v < min || v > max {
+        return Err(number_format_exception(ctx));
+    }
+    Ok(Value::Int(v))
+}
+
 /// `Byte.parseByte` / `Short.parseShort`: parse as i32, then range-check —
 /// out-of-range is a NumberFormatException, exactly as in Java.
 fn parse_ranged(
@@ -394,10 +437,7 @@ fn parse_ranged(
     max: i32,
 ) -> Result<Option<Value>, JvmError> {
     let v = parse_int(ctx)?;
-    if v < min || v > max {
-        return Err(number_format_exception(ctx));
-    }
-    Ok(Some(Value::Int(v)))
+    ranged(v, min, max, ctx).map(Some)
 }
 
 // ── toString helpers ───────────────────────────────────────────────────────
@@ -549,31 +589,45 @@ fn box_value(
 /// NumberFormatException, `Float/Double.parseX(null)` NullPointerException,
 /// as in Java (QA 2026-09-13: all four were the uncatchable
 /// InvalidReference).
-fn null_string_arg(ctx: &NativeContext<'_>) -> bool {
-    matches!(ctx.args.first(), Some(Value::Null) | None)
+fn null_string_arg(ctx: &NativeContext<'_>, at: usize) -> bool {
+    matches!(ctx.args.get(at), Some(Value::Null) | None)
 }
 
 fn parse_int(ctx: &mut NativeContext<'_>) -> Result<i32, JvmError> {
-    if null_string_arg(ctx) {
+    parse_int_at(ctx, 0)
+}
+
+/// `parseInt` of the String at `args[at]`: 0 for the static form, 1 for a
+/// constructor's.
+fn parse_int_at(ctx: &mut NativeContext<'_>, at: usize) -> Result<i32, JvmError> {
+    if null_string_arg(ctx, at) {
         return Err(number_format_exception(ctx));
     }
-    let s = resolve_str(ctx, 0)?;
+    let s = resolve_str(ctx, at)?;
     s.parse::<i32>().map_err(|_| number_format_exception(ctx))
 }
 
 fn parse_long(ctx: &mut NativeContext<'_>) -> Result<i64, JvmError> {
-    if null_string_arg(ctx) {
+    parse_long_at(ctx, 0)
+}
+
+fn parse_long_at(ctx: &mut NativeContext<'_>, at: usize) -> Result<i64, JvmError> {
+    if null_string_arg(ctx, at) {
         return Err(number_format_exception(ctx));
     }
-    let s = resolve_str(ctx, 0)?;
+    let s = resolve_str(ctx, at)?;
     s.parse::<i64>().map_err(|_| number_format_exception(ctx))
 }
 
 fn parse_f64(ctx: &mut NativeContext<'_>) -> Result<f64, JvmError> {
-    if null_string_arg(ctx) {
+    parse_f64_at(ctx, 0)
+}
+
+fn parse_f64_at(ctx: &mut NativeContext<'_>, at: usize) -> Result<f64, JvmError> {
+    if null_string_arg(ctx, at) {
         return Err(super::throw_named(ctx, c::java_lang_NullPointerException));
     }
-    let s = resolve_str(ctx, 0)?.trim();
+    let s = resolve_str(ctx, at)?.trim();
     // Java's FP grammar allows a trailing type suffix ("1.5f", "2d") on a
     // numeric literal only: "Infinityd" is malformed.
     let (sign, unsigned) = match s.as_bytes().first() {

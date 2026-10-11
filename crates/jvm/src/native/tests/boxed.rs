@@ -603,3 +603,62 @@ fn parse_double_takes_only_javas_infinity_and_nan_spellings() {
         );
     }
 }
+
+/// `new Integer("42")` and friends: the String constructor parses, as the
+/// class's `parseX` does. It used to store the String reference itself as
+/// the value, so `new Integer("42").intValue()` read 0.
+#[test]
+fn string_constructors_parse_like_parse_x() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let mut construct = |class: &'static str, text: &'static [u8]| -> Result<Value, JvmError> {
+        let obj = objects.alloc(class).unwrap();
+        let s = Value::Reference(strings.intern(text).unwrap());
+        let args = [Value::ObjectRef(obj), s];
+        let mut ctx = NativeContext {
+            classes: Classes::linear(&[]),
+            descriptor: "(Ljava/lang/String;)V",
+            args: &args,
+            strings: &mut strings,
+            objects: &mut objects,
+            arrays: &mut arrays,
+            upcall: None,
+        };
+        BuiltinHandler
+            .dispatch(class, "<init>", &mut ctx)
+            .expect("<init> not handled")?;
+        Ok(ctx.objects.get_field(obj, 0).unwrap())
+    };
+    assert_eq!(construct(c::java_lang_Integer, b"42"), Ok(Value::Int(42)));
+    assert_eq!(construct(c::java_lang_Integer, b"-7"), Ok(Value::Int(-7)));
+    assert_eq!(
+        construct(c::java_lang_Long, b"4294967296"),
+        Ok(Value::Long(1 << 32))
+    );
+    assert_eq!(
+        construct(c::java_lang_Double, b"2.5"),
+        Ok(Value::Double(2.5))
+    );
+    assert_eq!(
+        construct(c::java_lang_Float, b"1.5f"),
+        Ok(Value::Float(1.5))
+    );
+    assert_eq!(construct(c::java_lang_Boolean, b"TRUE"), Ok(Value::Int(1)));
+    assert_eq!(construct(c::java_lang_Boolean, b"yes"), Ok(Value::Int(0)));
+    assert_eq!(construct(c::java_lang_Short, b"300"), Ok(Value::Int(300)));
+    assert_eq!(construct(c::java_lang_Byte, b"-128"), Ok(Value::Int(-128)));
+    for (class, text) in [
+        (c::java_lang_Integer, &b"4x2"[..]),
+        (c::java_lang_Long, b""),
+        (c::java_lang_Byte, b"200"),
+        (c::java_lang_Short, b"70000"),
+    ] {
+        match construct(class, text) {
+            Err(JvmError::Exception(_)) => {}
+            other => {
+                panic!("new {class}({text:?}) must throw NumberFormatException, got {other:?}")
+            }
+        }
+    }
+}
