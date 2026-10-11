@@ -240,7 +240,7 @@ public void onServiceDisconnected(ComponentName name) {
 }
 ```
 
-`onServiceDisconnected` fires when the service goes away (last unbind, the owning Activity destroyed, or app exit) — null the handle so nothing calls back into a dead reference.
+`onServiceDisconnected` is Android's "the service's process died" callback; it is not called for your own `unbindService`, and Picodroid runs every service in the app's own process, so it never fires here. Null the handle in it all the same, so the code ports.
 
 `refresh()` re-reads the snapshot into the reusable `samples` array and rebuilds the list. It's wired to the Refresh button and also called once on connect. Guard on `service == null` so a tap before the connection lands is a harmless no-op:
 

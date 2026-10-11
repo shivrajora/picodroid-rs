@@ -16,8 +16,11 @@ public interface ServiceConnection {
   void onServiceConnected(ComponentName name, IBinder service);
 
   /**
-   * The connection to the Service {@code name} is going away (last unbind, owning Activity
-   * destroyed, or app exit). Drop the binder reference; do not call back into it.
+   * The connection to the Service {@code name} was lost: on Android, the Service's process died.
+   * Not called for the app's own {@code unbindService}, nor for a connection an Activity left bound
+   * when it finished (the framework unbinds it silently, as Android does). Picodroid runs every
+   * Service in the app's own process, so no path delivers it today; drop the binder reference here
+   * all the same, as portable code does.
    */
   void onServiceDisconnected(ComponentName name);
 }

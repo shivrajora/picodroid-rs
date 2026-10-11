@@ -1162,7 +1162,6 @@ M	dispatchRunnable
 M	dispatchScrolled
 M	dispatchSelected
 M	dispatchServiceConnected
-M	dispatchServiceDisconnected
 M	dispatchStart
 M	dispatchStateChange
 M	dispatchStop

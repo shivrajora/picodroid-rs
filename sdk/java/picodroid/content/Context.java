@@ -309,11 +309,6 @@ public class Context {
     conn.onServiceConnected(componentOf(service), binder);
   }
 
-  /** Called by the framework when a connection goes away. */
-  static void dispatchServiceDisconnected(ServiceConnection conn, Context service) {
-    conn.onServiceDisconnected(componentOf(service));
-  }
-
   private static ComponentName componentOf(Context service) {
     return service == null ? null : new ComponentName(service, service.getClass());
   }

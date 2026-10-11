@@ -198,9 +198,9 @@ pub(crate) fn clear_foreground(class_name: &str, remove: bool) {
 }
 
 /// Last-bind cleanup when an Activity is popped. Walks [`CONNECTIONS`],
-/// fires `onServiceDisconnected` on each conn owned by `activity_ref`,
-/// decrements bind counts, and runs `onDestroy` for any service that falls
-/// to (started=false, bind_count=0).
+/// unbinds each conn owned by `activity_ref` (silently, as Android unbinds
+/// a leaked connection), decrements bind counts, and runs `onDestroy` for
+/// any service that falls to (started=false, bind_count=0).
 pub(crate) fn unbind_owned_by(
     activity_ref: u16,
     jvm: &mut Jvm,
@@ -498,10 +498,11 @@ fn process_unbind(
     };
     let class_name = connections()[conn_slot].as_ref().unwrap().service_class;
     connections()[conn_slot] = None;
-
-    if invoke_connection_disconnected(jvm, conn_ref, class_name, heap, handler).is_break() {
-        return crate::lifecycle::LifecycleControl::Break;
-    }
+    // No `onServiceDisconnected`: Android delivers it only when a service's
+    // process dies, never for the app's own `unbindService` or for a
+    // connection its Activity leaked. Delivering it here turned the usual
+    // "rebind in onServiceDisconnected" pattern into a bind by a dying
+    // Activity, so the service never reached `onDestroy`.
 
     let svc_slot = match registry_find(class_name) {
         Some(i) => i,
@@ -751,23 +752,6 @@ fn invoke_connection_connected(
         Value::ObjectRef(binder_ref),
     ];
     invoke_connection_bridge(jvm, dispatch_sites::SERVICE_CONNECTED, &args, heap, handler)
-}
-
-fn invoke_connection_disconnected(
-    jvm: &mut Jvm,
-    conn_ref: u16,
-    service_class: &str,
-    heap: &mut SharedJvmHeap,
-    handler: &mut PicodroidNativeHandler,
-) -> crate::lifecycle::LifecycleControl {
-    let args = [Value::ObjectRef(conn_ref), service_value(service_class)];
-    invoke_connection_bridge(
-        jvm,
-        dispatch_sites::SERVICE_DISCONNECTED,
-        &args,
-        heap,
-        handler,
-    )
 }
 
 fn intent_ref_value(intent_ref: u16) -> Value {

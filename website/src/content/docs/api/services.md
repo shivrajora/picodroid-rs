@@ -293,9 +293,11 @@ when the Intent names no class of this app, and the connection then hears nothin
 `ComponentName` the callbacks receive names the Service's package and class.
 `onServiceConnected` arrives one frame after the bind ran `onBind`, as on Android, where it is a
 message on the main looper: the connect-time refresh most apps do there gets a frame of its own
-instead of sharing one with the Service's `onCreate`. An `unbindService` queued behind the bind
-still sees `onServiceConnected` before `onServiceDisconnected`. The callbacks are ordinary
-interface calls, so a connection may inherit them from a base class.
+instead of sharing one with the Service's `onCreate`. `onServiceDisconnected` is Android's
+"the service's process died" callback: it is not called for the app's own `unbindService`, nor for
+a connection an Activity left bound when it finished (the framework unbinds it silently, as Android
+does), and since every Service runs in the app's own process no path delivers it today. The
+callbacks are ordinary interface calls, so a connection may inherit them from a base class.
 
 `new Intent(Context, Class)` is Android's constructor; `new Intent(Class)` is the same Intent
 without the context argument.

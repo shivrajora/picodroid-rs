@@ -196,7 +196,9 @@ public class ActA extends Activity {
     T.check("C connected, no second onBind", ActC.binderSeen != null && Svc.binds == 1);
     T.check("same binder for both clients", ActC.binderSeen == binderA);
     T.check("C ping continued the count", ActC.pingFromC == 2);
-    T.check("C destroyed without unbind: disconnected", ActC.disconnects == 1);
+    // Android unbinds a connection its Activity leaked without calling
+    // onServiceDisconnected (that callback is for a service that died).
+    T.check("C destroyed without unbind: unbound silently", ActC.disconnects == 0);
     T.check(
         "service outlives C (A still bound)",
         Svc.live != null && Svc.destroys == 0 && Svc.unbinds == 0);
@@ -220,7 +222,7 @@ public class ActA extends Activity {
         T.check(
             "last unbind -> onUnbind, service kept (started)",
             Svc.unbinds == 1 && Svc.destroys == 0);
-        Log.i(T.TAG, "explicit unbind called onServiceDisconnected: " + disconnectsA);
+        T.check("explicit unbind does not call onServiceDisconnected", disconnectsA == 0);
         unbindService(conn);
         break;
       case 2:
