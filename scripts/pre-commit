@@ -791,7 +791,10 @@ if [[ ${#PARALLEL_LANES[@]} -gt 0 ]]; then
     for lane in "${PARALLEL_LANES[@]}"; do
       # set +e so a failing stage still records its status instead of the
       # subshell dying under errexit before it can.
-      ( set +e; run_lane "$lane"; echo $? > "$RUN_DIR/$lane.status" ) &
+      # The status lands in one rename: a truncate-then-write could be read
+      # empty by the poller below and counted as a failure.
+      ( set +e; run_lane "$lane"; rc=$?; echo "$rc" > "$RUN_DIR/$lane.status.tmp"
+        mv -f "$RUN_DIR/$lane.status.tmp" "$RUN_DIR/$lane.status" ) &
       LANE_PID[$lane]=$!
       echo "  started lane: $lane"
     done

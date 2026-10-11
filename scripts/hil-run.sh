@@ -1184,7 +1184,9 @@ pin_pdb_port() {
   local want=$(( ${APP_REGION_KB:-0} - 4 ))
   local port="${PICODROID_PDB_PORT:-}"
   if [[ -z "$port" ]]; then
-    port=$(timeout 15 "$PDB_BIN" devices 2>/dev/null < /dev/null \
+    # `|| true`: under `set -eo pipefail` a scan that outlives the timeout
+    # (exit 124) killed the whole run instead of leaving auto-detect in place.
+    port=$( { timeout 15 "$PDB_BIN" devices 2>/dev/null < /dev/null || true; } \
       | awk -v want="max PAPK: $want KB" 'index($0, want) { print $1; exit }')
   fi
   if [[ -z "$port" ]]; then
