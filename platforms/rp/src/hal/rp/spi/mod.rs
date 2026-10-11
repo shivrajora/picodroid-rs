@@ -323,6 +323,16 @@ macro_rules! finish_isr_xfer {
                 sr.bsy().bit_is_set(),
                 sr.rne().bit_is_set(),
             ) {
+                // A transfer that ended in the gap between the take timing
+                // out and the registers being read has given its credit by
+                // now (the completion interrupt runs before this task does):
+                // that is an ordinary completion, not the fallback. A 12.8 KB
+                // band at 75 MHz takes 1.4 ms against a 2-tick take that can
+                // expire after one, so graphicsbench hit this gap once a run
+                // on pico_display2_w and logged a fallback that never was.
+                if done.take(Duration::zero()).is_ok() {
+                    break true;
+                }
                 // Once per boot: on a board where this is the steady state it
                 // is one line per touch poll, and the count is what matters.
                 let first = !SHORT_READ_REPORTED.load(Ordering::Relaxed);
