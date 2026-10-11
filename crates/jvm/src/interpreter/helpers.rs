@@ -805,6 +805,7 @@ pub const BUILTIN_SUPER: &[(&str, &str)] = &[
     (c::java_lang_OutOfMemoryError, c::java_lang_Error),
     (c::java_lang_ExceptionInInitializerError, c::java_lang_Error),
     (c::java_lang_StackOverflowError, c::java_lang_Error),
+    (c::java_lang_NoClassDefFoundError, c::java_lang_Error),
     // Boxed numerics descend from Number, as Kotlin's `checkcast
     // java/lang/Number` before every `intValue()` unboxing of a generic
     // element requires. No `X → java/lang/Object` rows: `is_instance_of`

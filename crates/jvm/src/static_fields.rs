@@ -35,6 +35,10 @@ pub struct StaticFieldStore {
     base: Vec<u16>,
     /// Bitset over class indices: `<clinit>` has run (or been scheduled).
     initialized: Vec<u32>,
+    /// Bitset over class indices: initialisation failed (JVMS §5.5 "erroneous"
+    /// state) — `<clinit>` threw, or a superclass's did. Every later use is
+    /// a `NoClassDefFoundError`.
+    erroneous: Vec<u32>,
 }
 
 impl StaticFieldStore {
@@ -43,6 +47,7 @@ impl StaticFieldStore {
             values: Vec::new(),
             base: Vec::new(),
             initialized: Vec::new(),
+            erroneous: Vec::new(),
         }
     }
 }
@@ -87,6 +92,31 @@ impl StaticFieldStore {
         self.reserve_classes(ci + 1)?;
         self.initialized[ci / 32] |= 1 << (ci % 32);
         Some(())
+    }
+
+    /// Whether class `ci`'s initialisation failed (JVMS §5.5 step 11: the
+    /// class is "erroneous" and every later attempt to use it throws
+    /// `NoClassDefFoundError`).
+    #[inline]
+    pub fn is_erroneous(&self, ci: usize) -> bool {
+        self.erroneous
+            .get(ci / 32)
+            .is_some_and(|w| w & (1 << (ci % 32)) != 0)
+    }
+
+    /// Record that class `ci`'s `<clinit>` (or a superclass's) threw. Best
+    /// effort: a heap that refuses the bitset leaves the class merely
+    /// initialised with its defaults, as before the state existed.
+    pub fn mark_erroneous(&mut self, ci: usize) {
+        let words = ci / 32 + 1;
+        if words > self.erroneous.len() {
+            let extra = words - self.erroneous.len();
+            if self.erroneous.try_reserve_exact(extra).is_err() {
+                return;
+            }
+            self.erroneous.resize(words, 0);
+        }
+        self.erroneous[ci / 32] |= 1 << (ci % 32);
     }
 
     /// Give class `ci` `count` static slots, each `Null`, and return the

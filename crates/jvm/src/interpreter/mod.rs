@@ -236,12 +236,25 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
     /// [`Self::ensure_class_initialized`] for a class the set holds, by
     /// index — the key the static store and the initialised bitset use.
     pub(crate) fn ensure_class_initialized_at(&mut self, ci: usize) -> Result<bool, JvmError> {
+        // JVMS §5.5 step 5: a class whose initialisation failed — its
+        // `<clinit>` threw, or a superclass's did — stays erroneous, and
+        // every later attempt to use it is a `NoClassDefFoundError`, not a
+        // class quietly standing at its defaults.
+        if self.statics.is_erroneous(ci) {
+            return Err(self.runtime_fault(c::java_lang_NoClassDefFoundError));
+        }
         if self.statics.is_initialized(ci) {
             return Ok(false);
         }
 
         // Superclass chain, root-first: [Object, ..., Parent, ci]
         let chain = helpers::superclass_chain_indices(self.classes, ci);
+        if chain.iter().any(|&c| self.statics.is_erroneous(c)) {
+            // Step 8: a superclass in the erroneous state makes this class
+            // erroneous too.
+            self.statics.mark_erroneous(ci);
+            return Err(self.runtime_fault(c::java_lang_NoClassDefFoundError));
+        }
 
         let mut clinit_frames: Vec<Frame> = Vec::new();
         for &c in &chain {
@@ -365,12 +378,19 @@ fn handle_exception<H: NativeMethodHandler>(
         // bounds this loop: each wrap removes at least one frame and the
         // wrapper itself is an Error.
         let unwind_floor = handler_frame_idx.map_or(floor, |i| i + 1);
-        let crossed_clinit = (unwind_floor..frames.len()).find(|&i| {
-            let f = &frames[i];
+        let is_clinit = |f: &Frame| {
             let cf = &ex.classes[f.class_idx];
             let method = &cf.methods()[f.method_idx];
             cf.method_name(method) == Some(b"<clinit>")
-        });
+        };
+        // Every `<clinit>` the unwind crosses failed: its class is erroneous
+        // from here on (JVMS §5.5 step 11), whatever the exception's kind.
+        for f in &frames[unwind_floor..] {
+            if is_clinit(f) {
+                ex.statics.mark_erroneous(f.class_idx);
+            }
+        }
+        let crossed_clinit = (unwind_floor..frames.len()).find(|&i| is_clinit(&frames[i]));
         if let Some(clinit_idx) = crossed_clinit {
             let exc_class = ex.objects.class_name(obj_idx).unwrap_or("");
             let is_error = helpers::is_instance_of(ex.classes, exc_class, c::java_lang_Error);
@@ -967,6 +987,11 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
             // instruction will re-execute once all clinits complete.
             if !ex.pending_clinit_frames.is_empty() && r.is_ok() {
                 if frames.len() + ex.pending_clinit_frames.len() > MAX_FRAME_DEPTH {
+                    // The initialisers never run: their classes are
+                    // erroneous, not initialised to their defaults.
+                    for f in &ex.pending_clinit_frames {
+                        ex.statics.mark_erroneous(f.class_idx);
+                    }
                     ex.pending_clinit_frames.clear();
                     let e = ex.stack_overflow_error()?;
                     handle_exception(ex, frames, e, base_depth)?;

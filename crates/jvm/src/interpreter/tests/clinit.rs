@@ -769,3 +769,170 @@ mod declaring_class {
         assert!(!statics.is_initialized(0), "nothing resolved, nothing ran");
     }
 }
+
+// ── JVMS §5.5 erroneous state ──────────────────────────────────────────────
+//
+// A class whose `<clinit>` throws used to stay "initialised" with its
+// defaults, so the next access read a half-built class in silence; the JVM
+// marks it erroneous and throws `NoClassDefFoundError` for every later use,
+// and a subclass of an erroneous class is erroneous too.
+mod erroneous_state {
+    use super::super::asm::{Asm, Method};
+    use super::*;
+
+    fn hi(i: u16) -> u8 {
+        (i >> 8) as u8
+    }
+    fn lo(i: u16) -> u8 {
+        i as u8
+    }
+
+    /// `Bad`: `static int X` and a `<clinit>` that throws `RuntimeException`.
+    fn bad() -> &'static [u8] {
+        let mut a = Asm::new();
+        let this = a.class("Bad");
+        let obj = a.class(c::java_lang_Object);
+        a.static_field("X", "I");
+        let rte = a.class(c::java_lang_RuntimeException);
+        let rte_init = a.methodref(0x0A, rte, "<init>", "()V");
+        // new RuntimeException; dup; invokespecial <init>; athrow
+        let code = [
+            0xBB,
+            hi(rte),
+            lo(rte),
+            0x59,
+            0xB7,
+            hi(rte_init),
+            lo(rte_init),
+            0xBF,
+        ];
+        a.finish_methods(
+            0x0001,
+            this,
+            obj,
+            &[],
+            &[Method {
+                access: 0x0008,
+                name: "<clinit>",
+                desc: "()V",
+                max_stack: 2,
+                max_locals: 0,
+                code: &code,
+                exc: &[],
+            }],
+        )
+    }
+
+    /// `class Sub extends Bad` with `static int F` set by its own `<clinit>`.
+    fn sub() -> &'static [u8] {
+        let mut a = Asm::new();
+        let this = a.class("Sub");
+        let sup = a.class("Bad");
+        a.static_field("F", "I");
+        let f = a.fieldref(this, "F", "I");
+        let code = [0x04, 0xB3, hi(f), lo(f), 0xB1]; // iconst_1; putstatic F; return
+        a.finish_methods(
+            0x0001,
+            this,
+            sup,
+            &[],
+            &[Method {
+                access: 0x0008,
+                name: "<clinit>",
+                desc: "()V",
+                max_stack: 1,
+                max_locals: 0,
+                code: &code,
+                exc: &[],
+            }],
+        )
+    }
+
+    /// `static int m()`: `try { Bad.X } catch (Error e) {}` then
+    /// `try { <class>.<field>; return 1 } catch (NoClassDefFoundError e) { return 2 }`.
+    fn caller(second_class: &str, second_field: &str) -> &'static [u8] {
+        let mut a = Asm::new();
+        let this = a.class("Caller");
+        let obj = a.class(c::java_lang_Object);
+        let bad = a.class("Bad");
+        let x = a.fieldref(bad, "X", "I");
+        let second = a.class(second_class);
+        let y = a.fieldref(second, second_field, "I");
+        let error = a.class(c::java_lang_Error);
+        let ncdfe = a.class(c::java_lang_NoClassDefFoundError);
+        let code = [
+            0xB2,
+            hi(x),
+            lo(x), // 0: getstatic Bad.X
+            0x57,  // 3: pop
+            0xA7,
+            0,
+            3,    // 4: goto 7
+            0x57, // 7: pop (the Error)
+            0xB2,
+            hi(y),
+            lo(y), // 8: getstatic second
+            0x57,  // 11: pop
+            0x04,  // 12: iconst_1
+            0xAC,  // 13: ireturn
+            0x57,  // 14: pop (the NoClassDefFoundError)
+            0x05,  // 15: iconst_2
+            0xAC,  // 16: ireturn
+        ];
+        a.finish(
+            0x0001,
+            this,
+            obj,
+            &[],
+            Some((1, &code, &[[0, 7, 7, error], [8, 14, 14, ncdfe]])),
+        )
+    }
+
+    fn run_last(
+        classes_data: &[&'static [u8]],
+    ) -> (Result<Option<Value>, JvmError>, StaticFieldStore) {
+        let classes: Vec<ClassFile> = classes_data
+            .iter()
+            .map(|d| ClassFile::parse(spelled(d)).expect("parse failed"))
+            .collect();
+        let mut strings = StringTable::new();
+        let mut objects = ObjectHeap::new();
+        let mut arrays = crate::array_heap::ArrayHeap::new();
+        let mut statics = StaticFieldStore::new();
+        let mut gc_state = GcState::new();
+        let mut handler = NoopHandler;
+        let r = execute(
+            &classes,
+            &mut strings,
+            &mut objects,
+            &mut arrays,
+            &mut statics,
+            &mut gc_state,
+            &mut crate::class_objects::ClassObjectCache::new(),
+            &mut handler,
+            classes.len() - 1,
+            0,
+            &[],
+        );
+        (r, statics)
+    }
+
+    #[test]
+    fn a_class_whose_clinit_threw_throws_no_class_def_found_error_afterwards() {
+        let (r, statics) = run_last(&[bad(), caller("Bad", "X")]);
+        assert_eq!(r.unwrap(), Some(Value::Int(2)));
+        assert!(statics.is_erroneous(0), "Bad is erroneous");
+    }
+
+    #[test]
+    fn a_subclass_of_an_erroneous_class_is_erroneous_too() {
+        let (r, statics) = run_last(&[bad(), sub(), caller("Sub", "F")]);
+        assert_eq!(r.unwrap(), Some(Value::Int(2)));
+        assert!(statics.is_erroneous(0), "Bad is erroneous");
+        assert!(statics.is_erroneous(1), "Sub inherits the state");
+        assert!(
+            !statics.is_initialized(1),
+            "Sub's own <clinit> never ran: it was not even scheduled"
+        );
+    }
+}

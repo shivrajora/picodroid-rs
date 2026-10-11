@@ -141,6 +141,7 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
     c::java_lang_NumberFormatException,
     c::java_lang_ExceptionInInitializerError,
     c::java_lang_StackOverflowError,
+    c::java_lang_NoClassDefFoundError,
     c::java_lang_NegativeArraySizeException,
     c::java_util_ConcurrentModificationException,
     c::java_lang_OutOfMemoryError,

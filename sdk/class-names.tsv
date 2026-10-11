@@ -59,6 +59,7 @@ java/lang/Iterable
 java/lang/Long
 java/lang/Math
 java/lang/NegativeArraySizeException
+java/lang/NoClassDefFoundError
 java/lang/NoSuchFieldError
 java/lang/NullPointerException
 java/lang/Number
