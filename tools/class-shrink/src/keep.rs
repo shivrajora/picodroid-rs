@@ -59,69 +59,31 @@ impl KeepList {
     }
 }
 
-/// Supports `**` (any path including slashes) and `*` (no slashes).
-/// `java/**` matches `java/lang/Object` and `java/util/List`.
+/// Supports `**` (any path including slashes; `**/` also matches no
+/// directory at all) and `*` (no slashes), in any combination:
+/// `java/**` matches `java/lang/Object` and `java/util/List`,
+/// `kotlin/**/Intrinsics*` matches `kotlin/jvm/internal/Intrinsics$Ref` and
+/// `kotlin/Intrinsics`. One backtracking matcher: the old split-on-`**`
+/// scheme treated a `*` inside a pattern that also had `**` as a literal
+/// star, so the first mixed pattern silently kept nothing.
 fn glob_match(pattern: &str, name: &str) -> bool {
-    // Convert to a regex-free matcher: split on `**`, then each segment is
-    // a shell-style glob matched against successive prefixes of `name`.
-    fn match_simple(pat: &str, s: &str) -> bool {
-        // No `**` inside. `*` matches any sequence of non-`/` chars.
-        let (mut pi, mut si) = (0usize, 0usize);
-        let pb = pat.as_bytes();
-        let sb = s.as_bytes();
-        let mut star: Option<(usize, usize)> = None; // (pat after *, s pos)
-        while si < sb.len() {
-            if pi < pb.len() && pb[pi] == b'*' {
-                star = Some((pi + 1, si));
-                pi += 1;
-            } else if pi < pb.len() && (pb[pi] == sb[si]) {
-                pi += 1;
-                si += 1;
-            } else if let Some((np, ns)) = star {
-                if sb[ns] == b'/' {
-                    return false;
-                }
-                pi = np;
-                si = ns + 1;
-                star = Some((np, si));
-            } else {
-                return false;
+    fn rec(p: &[u8], s: &[u8]) -> bool {
+        match p {
+            [] => s.is_empty(),
+            // `**/`: no directory, or any run of directories.
+            [b'*', b'*', b'/', rest @ ..] => {
+                rec(rest, s) || (1..=s.len()).any(|i| s[i - 1] == b'/' && rec(rest, &s[i..]))
             }
+            // `**`: anything, slashes included.
+            [b'*', b'*', rest @ ..] => (0..=s.len()).any(|i| rec(rest, &s[i..])),
+            // `*`: anything but a slash.
+            [b'*', rest @ ..] => (0..=s.len())
+                .take_while(|&i| i == 0 || s[i - 1] != b'/')
+                .any(|i| rec(rest, &s[i..])),
+            [c, rest @ ..] => s.first() == Some(c) && rec(rest, &s[1..]),
         }
-        while pi < pb.len() && pb[pi] == b'*' {
-            pi += 1;
-        }
-        pi == pb.len()
     }
-
-    if pattern.contains("**") {
-        // Split on "**"; "**" matches any chars including `/`.
-        let parts: Vec<&str> = pattern.split("**").collect();
-        let mut s = name;
-        for (i, part) in parts.iter().enumerate() {
-            if i == 0 {
-                if !s.starts_with(part) {
-                    return false;
-                }
-                s = &s[part.len()..];
-            } else if i == parts.len() - 1 {
-                // Final part: must match end of s, but allow any
-                // intervening characters by searching.
-                if part.is_empty() {
-                    return true;
-                }
-                return s.ends_with(part);
-            } else {
-                let Some(idx) = s.find(part) else {
-                    return false;
-                };
-                s = &s[idx + part.len()..];
-            }
-        }
-        true
-    } else {
-        match_simple(pattern, name)
-    }
+    rec(pattern.as_bytes(), name.as_bytes())
 }
 
 /// Parse hand-authored TOML-ish keep list. Zero-dep parser tailored to the
@@ -193,6 +155,31 @@ mod tests {
         assert!(k.is_kept("kotlin/jvm/internal/Intrinsics$Ref"));
         assert!(!k.is_kept("picodroid/pio/Gpio"));
         assert!(!k.is_kept("java/lang/Object"));
+    }
+
+    #[test]
+    fn star_and_double_star_combine() {
+        let mut k = KeepList::default();
+        k.globs.push("kotlin/**/Intrinsics*".into());
+        assert!(k.is_kept("kotlin/jvm/internal/Intrinsics"));
+        assert!(k.is_kept("kotlin/jvm/internal/Intrinsics$Ref"));
+        assert!(
+            k.is_kept("kotlin/Intrinsics"),
+            "`**/` matches no directory too"
+        );
+        assert!(
+            !k.is_kept("kotlin/jvm/internal/IntrinsicsKt/Inner"),
+            "`*` stops at a slash"
+        );
+        assert!(!k.is_kept("kotlinx/Intrinsics"));
+        let mut k = KeepList::default();
+        k.globs.push("*/Main".into());
+        assert!(k.is_kept("app/Main"));
+        assert!(!k.is_kept("app/sub/Main"));
+        let mut k = KeepList::default();
+        k.globs.push("**Kt".into());
+        assert!(k.is_kept("a/b/UtilsKt"));
+        assert!(!k.is_kept("a/b/Utils"));
     }
 
     #[test]
