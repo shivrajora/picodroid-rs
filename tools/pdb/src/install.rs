@@ -15,10 +15,21 @@ use pdb_protocol::greeting::{AppsInfo, Greeting, GreetingError, LEGACY_VERSION, 
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Timeout for the STATUS_READY response: the device places the run, may
-/// compact the app region first (up to ~30 s for a full 1.5 MB region), and
-/// erases the run's sectors.
-const ERASE_TIMEOUT: Duration = Duration::from_secs(120);
+/// Floor of the STATUS_READY timeout: the device places the run, may
+/// compact the app region first, and erases the run's sectors.
+const ERASE_TIMEOUT_FLOOR: Duration = Duration::from_secs(120);
+
+/// Timeout for the STATUS_READY response on a device whose app region can
+/// hold `max_papk` bytes. Compaction moves every live sector of the region
+/// once (erase + program, ~45 ms each), so the wait scales with the
+/// region: the fixed 120 s sized for a 1.5 MB region ran out on the touch
+/// kit's 9984 KB one while the device was still compacting, and the host
+/// gave up on an install the device then finished and waited on.
+fn erase_timeout(max_papk: usize) -> Duration {
+    let sectors = max_papk.div_ceil(4096) as u32;
+    let scaled = Duration::from_secs(30) + Duration::from_millis(100) * sectors;
+    scaled.max(ERASE_TIMEOUT_FLOOR)
+}
 
 /// Timeout for the STATUS_OK response after streaming the full PAPK.
 /// USB CDC is much faster than 115200 baud UART; 10 s is plenty of margin.
@@ -305,7 +316,7 @@ pub fn run(port_name: &str, papk_path: &Path, opts: InstallOptions) {
     // `INSTALL_PEEK_BYTES` of the PAPK. We must send those bytes inline
     // right after the header, otherwise the device's read blocks
     // indefinitely (it's parked, not draining USB).
-    port.set_timeout(ERASE_TIMEOUT).ok();
+    port.set_timeout(erase_timeout(device.max_papk)).ok();
 
     if let Err(e) = send_install_header(&mut *port, papk.len() as u32) {
         eprintln!("error: INSTALL header send failed: {e}");
@@ -462,6 +473,19 @@ mod tests {
     use pdb_protocol::greeting::{
         encode, encode_with_apps, GREETING_MAX, LEGACY_GREETING_LEN, VERSION_FIELD_LEN,
     };
+
+    /// The READY wait follows the region: the historical 120 s for a 1.5 MB
+    /// region, several minutes for the touch kit's 9984 KB one.
+    #[test]
+    fn the_ready_timeout_scales_with_the_app_region() {
+        assert_eq!(erase_timeout(1536 * 1024), Duration::from_secs(120));
+        assert_eq!(erase_timeout(64 * 1024), Duration::from_secs(120));
+        let touch_kit = erase_timeout(9984 * 1024);
+        assert!(
+            touch_kit >= Duration::from_secs(270),
+            "2496 sectors need minutes, got {touch_kit:?}"
+        );
+    }
 
     fn greeting(max_papk: u32, fmv: &str) -> Vec<u8> {
         let mut buf = [0u8; GREETING_MAX];
