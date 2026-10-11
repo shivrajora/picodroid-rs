@@ -65,19 +65,11 @@ pub(crate) fn dispatch(
                 Some(Value::Int(n)) => {
                     let desc = ctx.descriptor;
                     if desc.starts_with("(C)") {
-                        // append(char): emit the character as a single byte.
-                        // Multi-byte Unicode chars are not supported on this platform.
-                        // Whitespace controls (`\t \n \r`) pass through verbatim —
-                        // Java's append('\n') must yield a newline (StringBuilder
-                        // line-joining, AlertDialog item lists); only other
-                        // sub-0x20 controls become a space to avoid garbage glyphs.
-                        let b = *n as u8;
-                        let ch = if b >= 0x20 || b == b'\n' || b == b'\t' || b == b'\r' {
-                            b
-                        } else {
-                            b' '
-                        };
-                        ctx.objects.sb_append_bytes(buf, &[ch])
+                        // append(char): the bytes the String model holds for
+                        // it (`string::char_bytes`: UTF-8 from U+0080 up).
+                        let mut cb = [0u8; 3];
+                        ctx.objects
+                            .sb_append_bytes(buf, super::string::char_bytes(*n, &mut cb))
                     } else if desc.starts_with("(Z)") {
                         // append(boolean)
                         ctx.objects

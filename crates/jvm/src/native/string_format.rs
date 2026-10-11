@@ -588,7 +588,7 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                     )));
                 }
                 let ch = match unbox(ctx, v) {
-                    Value::Int(n) => n as u8,
+                    Value::Int(n) => n,
                     _ => {
                         return Some(Err(fmt_err(
                             ctx,
@@ -597,10 +597,11 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                     }
                 };
                 scratch.clear();
-                if let Err(e) = room(&mut scratch, 1) {
+                if let Err(e) = room(&mut scratch, 3) {
                     return Some(Err(e));
                 }
-                scratch.push(ch);
+                let mut cb = [0u8; 3];
+                scratch.extend_from_slice(super::string::char_bytes(ch, &mut cb));
                 if let Err(e) = pad_string(&scratch, &spec, &mut out) {
                     return Some(Err(e));
                 }

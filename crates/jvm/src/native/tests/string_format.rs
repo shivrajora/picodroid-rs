@@ -364,3 +364,10 @@ fn format_width_past_int_range_throws_instead_of_wrapping() {
     let n = ctx.box_primitive(c::java_lang_Integer, Value::Int(1));
     assert_eq!(ctx.fmt(b"%3d", &[n]), "  1");
 }
+
+#[test]
+fn format_char_above_0x7f_is_utf8() {
+    let mut ctx = StrCtx::new();
+    let c = ctx.box_primitive(c::java_lang_Character, Value::Int(0xB0));
+    assert_eq!(ctx.fmt(b"23%cC", &[c]), "23°C");
+}

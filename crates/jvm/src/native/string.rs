@@ -7,6 +7,40 @@ use crate::{
 use super::NativeContext;
 use crate::names::{c, d, m};
 
+/// A Java `char` as the bytes a String holds for it. ASCII is itself,
+/// except that C0 controls other than `\n`, `\t` and `\r` become a space
+/// (the log and display sinks cannot render them; a newline must stay a
+/// newline for `StringBuilder` line-joining). Everything from U+0080 up is
+/// its UTF-8 encoding: the string table checks UTF-8 on every resolve, so
+/// the lone low byte these sites used to write made the whole string read
+/// back as empty (`"23" + '°' + "C"` had length 0). A lone surrogate has no
+/// UTF-8 form and becomes `?`, as `String(byte[])` already does for a byte
+/// it cannot place.
+pub(crate) fn char_bytes(c: i32, out: &mut [u8; 3]) -> &[u8] {
+    let cp = (c as u32) & 0xFFFF;
+    let len = if cp < 0x80 {
+        out[0] = match cp as u8 {
+            b'\n' | b'\t' | b'\r' => cp as u8,
+            0..=0x1f => b' ',
+            b => b,
+        };
+        1
+    } else if cp < 0x800 {
+        out[0] = 0xC0 | ((cp >> 6) as u8);
+        out[1] = 0x80 | ((cp & 0x3F) as u8);
+        2
+    } else if (0xD800..=0xDFFF).contains(&cp) {
+        out[0] = b'?';
+        1
+    } else {
+        out[0] = 0xE0 | ((cp >> 12) as u8);
+        out[1] = 0x80 | (((cp >> 6) & 0x3F) as u8);
+        out[2] = 0x80 | ((cp & 0x3F) as u8);
+        3
+    };
+    &out[..len]
+}
+
 pub(crate) fn dispatch(
     method_name: &str,
     ctx: &mut NativeContext<'_>,
@@ -183,13 +217,15 @@ pub(crate) fn dispatch(
                     Some(Ok(Some(Value::Int(result))))
                 }
                 (Some(Value::Reference(a)), Some(Value::Int(ch))) => {
-                    // indexOf(char[, int]) — char passed as int
+                    // indexOf(char[, int]) — char passed as int; a char
+                    // from U+0080 up is its UTF-8 byte sequence in the string.
                     let sa = ctx.strings.resolve(*a).unwrap_or("");
-                    let target = *ch as u8;
+                    let mut buf = [0u8; 3];
+                    let target = char_bytes(*ch, &mut buf);
                     let result = sa
                         .as_bytes()
                         .get(from..)
-                        .and_then(|tail| tail.iter().position(|&b| b == target))
+                        .and_then(|tail| tail.windows(target.len()).position(|w| w == target))
                         .map(|i| (i + from) as i32)
                         .unwrap_or(-1);
                     Some(Ok(Some(Value::Int(result))))
@@ -211,14 +247,16 @@ pub(crate) fn dispatch(
             match (ctx.args.first(), ctx.args.get(1)) {
                 (Some(Value::Reference(a)), Some(Value::Int(ch))) => {
                     let sa = ctx.strings.resolve(*a).unwrap_or("");
-                    let target = *ch as u8;
+                    let mut buf = [0u8; 3];
+                    let target = char_bytes(*ch, &mut buf);
                     let bytes = sa.as_bytes();
+                    // A match may start at `from`; the window ends after it.
                     let end = from
-                        .map(|f| f.saturating_add(1).min(bytes.len()))
+                        .map(|f| f.saturating_add(target.len()).min(bytes.len()))
                         .unwrap_or(bytes.len());
                     let result = bytes[..end]
-                        .iter()
-                        .rposition(|&b| b == target)
+                        .windows(target.len())
+                        .rposition(|w| w == target)
                         .map(|i| i as i32)
                         .unwrap_or(-1);
                     Some(Ok(Some(Value::Int(result))))
@@ -363,16 +401,8 @@ pub(crate) fn dispatch(
                             b"false".to_vec()
                         })
                     } else if ctx.descriptor.starts_with("(C)") {
-                        // Mirror StringBuilder.append(char): '\n', '\t', '\r'
-                        // are real characters; other C0 controls become a
-                        // space (the log/display sinks can't render them).
-                        let c = *n as u8;
-                        let c = match c {
-                            b'\n' | b'\t' | b'\r' => c,
-                            0..=0x1f => b' ',
-                            _ => c,
-                        };
-                        Some(alloc::vec![c])
+                        let mut buf = [0u8; 3];
+                        Some(char_bytes(*n, &mut buf).to_vec())
                     } else {
                         let mut tmp = [0u8; 12];
                         let bytes = crate::object_heap::int_to_decimal_buf(*n, &mut tmp);
@@ -489,10 +519,22 @@ pub(crate) fn dispatch(
                 };
                 let replaced: alloc::vec::Vec<u8> = {
                     let s = ctx.strings.resolve(*idx).unwrap_or("");
-                    s.as_bytes()
-                        .iter()
-                        .map(|&b| if b as i32 == *old { *new as u8 } else { b })
-                        .collect()
+                    let (mut ob, mut nb) = ([0u8; 3], [0u8; 3]);
+                    let old_bytes = char_bytes(*old, &mut ob);
+                    let new_bytes = char_bytes(*new, &mut nb);
+                    let bytes = s.as_bytes();
+                    let mut out = alloc::vec::Vec::with_capacity(bytes.len());
+                    let mut i = 0;
+                    while i < bytes.len() {
+                        if bytes[i..].starts_with(old_bytes) {
+                            out.extend_from_slice(new_bytes);
+                            i += old_bytes.len();
+                        } else {
+                            out.push(bytes[i]);
+                            i += 1;
+                        }
+                    }
+                    out
                 };
                 let r = ctx
                     .strings

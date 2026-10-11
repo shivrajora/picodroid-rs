@@ -502,24 +502,11 @@ fn double_to_string(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmErr
 
 fn character_to_string(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
     let n = read_int_arg(ctx, Value::Int(0));
-    // Encode the BMP code point as UTF-8. char values outside the basic plane
-    // aren't reachable through `char` in javac, but we cap defensively.
-    let cp = (n as u32) & 0xFFFF;
-    let mut buf = [0u8; 4];
-    let len = if cp < 0x80 {
-        buf[0] = cp as u8;
-        1
-    } else if cp < 0x800 {
-        buf[0] = 0xC0 | ((cp >> 6) as u8);
-        buf[1] = 0x80 | ((cp & 0x3F) as u8);
-        2
-    } else {
-        buf[0] = 0xE0 | ((cp >> 12) as u8);
-        buf[1] = 0x80 | (((cp >> 6) & 0x3F) as u8);
-        buf[2] = 0x80 | ((cp & 0x3F) as u8);
-        3
-    };
-    intern_string(ctx, &buf[..len])
+    // The bytes the String model holds for the char (`string::char_bytes`:
+    // UTF-8 from U+0080 up), shared with every other char sink.
+    let mut buf = [0u8; 3];
+    let bytes = super::string::char_bytes(n, &mut buf);
+    intern_string(ctx, bytes)
 }
 
 fn read_int_arg(ctx: &NativeContext<'_>, default: Value) -> i32 {

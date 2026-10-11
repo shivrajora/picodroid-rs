@@ -292,7 +292,7 @@ Why: the wake drains the queued edges and the touch ring and tells LVGL to sit o
 
 ## StringBuilder is byte-oriented and small
 
-Symptom: a non-ASCII `char` appended to a `StringBuilder` comes out as one wrong byte, or a call such as `sb.insert(0, x)` is rejected by the build's API contract check.
+Symptom: `sb.length()` counts bytes, not characters, after a non-ASCII `char` is appended, or a call such as `sb.insert(0, x)` is rejected by the build's API contract check.
 
 Every `StringBuilder` owns its own buffer, so any number of builders can be open and interleaved. The surface is `append` (String, int, long, float, double, boolean, char, Object, `CharSequence`), `length`, `charAt` and `toString`.
 
@@ -304,7 +304,7 @@ sb.insert(0, prefix);
 String s = prefix + sb.toString();
 ```
 
-Why: the buffer holds bytes, not UTF-16 chars — `append(char)` emits a single byte (no multi-byte Unicode), and `charAt` returns the byte at that position. A buffer the heap cannot grow throws `OutOfMemoryError` from `append`.
+Why: the buffer holds bytes, not UTF-16 chars — `append(char)` emits the char's UTF-8 bytes (one for ASCII, two or three from `U+0080` up, so `"23" + '°' + "C"` prints `23°C` and has length 5), and `charAt` returns the byte at that position. A buffer the heap cannot grow throws `OutOfMemoryError` from `append`.
 
 ## A bound-only Service dies when its Activity leaves
 

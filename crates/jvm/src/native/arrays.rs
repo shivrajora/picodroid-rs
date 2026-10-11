@@ -349,10 +349,11 @@ fn dispatch_to_string(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmE
                 b"false"
             }),
             ATYPE_CHAR => {
-                // The string table is byte-oriented (Latin-1/ASCII); wider
-                // code points render as '?' like the other char sinks.
-                let c = ctx.arrays.load(arr, i).unwrap_or(0) as u16;
-                out.push(u8::try_from(c).unwrap_or(b'?'));
+                // The bytes the String model holds for the char (UTF-8 from
+                // U+0080 up), as every other char sink writes them.
+                let c = ctx.arrays.load(arr, i).unwrap_or(0);
+                let mut cb = [0u8; 3];
+                out.extend_from_slice(super::string::char_bytes(c, &mut cb));
             }
             ATYPE_LONG => write_i64(&mut out, ctx.arrays.load64(arr, i).unwrap_or(0)),
             ATYPE_FLOAT => write_f32(

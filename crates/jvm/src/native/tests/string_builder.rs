@@ -142,3 +142,31 @@ fn sb_length_and_char_at() {
         Ok(Some(Value::Int(b'b' as i32)))
     );
 }
+
+/// `"23" + '°' + "C"`: a char from U+0080 up is appended as its UTF-8 bytes;
+/// the lone low byte it used to be made the whole string read as empty.
+#[test]
+fn sb_append_char_above_0x7f_is_utf8() {
+    let mut ctx = SbCtx::new();
+    ctx.call("<init>", "()V", None).unwrap();
+    let s = ctx.strings.intern(b"23").unwrap();
+    ctx.call(
+        m::append,
+        d::String__StringBuilder,
+        Some(Value::Reference(s)),
+    )
+    .unwrap();
+    ctx.call(
+        m::append,
+        "(C)Ljava/lang/StringBuilder;",
+        Some(Value::Int(0xB0)),
+    )
+    .unwrap();
+    ctx.call(
+        m::append,
+        "(C)Ljava/lang/StringBuilder;",
+        Some(Value::Int(b'C' as i32)),
+    )
+    .unwrap();
+    assert_eq!(ctx.to_string(), "23°C");
+}

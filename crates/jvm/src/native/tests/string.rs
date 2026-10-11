@@ -794,3 +794,76 @@ fn string_substring_out_of_range_throws_string_index_exception() {
         .unwrap();
     assert_eq!(ctx.resolve(r), "bc");
 }
+
+// ── chars from U+0080 up are UTF-8, not a lone byte ──────────────────────
+//
+// `"23" + '°' + "C"` had length 0: the char sinks wrote the low byte of the
+// char alone, the string table's UTF-8 check then failed on resolve, and
+// every caller's `unwrap_or("")` read the string as empty.
+
+#[test]
+fn string_value_of_char_above_0x7f_is_its_utf8_encoding() {
+    let mut ctx = StrCtx::new();
+    let r = ctx
+        .dispatch(m::valueOf, "(C)Ljava/lang/String;", &[Value::Int(0xB0)])
+        .unwrap()
+        .unwrap();
+    assert_eq!(ctx.resolve(r), "°");
+    let r = ctx
+        .dispatch(m::valueOf, "(C)Ljava/lang/String;", &[Value::Int(0x20AC)])
+        .unwrap()
+        .unwrap();
+    assert_eq!(ctx.resolve(r), "€");
+    // A lone surrogate has no UTF-8 form.
+    let r = ctx
+        .dispatch(m::valueOf, "(C)Ljava/lang/String;", &[Value::Int(0xD800)])
+        .unwrap()
+        .unwrap();
+    assert_eq!(ctx.resolve(r), "?");
+}
+
+#[test]
+fn string_index_of_a_char_above_0x7f_finds_its_bytes() {
+    let mut ctx = StrCtx::new();
+    let s = ctx.intern("a°b°".as_bytes());
+    assert_eq!(
+        ctx.dispatch(m::indexOf, "(I)I", &[s, Value::Int(0xB0)]),
+        Ok(Some(Value::Int(1)))
+    );
+    assert_eq!(
+        ctx.dispatch(m::lastIndexOf, "(I)I", &[s, Value::Int(0xB0)]),
+        Ok(Some(Value::Int(4)))
+    );
+    assert_eq!(
+        ctx.dispatch(
+            m::lastIndexOf,
+            "(II)I",
+            &[s, Value::Int(0xB0), Value::Int(1)]
+        ),
+        Ok(Some(Value::Int(1)))
+    );
+}
+
+#[test]
+fn string_replace_char_with_a_char_above_0x7f() {
+    let mut ctx = StrCtx::new();
+    let s = ctx.intern(b"23 C");
+    let r = ctx
+        .dispatch(
+            m::replace,
+            "(CC)Ljava/lang/String;",
+            &[s, Value::Int(b' ' as i32), Value::Int(0xB0)],
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(ctx.resolve(r), "23°C");
+    let r = ctx
+        .dispatch(
+            m::replace,
+            "(CC)Ljava/lang/String;",
+            &[r, Value::Int(0xB0), Value::Int(b'_' as i32)],
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(ctx.resolve(r), "23_C");
+}
