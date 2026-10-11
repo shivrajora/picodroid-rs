@@ -306,24 +306,39 @@ fn parse_bool(s: &str) -> Option<bool> {
     }
 }
 
-/// Android's `<string>` text rules: surrounding whitespace is trimmed and
-/// inner runs collapse to one space unless the text is double-quoted;
-/// backslash escapes `\n \t \' \" \\ \@ \?` and `\uXXXX`.
+/// Android's `<string>` text rules, as aapt2 applies them: outside double
+/// quotes the ends are trimmed and inner whitespace runs collapse to one
+/// space; every unescaped `"` toggles a region kept verbatim and is itself
+/// dropped (so `He said "hi"  there` is `He said hi there`, and a fully
+/// quoted value keeps its spaces); backslash escapes `\n \t \' \" \\ \@
+/// \?` and `\uXXXX` are decoded anywhere. A `"` kept mid-string used to
+/// survive, which is not what the same XML gives on Android.
 fn unescape_string(raw: &str) -> Result<String, String> {
-    let trimmed = raw.trim();
-    let quoted = trimmed.len() >= 2 && trimmed.starts_with('"') && trimmed.ends_with('"');
-    let body = if quoted {
-        trimmed[1..trimmed.len() - 1].to_string()
-    } else {
-        trimmed.split_whitespace().collect::<Vec<_>>().join(" ")
-    };
-    let mut out = String::with_capacity(body.len());
-    let mut chars = body.chars();
+    let mut out = String::with_capacity(raw.len());
+    let mut quoted = false;
+    let mut pending_space = false;
+    let mut chars = raw.chars();
     while let Some(c) = chars.next() {
+        if c == '"' {
+            quoted = !quoted;
+            continue;
+        }
         if c != '\\' {
+            if !quoted && c.is_whitespace() {
+                pending_space = true;
+                continue;
+            }
+            if pending_space && !out.is_empty() {
+                out.push(' ');
+            }
+            pending_space = false;
             out.push(c);
             continue;
         }
+        if pending_space && !out.is_empty() {
+            out.push(' ');
+        }
+        pending_space = false;
         match chars.next() {
             Some('n') => out.push('\n'),
             Some('t') => out.push('\t'),
@@ -1715,7 +1730,8 @@ mod tests {
             |n: &str| std::str::from_utf8(t.string(id_of(&c, TYPE_STRING, n)).unwrap()).unwrap();
         assert_eq!(s("app_name"), "Res Demo");
         assert_eq!(s("alias"), "Res Demo");
-        assert_eq!(s("greeting"), "Hello,\n \"World\"");
+        // aapt2 drops the unescaped quotes around World (they only toggle whitespace keeping).
+        assert_eq!(s("greeting"), "Hello,\n World");
         assert_eq!(s("kept"), "  two  spaces ");
 
         let v = |ty: u8, n: &str| t.value_of(ty, id_of(&c, ty, n)).unwrap();
@@ -2519,6 +2535,18 @@ mod tests {
             unescape_string("\"  kept   as is  \"").unwrap(),
             "  kept   as is  "
         );
+    }
+
+    /// aapt2: an unescaped `"` anywhere toggles whitespace preservation
+    /// and is dropped; `\"` is the way to keep one.
+    #[test]
+    fn mid_string_quotes_toggle_and_vanish() {
+        assert_eq!(
+            unescape_string("He said \"hi   there\"  friend").unwrap(),
+            "He said hi   there friend"
+        );
+        assert_eq!(unescape_string(r#"say \"hi\""#).unwrap(), "say \"hi\"");
+        assert_eq!(unescape_string("  a  \"\"  b ").unwrap(), "a b");
     }
 
     #[test]
