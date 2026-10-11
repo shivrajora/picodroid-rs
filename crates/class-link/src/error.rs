@@ -33,6 +33,9 @@ pub enum LinkError {
     BadBootstrapMethods,
     /// A class, member or descriptor name that is not valid UTF-8. The
     /// runtime reads these without re-checking, so the builder refuses them.
+    /// `papk-pack` re-encodes a class file's modified UTF-8 (a supplementary
+    /// character, the two-byte NUL) before it gets here, so this is a
+    /// malformed name, not merely a non-ASCII one.
     BadUtf8 { cp: u16 },
     /// The table's header is not a link table of this version, or its
     /// length words disagree with the bytes it was read from.

@@ -25,9 +25,10 @@ use std::io;
 /// bytes so the serializer can write them back unchanged.
 #[derive(Clone, Debug)]
 pub enum CpEntry {
-    /// `CONSTANT_Utf8_info` (tag 1). Variable-length UTF-8 (modified, but we
-    /// treat it as raw bytes — we only rewrite when replacing class-name
-    /// substrings, which are ASCII).
+    /// `CONSTANT_Utf8_info` (tag 1). Raw bytes: modified UTF-8 as `javac`
+    /// wrote them until [`ClassFile::normalize_utf8`] runs, standard UTF-8
+    /// after. The rename passes only replace ASCII class-name substrings and
+    /// are indifferent to which.
     Utf8(Vec<u8>),
     /// Any other tag. `tag` is the first byte; `payload` holds the bytes
     /// that follow (fixed size per tag per JVMS §4.4).
@@ -141,6 +142,28 @@ impl ClassFile {
         }
         out.extend_from_slice(&self.tail);
         out
+    }
+
+    /// Re-encode every Utf8 entry from the class file's modified UTF-8
+    /// (JVMS §4.4.7: a supplementary character as two 3-byte surrogate
+    /// sequences, U+0000 as the two bytes `C0 80`) to standard UTF-8.
+    /// Returns whether any entry changed.
+    ///
+    /// The runtime reads class, member and descriptor names as `&str`
+    /// straight from flash and the literal pool flags a constant as text only
+    /// when its bytes are UTF-8, so the packer hands it standard UTF-8 and
+    /// `class-link` refuses anything else. Pure ASCII — nearly every class —
+    /// is untouched, and a lone surrogate or any other malformed sequence is
+    /// left as it is for `class-link` to report.
+    pub fn normalize_utf8(&mut self) -> bool {
+        let mut changed = false;
+        for bytes in self.utf8_entries_mut() {
+            if let Some(standard) = modified_utf8_to_utf8(bytes) {
+                *bytes = standard;
+                changed = true;
+            }
+        }
+        changed
     }
 
     /// Iterate over mutable references to every Utf8 entry's byte vec.
@@ -507,6 +530,63 @@ fn invalid(msg: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, msg.to_string())
 }
 
+/// The three bytes at `p` as a UTF-16 surrogate, if that is what they encode
+/// (`ED A0..BF xx`: the 3-byte form of U+D800..=U+DFFF, which standard UTF-8
+/// forbids and modified UTF-8 uses for the halves of a supplementary
+/// character).
+fn surrogate_at(bytes: &[u8], p: usize) -> Option<u16> {
+    let b = bytes.get(p..p + 3)?;
+    if b[0] != 0xED || b[1] & 0xE0 != 0xA0 || b[2] & 0xC0 != 0x80 {
+        return None;
+    }
+    Some(0xD000 | ((b[1] as u16 & 0x3F) << 6) | (b[2] as u16 & 0x3F))
+}
+
+/// `bytes` re-encoded from modified UTF-8 to standard UTF-8, or `None` when
+/// the two spellings coincide (every ASCII and BMP-only string) or when the
+/// bytes are not well-formed modified UTF-8 either — a lone surrogate, a
+/// truncated sequence — in which case they are left for the link step to
+/// refuse. The output of a `Some` is always valid UTF-8.
+pub fn modified_utf8_to_utf8(bytes: &[u8]) -> Option<Vec<u8>> {
+    if std::str::from_utf8(bytes).is_ok() {
+        return None;
+    }
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut p = 0;
+    while p < bytes.len() {
+        if bytes[p] == 0xC0 && bytes.get(p + 1) == Some(&0x80) {
+            out.push(0);
+            p += 2;
+            continue;
+        }
+        if let Some(hi) = surrogate_at(bytes, p) {
+            let lo = surrogate_at(bytes, p + 3)?;
+            if !(0xD800..0xDC00).contains(&hi) || !(0xDC00..0xE000).contains(&lo) {
+                return None;
+            }
+            let cp = 0x10000 + (((hi as u32) - 0xD800) << 10) + ((lo as u32) - 0xDC00);
+            let ch = char::from_u32(cp)?;
+            let mut buf = [0u8; 4];
+            out.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
+            p += 6;
+            continue;
+        }
+        // One well-formed standard sequence, copied through.
+        let rest = &bytes[p..];
+        let n = match std::str::from_utf8(rest) {
+            Ok(_) => rest.len(),
+            Err(e) => e.valid_up_to(),
+        };
+        if n == 0 {
+            return None;
+        }
+        out.extend_from_slice(&rest[..n]);
+        p += n;
+    }
+    debug_assert!(std::str::from_utf8(&out).is_ok());
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -635,5 +715,68 @@ mod tests {
         assert!(names.contains(&b"j/l/Object".as_ref()));
         assert!(!names.contains(&b"java/lang/Object".as_ref()));
         let _ = &mut bytes; // suppress unused_mut
+    }
+
+    // ── Modified UTF-8 → UTF-8 ───────────────────────────────────────────
+
+    #[test]
+    fn ascii_and_bmp_names_are_left_alone() {
+        assert_eq!(modified_utf8_to_utf8(b"java/lang/Object"), None);
+        assert_eq!(modified_utf8_to_utf8("Grüße/日本".as_bytes()), None);
+        assert_eq!(modified_utf8_to_utf8(b""), None);
+    }
+
+    #[test]
+    fn a_surrogate_pair_becomes_one_four_byte_sequence() {
+        // U+1F600 as javac writes it: D83D DE00, each as a 3-byte sequence.
+        let cesu = [0xED, 0xA0, 0xBD, 0xED, 0xB8, 0x80];
+        assert_eq!(
+            modified_utf8_to_utf8(&cesu).as_deref(),
+            Some("😀".as_bytes())
+        );
+        let mut name = b"demo/Smile".to_vec();
+        name.extend_from_slice(&cesu);
+        name.extend_from_slice(b"Face");
+        assert_eq!(
+            modified_utf8_to_utf8(&name).as_deref(),
+            Some("demo/Smile😀Face".as_bytes())
+        );
+    }
+
+    #[test]
+    fn the_two_byte_nul_becomes_a_nul() {
+        assert_eq!(
+            modified_utf8_to_utf8(b"a\xC0\x80b").as_deref(),
+            Some(&b"a\x00b"[..])
+        );
+    }
+
+    #[test]
+    fn malformed_input_is_left_for_the_linker() {
+        // A lone high surrogate, a low one first, a truncated pair, a byte
+        // that is neither.
+        assert_eq!(modified_utf8_to_utf8(&[0xED, 0xA0, 0xBD]), None);
+        assert_eq!(
+            modified_utf8_to_utf8(&[0xED, 0xB8, 0x80, 0xED, 0xA0, 0xBD]),
+            None
+        );
+        assert_eq!(modified_utf8_to_utf8(&[0xED, 0xA0, 0xBD, 0xED, 0xB8]), None);
+        assert_eq!(modified_utf8_to_utf8(&[b'a', 0xFF]), None);
+    }
+
+    #[test]
+    fn normalize_rewrites_only_what_needs_it() {
+        let mut cf = ClassFile::parse(&sample_class_a()).unwrap();
+        assert!(!cf.normalize_utf8(), "an ASCII class has nothing to change");
+        assert_eq!(cf.serialize(), sample_class_a());
+
+        let cesu = [0xED, 0xA0, 0xBD, 0xED, 0xB8, 0x80];
+        let slot = cf.append_utf8(cesu.to_vec()).unwrap();
+        assert!(cf.normalize_utf8());
+        match &cf.entries[slot] {
+            CpEntry::Utf8(b) => assert_eq!(b, "😀".as_bytes()),
+            other => panic!("{other:?}"),
+        }
+        assert!(!cf.normalize_utf8(), "a second pass is a no-op");
     }
 }

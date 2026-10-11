@@ -88,6 +88,9 @@ pub fn shrink_directory(in_dir: &Path, out_dir: &Path, map: &ShrinkMap) -> io::R
     for file in &files {
         let bytes = fs::read(file)?;
         let mut cf = ClassFile::parse(&bytes)?;
+        // Names in standard UTF-8 before anything is matched against the
+        // map, whose keys are; the packer does the same for an unshrunk tree.
+        cf.normalize_utf8();
         let refs = cf.utf8_refs();
         // Default-package class names whose `CONSTANT_Class` entries move to
         // a fresh Utf8: (old slot, new name).

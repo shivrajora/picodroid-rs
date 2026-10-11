@@ -811,11 +811,33 @@ fn collect_classes_inner(
                 .expect("class file must be under root");
             // Convert OS path separators to forward slashes, strip .class suffix
             let jvm_name = rel.with_extension("").to_string_lossy().replace('\\', "/");
-            let bytes = fs::read(&path)?;
+            let bytes = standard_utf8(fs::read(&path)?);
             out.push((jvm_name, bytes));
         }
     }
     Ok(())
+}
+
+/// The class bytes with every constant-pool `Utf8` entry in standard UTF-8
+/// rather than the modified UTF-8 `javac` writes (a supplementary character
+/// in a class, member or literal spelt as a surrogate pair; U+0000 as two
+/// bytes). The runtime reads names as `&str` from flash, so `class-link`
+/// refuses modified UTF-8; re-encoding here, the last stage every class
+/// passes through whichever shrink mode is on, is what lets an identifier
+/// with an emoji in it be packed. Bytes that need no change — every ASCII
+/// class — come back untouched, byte for byte, and a class file this cannot
+/// parse is passed on for the linker to report.
+fn standard_utf8(bytes: Vec<u8>) -> Vec<u8> {
+    match class_shrink::classfile::ClassFile::parse(&bytes) {
+        Ok(mut cf) => {
+            if cf.normalize_utf8() {
+                cf.serialize()
+            } else {
+                bytes
+            }
+        }
+        Err(_) => bytes,
+    }
 }
 
 // ── Asset discovery and decode ───────────────────────────────────────────────
@@ -1404,6 +1426,45 @@ mod pack_integration {
             class_extending(b"demo/Main", b"picodroid/app/Activity"),
         )];
         validate_components(&args, &plain_ok).unwrap();
+        fs::remove_dir_all(&work).ok();
+    }
+
+    /// A class whose name holds a supplementary character packs: the packer
+    /// re-encodes `javac`'s modified UTF-8, and the link table, which hashes
+    /// and later serves the name as `&str`, sees standard UTF-8 (C10c).
+    #[test]
+    fn a_class_name_with_a_supplementary_character_packs() {
+        let work = std::env::temp_dir().join(format!("papk-pack-mutf8-{}", std::process::id()));
+        fs::create_dir_all(&work).unwrap();
+        let mut args = fixture_args(&work);
+        let name = "demo/Smile😀";
+        args.main_class = Some(name.into());
+
+        // As javac spells it: U+1F600 is the surrogate pair D83D DE00, each
+        // half a 3-byte sequence.
+        let mut cesu = b"demo/Smile".to_vec();
+        cesu.extend_from_slice(&[0xED, 0xA0, 0xBD, 0xED, 0xB8, 0x80]);
+        let as_written = class_extending(&cesu, b"java/lang/Object");
+
+        let unconverted = vec![(name.to_string(), as_written.clone())];
+        let err = build_papk(&args, &unconverted, &[], &[]).unwrap_err();
+        assert!(
+            format!("{err:?}").contains("BadUtf8"),
+            "the linker still refuses modified UTF-8 itself: {err:?}"
+        );
+
+        let classes = vec![(name.to_string(), standard_utf8(as_written))];
+        let papk = build_papk(&args, &classes, &[], &[]).expect("re-encoded, it packs");
+        let aligned = papk_format::AlignedBuf::new(&papk);
+        let parsed = papk_format::Papk::parse(&aligned).unwrap();
+        assert_eq!(parsed.main_class(), Some(name));
+        let entry = parsed.classes().unwrap().next().unwrap();
+        assert_eq!(entry.name, name.as_bytes());
+        assert_eq!(
+            standard_utf8(class_extending(b"demo/Plain", b"java/lang/Object")),
+            class_extending(b"demo/Plain", b"java/lang/Object"),
+            "an ASCII class is passed through byte for byte"
+        );
         fs::remove_dir_all(&work).ok();
     }
 

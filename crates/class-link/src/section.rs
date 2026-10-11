@@ -44,8 +44,10 @@ pub const MAX_CLASSES: usize = 4096;
 /// pools and the runtime's own strings in a `u16` of string references.
 pub const MAX_LITERALS: usize = 0x3000;
 pub const LITERAL_LEN: usize = 12;
-/// [`Literal::flags`]: the bytes are valid UTF-8 (a constant with an
-/// embedded NUL or a supplementary character is modified UTF-8 and is not).
+/// [`Literal::flags`]: the bytes are valid UTF-8. The packer re-encodes a
+/// class file's modified UTF-8 before linking (`papk-pack`), so every
+/// literal it writes is; the flag stays for a section built by anything
+/// else.
 pub const LIT_UTF8: u16 = 1 << 0;
 
 /// One row of the literal pool: `{ u32 hash, u32 off, u16 len, u16 flags }`.
