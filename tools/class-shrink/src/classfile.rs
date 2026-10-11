@@ -179,10 +179,17 @@ impl ClassFile {
     /// (`CONSTANT_NameAndType` / `CONSTANT_MethodType`) and a string literal
     /// (`CONSTANT_String`) apart even though all three are plain Utf8 bytes.
     /// javac dedupes identical Utf8s, so one slot can carry several roles.
-    /// Own-member descriptors and attribute payloads (`Signature`, …) are
-    /// referenced only from the opaque tail and appear in no set.
+    /// Own-member descriptors are referenced from the opaque tail, not the
+    /// pool, and are counted as descriptors here too: javac dedupes Utf8s,
+    /// so a `static final String SIG = "(L…;)V"` sharing a slot with a
+    /// method of that descriptor used to leave the member unshrunk while
+    /// its callers were rewritten — `NoSuchMethod` at run time. Attribute
+    /// payloads (`Signature`, …) appear in no set.
     pub fn utf8_refs(&self) -> Utf8Refs {
         let mut refs = Utf8Refs::default();
+        if let Ok(own) = self.member_descriptor_indices() {
+            refs.descriptors.extend(own);
+        }
         for e in &self.entries {
             let CpEntry::Other { tag, payload } = e else {
                 continue;
@@ -199,6 +206,45 @@ impl ClassFile {
             }
         }
         refs
+    }
+}
+
+impl ClassFile {
+    /// The Utf8 slot of every declared field's and method's descriptor, read
+    /// from the member tables in the tail.
+    fn member_descriptor_indices(&self) -> io::Result<Vec<usize>> {
+        let t = &self.tail;
+        let mut p = 0usize;
+        let u2 = |p: &mut usize| -> io::Result<usize> {
+            let v = t
+                .get(*p..*p + 2)
+                .ok_or_else(|| invalid("truncated class body"))?;
+            *p += 2;
+            Ok(u16::from_be_bytes([v[0], v[1]]) as usize)
+        };
+        p += 6; // access_flags, this_class, super_class
+        let ifaces = u2(&mut p)?;
+        p += 2 * ifaces;
+        let mut out = Vec::new();
+        for _ in 0..2 {
+            let count = u2(&mut p)?;
+            for _ in 0..count {
+                p += 4; // access_flags, name_index
+                out.push(u2(&mut p)?);
+                let attrs = u2(&mut p)?;
+                for _ in 0..attrs {
+                    p += 2;
+                    let len = t
+                        .get(p..p + 4)
+                        .ok_or_else(|| invalid("truncated attribute"))?;
+                    p += 4 + u32::from_be_bytes([len[0], len[1], len[2], len[3]]) as usize;
+                    if p > t.len() {
+                        return Err(invalid("attribute overruns class body"));
+                    }
+                }
+            }
+        }
+        Ok(out)
     }
 }
 
@@ -496,6 +542,17 @@ mod tests {
             0x01, 0x00, 0x01, 0x00, 0x08, 0x00, 0x00, 0x00, 0x02, 0x00, 0x09,
         ];
         BYTES.to_vec()
+    }
+
+    /// The `()V` of `A.<init>` is referenced only from the method table (its
+    /// `NameAndType` is the Methodref's, which happens to share the slot
+    /// here); the member table's own descriptor index must count.
+    #[test]
+    fn own_member_descriptors_are_descriptors() {
+        let cf = ClassFile::parse(&sample_class_a()).unwrap();
+        let refs = cf.utf8_refs();
+        assert!(refs.descriptors.contains(&5), "{:?}", refs.descriptors);
+        assert_eq!(cf.member_descriptor_indices().unwrap(), vec![5]);
     }
 
     #[test]
