@@ -44,6 +44,21 @@ object ArraysDemo {
         copy.sort()
         check("copyOf / sort in place", copy[0] == 1 && ints[0] == 4)
         check("copyOfRange", ints.copyOfRange(1, 3).joinToString() == "2, 9")
+        // The stdlib's exceptions: an inverted range is an IllegalArgumentException, a toIndex past
+        // the size an IndexOutOfBoundsException.
+        var invertedRange = false
+        try {
+            ints.copyOfRange(3, 1)
+        } catch (e: IllegalArgumentException) {
+            invertedRange = true
+        }
+        var pastEnd = false
+        try {
+            ints.copyOfRange(0, ints.size + 1)
+        } catch (e: IndexOutOfBoundsException) {
+            pastEnd = true
+        }
+        check("copyOfRange exceptions", invertedRange && pastEnd)
         check(
             "reversed / reversedArray",
             ints.reversed().first() == 1 && ints.reversedArray()[0] == 1,

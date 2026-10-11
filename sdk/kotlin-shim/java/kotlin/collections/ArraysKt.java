@@ -245,9 +245,16 @@ public final class ArraysKt {
   }
 
   public static int[] copyOfRange(int[] array, int from, int to) {
-    if (from < 0 || to > array.length || from > to) {
+    // The stdlib's exceptions: its own toIndex check, then java.util.Arrays.copyOfRange's.
+    if (to > array.length) {
       throw new IndexOutOfBoundsException(
-          "copyOfRange " + from + ".." + to + " of " + array.length);
+          "toIndex (" + to + ") is greater than size (" + array.length + ").");
+    }
+    if (from > to) {
+      throw new IllegalArgumentException(from + " > " + to);
+    }
+    if (from < 0) {
+      throw new ArrayIndexOutOfBoundsException("fromIndex " + from);
     }
     int[] out = new int[to - from];
     for (int i = from; i < to; i++) {
