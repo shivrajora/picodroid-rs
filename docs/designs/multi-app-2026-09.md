@@ -115,6 +115,12 @@ followed the same day for the same reason (its release image without
 debug image outgrew that too (7.2 KB over after v0.37), and it went to `FLASH`
 2560K, `FS_FLASH` 4096K at `0x10280000`, `PAPK_FLASH` 9728K at `0x10680000`.
 
+Since 2026-10-11 the same three boards give it 256 KB more again — `FLASH`
+2560K, `FS_FLASH` 512K at `0x10280000`, `PAPK_FLASH` 1024K (256 sectors) at
+`0x10300000`: the debug image had reached 2,350 KB of 2,304 KB and the
+October bug-scan rounds (+13 KB over 51 fixes) put CI's `pico_display2_w`
+link 4 KB over. Eight claudeusage-sized apps (109 KB) still fit.
+
 RP2040 is byte-identical to today (BOOT2, `FLASH` 896K−0x100, `FS_FLASH`
 128K at `0x100E0000`, `PAPK_FLASH` 1024K at `0x10100000`). The formula is
 `APP = [end − app_region, end)`, `FS` just below, `FLASH` from the origin

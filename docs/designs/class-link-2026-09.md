@@ -175,6 +175,15 @@ caught before the commit because CI links only the testbench boards and
 `cargo clippy` for the others does not link — a `build.sh` row for one W
 board in debug is the missing gate.
 
+2026-10-11: that gate fired. The debug image had crept to 2,350,444 B of
+2,359,296 (8.8 KB of headroom at 84419d14) and the October bug-scan rounds
+added ~13 KB over 51 fixes, so the `pico_display2_w` link overflowed by
+4 KB. Same lever again: `app_region_kb` 1280 → 1024 on the three W boards
+(program region 2560 KB, ~258 KB of headroom; eight claudeusage-sized apps
+still fit). The debug image grew ~190 KB in the twelve days between the two
+overflows, so the next one is a matter of weeks unless the W debug profile
+gives something up (line numbers, as thumbv6m already does, are ~27 KB).
+
 ## Follow-ups (each gated by a measurement, none done here)
 
 - **Native-path name decode** (3.3 % of a graphics workload's CPU): a native
