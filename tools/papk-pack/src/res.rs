@@ -359,6 +359,14 @@ fn unescape_string(raw: &str) -> Result<String, String> {
     Ok(out)
 }
 
+/// Whether `e` or an element under it has an attribute naming `@ty/name`.
+fn element_references(e: &Element, ty: &str, name: &str) -> bool {
+    e.attrs
+        .iter()
+        .any(|(_, _, v)| parse_ref(v.trim()).is_some_and(|(t, n)| t == ty && n == name))
+        || e.children.iter().any(|c| element_references(c, ty, name))
+}
+
 /// `@type/name` or `@+type/name` → `(type, R name)`.
 fn parse_ref(s: &str) -> Option<(&str, String)> {
     let body = s.strip_prefix("@+").or_else(|| s.strip_prefix('@'))?;
@@ -1539,14 +1547,27 @@ pub fn compile_with(
         for ty in [TYPE_STRING, TYPE_COLOR, TYPE_DIMEN, TYPE_INTEGER, TYPE_BOOL] {
             for name in vv.names(ty) {
                 let (text, from) = &vv.raw[&ty][name];
+                let ty_name = fmt::type_name(ty).unwrap_or("?");
                 let id = *id_of.get(&(ty, name.as_str())).ok_or_else(|| {
                     format!(
-                        "{from}: @{}/{name} exists only in {}; a variant overrides a value that \
-                         res/values/ defines",
-                        fmt::type_name(ty).unwrap_or("?"),
+                        "{from}: @{ty_name}/{name} exists only in {}; a variant overrides a value \
+                         that res/values/ defines",
                         dir.display()
                     )
                 })?;
+                // Layouts are compiled against the base values at build time,
+                // so this override never reaches one that names the value;
+                // say so here rather than let the app find out on the panel.
+                for (lname, file, root) in &layouts {
+                    if element_references(root, ty_name, name) {
+                        warnings.push(format!(
+                            "{file}: @{ty_name}/{name} is redefined in {}, but layout {lname} \
+                             resolved it against res/values/ at build time and the variant value \
+                             does not reach it; read it through getResources() instead",
+                            dir.display()
+                        ));
+                    }
+                }
                 let value = if ty == TYPE_STRING {
                     let text = unescape_string(merged.resolve_text(TYPE_STRING, name, from)?)
                         .map_err(|e| format!("{from}: {e}"))?;
@@ -1821,6 +1842,39 @@ mod tests {
         // An attribute with no setter is reported, tools:context is not.
         assert_eq!(c.warnings.len(), 1, "{:?}", c.warnings);
         assert!(c.warnings[0].contains("elevation"));
+    }
+
+    /// A base layout resolves `@string/t` at build time, so a `values-land`
+    /// redefinition never reaches it: the compiler says so.
+    #[test]
+    fn a_variant_redefining_a_value_a_base_layout_names_is_warned_about() {
+        let dir = tree(&[
+            (
+                "values/a.xml",
+                r#"<resources><string name="t">x</string><string name="u">y</string></resources>"#,
+            ),
+            (
+                "values-land/a.xml",
+                r#"<resources><string name="t">X</string><string name="u">Y</string></resources>"#,
+            ),
+            (
+                "layout/m.xml",
+                r#"<TextView xmlns:android="http://schemas.android.com/apk/res/android" android:text="@string/t"/>"#,
+            ),
+        ]);
+        let c = compile(&dir).unwrap();
+        let about_t: Vec<&String> = c
+            .warnings
+            .iter()
+            .filter(|w| w.contains("@string/t is redefined"))
+            .collect();
+        assert_eq!(about_t.len(), 1, "{:?}", c.warnings);
+        assert!(about_t[0].contains("values-land") && about_t[0].contains("layout m"));
+        assert!(
+            !c.warnings.iter().any(|w| w.contains("@string/u")),
+            "a value no layout names draws no warning: {:?}",
+            c.warnings
+        );
     }
 
     #[test]
