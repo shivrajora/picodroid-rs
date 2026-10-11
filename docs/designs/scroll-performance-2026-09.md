@@ -382,9 +382,14 @@ whose first step is a bench measurement rather than a code change.
   2026-09-12: both, by screen** (§5 S5). 1.7 ms of setup per band on the
   clock face against 4 ms of transfer hidden, a win; 7 ms per band on the
   Set-time entry paint, a wash.
-- Should the SPI request in `board.toml` be honoured rather than rounded up to
+- ~~Should the SPI request in `board.toml` be honoured rather than rounded up to
   75 MHz? The panel is running above its rated write clock and nobody chose
-  that.
+  that.~~ **Decided 2026-10-11: keep 75 MHz, say so.** Every RP2350
+  `board.toml` now asks for `75000000`, and `hal/rp/display.rs` refuses at
+  compile time a `spi_freq` the controller cannot program exactly, so the
+  number is the rate. The panels have run at 75 MHz through every nightly
+  since bring-up; the legal rates below it at this PCLK are 37.5 and 25 MHz,
+  for the day one shows artifacts.
 - Does hardware vertical scrolling generalise beyond this one screen, or is it
   a `ScrollView` special case? Worth knowing before S4 is designed, because the
   answer changes where the seam belongs.
@@ -430,7 +435,7 @@ Open, in the order §8 would now take them:
    init sequence still sends no TEON.
 4. **S8 — GP11's behaviour** across a gesture is unmeasured, so
    `touch_sampler.rs` still polls every `IDLE_POLL_MS = 50` idle.
-5. **§9's SPI clock question**: `clock_divisors` still floors `scr` to 0 for
-   the board's `spi_freq = 62500000`, so the panel runs at 75 MHz.
+5. ~~**§9's SPI clock question**~~: answered 2026-10-11 (above): the boards ask
+   for the 75 MHz they get, and an inexact request no longer builds.
 6. **§7 Stage 5 / the pre-rendered page**: see
    `psram-lvgl-fluid-scroll-2026-09.md`'s amendment.

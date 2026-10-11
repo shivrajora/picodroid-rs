@@ -55,7 +55,7 @@ soft_nav = true
 [display]
 driver = "st7789"
 spi_id = 1
-spi_freq = 62500000
+spi_freq = 75000000
 pin_dc = 8
 pin_cs = 9
 pin_rst = 15

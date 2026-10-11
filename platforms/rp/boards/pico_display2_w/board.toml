@@ -66,7 +66,7 @@ net_tcp_win_segs = 8
 [display]
 driver = "st7789"
 spi_id = 0
-spi_freq = 62500000
+spi_freq = 75000000
 # The pack routes SPI0 SCK/MOSI to GP18/GP19, not the chip-default GP2/GP3.
 spi_sck = 18
 spi_mosi = 19

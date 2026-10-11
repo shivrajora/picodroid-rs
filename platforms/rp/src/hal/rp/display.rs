@@ -39,6 +39,18 @@ mod inner {
 
     type Display = Panel<RpSpiBus, RpOutputPin, RpOutputPin, RpOutputPin, RpOutputPin, RpDelay>;
 
+    // The panel's `spi_freq` must be a rate the controller can program
+    // exactly. `clock_divisors` floors, so an inexact request is rounded *up*
+    // (62.5 MHz at a 150 MHz PCLK became 75 MHz, unasked, on every RP2350
+    // board until 2026-10); a panel's rated write clock is a ceiling, so the
+    // board has to ask for the rate it will get. The achievable rates are
+    // PCLK / 2, PCLK / 4, PCLK / 6, …
+    const _: () = assert!(
+        crate::hal::spi::xfer::is_exact_hz(crate::hal::chip::clock::PCLK_HZ, generated::SPI_FREQ),
+        "[display] spi_freq is not a rate this chip's SPI controller can program exactly \
+         (PCLK / 2, PCLK / 4, PCLK / 6, ...); it would be rounded up past the request"
+    );
+
     static mut DISPLAY: Option<Display> = None;
 
     pub fn init() {

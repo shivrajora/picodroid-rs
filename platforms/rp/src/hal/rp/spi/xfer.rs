@@ -77,9 +77,32 @@ pub fn may_queue_tx(tx_idx: usize, rx_idx: usize, len: usize) -> bool {
 /// Compute the SSP prescaler/divisor pair `(cpsdvsr, scr)` for the requested
 /// bus frequency, given the peripheral clock. `cpsdvsr` must be even (≥2);
 /// `scr` is clamped to u8 range. Output frequency is `pclk / (cpsdvsr * (scr + 1))`.
-pub fn clock_divisors(pclk_hz: u32, freq_hz: u32) -> (u8, u8) {
-    let scr = (pclk_hz / (2 * freq_hz.max(1))).saturating_sub(1).min(255) as u8;
-    (2u8, scr)
+///
+/// The division floors, so the rate programmed is the *lowest the controller
+/// can do that is at least* the request: 62.5 MHz at a 150 MHz PCLK is 75 MHz.
+/// A rate a peripheral must not exceed is checked with [`is_exact_hz`] where
+/// it is configured (the display's, at build time).
+pub const fn clock_divisors(pclk_hz: u32, freq_hz: u32) -> (u8, u8) {
+    let want = if freq_hz == 0 { 1 } else { freq_hz };
+    let mut scr = pclk_hz / (2 * want);
+    scr = scr.saturating_sub(1);
+    if scr > 255 {
+        scr = 255;
+    }
+    (2u8, scr as u8)
+}
+
+/// The bus rate [`clock_divisors`] actually programs for `freq_hz`.
+pub const fn achieved_hz(pclk_hz: u32, freq_hz: u32) -> u32 {
+    let (cpsdvsr, scr) = clock_divisors(pclk_hz, freq_hz);
+    pclk_hz / (cpsdvsr as u32 * (scr as u32 + 1))
+}
+
+/// Whether the controller can run at exactly `freq_hz` from this PCLK.
+/// `const`, so a board's `spi_freq` can be refused at compile time rather
+/// than silently rounded up past a panel's rated clock.
+pub const fn is_exact_hz(pclk_hz: u32, freq_hz: u32) -> bool {
+    achieved_hz(pclk_hz, freq_hz) == freq_hz
 }
 
 #[cfg(test)]
@@ -247,6 +270,27 @@ mod tests {
         let (_, scr_low) = clock_divisors(125_000_000, 1_000_000);
         let (_, scr_high) = clock_divisors(125_000_000, 10_000_000);
         assert!(scr_high < scr_low);
+    }
+
+    #[test]
+    fn the_display_request_is_rounded_up_at_150_mhz_and_exact_at_125() {
+        // The A2 finding, pinned: 62.5 MHz asked for at a 150 MHz PCLK is
+        // SCR 0, i.e. 75 MHz, because the division floors. At 125 MHz the
+        // same request is exact. Boards therefore ask for the rate they get.
+        assert_eq!(achieved_hz(150_000_000, 62_500_000), 75_000_000);
+        assert!(!is_exact_hz(150_000_000, 62_500_000));
+        assert!(is_exact_hz(150_000_000, 75_000_000));
+        assert!(is_exact_hz(150_000_000, 37_500_000));
+        assert!(is_exact_hz(125_000_000, 62_500_000));
+        // The touch rate is deliberately approximate (2.03 MHz at 150 MHz)
+        // and nothing there needs it exact.
+        assert!(!is_exact_hz(150_000_000, 2_000_000));
+    }
+
+    #[test]
+    fn is_exact_hz_is_usable_in_a_const_context() {
+        const OK: bool = is_exact_hz(150_000_000, 75_000_000);
+        assert!(OK);
     }
 
     #[test]

@@ -109,7 +109,7 @@ lv_mem_in_psram = false
 [display]
 driver = "st7796"
 spi_id = 0
-spi_freq = 62500000
+spi_freq = 75000000
 # No spi_sck/spi_mosi overrides: the carrier wires the panel to SPI0's own pads
 # (SCK=GP2, MOSI=GP3), which is what the HAL already defaults to.
 pin_dc = 6
