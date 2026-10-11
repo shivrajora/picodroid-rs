@@ -1641,16 +1641,16 @@ import picodroid.widget.DatePicker;
 
 DatePicker dp = new DatePicker();
 dp.setSize(280, 220);
-dp.setDate(2026, 5, 7);   // year, month (1–12), day-of-month
+dp.updateDate(2026, 4, 7);   // year, month (0-based: 4 is May), day-of-month
 
 dp.setOnDateChangedListener(new DatePicker.OnDateChangedListener() {
     public void onDateChanged(DatePicker view, int year, int monthOfYear, int dayOfMonth) {
-        Log.i("UI", "picked " + year + "-" + monthOfYear + "-" + dayOfMonth);
+        Log.i("UI", "picked " + year + "-" + (monthOfYear + 1) + "-" + dayOfMonth);
     }
 });
 ```
 
-`OnDateChangedListener` fires only on user interaction; `setDate` programmatically does not re-trigger the listener. `getYear()`, `getMonth()` (1–12) and `getDay()` return the date the user last tapped, and 0 until a day has been tapped.
+`updateDate`, `init(year, month, day, listener)`, `getYear()`, `getMonth()` and `getDayOfMonth()` have Android's signatures, the month 0-based (January is 0) in all of them and in the listener. `OnDateChangedListener` fires only on user interaction; `updateDate` does not re-trigger it. The getters return the date set or last tapped (1 January 2026 until either). The original `setDate(year, month, day)` with a 1-based month and `getDay()` remain as deprecated aliases.
 
 ### `picodroid.widget.NumberPicker`
 

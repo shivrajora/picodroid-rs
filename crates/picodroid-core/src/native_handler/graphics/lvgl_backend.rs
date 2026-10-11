@@ -439,10 +439,10 @@ impl GraphicsBackend for LvglBackend {
     ) -> DispatchResult {
         match method {
             m::nativeCreate => Some(widgets::date_picker_native_create()),
-            m::setDate => Some(widgets::date_picker_set_date(ctx.args, ctx.objects)),
-            m::getYear => Some(widgets::date_picker_get_year(ctx.args, ctx.objects)),
-            m::getMonth => Some(widgets::date_picker_get_month(ctx.args, ctx.objects)),
-            m::getDay => Some(widgets::date_picker_get_day(ctx.args, ctx.objects)),
+            m::nativeSetDate => Some(widgets::date_picker_set_date(ctx.args, ctx.objects)),
+            m::nativeGetYear => Some(widgets::date_picker_get_year(ctx.args, ctx.objects)),
+            m::nativeGetMonth => Some(widgets::date_picker_get_month(ctx.args, ctx.objects)),
+            m::nativeGetDay => Some(widgets::date_picker_get_day(ctx.args, ctx.objects)),
             m::nativeRegisterDateChangedListener => Some(widgets::date_picker_register_listener(
                 ctx.args,
                 ctx.objects,

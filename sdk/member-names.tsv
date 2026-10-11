@@ -566,6 +566,7 @@ F	dataBytes
 F	date
 F	dateChangedListener
 F	day
+F	dayOfMonth
 F	defaultHandler
 F	density
 F	densityDpi
@@ -1553,6 +1554,7 @@ M	indexOf
 M	inflate
 M	inflateRow
 M	infoAt
+M	init
 M	initStream
 M	insert
 M	instantiate
@@ -1742,9 +1744,12 @@ M	nativeEndDraw
 M	nativeFocusTakesLongPress
 M	nativeForget
 M	nativeFreeBytes
+M	nativeGetDay
 M	nativeGetInt
 M	nativeGetLineHeight
+M	nativeGetMonth
 M	nativeGetProperty
+M	nativeGetYear
 M	nativeHardware
 M	nativeHeaderField
 M	nativeHeaderFieldAt
@@ -1832,6 +1837,7 @@ M	nativeSetBackgroundColor
 M	nativeSetBackgroundTint
 M	nativeSetBool
 M	nativeSetChecked
+M	nativeSetDate
 M	nativeSetDouble
 M	nativeSetDuration
 M	nativeSetEnabled
@@ -2484,6 +2490,7 @@ M	unregisterScanResultsCallback
 M	until
 M	update
 M	updateBytes
+M	updateDate
 M	updateLabel
 M	updateNetwork
 M	useDaylightTime

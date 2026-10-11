@@ -763,12 +763,12 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/widget/CompoundButton", "nativeRegisterCheckedChangeListener", "()V"),
     ("picodroid/widget/CompoundButton", "performCheckedChange", "()V"),
     // picodroid/widget/DatePicker
-    ("picodroid/widget/DatePicker", "getDay", "()I"),
-    ("picodroid/widget/DatePicker", "getMonth", "()I"),
-    ("picodroid/widget/DatePicker", "getYear", "()I"),
     ("picodroid/widget/DatePicker", "nativeCreate", "()I"),
+    ("picodroid/widget/DatePicker", "nativeGetDay", "()I"),
+    ("picodroid/widget/DatePicker", "nativeGetMonth", "()I"),
+    ("picodroid/widget/DatePicker", "nativeGetYear", "()I"),
     ("picodroid/widget/DatePicker", "nativeRegisterDateChangedListener", "()V"),
-    ("picodroid/widget/DatePicker", "setDate", "(III)V"),
+    ("picodroid/widget/DatePicker", "nativeSetDate", "(III)V"),
     // picodroid/widget/EditText
     ("picodroid/widget/EditText", "getText", "()Ljava/lang/String;"),
     ("picodroid/widget/EditText", "nativeCreate", "()I"),

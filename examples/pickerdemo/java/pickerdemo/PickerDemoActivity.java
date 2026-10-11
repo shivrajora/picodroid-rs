@@ -37,11 +37,11 @@ public class PickerDemoActivity extends Activity {
 
     DatePicker date = new DatePicker();
     date.setSize(220, 200);
-    date.setDate(2026, 5, 1);
+    date.updateDate(2026, 4, 1); // May: the month is 0-based, as Android's
     date.setOnDateChangedListener(
         (view, year, month, day) -> {
-          dateLabel.setText("Date: " + year + "-" + month + "-" + day);
-          Log.i(TAG, "date " + year + "-" + month + "-" + day);
+          dateLabel.setText("Date: " + year + "-" + (month + 1) + "-" + day);
+          Log.i(TAG, "date " + year + "-" + (month + 1) + "-" + day);
         });
     root.addView(date);
 

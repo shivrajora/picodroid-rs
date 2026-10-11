@@ -30,6 +30,7 @@ import picodroid.widget.ArrayAdapter;
 import picodroid.widget.Button;
 import picodroid.widget.CheckBox;
 import picodroid.widget.CircularProgressIndicator;
+import picodroid.widget.DatePicker;
 import picodroid.widget.EditText;
 import picodroid.widget.FrameLayout;
 import picodroid.widget.LinearLayout;
@@ -958,6 +959,21 @@ public class QaUiActivity extends Activity {
   }
 
   void containers() {
+    DatePicker dp = new DatePicker(this);
+    check(
+        "DatePicker starts on 1 January 2026",
+        dp.getYear() == 2026 && dp.getMonth() == 0 && dp.getDayOfMonth() == 1);
+    dp.updateDate(2027, 11, 31);
+    check(
+        "DatePicker months are 0-based",
+        dp.getYear() == 2027 && dp.getMonth() == 11 && dp.getDayOfMonth() == 31);
+    boolean refused = false;
+    try {
+      dp.updateDate(2027, 12, 1);
+    } catch (IllegalArgumentException e) {
+      refused = true;
+    }
+    check("DatePicker refuses month 12", refused && dp.getMonth() == 11);
     ScrollView sv = new ScrollView(this);
     sv.setSize(200, 100);
     LinearLayout col = new LinearLayout(this);
