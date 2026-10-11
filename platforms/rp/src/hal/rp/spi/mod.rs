@@ -7,8 +7,8 @@ use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use freertos_rust::{Duration, InterruptContext, Semaphore};
 
 use xfer::{
-    clock_divisors, controller_finished, SpiOp, SpiXferState, SMALL_XFER_THRESHOLD, SPI_FIFO_DEPTH,
-    SPI_XFER_POLL_MS, SPI_XFER_TIMEOUT_MS,
+    clock_divisors, controller_finished, may_queue_tx, SpiOp, SpiXferState, SMALL_XFER_THRESHOLD,
+    SPI_FIFO_DEPTH, SPI_XFER_POLL_MS, SPI_XFER_TIMEOUT_MS,
 };
 
 use super::clock::PCLK_HZ;
@@ -54,6 +54,12 @@ fn write_pending(id: u8) -> &'static AtomicBool {
 /// is held across the transfer that writes these, so there is one writer.
 static SHORT_READS: AtomicU32 = AtomicU32::new(0);
 static SHORT_READ_REPORTED: AtomicBool = AtomicBool::new(false);
+
+/// RX overruns the ISR saw asserted (RORRIS) on entry, before it cleared
+/// them. Written only from the ISR (one writer, load-then-store as above),
+/// read by the short-read report so a fallback that fires is attributable:
+/// a short read with this at 0 is not the FIFO losing a byte.
+static RX_OVERRUNS: AtomicU32 = AtomicU32::new(0);
 
 /// The task that started the pending DMA write (its raw handle), so that a
 /// different task arriving at the bus does not collect a completion that
@@ -118,6 +124,15 @@ macro_rules! spi_isr_body {
         let state = unsafe { &mut *$state_static.0.get() };
         let mut ctx = InterruptContext::new();
 
+        // 0. Count an overrun before anything clears it: steps 2 and 5 write
+        //    RORIC, and a byte the FIFO dropped must not vanish with it.
+        if $spi.sspris().read().rorris().bit_is_set() {
+            RX_OVERRUNS.store(
+                RX_OVERRUNS.load(Ordering::Relaxed).saturating_add(1),
+                Ordering::Relaxed,
+            );
+        }
+
         // 1. Drain RX FIFO first (prevents overrun)
         while $spi.sspsr().read().rne().bit_is_set() && state.rx_idx < state.len {
             let byte = $spi.sspdr().read().data().bits() as u8;
@@ -138,8 +153,13 @@ macro_rules! spi_isr_body {
             return;
         }
 
-        // 3. Refill TX FIFO
-        while state.tx_idx < state.len && $spi.sspsr().read().tnf().bit_is_set() {
+        // 3. Refill TX FIFO — by bytes outstanding, not only by TNF. The RX
+        //    FIFO is as deep as the TX FIFO, so more than SPI_FIFO_DEPTH bytes
+        //    queued and not yet read back is an overrun waiting for one slow
+        //    interrupt (xfer::may_queue_tx).
+        while may_queue_tx(state.tx_idx, state.rx_idx, state.len)
+            && $spi.sspsr().read().tnf().bit_is_set()
+        {
             let byte = unsafe { *state.tx_ptr.add(state.tx_idx) };
             $spi.sspdr()
                 .write(|w| unsafe { w.data().bits(byte as u16) });
@@ -299,12 +319,13 @@ macro_rules! finish_isr_xfer {
                 SHORT_READ_REPORTED.store(true, Ordering::Relaxed);
                 if first {
                     defmt::warn!(
-                        "spi{}: transfer finished with {} of {} bytes read back; \
-                         completing it from the controller's state (further \
-                         occurrences are silent)",
+                        "spi{}: transfer finished with {} of {} bytes read back \
+                         ({} RX overruns so far); completing it from the \
+                         controller's state (further occurrences are silent)",
                         $spi_id,
                         st.rx_idx,
-                        st.len
+                        st.len,
+                        RX_OVERRUNS.load(Ordering::Relaxed)
                     );
                 }
                 SHORT_READS.store(

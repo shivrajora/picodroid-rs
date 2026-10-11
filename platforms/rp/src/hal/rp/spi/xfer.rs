@@ -64,6 +64,16 @@ pub fn controller_finished(tx_idx: usize, len: usize, busy: bool, rx_not_empty: 
     tx_idx >= len && !busy && !rx_not_empty
 }
 
+/// Whether the ISR may queue one more TX byte. Bounded by the bytes
+/// outstanding (queued but not yet read back), not only by TX-FIFO-not-full:
+/// with the RX FIFO as deep as the TX FIFO, more than `SPI_FIFO_DEPTH` bytes
+/// in flight is an RX overrun waiting for one slow interrupt — the shape of
+/// the "short read" `controller_finished` tolerates. This is the bound
+/// pico-sdk's `spi_write_read_blocking` keeps.
+pub fn may_queue_tx(tx_idx: usize, rx_idx: usize, len: usize) -> bool {
+    tx_idx < len && tx_idx.wrapping_sub(rx_idx) < SPI_FIFO_DEPTH
+}
+
 /// Compute the SSP prescaler/divisor pair `(cpsdvsr, scr)` for the requested
 /// bus frequency, given the peripheral clock. `cpsdvsr` must be even (≥2);
 /// `scr` is clamped to u8 range. Output frequency is `pclk / (cpsdvsr * (scr + 1))`.
@@ -108,6 +118,36 @@ mod tests {
     #[test]
     fn a_zero_length_transfer_is_finished() {
         assert!(controller_finished(0, 0, false, false));
+    }
+
+    // ── The refill bound ─────────────────────────────────────────────────
+
+    #[test]
+    fn the_refill_stops_at_fifo_depth_outstanding() {
+        // After the seed: 8 queued, none read back — nothing more may go.
+        assert!(!may_queue_tx(8, 0, 30));
+        // The ISR drained three: three more may be queued, no more.
+        assert!(may_queue_tx(8, 3, 30));
+        assert!(may_queue_tx(10, 3, 30));
+        assert!(!may_queue_tx(11, 3, 30));
+    }
+
+    #[test]
+    fn the_refill_never_queues_past_len() {
+        assert!(!may_queue_tx(30, 29, 30));
+        assert!(may_queue_tx(29, 29, 30));
+    }
+
+    #[test]
+    fn the_refill_bound_holds_nine_bytes_back() {
+        // The overrun case from the 2026-10 scan: seed 8, TX interrupt with
+        // 4 in flight, 3 drained. The old loop refilled to a full TX FIFO,
+        // leaving 9 outstanding; the bound allows exactly 8.
+        let (mut tx, rx, len) = (8usize, 3usize, 30usize);
+        while may_queue_tx(tx, rx, len) {
+            tx += 1;
+        }
+        assert_eq!(tx - rx, SPI_FIFO_DEPTH);
     }
 
     // ── Constants ────────────────────────────────────────────────────────
