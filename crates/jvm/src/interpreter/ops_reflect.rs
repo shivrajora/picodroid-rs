@@ -189,12 +189,21 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         if frames.try_reserve(pushed.len()).is_err() {
             return Err(JvmError::StackOverflow);
         }
-        frames.extend(pushed);
+        // Each synchronized frame takes its monitor as it goes on the
+        // stack, as every other push does; a refusal part-way releases the
+        // ones already taken.
+        for mut f in pushed {
+            if let Err(e) = super::enter_synchronized(self, &mut f) {
+                super::truncate_frames(self, frames, base);
+                return Err(e);
+            }
+            frames.push(f);
+        }
         self.upcall_depth += 1;
         let r = self.run(frames, base);
         self.upcall_depth -= 1;
         if r.is_err() {
-            frames.truncate(base);
+            super::truncate_frames(self, frames, base);
         }
         r.map(|_| ())
     }

@@ -1082,3 +1082,102 @@ fn dispatch_site_is_none_without_an_upcall_env() {
     };
     assert_eq!(ctx.dispatch_site(), None);
 }
+
+// ── 5. A synchronized target reached through the upcall holds its monitor ─
+
+/// Counts `monitor_enter`/`monitor_exit` and the keys they named.
+struct MonitorCounter {
+    enters: Vec<crate::types::MonitorKey>,
+    exits: Vec<crate::types::MonitorKey>,
+}
+
+impl NativeMethodHandler for MonitorCounter {
+    fn dispatch(
+        &mut self,
+        _class_name: &str,
+        _method_name: &str,
+        _ctx: &mut NativeContext<'_>,
+    ) -> Option<Result<Option<Value>, JvmError>> {
+        None
+    }
+    fn monitor_enter(&mut self, key: crate::types::MonitorKey) -> Result<(), JvmError> {
+        self.enters.push(key);
+        Ok(())
+    }
+    fn monitor_exit(&mut self, key: crate::types::MonitorKey) -> Result<(), JvmError> {
+        self.exits.push(key);
+        Ok(())
+    }
+}
+
+/// The ascending comparator with `compare` declared `synchronized`.
+fn synchronized_comparator_class() -> &'static [u8] {
+    let mut a = Asm::new();
+    let this = a.class("SyncCmp");
+    let obj = a.class(OBJ);
+    let iface = a.class(CMP_IFACE);
+    let body = ascending_compare(&mut a);
+    a.finish_methods(
+        0x0001,
+        this,
+        obj,
+        &[iface],
+        &[Method {
+            access: 0x0021, // public synchronized
+            name: m::compare,
+            desc: CMP_DESC,
+            max_stack: 2,
+            max_locals: 3,
+            code: &body,
+            exc: &[],
+        }],
+    )
+}
+
+/// `ArrayList.sort` calls back into a `synchronized compare`: every
+/// comparison takes the comparator's monitor on entry and releases it on
+/// return, exactly as a bytecode invoke of the method would. The upcall
+/// used to push the frame without `enter_synchronized`, so the method ran
+/// unlocked.
+#[test]
+fn upcall_into_a_synchronized_method_takes_and_releases_its_monitor() {
+    let mut h = Harness::new(&[sort_caller(&[], None), synchronized_comparator_class()]);
+    let (list, buf) = h.new_list(&[3, 1, 2]);
+    let cmp_obj = h.objects.alloc("SyncCmp").expect("alloc");
+    let cmp = Value::ObjectRef(cmp_obj);
+    let mut handler = MonitorCounter {
+        enters: Vec::new(),
+        exits: Vec::new(),
+    };
+    execute(
+        &h.classes,
+        &mut h.strings,
+        &mut h.objects,
+        &mut h.arrays,
+        &mut h.statics,
+        &mut h.gc_state,
+        &mut h.class_objects,
+        &mut handler,
+        0,
+        0,
+        &[list, cmp],
+    )
+    .expect("sort failed");
+    assert_eq!(h.list_ints(buf), vec![1, 2, 3]);
+    assert!(
+        !handler.enters.is_empty(),
+        "a synchronized compare reached through the upcall must take its monitor"
+    );
+    assert_eq!(
+        handler.enters, handler.exits,
+        "every entry is matched by an exit"
+    );
+    assert!(
+        handler
+            .enters
+            .iter()
+            .all(|k| *k == crate::types::MonitorKey::Object(cmp_obj)),
+        "the monitor is the receiver's: {:?}",
+        handler.enters
+    );
+}

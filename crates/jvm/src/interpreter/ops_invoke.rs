@@ -1067,6 +1067,12 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         if frames.try_reserve(1).is_err() {
             return Err(JvmError::StackOverflow);
         }
+        // A synchronized target takes its monitor before its frame exists,
+        // as the main loop's `pending_frame` path does: a `synchronized
+        // compareTo` under `Collections.sort` or a lambda target reached
+        // from a native used to run unlocked here.
+        let mut new_frame = new_frame;
+        super::enter_synchronized(self, &mut new_frame)?;
         frames.push(new_frame);
         self.upcall_depth += 1;
         let r = self.run(frames, base);
@@ -1075,8 +1081,9 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             // A caught exception was already unwound to `base` by
             // `handle_exception`'s floor; a hard error (uncaught, interrupted,
             // allocation failure) was not. Restore the caller's frame stack
-            // exactly either way.
-            frames.truncate(base);
+            // exactly either way, releasing the monitors of any synchronized
+            // frames still on it.
+            super::truncate_frames(self, frames, base);
         }
         match (r, ctor_obj) {
             // `Foo::new`: the constructor returned void; the object is the result.
