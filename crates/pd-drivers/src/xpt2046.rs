@@ -18,7 +18,10 @@ const CMD_READ_Y: u8 = 0x90; // Y position, 12-bit, differential
 const NUM_SAMPLES: usize = 5;
 
 /// Bytes on the wire per conversion: the control byte, then the 12-bit
-/// result MSB-first across the next two (bits 15..4 of the 16 clocks).
+/// result MSB-first across the next two. The chip starts clocking the result
+/// on the second falling edge after the control byte, so of the 16 bits read
+/// back the first is a leading zero, the next twelve are the sample and the
+/// last three are padding: the sample is bits 14..3 of `frame[1..3]`.
 const FRAME: usize = 3;
 
 /// One X frame followed by one Y frame: the unit `sample()` writes and reads.
@@ -34,9 +37,14 @@ const PAIR: usize = 2 * FRAME;
 /// the task sleeps while the bytes clock out.
 const BATCH: usize = NUM_SAMPLES * PAIR;
 
-/// The 12-bit result carried by one received frame.
+/// The 12-bit result carried by one received frame, 0..=4095.
+///
+/// Until 2026-10 this took bits 15..4 (`b1 << 4 | b2 >> 4`), the sample
+/// shifted right by one: an 11-bit value, with every board's `cal_*` table
+/// captured against that halved range. Those tables were doubled with the
+/// decode; a calibration written down before then is in the old units.
 fn decode(frame: &[u8]) -> u16 {
-    ((frame[1] as u16) << 4) | ((frame[2] as u16) >> 4)
+    (((frame[1] as u16) << 8 | frame[2] as u16) >> 3) & 0x0FFF
 }
 
 /// Ascending in-place sort for the tiny median-filter sample buffers.
@@ -107,7 +115,9 @@ where
             cal_x_max,
             cal_y_min,
             cal_y_max,
-            reject_lo: 100,
+            // In 12-bit units. (The low bound was 100 in the 11-bit units
+            // the decode produced before 2026-10, the same threshold.)
+            reject_lo: 200,
             reject_hi: 4000,
             swap_xy: false,
         }
@@ -305,8 +315,10 @@ mod tests {
                     &[0, 0],
                     "frame {i} must clock zeros after the command"
                 );
-                rx[i * FRAME + 1] = (raw >> 4) as u8;
-                rx[i * FRAME + 2] = ((raw & 0x0F) << 4) as u8;
+                // Bits 14..3 of the two result bytes, as the chip lays them
+                // out: a leading zero, twelve sample bits, three of padding.
+                rx[i * FRAME + 1] = (raw >> 5) as u8;
+                rx[i * FRAME + 2] = ((raw & 0x1F) << 3) as u8;
             }
             Ok(())
         }
@@ -372,5 +384,29 @@ mod tests {
         assert_eq!(t.read_raw(), None, "raw 0 is below reject_lo");
         let mut t = touch([1000; NUM_SAMPLES], [2000; NUM_SAMPLES]);
         assert_eq!(t.read_raw(), Some((1000, 2000)));
+        let mut t = touch([1000; NUM_SAMPLES], [4050; NUM_SAMPLES]);
+        assert_eq!(t.read_raw(), None, "raw 4050 is above reject_hi");
+    }
+
+    #[test]
+    fn decode_takes_all_twelve_bits() {
+        // The datasheet frame for 0xABC: a leading zero, then 1010 1011 1100,
+        // then three padding bits → 0x55 0xE0.
+        assert_eq!(decode(&[CMD_READ_X, 0x55, 0xE0]), 0xABC);
+        assert_eq!(decode(&[CMD_READ_X, 0x7F, 0xF8]), 4095);
+        assert_eq!(decode(&[CMD_READ_X, 0x00, 0x08]), 1, "the LSB is kept");
+        // Whatever the controller shifts in bit 15 and the padding is masked.
+        assert_eq!(decode(&[CMD_READ_X, 0xFF, 0xFF]), 4095);
+    }
+
+    #[test]
+    fn full_scale_samples_reach_the_panel_edges() {
+        // A board calibrated to the full 12-bit range maps 0 and 4095 to
+        // the first and last pixel; under the old 11-bit decode the far half
+        // of the panel was unreachable without a halved table.
+        let mut t = touch([4095; NUM_SAMPLES], [4095; NUM_SAMPLES]);
+        t.set_calibration(0, 4095, 0, 4095);
+        t.reject_hi = 4095;
+        assert_eq!(t.read_point(), Some((319, 239)));
     }
 }

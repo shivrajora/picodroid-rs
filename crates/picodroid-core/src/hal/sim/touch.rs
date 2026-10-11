@@ -68,7 +68,8 @@ mod inner {
     /// Fake SpiBus that synthesises 12-bit ADC samples from current mouse
     /// position. The driver's protocol is one 3-byte transfer per axis: the
     /// command byte goes out as `tx[0]`, and the 12-bit ADC reading comes
-    /// back packed as `((rx[1] << 4) | (rx[2] >> 4))`.
+    /// back in bits 14..3 of `rx[1..3]`, as the XPT2046 lays it out (a
+    /// leading zero, twelve sample bits, three of padding).
     pub struct FakeXptSpi;
 
     impl Default for FakeXptSpi {
@@ -162,14 +163,15 @@ mod inner {
             rx.fill(0);
             // The driver sends 3-byte frames, [cmd, 0, 0], one per
             // conversion — ten of them back to back in a `sample()` — and
-            // reads each result as ((rx[1] << 4) | (rx[2] >> 4)).
+            // reads each result from bits 14..3 of the two bytes after the
+            // command, the chip's own layout.
             for (i, frame) in tx.as_chunks::<3>().0.iter().enumerate() {
                 if rx.len() < (i + 1) * 3 || (frame[0] != CMD_READ_X && frame[0] != CMD_READ_Y) {
                     continue;
                 }
                 let raw = Self::synth(frame[0]) & 0x0FFF;
-                rx[i * 3 + 1] = (raw >> 4) as u8;
-                rx[i * 3 + 2] = ((raw & 0x0F) << 4) as u8;
+                rx[i * 3 + 1] = (raw >> 5) as u8;
+                rx[i * 3 + 2] = ((raw & 0x1F) << 3) as u8;
             }
             Ok(())
         }

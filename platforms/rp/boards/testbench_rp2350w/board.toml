@@ -76,10 +76,10 @@ spi_freq = 2000000
 pin_cs = 16
 pin_irq = 17
 pin_miso = 12
-cal_x_min = 1970
-cal_x_max = 185
-cal_y_min = 110
-cal_y_max = 1950
+cal_x_min = 3940
+cal_x_max = 370
+cal_y_min = 220
+cal_y_max = 3900
 swap_xy = true
 
 # A pool worker that runs a native from a couple of Java calls deep needs more
