@@ -336,15 +336,17 @@ impl<'a> ClassEntry<'a> {
 }
 
 /// Iterator over the classes of the CLASSES section, in directory order.
+/// Fused, like the other two: once it has answered `None` it stays at
+/// `None`, so a caller that keeps asking after a truncated record cannot be
+/// handed a fabricated entry.
 pub struct ClassIter<'a> {
     section: class_link::ClassSection<'a>,
     next: usize,
+    done: bool,
 }
 
-impl<'a> Iterator for ClassIter<'a> {
-    type Item = ClassEntry<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
+impl<'a> ClassIter<'a> {
+    fn step(&mut self) -> Option<ClassEntry<'a>> {
         let linked = self.section.class(self.next)?;
         self.next += 1;
         Some(ClassEntry {
@@ -352,6 +354,19 @@ impl<'a> Iterator for ClassIter<'a> {
             data: linked.class,
             link: linked.link,
         })
+    }
+}
+
+impl<'a> Iterator for ClassIter<'a> {
+    type Item = ClassEntry<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            return None;
+        }
+        let entry = self.step();
+        self.done = entry.is_none();
+        entry
     }
 }
 
@@ -377,17 +392,30 @@ pub struct AssetEntry<'a> {
     pub data: &'a [u8],
 }
 
-/// Iterator over asset entries in the ASSETS section.
+/// Iterator over asset entries in the ASSETS section. Fused: `None` once,
+/// `None` for ever (a truncated record leaves `pos` mid-record).
 pub struct AssetIter<'a> {
     data: &'a [u8], // slice covering just the ASSETS section data
     pos: usize,
     remaining: u32,
+    done: bool,
 }
 
 impl<'a> Iterator for AssetIter<'a> {
     type Item = AssetEntry<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            return None;
+        }
+        let entry = self.step();
+        self.done = entry.is_none();
+        entry
+    }
+}
+
+impl<'a> AssetIter<'a> {
+    fn step(&mut self) -> Option<AssetEntry<'a>> {
         if self.remaining == 0 {
             return None;
         }
@@ -427,10 +455,12 @@ impl<'a> Iterator for AssetIter<'a> {
     }
 }
 
-/// Iterator over key/value pairs in the MANIFEST section.
+/// Iterator over key/value pairs in the MANIFEST section. Fused: `None`
+/// once, `None` for ever.
 pub struct ManifestIter<'a> {
     data: &'a [u8], // slice covering just the MANIFEST section data
     pos: usize,
+    done: bool,
 }
 
 /// One key/value pair from the MANIFEST section.
@@ -443,12 +473,18 @@ impl<'a> Iterator for ManifestIter<'a> {
     type Item = ManifestEntry<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.pos >= self.data.len() {
+        if self.done || self.pos >= self.data.len() {
+            self.done = true;
             return None;
         }
-        let key = read_bytes_u16(self.data, &mut self.pos)?;
-        let value = read_bytes_u16(self.data, &mut self.pos)?;
-        Some(ManifestEntry { key, value })
+        let entry = read_bytes_u16(self.data, &mut self.pos).and_then(|key| {
+            Some(ManifestEntry {
+                key,
+                value: read_bytes_u16(self.data, &mut self.pos)?,
+            })
+        });
+        self.done = entry.is_none();
+        entry
     }
 }
 
@@ -736,6 +772,7 @@ impl<'a> Papk<'a> {
         Ok(ManifestIter {
             data: mdata,
             pos: 0,
+            done: false,
         })
     }
 
@@ -744,6 +781,7 @@ impl<'a> Papk<'a> {
         Ok(ClassIter {
             section: self.class_section()?,
             next: 0,
+            done: false,
         })
     }
 
@@ -789,6 +827,7 @@ impl<'a> Papk<'a> {
             data: adata,
             pos: 4,
             remaining: asset_count,
+            done: false,
         }))
     }
 

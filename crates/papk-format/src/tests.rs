@@ -524,3 +524,33 @@ fn errors_have_display_impls() {
         assert!(!e.to_string().is_empty());
     }
 }
+
+/// The section iterators are fused: a `next()` after the one that failed on
+/// a truncated record answers `None` again rather than reading on from the
+/// middle of the record and fabricating an entry.
+#[test]
+fn section_iterators_are_fused_after_a_truncated_record() {
+    // key "ab", then a value that claims 9 bytes with 1 present.
+    let manifest = [2u8, 0, b'a', b'b', 9, 0, b'x'];
+    let mut it = ManifestIter {
+        data: &manifest,
+        pos: 0,
+        done: false,
+    };
+    assert!(it.next().is_none());
+    assert!(it.next().is_none());
+    assert!(it.next().is_none());
+
+    // name "a", a record whose data_size runs past the section, 2 claimed.
+    let mut asset = vec![1u8, 0, b'a'];
+    asset.extend_from_slice(&[4, 0, 4, 0, 0x12, 0, 8, 0, 0xFF, 0xFF, 0, 0]);
+    asset.extend_from_slice(&[0; 8]);
+    let mut it = AssetIter {
+        data: &asset,
+        pos: 0,
+        remaining: 2,
+        done: false,
+    };
+    assert!(it.next().is_none());
+    assert!(it.next().is_none());
+}
