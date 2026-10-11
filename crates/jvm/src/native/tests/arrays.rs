@@ -477,3 +477,54 @@ fn arrays_copy_of_negative_length_throws_negative_array_size() {
         Some(c::java_lang_NegativeArraySizeException)
     );
 }
+
+/// `Arrays.sort` and `Arrays.toString` size their scratch from Java-sized
+/// input; a heap that cannot spare it reports the crate's allocation-failure
+/// signal (the run loop's `OutOfMemoryError`) instead of aborting the
+/// allocator, as a 64 KB buffer on the RP2040 used to.
+#[test]
+fn arrays_sort_and_to_string_fail_softly_when_the_heap_is_short() {
+    let mut strings = StringTable::new();
+    let mut objects = ObjectHeap::new();
+    let mut arrays = ArrayHeap::new();
+    let vs: alloc::vec::Vec<i32> = (0..4096).rev().collect();
+    let idx = make_int_array(&mut arrays, &vs);
+    let sorted = crate::test_alloc::with_budget(64, || {
+        arrays_dispatch(
+            m::sort,
+            "([I)V",
+            &[Value::ArrayRef(idx)],
+            &mut strings,
+            &mut objects,
+            &mut arrays,
+        )
+    });
+    assert_eq!(sorted, Err(JvmError::StackOverflow));
+    assert_eq!(
+        arrays.load(idx, 0),
+        Some(4095),
+        "a refused sort leaves the array as it was"
+    );
+    let shown = crate::test_alloc::with_budget(64, || {
+        arrays_dispatch(
+            m::toString,
+            "([I)Ljava/lang/String;",
+            &[Value::ArrayRef(idx)],
+            &mut strings,
+            &mut objects,
+            &mut arrays,
+        )
+    });
+    assert_eq!(shown, Err(JvmError::StackOverflow));
+    // With room, both still work.
+    arrays_dispatch(
+        m::sort,
+        "([I)V",
+        &[Value::ArrayRef(idx)],
+        &mut strings,
+        &mut objects,
+        &mut arrays,
+    )
+    .unwrap();
+    assert_eq!(arrays.load(idx, 0), Some(0));
+}

@@ -16,6 +16,7 @@ use crate::{
 
 use super::NativeContext;
 use crate::names::{c, m};
+use crate::object_heap::{reserve_fallible, Exhausted};
 
 /// The array argument of `Arrays.sort` / `fill` / `copyOf`. A null array is
 /// the NullPointerException Java throws (QA 2026-09-13: it was the
@@ -83,6 +84,9 @@ fn dispatch_sort(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError>
     if hi - lo < 2 {
         return Ok(None);
     }
+    // The scratch buffer is Java-sized input: a refusal is the catchable
+    // `OutOfMemoryError` (`StackOverflow` is the crate's allocation-failure
+    // signal), not an allocator abort.
     match atype {
         ATYPE_INT => sort_i32(ctx.arrays, arr, lo, hi, |x| x),
         ATYPE_SHORT => sort_i32(ctx.arrays, arr, lo, hi, |x| x as i16 as i32),
@@ -93,6 +97,7 @@ fn dispatch_sort(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError>
         ATYPE_DOUBLE => sort_f64(ctx.arrays, arr, lo, hi),
         _ => return Err(JvmError::InvalidReference),
     }
+    .map_err(|_| JvmError::StackOverflow)?;
     Ok(None)
 }
 
@@ -101,48 +106,62 @@ fn dispatch_sort(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError>
 /// sign-extends, char[] zero-extends). It is a plain `fn` pointer, not a
 /// generic: a generic parameter would monomorphise this loader four times
 /// for no benefit.
-fn sort_i32(arrays: &mut ArrayHeap, arr: u16, lo: usize, hi: usize, widen: fn(i32) -> i32) {
+/// A sort's scratch buffer: room for `hi - lo` keys, or [`Exhausted`] when
+/// the heap has none (a 64 KB input on the RP2040 used to abort the
+/// allocator instead).
+fn sort_scratch(lo: usize, hi: usize) -> Result<Vec<u64>, Exhausted> {
+    let mut buf: Vec<u64> = Vec::new();
+    reserve_fallible(&mut buf, hi - lo)?;
+    Ok(buf)
+}
+
+fn sort_i32(
+    arrays: &mut ArrayHeap,
+    arr: u16,
+    lo: usize,
+    hi: usize,
+    widen: fn(i32) -> i32,
+) -> Result<(), Exhausted> {
     // Pull into a Vec, sort, write back. Cheaper than O(n log n) load/store
-    // through the ArrayHeap accessors, and bounded — the array already exists
-    // in heap so we know it fits.
-    let mut buf: Vec<u64> = (lo..hi)
-        .map(|i| key_from_i64(widen(arrays.load(arr, i).unwrap_or(0)) as i64))
-        .collect();
+    // through the ArrayHeap accessors.
+    let mut buf = sort_scratch(lo, hi)?;
+    buf.extend((lo..hi).map(|i| key_from_i64(widen(arrays.load(arr, i).unwrap_or(0)) as i64)));
     sort_keys(&mut buf);
     for (i, k) in buf.into_iter().enumerate() {
         let _ = arrays.store(arr, lo + i, i64_from_key(k) as i32);
     }
+    Ok(())
 }
 
-fn sort_i64(arrays: &mut ArrayHeap, arr: u16, lo: usize, hi: usize) {
-    let mut buf: Vec<u64> = (lo..hi)
-        .map(|i| key_from_i64(arrays.load64(arr, i).unwrap_or(0)))
-        .collect();
+fn sort_i64(arrays: &mut ArrayHeap, arr: u16, lo: usize, hi: usize) -> Result<(), Exhausted> {
+    let mut buf = sort_scratch(lo, hi)?;
+    buf.extend((lo..hi).map(|i| key_from_i64(arrays.load64(arr, i).unwrap_or(0))));
     sort_keys(&mut buf);
     for (i, k) in buf.into_iter().enumerate() {
         let _ = arrays.store64(arr, lo + i, i64_from_key(k));
     }
+    Ok(())
 }
 
-fn sort_f32(arrays: &mut ArrayHeap, arr: u16, lo: usize, hi: usize) {
+fn sort_f32(arrays: &mut ArrayHeap, arr: u16, lo: usize, hi: usize) -> Result<(), Exhausted> {
     // Float arrays use 1 i32 slot per element — bit-cast from raw i32.
-    let mut buf: Vec<u64> = (lo..hi)
-        .map(|i| key_from_f32_bits(arrays.load(arr, i).unwrap_or(0) as u32))
-        .collect();
+    let mut buf = sort_scratch(lo, hi)?;
+    buf.extend((lo..hi).map(|i| key_from_f32_bits(arrays.load(arr, i).unwrap_or(0) as u32)));
     sort_keys(&mut buf);
     for (i, k) in buf.into_iter().enumerate() {
         let _ = arrays.store(arr, lo + i, f32_bits_from_key(k) as i32);
     }
+    Ok(())
 }
 
-fn sort_f64(arrays: &mut ArrayHeap, arr: u16, lo: usize, hi: usize) {
-    let mut buf: Vec<u64> = (lo..hi)
-        .map(|i| key_from_f64_bits(arrays.load64(arr, i).unwrap_or(0) as u64))
-        .collect();
+fn sort_f64(arrays: &mut ArrayHeap, arr: u16, lo: usize, hi: usize) -> Result<(), Exhausted> {
+    let mut buf = sort_scratch(lo, hi)?;
+    buf.extend((lo..hi).map(|i| key_from_f64_bits(arrays.load64(arr, i).unwrap_or(0) as u64)));
     sort_keys(&mut buf);
     for (i, k) in buf.into_iter().enumerate() {
         let _ = arrays.store64(arr, lo + i, f64_bits_from_key(k) as i64);
     }
+    Ok(())
 }
 
 // ── fill ─────────────────────────────────────────────────────────────────
@@ -332,10 +351,14 @@ fn dispatch_to_string(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmE
     let atype = ctx.arrays.atype(arr).ok_or(JvmError::InvalidReference)?;
     let len = ctx.arrays.length(arr).ok_or(JvmError::InvalidReference)? as usize;
 
-    // Build directly into a Vec<u8> — sized like a StringBuilder body.
-    let mut out: Vec<u8> = Vec::with_capacity(len * 4 + 2);
+    // Build directly into a Vec<u8>, growing fallibly: a Java-sized input the
+    // heap cannot render is an `OutOfMemoryError`, not an allocator abort.
+    let mut out: Vec<u8> = Vec::new();
+    reserve_fallible(&mut out, len.saturating_mul(4) + 2).map_err(|_| JvmError::StackOverflow)?;
     out.push(b'[');
     for i in 0..len {
+        // The widest element (`-1.7976931348623157E308`) plus a separator.
+        reserve_fallible(&mut out, 32).map_err(|_| JvmError::StackOverflow)?;
         if i > 0 {
             out.extend_from_slice(b", ");
         }
