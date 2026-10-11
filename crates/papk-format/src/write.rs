@@ -15,9 +15,10 @@
 //!   offset from the file header, so the padding is invisible to it;
 //! - manifest key order: the entry-point key (`main-class` / `activity` /
 //!   `application`), `package-name`, `version`, `framework-map-version`,
-//!   then `version-code`, `label` and `icon` — each only when the spec sets
-//!   it, so a spec that sets none is byte-identical to the historical output —
-//!   then any extra entries in insertion order;
+//!   then `version-code`, `label`, `icon`, `design-width` + `design-height`
+//!   and `requires-features` — each only when the spec sets it, so a spec
+//!   that sets none is byte-identical to the historical output — then any
+//!   extra entries (`activities`, `services`, `theme`, …) in insertion order;
 //! - asset records padded with zero bytes to 4-byte boundaries before the
 //!   pixel data and before the next record;
 //! - `crc32` and `reserved` words written as 0.

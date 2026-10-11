@@ -36,13 +36,13 @@
 //! ```text
 //! File header (28 bytes):
 //!   [0..4]   magic:            b"PAPK"
-//!   [4..2]   version_major:    u16 LE  (2)
-//!   [6..2]   version_minor:    u16 LE  (0)
-//!   [8..4]   section_count:    u32 LE
-//!   [12..4]  manifest_offset:  u32 LE  (offset to MANIFEST section header)
-//!   [16..4]  classes_offset:   u32 LE  (offset to CLASSES section header)
-//!   [20..4]  assets_offset:    u32 LE  (offset to ASSETS section header, 0 = absent)
-//!   [24..4]  resources_offset: u32 LE  (offset to RESOURCES section header, 0 = absent)
+//!   [4..6]   version_major:    u16 LE  (2)
+//!   [6..8]   version_minor:    u16 LE  (0)
+//!   [8..12]  section_count:    u32 LE
+//!   [12..16] manifest_offset:  u32 LE  (offset to MANIFEST section header)
+//!   [16..20] classes_offset:   u32 LE  (offset to CLASSES section header)
+//!   [20..24] assets_offset:    u32 LE  (offset to ASSETS section header, 0 = absent)
+//!   [24..28] resources_offset: u32 LE  (offset to RESOURCES section header, 0 = absent)
 //!
 //! Section header (16 bytes):
 //!   [0..4]   tag:      u32 LE  ("MANI", "CLSS", "ASST" or "RESR")
@@ -499,7 +499,7 @@ pub struct Papk<'a> {
     manifest_offset: usize,
     classes_offset: usize,
     /// Offset to the ASSETS section header, or 0 if the section is absent
-    /// (legacy v1.0 papks).
+    /// (an app with no images: the writer leaves the section out).
     assets_offset: usize,
     /// Offset to the RESOURCES section header, or 0 if absent (any papk
     /// below v1.2, and every app without a `res/` tree).
