@@ -2,6 +2,7 @@
 package fragmentdemo;
 
 import picodroid.app.Activity;
+import picodroid.app.Fragment;
 import picodroid.app.FragmentFactory;
 import picodroid.app.FragmentManager;
 import picodroid.app.FragmentTransaction;
@@ -17,6 +18,8 @@ import picodroid.os.SystemClock;
 import picodroid.util.Log;
 import picodroid.view.View;
 import picodroid.view.ViewGroup;
+import picodroid.widget.FragmentStateAdapter;
+import picodroid.widget.ViewPager2;
 
 /**
  * Conformance driver for {@code picodroid.app.Fragment}: the callback order against the host's,
@@ -546,6 +549,73 @@ public class MainActivity extends Activity {
         "home rebuilt with its saved state",
         home.isResumed() && T.count("Home2.onCreateView(saved)") == 1 && home.counter == 42);
     T.check("back stack empty again", fm.getBackStackEntryCount() == 0);
+    stepPager();
+  }
+
+  /** The items a pager shows, by stable id; removable from the front. */
+  private final java.util.ArrayList<Long> pageIds = new java.util.ArrayList<Long>();
+
+  private ViewPager2 pager;
+
+  /**
+   * A ViewPager2 over stable item ids: a negative setCurrentItem before the adapter is clamped (it
+   * used to leave the pager blank for ever), and removing the item below the bound page re-binds
+   * the page the position now carries (the old page used to stay, labelled with the new position).
+   */
+  private void stepPager() {
+    pageIds.add(10L);
+    pageIds.add(20L);
+    pageIds.add(30L);
+    pager = new ViewPager2(this);
+    pager.setSize(200, 100);
+    ((ViewGroup) findViewById(R.id.container)).addView(pager);
+    pager.setCurrentItem(-3, false);
+    pager.setAdapter(
+        new FragmentStateAdapter(this) {
+          @Override
+          public Fragment createFragment(int position) {
+            return new PageFragment(pageIds.get(position));
+          }
+
+          @Override
+          public int getItemCount() {
+            return pageIds.size();
+          }
+
+          @Override
+          public long getItemId(int position) {
+            return pageIds.get(position);
+          }
+
+          @Override
+          public boolean containsItem(long itemId) {
+            return pageIds.contains(itemId);
+          }
+        });
+    T.later(250, () -> pagerBoundFirst());
+  }
+
+  private void pagerBoundFirst() {
+    T.check(
+        "negative setCurrentItem before the adapter lands on page 0",
+        pager.getCurrentItem() == 0 && fm.findFragmentByTag("f10") != null);
+    pager.setCurrentItem(1, false);
+    T.later(250, () -> pagerOnSecond());
+  }
+
+  private void pagerOnSecond() {
+    T.check("page 1 bound (item 20)", fm.findFragmentByTag("f20") != null);
+    pageIds.remove(0);
+    pager.getAdapter().notifyDataSetChanged();
+    T.later(300, () -> pagerAfterRemoval());
+  }
+
+  private void pagerAfterRemoval() {
+    T.check(
+        "removing item 0 re-binds position 1 to the item it now carries (30)",
+        pager.getCurrentItem() == 1
+            && fm.findFragmentByTag("f20") == null
+            && fm.findFragmentByTag("f30") != null);
     T.report();
     finish();
   }

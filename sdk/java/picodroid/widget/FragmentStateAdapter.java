@@ -117,6 +117,11 @@ public abstract class FragmentStateAdapter {
     return mFragmentManager.isStateSaved();
   }
 
+  /** The item id of the bound page (meaningful while one is bound). */
+  long boundItemId() {
+    return mFragmentId;
+  }
+
   /** Create the page at {@code position} at STARTED and return its view for the pager to place. */
   View onBindPage(int position) {
     Fragment f = createFragment(position);

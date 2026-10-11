@@ -108,6 +108,9 @@ public class ViewPager2 extends FrameLayout {
     if (mCurrentItem >= count) {
       mCurrentItem = count > 0 ? count - 1 : 0;
     }
+    if (mCurrentItem < 0) {
+      mCurrentItem = 0;
+    }
     if (count > 0) {
       startSwap(false);
     }
@@ -128,7 +131,9 @@ public class ViewPager2 extends FrameLayout {
    */
   public void setCurrentItem(int item, boolean smoothScroll) {
     if (mAdapter == null || mAdapter.getItemCount() <= 0) {
-      mCurrentItem = item; // applied when an adapter with pages arrives, as on Android
+      // Applied when an adapter with pages arrives, as on Android; clamped at 0 now, since a
+      // negative item kept the pager blank for ever once the pages did arrive.
+      mCurrentItem = Math.max(0, item);
       return;
     }
     int count = mAdapter.getItemCount();
@@ -366,8 +371,17 @@ public class ViewPager2 extends FrameLayout {
     if (mCurrentItem >= count) {
       mCurrentItem = count > 0 ? count - 1 : 0;
     }
+    if (mCurrentItem < 0) {
+      mCurrentItem = 0;
+    }
+    // The bound page is stale when its position is gone, when the id that position carried is
+    // gone, or when the position now carries another id (an item removed below it): the page
+    // used to stay on screen labelled with the new position, and saveState filed it under the
+    // wrong id.
     if (mBoundItem >= 0
-        && (mBoundItem >= count || !mAdapter.containsItem(mAdapter.getItemId(mBoundItem)))) {
+        && (mBoundItem >= count
+            || !mAdapter.containsItem(mAdapter.getItemId(mBoundItem))
+            || mAdapter.getItemId(mBoundItem) != mAdapter.boundItemId())) {
       unbind();
     }
     if (!mSwapping && mBoundItem != mCurrentItem && count > 0) {
