@@ -297,6 +297,9 @@ public class JsonDemo extends Application {
         "numberToString of a fraction",
         "3.5".equals(JSONObject.numberToString(Double.valueOf(3.5))));
     check(
+        "numberToString of negative zero is -0, as Android prints it",
+        "-0".equals(JSONObject.numberToString(Double.valueOf(-0.0))));
+    check(
         "numberToString of an Integer", "7".equals(JSONObject.numberToString(Integer.valueOf(7))));
     check(
         "an integral double serializes without a fraction",

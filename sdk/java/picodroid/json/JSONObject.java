@@ -622,6 +622,9 @@ public class JSONObject {
   }
 
   private static String doubleToString(double d) {
+    if (d == 0 && 1 / d < 0) {
+      return "-0"; // Android prints negative zero as "-0", not "0" or "-0.0"
+    }
     long asLong = (long) d;
     if (d == (double) asLong) {
       return Long.toString(asLong);
