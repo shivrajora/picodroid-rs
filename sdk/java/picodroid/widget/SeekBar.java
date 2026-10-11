@@ -26,9 +26,34 @@ public class SeekBar extends View {
 
   private static native int nativeCreateWithMax(int max);
 
-  public native void setMax(int max);
+  /**
+   * Sets the range's upper bound; a progress above it is pulled down to it, and the listener hears
+   * that as a change with {@code fromUser == false}, as on Android.
+   */
+  public void setMax(int max) {
+    int before = getProgress();
+    nativeSetMax(max);
+    if (getProgress() != before) {
+      notifyProgressChanged(false);
+    }
+  }
 
-  public native void setProgress(int progress);
+  /**
+   * Sets the progress (clamped to the range). A change reaches the listener with {@code fromUser ==
+   * false}, so the "keep a label in sync" idiom holds for programmatic changes too; setting the
+   * progress the bar already has reports nothing.
+   */
+  public void setProgress(int progress) {
+    int before = getProgress();
+    nativeSetProgress(progress);
+    if (getProgress() != before) {
+      notifyProgressChanged(false);
+    }
+  }
+
+  private native void nativeSetMax(int max);
+
+  private native void nativeSetProgress(int progress);
 
   public native int getProgress();
 
@@ -51,9 +76,14 @@ public class SeekBar extends View {
 
   private native void nativeRegisterChangeListener();
 
+  /** The framework's drag or key change: {@code fromUser == true}. */
   void fireProgressChanged() {
+    notifyProgressChanged(true);
+  }
+
+  private void notifyProgressChanged(boolean fromUser) {
     if (onSeekBarChangeListener != null) {
-      onSeekBarChangeListener.onProgressChanged(this, getProgress(), true);
+      onSeekBarChangeListener.onProgressChanged(this, getProgress(), fromUser);
     }
   }
 

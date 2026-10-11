@@ -329,8 +329,8 @@ impl GraphicsBackend for LvglBackend {
         match method {
             m::nativeCreate => Some(widgets::seek_bar_native_create()),
             m::nativeCreateWithMax => Some(widgets::seek_bar_native_create_with_max(ctx.args)),
-            m::setMax => Some(widgets::seek_bar_set_max(ctx.args, ctx.objects)),
-            m::setProgress => Some(widgets::seek_bar_set_progress(ctx.args, ctx.objects)),
+            m::nativeSetMax => Some(widgets::seek_bar_set_max(ctx.args, ctx.objects)),
+            m::nativeSetProgress => Some(widgets::seek_bar_set_progress(ctx.args, ctx.objects)),
             m::getProgress => Some(widgets::seek_bar_get_progress(ctx.args, ctx.objects)),
             m::nativeRegisterChangeListener => Some(widgets::seek_bar_register_change_listener(
                 ctx.args,

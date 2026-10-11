@@ -111,6 +111,7 @@ public class QaUiActivity extends Activity {
   private final boolean[] checkLast = new boolean[1];
   private SeekBar seekBar;
   private final int[] seekChanged = new int[1];
+  private final int[] seekProgrammatic = new int[1];
   private RadioGroup tapGroup;
   private RadioButton tapB;
   private final boolean[] tapAppSaw = new boolean[1];
@@ -611,7 +612,11 @@ public class QaUiActivity extends Activity {
         new SeekBar.OnSeekBarChangeListener() {
           @Override
           public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
-            seekChanged[0]++;
+            if (fromUser) {
+              seekChanged[0]++;
+            } else {
+              seekProgrammatic[0]++;
+            }
           }
 
           @Override
@@ -620,6 +625,18 @@ public class QaUiActivity extends Activity {
           @Override
           public void onStopTrackingTouch(SeekBar bar) {}
         });
+    // Programmatic changes reach the listener with fromUser == false; a no-op set reports nothing.
+    seekBar.setProgress(30);
+    check("setProgress reports fromUser=false", seekProgrammatic[0] == 1);
+    seekBar.setProgress(30);
+    check("setting the same progress reports nothing", seekProgrammatic[0] == 1);
+    seekBar.setMax(20);
+    check(
+        "setMax that clamps reports fromUser=false",
+        seekProgrammatic[0] == 2 && seekBar.getProgress() == 20);
+    seekBar.setMax(100);
+    check("setMax that clamps nothing reports nothing", seekProgrammatic[0] == 2);
+    seekBar.setProgress(10);
     seekBar.performProgressChange();
     Log.i(TAG, "performProgressChange delivered synchronously=" + (seekChanged[0] == 1));
     ProgressBar pb = new ProgressBar(this);

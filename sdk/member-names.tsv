@@ -1849,6 +1849,7 @@ M	nativeSetKeepScreenOn
 M	nativeSetLineMode
 M	nativeSetLong
 M	nativeSetMargins
+M	nativeSetMax
 M	nativeSetMaxWidth
 M	nativeSetMinimumSize
 M	nativeSetMode
@@ -1903,6 +1904,7 @@ M	node
 M	nonNull
 M	notify
 M	notifyDataSetChanged
+M	notifyProgressChanged
 M	now
 M	numberToString
 M	observe

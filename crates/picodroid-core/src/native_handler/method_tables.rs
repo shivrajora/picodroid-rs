@@ -830,8 +830,8 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/widget/SeekBar", "nativeRegisterChangeListener", "()V"),
     ("picodroid/widget/SeekBar", "performProgressChange", "()V"),
     ("picodroid/widget/SeekBar", "performTrackingTouch", "()V"),
-    ("picodroid/widget/SeekBar", "setMax", "(I)V"),
-    ("picodroid/widget/SeekBar", "setProgress", "(I)V"),
+    ("picodroid/widget/SeekBar", "nativeSetMax", "(I)V"),
+    ("picodroid/widget/SeekBar", "nativeSetProgress", "(I)V"),
     // picodroid/widget/Snackbar
     ("picodroid/widget/Snackbar", "nativeCreate", "(Ljava/lang/String;I)I"),
     ("picodroid/widget/Snackbar", "nativeDismiss", "(I)V"),
