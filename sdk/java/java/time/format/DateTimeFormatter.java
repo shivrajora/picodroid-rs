@@ -21,9 +21,11 @@ import java.time.temporal.TemporalAccessor;
  */
 public final class DateTimeFormatter {
   public static final DateTimeFormatter ISO_LOCAL_DATE = new DateTimeFormatter("yyyy-MM-dd");
-  public static final DateTimeFormatter ISO_LOCAL_TIME = new DateTimeFormatter("HH:mm:ss");
+  // The ISO time formatters print the fraction of a second only when there is one, as few digits
+  // as it needs (the JDK's appendFraction(NANO_OF_SECOND, 0, 9, true)); a fixed pattern cannot.
+  public static final DateTimeFormatter ISO_LOCAL_TIME = new DateTimeFormatter("HH:mm:ss", true);
   public static final DateTimeFormatter ISO_LOCAL_DATE_TIME =
-      new DateTimeFormatter("yyyy-MM-dd'T'HH:mm:ss");
+      new DateTimeFormatter("yyyy-MM-dd'T'HH:mm:ss", true);
 
   private static final String[] MONTHS = {
     "January",
@@ -44,9 +46,15 @@ public final class DateTimeFormatter {
   };
 
   private final String pattern;
+  private final boolean isoFraction;
 
   private DateTimeFormatter(String pattern) {
+    this(pattern, false);
+  }
+
+  private DateTimeFormatter(String pattern, boolean isoFraction) {
     this.pattern = pattern;
+    this.isoFraction = isoFraction;
   }
 
   public static DateTimeFormatter ofPattern(String pattern) {
@@ -123,6 +131,15 @@ public final class DateTimeFormatter {
       }
       appendField(out, c, count, date, time);
       i += count;
+    }
+    if (isoFraction && time != null && time.getNano() > 0) {
+      // Nine digits with the trailing zeros dropped: 120 ms is ".12".
+      String nanos = Integer.toString(time.getNano() + 1_000_000_000).substring(1);
+      int end = nanos.length();
+      while (end > 1 && nanos.charAt(end - 1) == '0') {
+        end--;
+      }
+      out.append('.').append(nanos.substring(0, end));
     }
     return out.toString();
   }

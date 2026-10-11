@@ -409,6 +409,19 @@ public class TimeDemo extends Application {
         "ISO_LOCAL_TIME",
         LocalTime.of(9, 5, 0).format(DateTimeFormatter.ISO_LOCAL_TIME).equals("09:05:00"));
     check(
+        "ISO_LOCAL_TIME prints a fraction with as few digits as it needs",
+        LocalTime.of(9, 5, 0, 120_000_000)
+                .format(DateTimeFormatter.ISO_LOCAL_TIME)
+                .equals("09:05:00.12")
+            && LocalTime.of(9, 5, 7, 1_500)
+                .format(DateTimeFormatter.ISO_LOCAL_TIME)
+                .equals("09:05:07.0000015"));
+    check(
+        "ISO_LOCAL_DATE_TIME",
+        LocalDateTime.of(2026, 9, 23, 9, 5, 0, 500_000_000)
+            .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+            .equals("2026-09-23T09:05:00.5"));
+    check(
         "bad letter throws",
         throwsIllegalArgument(() -> sink(DateTimeFormatter.ofPattern("yyyy b"))));
     check(
