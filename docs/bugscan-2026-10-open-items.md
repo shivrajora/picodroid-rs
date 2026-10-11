@@ -1,134 +1,106 @@
 # Handoff: the bug-scan items that still need the bench
 
 Everything host-testable from the 2026-10-10 scan is fixed and on `main` as of `54f9a219`
-(2026-10-11; the per-item record is `docs/bugscan-2026-10-follow-ups.md`). Five items remain. Four
-are RP-family hardware findings that a sim cannot reproduce or verify; one is a packer design
-question. Each entry below says what is wrong, where, how to see it, what the fix is, and how to
-know the fix is good. Nothing here is started: no branch, no partial code.
+(2026-10-11; the per-item record is `docs/bugscan-2026-10-follow-ups.md`). The five items this
+document used to hand over — four RP-family hardware findings and the packer's modified-UTF-8
+refusal — were implemented on 2026-10-11 (second pass, uncommitted at the time of writing; see the
+follow-ups record). What is left is the bench verification each item asked for, which only the
+boards with the affected part can give. Each entry below says what changed, where, and how to know
+it is good. The bench runs themselves, with recipes and expected signatures, are
+`docs/bench-handoff-2026-10-11.md`.
 
 Before touching a board: take its lease (`./scripts/device-lock.sh acquire --board NAME`), check
 `./scripts/device-lock.sh status`, and never `pkill -f probe-rs`. The `flash.sh`, `pdb.sh` and
 `hil-run.sh` scripts take the lease themselves when given `--board`.
 
-## A1. The SPI ISR refills nine bytes against an eight-deep RX FIFO
+## A1. The SPI ISR refilled nine bytes against an eight-deep RX FIFO — fixed, bench pending
 
-**Severity.** Medium. It is the shape of the "short read" the driver already tolerates, so the
-symptom is a wasted poll (one sample lost, a log line once per boot), not a hang. Under USB load
-it can fire on every touch poll.
-
-**Where.** `platforms/rp/src/hal/rp/spi/mod.rs`, the ISR macro: step 3 ("Refill TX FIFO") loops
-while `tx_idx < len && TNF`, i.e. bounded only by TX-FIFO-not-full; step 5 clears RORIC/RTIC
-(`sspicr = 0x03`) without reading RORIS first. The tolerant fallback is `controller_finished` in
-`spi/xfer.rs`, used from the wait loop in `mod.rs` (`SHORT_READ_REPORTED`).
-
-**Why it overruns.** After the 8-byte seed the TX interrupt asserts with four bytes still in
-flight. The ISR drains three RX bytes and refills TX to full, so nine bytes are outstanding
-against an eight-deep RX FIFO. Any ISR latency of five byte-times or more loses one byte; the USB
-ISR at the same NVIC priority writing a 64-byte packet byte by byte is enough. Step 5 then erases
-the evidence.
-
-**Fix.** Bound the refill by outstanding bytes, as pico-sdk's `spi_write_read_blocking` does:
-refill while `state.tx_idx - state.rx_idx < SPI_FIFO_DEPTH` (the constant already exists) in
-addition to TNF. Optionally read `sspris().roris()` before the clear in step 5 and count overruns
-into a diagnostic counter next to `SHORT_READ_REPORTED`, so the fallback's firing becomes
-attributable.
+**What changed.** `platforms/rp/src/hal/rp/spi/mod.rs`: step 3 of the ISR refills while
+`xfer::may_queue_tx(tx_idx, rx_idx, len)` (`tx_idx - rx_idx < SPI_FIFO_DEPTH`) and TNF, the bound
+pico-sdk's `spi_write_read_blocking` keeps, so at most eight bytes are ever outstanding. A new
+step 0 reads `SSPRIS.RORRIS` before anything clears it and counts into `RX_OVERRUNS`; the
+once-per-boot short-read line now prints that count, so a fallback that fires is attributable (a
+short read with the count at 0 is not the FIFO losing a byte). Unit tests in `spi/xfer.rs`
+(`the_refill_*`) pin the bound, including the nine-byte case from the scan.
 
 **Verify.** `testbench_rp2350` (XPT2046 touch on SPI, polled from the UI task) with pdb traffic
 running: flash any touch app (`./scripts/flash.sh --board testbench_rp2350 --app qa_ui`), then in
 a second shell drive `./scripts/pdb.sh --board testbench_rp2350 ...` commands in a loop (a
-`devices` or `ls` every 200 ms) while touching. Before the fix the RTT log shows the once-per-boot
-short-read line early; after the fix it should not appear for a session of several minutes, and
-the overrun counter (if added) should stay at 0. The unit tests in `spi/xfer.rs` cover
-`controller_finished` only; add one for the refill bound if the bound is factored into a pure
-function.
+`devices` or `ls` every 200 ms) while touching. Before the fix the RTT log showed the
+once-per-boot short-read line early; after it the line should not appear for a session of several
+minutes, and if it does, the overrun count in it says whether the FIFO was involved.
 
-## A2. The display SPI clock is programmed at 75 MHz when 62.5 MHz is asked for
+## A2. The display SPI clock was programmed at 75 MHz when 62.5 MHz was asked for — fixed (option b)
 
-**Severity.** Medium, and a product decision rather than a code defect. The ST7789V's write cycle
-is 16 ns (62.5 MHz); the panels run at 75 MHz today and visibly work.
+**What changed.** The six RP2350 boards' `[display] spi_freq` (`pico_enviro_mon`,
+`pico_enviro_mon_w`, `pico_display2_w`, `pico_touch_kit`, `testbench_rp2350` and
+`testbench_rp2350w`) now say `75000000`, the rate they have always run at; `testbench_rp2040`
+(PCLK 125 MHz, where 62.5 MHz is exact) is unchanged. `spi/xfer.rs` gained `const fn`
+`achieved_hz` / `is_exact_hz`, and `hal/rp/display.rs` has a `const` assert that refuses a
+`spi_freq` the chip cannot program exactly, so a rounded-up panel clock cannot recur silently. The
+touch rate (2 MHz, 2.03 MHz programmed) is deliberately not checked. No bus rate changed, so no
+page-turn timing moved.
 
-**Where.** `platforms/rp/src/hal/rp/spi/xfer.rs::clock_divisors`:
-`scr = pclk / (2 * freq) - 1` floors, which picks the divisor giving at least the requested rate.
-At PCLK 150 MHz (every RP2350 board) `spi_freq = 62500000` gives SCR 0, i.e. 75 MHz. The boards
-that set it: `pico_enviro_mon`, `pico_enviro_mon_w`, `pico_display2_w`, `pico_touch_kit`,
-`testbench_rp2350` (`[display] spi_freq` in each `board.toml`). On `testbench_rp2040` PCLK is
-125 MHz, so the same formula gives 62.5 MHz exactly; it is not affected. The unit test next to
-`clock_divisors` re-derives the same formula and does not pin the intent.
+**Verify.** Nothing to measure: the programmed divisor is identical before and after. Flash any
+RP2350 board and look at the panel; a `./scripts/parity-bench.sh --hil --board pico_touch_kit`
+(graphicsbench) run should match the last one. The 75 MHz overclock of the ST7789V's 16 ns write
+cycle is now a documented choice (`docs/designs/scroll-performance-2026-09.md` §9); the day a
+panel shows artifacts, the legal rates below it at this PCLK are 37.5 and 25 MHz.
 
-**Options.** (a) Round up the divisor (`div_ceil`), which drops those displays to 37.5 MHz, the
-only legal rate below 75 at this PCLK (75, 37.5, 25). Expect a visible page-turn slowdown; the
-2026-09 scroll-performance work found render and SPI time split roughly 2:1, so SPI time would
-about double. (b) Keep 75 MHz and make the configuration honest: set the five `spi_freq` values to
-`75000000` and change `clock_divisors` to refuse (build-time panic) a frequency it cannot hit
-exactly, so this cannot recur silently. (c) Leave as is and document the overclock.
+## A3. XPT2046 samples were decoded as 11-bit values — fixed, bench pending
 
-**Recommendation.** (b), unless a panel shows artifacts. The panels have run at 75 MHz through
-every nightly since the boards were brought up.
+**What changed.** `crates/pd-drivers/src/xpt2046.rs::decode` takes bits 14..3 of the two result
+bytes (`((b1 << 8 | b2) >> 3) & 0x0FFF`), the chip's layout; the six `cal_*` values of
+`testbench_rp2040`, `testbench_rp2350` and `testbench_rp2350w` were doubled (`3940 / 370 /
+220 / 3900`), the driver's low noise-rejection bound went from 100 to 200 (the same threshold in
+the new units; the high bound of 4000 was already in 12-bit units and now has effect), and the
+`FakeBus` test plus the sim's `FakeXptSpi` (`picodroid-core/src/hal/sim/touch.rs`) encode the
+chip's layout. A calibration written down before 2026-10-11 is in the old, halved units.
 
-**Verify.** `./scripts/parity-bench.sh --hil --board pico_touch_kit` (graphicsbench) before and
-after, and a `./scripts/sim-shot.sh`-style capture is not useful here; look at the panel. If (a)
-is chosen, re-measure `picoclock` page turns on the touch kit and update
-`docs/designs/ram-headroom`'s fade timing if it regresses.
+**Verify.** Touch the four corners and the centre by hand on one testbench board and check the
+`[touch]` log coordinates land within a few pixels of the panel edges; `qa_ui` / `keynav` via the
+sim-ctrl taps are not enough (they inject coordinates past the driver). One board per family is
+enough; the three tables are identical. If an edge is dead by a few pixels, recalibrate with the
+raw coordinates logged rather than re-halving anything.
 
-## A3. XPT2046 samples are decoded as 11-bit values
+## A4. `finish_isr_xfer!` judged a DMA write by the previous ISR transfer's state — fixed, confirmed and verified on `pico_display2_w`
 
-**Severity.** Low. Everything is consistent today: the decode discards the LSB and every board's
-calibration table was captured against the halved range, so nothing mis-maps. It costs one bit of
-touch resolution and makes the `cal_*` numbers mysterious to anyone reading the datasheet.
+**What changed.** `SpiOp` has a `DmaWrite` kind; `write_raw_start` records it (and resets the
+byte counters) before `dma::start_write`, and the wait loop asks `xfer::transfer_finished`, which
+dispatches on the kind: the ISR path keeps `controller_finished`, the DMA path needs both DMA
+channels retired (`dma::busy`), the TX FIFO empty (`TFE`) and the shifter idle, and an `Idle`
+kind is never "finished here" (the credit is about to be taken). `finish_isr_xfer!` sets the kind
+back to `Idle` on every exit. The once-per-boot line distinguishes the two kinds. Unit tests in
+`spi/xfer.rs` (`a_dma_write_*`, `*_judged_by_the_channels_*`) cover the predicate.
 
-**Where.** `crates/pd-drivers/src/xpt2046.rs::decode`: `(frame[1] << 4) | (frame[2] >> 4)` is
-the 12-bit sample shifted right by one. The 12-bit decode is `((frame[1] as u16) << 8 | frame[2]
-as u16) >> 3 & 0x0FFF`. The calibration tables are in `[touch]` of `testbench_rp2040`,
-`testbench_rp2350` and `testbench_rp2350w` (`cal_x_min = 1970`, `cal_x_max = 185`, and the y
-pair). `pico_touch_kit` uses a GT911 over I2C and is unaffected. The `FakeBus` test in
-`xpt2046.rs` encodes the current layout and must change with it.
+**What the bench showed (2026-10-11, `pico_display2_w`).** With the kind-aware predicate alone,
+`graphicsbench` logged the new "DMA write of 12800 bytes retired without its completion
+interrupt" line once per run, three runs out of three, always during the text-and-fill section.
+The nightlies had been logging the same event for a week as `spi0: transfer finished with 0 of 0
+bytes read back` (the stale, empty ISR state), so the suspicion was real. The cause is a gap, not
+a lost interrupt: a 12.8 KB band at 75 MHz takes 1.4 ms, the waiter's `take` is two ticks and can
+expire after one, and a band that ends between the timeout and the register read has already
+given its credit, which the fallback then threw away as stale. The wait now tries a zero-length
+`take` before believing the fallback; with that, two full `graphicsbench` runs (through to the
+60 s display doze) logged nothing, with a score of 11,546 against 12,037 before (a different
+link; within the rebuild spread `docs/perf-campaign-2026-08.md` measured). The remaining question is only whether the line ever appears again; `picoclock` on
+`pico_touch_kit` over an hour is the soak that would settle it.
 
-**Fix.** Change `decode`, double the six `cal_*` values (or recalibrate: tap the four corners
-with the raw coordinates logged), update the FakeBus expectations.
+## C10c. Modified UTF-8 (CESU-8) in class and member names — supported
 
-**Verify.** `qa_ui` and `keynav` on `testbench_rp2350` via the sim-ctrl taps are not enough (they
-inject coordinates past the driver); touch the four corners and the centre by hand and check the
-`[touch]` log coordinates land within a few pixels of the panel edges. One board per family is
-enough; the three tables are identical.
+**What changed.** `tools/class-shrink/src/classfile.rs` gained `modified_utf8_to_utf8` and
+`ClassFile::normalize_utf8`, which re-encode every constant-pool `Utf8` entry (surrogate pairs to
+one four-byte sequence, the two-byte NUL to a NUL) and leave a malformed entry alone. `papk-pack`
+runs it on every class it collects, whichever shrink mode is on, and `shrink-dir` runs it before
+matching names against the map. An ASCII class comes back byte for byte (the golden
+`minimal.papk` test still holds). `class-link` still refuses what is not UTF-8 after that, which
+is now a malformed name rather than a non-ASCII one. Tests: `class-shrink` (`modified_utf8_*`,
+`normalize_*`) and `papk-pack` (`a_class_name_with_a_supplementary_character_packs`, which also
+checks the linker still refuses the unconverted bytes).
 
-## A4. `finish_isr_xfer!` judges a DMA write by the previous ISR transfer's state
-
-**Severity.** Suspected, not reproduced. If real, the effect is an aborted display band
-(a torn frame) under a momentary TX underrun.
-
-**Where.** `platforms/rp/src/hal/rp/spi/mod.rs`, the wait loop around `controller_finished(...)`
-(the `done.take(SPI_XFER_POLL_MS)` loop). `dma::start_write` never touches `SpiXferState`, so on
-the DMA band path `st.tx_idx >= st.len` describes the previous ISR transfer and the predicate
-degenerates to `!BSY && !RNE` sampled at the poll instant.
-
-**Fix.** Gate the `controller_finished` branch on the transfer kind (the ISR path only), or for
-the DMA path test the DMA channel's busy bit and the TX FIFO empty flag instead of BSY alone.
-Either way make the kind explicit in `SpiXferState` so the predicate cannot read stale state.
-
-**Verify.** `graphicsbench` and `picoclock` on `pico_touch_kit` for an hour with the
-short-read line watched: if the branch ever fires on a DMA band the log says so once per boot.
-Absence of the line after the change is the evidence. The scheduling monitor
-(`docs/scheduling-diagnostics.md`) shows whether a band ever waited the full `SPI_XFER_POLL_MS`.
-
-## C10c. Modified UTF-8 (CESU-8) in class and member names is refused at pack time
-
-**Severity.** Low. A Java identifier containing a supplementary character (an emoji in a class or
-method name) cannot be packed; the packer reports `name is not valid UTF-8`. No in-tree app does
-this.
-
-**Where.** `crates/class-link/src/classfile.rs::check_utf8`, which the link derivation applies to
-every class, member and descriptor name. The runtime reads those names as `&str` straight from
-flash without re-checking, which is why the builder refuses them rather than passing them on.
-
-**Fix.** Re-encode in the packer: `class-shrink` already rewrites constant pools
-(`tools/class-shrink/src/shrink.rs`), so a pass that converts each Utf8 entry from modified UTF-8
-(surrogate pairs, the two-byte NUL) to standard UTF-8 before linking is the natural place. Member
-names must then be re-encoded consistently in every class that references them, which the
-shrinker's rename machinery does. Add a `papk-pack` test with a class whose name holds a
-supplementary character.
-
-**Decision needed.** Whether to support this at all. The alternative is to keep the refusal and
-make the error message say "supplementary characters in names are not supported".
+**Consequence worth knowing.** String literals were re-encoded too: a literal with an emoji used to
+reach the runtime without the `LIT_UTF8` flag and resolve to nothing; it is now a UTF-8 byte
+string under the usual string model (`length()` counts its four bytes).
 
 ## Noted, not bugs
 

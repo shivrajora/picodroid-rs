@@ -8,58 +8,26 @@ closed every host-testable item; what remains needs the bench or a product decis
 
 ## Still open
 
-The actionable handoff for these — reproduction, fix, verification recipe per item — is
-`docs/bugscan-2026-10-open-items.md`.
+Nothing host-testable. The five items below were implemented on 2026-10-11 (second pass,
+`2ab9d250..e1910e27`); what remains for A1 and A3 is the bench check
+`docs/bench-handoff-2026-10-11.md` describes, which needs a testbench board with the XPT2046.
 
-### A. Device-only (needs the bench)
+### A. Device findings — fixed 2026-10-11
 
-#### A1. SPI ISR can overrun the 8-deep RX FIFO — confirmed by reading
+| Item | Status | What changed |
+| --- | --- | --- |
+| A1 SPI ISR refill overran the RX FIFO | fixed; bench check pending (`testbench_rp2350` touch under pdb load) | refill bounded by `xfer::may_queue_tx` (outstanding < `SPI_FIFO_DEPTH`); RORRIS counted into `RX_OVERRUNS` before the clear and printed in the short-read line; unit tests `the_refill_*` |
+| A2 display SPI 62.5 MHz request ran at 75 MHz | fixed (option b) | the six RP2350 `board.toml`s ask for `75000000`; `const fn is_exact_hz` + a `const` assert in `hal/rp/display.rs` refuse an inexact `spi_freq`; test `the_display_request_is_rounded_up_at_150_mhz_and_exact_at_125` |
+| A3 XPT2046 decoded 11 bits | fixed; bench check pending (corners by hand on one testbench) | 12-bit `decode`, three calibration tables doubled, `reject_lo` 100 → 200, `FakeBus` and the sim `FakeXptSpi` encode the chip's layout; tests `decode_takes_all_twelve_bits`, `full_scale_samples_reach_the_panel_edges` |
+| A4 DMA write judged by stale ISR state | fixed; confirmed real and verified on `pico_display2_w` 2026-10-11 | `SpiOp::DmaWrite` recorded by `write_raw_start`; `xfer::transfer_finished` dispatches on the kind (`dma::busy`, `TFE`, `BSY`); `Idle` never finishes; tests `a_dma_write_*`. On the bench the kind-aware line still fired once per `graphicsbench` run (the nightlies had logged it for a week as `spi0: transfer finished with 0 of 0 bytes`): a band ending in the gap between the 2-tick `take` expiring and the register read. The wait now retries a zero-length `take` before taking the fallback; two full runs after that logged nothing. |
 
-`platforms/rp/src/hal/rp/spi/mod.rs:142-147` (the step-3 refill) and `:156` (the step-5 clear).
-The refill loop is bounded only by TX-FIFO-not-full. After the 8-byte seed, TXIM asserts with
-four bytes still in flight; the ISR drains three and refills to a full TX FIFO, so nine bytes are
-outstanding against an eight-deep RX FIFO. Any ISR latency of five byte-times or more (the USB
-ISR at the same NVIC priority sending a 64-byte packet byte by byte is enough) overruns one byte,
-and step 5 clears RORIC without ever reading RORIS, so the overrun leaves no trace. This is the
-shape of the "neither overrun nor receive-timeout asserted" short read documented at `:264-273`
-and papered over by `controller_finished`.
+### C10c. Modified UTF-8 in class and member names — supported 2026-10-11
 
-Fix: bound the refill by outstanding bytes, as pico-sdk does:
-`state.tx_idx - state.rx_idx < 8` (optionally count RORIS before clearing it). Verify on the
-bench with a touch poll under USB load; the short-read fallback should stop firing.
-
-#### A2. Display SPI clock rounds up: 62.5 MHz requested, 75 MHz programmed — confirmed
-
-`platforms/rp/src/hal/rp/spi/xfer.rs:70-73`: `scr = floor(pclk / 2f) - 1` picks the divisor
-that gives at least the requested rate. At 150 MHz every RP2350 board's `spi_freq = 62500000`
-yields SCR 0, which is 75 MHz, past the ST7789V's 16 ns write cycle. The unit test next to it only
-re-derives the same formula. This is a product decision, not a one-line fix: `div_ceil` drops the
-displays to 37.5 MHz (the SSP can only do 75, 37.5, 25 MHz at this PCLK); the alternative is to
-change the four `board.toml` values to `75000000` so the number is honest. Measure page-turn time
-before choosing.
-
-#### A3. XPT2046 decode is 11-bit — confirmed by reading
-
-`crates/pd-drivers/src/xpt2046.rs:38-40`: `(b1 << 4) | (b2 >> 4)` is the 12-bit sample shifted
-right by one; the LSB is discarded and the range is 0..2047. The board calibrations
-(`cal_x_min = 1970`, `cal_x_max = 185`, …) are the usual 12-bit values halved, which is why
-nothing mis-maps. Fix is `((b1 << 8 | b2) >> 3) & 0xFFF` plus doubling the four `cal_*` values on
-each board (or recalibrating); the FakeBus test encodes the current layout and must change too.
-
-#### A4. `finish_isr_xfer!` judges a DMA write by the previous ISR transfer's state — suspected
-
-`platforms/rp/src/hal/rp/spi/mod.rs:288-295`. `dma::start_write` never touches
-`SpiXferState`, so on the DMA band path the predicate degenerates to `!BSY && !RNE`; a momentary
-TX underrun at the sample instant would declare the band done and abort it. Gate the
-`controller_finished` branch on the transfer kind, or test the RX-drain channel's busy bit.
-
-### C10c. Modified UTF-8 in class and member names — design-level
-
-`class-link` refuses CESU-8 surrogate pairs in class and member names at pack time
-(`classfile.rs::check_utf8`): a legal identifier with a supplementary character cannot be packed.
-The runtime reads names as `&str` straight from flash, so accepting them means re-encoding the
-Utf8 entries to standard UTF-8 in the packer (class-shrink already rewrites constant pools). Rare in
-practice; left open.
+`class-shrink`'s `ClassFile::normalize_utf8` (`modified_utf8_to_utf8`) re-encodes every
+constant-pool `Utf8` entry to standard UTF-8; `papk-pack` applies it to every class it collects
+and `shrink-dir` before matching the map. `class-link`'s refusal now means a malformed name. Tests
+in both crates, including that the linker still refuses the unconverted bytes. Literals with
+supplementary characters are UTF-8 byte strings now rather than unresolvable.
 
 ### Noted while fixing
 
