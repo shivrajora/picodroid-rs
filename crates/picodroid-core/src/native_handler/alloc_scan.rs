@@ -69,7 +69,6 @@ mod tests {
     /// Bump a row in the commit that adds the site and say in the message
     /// why it cannot fail on a full heap; lower it when a site goes.
     const BASELINE: &[(&str, usize)] = &[
-        ("crates/jvm/src/native/arrays.rs", 5),
         ("crates/jvm/src/native/class_obj.rs", 1),
         ("crates/jvm/src/native/string.rs", 25),
         ("crates/jvm/src/native/string_format.rs", 2),
