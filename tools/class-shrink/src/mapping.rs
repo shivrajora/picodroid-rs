@@ -222,10 +222,16 @@ fn parse(text: &str) -> io::Result<ShrinkMap> {
             let t = to.take().ok_or_else(|| {
                 io::Error::new(io::ErrorKind::InvalidData, format!("{kind} missing 'to'"))
             })?;
-            match *section {
-                Section::Class => map.classes.insert(f, t),
-                _ => map.members.insert(f, t),
+            let table = match *section {
+                Section::Class => &mut map.classes,
+                _ => &mut map.members,
             };
+            if table.insert(f.clone(), t).is_some() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("{kind} from = {f:?} appears twice"),
+                ));
+            }
             *section = Section::None;
         }
         Ok(())
@@ -279,11 +285,23 @@ fn parse(text: &str) -> io::Result<ShrinkMap> {
                         format!("line {}: expected quoted string", lineno + 1),
                     )
                 })?;
-                match k.as_str() {
-                    "from" => cur_from = Some(val),
-                    "to" => cur_to = Some(val),
-                    _ => {}
+                let slot = match k.as_str() {
+                    "from" => &mut cur_from,
+                    "to" => &mut cur_to,
+                    other => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            format!("line {}: unknown key '{other}' in a table", lineno + 1),
+                        ));
+                    }
+                };
+                if slot.is_some() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("line {}: '{k}' given twice in one table", lineno + 1),
+                    ));
                 }
+                *slot = Some(val);
                 continue;
             }
         }
@@ -351,6 +369,30 @@ mod tests {
         m.save(&td).unwrap();
         let back = ShrinkMap::load(&td).unwrap();
         assert_eq!(back.classes, m.classes);
+    }
+
+    /// A map is 1:1 by construction: a second `from` row for one original,
+    /// a key the format does not have, or `from` twice in one table were
+    /// accepted in silence (the later row winning).
+    #[test]
+    fn rejects_duplicate_originals_and_unknown_keys() {
+        let dup = "schema = 2\n\n[[class]]\nfrom = \"a/A\"\nto = \"b/A\"\n\n[[class]]\nfrom = \"a/A\"\nto = \"b/B\"\n";
+        assert!(parse(dup)
+            .unwrap_err()
+            .to_string()
+            .contains("appears twice"));
+        let unknown = "schema = 2\n\n[[class]]\nfrom = \"a/A\"\nto = \"b/A\"\nvia = \"x\"\n";
+        assert!(parse(unknown)
+            .unwrap_err()
+            .to_string()
+            .contains("unknown key 'via'"));
+        let twice = "schema = 2\n\n[[class]]\nfrom = \"a/A\"\nfrom = \"a/B\"\nto = \"b/A\"\n";
+        assert!(parse(twice)
+            .unwrap_err()
+            .to_string()
+            .contains("given twice"));
+        let ok = "schema = 2\n\n[[class]]\nfrom = \"a/A\"\nto = \"b/A\"\n\n[[class]]\nfrom = \"a/B\"\nto = \"b/B\"\n";
+        assert_eq!(parse(ok).unwrap().classes.len(), 2);
     }
 
     #[test]
