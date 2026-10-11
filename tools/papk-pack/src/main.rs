@@ -532,6 +532,12 @@ fn shrink_entry_point(args: &mut Args) -> Result<(), String> {
 /// through.
 fn validate_components(args: &Args, classes: &[(String, Vec<u8>)]) -> Result<(), String> {
     let map = args.shrink_map.as_deref();
+    // Where a chain that leaves the packed set has reached the framework:
+    // `java/…` (Object included) unshrunk; under a shrink map every
+    // `java/**` name spells `b/…`, so that namespace is the same terminal.
+    let object = shrunk_class("java/lang/Object", map)?;
+    let is_framework =
+        |c: &str| c == object || c.starts_with("java/") || (map.is_some() && c.starts_with("b/"));
     let bases = [
         (
             "activity",
@@ -567,7 +573,7 @@ fn validate_components(args: &Args, classes: &[(String, Vec<u8>)]) -> Result<(),
                     None => {
                         // A framework class: Activity/Service themselves end
                         // here as a miss, everything else is unknown to us.
-                        if c.starts_with("java/") || c == "java/lang/Object" {
+                        if is_framework(&c) {
                             return Err(format!(
                                 "manifest <{tag} android:name=\"{}\"> does not extend picodroid.app.{}",
                                 name.replace('/', "."),
@@ -1291,6 +1297,76 @@ mod pack_integration {
             theme: None,
             theme_id: None,
         }
+    }
+
+    /// A public `class <name> extends <sup>` with no members, as `javac`
+    /// lays one out.
+    fn class_extending(name: &[u8], sup: &[u8]) -> Vec<u8> {
+        let mut out: Vec<u8> = vec![0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34];
+        out.extend_from_slice(&5u16.to_be_bytes());
+        out.extend_from_slice(&[0x07, 0x00, 0x02]); // #1 Class -> #2
+        out.push(0x01);
+        out.extend_from_slice(&(name.len() as u16).to_be_bytes());
+        out.extend_from_slice(name);
+        out.extend_from_slice(&[0x07, 0x00, 0x04]); // #3 Class -> #4
+        out.push(0x01);
+        out.extend_from_slice(&(sup.len() as u16).to_be_bytes());
+        out.extend_from_slice(sup);
+        out.extend_from_slice(&0x0021u16.to_be_bytes());
+        out.extend_from_slice(&[0x00, 0x01, 0x00, 0x03]); // this, super
+        out.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0]); // no interfaces, fields, methods, attributes
+        out
+    }
+
+    /// Under a shrink map the framework classes spell `b/…`, so a declared
+    /// Activity whose chain leaves the packed set into that namespace
+    /// without reaching `Activity` is the same refusal the unshrunk
+    /// `java/…` miss is. It used to be accepted in a release build.
+    #[test]
+    fn a_declared_activity_extending_a_shrunk_framework_class_is_refused() {
+        let work = std::env::temp_dir().join(format!("papk-pack-vc-{}", std::process::id()));
+        fs::create_dir_all(&work).unwrap();
+        let map = work.join("map.toml");
+        fs::write(
+            &map,
+            "schema = 2\n\n[[class]]\nfrom = \"java/lang/Object\"\nto = \"b/AK\"\n\n[[class]]\nfrom = \"picodroid/app/Activity\"\nto = \"b/A\"\n",
+        )
+        .unwrap();
+        let mut args = fixture_args(&work);
+        args.main_class = None;
+        args.activity = Some("demo/Main".into());
+        args.activities = vec!["demo/Main".into()];
+        args.shrink_map = Some(map);
+
+        let not_an_activity = vec![(
+            "demo/Main".to_string(),
+            class_extending(b"demo/Main", b"b/Q"),
+        )];
+        let err = validate_components(&args, &not_an_activity).unwrap_err();
+        assert!(
+            err.contains("does not extend picodroid.app.Activity"),
+            "{err}"
+        );
+
+        let an_activity = vec![(
+            "demo/Main".to_string(),
+            class_extending(b"demo/Main", b"b/A"),
+        )];
+        validate_components(&args, &an_activity).expect("extends the shrunk Activity");
+
+        // Unshrunk, the same two shapes.
+        args.shrink_map = None;
+        let plain = vec![(
+            "demo/Main".to_string(),
+            class_extending(b"demo/Main", b"java/util/ArrayList"),
+        )];
+        assert!(validate_components(&args, &plain).is_err());
+        let plain_ok = vec![(
+            "demo/Main".to_string(),
+            class_extending(b"demo/Main", b"picodroid/app/Activity"),
+        )];
+        validate_components(&args, &plain_ok).unwrap();
+        fs::remove_dir_all(&work).ok();
     }
 
     fn square(name: &str, side: u16) -> Asset {
