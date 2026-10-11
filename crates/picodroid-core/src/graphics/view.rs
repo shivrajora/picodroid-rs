@@ -52,7 +52,12 @@ pub fn extract_handle_at(
 }
 
 /// Extract a Java `String` argument as a Rust `&str`. Returned reference
-/// is valid for the lifetime of `strings`.
+/// is valid for the lifetime of `strings`. A `null` reads as `""`: Android's
+/// text setters (`setText(null)`, `setHint(null)`, `addItem(null)`) clear
+/// the text, and the uncatchable `InvalidReference` this used to be ended
+/// the whole callback ("Activity lifecycle error", the rest of `onCreate`
+/// skipped). The Canvas text natives, where Android throws, use
+/// [`extract_string_non_null_at`].
 pub fn extract_string_at<'s>(
     args: &[Value],
     arg_idx: usize,
@@ -60,9 +65,28 @@ pub fn extract_string_at<'s>(
 ) -> Result<&'s str, JvmError> {
     let idx = match args.get(arg_idx) {
         Some(Value::Reference(idx)) => *idx,
+        Some(Value::Null) => return Ok(""),
         _ => return Err(JvmError::InvalidReference),
     };
     strings.resolve(idx).ok_or(JvmError::InvalidReference)
+}
+
+/// [`extract_string_at`] for a String Android refuses as `null`
+/// (`Canvas.drawText`, `Paint.measureText`): a catchable
+/// `NullPointerException` instead.
+pub fn extract_string_non_null_at<'s>(
+    args: &[Value],
+    arg_idx: usize,
+    strings: &'s StringTable,
+    objects: &mut ObjectHeap,
+) -> Result<&'s str, JvmError> {
+    if matches!(args.get(arg_idx), Some(Value::Null)) {
+        let idx = objects
+            .alloc(c::java_lang_NullPointerException)
+            .ok_or(JvmError::StackOverflow)?;
+        return Err(JvmError::Exception(idx));
+    }
+    extract_string_at(args, arg_idx, strings)
 }
 
 #[inline]

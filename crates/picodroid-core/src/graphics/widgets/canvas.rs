@@ -15,7 +15,7 @@ use pico_jvm::types::{JvmError, Value};
 
 use super::super::fields;
 use super::super::lvgl::widgets::canvas::{self as lvgl_canvas, PaintSpec};
-use super::super::view::{extract_native_handle, extract_string_at};
+use super::super::view::{extract_native_handle, extract_string_non_null_at};
 
 fn arg_int(args: &[Value], i: usize) -> Result<i32, JvmError> {
     match args.get(i) {
@@ -190,14 +190,16 @@ pub fn canvas_draw_arc(args: &[Value], objects: &ObjectHeap) -> Result<Option<Va
 pub fn canvas_draw_text(
     args: &[Value],
     strings: &StringTable,
-    objects: &ObjectHeap,
+    objects: &mut ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
     let id = canvas_handle(args, objects)?;
     let paint = paint_at(args, 4, objects)?;
+    // A null text is Android's NullPointerException, checked before the
+    // unbound-canvas early return so the throw does not depend on binding.
+    let text = extract_string_non_null_at(args, 1, strings, objects)?;
     if id == 0 {
         return Ok(None);
     }
-    let text = extract_string_at(args, 1, strings)?;
     lvgl_canvas::text(id, text, arg_float(args, 2)?, arg_float(args, 3)?, &paint);
     Ok(None)
 }
@@ -224,10 +226,10 @@ pub fn paint_descent(args: &[Value], objects: &ObjectHeap) -> Result<Option<Valu
 pub fn paint_measure_text(
     args: &[Value],
     strings: &StringTable,
-    objects: &ObjectHeap,
+    objects: &mut ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
     let size = own_text_size(args, objects)?;
-    let text = extract_string_at(args, 1, strings)?;
+    let text = extract_string_non_null_at(args, 1, strings, objects)?;
     Ok(Some(Value::Float(
         lvgl_canvas::text_width(text, size) as f32
     )))
