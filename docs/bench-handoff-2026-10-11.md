@@ -3,13 +3,14 @@
 The five items of `docs/bugscan-2026-10-open-items.md` were implemented and pushed on 2026-10-11
 (`2ab9d250..e1910e27`, one commit per fix, pre-commit and the sim smoke green). One of them, A4,
 was confirmed and verified on `pico_display2_w` the same day, and its soak on `pico_touch_kit`
-(§4) ran clean that evening. Two checks remain, and both need the XPT2046 resistive panel of the
-testbench family: A1 and A3. Nothing here is blocking: the fixes
+(§4) ran clean that evening. A1 and A3 followed on 2026-10-12 on `testbench_rp2350w` and by the
+nightlies (§2, §3). **Nothing remains open**; the document stays as the record and as the recipes
+for the day a nightly shows one of the §5 signatures again. Nothing here is blocking: the fixes
 are on `main` and CI is green; these runs decide whether the handoff can be closed or whether a
 calibration or a counter needs a second look.
 
-Read in order: what already happened on the bench (§1), the two runs left (§2–§3) and the one
-done (§4), what to watch in the nightlies meanwhile (§5), and where to record the outcome (§6).
+Read in order: what happened on the bench (§1), the three checks (§2–§4), what to watch in the
+nightlies (§5), and where the outcome was recorded (§6).
 
 Before touching a board: take its lease (`./scripts/device-lock.sh acquire --board NAME`), check
 `./scripts/device-lock.sh status`, and never `pkill -f probe-rs`. `flash.sh`, `pdb.sh`,
@@ -91,13 +92,16 @@ NVIC priority is the latency source the scan named.
 The same run on `testbench_rp2040` is worth ten minutes if the board is free: the M0+ has the
 longer ISR latency.
 
-## 3. A3 — the 12-bit XPT2046 decode and the doubled tables (one testbench board) — three of five taps done
+## 3. A3 — the 12-bit XPT2046 decode and the doubled tables — done 2026-10-12 on `testbench_rp2350w`
 
-2026-10-12 on `testbench_rp2350w`: top-left (20,14), top-right (313,25), bottom-right (304,232).
-All three sit a fingertip inside the panel's edges, and none shows the halved-units failure
-(under the old tables a far-edge tap would land mid-panel or clamp to the edge). The bottom-left
-corner and the centre, the tap that pins the scale, were not reached before the probe window
-closed; they are the half-hour that remains.
+By hand with `examples/touchprobe`, two passes: top-left (20,14) then (17,9); top-right (313,25)
+then (309,9); bottom-right (304,232) then (296,229); centre (162,135). The corners sit a
+fingertip inside the panel's edges and repeat to within a few pixels; the centre is on x and
+13 px low on y, within hand placement for a resistive panel. Nothing of the halved-units failure
+(a far-edge tap would land mid-panel or clamp). The bottom-left corner is this board's soft-nav
+button (tap = BACK, hold = HOME; `soft_nav = true` in its `board.toml`), so it is the system
+bar's and a probe cannot see it, nor needs to: the other three corners cover both ends of each
+axis. The tables stay as doubled.
 
 **What changed.** The decode now takes all twelve bits and the three `[touch]` tables in
 `platforms/rp/boards/testbench_*/board.toml` were doubled (`cal_x_min 3940, cal_x_max 370,
