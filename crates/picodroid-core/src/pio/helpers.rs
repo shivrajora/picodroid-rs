@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
+use alloc::format;
 use pico_jvm::{
     heap::StringTable,
     object_heap::ObjectHeap,
     types::{JvmError, Value},
 };
+
+use crate::shrink_names::c;
 
 /// Extract the object index from the first argument (the `this` receiver).
 /// Shared by uart, spi, i2c, pwm, adc, and gpio modules.
@@ -63,4 +66,66 @@ pub fn alloc_peripheral_with_id(
         .set_field(obj_idx, id_field, Value::Int(id as i32))
         .ok_or(JvmError::StackOverflow)?;
     Ok(obj_idx)
+}
+
+/// Refuse a pad the board's own wiring owns (`board_cfg::reserved`): an
+/// `IllegalArgumentException` naming the pin and its role, so an app that
+/// drives optional hardware on a pack's spare pads can catch it and carry on
+/// without. Letting the open through would hand the display's DC line, say,
+/// to the PWM block and leave the panel showing noise.
+pub fn refuse_reserved_pin(
+    pin: u8,
+    objects: &mut ObjectHeap,
+    strings: &mut StringTable,
+) -> Result<(), JvmError> {
+    match crate::board_cfg::reserved::pin_role(pin) {
+        None => Ok(()),
+        Some(role) => {
+            crate::pd_warn!("pio: GP{} refused, it is {} on this board", pin, role);
+            Err(throw_illegal_argument(
+                objects,
+                strings,
+                &format!("GP{pin} is {role} on this board"),
+            ))
+        }
+    }
+}
+
+/// Refuse the display's SPI bus: its clock is the panel's, and a second
+/// master on it would reprogram the rate under the frame writes.
+pub fn refuse_display_spi_bus(
+    spi_id: u8,
+    objects: &mut ObjectHeap,
+    strings: &mut StringTable,
+) -> Result<(), JvmError> {
+    if !crate::board_cfg::reserved::spi_bus_is_display(spi_id) {
+        return Ok(());
+    }
+    crate::pd_warn!(
+        "pio: SPI{} refused, it is the display's bus on this board",
+        spi_id
+    );
+    Err(throw_illegal_argument(
+        objects,
+        strings,
+        &format!("SPI{spi_id} is the display's bus on this board"),
+    ))
+}
+
+/// Allocate a `java/lang/IllegalArgumentException` carrying `msg`, by name
+/// (the builtin hierarchy makes it catchable as a `RuntimeException`).
+fn throw_illegal_argument(
+    objects: &mut ObjectHeap,
+    strings: &mut StringTable,
+    msg: &str,
+) -> JvmError {
+    match objects.alloc(c::java_lang_IllegalArgumentException) {
+        Some(idx) => {
+            if let Some(midx) = strings.intern_dyn(msg.as_bytes()) {
+                let _ = objects.register_exception_message(idx, midx);
+            }
+            JvmError::Exception(idx)
+        }
+        None => JvmError::StackOverflow,
+    }
 }

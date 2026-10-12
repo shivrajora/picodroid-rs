@@ -6,7 +6,7 @@ use pico_jvm::{
 };
 
 use super::super::fields;
-use super::super::helpers::{alloc_peripheral_with_id, extract_device_name};
+use super::super::helpers::{alloc_peripheral_with_id, extract_device_name, refuse_reserved_pin};
 use crate::shrink_names::c;
 
 /// Parses a "GPx" name string, allocates a Pwm object with default config (1 kHz, 0% duty,
@@ -14,7 +14,7 @@ use crate::shrink_names::c;
 /// args[0] = PeripheralManager ObjectRef (receiver), args[1] = Reference to "GPx" string
 pub fn open_pwm(
     args: &[Value],
-    strings: &StringTable,
+    strings: &mut StringTable,
     objects: &mut ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
     let name = extract_device_name(args, strings)?;
@@ -26,6 +26,8 @@ pub fn open_pwm(
         .ok()
         .filter(|&p| p <= 29)
         .ok_or(JvmError::InvalidReference)?;
+
+    refuse_reserved_pin(pin, objects, strings)?;
 
     let obj_idx = alloc_peripheral_with_id(objects, c::picodroid_pio_Pwm, fields::pwm::PIN, pin)?;
 
@@ -66,7 +68,7 @@ mod tests {
         let ref_idx = strings.intern(GP0).expect("intern GP0");
         let result = open_pwm(
             &[Value::ObjectRef(0), Value::Reference(ref_idx)],
-            &strings,
+            &mut strings,
             &mut objects,
         );
         let idx = match result {
@@ -98,7 +100,7 @@ mod tests {
         let ref_idx = strings.intern(GP25).expect("intern GP25");
         let result = open_pwm(
             &[Value::ObjectRef(0), Value::Reference(ref_idx)],
-            &strings,
+            &mut strings,
             &mut objects,
         );
         let idx = match result {
@@ -118,10 +120,31 @@ mod tests {
         let ref_idx = strings.intern(GP29).expect("intern GP29");
         let result = open_pwm(
             &[Value::ObjectRef(0), Value::Reference(ref_idx)],
-            &strings,
+            &mut strings,
             &mut objects,
         );
         assert!(matches!(result, Ok(Some(Value::ObjectRef(_)))));
+    }
+
+    /// On a board build the table names the display's DC line and the rest;
+    /// a boardless host build reserves nothing and this proves only that.
+    #[test]
+    fn open_pwm_refuses_a_pad_the_board_owns() {
+        for &(pin, _) in crate::board_cfg::reserved::RESERVED_PINS {
+            let mut strings = StringTable::new();
+            let mut objects = ObjectHeap::new();
+            let name = alloc::format!("GP{pin}");
+            let ref_idx = strings.intern_dyn(name.as_bytes()).expect("intern");
+            let result = open_pwm(
+                &[Value::ObjectRef(0), Value::Reference(ref_idx)],
+                &mut strings,
+                &mut objects,
+            );
+            assert!(
+                matches!(result, Err(JvmError::Exception(_))),
+                "GP{pin} must be refused with an exception, got {result:?}"
+            );
+        }
     }
 
     #[test]
@@ -131,7 +154,7 @@ mod tests {
         let ref_idx = strings.intern(GP30).expect("intern GP30");
         let result = open_pwm(
             &[Value::Null, Value::Reference(ref_idx)],
-            &strings,
+            &mut strings,
             &mut objects,
         );
         assert_eq!(result, Err(JvmError::InvalidReference));
@@ -144,7 +167,7 @@ mod tests {
         let ref_idx = strings.intern(SPI0).expect("intern SPI0");
         let result = open_pwm(
             &[Value::Null, Value::Reference(ref_idx)],
-            &strings,
+            &mut strings,
             &mut objects,
         );
         assert_eq!(result, Err(JvmError::InvalidReference));
@@ -157,7 +180,7 @@ mod tests {
         let ref_idx = strings.intern(EMPTY).expect("intern empty");
         let result = open_pwm(
             &[Value::Null, Value::Reference(ref_idx)],
-            &strings,
+            &mut strings,
             &mut objects,
         );
         assert_eq!(result, Err(JvmError::InvalidReference));
@@ -165,9 +188,9 @@ mod tests {
 
     #[test]
     fn open_pwm_invalid_ref_type_returns_error() {
-        let strings = StringTable::new();
+        let mut strings = StringTable::new();
         let mut objects = ObjectHeap::new();
-        let result = open_pwm(&[Value::Null, Value::Int(0)], &strings, &mut objects);
+        let result = open_pwm(&[Value::Null, Value::Int(0)], &mut strings, &mut objects);
         assert_eq!(result, Err(JvmError::InvalidReference));
     }
 }

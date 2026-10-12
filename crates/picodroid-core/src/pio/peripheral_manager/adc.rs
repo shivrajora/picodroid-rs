@@ -6,14 +6,14 @@ use pico_jvm::{
 };
 
 use super::super::fields;
-use super::super::helpers::{alloc_peripheral_with_id, extract_device_name};
+use super::super::helpers::{alloc_peripheral_with_id, extract_device_name, refuse_reserved_pin};
 use crate::shrink_names::c;
 
 /// Parses a "GPx" name string (GP26–GP29), allocates an Adc object, and initializes the hardware.
 /// args[0] = PeripheralManager ObjectRef (receiver), args[1] = Reference to "GPx" string
 pub fn open_adc(
     args: &[Value],
-    strings: &StringTable,
+    strings: &mut StringTable,
     objects: &mut ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
     let name = extract_device_name(args, strings)?;
@@ -24,6 +24,8 @@ pub fn open_adc(
     if !(26..=29).contains(&pin) {
         return Err(JvmError::InvalidReference);
     }
+
+    refuse_reserved_pin(pin, objects, strings)?;
 
     let obj_idx = alloc_peripheral_with_id(objects, c::picodroid_pio_Adc, fields::adc::PIN, pin)?;
 
@@ -55,7 +57,7 @@ mod tests {
         let ref_idx = strings.intern(GP26).expect("intern GP26");
         let result = open_adc(
             &[Value::ObjectRef(0), Value::Reference(ref_idx)],
-            &strings,
+            &mut strings,
             &mut objects,
         );
         let idx = match result {
@@ -75,7 +77,7 @@ mod tests {
         let ref_idx = strings.intern(GP27).expect("intern GP27");
         let result = open_adc(
             &[Value::ObjectRef(0), Value::Reference(ref_idx)],
-            &strings,
+            &mut strings,
             &mut objects,
         );
         let idx = match result {
@@ -95,7 +97,7 @@ mod tests {
         let ref_idx = strings.intern(GP28).expect("intern GP28");
         let result = open_adc(
             &[Value::ObjectRef(0), Value::Reference(ref_idx)],
-            &strings,
+            &mut strings,
             &mut objects,
         );
         assert!(matches!(result, Ok(Some(Value::ObjectRef(_)))));
@@ -108,7 +110,7 @@ mod tests {
         let ref_idx = strings.intern(GP29).expect("intern GP29");
         let result = open_adc(
             &[Value::ObjectRef(0), Value::Reference(ref_idx)],
-            &strings,
+            &mut strings,
             &mut objects,
         );
         assert!(matches!(result, Ok(Some(Value::ObjectRef(_)))));
@@ -121,7 +123,7 @@ mod tests {
         let ref_idx = strings.intern(GP25).expect("intern GP25");
         let result = open_adc(
             &[Value::Null, Value::Reference(ref_idx)],
-            &strings,
+            &mut strings,
             &mut objects,
         );
         assert_eq!(result, Err(JvmError::InvalidReference));
@@ -134,7 +136,7 @@ mod tests {
         let ref_idx = strings.intern(GP30).expect("intern GP30");
         let result = open_adc(
             &[Value::Null, Value::Reference(ref_idx)],
-            &strings,
+            &mut strings,
             &mut objects,
         );
         assert_eq!(result, Err(JvmError::InvalidReference));
@@ -147,7 +149,7 @@ mod tests {
         let ref_idx = strings.intern(SPI0).expect("intern SPI0");
         let result = open_adc(
             &[Value::Null, Value::Reference(ref_idx)],
-            &strings,
+            &mut strings,
             &mut objects,
         );
         assert_eq!(result, Err(JvmError::InvalidReference));
@@ -160,7 +162,7 @@ mod tests {
         let ref_idx = strings.intern(EMPTY).expect("intern empty");
         let result = open_adc(
             &[Value::Null, Value::Reference(ref_idx)],
-            &strings,
+            &mut strings,
             &mut objects,
         );
         assert_eq!(result, Err(JvmError::InvalidReference));
@@ -168,9 +170,9 @@ mod tests {
 
     #[test]
     fn open_adc_invalid_ref_type_returns_error() {
-        let strings = StringTable::new();
+        let mut strings = StringTable::new();
         let mut objects = ObjectHeap::new();
-        let result = open_adc(&[Value::Null, Value::Int(0)], &strings, &mut objects);
+        let result = open_adc(&[Value::Null, Value::Int(0)], &mut strings, &mut objects);
         assert_eq!(result, Err(JvmError::InvalidReference));
     }
 }

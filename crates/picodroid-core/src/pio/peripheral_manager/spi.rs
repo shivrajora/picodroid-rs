@@ -6,7 +6,9 @@ use pico_jvm::{
 };
 
 use super::super::fields;
-use super::super::helpers::{alloc_peripheral_with_id, extract_device_name, parse_bus_id};
+use super::super::helpers::{
+    alloc_peripheral_with_id, extract_device_name, parse_bus_id, refuse_display_spi_bus,
+};
 use crate::shrink_names::c;
 
 /// Parses a "SPIx" name string, allocates a SpiDevice object with default config (1 MHz, MODE_0),
@@ -14,11 +16,12 @@ use crate::shrink_names::c;
 /// args[0] = PeripheralManager ObjectRef (receiver), args[1] = Reference to "SPIx" string
 pub fn open_spi(
     args: &[Value],
-    strings: &StringTable,
+    strings: &mut StringTable,
     objects: &mut ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
     let name = extract_device_name(args, strings)?;
     let spi_id = parse_bus_id(name, "SPI")?;
+    refuse_display_spi_bus(spi_id, objects, strings)?;
 
     let obj_idx = alloc_peripheral_with_id(
         objects,
@@ -47,6 +50,27 @@ mod tests {
     use super::*;
     use pico_jvm::{heap::StringTable, object_heap::ObjectHeap, types::Value};
 
+    /// The display's bus is refused on a board build; boardless, none is.
+    #[test]
+    fn open_spi_refuses_the_display_bus() {
+        let Some(id) = crate::board_cfg::reserved::DISPLAY_SPI_ID else {
+            return;
+        };
+        let mut strings = StringTable::new();
+        let mut objects = ObjectHeap::new();
+        let name = alloc::format!("SPI{id}");
+        let ref_idx = strings.intern_dyn(name.as_bytes()).expect("intern");
+        let result = open_spi(
+            &[Value::ObjectRef(0), Value::Reference(ref_idx)],
+            &mut strings,
+            &mut objects,
+        );
+        assert!(
+            matches!(result, Err(JvmError::Exception(_))),
+            "got {result:?}"
+        );
+    }
+
     static SPI0_NAME: &[u8] = b"SPI0";
     static SPI1_NAME: &[u8] = b"SPI1";
     static SPI_BAD_ID: &[u8] = b"SPI2";
@@ -59,7 +83,7 @@ mod tests {
         let ref_idx = strings.intern(SPI0_NAME).expect("intern SPI0");
         let result = open_spi(
             &[Value::ObjectRef(0), Value::Reference(ref_idx)],
-            &strings,
+            &mut strings,
             &mut objects,
         );
         let idx = match result {
@@ -87,7 +111,7 @@ mod tests {
         let ref_idx = strings.intern(SPI1_NAME).expect("intern SPI1");
         let result = open_spi(
             &[Value::ObjectRef(0), Value::Reference(ref_idx)],
-            &strings,
+            &mut strings,
             &mut objects,
         );
         let idx = match result {
@@ -107,7 +131,7 @@ mod tests {
         let ref_idx = strings.intern(SPI_BAD_ID).expect("intern SPI2");
         let result = open_spi(
             &[Value::Null, Value::Reference(ref_idx)],
-            &strings,
+            &mut strings,
             &mut objects,
         );
         assert_eq!(result, Err(JvmError::InvalidReference));
@@ -120,7 +144,7 @@ mod tests {
         let ref_idx = strings.intern(SPI_NO_PREFIX).expect("intern I2C0");
         let result = open_spi(
             &[Value::Null, Value::Reference(ref_idx)],
-            &strings,
+            &mut strings,
             &mut objects,
         );
         assert_eq!(result, Err(JvmError::InvalidReference));
@@ -128,9 +152,9 @@ mod tests {
 
     #[test]
     fn open_spi_invalid_ref_type_returns_error() {
-        let strings = StringTable::new();
+        let mut strings = StringTable::new();
         let mut objects = ObjectHeap::new();
-        let result = open_spi(&[Value::Null, Value::Int(0)], &strings, &mut objects);
+        let result = open_spi(&[Value::Null, Value::Int(0)], &mut strings, &mut objects);
         assert_eq!(result, Err(JvmError::InvalidReference));
     }
 }

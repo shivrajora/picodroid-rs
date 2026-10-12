@@ -33,6 +33,17 @@ Adc adc         = pm.openAdcPin("GP26");
 
 A name outside these forms is rejected: the call fails instead of returning a handle. Opening a bus, a PWM pin or an ADC pin also initialises the hardware with its defaults, given with each class below.
 
+A pad the board's own wiring owns is refused too, with an `IllegalArgumentException` that names the line: the display's DC, chip-select, reset, backlight and SPI pads, the touch controller's, every hardware button and the buzzer, as `board.toml` declares them, and `openSpiDevice` on the display's bus. The same pin number is a spare pad on one board and the display's DC line on another (GP8 on the Display Pack 2.0 is its RGB LED; on the testbench it is DC), so an app that drives optional hardware catches the exception and runs without it:
+
+```java
+Pwm blue;
+try {
+  blue = pm.openPwm("GP8");
+} catch (IllegalArgumentException e) {
+  blue = null;   // not this board's LED
+}
+```
+
 Every handle implements `AutoCloseable` — see below.
 
 ## Resource management (`AutoCloseable`)

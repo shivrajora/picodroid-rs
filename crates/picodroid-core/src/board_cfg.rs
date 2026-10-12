@@ -111,6 +111,49 @@ pub mod buttons {
     }
 }
 
+/// The pads the board's own wiring owns and the display's SPI bus
+/// (`build_support/board_cfg.rs::emit_reserved_pins`), which
+/// `picodroid.pio.PeripheralManager` refuses to hand to an app: a PWM opened
+/// on the display's DC line leaves the panel showing noise with nothing in
+/// the log to say why (claudeusage's RGB LED on the testbench, 2026-10-12).
+pub mod reserved {
+    include!(concat!(env!("OUT_DIR"), "/reserved_pins.rs"));
+
+    /// What `pin` is to this board, or `None` when an app may take it.
+    pub fn pin_role(pin: u8) -> Option<&'static str> {
+        role_in(RESERVED_PINS, pin)
+    }
+
+    /// Whether SPI bus `id` is the one the display is on.
+    pub fn spi_bus_is_display(id: u8) -> bool {
+        DISPLAY_SPI_ID == Some(id)
+    }
+
+    pub(crate) fn role_in(table: &[(u8, &'static str)], pin: u8) -> Option<&'static str> {
+        table
+            .iter()
+            .find(|&&(p, _)| p == pin)
+            .map(|&(_, role)| role)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::role_in;
+
+        #[test]
+        fn a_listed_pad_answers_its_role_and_a_spare_one_none() {
+            let table: &[(u8, &str)] = &[
+                (8, "the display's DC line"),
+                (12, "the touch controller's MISO line"),
+            ];
+            assert_eq!(role_in(table, 8), Some("the display's DC line"));
+            assert_eq!(role_in(table, 12), Some("the touch controller's MISO line"));
+            assert_eq!(role_in(table, 6), None);
+            assert_eq!(role_in(&[], 8), None);
+        }
+    }
+}
+
 /// The board's input profile (docs/designs/app-portability-2026-10.md K1–K4):
 /// whether keys move a focus ring, which system keys exist, whether the
 /// framework draws the soft-nav control, and how long BACK is held for HOME.

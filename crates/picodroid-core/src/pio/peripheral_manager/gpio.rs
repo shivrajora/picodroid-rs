@@ -6,14 +6,14 @@ use pico_jvm::{
 };
 
 use super::super::fields;
-use super::super::helpers::{alloc_peripheral_with_id, extract_device_name};
+use super::super::helpers::{alloc_peripheral_with_id, extract_device_name, refuse_reserved_pin};
 use crate::shrink_names::c;
 
 /// Parses a "GPxx" name string and allocates a Gpio object on the heap.
 /// args[0] = PeripheralManager ObjectRef (receiver), args[1] = Reference to "GPxx" string
 pub fn open_gpio(
     args: &[Value],
-    strings: &StringTable,
+    strings: &mut StringTable,
     objects: &mut ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
     let name = extract_device_name(args, strings)?;
@@ -28,6 +28,8 @@ pub fn open_gpio(
         }
         pin = pin.wrapping_mul(10).wrapping_add(d);
     }
+
+    refuse_reserved_pin(pin, objects, strings)?;
 
     let obj_idx = alloc_peripheral_with_id(objects, c::picodroid_pio_Gpio, fields::gpio::PIN, pin)?;
 
@@ -51,7 +53,7 @@ mod tests {
         let ref_idx = strings.intern(GP25).expect("intern GP25");
         let result = open_gpio(
             &[Value::ObjectRef(0), Value::Reference(ref_idx)],
-            &strings,
+            &mut strings,
             &mut objects,
         );
         let idx = match result {
@@ -71,7 +73,7 @@ mod tests {
         let ref_idx = strings.intern(GP0).expect("intern GP0");
         let result = open_gpio(
             &[Value::ObjectRef(0), Value::Reference(ref_idx)],
-            &strings,
+            &mut strings,
             &mut objects,
         );
         let idx = match result {
@@ -86,9 +88,9 @@ mod tests {
 
     #[test]
     fn open_gpio_invalid_ref_type_returns_error() {
-        let strings = StringTable::new();
+        let mut strings = StringTable::new();
         let mut objects = ObjectHeap::new();
-        let result = open_gpio(&[Value::Null, Value::Int(0)], &strings, &mut objects);
+        let result = open_gpio(&[Value::Null, Value::Int(0)], &mut strings, &mut objects);
         assert_eq!(result, Err(JvmError::InvalidReference));
     }
 
@@ -99,7 +101,7 @@ mod tests {
         let ref_idx = strings.intern(NO_PREFIX).expect("intern NO_PREFIX");
         let result = open_gpio(
             &[Value::Null, Value::Reference(ref_idx)],
-            &strings,
+            &mut strings,
             &mut objects,
         );
         assert_eq!(result, Err(JvmError::InvalidReference));
@@ -112,7 +114,7 @@ mod tests {
         let ref_idx = strings.intern(BAD_DIGIT).expect("intern BAD_DIGIT");
         let result = open_gpio(
             &[Value::Null, Value::Reference(ref_idx)],
-            &strings,
+            &mut strings,
             &mut objects,
         );
         assert_eq!(result, Err(JvmError::InvalidReference));

@@ -34,7 +34,7 @@ public final class RgbLed implements AutoCloseable {
       led.setColor(0);
       return led;
     } catch (RuntimeException e) {
-      Log.i(TAG, "no RGB LED: " + e);
+      Log.i(TAG, "no RGB LED: " + e.getMessage());
       return new RgbLed(null, null, null);
     }
   }
