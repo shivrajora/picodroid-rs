@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest package="touchprobe" version="1.0">
+    <application activity="touchprobe/TouchProbeActivity" label="Touch probe" />
+</manifest>

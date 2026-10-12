@@ -40,7 +40,19 @@ holds the probe for all of them.
 
 So: A2 and A4 are done. A1 and A3 could not be touched on either board (no XPT2046).
 
-## 2. A1 — the SPI ISR refill bound, under pdb load (`testbench_rp2350` or `_w`, or `testbench_rp2040`)
+## 2. A1 — the SPI ISR refill bound, under pdb load — done 2026-10-12 on `testbench_rp2350w`
+
+`qa_ui` flashed with RTT attached, `pdb.sh … devices` every 200 ms for five minutes (900 calls,
+none failed), the panel polled idle throughout: no `spi1: transfer finished` line. Where the
+nightlies actually printed it, though, was not under pdb load: on this slot it was the net rows
+(`https_get`, `netdemo`, `http_get`, 2026-10-09 to 10-11, so the cyw43 interrupt traffic is the
+latency source that matters) and on `testbench_rp2040` it was `qa_life` (301 lines on
+2026-10-01, before the once-per-boot cap). The nightlies settled it: the 2026-10-12 04:00 `hil-fleet.sh` run, the first on a tree with
+the fix (`23fe9f35`), printed the line in none of `testbench_rp2040`'s logs where the three
+nights before had it in 27–28 app logs each, and in none of the W slot's 326 logs (net rows
+included) where 10-10 and 10-11 had 4 and 1. `qa_life` re-run twice on `testbench_rp2040` the
+same morning: none. (`qa_life` itself fails there with a `Thread.start` OOM, as it has in every
+nightly since at least 10-11; unrelated.)
 
 **What to look for.** The once-per-boot line
 
@@ -87,28 +99,17 @@ cal_y_min 220, cal_y_max 3900`). The sim synthesises frames in the same layout a
 `keynav`/`qa_ui` rows pass, but those inject coordinates past the panel; only a finger shows
 whether the doubled numbers put the edges where the panel's edges are.
 
-**Run.** Scripted taps are not enough; use a probe that prints what the panel reports. A
-ten-line app does it (apps import `picodroid.*`):
+**Run.** Scripted taps are not enough; `examples/touchprobe` prints what the panel reports: one
+full-screen view whose `OnTouchListener` logs every touch-down as `TouchProbe: down x,y` in panel
+pixels (an unsized content root is the window, so `getX`/`getY` are screen coordinates) and
+shows the same on the panel.
 
-```java
-public class TouchProbe extends Activity {
-  @Override protected void onCreate(Bundle b) {
-    super.onCreate(b);
-    TextView v = new TextView();
-    v.setOnTouchListener((view, e) -> {
-      if (e.getAction() == MotionEvent.ACTION_DOWN)
-        Log.i("touch", (int) e.getX() + "," + (int) e.getY());
-      return true;
-    });
-    setContentView(v);   // a content root with no size is match_parent, so getX/getY are panel pixels
-  }
-}
+```bash
+./scripts/flash.sh --board testbench_rp2350 --app touchprobe   # keeps RTT attached
 ```
 
-Flash it (`./scripts/flash.sh --board testbench_rp2350 --app touchprobe` after dropping it under
-`examples/`), tap the four corners and the centre, read the `touch:` lines over RTT. Alternatively
-`examples/gesturedemo` shows the tap position in its status label, but relative to a 220×120
-surface, so it only checks the middle of the panel.
+Tap the four corners and the centre and read the `down` lines over RTT. (`examples/gesturedemo`
+also shows tap positions, but relative to a 220×120 surface, so it only checks the middle.)
 
 **Expected.** Each corner within a few pixels of (0,0), (319,0), (319,239), (0,239); the centre
 near (160,120). The first sample after touch-down on a resistive panel lands 20–60 px off and is
@@ -154,7 +155,7 @@ line is the finding; none after an hour closes A4 on this driver too. The schedu
 | --- | --- | --- |
 | `spi0: transfer finished with 0 of 0 bytes read back` | most days on the W slot | never (the message no longer exists; its successor is `spi0: DMA write of … retired`) |
 | `spi0: DMA write of … retired without its completion interrupt` | n/a | never; one occurrence is a finding for §4 |
-| `spi1: transfer finished with 29 of 30 bytes read back` | several days a week on the W slot | ideally never; if it prints, the `RX overruns so far` count decides §2's outcome |
+| `spi1: transfer finished with 29 of 30 bytes read back` | several days a week on the W slot, nightly on `testbench_rp2040` | gone on 2026-10-12 (§2); if it ever prints, the `RX overruns so far` count says whether the FIFO was involved |
 
 `hil-email`'s new-vs-known triage will flag the reworded line as new the first time it appears.
 
