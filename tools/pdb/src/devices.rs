@@ -11,6 +11,8 @@ use serialport::SerialPortType;
 use crate::protocol::{recv_response, send_frame, CMD_PING, STATUS_OK};
 use crate::transport::{self, Link};
 
+use pdb_protocol::greeting::Greeting;
+
 // The device's descriptors are built from these same two constants, so the
 // scan and the firmware cannot disagree about what a picodroid looks like.
 use pdb_protocol::usb::{PID as PICODROID_PID, VID as PICODROID_VID};
@@ -117,7 +119,7 @@ pub fn scan_sims() -> Vec<(String, String)> {
     found
 }
 
-/// Try a quick PING on `target`. Returns the version string on success.
+/// Try a quick PING on `target`. Returns the device's [`row`] on success.
 fn probe(target: &str) -> Option<String> {
     let mut link = transport::open(target, PROBE_TIMEOUT).ok()?;
     probe_over(link.as_mut())
@@ -127,17 +129,22 @@ fn probe_over(link: &mut dyn Link) -> Option<String> {
     send_frame(link, CMD_PING, b"").ok()?;
 
     let (status, payload) = recv_response(link).ok()?;
-    if status != STATUS_OK || payload.len() < 18 {
+    if status != STATUS_OK {
         return None;
     }
+    Greeting::parse(&payload).ok().map(|g| row(&g))
+}
 
-    let version = std::str::from_utf8(&payload[..14])
-        .unwrap_or("?")
-        .trim_end_matches('\0');
-    let max_papk =
-        u32::from_le_bytes([payload[14], payload[15], payload[16], payload[17]]) as usize;
-
-    Some(format!("{version}  (max PAPK: {} KB)", max_papk / 1024))
+/// What a `devices` row says after the port: `picodroid/2.3  (pico_display2_w,
+/// max PAPK: 1020 KB)`, without the board on firmware too old to send one.
+/// `hil-run.sh` pins a board by the literal `max PAPK: N KB`; keep it.
+fn row(g: &Greeting) -> String {
+    let board = if g.board.is_empty() {
+        String::new()
+    } else {
+        format!("{}, ", g.board)
+    };
+    format!("{}  ({board}max PAPK: {} KB)", g.version, g.max_papk / 1024)
 }
 
 /// Find the first serial port matching the picodroid VID/PID.
@@ -153,4 +160,31 @@ pub fn find_by_vid_pid() -> Option<String> {
             None
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pdb_protocol::greeting::{encode, GREETING_MAX, LEGACY_GREETING_LEN, PROTOCOL_VERSION};
+
+    #[test]
+    fn a_row_names_the_board_before_the_region() {
+        let mut buf = [0u8; GREETING_MAX];
+        let n = encode(1020 * 1024, b"0.27.0", b"pico_display2_w", &mut buf);
+        let g = Greeting::parse(&buf[..n]).unwrap();
+        assert_eq!(
+            row(&g),
+            format!("{PROTOCOL_VERSION}  (pico_display2_w, max PAPK: 1020 KB)")
+        );
+    }
+
+    /// A board still on 2.2 firmware lists as it always did.
+    #[test]
+    fn a_row_without_a_board_reads_as_before() {
+        let mut raw = vec![0u8; LEGACY_GREETING_LEN + 1];
+        raw[..13].copy_from_slice(b"picodroid/2.2");
+        raw[14..18].copy_from_slice(&(1020u32 * 1024).to_le_bytes());
+        let g = Greeting::parse(&raw).unwrap();
+        assert_eq!(row(&g), "picodroid/2.2  (max PAPK: 1020 KB)");
+    }
 }

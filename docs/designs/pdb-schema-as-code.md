@@ -60,7 +60,12 @@ re-litigated:
 - **A — greeting** (`greeting.rs`): version literals (`picodroid/2.1`,
   legacy `2.0`, the `picodroid/` prefix), `encode`, `Greeting::parse`,
   `is_legacy`. Host keeps policy (what to refuse); crate owns bytes. The
-  18-byte legacy prefix is pinned by name.
+  18-byte legacy prefix is pinned by name. 2026-10-11, `picodroid/2.3`: a
+  length-prefixed board name (`build_info::BOARD`, the board.toml directory)
+  follows the framework-map-version and precedes the optional apps tail —
+  nothing can go *after* a tail whose presence is told by length — and the
+  host reads it only when `Greeting::minor() >= 3`, so `pdb devices` and
+  `pdb ping` name the board and a 2.2 image still parses, board-less.
 - **B — sysmon** (`sysmon.rs`): `SysmonSample`/`TaskSample`, layout consts,
   `compute_cpu_pct`, `encode`, `MemDiag` tail, and a host-side `SysmonView`
   replacing `tools/pdb`'s magic offsets. `response_layout_is_frozen`

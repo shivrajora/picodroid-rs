@@ -60,6 +60,9 @@ pub struct DeviceInfo {
     pub version: String,
     pub max_papk: usize,
     pub framework_map_version: String,
+    /// The board the firmware was built for; empty on firmware older than
+    /// `picodroid/2.3`, which did not say.
+    pub board: String,
     /// The package directory, on multi-app firmware.
     pub apps: Option<AppsInfo>,
 }
@@ -79,6 +82,25 @@ impl DeviceInfo {
             None => "single-app".to_string(),
         }
     }
+
+    /// The one-line description `ping` and `install` print:
+    /// `picodroid/2.3  (board: pico_display2_w, max PAPK: 1020 KB,
+    /// framework-map-version: 0.27.0, apps 3/8, …)`. The board item is left
+    /// out when the firmware did not send one.
+    pub fn describe(&self) -> String {
+        let board = if self.board.is_empty() {
+            String::new()
+        } else {
+            format!("board: {}, ", self.board)
+        };
+        format!(
+            "{}  ({board}max PAPK: {} KB, framework-map-version: {}, {})",
+            self.version,
+            self.max_papk / 1024,
+            self.framework_map_version,
+            self.apps_summary(),
+        )
+    }
 }
 
 /// Interpret a PING greeting. The layout lives in `pdb_protocol::greeting`
@@ -90,6 +112,8 @@ pub fn parse_ping_payload(payload: &[u8]) -> Result<DeviceInfo, String> {
         GreetingError::MissingFmv => "PING payload missing framework_map_version field".into(),
         GreetingError::TruncatedFmv => "PING payload truncated in framework_map_version".into(),
         GreetingError::FmvNotUtf8 => "framework_map_version is not UTF-8".into(),
+        GreetingError::TruncatedBoard => "PING payload truncated in board name".into(),
+        GreetingError::BoardNotUtf8 => "board name is not UTF-8".into(),
     })?;
 
     if g.is_legacy() {
@@ -110,6 +134,7 @@ pub fn parse_ping_payload(payload: &[u8]) -> Result<DeviceInfo, String> {
         version: g.version.to_string(),
         max_papk: g.max_papk as usize,
         framework_map_version: g.framework_map_version.to_string(),
+        board: g.board.to_string(),
         apps: g.apps,
     })
 }
@@ -232,13 +257,7 @@ pub fn run(port_name: &str, papk_path: &Path, opts: InstallOptions) {
         Err(msg) => refuse(&msg, &opts),
     };
 
-    println!(
-        "Connected: {}  (max PAPK: {} KB, framework-map-version: {}, {})",
-        device.version,
-        device.max_papk / 1024,
-        device.framework_map_version,
-        device.apps_summary(),
-    );
+    println!("Connected: {}", device.describe());
 
     // ── Validate size ─────────────────────────────────────────────────────────
     if papk.len() > device.max_papk {
@@ -444,13 +463,7 @@ pub fn ping(port_name: &str) {
 
     match recv_response(&mut *port) {
         Ok((STATUS_OK, payload)) => match parse_ping_payload(&payload) {
-            Ok(d) => println!(
-                "{}  (max PAPK: {} KB, framework-map-version: {}, {})",
-                d.version,
-                d.max_papk / 1024,
-                d.framework_map_version,
-                d.apps_summary(),
-            ),
+            Ok(d) => println!("{}", d.describe()),
             Err(e) => {
                 eprintln!("error: {e}");
                 process::exit(1);
@@ -489,7 +502,7 @@ mod tests {
 
     fn greeting(max_papk: u32, fmv: &str) -> Vec<u8> {
         let mut buf = [0u8; GREETING_MAX];
-        let n = encode(max_papk, fmv.as_bytes(), &mut buf);
+        let n = encode(max_papk, fmv.as_bytes(), b"testbench_rp2040", &mut buf);
         buf[..n].to_vec()
     }
 
@@ -499,8 +512,33 @@ mod tests {
         assert!(info.version.starts_with(VERSION_PREFIX), "{}", info.version);
         assert_eq!(info.max_papk, 1_048_576);
         assert_eq!(info.framework_map_version, "0.27.0");
+        assert_eq!(info.board, "testbench_rp2040");
         assert!(info.apps.is_none());
         assert_eq!(info.apps_summary(), "single-app");
+        assert_eq!(
+            info.describe(),
+            format!(
+                "{}  (board: testbench_rp2040, max PAPK: 1024 KB, \
+                 framework-map-version: 0.27.0, single-app)",
+                pdb_protocol::greeting::PROTOCOL_VERSION
+            )
+        );
+    }
+
+    /// A 2.2 firmware names no board; the description reads as it did then.
+    #[test]
+    fn a_greeting_without_a_board_describes_itself_as_before() {
+        let mut raw = vec![0u8; LEGACY_GREETING_LEN];
+        raw[..13].copy_from_slice(b"picodroid/2.2");
+        raw[14..18].copy_from_slice(&(1024u32 * 1024).to_le_bytes());
+        raw.push(5);
+        raw.extend_from_slice(b"0.9.0");
+        let info = parse_ping_payload(&raw).unwrap();
+        assert_eq!(info.board, "");
+        assert_eq!(
+            info.describe(),
+            "picodroid/2.2  (max PAPK: 1024 KB, framework-map-version: 0.9.0, single-app)"
+        );
     }
 
     #[test]
@@ -512,9 +550,10 @@ mod tests {
             total_free: 1428 * 1024,
         };
         let mut buf = [0u8; GREETING_MAX];
-        let n = encode_with_apps(1 << 20, b"0.0.0", &apps, &mut buf);
+        let n = encode_with_apps(1 << 20, b"0.0.0", b"pico_display2_w", &apps, &mut buf);
         let info = parse_ping_payload(&buf[..n]).unwrap();
         assert_eq!(info.apps, Some(apps));
+        assert_eq!(info.board, "pico_display2_w");
         assert_eq!(
             info.apps_summary(),
             "apps 3/8, free 1428 KB (largest 1024 KB)"

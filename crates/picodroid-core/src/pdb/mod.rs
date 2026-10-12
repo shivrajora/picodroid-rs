@@ -112,8 +112,10 @@ fn handle_ping(transport: &mut impl PdbTransport, flash: &impl PapkFlash, len: u
         return;
     }
     // The greeting layout is `pdb_protocol::greeting`'s; this build supplies
-    // the facts only it knows — region capacity, framework-map-version and,
-    // on a multi-app board, the state of the package directory.
+    // the facts only it knows — region capacity, framework-map-version, the
+    // board it was built for and, on a multi-app board, the state of the
+    // package directory.
+    let board = crate::board_cfg::build_info::BOARD.as_bytes();
     let mut buf = [0u8; greeting::GREETING_MAX];
     #[cfg(has_multi_app)]
     let total = {
@@ -128,6 +130,7 @@ fn handle_ping(transport: &mut impl PdbTransport, flash: &impl PapkFlash, len: u
         greeting::encode_with_apps(
             flash.max_data_size() as u32,
             crate::framework_map::FRAMEWORK_MAP_VERSION.as_bytes(),
+            board,
             &apps,
             &mut buf,
         )
@@ -136,6 +139,7 @@ fn handle_ping(transport: &mut impl PdbTransport, flash: &impl PapkFlash, len: u
     let total = greeting::encode(
         flash.max_data_size() as u32,
         crate::framework_map::FRAMEWORK_MAP_VERSION.as_bytes(),
+        board,
         &mut buf,
     );
     send_response(transport, STATUS_OK, &buf[..total]);
@@ -288,6 +292,7 @@ mod tests {
             g.framework_map_version,
             crate::framework_map::FRAMEWORK_MAP_VERSION
         );
+        assert_eq!(g.board, crate::board_cfg::build_info::BOARD);
         assert!(!g.is_legacy());
     }
 }
