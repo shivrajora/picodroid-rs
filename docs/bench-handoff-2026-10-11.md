@@ -91,7 +91,13 @@ NVIC priority is the latency source the scan named.
 The same run on `testbench_rp2040` is worth ten minutes if the board is free: the M0+ has the
 longer ISR latency.
 
-## 3. A3 — the 12-bit XPT2046 decode and the doubled tables (one testbench board)
+## 3. A3 — the 12-bit XPT2046 decode and the doubled tables (one testbench board) — three of five taps done
+
+2026-10-12 on `testbench_rp2350w`: top-left (20,14), top-right (313,25), bottom-right (304,232).
+All three sit a fingertip inside the panel's edges, and none shows the halved-units failure
+(under the old tables a far-edge tap would land mid-panel or clamp to the edge). The bottom-left
+corner and the centre, the tap that pins the scale, were not reached before the probe window
+closed; they are the half-hour that remains.
 
 **What changed.** The decode now takes all twelve bits and the three `[touch]` tables in
 `platforms/rp/boards/testbench_*/board.toml` were doubled (`cal_x_min 3940, cal_x_max 370,
