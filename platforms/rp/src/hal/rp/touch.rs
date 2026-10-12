@@ -215,15 +215,33 @@ mod inner {
         unsafe { (*addr_of_mut!(TOUCH)).as_mut().unwrap() }
     }
 
+    /// On a shared bus the panel's chip select is still low while a band
+    /// goes out by DMA (`display::write_pixels_start` holds it until the
+    /// next command collects the band), and the XPT2046 poll's thirty bytes
+    /// would be clocked into the ST7789 as pixels too: fifteen stray pixels
+    /// at the window's write pointer, a purple dash per band on the
+    /// testbench (2026-10-12). Collect the band and release its chip select
+    /// before the controller's own goes low. A no-op with nothing in flight,
+    /// and not needed on a controller with a bus of its own.
+    fn yield_display_bus() {
+        if !generated::TOUCH_PRIVATE_BUS {
+            crate::hal::display::write_pixels_wait();
+        }
+    }
+
     pub fn read_point() -> Option<(u16, u16)> {
         match OVERRIDE.sample() {
-            OverrideSample::Inactive => touch().read_point(),
+            OverrideSample::Inactive => {
+                yield_display_bus();
+                touch().read_point()
+            }
             OverrideSample::Pressed(x, y) => Some((x, y)),
             OverrideSample::Lifted(..) => None,
         }
     }
 
     pub fn read_raw_unfiltered() -> (u16, u16) {
+        yield_display_bus();
         touch().read_raw_unfiltered()
     }
 
