@@ -78,6 +78,10 @@ mod tests {
 
     #[test]
     fn open_spi_spi0_sets_id_0_and_defaults() {
+        // A board build refuses the display's bus (open_spi_refuses_the_display_bus).
+        if crate::board_cfg::reserved::spi_bus_is_display(0) {
+            return;
+        }
         let mut strings = StringTable::new();
         let mut objects = ObjectHeap::new();
         let ref_idx = strings.intern(SPI0_NAME).expect("intern SPI0");
@@ -106,6 +110,10 @@ mod tests {
 
     #[test]
     fn open_spi_spi1_sets_id_1() {
+        // A board build refuses the display's bus (open_spi_refuses_the_display_bus).
+        if crate::board_cfg::reserved::spi_bus_is_display(1) {
+            return;
+        }
         let mut strings = StringTable::new();
         let mut objects = ObjectHeap::new();
         let ref_idx = strings.intern(SPI1_NAME).expect("intern SPI1");
