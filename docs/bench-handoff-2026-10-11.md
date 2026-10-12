@@ -2,14 +2,14 @@
 
 The five items of `docs/bugscan-2026-10-open-items.md` were implemented and pushed on 2026-10-11
 (`2ab9d250..e1910e27`, one commit per fix, pre-commit and the sim smoke green). One of them, A4,
-was confirmed and verified on `pico_display2_w` the same day. Three checks remain, and all three
-need a board with the part in question: the XPT2046 resistive panel of the testbench family for
-A1 and A3, and a long paint soak on `pico_touch_kit` for A4. Nothing here is blocking: the fixes
+was confirmed and verified on `pico_display2_w` the same day, and its soak on `pico_touch_kit`
+(§4) ran clean that evening. Two checks remain, and both need the XPT2046 resistive panel of the
+testbench family: A1 and A3. Nothing here is blocking: the fixes
 are on `main` and CI is green; these runs decide whether the handoff can be closed or whether a
 calibration or a counter needs a second look.
 
-Read in order: what already happened on the bench (§1), the three runs (§2–§4), what to watch
-in the nightlies meanwhile (§5), and where to record the outcome (§6).
+Read in order: what already happened on the bench (§1), the two runs left (§2–§3) and the one
+done (§4), what to watch in the nightlies meanwhile (§5), and where to record the outcome (§6).
 
 Before touching a board: take its lease (`./scripts/device-lock.sh acquire --board NAME`), check
 `./scripts/device-lock.sh status`, and never `pkill -f probe-rs`. `flash.sh`, `pdb.sh`,
@@ -32,7 +32,13 @@ holds the probe for all of them.
 - The display runs at the same 75 MHz as before (A2 changed the number in `board.toml`, not the
   divisor); the panel looked as it always has.
 
-So: A2 and A4 are done. A1 and A3 could not be touched on that board (no XPT2046).
+- `pico_touch_kit`, the same evening: `graphicsbench` three times through
+  `parity-bench.sh --hil` (scores 12,841 / 12,842 / 12,841, identical text-fill times) and then
+  `picoclock` for an hour under 799 scripted swipes and taps (`pdb input`, every 4 s, so the
+  panel never dozed), RTT captured throughout: no `spi0` line of either spelling, no stall, no
+  panic. The ST7796's 320×480 bands behave like the ST7789's.
+
+So: A2 and A4 are done. A1 and A3 could not be touched on either board (no XPT2046).
 
 ## 2. A1 — the SPI ISR refill bound, under pdb load (`testbench_rp2350` or `_w`, or `testbench_rp2040`)
 
@@ -124,11 +130,11 @@ discarded by the sampler, so hold each tap a moment.
 
 One board per family is enough; the three tables are identical.
 
-## 4. A4 — the DMA band soak (`pico_touch_kit`)
+## 4. A4 — the DMA band soak (`pico_touch_kit`) — done 2026-10-11
 
-Done on `pico_display2_w` for graphicsbench (§1). The longer soak the original handoff asked for
-is still the way to be sure the "DMA write … retired without its completion interrupt" line never
-returns on a different panel driver (ST7796, 320×480 bands) under a real workload:
+Run that evening as described below (§1 has the numbers): an hour of `picoclock` under scripted
+input, plus three `graphicsbench` runs, with no fallback line. Kept here as the recipe for the
+day the line reappears in a nightly (§5):
 
 ```bash
 ./scripts/flash.sh --board pico_touch_kit --app picoclock      # an hour, RTT attached
