@@ -33,94 +33,62 @@ pub fn init(uart_id: u8) {
     platform::init(uart_id);
 }
 
-pub fn set_baudrate_native(
+/// Store the `int` argument in config `field`, then push the whole stored
+/// configuration to the hardware. The value just stored reads back as
+/// itself, so every setter is this one function with a different field.
+#[inline(never)]
+fn set_config_native(
     args: &[Value],
     objects: &mut ObjectHeap,
+    field: usize,
 ) -> Result<Option<Value>, JvmError> {
     let idx = extract_obj_idx(args)?;
-    let rate = match args.get(1) {
+    let v = match args.get(1) {
         Some(Value::Int(v)) => *v,
         _ => return Err(JvmError::InvalidReference),
     };
     objects
-        .set_field(idx, fields::BAUDRATE, Value::Int(rate))
+        .set_field(idx, field, Value::Int(v))
         .ok_or(JvmError::StackOverflow)?;
     let id = read_field(objects, idx, fields::UART_ID, 0) as u8;
-    let (_, data_size, parity, stop_bits, hw_flow) = get_config(objects, idx);
-    platform::reconfigure(id, rate, data_size, parity, stop_bits, hw_flow);
+    let (baudrate, data_size, parity, stop_bits, hw_flow) = get_config(objects, idx);
+    platform::reconfigure(id, baudrate, data_size, parity, stop_bits, hw_flow);
     Ok(None)
+}
+
+pub fn set_baudrate_native(
+    args: &[Value],
+    objects: &mut ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    set_config_native(args, objects, fields::BAUDRATE)
 }
 
 pub fn set_data_size_native(
     args: &[Value],
     objects: &mut ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let idx = extract_obj_idx(args)?;
-    let size = match args.get(1) {
-        Some(Value::Int(v)) => *v,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    objects
-        .set_field(idx, fields::DATA_SIZE, Value::Int(size))
-        .ok_or(JvmError::StackOverflow)?;
-    let id = read_field(objects, idx, fields::UART_ID, 0) as u8;
-    let (baudrate, _, parity, stop_bits, hw_flow) = get_config(objects, idx);
-    platform::reconfigure(id, baudrate, size, parity, stop_bits, hw_flow);
-    Ok(None)
+    set_config_native(args, objects, fields::DATA_SIZE)
 }
 
 pub fn set_parity_native(
     args: &[Value],
     objects: &mut ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let idx = extract_obj_idx(args)?;
-    let mode = match args.get(1) {
-        Some(Value::Int(v)) => *v,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    objects
-        .set_field(idx, fields::PARITY, Value::Int(mode))
-        .ok_or(JvmError::StackOverflow)?;
-    let id = read_field(objects, idx, fields::UART_ID, 0) as u8;
-    let (baudrate, data_size, _, stop_bits, hw_flow) = get_config(objects, idx);
-    platform::reconfigure(id, baudrate, data_size, mode, stop_bits, hw_flow);
-    Ok(None)
+    set_config_native(args, objects, fields::PARITY)
 }
 
 pub fn set_stop_bits_native(
     args: &[Value],
     objects: &mut ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let idx = extract_obj_idx(args)?;
-    let bits = match args.get(1) {
-        Some(Value::Int(v)) => *v,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    objects
-        .set_field(idx, fields::STOP_BITS, Value::Int(bits))
-        .ok_or(JvmError::StackOverflow)?;
-    let id = read_field(objects, idx, fields::UART_ID, 0) as u8;
-    let (baudrate, data_size, parity, _, hw_flow) = get_config(objects, idx);
-    platform::reconfigure(id, baudrate, data_size, parity, bits, hw_flow);
-    Ok(None)
+    set_config_native(args, objects, fields::STOP_BITS)
 }
 
 pub fn set_hw_flow_ctrl_native(
     args: &[Value],
     objects: &mut ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let idx = extract_obj_idx(args)?;
-    let mode = match args.get(1) {
-        Some(Value::Int(v)) => *v,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    objects
-        .set_field(idx, fields::HW_FLOW, Value::Int(mode))
-        .ok_or(JvmError::StackOverflow)?;
-    let id = read_field(objects, idx, fields::UART_ID, 0) as u8;
-    let (baudrate, data_size, parity, stop_bits, _) = get_config(objects, idx);
-    platform::reconfigure(id, baudrate, data_size, parity, stop_bits, mode);
-    Ok(None)
+    set_config_native(args, objects, fields::HW_FLOW)
 }
 
 /// Blocking write of a single byte. Returns `Some(Int(1))` on success.

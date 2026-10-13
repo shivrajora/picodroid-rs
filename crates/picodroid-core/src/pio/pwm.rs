@@ -43,6 +43,28 @@ pub fn init(pin: u8) {
     platform::init(pin);
 }
 
+/// Store `v` in config `field`, then apply the whole stored configuration.
+/// The value just stored reads back as itself, so the three setters share
+/// this one tail.
+#[inline(never)]
+fn store_and_apply(
+    objects: &mut ObjectHeap,
+    idx: u16,
+    field: usize,
+    v: Value,
+) -> Result<Option<Value>, JvmError> {
+    objects
+        .set_field(idx, field, v)
+        .ok_or(JvmError::StackOverflow)?;
+    platform::apply(
+        read_pin(objects, idx),
+        read_freq(objects, idx),
+        read_duty(objects, idx),
+        read_enabled(objects, idx),
+    );
+    Ok(None)
+}
+
 /// args: [this, Int(enabled)]  (JVM encodes boolean as int 0/1)
 pub fn set_enabled_native(
     args: &[Value],
@@ -53,14 +75,7 @@ pub fn set_enabled_native(
         Some(Value::Int(v)) => *v != 0,
         _ => return Err(JvmError::InvalidReference),
     };
-    objects
-        .set_field(idx, fields::ENABLED, Value::Int(enabled as i32))
-        .ok_or(JvmError::StackOverflow)?;
-    let pin = read_pin(objects, idx);
-    let freq = read_freq(objects, idx);
-    let duty = read_duty(objects, idx);
-    platform::apply(pin, freq, duty, enabled);
-    Ok(None)
+    store_and_apply(objects, idx, fields::ENABLED, Value::Int(enabled as i32))
 }
 
 /// args: [this, Double(freqHz)]
@@ -73,14 +88,7 @@ pub fn set_frequency_native(
         Some(Value::Double(v)) => *v,
         _ => return Err(JvmError::InvalidReference),
     };
-    objects
-        .set_field(idx, fields::FREQUENCY_HZ, Value::Double(freq))
-        .ok_or(JvmError::StackOverflow)?;
-    let pin = read_pin(objects, idx);
-    let duty = read_duty(objects, idx);
-    let enabled = read_enabled(objects, idx);
-    platform::apply(pin, freq, duty, enabled);
-    Ok(None)
+    store_and_apply(objects, idx, fields::FREQUENCY_HZ, Value::Double(freq))
 }
 
 /// args: [this, Double(dutyCycle)]
@@ -93,12 +101,5 @@ pub fn set_duty_cycle_native(
         Some(Value::Double(v)) => *v,
         _ => return Err(JvmError::InvalidReference),
     };
-    objects
-        .set_field(idx, fields::DUTY_CYCLE, Value::Double(duty))
-        .ok_or(JvmError::StackOverflow)?;
-    let pin = read_pin(objects, idx);
-    let freq = read_freq(objects, idx);
-    let enabled = read_enabled(objects, idx);
-    platform::apply(pin, freq, duty, enabled);
-    Ok(None)
+    store_and_apply(objects, idx, fields::DUTY_CYCLE, Value::Double(duty))
 }

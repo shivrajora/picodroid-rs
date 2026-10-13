@@ -24,40 +24,41 @@ pub fn init(spi_id: u8) {
     platform::init(spi_id);
 }
 
+/// Store the `int` argument in config `field`, then reconfigure from the
+/// stored frequency and mode (the value just stored reads back as itself).
+#[inline(never)]
+fn set_config_native(
+    args: &[Value],
+    objects: &mut ObjectHeap,
+    field: usize,
+) -> Result<Option<Value>, JvmError> {
+    let idx = extract_obj_idx(args)?;
+    let v = match args.get(1) {
+        Some(Value::Int(v)) => *v,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    objects
+        .set_field(idx, field, Value::Int(v))
+        .ok_or(JvmError::StackOverflow)?;
+    let id = read_field(objects, idx, fields::SPI_ID, 0) as u8;
+    let hz = read_field(objects, idx, fields::FREQUENCY_HZ, 1_000_000) as u32;
+    let mode = read_field(objects, idx, fields::MODE, 0) as u32;
+    platform::reconfigure(id, hz, mode);
+    Ok(None)
+}
+
 pub fn set_frequency_native(
     args: &[Value],
     objects: &mut ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let idx = extract_obj_idx(args)?;
-    let hz = match args.get(1) {
-        Some(Value::Int(v)) => *v as u32,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    objects
-        .set_field(idx, fields::FREQUENCY_HZ, Value::Int(hz as i32))
-        .ok_or(JvmError::StackOverflow)?;
-    let id = read_field(objects, idx, fields::SPI_ID, 0) as u8;
-    let mode = read_field(objects, idx, fields::MODE, 0) as u32;
-    platform::reconfigure(id, hz, mode);
-    Ok(None)
+    set_config_native(args, objects, fields::FREQUENCY_HZ)
 }
 
 pub fn set_mode_native(
     args: &[Value],
     objects: &mut ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let idx = extract_obj_idx(args)?;
-    let mode = match args.get(1) {
-        Some(Value::Int(v)) => *v as u32,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    objects
-        .set_field(idx, fields::MODE, Value::Int(mode as i32))
-        .ok_or(JvmError::StackOverflow)?;
-    let id = read_field(objects, idx, fields::SPI_ID, 0) as u8;
-    let hz = read_field(objects, idx, fields::FREQUENCY_HZ, 1_000_000) as u32;
-    platform::reconfigure(id, hz, mode);
-    Ok(None)
+    set_config_native(args, objects, fields::MODE)
 }
 
 /// Full-duplex transfer. args: [this, ArrayRef(tx), ArrayRef(rx), Int(len)]
