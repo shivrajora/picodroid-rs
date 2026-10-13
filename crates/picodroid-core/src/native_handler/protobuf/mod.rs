@@ -62,23 +62,23 @@ pub fn dispatch(
     if class_name == c::picodroid_protobuf_CodedOutputStream {
         let r = match method_name {
             m::nativeWriteVarint32 => match as_int(ctx.args.get(1)) {
-                Ok(v) => write(ctx, |e| e.encode_varint32(v as u32)),
+                Ok(v) => write(ctx, v as u32 as u64, |e, v| e.encode_varint32(v as u32)),
                 Err(e) => Err(e),
             },
             m::nativeWriteVarint64 => match as_long(ctx.args.get(1)) {
-                Ok(v) => write(ctx, |e| e.encode_varint64(v as u64)),
+                Ok(v) => write(ctx, v as u64, |e, v| e.encode_varint64(v)),
                 Err(e) => Err(e),
             },
             m::nativeWriteFixed32 => match as_int(ctx.args.get(1)) {
-                Ok(v) => write(ctx, |e| e.encode_fixed32(v as u32)),
+                Ok(v) => write(ctx, v as u32 as u64, |e, v| e.encode_fixed32(v as u32)),
                 Err(e) => Err(e),
             },
             m::nativeWriteFixed64 => match as_long(ctx.args.get(1)) {
-                Ok(v) => write(ctx, |e| e.encode_fixed64(v as u64)),
+                Ok(v) => write(ctx, v as u64, |e, v| e.encode_fixed64(v)),
                 Err(e) => Err(e),
             },
             m::nativeWriteDouble => match as_double(ctx.args.get(1)) {
-                Ok(v) => write(ctx, |e| e.encode_double(v)),
+                Ok(v) => write(ctx, v.to_bits(), |e, v| e.encode_double(f64::from_bits(v))),
                 Err(e) => Err(e),
             },
             _ => return None,
@@ -141,9 +141,11 @@ type ReadResult<T> = Result<T, DecodeError<HeapIoError>>;
 
 /// Decode one value at the cursor with `f`; on success the cursor moves past
 /// it, on failure it stays and `InvalidProtocolBufferException` is thrown.
+/// `f` is a `fn` pointer rather than a generic closure so that one copy of
+/// the cursor and error handling serves every decoder.
 fn read(
     ctx: &mut NativeContext<'_>,
-    f: impl FnOnce(&mut PbDecoder<HeapReader<'_>>) -> ReadResult<Value>,
+    f: fn(&mut PbDecoder<HeapReader<'_>>) -> ReadResult<Value>,
 ) -> Result<Option<Value>, JvmError> {
     let (this, buf, pos, limit) = cursor(ctx, INPUT)?;
     let mut dec = PbDecoder::new(HeapReader::new(ctx.arrays, buf, pos, limit));
@@ -176,15 +178,18 @@ fn skip_field(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
     }
 }
 
-/// Encode one value at the cursor with `f`; the cursor moves past whatever
-/// was written, and the answer says whether all of it fit.
+/// Encode `v` at the cursor with `f`; the cursor moves past whatever was
+/// written, and the answer says whether all of it fit. `v` carries the value
+/// as raw bits (a `double` as `to_bits`) so that `f` can be a `fn` pointer:
+/// one copy of the cursor handling for every encoder, as for [`read`].
 fn write(
     ctx: &mut NativeContext<'_>,
-    f: impl FnOnce(&mut PbEncoder<HeapWriter<'_>>) -> Result<(), HeapIoError>,
+    v: u64,
+    f: fn(&mut PbEncoder<HeapWriter<'_>>, u64) -> Result<(), HeapIoError>,
 ) -> Result<Option<Value>, JvmError> {
     let (this, buf, pos, limit) = cursor(ctx, OUTPUT)?;
     let mut enc = PbEncoder::new(HeapWriter::new(ctx.arrays, buf, pos, limit));
-    let r = f(&mut enc);
+    let r = f(&mut enc, v);
     let end = enc.into_writer().position();
     store_pos(ctx, this, OUTPUT, end)?;
     match r {
