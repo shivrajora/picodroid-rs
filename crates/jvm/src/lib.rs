@@ -389,6 +389,10 @@ impl Jvm {
     /// # Errors
     /// Returns [`JvmError::MethodNotFound`] if the class or method cannot be
     /// found, or any execution error propagated from the bytecode.
+    // The `invoke_*` entry points stay out of line: each is a name lookup
+    // plus an 11-argument `execute_indexed` call, and inlined into the
+    // framework's event loops they were ~150 B at every call site.
+    #[inline(never)]
     pub fn invoke_static(
         &self,
         class_name: &str,
@@ -424,6 +428,7 @@ impl Jvm {
     /// # Errors
     /// Returns [`JvmError::MethodNotFound`] if the class or method cannot be
     /// found, or any execution error propagated from the bytecode.
+    #[inline(never)]
     pub fn invoke_static_with_args(
         &self,
         class_name: &str,
@@ -458,6 +463,7 @@ impl Jvm {
     /// # Errors
     /// Returns [`JvmError::MethodNotFound`] if the class or method cannot be
     /// found, or any execution error propagated from the bytecode.
+    #[inline(never)]
     pub fn invoke_instance(
         &self,
         class_name: &str,
@@ -484,6 +490,7 @@ impl Jvm {
     }
 
     /// Invoke an instance method with explicit arguments (beyond `this`).
+    #[inline(never)]
     pub fn invoke_instance_with_args(
         &self,
         class_name: &str,
@@ -519,6 +526,7 @@ impl Jvm {
     ///
     /// Kept as a separate function so existing `let _ = invoke_*` call
     /// sites don't need to change signature.
+    #[inline(never)]
     pub fn invoke_instance_with_args_returning(
         &self,
         class_name: &str,
