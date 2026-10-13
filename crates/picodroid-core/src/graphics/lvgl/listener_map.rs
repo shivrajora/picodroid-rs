@@ -47,6 +47,12 @@ impl<const N: usize> Default for PtrMap<N> {
 /// [`Core0`](crate::util::local::Core0)) and a callback that re-enters the
 /// map from inside [`for_each`](Self::for_each) or [`visit`](Self::visit)
 /// sees a consistent table.
+///
+/// The methods are thin forwards to one out-of-line copy over the entry
+/// slice ([`Table`]): as generic methods they were stamped out per capacity
+/// and inlined at every call site — the unrolled `reset` of every map into
+/// the app-start path, a `remove` into each widget's delete callback, an
+/// `upsert` into each registration — ~8 KB of flash on either chip.
 impl<const N: usize> PtrMap<N> {
     pub const fn new() -> Self {
         Self {
@@ -55,7 +61,64 @@ impl<const N: usize> PtrMap<N> {
         }
     }
 
+    #[inline(always)]
+    fn table(&self) -> Table<'_> {
+        Table {
+            entries: &self.entries,
+            len: &self.len,
+        }
+    }
+
+    #[inline(always)]
     pub fn upsert(&self, ptr: usize, obj_ref: u16) -> Upsert {
+        self.table().upsert(ptr, obj_ref)
+    }
+
+    #[inline(always)]
+    pub fn lookup(&self, ptr: usize) -> Option<u16> {
+        self.table().lookup(ptr)
+    }
+
+    /// Swap-remove every entry for `ptr`, zeroing the vacated tail slot so a
+    /// stale obj_ref can never linger past `len` (the GC visitor would still
+    /// root it otherwise). No-op if `ptr` is not present.
+    #[inline(always)]
+    pub fn remove(&self, ptr: usize) {
+        self.table().remove(ptr)
+    }
+
+    /// Visit every live `(ptr, obj_ref)` pair. `len` is read again after
+    /// each call, so `f` may add to or remove from this map.
+    #[inline(always)]
+    pub fn for_each(&self, f: &mut dyn FnMut(usize, u16)) {
+        self.table().for_each(f)
+    }
+
+    /// Visit every registered Java obj_ref as a GC root.
+    #[inline(always)]
+    pub fn visit(&self, visit: &mut dyn FnMut(u16)) {
+        self.table().visit(visit)
+    }
+
+    /// Wholesale clear (between-app-run reset). Zeroes every slot, not just
+    /// `len` — the visitor must never see a stale ref regardless of caller
+    /// ordering.
+    #[inline(always)]
+    pub fn reset(&self) {
+        self.table().reset()
+    }
+}
+
+/// A [`PtrMap`] with its capacity erased: the one copy of each operation.
+#[derive(Clone, Copy)]
+struct Table<'a> {
+    entries: &'a [Cell<(usize, u16)>],
+    len: &'a Cell<usize>,
+}
+
+impl Table<'_> {
+    #[inline(never)]
+    fn upsert(self, ptr: usize, obj_ref: u16) -> Upsert {
         let len = self.len.get();
         for entry in &self.entries[..len] {
             if entry.get().0 == ptr {
@@ -63,8 +126,8 @@ impl<const N: usize> PtrMap<N> {
                 return Upsert::Updated;
             }
         }
-        if len < N {
-            self.entries[len].set((ptr, obj_ref));
+        if let Some(slot) = self.entries.get(len) {
+            slot.set((ptr, obj_ref));
             self.len.set(len + 1);
             Upsert::Inserted
         } else {
@@ -72,7 +135,8 @@ impl<const N: usize> PtrMap<N> {
         }
     }
 
-    pub fn lookup(&self, ptr: usize) -> Option<u16> {
+    #[inline(never)]
+    fn lookup(self, ptr: usize) -> Option<u16> {
         self.entries[..self.len.get()]
             .iter()
             .map(Cell::get)
@@ -80,10 +144,8 @@ impl<const N: usize> PtrMap<N> {
             .map(|e| e.1)
     }
 
-    /// Swap-remove every entry for `ptr`, zeroing the vacated tail slot so a
-    /// stale obj_ref can never linger past `len` (the GC visitor would still
-    /// root it otherwise). No-op if `ptr` is not present.
-    pub fn remove(&self, ptr: usize) {
+    #[inline(never)]
+    fn remove(self, ptr: usize) {
         let mut len = self.len.get();
         let mut i = 0;
         while i < len {
@@ -98,9 +160,8 @@ impl<const N: usize> PtrMap<N> {
         }
     }
 
-    /// Visit every live `(ptr, obj_ref)` pair. `len` is read again after
-    /// each call, so `f` may add to or remove from this map.
-    pub fn for_each(&self, f: &mut dyn FnMut(usize, u16)) {
+    #[inline(never)]
+    fn for_each(self, f: &mut dyn FnMut(usize, u16)) {
         let mut i = 0;
         while i < self.len.get() {
             let (p, r) = self.entries[i].get();
@@ -109,8 +170,8 @@ impl<const N: usize> PtrMap<N> {
         }
     }
 
-    /// Visit every registered Java obj_ref as a GC root.
-    pub fn visit(&self, visit: &mut dyn FnMut(u16)) {
+    #[inline(never)]
+    fn visit(self, visit: &mut dyn FnMut(u16)) {
         let mut i = 0;
         while i < self.len.get() {
             let (_, r) = self.entries[i].get();
@@ -121,11 +182,9 @@ impl<const N: usize> PtrMap<N> {
         }
     }
 
-    /// Wholesale clear (between-app-run reset). Zeroes every slot, not just
-    /// `len` — the visitor must never see a stale ref regardless of caller
-    /// ordering.
-    pub fn reset(&self) {
-        for entry in &self.entries {
+    #[inline(never)]
+    fn reset(self) {
+        for entry in self.entries {
             entry.set((0, 0));
         }
         self.len.set(0);
