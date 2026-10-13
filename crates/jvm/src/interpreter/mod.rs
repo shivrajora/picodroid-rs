@@ -146,9 +146,10 @@ pub(crate) struct Executor<'a, H: NativeMethodHandler> {
     /// `retry_after_gc`). A handler arm's failure never sets it — a
     /// peripheral or file arm may have acted before it ran out.
     pub(super) native_retry: bool,
-    /// `<clinit>` frames queued by `ensure_class_initialized`.  Popped onto
-    /// the frame stack so the interpreter runs them before resuming the
-    /// triggering instruction.
+    /// `<clinit>` frames queued by `ensure_class_initialized`, the class
+    /// itself first and its root superclass last. Pushed onto the frame
+    /// stack in this order — the last on top, so it runs first — before the
+    /// triggering instruction resumes.
     pub pending_clinit_frames: Vec<Frame>,
     /// Instruction counter for batched interrupt checking (checks every 256 insns).
     pub insn_count: u8,
@@ -1024,12 +1025,15 @@ impl<H: NativeMethodHandler> Executor<'_, H> {
                     handle_exception(ex, frames, e, base_depth)?;
                     continue;
                 }
-                while let Some(cf) = ex.pending_clinit_frames.pop() {
-                    if frames.try_reserve(1).is_err() {
-                        return Err(JvmError::StackOverflow);
-                    }
-                    frames.push(cf);
+                // In list order, as `run_frames` pushes them: the list ends
+                // with the root's `<clinit>`, which must land on top and run
+                // first (JVMS §5.5 step 7). Popping the list pushed it
+                // bottom-most, so a subclass initialiser read its
+                // superclass's statics at their defaults.
+                if frames.try_reserve(ex.pending_clinit_frames.len()).is_err() {
+                    return Err(JvmError::StackOverflow);
                 }
+                frames.append(&mut ex.pending_clinit_frames);
                 continue;
             }
 

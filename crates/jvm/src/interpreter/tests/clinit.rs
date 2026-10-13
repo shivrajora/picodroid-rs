@@ -658,6 +658,43 @@ mod declaring_class {
         );
     }
 
+    /// `class Sub extends Super { static int Y = Super.X; }`
+    fn copying_super_static(name: &str, sup: &str) -> &'static [u8] {
+        let mut a = Asm::new();
+        let this = a.class(name);
+        let sup = a.class(sup);
+        a.static_field("Y", "I");
+        let x = a.fieldref(sup, "X", "I");
+        let y = a.fieldref(this, "Y", "I");
+        // getstatic Super.X; putstatic Sub.Y; return
+        let code = [0xB2, hi(x), lo(x), 0xB3, hi(y), lo(y), 0xB1];
+        a.finish_methods(
+            0x0001,
+            this,
+            sup,
+            &[],
+            &[Method {
+                access: 0x0008,
+                name: "<clinit>",
+                desc: "()V",
+                max_stack: 1,
+                max_locals: 0,
+                code: &code,
+                exc: &[],
+            }],
+        )
+    }
+
+    /// JVMS §5.5 step 7: the superclass is initialised before the class,
+    /// so a subclass `<clinit>` reads its superclass's initialised statics.
+    #[test]
+    fn a_superclass_clinit_runs_before_the_subclass_clinit() {
+        let sup = with_static(0x0001, "Super", c::java_lang_Object, "X", 7);
+        let sub = copying_super_static("Sub", "Super");
+        let (r, _) = run_last(&[sup, sub, caller_get("Sub", "Y")]);
+        assert_eq!(r.unwrap(), Some(Value::Int(7)));
+    }
+
     /// `Super` with `static int m() { return 7; }` and a `<clinit>` that
     /// sets its `static int X`.
     fn with_static_method(name: &str, sup: &str, value: u8) -> &'static [u8] {
