@@ -163,10 +163,15 @@ fn last_error(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
 }
 
 // ── reads ──────────────────────────────────────────────────────────────────
+//
+// The per-kind work below (`node_int`, `node_value`, `put`, `set`) takes a
+// `fn` pointer, not a generic closure: every closure passed is
+// non-capturing, and a generic parameter gave each one its own copy of the
+// argument decoding and the pool call.
 
 fn node_int(
     ctx: &mut NativeContext<'_>,
-    f: impl FnOnce(&Pool, NodeIdx) -> i32,
+    f: fn(&Pool, NodeIdx) -> i32,
 ) -> Result<Option<Value>, JvmError> {
     let node = node_arg(ctx.args.first())?;
     Ok(Some(Value::Int(with_pool(|p| f(p, node)))))
@@ -174,7 +179,7 @@ fn node_int(
 
 fn node_value(
     ctx: &mut NativeContext<'_>,
-    f: impl FnOnce(&Pool, NodeIdx) -> Value,
+    f: fn(&Pool, NodeIdx) -> Value,
 ) -> Result<Option<Value>, JvmError> {
     let node = node_arg(ctx.args.first())?;
     Ok(Some(with_pool(|p| f(p, node))))
@@ -235,7 +240,7 @@ fn string_value(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> 
 
 fn put(
     ctx: &mut NativeContext<'_>,
-    leaf: impl FnOnce(&[Value]) -> Result<Node, JvmError>,
+    leaf: fn(&[Value]) -> Result<Node, JvmError>,
 ) -> Result<Option<Value>, JvmError> {
     let node = node_arg(ctx.args.first())?;
     let key = str_arg(ctx, 1)?;
@@ -269,7 +274,7 @@ fn put_node(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
 
 fn set(
     ctx: &mut NativeContext<'_>,
-    leaf: impl FnOnce(&[Value]) -> Result<Node, JvmError>,
+    leaf: fn(&[Value]) -> Result<Node, JvmError>,
 ) -> Result<Option<Value>, JvmError> {
     let node = node_arg(ctx.args.first())?;
     let index = array_index(ctx.args.get(1))?;
