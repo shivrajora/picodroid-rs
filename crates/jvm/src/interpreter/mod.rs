@@ -584,12 +584,7 @@ fn collect_garbage<H: NativeMethodHandler>(
     ex: &mut Executor<'_, H>,
     frames: &mut [Frame],
 ) -> usize {
-    // Sample pre-sweep live bytes so handlers can track a heap high-water
-    // mark — GC fires at peak pressure, so this is the natural sample point.
-    let pre_gc_used = ex.objects.live_bytes() + ex.arrays.live_bytes() + ex.strings.live_bytes();
-    let t0 = ex.handler.clock_nanos();
-    let handler = &*ex.handler;
-    let freed = crate::gc::collect(
+    gc_cycle(
         frames,
         ex.objects,
         ex.arrays,
@@ -597,20 +592,52 @@ fn collect_garbage<H: NativeMethodHandler>(
         ex.statics,
         ex.class_objects,
         ex.gc_state,
-        |visit| handler.gc_visit_roots(visit),
+        ex.handler,
+    )
+}
+
+/// The one copy of a collection cycle, for the run loop
+/// ([`collect_garbage`]) and for [`crate::SharedJvmHeap::collect_now`]:
+/// `gc::collect` is generic over its root closure, so each caller that
+/// called it directly carried a whole collector of its own (~3 KB of flash
+/// on the RP2040, ~7.5 KB on the RP2350).
+#[inline(never)]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn gc_cycle<H: NativeMethodHandler>(
+    frames: &[Frame],
+    objects: &mut ObjectHeap,
+    arrays: &mut ArrayHeap,
+    strings: &mut StringTable,
+    statics: &StaticFieldStore,
+    class_objects: &ClassObjectCache,
+    gc_state: &mut GcState,
+    handler: &mut H,
+) -> usize {
+    // Sample pre-sweep live bytes so handlers can track a heap high-water
+    // mark — GC fires at peak pressure, so this is the natural sample point.
+    let pre_gc_used = objects.live_bytes() + arrays.live_bytes() + strings.live_bytes();
+    let t0 = handler.clock_nanos();
+    let roots = &*handler;
+    let freed = crate::gc::collect(
+        frames,
+        objects,
+        arrays,
+        strings,
+        statics,
+        class_objects,
+        gc_state,
+        |visit| roots.gc_visit_roots(visit),
     );
-    let t1 = ex.handler.clock_nanos();
-    ex.handler
-        .report_gc(t1.wrapping_sub(t0), freed, pre_gc_used);
-    prune_monitors(&mut *ex.handler, &*ex.objects, &*ex.arrays, &*ex.strings);
-    ex.gc_state.alloc_count = 0;
+    let t1 = handler.clock_nanos();
+    handler.report_gc(t1.wrapping_sub(t0), freed, pre_gc_used);
+    prune_monitors(handler, objects, arrays, strings);
+    gc_state.alloc_count = 0;
     #[cfg(feature = "mem-diag")]
     {
-        let post_gc_live =
-            ex.objects.live_bytes() + ex.arrays.live_bytes() + ex.strings.live_bytes();
-        ex.gc_state.note_gc_cycle(freed, pre_gc_used, post_gc_live);
+        let post_gc_live = objects.live_bytes() + arrays.live_bytes() + strings.live_bytes();
+        gc_state.note_gc_cycle(freed, pre_gc_used, post_gc_live);
         if crate::mem_diag::offensive() {
-            if let Err(m) = crate::mem_diag::integrity_check(ex.objects, ex.arrays, ex.strings) {
+            if let Err(m) = crate::mem_diag::integrity_check(objects, arrays, strings) {
                 panic!("mem-diag post-GC integrity violation: {m}");
             }
         }

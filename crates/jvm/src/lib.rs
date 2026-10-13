@@ -190,10 +190,7 @@ impl SharedJvmHeap {
     ///
     /// Returns the number of heap entries freed.
     pub fn collect_now(&mut self, handler: &mut impl NativeMethodHandler) -> usize {
-        let pre_gc_used =
-            self.objects.live_bytes() + self.arrays.live_bytes() + self.strings.live_bytes();
-        let t0 = handler.clock_nanos();
-        let freed = gc::collect(
+        let freed = interpreter::gc_cycle(
             &[],
             &mut self.objects,
             &mut self.arrays,
@@ -201,27 +198,9 @@ impl SharedJvmHeap {
             &self.statics,
             &self.class_objects,
             &mut self.gc_state,
-            |visit| handler.gc_visit_roots(visit),
+            handler,
         );
-        let t1 = handler.clock_nanos();
-        handler.report_gc(t1.wrapping_sub(t0), freed, pre_gc_used);
-        interpreter::prune_monitors(handler, &self.objects, &self.arrays, &self.strings);
-        self.gc_state.alloc_count = 0;
         self.gc_state.need_gc = false;
-        #[cfg(feature = "mem-diag")]
-        {
-            let post_gc_live =
-                self.objects.live_bytes() + self.arrays.live_bytes() + self.strings.live_bytes();
-            self.gc_state
-                .note_gc_cycle(freed, pre_gc_used, post_gc_live);
-            if mem_diag::offensive() {
-                if let Err(m) =
-                    mem_diag::integrity_check(&self.objects, &self.arrays, &self.strings)
-                {
-                    panic!("mem-diag post-GC integrity violation: {m}");
-                }
-            }
-        }
         freed
     }
 }
