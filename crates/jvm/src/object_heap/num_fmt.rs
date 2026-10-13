@@ -3,23 +3,42 @@
 //! `Float`/`Double.toString` layout (JLS shortest-repr, `E` notation outside
 //! 1e-3..1e7). Pure functions over caller buffers; no heap state.
 
+/// The decimal digits of `m` ("0" for zero), right-aligned in `buf`;
+/// returns where they start. The one `u64` digit loop: `Long.toString` and
+/// `String.format`'s `%d` both use it. Nine digits come off per 64-bit
+/// division and the rest is 32-bit arithmetic — the RP2040 has no hardware
+/// divide, and a `u64 % 10` loop unrolled into a long run of
+/// `__aeabi_uldivmod` calls in each copy.
+#[inline(never)]
+pub fn u64_to_decimal(mut m: u64, buf: &mut [u8; 21]) -> usize {
+    let mut i = buf.len();
+    loop {
+        let mut chunk = (m % 1_000_000_000) as u32;
+        m /= 1_000_000_000;
+        if m == 0 {
+            loop {
+                i -= 1;
+                buf[i] = b'0' + (chunk % 10) as u8;
+                chunk /= 10;
+                if chunk == 0 {
+                    return i;
+                }
+            }
+        }
+        for _ in 0..9 {
+            i -= 1;
+            buf[i] = b'0' + (chunk % 10) as u8;
+            chunk /= 10;
+        }
+    }
+}
+
 /// Format `n` as a decimal ASCII string into `buf`.  Returns the filled slice.
 pub fn long_to_decimal_buf(n: i64, buf: &mut [u8; 21]) -> &[u8] {
-    if n == 0 {
-        buf[0] = b'0';
-        return &buf[..1];
-    }
-    let neg = n < 0;
     // Unsigned magnitude: `i64::MIN.wrapping_neg()` is still `i64::MIN`, so a
     // signed negate would leave the digit loop with nothing to emit.
-    let mut m = n.unsigned_abs();
-    let mut i = 21usize;
-    while m > 0 {
-        i -= 1;
-        buf[i] = b'0' + (m % 10) as u8;
-        m /= 10;
-    }
-    if neg {
+    let mut i = u64_to_decimal(n.unsigned_abs(), buf);
+    if n < 0 {
         i -= 1;
         buf[i] = b'-';
     }
@@ -206,4 +225,26 @@ pub fn float_to_str_buf(f: f32, buf: &mut [u8; 32]) -> &[u8] {
         &|s| s.parse::<f64>().ok().map(|d| d as f32) == Some(f),
         buf,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::string::ToString;
+
+    #[test]
+    fn long_to_decimal_matches_display_across_chunk_boundaries() {
+        let mut cases = alloc::vec![i64::MIN, i64::MIN + 1, i64::MAX, -1, 0, 1];
+        for p in 0..19 {
+            let t = 10i64.pow(p);
+            cases.extend([t - 1, t, t + 1, -(t - 1), -t, -(t + 1)]);
+        }
+        for n in cases {
+            let mut buf = [0u8; 21];
+            assert_eq!(long_to_decimal_buf(n, &mut buf), n.to_string().as_bytes());
+        }
+        let mut buf = [0u8; 21];
+        let i = u64_to_decimal(u64::MAX, &mut buf);
+        assert_eq!(&buf[i..], u64::MAX.to_string().as_bytes());
+    }
 }

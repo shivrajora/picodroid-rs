@@ -214,18 +214,8 @@ fn stringify(ctx: &NativeContext<'_>, v: Value, dst: &mut Vec<u8>) -> Result<(),
 fn decimal_digits(mag: u64, comma: bool, dst: &mut Vec<u8>) -> Result<(), JvmError> {
     dst.clear();
     room(dst, 27)?;
-    let mut tmp = [0u8; 20];
-    let mut i = tmp.len();
-    let mut v = mag;
-    if v == 0 {
-        i -= 1;
-        tmp[i] = b'0';
-    }
-    while v > 0 {
-        i -= 1;
-        tmp[i] = b'0' + (v % 10) as u8;
-        v /= 10;
-    }
+    let mut tmp = [0u8; 21];
+    let i = crate::object_heap::u64_to_decimal(mag, &mut tmp);
     let digits = &tmp[i..];
     let n = digits.len();
     for (k, &d) in digits.iter().enumerate() {
@@ -237,32 +227,16 @@ fn decimal_digits(mag: u64, comma: bool, dst: &mut Vec<u8>) -> Result<(), JvmErr
     Ok(())
 }
 
-fn hex_digits(mut u: u64, upper: bool, dst: &mut Vec<u8>) -> Result<(), JvmError> {
+/// `%x` / `%X` (`shift` 4) and `%o` (`shift` 3) digits of `u`.
+fn radix_digits(mut u: u64, shift: u32, upper: bool, dst: &mut Vec<u8>) -> Result<(), JvmError> {
     dst.clear();
-    room(dst, 16)?;
+    room(dst, 22)?;
     let lut: &[u8] = if upper {
         b"0123456789ABCDEF"
     } else {
         b"0123456789abcdef"
     };
-    let mut tmp = [0u8; 16];
-    let mut i = tmp.len();
-    if u == 0 {
-        i -= 1;
-        tmp[i] = b'0';
-    }
-    while u > 0 {
-        i -= 1;
-        tmp[i] = lut[(u & 0xf) as usize];
-        u >>= 4;
-    }
-    dst.extend_from_slice(&tmp[i..]);
-    Ok(())
-}
-
-fn oct_digits(mut u: u64, dst: &mut Vec<u8>) -> Result<(), JvmError> {
-    dst.clear();
-    room(dst, 22)?;
+    let mask = (1u64 << shift) - 1;
     let mut tmp = [0u8; 22];
     let mut i = tmp.len();
     if u == 0 {
@@ -271,8 +245,8 @@ fn oct_digits(mut u: u64, dst: &mut Vec<u8>) -> Result<(), JvmError> {
     }
     while u > 0 {
         i -= 1;
-        tmp[i] = b'0' + (u & 7) as u8;
-        u >>= 3;
+        tmp[i] = lut[(u & mask) as usize];
+        u >>= shift;
     }
     dst.extend_from_slice(&tmp[i..]);
     Ok(())
@@ -673,7 +647,7 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                         )))
                     }
                 };
-                if let Err(e) = hex_digits(u, spec.conv == b'X', &mut scratch) {
+                if let Err(e) = radix_digits(u, 4, spec.conv == b'X', &mut scratch) {
                     return Some(Err(e));
                 }
                 // `#` prefix is counted toward width, so zero-pad sits between
@@ -716,7 +690,7 @@ pub(super) fn format(ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>
                         )))
                     }
                 };
-                if let Err(e) = oct_digits(u, &mut scratch) {
+                if let Err(e) = radix_digits(u, 3, false, &mut scratch) {
                     return Some(Err(e));
                 }
                 let prefix: &[u8] = if spec.hash && !scratch.starts_with(b"0") {
