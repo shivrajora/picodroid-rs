@@ -444,7 +444,7 @@ const STRING_METHODS: &[BuiltinMethodRow] = &[
     ),
 ];
 
-/// The numeric wrappers share `boxed_dispatch!` + `dispatch_common` plus
+/// The numeric wrappers share `boxed::boxed_dispatch` + `dispatch_common` plus
 /// per-class parse / `toString` / `valueOf` arms: `$p` is the primitive
 /// descriptor, `$b` the boxed class, `$parse` the parse method. The radix
 /// overloads of `parseX` / `toString` / `valueOf` are not served (the

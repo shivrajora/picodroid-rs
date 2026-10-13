@@ -7,13 +7,9 @@ use crate::types::{JvmError, Value};
 use super::NativeContext;
 use crate::names::{c, m};
 
-/// Dispatch `<init>`, `valueOf`, and the unboxing accessor for a boxed
-/// primitive type.  All five wrappers (Integer, Boolean, Long, Float, Double)
-/// share the same three-method pattern — only the class name and the default
-/// value differ.
 /// The unboxing accessors every wrapper answers (`intValue`, `booleanValue`,
 /// …), as loaded. One table and one function shared by every
-/// `boxed_dispatch!` instance rather than eight match arms per wrapper.
+/// `boxed_dispatch` caller rather than eight match arms per wrapper.
 const UNBOXING_ACCESSORS: [&str; 8] = [
     m::intValue,
     m::longValue,
@@ -30,50 +26,56 @@ fn is_unboxing_accessor(method: &str) -> bool {
     UNBOXING_ACCESSORS.contains(&method)
 }
 
-macro_rules! boxed_dispatch {
-    ($class:expr, $default:expr, $ctx:expr, $method:expr) => {
-        match $method {
-            "<init>" => {
-                let Value::ObjectRef(obj) = $ctx.args.first().copied().unwrap_or(Value::Null)
-                else {
-                    return Some(Err(JvmError::InvalidReference));
-                };
-                // `new Integer("42")`: the String constructor parses as the
-                // class's `parseX` does; it used to store the String
-                // reference itself as the value.
-                let val = if is_string_arg($ctx) {
-                    match ctor_value_from_string($class, $ctx) {
-                        Ok(v) => v,
-                        Err(e) => return Some(Err(e)),
-                    }
-                } else {
-                    $ctx.args.get(1).copied().unwrap_or(Value::Null)
-                };
-                // A builtin object gets its slots on first write; a write the
-                // heap cannot honour is an allocation failure, surfaced as
-                // OutOfMemoryError rather than a box with no value.
-                if $ctx.objects.set_field(obj, 0, val).is_none() {
-                    return Some(Err(JvmError::StackOverflow));
+/// `<init>`, `valueOf(primitive)`, the unboxing accessors and
+/// [`dispatch_common`] for wrapper `class`, whose unset value reads as
+/// `default`. One out-of-line copy for all eight wrappers: it was a macro
+/// expanded into each `dispatch_*`, ~620 B apiece.
+#[inline(never)]
+fn boxed_dispatch(
+    class: &'static str,
+    default: Value,
+    ctx: &mut NativeContext<'_>,
+    method: &str,
+) -> Option<Result<Option<Value>, JvmError>> {
+    match method {
+        "<init>" => {
+            let Value::ObjectRef(obj) = ctx.args.first().copied().unwrap_or(Value::Null) else {
+                return Some(Err(JvmError::InvalidReference));
+            };
+            // `new Integer("42")`: the String constructor parses as the
+            // class's `parseX` does; it used to store the String
+            // reference itself as the value.
+            let val = if is_string_arg(ctx) {
+                match ctor_value_from_string(class, ctx) {
+                    Ok(v) => v,
+                    Err(e) => return Some(Err(e)),
                 }
-                Some(Ok(None))
+            } else {
+                ctx.args.get(1).copied().unwrap_or(Value::Null)
+            };
+            // A builtin object gets its slots on first write; a write the
+            // heap cannot honour is an allocation failure, surfaced as
+            // OutOfMemoryError rather than a box with no value.
+            if ctx.objects.set_field(obj, 0, val).is_none() {
+                return Some(Err(JvmError::StackOverflow));
             }
-            m::valueOf => {
-                let val = $ctx.args.first().copied().unwrap_or(Value::Null);
-                Some(box_value($class, val, $ctx))
-            }
-            // Unboxing accessor: intValue, booleanValue, longValue, etc.,
-            // converting as Java does (`Float.valueOf(2.5f).intValue()` is 2).
-            _ if is_unboxing_accessor($method) => {
-                let Value::ObjectRef(obj) = $ctx.args.first().copied().unwrap_or(Value::Null)
-                else {
-                    return Some(Err(JvmError::InvalidReference));
-                };
-                let raw = $ctx.objects.get_field(obj, 0).unwrap_or($default);
-                Some(Ok(Some(convert_accessor($method, raw))))
-            }
-            _ => dispatch_common($class, $method, $ctx),
+            Some(Ok(None))
         }
-    };
+        m::valueOf => {
+            let val = ctx.args.first().copied().unwrap_or(Value::Null);
+            Some(box_value(class, val, ctx))
+        }
+        // Unboxing accessor: intValue, booleanValue, longValue, etc.,
+        // converting as Java does (`Float.valueOf(2.5f).intValue()` is 2).
+        _ if is_unboxing_accessor(method) => {
+            let Value::ObjectRef(obj) = ctx.args.first().copied().unwrap_or(Value::Null) else {
+                return Some(Err(JvmError::InvalidReference));
+            };
+            let raw = ctx.objects.get_field(obj, 0).unwrap_or(default);
+            Some(Ok(Some(convert_accessor(method, raw))))
+        }
+        _ => dispatch_common(class, method, ctx),
+    }
 }
 
 /// Java's `d2i` (see `crate::fconv`).
@@ -262,7 +264,7 @@ pub(crate) fn dispatch_integer(
             parse_int(ctx).and_then(|v| box_value(c::java_lang_Integer, Value::Int(v), ctx)),
         );
     }
-    boxed_dispatch!(c::java_lang_Integer, Value::Int(0), ctx, method_name)
+    boxed_dispatch(c::java_lang_Integer, Value::Int(0), ctx, method_name)
 }
 
 pub(crate) fn dispatch_boolean(
@@ -280,7 +282,7 @@ pub(crate) fn dispatch_boolean(
         }
         return Some(box_value(c::java_lang_Boolean, Value::Int(b as i32), ctx));
     }
-    boxed_dispatch!(c::java_lang_Boolean, Value::Int(0), ctx, method_name)
+    boxed_dispatch(c::java_lang_Boolean, Value::Int(0), ctx, method_name)
 }
 
 pub(crate) fn dispatch_long(
@@ -298,7 +300,7 @@ pub(crate) fn dispatch_long(
             parse_long(ctx).and_then(|v| box_value(c::java_lang_Long, Value::Long(v), ctx)),
         );
     }
-    boxed_dispatch!(c::java_lang_Long, Value::Long(0), ctx, method_name)
+    boxed_dispatch(c::java_lang_Long, Value::Long(0), ctx, method_name)
 }
 
 pub(crate) fn dispatch_float(
@@ -322,7 +324,7 @@ pub(crate) fn dispatch_float(
             parse_f64(ctx).and_then(|v| box_value(c::java_lang_Float, Value::Float(v as f32), ctx)),
         );
     }
-    boxed_dispatch!(c::java_lang_Float, Value::Float(0.0), ctx, method_name)
+    boxed_dispatch(c::java_lang_Float, Value::Float(0.0), ctx, method_name)
 }
 
 pub(crate) fn dispatch_double(
@@ -340,7 +342,7 @@ pub(crate) fn dispatch_double(
             parse_f64(ctx).and_then(|v| box_value(c::java_lang_Double, Value::Double(v), ctx)),
         );
     }
-    boxed_dispatch!(c::java_lang_Double, Value::Double(0.0), ctx, method_name)
+    boxed_dispatch(c::java_lang_Double, Value::Double(0.0), ctx, method_name)
 }
 
 pub(crate) fn dispatch_character(
@@ -355,7 +357,7 @@ pub(crate) fn dispatch_character(
             return Some(Ok(Some(v)));
         }
     }
-    boxed_dispatch!(c::java_lang_Character, Value::Int(0), ctx, method_name)
+    boxed_dispatch(c::java_lang_Character, Value::Int(0), ctx, method_name)
 }
 
 pub(crate) fn dispatch_byte(
@@ -374,7 +376,7 @@ pub(crate) fn dispatch_byte(
                 .and_then(|v| box_value(c::java_lang_Byte, v.unwrap_or(Value::Int(0)), ctx)),
         );
     }
-    boxed_dispatch!(c::java_lang_Byte, Value::Int(0), ctx, method_name)
+    boxed_dispatch(c::java_lang_Byte, Value::Int(0), ctx, method_name)
 }
 
 pub(crate) fn dispatch_short(
@@ -393,7 +395,7 @@ pub(crate) fn dispatch_short(
                 .and_then(|v| box_value(c::java_lang_Short, v.unwrap_or(Value::Int(0)), ctx)),
         );
     }
-    boxed_dispatch!(c::java_lang_Short, Value::Int(0), ctx, method_name)
+    boxed_dispatch(c::java_lang_Short, Value::Int(0), ctx, method_name)
 }
 
 /// The value a wrapper's `String` constructor stores (`new Integer("42")`,
@@ -556,6 +558,7 @@ fn number_format_exception(ctx: &mut NativeContext<'_>) -> JvmError {
 /// value, so `Integer a = 127, b = 127; a == b` holds as on Android;
 /// everything else is a fresh box. `<init>` never comes here — `new
 /// Integer(5)` is always a distinct object.
+#[inline(never)]
 fn box_value(
     class: &'static str,
     val: Value,
