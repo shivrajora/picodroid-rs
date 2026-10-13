@@ -134,7 +134,6 @@ fn source_mods(ctx: &NativeContext<'_>, source: &IterSource) -> u32 {
 /// The `(key, value)` pair at `pos` of a map buffer (`Null`s past the end).
 fn map_entry(ctx: &NativeContext<'_>, buf: u16, pos: usize) -> (Value, Value) {
     ctx.objects
-        .map_iter(buf)
-        .nth(pos)
+        .map_entry_at(buf, pos)
         .unwrap_or((Value::Null, Value::Null))
 }

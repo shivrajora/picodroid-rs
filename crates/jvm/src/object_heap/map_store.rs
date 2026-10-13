@@ -201,6 +201,16 @@ impl ObjectHeap {
     }
 
     /// Return an iterator over the map entries (key, value).
+    /// The stored `(key, value)` slots of map `idx` (empty when there is no
+    /// such map): what the collector scans. Keys and values are narrow
+    /// (`map_push` and `map_set_value_at` refuse anything else).
+    pub(crate) fn map_slots(&self, idx: u16) -> &[(Slot, Slot)] {
+        match self.map_bufs.get(idx as usize) {
+            Some(Some(v)) => v,
+            _ => &[],
+        }
+    }
+
     pub fn map_iter(&self, idx: u16) -> impl Iterator<Item = (Value, Value)> + '_ {
         self.map_bufs
             .get(idx as usize)

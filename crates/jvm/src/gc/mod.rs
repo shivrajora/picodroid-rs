@@ -134,8 +134,7 @@ fn push_ref(work: &mut WorkStack, s: &Slot) {
 }
 
 /// [`push_ref`] for the root sources that hold `Value`s (frames, statics,
-/// shadow roots, native handler roots) and the buffer iterators that yield
-/// them.
+/// shadow roots, native handler roots).
 fn push_ref_value(work: &mut WorkStack, v: &Value) {
     match *v {
         Value::ObjectRef(idx) => work.push(GcRef::Object(idx)),
@@ -506,8 +505,8 @@ pub fn collect(
                 // ArrayList: scan backing list_bufs for references
                 if objects.class_name(idx) == Some(c::java_util_ArrayList) {
                     if let Some(Value::Int(buf_idx)) = objects.get_field(idx, 0) {
-                        for v in objects.list_iter(buf_idx as u16) {
-                            push_ref_value(work, &v);
+                        for s in objects.list_slots(buf_idx as u16) {
+                            push_ref(work, s);
                         }
                     }
                 }
@@ -515,9 +514,9 @@ pub fn collect(
                 // HashMap / HashSet: scan backing map_bufs for references
                 if owns_map_buf(objects.class_name(idx)) {
                     if let Some(Value::Int(buf_idx)) = objects.get_field(idx, 0) {
-                        for (k, v) in objects.map_iter(buf_idx as u16) {
-                            push_ref_value(work, &k);
-                            push_ref_value(work, &v);
+                        for (k, v) in objects.map_slots(buf_idx as u16) {
+                            push_ref(work, k);
+                            push_ref(work, v);
                         }
                     }
                 }

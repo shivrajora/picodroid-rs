@@ -131,6 +131,16 @@ impl ObjectHeap {
     }
 
     /// Return an iterator over the list elements.
+    /// The stored slots of list `idx` (empty when there is no such list):
+    /// what the collector scans. Every element is narrow (`list_add` and
+    /// `list_set` refuse a `long`/`double`), one slot each.
+    pub(crate) fn list_slots(&self, idx: u16) -> &[Slot] {
+        match self.list_bufs.get(idx as usize) {
+            Some(Some(v)) => v,
+            _ => &[],
+        }
+    }
+
     pub fn list_iter(&self, idx: u16) -> impl Iterator<Item = Value> + '_ {
         self.list_bufs
             .get(idx as usize)
