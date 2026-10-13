@@ -248,7 +248,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             return Ok(false);
         }
 
-        // Superclass chain, root-first: [Object, ..., Parent, ci]
+        // Superclass chain, class-first: [ci, Parent, ..., Object]
         let chain = helpers::superclass_chain_indices(self.classes, ci);
         if chain.iter().any(|&c| self.statics.is_erroneous(c)) {
             // Step 8: a superclass in the erroneous state makes this class
@@ -302,8 +302,10 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             return Ok(false);
         }
 
-        // Reverse so root clinit is on top (LIFO — top executes first).
-        clinit_frames.reverse();
+        // Class-first, root-last: pushed in this order, the root's
+        // `<clinit>` ends up on top and runs first. Built in that order
+        // rather than reversed — `reverse()` over 56-byte frames unrolled
+        // to ~1.9 KB of swaps here.
         self.pending_clinit_frames = clinit_frames;
         Ok(true)
     }

@@ -1112,9 +1112,9 @@ pub(super) fn find_clinit_in(cf: &ClassFile) -> Option<usize> {
         .position(|m| cf.method_name(m) == Some(b"<clinit>"))
 }
 
-/// The superclass chain of class `ci`, root-first, as class indices. Only
-/// classes present in the loaded set are included; the chain ends where
-/// a superclass has no class file.
+/// The superclass chain of class `ci`, `ci` first and the root last, as
+/// class indices. Only classes present in the loaded set are included; the
+/// chain ends where a superclass has no class file.
 pub(super) fn superclass_chain_indices(classes: Classes<'_>, ci: usize) -> Vec<usize> {
     let mut chain: Vec<usize> = Vec::new();
     let mut current = Some(ci);
@@ -1122,7 +1122,6 @@ pub(super) fn superclass_chain_indices(classes: Classes<'_>, ci: usize) -> Vec<u
         chain.push(i);
         current = super_index(classes, i);
     }
-    chain.reverse(); // root-first
     chain
 }
 

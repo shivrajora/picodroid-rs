@@ -453,16 +453,15 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 }
 
                 // Pop counts. Stack order is outermost...innermost (top),
-                // so pop gives innermost first; reverse to get [outer..inner].
-                let mut counts: alloc::vec::Vec<i32> =
-                    alloc::vec::Vec::with_capacity(dims as usize);
-                for _ in 0..dims {
+                // so pop gives innermost first; fill from the back to get
+                // [outer..inner] (no `reverse()`: at opt-level 3 it unrolls).
+                let mut counts: alloc::vec::Vec<i32> = alloc::vec![0; dims as usize];
+                for slot in counts.iter_mut().rev() {
                     match frame.pop()? {
-                        Value::Int(n) => counts.push(n),
+                        Value::Int(n) => *slot = n,
                         _ => return Err(JvmError::InvalidBytecode),
                     }
                 }
-                counts.reverse();
 
                 for &c in &counts {
                     if c < 0 {
