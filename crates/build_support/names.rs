@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Generator for the `c::` / `m::` / `d::` name-constant modules — one
 //! spelling per build, chosen here, for every Java class, member and
-//! descriptor the runtime names from Rust.
+//! descriptor the runtime names from Rust — and the `ch::` / `mh::` modules
+//! beside them: the 32-bit FNV-1a hash of each loaded class and member
+//! spelling, which the native dispatch arms match on instead of the text.
 //!
 //! Under `--shrink` the loaded framework spells `picodroid/view/View` as
 //! `a/AB`, `toString` as `xy` and `(Ljava/lang/String;)V` as `(Lb/AQ;)V`.
@@ -16,7 +18,16 @@
 //! c::java_lang_String      "java/lang/String"        or "b/AQ"
 //! m::toString              "toString"                or "xy"
 //! d::String__V             "(Ljava/lang/String;)V"   or "(Lb/AQ;)V"
+//! ch::picodroid_view_View  fnv1a("picodroid/view/View") or fnv1a("a/AB")
+//! mh::toString             fnv1a("toString")         or fnv1a("xy")
 //! ```
+//!
+//! `ch::` / `mh::` hold the same FNV-1a that `class_link::hash::name_hash`
+//! computes (a picodroid-core test proves the two agree); a dispatch `match`
+//! on them compiles to integer compares where a `match` on `c::` / `m::`
+//! was a `memcmp` call per arm. Two loaded spellings in one namespace that
+//! hash alike stop the build here, so a hash match is exact for every name
+//! the runtime dispatches.
 //!
 //! A no-shrink build compiles to exactly the literals it matched before; a
 //! shrink build carries no original spelling anywhere. The inputs are
@@ -92,6 +103,36 @@ fn class_refs(desc: &str) -> Vec<String> {
         i += 1;
     }
     out
+}
+
+/// 32-bit FNV-1a of `s`, byte for byte: the hash `class_link::hash::name_hash`
+/// computes, spelled again here because this file is `#[path]`-included by
+/// `jvm/build.rs` and cannot depend on that crate. The build-time test
+/// vectors below and picodroid-core's `hash_consts_are_fnv1a_of_loaded_spelling`
+/// keep the two in step.
+pub fn fnv1a(s: &str) -> u32 {
+    let mut h: u32 = 0x811c_9dc5;
+    for b in s.bytes() {
+        h ^= u32::from(b);
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    h
+}
+
+/// Record `value`'s hash in `seen`; two *different* spellings with one hash
+/// end the build (a hash match must be exact). The same spelling twice —
+/// two originals the map sends to one target — is one name, not a collision.
+fn note_hash(seen: &mut BTreeMap<u32, String>, namespace: &str, value: &str) -> u32 {
+    let h = fnv1a(value);
+    if let Some(prev) = seen.insert(h, value.to_string()) {
+        if prev != value {
+            panic!(
+                "{namespace} names {prev:?} and {value:?} share the FNV-1a hash {h:#010x}; \
+                 rename one (the shrink map chooses the shrunk spellings)"
+            );
+        }
+    }
+    h
 }
 
 pub fn read_sources(root: &Path) -> Sources {
@@ -219,7 +260,9 @@ pub fn emit_names(out: &Path, root: &Path, targets: &Targets<'_>, shrink_active:
          pub mod c {\n",
     );
     let mut class_pairs: Vec<(String, String)> = Vec::new();
+    let mut class_hashes: Vec<(String, String, u32)> = Vec::new();
     let mut seen: BTreeMap<String, String> = BTreeMap::new();
+    let mut seen_hash: BTreeMap<u32, String> = BTreeMap::new();
     for name in &src.classes {
         let ident = class_ident(name);
         if let Some(prev) = seen.insert(ident.clone(), name.clone()) {
@@ -227,7 +270,21 @@ pub fn emit_names(out: &Path, root: &Path, targets: &Targets<'_>, shrink_active:
         }
         let value = (targets.class)(name).unwrap_or_else(|| name.clone());
         body.push_str(&format!("    pub const {ident}: &str = {value:?};\n"));
+        let hash = note_hash(&mut seen_hash, "class", &value);
+        class_hashes.push((ident, value.clone(), hash));
         class_pairs.push((name.clone(), value));
+    }
+    body.push_str("}\n\n");
+
+    // ---- class hashes ---------------------------------------------------
+    body.push_str(
+        "/// FNV-1a of each `c::` constant's loaded spelling: what a native dispatch\n\
+         /// arm matches a class by. Unique within this module (checked at build).\n\
+         #[allow(non_upper_case_globals, dead_code)]\n\
+         pub mod ch {\n",
+    );
+    for (ident, _, hash) in &class_hashes {
+        body.push_str(&format!("    pub const {ident}: u32 = {hash:#010x};\n"));
     }
     body.push_str("}\n\n");
 
@@ -238,15 +295,36 @@ pub fn emit_names(out: &Path, root: &Path, targets: &Targets<'_>, shrink_active:
          pub mod m {\n",
     );
     let mut member_pairs: Vec<(String, String)> = Vec::new();
+    let mut member_hashes: Vec<(String, String, u32)> = Vec::new();
+    // `<init>` / `<clinit>` have no const (not Rust idents) but are matched
+    // by hash too (`pico_jvm::native::INIT`); seed them so no member hashes
+    // alike.
+    let mut seen_hash: BTreeMap<u32, String> = BTreeMap::new();
+    note_hash(&mut seen_hash, "member", "<init>");
+    note_hash(&mut seen_hash, "member", "<clinit>");
     for name in &src.members {
         let value = (targets.member)(name).unwrap_or_else(|| name.clone());
         if value != *name {
             member_pairs.push((name.clone(), value.clone()));
         }
+        let hash = note_hash(&mut seen_hash, "member", &value);
         let Some(ident) = rust_ident_for(name) else {
             continue;
         };
         body.push_str(&format!("    pub const {ident}: &str = {value:?};\n"));
+        member_hashes.push((ident, value, hash));
+    }
+    body.push_str("}\n\n");
+
+    // ---- member hashes --------------------------------------------------
+    body.push_str(
+        "/// FNV-1a of each `m::` constant's loaded spelling: what a native dispatch\n\
+         /// arm matches a method by. Unique within this module (checked at build).\n\
+         #[allow(non_upper_case_globals, dead_code)]\n\
+         pub mod mh {\n",
+    );
+    for (ident, _, hash) in &member_hashes {
+        body.push_str(&format!("    pub const {ident}: u32 = {hash:#010x};\n"));
     }
     body.push_str("}\n\n");
 
@@ -291,6 +369,26 @@ pub fn emit_names(out: &Path, root: &Path, targets: &Targets<'_>, shrink_active:
         body.push_str(&format!("    ({from:?}, {to:?}),\n"));
     }
     body.push_str("];\n\n");
+    for (name, doc, rows) in [
+        (
+            "CLASS_HASHES",
+            "`(loaded spelling, ch:: value)` for every class const.",
+            &class_hashes,
+        ),
+        (
+            "MEMBER_HASHES",
+            "`(loaded spelling, mh:: value)` for every member const.",
+            &member_hashes,
+        ),
+    ] {
+        body.push_str(&format!(
+            "/// {doc}\n#[cfg(test)]\npub static {name}: &[(&str, u32)] = &[\n"
+        ));
+        for (_, value, hash) in rows.iter() {
+            body.push_str(&format!("    ({value:?}, {hash:#010x}),\n"));
+        }
+        body.push_str("];\n\n");
+    }
     for (fn_name, doc, pairs, reverse) in [
         (
             "unshrink_class",
@@ -371,6 +469,30 @@ mod tests {
             "picodroid/view/View" => Some("a/AB".to_string()),
             _ => None,
         }
+    }
+
+    /// The published FNV-1a 32-bit vectors — the same ones
+    /// `class_link::hash::tests::known_vectors` checks, so the two copies of
+    /// the hash cannot drift apart.
+    #[test]
+    fn fnv1a_matches_the_published_vectors() {
+        assert_eq!(fnv1a(""), 0x811c_9dc5);
+        assert_eq!(fnv1a("a"), 0xe40c_292c);
+        assert_eq!(fnv1a("foobar"), 0xbf9c_f968);
+    }
+
+    #[test]
+    fn two_spellings_with_one_hash_end_the_build() {
+        let mut seen = BTreeMap::new();
+        assert_eq!(note_hash(&mut seen, "t", "setText"), fnv1a("setText"));
+        // The same spelling again is the same name.
+        assert_eq!(note_hash(&mut seen, "t", "setText"), fnv1a("setText"));
+        let r = std::panic::catch_unwind(move || {
+            // A forged entry under setText's hash with another spelling.
+            seen.insert(fnv1a("getText"), "notGetText".to_string());
+            note_hash(&mut seen, "t", "getText")
+        });
+        assert!(r.is_err(), "a second spelling under one hash must panic");
     }
 
     #[test]

@@ -86,3 +86,32 @@ fn new_lays_out_the_chain_root_first_with_typed_defaults() {
     let b = objects.alloc_instance(0, classes2).unwrap();
     assert_eq!(objects.get_field(b, 0), None);
 }
+
+/// An app set must share no class-name hash with the framework set or the
+/// builtins: a same-named class is the simplest collision, and the JVM is
+/// left as it was.
+#[test]
+fn an_app_class_hashing_like_a_framework_or_builtin_class_is_refused() {
+    let root = class("PRoot", c::java_lang_Object, &[]);
+    let mut jvm = Jvm::new();
+    jvm.load_framework(section(&[root])).unwrap();
+    let loaded = jvm.classes().len();
+
+    let twin = class("PRoot", c::java_lang_Object, &[("x", "I")]);
+    assert_eq!(
+        jvm.load_app(section(&[twin])),
+        Err(JvmError::ClassHashCollision)
+    );
+    assert_eq!(jvm.classes().len(), loaded);
+
+    let builtin = class(c::java_lang_String, c::java_lang_Object, &[]);
+    let fine = class("PLeaf", "PRoot", &[]);
+    assert_eq!(
+        jvm.load_app(section(&[fine, builtin])),
+        Err(JvmError::ClassHashCollision)
+    );
+    assert_eq!(jvm.classes().len(), loaded);
+
+    jvm.load_app(section(&[fine])).unwrap();
+    assert_eq!(jvm.classes().len(), loaded + 1);
+}

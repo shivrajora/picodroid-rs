@@ -1295,4 +1295,69 @@ mod tests {
             );
         }
     }
+
+    /// Assert FNV-1a is injective over `names` (loaded spellings); name both
+    /// colliders otherwise.
+    fn assert_hashes_unique(kind: &str, names: &BTreeSet<String>) {
+        let mut by_hash: BTreeMap<u32, &String> = BTreeMap::new();
+        for n in names {
+            if let Some(prev) = by_hash.insert(class_link::name_hash(n.as_bytes()), n) {
+                panic!(
+                    "{kind} names {prev:?} and {n:?} share one FNV-1a hash; the dispatch \
+                     arms match by hash alone, so one of them must be respelled"
+                );
+            }
+        }
+    }
+
+    /// The dispatch arms match names by hash with no confirming compare, so
+    /// every name that can reach a handler must hash apart from every other:
+    /// each method name of every framework class (the superclass walk can
+    /// present any of them), the JVM's builtin method names and `<init>`;
+    /// and every class name — the corpus, the classfile-less builtins and
+    /// the platform registry. Loaded spellings, so both shrink lanes of
+    /// `scripts/test.sh` are checked. The generator refuses a collision
+    /// among the names Rust spells; this covers the ones it never sees.
+    #[test]
+    fn native_name_hashes_are_unique_over_the_corpus() {
+        let mut methods: BTreeSet<String> = BTreeSet::new();
+        let mut classes: BTreeSet<String> = BTreeSet::new();
+        for bytes in crate::framework_classes::class_bytes() {
+            let cf = ClassFile::parse(bytes).expect("parse framework class");
+            classes.insert(
+                core::str::from_utf8(cf.class_name().expect("class name"))
+                    .unwrap()
+                    .to_string(),
+            );
+            for m in cf.methods() {
+                methods.insert(
+                    core::str::from_utf8(cf.method_name(m).expect("method name"))
+                        .unwrap()
+                        .to_string(),
+                );
+            }
+        }
+        assert!(
+            methods.len() > 1000,
+            "corpus is vacuous: {} method names",
+            methods.len()
+        );
+        for &(class, rows) in pico_jvm::native::BUILTIN_METHODS {
+            classes.insert(class.to_string());
+            for (method, _) in rows {
+                methods.insert(method.to_string());
+            }
+        }
+        methods.insert("<init>".to_string());
+        methods.insert("<clinit>".to_string());
+        for n in pico_jvm::native::BUILTIN_CLASS_NAMES
+            .iter()
+            .chain(crate::native_class_registry_tests::PICODROID_NATIVE_CLASSES)
+        {
+            classes.insert(n.to_string());
+        }
+        assert_hashes_unique("method", &methods);
+        assert_hashes_unique("class", &classes);
+        assert_eq!(pico_jvm::native::INIT, class_link::name_hash(b"<init>"));
+    }
 }

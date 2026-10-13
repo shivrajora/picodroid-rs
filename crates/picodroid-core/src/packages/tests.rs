@@ -941,6 +941,46 @@ fn a_bad_link_table_is_refused_until_a_receipt_vouches_for_it() {
     assert_eq!(installed_count(), 0);
 }
 
+/// An app whose class is named exactly like a framework class hashes like
+/// it, and the JVM finds classes and dispatches natives by hash: the scan
+/// does not list such a run, receipt or not, and a system app with one is
+/// skipped the way a wrong framework-map-version is.
+#[test]
+fn an_app_class_named_like_a_framework_class_is_refused() {
+    let _g = test_support::lock();
+    let twin = crate::shrink_names::c::picodroid_app_Activity;
+    let twin_class = class_link::build::minimal_class(twin.as_bytes());
+    let main = test_support::t_main();
+    let mut b = PapkBuilder::new(ManifestSpec {
+        entry: EntryPoint::MainClass("t/Main"),
+        package_name: "com.twin",
+        version: "1.0",
+        framework_map_version: FW,
+        version_code: Some(1),
+        label: None,
+        icon: None,
+        design_size: None,
+        requires_features: None,
+    });
+    b.class("t/Main", &main);
+    b.class(twin, &twin_class);
+    let image = b.build().unwrap();
+    assert!(class_hashes_disjoint(&papk("com.ok", 0)));
+    assert!(!class_hashes_disjoint(&image));
+
+    let mut r = fresh(16, MAX);
+    bake(&mut r, 0, &image, 0, 1);
+    assert!(find("com.twin").is_none());
+    give_receipt(&mut r, 0);
+    rescan_region(&r);
+    assert!(find("com.twin").is_none());
+
+    let leaked: &'static [u8] = alloc::boxed::Box::leak(image.into_boxed_slice());
+    register_system(&[leaked, system("picodroid.settings")]);
+    assert!(find("com.twin").is_none());
+    assert_eq!(find("picodroid.settings").unwrap().kind, Kind::System);
+}
+
 #[cfg(has_multi_app)]
 #[test]
 fn a_relocated_run_loses_its_receipt() {

@@ -6,7 +6,8 @@ use crate::{
 };
 
 use super::NativeContext;
-use crate::names::{c, m};
+use super::INIT;
+use crate::names::{c, mh};
 
 /// Extract the list buffer index stored in field 0 of an ArrayList receiver.
 fn get_list_buf(objects: &ObjectHeap, args: &[Value]) -> Result<u16, JvmError> {
@@ -33,11 +34,11 @@ fn values_eq(a: Value, b: Value, objects: &ObjectHeap, strings: &StringTable) ->
 }
 
 pub(crate) fn dispatch(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    match method_name {
-        "<init>" => {
+    match method {
+        INIT => {
             // <init>() or <init>(int initialCapacity) — capacity hint ignored.
             let Value::ObjectRef(obj_idx) = ctx.args.first().copied().unwrap_or(Value::Null) else {
                 return Some(Err(JvmError::InvalidReference));
@@ -55,7 +56,7 @@ pub(crate) fn dispatch(
             }
             Some(Ok(None))
         }
-        m::add => {
+        mh::add => {
             let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -82,7 +83,7 @@ pub(crate) fn dispatch(
                 Some(Ok(Some(Value::Int(1))))
             }
         }
-        m::get => {
+        mh::get => {
             let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -95,14 +96,14 @@ pub(crate) fn dispatch(
                 None => Some(Err(index_out_of_bounds(ctx))),
             }
         }
-        m::size => {
+        mh::size => {
             let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
             };
             Some(Ok(Some(Value::Int(ctx.objects.list_len(buf_idx) as i32))))
         }
-        m::isEmpty => {
+        mh::isEmpty => {
             let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -111,7 +112,7 @@ pub(crate) fn dispatch(
                 (ctx.objects.list_len(buf_idx) == 0) as i32,
             ))))
         }
-        m::set => {
+        mh::set => {
             let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -128,7 +129,7 @@ pub(crate) fn dispatch(
                 None => Some(Err(index_out_of_bounds(ctx))),
             }
         }
-        m::remove => {
+        mh::remove => {
             let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -154,7 +155,7 @@ pub(crate) fn dispatch(
                 None => Some(Err(index_out_of_bounds(ctx))),
             }
         }
-        m::clear => {
+        mh::clear => {
             let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -162,7 +163,7 @@ pub(crate) fn dispatch(
             ctx.objects.list_clear(buf_idx);
             Some(Ok(None))
         }
-        m::iterator => {
+        mh::iterator => {
             let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -196,7 +197,7 @@ pub(crate) fn dispatch(
         // list's length — the array argument is neither filled nor returned
         // (documented divergence; Kotlin's `toTypedArray()` passes an empty
         // one and reads the result).
-        m::toArray => {
+        mh::toArray => {
             let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -215,7 +216,7 @@ pub(crate) fn dispatch(
             }
             Some(Ok(Some(Value::ArrayRef(arr))))
         }
-        m::contains => {
+        mh::contains => {
             let buf_idx = match get_list_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),

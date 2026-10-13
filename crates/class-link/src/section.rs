@@ -132,6 +132,29 @@ pub struct IndexEntry {
 const _: () = assert!(core::mem::size_of::<IndexEntry>() == INDEX_ENTRY_LEN);
 const _: () = assert!(core::mem::align_of::<IndexEntry>() == 4);
 
+/// The first pair of entries, one from each of two indexes sorted by
+/// `(hash, idx)`, whose hashes are equal: `(a.idx, b.idx)`. One merge pass.
+/// A class set is searched by hash alone, and the native dispatch arms
+/// match classes by hash, so an app set must share no hash with the
+/// framework set it loads beside — a same-named class included.
+pub fn cross_collisions(a: &[IndexEntry], b: &[IndexEntry]) -> Option<(u16, u16)> {
+    let (mut i, mut j) = (0, 0);
+    while i < a.len() && j < b.len() {
+        match a[i].hash.cmp(&b[j].hash) {
+            core::cmp::Ordering::Less => i += 1,
+            core::cmp::Ordering::Greater => j += 1,
+            core::cmp::Ordering::Equal => return Some((a[i].idx, b[j].idx)),
+        }
+    }
+    None
+}
+
+/// Whether `h` is in `hashes`, a sorted array; binary search.
+#[inline]
+pub fn hash_in_sorted(hashes: &[u32], h: u32) -> bool {
+    hashes.binary_search(&h).is_ok()
+}
+
 #[inline]
 fn le16(d: &[u8], off: usize) -> Option<u16> {
     let b = d.get(off..off.checked_add(2)?)?;
@@ -395,4 +418,53 @@ pub(crate) fn check_super_chains(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn index(hashes: &[u32]) -> [IndexEntry; 3] {
+        let mut out = [IndexEntry {
+            hash: 0,
+            idx: 0,
+            pad: 0,
+        }; 3];
+        for (i, h) in hashes.iter().enumerate() {
+            out[i] = IndexEntry {
+                hash: *h,
+                idx: i as u16,
+                pad: 0,
+            };
+        }
+        out
+    }
+
+    #[test]
+    fn cross_collisions_finds_the_first_shared_hash() {
+        let a = index(&[10, 20, 30]);
+        let b = index(&[5, 20, 30]);
+        assert_eq!(cross_collisions(&a, &b), Some((1, 1)));
+        assert_eq!(cross_collisions(&b, &a), Some((1, 1)));
+        let c = index(&[1, 30, 40]);
+        assert_eq!(cross_collisions(&a, &c), Some((2, 1)));
+    }
+
+    #[test]
+    fn cross_collisions_is_none_for_disjoint_or_empty_indexes() {
+        let a = index(&[10, 20, 30]);
+        let b = index(&[5, 15, 25]);
+        assert_eq!(cross_collisions(&a, &b), None);
+        assert_eq!(cross_collisions(&a, &[]), None);
+        assert_eq!(cross_collisions(&[], &b), None);
+    }
+
+    #[test]
+    fn hash_in_sorted_is_membership() {
+        let hashes = [3, 7, 9, 100];
+        assert!(hash_in_sorted(&hashes, 7));
+        assert!(hash_in_sorted(&hashes, 100));
+        assert!(!hash_in_sorted(&hashes, 8));
+        assert!(!hash_in_sorted(&[], 8));
+    }
 }

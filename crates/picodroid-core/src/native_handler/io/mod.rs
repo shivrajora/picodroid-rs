@@ -9,6 +9,8 @@
 //! `java.io.File`'s predicates report them — `false`, `0`, `-1`. Failures on
 //! the write side — a refused path, a full volume, a rejected write — throw
 //! `IOException`, as `java.io` does, so an app can catch them.
+use crate::shrink_names::{c, ch, mh};
+use pico_jvm::NativeKey;
 
 // The LittleFS body that used to live here is this family's `HalFs` impl
 // in `glue.rs`. Routing through the seam means these natives carry no
@@ -16,7 +18,6 @@
 // rather than editing this file — and the test build reaches the in-memory
 // `TestHal` through the same seam.
 use crate::hal::fs as backend;
-use crate::shrink_names::{c, m};
 use crate::storage::quota::{self, Refused};
 use crate::storage::sandbox::{self, BUF};
 use alloc::vec::Vec;
@@ -45,25 +46,24 @@ pub(crate) mod fields {
 }
 
 pub fn dispatch(
-    class_name: &str,
-    method_name: &str,
+    key: NativeKey,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    match (class_name, method_name) {
-        (c::picodroid_io_File, m::exists) => Some(file_bool(ctx, backend::exists)),
-        (c::picodroid_io_File, m::isFile) => Some(file_bool(ctx, backend::is_file)),
-        (c::picodroid_io_File, m::isDirectory) => Some(file_bool(ctx, backend::is_dir)),
-        (c::picodroid_io_File, m::length) => Some(file_length(ctx)),
-        (c::picodroid_io_File, m::createNewFile) => Some(file_create_new(ctx)),
-        (c::picodroid_io_File, m::delete) => Some(file_delete(ctx)),
-        (c::picodroid_io_File, m::mkdir) => Some(file_mkdir(ctx)),
-        (c::picodroid_io_File, m::renameTo) => Some(file_rename_to(ctx)),
-        (c::picodroid_io_File, m::list) => Some(file_list(ctx)),
-        (c::picodroid_io_FileInputStream, m::read) => Some(fis_read(ctx)),
-        (c::picodroid_io_FileInputStream, m::available) => Some(fis_available(ctx)),
-        (c::picodroid_io_FileOutputStream, m::initStream) => Some(fos_init_stream(ctx)),
-        (c::picodroid_io_FileOutputStream, m::write) => Some(fos_write(ctx)),
-        (c::picodroid_io_FileOutputStream, m::flush) => Some(Ok(None)),
+    match (key.class, key.method) {
+        (ch::picodroid_io_File, mh::exists) => Some(file_bool(ctx, backend::exists)),
+        (ch::picodroid_io_File, mh::isFile) => Some(file_bool(ctx, backend::is_file)),
+        (ch::picodroid_io_File, mh::isDirectory) => Some(file_bool(ctx, backend::is_dir)),
+        (ch::picodroid_io_File, mh::length) => Some(file_length(ctx)),
+        (ch::picodroid_io_File, mh::createNewFile) => Some(file_create_new(ctx)),
+        (ch::picodroid_io_File, mh::delete) => Some(file_delete(ctx)),
+        (ch::picodroid_io_File, mh::mkdir) => Some(file_mkdir(ctx)),
+        (ch::picodroid_io_File, mh::renameTo) => Some(file_rename_to(ctx)),
+        (ch::picodroid_io_File, mh::list) => Some(file_list(ctx)),
+        (ch::picodroid_io_FileInputStream, mh::read) => Some(fis_read(ctx)),
+        (ch::picodroid_io_FileInputStream, mh::available) => Some(fis_available(ctx)),
+        (ch::picodroid_io_FileOutputStream, mh::initStream) => Some(fos_init_stream(ctx)),
+        (ch::picodroid_io_FileOutputStream, mh::write) => Some(fos_write(ctx)),
+        (ch::picodroid_io_FileOutputStream, mh::flush) => Some(Ok(None)),
         _ => None,
     }
 }
@@ -524,8 +524,10 @@ fn store_bytes_into_array(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shrink_names::m;
     use pico_jvm::array_heap::decode_ref;
     use pico_jvm::class_file::Classes;
+    use pico_jvm::NativeKey;
 
     /// A File / FileInputStream / FileOutputStream object over `path` (the
     /// three share the field layout: the path first, then the stream's
@@ -576,7 +578,7 @@ mod tests {
             arrays,
             upcall: None,
         };
-        dispatch(class, method, &mut ctx).expect("io method handled")
+        dispatch(NativeKey::of(class, method), &mut ctx).expect("io method handled")
     }
 
     #[test]

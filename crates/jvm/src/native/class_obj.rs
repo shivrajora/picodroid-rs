@@ -8,7 +8,8 @@
 //! slot 1 (the cache rides an object field, so the GC's normal field scan
 //! keeps the converted string alive with its Class object).
 
-use crate::names::m;
+use super::INIT;
+use crate::names::mh;
 use alloc::vec::Vec;
 
 use crate::{
@@ -17,12 +18,12 @@ use crate::{
 };
 
 pub fn dispatch(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    match method_name {
-        "<init>" => Some(Ok(None)),
-        m::getName => {
+    match method {
+        INIT => Some(Ok(None)),
+        mh::getName => {
             let Some(&Value::ObjectRef(this)) = ctx.args.first() else {
                 return Some(Err(JvmError::InvalidReference));
             };

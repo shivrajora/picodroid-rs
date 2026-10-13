@@ -16,8 +16,9 @@
 //! first. They are not rows in `method_tables.rs`: that table cross-checks
 //! the SDK's own `native` declarations, and `java/lang/Object` is a builtin
 //! with no class file.
+use crate::shrink_names::{c, ch, mh};
+use pico_jvm::NativeKey;
 
-use crate::shrink_names::m;
 use pico_jvm::{
     heap::StringTable,
     object_heap::ObjectHeap,
@@ -25,7 +26,6 @@ use pico_jvm::{
     NativeContext,
 };
 
-use crate::shrink_names::c;
 use crate::threads::{self, Outcome};
 
 /// Allocate a builtin exception by name with `msg`, the way the net stack's
@@ -241,8 +241,7 @@ fn thread_start0(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError>
 }
 
 pub fn dispatch(
-    class_name: &str,
-    method_name: &str,
+    key: NativeKey,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
     // Object.wait / notify / notifyAll — see the module docs for why these
@@ -251,35 +250,35 @@ pub fn dispatch(
         ctx.args.first(),
         Some(Value::ObjectRef(_) | Value::ArrayRef(_) | Value::Reference(_))
     ) {
-        match (method_name, ctx.descriptor) {
-            (m::wait, "()V" | "(J)V") => return Some(object_wait(ctx)),
-            (m::notify, "()V") => return Some(object_notify(ctx, false)),
-            (m::notifyAll, "()V") => return Some(object_notify(ctx, true)),
+        match (key.method, ctx.descriptor) {
+            (mh::wait, "()V" | "(J)V") => return Some(object_wait(ctx)),
+            (mh::notify, "()V") => return Some(object_notify(ctx, false)),
+            (mh::notifyAll, "()V") => return Some(object_notify(ctx, true)),
             _ => {}
         }
     }
 
-    if class_name != c::picodroid_concurrent_Thread {
+    if key.class != ch::picodroid_concurrent_Thread {
         return None;
     }
-    Some(match method_name {
-        m::start0 => thread_start0(ctx),
-        m::current0 => Ok(Some(match threads::current_obj() {
+    Some(match key.method {
+        mh::start0 => thread_start0(ctx),
+        mh::current0 => Ok(Some(match threads::current_obj() {
             Some(o) => Value::ObjectRef(o),
             None => Value::Null,
         })),
         // 0 = the UI task ("main"), 1 = anything else (a worker names
         // itself "Thread-N" on the Java side).
-        m::currentKind0 => Ok(Some(Value::Int(if crate::ui_thread::is_ui_task() {
+        mh::currentKind0 => Ok(Some(Value::Int(if crate::ui_thread::is_ui_task() {
             0
         } else {
             1
         }))),
-        m::adopt0 => this_obj(ctx).map(|o| {
+        mh::adopt0 => this_obj(ctx).map(|o| {
             threads::adopt_current(Some(o));
             None
         }),
-        m::sleep0 => {
+        mh::sleep0 => {
             let ms = match ctx.args.first() {
                 Some(Value::Long(ms)) => (*ms).clamp(0, u32::MAX as i64) as u32,
                 _ => 0,
@@ -287,28 +286,28 @@ pub fn dispatch(
             let o = threads::sleep_current(ms);
             outcome_to_result(ctx, o, "sleep interrupted")
         }
-        m::join0 => match this_obj(ctx) {
+        mh::join0 => match this_obj(ctx) {
             Ok(target) => {
                 let o = threads::join(target, timeout_arg(ctx.args.get(1)));
                 outcome_to_result(ctx, o, "join interrupted")
             }
             Err(e) => Err(e),
         },
-        m::interrupt => this_obj(ctx).map(|o| {
+        mh::interrupt => this_obj(ctx).map(|o| {
             threads::interrupt(o);
             None
         }),
-        m::isInterrupted => {
+        mh::isInterrupted => {
             this_obj(ctx).map(|o| Some(Value::Int(threads::is_interrupted(o) as i32)))
         }
-        m::interrupted => Ok(Some(Value::Int(threads::take_interrupted_current() as i32))),
-        m::isAlive => this_obj(ctx).map(|o| Some(Value::Int(threads::is_alive(o) as i32))),
+        mh::interrupted => Ok(Some(Value::Int(threads::take_interrupted_current() as i32))),
+        mh::isAlive => this_obj(ctx).map(|o| Some(Value::Int(threads::is_alive(o) as i32))),
         // vTaskDelay(0) is FreeRTOS's "yield to an equal-priority task".
-        m::yield0 => {
+        mh::yield0 => {
             crate::rtos::delay_ms(0);
             Ok(None)
         }
-        m::exit0 => this_obj(ctx).map(|o| {
+        mh::exit0 => this_obj(ctx).map(|o| {
             threads::terminate_by_obj(o);
             None
         }),

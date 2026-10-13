@@ -2,15 +2,15 @@
 //! Native dispatch for `picodroid.concurrent.Executors`, the built-in
 //! `MainExecutor` / `BackgroundExecutor` instances and the deadline table
 //! behind `MainScheduledExecutor`.
+use crate::shrink_names::{c, ch, mh};
+use pico_jvm::NativeKey;
 
-use crate::shrink_names::m;
 use pico_jvm::{
     types::{JvmError, Value},
     NativeContext,
 };
 
 use crate::executors::{background_pool, main_queue, scheduled};
-use crate::shrink_names::c;
 
 fn int_arg(ctx: &NativeContext<'_>, i: usize) -> i32 {
     match ctx.args.get(i) {
@@ -29,22 +29,21 @@ fn ms_arg(ctx: &NativeContext<'_>, i: usize) -> u32 {
 }
 
 pub fn dispatch(
-    class_name: &str,
-    method_name: &str,
+    key: NativeKey,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    match (class_name, method_name) {
+    match (key.class, key.method) {
         // Factory methods return a fresh executor instance each call. The
         // Rust-side queues are static, so identity of the returned object
         // does not matter — every instance routes to the same inbox/pool.
-        (c::picodroid_concurrent_Executors, m::mainExecutor) => {
+        (ch::picodroid_concurrent_Executors, mh::mainExecutor) => {
             let exec_class = c::picodroid_concurrent_MainExecutor;
             match ctx.objects.alloc(exec_class) {
                 Some(obj) => Some(Ok(Some(Value::ObjectRef(obj)))),
                 None => Some(Err(JvmError::StackOverflow)),
             }
         }
-        (c::picodroid_concurrent_Executors, m::backgroundExecutor) => {
+        (ch::picodroid_concurrent_Executors, mh::backgroundExecutor) => {
             let exec_class = c::picodroid_concurrent_BackgroundExecutor;
             match ctx.objects.alloc(exec_class) {
                 Some(obj) => Some(Ok(Some(Value::ObjectRef(obj)))),
@@ -53,7 +52,7 @@ pub fn dispatch(
         }
 
         // execute(Runnable r): args[0] = this, args[1] = Runnable ObjectRef.
-        (c::picodroid_concurrent_MainExecutor, m::execute) => {
+        (ch::picodroid_concurrent_MainExecutor, mh::execute) => {
             if let Some(Value::ObjectRef(runnable)) = ctx.args.get(1) {
                 if !main_queue::enqueue_runnable(*runnable) {
                     #[cfg(not(feature = "sim"))]
@@ -64,7 +63,7 @@ pub fn dispatch(
             }
             Some(Ok(None))
         }
-        (c::picodroid_concurrent_BackgroundExecutor, m::execute) => {
+        (ch::picodroid_concurrent_BackgroundExecutor, mh::execute) => {
             if let Some(Value::ObjectRef(runnable)) = ctx.args.get(1) {
                 if !background_pool::submit(*runnable) {
                     #[cfg(not(feature = "sim"))]
@@ -78,7 +77,7 @@ pub fn dispatch(
 
         // The deadline table (`executors::scheduled`). Static natives:
         // args[0] is the first argument.
-        (c::picodroid_concurrent_MainScheduledExecutor, m::schedule0) => {
+        (ch::picodroid_concurrent_MainScheduledExecutor, mh::schedule0) => {
             let Some(Value::ObjectRef(runnable)) = ctx.args.first() else {
                 return Some(Ok(Some(Value::Int(-1))));
             };
@@ -89,14 +88,14 @@ pub fn dispatch(
                 .unwrap_or(-1);
             Some(Ok(Some(Value::Int(id))))
         }
-        (c::picodroid_concurrent_MainScheduledExecutor, m::cancel0) => Some(Ok(Some(Value::Int(
-            scheduled::cancel(int_arg(ctx, 0)) as i32,
-        )))),
-        (c::picodroid_concurrent_MainScheduledExecutor, m::completed0) => {
+        (ch::picodroid_concurrent_MainScheduledExecutor, mh::cancel0) => Some(Ok(Some(
+            Value::Int(scheduled::cancel(int_arg(ctx, 0)) as i32),
+        ))),
+        (ch::picodroid_concurrent_MainScheduledExecutor, mh::completed0) => {
             scheduled::completed(int_arg(ctx, 0));
             Some(Ok(None))
         }
-        (c::picodroid_concurrent_MainScheduledExecutor, m::delay0) => {
+        (ch::picodroid_concurrent_MainScheduledExecutor, mh::delay0) => {
             let ms = scheduled::delay_ms(int_arg(ctx, 0)).unwrap_or(0);
             Some(Ok(Some(Value::Long(ms as i64))))
         }

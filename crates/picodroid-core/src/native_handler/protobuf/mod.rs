@@ -15,6 +15,8 @@
 //! which is what lets `throw_exception` raise it without a constructor); a
 //! write that does not fit answers `-1` and Java throws
 //! `OutOfSpaceException`.
+use crate::shrink_names::{c, ch, mh};
+use pico_jvm::NativeKey;
 
 mod heap_io;
 
@@ -26,7 +28,6 @@ use pico_jvm::{
 
 use self::heap_io::{HeapIoError, HeapReader, HeapWriter};
 use super::throw_exception;
-use crate::shrink_names::{c, m};
 
 pub mod fields;
 
@@ -34,50 +35,51 @@ const ST_OK: i32 = 0;
 const ST_FULL: i32 = -1;
 
 pub fn dispatch(
-    class_name: &str,
-    method_name: &str,
+    key: NativeKey,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    if class_name == c::picodroid_protobuf_CodedInputStream {
-        let r = match method_name {
-            m::nativeReadTag => read(ctx, |d| {
+    if key.class == ch::picodroid_protobuf_CodedInputStream {
+        let r = match key.method {
+            mh::nativeReadTag => read(ctx, |d| {
                 d.decode_tag().map(|t| Value::Int(t.varint() as i32))
             }),
-            m::nativeReadVarint32 => {
+            mh::nativeReadVarint32 => {
                 read(ctx, |d| d.decode_varint32().map(|v| Value::Int(v as i32)))
             }
-            m::nativeReadVarint64 => {
+            mh::nativeReadVarint64 => {
                 read(ctx, |d| d.decode_varint64().map(|v| Value::Long(v as i64)))
             }
-            m::nativeReadFixed32 => read(ctx, |d| d.decode_fixed32().map(|v| Value::Int(v as i32))),
-            m::nativeReadFixed64 => {
+            mh::nativeReadFixed32 => {
+                read(ctx, |d| d.decode_fixed32().map(|v| Value::Int(v as i32)))
+            }
+            mh::nativeReadFixed64 => {
                 read(ctx, |d| d.decode_fixed64().map(|v| Value::Long(v as i64)))
             }
-            m::nativeReadDouble => read(ctx, |d| d.decode_double().map(Value::Double)),
-            m::nativeSkipField => skip_field(ctx),
+            mh::nativeReadDouble => read(ctx, |d| d.decode_double().map(Value::Double)),
+            mh::nativeSkipField => skip_field(ctx),
             _ => return None,
         };
         return Some(r);
     }
-    if class_name == c::picodroid_protobuf_CodedOutputStream {
-        let r = match method_name {
-            m::nativeWriteVarint32 => match as_int(ctx.args.get(1)) {
+    if key.class == ch::picodroid_protobuf_CodedOutputStream {
+        let r = match key.method {
+            mh::nativeWriteVarint32 => match as_int(ctx.args.get(1)) {
                 Ok(v) => write(ctx, v as u32 as u64, |e, v| e.encode_varint32(v as u32)),
                 Err(e) => Err(e),
             },
-            m::nativeWriteVarint64 => match as_long(ctx.args.get(1)) {
+            mh::nativeWriteVarint64 => match as_long(ctx.args.get(1)) {
                 Ok(v) => write(ctx, v as u64, |e, v| e.encode_varint64(v)),
                 Err(e) => Err(e),
             },
-            m::nativeWriteFixed32 => match as_int(ctx.args.get(1)) {
+            mh::nativeWriteFixed32 => match as_int(ctx.args.get(1)) {
                 Ok(v) => write(ctx, v as u32 as u64, |e, v| e.encode_fixed32(v as u32)),
                 Err(e) => Err(e),
             },
-            m::nativeWriteFixed64 => match as_long(ctx.args.get(1)) {
+            mh::nativeWriteFixed64 => match as_long(ctx.args.get(1)) {
                 Ok(v) => write(ctx, v as u64, |e, v| e.encode_fixed64(v)),
                 Err(e) => Err(e),
             },
-            m::nativeWriteDouble => match as_double(ctx.args.get(1)) {
+            mh::nativeWriteDouble => match as_double(ctx.args.get(1)) {
                 Ok(v) => write(ctx, v.to_bits(), |e, v| e.encode_double(f64::from_bits(v))),
                 Err(e) => Err(e),
             },

@@ -139,23 +139,28 @@ fn builtin_method_rows_name_real_arms() {
     for &(class, rows) in BUILTIN_METHODS {
         let source = dispatcher_source(class);
         for (method, _) in rows {
-            // Arms match through `m::<name>` (never a literal); `<init>` is the
-            // one name with no const.
+            // Arms match through `mh::<name>` (the hash) or `m::<name>` (the
+            // string), never a literal; `<init>` is the one name with no
+            // const and is matched as the `INIT` hash or the literal.
             let original = crate::names::unshrink_member(method);
-            let literal = if original.starts_with('<') {
-                alloc::format!("\"{original}\"")
-            } else {
-                alloc::format!("m::{original}")
+            let names_arm = |text: &str| {
+                if original.starts_with('<') {
+                    text.contains(&alloc::format!("\"{original}\""))
+                        || text
+                            .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                            .any(|tok| tok == "INIT")
+                } else {
+                    text.contains(&alloc::format!("mh::{original}"))
+                        || text.contains(&alloc::format!("m::{original}"))
+                }
             };
             let served = match (class, *method) {
                 // Resolved by the interpreter before dispatch.
                 (c::java_lang_Object, m::getClass)
                 | (c::java_util_ArrayList, m::sort)
                 | (c::java_lang_Enum, m::valueOf)
-                | (c::java_lang_Class, m::forName | m::newInstance) => {
-                    interpreter.contains(&literal)
-                }
-                _ => source.contains(&literal),
+                | (c::java_lang_Class, m::forName | m::newInstance) => names_arm(interpreter),
+                _ => names_arm(source),
             };
             if !served {
                 missing.push(alloc::format!("{class}.{method}"));
@@ -164,7 +169,7 @@ fn builtin_method_rows_name_real_arms() {
     }
     assert!(
         missing.is_empty(),
-        "BUILTIN_METHODS rows with no matching string literal in their dispatcher \
+        "BUILTIN_METHODS rows with no matching `mh::`/`m::` arm in their dispatcher \
          (stale row or typo): {missing:?}"
     );
 }

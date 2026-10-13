@@ -461,6 +461,7 @@ class PicodroidPapkPlugin : Plugin<Project> {
             }
             packerSources.from(resCompilerSources)
             if (shrinkMapFile != null) wireActiveMap(this.shrinkMapFile)
+            repoRoot.resolve("sdk/class-names.tsv").takeIf { it.isFile }?.let { frameworkClassesFile.set(it) }
             outputFile.set(target.layout.buildDirectory.file("papk/${target.name}.papk"))
             this.hostTarget.set(hostTarget)
             repoRootPath.set(repoRoot.absolutePath)

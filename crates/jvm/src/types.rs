@@ -273,6 +273,11 @@ pub enum JvmError {
     NoSuchMethod,
     /// The `.class` file data is malformed or unsupported.
     InvalidBytecode,
+    /// An app class whose name hashes like a framework or builtin class
+    /// (a same-named class included). Classes are found and the native
+    /// dispatch arms match by hash, so the app cannot be loaded; rename
+    /// the class.
+    ClassHashCollision,
     /// The operand stack or a fixed-size internal buffer overflowed.
     StackOverflow,
     /// An operand stack pop was attempted on an empty stack.

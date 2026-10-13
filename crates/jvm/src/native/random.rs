@@ -7,7 +7,8 @@ use crate::{
 };
 
 use super::NativeContext;
-use crate::names::{c, m};
+use super::INIT;
+use crate::names::{c, mh};
 
 /// Field slots of a `java/util/Random` instance (a builtin with no class
 /// file, so the layout is this module's convention). The seed is a `long`
@@ -89,11 +90,11 @@ fn extract_this(args: &[Value]) -> Result<u16, JvmError> {
 }
 
 pub(crate) fn dispatch(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    match method_name {
-        "<init>" => {
+    match method {
+        INIT => {
             let this = match extract_this(ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -116,7 +117,7 @@ pub(crate) fn dispatch(
             }
             Some(Ok(None))
         }
-        m::setSeed => {
+        mh::setSeed => {
             let this = match extract_this(ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -134,7 +135,7 @@ pub(crate) fn dispatch(
                 _ => Some(Err(JvmError::InvalidReference)),
             }
         }
-        m::nextInt => {
+        mh::nextInt => {
             let this = match extract_this(ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -181,7 +182,7 @@ pub(crate) fn dispatch(
                 }
             }
         }
-        m::nextLong => {
+        mh::nextLong => {
             let this = match extract_this(ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -198,7 +199,7 @@ pub(crate) fn dispatch(
             // half via `(int) -> long` cast, so we mirror that with a wrap.
             Some(Ok(Some(Value::Long((hi << 32).wrapping_add(lo)))))
         }
-        m::nextBoolean => {
+        mh::nextBoolean => {
             let this = match extract_this(ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -208,7 +209,7 @@ pub(crate) fn dispatch(
                 Err(e) => Some(Err(e)),
             }
         }
-        m::nextFloat => {
+        mh::nextFloat => {
             let this = match extract_this(ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -218,7 +219,7 @@ pub(crate) fn dispatch(
                 Err(e) => Some(Err(e)),
             }
         }
-        m::nextDouble => {
+        mh::nextDouble => {
             let this = match extract_this(ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -235,7 +236,7 @@ pub(crate) fn dispatch(
             let bits = (hi << 27) + lo;
             Some(Ok(Some(Value::Double(bits as f64 / (1u64 << 53) as f64))))
         }
-        m::nextGaussian => {
+        mh::nextGaussian => {
             let this = match extract_this(ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -273,7 +274,7 @@ pub(crate) fn dispatch(
                 return Some(Ok(Some(Value::Double(v1 * multiplier))));
             }
         }
-        m::nextBytes => {
+        mh::nextBytes => {
             let this = match extract_this(ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),

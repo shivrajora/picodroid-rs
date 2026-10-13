@@ -1,6 +1,6 @@
 # Roadmap: linking by hash, and how far the name strings can go (2026-09)
 
-Status: **roadmap, nothing built.** Successor to
+Status: **roadmap; N1's dispatch half and N3's class check built 2026-10-12** (see the notes under each). Successor to
 docs/designs/class-link-2026-09.md, which moved class metadata into
 pack-time link tables but left every name in the class files. This document
 answers three questions — how linking coexists with name shrinking, which
@@ -77,6 +77,20 @@ shippable. Stop after any of them.
 
 ### N1 — Hash-keyed native dispatch (speed; no format change)
 
+(2026-10-12: the dispatch half is **built**. `build_support/names.rs` emits
+`ch::` / `mh::` beside `c::` / `m::` and refuses two loaded spellings with
+one hash; `PicodroidNativeHandler::dispatch` and `BuiltinHandler::dispatch`
+hash the two names once per call (`pico_jvm::NativeKey`) and every module
+`match`es the `u32`s — without the confirming string compare proposed
+below, which would have put the `memcmp` sites back. The names that can
+reach a handler are a closed set, proven hash-unique by the generator and
+by `native_name_hashes_are_unique_over_the_corpus`; N3's cross-set class
+check landed with it (next section). Still to do here: the interpreter
+still decodes the names from the constant pool and the handler trait still
+takes `&str`; the packer-stored hashes would remove that decode, and the
+link-table bump would now be layout **3** — layout 2 shipped with the
+second class-link round.)
+
 The handler API gains the hashes beside the strings:
 `dispatch(class_hash, method_hash, class_name, method_name, ctx)`, with the
 modules matching on the `u32`s and confirming with one string compare.
@@ -122,7 +136,14 @@ means the hash must be unique wherever it is compared:
 - within a class set (class names) — already rejected at build and pack time;
 - **across** the framework and an app, and between an app class and the
   native handler names — new checks, in the packer, which knows the
-  framework's shrink map.
+  framework's shrink map. (2026-10-12: **built** for class names, three
+  times over: `papk-pack --framework-classes` refuses an app class whose
+  hash equals a framework or builtin class's; the device refuses such a
+  PAPK at install (`packages::class_hashes_disjoint`) and `Jvm::load_app`
+  refuses it at load (`JvmError::ClassHashCollision`), all through
+  `class_link::cross_collisions`. The packer also refuses an app class that
+  declares a `native` method, so no app-chosen *method* name ever reaches
+  the handlers.)
 
 We own the spellings, which makes this tractable: the shrinker
 (`tools/class-shrink`) can choose target names whose hashes do not collide,

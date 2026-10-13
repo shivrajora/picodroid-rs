@@ -5,7 +5,8 @@ use crate::{
 };
 
 use super::NativeContext;
-use crate::names::{c, m};
+use super::INIT;
+use crate::names::{c, mh};
 
 /// Extract the map buffer index stored in field 0 of a HashMap receiver.
 fn get_map_buf(objects: &ObjectHeap, args: &[Value]) -> Result<u16, JvmError> {
@@ -19,11 +20,11 @@ fn get_map_buf(objects: &ObjectHeap, args: &[Value]) -> Result<u16, JvmError> {
 }
 
 pub(crate) fn dispatch(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    match method_name {
-        "<init>" => {
+    match method {
+        INIT => {
             let Value::ObjectRef(obj_idx) = ctx.args.first().copied().unwrap_or(Value::Null) else {
                 return Some(Err(JvmError::InvalidReference));
             };
@@ -40,7 +41,7 @@ pub(crate) fn dispatch(
             }
             Some(Ok(None))
         }
-        m::put => {
+        mh::put => {
             let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -53,7 +54,7 @@ pub(crate) fn dispatch(
             };
             Some(Ok(Some(old.unwrap_or(Value::Null))))
         }
-        m::get => {
+        mh::get => {
             let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -62,7 +63,7 @@ pub(crate) fn dispatch(
             let value = ctx.objects.map_get(buf_idx, key, ctx.strings);
             Some(Ok(Some(value.unwrap_or(Value::Null))))
         }
-        m::remove => {
+        mh::remove => {
             let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -71,7 +72,7 @@ pub(crate) fn dispatch(
             let old = ctx.objects.map_remove(buf_idx, key, ctx.strings);
             Some(Ok(Some(old.unwrap_or(Value::Null))))
         }
-        m::containsKey => {
+        mh::containsKey => {
             let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -80,7 +81,7 @@ pub(crate) fn dispatch(
             let found = ctx.objects.map_contains_key(buf_idx, key, ctx.strings);
             Some(Ok(Some(Value::Int(found as i32))))
         }
-        m::containsValue => {
+        mh::containsValue => {
             let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -89,14 +90,14 @@ pub(crate) fn dispatch(
             let found = ctx.objects.map_contains_value(buf_idx, value, ctx.strings);
             Some(Ok(Some(Value::Int(found as i32))))
         }
-        m::size => {
+        mh::size => {
             let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
             };
             Some(Ok(Some(Value::Int(ctx.objects.map_len(buf_idx) as i32))))
         }
-        m::isEmpty => {
+        mh::isEmpty => {
             let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -105,7 +106,7 @@ pub(crate) fn dispatch(
                 (ctx.objects.map_len(buf_idx) == 0) as i32,
             ))))
         }
-        m::clear => {
+        mh::clear => {
             let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -113,7 +114,7 @@ pub(crate) fn dispatch(
             ctx.objects.map_clear(buf_idx);
             Some(Ok(None))
         }
-        m::getOrDefault => {
+        mh::getOrDefault => {
             let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -123,9 +124,9 @@ pub(crate) fn dispatch(
             let value = ctx.objects.map_get(buf_idx, key, ctx.strings);
             Some(Ok(Some(value.unwrap_or(default))))
         }
-        m::keySet => view(ctx, c::java_util_HashMap_KeySet),
-        m::values => view(ctx, c::java_util_HashMap_Values),
-        m::entrySet => view(ctx, c::java_util_HashMap_EntrySet),
+        mh::keySet => view(ctx, c::java_util_HashMap_KeySet),
+        mh::values => view(ctx, c::java_util_HashMap_Values),
+        mh::entrySet => view(ctx, c::java_util_HashMap_EntrySet),
         _ => None,
     }
 }
@@ -167,15 +168,15 @@ fn view(
 /// `iterator()` (keys, values, or fresh `Map$Entry` objects, by the view's
 /// class) and `size()`.
 pub(crate) fn dispatch_view(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
     let buf_idx = match get_map_buf(ctx.objects, ctx.args) {
         Ok(i) => i,
         Err(e) => return Some(Err(e)),
     };
-    match method_name {
-        m::iterator => {
+    match method {
+        mh::iterator => {
             let Some(Value::ObjectRef(recv)) = ctx.args.first().copied() else {
                 return Some(Err(JvmError::InvalidReference));
             };
@@ -206,10 +207,10 @@ pub(crate) fn dispatch_view(
             }
             Some(Ok(Some(Value::ObjectRef(iter_obj))))
         }
-        m::size => Some(Ok(Some(Value::Int(ctx.objects.map_len(buf_idx) as i32)))),
+        mh::size => Some(Ok(Some(Value::Int(ctx.objects.map_len(buf_idx) as i32)))),
         // contains(): `k in map.keys` / `v in map.values` — the entry view has
         // no useful equality (entries are fresh objects) and stays unanswered.
-        m::contains => {
+        mh::contains => {
             let Some(Value::ObjectRef(recv)) = ctx.args.first().copied() else {
                 return Some(Err(JvmError::InvalidReference));
             };
@@ -232,12 +233,12 @@ pub(crate) fn dispatch_view(
 /// Dispatch for the `java/util/Map$Entry` objects an `entrySet()` iterator
 /// yields: `getKey()` (field 0) and `getValue()` (field 1).
 pub(crate) fn dispatch_entry(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    let slot = match method_name {
-        m::getKey => 0,
-        m::getValue => 1,
+    let slot = match method {
+        mh::getKey => 0,
+        mh::getValue => 1,
         _ => return None,
     };
     let Some(Value::ObjectRef(idx)) = ctx.args.first().copied() else {

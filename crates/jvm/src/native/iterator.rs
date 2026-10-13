@@ -5,18 +5,18 @@ use crate::{
 };
 
 use super::NativeContext;
-use crate::names::{c, m};
+use crate::names::{c, mh};
 
 pub(crate) fn dispatch(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
     let Value::ObjectRef(obj_idx) = ctx.args.first().copied().unwrap_or(Value::Null) else {
         return Some(Err(JvmError::InvalidReference));
     };
 
-    match method_name {
-        m::hasNext => {
+    match method {
+        mh::hasNext => {
             let state = match ctx.objects.iter_get(obj_idx) {
                 Some(s) => s,
                 None => return Some(Err(JvmError::InvalidReference)),
@@ -24,7 +24,7 @@ pub(crate) fn dispatch(
             let len = source_len(ctx, &state.source);
             Some(Ok(Some(Value::Int((state.position < len) as i32))))
         }
-        m::next => {
+        mh::next => {
             let (source, pos, expected) = match ctx.objects.iter_get(obj_idx) {
                 Some(s) => (s.source, s.position, s.expected_mods),
                 None => return Some(Err(JvmError::InvalidReference)),
@@ -71,7 +71,7 @@ pub(crate) fn dispatch(
             }
             Some(Ok(Some(value)))
         }
-        m::remove => {
+        mh::remove => {
             let (source, last, expected) = match ctx.objects.iter_get(obj_idx) {
                 Some(s) => (s.source, s.last_returned, s.expected_mods),
                 None => return Some(Err(JvmError::InvalidReference)),

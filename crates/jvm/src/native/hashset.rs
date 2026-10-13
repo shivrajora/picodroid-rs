@@ -5,7 +5,8 @@ use crate::{
 };
 
 use super::NativeContext;
-use crate::names::{c, m};
+use super::INIT;
+use crate::names::{c, mh};
 
 /// Sentinel value stored in the map backing store for HashSet entries.
 const SET_PRESENT: Value = Value::Int(1);
@@ -22,11 +23,11 @@ fn get_set_buf(objects: &ObjectHeap, args: &[Value]) -> Result<u16, JvmError> {
 }
 
 pub(crate) fn dispatch(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    match method_name {
-        "<init>" => {
+    match method {
+        INIT => {
             let Value::ObjectRef(obj_idx) = ctx.args.first().copied().unwrap_or(Value::Null) else {
                 return Some(Err(JvmError::InvalidReference));
             };
@@ -43,7 +44,7 @@ pub(crate) fn dispatch(
             }
             Some(Ok(None))
         }
-        m::add => {
+        mh::add => {
             let buf_idx = match get_set_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -55,7 +56,7 @@ pub(crate) fn dispatch(
             };
             Some(Ok(Some(Value::Int(was_absent as i32))))
         }
-        m::remove => {
+        mh::remove => {
             let buf_idx = match get_set_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -64,7 +65,7 @@ pub(crate) fn dispatch(
             let was_present = ctx.objects.map_remove(buf_idx, elem, ctx.strings).is_some();
             Some(Ok(Some(Value::Int(was_present as i32))))
         }
-        m::contains => {
+        mh::contains => {
             let buf_idx = match get_set_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -73,14 +74,14 @@ pub(crate) fn dispatch(
             let found = ctx.objects.map_contains_key(buf_idx, elem, ctx.strings);
             Some(Ok(Some(Value::Int(found as i32))))
         }
-        m::size => {
+        mh::size => {
             let buf_idx = match get_set_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
             };
             Some(Ok(Some(Value::Int(ctx.objects.map_len(buf_idx) as i32))))
         }
-        m::isEmpty => {
+        mh::isEmpty => {
             let buf_idx = match get_set_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -91,7 +92,7 @@ pub(crate) fn dispatch(
         }
         // iterator(): the set's elements are the keys of its map buffer, so
         // the HashMap key-view iterator serves it unchanged (hash order).
-        m::iterator => {
+        mh::iterator => {
             let buf_idx = match get_set_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),
@@ -121,7 +122,7 @@ pub(crate) fn dispatch(
             }
             Some(Ok(Some(Value::ObjectRef(iter_obj))))
         }
-        m::clear => {
+        mh::clear => {
             let buf_idx = match get_set_buf(ctx.objects, ctx.args) {
                 Ok(i) => i,
                 Err(e) => return Some(Err(e)),

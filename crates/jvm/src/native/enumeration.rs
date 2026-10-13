@@ -2,23 +2,24 @@
 use crate::types::{JvmError, Value};
 
 use super::NativeContext;
-use crate::names::m;
+use super::INIT;
+use crate::names::mh;
 
 pub(crate) fn dispatch(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    match method_name {
+    match method {
         // Identity hash in Java; the ordinal is just as stable per constant
         // and survives a GC's slot reuse, which the heap index would not.
-        m::hashCode => {
+        mh::hashCode => {
             let Value::ObjectRef(obj_idx) = ctx.args.first().copied().unwrap_or(Value::Null) else {
                 return Some(Err(JvmError::InvalidReference));
             };
             let ordinal = ctx.objects.get_field(obj_idx, 1).unwrap_or(Value::Int(0));
             Some(Ok(Some(ordinal)))
         }
-        "<init>" => {
+        INIT => {
             // Enum.<init>(String name, int ordinal)
             let Value::ObjectRef(obj_idx) = ctx.args.first().copied().unwrap_or(Value::Null) else {
                 return Some(Err(JvmError::InvalidReference));
@@ -32,27 +33,27 @@ pub(crate) fn dispatch(
             }
             Some(Ok(None))
         }
-        m::name | m::toString => {
+        mh::name | mh::toString => {
             let Value::ObjectRef(obj_idx) = ctx.args.first().copied().unwrap_or(Value::Null) else {
                 return Some(Err(JvmError::InvalidReference));
             };
             let name = ctx.objects.get_field(obj_idx, 0).unwrap_or(Value::Null);
             Some(Ok(Some(name)))
         }
-        m::ordinal => {
+        mh::ordinal => {
             let Value::ObjectRef(obj_idx) = ctx.args.first().copied().unwrap_or(Value::Null) else {
                 return Some(Err(JvmError::InvalidReference));
             };
             let ordinal = ctx.objects.get_field(obj_idx, 1).unwrap_or(Value::Int(0));
             Some(Ok(Some(ordinal)))
         }
-        m::equals => {
+        mh::equals => {
             // Reference equality
             let a = ctx.args.first().copied().unwrap_or(Value::Null);
             let b = ctx.args.get(1).copied().unwrap_or(Value::Null);
             Some(Ok(Some(Value::Int((a == b) as i32))))
         }
-        m::compareTo => {
+        mh::compareTo => {
             let Value::ObjectRef(a_idx) = ctx.args.first().copied().unwrap_or(Value::Null) else {
                 return Some(Err(JvmError::InvalidReference));
             };

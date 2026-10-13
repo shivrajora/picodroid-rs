@@ -5,7 +5,8 @@ use crate::{
 };
 
 use super::NativeContext;
-use crate::names::{c, m};
+use super::INIT;
+use crate::names::{c, mh};
 
 /// Extract the byte-buffer index stored in field 0 of a StringBuilder receiver.
 fn get_sb_buf(objects: &ObjectHeap, args: &[Value]) -> Result<u16, JvmError> {
@@ -19,13 +20,13 @@ fn get_sb_buf(objects: &ObjectHeap, args: &[Value]) -> Result<u16, JvmError> {
 }
 
 pub(crate) fn dispatch(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
     // `<init>` allocates the buffer; every other method reads the index the
     // receiver already holds. Each builder owns its own buffer, so two
     // concurrently-alive builders never interleave.
-    if method_name == "<init>" {
+    if method == INIT {
         let Value::ObjectRef(obj_idx) = ctx.args.first().copied().unwrap_or(Value::Null) else {
             return Some(Err(JvmError::InvalidReference));
         };
@@ -55,8 +56,8 @@ pub(crate) fn dispatch(
         Err(e) => return Some(Err(e)),
     };
 
-    match method_name {
-        m::append => {
+    match method {
+        mh::append => {
             let grown = match ctx.args.get(1) {
                 Some(Value::Reference(idx)) => {
                     let s = ctx.strings.resolve(*idx).unwrap_or("");
@@ -93,11 +94,11 @@ pub(crate) fn dispatch(
             // append() returns `this` for chaining.
             Some(Ok(ctx.args.first().copied().map(Some).unwrap_or(None)))
         }
-        m::length => {
+        mh::length => {
             let len = ctx.objects.sb_len(buf) as i32;
             Some(Ok(Some(Value::Int(len))))
         }
-        m::charAt => {
+        mh::charAt => {
             if let Some(Value::Int(i)) = ctx.args.get(1) {
                 match usize::try_from(*i)
                     .ok()
@@ -113,7 +114,7 @@ pub(crate) fn dispatch(
                 Some(Err(JvmError::InvalidReference))
             }
         }
-        m::toString => {
+        mh::toString => {
             // Non-destructive, as on Android: the builder keeps its contents
             // and can be appended to (or stringified again) afterwards.
             let str_ref = ctx

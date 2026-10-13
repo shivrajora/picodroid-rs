@@ -11,26 +11,25 @@
 //! answer for a tone the platform will not play, so an app that checks the
 //! return value needs no picodroid-specific code to run on a board with no
 //! buzzer, and one that ignores it is merely silent.
+use crate::shrink_names::{ch, mh};
+use pico_jvm::NativeKey;
 
-use crate::shrink_names::c;
-use crate::shrink_names::m;
 use pico_jvm::{
     types::{JvmError, Value},
     NativeContext,
 };
 
 pub fn dispatch(
-    class_name: &str,
-    method_name: &str,
+    key: NativeKey,
     _ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    if class_name != c::picodroid_media_ToneGenerator {
+    if key.class != ch::picodroid_media_ToneGenerator {
         return None;
     }
-    let r = match method_name {
+    let r = match key.method {
         // There is no output to configure, and no tone that can play.
-        m::nativeInit | m::stopTone | m::release => Ok(None),
-        m::startTone | m::startToneSequence => Ok(Some(Value::Int(0))),
+        mh::nativeInit | mh::stopTone | mh::release => Ok(None),
+        mh::startTone | mh::startToneSequence => Ok(Some(Value::Int(0))),
         _ => return None,
     };
     Some(r)

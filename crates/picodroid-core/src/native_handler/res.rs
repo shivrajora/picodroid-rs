@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! `picodroid.content.res.Resources` and `LayoutInflater.nativeWord`: reads
 //! of the app's compiled resource table (`crate::resources`).
-use crate::shrink_names::c;
-use crate::shrink_names::m;
+use crate::shrink_names::{c, ch, mh};
+use pico_jvm::NativeKey;
 use pico_jvm::{
     types::{JvmError, Value},
     NativeContext,
@@ -101,38 +101,37 @@ fn style_word(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
 }
 
 pub fn dispatch(
-    class_name: &str,
-    method_name: &str,
+    key: NativeKey,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
     use crate::resources as res;
-    Some(match (class_name, method_name) {
-        (c::picodroid_content_res_Resources, m::getString) => get_string(ctx),
-        (c::picodroid_content_res_Resources, m::getColor) => {
+    Some(match (key.class, key.method) {
+        (ch::picodroid_content_res_Resources, mh::getString) => get_string(ctx),
+        (ch::picodroid_content_res_Resources, mh::getColor) => {
             lookup(ctx, "Color", res::color, Value::Int)
         }
-        (c::picodroid_content_res_Resources, m::getDimension) => {
+        (ch::picodroid_content_res_Resources, mh::getDimension) => {
             lookup(ctx, "Dimension", res::dimension, Value::Float)
         }
-        (c::picodroid_content_res_Resources, m::getInteger) => {
+        (ch::picodroid_content_res_Resources, mh::getInteger) => {
             lookup(ctx, "Integer", res::integer, Value::Int)
         }
-        (c::picodroid_content_res_Resources, m::getBoolean) => {
+        (ch::picodroid_content_res_Resources, mh::getBoolean) => {
             lookup(ctx, "Boolean", res::boolean, |b| Value::Int(b as i32))
         }
-        (c::picodroid_content_res_Resources, m::nativeStyleWord) => style_word(ctx),
+        (ch::picodroid_content_res_Resources, mh::nativeStyleWord) => style_word(ctx),
         // The manifest's `android:theme` (`R.style` id, 0 for none), which
         // `Resources.applyManifestTheme` applies before the first `onCreate`.
-        (c::picodroid_content_res_Resources, m::nativeManifestTheme) => {
+        (ch::picodroid_content_res_Resources, mh::nativeManifestTheme) => {
             Ok(Some(Value::Int(res::manifest_theme() as i32)))
         }
-        (c::picodroid_view_LayoutInflater, m::nativeWord) => layout_word(ctx),
+        (ch::picodroid_view_LayoutInflater, mh::nativeWord) => layout_word(ctx),
         // Served before any handler by the interpreter's precheck
         // (pico_jvm interpreter/ops_reflect.rs), which runs the view's
         // `(Context, AttributeSet)` constructor as a frame: a handler arm
         // cannot run Java. This arm is the method table's anchor for the
         // row and is never reached while the precheck stands.
-        (c::picodroid_view_LayoutInflater, m::nativeNewView) => Err(JvmError::NoSuchMethod),
+        (ch::picodroid_view_LayoutInflater, mh::nativeNewView) => Err(JvmError::NoSuchMethod),
         _ => return None,
     })
 }

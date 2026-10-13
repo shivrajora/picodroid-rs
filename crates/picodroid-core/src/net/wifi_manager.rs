@@ -3,67 +3,67 @@
 //! (docs/designs/wifi-provisioning-2026-09.md). Every method is static;
 //! `args[0]` is the first Java parameter. Nothing here touches the driver:
 //! a join, scan or leave is parked in the mailbox for the link task.
+use crate::shrink_names::mh;
 
 use pico_jvm::types::{JvmError, Value};
 use pico_jvm::NativeContext;
 
 use crate::hal::wifi::{self, Credentials, Request, Security, SSID_MAX};
-use crate::shrink_names::m;
 
 pub fn dispatch(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    Some(match method_name {
-        m::nativeAvailable => Ok(Some(Value::Int(1))),
-        m::nativeStartScan => Ok(Some(bool_value(
+    Some(match method {
+        mh::nativeAvailable => Ok(Some(Value::Int(1))),
+        mh::nativeStartScan => Ok(Some(bool_value(
             wifi::is_scanning() || wifi::submit(Request::Scan),
         ))),
-        m::nativeScanGeneration => Ok(Some(Value::Int(wifi::scan_generation() as i32))),
-        m::nativeScanCount => Ok(Some(Value::Int(wifi::scan_count() as i32))),
-        m::nativeScanSsid => match entry_arg(ctx) {
+        mh::nativeScanGeneration => Ok(Some(Value::Int(wifi::scan_generation() as i32))),
+        mh::nativeScanCount => Ok(Some(Value::Int(wifi::scan_count() as i32))),
+        mh::nativeScanSsid => match entry_arg(ctx) {
             Some(e) => interned(ctx, e.ssid()),
             None => interned(ctx, b""),
         },
-        m::nativeScanBssid => {
+        mh::nativeScanBssid => {
             let bssid = entry_arg(ctx).map(|e| e.bssid).unwrap_or([0; 6]);
             let mut text = [0u8; 17];
             format_bssid(&bssid, &mut text);
             interned(ctx, &text)
         }
-        m::nativeScanRssi => Ok(Some(Value::Int(
+        mh::nativeScanRssi => Ok(Some(Value::Int(
             entry_arg(ctx).map_or(-127, |e| i32::from(e.rssi)),
         ))),
-        m::nativeScanChannel => Ok(Some(Value::Int(
+        mh::nativeScanChannel => Ok(Some(Value::Int(
             entry_arg(ctx).map_or(0, |e| i32::from(e.channel)),
         ))),
-        m::nativeScanSecurity => Ok(Some(Value::Int(
+        mh::nativeScanSecurity => Ok(Some(Value::Int(
             entry_arg(ctx).map_or(0, |e| e.security as i32),
         ))),
-        m::nativeSave => {
+        mh::nativeSave => {
             let saved = credentials_arg(ctx).is_some_and(|c| wifi::save_stored(&c));
             Ok(Some(bool_value(saved)))
         }
-        m::nativeForget => Ok(Some(bool_value(wifi::forget_stored()))),
-        m::nativeReconnect => {
+        mh::nativeForget => Ok(Some(bool_value(wifi::forget_stored()))),
+        mh::nativeReconnect => {
             let sent = match wifi::configured().1 {
                 Some(c) => wifi::submit(Request::Join(c)),
                 None => false,
             };
             Ok(Some(bool_value(sent)))
         }
-        m::nativeDisconnect => Ok(Some(bool_value(wifi::submit(Request::Leave)))),
-        m::nativeStatus => Ok(Some(Value::Int(wifi::status() as i32))),
-        m::nativeCurrentSsid => {
+        mh::nativeDisconnect => Ok(Some(bool_value(wifi::submit(Request::Leave)))),
+        mh::nativeStatus => Ok(Some(Value::Int(wifi::status() as i32))),
+        mh::nativeCurrentSsid => {
             let mut ssid = [0u8; SSID_MAX];
             let n = wifi::current_ssid(&mut ssid);
             interned(ctx, &ssid[..n])
         }
-        m::nativeSavedSsid => match wifi::configured().1 {
+        mh::nativeSavedSsid => match wifi::configured().1 {
             Some(c) => interned(ctx, c.ssid()),
             None => interned(ctx, b""),
         },
-        m::nativeSavedSource => Ok(Some(Value::Int(wifi::configured().0 as i32))),
+        mh::nativeSavedSource => Ok(Some(Value::Int(wifi::configured().0 as i32))),
         _ => return None,
     })
 }

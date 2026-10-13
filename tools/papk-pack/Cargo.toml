@@ -19,3 +19,5 @@ xml-rs = "0.8"
 papk-format = { path = "../../crates/papk-format", features = ["write"] }
 # Reads the active shrink map for `--shrink-map` (entry-point check on shrunk classes).
 class-shrink = { path = "../class-shrink" }
+# `name_hash`, for `--framework-classes`: the hash the device finds classes by.
+class-link = { path = "../../crates/class-link" }

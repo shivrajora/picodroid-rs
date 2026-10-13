@@ -1,28 +1,27 @@
 // SPDX-License-Identifier: GPL-3.0-only
-use crate::shrink_names::c;
-use crate::shrink_names::m;
+use crate::shrink_names::{ch, mh};
+use pico_jvm::NativeKey;
 use pico_jvm::{
     types::{JvmError, Value},
     NativeContext,
 };
 
 pub fn dispatch(
-    class_name: &str,
-    method_name: &str,
+    key: NativeKey,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    match (class_name, method_name) {
-        (c::picodroid_os_SystemClock, m::sleep) => Some(crate::os::system_clock::sleep(ctx.args)),
-        (c::picodroid_os_SystemClock, m::elapsedRealtimeNanos) => {
+    match (key.class, key.method) {
+        (ch::picodroid_os_SystemClock, mh::sleep) => Some(crate::os::system_clock::sleep(ctx.args)),
+        (ch::picodroid_os_SystemClock, mh::elapsedRealtimeNanos) => {
             Some(crate::os::system_clock::elapsed_realtime_nanos())
         }
-        (c::picodroid_os_SystemClock, m::setCurrentTimeMillis) => {
+        (ch::picodroid_os_SystemClock, mh::setCurrentTimeMillis) => {
             Some(crate::os::system_clock::set_current_time_millis(ctx.args))
         }
         // Elapsed-since-boot until SystemClock.setCurrentTimeMillis anchors
         // the epoch (offset stays 0 before that, preserving the historical
         // behaviour for apps that never sync).
-        (c::java_lang_System, m::currentTimeMillis) => {
+        (ch::java_lang_System, mh::currentTimeMillis) => {
             let nanos = crate::hal::system_clock::elapsed_realtime_nanos();
             let millis = nanos / 1_000_000 + crate::os::system_clock::wall_offset_ms();
             Some(Ok(Some(Value::Long(millis))))
@@ -30,17 +29,17 @@ pub fn dispatch(
         // The platform zone (`time_service`): what `TimeZone.getDefault()`
         // reads, and what Settings → Date & time writes through
         // `AlarmManager.setTimeZone`. Minutes east of UTC.
-        (c::java_util_TimeZone, m::nativeDefaultOffsetMinutes) => Some(Ok(Some(Value::Int(
+        (ch::java_util_TimeZone, mh::nativeDefaultOffsetMinutes) => Some(Ok(Some(Value::Int(
             crate::time_service::zone_offset_minutes(),
         )))),
-        (c::picodroid_app_AlarmManager, m::nativeSetTimeZone) => {
+        (ch::picodroid_app_AlarmManager, mh::nativeSetTimeZone) => {
             let stored = setting_name(ctx.args.first(), ctx.strings)
                 .and_then(crate::time_service::parse_offset_minutes)
                 .is_some_and(crate::time_service::set_zone_offset_minutes);
             Some(Ok(Some(Value::Int(i32::from(stored)))))
         }
         // `Settings.Global`: one setting is kept, automatic time.
-        (c::picodroid_provider_Settings_Global, m::nativeGetInt) => {
+        (ch::picodroid_provider_Settings_Global, mh::nativeGetInt) => {
             let default = match ctx.args.get(1) {
                 Some(Value::Int(d)) => *d,
                 _ => 0,
@@ -51,7 +50,7 @@ pub fn dispatch(
             };
             Some(Ok(Some(Value::Int(value))))
         }
-        (c::picodroid_provider_Settings_Global, m::nativePutInt) => {
+        (ch::picodroid_provider_Settings_Global, mh::nativePutInt) => {
             let stored = match (setting_name(ctx.args.first(), ctx.strings), ctx.args.get(1)) {
                 (Some("auto_time"), Some(Value::Int(v))) => {
                     crate::time_service::set_auto_time(*v != 0)
@@ -63,7 +62,7 @@ pub fn dispatch(
         // `Context.getPackageName()`: invokevirtual dispatches with the
         // receiver's class (an Activity or Application subclass), so match
         // the method alone; no other served method shares the name.
-        (_, m::getPackageName) => {
+        (_, mh::getPackageName) => {
             let name = crate::packages::running().unwrap_or("");
             Some(match ctx.strings.intern_dyn(name.as_bytes()) {
                 Some(idx) => Ok(Some(Value::Reference(idx))),
@@ -72,12 +71,12 @@ pub fn dispatch(
         }
         // ── Build, StatFs, StorageStatsManager (multi-app M3b) ───────────
         // Display power (power.rs; docs/designs/app-portability-2026-10.md K5).
-        (c::picodroid_os_PowerManager, m::isInteractive) => Some(Ok(Some(Value::Int(i32::from(
-            crate::power::is_interactive(),
-        ))))),
+        (ch::picodroid_os_PowerManager, mh::isInteractive) => Some(Ok(Some(Value::Int(
+            i32::from(crate::power::is_interactive()),
+        )))),
         // Which keys this board has (app-portability K2): a button mapped to
         // the code, or BACK / HOME as the board synthesises them.
-        (c::picodroid_view_KeyCharacterMap, m::nativeDeviceHasKey) => {
+        (ch::picodroid_view_KeyCharacterMap, mh::nativeDeviceHasKey) => {
             // Static: args[0] = the key code.
             let keycode = match ctx.args.first() {
                 Some(Value::Int(k)) => *k,
@@ -88,7 +87,7 @@ pub fn dispatch(
             )))))
         }
         // `Settings.System`: one setting is kept, the screen timeout.
-        (c::picodroid_provider_Settings_System, m::nativeGetInt) => {
+        (ch::picodroid_provider_Settings_System, mh::nativeGetInt) => {
             // args[0] = name String, args[1] = default int.
             let default = match ctx.args.get(1) {
                 Some(Value::Int(d)) => *d,
@@ -102,7 +101,7 @@ pub fn dispatch(
             };
             Some(Ok(Some(Value::Int(value))))
         }
-        (c::picodroid_provider_Settings_System, m::nativePutInt) => {
+        (ch::picodroid_provider_Settings_System, mh::nativePutInt) => {
             // args[0] = name String, args[1] = value int.
             let stored = match (setting_name(ctx.args.first(), ctx.strings), ctx.args.get(1)) {
                 (Some("screen_off_timeout"), Some(Value::Int(ms))) if *ms >= 0 => {
@@ -112,26 +111,26 @@ pub fn dispatch(
             };
             Some(Ok(Some(Value::Int(i32::from(stored)))))
         }
-        (c::picodroid_os_Build, m::nativeBoard) => {
+        (ch::picodroid_os_Build, mh::nativeBoard) => {
             Some(interned(ctx, crate::board_cfg::build_info::BOARD))
         }
-        (c::picodroid_os_Build, m::nativeHardware) => {
+        (ch::picodroid_os_Build, mh::nativeHardware) => {
             Some(interned(ctx, crate::board_cfg::build_info::MCU))
         }
-        (c::picodroid_os_Build, m::nativeRelease) => {
+        (ch::picodroid_os_Build, mh::nativeRelease) => {
             Some(interned(ctx, crate::board_cfg::build_info::RELEASE))
         }
-        (c::picodroid_os_StatFs, m::nativeTotalBytes) => {
+        (ch::picodroid_os_StatFs, mh::nativeTotalBytes) => {
             Some(Ok(Some(Value::Long(crate::hal::fs::space().0 as i64))))
         }
-        (c::picodroid_os_StatFs, m::nativeFreeBytes) => {
+        (ch::picodroid_os_StatFs, mh::nativeFreeBytes) => {
             Some(Ok(Some(Value::Long(crate::hal::fs::space().1 as i64))))
         }
-        (c::picodroid_os_StatFs, m::nativeAvailableBytes) => Some(Ok(Some(Value::Long(
+        (ch::picodroid_os_StatFs, mh::nativeAvailableBytes) => Some(Ok(Some(Value::Long(
             crate::storage::quota::available_for_app() as i64,
         )))),
         #[cfg(has_multi_app)]
-        (c::picodroid_app_usage_StorageStatsManager, m::nativeAppBytes) => {
+        (ch::picodroid_app_usage_StorageStatsManager, mh::nativeAppBytes) => {
             // An installed app's run, its meta sector included; a system
             // app's image, which lives in `.rodata` and takes no sectors.
             let bytes = string_arg(ctx, 0)
@@ -146,7 +145,7 @@ pub fn dispatch(
             Some(Ok(Some(Value::Long(bytes))))
         }
         #[cfg(has_multi_app)]
-        (c::picodroid_app_usage_StorageStatsManager, m::nativeDataBytes) => {
+        (ch::picodroid_app_usage_StorageStatsManager, mh::nativeDataBytes) => {
             let bytes = string_arg(ctx, 0).map_or(0, |p| crate::storage::quota::usage_of(p) as i64);
             Some(Ok(Some(Value::Long(bytes))))
         }
@@ -155,9 +154,11 @@ pub fn dispatch(
         // `PendingIntent.getActivity` validated and copied them out of the
         // Intent, which keeps the Intent's field slots out of this path.
         #[cfg(has_multi_app)]
-        (c::picodroid_app_AlarmManager, m::nativeSet) => Some(Ok(Some(Value::Int(alarm_set(ctx))))),
+        (ch::picodroid_app_AlarmManager, mh::nativeSet) => {
+            Some(Ok(Some(Value::Int(alarm_set(ctx)))))
+        }
         #[cfg(has_multi_app)]
-        (c::picodroid_app_AlarmManager, m::nativeCancel) => {
+        (ch::picodroid_app_AlarmManager, mh::nativeCancel) => {
             let removed = match (crate::packages::running(), string_arg(ctx, 1)) {
                 (Some(owner), Some(class)) => {
                     let request_code = int_arg(ctx.args, 0);
@@ -173,7 +174,7 @@ pub fn dispatch(
         }
         // ── PackageInstaller.uninstall (multi-app M3c) ────────────────
         #[cfg(has_multi_app)]
-        (c::picodroid_content_pm_PackageInstaller, m::nativeUninstall) => {
+        (ch::picodroid_content_pm_PackageInstaller, mh::nativeUninstall) => {
             let outcome = match string_arg(ctx, 0) {
                 Some(package) => crate::packages::uninstall_from_app(package),
                 None => crate::packages::UninstallOutcome::NotInstalled,
@@ -184,11 +185,11 @@ pub fn dispatch(
         // One value per call over the package directory; an index is the
         // package's position, stable while an app runs (single writer).
         #[cfg(has_multi_app)]
-        (c::picodroid_content_pm_PackageManager, m::nativeCount) => Some(Ok(Some(Value::Int(
+        (ch::picodroid_content_pm_PackageManager, mh::nativeCount) => Some(Ok(Some(Value::Int(
             crate::packages::entries().count() as i32,
         )))),
         #[cfg(has_multi_app)]
-        (c::picodroid_content_pm_PackageManager, m::nativeIndexOf) => {
+        (ch::picodroid_content_pm_PackageManager, mh::nativeIndexOf) => {
             let index = match ctx.args.first() {
                 Some(Value::Reference(idx)) => ctx
                     .strings
@@ -199,34 +200,37 @@ pub fn dispatch(
             Some(Ok(Some(Value::Int(index.map_or(-1, |i| i as i32)))))
         }
         #[cfg(has_multi_app)]
-        (c::picodroid_content_pm_PackageManager, m::nativePackageName) => {
+        (ch::picodroid_content_pm_PackageManager, mh::nativePackageName) => {
             Some(package_string(ctx, |e| e.package()))
         }
         #[cfg(has_multi_app)]
-        (c::picodroid_content_pm_PackageManager, m::nativeVersionName) => {
+        (ch::picodroid_content_pm_PackageManager, mh::nativeVersionName) => {
             Some(package_string(ctx, |e| e.version()))
         }
         #[cfg(has_multi_app)]
-        (c::picodroid_content_pm_PackageManager, m::nativeLabel) => {
+        (ch::picodroid_content_pm_PackageManager, mh::nativeLabel) => {
             Some(package_string(ctx, |e| e.label()))
         }
         #[cfg(has_multi_app)]
-        (c::picodroid_content_pm_PackageManager, m::nativeVersionCode) => Some(Ok(Some(
+        (ch::picodroid_content_pm_PackageManager, mh::nativeVersionCode) => Some(Ok(Some(
             Value::Int(package_at(ctx.args).map_or(0, |e| e.version_code() as i32)),
         ))),
         #[cfg(has_multi_app)]
-        (c::picodroid_content_pm_PackageManager, m::nativeIsSystem) => Some(Ok(Some(Value::Int(
-            package_at(ctx.args).is_some_and(|e| e.kind == crate::packages::Kind::System) as i32,
-        )))),
+        (ch::picodroid_content_pm_PackageManager, mh::nativeIsSystem) => {
+            Some(Ok(Some(Value::Int(
+                package_at(ctx.args).is_some_and(|e| e.kind == crate::packages::Kind::System)
+                    as i32,
+            ))))
+        }
         #[cfg(has_multi_app)]
-        (c::picodroid_content_pm_PackageManager, m::nativeIconHandle) => {
+        (ch::picodroid_content_pm_PackageManager, mh::nativeIconHandle) => {
             Some(Ok(Some(Value::Int(
                 package_at(ctx.args)
                     .and_then(crate::graphics::assets::register_icon)
                     .unwrap_or(-1),
             ))))
         }
-        (c::picodroid_content_pm_PackageManager, m::hasSystemFeature) => {
+        (ch::picodroid_content_pm_PackageManager, mh::hasSystemFeature) => {
             // args[0] = this, args[1] = feature name String
             let supported = match ctx.args.get(1) {
                 // The one table the installer's `<uses-feature>` gate reads too.

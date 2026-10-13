@@ -5,7 +5,8 @@ use crate::{
 };
 
 use super::NativeContext;
-use crate::names::{c, d, m};
+use super::INIT;
+use crate::names::{c, d, mh};
 
 /// A Java `char` as the bytes a String holds for it. ASCII is itself,
 /// except that C0 controls other than `\n`, `\t` and `\r` become a space
@@ -62,15 +63,15 @@ pub(crate) fn replace_invalid_utf8(bytes: &mut [u8]) {
 }
 
 pub(crate) fn dispatch(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    match method_name {
+    match method {
         // ── String — identity ────────────────────────────────────────
         // `String.toString()` returns `this`. Covers an invokevirtual that
         // resolves to the String class directly (the Object-typed receiver
         // path is handled by `dispatch_object`).
-        m::toString => match ctx.args.first() {
+        mh::toString => match ctx.args.first() {
             Some(Value::Reference(idx)) => Some(Ok(Some(Value::Reference(*idx)))),
             _ => Some(Err(JvmError::InvalidReference)),
         },
@@ -87,7 +88,7 @@ pub(crate) fn dispatch(
         // a valid UTF-8 sequence is kept as it is, so `new String(utf8)`
         // round-trips, and each byte of an invalid one becomes `?` (the
         // table refuses what is not UTF-8).
-        "<init>" if ctx.descriptor == "([B)V" || ctx.descriptor == "([BII)V" => {
+        INIT if ctx.descriptor == "([B)V" || ctx.descriptor == "([BII)V" => {
             let Some(Value::ArrayRef(arr)) = ctx.args.get(1) else {
                 return Some(Err(JvmError::InvalidReference));
             };
@@ -128,10 +129,10 @@ pub(crate) fn dispatch(
         }
 
         // ── String — static formatter ────────────────────────────────
-        m::format => super::string_format::format(ctx),
+        mh::format => super::string_format::format(ctx),
 
         // ── String — non-allocating ──────────────────────────────────
-        m::length => {
+        mh::length => {
             if let Some(Value::Reference(idx)) = ctx.args.first() {
                 let s = ctx.strings.resolve(*idx).unwrap_or("");
                 Some(Ok(Some(Value::Int(s.len() as i32))))
@@ -139,7 +140,7 @@ pub(crate) fn dispatch(
                 Some(Err(JvmError::InvalidReference))
             }
         }
-        m::charAt => {
+        mh::charAt => {
             if let (Some(Value::Reference(idx)), Some(Value::Int(i))) =
                 (ctx.args.first(), ctx.args.get(1))
             {
@@ -155,7 +156,7 @@ pub(crate) fn dispatch(
                 Some(Err(JvmError::InvalidReference))
             }
         }
-        m::isEmpty => {
+        mh::isEmpty => {
             if let Some(Value::Reference(idx)) = ctx.args.first() {
                 let s = ctx.strings.resolve(*idx).unwrap_or("");
                 Some(Ok(Some(Value::Int(s.is_empty() as i32))))
@@ -163,7 +164,7 @@ pub(crate) fn dispatch(
                 Some(Err(JvmError::InvalidReference))
             }
         }
-        m::equals => match (ctx.args.first(), ctx.args.get(1)) {
+        mh::equals => match (ctx.args.first(), ctx.args.get(1)) {
             (Some(Value::Reference(a)), Some(Value::Reference(b))) => {
                 let sa = ctx.strings.resolve(*a).unwrap_or("");
                 let sb = ctx.strings.resolve(*b).unwrap_or("");
@@ -173,7 +174,7 @@ pub(crate) fn dispatch(
             (Some(Value::Reference(_)), Some(_)) => Some(Ok(Some(Value::Int(0)))),
             _ => Some(Err(JvmError::InvalidReference)),
         },
-        m::equalsIgnoreCase => match (ctx.args.first(), ctx.args.get(1)) {
+        mh::equalsIgnoreCase => match (ctx.args.first(), ctx.args.get(1)) {
             (Some(Value::Reference(a)), Some(Value::Reference(b))) => {
                 let sa = ctx.strings.resolve(*a).unwrap_or("");
                 let sb = ctx.strings.resolve(*b).unwrap_or("");
@@ -182,7 +183,7 @@ pub(crate) fn dispatch(
             (Some(Value::Reference(_)), Some(Value::Null)) => Some(Ok(Some(Value::Int(0)))),
             _ => Some(Err(JvmError::InvalidReference)),
         },
-        m::startsWith => match (ctx.args.first(), ctx.args.get(1)) {
+        mh::startsWith => match (ctx.args.first(), ctx.args.get(1)) {
             (Some(Value::Reference(a)), Some(Value::Reference(b))) => {
                 let sa = ctx.strings.resolve(*a).unwrap_or("");
                 let sb = ctx.strings.resolve(*b).unwrap_or("");
@@ -199,7 +200,7 @@ pub(crate) fn dispatch(
             }
             _ => Some(Err(JvmError::InvalidReference)),
         },
-        m::endsWith => match (ctx.args.first(), ctx.args.get(1)) {
+        mh::endsWith => match (ctx.args.first(), ctx.args.get(1)) {
             (Some(Value::Reference(a)), Some(Value::Reference(b))) => {
                 let sa = ctx.strings.resolve(*a).unwrap_or("");
                 let sb = ctx.strings.resolve(*b).unwrap_or("");
@@ -207,7 +208,7 @@ pub(crate) fn dispatch(
             }
             _ => Some(Err(JvmError::InvalidReference)),
         },
-        m::contains => match (ctx.args.first(), ctx.args.get(1)) {
+        mh::contains => match (ctx.args.first(), ctx.args.get(1)) {
             (Some(Value::Reference(a)), Some(Value::Reference(b))) => {
                 let sa = ctx.strings.resolve(*a).unwrap_or("");
                 let sb = ctx.strings.resolve(*b).unwrap_or("");
@@ -215,7 +216,7 @@ pub(crate) fn dispatch(
             }
             _ => Some(Err(JvmError::InvalidReference)),
         },
-        m::indexOf => {
+        mh::indexOf => {
             // Optional third arg: fromIndex (negative clamps to 0, past the
             // end finds nothing) — Java's contract for the 2-arg overloads.
             let from = match ctx.args.get(2) {
@@ -254,7 +255,7 @@ pub(crate) fn dispatch(
                 _ => Some(Err(JvmError::InvalidReference)),
             }
         }
-        m::lastIndexOf => {
+        mh::lastIndexOf => {
             // Optional third arg: fromIndex — search backward starting at
             // that index (a match may start at fromIndex itself); negative
             // finds nothing, past the end searches the whole string.
@@ -299,7 +300,7 @@ pub(crate) fn dispatch(
                 _ => Some(Err(JvmError::InvalidReference)),
             }
         }
-        m::compareTo => match (ctx.args.first(), ctx.args.get(1)) {
+        mh::compareTo => match (ctx.args.first(), ctx.args.get(1)) {
             (Some(Value::Reference(a)), Some(Value::Reference(b))) => {
                 let sa = ctx.strings.resolve(*a).unwrap_or("");
                 let sb = ctx.strings.resolve(*b).unwrap_or("");
@@ -317,7 +318,7 @@ pub(crate) fn dispatch(
         },
 
         // ── String — allocating ──────────────────────────────────────
-        m::substring => match ctx.args.first() {
+        mh::substring => match ctx.args.first() {
             Some(Value::Reference(idx)) => {
                 // Copy bytes to owned storage first so the immutable borrow
                 // on ctx.strings ends before we call intern_dyn (mutable).
@@ -359,7 +360,7 @@ pub(crate) fn dispatch(
             }
             _ => Some(Err(JvmError::InvalidReference)),
         },
-        m::trim => {
+        mh::trim => {
             if let Some(Value::Reference(idx)) = ctx.args.first() {
                 let owned: alloc::vec::Vec<u8> = {
                     let s = ctx.strings.resolve(*idx).unwrap_or("");
@@ -376,7 +377,7 @@ pub(crate) fn dispatch(
                 Some(Err(JvmError::InvalidReference))
             }
         }
-        m::toUpperCase => {
+        mh::toUpperCase => {
             if let Some(Value::Reference(idx)) = ctx.args.first() {
                 let upper: alloc::vec::Vec<u8> = {
                     let s = ctx.strings.resolve(*idx).unwrap_or("");
@@ -391,7 +392,7 @@ pub(crate) fn dispatch(
                 Some(Err(JvmError::InvalidReference))
             }
         }
-        m::toLowerCase => {
+        mh::toLowerCase => {
             if let Some(Value::Reference(idx)) = ctx.args.first() {
                 let lower: alloc::vec::Vec<u8> = {
                     let s = ctx.strings.resolve(*idx).unwrap_or("");
@@ -406,7 +407,7 @@ pub(crate) fn dispatch(
                 Some(Err(JvmError::InvalidReference))
             }
         }
-        m::valueOf => {
+        mh::valueOf => {
             // Static method: String.valueOf(int/long/boolean/char/float/double),
             // plus valueOf(Object) for a String or null — any other object was
             // already turned into its `toString()` by the interpreter
@@ -457,7 +458,7 @@ pub(crate) fn dispatch(
                 Some(Err(JvmError::InvalidReference))
             }
         }
-        m::concat => match (ctx.args.first(), ctx.args.get(1)) {
+        mh::concat => match (ctx.args.first(), ctx.args.get(1)) {
             (Some(Value::Reference(a)), Some(Value::Reference(b))) => {
                 let combined: alloc::vec::Vec<u8> = {
                     let sa = ctx.strings.resolve(*a).unwrap_or("");
@@ -475,7 +476,7 @@ pub(crate) fn dispatch(
             }
             _ => Some(Err(JvmError::InvalidReference)),
         },
-        m::hashCode => {
+        mh::hashCode => {
             if let Some(Value::Reference(idx)) = ctx.args.first() {
                 // A literal's hash is in its pool row.
                 if let Some(h) = ctx.strings.literal_hash(*idx) {
@@ -491,7 +492,7 @@ pub(crate) fn dispatch(
                 Some(Err(JvmError::InvalidReference))
             }
         }
-        m::toCharArray => {
+        mh::toCharArray => {
             if let Some(Value::Reference(idx)) = ctx.args.first() {
                 let bytes: alloc::vec::Vec<u8> = {
                     let s = ctx.strings.resolve(*idx).unwrap_or("");
@@ -511,7 +512,7 @@ pub(crate) fn dispatch(
         }
         // Elements are sign-extended (`as i8 as i32`) to match baload/bastore
         // byte[] slot conventions.
-        m::getBytes => {
+        mh::getBytes => {
             if let Some(Value::Reference(idx)) = ctx.args.first() {
                 let bytes: alloc::vec::Vec<u8> = {
                     let s = ctx.strings.resolve(*idx).unwrap_or("");
@@ -529,7 +530,7 @@ pub(crate) fn dispatch(
                 Some(Err(JvmError::InvalidReference))
             }
         }
-        m::replace => {
+        mh::replace => {
             // Two overloads: replace(char, char) and replace(CharSequence, CharSequence)
             if ctx.descriptor.starts_with("(CC)") {
                 // replace(char oldChar, char newChar)
@@ -600,7 +601,7 @@ pub(crate) fn dispatch(
                 Some(r.map(|v| Some(Value::Reference(v))))
             }
         }
-        m::split => {
+        mh::split => {
             // split(String delim[, int limit]) — literal delimiter, no regex.
             // Java's limit: positive caps the number of parts (the last one
             // keeps the rest), negative keeps every part, zero (the one-arg
@@ -673,7 +674,7 @@ pub(crate) fn dispatch(
         // classfile-less Iterable whose elements are reachable from here).
         // Elements are strings or null ("null", as Java prints it); any
         // other CharSequence is rejected rather than silently skipped.
-        m::join
+        mh::join
             if ctx.descriptor == d::CharSequence_aCharSequence__String
                 || ctx.descriptor == d::CharSequence_Iterable__String =>
         {

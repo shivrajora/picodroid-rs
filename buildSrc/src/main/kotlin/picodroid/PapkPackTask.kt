@@ -94,6 +94,16 @@ abstract class PapkPackTask : DefaultTask() {
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val shrinkMapFile: RegularFileProperty
 
+    /**
+     * The framework's class list (`sdk/class-names.tsv`), when the checkout
+     * has one: papk-pack refuses an app class whose name hashes like a
+     * framework class, as the device would.
+     */
+    @get:InputFile
+    @get:Optional
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val frameworkClassesFile: RegularFileProperty
+
     /** The app's `res/` tree, compiled into the RESOURCES section. */
     @get:InputDirectory
     @get:Optional
@@ -154,6 +164,7 @@ abstract class PapkPackTask : DefaultTask() {
         assetsDir.orNull?.let { args += listOf("--assets-dir", it.asFile.absolutePath) }
         resDir.orNull?.let { args += listOf("--res-dir", it.asFile.absolutePath) }
         shrinkMapFile.orNull?.let { args += listOf("--shrink-map", it.asFile.absolutePath) }
+        frameworkClassesFile.orNull?.let { args += listOf("--framework-classes", it.asFile.absolutePath) }
 
         val pb = ProcessBuilder(args).directory(repoRoot)
         ProcessRun.runOrThrow(pb, "papk-pack")

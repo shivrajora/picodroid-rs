@@ -9,6 +9,8 @@
 
 /// Method access flag `ACC_STATIC` (JVMS §4.6).
 pub const ACC_STATIC: u16 = 0x0008;
+/// Method access flag `ACC_NATIVE` (JVMS §4.6).
+pub const ACC_NATIVE: u16 = 0x0100;
 
 fn u16_at(data: &[u8], p: usize) -> Option<u16> {
     Some(u16::from_be_bytes([*data.get(p)?, *data.get(p + 1)?]))
@@ -33,6 +35,42 @@ pub fn class_has_method(
     desc_prefix: &str,
     required_flags: u16,
 ) -> Option<bool> {
+    Some(methods(data)?.into_iter().any(|m| {
+        m.name == Some(name.as_bytes())
+            && m.desc
+                .is_some_and(|d| d.starts_with(desc_prefix.as_bytes()))
+            && (m.flags & required_flags) == required_flags
+    }))
+}
+
+/// The methods of `data` (a class file) declaring `ACC_NATIVE`, as
+/// `name descriptor`; `None` if the class file can't be parsed.
+pub fn native_methods(data: &[u8]) -> Option<Vec<String>> {
+    Some(
+        methods(data)?
+            .into_iter()
+            .filter(|m| m.flags & ACC_NATIVE != 0)
+            .map(|m| {
+                format!(
+                    "{}{}",
+                    String::from_utf8_lossy(m.name.unwrap_or(b"?")),
+                    String::from_utf8_lossy(m.desc.unwrap_or(b""))
+                )
+            })
+            .collect(),
+    )
+}
+
+/// One row of the methods table: its flags and, when the constant pool
+/// resolves them, its name and descriptor.
+struct Method<'a> {
+    flags: u16,
+    name: Option<&'a [u8]>,
+    desc: Option<&'a [u8]>,
+}
+
+/// The methods table of `data`; `None` on any malformed input.
+fn methods(data: &[u8]) -> Option<Vec<Method<'_>>> {
     if data.len() < 10 || &data[0..4] != b"\xCA\xFE\xBA\xBE" {
         return None;
     }
@@ -69,9 +107,10 @@ pub fn class_has_method(
     p += 8 + iface_count * 2;
     // Fields: count + each [access(2) name(2) desc(2) attrs(2) + attr bytes].
     p = skip_members(data, p)?;
-    // Methods: same layout. Inspect each.
+    // Methods: same layout.
     let method_count = u16_at(data, p)? as usize;
     p += 2;
+    let mut out = Vec::with_capacity(method_count);
     for _ in 0..method_count {
         let flags = u16_at(data, p)?;
         let name_idx = u16_at(data, p + 2)? as usize;
@@ -79,16 +118,13 @@ pub fn class_has_method(
         let attr_count = u16_at(data, p + 6)? as usize;
         p += 8;
         p = skip_attributes(data, p, attr_count)?;
-        let m_name = utf8.get(name_idx).copied().flatten();
-        let m_desc = utf8.get(desc_idx).copied().flatten();
-        if m_name == Some(name.as_bytes())
-            && m_desc.is_some_and(|d| d.starts_with(desc_prefix.as_bytes()))
-            && (flags & required_flags) == required_flags
-        {
-            return Some(true);
-        }
+        out.push(Method {
+            flags,
+            name: utf8.get(name_idx).copied().flatten(),
+            desc: utf8.get(desc_idx).copied().flatten(),
+        });
     }
-    Some(false)
+    Some(out)
 }
 
 /// Skip a fields-or-methods table: count(2) + each member (8 fixed bytes +

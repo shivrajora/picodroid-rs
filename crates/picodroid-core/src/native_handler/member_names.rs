@@ -22,7 +22,7 @@
 //! Three guards live alongside them, because unconditional shrinking rests
 //! on invariants no compiler checks:
 //! * `handled_rows_use_member_consts` — every handled SDK method is matched
-//!   through `m::` somewhere in the dispatch sources;
+//!   through `mh::` (or named through `m::`) somewhere in the dispatch sources;
 //! * `no_original_name_literals` — no non-test source in `jvm/` or
 //!   `picodroid-core/` spells a class name, a descriptor naming a class, or
 //!   a served member name as a string literal (a literal keeps matching in
@@ -306,10 +306,16 @@ mod tests {
         let mut missing = Vec::new();
         for table in crate::native_method_tables_tests::ALL_HANDLED {
             for &(class, method, _) in *table {
-                let needle = format!("m::{method}");
+                // The hash const (`mh::`) is what a dispatch arm matches;
+                // the string const (`m::`) is what an upcall site names.
+                let needles = [format!("mh::{method}"), format!("m::{method}")];
                 let found = sources.iter().any(|(_, text)| {
                     text.split(|c: char| !(c.is_alphanumeric() || c == '_' || c == ':'))
-                        .any(|tok| tok == needle || tok.ends_with(&format!("::{needle}")))
+                        .any(|tok| {
+                            needles
+                                .iter()
+                                .any(|n| tok == n || tok.ends_with(&format!("::{n}")))
+                        })
                 });
                 if !found {
                     missing.push(format!("{class}.{method}"));
@@ -318,9 +324,9 @@ mod tests {
         }
         assert!(
             missing.is_empty(),
-            "handled rows whose method is not matched as `m::<name>` anywhere in the \
-             dispatch sources (a literal arm would silently stop matching under --shrink): \
-             {missing:?}"
+            "handled rows whose method is not matched as `mh::<name>` or `m::<name>` anywhere \
+             in the dispatch sources (a literal arm would silently stop matching under \
+             --shrink): {missing:?}"
         );
     }
 

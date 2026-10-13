@@ -7,50 +7,49 @@
 //! [`PendingServiceOp`] and queues it on the handler. The actual lifecycle
 //! callbacks (onCreate, onStartCommand, onBind, ...) run between frames in
 //! [`crate::service_lifecycle`].
+use crate::shrink_names::{ch, mh};
+use pico_jvm::NativeKey;
 
-use crate::shrink_names::m;
 use pico_jvm::native::NativeContext;
 use pico_jvm::types::{JvmError, Value};
 
 use super::PendingServiceOp;
 use super::{PendingOp, PicodroidNativeHandler};
-use crate::shrink_names::c;
 
 /// Try to handle a `(class, method)` call. Returns `Some(...)` only when
 /// this dispatcher recognises the method.
 pub(super) fn dispatch(
     handler: &mut PicodroidNativeHandler,
-    class_name: &str,
-    method_name: &str,
+    key: NativeKey,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
     // Context.startService / stopService / nativeBindService / unbindService —
     // matched on method name regardless of receiver class because the JVM
     // dispatches with the runtime subclass (Activity/Application/...).
-    match method_name {
-        m::startService => return Some(handle_start_service(handler, ctx)),
-        m::stopService => return Some(handle_stop_service(handler, ctx)),
-        m::nativeBindService => return Some(handle_bind_service(handler, ctx)),
-        m::unbindService => return Some(handle_unbind_service(handler, ctx)),
+    match key.method {
+        mh::startService => return Some(handle_start_service(handler, ctx)),
+        mh::stopService => return Some(handle_stop_service(handler, ctx)),
+        mh::nativeBindService => return Some(handle_bind_service(handler, ctx)),
+        mh::unbindService => return Some(handle_unbind_service(handler, ctx)),
         _ => {}
     }
     // NotificationManager.{notify,cancel} — gated on the class because
     // `notify` collides with `Object.notify()`, which the JVM's builtin
     // handler owns.
-    if class_name == c::picodroid_app_NotificationManager {
-        return match method_name {
-            m::notify => Some(handle_notification_notify(ctx)),
-            m::cancel => Some(handle_notification_cancel(ctx)),
+    if key.class == ch::picodroid_app_NotificationManager {
+        return match key.method {
+            mh::notify => Some(handle_notification_notify(ctx)),
+            mh::cancel => Some(handle_notification_cancel(ctx)),
             _ => None,
         };
     }
     // Service-specific methods — these arrive with the runtime Service
     // subclass as `class_name`, so we don't gate on it.
-    match method_name {
-        m::stopSelf => Some(handle_stop_self(handler, ctx)),
-        m::stopSelfResult => Some(handle_stop_self_result(handler, ctx)),
-        m::startForeground => Some(handle_start_foreground(handler, ctx)),
-        m::stopForeground => Some(handle_stop_foreground(handler, ctx)),
+    match key.method {
+        mh::stopSelf => Some(handle_stop_self(handler, ctx)),
+        mh::stopSelfResult => Some(handle_stop_self_result(handler, ctx)),
+        mh::startForeground => Some(handle_start_foreground(handler, ctx)),
+        mh::stopForeground => Some(handle_stop_foreground(handler, ctx)),
         _ => None,
     }
 }

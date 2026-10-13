@@ -279,7 +279,23 @@ pub fn run_app(apk_data: &[u8]) {
             return;
         }
     };
-    jvm.load_app(app_section).unwrap();
+    match jvm.load_app(app_section) {
+        Ok(()) => {}
+        Err(JvmError::ClassHashCollision) => {
+            #[cfg(not(feature = "sim"))]
+            defmt::error!("app refused: a class name hashes like a framework class");
+            #[cfg(feature = "sim")]
+            eprintln!("[sim] app refused: a class name hashes like a framework class");
+            return;
+        }
+        Err(e) => {
+            #[cfg(not(feature = "sim"))]
+            defmt::error!("app classes unloadable: {}", defmt::Debug2Format(&e));
+            #[cfg(feature = "sim")]
+            eprintln!("[sim] app classes unloadable: {e:?}");
+            return;
+        }
+    }
     // The sections' string constants take the top of the string-reference
     // range: an `ldc` is then a row number, with nothing interned.
     let (fw_literals, app_literals) = jvm.literal_pools();

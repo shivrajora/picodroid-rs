@@ -98,7 +98,7 @@ use class_file::{ClassFile, ClassIndex, Classes};
 use class_objects::ClassObjectCache;
 use gc::GcState;
 use heap::StringTable;
-pub use native::{BuiltinHandler, NativeContext, NativeMethodHandler};
+pub use native::{BuiltinHandler, NativeContext, NativeKey, NativeMethodHandler};
 use object_heap::ObjectHeap;
 pub use resolve_cache::SiteKey;
 use static_fields::StaticFieldStore;
@@ -323,8 +323,25 @@ impl Jvm {
 
     /// Register the app's class section (its PAPK's CLASSES section), after
     /// the framework's.
+    ///
+    /// # Errors
+    /// [`JvmError::ClassHashCollision`] if an app class's name hashes like
+    /// a framework class's or a builtin's: lookups and the native dispatch
+    /// arms go by hash, so such a class would be mistaken for the other.
+    /// Checked before anything is loaded, so the JVM is left as it was.
     pub fn load_app(&mut self, section: class_link::ClassSection<'static>) -> Result<(), JvmError> {
         debug_assert!(self.app.is_none() && self.classes.len() == self.fw.map_or(0, |s| s.len()));
+        let index = section.index();
+        let with_fw = self
+            .fw
+            .as_ref()
+            .is_some_and(|fw| class_link::cross_collisions(fw.index(), index).is_some());
+        let with_builtin = index
+            .iter()
+            .any(|e| class_link::hash_in_sorted(&native::BUILTIN_CLASS_HASHES, e.hash));
+        if with_fw || with_builtin {
+            return Err(JvmError::ClassHashCollision);
+        }
         self.load_section(section)?;
         self.app = Some(section);
         self.index = ClassIndex::new(self.fw.as_ref(), self.app.as_ref());

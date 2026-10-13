@@ -15,7 +15,7 @@ use crate::{
 };
 
 use super::NativeContext;
-use crate::names::{c, m};
+use crate::names::{c, mh};
 use crate::object_heap::{reserve_fallible, Exhausted};
 
 /// The array argument of `Arrays.sort` / `fill` / `copyOf`. A null array is
@@ -30,14 +30,14 @@ fn extract_array(ctx: &mut NativeContext<'_>) -> Result<u16, JvmError> {
 }
 
 pub(crate) fn dispatch(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    match method_name {
-        m::sort => Some(dispatch_sort(ctx)),
-        m::fill => Some(dispatch_fill(ctx)),
-        m::copyOf => Some(dispatch_copy_of(ctx)),
-        m::toString => Some(dispatch_to_string(ctx)),
+    match method {
+        mh::sort => Some(dispatch_sort(ctx)),
+        mh::fill => Some(dispatch_fill(ctx)),
+        mh::copyOf => Some(dispatch_copy_of(ctx)),
+        mh::toString => Some(dispatch_to_string(ctx)),
         _ => None,
     }
 }
@@ -259,11 +259,11 @@ fn dispatch_copy_of(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmErr
 /// `currentTimeMillis` stays with the platform handler, which dispatches
 /// before the builtins.
 pub(crate) fn dispatch_system(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    match method_name {
-        m::arraycopy => Some(dispatch_arraycopy(ctx)),
+    match method {
+        mh::arraycopy => Some(dispatch_arraycopy(ctx)),
         _ => None,
     }
 }

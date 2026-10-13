@@ -15,7 +15,7 @@
 use crate::types::{JvmError, Value};
 
 use super::NativeContext;
-use crate::names::m;
+use crate::names::mh;
 
 /// The running form of one more byte: `state` is the bitwise complement of
 /// the finalised checksum.
@@ -36,14 +36,14 @@ pub fn crc32_update(crc: u32, bytes: &[u8]) -> u32 {
 }
 
 pub(crate) fn dispatch(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    match method_name {
+    match method {
         // The public `update(int)` / `update(byte[]…)` are bytecode; only
         // the `(int, int)` step is native.
-        m::update if ctx.descriptor == "(II)I" => Some(update(ctx)),
-        m::updateBytes => Some(update_bytes(ctx)),
+        mh::update if ctx.descriptor == "(II)I" => Some(update(ctx)),
+        mh::updateBytes => Some(update_bytes(ctx)),
         _ => None,
     }
 }

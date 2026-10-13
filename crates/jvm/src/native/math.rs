@@ -2,7 +2,7 @@
 use crate::types::{JvmError, Value};
 
 use super::NativeContext;
-use crate::names::m;
+use crate::names::mh;
 
 /// Java `Math.min`/`Math.max` on floating point: NaN if either operand is
 /// NaN, and `-0.0 < 0.0`. Rust's `f32::min`/`max` return the non-NaN
@@ -47,11 +47,11 @@ fn java_round_f64(d: f64) -> i64 {
 }
 
 pub(crate) fn dispatch(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    match method_name {
-        m::abs => match ctx.args.first() {
+    match method {
+        mh::abs => match ctx.args.first() {
             // Java: abs(MIN_VALUE) == MIN_VALUE; plain `abs` overflows.
             Some(Value::Int(i)) => Some(Ok(Some(Value::Int(i.wrapping_abs())))),
             Some(Value::Long(l)) => Some(Ok(Some(Value::Long(l.wrapping_abs())))),
@@ -59,7 +59,7 @@ pub(crate) fn dispatch(
             Some(Value::Double(d)) => Some(Ok(Some(Value::Double(d.abs())))),
             _ => Some(Err(JvmError::InvalidReference)),
         },
-        m::min => match (ctx.args.first(), ctx.args.get(1)) {
+        mh::min => match (ctx.args.first(), ctx.args.get(1)) {
             (Some(Value::Int(a)), Some(Value::Int(b))) => Some(Ok(Some(Value::Int(*a.min(b))))),
             (Some(Value::Long(a)), Some(Value::Long(b))) => Some(Ok(Some(Value::Long(*a.min(b))))),
             (Some(Value::Float(a)), Some(Value::Float(b))) => {
@@ -70,7 +70,7 @@ pub(crate) fn dispatch(
             }
             _ => Some(Err(JvmError::InvalidReference)),
         },
-        m::max => match (ctx.args.first(), ctx.args.get(1)) {
+        mh::max => match (ctx.args.first(), ctx.args.get(1)) {
             (Some(Value::Int(a)), Some(Value::Int(b))) => Some(Ok(Some(Value::Int(*a.max(b))))),
             (Some(Value::Long(a)), Some(Value::Long(b))) => Some(Ok(Some(Value::Long(*a.max(b))))),
             (Some(Value::Float(a)), Some(Value::Float(b))) => {
@@ -81,68 +81,68 @@ pub(crate) fn dispatch(
             }
             _ => Some(Err(JvmError::InvalidReference)),
         },
-        m::sqrt => match ctx.args.first() {
+        mh::sqrt => match ctx.args.first() {
             Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::sqrt(*d))))),
             _ => Some(Err(JvmError::InvalidReference)),
         },
-        m::pow => match (ctx.args.first(), ctx.args.get(1)) {
+        mh::pow => match (ctx.args.first(), ctx.args.get(1)) {
             (Some(Value::Double(a)), Some(Value::Double(b))) => {
                 Some(Ok(Some(Value::Double(libm::pow(*a, *b)))))
             }
             _ => Some(Err(JvmError::InvalidReference)),
         },
-        m::floor => match ctx.args.first() {
+        mh::floor => match ctx.args.first() {
             Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::floor(*d))))),
             _ => Some(Err(JvmError::InvalidReference)),
         },
-        m::ceil => match ctx.args.first() {
+        mh::ceil => match ctx.args.first() {
             Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::ceil(*d))))),
             _ => Some(Err(JvmError::InvalidReference)),
         },
-        m::round => match ctx.args.first() {
+        mh::round => match ctx.args.first() {
             Some(Value::Float(f)) => Some(Ok(Some(Value::Int(java_round_f32(*f))))),
             Some(Value::Double(d)) => Some(Ok(Some(Value::Long(java_round_f64(*d))))),
             _ => Some(Err(JvmError::InvalidReference)),
         },
-        m::sin => match ctx.args.first() {
+        mh::sin => match ctx.args.first() {
             Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::sin(*d))))),
             _ => Some(Err(JvmError::InvalidReference)),
         },
-        m::cos => match ctx.args.first() {
+        mh::cos => match ctx.args.first() {
             Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::cos(*d))))),
             _ => Some(Err(JvmError::InvalidReference)),
         },
-        m::tan => match ctx.args.first() {
+        mh::tan => match ctx.args.first() {
             Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::tan(*d))))),
             _ => Some(Err(JvmError::InvalidReference)),
         },
-        m::atan2 => match (ctx.args.first(), ctx.args.get(1)) {
+        mh::atan2 => match (ctx.args.first(), ctx.args.get(1)) {
             (Some(Value::Double(y)), Some(Value::Double(x))) => {
                 Some(Ok(Some(Value::Double(libm::atan2(*y, *x)))))
             }
             _ => Some(Err(JvmError::InvalidReference)),
         },
-        m::toRadians => match ctx.args.first() {
+        mh::toRadians => match ctx.args.first() {
             Some(Value::Double(d)) => Some(Ok(Some(Value::Double(
                 *d * (core::f64::consts::PI / 180.0),
             )))),
             _ => Some(Err(JvmError::InvalidReference)),
         },
-        m::toDegrees => match ctx.args.first() {
+        mh::toDegrees => match ctx.args.first() {
             Some(Value::Double(d)) => Some(Ok(Some(Value::Double(
                 *d * (180.0 / core::f64::consts::PI),
             )))),
             _ => Some(Err(JvmError::InvalidReference)),
         },
-        m::log => match ctx.args.first() {
+        mh::log => match ctx.args.first() {
             Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::log(*d))))),
             _ => Some(Err(JvmError::InvalidReference)),
         },
-        m::log10 => match ctx.args.first() {
+        mh::log10 => match ctx.args.first() {
             Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::log10(*d))))),
             _ => Some(Err(JvmError::InvalidReference)),
         },
-        m::exp => match ctx.args.first() {
+        mh::exp => match ctx.args.first() {
             Some(Value::Double(d)) => Some(Ok(Some(Value::Double(libm::exp(*d))))),
             _ => Some(Err(JvmError::InvalidReference)),
         },

@@ -7,28 +7,27 @@
 //! answers for a board with no radio: nothing can reach these methods, because
 //! the classes that declare them are not there, and `is_excluded_on_this_board`
 //! turns a stray reference into a message naming board.toml.
+use crate::shrink_names::{ch, mh};
+use pico_jvm::NativeKey;
 
-use crate::shrink_names::c;
-use crate::shrink_names::m;
 use pico_jvm::{
     types::{JvmError, Value},
     NativeContext,
 };
 
 pub fn dispatch(
-    class_name: &str,
-    method_name: &str,
+    key: NativeKey,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    if class_name != c::picodroid_media_ToneGenerator {
+    if key.class != ch::picodroid_media_ToneGenerator {
         return None;
     }
-    let r = match method_name {
-        m::nativeInit => crate::media::natives::native_init(ctx.args),
-        m::startTone => crate::media::natives::start_tone(ctx.args),
-        m::startToneSequence => crate::media::natives::start_tone_sequence(ctx.args, ctx.arrays),
-        m::stopTone => crate::media::natives::stop_tone(ctx.args),
-        m::release => crate::media::natives::release(ctx.args),
+    let r = match key.method {
+        mh::nativeInit => crate::media::natives::native_init(ctx.args),
+        mh::startTone => crate::media::natives::start_tone(ctx.args),
+        mh::startToneSequence => crate::media::natives::start_tone_sequence(ctx.args, ctx.arrays),
+        mh::stopTone => crate::media::natives::stop_tone(ctx.args),
+        mh::release => crate::media::natives::release(ctx.args),
         _ => return None,
     };
     Some(r)

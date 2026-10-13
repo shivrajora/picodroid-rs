@@ -5,24 +5,24 @@ use crate::object_heap::{
 use crate::types::{JvmError, Value};
 
 use super::NativeContext;
-use crate::names::{c, m};
+use super::INIT;
+use crate::names::{c, mh};
 
 /// The unboxing accessors every wrapper answers (`intValue`, `booleanValue`,
 /// …), as loaded. One table and one function shared by every
 /// `boxed_dispatch` caller rather than eight match arms per wrapper.
-const UNBOXING_ACCESSORS: [&str; 8] = [
-    m::intValue,
-    m::longValue,
-    m::floatValue,
-    m::doubleValue,
-    m::shortValue,
-    m::byteValue,
-    m::booleanValue,
-    m::charValue,
+const UNBOXING_ACCESSORS: [u32; 8] = [
+    mh::intValue,
+    mh::longValue,
+    mh::floatValue,
+    mh::doubleValue,
+    mh::shortValue,
+    mh::byteValue,
+    mh::booleanValue,
+    mh::charValue,
 ];
 
-#[inline(never)]
-fn is_unboxing_accessor(method: &str) -> bool {
+fn is_unboxing_accessor(method: u32) -> bool {
     UNBOXING_ACCESSORS.contains(&method)
 }
 
@@ -35,10 +35,10 @@ fn boxed_dispatch(
     class: &'static str,
     default: Value,
     ctx: &mut NativeContext<'_>,
-    method: &str,
+    method: u32,
 ) -> Option<Result<Option<Value>, JvmError>> {
     match method {
-        "<init>" => {
+        INIT => {
             let Value::ObjectRef(obj) = ctx.args.first().copied().unwrap_or(Value::Null) else {
                 return Some(Err(JvmError::InvalidReference));
             };
@@ -61,7 +61,7 @@ fn boxed_dispatch(
             }
             Some(Ok(None))
         }
-        m::valueOf => {
+        mh::valueOf => {
             let val = ctx.args.first().copied().unwrap_or(Value::Null);
             Some(box_value(class, val, ctx))
         }
@@ -93,7 +93,7 @@ fn f2l(d: f64) -> i64 {
 /// `Float.valueOf(2.5f).intValue()` is 2, `Integer.valueOf(300).byteValue()`
 /// is 44, `Long.valueOf(1L << 33).intValue()` is 0. A box's own accessor
 /// hands its value back unchanged.
-fn convert_accessor(method: &str, v: Value) -> Value {
+fn convert_accessor(method: u32, v: Value) -> Value {
     let as_i64 = |v: Value| match v {
         Value::Int(i) => i as i64,
         Value::Long(l) => l,
@@ -116,17 +116,17 @@ fn convert_accessor(method: &str, v: Value) -> Value {
         _ => 0.0,
     };
     match method {
-        m::intValue => Value::Int(as_i32(v)),
-        m::longValue => Value::Long(as_i64(v)),
-        m::floatValue => Value::Float(match v {
+        mh::intValue => Value::Int(as_i32(v)),
+        mh::longValue => Value::Long(as_i64(v)),
+        mh::floatValue => Value::Float(match v {
             Value::Float(f) => f,
             Value::Long(l) => l as f32,
             other => as_f64(other) as f32,
         }),
-        m::doubleValue => Value::Double(as_f64(v)),
-        m::shortValue => Value::Int(as_i32(v) as i16 as i32),
-        m::byteValue => Value::Int(as_i32(v) as i8 as i32),
-        m::charValue => Value::Int(as_i32(v) as u16 as i32),
+        mh::doubleValue => Value::Double(as_f64(v)),
+        mh::shortValue => Value::Int(as_i32(v) as i16 as i32),
+        mh::byteValue => Value::Int(as_i32(v) as i8 as i32),
+        mh::charValue => Value::Int(as_i32(v) as u16 as i32),
         _ => v, // booleanValue and any box's own accessor
     }
 }
@@ -169,13 +169,13 @@ fn prim(v: Value) -> Option<(u64, i64, f64, bool)> {
 /// is the one bit conversion (data-class `hashCode` inlines it).
 fn dispatch_common(
     class: &'static str,
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
     let a = unboxed(ctx, 0);
-    let r: i32 = match method_name {
+    let r: i32 = match method {
         // Same wrapper class and same value bits (Integer(1) != Long(1)).
-        m::equals => {
+        mh::equals => {
             let same_class = match (ctx.args.first(), ctx.args.get(1)) {
                 (Some(Value::ObjectRef(x)), Some(Value::ObjectRef(y))) => {
                     ctx.objects.class_name(*x) == ctx.objects.class_name(*y)
@@ -188,7 +188,7 @@ fn dispatch_common(
                     _ => false,
                 }) as i32
         }
-        m::hashCode => {
+        mh::hashCode => {
             let (bits, ..) = prim(a)?;
             if class == c::java_lang_Boolean {
                 if bits != 0 {
@@ -200,7 +200,7 @@ fn dispatch_common(
                 (bits ^ (bits >> 32)) as i32
             }
         }
-        m::compareTo | m::compare => {
+        mh::compareTo | mh::compare => {
             let (Some((_, xi, xf, is_float)), Some((_, yi, yf, _))) =
                 (prim(a), prim(unboxed(ctx, 1)))
             else {
@@ -223,7 +223,7 @@ fn dispatch_common(
                 (xi > yi) as i32 - (xi < yi) as i32
             }
         }
-        m::floatToIntBits => prim(a)?.0 as i32,
+        mh::floatToIntBits => prim(a)?.0 as i32,
         _ => return None,
     };
     Some(Ok(Some(Value::Int(r))))
@@ -232,13 +232,13 @@ fn dispatch_common(
 /// `java/lang/Character` static predicates and case mapping over the ASCII
 /// range the byte-backed string table can hold; code points above 0x7F are
 /// neither letters nor digits here and map to themselves.
-fn char_static(method_name: &str, c: i32) -> Option<Value> {
+fn char_static(method: u32, c: i32) -> Option<Value> {
     let b = u8::try_from(c).ok().filter(|b| b.is_ascii());
-    Some(Value::Int(match method_name {
-        m::isDigit => b.is_some_and(|b| b.is_ascii_digit()) as i32,
-        m::isLetter => b.is_some_and(|b| b.is_ascii_alphabetic()) as i32,
-        m::toUpperCase => b.map_or(c, |b| b.to_ascii_uppercase() as i32),
-        m::toLowerCase => b.map_or(c, |b| b.to_ascii_lowercase() as i32),
+    Some(Value::Int(match method {
+        mh::isDigit => b.is_some_and(|b| b.is_ascii_digit()) as i32,
+        mh::isLetter => b.is_some_and(|b| b.is_ascii_alphabetic()) as i32,
+        mh::toUpperCase => b.map_or(c, |b| b.to_ascii_uppercase() as i32),
+        mh::toLowerCase => b.map_or(c, |b| b.to_ascii_lowercase() as i32),
         _ => return None,
     }))
 }
@@ -250,152 +250,152 @@ fn is_string_arg(ctx: &NativeContext<'_>) -> bool {
 }
 
 pub(crate) fn dispatch_integer(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    if method_name == m::toString {
+    if method == mh::toString {
         return Some(integer_to_string(ctx));
     }
-    if method_name == m::parseInt {
+    if method == mh::parseInt {
         return Some(parse_int(ctx).map(|v| Some(Value::Int(v))));
     }
-    if method_name == m::valueOf && is_string_arg(ctx) {
+    if method == mh::valueOf && is_string_arg(ctx) {
         return Some(
             parse_int(ctx).and_then(|v| box_value(c::java_lang_Integer, Value::Int(v), ctx)),
         );
     }
-    boxed_dispatch(c::java_lang_Integer, Value::Int(0), ctx, method_name)
+    boxed_dispatch(c::java_lang_Integer, Value::Int(0), ctx, method)
 }
 
 pub(crate) fn dispatch_boolean(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    if method_name == m::toString {
+    if method == mh::toString {
         return Some(boolean_to_string(ctx));
     }
-    if method_name == m::parseBoolean || (method_name == m::valueOf && is_string_arg(ctx)) {
+    if method == mh::parseBoolean || (method == mh::valueOf && is_string_arg(ctx)) {
         // Java's contract: true iff the string equalsIgnoreCase("true"); never throws.
         let b = matches!(resolve_str(ctx, 0), Ok(s) if s.eq_ignore_ascii_case("true"));
-        if method_name == m::parseBoolean {
+        if method == mh::parseBoolean {
             return Some(Ok(Some(Value::Int(b as i32))));
         }
         return Some(box_value(c::java_lang_Boolean, Value::Int(b as i32), ctx));
     }
-    boxed_dispatch(c::java_lang_Boolean, Value::Int(0), ctx, method_name)
+    boxed_dispatch(c::java_lang_Boolean, Value::Int(0), ctx, method)
 }
 
 pub(crate) fn dispatch_long(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    if method_name == m::toString {
+    if method == mh::toString {
         return Some(long_to_string(ctx));
     }
-    if method_name == m::parseLong {
+    if method == mh::parseLong {
         return Some(parse_long(ctx).map(|v| Some(Value::Long(v))));
     }
-    if method_name == m::valueOf && is_string_arg(ctx) {
+    if method == mh::valueOf && is_string_arg(ctx) {
         return Some(
             parse_long(ctx).and_then(|v| box_value(c::java_lang_Long, Value::Long(v), ctx)),
         );
     }
-    boxed_dispatch(c::java_lang_Long, Value::Long(0), ctx, method_name)
+    boxed_dispatch(c::java_lang_Long, Value::Long(0), ctx, method)
 }
 
 pub(crate) fn dispatch_float(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    if method_name == m::toString {
+    if method == mh::toString {
         return Some(float_to_string(ctx));
     }
-    if method_name == m::parseFloat {
+    if method == mh::parseFloat {
         return Some(parse_f64(ctx).map(|v| Some(Value::Float(v as f32))));
     }
-    if method_name == m::intBitsToFloat {
+    if method == mh::intBitsToFloat {
         return Some(match ctx.args.first() {
             Some(Value::Int(bits)) => Ok(Some(Value::Float(f32::from_bits(*bits as u32)))),
             _ => Err(JvmError::InvalidReference),
         });
     }
-    if method_name == m::valueOf && is_string_arg(ctx) {
+    if method == mh::valueOf && is_string_arg(ctx) {
         return Some(
             parse_f64(ctx).and_then(|v| box_value(c::java_lang_Float, Value::Float(v as f32), ctx)),
         );
     }
-    boxed_dispatch(c::java_lang_Float, Value::Float(0.0), ctx, method_name)
+    boxed_dispatch(c::java_lang_Float, Value::Float(0.0), ctx, method)
 }
 
 pub(crate) fn dispatch_double(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    if method_name == m::toString {
+    if method == mh::toString {
         return Some(double_to_string(ctx));
     }
-    if method_name == m::parseDouble {
+    if method == mh::parseDouble {
         return Some(parse_f64(ctx).map(|v| Some(Value::Double(v))));
     }
-    if method_name == m::valueOf && is_string_arg(ctx) {
+    if method == mh::valueOf && is_string_arg(ctx) {
         return Some(
             parse_f64(ctx).and_then(|v| box_value(c::java_lang_Double, Value::Double(v), ctx)),
         );
     }
-    boxed_dispatch(c::java_lang_Double, Value::Double(0.0), ctx, method_name)
+    boxed_dispatch(c::java_lang_Double, Value::Double(0.0), ctx, method)
 }
 
 pub(crate) fn dispatch_character(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    if method_name == m::toString {
+    if method == mh::toString {
         return Some(character_to_string(ctx));
     }
     if let Some(Value::Int(c)) = ctx.args.first().copied() {
-        if let Some(v) = char_static(method_name, c) {
+        if let Some(v) = char_static(method, c) {
             return Some(Ok(Some(v)));
         }
     }
-    boxed_dispatch(c::java_lang_Character, Value::Int(0), ctx, method_name)
+    boxed_dispatch(c::java_lang_Character, Value::Int(0), ctx, method)
 }
 
 pub(crate) fn dispatch_byte(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    if method_name == m::toString {
+    if method == mh::toString {
         return Some(integer_to_string(ctx));
     }
-    if method_name == m::parseByte {
+    if method == mh::parseByte {
         return Some(parse_ranged(ctx, i8::MIN as i32, i8::MAX as i32));
     }
-    if method_name == m::valueOf && is_string_arg(ctx) {
+    if method == mh::valueOf && is_string_arg(ctx) {
         return Some(
             parse_ranged(ctx, i8::MIN as i32, i8::MAX as i32)
                 .and_then(|v| box_value(c::java_lang_Byte, v.unwrap_or(Value::Int(0)), ctx)),
         );
     }
-    boxed_dispatch(c::java_lang_Byte, Value::Int(0), ctx, method_name)
+    boxed_dispatch(c::java_lang_Byte, Value::Int(0), ctx, method)
 }
 
 pub(crate) fn dispatch_short(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    if method_name == m::toString {
+    if method == mh::toString {
         return Some(integer_to_string(ctx));
     }
-    if method_name == m::parseShort {
+    if method == mh::parseShort {
         return Some(parse_ranged(ctx, i16::MIN as i32, i16::MAX as i32));
     }
-    if method_name == m::valueOf && is_string_arg(ctx) {
+    if method == mh::valueOf && is_string_arg(ctx) {
         return Some(
             parse_ranged(ctx, i16::MIN as i32, i16::MAX as i32)
                 .and_then(|v| box_value(c::java_lang_Short, v.unwrap_or(Value::Int(0)), ctx)),
         );
     }
-    boxed_dispatch(c::java_lang_Short, Value::Int(0), ctx, method_name)
+    boxed_dispatch(c::java_lang_Short, Value::Int(0), ctx, method)
 }
 
 /// The value a wrapper's `String` constructor stores (`new Integer("42")`,

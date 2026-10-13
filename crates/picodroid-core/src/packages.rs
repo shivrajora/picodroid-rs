@@ -300,6 +300,20 @@ pub unsafe fn rescan(base: *const u8, len: usize) {
         } else {
             papk_format::validate_structure(image).is_ok()
         };
+        if valid && !class_hashes_disjoint(image) {
+            // A receipt does not vouch for this: the framework set it is
+            // checked against is the firmware's, which a reflash changes.
+            crate::pd_warn!(
+                "[packages] run at sector {}: {} skipped: a class name hashes like a framework class",
+                s as u32,
+                Papk::parse(image)
+                    .ok()
+                    .and_then(|p| p.package_name())
+                    .unwrap_or("?")
+            );
+            s += span;
+            continue;
+        }
         let entry = if valid {
             Entry::new(
                 image,
@@ -330,6 +344,23 @@ pub unsafe fn rescan(base: *const u8, len: usize) {
     );
     log_directory(d);
     bump_directory_generation();
+}
+
+/// Whether `image`'s classes share no name hash with the framework corpus
+/// or a classfile-less builtin. Classes are found and the native dispatch
+/// arms match by hash, so an app with such a class cannot be loaded
+/// (`Jvm::load_app` refuses it); the directory never lists one. One merge
+/// pass over the two sorted indexes plus a binary search per app class.
+pub fn class_hashes_disjoint(image: &[u8]) -> bool {
+    let Ok(section) = Papk::parse(image).and_then(|p| p.class_section()) else {
+        return false;
+    };
+    let fw = crate::framework_classes::framework_section();
+    let index = section.index();
+    class_link::cross_collisions(fw.index(), index).is_none()
+        && !index
+            .iter()
+            .any(|e| class_link::hash_in_sorted(&pico_jvm::native::BUILTIN_CLASS_HASHES, e.hash))
 }
 
 fn note_stale(d: &mut Dir, first: u32, sectors: u32) {
@@ -510,6 +541,13 @@ pub fn register_system(images: &[&'static [u8]]) {
         {
             crate::pd_warn!(
                 "[packages] system app {} skipped: built for another framework-map-version",
+                package
+            );
+            continue;
+        }
+        if !class_hashes_disjoint(image) {
+            crate::pd_warn!(
+                "[packages] system app {} skipped: a class name hashes like a framework class",
                 package
             );
             continue;

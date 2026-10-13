@@ -71,4 +71,7 @@ pub use layout::{
     StringDesc, HEADER_WORDS, KIND_DOUBLE, KIND_FLOAT, KIND_INT, KIND_LONG, KIND_REF, LINK_MAGIC,
     LIT_NONE, MREF_INTERFACE, SUPER_NONE,
 };
-pub use section::{ClassSection, IndexEntry, Literal, Literals, LIT_UTF8, MAX_LITERALS};
+pub use section::{
+    cross_collisions, hash_in_sorted, ClassSection, IndexEntry, Literal, Literals, LIT_UTF8,
+    MAX_LITERALS,
+};

@@ -1,67 +1,65 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Native method dispatch for picodroid.net.* classes.
+use crate::shrink_names::{ch, mh};
+use pico_jvm::NativeKey;
 
-use crate::shrink_names::c;
-use crate::shrink_names::m;
 use pico_jvm::types::{JvmError, Value};
 use pico_jvm::NativeContext;
 
 pub fn dispatch(
-    class_name: &str,
-    method_name: &str,
+    key: NativeKey,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    match (class_name, method_name) {
+    match (key.class, key.method) {
         // ── Socket ──────────────────────────────────────────────────────
-        (c::picodroid_net_Socket, m::nativeCreate) => {
+        (ch::picodroid_net_Socket, mh::nativeCreate) => {
             Some(crate::net::socket::native_create(ctx.objects, ctx.strings))
         }
-        (c::picodroid_net_Socket, m::connect) => Some(crate::net::socket::connect_native(
+        (ch::picodroid_net_Socket, mh::connect) => Some(crate::net::socket::connect_native(
             ctx.args,
             ctx.objects,
             ctx.strings,
         )),
-        (c::picodroid_net_Socket, m::send) => Some(crate::net::socket::send_native(
-            ctx.args,
-            ctx.objects,
-            ctx.strings,
-            ctx.arrays,
-        )),
-        (c::picodroid_net_Socket, m::recv) => Some(crate::net::socket::recv_native(
+        (ch::picodroid_net_Socket, mh::send) => Some(crate::net::socket::send_native(
             ctx.args,
             ctx.objects,
             ctx.strings,
             ctx.arrays,
         )),
-        (c::picodroid_net_Socket, m::setTimeout) => Some(crate::net::socket::set_timeout_native(
+        (ch::picodroid_net_Socket, mh::recv) => Some(crate::net::socket::recv_native(
+            ctx.args,
+            ctx.objects,
+            ctx.strings,
+            ctx.arrays,
+        )),
+        (ch::picodroid_net_Socket, mh::setTimeout) => Some(crate::net::socket::set_timeout_native(
             ctx.args,
             ctx.objects,
             ctx.strings,
         )),
-        (c::picodroid_net_Socket, m::close) => {
+        (ch::picodroid_net_Socket, mh::close) => {
             Some(crate::net::socket::close_native(ctx.args, ctx.objects))
         }
 
         // ── ServerSocket ────────────────────────────────────────────────
-        (c::picodroid_net_ServerSocket, m::nativeListen) => Some(
+        (ch::picodroid_net_ServerSocket, mh::nativeListen) => Some(
             crate::net::server_socket::native_listen(ctx.args, ctx.objects, ctx.strings),
         ),
-        (c::picodroid_net_ServerSocket, m::accept) => Some(
+        (ch::picodroid_net_ServerSocket, mh::accept) => Some(
             crate::net::server_socket::accept_native(ctx.args, ctx.objects, ctx.strings),
         ),
-        (c::picodroid_net_ServerSocket, m::setSoTimeout) => Some(
+        (ch::picodroid_net_ServerSocket, mh::setSoTimeout) => Some(
             crate::net::server_socket::set_so_timeout_native(ctx.args, ctx.objects, ctx.strings),
         ),
-        (c::picodroid_net_ServerSocket, m::close) => Some(crate::net::server_socket::close_native(
-            ctx.args,
-            ctx.objects,
-        )),
+        (ch::picodroid_net_ServerSocket, mh::close) => Some(
+            crate::net::server_socket::close_native(ctx.args, ctx.objects),
+        ),
 
         // ── DatagramSocket ──────────────────────────────────────────────
-        (c::picodroid_net_DatagramSocket, m::nativeCreate) => Some(
+        (ch::picodroid_net_DatagramSocket, mh::nativeCreate) => Some(
             crate::net::datagram_socket::native_create(ctx.args, ctx.objects, ctx.strings),
         ),
-        (c::picodroid_net_DatagramSocket, m::send) => {
+        (ch::picodroid_net_DatagramSocket, mh::send) => {
             Some(crate::net::datagram_socket::send_native(
                 ctx.args,
                 ctx.objects,
@@ -69,7 +67,7 @@ pub fn dispatch(
                 ctx.arrays,
             ))
         }
-        (c::picodroid_net_DatagramSocket, m::receive) => {
+        (ch::picodroid_net_DatagramSocket, mh::receive) => {
             Some(crate::net::datagram_socket::receive_native(
                 ctx.args,
                 ctx.objects,
@@ -77,65 +75,65 @@ pub fn dispatch(
                 ctx.arrays,
             ))
         }
-        (c::picodroid_net_DatagramSocket, m::setTimeout) => Some(
+        (ch::picodroid_net_DatagramSocket, mh::setTimeout) => Some(
             crate::net::datagram_socket::set_timeout_native(ctx.args, ctx.objects, ctx.strings),
         ),
-        (c::picodroid_net_DatagramSocket, m::close) => Some(
+        (ch::picodroid_net_DatagramSocket, mh::close) => Some(
             crate::net::datagram_socket::close_native(ctx.args, ctx.objects),
         ),
 
         // ── InetAddress ──────────────────────────────────────────────────
-        (c::picodroid_net_InetAddress, m::getHostAddress) => Some(
+        (ch::picodroid_net_InetAddress, mh::getHostAddress) => Some(
             crate::net::inet_address::get_host_address_native(ctx.args, ctx.objects, ctx.strings),
         ),
-        (c::picodroid_net_InetAddress, m::nativeResolve) => Some(
+        (ch::picodroid_net_InetAddress, mh::nativeResolve) => Some(
             crate::net::inet_address::native_resolve(ctx.args, ctx.objects, ctx.strings),
         ),
 
         // ── NetworkInfo ─────────────────────────────────────────────────
-        (c::picodroid_net_NetworkInfo, m::isConnected) => {
+        (ch::picodroid_net_NetworkInfo, mh::isConnected) => {
             Some(crate::net::network_info::is_connected_native())
         }
-        (c::picodroid_net_NetworkInfo, m::getIpAddress) => {
+        (ch::picodroid_net_NetworkInfo, mh::getIpAddress) => {
             Some(crate::net::network_info::get_ip_address_native())
         }
-        (c::picodroid_net_NetworkInfo, m::getType) => {
+        (ch::picodroid_net_NetworkInfo, mh::getType) => {
             Some(crate::net::network_info::get_type_native())
         }
 
         // ── HttpURLConnection ───────────────────────────────────────────
-        (c::picodroid_net_HttpURLConnection, m::nativeConnect) => Some(
+        (ch::picodroid_net_HttpURLConnection, mh::nativeConnect) => Some(
             crate::net::http_connection::native_connect(ctx.args, ctx.objects, ctx.strings),
         ),
-        (c::picodroid_net_HttpURLConnection, m::nativeReadResponseCode) => {
+        (ch::picodroid_net_HttpURLConnection, mh::nativeReadResponseCode) => {
             Some(crate::net::http_connection::native_read_response_code(
                 ctx.args,
                 ctx.objects,
                 ctx.strings,
             ))
         }
-        (c::picodroid_net_HttpURLConnection, m::nativeContentLength) => Some(
+        (ch::picodroid_net_HttpURLConnection, mh::nativeContentLength) => Some(
             crate::net::http_connection::native_content_length(ctx.args, ctx.objects, ctx.strings),
         ),
-        (c::picodroid_net_HttpURLConnection, m::nativeHeaderField) => Some(
+        (ch::picodroid_net_HttpURLConnection, mh::nativeHeaderField) => Some(
             crate::net::http_connection::native_header_field(ctx.args, ctx.objects, ctx.strings),
         ),
-        (c::picodroid_net_HttpURLConnection, m::nativeHeaderFieldAt) => Some(
+        (ch::picodroid_net_HttpURLConnection, mh::nativeHeaderFieldAt) => Some(
             crate::net::http_connection::native_header_field_at(ctx.args, ctx.objects, ctx.strings),
         ),
-        (c::picodroid_net_HttpURLConnection, m::nativeResponseMessage) => {
+        (ch::picodroid_net_HttpURLConnection, mh::nativeResponseMessage) => {
             Some(crate::net::http_connection::native_response_message(
                 ctx.args,
                 ctx.objects,
                 ctx.strings,
             ))
         }
-        (c::picodroid_net_HttpURLConnection, m::nativeDisconnect) => {
+        (ch::picodroid_net_HttpURLConnection, mh::nativeDisconnect) => {
             Some(crate::net::http_connection::native_disconnect(ctx.args))
         }
 
         // ── HttpInputStream ─────────────────────────────────────────────
-        (c::picodroid_net_HttpInputStream, m::read) => {
+        (ch::picodroid_net_HttpInputStream, mh::read) => {
             Some(crate::net::http_connection::native_input_read(
                 ctx.args,
                 ctx.objects,
@@ -145,7 +143,7 @@ pub fn dispatch(
         }
 
         // ── HttpOutputStream ────────────────────────────────────────────
-        (c::picodroid_net_HttpOutputStream, m::write) => {
+        (ch::picodroid_net_HttpOutputStream, mh::write) => {
             Some(crate::net::http_connection::native_output_write(
                 ctx.args,
                 ctx.objects,
@@ -156,11 +154,11 @@ pub fn dispatch(
 
         // ── WifiManager ─────────────────────────────────────────────────
         #[cfg(network_link_wifi)]
-        (c::picodroid_net_wifi_WifiManager, _) => {
-            crate::net::wifi_manager::dispatch(method_name, ctx)
+        (ch::picodroid_net_wifi_WifiManager, _) => {
+            crate::net::wifi_manager::dispatch(key.method, ctx)
         }
         #[cfg(not(network_link_wifi))]
-        (c::picodroid_net_wifi_WifiManager, _) => super::wifi_stub::dispatch(method_name, ctx),
+        (ch::picodroid_net_wifi_WifiManager, _) => super::wifi_stub::dispatch(key.method, ctx),
 
         _ => None,
     }

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
-use crate::shrink_names::m;
+use crate::shrink_names::{c, ch, mh};
 use pico_jvm::types::MonitorKey;
 use pico_jvm::{
     types::{JvmError, Value},
-    NativeContext, NativeMethodHandler,
+    NativeContext, NativeKey, NativeMethodHandler,
 };
 
 mod app_services;
@@ -44,7 +44,6 @@ pub use class_registry::PICODROID_NATIVE_CLASSES;
 pub use dispatch_memo::next_app_generation;
 
 pub mod state;
-use crate::shrink_names::c;
 pub use state::{PendingActivityOp, PendingOp, PendingServiceOp};
 
 pub struct PicodroidNativeHandler {
@@ -208,44 +207,43 @@ impl PicodroidNativeHandler {
     fn dispatch_module(
         &mut self,
         module: u8,
-        class_name: &str,
-        method_name: &str,
+        key: NativeKey,
         ctx: &mut NativeContext<'_>,
     ) -> Option<Result<Option<Value>, JvmError>> {
         match module {
-            0 => pio::dispatch(class_name, method_name, ctx),
-            1 => os::dispatch(class_name, method_name, ctx),
-            2 => res::dispatch(class_name, method_name, ctx),
-            3 => threads::dispatch(class_name, method_name, ctx),
-            4 => concurrent::dispatch(class_name, method_name, ctx),
-            5 => graphics::dispatch(class_name, method_name, ctx),
-            6 => io::dispatch(class_name, method_name, ctx),
+            0 => pio::dispatch(key, ctx),
+            1 => os::dispatch(key, ctx),
+            2 => res::dispatch(key, ctx),
+            3 => threads::dispatch(key, ctx),
+            4 => concurrent::dispatch(key, ctx),
+            5 => graphics::dispatch(key, ctx),
+            6 => io::dispatch(key, ctx),
             #[cfg(has_json)]
-            7 => json::dispatch(class_name, method_name, ctx),
+            7 => json::dispatch(key, ctx),
             #[cfg(not(has_json))]
             7 => None,
             #[cfg(has_audio)]
-            8 => media::dispatch(class_name, method_name, ctx),
+            8 => media::dispatch(key, ctx),
             #[cfg(not(has_audio))]
-            8 => media_stub::dispatch(class_name, method_name, ctx),
+            8 => media_stub::dispatch(key, ctx),
             #[cfg(has_network)]
-            9 => net::dispatch(class_name, method_name, ctx),
+            9 => net::dispatch(key, ctx),
             #[cfg(not(has_network))]
-            9 => net_stub::dispatch(class_name, method_name, ctx),
+            9 => net_stub::dispatch(key, ctx),
             #[cfg(not(test))]
-            10 => sensors::dispatch(class_name, method_name, ctx),
+            10 => sensors::dispatch(key, ctx),
             #[cfg(test)]
             10 => None,
             // Service / notification dispatch — needs `self` for the
             // pending-op queue, so it lives outside the module-style
             // sub-dispatchers above.
-            11 => app_services::dispatch(self, class_name, method_name, ctx),
+            11 => app_services::dispatch(self, key, ctx),
             #[cfg(has_protobuf)]
-            12 => protobuf::dispatch(class_name, method_name, ctx),
+            12 => protobuf::dispatch(key, ctx),
             #[cfg(not(has_protobuf))]
             12 => None,
             // Arms that need access to `self` stay in the handler itself.
-            _ => self.dispatch_own(class_name, method_name, ctx),
+            _ => self.dispatch_own(key, ctx),
         }
     }
 
@@ -553,44 +551,43 @@ impl PicodroidNativeHandler {
     /// any-receiver Activity natives.
     fn dispatch_own(
         &mut self,
-        class_name: &str,
-        method_name: &str,
+        key: NativeKey,
         ctx: &mut NativeContext<'_>,
     ) -> Option<Result<Option<Value>, JvmError>> {
         // Arms that need access to `self` stay here.
         use crate::util::log::{self, LogLevel};
-        match (class_name, method_name) {
-            (c::picodroid_util_Log, m::v) => {
+        match (key.class, key.method) {
+            (ch::picodroid_util_Log, mh::v) => {
                 Some(log::log(LogLevel::Verbose, ctx.args, ctx.strings).map(|_| None))
             }
-            (c::picodroid_util_Log, m::d) => {
+            (ch::picodroid_util_Log, mh::d) => {
                 Some(log::log(LogLevel::Debug, ctx.args, ctx.strings).map(|_| None))
             }
-            (c::picodroid_util_Log, m::i) => {
+            (ch::picodroid_util_Log, mh::i) => {
                 Some(log::log(LogLevel::Info, ctx.args, ctx.strings).map(|_| None))
             }
-            (c::picodroid_util_Log, m::w) => {
+            (ch::picodroid_util_Log, mh::w) => {
                 Some(log::log(LogLevel::Warn, ctx.args, ctx.strings).map(|_| None))
             }
-            (c::picodroid_util_Log, m::e) => {
+            (ch::picodroid_util_Log, mh::e) => {
                 Some(log::log(LogLevel::Error, ctx.args, ctx.strings).map(|_| None))
             }
-            (c::picodroid_os_Runtime, m::gcTimeNanos) => {
+            (ch::picodroid_os_Runtime, mh::gcTimeNanos) => {
                 Some(Ok(Some(Value::Long(self.gc_time_ns as i64))))
             }
-            (c::picodroid_os_Runtime, m::gcCount) => {
+            (ch::picodroid_os_Runtime, mh::gcCount) => {
                 Some(Ok(Some(Value::Int(self.gc_count as i32))))
             }
-            (c::picodroid_os_Runtime, m::gcFreed) => {
+            (ch::picodroid_os_Runtime, mh::gcFreed) => {
                 Some(Ok(Some(Value::Int(self.gc_freed as i32))))
             }
-            (c::picodroid_os_Runtime, m::resetGcStats) => {
+            (ch::picodroid_os_Runtime, mh::resetGcStats) => {
                 self.gc_time_ns = 0;
                 self.gc_count = 0;
                 self.gc_freed = 0;
                 Some(Ok(None))
             }
-            (c::picodroid_os_Runtime, m::usedMemory) => {
+            (ch::picodroid_os_Runtime, mh::usedMemory) => {
                 let used =
                     ctx.objects.live_bytes() + ctx.arrays.live_bytes() + ctx.strings.live_bytes();
                 let used32 = used.min(u32::MAX as usize) as u32;
@@ -599,10 +596,10 @@ impl PicodroidNativeHandler {
                 }
                 Some(Ok(Some(Value::Long(used as i64))))
             }
-            (c::picodroid_os_Runtime, m::peakMemory) => {
+            (ch::picodroid_os_Runtime, mh::peakMemory) => {
                 Some(Ok(Some(Value::Long(self.peak_used as i64))))
             }
-            (c::picodroid_os_Runtime, m::resetPeakMemory) => {
+            (ch::picodroid_os_Runtime, mh::resetPeakMemory) => {
                 let used =
                     ctx.objects.live_bytes() + ctx.arrays.live_bytes() + ctx.strings.live_bytes();
                 self.peak_used = used.min(u32::MAX as usize) as u32;
@@ -612,8 +609,8 @@ impl PicodroidNativeHandler {
             // Match any class name: invokevirtual dispatches with the runtime
             // subclass name (e.g. "displaydemo/DisplayDemoApp"), not the declaring
             // class "picodroid/app/Application".
-            (_, m::startActivity) => Some(self.enqueue_activity_push(ctx, None, 0)),
-            (_, m::startActivityForResult) => {
+            (_, mh::startActivity) => Some(self.enqueue_activity_push(ctx, None, 0)),
+            (_, mh::startActivityForResult) => {
                 // args[0] = this (Activity), args[1] = Intent, args[2] = int requestCode.
                 // The receiver is the caller that will get onActivityResult,
                 // recorded as its stack entry's token: the instance may be
@@ -628,7 +625,7 @@ impl PicodroidNativeHandler {
                 };
                 Some(self.enqueue_activity_push(ctx, Some(request_code), caller))
             }
-            (_, m::setResult) => {
+            (_, mh::setResult) => {
                 // args[0] = this (Activity), args[1] = int resultCode,
                 // optional args[2] = Intent. Recorded on the caller's stack
                 // entry, delivered to its launcher on finish.
@@ -651,7 +648,7 @@ impl PicodroidNativeHandler {
             // exactly the top, and that's the documented Android behavior
             // ("a paused Activity finishing itself" doesn't happen unless
             // the app is misbehaving anyway).
-            (_, m::getIntent) => {
+            (_, mh::getIntent) => {
                 // args[0] = this (an Activity). Returns the Intent retained on
                 // the stack entry at push time, or null for the boot Activity
                 // — Android's contract.
@@ -664,7 +661,7 @@ impl PicodroidNativeHandler {
                     None => Value::Null,
                 })))
             }
-            (_, m::finish) => {
+            (_, mh::finish) => {
                 // args[0] = this. Android's finish() is idempotent per
                 // Activity (mFinished) and a no-op on one already destroyed;
                 // without these guards `finish(); finish();` queued two Pops
@@ -690,16 +687,16 @@ impl PicodroidNativeHandler {
             // Activity has one, for the touch boards' menu control; and
             // whether the focused view takes a long press itself, which
             // keeps a held SELECT from opening the menu over it.
-            (_, m::nativeSetOptionsMenuAvailable) => {
+            (_, mh::nativeSetOptionsMenuAvailable) => {
                 // Static: args[0] = boolean.
                 let on = matches!(ctx.args.first(), Some(Value::Int(v)) if *v != 0);
                 crate::graphics::lvgl::menu_button::set_available(on);
                 Some(Ok(None))
             }
-            (_, m::nativeFocusTakesLongPress) => Some(Ok(Some(Value::Int(i32::from(
+            (_, mh::nativeFocusTakesLongPress) => Some(Ok(Some(Value::Int(i32::from(
                 crate::graphics::lvgl::focused_view_takes_long_press(),
             ))))),
-            (_, m::nativeSetTurnScreenOn) => {
+            (_, mh::nativeSetTurnScreenOn) => {
                 // args[0] = this, args[1] = boolean. An Activity that must
                 // be seen (an alarm ringing) wakes a dozing display at once
                 // (power.rs); false asks nothing.
@@ -708,7 +705,7 @@ impl PicodroidNativeHandler {
                 }
                 Some(Ok(None))
             }
-            (_, m::recreate) => {
+            (_, mh::recreate) => {
                 // args[0] = this. Same shape as finish(): one queued op per
                 // Activity, and an Activity off the stack is ignored.
                 let this = match ctx.args.first() {
@@ -795,11 +792,14 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         // upcall) takes the full walk every time.
         let memo_key = ctx.dispatch_site();
         let remembered = memo_key.and_then(|(key, depth)| self.memo.get(key, depth));
+        if remembered == Some(dispatch_memo::NONE) {
+            return None;
+        }
+        // The names as the arms match them: two FNV-1a hashes, computed once
+        // here (`ch::` / `mh::`); a memoised miss above pays for neither.
+        let key = NativeKey::of(class_name, method_name);
         if let Some(module) = remembered {
-            if module == dispatch_memo::NONE {
-                return None;
-            }
-            if let result @ Some(_) = self.dispatch_module(module, class_name, method_name, ctx) {
+            if let result @ Some(_) = self.dispatch_module(module, key, ctx) {
                 return result;
             }
         }
@@ -809,15 +809,15 @@ impl NativeMethodHandler for PicodroidNativeHandler {
             if remembered == Some(module) {
                 continue;
             }
-            if let result @ Some(_) = self.dispatch_module(module, class_name, method_name, ctx) {
-                if let Some((key, depth)) = memo_key {
-                    self.memo.set(key, depth, module);
+            if let result @ Some(_) = self.dispatch_module(module, key, ctx) {
+                if let Some((site, depth)) = memo_key {
+                    self.memo.set(site, depth, module);
                 }
                 return result;
             }
         }
-        if let Some((key, depth)) = memo_key {
-            self.memo.set(key, depth, dispatch_memo::NONE);
+        if let Some((site, depth)) = memo_key {
+            self.memo.set(site, depth, dispatch_memo::NONE);
         }
         // True native miss: no sub-dispatcher or arm above claimed this
         // (class, method). The JVM turns our None into NoSuchMethod; if

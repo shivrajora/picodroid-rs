@@ -59,6 +59,10 @@ struct Args {
     /// The entry class as the manifest named it, when the map renamed it —
     /// for error messages only.
     entry_original: Option<String>,
+    /// `--framework-classes`: the framework's class list
+    /// (`sdk/class-names.tsv`). An app class whose name hashes like one of
+    /// them is refused, as the device refuses the app.
+    framework_classes: Option<PathBuf>,
     /// `--version-code`: monotonic integer version, written as `version-code`.
     version_code: Option<u32>,
     /// `--label`: display name, written as `label`.
@@ -272,6 +276,7 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
     let mut output = None;
     let mut assets_dir: Option<PathBuf> = None;
     let mut shrink_map: Option<PathBuf> = None;
+    let mut framework_classes: Option<PathBuf> = None;
     let mut version_code: Option<u32> = None;
     let mut label = None;
     let mut icon = None;
@@ -413,6 +418,12 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
                     args.get(i).ok_or("--shrink-map requires a value")?,
                 ));
             }
+            "--framework-classes" => {
+                i += 1;
+                framework_classes = Some(PathBuf::from(
+                    args.get(i).ok_or("--framework-classes requires a value")?,
+                ));
+            }
             "--res-dir" => {
                 i += 1;
                 res_dir = Some(PathBuf::from(
@@ -503,6 +514,7 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
             assets_dir,
             shrink_map,
             entry_original: None,
+            framework_classes,
             version_code,
             label,
             icon,
@@ -627,6 +639,73 @@ fn validate_components(args: &Args, classes: &[(String, Vec<u8>)]) -> Result<(),
     Ok(())
 }
 
+/// The device finds classes and dispatches natives by the 32-bit FNV-1a of
+/// the class name, and refuses an app whose class hashes like a framework
+/// class (`Jvm::load_app`). With `--framework-classes` the same check runs
+/// here, where the message can name both classes: every framework name —
+/// spelled through the shrink map when the packed classes were — against
+/// every packed class.
+fn validate_framework_hashes(args: &Args, classes: &[(String, Vec<u8>)]) -> Result<(), String> {
+    let Some(list) = args.framework_classes.as_deref() else {
+        return Ok(());
+    };
+    let text = fs::read_to_string(list)
+        .map_err(|e| format!("read --framework-classes {}: {e}", list.display()))?;
+    let map = match args.shrink_map.as_deref() {
+        Some(path) => Some(
+            class_shrink::mapping::ShrinkMap::load(path)
+                .map_err(|e| format!("--shrink-map {}: {e}", path.display()))?,
+        ),
+        None => None,
+    };
+    let mut by_hash: std::collections::HashMap<u32, (&str, &str)> =
+        std::collections::HashMap::new();
+    for line in text.lines() {
+        let original = line.trim();
+        if original.is_empty() || original.starts_with('#') {
+            continue;
+        }
+        let loaded = map
+            .as_ref()
+            .and_then(|m| m.classes.get(original))
+            .map_or(original, String::as_str);
+        by_hash.insert(class_link::name_hash(loaded.as_bytes()), (original, loaded));
+    }
+    for (name, _) in classes {
+        if let Some((original, loaded)) = by_hash.get(&class_link::name_hash(name.as_bytes())) {
+            let spelling = if original == loaded {
+                String::new()
+            } else {
+                format!(" (loaded as '{loaded}')")
+            };
+            return Err(format!(
+                "class '{name}' hashes like the framework class '{original}'{spelling}: \
+                 native dispatch matches classes by hash, so the device refuses \
+                 such an app. Rename the class."
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// No app class may declare a native method: there is no JNI, and the set
+/// of names the native dispatch answers to is the framework's and stays
+/// closed. A class this tool cannot parse is let through (the linker
+/// refuses it later).
+fn validate_no_natives(classes: &[(String, Vec<u8>)]) -> Result<(), String> {
+    for (name, bytes) in classes {
+        if let Some(natives) = classcheck::native_methods(bytes) {
+            if let Some(m) = natives.first() {
+                return Err(format!(
+                    "class '{name}' declares the native method `{m}`: apps cannot declare \
+                     native methods (there is no JNI; the native dispatch name set stays closed)"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn print_usage() {
     eprintln!(
         "Usage: papk-pack \\\n\
@@ -641,6 +720,7 @@ fn print_usage() {
          \x20 --classes-dir <dir> | --repack <in.papk> \\\n\
          \x20 [--assets-dir <dir>] [--res-dir <dir>] \\\n\
          \x20 [--shrink-map <map.toml>] \\\n\
+         \x20 [--framework-classes <class-names.tsv>] \\\n\
          \x20 [--pad-asset <bytes>] \\\n\
          \x20 --output <file.papk>\n\
          \n\
@@ -653,6 +733,10 @@ fn print_usage() {
          --shrink-map names the class-shrink map --classes-dir was rewritten with,\n\
          so the entry-point check matches descriptors in their shrunk spelling and\n\
          an app-shrunk (cut-app) map renames the manifest entry class itself.\n\
+         --framework-classes names the framework's class list (sdk/class-names.tsv,\n\
+         spelled through --shrink-map when given): an app class whose name hashes\n\
+         like a framework class is refused, as the device refuses the app. An app\n\
+         class declaring a native method is always refused: there is no JNI.\n\
          --version-code, --label and --icon are the app identity a launcher shows;\n\
          --icon must name a file that --assets-dir packs (48x48 recommended).\n\
          --design-size is the logical size the app lays out against (<supports-screens>);\n\
@@ -1212,6 +1296,17 @@ fn main() {
         }
     };
 
+    // Both paths: a --repack input's classes were checked when it was
+    // packed, but against the framework list of that day.
+    if let Err(msg) = validate_no_natives(&classes) {
+        eprintln!("Error: {msg}");
+        std::process::exit(1);
+    }
+    if let Err(msg) = validate_framework_hashes(&args, &classes) {
+        eprintln!("Error: {msg}");
+        std::process::exit(1);
+    }
+
     if let Some(icon) = &args.icon {
         if let Err(msg) = check_icon(icon, &assets) {
             eprintln!("Error: {msg}");
@@ -1293,6 +1388,7 @@ mod pack_integration {
             assets_dir: None,
             shrink_map: None,
             entry_original: None,
+            framework_classes: None,
             version_code: None,
             label: None,
             icon: None,
@@ -1344,6 +1440,7 @@ mod pack_integration {
             assets_dir: None,
             shrink_map: None,
             entry_original: None,
+            framework_classes: None,
             version_code: None,
             label: None,
             icon: None,
@@ -1357,6 +1454,110 @@ mod pack_integration {
             theme: None,
             theme_id: None,
         }
+    }
+
+    /// A public `class <name> extends java/lang/Object` with one method
+    /// `void m()` carrying `flags`, no `Code` (the scanner reads no bodies).
+    fn class_with_method(name: &[u8], flags: u16) -> Vec<u8> {
+        let mut out = class_extending(name, b"java/lang/Object");
+        // Replace the constant-pool count (5) with 7 and splice two Utf8s
+        // in: #5 "m", #6 "()V"; then the one method.
+        out[8..10].copy_from_slice(&7u16.to_be_bytes());
+        let members_at = out.len() - 8;
+        out.truncate(members_at - 6); // drop access/this/super too
+        out.extend_from_slice(&[0x01, 0x00, 0x01, b'm']);
+        out.extend_from_slice(&[0x01, 0x00, 0x03, b'(', b')', b'V']);
+        out.extend_from_slice(&0x0021u16.to_be_bytes());
+        out.extend_from_slice(&[0x00, 0x01, 0x00, 0x03]);
+        out.extend_from_slice(&[0, 0, 0, 0]); // no interfaces, no fields
+        out.extend_from_slice(&1u16.to_be_bytes());
+        out.extend_from_slice(&flags.to_be_bytes());
+        out.extend_from_slice(&[0x00, 0x05, 0x00, 0x06, 0x00, 0x00]);
+        out.extend_from_slice(&[0, 0]); // no attributes
+        out
+    }
+
+    #[test]
+    fn an_app_class_hashing_like_a_framework_class_is_refused() {
+        let work = std::env::temp_dir().join(format!("papk-pack-fh-{}", std::process::id()));
+        fs::create_dir_all(&work).unwrap();
+        let list = work.join("class-names.tsv");
+        fs::write(
+            &list,
+            "# the framework's classes\n\npicodroid/app/Activity\njava/lang/String\n",
+        )
+        .unwrap();
+        let mut args = fixture_args(&work);
+        args.framework_classes = Some(list);
+
+        let fine = vec![(
+            "demo/Main".to_string(),
+            class_extending(b"demo/Main", b"java/lang/Object"),
+        )];
+        validate_framework_hashes(&args, &fine).expect("a name of its own");
+
+        // The same name is the same hash: refused, naming both.
+        let twin = vec![(
+            "picodroid/app/Activity".to_string(),
+            class_extending(b"picodroid/app/Activity", b"java/lang/Object"),
+        )];
+        let err = validate_framework_hashes(&args, &twin).unwrap_err();
+        assert!(err.contains("'picodroid/app/Activity'"), "{err}");
+        assert!(err.contains("matches classes by hash"), "{err}");
+
+        // Under a shrink map the framework class is spelled by the map's
+        // target, so that is the name an app class must not take; the
+        // original spelling is now free.
+        let map = work.join("map.toml");
+        fs::write(
+            &map,
+            "schema = 2\n\n[[class]]\nfrom = \"picodroid/app/Activity\"\nto = \"b/A\"\n",
+        )
+        .unwrap();
+        args.shrink_map = Some(map);
+        let shrunk_twin = vec![(
+            "b/A".to_string(),
+            class_extending(b"b/A", b"java/lang/Object"),
+        )];
+        let err = validate_framework_hashes(&args, &shrunk_twin).unwrap_err();
+        assert!(
+            err.contains("'b/A'") && err.contains("loaded as 'b/A'"),
+            "{err}"
+        );
+        validate_framework_hashes(&args, &twin).expect("the original spelling is unloaded");
+
+        // Without the flag nothing is checked.
+        args.framework_classes = None;
+        validate_framework_hashes(&args, &shrunk_twin).unwrap();
+        fs::remove_dir_all(&work).ok();
+    }
+
+    #[test]
+    fn an_app_class_with_a_native_method_is_refused() {
+        let plain = vec![(
+            "demo/Main".to_string(),
+            class_with_method(b"demo/Main", 0x0001),
+        )];
+        assert_eq!(classcheck::native_methods(&plain[0].1), Some(Vec::new()));
+        validate_no_natives(&plain).expect("an ordinary method");
+
+        let native = vec![(
+            "demo/Main".to_string(),
+            class_with_method(b"demo/Main", 0x0001 | classcheck::ACC_NATIVE),
+        )];
+        assert_eq!(
+            classcheck::native_methods(&native[0].1),
+            Some(vec!["m()V".to_string()])
+        );
+        let err = validate_no_natives(&native).unwrap_err();
+        assert!(
+            err.contains("'demo/Main'") && err.contains("`m()V`"),
+            "{err}"
+        );
+        assert!(err.contains("apps cannot declare native methods"), "{err}");
+
+        // Unparseable bytes are let through: the linker refuses them later.
+        validate_no_natives(&[("x".to_string(), vec![1, 2, 3])]).unwrap();
     }
 
     /// A public `class <name> extends <sup>` with no members, as `javac`

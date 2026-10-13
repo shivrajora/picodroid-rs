@@ -11,6 +11,8 @@
 //! Status codes returned to Java for the mutators: `0` ok, `-1` pool
 //! exhausted, `-2` the link would make a container reach itself
 //! (`JSONObject.ST_*`).
+use crate::shrink_names::{ch, mh};
+use pico_jvm::NativeKey;
 
 use alloc::{string::String, vec::Vec};
 
@@ -24,42 +26,40 @@ use crate::json::{
     pool::{with_pool, Pool, PoolError},
     Node, NodeIdx,
 };
-use crate::shrink_names::{c, m};
 
 const ST_OK: i32 = 0;
 const ST_EXHAUSTED: i32 = -1;
 const ST_CYCLE: i32 = -2;
 
 pub fn dispatch(
-    class_name: &str,
-    method_name: &str,
+    key: NativeKey,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    if class_name != c::picodroid_json_JSONObject {
+    if key.class != ch::picodroid_json_JSONObject {
         return None;
     }
-    let r = match method_name {
-        m::nativeNewObject => new_container(ctx, Node::Object(Vec::new())),
-        m::nativeNewArray => new_container(ctx, Node::Array(Vec::new())),
-        m::nativeBind => bind(ctx),
-        m::nativeParse => parse(ctx),
-        m::nativeLastError => last_error(ctx),
-        m::nativeKind => node_int(ctx, |p, n| p.kind(n)),
-        m::nativeLength => node_int(ctx, |p, n| p.length(n) as i32),
-        m::nativeChild => child(ctx),
-        m::nativeChildAt => child_at(ctx),
-        m::nativeKeyAt => key_at(ctx),
-        m::nativeBoolValue => node_int(ctx, |p, n| match p.get(n) {
+    let r = match key.method {
+        mh::nativeNewObject => new_container(ctx, Node::Object(Vec::new())),
+        mh::nativeNewArray => new_container(ctx, Node::Array(Vec::new())),
+        mh::nativeBind => bind(ctx),
+        mh::nativeParse => parse(ctx),
+        mh::nativeLastError => last_error(ctx),
+        mh::nativeKind => node_int(ctx, |p, n| p.kind(n)),
+        mh::nativeLength => node_int(ctx, |p, n| p.length(n) as i32),
+        mh::nativeChild => child(ctx),
+        mh::nativeChildAt => child_at(ctx),
+        mh::nativeKeyAt => key_at(ctx),
+        mh::nativeBoolValue => node_int(ctx, |p, n| match p.get(n) {
             Some(Node::Bool(b)) => *b as i32,
             _ => 0,
         }),
-        m::nativeIntValue => node_int(ctx, |p, n| match p.get(n) {
+        mh::nativeIntValue => node_int(ctx, |p, n| match p.get(n) {
             Some(Node::Int(v)) => *v,
             Some(Node::Long(v)) => *v as i32,
             Some(Node::Double(d)) => *d as i32,
             _ => 0,
         }),
-        m::nativeLongValue => node_value(ctx, |p, n| {
+        mh::nativeLongValue => node_value(ctx, |p, n| {
             Value::Long(match p.get(n) {
                 Some(Node::Int(v)) => *v as i64,
                 Some(Node::Long(v)) => *v,
@@ -67,7 +67,7 @@ pub fn dispatch(
                 _ => 0,
             })
         }),
-        m::nativeDoubleValue => node_value(ctx, |p, n| {
+        mh::nativeDoubleValue => node_value(ctx, |p, n| {
             Value::Double(match p.get(n) {
                 Some(Node::Int(v)) => *v as f64,
                 Some(Node::Long(v)) => *v as f64,
@@ -75,26 +75,26 @@ pub fn dispatch(
                 _ => 0.0,
             })
         }),
-        m::nativeStringValue => string_value(ctx),
-        m::nativePutNull => put(ctx, |_| Ok(Node::Null)),
-        m::nativePutBool => put(ctx, |a| Ok(Node::Bool(as_int(a.get(2))? != 0))),
-        m::nativePutInt => put(ctx, |a| Ok(Node::Int(as_int(a.get(2))?))),
-        m::nativePutLong => put(ctx, |a| Ok(Node::Long(as_long(a.get(2))?))),
-        m::nativePutDouble => put(ctx, |a| Ok(Node::Double(as_double(a.get(2))?))),
-        m::nativePutString => put_string(ctx),
-        m::nativePutNode => put_node(ctx),
-        m::nativeSetNull => set(ctx, |_| Ok(Node::Null)),
-        m::nativeSetBool => set(ctx, |a| Ok(Node::Bool(as_int(a.get(2))? != 0))),
-        m::nativeSetInt => set(ctx, |a| Ok(Node::Int(as_int(a.get(2))?))),
-        m::nativeSetLong => set(ctx, |a| Ok(Node::Long(as_long(a.get(2))?))),
-        m::nativeSetDouble => set(ctx, |a| Ok(Node::Double(as_double(a.get(2))?))),
-        m::nativeSetString => set_string(ctx),
-        m::nativeSetNode => set_node(ctx),
-        m::nativeRemove => remove(ctx),
-        m::nativeRemoveAt => remove_at(ctx),
-        m::nativeToString => to_string(ctx),
-        m::nativeQuote => quote(ctx),
-        m::nativePoolNodes => Ok(Some(Value::Int(with_pool(|p| p.node_count() as i32)))),
+        mh::nativeStringValue => string_value(ctx),
+        mh::nativePutNull => put(ctx, |_| Ok(Node::Null)),
+        mh::nativePutBool => put(ctx, |a| Ok(Node::Bool(as_int(a.get(2))? != 0))),
+        mh::nativePutInt => put(ctx, |a| Ok(Node::Int(as_int(a.get(2))?))),
+        mh::nativePutLong => put(ctx, |a| Ok(Node::Long(as_long(a.get(2))?))),
+        mh::nativePutDouble => put(ctx, |a| Ok(Node::Double(as_double(a.get(2))?))),
+        mh::nativePutString => put_string(ctx),
+        mh::nativePutNode => put_node(ctx),
+        mh::nativeSetNull => set(ctx, |_| Ok(Node::Null)),
+        mh::nativeSetBool => set(ctx, |a| Ok(Node::Bool(as_int(a.get(2))? != 0))),
+        mh::nativeSetInt => set(ctx, |a| Ok(Node::Int(as_int(a.get(2))?))),
+        mh::nativeSetLong => set(ctx, |a| Ok(Node::Long(as_long(a.get(2))?))),
+        mh::nativeSetDouble => set(ctx, |a| Ok(Node::Double(as_double(a.get(2))?))),
+        mh::nativeSetString => set_string(ctx),
+        mh::nativeSetNode => set_node(ctx),
+        mh::nativeRemove => remove(ctx),
+        mh::nativeRemoveAt => remove_at(ctx),
+        mh::nativeToString => to_string(ctx),
+        mh::nativeQuote => quote(ctx),
+        mh::nativePoolNodes => Ok(Some(Value::Int(with_pool(|p| p.node_count() as i32)))),
         _ => return None,
     };
     Some(r)

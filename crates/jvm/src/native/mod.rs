@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use crate::class_file::Classes;
 use crate::class_file::{name_eq, name_hash};
-use crate::names::{c, d, m};
+use crate::names::{c, d, m, mh};
 use crate::{
     array_heap::ArrayHeap,
     heap::StringTable,
@@ -25,6 +25,9 @@ mod string_builder;
 mod string_format;
 mod zip;
 
+mod class_hashes;
+pub use class_hashes::BUILTIN_CLASS_HASHES;
+
 /// zlib's running CRC-32, for a caller outside the JVM that wants the
 /// same checksum `java.util.zip.CRC32` computes (a store's trailer).
 pub use zip::crc32_update;
@@ -34,7 +37,34 @@ mod tests;
 
 /// Per-class dispatch function used by [`BuiltinHandler`].
 type BuiltinDispatchFn =
-    fn(method_name: &str, ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>, JvmError>>;
+    fn(method: u32, ctx: &mut NativeContext<'_>) -> Option<Result<Option<Value>, JvmError>>;
+
+/// The two names of a native call as the dispatch arms match them: the
+/// 32-bit FNV-1a of the class name and of the method name, the same hash
+/// the generated `ch::` / `mh::` consts hold (`build_support/names.rs`).
+/// A handler computes one at its entry and its modules `match` on the
+/// numbers; the `&str` names stay available for the few places that need
+/// the text (a miss log, an allocation by class name).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct NativeKey {
+    pub class: u32,
+    pub method: u32,
+}
+
+impl NativeKey {
+    #[inline]
+    pub fn of(class_name: &str, method_name: &str) -> Self {
+        Self {
+            class: name_hash(class_name.as_bytes()),
+            method: name_hash(method_name.as_bytes()),
+        }
+    }
+}
+
+/// `name_hash(b"<init>")`: the constructor is the one method name with no
+/// `mh::` const (`init` is a real member name, and `<init>` is not a Rust
+/// identifier). The generator seeds its collision check with it.
+pub const INIT: u32 = name_hash(b"<init>");
 
 /// Every native class name the JVM canonicalises to a `&'static str` for
 /// pointer-identity caching. A class that appears in `BUILTIN_DISPATCH` MUST
@@ -983,18 +1013,18 @@ fn throwable_get_cause(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, Jvm
 }
 
 fn dispatch_init_only(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    match method_name {
-        "<init>" => {
+    match method {
+        INIT => {
             capture_throwable_message(ctx);
             Some(Ok(None))
         }
-        m::getMessage => Some(throwable_get_message(ctx)),
-        m::addSuppressed => Some(throwable_add_suppressed(ctx)),
-        m::getSuppressed => Some(throwable_get_suppressed(ctx)),
-        m::getCause => Some(throwable_get_cause(ctx)),
+        mh::getMessage => Some(throwable_get_message(ctx)),
+        mh::addSuppressed => Some(throwable_add_suppressed(ctx)),
+        mh::getSuppressed => Some(throwable_get_suppressed(ctx)),
+        mh::getCause => Some(throwable_get_cause(ctx)),
         _ => None,
     }
 }
@@ -1014,28 +1044,28 @@ fn dispatch_init_only(
 /// dispatcher; the `toString` arm keeps returning it unchanged for the
 /// `<clinit>`-time and handler-originated calls that still name `Object`.
 fn dispatch_object(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    match method_name {
-        "<init>" => {
+    match method {
+        INIT => {
             capture_throwable_message(ctx);
             Some(Ok(None))
         }
-        m::toString => match ctx.args.first().copied() {
+        mh::toString => match ctx.args.first().copied() {
             Some(Value::Reference(idx)) => Some(Ok(Some(Value::Reference(idx)))),
             Some(v @ (Value::ObjectRef(_) | Value::ArrayRef(_))) => {
                 Some(identity_to_string(ctx, v))
             }
             _ => None,
         },
-        m::equals => match (ctx.args.first().copied(), ctx.args.get(1).copied()) {
+        mh::equals => match (ctx.args.first().copied(), ctx.args.get(1).copied()) {
             (Some(a @ (Value::ObjectRef(_) | Value::ArrayRef(_))), Some(b)) => {
                 Some(Ok(Some(Value::Int((a == b) as i32))))
             }
             _ => None,
         },
-        m::hashCode => match ctx.args.first().copied() {
+        mh::hashCode => match ctx.args.first().copied() {
             Some(Value::ObjectRef(idx) | Value::ArrayRef(idx)) => {
                 Some(Ok(Some(Value::Int(idx as i32))))
             }
@@ -1050,7 +1080,7 @@ fn dispatch_object(
         // clone() on a non-Cloneable succeeds instead of throwing
         // CloneNotSupportedException (consistent with the unchecked array
         // clone above).
-        m::clone => match ctx.args.first() {
+        mh::clone => match ctx.args.first() {
             Some(Value::ObjectRef(idx)) => Some(
                 ctx.objects
                     .clone_object(*idx)
@@ -1100,22 +1130,22 @@ fn identity_to_string(ctx: &mut NativeContext<'_>, v: Value) -> Result<Option<Va
 }
 
 fn dispatch_throwable(
-    method_name: &str,
+    method: u32,
     ctx: &mut NativeContext<'_>,
 ) -> Option<Result<Option<Value>, JvmError>> {
-    match method_name {
-        "<init>" => {
+    match method {
+        INIT => {
             capture_throwable_message(ctx);
             Some(Ok(None))
         }
-        m::getMessage => Some(throwable_get_message(ctx)),
+        mh::getMessage => Some(throwable_get_message(ctx)),
         // addSuppressed stores for real (try-with-resources emits these
         // calls when close() throws); getSuppressed returns the recorded
         // array. Java contract honored: addSuppressed(null) throws NPE,
         // addSuppressed(this) throws IllegalArgumentException.
-        m::addSuppressed => Some(throwable_add_suppressed(ctx)),
-        m::getSuppressed => Some(throwable_get_suppressed(ctx)),
-        m::getCause => Some(throwable_get_cause(ctx)),
+        mh::addSuppressed => Some(throwable_add_suppressed(ctx)),
+        mh::getSuppressed => Some(throwable_get_suppressed(ctx)),
+        mh::getCause => Some(throwable_get_cause(ctx)),
         _ => None,
     }
 }
@@ -1458,9 +1488,12 @@ impl NativeMethodHandler for BuiltinHandler {
         method_name: &str,
         ctx: &mut NativeContext<'_>,
     ) -> Option<Result<Option<Value>, JvmError>> {
+        // The arms match the method by its FNV-1a hash (`mh::`), the class
+        // table by the class hash below: one hash each, no string compares.
+        let method = name_hash(method_name.as_bytes());
         // Array clone: class name starts with '[' and method is "clone".
         // Needed for enum Color.values() which clones the internal $VALUES array.
-        if class_name.starts_with('[') && method_name == m::clone {
+        if class_name.starts_with('[') && method == mh::clone {
             if let Some(Value::ArrayRef(idx)) = ctx.args.first().copied() {
                 return Some(
                     ctx.arrays
@@ -1476,7 +1509,7 @@ impl NativeMethodHandler for BuiltinHandler {
         let hash = name_hash(class_name.as_bytes());
         for &(name, name_hash, dispatch_fn) in BUILTIN_DISPATCH {
             if name_hash == hash && name_eq(name.as_bytes(), class_name.as_bytes()) {
-                return dispatch_fn(method_name, ctx);
+                return dispatch_fn(method, ctx);
             }
         }
         None
