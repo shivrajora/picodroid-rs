@@ -12,6 +12,7 @@ use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
 use super::super::lvgl::widgets::list_view as lvgl_list_view;
+use super::super::view::register_listener_with;
 use super::super::view::{extract_handle_at, extract_native_handle, extract_string_at};
 
 pub use lvgl_list_view::reset_list_view_state;
@@ -39,13 +40,7 @@ pub fn list_view_register_item_click_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let obj_ref = match args.first() {
-        Some(Value::ObjectRef(idx)) => *idx,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let id = extract_native_handle(args, objects)?;
-    lvgl_list_view::register_item_click_listener(id, obj_ref);
-    Ok(None)
+    register_listener_with(args, objects, lvgl_list_view::register_item_click_listener)
 }
 
 /// `ListView.nativeStyleRow(View row)`: the row is already a child of the

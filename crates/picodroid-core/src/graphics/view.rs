@@ -51,6 +51,25 @@ pub fn extract_handle_at(
     }
 }
 
+/// The body of every `set*Listener` native: `this` (args[0]) is both the
+/// Java object the registry roots and the view whose handle names the
+/// widget; `register` files the pair. One out-of-line copy for the ~19
+/// registration natives, which each carried the argument and handle reads.
+#[inline(never)]
+pub fn register_listener_with(
+    args: &[Value],
+    objects: &ObjectHeap,
+    register: fn(i32, u16),
+) -> Result<Option<Value>, JvmError> {
+    let obj_ref = match args.first() {
+        Some(Value::ObjectRef(idx)) => *idx,
+        _ => return Err(JvmError::InvalidReference),
+    };
+    let id = extract_native_handle(args, objects)?;
+    register(id, obj_ref);
+    Ok(None)
+}
+
 /// Extract a Java `String` argument as a Rust `&str`. Returned reference
 /// is valid for the lifetime of `strings`. A `null` reads as `""`: Android's
 /// text setters (`setText(null)`, `setHint(null)`, `addItem(null)`) clear
@@ -306,13 +325,7 @@ pub fn register_key_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let obj_ref = match args.first() {
-        Some(Value::ObjectRef(idx)) => *idx,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let id = extract_native_handle(args, objects)?;
-    lvgl_events::register_view_key_listener(id, obj_ref);
-    Ok(None)
+    register_listener_with(args, objects, lvgl_events::register_view_key_listener)
 }
 
 /// `View.nativeSetFocusable(boolean)` — add this view to (or remove it from)
@@ -342,13 +355,7 @@ pub fn register_touch_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let obj_ref = match args.first() {
-        Some(Value::ObjectRef(idx)) => *idx,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let id = extract_native_handle(args, objects)?;
-    lvgl_events::register_view_touch_listener(id, obj_ref);
-    Ok(None)
+    register_listener_with(args, objects, lvgl_events::register_view_touch_listener)
 }
 
 /// `View.nativeRegisterSwipeListener()` — records this View as a
@@ -360,13 +367,7 @@ pub fn register_swipe_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let obj_ref = match args.first() {
-        Some(Value::ObjectRef(idx)) => *idx,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let id = extract_native_handle(args, objects)?;
-    lvgl_events::register_view_swipe_listener(id, obj_ref);
-    Ok(None)
+    register_listener_with(args, objects, lvgl_events::register_view_swipe_listener)
 }
 
 /// `View.nativeRegisterClickListener()` — records this View as a
@@ -405,13 +406,7 @@ pub fn register_long_click_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let obj_ref = match args.first() {
-        Some(Value::ObjectRef(idx)) => *idx,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let id = extract_native_handle(args, objects)?;
-    lvgl_button::register_long_click_listener(id, obj_ref);
-    Ok(None)
+    register_listener_with(args, objects, lvgl_button::register_long_click_listener)
 }
 
 /// `View.performLongClickNative()` — synthesize an LVGL long-press for
@@ -438,13 +433,11 @@ pub fn register_focus_change_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let obj_ref = match args.first() {
-        Some(Value::ObjectRef(idx)) => *idx,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let id = extract_native_handle(args, objects)?;
-    lvgl_events::register_view_focus_change_listener(id, obj_ref);
-    Ok(None)
+    register_listener_with(
+        args,
+        objects,
+        lvgl_events::register_view_focus_change_listener,
+    )
 }
 
 /// `View.performClick()` — synthesize a click event on this view.

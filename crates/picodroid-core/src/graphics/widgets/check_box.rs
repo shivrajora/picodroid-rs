@@ -6,6 +6,7 @@ use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
 use super::super::lvgl::widgets::check_box as lvgl_check_box;
+use super::super::view::register_listener_with;
 use super::super::view::{extract_native_handle, extract_string_at};
 
 pub use lvgl_check_box::reset_check_box_state;
@@ -64,11 +65,5 @@ pub fn check_box_register_checked_change_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let obj_ref = match args.first() {
-        Some(Value::ObjectRef(idx)) => *idx,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let id = extract_native_handle(args, objects)?;
-    lvgl_check_box::register_listener(id, obj_ref);
-    Ok(None)
+    register_listener_with(args, objects, lvgl_check_box::register_listener)
 }

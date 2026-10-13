@@ -6,6 +6,7 @@ use pico_jvm::types::{JvmError, Value};
 
 use super::super::lvgl::widgets::seek_bar as lvgl_seek_bar;
 use super::super::view::extract_native_handle;
+use super::super::view::register_listener_with;
 
 pub use lvgl_seek_bar::reset_seek_bar_state;
 pub use lvgl_seek_bar::{drain_seek_change_queue, drain_seek_tracking_queue, lookup_seek_bar_obj};
@@ -75,11 +76,5 @@ pub fn seek_bar_register_change_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let obj_ref = match args.first() {
-        Some(Value::ObjectRef(idx)) => *idx,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let id = extract_native_handle(args, objects)?;
-    lvgl_seek_bar::register_listener(id, obj_ref);
-    Ok(None)
+    register_listener_with(args, objects, lvgl_seek_bar::register_listener)
 }

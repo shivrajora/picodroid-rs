@@ -6,6 +6,7 @@ use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
 use super::super::lvgl::widgets::edit_text as lvgl_edit_text;
+use super::super::view::register_listener_with;
 use super::super::view::{extract_native_handle, extract_string_at};
 
 pub use lvgl_edit_text::reset_edit_text_state;
@@ -101,24 +102,20 @@ pub fn edit_text_register_text_changed_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let obj_ref = match args.first() {
-        Some(Value::ObjectRef(idx)) => *idx,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let id = extract_native_handle(args, objects)?;
-    lvgl_edit_text::register_text_changed_listener(id, obj_ref);
-    Ok(None)
+    register_listener_with(
+        args,
+        objects,
+        lvgl_edit_text::register_text_changed_listener,
+    )
 }
 
 pub fn edit_text_register_editor_action_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let obj_ref = match args.first() {
-        Some(Value::ObjectRef(idx)) => *idx,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let id = extract_native_handle(args, objects)?;
-    lvgl_edit_text::register_editor_action_listener(id, obj_ref);
-    Ok(None)
+    register_listener_with(
+        args,
+        objects,
+        lvgl_edit_text::register_editor_action_listener,
+    )
 }

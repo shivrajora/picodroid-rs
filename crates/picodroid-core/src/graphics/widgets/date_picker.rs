@@ -6,6 +6,7 @@ use pico_jvm::types::{JvmError, Value};
 
 use super::super::lvgl::widgets::date_picker as lvgl_date_picker;
 use super::super::view::extract_native_handle;
+use super::super::view::register_listener_with;
 
 pub use lvgl_date_picker::reset_date_picker_state;
 pub use lvgl_date_picker::{drain_date_picker_queue, lookup_date_picker_obj};
@@ -65,11 +66,5 @@ pub fn date_picker_register_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let obj_ref = match args.first() {
-        Some(Value::ObjectRef(idx)) => *idx,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let id = extract_native_handle(args, objects)?;
-    lvgl_date_picker::register_listener(id, obj_ref);
-    Ok(None)
+    register_listener_with(args, objects, lvgl_date_picker::register_listener)
 }

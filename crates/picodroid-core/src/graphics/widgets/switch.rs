@@ -6,6 +6,7 @@ use pico_jvm::types::{JvmError, Value};
 
 use super::super::lvgl::widgets::switch as lvgl_switch;
 use super::super::view::extract_native_handle;
+use super::super::view::register_listener_with;
 
 pub use lvgl_switch::reset_switch_state;
 pub use lvgl_switch::{drain_sw_checked_change_queue, lookup_sw_checked_change_obj};
@@ -52,11 +53,5 @@ pub fn switch_register_checked_change_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let obj_ref = match args.first() {
-        Some(Value::ObjectRef(idx)) => *idx,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let id = extract_native_handle(args, objects)?;
-    lvgl_switch::register_listener(id, obj_ref);
-    Ok(None)
+    register_listener_with(args, objects, lvgl_switch::register_listener)
 }
