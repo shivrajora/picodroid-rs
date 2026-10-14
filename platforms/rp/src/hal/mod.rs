@@ -92,6 +92,11 @@ pub use chip::psram;
 #[cfg(all(not(any(feature = "sim", test)), feature = "family-rp"))]
 pub use chip::core1_park;
 
+// The chip's serial (rp/chip_id.rs), behind `PlatformHooks::device_serial`.
+// Device-only: the simulator's is core's `emulator-<pid>`.
+#[cfg(all(not(any(feature = "sim", test)), feature = "family-rp"))]
+pub use chip::chip_id;
+
 // Host sockets for the simulator and the host tests. On the device the
 // socket layer is core's `FreeRtosTcpNet`, registered in glue.rs.
 #[cfg(all(has_network, any(test, feature = "sim")))]

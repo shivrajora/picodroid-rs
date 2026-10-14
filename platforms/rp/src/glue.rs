@@ -720,10 +720,10 @@ impl PlatformHooks for PlatformHost {
         true
     }
 
-    /// No chip ID yet: `identity`'s fallback (a random serial kept in
-    /// `/system/serial`) serves this family until it reads its own.
+    /// OTP on the RP2350 (its BOOTSEL serial too), the flash's unique ID on
+    /// the RP2040 (`hal/rp/chip_id.rs`).
     fn device_serial() -> Option<picodroid_core::identity::Serial> {
-        None
+        crate::hal::chip_id::device_serial()
     }
 
     /// Moved here verbatim from `mem_diag::sample_native_heap`, which used to

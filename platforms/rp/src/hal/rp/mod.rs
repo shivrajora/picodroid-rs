@@ -39,6 +39,8 @@ pub mod xip;
 pub mod cyw43;
 #[cfg(network_cyw43)]
 pub mod pio_spi;
+// The chip's serial (`PlatformHooks::device_serial`).
+pub mod chip_id;
 // The family's entropy seam: picodroid_port_entropy_bytes, which every build
 // links (core's `hal::entropy`: the TLS seed, the serial fallback), and
 // picodroid_port_entropy32 for the shared FreeRTOS+TCP glue. The RP2350
