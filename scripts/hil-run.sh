@@ -1276,7 +1276,7 @@ fi
 # Pin pdb to the bench board on a bench without a fleet config. With a
 # second picodroid board on the hub `pdb` refuses to pick one ("more than one
 # device") and every pdb row fails. The bench board is the device whose
-# `pdb devices -l` row names this board (`board:<name>`): PDB_BIN becomes a
+# `pdb devices` row names this board (its third column): PDB_BIN becomes a
 # wrapper that passes `-s <serial>`, which pdb follows through every reboot.
 # A PICODROID_SERIAL in the environment wins; with no match the auto-detect
 # is left alone. A fleet slot pins per call instead (hil_pdb_run), so this
@@ -1290,11 +1290,11 @@ pin_pdb_port() {
   if [[ -z "$serial" ]]; then
     # `|| true`: under `set -eo pipefail` a scan that outlives the timeout
     # (exit 124) killed the whole run instead of leaving auto-detect in place.
-    serial=$( { timeout 15 "$PDB_BIN" devices -l 2>/dev/null < /dev/null || true; } \
-      | awk -v want="board:$BOARD" '$2 == "device" && index(" " $0 " ", " " want " ") { print $1; exit }')
+    serial=$( { timeout 15 "$PDB_BIN" devices 2>/dev/null < /dev/null || true; } \
+      | awk -v want="$BOARD" '$2 == "device" && $3 == want { print $1; exit }')
   fi
   if [[ -z "$serial" ]]; then
-    hil_log "pdb: no device reports board:$BOARD; auto-detect stays"
+    hil_log "pdb: no device reports board $BOARD; auto-detect stays"
     return 0
   fi
   local wrapper="$RUN_LOG_DIR/pdb-pinned"

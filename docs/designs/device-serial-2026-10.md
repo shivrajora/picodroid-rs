@@ -219,8 +219,8 @@ Settings → About adds a **Serial number** row, as Android's About phone does.
 
 | adb | pdb |
 |---|---|
-| `adb devices` | `pdb devices`, in adb's exact format: a `List of devices attached` header, then one row per device, `<serial>\t<state>`. State is `device` when it answers PING, or `offline` when the USB serial is visible but it does not answer (mid-boot, wedged, busy installing). A device on firmware older than 2.4 is listed by its port name. With no devices, the output is the header alone and the exit code is 0. This replaces today's `no picodroid devices found` line. |
-| `adb devices -l` | `pdb devices -l` adds `port:/dev/ttyACM3 board:pico_touch_kit release:0.37.0 max_papk:9724KB`, plus `usb:1-8.3.4` where the OS exposes it (Linux), as adb does. The last item is what lets bench scripts map a fleet slot to a serial (§2.7). |
+| `adb devices` | `pdb devices`: adb's `List of devices attached` header, then one row per device: serial, state, board and app space left (`9720 KB free`, or `764 KB max` on single-app firmware), in space-padded columns. The board and the space go beyond adb (§4, decision 3). State is `device` when it answers PING, or `offline` when the USB serial is visible but it does not answer (mid-boot, wedged, busy installing). A device on firmware older than 2.4 is listed by its port name. With no devices, the output is the header alone and the exit code is 0. This replaces today's `no picodroid devices found` line. |
+| `adb devices -l` | `pdb devices -l` adds `port:/dev/ttyACM3 release:0.37.0`, plus `usb:1-8.3.4` where the OS exposes it (Linux), as adb does. |
 | `adb -s <serial>` | `pdb -s <serial>`. A port path and a socket path are still accepted, so existing invocations keep working. `-s sim` stays as an alias for `-e`. |
 | `ANDROID_SERIAL` | `PICODROID_SERIAL`. `-s` takes precedence over it. |
 | `adb -d` / `-e` | `pdb -d` (the one USB device) and `pdb -e` (the one simulator). |
@@ -275,7 +275,7 @@ layer has to be split separately; this plan does not make it worse.
   nothing. The enumeration wait stays as it was (tty present, then target).
 - **`pin_pdb_port`** (bench without a fleet config, so one board) pins by serial:
   `PICODROID_SERIAL` (which replaces the script-only `PICODROID_PDB_PORT`), or the serial
-  of the one device whose `devices -l` row has the matching `board:`. This replaces the `max PAPK` text match and drops the comment
+  of the one device whose `devices` row has the matching board column. This replaces the `max PAPK` text match and drops the comment
   noting that `pdb devices` rows must keep it.
 - **Gradle's `install` task** (`buildSrc/.../RunAppTask.kt`) runs `pdb install` with no
   `-s`, so it relies on auto-detect and the "more than one device" error. It picks up
@@ -356,11 +356,15 @@ Each stage builds, passes `./scripts/pre-commit`, and is one commit.
    needed no `unsafe`, but it would match nothing and change on every reformat; it
    remains the core fallback. Adding the `rp2040-flash` crate was rejected: it would
    duplicate `with_xip_disabled!`'s XIP and boot2 handling.
-3. **`pdb devices`: adb's exact format, header included** (§2.6). Nothing outside the
-   repo parses it: the Gradle `install` task uses auto-detect, and pdb is only installed
-   from source. The website pages that show the format are updated in stage 7. Keeping
-   the port-first rows and appending the serial was rejected because it diverges from
-   adb.
+3. **`pdb devices`: adb's header and first two fields, plus the board and the app space**
+   (§2.6). Decided first as adb's exact format, then changed the same day at the owner's
+   request: each row also shows the board and the app space left (`N KB free`, or
+   `N KB max` on single-app firmware), because that is how a bench of several boards is
+   told apart at a glance. The columns are space-padded so that rows of different serial and
+   board lengths line up, and offline rows hold `-` so every row has the same fields. The
+   serial and the state are still `$1` and `$2`, so a script written for adb reads them.
+   Nothing outside the repo parses the output: the Gradle `install` task uses
+   auto-detect, and pdb is only installed from source.
 4. **`getSerial()` is ungated**, and the divergence is in the Javadoc. Anyone on the host
    can already read the value with `lsusb`. A system-apps-only gate would need a new
    `SecurityException` SDK class and a definition of "the caller" on single-app firmware,

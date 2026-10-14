@@ -26,20 +26,24 @@ On a bench with several boards, `./scripts/pdb.sh` takes `--board <name>` (or `-
 pdb devices [-l]
 ```
 
-Lists every picodroid on a USB port and every running simulator, in `adb devices`' format: a header, then one `<serial>	<state>` row each. The state is `device` when it answers a ping and `offline` when the host lists the port but nothing answers (mid-boot, wedged, busy installing):
+Lists every picodroid on a USB port and every running simulator under `adb devices`' header, one row each: the serial, the state, the board, and the app space left. The state is `device` when it answers a ping and `offline` when the host lists the port but nothing answers (mid-boot, wedged, busy installing):
 
 ```text
 List of devices attached
-E6633861A37B9038	device
-emulator-2696762	device
+E66258881755602D  device  testbench_rp2040    764 KB max
+68B1A1217192254D  device  testbench_rp2350w  1024 KB free
+1C05163AC1ACB0AA  device  pico_touch_kit     9720 KB free
+emulator-2696762  device  testbench_rp2350   1528 KB free
 ```
 
-`-l` adds `port:` (or `socket:`), `board:`, `release:`, `max_papk:` and, on Linux, `usb:` with the board's USB bus position:
+The space is the largest free run of a multi-app board's app region (`free`), the biggest app an install can place without compacting; a single-app board (RP2040) shows its whole region (`max`), which an install replaces. Columns are padded to line up whatever the lengths; an offline row has `-` for the board and the space. adb prints only `<serial>\t<state>`; the serial and state are still the first two fields, so a script written for adb reads them the same way.
+
+`-l` adds `port:` (or `socket:`), `release:` and, on Linux, `usb:` with the board's USB bus position:
 
 ```text
 List of devices attached
-E6633861A37B9038	device port:/dev/ttyACM3 board:pico_touch_kit release:0.37.0 max_papk:9724KB usb:1-8.3.4
-emulator-2696762	device socket:/tmp/picodroid-sim/pdb-2696762.sock board:testbench_rp2350 release:0.37.0 max_papk:1532KB
+1C05163AC1ACB0AA  device  pico_touch_kit     9720 KB free  port:/dev/ttyACM3  release:0.37.0  usb:1-8.3.4
+emulator-2696762  device  testbench_rp2350   1528 KB free  socket:/tmp/picodroid-sim/pdb-2696762.sock  release:0.37.0
 ```
 
 A board on firmware older than `picodroid/2.4` is listed by its port in place of a serial. Only ports with picodroid's USB vendor and product ID are opened: a debug probe's UART is never written to.

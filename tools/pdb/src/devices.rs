@@ -1,15 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! `pdb devices [-l]` — every picodroid on a USB port and every simulator on
-//! a socket, one row each, in adb's format: a `List of devices attached`
-//! header, then `<serial>\t<state>`.
+//! a socket, one row each, under adb's `List of devices attached` header:
+//! serial, state, board and the app space left, in space-padded columns.
+//!
+//! adb stops at `<serial>\t<state>`; the board and the space are ours, kept
+//! because they are what a bench of several boards is told apart by at a
+//! glance. The first two columns are still the serial and the state, so a
+//! script's `$1`/`$2` reads the same as for adb.
 //!
 //! The state is `device` when it answers a PING and `offline` when the host
-//! lists the port but nothing answers (mid-boot, wedged, busy installing). A
-//! row's serial is the one the device reports; firmware older than
-//! `picodroid/2.4` has none and is listed by its port. `-l` adds
-//! `port:`/`socket:`, `board:`, `release:`, `max_papk:` and, where the OS says
-//! (Linux), `usb:<bus position>` — what bench scripts map a fleet slot to a
-//! serial with.
+//! lists the port but nothing answers (mid-boot, wedged, busy installing); an
+//! offline row has `-` for the columns only a PING can fill, so every row has
+//! the same fields. A row's serial is the one the device reports; firmware
+//! older than `picodroid/2.4` has none and is listed by its port. The space
+//! is the largest free run of a multi-app board's app region (`free`), or a
+//! single-app board's whole region, which an install replaces (`max`). `-l`
+//! adds `port:`/`socket:`, `release:` and, where the OS says (Linux),
+//! `usb:<bus position>` — what bench scripts map a fleet slot to a serial
+//! with.
 
 use std::io::ErrorKind;
 use std::thread;
@@ -59,6 +67,8 @@ pub struct Info {
     pub board: String,
     pub release: String,
     pub max_papk: u32,
+    /// The largest free run of the app region, on multi-app firmware.
+    pub largest_free: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -75,35 +85,92 @@ pub struct Row {
 
 pub fn run(long: bool) {
     println!("{HEADER}");
-    for r in scan() {
-        println!("{}", format_row(&r, long));
+    for line in format_rows(&scan(), long) {
+        println!("{line}");
     }
     println!();
 }
 
-/// One row: `<serial>\t<state>`, and with `long` the `key:value` items.
-pub fn format_row(r: &Row, long: bool) -> String {
-    let mut line = format!("{}\t{}", r.serial, r.state.as_str());
-    if !long {
-        return line;
-    }
-    match &r.kind {
-        Kind::Usb { .. } => line.push_str(&format!(" port:{}", r.target)),
-        Kind::Sim => line.push_str(&format!(" socket:{}", r.target)),
-    }
-    if let Some(i) = &r.info {
-        if !i.board.is_empty() {
-            line.push_str(&format!(" board:{}", i.board));
+/// The size column, right-aligned so the numbers line up by digit.
+const SIZE_COLUMN: usize = 3;
+
+/// The rows as aligned lines: each column padded to its widest cell (the
+/// size column on the left, and one space from its unit), two spaces
+/// between the rest, nothing trailing.
+pub fn format_rows(rows: &[Row], long: bool) -> Vec<String> {
+    let cells: Vec<Vec<String>> = rows.iter().map(|r| cells(r, long)).collect();
+    let columns = cells.iter().map(Vec::len).max().unwrap_or(0);
+    let widths: Vec<usize> = (0..columns)
+        .map(|c| {
+            cells
+                .iter()
+                .filter_map(|r| r.get(c))
+                .map(|s| s.chars().count())
+                .max()
+                .unwrap_or(0)
+        })
+        .collect();
+    cells
+        .iter()
+        .map(|row| {
+            let mut line = String::new();
+            for (c, cell) in row.iter().enumerate() {
+                let w = widths[c];
+                if c == SIZE_COLUMN {
+                    line.push_str(&format!("{cell:>w$} "));
+                } else {
+                    line.push_str(&format!("{cell:<w$}  "));
+                }
+            }
+            line.trim_end().to_owned()
+        })
+        .collect()
+}
+
+/// One row's cells: serial, state, board, the space in KB and what it
+/// is; with `long`, the `key:value` items after them.
+fn cells(r: &Row, long: bool) -> Vec<String> {
+    let (board, kb, what) = match &r.info {
+        Some(i) => (
+            if i.board.is_empty() {
+                "-".into()
+            } else {
+                i.board.clone()
+            },
+            i.largest_free.unwrap_or(i.max_papk) / 1024,
+            if i.largest_free.is_some() {
+                "KB free"
+            } else {
+                "KB max"
+            },
+        ),
+        None => ("-".into(), 0, ""),
+    };
+    let size = if r.info.is_some() {
+        kb.to_string()
+    } else {
+        "-".into()
+    };
+    let mut cells = vec![
+        r.serial.clone(),
+        r.state.as_str().into(),
+        board,
+        size,
+        what.into(),
+    ];
+    if long {
+        cells.push(match &r.kind {
+            Kind::Usb { .. } => format!("port:{}", r.target),
+            Kind::Sim => format!("socket:{}", r.target),
+        });
+        if let Some(i) = r.info.as_ref().filter(|i| !i.release.is_empty()) {
+            cells.push(format!("release:{}", i.release));
         }
-        if !i.release.is_empty() {
-            line.push_str(&format!(" release:{}", i.release));
+        if let Kind::Usb { usb_path: Some(p) } = &r.kind {
+            cells.push(format!("usb:{p}"));
         }
-        line.push_str(&format!(" max_papk:{}KB", i.max_papk / 1024));
     }
-    if let Kind::Usb { usb_path: Some(p) } = &r.kind {
-        line.push_str(&format!(" usb:{p}"));
-    }
-    line
+    cells
 }
 
 /// Every device, then every simulator.
@@ -201,6 +268,7 @@ fn probe_over(link: &mut dyn Link) -> Option<(String, Info)> {
             board: g.board.to_owned(),
             release: g.framework_map_version.to_owned(),
             max_papk: g.max_papk,
+            largest_free: g.apps.map(|a| a.largest_free),
         },
     ))
 }
@@ -232,11 +300,12 @@ fn usb_path_of_interface(iface: &std::path::Path) -> Option<String> {
 mod tests {
     use super::*;
 
-    fn info() -> Info {
+    fn info(board: &str, largest_free: Option<u32>) -> Info {
         Info {
-            board: "pico_touch_kit".into(),
+            board: board.into(),
             release: "0.37.0".into(),
             max_papk: 9724 * 1024,
+            largest_free,
         }
     }
 
@@ -247,48 +316,116 @@ mod tests {
         }
     }
 
+    fn row(serial: &str, state: State, info: Option<Info>, kind: Kind) -> Row {
+        Row {
+            serial: serial.into(),
+            target: "/dev/ttyACM3".into(),
+            state,
+            kind,
+            info,
+        }
+    }
+
+    fn usb(path: Option<&str>) -> Kind {
+        Kind::Usb {
+            usb_path: path.map(Into::into),
+        }
+    }
+
+    /// Serials and board names of different lengths still line up: every
+    /// column starts at the same offset on every row.
     #[test]
-    fn a_row_is_the_serial_a_tab_and_the_state() {
-        let r = usb_row(
-            &port(Some("E6633861A37B9038")),
-            Some(("E6633861A37B9038".into(), info())),
+    fn columns_line_up_across_rows_of_different_widths() {
+        let rows = [
+            row(
+                "E66258881755602D",
+                State::Device,
+                Some(Info {
+                    largest_free: None,
+                    max_papk: 764 * 1024,
+                    ..info("testbench_rp2040", None)
+                }),
+                usb(None),
+            ),
+            row(
+                "emulator-4242",
+                State::Device,
+                Some(info("host", Some(1528 * 1024))),
+                Kind::Sim,
+            ),
+            row("/dev/ttyACM9", State::Offline, None, usb(None)),
+            row(
+                "1C05163AC1ACB0AA",
+                State::Device,
+                Some(info("pico_touch_kit", Some(9720 * 1024))),
+                usb(None),
+            ),
+        ];
+        assert_eq!(
+            format_rows(&rows, false),
+            [
+                "E66258881755602D  device   testbench_rp2040   764 KB max",
+                "emulator-4242     device   host              1528 KB free",
+                "/dev/ttyACM9      offline  -                    -",
+                "1C05163AC1ACB0AA  device   pico_touch_kit    9720 KB free",
+            ]
         );
-        assert_eq!(format_row(&r, false), "E6633861A37B9038\tdevice");
+    }
+
+    /// `$1` is the serial and `$2` the state on every row, offline ones
+    /// included, as scripts written for adb read them.
+    #[test]
+    fn every_row_splits_into_the_same_fields() {
+        let rows = [
+            row(
+                "A",
+                State::Device,
+                Some(info("tb", Some(4096))),
+                usb(Some("1-8.1")),
+            ),
+            row("B", State::Offline, None, usb(Some("1-8.2"))),
+        ];
+        for line in format_rows(&rows, false) {
+            let f: Vec<&str> = line.split_whitespace().collect();
+            assert!(f.len() >= 4, "{line}");
+            assert!(f[1] == "device" || f[1] == "offline", "{line}");
+        }
     }
 
     #[test]
-    fn the_long_form_adds_adbs_key_value_items() {
-        let mut r = usb_row(
-            &port(Some("E6633861A37B9038")),
-            Some(("E6633861A37B9038".into(), info())),
-        );
-        r.kind = Kind::Usb {
-            usb_path: Some("1-8.3.4".into()),
-        };
+    fn the_long_form_adds_key_value_items_after_the_columns() {
+        let rows = [row(
+            "1C05163AC1ACB0AA",
+            State::Device,
+            Some(info("pico_touch_kit", Some(9720 * 1024))),
+            usb(Some("1-8.3.4")),
+        )];
         assert_eq!(
-            format_row(&r, true),
-            "E6633861A37B9038\tdevice port:/dev/ttyACM3 board:pico_touch_kit \
-             release:0.37.0 max_papk:9724KB usb:1-8.3.4"
+            format_rows(&rows, true),
+            [
+                "1C05163AC1ACB0AA  device  pico_touch_kit  9720 KB free  port:/dev/ttyACM3  \
+              release:0.37.0  usb:1-8.3.4"
+            ]
         );
     }
 
     #[test]
     fn a_silent_port_is_offline_under_its_usb_serial() {
         let mut r = usb_row(&port(Some("E6633861A37B9038")), None);
-        r.kind = Kind::Usb { usb_path: None };
+        r.kind = usb(None);
         assert_eq!(r.state, State::Offline);
         assert_eq!(
-            format_row(&r, true),
-            "E6633861A37B9038\toffline port:/dev/ttyACM3"
+            format_rows(&[r], true),
+            ["E6633861A37B9038  offline  -  -   port:/dev/ttyACM3"]
         );
     }
 
     /// Firmware older than 2.4 sends no serial anywhere; the port stands in.
     #[test]
     fn a_board_without_a_serial_is_listed_by_its_port() {
-        let r = usb_row(&port(None), Some((String::new(), info())));
+        let r = usb_row(&port(None), Some((String::new(), info("tb", None))));
         assert_eq!(r.serial, "/dev/ttyACM3");
-        let r = usb_row(&port(None), Some(("unknown".into(), info())));
+        let r = usb_row(&port(None), Some(("unknown".into(), info("tb", None))));
         assert_eq!(r.serial, "/dev/ttyACM3");
         assert_eq!(r.state, State::Device);
     }
