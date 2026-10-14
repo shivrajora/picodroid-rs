@@ -49,7 +49,7 @@ Hot-swaps an app: writes the PAPK to flash and restarts the JVM, without reflash
 A PAPK is checked twice on the host before the install is sent. Its structure first: the header, the format version, the manifest, and the class section with every class's link table compared against what the class bytes derive to. This check cannot be skipped. A file packed in format version 1 (before 2026-09-28) fails it, and the fix is to re-pack the app:
 
 ```text
-Refusing to install: PAPK file is not a valid PAPK: PAPK format version is not the one this build reads (a v1 file: re-pack it with the current toolchain)
+Refusing to install: PAPK file is not a valid PAPK: PAPK format version is not the one this build reads (an older file: re-pack it with the current toolchain)
 ```
 
 Then compatibility: its `framework-map-version` must be less than or equal to the firmware's active version (see the [shrinker reference](/reference/shrinker/)).

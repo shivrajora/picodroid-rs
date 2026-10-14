@@ -98,8 +98,9 @@ struct Args {
     theme_id: Option<u32>,
 }
 
-/// Sections copied from a `--repack` input: the classes and assets verbatim,
-/// plus every manifest entry that is not a well-known key.
+/// Sections copied from a `--repack` input: the classes (as the class files
+/// they were packed from) and assets verbatim, plus every manifest entry
+/// that is not a well-known key.
 struct RepackSource {
     classes: Vec<(String, Vec<u8>)>,
     assets: Vec<Asset>,
@@ -160,7 +161,11 @@ fn load_repack_source(bytes: &[u8]) -> Result<(RepackSource, RepackManifest), St
         .map(|c| {
             let name = String::from_utf8(c.name.to_vec())
                 .map_err(|_| "class name is not UTF-8".to_string())?;
-            Ok((name, c.data.to_vec()))
+            // Back to the class file it was packed from: the section holds
+            // it with its Utf8 constants in the shared pool.
+            let class = class_link::build::unpooled_class(&c.linked())
+                .map_err(|e| format!("class {name}: {e}"))?;
+            Ok((name, class))
         })
         .collect::<Result<Vec<_>, String>>()?;
     let mut assets = Vec::new();
@@ -1415,7 +1420,10 @@ mod pack_integration {
         assert_eq!(parsed.class_count(), Ok(1));
         let entry = parsed.classes().unwrap().next().unwrap();
         assert_eq!(entry.name, b"fixture/Main");
-        assert_eq!(entry.data, class_bytes.as_slice());
+        assert_eq!(
+            class_link::build::unpooled_class(&entry.linked()).unwrap(),
+            class_bytes
+        );
         assert!(parsed.assets().unwrap().is_none());
 
         // These are the exact inputs that produced the golden fixture (see
@@ -1805,7 +1813,10 @@ mod pack_integration {
             );
         }
         let entry = parsed.classes().unwrap().next().unwrap();
-        assert_eq!(entry.data, class_bytes.as_slice());
+        assert_eq!(
+            class_link::build::unpooled_class(&entry.linked()).unwrap(),
+            class_bytes
+        );
 
         // Nothing but the manifest moved: the CLASSES and ASSETS sections come
         // through untouched, and the manifest carries exactly the one extra

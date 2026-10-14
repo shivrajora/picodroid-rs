@@ -5,22 +5,27 @@
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
-use crate::classfile::{be16, derive, survey, utf8_at, walk_cp, CpView, Layout, Sink};
+use crate::classfile::{
+    be16, derive, pool_utf8, survey, walk_cp, CpView, Layout, Sink, Utf8Form, MAX_POOL_BYTES,
+    POOL_ALIGN, TAG_UTF8,
+};
 use crate::error::LinkError;
 use crate::hash::{name_hash, string_hash};
-use crate::layout::{Link, SUPER_IDX_WORD};
+use crate::layout::{Link, Linked, HEADER_WORDS, POOL_REL_WORD, POOL_WORDS_WORD, SUPER_IDX_WORD};
 use crate::section::{
-    ClassSection, IndexEntry, DIRECTORY_ENTRY_LEN, INDEX_ENTRY_LEN, LIT_UTF8, MAX_CLASSES,
-    MAX_LITERALS, SECTION_HEADER_LEN,
+    ClassSection, IndexEntry, DIRECTORY_ENTRY_LEN, INDEX_ENTRY_LEN, LITERAL_LEN, LIT_UTF8,
+    MAX_CLASSES, MAX_LITERALS, SECTION_HEADER_LEN,
 };
 
-/// The constant pool as walked from the class bytes.
-struct VecCp {
+/// The constant pool as walked from a pooled class: each entry's data
+/// offset (a `Utf8`'s ref) and tag, and the pool the refs name.
+struct VecCp<'p> {
     offsets: Vec<u16>,
     tags: Vec<u8>,
+    pool: &'p [u8],
 }
 
-impl CpView for VecCp {
+impl CpView for VecCp<'_> {
     fn cp_count(&self) -> usize {
         self.tags.len()
     }
@@ -29,6 +34,9 @@ impl CpView for VecCp {
     }
     fn offset(&self, i: usize) -> Option<usize> {
         self.offsets.get(i).map(|&o| o as usize)
+    }
+    fn pool(&self) -> &[u8] {
+        self.pool
     }
 }
 
@@ -45,16 +53,86 @@ impl Sink for VecSink<'_> {
     }
 }
 
-/// Link one class: its table as words. Fails on anything the runtime
-/// could not rely on (see [`LinkError`]).
-pub fn link_class(class: &[u8]) -> Result<Vec<u16>, LinkError> {
+/// A set's `Utf8` pool under construction: each distinct byte string once,
+/// in order of first appearance, entry 0 the empty string.
+struct Pool<'c> {
+    bytes: Vec<u8>,
+    seen: BTreeMap<&'c [u8], u16>,
+}
+
+impl<'c> Pool<'c> {
+    fn new() -> Self {
+        let mut seen = BTreeMap::new();
+        seen.insert(&[][..], 0);
+        Pool {
+            bytes: alloc::vec![0; POOL_ALIGN],
+            seen,
+        }
+    }
+
+    /// The ref of `s`, added if it is new.
+    fn intern(&mut self, s: &'c [u8]) -> Result<u16, LinkError> {
+        if let Some(&r) = self.seen.get(s) {
+            return Ok(r);
+        }
+        let at = self.bytes.len();
+        if (at + 2 + s.len()).next_multiple_of(POOL_ALIGN) > MAX_POOL_BYTES {
+            return Err(LinkError::PoolTooLarge);
+        }
+        let r = (at / POOL_ALIGN) as u16;
+        self.bytes
+            .extend_from_slice(&(s.len() as u16).to_be_bytes());
+        self.bytes.extend_from_slice(s);
+        pad_to(&mut self.bytes, POOL_ALIGN);
+        self.seen.insert(s, r);
+        Ok(r)
+    }
+}
+
+/// `class`, a standard class file, as a section holds it: each `Utf8`
+/// entry's bytes moved into `pool` and its tag byte left behind. Returns
+/// the pooled bytes and each `Utf8` entry's ref, in constant-pool order.
+fn pool_class<'c>(class: &'c [u8], pool: &mut Pool<'c>) -> Result<(Vec<u8>, Vec<u16>), LinkError> {
+    // The `[u16 len][bytes]` span of each Utf8 entry. The walk checks
+    // every span lies in the class before it returns.
+    let mut spans: Vec<(usize, usize)> = Vec::new();
+    walk_cp(class, Utf8Form::Inline, |_, tag, off| {
+        if tag == TAG_UTF8 {
+            let len = be16(class, off).ok_or(LinkError::Truncated)? as usize;
+            spans.push((off, off + 2 + len));
+        }
+        Ok(())
+    })?;
+    let mut out: Vec<u8> = Vec::with_capacity(class.len());
+    let mut refs: Vec<u16> = Vec::with_capacity(spans.len());
+    let mut at = 0;
+    for (start, end) in spans {
+        out.extend_from_slice(&class[at..start]);
+        refs.push(pool.intern(&class[start + 2..end])?);
+        at = end;
+    }
+    out.extend_from_slice(&class[at..]);
+    Ok((out, refs))
+}
+
+/// The table of a pooled class whose `Utf8` entries are `refs` into
+/// `pool`, with the section's words at their placeholders.
+fn link_pooled(class: &[u8], refs: &[u16], pool: &[u8]) -> Result<Vec<u16>, LinkError> {
     let mut cp = VecCp {
         offsets: Vec::new(),
         tags: Vec::new(),
+        pool,
     };
-    let (cp_count, pos_after_cp) = walk_cp(class, |_, tag, off| {
+    let mut k = 0;
+    let (cp_count, pos_after_cp) = walk_cp(class, Utf8Form::Pooled, |_, tag, off| {
+        let word = if tag == TAG_UTF8 {
+            k += 1;
+            *refs.get(k - 1).ok_or(LinkError::Internal)?
+        } else {
+            off as u16
+        };
         cp.tags.push(tag);
-        cp.offsets.push(off as u16);
+        cp.offsets.push(word);
         Ok(())
     })?;
     let counts = survey(class, &cp, cp_count, pos_after_cp)?;
@@ -65,8 +143,43 @@ pub fn link_class(class: &[u8]) -> Result<Vec<u16>, LinkError> {
         .map_err(|_| LinkError::OutOfMemory)?;
     words.resize(layout.total_words, 0);
     derive(class, &cp, &counts, &layout, &mut VecSink(&mut words))?;
-    debug_assert!(Link::new(&words).is_ok());
+    debug_assert!(Link::new(&words, pool).is_ok());
     Ok(words)
+}
+
+/// Link one class: a section of it alone. Fails on anything the runtime
+/// could not rely on (see [`LinkError`]).
+pub fn link_class(class: &[u8]) -> Result<Vec<u8>, LinkError> {
+    build_section(&[class])
+}
+
+/// The standard class file a section's pooled class came from: each
+/// `Utf8` entry's bytes put back after its tag. What a tool that relinks a
+/// section's classes (`papk-pack --repack`) or compares them with their
+/// source reads.
+pub fn unpooled_class(linked: &Linked<'_>) -> Result<Vec<u8>, LinkError> {
+    let class = linked.class;
+    let mut inserts: Vec<(usize, &[u8])> = Vec::new();
+    walk_cp(class, Utf8Form::Pooled, |i, tag, off| {
+        if tag == TAG_UTF8 {
+            let bytes = linked.utf8(i).ok_or(LinkError::BadOffset {
+                word: (HEADER_WORDS + i) as u16,
+            })?;
+            inserts.push((off, bytes));
+        }
+        Ok(())
+    })?;
+    let extra: usize = inserts.iter().map(|(_, b)| 2 + b.len()).sum();
+    let mut out: Vec<u8> = Vec::with_capacity(class.len() + extra);
+    let mut at = 0;
+    for (off, bytes) in inserts {
+        out.extend_from_slice(&class[at..off]);
+        out.extend_from_slice(&(bytes.len() as u16).to_be_bytes());
+        out.extend_from_slice(bytes);
+        at = off;
+    }
+    out.extend_from_slice(&class[at..]);
+    Ok(out)
 }
 
 /// A table's words as little-endian bytes.
@@ -186,15 +299,24 @@ fn build_section_impl(classes: &[&[u8]], expected: Option<&[&[u8]]>) -> Result<V
     if n > MAX_CLASSES {
         return Err(LinkError::TooManyClasses);
     }
-    let mut links: Vec<Vec<u16>> = Vec::with_capacity(n);
+    // Every Utf8 of the set into one pool first, then each class linked
+    // against the finished pool.
+    let mut interner = Pool::new();
+    let mut pooled: Vec<(Vec<u8>, Vec<u16>)> = Vec::with_capacity(n);
     for class in classes {
-        links.push(link_class(class)?);
+        pooled.push(pool_class(class, &mut interner)?);
     }
+    let pool = interner.bytes;
+    let mut links: Vec<Vec<u16>> = Vec::with_capacity(n);
+    for (class, refs) in &pooled {
+        links.push(link_pooled(class, refs, &pool)?);
+    }
+    // Names, read through the pool so that they borrow it and not the
+    // tables, which are patched below.
     let mut names: Vec<&[u8]> = Vec::with_capacity(n);
-    for (i, (class, words)) in classes.iter().zip(&links).enumerate() {
-        // Read through the class bytes, so the names borrow the classes
-        // and not the tables, which are patched below.
-        let name = utf8_at(class, Link::new(words)?.name_off()).ok_or(LinkError::Internal)?;
+    for (i, words) in links.iter().enumerate() {
+        let name =
+            pool_utf8(&pool, Link::new(words, &pool)?.name_ref()).ok_or(LinkError::Internal)?;
         if expected.is_some_and(|e| e.get(i).copied() != Some(name)) {
             return Err(LinkError::NameMismatch { idx: i as u16 });
         }
@@ -203,44 +325,38 @@ fn build_section_impl(classes: &[&[u8]], expected: Option<&[&[u8]]>) -> Result<V
     let index = class_index(&names)?;
 
     // Where the section holds each class's superclass, if it does.
-    for i in 0..n {
-        let super_off = Link::new(&links[i])?.super_off();
-        let sup = (super_off != 0)
-            .then(|| utf8_at(classes[i], super_off))
+    for words in links.iter_mut() {
+        let super_ref = Link::new(words, &pool)?.super_ref();
+        let sup = (super_ref != 0)
+            .then(|| pool_utf8(&pool, super_ref))
             .flatten()
             .and_then(|s| names.iter().position(|n| *n == s));
         if let Some(j) = sup {
-            links[i][SUPER_IDX_WORD] = j as u16;
+            words[SUPER_IDX_WORD] = j as u16;
         }
     }
-    crate::section::check_super_chains(n, |i| Link::new(&links[i]).ok()?.super_idx())?;
+    crate::section::check_super_chains(n, |i| Link::new(&links[i], &pool).ok()?.super_idx())?;
 
     // The literal pool: every String constant of the set, each distinct
-    // byte string once, in order of first appearance. A row remembers the
-    // class that first spelled it and where, so its bytes stay where they
-    // are; each class's String descriptors get their row's number.
-    struct Row<'c> {
-        bytes: &'c [u8],
-        class: usize,
-        /// Offset of the bytes in that class.
-        at: usize,
+    // byte string once, in order of first appearance. A row points at the
+    // bytes in the Utf8 pool; each class's String descriptors get their
+    // row's number.
+    struct Row<'p> {
+        bytes: &'p [u8],
+        /// The bytes' Utf8 ref.
+        r: u16,
     }
     let mut rows: Vec<Row<'_>> = Vec::new();
     let mut seen: BTreeMap<&[u8], u16> = BTreeMap::new();
-    for (i, class) in classes.iter().enumerate() {
-        let class: &[u8] = class;
-        let link = Link::new(&links[i])?;
+    for (i, (class, _)) in pooled.iter().enumerate() {
+        let link = Link::new(&links[i], &pool)?;
         let strs_off = link.strs_off();
         let mut ids: Vec<u16> = Vec::with_capacity(link.strs_len());
-        let descs: Vec<_> = link.strings().collect();
-        for d in descs {
-            // Through the class bytes alone, so the row borrows the class
-            // and not the table that is patched below.
+        for d in link.strings() {
+            // `derive` checked the entry names a Utf8.
             let ui = be16(class, d.cp_off as usize).ok_or(LinkError::Internal)? as usize;
-            let bytes = link
-                .cp_offset(ui)
-                .and_then(|off| utf8_at(class, off))
-                .ok_or(LinkError::Internal)?;
+            let r = link.cp_word(ui).ok_or(LinkError::Internal)?;
+            let bytes = pool_utf8(&pool, r as usize).ok_or(LinkError::Internal)?;
             let id = match seen.get(bytes) {
                 Some(&id) => id,
                 None => {
@@ -248,11 +364,7 @@ fn build_section_impl(classes: &[&[u8]], expected: Option<&[&[u8]]>) -> Result<V
                         return Err(LinkError::TooManyLiterals);
                     }
                     let id = rows.len() as u16;
-                    rows.push(Row {
-                        bytes,
-                        class: i,
-                        at: bytes.as_ptr() as usize - class.as_ptr() as usize,
-                    });
+                    rows.push(Row { bytes, r });
                     seen.insert(bytes, id);
                     id
                 }
@@ -263,33 +375,26 @@ fn build_section_impl(classes: &[&[u8]], expected: Option<&[&[u8]]>) -> Result<V
             links[i][strs_off + 2 * k + 1] = id;
         }
     }
-    let mut class_offs: Vec<usize> = Vec::with_capacity(n);
+    let mut link_offs: Vec<usize> = Vec::with_capacity(n);
 
     let mut out: Vec<u8> = Vec::new();
     out.extend_from_slice(&(n as u32).to_le_bytes());
-    out.extend_from_slice(&0u32.to_le_bytes()); // index_off, patched below
+    // index_off, pool_off and pool_len, patched below.
+    out.resize(SECTION_HEADER_LEN, 0);
     let dir_at = out.len();
     out.resize(dir_at + DIRECTORY_ENTRY_LEN * n, 0);
-    for (i, (class, words)) in classes.iter().zip(&links).enumerate() {
+    for (i, ((class, _), words)) in pooled.iter().zip(&links).enumerate() {
         pad_to(&mut out, 4);
         let class_off = out.len();
-        class_offs.push(class_off);
         out.extend_from_slice(class);
         pad_to(&mut out, 4);
         let link_off = out.len();
+        link_offs.push(link_off);
         out.extend_from_slice(&link_bytes(words));
         pad_to(&mut out, 4);
         let d = dir_at + DIRECTORY_ENTRY_LEN * i;
-        out[d..d + 4].copy_from_slice(
-            &u32::try_from(class_off)
-                .map_err(|_| LinkError::BadSection)?
-                .to_le_bytes(),
-        );
-        out[d + 4..d + 8].copy_from_slice(
-            &u32::try_from(link_off)
-                .map_err(|_| LinkError::BadSection)?
-                .to_le_bytes(),
-        );
+        out[d..d + 4].copy_from_slice(&le32_of(class_off)?);
+        out[d + 4..d + 8].copy_from_slice(&le32_of(link_off)?);
     }
     pad_to(&mut out, 8);
     let index_off = out.len();
@@ -299,25 +404,41 @@ fn build_section_impl(classes: &[&[u8]], expected: Option<&[&[u8]]>) -> Result<V
         out.extend_from_slice(&0u16.to_le_bytes());
     }
     debug_assert_eq!(out.len(), index_off + INDEX_ENTRY_LEN * n);
-    debug_assert!(out.len() >= SECTION_HEADER_LEN);
+    // The pool follows the literal rows, which are a whole number of
+    // 4-byte units after the 8-aligned index.
+    let pool_off = out.len() + 4 + LITERAL_LEN * rows.len();
+    debug_assert!(pool_off.is_multiple_of(POOL_ALIGN));
     out.extend_from_slice(&(rows.len() as u32).to_le_bytes());
-    for r in &rows {
-        let off = u32::try_from(class_offs[r.class] + r.at).map_err(|_| LinkError::BadSection)?;
-        let flags = if core::str::from_utf8(r.bytes).is_ok() {
+    for row in &rows {
+        let flags = if core::str::from_utf8(row.bytes).is_ok() {
             LIT_UTF8
         } else {
             0
         };
-        out.extend_from_slice(&string_hash(r.bytes).to_le_bytes());
-        out.extend_from_slice(&off.to_le_bytes());
-        out.extend_from_slice(&(r.bytes.len() as u16).to_le_bytes());
+        out.extend_from_slice(&string_hash(row.bytes).to_le_bytes());
+        out.extend_from_slice(&le32_of(pool_off + POOL_ALIGN * row.r as usize + 2)?);
+        out.extend_from_slice(&(row.bytes.len() as u16).to_le_bytes());
         out.extend_from_slice(&flags.to_le_bytes());
     }
-    out[4..8].copy_from_slice(
-        &u32::try_from(index_off)
-            .map_err(|_| LinkError::BadSection)?
-            .to_le_bytes(),
-    );
+    debug_assert_eq!(out.len(), pool_off);
+    out.extend_from_slice(&pool);
+    out[4..8].copy_from_slice(&le32_of(index_off)?);
+    out[8..12].copy_from_slice(&le32_of(pool_off)?);
+    out[12..16].copy_from_slice(&le32_of(pool.len())?);
+    // Each table's pool words, now that the pool has its place.
+    let pool_words = (pool.len() / POOL_ALIGN) as u16;
+    for link_off in link_offs {
+        let rel = link_off + 2 * POOL_REL_WORD;
+        out[rel..rel + 4].copy_from_slice(&le32_of(pool_off - link_off)?);
+        let pw = link_off + 2 * POOL_WORDS_WORD;
+        out[pw..pw + 2].copy_from_slice(&pool_words.to_le_bytes());
+    }
     debug_assert!(ClassSection::parse(&out).is_ok());
     Ok(out)
+}
+
+fn le32_of(v: usize) -> Result<[u8; 4], LinkError> {
+    Ok(u32::try_from(v)
+        .map_err(|_| LinkError::BadSection)?
+        .to_le_bytes())
 }

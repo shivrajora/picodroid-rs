@@ -38,7 +38,8 @@ pub enum StructuralError {
     /// A manifest TLV entry's length fields walk past the section end.
     ManifestMalformed,
     /// `version_major` is not the one this build reads: a v1 file, from
-    /// before the classes carried link tables. Re-pack it.
+    /// before the classes carried link tables, or a v2 one, from before
+    /// the section pooled their `Utf8` constants. Re-pack it.
     UnsupportedVersion,
     /// Declared classes offset + section header doesn't fit in the buffer.
     ClassesOutOfBounds,
@@ -65,7 +66,7 @@ impl core::fmt::Display for StructuralError {
             Self::ManifestBadMagic => "manifest section header is not 'MANI'",
             Self::ManifestMalformed => "manifest TLV entries overflow the section",
             Self::UnsupportedVersion => {
-                "PAPK format version is not the one this build reads (a v1 file: re-pack it with the current toolchain)"
+                "PAPK format version is not the one this build reads (an older file: re-pack it with the current toolchain)"
             }
             Self::ClassesOutOfBounds => "classes offset points past end of file",
             Self::ClassesBadMagic => "classes section header is not 'CLSS'",
@@ -366,8 +367,8 @@ mod tests {
         }
         // MANI right after the 28-byte header; CLSS at the next 4-byte
         // boundary, holding an empty class section (no classes, the index
-        // right after the section's own 8-byte header, then an empty
-        // literal pool).
+        // right after the section's own 16-byte header, then an empty
+        // literal pool and a Utf8 pool of the empty string alone).
         let clss_off = (28 + 16 + manifest.len()).next_multiple_of(4);
         let mut out = Vec::new();
         out.extend_from_slice(b"PAPK");
@@ -385,12 +386,15 @@ mod tests {
         out.extend_from_slice(&manifest);
         out.resize(clss_off, 0);
         out.extend_from_slice(b"CLSS");
-        out.extend_from_slice(&12u32.to_le_bytes()); // length
+        out.extend_from_slice(&24u32.to_le_bytes()); // length
         out.extend_from_slice(&0u32.to_le_bytes()); // crc
         out.extend_from_slice(&0u32.to_le_bytes()); // reserved
         out.extend_from_slice(&0u32.to_le_bytes()); // class_count
-        out.extend_from_slice(&8u32.to_le_bytes()); // index_off
+        out.extend_from_slice(&16u32.to_le_bytes()); // index_off
+        out.extend_from_slice(&20u32.to_le_bytes()); // pool_off
+        out.extend_from_slice(&4u32.to_le_bytes()); // pool_len
         out.extend_from_slice(&0u32.to_le_bytes()); // literal count
+        out.extend_from_slice(&0u32.to_le_bytes()); // pool entry 0, ""
         out
     }
 

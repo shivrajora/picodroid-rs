@@ -195,9 +195,7 @@ mod tests {
     /// `scripts/test.sh`).
     #[test]
     fn every_site_resolves_under_active_shrink_map() {
-        let classes: Vec<ClassFile> = crate::framework_classes::class_bytes()
-            .map(|b| ClassFile::parse(b).expect("parse framework class"))
-            .collect();
+        let classes: Vec<ClassFile> = crate::framework_classes::class_files();
 
         for &(orig, method) in DISPATCH_SITES {
             let shrunk = orig;

@@ -146,9 +146,8 @@ impl ClassFile {
         Some(self.scanned_name())
     }
 
-    /// The literal-pool row of `String` entry `index`
-    /// (`class_link::LIT_NONE` for a class linked outside a section);
-    /// `None` when the entry is not a `String`.
+    /// The literal-pool row of `String` entry `index` in the class's
+    /// section; `None` when the entry is not a `String`.
     #[inline]
     pub fn cp_string_literal(&self, index: u16) -> Option<u16> {
         Some(self.view().link.string_desc(index as usize)?.lit)
@@ -224,7 +223,7 @@ impl ClassFile {
     #[inline]
     pub fn method_name(&self, m: &MethodInfo) -> Option<&'static [u8]> {
         #[cfg(test)]
-        super::METHOD_NAME_READS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        super::METHOD_NAME_READS.with(|n| n.set(n.get() + 1));
         self.view().method_name(m)
     }
 
@@ -244,12 +243,9 @@ impl ClassFile {
     #[cfg_attr(feature = "hot-in-ram", link_section = ".data.hot")]
     #[cfg_attr(feature = "hot-in-ram", inline(never))]
     pub fn super_class_name(&self) -> Option<&'static [u8]> {
-        let l = self.link();
-        if l.super_off() == 0 {
-            return None;
-        }
-        let name = self.view().super_name()?;
-        if l.super_hash() == OBJECT_HASH && name == c::java_lang_Object.as_bytes() {
+        let v = self.view();
+        let name = v.super_name()?;
+        if v.link.super_hash() == OBJECT_HASH && name == c::java_lang_Object.as_bytes() {
             return None;
         }
         Some(name)

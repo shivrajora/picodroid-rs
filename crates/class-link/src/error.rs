@@ -71,6 +71,13 @@ pub enum LinkError {
     BadSuperIndex { idx: u16 },
     /// More distinct string constants than a pool can number.
     TooManyLiterals,
+    /// The set's distinct `Utf8` constants overflow what a `u16` ref of
+    /// 4-byte units reaches (`section::MAX_POOL_BYTES`). Split the set, or
+    /// shrink its names.
+    PoolTooLarge,
+    /// A section's `Utf8` pool is not where a table says, or does not
+    /// start with the empty string.
+    BadPool,
     /// A method's bytecode fails the static constraints the interpreter
     /// relies on: an operand or a branch target outside the code, a
     /// malformed switch table, an opcode no class file may hold
@@ -117,6 +124,8 @@ impl LinkError {
             Self::BadLiteral => "string literal pool inconsistent",
             Self::BadSuperIndex { .. } => "superclass index does not name the superclass",
             Self::TooManyLiterals => "too many distinct string constants for one section",
+            Self::PoolTooLarge => "Utf8 pool too large for one section",
+            Self::BadPool => "Utf8 pool missing or misplaced",
             Self::BadBytecode { .. } => "malformed bytecode (operand, branch or switch table)",
             Self::SuperCycle { .. } => "superclass chain loops",
             Self::OutOfMemory => "out of memory",

@@ -5,8 +5,10 @@
 //! (`picodroid.*`) are part of the platform — like Android's boot classpath,
 //! not the APK — so they are always present in firmware flash. They ship as
 //! one class section (`FRAMEWORK_CLSS`, see `crates/class-link`): every
-//! class with the link table built for it at firmware-build time, plus the
-//! sorted class index — byte for byte the layout of a PAPK's CLASSES
+//! class with the link table built for it at firmware-build time, the
+//! sorted class index, and one pool of the set's `Utf8` constants (each
+//! class keeps a tag byte per constant) — byte for byte the layout of a
+//! PAPK's CLASSES
 //! section, loaded through the same reader ([`framework_section`]), so the
 //! framework gets exactly what an app gets
 //! (docs/designs/class-link-2026-09.md).
@@ -35,14 +37,8 @@ pub fn framework_section() -> class_link::ClassSection<'static> {
         .expect("the framework class section was validated at build time")
 }
 
-/// Every framework class's bytes, in section order — for tests that scan
-/// the corpus; the runtime loads the section itself.
-pub fn class_bytes() -> impl Iterator<Item = &'static [u8]> {
-    let s = framework_section();
-    (0..s.len()).map(move |i| s.class(i).expect("validated at build time").class)
-}
-
-/// Every framework class as a registered `ClassFile`, in section order.
+/// Every framework class as a registered `ClassFile`, in section order —
+/// for tests that scan the corpus; the runtime loads the section itself.
 pub fn class_files() -> alloc::vec::Vec<pico_jvm::class_file::ClassFile> {
     let s = framework_section();
     (0..s.len())
@@ -55,9 +51,7 @@ pub fn class_files() -> alloc::vec::Vec<pico_jvm::class_file::ClassFile> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        class_bytes, framework_section, FRAMEWORK_CLASSES_LINE_NUMBERS, FRAMEWORK_CLASS_COUNT,
-    };
+    use super::{framework_section, FRAMEWORK_CLASSES_LINE_NUMBERS, FRAMEWORK_CLASS_COUNT};
 
     /// The debug attributes ship exactly when this build can read them.
     /// pico-jvm reads `LineNumberTable` and `SourceFile` only under the
@@ -88,18 +82,20 @@ mod tests {
                 "off"
             },
         );
-        // An attribute name lives in the constant pool as a CONSTANT_Utf8_info
-        // entry: tag 1, u16 length, then the bytes — so the length-prefixed
-        // form is an exact marker, immune to identifiers that merely contain
-        // the word.
-        let count = |marker: &[u8]| {
-            class_bytes()
-                .filter(|c| c.windows(marker.len()).any(|w| w == marker))
+        // An attribute name lives in the constant pool as a CONSTANT_Utf8
+        // entry, so a class carries the attribute's name exactly when one
+        // of its Utf8 entries spells it — an exact match, immune to
+        // identifiers that merely contain the word.
+        let s = framework_section();
+        let count = |name: &[u8]| {
+            (0..s.len())
+                .map(|i| s.class(i).unwrap())
+                .filter(|c| (0..c.link.cp_count()).any(|i| c.utf8(i) == Some(name)))
                 .count()
         };
-        let lnt = count(b"\x01\x00\x0fLineNumberTable");
-        let source = count(b"\x01\x00\x0aSourceFile");
-        let frames = count(b"\x01\x00\x0dStackMapTable");
+        let lnt = count(b"LineNumberTable");
+        let source = count(b"SourceFile");
+        let frames = count(b"StackMapTable");
         assert_eq!(
             frames, 0,
             "{frames} embedded SDK classes still carry a StackMapTable, which no build reads"

@@ -147,13 +147,11 @@ fn a_literals_hash_is_its_pool_rows() {
 
 #[test]
 fn a_class_outside_a_section_still_interns() {
-    // `ClassFile::parse` links the class alone: no pool, no literal ids.
+    // `ClassFile::parse` links the class alone, as a section of its own
+    // that no string table has been handed: its row 0 is nobody's literal.
     let (class, idx) = class_with("LitLoose", &["loose"]);
     let classes = vec![ClassFile::parse(class).unwrap()];
-    assert_eq!(
-        classes[0].cp_string_literal(idx[0]),
-        Some(class_link::LIT_NONE)
-    );
+    assert_eq!(classes[0].cp_string_literal(idx[0]), Some(0));
     let mut strings = StringTable::new();
     let mut objects = ObjectHeap::new();
     let mut class_objects = ClassObjectCache::new();

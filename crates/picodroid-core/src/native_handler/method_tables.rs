@@ -1145,7 +1145,6 @@ pub const ALLOWED_UNHANDLED: &[Row] = &[];
 mod tests {
     use super::*;
     use crate::shrink_names::{unshrink_descriptor, unshrink_member};
-    use pico_jvm::class_file::ClassFile;
     use std::collections::{BTreeMap, BTreeSet};
 
     /// JVMS §4.6 `ACC_NATIVE`.
@@ -1153,8 +1152,7 @@ mod tests {
 
     fn sdk_native_methods() -> BTreeSet<(String, String, String)> {
         let mut sdk = BTreeSet::new();
-        for bytes in crate::framework_classes::class_bytes() {
-            let cf = ClassFile::parse(bytes).expect("parse framework class");
+        for cf in crate::framework_classes::class_files() {
             let loaded = core::str::from_utf8(cf.class_name().expect("class name"))
                 .expect("class name is UTF-8");
             let class = crate::shrink_names::unshrink_class(loaded).to_string();
@@ -1322,8 +1320,7 @@ mod tests {
     fn native_name_hashes_are_unique_over_the_corpus() {
         let mut methods: BTreeSet<String> = BTreeSet::new();
         let mut classes: BTreeSet<String> = BTreeSet::new();
-        for bytes in crate::framework_classes::class_bytes() {
-            let cf = ClassFile::parse(bytes).expect("parse framework class");
+        for cf in crate::framework_classes::class_files() {
             classes.insert(
                 core::str::from_utf8(cf.class_name().expect("class name"))
                     .unwrap()

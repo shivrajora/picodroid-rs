@@ -68,12 +68,17 @@ fn assert_common_content(p: &Papk<'_>) {
     assert_eq!(p.label(), None);
     assert_eq!(p.icon(), None);
 
-    // Classes: exactly the checked-in Main.class, with its link table.
+    // Classes: exactly the checked-in Main.class once its Utf8 constants
+    // are put back from the section's pool, with its link table.
     assert_eq!(p.class_count(), Ok(1));
     let classes: Vec<_> = p.classes().unwrap().collect();
     assert_eq!(classes.len(), 1);
     assert_eq!(classes[0].name, b"fixture/Main");
-    assert_eq!(classes[0].data, MAIN_CLASS);
+    assert_eq!(
+        class_link::build::unpooled_class(&classes[0].linked()).unwrap(),
+        MAIN_CLASS
+    );
+    assert!(classes[0].data.len() < MAIN_CLASS.len());
     assert_eq!(classes[0].link.methods_len(), 2, "<init> and main");
     classes[0].link.validate(classes[0].data).unwrap();
     let section = p.class_section().unwrap();

@@ -12,13 +12,15 @@
 //! by a MANIFEST section, a CLASSES section, optionally an ASSETS section and
 //! optionally a RESOURCES section.  All integers are little-endian.
 //!
-//! This is format **v2** (2026-09): the CLASSES section is a
+//! This is format **v3** (2026-10): the CLASSES section is a
 //! [`class_link::ClassSection`] — every class with the link table
 //! `class-link` built for it at pack time, plus a sorted class index — so the
 //! JVM parses nothing at load and resolves by hash
-//! (docs/designs/class-link-2026-09.md). v1 files are refused
+//! (docs/designs/class-link-2026-09.md). v3 moved every class's `Utf8`
+//! constants into one pool per section (link layout 3); v2 (2026-09) kept
+//! them in each class file. v1 and v2 files are refused
 //! ([`PapkError::UnsupportedVersion`]); nothing was deployed that carried
-//! them, so no reader for the old layout exists.
+//! them, so no reader for an old layout exists.
 //!
 //! **Every section starts on a 4-byte boundary**, zero-padded from the end of
 //! the previous one. The reader takes each section's offset from the file
@@ -36,7 +38,7 @@
 //! ```text
 //! File header (28 bytes):
 //!   [0..4]   magic:            b"PAPK"
-//!   [4..6]   version_major:    u16 LE  (2)
+//!   [4..6]   version_major:    u16 LE  (3)
 //!   [6..8]   version_minor:    u16 LE  (0)
 //!   [8..12]  section_count:    u32 LE
 //!   [12..16] manifest_offset:  u32 LE  (offset to MANIFEST section header)
@@ -59,16 +61,19 @@
 //!   a PAPK packed before a key existed simply lacks it.
 //!
 //! CLASSES section data: a `class_link::ClassSection` —
-//!   [u32 class_count][u32 index_off]
+//!   [u32 class_count][u32 index_off][u32 pool_off][u32 pool_len]
 //!   directory: class_count × { u32 class_off, u32 link_off }   (4-aligned)
-//!   per class: raw .class bytes, pad to 4, its link table, pad to 4
+//!   per class: pooled .class bytes (each Utf8 entry its tag byte alone),
+//!   pad to 4, its link table, pad to 4
 //!   index at index_off: class_count × { u32 name_hash, u16 idx, u16 0 },
 //!   sorted by hash (see crates/class-link/src/section.rs). The class's
 //!   name is in its link table, not repeated here.
 //!   literals, right after the index: [u32 count], then count ×
 //!   { u32 hash, u32 off, u16 len, u16 flags } — the section's `String`
 //!   constants, each distinct string once; `off` is from the section's
-//!   first byte, into the class that first spells it.
+//!   first byte, into the pool.
+//!   pool at pool_off, to the end: every Utf8 constant of the set once,
+//!   [u16 BE len][bytes] padded to 4; entry 0 the empty string.
 //!
 //! ASSETS section data:
 //!   [u32 asset_count]
@@ -102,9 +107,7 @@
 //!
 //! let papk = papk_format::Papk::parse(APK).unwrap();
 //! let main_class = papk.main_class().unwrap();
-//! for entry in papk.classes().unwrap() {
-//!     jvm.load_class(entry.data).unwrap();
-//! }
+//! jvm.load_app(papk.class_section().unwrap()).unwrap();
 //! jvm.invoke_static(main_class, "main", heap, &mut handler).unwrap();
 //! ```
 
@@ -138,12 +141,13 @@ use core::str;
 
 /// The four magic bytes at the start of every PAPK file.
 pub const MAGIC: &[u8; 4] = b"PAPK";
-/// The only `version_major` this parser accepts: v2, the linked-class
-/// format. A v1 file is refused with [`PapkError::UnsupportedVersion`]; the
-/// message to its owner is "re-pack with the current toolchain".
-pub const SUPPORTED_VERSION_MAJOR: u16 = 2;
+/// The only `version_major` this parser accepts: v3, the linked-class
+/// format with a pooled section. A v1 or v2 file is refused with
+/// [`PapkError::UnsupportedVersion`]; the message to its owner is "re-pack
+/// with the current toolchain".
+pub const SUPPORTED_VERSION_MAJOR: u16 = 3;
 /// `version_major` the writer emits.
-pub const VERSION_MAJOR: u16 = 2;
+pub const VERSION_MAJOR: u16 = 3;
 /// `version_minor` the writer emits.
 pub const VERSION_MINOR: u16 = 0;
 /// Byte length of the file header (`resources_offset` included).
@@ -319,7 +323,9 @@ pub struct ClassEntry<'a> {
     /// JVM internal class name (e.g. `"helloworld/HelloWorld"`), as the
     /// class file spells it (read through the link table).
     pub name: &'a [u8],
-    /// Raw `.class` file bytes.
+    /// The class's bytes as the section holds them: the `.class` file with
+    /// each `Utf8` entry's bytes moved to the section's pool
+    /// (`class_link::build::unpooled_class` puts them back).
     pub data: &'a [u8],
     /// The class's link table.
     pub link: class_link::Link<'a>,
@@ -512,7 +518,7 @@ impl<'a> Papk<'a> {
     /// Only the 28-byte file header is read here; sections are read lazily.
     /// Returns [`PapkError::BadMagic`] if the magic bytes are wrong,
     /// [`PapkError::UnsupportedVersion`] if `version_major` is not
-    /// [`SUPPORTED_VERSION_MAJOR`] (a v1 file: re-pack it), or
+    /// [`SUPPORTED_VERSION_MAJOR`] (an older file: re-pack it), or
     /// [`PapkError::Truncated`] if the file is shorter than the header.
     pub fn parse(data: &'a [u8]) -> Result<Self, PapkError> {
         if data.len() < FILE_HEADER_LEN {

@@ -24,46 +24,63 @@ fn framework_classes() -> Vec<ClassFile> {
     classes
 }
 
-/// Every table re-derives from its class bytes, and re-linking the bytes on
-/// the host gives the table word for word: the embedded section is what
-/// the builder produces, not a stale or hand-edited blob. The words a
-/// class alone does not determine name something in the section — a String
-/// descriptor's literal id, and where the superclass sits — and `validate`
-/// checks each against the section.
+/// Every table re-derives from its class bytes, and re-linking the class
+/// files on the host gives the section byte for byte: the embedded section
+/// is what the builder produces, not a stale or hand-edited blob. The class
+/// files come back from the section itself (`unpooled_class` puts each
+/// class's Utf8 constants back from the shared pool), so this also pins
+/// that round trip over the whole corpus.
 #[test]
-fn framework_tables_relink_word_for_word() {
+fn framework_section_relinks_byte_for_byte() {
     let section = framework_section();
     section
         .validate()
         .expect("framework class section validates");
-    let literals = section.literals();
-    for cf in framework_classes() {
-        let mut rebuilt = class_link::build::link_class(cf.data()).expect("relink");
-        let link = cf.link();
-        for (k, d) in link.strings().enumerate() {
-            let word = link.strs_off() + 2 * k + 1;
-            assert_eq!(rebuilt[word], class_link::LIT_NONE);
-            assert!((d.lit as usize) < literals.len());
-            rebuilt[word] = d.lit;
-        }
-        assert_eq!(
-            rebuilt[class_link::layout::SUPER_IDX_WORD],
-            class_link::SUPER_NONE
-        );
-        if let Some(sup) = link.super_idx() {
-            assert_eq!(
-                section.class(sup).and_then(|s| s.name()),
-                cf.super_class_name()
-            );
-            rebuilt[class_link::layout::SUPER_IDX_WORD] = sup as u16;
-        }
-        assert_eq!(
-            rebuilt.as_slice(),
-            link.words(),
-            "{}: embedded table differs from a fresh link",
-            String::from_utf8_lossy(cf.class_name().unwrap())
-        );
+    let class_files: Vec<Vec<u8>> = section
+        .classes()
+        .map(|l| class_link::build::unpooled_class(&l).expect("unpool"))
+        .collect();
+    assert_eq!(class_files.len(), FRAMEWORK_CLASS_COUNT);
+    let refs: Vec<&[u8]> = class_files.iter().map(|c| c.as_slice()).collect();
+    let rebuilt = class_link::build::build_section(&refs).expect("relink");
+    assert!(
+        rebuilt.as_slice() == section.as_bytes(),
+        "embedded section differs from a fresh link ({} vs {} bytes)",
+        section.as_bytes().len(),
+        rebuilt.len()
+    );
+    for (l, file) in section.classes().zip(&class_files) {
+        assert_eq!(&file[..4], &[0xCA, 0xFE, 0xBA, 0xBE]);
+        assert!(l.class.len() < file.len());
     }
+}
+
+/// The framework's Utf8 constants are pooled once each: the section is
+/// smaller than its class files by most of what they repeat.
+#[test]
+fn framework_utf8_constants_are_pooled() {
+    let section = framework_section();
+    let pool = section.pool();
+    let (mut entries, mut plain) = (0usize, 0usize);
+    for l in section.classes() {
+        for i in 0..l.link.cp_count() {
+            if let Some(b) = l.utf8(i) {
+                entries += 1;
+                plain += b.len();
+            }
+        }
+    }
+    assert!(
+        pool.len() < plain,
+        "pool {} B, Utf8 {} B",
+        pool.len(),
+        plain
+    );
+    assert!(pool.len() <= class_link::section::MAX_POOL_BYTES / 2);
+    eprintln!(
+        "framework Utf8: {entries} entries, {plain} B as class files, {} B pooled",
+        pool.len()
+    );
 }
 
 /// The framework's string constants are pooled once each: fewer rows than

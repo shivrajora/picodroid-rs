@@ -1509,7 +1509,6 @@ fn pack_time_argc_matches_the_interpreter_count() {
 #[test]
 fn a_hash_walk_reads_one_name() {
     use crate::class_file::METHOD_NAME_READS;
-    use core::sync::atomic::Ordering::Relaxed;
     fn class(name: &str, sup: &str, prefix: &str) -> &'static [u8] {
         let mut a = Asm::new();
         let this = a.class(name);
@@ -1537,26 +1536,26 @@ fn a_hash_walk_reads_one_name() {
     let classes = Classes::linear(&classes);
 
     // A hit two levels up: eighteen methods scanned, one name read.
-    METHOD_NAME_READS.store(0, Relaxed);
+    METHOD_NAME_READS.set(0);
     assert_eq!(
         helpers::find_method_walking(classes, "Leaf", "r3", "()I"),
         Some((0, 3))
     );
-    assert_eq!(METHOD_NAME_READS.load(Relaxed), 1);
+    assert_eq!(METHOD_NAME_READS.get(), 1);
 
     // A miss: the whole chain (and the empty default-method search), no reads.
-    METHOD_NAME_READS.store(0, Relaxed);
+    METHOD_NAME_READS.set(0);
     assert_eq!(
         helpers::find_method_walking(classes, "Leaf", "nope", "()I"),
         None
     );
-    assert_eq!(METHOD_NAME_READS.load(Relaxed), 0);
+    assert_eq!(METHOD_NAME_READS.get(), 0);
 
     // Same name, other descriptor: the hash differs, so no read either.
-    METHOD_NAME_READS.store(0, Relaxed);
+    METHOD_NAME_READS.set(0);
     assert_eq!(
         helpers::find_method_walking(classes, "Leaf", "r3", "()V"),
         None
     );
-    assert_eq!(METHOD_NAME_READS.load(Relaxed), 0);
+    assert_eq!(METHOD_NAME_READS.get(), 0);
 }

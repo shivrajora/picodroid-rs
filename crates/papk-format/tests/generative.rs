@@ -286,7 +286,11 @@ fn round_trip_200_random_papks() {
         assert_eq!(classes.len(), spec.classes.len(), "case {case}");
         for (got, (name, blob)) in classes.iter().zip(&spec.classes) {
             assert_eq!(got.name, name.as_bytes(), "case {case}");
-            assert_eq!(got.data, blob.as_slice(), "case {case}");
+            assert_eq!(
+                class_link::build::unpooled_class(&got.linked()).unwrap(),
+                *blob,
+                "case {case}"
+            );
         }
 
         // ── Assets + layout invariants. ──────────────────────────────────

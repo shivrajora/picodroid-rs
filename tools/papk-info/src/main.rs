@@ -284,7 +284,7 @@ fn run(path: &Path) -> Result<(), String> {
     // version it did not understand).
     let papk = Papk::parse(&data).map_err(|e| match e {
         PapkError::UnsupportedVersion => format!(
-            "unsupported PAPK major version {} (papk-info reads {}; a v1 file must be \
+            "unsupported PAPK major version {} (papk-info reads {}; an older file must be \
              re-packed with the current toolchain) — stopping after the header dump",
             hdr.version_major,
             papk_format::SUPPORTED_VERSION_MAJOR

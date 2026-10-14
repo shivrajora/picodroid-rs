@@ -63,8 +63,7 @@ mod tests {
     fn collect_members() -> (BTreeSet<(bool, String)>, usize) {
         let mut rows = BTreeSet::new();
         let mut classes = 0;
-        for bytes in crate::framework_classes::class_bytes() {
-            let cf = ClassFile::parse(bytes).expect("parse framework class");
+        for cf in crate::framework_classes::class_files() {
             classes += 1;
             for m in cf.methods() {
                 let name =
@@ -125,8 +124,7 @@ mod tests {
     fn collect_classes() -> (BTreeSet<String>, usize) {
         let mut names = BTreeSet::new();
         let mut classes = 0;
-        for bytes in crate::framework_classes::class_bytes() {
-            let cf = ClassFile::parse(bytes).expect("parse framework class");
+        for cf in crate::framework_classes::class_files() {
             classes += 1;
             let loaded = core::str::from_utf8(cf.class_name().expect("class name")).unwrap();
             names.insert(unshrink_class(loaded).to_string());

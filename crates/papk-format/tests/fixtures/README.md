@@ -1,17 +1,17 @@
 # Golden PAPK fixtures
 
-These `.papk` files were produced by `papk-pack` (format **v2**, link-table
-layout 2 of 2026-09-29: the linked-class layout of
-docs/designs/class-link-2026-09.md plus the section's string-literal pool)
-and are the
+These `.papk` files were produced by `papk-pack` (format **v3**, link-table
+layout 3 of 2026-10-13: the linked-class layout of
+docs/designs/class-link-2026-09.md, the section's string-literal pool, and
+its shared `Utf8` pool) and are the
 byte-for-byte ground truth for `papk-format`'s parser and writer: the
 parser must extract the known contents, and `PapkBuilder` must reproduce
 each file exactly (`tests/golden.rs`, `papk-pack`'s `pack_integration`).
 Regenerate them only when the format changes on purpose, with the
 invocations below, and update the sizes and contents listed here.
 
-The v1 fixtures were dropped with v1 itself: nothing deployed carried the
-old layout, so no reader for it exists.
+The v1 and v2 fixtures were dropped with their formats: nothing deployed
+carried the old layouts, so no reader for them exists.
 
 ## Inputs (checked in alongside)
 
@@ -66,7 +66,7 @@ $WORK/fixture-classes/fixture/Main.class
 $WORK/fixture-assets/gradient.png
 ```
 
-`minimal.papk` (576 bytes — MANI + CLSS, no ASSETS section):
+`minimal.papk` (604 bytes — MANI + CLSS, no ASSETS section):
 
 ```bash
 cargo run -p papk-pack --target x86_64-unknown-linux-gnu -- \
@@ -78,7 +78,7 @@ cargo run -p papk-pack --target x86_64-unknown-linux-gnu -- \
   --output crates/papk-format/tests/fixtures/minimal.papk
 ```
 
-`with-assets.papk` (752 bytes — MANI + CLSS + ASST, one 8x8 RGB565 asset):
+`with-assets.papk` (780 bytes — MANI + CLSS + ASST, one 8x8 RGB565 asset):
 
 ```bash
 cargo run -p papk-pack --target x86_64-unknown-linux-gnu -- \
@@ -97,12 +97,14 @@ target is `thumbv6m-none-eabi`; substitute the output of
 
 ## Known contents (asserted by tests/golden.rs)
 
-Both files: header `PAPK`, version 2.0, `manifest_offset` 28; manifest keys
+Both files: header `PAPK`, version 3.0, `manifest_offset` 28; manifest keys
 in order: `main-class=fixture/Main`, `package-name=fixture`, `version=1.0`,
-`framework-map-version=0.0.0`; one class `fixture/Main` whose data is exactly
-`Main.class`, followed by its link table (two methods, `<init>` and `main`)
-a one-entry class index and an empty literal pool (the class has no
-`String` constants).
+`framework-map-version=0.0.0`; one class `fixture/Main` whose data is
+`Main.class` with its `Utf8` constants in the section's pool
+(`class_link::build::unpooled_class` gives back exactly `Main.class`),
+followed by its link table (two methods, `<init>` and `main`), a one-entry
+class index, an empty literal pool (the class has no `String` constants)
+and the `Utf8` pool.
 
 `minimal.papk`: `section_count` 2, `assets_offset` 0.
 `with-assets.papk`: `section_count` 3, one asset `gradient.png`

@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Class files and their link tables.
 //!
-//! A class arrives as two `&'static` slices in flash: the standard `.class`
-//! bytes, and the link table `class-link` built for them at pack time (an
-//! app) or firmware-build time (the framework) — every constant-pool
-//! offset, the method and field tables, a hash per method signature and per
-//! superclass / interface name, and a descriptor per `Methodref`. Nothing is
+//! A class arrives as two `&'static` slices in flash: the `.class` bytes
+//! with their `Utf8` constants moved into the section's shared pool, and
+//! the link table `class-link` built for them at pack time (an app) or
+//! firmware-build time (the framework) — every constant-pool offset or
+//! `Utf8` ref, the method and field tables, a hash per method signature and
+//! per superclass / interface name, a descriptor per `Methodref`, and where
+//! the pool is. Nothing is
 //! parsed at load and nothing is kept in RAM per class beyond
 //! [`ClassFile`]'s two pointers: [`ClassFile::linked`] checks the table's
 //! header and that is registration. The layout is documented in
@@ -28,12 +30,14 @@ mod tests;
 
 pub use index::{find_class, find_class_hashed, ClassIndex, Classes};
 
-/// Test-only tally of [`ClassFile::method_name`] reads: the hash-based
-/// resolution walk confirms a hit with exactly one and reads none on a miss
-/// (`interpreter::tests::invoke::a_hash_walk_reads_one_name`).
 #[cfg(test)]
-pub static METHOD_NAME_READS: core::sync::atomic::AtomicUsize =
-    core::sync::atomic::AtomicUsize::new(0);
+std::thread_local! {
+    /// Test-only tally of [`ClassFile::method_name`] reads: the hash-based
+    /// resolution walk confirms a hit with exactly one and reads none on a
+    /// miss (`interpreter::tests::invoke::a_hash_walk_reads_one_name`).
+    /// Per thread, so the tests running beside that one do not count.
+    pub static METHOD_NAME_READS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
 
 /// One entry in the BootstrapMethods class attribute, located in flash:
 /// the table keeps the attribute's offset and an entry is decoded on demand
@@ -117,22 +121,31 @@ impl ClassFile {
         })
     }
 
-    /// Link `data` now and register the result — the host's and the tests'
-    /// way in, for class bytes that no packer has seen. The table is
-    /// leaked: a test's classes live for the test, and a host tool's for
-    /// the process.
+    /// Link `data`, a standard class file, now and register the result —
+    /// the host's and the tests' way in, for class bytes that no packer has
+    /// seen. The class is linked as a section of its own, which is leaked
+    /// at a 4-aligned address as a flash image would be: a test's classes
+    /// live for the test, and a host tool's for the process. [`Self::data`]
+    /// is then the section's pooled copy, not `data`.
     #[cfg(any(test, feature = "link-at-load"))]
-    pub fn parse(data: &'static [u8]) -> Result<Self, &'static str> {
-        let words = class_link::build::link_class(data).map_err(|e| e.as_str())?;
-        let words: &'static [u16] = alloc::boxed::Box::leak(words.into_boxed_slice());
-        let link = Link::new(words).map_err(|e| e.as_str())?;
-        Self::linked(Linked { class: data, link }).map_err(|e| e.as_str())
+    pub fn parse(data: &[u8]) -> Result<Self, &'static str> {
+        let bytes = class_link::build::link_class(data).map_err(|e| e.as_str())?;
+        // Three spare bytes, then the copy starts at the first 4-aligned one.
+        let buf = alloc::vec![0u8; bytes.len() + 3].leak();
+        let skip = buf.as_ptr().align_offset(4);
+        let section = &mut buf[skip..skip + bytes.len()];
+        section.copy_from_slice(&bytes);
+        let section: &'static [u8] = section;
+        let linked = class_link::ClassSection::parse(section)
+            .and_then(|s| s.class(0).ok_or(LinkError::BadSection))
+            .map_err(|e| e.as_str())?;
+        Self::linked(linked).map_err(|e| e.as_str())
     }
 
     /// [`Self::parse`] under the name the lazy loader had; registration is
     /// no longer lazy, so the two are one.
     #[cfg(any(test, feature = "link-at-load"))]
-    pub fn register(data: &'static [u8]) -> Result<Self, &'static str> {
+    pub fn register(data: &[u8]) -> Result<Self, &'static str> {
         Self::parse(data)
     }
 
@@ -161,8 +174,8 @@ impl ClassFile {
     }
 
     /// The class name, exactly as the class file spells it. The slice is
-    /// the class file's own bytes, so its address is stable for as long as
-    /// the class is loaded.
+    /// in the section's pool, so its address is stable for as long as the
+    /// class is loaded.
     #[inline]
     pub(crate) fn scanned_name(&self) -> &'static [u8] {
         // `linked` checked the name resolves.

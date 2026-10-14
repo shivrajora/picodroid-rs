@@ -118,13 +118,25 @@ impl<'a> Cursor<'a> {
     }
 }
 
+/// How a class's `Utf8` entries are stored.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Utf8Form {
+    /// A standard class file: `[01][u16 len][bytes]`.
+    Inline,
+    /// A class as a section holds it: the tag byte `01` alone, the bytes
+    /// in the section's pool ([`crate::section`]).
+    Pooled,
+}
+
 /// Walk the constant pool without allocating, calling `visit(index, tag,
 /// data_offset)` for every slot: index 0 and the pad slot after a
-/// `Long`/`Double` are visited as `(index, 0, 0)`. Returns `(cp_count,
-/// position after the pool)`. Refuses a file over [`MAX_CLASS_BYTES`], a
-/// bad magic, an unknown tag or a truncated entry.
+/// `Long`/`Double` are visited as `(index, 0, 0)`. A pooled `Utf8` entry's
+/// data offset is where its data would start: the byte after its tag.
+/// Returns `(cp_count, position after the pool)`. Refuses a file over
+/// [`MAX_CLASS_BYTES`], a bad magic, an unknown tag or a truncated entry.
 pub fn walk_cp(
     class: &[u8],
+    form: Utf8Form,
     mut visit: impl FnMut(usize, u8, usize) -> Result<(), LinkError>,
 ) -> Result<(usize, usize), LinkError> {
     if class.len() > MAX_CLASS_BYTES {
@@ -144,8 +156,10 @@ pub fn walk_cp(
         visit(idx, tag, off)?;
         match tag {
             TAG_UTF8 => {
-                let len = c.u16()? as usize;
-                c.skip(len)?;
+                if form == Utf8Form::Inline {
+                    let len = c.u16()? as usize;
+                    c.skip(len)?;
+                }
             }
             TAG_LONG | TAG_DOUBLE => {
                 c.skip(8)?;
@@ -167,27 +181,41 @@ pub fn walk_cp(
     Ok((cp_count, c.pos))
 }
 
-/// A view of the constant pool's tags and data offsets: the builder's two
-/// `Vec`s from [`walk_cp`], or a [`crate::Link`] being validated.
+/// A view of the constant pool's tags and data offsets: the builder's
+/// walk of a pooled class, or a [`crate::Link`] being validated.
 pub trait CpView {
     fn cp_count(&self) -> usize;
     /// Tag of entry `i`; 0 for index 0 and the pad slots; `None` past the pool.
     fn tag(&self, i: usize) -> Option<u8>;
-    /// Byte offset of entry `i`'s data (after its tag); 0 where the tag is 0.
+    /// Byte offset of entry `i`'s data (after its tag); 0 where the tag is
+    /// 0. For a `Utf8` entry, its ref into [`Self::pool`] instead.
     fn offset(&self, i: usize) -> Option<usize>;
+    /// The section's `Utf8` pool.
+    fn pool(&self) -> &[u8];
+}
+
+/// Pool entries are 4-aligned, and a `Utf8` ref counts 4-byte units.
+pub const POOL_ALIGN: usize = 4;
+/// A ref is a `u16` and so is the pool's length in units: what that reaches.
+pub const MAX_POOL_BYTES: usize = POOL_ALIGN * u16::MAX as usize;
+
+/// The bytes of the pool entry `r` refers to.
+#[inline]
+pub fn pool_utf8(pool: &[u8], r: usize) -> Option<&[u8]> {
+    utf8_at(pool, POOL_ALIGN * r)
 }
 
 /// The bytes of `Utf8` entry `i`.
 #[inline]
-pub fn utf8<'c>(class: &'c [u8], cp: &impl CpView, i: usize) -> Option<&'c [u8]> {
+pub fn utf8(cp: &impl CpView, i: usize) -> Option<&[u8]> {
     if cp.tag(i)? != TAG_UTF8 {
         return None;
     }
-    utf8_at(class, cp.offset(i)?)
+    pool_utf8(cp.pool(), cp.offset(i)?)
 }
 
 /// The bytes of a `Utf8` entry whose data (`[u16 len][bytes]`) starts at
-/// `off`.
+/// `off` — in a standard class file, or in a section's pool.
 #[inline]
 pub fn utf8_at(class: &[u8], off: usize) -> Option<&[u8]> {
     let len = be16(class, off)? as usize;
@@ -203,15 +231,18 @@ pub fn class_utf8_index(class: &[u8], cp: &impl CpView, i: usize) -> Option<usiz
     Some(be16(class, cp.offset(i)?)? as usize)
 }
 
-/// For a `Class` entry: the byte offset of its name's `Utf8` data and the
-/// name's hash. The name must be valid UTF-8 (the runtime reads it
-/// unchecked).
+/// For a `Class` entry: its name's `Utf8` ref and the name's hash. The
+/// name must be valid UTF-8 (the runtime reads it unchecked) and not empty
+/// (ref 0, the pool's empty string, is what "no superclass" is spelled as).
 fn class_name_ref(class: &[u8], cp: &impl CpView, i: usize) -> Result<(usize, u32), LinkError> {
     let ui = class_utf8_index(class, cp, i).ok_or(LinkError::BadThisClass)?;
-    let off = cp.offset(ui).ok_or(LinkError::BadThisClass)?;
-    let bytes = utf8(class, cp, ui).ok_or(LinkError::BadThisClass)?;
+    let r = cp.offset(ui).ok_or(LinkError::BadThisClass)?;
+    let bytes = utf8(cp, ui).ok_or(LinkError::BadThisClass)?;
+    if bytes.is_empty() {
+        return Err(LinkError::BadThisClass);
+    }
     check_utf8(bytes, ui)?;
-    Ok((off, name_hash(bytes)))
+    Ok((r, name_hash(bytes)))
 }
 
 fn check_utf8(bytes: &[u8], cp_index: usize) -> Result<(), LinkError> {
@@ -429,7 +460,7 @@ pub fn derive(
         }
         let nat_off = cp.offset(nat).ok_or(LinkError::Internal)?;
         let desc_idx = be16(class, nat_off + 2).ok_or(LinkError::Truncated)? as usize;
-        let desc = utf8(class, cp, desc_idx).ok_or(bad)?;
+        let desc = utf8(cp, desc_idx).ok_or(bad)?;
         let argc = count_args(desc).ok_or(LinkError::BadDescriptor { cp: i as u16 })?;
         let flags = if tag == TAG_INTERFACE_METHODREF {
             MREF_INTERFACE
@@ -453,7 +484,7 @@ pub fn derive(
         }
         let off = cp.offset(i).ok_or(LinkError::Internal)?;
         let ui = be16(class, off).ok_or(LinkError::Truncated)? as usize;
-        utf8(class, cp, ui).ok_or(LinkError::BadString { cp: i as u16 })?;
+        utf8(cp, ui).ok_or(LinkError::BadString { cp: i as u16 })?;
         out.put(l.strs_off + 2 * ks, off as u16)?;
         out.put_external(l.strs_off + 2 * ks + 1, LIT_NONE)?;
         ks += 1;
@@ -468,14 +499,14 @@ pub fn derive(
         match cp.tag(i) {
             Some(TAG_CLASS) => {
                 let ui = class_utf8_index(class, cp, i).ok_or(LinkError::Truncated)?;
-                let bytes = utf8(class, cp, ui).ok_or(LinkError::BadUtf8 { cp: i as u16 })?;
+                let bytes = utf8(cp, ui).ok_or(LinkError::BadUtf8 { cp: i as u16 })?;
                 check_utf8(bytes, ui)?;
             }
             Some(TAG_NAME_AND_TYPE) => {
                 let off = cp.offset(i).ok_or(LinkError::Internal)?;
                 for j in 0..2 {
                     let ui = be16(class, off + 2 * j).ok_or(LinkError::Truncated)? as usize;
-                    let bytes = utf8(class, cp, ui).ok_or(LinkError::BadUtf8 { cp: i as u16 })?;
+                    let bytes = utf8(cp, ui).ok_or(LinkError::BadUtf8 { cp: i as u16 })?;
                     check_utf8(bytes, ui)?;
                 }
             }
@@ -488,24 +519,24 @@ pub fn derive(
     let access_flags = c.u16()?;
     let this_idx = c.u16()? as usize;
     let super_idx = c.u16()? as usize;
-    let (name_off, name_h) = class_name_ref(class, cp, this_idx)?;
-    let (super_off, super_h) = if super_idx == 0 {
+    let (name_ref, name_h) = class_name_ref(class, cp, this_idx)?;
+    let (super_ref, super_h) = if super_idx == 0 {
         (0, 0)
     } else {
         class_name_ref(class, cp, super_idx).map_err(|_| LinkError::BadSuperClass)?
     };
 
-    // Interfaces: the name's Utf8 offset and hash.
+    // Interfaces: the name's Utf8 ref and hash.
     let ifaces = c.u16()? as usize;
     if ifaces != n.ifaces {
         return Err(LinkError::Internal);
     }
     for j in 0..ifaces {
         let idx = c.u16()? as usize;
-        let (off, h) = class_name_ref(class, cp, idx)
+        let (r, h) = class_name_ref(class, cp, idx)
             .map_err(|_| LinkError::BadInterface { index: j as u16 })?;
         let base = l.ifaces_off + 3 * j;
-        out.put(base, off as u16)?;
+        out.put(base, r as u16)?;
         put32(out, base + 1, h)?;
     }
 
@@ -521,8 +552,8 @@ pub fn derive(
         let desc = c.u16()?;
         skip_attributes(&mut c)?;
         let bad = LinkError::BadMember { index: j as u16 };
-        check_utf8(utf8(class, cp, name as usize).ok_or(bad)?, name as usize)?;
-        let desc_b = utf8(class, cp, desc as usize).ok_or(bad)?;
+        check_utf8(utf8(cp, name as usize).ok_or(bad)?, name as usize)?;
+        let desc_b = utf8(cp, desc as usize).ok_or(bad)?;
         check_utf8(desc_b, desc as usize)?;
         let kind = field_kind(desc_b);
         let (base, slot) = if access & ACC_STATIC == 0 {
@@ -558,8 +589,8 @@ pub fn derive(
         let desc = c.u16()? as usize;
         let attr_count = c.u16()? as usize;
         let bad = LinkError::BadMember { index: mi as u16 };
-        let name_b = utf8(class, cp, name).ok_or(bad)?;
-        let desc_b = utf8(class, cp, desc).ok_or(bad)?;
+        let name_b = utf8(cp, name).ok_or(bad)?;
+        let desc_b = utf8(cp, desc).ok_or(bad)?;
         check_utf8(name_b, name)?;
         check_utf8(desc_b, desc)?;
         let mut code_offset = 0usize;
@@ -568,7 +599,7 @@ pub fn derive(
             let attr_name = c.u16()? as usize;
             let attr_len = c.u32()? as usize;
             let attr_start = c.pos;
-            if utf8(class, cp, attr_name) == Some(b"Code") {
+            if utf8(cp, attr_name) == Some(b"Code") {
                 // u16 max_stack, u16 max_locals, u32 code_length, code,
                 // exception table, sub-attributes. The bytecode offset is
                 // all the table keeps; the three header words are read
@@ -587,7 +618,7 @@ pub fn derive(
                     let sub_name = c.u16()? as usize;
                     let sub_len = c.u32()? as usize;
                     let sub_start = c.pos;
-                    if lnt_offset == 0 && utf8(class, cp, sub_name) == Some(b"LineNumberTable") {
+                    if lnt_offset == 0 && utf8(cp, sub_name) == Some(b"LineNumberTable") {
                         lnt_offset = sub_start;
                     }
                     c.seek(sub_start + sub_len)?;
@@ -615,7 +646,7 @@ pub fn derive(
         let attr_name = c.u16()? as usize;
         let attr_len = c.u32()? as usize;
         let attr_start = c.pos;
-        let name = utf8(class, cp, attr_name);
+        let name = utf8(cp, attr_name);
         if name == Some(b"BootstrapMethods") {
             let num_methods = c.u16()? as usize;
             for _ in 0..num_methods {
@@ -647,15 +678,18 @@ pub fn derive(
     out.put(10, l.mrefs_off as u16)?;
     out.put(11, bsm_off as u16)?;
     out.put(12, access_flags)?;
-    out.put(13, name_off as u16)?;
-    out.put(14, super_off as u16)?;
+    out.put(13, name_ref as u16)?;
+    out.put(14, super_ref as u16)?;
     out.put(15, source_file_idx)?;
     put32(out, 16, name_h)?;
     put32(out, 18, super_h)?;
     out.put(20, n.strs as u16)?;
     out.put(21, own_slots as u16)?;
     out.put_external(22, SUPER_NONE)?;
-    out.put(23, 0)?;
+    // Where the section's pool is: the section's to say, as `super_idx` is.
+    out.put_external(23, 0)?;
+    out.put_external(24, 0)?;
+    out.put_external(25, 0)?;
 
     // The pad word that makes the table a whole number of 4-byte units.
     let end = l.strs_off + 2 * n.strs;

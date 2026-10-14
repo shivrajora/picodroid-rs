@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Deep validation of a link table against its class bytes.
 
-use crate::classfile::{derive, survey, walk_cp, CpView, Layout, Sink};
+use crate::classfile::{derive, survey, walk_cp, CpView, Layout, Sink, Utf8Form, TAG_UTF8};
 use crate::error::LinkError;
 use crate::layout::{Link, HEADER_WORDS};
 
@@ -14,6 +14,9 @@ impl CpView for Link<'_> {
     }
     fn offset(&self, i: usize) -> Option<usize> {
         self.cp_offset(i)
+    }
+    fn pool(&self) -> &[u8] {
+        Link::pool(self)
     }
 }
 
@@ -45,24 +48,35 @@ impl Sink for CheckSink<'_> {
 }
 
 impl Link<'_> {
-    /// Check that this table is exactly what [`crate::build::link_class`]
-    /// derives from `class`: the constant-pool words are compared against
-    /// an independent walk of the pool, then every other word against the
-    /// same derivation the builder ran. No allocation; O(class bytes +
-    /// table words). Run once per class when a set is built, embedded or
-    /// installed — the runtime then trusts the table. The String
-    /// descriptors' literal ids are the section's to check
+    /// Check that this table is exactly what the section builder derives
+    /// from the pooled `class`: the constant-pool words are compared
+    /// against an independent walk of the pool — a `Utf8`'s word is its
+    /// ref, which must name a pool entry — then every other word against
+    /// the same derivation the builder ran, reading the `Utf8`s through
+    /// those refs. No allocation; O(class bytes + table words). Run once
+    /// per class when a set is built, embedded or installed — the runtime
+    /// then trusts the table. The String descriptors' literal ids and the
+    /// pool words are the section's to check
     /// ([`crate::ClassSection::validate`]).
     pub fn validate(&self, class: &[u8]) -> Result<(), LinkError> {
         if self.class_len() != class.len() {
             return Err(LinkError::WordMismatch { word: 2 });
         }
         let header_cp_count = self.cp_count();
-        let (cp_count, pos_after_cp) = walk_cp(class, |i, tag, off| {
+        let (cp_count, pos_after_cp) = walk_cp(class, Utf8Form::Pooled, |i, tag, off| {
             if self.cp_tag(i) != Some(tag) {
                 return Err(LinkError::WordMismatch {
                     word: (HEADER_WORDS + header_cp_count + i / 2) as u16,
                 });
+            }
+            if tag == TAG_UTF8 {
+                let r = self.cp_word(i).ok_or(LinkError::Internal)?;
+                if self.utf8_ref(r as usize).is_none() {
+                    return Err(LinkError::BadOffset {
+                        word: (HEADER_WORDS + i) as u16,
+                    });
+                }
+                return Ok(());
             }
             if self.cp_offset(i) != Some(off) {
                 return Err(LinkError::WordMismatch {

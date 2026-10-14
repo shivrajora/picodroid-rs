@@ -405,8 +405,9 @@ fn write_framework_section(
     let dropped_entries: String = dropped.iter().map(|n| format!("    {n:?},\n")).collect();
     let content = format!(
         "/// The framework corpus as a class section (crates/class-link/src/section.rs):\n\
-         /// every class with its link table, plus the sorted class index. The same\n\
-         /// layout as a PAPK's CLASSES section, read by the same code.\n\
+         /// every class with its link table, the sorted class index and the set's\n\
+         /// Utf8 pool. The same layout as a PAPK's CLASSES section, read by the\n\
+         /// same code.\n\
          pub static FRAMEWORK_CLSS: AlignedBytes<{len}> = AlignedBytes(*include_bytes!({path:?}));\n\
          /// Classes in `FRAMEWORK_CLSS`.\n\
          pub const FRAMEWORK_CLASS_COUNT: usize = {count};\n\

@@ -132,14 +132,25 @@ fn test_classes_iter() {
     let classes: Vec<_> = p.classes().unwrap().collect();
     assert_eq!(classes.len(), 2);
     assert_eq!(classes[0].name, b"foo/Bar");
-    assert_eq!(classes[0].data, &bar[..]);
+    assert_eq!(
+        class_link::build::unpooled_class(&classes[0].linked()).unwrap(),
+        bar
+    );
     assert_eq!(classes[0].link.methods_len(), 0);
     assert_eq!(
         classes[0].linked().super_name(),
         Some(&b"java/lang/Object"[..])
     );
     assert_eq!(classes[1].name, b"lib/Util");
-    assert_eq!(classes[1].data, &util[..]);
+    assert_eq!(
+        class_link::build::unpooled_class(&classes[1].linked()).unwrap(),
+        util
+    );
+    // Both spell java/lang/Object; the section holds it once.
+    assert_eq!(
+        classes[0].linked().super_name().unwrap().as_ptr(),
+        classes[1].linked().super_name().unwrap().as_ptr()
+    );
     // The section's index finds them by name.
     let section = p.class_section().unwrap();
     assert_eq!(section.find_class(b"lib/Util"), Some(1));
@@ -377,9 +388,9 @@ fn file_header_parse_does_not_enforce_version_major() {
     // A future-major file: FileHeader::parse still dumps the header,
     // while the full parser refuses it.
     let mut papk = build_test_papk("foo/Bar", &[]);
-    papk[4..6].copy_from_slice(&3u16.to_le_bytes());
+    papk[4..6].copy_from_slice(&(VERSION_MAJOR + 1).to_le_bytes());
     let hdr = FileHeader::parse(&papk).unwrap();
-    assert_eq!(hdr.version_major, 3);
+    assert_eq!(hdr.version_major, VERSION_MAJOR + 1);
     assert!(matches!(
         Papk::parse(&papk),
         Err(PapkError::UnsupportedVersion)
@@ -422,8 +433,11 @@ fn section_accessors_return_header_and_data() {
     assert_eq!(ch.tag, TAG_CLASSES);
     assert_eq!(ch.length as usize, cdata.len());
     // An empty class section: no classes, the index right after its
-    // header, no literals.
-    assert_eq!(cdata, [0, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0]);
+    // header, no literals, a pool of the empty string alone.
+    assert_eq!(
+        cdata,
+        [0, 0, 0, 0, 16, 0, 0, 0, 20, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    );
 
     let (ah, adata) = p.assets_section().unwrap().expect("ASST present");
     assert_eq!(ah.tag, TAG_ASSETS);

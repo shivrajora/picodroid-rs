@@ -4,35 +4,47 @@
 //! firmware. Little-endian; offsets are from the section's first byte.
 //!
 //! ```text
-//! [u32 class_count][u32 index_off]
+//! [u32 class_count][u32 index_off][u32 pool_off][u32 pool_len]
 //! directory: class_count × { u32 class_off, u32 link_off }   (both 4-aligned)
 //! records:   per class, in directory order:
-//!              class bytes, zero pad to 4
+//!              pooled class bytes, zero pad to 4
 //!              link table (class_len and total_words are in its header), pad to 4
 //! index:     class_count × IndexEntry { u32 hash, u16 idx, u16 0 }, at index_off
 //!            (8-aligned), sorted by (hash, idx); no two entries share a hash
 //! literals:  [u32 lit_count], then lit_count × Literal { u32 hash, u32 off,
 //!            u16 len, u16 flags }, right after the index
+//! pool:      at pool_off (4-aligned), pool_len bytes: entries
+//!            [u16 BE len][bytes], each padded to 4; entry 0 is the empty string
 //! ```
+//!
+//! The `Utf8` pool is every `Utf8` constant of the set, each distinct byte
+//! string once, in order of first appearance: `java/lang/Object`, `Code`,
+//! `<init>` and `()V` once a section rather than once a class. A class's
+//! bytes keep each `Utf8` entry's tag byte alone, and its table names the
+//! entry's bytes by a ref — the entry's offset in the pool over 4, a
+//! `u16`, so the pool is at most [`MAX_POOL_BYTES`].
 //!
 //! The literal pool is the set's `String` constants, each distinct byte
 //! string once, in order of first appearance. A row points at the bytes
-//! where they already are — inside the constant pool of the first class
-//! that spells them — and every class's [`crate::StringDesc`] names its
-//! row. An `ldc` of a string is then a row number, the same for every
-//! class of the set, with no table in RAM and nothing to search.
+//! where they already are — in the `Utf8` pool — and every class's
+//! [`crate::StringDesc`] names its row. An `ldc` of a string is then a row
+//! number, the same for every class of the set, with no table in RAM and
+//! nothing to search.
 //!
 //! The section itself must sit at a 4-byte aligned address: every table and
 //! the index are then aligned for in-place reads. A PAPK's sections are
 //! 4-aligned in the file and the file sits on a flash sector; the firmware
 //! static is declared aligned.
 
+use crate::classfile::{be16, POOL_ALIGN};
 use crate::error::LinkError;
 use crate::hash::{name_hash, string_hash};
 use crate::layout::{Link, Linked};
 
-/// `class_count` and `index_off`.
-pub const SECTION_HEADER_LEN: usize = 8;
+pub use crate::classfile::MAX_POOL_BYTES;
+
+/// `class_count`, `index_off`, `pool_off` and `pool_len`.
+pub const SECTION_HEADER_LEN: usize = 16;
 /// `class_off` and `link_off`.
 pub const DIRECTORY_ENTRY_LEN: usize = 8;
 pub const INDEX_ENTRY_LEN: usize = 8;
@@ -174,17 +186,22 @@ pub struct ClassSection<'a> {
     count: usize,
     index_off: usize,
     lit_count: usize,
+    pool_off: usize,
+    pool_len: usize,
 }
 
 impl<'a> ClassSection<'a> {
-    /// Check the header, the directory's and the index's bounds and the
-    /// alignment, nothing per class; see [`Self::validate`] for that.
+    /// Check the header, the directory's, the index's and the pool's bounds
+    /// and the alignment, nothing per class; see [`Self::validate`] for
+    /// that.
     pub fn parse(data: &'a [u8]) -> Result<Self, LinkError> {
         if !(data.as_ptr() as usize).is_multiple_of(4) {
             return Err(LinkError::Misaligned);
         }
         let count = le32(data, 0).ok_or(LinkError::BadSection)? as usize;
         let index_off = le32(data, 4).ok_or(LinkError::BadSection)? as usize;
+        let pool_off = le32(data, 8).ok_or(LinkError::BadSection)? as usize;
+        let pool_len = le32(data, 12).ok_or(LinkError::BadSection)? as usize;
         if count > MAX_CLASSES {
             return Err(LinkError::TooManyClasses);
         }
@@ -202,7 +219,22 @@ impl<'a> ClassSection<'a> {
         if lit_count > MAX_LITERALS {
             return Err(LinkError::TooManyLiterals);
         }
-        if index_end + 4 + LITERAL_LEN * lit_count > data.len() {
+        let lits_end = index_end + 4 + LITERAL_LEN * lit_count;
+        if lits_end > data.len() {
+            return Err(LinkError::BadSection);
+        }
+        // The pool is the last region; every ref into it is a `u16` of
+        // 4-byte units, and entry 0 (the empty string) is always there.
+        if !pool_off.is_multiple_of(POOL_ALIGN) || !pool_len.is_multiple_of(POOL_ALIGN) {
+            return Err(LinkError::Misaligned);
+        }
+        if pool_len > MAX_POOL_BYTES {
+            return Err(LinkError::PoolTooLarge);
+        }
+        if pool_off < lits_end
+            || pool_len < POOL_ALIGN
+            || pool_off.checked_add(pool_len) != Some(data.len())
+        {
             return Err(LinkError::BadSection);
         }
         Ok(Self {
@@ -210,7 +242,15 @@ impl<'a> ClassSection<'a> {
             count,
             index_off,
             lit_count,
+            pool_off,
+            pool_len,
         })
+    }
+
+    /// The `Utf8` pool.
+    #[inline]
+    pub fn pool(&self) -> &'a [u8] {
+        &self.data[self.pool_off..self.pool_off + self.pool_len]
     }
 
     /// The section's bytes.
@@ -258,7 +298,14 @@ impl<'a> ClassSection<'a> {
             .data
             .get(link_off..link_off + 2 * total_words)
             .ok_or(LinkError::BadSection)?;
-        let link = Link::from_bytes(link_bytes)?;
+        let link = Link::from_bytes(link_bytes, self.pool())?;
+        // What `Link::from_raw` will find the pool by, once the class is
+        // registered by its table's address alone.
+        if link.pool_rel() != self.pool_off.wrapping_sub(link_off)
+            || link.pool_len() != self.pool_len
+        {
+            return Err(LinkError::BadPool);
+        }
         Ok(Linked { class, link })
     }
 
@@ -309,13 +356,29 @@ impl<'a> ClassSection<'a> {
     }
 
     /// Deep check: every class's table validates against its bytes
-    /// ([`Link::validate`]), and the index is sorted, names every class
-    /// exactly once with its own hash, and has no two entries with one
-    /// hash; every literal row's hash and flags are its bytes', and every
+    /// ([`Link::validate`]) and names the section's pool, and the index is
+    /// sorted, names every class exactly once with its own hash, and has
+    /// no two entries with one hash; the pool starts with the empty
+    /// string; every literal row's hash and flags are its bytes', and every
     /// class's String descriptors name the row that holds their bytes, and
     /// its `super_idx` the class its superclass name spells.
     /// What the packer, the firmware build and an install run.
     pub fn validate(&self) -> Result<(), LinkError> {
+        // The pool's entries tile it, each zero-padded to 4, the first the
+        // empty string.
+        let pool = self.pool();
+        if be16(pool, 0) != Some(0) {
+            return Err(LinkError::BadPool);
+        }
+        let mut at = 0;
+        while at < pool.len() {
+            let end = at + 2 + be16(pool, at).ok_or(LinkError::BadPool)? as usize;
+            let next = end.next_multiple_of(POOL_ALIGN);
+            if next > pool.len() || pool[end..next].iter().any(|&b| b != 0) {
+                return Err(LinkError::BadPool);
+            }
+            at = next;
+        }
         let lits = self.literals();
         for i in 0..lits.len() {
             let bytes = lits.bytes(i).ok_or(LinkError::BadLiteral)?;

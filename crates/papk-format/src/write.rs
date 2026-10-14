@@ -3,7 +3,7 @@
 //!
 //! [`PapkBuilder`] owns "the manifest shape":
 //!
-//! - file header (28 bytes) with `version_major = 2`, `version_minor = 0`
+//! - file header (28 bytes) with `version_major = 3`, `version_minor = 0`
 //!   always;
 //! - the CLASSES section is a `class-link` class section: every class is
 //!   linked here (its link table built and its name checked against the
@@ -661,7 +661,10 @@ mod tests {
         // The class comes back with its table, and its name from the table.
         let entry = p.classes().unwrap().next().unwrap();
         assert_eq!(entry.name, MAIN_NAME.as_bytes());
-        assert_eq!(entry.data, MAIN);
+        assert_eq!(
+            class_link::build::unpooled_class(&entry.linked()).unwrap(),
+            MAIN
+        );
         assert_eq!(entry.link.methods_len(), 2, "<init> and main");
         let section = p.class_section().unwrap();
         assert_eq!(section.find_class(MAIN_NAME.as_bytes()), Some(0));

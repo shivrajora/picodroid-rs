@@ -21,9 +21,7 @@ use pico_jvm::class_file::{ClassFile, Classes};
 use pico_jvm::interpreter::{field_slot, instance_slot_count};
 
 fn framework_classes() -> Vec<ClassFile> {
-    let classes: Vec<ClassFile> = crate::framework_classes::class_bytes()
-        .map(|b| ClassFile::parse(b).expect("parse framework class"))
-        .collect();
+    let classes: Vec<ClassFile> = crate::framework_classes::class_files();
     assert!(
         !classes.is_empty(),
         "FRAMEWORK_CLASSES is empty — run via scripts/test.sh, which sets PICODROID_APK_PATH"

@@ -188,9 +188,9 @@ device's running firmware before erasing flash. Two messages you may see:
    which brings up a current (`picodroid/2.2`) build that advertises the field.
 
 3. **"PAPK file is not a valid PAPK"** — the file is truncated or
-   malformed, or it was packed before PAPK v2 (`PAPK format version is
-   not the one this build reads (a v1 file: re-pack it with the current
-   toolchain)`). Rebuild it with `./scripts/build-apk.sh --app <name>`.
+   malformed, or it was packed before the current PAPK format, v3
+   (`PAPK format version is not the one this build reads (an older file:
+   re-pack it with the current toolchain)`). Rebuild it with `./scripts/build-apk.sh --app <name>`.
 
 4. **"PAPK has no package-name; a multi-app device cannot place it"** —
    the manifest has no `package`. Add one, or repack the file with the

@@ -55,11 +55,13 @@ measured in the real-world configuration, `--release --shrink --shrink-app`.
 
 One table per class, little-endian `u16` words, 4-byte aligned, stored right
 after its class bytes. Every byte offset is into the class bytes, every word
-offset into the table itself. The layout, from `class_link::layout`:
+offset into the table itself, every `Utf8` ref into the section's pool (layout
+version 3, [below](#third-round-2026-10-13-one-utf8-pool-per-section)). The
+layout, from `class_link::layout`:
 
 ```text
-header, 24 words:
- w0  LINK_MAGIC (0x4B02: 'K', layout version 2)
+header, 26 words:
+ w0  LINK_MAGIC (0x4B03: 'K', layout version 3)
  w1  total_words       the whole table, header included (even)
  w2  class_len         == the class bytes' length
  w3  cp_count          constant_pool_count
@@ -69,23 +71,25 @@ header, 24 words:
  w10 mrefs_off         word offset of the Methodref descriptors
  w11 bsm_off           byte offset of the BootstrapMethods body, 0 = none
  w12 access_flags
- w13 name_off          byte offset of this class's name Utf8 data ([u16 len][bytes])
- w14 super_off         the same for the superclass name; 0 = no superclass
+ w13 name_ref          Utf8 ref of this class's name
+ w14 super_ref         the same for the superclass name; 0 = no superclass
  w15 source_file_idx   CP index of the SourceFile Utf8, 0 = none
  w16-17 name_hash      u32, low word first
  w18-19 super_hash     u32, 0 when super_off == 0
  w20 strs_len          String entries
  w21 own_slots         slots this class's own instance fields take
  w22 super_idx         the superclass's position in the section, 0xFFFF = not in it
- w23 0                 reserved
+ w23-24 pool_rel       u32, bytes from this table's first byte to the section pool's
+ w25 pool_words        the pool's length in 4-byte units
 regions, in this order:
  cp_words[cp_count]        entry i's data offset (after its tag byte); for a
-                           Methodref or a String, the WORD offset of its descriptor
+                           Utf8, its ref; for a Methodref or a String, the WORD
+                           offset of its descriptor
  tags[(cp_count+1)/2]      the tags, two a word, entry i at byte i
  fields[fields_len]        FieldInfo    { name_index, descriptor_index,
                                           slot (12 bits) | kind (4 bits) }      3 words
  statics[statics_len]      FieldInfo                                            3 words
- ifaces[ifaces_len]        IfaceInfo    { utf8_off, hash }                      3 words
+ ifaces[ifaces_len]        IfaceInfo    { utf8_ref, hash }                      3 words
  methods[methods_len]      MethodInfo   { info_off, code_off, access_flags,
                                           lnt_off, sig_hash }                   6 words
  mrefs[mrefs_len]          MethodrefDesc{ cp_off, argc, flags }                 2 words
@@ -93,12 +97,14 @@ regions, in this order:
  [pad word]                to an even total
 ```
 
-Layout version 2 (2026-09-30, "Second round" below) added the last four
-header words, the third `FieldInfo` word and the `strs` region. Two kinds of
-word name something in the *section* rather than in the class — a
-`StringDesc`'s literal id and `super_idx` — so a class alone does not
-determine them: the section builder fills them in, `Link::validate` skips
-them, and `ClassSection::validate` checks each against the section.
+Layout version 2 (2026-09-30, "Second round" below) added header words
+20–23, the third `FieldInfo` word and the `strs` region; version 3
+(2026-10-13, "Third round") turned the name offsets into `Utf8` refs and
+added the pool words. Three kinds of word name something in the *section*
+rather than in the class — a `StringDesc`'s literal id, `super_idx` and the
+pool's place — so a class alone does not determine them: the section
+builder fills them in, `Link::validate` skips them, and `ClassSection`
+checks each against the section.
 
 What is *not* stored is read from the class bytes at a fixed distance from
 something that is: a method's `max_stack`, `max_locals` and `code_length` sit
@@ -129,20 +135,21 @@ The payload of a PAPK `CLSS` section and, byte for byte, the framework corpus
 embedded in firmware — one reader serves both:
 
 ```text
-[u32 class_count][u32 index_off]
+[u32 class_count][u32 index_off][u32 pool_off][u32 pool_len]
 directory: class_count × { u32 class_off, u32 link_off }   (both 4-aligned)
-records:   per class: class bytes, pad to 4, link table, pad to 4
+records:   per class: pooled class bytes, pad to 4, link table, pad to 4
 index:     class_count × IndexEntry { u32 hash, u16 idx, u16 0 }, at index_off
            (8-aligned), sorted by (hash, idx); no two entries share a hash
 literals:  [u32 lit_count], then lit_count × { u32 hash, u32 off, u16 len,
            u16 flags }, right after the index (layout version 2)
+pool:      at pool_off to the end: [u16 BE len][bytes] entries, each padded
+           to 4, entry 0 the empty string (layout version 3)
 ```
 
 The literal pool is the set's `String` constants, each distinct byte string
 once, in order of first appearance. A row points at the bytes where they
-already are, inside the constant pool of the first class that spells them;
-`hash` is the string's `hashCode()`, `flags` bit 0 says the bytes are valid
-UTF-8.
+already are, in the `Utf8` pool; `hash` is the string's `hashCode()`,
+`flags` bit 0 says the bytes are valid UTF-8.
 
 Two names in one set that hash alike are refused at build time (the set could
 not be searched by hash alone); so are two equal names.
@@ -527,3 +534,94 @@ and a 1 KB app installed over pdb:
 
 The 1.7 ms that remains is the header walk of the 9.9 MB region's 2,496
 sectors.
+
+## Third round (2026-10-13): one Utf8 pool per section
+
+The section kept every class file whole, so the set's `Utf8` constants were
+repeated in nearly every class: on the RP2040's unshrunk framework section
+(186 classes, 261,296 B) `java/lang/Object` appeared 145 times, `Code` 142,
+`<init>` 140, `()V` 137 — 87,946 B of `Utf8` payload in 5,044 entries, of
+which 2,343 distinct strings were 46,946 B. Every runtime read of a `Utf8`
+already went through four `Linked` accessors (`utf8`, `name`, `super_name`,
+`interface_name`), so the bytes could move without the interpreter noticing.
+
+**Format (link layout 3, PAPK v3).** The section gains a pool, its last
+region: every distinct `Utf8` of the set once, in order of first appearance,
+as `[u16 BE len][bytes]` padded to 4, entry 0 the empty string. A class keeps
+each `Utf8` entry's tag byte alone (the length goes too: the class bytes
+stop being a standard class file, and `walk_cp` takes a `Utf8Form`). Every
+word that held a `Utf8` data offset — a `Utf8`'s constant-pool word,
+`name_off`/`super_off` (now `name_ref`/`super_ref`), `IfaceInfo.utf8_off` —
+holds a **ref**, the entry's pool offset over 4: a `u16` reaches 256 KB of
+pool, and the largest pool built today (the host's unshrunk corpus with line
+numbers) is 105,948 B. Ref 0 is the empty string, which no class may be
+named, so `super_ref == 0` still means "no superclass". Literal rows point
+into the pool instead of into the first class that spelled the string.
+
+**Finding the pool from a thin pointer.** A registered `ClassFile` keeps the
+table's address and nothing else (16 B on the device). Rather than a third
+pointer per class (+4 B RAM × ~300 classes), the table's header carries the
+pool's place: `pool_rel` (w23–24, bytes from the table to the pool) and
+`pool_words` (w25), which `Link::from_raw` turns back into the pool slice.
+They are section words like `super_idx`: the builder patches them, and
+`ClassSection::class` refuses a table whose pool words do not name the
+section's pool (`BadPool`), so every class the JVM registers came through
+that check. `Link` now carries `{ words, pool }`; `Linked` is unchanged.
+
+**What validation proves.** `Link::validate` walks the pooled class, checks
+each `Utf8` ref names an entry, and re-derives every other word reading the
+`Utf8`s through those refs — names are hashed and UTF-8-checked from the
+same bytes the runtime will read. `ClassSection::validate` adds that the
+pool's entries tile it with zero padding. A `Utf8` ref is the class's
+content, as its bytes were: corrupt one and the class names other bytes,
+which the hashes then disagree with wherever the table depends on them.
+
+**One format, so no section-less tables.** `link_class` now links a class as
+a section of its own; `ClassFile::parse` (tests, `link-at-load`) leaks that
+section 4-aligned. `build::unpooled_class` is the inverse — the class file
+back from a pooled class — used by `papk-pack --repack` and by the corpus
+test that rebuilds the whole embedded section from its own classes and
+requires the same bytes (`framework_section_relinks_byte_for_byte`). The
+corpus tests that re-parsed `class_bytes()` now take `class_files()`.
+
+### Results
+
+The framework section, release, measured on the built `framework_clss.bin`:
+
+| board, mode | before | after | change |
+|---|---|---|---|
+| testbench_rp2040, no-shrink | 261,296 B | 219,256 B | −42,040 B (−16.1 %) |
+| testbench_rp2040, shrink | 197,648 B | 181,608 B | −16,040 B (−8.1 %) |
+| testbench_rp2350, no-shrink | 561,804 B | 460,796 B | −101,008 B (−18.0 %) |
+
+Firmware, size lane (`parity-bench.sh --size-only`, release helloworld):
+testbench_rp2040 1,042,044 → 1,002,504 B of program flash against
+`ratchet.toml`, testbench_rp2350 1,587,808 → 1,475,636 B; static RAM
+unchanged on both. The ratchet figures were taken elsewhere (a build path
+of a different length moves the panic strings by kilobytes), so the
+like-for-like number is the RP2040 against 3b654785 built here the same
+way: 1,044,916 → 1,002,504 B, −42,412 B, of which the section is −42,040 B
+and code −424 B per symbol — no code growth from the pool's indirection.
+The shrunk RP2040 image, the same way: −16,436 B per symbol.
+App sections, unshrunk, against the v2 size of the same classes:
+claudeusage −26,268 B (−18.8 %), injectdemo −7,012 B (−25.1 %),
+collectionsdemo −516 B, calculator −136 B; a one-class app grows by the
+16-byte section header, entry 0 and padding (helloworld +52 B).
+
+On the bench (`hil-run.sh`, both shrink modes): every helloworld row on
+testbench_rp2040 and on the RP2350 W slot (pico_enviro_mon_w) — on-device
+`pdb install` with its deep check, the reject rows, and on the W slot the
+multi-app rows (list, uninstall, no-room, compact) over the baked launcher
+and settings — plus benchmark, qa_lang, qa_oop and (RP2350) langsuite: all
+PASS. Benchmark TOTAL against that morning's nightly at 3b654785: W slot
+−1.3 % (no-shrink) and −2.6 % (shrink), every section within ±7 %;
+testbench_rp2040 −1.1 % and +2.3 %, where the large per-section swings are
+in sections that never read a `Utf8` (double arithmetic +41 %, control flow
+−17 %, shrink) — the RP2040's code-placement noise — while the sections on
+the changed path are flat or faster (native static dispatch, which decodes
+the names on every call, −7.7 % / −7.6 %; builtin dispatch −4.0 % / −3.3 %).
+
+Not done here: an app section sharing the framework's pool (apps are
+already tied to one framework build by `framework-map-version`); the
+unused second framework blob `platforms/rp/build.rs` builds; the unshrunk
+framework path skipping papk-pack's modified-UTF-8 normalisation.

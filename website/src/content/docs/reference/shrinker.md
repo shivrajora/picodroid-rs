@@ -326,8 +326,11 @@ name, of its superclass and of each interface, and a signature hash
 by name hash (`crates/class-link`). The hashes are 32-bit FNV-1a over the
 names as the class file spells them, so under `--shrink` they are hashes
 of the shrunk names, the same ones the runtime computes over its `c::` /
-`m::` constants. Nothing in the shrinker changed for it, and the
-`.class` bytes in the PAPK are still exactly what the shrinker wrote.
+`m::` constants. Nothing in the shrinker changed for it. Since PAPK v3
+(2026-10-13) the section also keeps every `Utf8` constant of the set once,
+in a shared pool, and each class keeps only the entry's tag byte, so the
+bytes in the PAPK are what the shrinker wrote minus those constants;
+`class_link::build::unpooled_class` puts them back.
 
 Two names in one set that hash alike cannot be told apart by the index,
 so the linker refuses the set (`two class names hash alike`), as it

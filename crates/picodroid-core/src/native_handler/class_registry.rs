@@ -183,7 +183,6 @@ pub fn is_excluded_on_this_board(class: &str) -> bool {
 mod tests {
     use super::{api_hint, API_HINTS, PICODROID_NATIVE_CLASSES};
     use crate::shrink_names::{c, m};
-    use pico_jvm::class_file::ClassFile;
     use pico_jvm::native::BUILTIN_CLASS_NAMES;
 
     #[test]
@@ -249,8 +248,8 @@ mod tests {
     #[test]
     fn intent_field_slots_match_fields_rs() {
         use crate::shrink_names::{c, m};
-        let intent = crate::framework_classes::class_bytes()
-            .map(|b| ClassFile::parse(b).expect("parse framework class"))
+        let intent = crate::framework_classes::class_files()
+            .into_iter()
             .find(|cf| cf.class_name() == Some(c::picodroid_content_Intent.as_bytes()))
             .expect("Intent is a framework class");
         let names: Vec<&str> = intent
@@ -275,8 +274,7 @@ mod tests {
     fn every_native_class_is_registered() {
         let mut native_classes = 0;
         let mut missing: Vec<&str> = Vec::new();
-        for bytes in crate::framework_classes::class_bytes() {
-            let cf = ClassFile::parse(bytes).expect("parse framework class");
+        for cf in crate::framework_classes::class_files() {
             let declares_native = cf
                 .methods()
                 .iter()
@@ -343,8 +341,7 @@ mod tests {
     fn no_bodiless_java_framework_classes() {
         let mut java_classes = 0;
         let mut bodiless: Vec<(&str, usize)> = Vec::new();
-        for bytes in crate::framework_classes::class_bytes() {
-            let cf = ClassFile::parse(bytes).expect("parse framework class");
+        for cf in crate::framework_classes::class_files() {
             let loaded = core::str::from_utf8(cf.class_name().expect("class name"))
                 .expect("class name is UTF-8");
             // Un-shrink first: `java/**` is kept verbatim by sdk/keep.toml
@@ -363,13 +360,13 @@ mod tests {
                 .iter()
                 .any(|m| m.code_offset != 0 || m.access_flags & ACC_NATIVE != 0);
             if !has_body {
-                bodiless.push((original, bytes.len()));
+                bodiless.push((original, cf.data().len()));
             }
         }
         assert!(
             bodiless.is_empty(),
             "{} embedded java/** class(es) declare no method with a Code \
-             attribute or ACC_NATIVE: {:?} (name, .class bytes). javac \
+             attribute or ACC_NATIVE: {:?} (name, pooled class bytes). javac \
              --release 8 resolves java.* from the JDK's ct.sym, so no app \
              compiles against these files, and dispatch goes by the receiver's \
              runtime class, so the JVM never reads them — they are pure flash \

@@ -3,11 +3,14 @@
 //!
 //! The table is a sequence of little-endian `u16` words, 4-byte aligned,
 //! immutable, stored right after its class bytes. Every byte offset in it
-//! is into the class bytes; every word offset is into the table itself.
+//! is into the class bytes; every word offset is into the table itself;
+//! every `Utf8` ref is into the section's pool ([`crate::section`]), in
+//! 4-byte units. The class bytes are pooled: each `Utf8` entry is its tag
+//! byte alone, its bytes in the pool.
 //!
 //! ```text
-//! header, 24 words:
-//!  w0  LINK_MAGIC (0x4B02: 'K', layout version 2)
+//! header, 26 words:
+//!  w0  LINK_MAGIC (0x4B03: 'K', layout version 3)
 //!  w1  total_words       the whole table, header included (even)
 //!  w2  class_len         == the class bytes' length
 //!  w3  cp_count          constant_pool_count
@@ -17,8 +20,8 @@
 //!  w10 mrefs_off         word offset of the Methodref descriptors
 //!  w11 bsm_off           byte offset of the BootstrapMethods body, 0 = none
 //!  w12 access_flags
-//!  w13 name_off          byte offset of this class's name Utf8 data ([u16 len][bytes])
-//!  w14 super_off         the same for the superclass name; 0 = no superclass
+//!  w13 name_ref          Utf8 ref of this class's name
+//!  w14 super_ref         the same for the superclass name; 0 = no superclass
 //!                        (java/lang/Object itself — the runtime treats a
 //!                        super whose hash is Object's the same way)
 //!  w15 source_file_idx   CP index of the SourceFile Utf8, 0 = none
@@ -29,11 +32,13 @@
 //!                        long or double takes two)
 //!  w22 super_idx         the superclass's position in the section's
 //!                        directory, SUPER_NONE when it is not in the section
-//!  w23 0                 reserved
+//!  w23-24 pool_rel       u32, byte distance from this table's first byte
+//!                        to the section pool's
+//!  w25 pool_words        the pool's length in 4-byte units
 //! regions, in this order:
 //!  cp_words[cp_count]        entry i's data offset (after its tag byte); for
-//!                            a Methodref or a String, the WORD offset of
-//!                            its descriptor
+//!                            a Utf8, its ref; for a Methodref or a String,
+//!                            the WORD offset of its descriptor
 //!  tags[(cp_count+1)/2]      the tags, two a word, entry i at byte i
 //!  fields[fields_len]        FieldInfo, 3 words
 //!  statics[statics_len]      FieldInfo, 3 words
@@ -44,32 +49,34 @@
 //!  [pad word]                to an even total
 //! ```
 //!
-//! Two kinds of word are not derived from the class bytes alone, because
+//! Three kinds of word are not derived from the class bytes alone, because
 //! they name something in the *section* ([`crate::section`]): a
-//! [`StringDesc`]'s literal id (a row of the section's literal pool) and
-//! `super_idx` (where the superclass sits in the section). The section
-//! builder fills them in and the section's validation checks them; a table
-//! linked on its own carries [`LIT_NONE`] and [`SUPER_NONE`].
+//! [`StringDesc`]'s literal id (a row of the section's literal pool),
+//! `super_idx` (where the superclass sits in the section) and the pool's
+//! place (`pool_rel`, `pool_words`). The section builder fills them in and
+//! the section's validation checks them.
 //!
 //! What is *not* here is read from the class bytes at a fixed distance from
 //! something that is: a method's `max_stack`, `max_locals` and
 //! `code_length` sit 8, 6 and 4 bytes before its `code_offset`; its name and
 //! descriptor indices 2 and 4 bytes after its `info_offset`.
 
-use crate::classfile::{be16, be32, is_methodref, utf8_at, TAG_CLASS, TAG_STRING, TAG_UTF8};
+use crate::classfile::{
+    be16, be32, is_methodref, pool_utf8, POOL_ALIGN, TAG_CLASS, TAG_STRING, TAG_UTF8,
+};
 use crate::error::LinkError;
 
-/// `'K'` in the low byte, layout version 2 in the high byte.
-pub const LINK_MAGIC: u16 = 0x4B02;
+/// `'K'` in the low byte, layout version 3 in the high byte.
+pub const LINK_MAGIC: u16 = 0x4B03;
 /// Header length, in words.
-pub const HEADER_WORDS: usize = 24;
+pub const HEADER_WORDS: usize = 26;
 
-/// A [`StringDesc`] literal id meaning "not in a pool": the table was
-/// linked outside a section.
+/// The [`StringDesc`] literal id a table is derived with, before the
+/// section builder numbers its literals. Every table in a section carries
+/// a real row.
 pub const LIT_NONE: u16 = u16::MAX;
 /// A `super_idx` meaning "not in this section": the class has no
-/// superclass, its superclass is in another set or has no class file, or
-/// the table was linked outside a section.
+/// superclass, or its superclass is in another set or has no class file.
 pub const SUPER_NONE: u16 = u16::MAX;
 
 /// What a field holds, as far as its default value and its width go
@@ -129,18 +136,23 @@ mod hdr {
     pub const MREFS_OFF: usize = 10;
     pub const BSM_OFF: usize = 11;
     pub const ACCESS_FLAGS: usize = 12;
-    pub const NAME_OFF: usize = 13;
-    pub const SUPER_OFF: usize = 14;
+    pub const NAME_REF: usize = 13;
+    pub const SUPER_REF: usize = 14;
     pub const SOURCE_FILE_IDX: usize = 15;
     pub const NAME_HASH: usize = 16;
     pub const SUPER_HASH: usize = 18;
     pub const STRS_LEN: usize = 20;
     pub const OWN_SLOTS: usize = 21;
     pub const SUPER_IDX: usize = 22;
+    pub const POOL_REL: usize = 23;
+    pub const POOL_WORDS: usize = 25;
 }
 
 /// Word index of `super_idx`, for the section builder that fills it in.
 pub const SUPER_IDX_WORD: usize = hdr::SUPER_IDX;
+/// Word index of `pool_rel` (two words) and of `pool_words`, likewise.
+pub const POOL_REL_WORD: usize = hdr::POOL_REL;
+pub const POOL_WORDS_WORD: usize = hdr::POOL_WORDS;
 
 /// A record stored inline in the table.
 ///
@@ -183,8 +195,8 @@ impl FieldInfo {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IfaceInfo {
-    /// Byte offset of the interface name's Utf8 data in the class bytes.
-    pub utf8_off: u16,
+    /// `Utf8` ref of the interface name.
+    pub utf8_ref: u16,
     hash_lo: u16,
     hash_hi: u16,
 }
@@ -299,17 +311,21 @@ fn words_as<T: WordRecord>(w: &[u16]) -> &[T] {
     unsafe { core::slice::from_raw_parts(w.as_ptr().cast::<T>(), w.len() / T::WORDS) }
 }
 
-/// One class's link table, read in place.
+/// One class's link table, read in place, with the pool of the section
+/// it belongs to.
 #[derive(Clone, Copy, Debug)]
 pub struct Link<'a> {
     words: &'a [u16],
+    pool: &'a [u8],
 }
 
 impl<'a> Link<'a> {
-    /// A table from its words. Checks the header's magic and that
-    /// `total_words` is the slice's length — nothing deeper; that is
-    /// [`Self::validate`]'s job, done once when a set is built or installed.
-    pub fn new(words: &'a [u16]) -> Result<Self, LinkError> {
+    /// A table from its words and its section's pool. Checks the header's
+    /// magic and that `total_words` is the slice's length — nothing deeper;
+    /// that is [`Self::validate`]'s job, done once when a set is built or
+    /// installed. That `pool` is where the header's pool words say is the
+    /// section's to check ([`crate::ClassSection`]).
+    pub fn new(words: &'a [u16], pool: &'a [u8]) -> Result<Self, LinkError> {
         if words.len() < HEADER_WORDS
             || words[hdr::MAGIC] != LINK_MAGIC
             || words[hdr::TOTAL_WORDS] as usize != words.len()
@@ -318,7 +334,7 @@ impl<'a> Link<'a> {
         }
         // The regions must tile the table in order, so that every slice an
         // accessor takes is in bounds by construction.
-        let l = Link { words };
+        let l = Link { words, pool };
         let cp_end = HEADER_WORDS + l.cp_count() + crate::classfile::tag_words(l.cp_count());
         let members_end = cp_end + 3 * l.fields_len() + 3 * l.statics_len() + 3 * l.ifaces_len();
         if members_end != l.methods_off()
@@ -331,8 +347,8 @@ impl<'a> Link<'a> {
     }
 
     /// A table from its bytes, which must be 2-byte aligned (the section
-    /// writer 4-aligns them).
-    pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, LinkError> {
+    /// writer 4-aligns them), and its section's pool.
+    pub fn from_bytes(bytes: &'a [u8], pool: &'a [u8]) -> Result<Self, LinkError> {
         if !(bytes.as_ptr() as usize).is_multiple_of(2) {
             return Err(LinkError::Misaligned);
         }
@@ -344,27 +360,59 @@ impl<'a> Link<'a> {
         // (asserted at the crate root), so the words read as written.
         let words =
             unsafe { core::slice::from_raw_parts(bytes.as_ptr().cast::<u16>(), bytes.len() / 2) };
-        Self::new(words)
+        Self::new(words, pool)
     }
 
-    /// A table from a pointer to its first word.
+    /// A table from a pointer to its first word; the pool is where the
+    /// table's header says.
     ///
     /// # Safety
-    /// `ptr` must point at a table that [`Self::new`] accepted, alive for
-    /// `'a`; the table's `total_words` (word 1) is its length.
+    /// `ptr` must point at a table that [`crate::ClassSection::class`]
+    /// handed out, alive for `'a`: the table's `total_words` (word 1) is
+    /// its length, and its pool words were checked there to name the
+    /// section's pool, which lives as long.
     pub unsafe fn from_raw(ptr: *const u16) -> Self {
-        // SAFETY: the caller's contract; word 1 is within any table.
-        let total = unsafe { *ptr.add(hdr::TOTAL_WORDS) } as usize;
-        // SAFETY: as above, `total` words starting at `ptr` are the table.
-        Link {
-            words: unsafe { core::slice::from_raw_parts(ptr, total) },
-        }
+        // SAFETY: the caller's contract: word 1 is within any table, and
+        // the `total_words` it holds, starting at `ptr`, are the table.
+        let words =
+            unsafe { core::slice::from_raw_parts(ptr, *ptr.add(hdr::TOTAL_WORDS) as usize) };
+        let l = Link { words, pool: &[] };
+        // SAFETY: the caller's contract: `pool_rel` bytes past the table's
+        // first byte lie `4 * pool_words` bytes of the same section.
+        let pool = unsafe {
+            core::slice::from_raw_parts(ptr.cast::<u8>().add(l.pool_rel()), l.pool_len())
+        };
+        Link { words, pool }
     }
 
     /// The table's words.
     #[inline]
     pub fn words(&self) -> &'a [u16] {
         self.words
+    }
+
+    /// The section's `Utf8` pool.
+    #[inline]
+    pub fn pool(&self) -> &'a [u8] {
+        self.pool
+    }
+
+    /// The bytes `Utf8` ref `r` names.
+    #[inline]
+    pub fn utf8_ref(&self, r: usize) -> Option<&'a [u8]> {
+        pool_utf8(self.pool, r)
+    }
+
+    /// Byte distance from the table's first byte to the pool's.
+    #[inline]
+    pub fn pool_rel(&self) -> usize {
+        self.word32(hdr::POOL_REL) as usize
+    }
+
+    /// The pool's length in bytes, as the header gives it.
+    #[inline]
+    pub fn pool_len(&self) -> usize {
+        POOL_ALIGN * self.words[hdr::POOL_WORDS] as usize
     }
 
     /// Pointer to the first word — what a 12-byte class-table entry keeps.
@@ -448,15 +496,15 @@ impl<'a> Link<'a> {
     pub fn access_flags(&self) -> u16 {
         self.words[hdr::ACCESS_FLAGS]
     }
-    /// Byte offset of this class's name Utf8 data.
+    /// `Utf8` ref of this class's name.
     #[inline]
-    pub fn name_off(&self) -> usize {
-        self.words[hdr::NAME_OFF] as usize
+    pub fn name_ref(&self) -> usize {
+        self.words[hdr::NAME_REF] as usize
     }
-    /// Byte offset of the superclass name Utf8 data; 0 = no superclass.
+    /// `Utf8` ref of the superclass name; 0 = no superclass.
     #[inline]
-    pub fn super_off(&self) -> usize {
-        self.words[hdr::SUPER_OFF] as usize
+    pub fn super_ref(&self) -> usize {
+        self.words[hdr::SUPER_REF] as usize
     }
     /// CP index of the `SourceFile` Utf8; 0 = none.
     #[inline]
@@ -512,8 +560,8 @@ impl<'a> Link<'a> {
     }
 
     /// Byte offset of entry `i`'s data in the class bytes (0 for a tag-0
-    /// slot). A `Methodref`'s and a `String`'s are read through their
-    /// descriptors.
+    /// slot); a `Utf8`'s ref into the pool. A `Methodref`'s and a
+    /// `String`'s are read through their descriptors.
     #[inline]
     pub fn cp_offset(&self, i: usize) -> Option<usize> {
         let tag = self.cp_tag(i)?;
@@ -637,13 +685,13 @@ impl<'a> Linked<'a> {
         if self.link.cp_tag(i)? != TAG_UTF8 {
             return None;
         }
-        utf8_at(self.class, self.link.cp_offset(i)?)
+        self.link.utf8_ref(self.link.cp_word(i)? as usize)
     }
 
     /// This class's name, as the class file spells it.
     #[inline]
     pub fn name(&self) -> Option<&'a [u8]> {
-        utf8_at(self.class, self.link.name_off())
+        self.link.utf8_ref(self.link.name_ref())
     }
 
     /// The superclass name, `None` when the class has none (it is
@@ -651,17 +699,17 @@ impl<'a> Linked<'a> {
     /// Object here; the runtime recognises that by hash.
     #[inline]
     pub fn super_name(&self) -> Option<&'a [u8]> {
-        let off = self.link.super_off();
-        if off == 0 {
+        let r = self.link.super_ref();
+        if r == 0 {
             return None;
         }
-        utf8_at(self.class, off)
+        self.link.utf8_ref(r)
     }
 
     /// Name of interface record `f`.
     #[inline]
     pub fn interface_name(&self, f: &IfaceInfo) -> Option<&'a [u8]> {
-        utf8_at(self.class, f.utf8_off as usize)
+        self.link.utf8_ref(f.utf8_ref as usize)
     }
 
     /// The name a `Class` entry `i` refers to.
