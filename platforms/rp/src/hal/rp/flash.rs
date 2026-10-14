@@ -138,7 +138,19 @@ pub unsafe fn flash_read(flash_offset: u32, buf: &mut [u8]) {
 /// `#[inline(always)]`, which is only a compiler hint.  A non-inlined call
 /// would jump into .text (flash), causing a hard-fault once XIP is disabled.
 macro_rules! with_xip_disabled {
+    // An operation that is one ROM call, its pointer bound to `$op`.
     ($op_fn:ident, |$op:ident| $body:expr) => {{
+        #[cfg(feature = "chip-rp2350")]
+        use rp235x_hal::rom_data;
+        #[cfg(feature = "chip-rp2040")]
+        use rp_pico::hal::rom_data;
+
+        // Resolved while XIP is still enabled, like the sequence's own.
+        let $op = rom_data::$op_fn::ptr();
+        with_xip_disabled!($body)
+    }};
+    // An operation written out in RAM-resident code (the unique-ID read).
+    ($body:expr) => {{
         #[cfg(feature = "chip-rp2350")]
         use rp235x_hal::rom_data;
         #[cfg(feature = "chip-rp2040")]
@@ -147,7 +159,6 @@ macro_rules! with_xip_disabled {
         // Pre-resolve all ROM function pointers while XIP is still enabled.
         let connect = rom_data::connect_internal_flash::ptr();
         let exit_xip = rom_data::flash_exit_xip::ptr();
-        let $op = rom_data::$op_fn::ptr();
         let flush = rom_data::flash_flush_cache::ptr();
 
         // Capture the fast-XIP restore state (still XIP-enabled; raw
@@ -275,6 +286,78 @@ pub unsafe fn flash_program_range(flash_offset: u32, data: *const u8, len: usize
 unsafe fn flash_program_range_xip_off(flash_offset: u32, data: *const u8, len: usize) {
     with_xip_disabled!(flash_range_program, |program| {
         program(flash_offset, data, len)
+    });
+}
+
+// ── Unique ID (RP2040) ───────────────────────────────────────────────────────
+
+/// Bytes of the `4Bh` exchange: the command, four dummy bytes, the 64-bit ID.
+#[cfg(feature = "chip-rp2040")]
+const UNIQUE_ID_XFER: usize = 1 + 4 + 8;
+
+/// The QSPI flash's 64-bit unique ID (JEDEC `4Bh`): what the Pico SDK's
+/// `pico_unique_board_id` reads, and so the serial an RP2040 Debug Probe
+/// shows. A flash without the command answers all `0xFF`, which
+/// `identity` refuses and replaces.
+///
+/// # Safety
+/// No other flash operation in flight, as for [`flash_erase_range`]. Its one
+/// caller is `identity::init`, which boot runs before the scheduler starts.
+#[cfg(feature = "chip-rp2040")]
+pub unsafe fn flash_unique_id() -> [u8; 8] {
+    let _park = super::core1_park::park_core1_for_flash();
+    let mut rx = [0u8; UNIQUE_ID_XFER];
+    flash_unique_id_xip_off(&mut rx);
+    let mut id = [0u8; 8];
+    id.copy_from_slice(&rx[UNIQUE_ID_XFER - 8..]);
+    id
+}
+
+/// The exchange itself, as the Pico SDK's `flash_do_cmd` runs it: chip
+/// select forced low, the SSI (left in serial mode by `flash_exit_xip`)
+/// clocking one byte out for each byte in, then chip select released. No
+/// indexing and no `?`: a bounds-check panic would call into flash.
+#[cfg(feature = "chip-rp2040")]
+#[link_section = ".data"]
+#[inline(never)]
+unsafe fn flash_unique_id_xip_off(rx: &mut [u8; UNIQUE_ID_XFER]) {
+    // IO_QSPI GPIO_QSPI_SS_CTRL, and its OUTOVER field (bits 8..9).
+    const SS_CTRL: *mut u32 = (0x4001_8000 + 0x0c) as *mut u32;
+    const OUTOVER_MASK: u32 = 0b11 << 8;
+    const OUTOVER_LOW: u32 = 0b10 << 8;
+    const OUTOVER_HIGH: u32 = 0b11 << 8;
+    // XIP_SSI SR and DR0.
+    const SSI_SR: *const u32 = (0x1800_0000 + 0x28) as *const u32;
+    const SSI_DR0: *mut u32 = (0x1800_0000 + 0x60) as *mut u32;
+    const SR_TFNF: u32 = 1 << 1;
+    const SR_RFNE: u32 = 1 << 3;
+    // The SDK's bound on bytes in flight: the FIFOs are 16 deep.
+    const MAX_IN_FLIGHT: usize = 16 - 2;
+    // 13 bytes take microseconds; the cap only stops a wedged SSI from
+    // hanging boot with interrupts off. An unanswered ID reads as zeros,
+    // which `identity` refuses.
+    const MAX_POLLS: u32 = 100_000;
+
+    let out = rx.as_mut_ptr();
+    with_xip_disabled!({
+        let ctrl = SS_CTRL.read_volatile();
+        SS_CTRL.write_volatile((ctrl & !OUTOVER_MASK) | OUTOVER_LOW);
+        let mut sent = 0usize;
+        let mut got = 0usize;
+        let mut polls = 0u32;
+        while got < UNIQUE_ID_XFER && polls < MAX_POLLS {
+            polls += 1;
+            let sr = SSI_SR.read_volatile();
+            if sr & SR_TFNF != 0 && sent < UNIQUE_ID_XFER && sent - got < MAX_IN_FLIGHT {
+                SSI_DR0.write_volatile(if sent == 0 { 0x4B } else { 0 });
+                sent += 1;
+            }
+            if sr & SR_RFNE != 0 && got < sent {
+                out.add(got).write(SSI_DR0.read_volatile() as u8);
+                got += 1;
+            }
+        }
+        SS_CTRL.write_volatile((ctrl & !OUTOVER_MASK) | OUTOVER_HIGH);
     });
 }
 

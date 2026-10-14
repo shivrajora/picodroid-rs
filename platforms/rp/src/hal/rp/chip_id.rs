@@ -29,8 +29,10 @@ pub fn device_serial() -> Option<Serial> {
     Serial::from_id_bytes(&id)
 }
 
-/// Not read yet: `identity`'s fallback serves the RP2040 meanwhile.
 #[cfg(feature = "chip-rp2040")]
 pub fn device_serial() -> Option<Serial> {
-    None
+    // SAFETY: `identity::init`'s contract — boot calls it before the
+    // scheduler starts, so no other flash operation can be in flight.
+    let id = unsafe { super::flash::flash_unique_id() };
+    Serial::from_id_bytes(&id)
 }
