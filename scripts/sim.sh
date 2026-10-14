@@ -194,7 +194,7 @@ if [[ -n "$APK_PATH" ]]; then
   fi
 else
   bash "$SCRIPT_DIR/build-apk.sh" --app "$APP" ${BOARD:+--board "$BOARD"}
-  APK_PATH="$SCRIPT_DIR/../build/apks/${APP}.papk"
+  APK_PATH="$SCRIPT_DIR/../build/apks/$(papk_file_name "$APP")"
 fi
 
 # Step 1b: the system apps (the launcher), loaded into the simulated
@@ -206,7 +206,7 @@ if [[ -n "$SYSTEM_APPS" ]]; then
     [[ -f "$dir/PicodroidManifest.xml" ]] || continue
     name="$(basename "$dir")"
     bash "$SCRIPT_DIR/build-apk.sh" --app "$name" ${BOARD:+--board "$BOARD"}
-    SYSTEM_APKS="${SYSTEM_APKS:+$SYSTEM_APKS:}$SCRIPT_DIR/../build/apks/${name}.papk"
+    SYSTEM_APKS="${SYSTEM_APKS:+$SYSTEM_APKS:}$SCRIPT_DIR/../build/apks/$(papk_file_name "$name")"
   done
 fi
 

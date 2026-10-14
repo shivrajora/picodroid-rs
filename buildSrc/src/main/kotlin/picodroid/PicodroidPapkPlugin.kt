@@ -42,7 +42,8 @@ import java.io.File
  * Shrinking gate: enabled by Gradle property `picodroid.shrink=true` or env
  * `PICODROID_SHRINK=1`. When enabled and a map is committed for the current
  * Cargo-root version, the map is applied; otherwise we pass the "0.0.0"
- * sentinel and skip the rewrite.
+ * sentinel and skip the rewrite. Under the gate the PAPK is written as
+ * `<app>-shrunk.papk`.
  *
  * App shrinking (`picodroid.shrinkApp=true` / `PICODROID_SHRINK_APP=1`, on
  * top of the shrink gate): a [CutAppMapTask] stage extends the release map
@@ -462,7 +463,10 @@ class PicodroidPapkPlugin : Plugin<Project> {
             packerSources.from(resCompilerSources)
             if (shrinkMapFile != null) wireActiveMap(this.shrinkMapFile)
             repoRoot.resolve("sdk/class-names.tsv").takeIf { it.isFile }?.let { frameworkClassesFile.set(it) }
-            outputFile.set(target.layout.buildDirectory.file("papk/${target.name}.papk"))
+            // A shrunk PAPK only installs on a firmware built with the same map,
+            // so its name says so: <app>-shrunk.papk (lib.sh papk_file_name).
+            val papkName = if (shrinkEnabled) "${target.name}-shrunk" else target.name
+            outputFile.set(target.layout.buildDirectory.file("papk/$papkName.papk"))
             this.hostTarget.set(hostTarget)
             repoRootPath.set(repoRoot.absolutePath)
         }

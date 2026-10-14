@@ -127,7 +127,7 @@ build_system_apks() {
     name="$(basename "$dir")"
     bash "$SCRIPT_DIR/build-apk.sh" --app "$name" --strip-debug \
       ${keep_lines[@]+"${keep_lines[@]}"} ${BOARD:+--board "$BOARD"} || return 1
-    list="${list:+$list:}$REPO_ROOT/build/apks/${name}.papk"
+    list="${list:+$list:}$REPO_ROOT/build/apks/$(papk_file_name "$name")"
   done
   export PICODROID_SYSTEM_APKS="$list"
 }
@@ -192,7 +192,7 @@ build_firmware() {
     # line-numbers feature (above). sim.sh builds its own PAPK unstripped.
     bash "$SCRIPT_DIR/build-apk.sh" --app "$APP" --strip-debug \
       ${keep_lines[@]+"${keep_lines[@]}"} ${BOARD:+--board "$BOARD"}
-    APK_PATH="$SCRIPT_DIR/../build/apks/${APP}.papk"
+    APK_PATH="$SCRIPT_DIR/../build/apks/$(papk_file_name "$APP")"
   fi
 
   # Step 1b: the system apps this board's firmware carries (multi-app M2).

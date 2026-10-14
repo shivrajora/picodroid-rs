@@ -247,7 +247,7 @@ if $DO_SIM; then
       run_dir="$(new_run_dir "$run")"
       local_log="$run_dir/$app.$mode_tag.log"
       # Bench apps terminate on their own; the timeout is a hang backstop.
-      PICODROID_APK_PATH="$REPO_ROOT/build/apks/$app.papk" \
+      PICODROID_APK_PATH="$REPO_ROOT/build/apks/$(papk_file_name "$app")" \
         PICODROID_SIM_HEADLESS=1 \
         timeout 600 "$REPO_ROOT/target/$HOST_TARGET/release/picodroid" \
         > "$local_log" 2>&1 || true

@@ -24,18 +24,20 @@ Usage: $(basename "$0") [OPTIONS]
 
 Options:
   -a, --app    <app>    Example app to build
-  -o, --output <file>   Output path (default: build/apks/<app>.papk)
+  -o, --output <file>   Output path (default: build/apks/<app>.papk, or
+                        build/apks/<app>-shrunk.papk with --shrink)
       --shrink          Apply the active release shrink map (class-name
                         shrinking). Off by default; also honored via
-                        PICODROID_SHRINK=1. App names that collide with a
+                        PICODROID_SHRINK=1. The PAPK is named
+                        <app>-shrunk.papk. App names that collide with a
                         shrunk framework name are renamed; the merged map
-                        lands next to the PAPK (<app>.shrink-map.toml).
+                        lands next to the PAPK (<app>-shrunk.shrink-map.toml).
                         See website/src/content/docs/reference/shrinker.md.
       --shrink-app      Also rename this app's own classes (c/…) and private
                         members, ProGuard-style, through a per-build map cut
                         on top of the release map. Requires --shrink. Also
                         honored via PICODROID_SHRINK_APP=1. Writes the merged
-                        map next to the PAPK (<app>.shrink-map.toml) for
+                        map next to the PAPK (<app>-shrunk.shrink-map.toml) for
                         scripts/retrace.sh.
       --strip-debug     Drop LineNumberTable/SourceFile (and the rest of the
                         class-metadata strip) from the packed classes. For
@@ -100,7 +102,7 @@ if [[ -z "$APP_ROOT" ]]; then
 fi
 APP_DIR="$REPO_ROOT/$APP_ROOT/$APP"
 
-OUTPUT="${OUTPUT:-$REPO_ROOT/build/apks/${APP}.papk}"
+OUTPUT="${OUTPUT:-$REPO_ROOT/build/apks/$(papk_file_name "$APP")}"
 mkdir -p "$(dirname "$OUTPUT")"
 
 # Shrinking flag is passed as an explicit Gradle property, NOT left to the
@@ -119,7 +121,7 @@ mkdir -p "$(dirname "$OUTPUT")"
 # project lock.
 if [[ "${PICODROID_SKIP_GRADLE:-}" != "1" ]]; then
   # Held from here through the copy of Gradle's output below: that file
-  # (examples/<app>/build/papk/<app>.papk) is shared by every caller, so
+  # (examples/<app>/build/papk/<app>[-shrunk].papk) is shared by every caller, so
   # two parallel builds of one app -- the fleet's runners in different
   # shrink modes -- must not interleave build and copy. Not taken under
   # PICODROID_SKIP_GRADLE=1: that caller sits inside a Gradle build that
@@ -171,7 +173,7 @@ if [[ "${PICODROID_SKIP_GRADLE:-}" != "1" ]]; then
     ${GRADLE_EXTRA_ARGS[@]+"${GRADLE_EXTRA_ARGS[@]}"} 9>&-)
 fi
 
-GRADLE_PAPK="$APP_DIR/build/papk/${APP}.papk"
+GRADLE_PAPK="$APP_DIR/build/papk/$(papk_file_name "$APP")"
 if [[ ! -f "$GRADLE_PAPK" ]]; then
   echo "Error: expected Gradle output not found: $GRADLE_PAPK" >&2
   exit 1

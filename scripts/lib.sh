@@ -84,6 +84,18 @@ cpu_count() {
   nproc 2>/dev/null || sysctl -n hw.logicalcpu
 }
 
+# File name of an app's PAPK as build-apk.sh writes it by default:
+# <app>-shrunk.papk under the shrink gate (PICODROID_SHRINK=1), so a shrunk
+# file never passes for an unshrunk one, else <app>.papk. Must match
+# PicodroidPapkPlugin's packPapk output name.
+papk_file_name() {
+  if [[ "${PICODROID_SHRINK:-}" == "1" ]]; then
+    echo "$1-shrunk.papk"
+  else
+    echo "$1.papk"
+  fi
+}
+
 # Prints available app names from the examples directory, one per line, indented.
 list_apps() {
   local examples_dir="$1"

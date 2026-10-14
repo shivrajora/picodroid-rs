@@ -225,9 +225,10 @@ What happens, per PAPK build (`buildSrc` task `cutAppShrinkMap`):
 2. `shrinkMembers`, `shrinkClasses` and `papk-pack` read that **merged**
    map instead of the release map. `papk-pack` spells the manifest entry
    (`main-class` / `activity` / `application`) through it.
-3. `build-apk.sh` copies the merged map next to the PAPK as
-   `build/apks/<app>.shrink-map.toml`. That file is the PAPK's retrace
-   key: `./scripts/retrace.sh build/apks/<app>.shrink-map.toml < log`.
+3. `build-apk.sh` copies the merged map next to the PAPK
+   (`build/apks/<app>-shrunk.papk`) as
+   `build/apks/<app>-shrunk.shrink-map.toml`. That file is the PAPK's
+   retrace key: `./scripts/retrace.sh build/apks/<app>-shrunk.shrink-map.toml < log`.
 
 The firmware is untouched: it resolves app classes only through the
 PAPK's own class table, and `framework-map-version` still names the

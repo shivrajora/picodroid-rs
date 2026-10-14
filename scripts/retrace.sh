@@ -10,7 +10,7 @@
 #        ./scripts/sim.sh --app foo --shrink 2>&1 | ./scripts/retrace.sh
 #        # an app-shrunk PAPK (--shrink-app) needs its own merged map:
 #        ./scripts/sim.sh --app foo --shrink --shrink-app 2>&1 \
-#          | ./scripts/retrace.sh build/apks/foo.shrink-map.toml
+#          | ./scripts/retrace.sh build/apks/foo-shrunk.shrink-map.toml
 #        # a release device log, frames resolved for the SDK and the app:
 #        ./scripts/retrace.sh --app foo < rtt.log
 #
