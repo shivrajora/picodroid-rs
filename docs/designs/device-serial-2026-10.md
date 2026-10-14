@@ -1,8 +1,9 @@
 # Device serial numbers (2026-10-14)
 
 **Status: built 2026-10-14, stages 1–8 (`44df949b`..); open questions decided the same
-day (§4). Remaining: the touch kit has not run 2.4 firmware yet, and the two-night fleet
-check below.** Replaces the
+day (§4). All three bench boards run 2.4 firmware (the touch kit's RP2350B reads
+`1C05163AC1ACB0AA` in BOOTSEL and in the app). Remaining: the two-night fleet check
+below.** Replaces the
 tty-name and USB-position identities the host tools use today.
 
 ## 0. Problem
