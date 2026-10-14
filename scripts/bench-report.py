@@ -336,6 +336,11 @@ def sizes_from_logs(run_dir):
         board = hdr.get("board")
         if not board:
             continue
+        # A `board:debug` size row (parity-bench.sh) is a trend for a board
+        # the ratchet does not gate; reading it here would make --accept
+        # write it into ratchet.toml as a new release baseline.
+        if hdr.get("mode") == "debug":
+            continue
         for metric, value in mod.parse_log(log, "size").items():
             out[(board, metric)] = float(value)
     return out

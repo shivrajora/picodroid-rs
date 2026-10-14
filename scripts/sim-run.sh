@@ -1265,9 +1265,13 @@ for MODE in "${MODES[@]}"; do
     # PICODROID_BENCH_RECORD=0: measure into this run's directory and read it
     # straight back; never append to the tracked bench/parity/history.csv,
     # which the next nightly's `git pull --ff-only` needs left alone.
+    # pico_display2_w:debug is the trend row for the W boards' debug image,
+    # the one that overflowed its program region twice in October; it is
+    # measured, printed and kept in this run's size/ directory, and the
+    # ratchet ignores it (mode=debug).
     if PICODROID_BENCH_RECORD=0 PICODROID_SIZE_RUN_DIR="$size_dir" \
          bash "$SCRIPT_DIR/parity-bench.sh" --size-only \
-           --boards testbench_rp2040,testbench_rp2350 > "$size_log" 2>&1 \
+           --boards testbench_rp2040,testbench_rp2350,pico_display2_w:debug > "$size_log" 2>&1 \
        && python3 "$SCRIPT_DIR/bench-report.py" --ratchet --sizes-from "$size_dir" >> "$size_log" 2>&1; then
       sim_log "  PASS"
       echo "PASS size-ratchet" >> "$RESULTS_FILE"

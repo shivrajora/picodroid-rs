@@ -24,6 +24,10 @@
 #   ./scripts/parity-bench.sh --apps benchmark,perfbench
 #   ./scripts/parity-bench.sh --runs 3            # N samples, emitted as N rows
 #   ./scripts/parity-bench.sh --size-only --boards testbench_rp2040,testbench_rp2350
+#   ./scripts/parity-bench.sh --size-only --boards pico_display2_w:debug
+#       # a `:debug` suffix measures that board's debug-profile image (the one
+#       # CI links and flash.sh flashes) as a trend row, mode=debug; the
+#       # ratchet reads only the release rows
 #   ./scripts/parity-bench.sh --hil               # HIL lane (board + probe attached)
 #   ./scripts/parity-bench.sh --check             # ratio-drift check over the CSV
 set -euo pipefail
@@ -172,7 +176,7 @@ parse_log() { # env app logfile
 # and sharpest signal we have. (docs/perf-campaign-2026-08.md)
 if $DO_SIZE; then
   [[ ${#BOARDS[@]} -gt 0 ]] || BOARDS=("$BOARD")
-  echo "==> Size lane (release firmware, ${#BOARDS[@]} board(s))"
+  echo "==> Size lane (${#BOARDS[@]} board(s); release unless the entry says :debug)"
   # Every other lane leaves a log that bench-backfill.py can re-read, so its
   # rows can always be rebuilt from build/*/logs. The size lane used to write
   # straight to the CSV, which made its rows the only copy -- and the only
@@ -182,14 +186,34 @@ if $DO_SIZE; then
   # `bench-report.py --ratchet --sizes-from`) can name the directory.
   SIZE_RUN_DIR="${PICODROID_SIZE_RUN_DIR:-$REPO_ROOT/build/size/logs/$(date -u '+%Y-%m-%d_%Hh%Mm%Ss')_${COMMIT}}"
   mkdir -p "$SIZE_RUN_DIR"
-  for board in "${BOARDS[@]}"; do
+  for entry in "${BOARDS[@]}"; do
+    # `board:debug` measures the debug-profile image -- what CI links for the
+    # W boards and what flash.sh flashes by default -- so a board that is not
+    # on the ratchet still leaves a size row every night and the next
+    # program-region overflow is seen as a trend, not as a red CI link
+    # (docs/designs/flash-budget-2026-09.md, 2026-10-14 amendment). The log
+    # declares mode=debug; bench-report.py --ratchet skips those logs, so a
+    # debug row can share a run directory with the ratchet boards without
+    # ever becoming a baseline.
+    board="${entry%%:*}"
+    size_profile="${entry#*:}"
+    [[ "$size_profile" == "$entry" ]] && size_profile=release
     resolve_board "$board"
     APP="${SIZE_APP:-helloworld}"
-    PROFILE=release
-    EXTRA_ARGS=(--release)
+    if [[ "$size_profile" == debug ]]; then
+      PROFILE=debug
+      EXTRA_ARGS=()
+      size_mode=debug
+      size_tag="$board.debug"
+    else
+      PROFILE=release
+      EXTRA_ARGS=(--release)
+      size_mode=no-shrink
+      size_tag="$board"
+    fi
     # Keep the build output: sent to /dev/null, a CI link failure surfaced as
     # a bare "exit code 1" under the lane header with nothing to read.
-    build_log="$SIZE_RUN_DIR/$board.build.log"
+    build_log="$SIZE_RUN_DIR/$size_tag.build.log"
     if ! build_firmware > "$build_log" 2>&1; then
       echo "  $board: BUILD FAILED"
       tail -30 "$build_log" | sed 's/^/    /'
@@ -206,14 +230,14 @@ if $DO_SIZE; then
     {
       # Several boards share one run directory, so the filename cannot encode
       # the identity; the log declares it instead.
-      echo "#bench board=$board app=$APP mode=no-shrink"
+      echo "#bench board=$board app=$APP mode=$size_mode"
       "$SIZE_TOOL" "$ELF"
       echo "#app_region_bytes=$APP_REGION_BYTES"
       echo "#program_flash_max=$PROGRAM_FLASH_MAX"
       echo "#ram_max=$RAM_MAX"
-    } > "$SIZE_RUN_DIR/$board.size.log"
+    } > "$SIZE_RUN_DIR/$size_tag.size.log"
     printf "  %-22s flash %8d / %8d (%2d%%, %6d free)   ram %7d / %7d (%2d%%, %6d free)\n" \
-      "$board" "$flash" "$PROGRAM_FLASH_MAX" \
+      "$size_tag" "$flash" "$PROGRAM_FLASH_MAX" \
       "$(( flash * 100 / PROGRAM_FLASH_MAX ))" "$(( PROGRAM_FLASH_MAX - flash ))" \
       "$ram" "$RAM_MAX" "$(( ram * 100 / RAM_MAX ))" "$(( RAM_MAX - ram ))"
   done

@@ -69,7 +69,7 @@ Also: schema v2 emission, `TOTAL: N us` capture (previously dropped entirely),
 | flag | purpose |
 |---|---|
 | `--runs N` | N samples emitted as N rows, never pre-averaged. Sim defaults to 1 (counters are deterministic); HIL defaults to 3, **all against one flashed image**. |
-| `--size-only --boards a,b` | flash/RAM per board via `arm-none-eabi-size`, plus headroom. |
+| `--size-only --boards a,b` | flash/RAM per board via `arm-none-eabi-size`, plus headroom. Release; an entry spelled `board:debug` measures that board's debug image as a trend row (`mode=debug`) the ratchet never reads (the W boards, since 2026-10-14). |
 | `report_spread` | flags a same-image HIL batch whose p2p exceeds 0.5% as a bad board state rather than a code change. |
 
 ### Size-lane baseline (verified 2026-08-24, commit `21e41a6`)
