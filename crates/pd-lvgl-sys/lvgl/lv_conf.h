@@ -124,7 +124,14 @@
      * supplies its two entry points (2.8 KB on the RP2040). */
     #define LV_DRAW_SW_SUPPORT_RGB888       1
     #define LV_DRAW_SW_SUPPORT_XRGB8888    0
-    #define LV_DRAW_SW_SUPPORT_ARGB8888    1  /* needed internally for blending */
+    /* A rotated or scaled view draws through a TRANSFORM layer
+     * (lv_obj_style.c) that lv_refr.c allocates as ARGB8888 whenever the
+     * object does not cover the layer -- every rotation -- and
+     * View.animate().rotation()/scaleX() set exactly those styles
+     * (animations.rs). Off, the layer's children fall into the blenders'
+     * unsupported-destination arm and a rotating view vanishes. Measured
+     * at 8.4 KB on the RP2350 (2026-10-14) and kept. */
+    #define LV_DRAW_SW_SUPPORT_ARGB8888    1
     /* Premultiplied ARGB8888 is unreachable here, and LVGL defaults it ON when
      * Kconfig is absent, so it has been linked all along without being asked
      * for. It can only be hit two ways, and both are closed: an asset in that
@@ -326,7 +333,9 @@
     #define LV_LABEL_WAIT_CHAR_COUNT 3
 #endif
 #define LV_USE_LED        0
-#define LV_USE_LINE       1
+/* No SDK widget wraps lv_line (nothing calls lv_line_create and pd-lvgl-sys
+ * binds none of it); 2026-10-14, ~0.5 KB. */
+#define LV_USE_LINE       0
 #define LV_USE_LIST       1
 #define LV_USE_LOTTIE     0
 #define LV_USE_MENU       0

@@ -88,6 +88,13 @@ pub fn build(
                 // pd_blend_to_rgb888_stub.c below defines its two entry points
                 // instead (2.8 KB on the RP2040 for a target nothing renders to).
                 && !s.ends_with("blend/lv_draw_sw_blend_to_rgb888.c")
+                // Box shadows and backdrop blur: no style here ever asks
+                // for either (the dark theme sets no shadow, no setter is
+                // bound), but the task dispatch in lv_draw_sw.c names both
+                // entry points. pd_draw_sw_stubs.c defines them instead
+                // (4.6 KB on the RP2350 at -Os, 2026-10-14).
+                && !s.ends_with("sw/lv_draw_sw_box_shadow.c")
+                && !s.ends_with("sw/lv_draw_sw_blur.c")
         })
         .collect();
 
@@ -169,6 +176,10 @@ pub fn build(
     let rgb888_stub = conf_dir.join("pd_blend_to_rgb888_stub.c");
     build.file(&rgb888_stub);
     println!("cargo:rerun-if-changed={}", rgb888_stub.display());
+    // Likewise for the excluded box-shadow and blur renderers.
+    let draw_sw_stubs = conf_dir.join("pd_draw_sw_stubs.c");
+    build.file(&draw_sw_stubs);
+    println!("cargo:rerun-if-changed={}", draw_sw_stubs.display());
 
     // The retained display list behind `picodroid.graphics.Canvas`
     // (`graphics/lvgl/widgets/canvas.rs`): every board that keeps

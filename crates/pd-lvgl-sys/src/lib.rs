@@ -1958,6 +1958,45 @@ mod tests {
         }
     }
 
+    /// `build_support/lvgl.rs` compiles pd_draw_sw_stubs.c in place of
+    /// LVGL's box-shadow and blur renderers, and lv_conf.h turns the line
+    /// widget off (docs/designs/flash-budget-2026-09.md §6.5). Each rests on
+    /// something this crate controls: the dark theme (the light one styles
+    /// buttons with a shadow), no bound shadow or blur style setter, and no
+    /// bound lv_line function. Bind one and this test says what to undo.
+    #[test]
+    fn stubbed_draw_paths_and_dropped_widgets_stay_unreachable() {
+        assert_eq!(
+            lookup_define(LV_CONF, "LV_THEME_DEFAULT_DARK"),
+            Some(1),
+            "the light default theme sets a button box shadow: restore \
+             lv_draw_sw_box_shadow.c in build_support/lvgl.rs before switching"
+        );
+        assert_eq!(
+            lookup_define(LV_CONF, "LV_USE_LINE"),
+            Some(0),
+            "LV_USE_LINE is on but no SDK widget wraps lv_line"
+        );
+        // The names are joined to `fn ` at run time so this test's own
+        // source does not match itself.
+        let me = include_str!("lib.rs");
+        for name in [
+            "lv_obj_set_style_shadow_",
+            "lv_style_set_shadow_",
+            "lv_obj_set_style_blur",
+            "lv_style_set_blur",
+            "lv_line_",
+        ] {
+            let decl = format!("fn {name}");
+            assert!(
+                !me.contains(&decl),
+                "{name}* is bound: the renderer behind it is stubbed out \
+                 (pd_draw_sw_stubs.c) or compiled out (LV_USE_LINE); restore it \
+                 in build_support/lvgl.rs / lv_conf.h before using the binding"
+            );
+        }
+    }
+
     #[test]
     fn lv_image_align_constants_match_vendored_header() {
         let body =
