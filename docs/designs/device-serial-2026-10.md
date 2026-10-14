@@ -1,6 +1,8 @@
 # Device serial numbers (2026-10-14)
 
-**Status: plan, not built; open questions decided 2026-10-14 (§4).** Replaces the
+**Status: built 2026-10-14, stages 1–8 (`44df949b`..); open questions decided the same
+day (§4). Remaining: the touch kit has not run 2.4 firmware yet, and the two-night fleet
+check below.** Replaces the
 tty-name and USB-position identities the host tools use today.
 
 ## 0. Problem
@@ -325,7 +327,11 @@ Each stage builds, passes `./scripts/pre-commit`, and is one commit.
    helper process) across the install, which forces the kernel to give the board a new
    minor. Pre-fix `pdb` fails this deterministically: verified 2026-10-14 on
    testbench_rp2040, where it went from ACM2 to ACM6 with "did not respond to PING". This
-   turns the flake into a test that always fails if the bug comes back.
+   turns the flake into a test that always fails if the bug comes back. **Done
+   2026-10-14** as `helloworld|pdb|90|Connected:;Install complete|install-renumber`. On
+   testbench_rp2040 it passes (ACM4 → ACM6, "Install complete."), and the pre-stage-6 pdb
+   (`049194ae`) fails it with the old 20 s warning. Without a fleet config the runner
+   finds the tty from the `devices -l` row, and with one from sysfs.
 
 **Verification:**
 

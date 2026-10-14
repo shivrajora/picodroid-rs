@@ -509,6 +509,10 @@ run_pdb_test() {
       run_pdb_install_stress "$app" "$timeout" "$patterns" "$mode"
       return
       ;;
+    install-renumber)
+      run_pdb_install_renumber_test "$app" "$timeout" "$patterns" "$mode"
+      return
+      ;;
     list)
       pdb_args=(list)
       ;;
@@ -942,6 +946,62 @@ hil_pdb_verdict() {
     echo "FAIL $test_name" >> "$RESULTS_FILE"
     FAIL=$((FAIL + 1))
   fi
+}
+
+# install-renumber: the helloworld:pdb-install flake made deterministic
+# (docs/designs/device-serial-2026-10.md stage 8). A helper holds the board's
+# current tty open across the install, so when the board resets the kernel
+# cannot reuse that minor and gives the CDC a new one, as a neighbour taking
+# it would. pdb must follow the board by its serial to "Install complete."
+# A pdb that polls the old tty name fails this every time.
+run_pdb_install_renumber_test() {
+  local app="$1" timeout="$2" patterns="$3" mode="$4"
+  local test_name="$app:pdb-install-renumber[$mode]"
+  local log_file="$RUN_LOG_DIR/${app}.pdb-install-renumber.${mode}.log"
+  local apk_path="$HIL_APK_DIR/${app}.papk"
+  local -a apk_args=(--app "$app" --board "$BOARD" --strip-debug -o "$apk_path")
+  [[ "$mode" == "shrink" ]] && apk_args+=(--shrink)
+  hil_log "  Building PAPK ($mode)..."
+  if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$RUN_LOG_DIR/${app}.pdb-renumber-${mode}.build.log" 2>&1; then
+    hil_log "  BUILD FAILED (PAPK for install-renumber)"
+    echo "ERROR $test_name (papk build failed)" >> "$RESULTS_FILE"
+    ERROR=$((ERROR + 1))
+    return
+  fi
+  : > "$log_file"
+
+  # The board's tty now: from its USB position on a fleet slot (opening
+  # nothing), else from the one board's `devices -l` row.
+  local tty=""
+  if [[ -n "${PICODROID_BOARD_USB_PATH:-}" ]]; then
+    tty=$(usb_path_tty "$PICODROID_BOARD_USB_PATH") || tty=""
+  else
+    tty=$( { timeout 15 "$PDB_BIN" devices -l 2>/dev/null < /dev/null || true; } \
+      | awk '$2 == "device" { for (i = 3; i <= NF; i++) if ($i ~ /^port:/) { print substr($i, 6); exit } }')
+  fi
+  if [[ -z "$tty" || ! -e "$tty" ]]; then
+    hil_log "  SKIP $test_name (board tty not found)"
+    echo "SKIP $test_name (board tty not found)" >> "$RESULTS_FILE"
+    SKIP=$((SKIP + 1))
+    return
+  fi
+
+  # O_NONBLOCK: a CDC open must not wait for carrier; O_NOCTTY: never become
+  # this shell's terminal. Holds the minor until killed or the row's budget.
+  python3 -c 'import os, sys, time
+fd = os.open(sys.argv[1], os.O_RDWR | os.O_NONBLOCK | os.O_NOCTTY)
+time.sleep(float(sys.argv[2]))' "$tty" "$timeout" 2>> "$log_file" &
+  local holder=$!
+  sleep 1
+  echo "holding $tty open (pid $holder)" >> "$log_file"
+  hil_log "  Running: pdb install $apk_path (holding $tty)"
+  hil_pdb_run "$timeout" install "$apk_path" >> "$log_file" 2>&1 || true
+  kill "$holder" 2>/dev/null || true
+  wait "$holder" 2>/dev/null || true
+  if [[ -n "${PICODROID_BOARD_USB_PATH:-}" ]]; then
+    echo "board tty after: $(usb_path_tty "$PICODROID_BOARD_USB_PATH" || echo none) (was $tty)" >> "$log_file"
+  fi
+  hil_pdb_verdict "$test_name" "$log_file" "$patterns"
 }
 
 # uninstall: erase the known-good helloworld, then list — the directory must
