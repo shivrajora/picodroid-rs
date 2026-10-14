@@ -245,7 +245,7 @@ pub fn uninstall(port_name: &str, package: &str, explicit_port: bool) {
     }
     println!("Uninstalled {package}. Waiting for device to reboot...");
     drop(port);
-    if wait_for_reboot(port_name, explicit_port) {
+    if wait_for_reboot(port_name, &device.serial, explicit_port) {
         println!("Device is back.");
     } else {
         eprintln!("warning: device did not respond to PING within 20 s after reboot.");

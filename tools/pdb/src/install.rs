@@ -5,12 +5,12 @@ use std::time::Duration;
 
 use std::io::Write;
 
-use crate::devices::find_by_vid_pid;
 use crate::protocol::{
     recv_response, send_frame, send_install_data, send_install_header, status_str, CMD_PING,
     INSTALL_PEEK_BYTES, POLL_ATTEMPTS, POLL_TIMEOUT, STATUS_INCOMPAT, STATUS_NO_ROOM, STATUS_OK,
     STATUS_READY,
 };
+use crate::select::{find_by_vid_pid, picodroid_ports, port_for_serial, usable_serial};
 use pdb_protocol::greeting::{AppsInfo, Greeting, GreetingError, LEGACY_VERSION, VERSION_PREFIX};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -48,9 +48,10 @@ pub struct InstallOptions {
     /// Invert exit codes: success when the install is rejected, failure
     /// when it actually goes through. Used by HIL `install-reject-*` rows.
     pub expect_rejected: bool,
-    /// The port came from `-s`: after a reboot wait for that exact port and
-    /// never re-scan the host, which on a bench with several boards would
-    /// find a neighbour and report it as "back".
+    /// The device was named (`-s`, `-d`, `PICODROID_SERIAL`): after a
+    /// reboot of firmware too old to report a serial, wait for that exact
+    /// port and never re-scan the host, which on a bench with several boards
+    /// would find a neighbour and report it as "back".
     pub explicit_port: bool,
 }
 
@@ -167,25 +168,40 @@ pub fn query_device(port_name: &str, timeout: Duration) -> Result<DeviceInfo, St
 /// After a reset, wait for the device to re-enumerate and answer a PING.
 /// Returns `false` if it never does within the poll budget.
 ///
-/// With `explicit_port` the poll sticks to `port_name`: the caller chose
-/// the board (pdb `-s`, the fleet scripts), so a re-scan of the host must
-/// not wander off to another board's CDC port. Otherwise the first
-/// picodroid VID/PID on the host is tried first, then the original name.
+/// `serial` is what the device reported before the reset. Each poll finds
+/// it again in the host's port list, on whatever tty the kernel gave it
+/// this time — a board that comes back on a new minor while a neighbour
+/// takes its old one is still found, and the neighbour never answers for
+/// it — and the greeting that answers must carry the same serial.
+///
+/// Firmware older than `picodroid/2.4` reports none, and gets the old
+/// rules: with `explicit_port` the poll sticks to `port_name`, otherwise
+/// the first picodroid VID/PID on the host is tried first, then the
+/// original name. (That fallback goes one release after 2.4.)
 ///
 /// A simulator's reboot is an exec of its process: no USB to re-enumerate,
 /// the same socket path listening again within the second — so no settle
 /// delay, and the poll always sticks to the path. A poll that lands before
 /// the exec reaches the old listener's backlog and times out; one that
 /// lands between exec and rebind is refused; the next one answers.
-pub fn wait_for_reboot(port_name: &str, explicit_port: bool) -> bool {
+pub fn wait_for_reboot(port_name: &str, serial: &str, explicit_port: bool) -> bool {
     let sim = crate::transport::is_sim(port_name);
+    let by_serial = !sim && usable_serial(serial);
     if !sim {
         std::thread::sleep(REBOOT_DELAY);
     }
     for attempt in 0..POLL_ATTEMPTS {
         std::thread::sleep(POLL_TIMEOUT);
 
-        let port_name = if explicit_port || sim {
+        let port_name = if sim {
+            port_name.to_string()
+        } else if by_serial {
+            match port_for_serial(&picodroid_ports(), serial) {
+                Some(name) => name,
+                // Not re-enumerated yet.
+                None => continue,
+            }
+        } else if explicit_port {
             port_name.to_string()
         } else {
             // Try to find the device by VID/PID first (fast).
@@ -210,11 +226,19 @@ pub fn wait_for_reboot(port_name: &str, explicit_port: bool) -> bool {
         if send_frame(&mut *port, CMD_PING, b"").is_err() {
             continue;
         }
-        if let Ok((STATUS_OK, _)) = recv_response(&mut *port) {
-            return true;
+        if let Ok((STATUS_OK, payload)) = recv_response(&mut *port) {
+            if !by_serial || answered_by(&payload, serial) {
+                return true;
+            }
         }
     }
     false
+}
+
+/// Whether a greeting is the device with `serial`: two devices sharing an
+/// ID on one host is the only way another one could answer at its port.
+fn answered_by(payload: &[u8], serial: &str) -> bool {
+    Greeting::parse(payload).is_ok_and(|g| g.serial == serial)
 }
 
 /// Print a uniform "refusing to install" message and exit per `opts`.
@@ -443,7 +467,7 @@ pub fn run(port_name: &str, papk_path: &Path, opts: InstallOptions) {
     // After reboot the USB CDC device disconnects and re-enumerates.
     // Drop the old port, wait for the VID/PID to reappear, then re-open.
     drop(port);
-    if wait_for_reboot(port_name, opts.explicit_port) {
+    if wait_for_reboot(port_name, &device.serial, opts.explicit_port) {
         if opts.expect_rejected {
             // We told the user to expect rejection, but the install
             // actually went through. That's a test failure.
@@ -521,6 +545,15 @@ mod tests {
             &mut buf,
         );
         buf[..n].to_vec()
+    }
+
+    /// The board that answers after a reboot must be the one that left.
+    #[test]
+    fn the_reboot_poll_accepts_only_the_same_serial() {
+        let g = greeting(4096, "0.27.0");
+        assert!(answered_by(&g, "E6633861A37B9038"));
+        assert!(!answered_by(&g, "68B1A1217192254D"));
+        assert!(!answered_by(b"garbage", "E6633861A37B9038"));
     }
 
     #[test]

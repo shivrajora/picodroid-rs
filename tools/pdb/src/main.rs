@@ -8,17 +8,24 @@ mod install;
 mod logcat;
 mod packages;
 mod protocol;
+mod select;
 mod sysmon;
 mod transport;
 
-use std::{env, path::Path, process};
+use std::{env, path::Path, process, time::Duration};
+
+use select::Selection;
 
 const USAGE: &str = "\
-Usage: pdb [-s <port|socket|sim>] <command> [args]
+Usage: pdb [-s <serial> | -d | -e] <command> [args]
 
 Commands:
-  devices                    List picodroid devices: serial ports and running
-                             simulators (a simulator's row ends in [sim])
+  devices [-l]               List devices and running simulators, as adb does:
+                             a header, then <serial>\t<state> (device, or
+                             offline when listed but silent). -l adds port:,
+                             board:, release:, max_papk: and usb:<bus position>
+  get-serialno               Print the device's serial (\"unknown\" if it has none)
+  wait-for-device            Wait until the device answers (with -s, that one)
   ping                       Ping a picodroid device
   install <file.papk>        Push a PAPK to a picodroid device
   list                       List the installed apps (multi-app firmware)
@@ -41,31 +48,56 @@ install options:
                              HIL install-reject-* test rows.
 
 Options:
-  -s <port>   Serial port to use (e.g. /dev/cu.usbserial-0001)
+  -s <serial> The device with this serial (pdb devices lists them): a board's
+              USB serial number, or emulator-<pid> for a simulator
+  -s <port>   A serial port (e.g. /dev/ttyACM0, /dev/cu.usbmodem1402, COM3)
   -s <socket> A simulator's socket, as ./scripts/sim.sh prints it at boot
               ([sim] pdb: listening on …)
-  -s sim      The one running simulator; with several, name the socket
+  -d          The one USB device
+  -e          The one running simulator (also -s sim)
+  With none of these, $PICODROID_SERIAL names the device, else the only one
+  attached is used.
 ";
 
 fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
     let mut idx = 0;
 
-    // Parse optional -s <port>
-    let mut port: Option<String> = None;
-    if args.get(idx).map(|s| s.as_str()) == Some("-s") {
-        idx += 1;
-        port = Some(match args.get(idx) {
-            Some(p) => {
+    // The global options, before the command, in any order.
+    let mut s_opt: Option<String> = None;
+    let (mut d_opt, mut e_opt) = (false, false);
+    while let Some(arg) = args.get(idx) {
+        match arg.as_str() {
+            "-s" => {
                 idx += 1;
-                p.clone()
+                match args.get(idx) {
+                    Some(v) => s_opt = Some(v.clone()),
+                    None => {
+                        eprintln!("error: -s requires a serial, port or socket argument");
+                        process::exit(1);
+                    }
+                }
             }
-            None => {
-                eprintln!("error: -s requires a port argument");
-                process::exit(1);
-            }
-        });
+            "-d" => d_opt = true,
+            "-e" => e_opt = true,
+            _ => break,
+        }
+        idx += 1;
     }
+    let env_serial = env::var(select::SERIAL_ENV).ok();
+    let selection = Selection::from_options(
+        s_opt.as_deref(),
+        d_opt,
+        e_opt,
+        env_serial.as_deref(),
+        &select::picodroid_ports(),
+    )
+    .unwrap_or_else(|e| {
+        eprintln!("error: {e}");
+        process::exit(1);
+    });
+    // A named device: after a reboot, follow that one and never re-scan.
+    let explicit = selection != Selection::Any;
 
     let command = match args.get(idx) {
         Some(c) => {
@@ -79,20 +111,42 @@ fn main() {
     };
 
     match command {
-        "devices" => devices::run(),
+        "devices" => match args.get(idx).map(String::as_str) {
+            None => devices::run(false),
+            Some("-l") => devices::run(true),
+            Some(other) => {
+                eprintln!("error: unexpected devices argument {other:?}");
+                process::exit(1);
+            }
+        },
+
+        "get-serialno" => {
+            let port_name = require_port(&selection);
+            let serial = devices::probe(&port_name)
+                .map(|(serial, _)| serial)
+                .filter(|s| select::usable_serial(s));
+            println!(
+                "{}",
+                serial
+                    .as_deref()
+                    .unwrap_or(pdb_protocol::greeting::UNKNOWN_SERIAL)
+            );
+        }
+
+        "wait-for-device" => wait_for_device(&selection),
 
         "ping" => {
-            let port_name = require_port(port.as_deref());
+            let port_name = require_port(&selection);
             install::ping(&port_name);
         }
 
         "sysmon" => {
-            let port_name = require_port(port.as_deref());
+            let port_name = require_port(&selection);
             sysmon::run(&port_name);
         }
 
         "list" => {
-            let port_name = require_port(port.as_deref());
+            let port_name = require_port(&selection);
             packages::list(&port_name);
         }
 
@@ -101,15 +155,14 @@ fn main() {
                 eprintln!("error: uninstall requires a <package> argument");
                 process::exit(1);
             };
-            let explicit_port = port.is_some();
-            let port_name = require_port(port.as_deref());
-            packages::uninstall(&port_name, package, explicit_port);
+            let port_name = require_port(&selection);
+            packages::uninstall(&port_name, package, explicit);
         }
 
         "input" => {
             // The remaining args are the input subcommand + its operands.
             let sub_args = args[idx..].to_vec();
-            let port_name = require_port(port.as_deref());
+            let port_name = require_port(&selection);
             input::run(&port_name, &sub_args);
         }
 
@@ -147,8 +200,8 @@ fn main() {
                     process::exit(1);
                 }
             };
-            opts.explicit_port = port.is_some();
-            let port_name = require_port(port.as_deref());
+            opts.explicit_port = explicit;
+            let port_name = require_port(&selection);
             install::run(&port_name, &papk_path, opts);
         }
 
@@ -164,58 +217,46 @@ fn main() {
     }
 }
 
-fn require_port(port: Option<&str>) -> String {
-    match port {
-        Some(transport::SIM) => return require_sim(),
-        Some(p) => return p.to_owned(),
-        None => {}
-    }
-
-    // Auto-detect: scan for picodroid devices and simulators.
-    let found = devices::scan();
-    match found.len() {
-        0 => {
-            eprintln!("error: no picodroid devices found");
-            eprintln!("       Is the device connected and running picodroid firmware?");
-            eprintln!("       (A simulator counts too: ./scripts/sim.sh, then pdb -s sim.)");
-            process::exit(1);
+/// The port or socket the selection names, or exit with adb's message.
+fn require_port(selection: &Selection) -> String {
+    match select::resolve(selection) {
+        Ok(target) => {
+            if *selection == Selection::Any {
+                eprintln!("auto-detected {target}");
+            }
+            target
         }
-        1 => {
-            eprintln!("auto-detected {}", found[0].0);
-            found.into_iter().next().unwrap().0
-        }
-        _ => {
-            eprintln!("error: multiple picodroid devices found — use -s to pick one:");
-            for (name, version) in &found {
-                eprintln!("  {name}  {version}");
+        Err(e) => {
+            eprintln!("error: {e}");
+            if *selection == Selection::Any {
+                eprintln!("       Is the device connected and running picodroid firmware?");
+                eprintln!("       (A simulator counts too: ./scripts/sim.sh, then pdb -e.)");
             }
             process::exit(1);
         }
     }
 }
 
-/// `-s sim`: the one simulator that is running. Several may be (each on
-/// its own `pdb-<pid>.sock`), and then the caller has to name one.
-fn require_sim() -> String {
-    let found = devices::scan_sims();
-    match found.len() {
-        0 => {
-            eprintln!(
-                "error: no simulator is running (none answers under {})",
-                transport::sim_socket_dir().display()
-            );
-            eprintln!(
-                "       Start one with ./scripts/sim.sh; it prints the socket it listens on."
-            );
-            process::exit(1);
+/// `wait-for-device`: until the selection answers a PING — with `-s`, that
+/// device; otherwise any one, as adb waits. Bounded by the caller
+/// (`timeout 30 pdb -s X wait-for-device`), as adb's is.
+fn wait_for_device(selection: &Selection) -> ! {
+    loop {
+        let up = match selection {
+            Selection::Any => devices::scan()
+                .iter()
+                .any(|r| r.state == devices::State::Device),
+            Selection::Usb => devices::scan_serial()
+                .iter()
+                .any(|r| r.state == devices::State::Device),
+            Selection::Emulator => !devices::scan_sims().is_empty(),
+            Selection::Serial(_) | Selection::Path(_) => select::resolve(selection)
+                .ok()
+                .is_some_and(|t| devices::probe(&t).is_some()),
+        };
+        if up {
+            process::exit(0);
         }
-        1 => found.into_iter().next().unwrap().0,
-        _ => {
-            eprintln!("error: several simulators are running — use -s <socket> to pick one:");
-            for (name, version) in &found {
-                eprintln!("  {name}  {version}");
-            }
-            process::exit(1);
-        }
+        std::thread::sleep(Duration::from_millis(250));
     }
 }
