@@ -15,11 +15,11 @@ public class LedBlink extends Application {
     PeripheralManager manager = PeripheralManager.getInstance();
     Gpio led = manager.openGpio("GP25");
     led.setDirection(Gpio.DIRECTION_OUT_INITIALLY_LOW);
-    // Input read-back: GP16 is unconnected on the testbench, so the level is
-    // whatever the pad floats to (the sim reads LOW).
-    Gpio sense = manager.openGpio("GP16");
+    // Input read-back: GP22 is spare on every board (no display, touch, button
+    // or audio line), so the level is whatever it floats to (the sim reads LOW).
+    Gpio sense = manager.openGpio("GP22");
     sense.setDirection(Gpio.DIRECTION_IN);
-    Log.i("GPIO", "GP16 reads " + (sense.getValue() ? "HIGH" : "LOW"));
+    Log.i("GPIO", "GP22 reads " + (sense.getValue() ? "HIGH" : "LOW"));
     while (true) {
       led.setValue(true);
       Log.i("LED", "on");
