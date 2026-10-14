@@ -977,7 +977,7 @@ run_pdb_install_renumber_test() {
     tty=$(usb_path_tty "$PICODROID_BOARD_USB_PATH") || tty=""
   else
     tty=$( { timeout 15 "$PDB_BIN" devices -l 2>/dev/null < /dev/null || true; } \
-      | awk '$2 == "device" { for (i = 3; i <= NF; i++) if ($i ~ /^port:/) { print substr($i, 6); exit } }')
+      | awk '$2 == "device" { for (i = 3; i <= NF; i++) if ($i ~ /^\/dev\//) { print $i; exit } }')
   fi
   if [[ -z "$tty" || ! -e "$tty" ]]; then
     hil_log "  SKIP $test_name (board tty not found)"

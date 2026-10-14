@@ -1,23 +1,33 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! `pdb devices [-l]` — every picodroid on a USB port and every simulator on
-//! a socket, one row each, under adb's `List of devices attached` header:
-//! serial, state, board and the app space left, in space-padded columns.
+//! a socket, one row each, under adb's `List of devices attached` line and a
+//! row naming the columns:
 //!
-//! adb stops at `<serial>\t<state>`; the board and the space are ours, kept
-//! because they are what a bench of several boards is told apart by at a
-//! glance. The first two columns are still the serial and the state, so a
-//! script's `$1`/`$2` reads the same as for adb.
+//! ```text
+//! SERIAL            STATE   BOARD             APPS     SPACE
+//! E66258881755602D  device  testbench_rp2040  single  764 KB
+//! 1C05163AC1ACB0AA  device  pico_touch_kit    1/16   9720 KB
+//! ```
 //!
-//! The state is `device` when it answers a PING and `offline` when the host
-//! lists the port but nothing answers (mid-boot, wedged, busy installing); an
-//! offline row has `-` for the columns only a PING can fill, so every row has
-//! the same fields. A row's serial is the one the device reports; firmware
-//! older than `picodroid/2.4` has none and is listed by its port. The space
-//! is the largest free run of a multi-app board's app region (`free`), or a
-//! single-app board's whole region, which an install replaces (`max`). `-l`
-//! adds `port:`/`socket:`, `release:` and, where the OS says (Linux),
-//! `usb:<bus position>` — what bench scripts map a fleet slot to a serial
-//! with.
+//! adb stops at `<serial>\t<state>`; the board, the apps and the space are
+//! ours, kept because they are what a bench of several boards is told apart
+//! by at a glance. The serial and the state are still the first two fields,
+//! so a script's `$1`/`$2` reads the same as for adb (and `$2 == "device"`
+//! skips the column row).
+//!
+//! - STATE: `device` when it answers a PING, `offline` when the host lists
+//!   the port but nothing answers (mid-boot, wedged, busy installing).
+//! - APPS: `installed/capacity` of a multi-app board's package directory, or
+//!   `single` for single-app firmware, where an install replaces the app.
+//! - SPACE: the biggest app an install can take now — the largest free run
+//!   of a multi-app board's app region (more needs a compaction or an
+//!   uninstall), or a single-app board's whole region.
+//!
+//! An offline row has `-` where only a PING can answer, so every row has the
+//! same fields. A row's serial is the one the device reports; firmware older
+//! than `picodroid/2.4` has none and is listed by its port. `-l` adds PORT
+//! (the tty, or a simulator's socket), RELEASE and, where the OS says
+//! (Linux), USB, the bus position bench scripts map a fleet slot by.
 
 use std::io::ErrorKind;
 use std::thread;
@@ -69,6 +79,9 @@ pub struct Info {
     pub max_papk: u32,
     /// The largest free run of the app region, on multi-app firmware.
     pub largest_free: Option<u32>,
+    /// `(installed, capacity)` of the package directory, on multi-app
+    /// firmware.
+    pub apps: Option<(u8, u8)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,33 +104,46 @@ pub fn run(long: bool) {
     println!();
 }
 
-/// The size column, right-aligned so the numbers line up by digit.
-const SIZE_COLUMN: usize = 3;
+/// The column names, in order; `-l` shows all of them.
+const COLUMNS: [&str; 8] = [
+    "SERIAL", "STATE", "BOARD", "APPS", "SPACE", "PORT", "RELEASE", "USB",
+];
+/// How many of [`COLUMNS`] a plain `devices` shows.
+const SHORT_COLUMNS: usize = 5;
+/// SPACE is right-aligned, so its numbers line up by digit.
+const SPACE_COLUMN: usize = 4;
 
-/// The rows as aligned lines: each column padded to its widest cell (the
-/// size column on the left, and one space from its unit), two spaces
-/// between the rest, nothing trailing.
+/// The column row and one line per device, every column padded to its
+/// widest cell with two spaces between, nothing trailing. No devices, no
+/// column row.
 pub fn format_rows(rows: &[Row], long: bool) -> Vec<String> {
-    let cells: Vec<Vec<String>> = rows.iter().map(|r| cells(r, long)).collect();
-    let columns = cells.iter().map(Vec::len).max().unwrap_or(0);
-    let widths: Vec<usize> = (0..columns)
+    if rows.is_empty() {
+        return Vec::new();
+    }
+    let n = if long { COLUMNS.len() } else { SHORT_COLUMNS };
+    let mut table: Vec<Vec<String>> = vec![COLUMNS[..n].iter().map(|c| c.to_string()).collect()];
+    table.extend(rows.iter().map(|r| {
+        let mut c = cells(r);
+        c.truncate(n);
+        c
+    }));
+    let widths: Vec<usize> = (0..n)
         .map(|c| {
-            cells
+            table
                 .iter()
-                .filter_map(|r| r.get(c))
-                .map(|s| s.chars().count())
+                .map(|r| r[c].chars().count())
                 .max()
                 .unwrap_or(0)
         })
         .collect();
-    cells
+    table
         .iter()
         .map(|row| {
             let mut line = String::new();
             for (c, cell) in row.iter().enumerate() {
                 let w = widths[c];
-                if c == SIZE_COLUMN {
-                    line.push_str(&format!("{cell:>w$} "));
+                if c == SPACE_COLUMN {
+                    line.push_str(&format!("{cell:>w$}  "));
                 } else {
                     line.push_str(&format!("{cell:<w$}  "));
                 }
@@ -127,50 +153,32 @@ pub fn format_rows(rows: &[Row], long: bool) -> Vec<String> {
         .collect()
 }
 
-/// One row's cells: serial, state, board, the space in KB and what it
-/// is; with `long`, the `key:value` items after them.
-fn cells(r: &Row, long: bool) -> Vec<String> {
-    let (board, kb, what) = match &r.info {
-        Some(i) => (
-            if i.board.is_empty() {
-                "-".into()
-            } else {
-                i.board.clone()
-            },
-            i.largest_free.unwrap_or(i.max_papk) / 1024,
-            if i.largest_free.is_some() {
-                "KB free"
-            } else {
-                "KB max"
-            },
-        ),
-        None => ("-".into(), 0, ""),
+/// One row's cells, one per [`COLUMNS`] entry; `-` where there is nothing to
+/// say, so a row always splits into the same fields.
+fn cells(r: &Row) -> Vec<String> {
+    let dash = || "-".to_string();
+    let i = r.info.as_ref();
+    let board = i.map(|i| i.board.clone()).filter(|b| !b.is_empty());
+    let apps = i.map(|i| match i.apps {
+        Some((installed, capacity)) => format!("{installed}/{capacity}"),
+        None => "single".into(),
+    });
+    let space = i.map(|i| format!("{} KB", i.largest_free.unwrap_or(i.max_papk) / 1024));
+    let release = i.map(|i| i.release.clone()).filter(|v| !v.is_empty());
+    let usb = match &r.kind {
+        Kind::Usb { usb_path } => usb_path.clone(),
+        Kind::Sim => None,
     };
-    let size = if r.info.is_some() {
-        kb.to_string()
-    } else {
-        "-".into()
-    };
-    let mut cells = vec![
+    vec![
         r.serial.clone(),
         r.state.as_str().into(),
-        board,
-        size,
-        what.into(),
-    ];
-    if long {
-        cells.push(match &r.kind {
-            Kind::Usb { .. } => format!("port:{}", r.target),
-            Kind::Sim => format!("socket:{}", r.target),
-        });
-        if let Some(i) = r.info.as_ref().filter(|i| !i.release.is_empty()) {
-            cells.push(format!("release:{}", i.release));
-        }
-        if let Kind::Usb { usb_path: Some(p) } = &r.kind {
-            cells.push(format!("usb:{p}"));
-        }
-    }
-    cells
+        board.unwrap_or_else(dash),
+        apps.unwrap_or_else(dash),
+        space.unwrap_or_else(dash),
+        r.target.clone(),
+        release.unwrap_or_else(dash),
+        usb.unwrap_or_else(dash),
+    ]
 }
 
 /// Every device, then every simulator.
@@ -269,6 +277,7 @@ fn probe_over(link: &mut dyn Link) -> Option<(String, Info)> {
             release: g.framework_map_version.to_owned(),
             max_papk: g.max_papk,
             largest_free: g.apps.map(|a| a.largest_free),
+            apps: g.apps.map(|a| (a.installed, a.max)),
         },
     ))
 }
@@ -300,12 +309,23 @@ fn usb_path_of_interface(iface: &std::path::Path) -> Option<String> {
 mod tests {
     use super::*;
 
-    fn info(board: &str, largest_free: Option<u32>) -> Info {
+    fn multi(board: &str, free_kb: u32, apps: (u8, u8)) -> Info {
         Info {
             board: board.into(),
             release: "0.37.0".into(),
             max_papk: 9724 * 1024,
-            largest_free,
+            largest_free: Some(free_kb * 1024),
+            apps: Some(apps),
+        }
+    }
+
+    fn single(board: &str, max_kb: u32) -> Info {
+        Info {
+            board: board.into(),
+            release: "0.37.0".into(),
+            max_papk: max_kb * 1024,
+            largest_free: None,
+            apps: None,
         }
     }
 
@@ -316,10 +336,10 @@ mod tests {
         }
     }
 
-    fn row(serial: &str, state: State, info: Option<Info>, kind: Kind) -> Row {
+    fn row(serial: &str, target: &str, state: State, info: Option<Info>, kind: Kind) -> Row {
         Row {
             serial: serial.into(),
-            target: "/dev/ttyACM3".into(),
+            target: target.into(),
             state,
             kind,
             info,
@@ -332,100 +352,111 @@ mod tests {
         }
     }
 
-    /// Serials and board names of different lengths still line up: every
-    /// column starts at the same offset on every row.
-    #[test]
-    fn columns_line_up_across_rows_of_different_widths() {
-        let rows = [
+    fn bench() -> Vec<Row> {
+        vec![
             row(
                 "E66258881755602D",
+                "/dev/ttyACM6",
                 State::Device,
-                Some(Info {
-                    largest_free: None,
-                    max_papk: 764 * 1024,
-                    ..info("testbench_rp2040", None)
-                }),
-                usb(None),
+                Some(single("testbench_rp2040", 764)),
+                usb(Some("1-8.1")),
             ),
             row(
                 "emulator-4242",
+                "/tmp/picodroid-sim/pdb-4242.sock",
                 State::Device,
-                Some(info("host", Some(1528 * 1024))),
+                Some(multi("host", 1528, (1, 8))),
                 Kind::Sim,
             ),
-            row("/dev/ttyACM9", State::Offline, None, usb(None)),
+            row(
+                "/dev/ttyACM9",
+                "/dev/ttyACM9",
+                State::Offline,
+                None,
+                usb(Some("1-8.2")),
+            ),
             row(
                 "1C05163AC1ACB0AA",
+                "/dev/ttyACM3",
                 State::Device,
-                Some(info("pico_touch_kit", Some(9720 * 1024))),
-                usb(None),
+                Some(multi("pico_touch_kit", 9720, (1, 16))),
+                usb(Some("1-8.3.4")),
             ),
-        ];
+        ]
+    }
+
+    /// Serials and board names of different lengths still line up under
+    /// their column names; sizes line up by digit.
+    #[test]
+    fn columns_line_up_under_their_names() {
         assert_eq!(
-            format_rows(&rows, false),
+            format_rows(&bench(), false),
             [
-                "E66258881755602D  device   testbench_rp2040   764 KB max",
-                "emulator-4242     device   host              1528 KB free",
-                "/dev/ttyACM9      offline  -                    -",
-                "1C05163AC1ACB0AA  device   pico_touch_kit    9720 KB free",
+                "SERIAL            STATE    BOARD             APPS      SPACE",
+                "E66258881755602D  device   testbench_rp2040  single   764 KB",
+                "emulator-4242     device   host              1/8     1528 KB",
+                "/dev/ttyACM9      offline  -                 -             -",
+                "1C05163AC1ACB0AA  device   pico_touch_kit    1/16    9720 KB",
             ]
         );
     }
 
-    /// `$1` is the serial and `$2` the state on every row, offline ones
-    /// included, as scripts written for adb read them.
+    #[test]
+    fn the_long_form_names_its_extra_columns_too() {
+        assert_eq!(
+            format_rows(&bench(), true),
+            [
+                "SERIAL            STATE    BOARD             APPS      SPACE  PORT                              RELEASE  USB",
+                "E66258881755602D  device   testbench_rp2040  single   764 KB  /dev/ttyACM6                      0.37.0   1-8.1",
+                "emulator-4242     device   host              1/8     1528 KB  /tmp/picodroid-sim/pdb-4242.sock  0.37.0   -",
+                "/dev/ttyACM9      offline  -                 -             -  /dev/ttyACM9                      -        1-8.2",
+                "1C05163AC1ACB0AA  device   pico_touch_kit    1/16    9720 KB  /dev/ttyACM3                      0.37.0   1-8.3.4",
+            ]
+        );
+    }
+
+    /// `$1` is the serial and `$2` the state on every device row, and the
+    /// column row is the one `$2 == "device"` skips, as a script written
+    /// for adb reads them.
     #[test]
     fn every_row_splits_into_the_same_fields() {
-        let rows = [
-            row(
-                "A",
-                State::Device,
-                Some(info("tb", Some(4096))),
-                usb(Some("1-8.1")),
-            ),
-            row("B", State::Offline, None, usb(Some("1-8.2"))),
-        ];
-        for line in format_rows(&rows, false) {
-            let f: Vec<&str> = line.split_whitespace().collect();
-            assert!(f.len() >= 4, "{line}");
-            assert!(f[1] == "device" || f[1] == "offline", "{line}");
+        for long in [false, true] {
+            let lines = format_rows(&bench(), long);
+            let fields = lines[0].split_whitespace().count();
+            assert!(!lines[0].split_whitespace().any(|f| f == "device"));
+            for line in &lines[1..] {
+                let f: Vec<&str> = line.split_whitespace().collect();
+                // SPACE is two words ("764 KB") except for an offline "-".
+                let expect = if f[1] == "offline" {
+                    fields
+                } else {
+                    fields + 1
+                };
+                assert_eq!(f.len(), expect, "{line}");
+                assert!(f[1] == "device" || f[1] == "offline", "{line}");
+            }
         }
     }
 
     #[test]
-    fn the_long_form_adds_key_value_items_after_the_columns() {
-        let rows = [row(
-            "1C05163AC1ACB0AA",
-            State::Device,
-            Some(info("pico_touch_kit", Some(9720 * 1024))),
-            usb(Some("1-8.3.4")),
-        )];
-        assert_eq!(
-            format_rows(&rows, true),
-            [
-                "1C05163AC1ACB0AA  device  pico_touch_kit  9720 KB free  port:/dev/ttyACM3  \
-              release:0.37.0  usb:1-8.3.4"
-            ]
-        );
+    fn no_devices_no_column_row() {
+        assert!(format_rows(&[], false).is_empty());
     }
 
     #[test]
     fn a_silent_port_is_offline_under_its_usb_serial() {
-        let mut r = usb_row(&port(Some("E6633861A37B9038")), None);
-        r.kind = usb(None);
+        let r = usb_row(&port(Some("E6633861A37B9038")), None);
         assert_eq!(r.state, State::Offline);
-        assert_eq!(
-            format_rows(&[r], true),
-            ["E6633861A37B9038  offline  -  -   port:/dev/ttyACM3"]
-        );
+        assert_eq!(r.serial, "E6633861A37B9038");
+        assert_eq!(r.info, None);
     }
 
     /// Firmware older than 2.4 sends no serial anywhere; the port stands in.
     #[test]
     fn a_board_without_a_serial_is_listed_by_its_port() {
-        let r = usb_row(&port(None), Some((String::new(), info("tb", None))));
+        let r = usb_row(&port(None), Some((String::new(), single("tb", 764))));
         assert_eq!(r.serial, "/dev/ttyACM3");
-        let r = usb_row(&port(None), Some(("unknown".into(), info("tb", None))));
+        let r = usb_row(&port(None), Some(("unknown".into(), single("tb", 764))));
         assert_eq!(r.serial, "/dev/ttyACM3");
         assert_eq!(r.state, State::Device);
     }
