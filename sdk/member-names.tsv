@@ -358,6 +358,7 @@ F	SENSOR_STATUS_ACCURACY_LOW
 F	SENSOR_STATUS_ACCURACY_MEDIUM
 F	SENSOR_STATUS_UNRELIABLE
 F	SEPTEMBER
+F	SERIAL
 F	SINGLE_LINE
 F	SKIP_CHUNK
 F	SLICE_MS
@@ -484,6 +485,7 @@ F	T_INT
 F	T_LONG
 F	T_REMOVED
 F	T_STRING
+F	UNKNOWN
 F	UNKNOWN_RSSI
 F	UNKNOWN_SSID
 F	UNSPECIFIED
@@ -1481,6 +1483,7 @@ M	getScrollState
 M	getSecond
 M	getSeconds
 M	getSelectedItemPosition
+M	getSerial
 M	getSerializedSize
 M	getSharedPreferences
 M	getSize
@@ -1835,6 +1838,7 @@ M	nativeScanGeneration
 M	nativeScanRssi
 M	nativeScanSecurity
 M	nativeScanSsid
+M	nativeSerial
 M	nativeSet
 M	nativeSetAction
 M	nativeSetAlpha

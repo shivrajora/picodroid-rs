@@ -402,6 +402,7 @@ pub const OS_HANDLED: &[Row] = &[
         "nativeRelease",
         "()Ljava/lang/String;",
     ),
+    ("picodroid/os/Build", "nativeSerial", "()Ljava/lang/String;"),
     // picodroid/os/StatFs
     ("picodroid/os/StatFs", "nativeAvailableBytes", "()J"),
     ("picodroid/os/StatFs", "nativeFreeBytes", "()J"),

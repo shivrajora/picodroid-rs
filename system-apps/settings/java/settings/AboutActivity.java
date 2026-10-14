@@ -9,7 +9,10 @@ import picodroid.util.Log;
 import picodroid.view.View;
 import picodroid.os.Bundle;
 
-/** About: the board, its MCU, the release, the volume and the heap. The header row goes back. */
+/**
+ * About: the board, its MCU, the release, the serial number, the volume and the heap. The header
+ * row goes back.
+ */
 public class AboutActivity extends Activity {
   private Column column;
 
@@ -32,12 +35,14 @@ public class AboutActivity extends Activity {
       case 2:
         return Screens.info(this, "Release  " + Build.VERSION.RELEASE);
       case 3:
+        return Screens.info(this, "Serial  " + Build.getSerial());
+      case 4:
         StatFs fs = new StatFs("/");
         long total = fs.getTotalBytes();
         long free = fs.getFreeBytes();
         return Screens.info(
             this, "Storage  " + Screens.kb(total - free) + " / " + Screens.kb(total) + " KB used");
-      case 4:
+      case 5:
         return Screens.info(this, "Heap  " + Screens.kb(Runtime.usedMemory()) + " KB used");
       default:
         return null;

@@ -120,6 +120,11 @@ pub fn dispatch(
         (ch::picodroid_os_Build, mh::nativeRelease) => {
             Some(interned(ctx, crate::board_cfg::build_info::RELEASE))
         }
+        // `Build.getSerial()`: the serial boot published, the same value as
+        // the USB iSerialNumber and the PING greeting's.
+        (ch::picodroid_os_Build, mh::nativeSerial) => {
+            Some(interned(ctx, crate::identity::serial().as_str()))
+        }
         (ch::picodroid_os_StatFs, mh::nativeTotalBytes) => {
             Some(Ok(Some(Value::Long(crate::hal::fs::space().0 as i64))))
         }

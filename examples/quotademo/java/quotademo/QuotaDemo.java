@@ -69,6 +69,13 @@ public class QuotaDemo extends Application {
     check(
         "Build.VERSION.RELEASE",
         Build.VERSION.RELEASE != null && Build.VERSION.RELEASE.length() > 0);
+    // The serial boot published (USB iSerialNumber, `pdb devices`); the
+    // deprecated field reads UNKNOWN, as on Android O and later.
+    String serial = Build.getSerial();
+    Log.i(TAG, "serial " + serial);
+    check(
+        "Build.getSerial", serial != null && serial.length() > 0 && !serial.equals(Build.UNKNOWN));
+    check("Build.SERIAL", Build.UNKNOWN.equals(Build.SERIAL));
   }
 
   void testStatFs() {
