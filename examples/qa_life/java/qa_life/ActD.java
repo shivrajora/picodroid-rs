@@ -2,27 +2,34 @@
 package qa_life;
 
 import picodroid.app.Activity;
+import picodroid.concurrent.Executors;
+import picodroid.concurrent.Thread;
 import picodroid.content.Intent;
 import picodroid.os.Bundle;
+import picodroid.os.SystemClock;
 import picodroid.util.Log;
 
 /**
  * Starts itself until the Activity stack is full, then unwinds. The one on top when a push is
  * refused checks that it was left resumed: a refused push used to run the covered Activity's
  * onPause and never its onResume, so the screen the user saw was a paused Activity.
+ *
+ * <p>One watcher thread for the whole chain, not a timer per D: up to eight timers alive at once
+ * ran an rp2040's heap out of room for task stacks, the top D's spawn threw, and nothing ever
+ * unwound.
  */
 public class ActD extends Activity {
   static int created = 0;
   static int resumes = 0;
   static int pauses = 0;
   static boolean checked = false;
-
-  private int index;
+  static ActD top;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    index = created++;
+    created++;
+    top = this;
     T.log("D.onCreate");
     if (created > 40) {
       Log.i(T.TAG, "FAIL: stack never filled");
@@ -32,12 +39,29 @@ public class ActD extends Activity {
     // Refused or not, the launch is asynchronous; a frame later the next D exists or this one
     // is the top for good.
     startActivity(new Intent(ActD.class));
-    T.later(150, () -> settled());
+    if (created == 1) {
+      watchUntilSettled();
+    }
+  }
+
+  /** Waits until no new D has appeared for 150 ms, then hands the top one to settled(). */
+  private static void watchUntilSettled() {
+    new Thread(
+            () -> {
+              int seen;
+              do {
+                seen = created;
+                SystemClock.sleep(150);
+              } while (created != seen);
+              Executors.mainExecutor().execute(() -> top.settled());
+            },
+            "qa-life-d-watch")
+        .start();
   }
 
   private void settled() {
-    if (created != index + 1 || checked) {
-      return; // covered by a newer D: it unwinds through onResume
+    if (checked) {
+      return;
     }
     checked = true;
     Log.i(T.TAG, "stack filled at " + created + " D activities");
