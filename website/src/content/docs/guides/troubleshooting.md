@@ -84,7 +84,7 @@ The local pre-commit hook does not run clippy (only the source guards and format
 - The default serial port is `/dev/cu.usbmodem102` at 115200 baud
 - **Connect your terminal (CoolTerm, screen, etc.) BEFORE flashing** — the USB CDC port enumerates during boot
 - Avoid raw `stty` / `echo` commands to the port — they can cause a USB reset and disconnect the device
-- If the port disappears, unplug and replug the Pico, then re-run `pdb devices` to find the new port name
+- If the port disappears, unplug and replug the Pico. A device named by its serial (`pdb -s <serial>`, as `pdb devices` lists it) is found again on whatever port it comes back on; only firmware older than `picodroid/2.4`, which has no serial, needs the new port name
 
 ## Pre-commit hook not running
 

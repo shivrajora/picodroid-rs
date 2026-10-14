@@ -36,14 +36,14 @@ See [Sharing the bench](/project/contributing/#sharing-the-bench).
 ## Try it on the simulator first
 
 No board needed: the [simulator](/get-started/simulator/) is a `pdb` device
-too. It listens on a socket, and `-s sim` finds it:
+too. It listens on a socket, and `-e` finds it:
 
 ```bash
 ./scripts/sim.sh --app blinky --system-apps      # one terminal: blinky + the system apps
-./scripts/pdb.sh devices                         # another: the sim's row ends in [sim]
-./scripts/pdb.sh -s sim install build/apks/helloworld.papk
-./scripts/pdb.sh -s sim list
-./scripts/pdb.sh -s sim uninstall helloworld
+./scripts/pdb.sh devices                         # another: the sim is emulator-<pid>
+./scripts/pdb.sh -e install build/apks/helloworld.papk
+./scripts/pdb.sh -e list
+./scripts/pdb.sh -e uninstall helloworld
 ```
 
 The install runs the same code it runs on a device — the JVM parks, the app
@@ -65,11 +65,11 @@ cargo install --path tools/pdb
 # Build the app first
 ./scripts/build-apk.sh --app blinky
 
-# Find the serial port
+# Find the device's serial
 pdb devices
 
-# Push the PAPK
-pdb -s /dev/cu.usbmodem102 install build/apks/blinky.papk
+# Push the PAPK (with one device attached, -s can be left out)
+pdb -s E6633861A37B9038 install build/apks/blinky.papk
 ```
 
 The device stops the running JVM (including any sleeping child threads), writes the new PAPK to flash, and reboots; `pdb` waits for it to answer again and prints `Install complete.`

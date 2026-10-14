@@ -1,39 +1,69 @@
 ---
 title: "pdb command reference"
-description: "Every pdb subcommand — devices, ping, install, list, uninstall, sysmon, input, logcat — with flags, semantics, and how the same commands drive the simulator."
+description: "Every pdb subcommand — devices, get-serialno, wait-for-device, ping, install, list, uninstall, sysmon, input, logcat — with flags, semantics, and how the same commands drive the simulator."
 ---
 
-`pdb` is the Picodroid Debug Bridge CLI: it talks to a flashed device over USB CDC, or to a running [simulator](/get-started/simulator/) over its socket. Build and run it with `cargo run -p pdb --`, or use the `./scripts/pdb.sh` wrapper. Every device command takes the target via `-s`:
+`pdb` is the Picodroid Debug Bridge CLI: it talks to a flashed device over USB CDC, or to a running [simulator](/get-started/simulator/) over its socket. Build and run it with `cargo run -p pdb --`, or use the `./scripts/pdb.sh` wrapper. It picks a device the way `adb` does:
 
 ```bash
-cargo run -p pdb -- -s /dev/ttyACM1 <command>   # Linux
-cargo run -p pdb -- -s /dev/cu.usbmodem102 <command>   # macOS
-cargo run -p pdb -- -s sim <command>            # the running simulator
+pdb -s E6633861A37B9038 <command>    # the device with this serial (pdb devices lists them)
+pdb -s emulator-2696762 <command>    # a simulator, by its serial
+PICODROID_SERIAL=E6633861A37B9038 pdb <command>   # ANDROID_SERIAL's counterpart
+pdb -d <command>                     # the one USB device
+pdb -e <command>                     # the one running simulator (also -s sim)
+pdb <command>                        # the only device or simulator there is
 ```
 
-`-s sim` is the one simulator that is running; when several are, `-s <socket>` names one (each simulator prints its socket at boot: `[sim] pdb: listening on /tmp/picodroid-sim/pdb-<pid>.sock`). Without `-s`, `pdb` auto-detects when exactly one device or simulator answers.
+Every device has a serial: a board's is its chip's unique ID, the same value its USB descriptor reports (`lsusb -v`, `/dev/serial/by-id/`) and `Build.getSerial()` returns; a simulator's is `emulator-<pid>`. A serial finds the device whatever `/dev` node it is on, and finds it again after it reboots onto another one. A port or socket path still works in its place (`-s /dev/ttyACM1`, `-s /dev/cu.usbmodem102`, `-s COM3`, or the socket a simulator prints at boot: `[sim] pdb: listening on /tmp/picodroid-sim/pdb-<pid>.sock`). With nothing named and several attached, `pdb` stops with `error: more than one device/emulator` and lists their serials. Firmware older than `picodroid/2.4` has no serial; name it by its port.
 
 Running `pdb` with no arguments prints the up-to-date usage text.
 
-On a bench with several boards, `./scripts/pdb.sh` takes `--board <name>` (or `--slot <name>`) in place of `-s`: it takes that board's lease, looks up the board's current serial port and passes it to the binary. With one board configured, or when the session already holds one, the name can be left out. `devices`, the help text and a simulator target (`-s sim`, `-s <socket>`) take no lease. See [the shared bench](/project/contributing/#sharing-the-bench).
+On a bench with several boards, `./scripts/pdb.sh` takes `--board <name>` (or `--slot <name>`) in place of `-s`: it takes that board's lease, reads the serial of the board on that slot and passes it to the binary. With one board configured, or when the session already holds one, the name can be left out. `devices`, the help text and a simulator target (`-e`, `-s sim`, `-s emulator-<pid>`, `-s <socket>`) take no lease. See [the shared bench](/project/contributing/#sharing-the-bench).
 
 ## devices
 
 ```bash
-pdb devices
+pdb devices [-l]
 ```
 
-Lists every device on a serial port and every running simulator that answers a ping; a simulator's row ends in `[sim]`:
+Lists every picodroid on a USB port and every running simulator, in `adb devices`' format: a header, then one `<serial>	<state>` row each. The state is `device` when it answers a ping and `offline` when the host lists the port but nothing answers (mid-boot, wedged, busy installing):
 
 ```text
-/dev/ttyACM2  picodroid/2.2  (max PAPK: 1532 KB)
-/tmp/picodroid-sim/pdb-2696762.sock  picodroid/2.2  (max PAPK: 1532 KB)  [sim]
+List of devices attached
+E6633861A37B9038	device
+emulator-2696762	device
 ```
+
+`-l` adds `port:` (or `socket:`), `board:`, `release:`, `max_papk:` and, on Linux, `usb:` with the board's USB bus position:
+
+```text
+List of devices attached
+E6633861A37B9038	device port:/dev/ttyACM3 board:pico_touch_kit release:0.37.0 max_papk:9724KB usb:1-8.3.4
+emulator-2696762	device socket:/tmp/picodroid-sim/pdb-2696762.sock board:testbench_rp2350 release:0.37.0 max_papk:1532KB
+```
+
+A board on firmware older than `picodroid/2.4` is listed by its port in place of a serial. Only ports with picodroid's USB vendor and product ID are opened: a debug probe's UART is never written to.
+
+## get-serialno
+
+```bash
+pdb [-s <serial>] get-serialno
+```
+
+Prints the device's serial, or `unknown` for one without.
+
+## wait-for-device
+
+```bash
+timeout 30 pdb -s E6633861A37B9038 wait-for-device
+```
+
+Returns once the device answers a ping: with `-s`, that device; otherwise any one. It waits for as long as it takes, as `adb wait-for-device` does, so bound it with `timeout`.
 
 ## ping
 
 ```bash
-pdb -s <port> ping
+pdb -s <serial> ping
 ```
 
 Round-trips a greeting to confirm the device is alive and the protocol versions match. The greeting carries the largest PAPK the app region could hold, the firmware's `framework-map-version`, and — on multi-app firmware (`picodroid/2.2`, every RP2350 board) — the state of the package directory: `apps 3/8, free 1428 KB (largest 1024 KB)`. A single-app board (RP2040) reports `single-app`.
@@ -41,7 +71,7 @@ Round-trips a greeting to confirm the device is alive and the protocol versions 
 ## install
 
 ```bash
-pdb -s <port> install build/apks/<app>.papk
+pdb -s <serial> install build/apks/<app>.papk
 ```
 
 Hot-swaps an app: writes the PAPK to flash and restarts the JVM, without reflashing firmware. The walkthrough lives in [Hot-swap with pdb](/get-started/hot-swap/).

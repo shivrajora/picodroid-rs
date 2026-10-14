@@ -87,9 +87,10 @@ Environment:
   PICODROID_SIM_PDB_SOCKET  Where the sim's debug bridge listens (default
                             \$TMPDIR/picodroid-sim/pdb-<pid>.sock, printed at
                             boot as '[sim] pdb: listening on …'). The real
-                            pdb tool talks to it: './scripts/pdb.sh -s sim
+                            pdb tool talks to it: './scripts/pdb.sh -e
                             ping|list|install|uninstall|input|sysmon', or
-                            '-s <socket>' when several sims are running
+                            '-s emulator-<pid>' (or '-s <socket>') when
+                            several sims are running
   PICODROID_SIM_WAIT_FOR_INSTALL=1
                             When nothing is left to run, wait for a pdb
                             install as a device does instead of exiting

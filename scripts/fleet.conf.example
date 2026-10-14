@@ -8,8 +8,10 @@
 #   probe_serial    USB serial of this slot's Debug Probe (`probe-rs list`,
 #                   or ./scripts/fleet.sh discover)
 #   board_usb_path  sysfs position of the board's own USB port (its pdb CDC
-#                   device), e.g. 1-8.3.3 -- the device has no serial string,
-#                   so the physical port is its identity
+#                   device), e.g. 1-8.3.3 -- a slot is a place, not a board:
+#                   boards get swapped on it, so the scripts read the serial
+#                   of whichever board sits there (its USB serial string,
+#                   picodroid/2.4 and later) and hand pdb that
 #   boards          comma list of firmware boards this hardware accepts.
 #                   The FIRST is what hil-fleet.sh flashes for ordinary rows;
 #                   the rest let `flash.sh -b X` and net rows route here

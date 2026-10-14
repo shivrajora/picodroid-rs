@@ -294,6 +294,8 @@ check "wait_usb_quiet -> rc 1 when it gave up" rc_is 1 fu wait_usb_quiet 4
 timeout 2 sh -c "echo x > '$USBFS/1-2/manufacturer'" 2>/dev/null || true
 rm -f "$USBFS/1-2/manufacturer"
 check "unknown usb path has no tty" rc_is 1 fl usb_path_tty 1-99.1
+check "unknown usb path has no serial" rc_is 1 fl usb_path_serial 1-99.1
+check "unknown usb path has no pdb target" rc_is 1 fl usb_path_pdb_target 1-99.1
 check "probe selector falls back to the Debug Probe ids" [ "$(fl probe_selector SER_A)" == 2e8a:000c:SER_A ]
 fl_export() {
   PICODROID_FLEET_CONF="$FLEET" bash -c 'source "$1/fleet-lib.sh"; fleet_export_slot b

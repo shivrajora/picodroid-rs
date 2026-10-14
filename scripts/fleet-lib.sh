@@ -220,8 +220,9 @@ fleet_resolve_fail() {
 # Exports the slot's identity for the calling script: PICODROID_SLOT,
 # PICODROID_SLOT_BOARDS, PICODROID_PROBE_SERIAL, PICODROID_BOARD_USB_PATH and
 # PROBE_RS_PROBE (VID:PID:SERIAL, what probe-rs --probe takes; every probe-rs
-# subcommand reads the variable). The pdb tty is deliberately NOT exported:
-# it moves after a power cycle, so callers ask usb_path_tty each time.
+# subcommand reads the variable). The board's pdb target is deliberately NOT
+# exported: the board on a slot gets swapped, and its tty moves after a power
+# cycle, so callers ask usb_path_pdb_target each time.
 fleet_export_slot() {
   local slot="$1" serial
   serial=$(fleet_slot_field "$slot" probe_serial) || return 1
@@ -273,6 +274,29 @@ usb_path_tty() {
     echo "/dev/${t##*/}"; return 0
   done
   return 1
+}
+
+# POSITION -> the USB serial string of the device there: a picodroid board's
+# device serial (picodroid/2.4 firmware and later). rc 1 when it has none, or
+# only "unknown", which every board without an ID would share.
+usb_path_serial() {
+  local f="/sys/bus/usb/devices/$1/serial" s
+  [[ -r "$f" ]] || return 1
+  s=$(cat "$f" 2>/dev/null) || return 1
+  [[ -n "$s" && "$s" != unknown ]] || return 1
+  echo "$s"
+}
+
+# POSITION -> what `pdb -s` takes for the board there, once it is enumerated
+# (sysfs entry and /dev node): its serial, which pdb follows through a reboot
+# onto whatever tty it comes back on, else (older firmware) its tty. Read
+# from sysfs, so no board is opened: `pdb devices` would PING every board on
+# the bench, a neighbour mid-install under another session's lease included.
+# rc 1 while it is not enumerated.
+usb_path_pdb_target() {
+  local p
+  p=$(usb_path_tty "$1") && [[ -e "$p" ]] || return 1
+  usb_path_serial "$1" || echo "$p"
 }
 
 # /dev/ttyACMn -> sysfs position of the USB device behind it.

@@ -233,11 +233,12 @@ wait_for_probe() {
 kill_probe_rs() { kill_probe_rs_scoped "${PICODROID_PROBE_SERIAL:-}" >/dev/null || true; }
 
 # hil_pdb_run TIMEOUT args...: one pdb command against this slot's board.
-# Fleet: the board's tty is looked up from its USB position at every call
-# (the ttyACM number moves after a power cycle) and passed as -s, so the
-# tool never scans the host and lands on a neighbour. A board that is not
-# enumerated prints the tool's own "no picodroid devices found" line, which
-# the callers already turn into a SKIP.
+# Fleet: the board's serial (its tty, on firmware older than picodroid/2.4)
+# is looked up from its USB position at every call and passed as -s, so the
+# tool never scans the host and lands on a neighbour, and an install's
+# reboot follows the board onto whatever ttyACM it comes back on. A board
+# that is not enumerated prints a "no picodroid devices found" line, which
+# the callers turn into a SKIP.
 PDB_ENUM_WAIT=20
 hil_pdb_run() {
   local t="$1"; shift
@@ -247,7 +248,7 @@ hil_pdb_run() {
     # (7 s seen on the bench); give it PDB_ENUM_WAIT s before calling it
     # absent, and want the /dev node as well as the sysfs entry.
     local p="" waited=0
-    until p=$(usb_path_tty "$PICODROID_BOARD_USB_PATH") && [[ -e "$p" ]]; do
+    until p=$(usb_path_pdb_target "$PICODROID_BOARD_USB_PATH"); do
       if (( waited >= PDB_ENUM_WAIT )); then
         echo "error: no picodroid devices found (slot $SLOT: usb $PICODROID_BOARD_USB_PATH not enumerated after ${PDB_ENUM_WAIT}s)"
         return 1
@@ -549,8 +550,10 @@ run_pdb_test() {
   hil_pdb_run "$timeout" "${pdb_args[@]}" > "$log_file" 2>&1 || exit_code=$?
 
   if [[ $exit_code -ne 0 ]]; then
-    # "no picodroid devices found" → graceful SKIP.
-    if grep -q "no picodroid devices found" "$log_file" 2>/dev/null; then
+    # No board to talk to → graceful SKIP: hil_pdb_run's own line, or pdb's
+    # (adb's wording) when nothing answers to the name.
+    if grep -qE "no picodroid devices found|no devices(/emulators)? found|device '.*' not found" \
+        "$log_file" 2>/dev/null; then
       hil_log "  SKIP (no CDC device detected)"
       echo "SKIP $test_name" >> "$RESULTS_FILE"
       SKIP=$((SKIP + 1))
@@ -1210,36 +1213,35 @@ if [[ "$SKIP_PDB" != "true" && -z "$PDB_BIN" ]]; then
   fi
 fi
 
-# Pin pdb to the bench board's CDC port on a bench without a fleet config.
-# With a second picodroid board on the hub `pdb` refuses to pick one
-# ("multiple picodroid devices found") and every pdb row fails. The bench
-# board is the device whose greeting advertises this board's app region
-# (max PAPK = app_region_kb - 4 KB): PDB_BIN becomes a wrapper that passes
-# `-s <port>`. A PICODROID_PDB_PORT in the environment wins; with no match
-# the auto-detect is left alone. A fleet slot pins per call instead
-# (hil_pdb_run), so this does nothing when one is in use.
+# Pin pdb to the bench board on a bench without a fleet config. With a
+# second picodroid board on the hub `pdb` refuses to pick one ("more than one
+# device") and every pdb row fails. The bench board is the device whose
+# `pdb devices -l` row names this board (`board:<name>`): PDB_BIN becomes a
+# wrapper that passes `-s <serial>`, which pdb follows through every reboot.
+# A PICODROID_SERIAL in the environment wins; with no match the auto-detect
+# is left alone. A fleet slot pins per call instead (hil_pdb_run), so this
+# does nothing when one is in use.
 pin_pdb_port() {
   [[ -n "$PDB_BIN" ]] || return 0
   # A fleet slot names the board's USB position and hil_pdb_run passes its
-  # tty on every call; this pin is for a bench without a fleet config.
+  # serial on every call; this pin is for a bench without a fleet config.
   [[ -z "${PICODROID_BOARD_USB_PATH:-}" ]] || return 0
-  local want=$(( ${APP_REGION_KB:-0} - 4 ))
-  local port="${PICODROID_PDB_PORT:-}"
-  if [[ -z "$port" ]]; then
+  local serial="${PICODROID_SERIAL:-}"
+  if [[ -z "$serial" ]]; then
     # `|| true`: under `set -eo pipefail` a scan that outlives the timeout
     # (exit 124) killed the whole run instead of leaving auto-detect in place.
-    port=$( { timeout 15 "$PDB_BIN" devices 2>/dev/null < /dev/null || true; } \
-      | awk -v want="max PAPK: $want KB" 'index($0, want) { print $1; exit }')
+    serial=$( { timeout 15 "$PDB_BIN" devices -l 2>/dev/null < /dev/null || true; } \
+      | awk -v want="board:$BOARD" '$2 == "device" && index(" " $0 " ", " " want " ") { print $1; exit }')
   fi
-  if [[ -z "$port" ]]; then
-    hil_log "pdb: no device advertises a ${want} KB app region; port auto-detect stays"
+  if [[ -z "$serial" ]]; then
+    hil_log "pdb: no device reports board:$BOARD; auto-detect stays"
     return 0
   fi
   local wrapper="$RUN_LOG_DIR/pdb-pinned"
-  printf '#!/usr/bin/env bash\nexec %q -s %q "$@"\n' "$PDB_BIN" "$port" > "$wrapper"
+  printf '#!/usr/bin/env bash\nexec %q -s %q "$@"\n' "$PDB_BIN" "$serial" > "$wrapper"
   chmod +x "$wrapper"
   PDB_BIN="$wrapper"
-  hil_log "pdb: pinned to $port (max PAPK ${want} KB)"
+  hil_log "pdb: pinned to $serial ($BOARD)"
 }
 pin_pdb_port
 

@@ -237,8 +237,10 @@ How a serial is resolved:
    (4.9, already a dependency, reports `serial_number` on Linux, macOS and Windows).
    Auto-detect also stops PINGing ports without the picodroid VID/PID: today
    `devices::scan_serial` PINGs every serial port when none matches.
-3. **Confirm.** After opening, pdb compares the greeting's serial with the requested one
-   and refuses a mismatch, which can only happen on a host where two devices share an ID.
+3. **Confirm.** As built, only the reboot poll compares the answering greeting's serial
+   with the one it is following. A mismatch can only happen on a host where two devices
+   share an ID, and a confirming PING on every command would cost a round trip on every
+   `pdb input` a soak sends.
 
 **Waiting for a reboot.** `install::wait_for_reboot` and `packages::uninstall` take the
 serial from the first greeting, before the reboot. Each poll then re-resolves that serial
@@ -260,14 +262,17 @@ layer has to be split separately; this plan does not make it worse.
   and boards get swapped on a slot (the W slot holds whatever was put in), so a fixed
   board serial per slot would go stale. Update the comment that says "the device has no
   serial string".
-- **`hil_pdb_run` and `pdb.sh`** resolve slot to serial with `pdb devices -l`, matching
-  `usb:<board_usb_path>`. They do this after each flash or power cycle and pass
-  `-s <serial>` from then on. The `usb_path_tty` enumeration wait becomes
-  `pdb -s <serial> wait-for-device` under `timeout`. A reboot inside a pdb call can no
-  longer lose the board.
-- **`pin_pdb_port`** (bench without a fleet config) pins by serial: `PICODROID_SERIAL`
-  (which replaces the script-only `PICODROID_PDB_PORT`), or the serial of the one device
-  whose `board:` matches. This replaces the `max PAPK` text match and drops the comment
+- **`hil_pdb_run` and `pdb.sh`** resolve slot to serial on every call and pass
+  `-s <serial>`. A reboot inside a pdb call can no longer lose the board. As built, the
+  serial comes from sysfs, not from `pdb devices -l`: `fleet-lib.sh::usb_path_pdb_target`
+  reads `/sys/bus/usb/devices/<board_usb_path>/serial` once the tty is enumerated, and
+  falls back to the tty on firmware older than 2.4. `pdb devices` PINGs every board on
+  the bench, including a neighbour that another session's lease covers and that may be
+  mid-install. A PING in that stream would break its framing, while a sysfs read opens
+  nothing. The enumeration wait stays as it was (tty present, then target).
+- **`pin_pdb_port`** (bench without a fleet config, so one board) pins by serial:
+  `PICODROID_SERIAL` (which replaces the script-only `PICODROID_PDB_PORT`), or the serial
+  of the one device whose `devices -l` row has the matching `board:`. This replaces the `max PAPK` text match and drops the comment
   noting that `pdb devices` rows must keep it.
 - **Gradle's `install` task** (`buildSrc/.../RunAppTask.kt`) runs `pdb install` with no
   `-s`, so it relies on auto-detect and the "more than one device" error. It picks up
