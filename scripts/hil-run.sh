@@ -29,6 +29,8 @@ HIL_LOCK_WAIT="${HIL_LOCK_WAIT:-3600}"
 # fleet every slot has its own directory, and its own CARGO_TARGET_DIR, so
 # parallel runners never share a package file or a firmware ELF.
 HIL_APK_DIR="${HIL_APK_DIR:-}"
+# A loop row stops this many seconds after its last pattern matches (run_test).
+LOOP_GRACE_S="${LOOP_GRACE_S:-5}"
 
 BOARD=""
 SLOT=""
@@ -1353,9 +1355,25 @@ run_test() {
     kill_process_group "$run_pid"
 
   elif [[ "$category" == "loop" ]]; then
-    # Let it run for the full effective timeout (flash + post-boot window),
-    # then check patterns.
-    wait "$run_pid" 2>/dev/null || true
+    # The app never exits, so the row used to run out its whole window
+    # (flash + timeout) even when every pattern had matched seconds after
+    # boot: a 30 s row cost 110 s on the RP2350 and 140 s on the RP2040.
+    # Stop LOOP_GRACE_S after the last pattern lands instead; the grace
+    # keeps a fault that follows the tokens (check_no_crash below) inside
+    # the capture. A row whose patterns never all match still waits out the
+    # window, as before.
+    local elapsed=0 matched_at=-1
+    while kill -0 "$run_pid" 2>/dev/null && [[ $elapsed -lt $effective_timeout ]]; do
+      sleep 1
+      elapsed=$((elapsed + 1))
+      if [[ $matched_at -lt 0 ]] && check_patterns "$log_file" "$patterns" > /dev/null 2>&1; then
+        matched_at=$elapsed
+      fi
+      if [[ $matched_at -ge 0 && $((elapsed - matched_at)) -ge $LOOP_GRACE_S ]]; then
+        break
+      fi
+    done
+    kill_process_group "$run_pid"
     if check_patterns "$log_file" "$patterns" > /dev/null 2>&1; then
       result=0
     fi
