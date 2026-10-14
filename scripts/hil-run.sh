@@ -618,15 +618,31 @@ hil_pdb() {
   hil_pdb_run 300 "$@" >> "$log" 2>&1
 }
 
+# copy_if_changed SRC DST: copy unless DST already holds the same bytes, so
+# DST keeps its mtime and cargo's rerun-if-changed sees no change.
+copy_if_changed() {
+  cmp -s "$1" "$2" || cp "$1" "$2"
+}
+
 # Build the release firmware for the bench board: `apk_path` baked in as the
 # boot-default app, the system apps (the launcher) linked in
 # (lib.sh::build_system_apks), and `boot` as the boot override — empty for
 # the ordinary rows, `launcher` for the launch rows. Any further arguments
 # are env entries for cargo (the net rows' credentials). Appends to `log`.
+#
+# Every input reaches cargo under a fixed name, rewritten only when its bytes
+# change. Both build scripts declare PICODROID_APK_PATH rerun-if-env-changed
+# and the system PAPKs rerun-if-changed (an mtime test), so the row's own
+# path, or a fresh copy of an identical launcher, re-ran picodroid-core's
+# build script (the SDK class tree through Gradle) and recompiled the crate
+# on every row. With fixed names only picodroid's build script reruns, to
+# bake the new app in.
 hil_build_firmware() {
   local apk_path="$1" mode="$2" boot="$3" log="$4"
   shift 4
-  local -a cargo_env=(PICODROID_APK_PATH="$apk_path")
+  local firmware_apk="$HIL_APK_DIR/hil-firmware-app.papk"
+  copy_if_changed "$apk_path" "$firmware_apk" || return 1
+  local -a cargo_env=(PICODROID_APK_PATH="$firmware_apk")
   [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
   cargo_env+=("$@")
   # The system apps (the launcher, settings) are built in the row's mode;
@@ -641,9 +657,10 @@ hil_build_firmware() {
     for system_app_dir in "$REPO_ROOT"/system-apps/*/; do
       [[ -f "$system_app_dir/PicodroidManifest.xml" ]] || continue
       system_app="$(basename "$system_app_dir")"
-      local -a system_args=(--app "$system_app" --board "$BOARD" --strip-debug -o "$HIL_APK_DIR/$system_app.papk")
+      local -a system_args=(--app "$system_app" --board "$BOARD" --strip-debug -o "$HIL_APK_DIR/$system_app.build.papk")
       [[ "$mode" == "shrink" ]] && system_args+=(--shrink)
       bash "$SCRIPT_DIR/build-apk.sh" "${system_args[@]}" >> "$log" 2>&1 || return 1
+      copy_if_changed "$HIL_APK_DIR/$system_app.build.papk" "$HIL_APK_DIR/$system_app.papk" || return 1
       prebuilt="${prebuilt:+$prebuilt:}$HIL_APK_DIR/$system_app.papk"
     done
     export PICODROID_PREBUILT_SYSTEM_APKS="$prebuilt"
