@@ -4,12 +4,12 @@
 //! row naming the columns:
 //!
 //! ```text
-//! SERIAL            STATE   BOARD             APPS     SPACE
-//! E66258881755602D  device  testbench_rp2040  single  764 KB
-//! 1C05163AC1ACB0AA  device  pico_touch_kit    1/16   9720 KB
+//! SERIAL            STATE   BOARD             SPACE AVAILABLE
+//! E66258881755602D  device  testbench_rp2040           764 KB
+//! 1C05163AC1ACB0AA  device  pico_touch_kit            9720 KB
 //! ```
 //!
-//! adb stops at `<serial>\t<state>`; the board, the apps and the space are
+//! adb stops at `<serial>\t<state>`; the board and the space are
 //! ours, kept because they are what a bench of several boards is told apart
 //! by at a glance. The serial and the state are still the first two fields,
 //! so a script's `$1`/`$2` reads the same as for adb (and `$2 == "device"`
@@ -17,9 +17,7 @@
 //!
 //! - STATE: `device` when it answers a PING, `offline` when the host lists
 //!   the port but nothing answers (mid-boot, wedged, busy installing).
-//! - APPS: `installed/capacity` of a multi-app board's package directory, or
-//!   `single` for single-app firmware, where an install replaces the app.
-//! - SPACE: the biggest app an install can take now — the largest free run
+//! - SPACE AVAILABLE: the biggest app an install can take now — the largest free run
 //!   of a multi-app board's app region (more needs a compaction or an
 //!   uninstall), or a single-app board's whole region.
 //!
@@ -79,9 +77,6 @@ pub struct Info {
     pub max_papk: u32,
     /// The largest free run of the app region, on multi-app firmware.
     pub largest_free: Option<u32>,
-    /// `(installed, capacity)` of the package directory, on multi-app
-    /// firmware.
-    pub apps: Option<(u8, u8)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,13 +100,19 @@ pub fn run(long: bool) {
 }
 
 /// The column names, in order; `-l` shows all of them.
-const COLUMNS: [&str; 8] = [
-    "SERIAL", "STATE", "BOARD", "APPS", "SPACE", "PORT", "RELEASE", "USB",
+const COLUMNS: [&str; 7] = [
+    "SERIAL",
+    "STATE",
+    "BOARD",
+    "SPACE AVAILABLE",
+    "PORT",
+    "RELEASE",
+    "USB",
 ];
 /// How many of [`COLUMNS`] a plain `devices` shows.
-const SHORT_COLUMNS: usize = 5;
-/// SPACE is right-aligned, so its numbers line up by digit.
-const SPACE_COLUMN: usize = 4;
+const SHORT_COLUMNS: usize = 4;
+/// SPACE AVAILABLE is right-aligned, so its numbers line up by digit.
+const SPACE_COLUMN: usize = 3;
 
 /// The column row and one line per device, every column padded to its
 /// widest cell with two spaces between, nothing trailing. No devices, no
@@ -159,10 +160,6 @@ fn cells(r: &Row) -> Vec<String> {
     let dash = || "-".to_string();
     let i = r.info.as_ref();
     let board = i.map(|i| i.board.clone()).filter(|b| !b.is_empty());
-    let apps = i.map(|i| match i.apps {
-        Some((installed, capacity)) => format!("{installed}/{capacity}"),
-        None => "single".into(),
-    });
     let space = i.map(|i| format!("{} KB", i.largest_free.unwrap_or(i.max_papk) / 1024));
     let release = i.map(|i| i.release.clone()).filter(|v| !v.is_empty());
     let usb = match &r.kind {
@@ -173,7 +170,6 @@ fn cells(r: &Row) -> Vec<String> {
         r.serial.clone(),
         r.state.as_str().into(),
         board.unwrap_or_else(dash),
-        apps.unwrap_or_else(dash),
         space.unwrap_or_else(dash),
         r.target.clone(),
         release.unwrap_or_else(dash),
@@ -277,7 +273,6 @@ fn probe_over(link: &mut dyn Link) -> Option<(String, Info)> {
             release: g.framework_map_version.to_owned(),
             max_papk: g.max_papk,
             largest_free: g.apps.map(|a| a.largest_free),
-            apps: g.apps.map(|a| (a.installed, a.max)),
         },
     ))
 }
@@ -309,13 +304,12 @@ fn usb_path_of_interface(iface: &std::path::Path) -> Option<String> {
 mod tests {
     use super::*;
 
-    fn multi(board: &str, free_kb: u32, apps: (u8, u8)) -> Info {
+    fn multi(board: &str, free_kb: u32) -> Info {
         Info {
             board: board.into(),
             release: "0.37.0".into(),
             max_papk: 9724 * 1024,
             largest_free: Some(free_kb * 1024),
-            apps: Some(apps),
         }
     }
 
@@ -325,7 +319,6 @@ mod tests {
             release: "0.37.0".into(),
             max_papk: max_kb * 1024,
             largest_free: None,
-            apps: None,
         }
     }
 
@@ -365,7 +358,7 @@ mod tests {
                 "emulator-4242",
                 "/tmp/picodroid-sim/pdb-4242.sock",
                 State::Device,
-                Some(multi("host", 1528, (1, 8))),
+                Some(multi("host", 1528)),
                 Kind::Sim,
             ),
             row(
@@ -379,7 +372,7 @@ mod tests {
                 "1C05163AC1ACB0AA",
                 "/dev/ttyACM3",
                 State::Device,
-                Some(multi("pico_touch_kit", 9720, (1, 16))),
+                Some(multi("pico_touch_kit", 9720)),
                 usb(Some("1-8.3.4")),
             ),
         ]
@@ -392,11 +385,11 @@ mod tests {
         assert_eq!(
             format_rows(&bench(), false),
             [
-                "SERIAL            STATE    BOARD             APPS      SPACE",
-                "E66258881755602D  device   testbench_rp2040  single   764 KB",
-                "emulator-4242     device   host              1/8     1528 KB",
-                "/dev/ttyACM9      offline  -                 -             -",
-                "1C05163AC1ACB0AA  device   pico_touch_kit    1/16    9720 KB",
+                "SERIAL            STATE    BOARD             SPACE AVAILABLE",
+                "E66258881755602D  device   testbench_rp2040           764 KB",
+                "emulator-4242     device   host                      1528 KB",
+                "/dev/ttyACM9      offline  -                               -",
+                "1C05163AC1ACB0AA  device   pico_touch_kit            9720 KB",
             ]
         );
     }
@@ -406,11 +399,11 @@ mod tests {
         assert_eq!(
             format_rows(&bench(), true),
             [
-                "SERIAL            STATE    BOARD             APPS      SPACE  PORT                              RELEASE  USB",
-                "E66258881755602D  device   testbench_rp2040  single   764 KB  /dev/ttyACM6                      0.37.0   1-8.1",
-                "emulator-4242     device   host              1/8     1528 KB  /tmp/picodroid-sim/pdb-4242.sock  0.37.0   -",
-                "/dev/ttyACM9      offline  -                 -             -  /dev/ttyACM9                      -        1-8.2",
-                "1C05163AC1ACB0AA  device   pico_touch_kit    1/16    9720 KB  /dev/ttyACM3                      0.37.0   1-8.3.4",
+                "SERIAL            STATE    BOARD             SPACE AVAILABLE  PORT                              RELEASE  USB",
+                "E66258881755602D  device   testbench_rp2040           764 KB  /dev/ttyACM6                      0.37.0   1-8.1",
+                "emulator-4242     device   host                      1528 KB  /tmp/picodroid-sim/pdb-4242.sock  0.37.0   -",
+                "/dev/ttyACM9      offline  -                               -  /dev/ttyACM9                      -        1-8.2",
+                "1C05163AC1ACB0AA  device   pico_touch_kit            9720 KB  /dev/ttyACM3                      0.37.0   1-8.3.4",
             ]
         );
     }
@@ -422,11 +415,12 @@ mod tests {
     fn every_row_splits_into_the_same_fields() {
         for long in [false, true] {
             let lines = format_rows(&bench(), long);
-            let fields = lines[0].split_whitespace().count();
+            // "SPACE AVAILABLE" is two words, as "764 KB" is.
+            let fields = lines[0].split_whitespace().count() - 1;
             assert!(!lines[0].split_whitespace().any(|f| f == "device"));
             for line in &lines[1..] {
                 let f: Vec<&str> = line.split_whitespace().collect();
-                // SPACE is two words ("764 KB") except for an offline "-".
+                // The space is two words ("764 KB") except for an offline "-".
                 let expect = if f[1] == "offline" {
                     fields
                 } else {

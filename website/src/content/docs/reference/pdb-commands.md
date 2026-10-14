@@ -30,11 +30,11 @@ Lists every picodroid on a USB port and every running simulator, one row each, u
 
 ```text
 List of devices attached
-SERIAL            STATE   BOARD              APPS      SPACE
-E66258881755602D  device  testbench_rp2040   single   764 KB
-68B1A1217192254D  device  testbench_rp2350w  2/8     1024 KB
-1C05163AC1ACB0AA  device  pico_touch_kit     1/16    9720 KB
-emulator-2696762  device  testbench_rp2350   1/8     1528 KB
+SERIAL            STATE   BOARD              SPACE AVAILABLE
+E66258881755602D  device  testbench_rp2040            764 KB
+68B1A1217192254D  device  testbench_rp2350w          1024 KB
+1C05163AC1ACB0AA  device  pico_touch_kit             9720 KB
+emulator-2696762  device  testbench_rp2350           1528 KB
 ```
 
 | Column | Meaning |
@@ -42,8 +42,7 @@ emulator-2696762  device  testbench_rp2350   1/8     1528 KB
 | SERIAL | What `-s` takes: the board's serial, `emulator-<pid>` for a simulator |
 | STATE | `device` when it answers a ping; `offline` when the host lists the port but nothing answers (mid-boot, wedged, busy installing) |
 | BOARD | The board the firmware was built for |
-| APPS | Installed apps / directory capacity on multi-app firmware; `single` on single-app firmware (RP2040), where an install replaces the app |
-| SPACE | The biggest app an install can take right now: on multi-app firmware the largest free run of the app region (anything bigger needs a compaction or an uninstall first); on single-app firmware the whole region |
+| SPACE AVAILABLE | The biggest app an install can take right now: on multi-app firmware the largest free run of the app region (anything bigger needs a compaction or an uninstall first); on single-app firmware (RP2040) the whole region, since an install replaces the app |
 
 Columns are padded to line up whatever the lengths, and an offline row has `-` where only a ping can answer, so every row has the same fields. adb prints only `<serial>\t<state>`; the serial and state are still the first two fields, so a script written for adb reads them the same way.
 
@@ -51,9 +50,9 @@ Columns are padded to line up whatever the lengths, and an offline row has `-` w
 
 ```text
 List of devices attached
-SERIAL            STATE   BOARD             APPS      SPACE  PORT                                 RELEASE  USB
-1C05163AC1ACB0AA  device  pico_touch_kit    1/16    9720 KB  /dev/ttyACM3                         0.37.0   1-8.3.4
-emulator-2696762  device  testbench_rp2350  1/8     1528 KB  /tmp/picodroid-sim/pdb-2696762.sock  0.37.0   -
+SERIAL            STATE   BOARD             SPACE AVAILABLE  PORT                                 RELEASE  USB
+1C05163AC1ACB0AA  device  pico_touch_kit            9720 KB  /dev/ttyACM3                         0.37.0   1-8.3.4
+emulator-2696762  device  testbench_rp2350          1528 KB  /tmp/picodroid-sim/pdb-2696762.sock  0.37.0   -
 ```
 
 A board on firmware older than `picodroid/2.4` is listed by its port in place of a serial. Only ports with picodroid's USB vendor and product ID are opened: a debug probe's UART is never written to.

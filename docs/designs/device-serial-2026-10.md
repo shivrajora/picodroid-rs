@@ -219,7 +219,7 @@ Settings → About adds a **Serial number** row, as Android's About phone does.
 
 | adb | pdb |
 |---|---|
-| `adb devices` | `pdb devices`: adb's `List of devices attached` header, then a row naming the columns (SERIAL STATE BOARD APPS SPACE), then one row per device, space-padded. APPS is `installed/capacity`, or `single` on single-app firmware; SPACE is the biggest app an install can take now. The columns after STATE go beyond adb (§4, decision 3). State is `device` when it answers PING, or `offline` when the USB serial is visible but it does not answer (mid-boot, wedged, busy installing). A device on firmware older than 2.4 is listed by its port name. With no devices, the output is the header alone and the exit code is 0. This replaces today's `no picodroid devices found` line. |
+| `adb devices` | `pdb devices`: adb's `List of devices attached` header, then a row naming the columns (SERIAL STATE BOARD SPACE AVAILABLE), then one row per device, space-padded. SPACE AVAILABLE is the biggest app an install can take now. The columns after STATE go beyond adb (§4, decision 3). State is `device` when it answers PING, or `offline` when the USB serial is visible but it does not answer (mid-boot, wedged, busy installing). A device on firmware older than 2.4 is listed by its port name. With no devices, the output is the header alone and the exit code is 0. This replaces today's `no picodroid devices found` line. |
 | `adb devices -l` | `pdb devices -l` adds the columns PORT (tty or socket), RELEASE and USB (the bus position, Linux only), as adb's `-l` adds `usb:`. |
 | `adb -s <serial>` | `pdb -s <serial>`. A port path and a socket path are still accepted, so existing invocations keep working. `-s sim` stays as an alias for `-e`. |
 | `ANDROID_SERIAL` | `PICODROID_SERIAL`. `-s` takes precedence over it. |
@@ -358,8 +358,8 @@ Each stage builds, passes `./scripts/pre-commit`, and is one commit.
    duplicate `with_xip_disabled!`'s XIP and boot2 handling.
 3. **`pdb devices`: adb's header and first two fields, plus the board and the app space**
    (§2.6). Decided first as adb's exact format, then changed the same day at the owner's
-   request: each row also shows the board, the apps (`installed/capacity`, or `single`)
-   and the space an install can take now, under a row naming the columns, because that is
+   request: each row also shows the board and the space an install can take now (SPACE
+   AVAILABLE), under a row naming the columns, because that is
    how a bench of several boards is told apart at a glance. The columns are space-padded
    so that rows of different serial and board lengths line up, and offline rows hold `-`
    so every row has the same fields. The
