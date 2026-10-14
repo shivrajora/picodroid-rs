@@ -8,12 +8,14 @@
 //! reflash. Keep additions at the end for the same reason.
 //!
 //! ```text
-//! [14] version string, NUL-padded            ("picodroid/2.3\0")
+//! [14] version string, NUL-padded            ("picodroid/2.4\0")
 //! [4]  max PAPK size in bytes, u32 LE
 //! [1]  framework-map-version length
 //! [N]  framework-map-version bytes
 //! [1]  board name length                     (2.3 and later)
 //! [M]  board name bytes                      (the board.toml directory)
+//! [1]  serial length                         (2.4 and later)
+//! [K]  serial bytes                          (`identity::serial()`)
 //! [10] apps tail, multi-app firmware only:   [max u8][installed u8]
 //!                                            [largest free bytes u32 LE]
 //!                                            [total free bytes u32 LE]
@@ -25,6 +27,8 @@
 //! after it: nothing can follow an optional, length-detected tail
 //! unambiguously. The host reads the board field only when the version says
 //! it is there ([`Greeting::minor`] ≥ 3), so a 2.2 greeting still parses.
+//! The device serial `picodroid/2.4` added follows the board for the same
+//! reason, gated the same way ([`SERIAL_FIELD_MINOR`]).
 //!
 //! The device encodes with [`encode`]; the host decodes with
 //! [`Greeting::parse`]. What a version *means* — which ones are refused, and
@@ -33,7 +37,7 @@
 
 /// What current firmware answers to `CMD_PING`. Bumping this is a protocol
 /// change, not an edit: the golden test pins the greeting prefix per version.
-pub const PROTOCOL_VERSION: &str = "picodroid/2.3";
+pub const PROTOCOL_VERSION: &str = "picodroid/2.4";
 
 /// Firmware that predates the framework-map-version field. Hosts detect it by
 /// exact match — see [`Greeting::is_legacy`].
@@ -59,12 +63,25 @@ pub const BOARD_MAX: usize = 32;
 /// The first protocol minor whose greeting carries the board name.
 pub const BOARD_FIELD_MINOR: u32 = 3;
 
+/// Cap on the device-serial field, and on any serial a family supplies
+/// (`picodroid_core::identity`); [`encode`] truncates beyond it.
+pub const SERIAL_MAX: usize = 32;
+
+/// The serial a device sends when it has none (`Build.UNKNOWN`). A host
+/// treats it, like an empty field, as no serial: two such devices would
+/// share it.
+pub const UNKNOWN_SERIAL: &str = "unknown";
+
+/// The first protocol minor whose greeting carries the device serial.
+pub const SERIAL_FIELD_MINOR: u32 = 4;
+
 /// Bytes of the apps tail a multi-app firmware appends.
 pub const APPS_TAIL_LEN: usize = 10;
 
 /// Largest greeting [`encode_with_apps`] can produce — size wire buffers
 /// with this.
-pub const GREETING_MAX: usize = LEGACY_GREETING_LEN + 1 + FMV_MAX + 1 + BOARD_MAX + APPS_TAIL_LEN;
+pub const GREETING_MAX: usize =
+    LEGACY_GREETING_LEN + 1 + FMV_MAX + 1 + BOARD_MAX + 1 + SERIAL_MAX + APPS_TAIL_LEN;
 
 /// What a multi-app firmware says about its package directory.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,10 +100,11 @@ pub fn encode_with_apps(
     max_papk: u32,
     framework_map_version: &[u8],
     board: &[u8],
+    serial: &[u8],
     apps: &AppsInfo,
     out: &mut [u8; GREETING_MAX],
 ) -> usize {
-    let n = encode(max_papk, framework_map_version, board, out);
+    let n = encode(max_papk, framework_map_version, board, serial, out);
     out[n] = apps.max;
     out[n + 1] = apps.installed;
     out[n + 2..n + 6].copy_from_slice(&apps.largest_free.to_le_bytes());
@@ -95,13 +113,15 @@ pub fn encode_with_apps(
 }
 
 /// Encode the greeting for this firmware into `out`, returning the number of
-/// bytes written. `framework_map_version` beyond [`FMV_MAX`] bytes and
-/// `board` beyond [`BOARD_MAX`] are truncated rather than refused — a long
-/// string is a build oddity, not a reason to stop answering pings.
+/// bytes written. `framework_map_version` beyond [`FMV_MAX`] bytes, `board`
+/// beyond [`BOARD_MAX`] and `serial` beyond [`SERIAL_MAX`] are truncated
+/// rather than refused — a long string is a build oddity, not a reason to
+/// stop answering pings.
 pub fn encode(
     max_papk: u32,
     framework_map_version: &[u8],
     board: &[u8],
+    serial: &[u8],
     out: &mut [u8; GREETING_MAX],
 ) -> usize {
     let version = PROTOCOL_VERSION.as_bytes();
@@ -116,7 +136,11 @@ pub fn encode(
     let board_len = board.len().min(BOARD_MAX);
     out[n] = board_len as u8;
     out[n + 1..n + 1 + board_len].copy_from_slice(&board[..board_len]);
-    n + 1 + board_len
+    let n = n + 1 + board_len;
+    let serial_len = serial.len().min(SERIAL_MAX);
+    out[n] = serial_len as u8;
+    out[n + 1..n + 1 + serial_len].copy_from_slice(&serial[..serial_len]);
+    n + 1 + serial_len
 }
 
 /// A parsed greeting, borrowing from the payload it was parsed from.
@@ -132,6 +156,9 @@ pub struct Greeting<'a> {
     /// `host` for a boardless build). Empty on firmware older than
     /// `picodroid/2.3`.
     pub board: &'a str,
+    /// The device's serial (`Build.getSerial()`, the USB `iSerialNumber`).
+    /// Empty on firmware older than `picodroid/2.4`.
+    pub serial: &'a str,
     /// The package directory, on multi-app firmware; `None` on a single-app
     /// board and on firmware older than `picodroid/2.2`.
     pub apps: Option<AppsInfo>,
@@ -149,6 +176,9 @@ pub enum GreetingError {
     /// The length byte promises more board-name bytes than follow.
     TruncatedBoard,
     BoardNotUtf8,
+    /// The length byte promises more serial bytes than follow.
+    TruncatedSerial,
+    SerialNotUtf8,
 }
 
 impl<'a> Greeting<'a> {
@@ -175,6 +205,7 @@ impl<'a> Greeting<'a> {
                 max_papk,
                 framework_map_version: "",
                 board: "",
+                serial: "",
                 apps: None,
             });
         }
@@ -191,20 +222,28 @@ impl<'a> Greeting<'a> {
             core::str::from_utf8(&payload[LEGACY_GREETING_LEN + 1..fmv_end])
                 .map_err(|_| GreetingError::FmvNotUtf8)?;
 
-        // The board field is gated by the version, not by length: the apps
-        // tail that may follow it is itself optional.
-        let (board, tail_start) = if minor(version) >= Some(BOARD_FIELD_MINOR) {
-            let len_at = fmv_end;
-            let board_len = *payload.get(len_at).ok_or(GreetingError::TruncatedBoard)? as usize;
-            let board_end = len_at + 1 + board_len;
-            if payload.len() < board_end {
-                return Err(GreetingError::TruncatedBoard);
-            }
-            let board = core::str::from_utf8(&payload[len_at + 1..board_end])
-                .map_err(|_| GreetingError::BoardNotUtf8)?;
-            (board, board_end)
+        // The board and serial fields are gated by the version, not by
+        // length: the apps tail that may follow them is itself optional.
+        let minor = minor(version);
+        let (board, board_end) = if minor >= Some(BOARD_FIELD_MINOR) {
+            length_prefixed(
+                payload,
+                fmv_end,
+                GreetingError::TruncatedBoard,
+                GreetingError::BoardNotUtf8,
+            )?
         } else {
             ("", fmv_end)
+        };
+        let (serial, tail_start) = if minor >= Some(SERIAL_FIELD_MINOR) {
+            length_prefixed(
+                payload,
+                board_end,
+                GreetingError::TruncatedSerial,
+                GreetingError::SerialNotUtf8,
+            )?
+        } else {
+            ("", board_end)
         };
 
         // The apps tail is additive: present iff the bytes are there.
@@ -222,6 +261,7 @@ impl<'a> Greeting<'a> {
             max_papk,
             framework_map_version,
             board,
+            serial,
             apps,
         })
     }
@@ -237,6 +277,21 @@ impl<'a> Greeting<'a> {
     pub fn is_legacy(&self) -> bool {
         self.version == LEGACY_VERSION
     }
+}
+
+/// The UTF-8 string whose length byte is at `len_at`, and the offset after
+/// it.
+fn length_prefixed(
+    payload: &[u8],
+    len_at: usize,
+    truncated: GreetingError,
+    not_utf8: GreetingError,
+) -> Result<(&str, usize), GreetingError> {
+    let len = *payload.get(len_at).ok_or(truncated)? as usize;
+    let end = len_at + 1 + len;
+    let bytes = payload.get(len_at + 1..end).ok_or(truncated)?;
+    let s = core::str::from_utf8(bytes).map_err(|_| not_utf8)?;
+    Ok((s, end))
 }
 
 fn minor(version: &str) -> Option<u32> {
@@ -258,15 +313,17 @@ mod tests {
     #[test]
     fn greeting_golden_bytes() {
         let mut buf = [0u8; GREETING_MAX];
-        let n = encode(0xA1B2_C3D4, b"7.3.1-g", b"pico_x", &mut buf);
+        let n = encode(0xA1B2_C3D4, b"7.3.1-g", b"pico_x", b"E6633861", &mut buf);
 
-        assert_eq!(&buf[..14], b"picodroid/2.3\0");
+        assert_eq!(&buf[..14], b"picodroid/2.4\0");
         assert_eq!(&buf[14..18], &[0xD4, 0xC3, 0xB2, 0xA1]);
         assert_eq!(buf[18], 7);
         assert_eq!(&buf[19..26], b"7.3.1-g");
         assert_eq!(buf[26], 6);
         assert_eq!(&buf[27..33], b"pico_x");
-        assert_eq!(n, 33);
+        assert_eq!(buf[33], 8);
+        assert_eq!(&buf[34..42], b"E6633861");
+        assert_eq!(n, 42);
     }
 
     /// The apps tail, byte for byte, and a parse that sees it — while a
@@ -280,22 +337,62 @@ mod tests {
             total_free: 0x0007_C000,
         };
         let mut buf = [0u8; GREETING_MAX];
-        let n = encode_with_apps(1, b"0.20.0", b"tb", &apps, &mut buf);
-        assert_eq!(n, 18 + 1 + 6 + 1 + 2 + APPS_TAIL_LEN);
-        assert_eq!(buf[28], 8);
-        assert_eq!(buf[29], 3);
-        assert_eq!(&buf[30..34], &[0x00, 0xB0, 0x04, 0x00]);
-        assert_eq!(&buf[34..38], &[0x00, 0xC0, 0x07, 0x00]);
+        let n = encode_with_apps(1, b"0.20.0", b"tb", b"SN1", &apps, &mut buf);
+        assert_eq!(n, 18 + 1 + 6 + 1 + 2 + 1 + 3 + APPS_TAIL_LEN);
+        assert_eq!(buf[32], 8);
+        assert_eq!(buf[33], 3);
+        assert_eq!(&buf[34..38], &[0x00, 0xB0, 0x04, 0x00]);
+        assert_eq!(&buf[38..42], &[0x00, 0xC0, 0x07, 0x00]);
         let g = Greeting::parse(&buf[..n]).unwrap();
         assert_eq!(g.apps, Some(apps));
         assert_eq!(g.board, "tb");
-        assert_eq!(g.minor(), Some(3));
+        assert_eq!(g.serial, "SN1");
+        assert_eq!(g.minor(), Some(4));
 
-        let m = encode(1, b"0.20.0", b"tb", &mut buf);
+        let m = encode(1, b"0.20.0", b"tb", b"SN1", &mut buf);
         let g = Greeting::parse(&buf[..m]).unwrap();
         assert_eq!(g.apps, None);
         assert_eq!(g.board, "tb");
+        assert_eq!(g.serial, "SN1");
         assert_eq!(g.framework_map_version, "0.20.0");
+    }
+
+    /// A `picodroid/2.3` firmware sends no serial; its apps tail follows the
+    /// board directly and must still be found there, with an empty serial.
+    #[test]
+    fn a_2_3_greeting_parses_with_an_empty_serial() {
+        // [18 legacy][1 fmv len][6 fmv][1 board len][2 board][10 apps tail]
+        let mut raw = [0u8; 38];
+        raw[..13].copy_from_slice(b"picodroid/2.3");
+        raw[14..18].copy_from_slice(&0x0010_0000u32.to_le_bytes());
+        raw[18] = 6;
+        raw[19..25].copy_from_slice(b"0.27.0");
+        raw[25] = 2;
+        raw[26..28].copy_from_slice(b"tb");
+        raw[28] = 8;
+        raw[29] = 2;
+        raw[30..34].copy_from_slice(&0x0001_0000u32.to_le_bytes());
+        raw[34..38].copy_from_slice(&0x0002_0000u32.to_le_bytes());
+
+        let g = Greeting::parse(&raw).unwrap();
+        assert_eq!(g.version, "picodroid/2.3");
+        assert_eq!(g.board, "tb");
+        assert_eq!(g.serial, "");
+        assert_eq!(
+            g.apps,
+            Some(AppsInfo {
+                max: 8,
+                installed: 2,
+                largest_free: 0x0001_0000,
+                total_free: 0x0002_0000,
+            })
+        );
+
+        // Single-app 2.3: stops after the board.
+        let g = Greeting::parse(&raw[..28]).unwrap();
+        assert_eq!(g.board, "tb");
+        assert_eq!(g.serial, "");
+        assert_eq!(g.apps, None);
     }
 
     /// A `picodroid/2.2` firmware sends no board field; its apps tail follows
@@ -316,6 +413,7 @@ mod tests {
         let g = Greeting::parse(&raw).unwrap();
         assert_eq!(g.version, "picodroid/2.2");
         assert_eq!(g.board, "");
+        assert_eq!(g.serial, "");
         assert_eq!(g.framework_map_version, "0.27.0");
         assert_eq!(
             g.apps,
@@ -339,35 +437,48 @@ mod tests {
     fn legacy_prefix_is_frozen_at_18_bytes() {
         assert_eq!(LEGACY_GREETING_LEN, 18);
         let mut buf = [0u8; GREETING_MAX];
-        encode(0x0010_0000, b"", b"", &mut buf);
-        assert_eq!(&buf[..VERSION_FIELD_LEN], b"picodroid/2.3\0");
+        encode(0x0010_0000, b"", b"", b"", &mut buf);
+        assert_eq!(&buf[..VERSION_FIELD_LEN], b"picodroid/2.4\0");
         assert_eq!(&buf[VERSION_FIELD_LEN..18], &0x0010_0000u32.to_le_bytes());
     }
 
     #[test]
     fn encode_parse_round_trip() {
         let mut buf = [0u8; GREETING_MAX];
-        let n = encode(1020 * 1024, b"5.2.8", b"pico_display2_w", &mut buf);
+        let n = encode(
+            1020 * 1024,
+            b"5.2.8",
+            b"pico_display2_w",
+            b"E6633861A37B9038",
+            &mut buf,
+        );
 
         let g = Greeting::parse(&buf[..n]).unwrap();
         assert_eq!(g.version, PROTOCOL_VERSION);
         assert_eq!(g.max_papk, 1020 * 1024);
         assert_eq!(g.framework_map_version, "5.2.8");
         assert_eq!(g.board, "pico_display2_w");
+        assert_eq!(g.serial, "E6633861A37B9038");
         assert!(!g.is_legacy());
     }
 
     #[test]
-    fn oversized_fmv_and_board_are_truncated_not_overflowed() {
+    fn oversized_fields_are_truncated_not_overflowed() {
         let fmv = [b'x'; 200];
         let board = [b'b'; 100];
+        let serial = [b's'; 100];
         let mut buf = [0u8; GREETING_MAX];
-        let n = encode(1, &fmv, &board, &mut buf);
+        let n = encode(1, &fmv, &board, &serial, &mut buf);
         assert_eq!(n, GREETING_MAX - APPS_TAIL_LEN);
         assert_eq!(buf[LEGACY_GREETING_LEN] as usize, FMV_MAX);
         assert_eq!(buf[LEGACY_GREETING_LEN + 1 + FMV_MAX] as usize, BOARD_MAX);
+        assert_eq!(
+            buf[LEGACY_GREETING_LEN + 1 + FMV_MAX + 1 + BOARD_MAX] as usize,
+            SERIAL_MAX
+        );
         let g = Greeting::parse(&buf[..n]).unwrap();
         assert_eq!(g.board.len(), BOARD_MAX);
+        assert_eq!(g.serial.len(), SERIAL_MAX);
         // And with the tail, exactly the buffer.
         let apps = AppsInfo {
             max: 1,
@@ -376,7 +487,7 @@ mod tests {
             total_free: 0,
         };
         assert_eq!(
-            encode_with_apps(1, &fmv, &board, &apps, &mut buf),
+            encode_with_apps(1, &fmv, &board, &serial, &apps, &mut buf),
             GREETING_MAX
         );
     }
@@ -430,5 +541,21 @@ mod tests {
         raw[19] = 1;
         raw[20] = 0xFF;
         assert_eq!(Greeting::parse(&raw), Err(GreetingError::BoardNotUtf8));
+
+        // A 2.4 greeting that stops after the board has no serial length byte.
+        let mut raw = [0u8; 20];
+        raw[..14].copy_from_slice(b"picodroid/2.4\0");
+        assert_eq!(Greeting::parse(&raw), Err(GreetingError::TruncatedSerial));
+
+        let mut raw = [0u8; 22];
+        raw[..14].copy_from_slice(b"picodroid/2.4\0");
+        raw[20] = 5; // promises 5 serial bytes; only 1 follows
+        assert_eq!(Greeting::parse(&raw), Err(GreetingError::TruncatedSerial));
+
+        let mut raw = [0u8; 22];
+        raw[..14].copy_from_slice(b"picodroid/2.4\0");
+        raw[20] = 1;
+        raw[21] = 0xFF;
+        assert_eq!(Greeting::parse(&raw), Err(GreetingError::SerialNotUtf8));
     }
 }

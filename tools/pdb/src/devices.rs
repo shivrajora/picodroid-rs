@@ -170,7 +170,7 @@ mod tests {
     #[test]
     fn a_row_names_the_board_before_the_region() {
         let mut buf = [0u8; GREETING_MAX];
-        let n = encode(1020 * 1024, b"0.27.0", b"pico_display2_w", &mut buf);
+        let n = encode(1020 * 1024, b"0.27.0", b"pico_display2_w", b"", &mut buf);
         let g = Greeting::parse(&buf[..n]).unwrap();
         assert_eq!(
             row(&g),

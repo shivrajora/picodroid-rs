@@ -63,6 +63,8 @@ pub struct DeviceInfo {
     /// The board the firmware was built for; empty on firmware older than
     /// `picodroid/2.3`, which did not say.
     pub board: String,
+    /// The device serial; empty on firmware older than `picodroid/2.4`.
+    pub serial: String,
     /// The package directory, on multi-app firmware.
     pub apps: Option<AppsInfo>,
 }
@@ -84,17 +86,23 @@ impl DeviceInfo {
     }
 
     /// The one-line description `ping` and `install` print:
-    /// `picodroid/2.3  (board: pico_display2_w, max PAPK: 1020 KB,
-    /// framework-map-version: 0.27.0, apps 3/8, …)`. The board item is left
-    /// out when the firmware did not send one.
+    /// `picodroid/2.4  (board: pico_display2_w, serial: E6633861A37B9038,
+    /// max PAPK: 1020 KB, framework-map-version: 0.27.0, apps 3/8, …)`. The
+    /// board and serial items are left out when the firmware did not send
+    /// them.
     pub fn describe(&self) -> String {
         let board = if self.board.is_empty() {
             String::new()
         } else {
             format!("board: {}, ", self.board)
         };
+        let serial = if self.serial.is_empty() {
+            String::new()
+        } else {
+            format!("serial: {}, ", self.serial)
+        };
         format!(
-            "{}  ({board}max PAPK: {} KB, framework-map-version: {}, {})",
+            "{}  ({board}{serial}max PAPK: {} KB, framework-map-version: {}, {})",
             self.version,
             self.max_papk / 1024,
             self.framework_map_version,
@@ -114,6 +122,8 @@ pub fn parse_ping_payload(payload: &[u8]) -> Result<DeviceInfo, String> {
         GreetingError::FmvNotUtf8 => "framework_map_version is not UTF-8".into(),
         GreetingError::TruncatedBoard => "PING payload truncated in board name".into(),
         GreetingError::BoardNotUtf8 => "board name is not UTF-8".into(),
+        GreetingError::TruncatedSerial => "PING payload truncated in device serial".into(),
+        GreetingError::SerialNotUtf8 => "device serial is not UTF-8".into(),
     })?;
 
     if g.is_legacy() {
@@ -135,6 +145,7 @@ pub fn parse_ping_payload(payload: &[u8]) -> Result<DeviceInfo, String> {
         max_papk: g.max_papk as usize,
         framework_map_version: g.framework_map_version.to_string(),
         board: g.board.to_string(),
+        serial: g.serial.to_string(),
         apps: g.apps,
     })
 }
@@ -502,7 +513,13 @@ mod tests {
 
     fn greeting(max_papk: u32, fmv: &str) -> Vec<u8> {
         let mut buf = [0u8; GREETING_MAX];
-        let n = encode(max_papk, fmv.as_bytes(), b"testbench_rp2040", &mut buf);
+        let n = encode(
+            max_papk,
+            fmv.as_bytes(),
+            b"testbench_rp2040",
+            b"E6633861A37B9038",
+            &mut buf,
+        );
         buf[..n].to_vec()
     }
 
@@ -513,13 +530,14 @@ mod tests {
         assert_eq!(info.max_papk, 1_048_576);
         assert_eq!(info.framework_map_version, "0.27.0");
         assert_eq!(info.board, "testbench_rp2040");
+        assert_eq!(info.serial, "E6633861A37B9038");
         assert!(info.apps.is_none());
         assert_eq!(info.apps_summary(), "single-app");
         assert_eq!(
             info.describe(),
             format!(
-                "{}  (board: testbench_rp2040, max PAPK: 1024 KB, \
-                 framework-map-version: 0.27.0, single-app)",
+                "{}  (board: testbench_rp2040, serial: E6633861A37B9038, \
+                 max PAPK: 1024 KB, framework-map-version: 0.27.0, single-app)",
                 pdb_protocol::greeting::PROTOCOL_VERSION
             )
         );
@@ -550,7 +568,14 @@ mod tests {
             total_free: 1428 * 1024,
         };
         let mut buf = [0u8; GREETING_MAX];
-        let n = encode_with_apps(1 << 20, b"0.0.0", b"pico_display2_w", &apps, &mut buf);
+        let n = encode_with_apps(
+            1 << 20,
+            b"0.0.0",
+            b"pico_display2_w",
+            b"SN",
+            &apps,
+            &mut buf,
+        );
         let info = parse_ping_payload(&buf[..n]).unwrap();
         assert_eq!(info.apps, Some(apps));
         assert_eq!(info.board, "pico_display2_w");

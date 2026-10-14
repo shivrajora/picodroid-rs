@@ -131,6 +131,7 @@ fn handle_ping(transport: &mut impl PdbTransport, flash: &impl PapkFlash, len: u
             flash.max_data_size() as u32,
             crate::framework_map::FRAMEWORK_MAP_VERSION.as_bytes(),
             board,
+            b"",
             &apps,
             &mut buf,
         )
@@ -140,6 +141,7 @@ fn handle_ping(transport: &mut impl PdbTransport, flash: &impl PapkFlash, len: u
         flash.max_data_size() as u32,
         crate::framework_map::FRAMEWORK_MAP_VERSION.as_bytes(),
         board,
+        b"",
         &mut buf,
     );
     send_response(transport, STATUS_OK, &buf[..total]);
