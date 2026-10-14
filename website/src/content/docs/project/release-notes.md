@@ -3,7 +3,250 @@ title: "Release notes"
 description: "User-facing changes for Picodroid v0.4.0 onward."
 ---
 
-This page covers everything that landed in releases v0.4.0 through v0.37.0. Earlier history is in `git log v0.1.0...v0.3.0`.
+This page covers everything that landed in releases v0.4.0 through v0.37.0, and what is on `main` since. Earlier history is in `git log v0.1.0...v0.3.0`.
+
+## Unreleased — on `main` since v0.37.0
+
+Not tagged yet. Every device now has a serial number, which `pdb` and `Build.getSerial()` use
+the way `adb` and Android do; the class section keeps each string constant once (PAPK v3),
+which takes a fifth off a packed app and up to 112 KB off a firmware image; natives are
+dispatched by hash instead of string compare; line-number tables are out of every firmware
+image; and two bug-scan rounds landed about ninety one-bug fixes across the JVM, the widgets,
+the `java.*` shim and the packer.
+
+Three changes here need action: **every `.papk` must be re-packed**, because the package format
+moved to major version 3; **`DatePicker.getMonth()` and the listener's month are now 0-based**,
+as on Android; and **a `--shrink` build writes `build/apks/<app>-shrunk.papk`**, so a script that
+read `<app>.papk` after one needs the new name.
+
+**Every device has a serial number (2026-10-14)**
+
+Written up in [device-serial-2026-10.md](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/device-serial-2026-10.md).
+A board's serial is its chip's unique ID (the RP2040's flash unique ID, the RP2350's OTP chip
+ID, 16 hex digits); a chip with neither gets a random one made once from its TRNG and kept at
+`/system/serial`; a simulator's is `emulator-<pid>`, as adb names an emulator. The same value
+is the USB `iSerialNumber` (so `lsusb -v` and `/dev/serial/by-id/` show it), the field the
+`picodroid/2.4` greeting carries, and what the new `Build.getSerial()` returns to every app
+(there is no permission model yet). `Build.UNKNOWN` is new and the deprecated `Build.SERIAL`
+reads it, as for an Android app targeting O or later. `Settings → About` has a Serial row.
+
+`pdb` picks a device the way `adb` does: `-s <serial>`, `PICODROID_SERIAL` (`ANDROID_SERIAL`'s
+counterpart), `-d` for the one USB device, `-e` (or `-s sim`) for the one simulator, else the
+only one attached; a port or socket path still works in place of a serial. `pdb devices` prints
+adb's header and `SERIAL STATE BOARD SPACE AVAILABLE` columns (`-l` adds the port, release and
+USB position); `get-serialno` and `wait-for-device` are new. An install follows the board
+through its reboot by serial, so a board that comes back on another `/dev/ttyACM*` while a
+neighbour takes its old one is found, and the neighbour never answers for it; that was the
+`pdb-install` HIL flake. Auto-detect no longer pings ports without the picodroid VID/PID.
+Firmware older than 2.4 has no serial and is named by its port.
+Docs: [pdb commands](/reference/pdb-commands/), [`Build`](/api/system/#picodroidosbuild),
+[the porting guide](/reference/porting-guide/) (`device_serial` is the one identity hook a
+family writes).
+
+**One Utf8 pool per class section: PAPK v3 (2026-10-13)**
+
+Third round of [class-link-2026-09.md](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/class-link-2026-09.md).
+A class section kept every class file whole, so its string constants repeated in nearly every
+class (`java/lang/Object` 145 times in the RP2040's framework section). The section now ends in
+a pool holding each distinct `Utf8` once, and a class keeps only the entry's tag byte; the
+runtime reads through the pool, a registered class is still 16 bytes of RAM. The framework
+section shrank from 261,296 to 219,256 B on the RP2040 and from 561,804 to 460,796 B on the
+RP2350 (flash −39.5 KB and −112 KB); `claudeusage`'s packed classes −18.8 %, a one-class app
++52 B. **Action needed:** the package format is major version 3, so a PAPK packed before
+2026-10-13 is refused at install and at boot; re-pack with `./scripts/build-apk.sh`.
+`papk-pack --repack` puts the constants back when it rewrites a file.
+
+**Natives dispatched by hash (2026-10-12)**
+
+Every native dispatch arm compared the class and method names as strings: 734 `memcmp` sites
+on the RP2040 image. The arms now match the 32-bit FNV-1a hash of each name, the hash the link
+tables already use, and the generator refuses two spellings in one namespace that hash alike.
+`memcmp` sites 868 → 267 on the RP2040 and 1034 → 293 on the RP2350; flash −9.3 KB and
+−9.8 KB; dispatch timings unchanged within noise. Two consequences for an app: an app class
+whose name hashes like a framework or builtin class is refused at pack time (`papk-pack
+--framework-classes`, which Gradle passes), at install and at load, with the colliding name in
+the message; and `papk-pack` refuses an app class that declares a `native` method, which never
+had anything to bind to. Both are new spellings away.
+
+**Line-number tables out of every firmware (2026-10-14)**
+
+The `line-numbers` feature and the SDK's `LineNumberTable` / `SourceFile` cost the
+`pico_display2_w` debug image 71,544 B of its program region, the image that overflowed it on
+2026-09-29 and 2026-10-11. `build-lib.sh` now defaults `PICODROID_LINE_NUMBERS` to 0 on every
+board and profile (the RP2040 had dropped them on 2026-09-26): device frames print `(pc=N)`
+and `scripts/retrace.sh --app <app>` resolves them on the host; `PICODROID_LINE_NUMBERS=1`
+builds them in on a board with the room, and `flash.sh` prints a reminder whenever it flashes
+without them. The simulator still prints line numbers. In the same pass LVGL's line widget
+went out of the build and its box shadow and blur were stubbed (nothing in the SDK reached
+them; −6.8 KB, screenshots pixel-identical). See [Debugging](/guides/debugging/#stack-traces-and-shrunk-logs).
+
+**Shrunk PAPKs are named `<app>-shrunk.papk` (2026-10-13)**
+
+A `--shrink` PAPK only installs on a firmware built with the same map, yet it shared
+`<app>.papk` with the unshrunk build. Gradle's `packPapk` and `build-apk.sh` now write
+`build/apks/<app>-shrunk.papk` under the shrink gate, with the map beside it as
+`<app>-shrunk.shrink-map.toml`; an explicit `-o` is kept as given. See [the
+shrinker](/reference/shrinker/).
+
+**`DatePicker` takes Android's API (2026-10-11)**
+
+`updateDate(year, monthOfYear, dayOfMonth)`, `init(year, month, day, listener)`, `getYear()`,
+`getMonth()` and `getDayOfMonth()` with Android's signatures, the month 0-based (January is 0)
+in all of them and in `OnDateChangedListener`, so a ported `new GregorianCalendar(y,
+picker.getMonth(), d)` lands on the month shown. The picker shows 1 January 2026 until a date
+is set (the getters used to read 0 until a tap). **Action needed:** `getMonth()` was 1-based;
+the original `setDate(year, month, day)` (month 1-based) and `getDay()` remain as deprecated
+aliases. `pickerdemo` follows. Doc: [`DatePicker`](/api/ui/#picodroidwidgetdatepicker).
+
+**`PeripheralManager` refuses the pads the board owns (2026-10-12)**
+
+`claudeusage` opened the Display Pack's RGB LED as PWM on GP8; on the testbench GP8 is the
+display's DC line, so the panel showed noise with a clean boot log. The board's `[display]`,
+`[touch]`, `[[button]]` and `[audio]` pads, and the display's SPI bus, are now reserved: the
+GPIO, PWM, ADC and SPI openers throw `IllegalArgumentException` naming the line (`GP8 is the
+display's DC line on this board`), so an app driving optional hardware catches it and carries
+on. `blinky` reads back GP22 instead of GP16 for the same reason. Doc:
+[Peripherals](/api/peripherals/).
+
+**The RP2350 display and touch path (2026-10-11 to 2026-10-12)**
+
+Four bench findings from the bug scan, recorded in
+[bench-handoff-2026-10-11.md](https://github.com/shivrajora/picodroid-rs/blob/main/docs/bench-handoff-2026-10-11.md):
+
+- Every RP2350 board asked its display SPI for 62.5 MHz and got 75 MHz, the lowest rate the
+  controller can program at that clock. The boards now say `75000000`, the rate they have run
+  at since bring-up, and a `spi_freq` the chip cannot program exactly no longer builds.
+- The XPT2046 driver decoded 11 of the sample's 12 bits. It takes all twelve now and the
+  testbench calibrations are doubled to match; a `[touch] cal_*` table written before
+  2026-10-11 is in the old units. `examples/touchprobe` logs every touch-down in panel pixels
+  so a board's table can be checked by hand.
+- A touch read on the display's shared bus used to clock its commands into the panel as
+  pixels (a purple dash per band on `testbench_rp2350w`); it now waits for the band in flight
+  and releases the panel's select first.
+- The SPI DMA ISR refills by bytes outstanding and judges a write by its channels, which ended
+  the touch short-read line in the nightlies (28 a night on the RP2040 → 0).
+
+The debug images grew past their regions on the way: the three 4 MB WiFi boards
+(`testbench_rp2350w`, `pico_enviro_mon_w`, `pico_display2_w`) now have a 2560 KB program
+region and a 1024 KB app region (eight `claudeusage`-sized apps still fit), and
+`pico_touch_kit`'s app region is 9728 KB. LittleFS and the app region moved, so the first
+flash of a new firmware reformats them. See [Build & flash](/get-started/build/#choosing-a-board).
+
+**WiFi stays joined: the cyw43 join supervisor, NET-12 (2026-10-10)**
+
+About 3 % of power cycles never joined WiFi and never recovered: the vendored driver retries
+nothing after a verdict, files a 4-way-handshake timeout under AP load as `BADAUTH`, and never
+collapses a self-join its firmware completes after a verdict. A pure, host-tested
+`JoinSupervisor` now rejoins after 3 s doubling to 60 s (a bad password rides the ladder, then
+one try every 5 minutes), the link driver waits up to 5 s for a self-join in progress and
+performs the collapse, a lost link after DHCP reaches the IP stack, and a missed probe is
+retried after 1 s. 437 power cycles on `pico_enviro_mon_w`: 0 stuck, 30 recovered by a rejoin.
+Log line: `wifi: rejoin "<ssid>" (<why>; attempt N, join state 0x…)`. Write-up in
+[completed/networking-followups-2026-08.md](https://github.com/shivrajora/picodroid-rs/blob/main/docs/completed/networking-followups-2026-08.md).
+
+**`DatagramSocket` sends and receives whole datagrams (2026-10-10)**
+
+Both natives went through a 256-byte buffer: `send` cut a longer packet without a word and
+`receive` dropped the rest of a longer datagram. The buffers are now sized by the packet (an
+`IOException` past 65,507 bytes) and allocated fallibly. `DatagramPacket` gained `java.net`'s
+window API: the offset constructors, `getOffset`, `setData`, `setAddress`, `setPort`, the
+argument checks, and a packet reused across receives keeps its window after a short datagram
+set `length`. Doc: [UDP](/api/networking/#udp).
+
+**UTF-8 through `java.io` (2026-10-10 to 2026-10-11)**
+
+A `char` from U+0080 up is written as its UTF-8 bytes; `InputStreamReader` decodes UTF-8 (the
+default charset, and what every charset name decodes: one `char` per code point of the BMP,
+U+FFFD for a malformed byte, across its buffer end), `OutputStreamWriter` encodes a `char` back,
+and `new String(byte[])` keeps a valid UTF-8 sequence instead of turning every high byte into
+`?`. A zero-length `read` is not the end of the stream. `qa_io` pins all of it.
+Doc: [`java.io` streams](/api/core/#javaio-streams).
+
+**The pack-time checks grew (2026-10-10 to 2026-10-11)**
+
+The link derivation, run once per class at pack time and again at install, now verifies every
+method's bytecode: operand lengths, branch and switch targets inside the code, `tableswitch`
+and `lookupswitch` bounds, `wide` before an opcode it widens, the fixed bytes of
+`invokeinterface` / `invokedynamic`, `newarray` type codes, no unassigned opcode
+(`LinkError::BadBytecode { pc }` names the instruction; a malformed class used to reset the
+device). A superclass chain that loops is refused. A class or member name with a
+supplementary character (an emoji identifier) is re-encoded from modified UTF-8 instead of
+refused, and so is a string literal with one. `papk-pack --repack` keeps the declared
+components and theme; the packer warns when a base layout names a value a variant redefines,
+applies shorthand `padding` / `layout_margin` the same whatever the XML attribute order, drops
+an unescaped quote in a string resource (toggling whitespace keeping, as `aapt` does), refuses a
+non-Activity component under a shrink map too, refuses an over-long override string and stops
+the resource table at 65,535 entries per type. The shrink-map parser refuses duplicate rows and
+unknown keys, and keep globs combine `*` and `**`.
+
+**Two bug-scan rounds: about ninety one-bug fixes (2026-10-10 and 2026-10-11)**
+
+Each is one commit on `main` (`eb1fd1a9..14cedd99`); the records are
+[bugscan-2026-10-follow-ups.md](https://github.com/shivrajora/picodroid-rs/blob/main/docs/bugscan-2026-10-follow-ups.md)
+and [bugscan-2026-10-open-items.md](https://github.com/shivrajora/picodroid-rs/blob/main/docs/bugscan-2026-10-open-items.md).
+The ones an app can notice:
+
+- *JVM.* `invokestatic` initialises the declaring class, not the one the constant pool names;
+  a superclass's `<clinit>` runs before its subclass's from the run loop; a class whose
+  `<clinit>` threw is erroneous, not initialised; a `synchronized` method entered through a
+  framework upcall takes its monitor; `monitorenter` / `monitorexit` on null throw
+  `NullPointerException`; collection iterators fail fast on equal-size structural changes too;
+  `new Random()` seeds differ between boots; the wrappers' `String` constructors parse
+  (`new Integer("12")` was storing the reference); the collector reserves its mark bitmaps
+  before marking and scans `ArrayList` / `HashMap` buffers as slots; a boxed return,
+  `Arrays.sort`, `Arrays.toString` and `Arrays.copyOf` on an exhausted heap throw a catchable
+  `OutOfMemoryError` instead of resetting.
+- *Strings and numbers.* `String.substring` throws `StringIndexOutOfBoundsException`; `trim`
+  strips every char at or below U+0020; `split(String, int)` honours its limit; `indexOf`
+  finds an empty needle at `length()`; `String.format` takes explicit argument indices
+  (`%1$s`, `%<s`) and bounds width and precision to an `int`; `Double.parseDouble` accepts only
+  Java's `Infinity` and `NaN` spellings; `Double.toString` / `Float.toString` print JDK 19+'s
+  two-digit minimum (`Double.MIN_VALUE` is `4.9E-324`, `Float.MIN_VALUE` `1.4E-45`);
+  `Arrays.copyOf` with a negative length throws `NegativeArraySizeException`.
+- *Views and widgets.* `SeekBar.setProgress` / `setMax` report `onProgressChanged` with
+  `fromUser == false` (nothing when the value is unchanged); `View.INVISIBLE` and `setAlpha`
+  no longer fight over the one opacity; `ViewGroup.getChildCount()` counts the children
+  `addView` added and `onViewAdded(View)` is called for every overload (a `ListView` counts its
+  rows); `RadioGroup` tracks buttons added through every `addView` overload, `check(-1)` clears
+  the selection and each button keeps its own listener slot; `ViewPager2` drops a stale page
+  and clamps a negative item; `popBackStack(name, POP_BACK_STACK_INCLUSIVE)` pops every
+  same-named entry; a null `String` to a text setter clears it and `Canvas` text throws
+  `NullPointerException`; a text setter takes any length, not 127 bytes; every dialog's three
+  buttons dispatch (the button map held one dialog's); a `View` whose widget went with its
+  Activity throws instead of a null dereference; `withEndAction` runs when nothing is left to
+  animate; a push past the Activity stack cap leaves the top resumed.
+- *Services, time, storage.* `onServiceDisconnected` is not delivered for the app's own
+  `unbindService` (Android delivers it for a dead process only); a wake in flight waits for a
+  queued launch; `DateTimeFormatter` keeps an escaped quote inside a literal; `Instant.toString`
+  always prints the seconds; `ISO_LOCAL_TIME` and `ISO_LOCAL_DATE_TIME` print the fraction of a
+  second; `ZoneId.of("")` throws `DateTimeException` and `TimeZone.getTimeZone("")` is GMT; a
+  zone offset rejects a second sign inside the digit groups;
+  `SharedPreferences.Editor.putString(key, null)` removes the key; `JSONObject.numberToString(-0.0)`
+  prints `-0`, as Android does.
+- *Kotlin shim.* `roundToInt` / `roundToLong` round exactly; `toDoubleOrNull` /
+  `toFloatOrNull` take the JVM stdlib's grammar; `replace("", new, ignoreCase = true)` inserts
+  like the stdlib; `IntArray.fill` / `FloatArray.fill` reject an inverted range; `split("")`
+  matches between every char; `copyOfRange` throws the stdlib's exceptions.
+- *Networking and install.* A chunked response whose head fills the buffer is refused as too
+  large; `http-head`'s decimal parser saturates its final add; an install checks the streamed
+  image is a PAPK before committing it, the feature gate re-reads the whole manifest, and the
+  host's install `READY` timeout scales with the device's app region (a nearly full
+  `pico_touch_kit` compacts for longer than the old 120 s). The `picodroid/2.3` greeting names
+  the board, so `pdb devices` and `ping` say which board answered.
+- *Hardware.* BME688 pressure keeps Bosch's `par_p3 << 5`; PWM wrap is the period minus one;
+  I2C SCL counts saturate and keep the controller's minimums; UART baud divisors are clamped
+  and host-tested.
+
+**Smaller things (2026-10-10 to 2026-10-14)**
+
+- The CI build and test logs are warning-free but for one upstream `proc-macro-error2` note;
+  CI's Building job links `pico_display2_w` in debug, the largest image of the fleet, and the
+  nightly tracks it in the size lane.
+- `check-shrunk-image` reports a class no map covers yet instead of failing it as a leak.
+- The HIL runner stops a loop row 5 s after its patterns match, skips the launcher rows on a
+  touchless board before building, and no longer recompiles `picodroid-core` for every row;
+  bench boards are named by serial in `fleet.conf` and the fleet scripts read it from sysfs.
+- `qa_life` watches its Activity chain from one thread instead of a timer per step.
 
 ## v0.37.0 — 2026-10-10
 

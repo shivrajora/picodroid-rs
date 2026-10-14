@@ -429,20 +429,26 @@ Rust never spells a Java class, member or descriptor as a string literal.
 | `c::` | `sdk/class-names.tsv` + the contract's classes | `c::picodroid_pio_Gpio` | `"picodroid/pio/Gpio"` | `"a/S"` |
 | `m::` | `sdk/member-names.tsv` + the contract's members | `m::setValue` | `"setValue"` | `"uQ"` |
 | `d::` | `sdk/descriptors.tsv` | `d::String__V` | `"(Ljava/lang/String;)V"` | `"(Lb/AQ;)V"` |
+| `ch::` / `mh::` | the `c::` / `m::` lists | `ch::picodroid_pio_Gpio`, `mh::setValue` | `fnv1a("picodroid/pio/Gpio")` | `fnv1a("a/S")` |
 
-Every `(class, method)` match arm in `crates/picodroid-core/src/native_handler/**`
-and `crates/jvm/src/native/**`, every `DISPATCH_SITES` row, every
-`PICODROID_NATIVE_CLASSES` / `BUILTIN_CLASS_NAMES` entry, every `catch`
-and `instanceof` table, and every Rust-side allocation goes through them:
+`ch::` and `mh::` are the 32-bit FNV-1a hash of each `c::` / `m::` constant's
+loaded spelling, the hash the link tables already carry, and the generator
+refuses two spellings in one namespace that hash alike. Since 2026-10-12 a
+native dispatch arm matches the hashes: each handler hashes the two names
+once per call (`pico_jvm::NativeKey`) and the arms compare `u32`s, which
+compile to compare trees instead of string compares. Every `DISPATCH_SITES`
+row, every `PICODROID_NATIVE_CLASSES` / `BUILTIN_CLASS_NAMES` entry, every
+`catch` and `instanceof` table, and every Rust-side allocation still goes
+through `c::` / `m::` / `d::`:
 
 ```rust
-use crate::shrink_names::{c, m};
+use crate::shrink_names::{ch, mh};
 
-pub fn dispatch(class_name: &str, method_name: &str, ctx: &mut NativeContext<'_>)
+pub fn dispatch(key: NativeKey, ctx: &mut NativeContext<'_>)
     -> Option<Result<Option<Value>, JvmError>>
 {
-    match (class_name, method_name) {
-        (c::picodroid_pio_Gpio, m::setValue) => ...,
+    match (key.class, key.method) {
+        (ch::picodroid_pio_Gpio, mh::setValue) => ...,
         // ...
     }
 }

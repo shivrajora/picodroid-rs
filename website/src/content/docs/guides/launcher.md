@@ -84,7 +84,7 @@ See the [system API](/api/system/#picodroidcontentpmpackagemanager) for the whol
 
 `system-apps/settings` (package `picodroid.settings`) sits beside the launcher in every multi-app firmware and shows in the launcher's list like any app. Every screen is a column of rows under a header row; a tap on the header (or BACK on a keypad board) goes up one level, and the root's header is Home, which finishes the app and brings the launcher back — the way a touch-only board gets home.
 
-- **About** — the board, its MCU and the release (`Build`), the storage volume (`StatFs`) and the heap in use.
+- **About** — the board, its MCU, the release and the device serial (`Build`), the storage volume (`StatFs`) and the heap in use.
 - **Apps** — one row per installed app (system apps are not listed; they cannot be uninstalled). A tap opens a dialog — the app's label, "Remove app and data?", Uninstall / Cancel — and Uninstall removes the app and its `/data/<package>` through `PackageManager.getPackageInstaller().uninstall(name)`, then the list is rebuilt. The settings app keeps running; nothing reboots.
 - **Storage** — the volume, then each package's app bytes (its image) and data bytes (its directory, as the [storage cap](/api/storage/) counts it).
 - **Wi-Fi** — on a board with a WiFi link only: the status, the saved network, Scan, and one row per network found; a tap joins an open network or asks for a password. See [WiFi setup](/get-started/networking/#joining-a-network-from-settings) for the flow on touch and on four buttons.

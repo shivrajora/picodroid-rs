@@ -3,7 +3,7 @@ title: "Examples"
 description: "The example apps shipped under examples/, grouped by feature area."
 ---
 
-One hundred and one examples are included under `examples/`, organized by category. The launcher that multi-app boards boot into lives in `system-apps/launcher/`: built the same way, but linked into the firmware. See the [launcher guide](/guides/launcher/).
+One hundred and seven examples are included under `examples/`, organized by category. The launcher that multi-app boards boot into lives in `system-apps/launcher/`: built the same way, but linked into the firmware. See the [launcher guide](/guides/launcher/).
 
 New to Picodroid? Start with the two guided tutorials below — they walk through building a real app step by step. The rest of the catalog is reference material to copy from.
 
@@ -144,6 +144,10 @@ Full graphical UI with touch input, demonstrating the Activity lifecycle and LVG
 |---------|-------|-------------|
 | `displaydemo` | `displaydemo.DisplayDemoApp` | Showcases the full widget set on a 320x240 display: `LinearLayout`, `ScrollView`, `TextView`, `Button`, `ToggleButton`, `Switch`, `CheckBox`, `SeekBar`, `Spinner`, `EditText`, touch input, event handlers, a moving-average FPS overlay (`DisplayDebug.showFps()`), and a themed-widgets section using a custom `Theme` palette with `GradientDrawable` (gradient header, surface card, pill / ghost buttons) |
 | `keydemo` | `keydemo.KeyDemoActivity` | Hardware-button demo: a focusable `Button`'s `OnKeyListener` takes DPAD_CENTER and the Activity's `onKeyDown` / `onKeyLongPress` / `onKeyUp` take the rest — DPAD_UP has a short and a long action (`startTracking` / `isCanceled`), DPAD_DOWN shows auto-repeat (`getRepeatCount`); requires `[[button]]` entries in `board.toml` |
+| `keynav` | `keynav.KeyNavActivity` | Every stock value widget driven by the four keys: a `SeekBar`, a `Spinner` and a `TimePicker` edited with SELECT then UP/DOWN, a `ScrollView` of text scrolled by UP/DOWN, a list dialog walked and picked, and a clickable `TextView` the keys reach because a click listener makes a view focusable on a keypad board. Each change is logged, so the sim's control channel can drive it. See [Button-only navigation](/guides/button-navigation/) |
+| `menudemo` | `menudemo.MenuDemoActivity` | The options menu as the write-once action surface: three actions declared once in `onCreateOptionsMenu`, reached by holding SELECT on a four-key board, through the menu control the framework draws bottom-right on a touch board, and by a MENU key anywhere; `onPrepareOptionsMenu` and `onOptionsMenuClosed` counted and logged. See [the options menu](/guides/button-navigation/#the-options-menu) |
+| `powerdemo` | `powerdemo.PowerDemoActivity` | Display power: the panel dozes on `KEYCODE_SLEEP`, wakes on a tap that lands as no click, toggles on `KEYCODE_POWER`, dozes on the idle timeout the app shortens through `Settings.System.SCREEN_OFF_TIMEOUT`, and stays lit under `View.setKeepScreenOn(true)`. One button fills the window; each click is numbered in the log |
+| `touchprobe` | `touchprobe.TouchProbeActivity` | A bench probe for the touch calibration: one full-screen view that logs every touch-down in panel pixels (`TouchProbe: down x,y`) and shows it, so a finger on the four corners and the centre says whether a board's `[touch] cal_*` table maps the panel's edges to the screen's |
 | `callbacktest` | `callbacktest.CallbackTestActivity` | Regression harness for widget callback dispatch under both shrink modes — registers a lambda listener on every widget type and synthetically fires its event |
 | `dialogdemo` | `dialogdemo.DialogDemoApp` | `Toast.makeText().show()` and `AlertDialog.Builder` with positive / negative listeners; demonstrates `onBackPressed()` confirmation pattern |
 | `gesturedemo` | `gesturedemo.GestureDemoApp` | `GestureDetector` with `onSingleTap` / `onLongPress` / `onFling` listeners on a single View |

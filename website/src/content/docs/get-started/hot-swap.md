@@ -8,13 +8,17 @@ The **Picodroid Debug Bridge** (`pdb`) lets you push a new app to a running devi
 ## Quick access via script
 
 ```bash
-./scripts/pdb.sh devices
-./scripts/pdb.sh -s /dev/cu.usbmodem102 ping
-./scripts/pdb.sh -s /dev/cu.usbmodem102 install build/apks/blinky.papk
-./scripts/pdb.sh -s /dev/cu.usbmodem102 sysmon
-./scripts/pdb.sh -s /dev/cu.usbmodem102 input tap 120 80
+./scripts/pdb.sh devices                                   # every board and simulator, by serial
+./scripts/pdb.sh -d ping                                   # the one USB device
+./scripts/pdb.sh -s E6633861A37B9038 install build/apks/blinky.papk   # a board, by its serial
+./scripts/pdb.sh -s /dev/cu.usbmodem102 sysmon             # or by its port, as before
+./scripts/pdb.sh -d input tap 120 80
 ./scripts/sim.sh --app foo | ./scripts/pdb.sh logcat --stdin --tag Foo
 ```
+
+A board's serial is its chip's unique ID, printed by `pdb devices` and returned by
+`Build.getSerial()`; it finds the board on whatever port it comes back on after a reboot, which
+a port name cannot. `PICODROID_SERIAL=<serial>` sets it for a shell, as `ANDROID_SERIAL` does.
 
 The subcommands are `devices`, `ping`, `install`, `list`, `uninstall`,
 `sysmon`, `input` (tap/swipe/keyevent injection), and `logcat` (tag/level log

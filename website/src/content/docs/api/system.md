@@ -78,7 +78,17 @@ What the firmware was built for, as `android.os.Build` reports it:
 Build.BOARD            // the board.toml name, e.g. "testbench_rp2350"
 Build.HARDWARE         // the MCU, e.g. "rp2350"
 Build.VERSION.RELEASE  // the firmware release, e.g. "0.37.0"
+Build.getSerial()      // this device's serial, e.g. "E6633861A37B9038"; Build.UNKNOWN if it has none
 ```
+
+`getSerial()` is the device's serial number: the RP2040's flash unique ID or the RP2350's OTP
+chip ID as 16 hex digits, the same value the board's USB descriptor reports and
+[`pdb devices`](/reference/pdb-commands/#devices) lists, so an app can show the number a host
+will address it by. In the simulator it is `emulator-<pid>`. Android requires
+`READ_PRIVILEGED_PHONE_STATE` for it; picodroid has no permission model yet and returns it to
+every app (the value is in the USB descriptor for anyone on the host anyway). `Build.SERIAL` is
+deprecated and reads `Build.UNKNOWN` (`"unknown"`), as it does for an Android app targeting O or
+later, so ported code behaves the same.
 
 `VERSION.RELEASE` is the firmware's version — the one a shrink map is cut for, so on a `--shrink` image it is also the framework map version `pdb ping` reports, the one a PAPK's own map version must be compatible with to install. A plain (unshrunk) build reports its release here too, while `pdb ping` shows the `0.0.0` sentinel that means "no map".
 

@@ -4,7 +4,7 @@ The user-facing manual lives under [`website/src/content/docs/`](website/src/con
 
 ## Getting Set Up
 
-See [website/src/content/docs/get-started/build.md](website/src/content/docs/get-started/build.md) for full prerequisites (Rust toolchain, ARM cross-compiler, JDK 11+, probe-rs).
+See [Build & flash](website/src/content/docs/get-started/build.md) for full prerequisites (Rust toolchain, ARM cross-compiler, JDK 21, probe-rs). The Java formatter is a Java 21 jar; when `java` on your `PATH` is older, point `JAVA_HOME` at a JDK 21 and the formatter scripts use that one.
 
 Quick version:
 
@@ -14,13 +14,38 @@ cd picodroid-rs
 ln -s ../../scripts/pre-commit .git/hooks/pre-commit
 ```
 
+## After Every Change
+
+Two checks, both cheap. CI and the nightlies are the regression gates, not your machine.
+
+1. **Sim smoke.** After a change under `crates/`, `platforms/`, `sdk/` or `system-apps/`:
+
+   ```bash
+   ./scripts/sim.sh --app helloworld
+   ```
+
+   Confirm `[HelloWorld] Hello, World!` appears. Docs, example-app and script-only edits need
+   no smoke; every other app runs in CI's sim smoke or in the 3 AM sim nightly.
+
+2. **Pre-commit.** `./scripts/pre-commit` must end with `==> All checks passed.` See
+   [Pre-commit Hook](#pre-commit-hook).
+
+Skip both during intermediate debugging steps, and run them once the fix is in. When the bug is
+about memory (heap growth, churn, OOM, corruption) or scheduling (a task hogging a core,
+starving a peer, a spin that runs long), the opt-in monitors are one flag away:
+`./scripts/sim.sh --app <app> --mem-diag` and `--sched-diag`
+([`docs/memory-diagnostics.md`](docs/memory-diagnostics.md),
+[`docs/scheduling-diagnostics.md`](docs/scheduling-diagnostics.md)).
+
 ## Running Tests
 
-Always use the test script — bare `cargo test` fails because the default target is bare-metal ARM:
+Use the test script — bare `cargo test` fails because there is no default cargo target and the firmware crate is bare-metal ARM:
 
 ```bash
 ./scripts/test.sh
 ```
+
+It runs the workspace on the host twice, with the shrinker off and on, and takes no arguments. CI runs it on every push, so it is not part of the two checks above; run it when you have changed something its tests pin (a native dispatch arm, the class tables, a wire format).
 
 ## Pre-commit Hook
 
@@ -37,30 +62,32 @@ It runs in two tiers, both of which fan their stages out across parallel lanes:
 ./scripts/pre-commit --full   # the release-cut gate
 ```
 
-**`--fast`** runs the source-tree guards that exist nowhere else (shadow
-twins across `platforms/rp/src` and `crates/picodroid-core/src`, `family-rp`
-cfg-gate hygiene, `apply_jvm_env`) plus whichever of `cargo fmt`, the Java and
-Kotlin formatters and markdown lint the changed files implicate. A Rust change
-adds CI's eight clippy legs (every board, the sim, the host tools) on the
-toolchain CI pins (`RUST_TOOLCHAIN` in `ci_checks.yml`): about 30 s warm,
-a few minutes cold. A `scripts/` change adds the `hil-tests.conf` drift check
-and the device-lock test.
+**`--fast`** takes seconds and builds nothing: the source-tree guards that
+exist nowhere else (shadow twins across `platforms/rp/src` and
+`crates/picodroid-core/src`, `family-rp` cfg-gate hygiene, `apply_jvm_env`)
+plus whichever of `cargo fmt`, the Java and Kotlin formatters and markdown lint
+the changed files implicate. A `scripts/` change adds the `hil-tests.conf`
+drift check and the device-lock test.
 
 **`--full`** runs the legs neither CI nor the nightlies cover: the
 `legacy-handle-cast` clippy leg, the opt-in `mem-diag` / `sched-diag`
-firmware builds, the shrunk-image name check and the binary-size ratchet on
-both boards. A few minutes; run it before cutting a
+firmware builds, `pico_enviro_mon_w` clippy, the shrunk-image name check and
+the binary-size ratchet on both boards. A few minutes; run it before cutting a
 release.
 
 Everything else is CI's job, so pushing does not wait for `--full`.
 `.github/workflows/ci_checks.yml` runs every board's clippy, both boards in
 debug and release, `test.sh` in both shrink modes, every example APK and its
-API contract, both formatters, and a 15-app sim smoke covering all three
-langsuites; `ci_light.yml` runs the same source guards, the markdown lint and
+API contract, both formatters, and a sim smoke in four parallel shards covering
+all three langsuites; its Building job also links one WiFi board in debug
+(`pico_display2_w`), the largest image of the fleet, and its Linting job runs on
+Java 21. `ci_light.yml` runs the same source guards, the markdown lint and
 the docs-site link check, docs-only commits included. The 3 AM `sim-run.sh` nightly runs the whole
 `hil-tests.conf` matrix in both shrink modes — the `qa_*` apps, the diagnostics
 soaks and the binary-size ratchet — and the 4 AM `hil-fleet.sh` runs it on
-every bench board.
+every bench board. CI takes about 20 minutes; after a push, `gh run list --limit 3`
+shows it. Nightly results arrive by email and under `build/sim/results/` and
+`build/hil/results/`.
 
 Useful flags:
 
@@ -107,7 +134,21 @@ documents the format, `./scripts/fleet.sh discover` prints the probes and
 boards it can see with their positions, and `./scripts/fleet.sh check`
 validates the file. Without the file every script assumes a single board,
 as before. `./scripts/hil-fleet.sh` runs the nightly on every slot at once,
-each runner with its own build directory, results and email.
+each runner with its own build directory, results and email; a runner waits
+up to an hour for its board, then records a SKIP.
+
+A HIL row's window is its timeout in `hil-tests.conf` plus a flash budget of
+80 seconds, because `probe-rs run` flashes and captures the log in one
+invocation and the RP2350 images take 53–72 s to flash. The RP2040's rows get
+twice the timeout. A row with an empty log and a `MISSING` verdict usually
+means the flash took the whole window.
+
+WiFi boards (`testbench_rp2350w`, `pico_enviro_mon_w`, `pico_display2_w`,
+`pico_touch_kit`) take `PICODROID_WIFI_SSID` / `PICODROID_WIFI_PASS` at build
+time. Keep local credentials in the gitignored `.wifi-creds.env` at the repo
+root: `hil-run.sh` reads that file for the `net` rows of `hil-tests.conf` and
+skips them when it is missing. A board can also be given its network from
+Settings → Wi-Fi; build-time credentials take precedence.
 
 A lease dies with the process that took it (your shell, or the agent
 session), so a closed window never wedges a board. An unattended run that
@@ -173,23 +214,37 @@ public class MyApp extends Application {
 ./scripts/flash.sh --app myapp      # flash to hardware
 ```
 
-5. Add your app to [website/src/content/docs/examples.md](website/src/content/docs/examples.md) in the appropriate category.
+5. Add your app to the [Examples](website/src/content/docs/examples.md) catalog in the appropriate category.
 
-`./gradlew newApp -Pname=myapp` scaffolds steps 1–3 for you. See [website/src/content/docs/reference/manifest.md](website/src/content/docs/reference/manifest.md) for the full manifest schema and entry-point styles, and [website/src/content/docs/get-started/first-app.md](website/src/content/docs/get-started/first-app.md) for supported language features and the full Java API.
-
-> **Docs are mirrored.** `website/src/content/docs/project/contributing.md` is a copy of this file — edit both together. If you change a board memory value (`board.toml`, `FreeRTOSConfig.h`, or the MCU `.toml`s), also re-check [website/src/content/docs/reference/limits.md](website/src/content/docs/reference/limits.md), which quotes those numbers.
+See [Your first app](website/src/content/docs/get-started/first-app.md) for supported language features and the full Java API.
 
 ## Adding a New Native Java Method
 
 When adding a new native method that the JVM dispatches to Rust:
 
 1. Add the native implementation in `crates/picodroid-core/src/native_handler/` under the appropriate module
-2. Register it: a new native class goes in `PICODROID_NATIVE_CLASSES` (`crates/picodroid-core/src/native_handler/class_registry.rs`), and every dispatch arm needs a matching `(class, method, descriptor)` row in `crates/picodroid-core/src/native_handler/method_tables.rs` — tests cross-check both. Both names go through the generated `shrink_names` consts, never a string literal: `(c::picodroid_pio_Gpio, m::setValue) =>` (each const's value is the map's shrunk spelling under `--shrink` and the original otherwise; a literal would silently stop matching under `--shrink` and put the original name back into flash — `no_original_name_literals` refuses it). A new SDK class or method first needs a row in `sdk/class-names.tsv` / `sdk/member-names.tsv`: run `scripts/gen-api-contract.sh`. Descriptors that name a class come from `sdk/descriptors.tsv` (`d::String__V`); add a row by hand. Arms on `java/**` owners (e.g. `System.currentTimeMillis`) are the same, with `c::java_lang_System`. See [website/src/content/docs/reference/shrinker.md](website/src/content/docs/reference/shrinker.md) for details.
+2. Register it: a new native class goes in `PICODROID_NATIVE_CLASSES` (`crates/picodroid-core/src/native_handler/class_registry.rs`), and every dispatch arm needs a matching `(class, method, descriptor)` row in `crates/picodroid-core/src/native_handler/method_tables.rs` — tests cross-check both. Both names go through the generated `shrink_names` consts, never a string literal: a dispatch arm matches the name hashes, `(ch::picodroid_pio_Gpio, mh::setValue) =>` (the 32-bit FNV-1a of each name's loaded spelling, which is the map's shrunk spelling under `--shrink` and the original otherwise), and a table row or an allocation spells the name through `c::` / `m::`; a literal would silently stop matching under `--shrink` and put the original name back into flash — `no_original_name_literals` refuses it. A new SDK class or method first needs a row in `sdk/class-names.tsv` / `sdk/member-names.tsv`: run `scripts/gen-api-contract.sh`. Descriptors that name a class come from `sdk/descriptors.tsv` (`d::String__V`); add a row by hand. Arms on `java/**` owners (e.g. `System.currentTimeMillis`) are the same, with `c::java_lang_System`. See [Shrinker](website/src/content/docs/reference/shrinker.md) for details.
 3. If adding a new class to `BuiltinHandler`, also register it in `class_name_to_static_in` in `crates/jvm/src/interpreter/helpers.rs` — otherwise virtual dispatch will silently break
-4. Add the Java API stub in `sdk/java/picodroid/`. The class will be picked up automatically by the next release cut; between releases its name stays un-shrunk.
-5. Update the relevant `website/src/content/docs/api/*.md` (e.g. `api/peripherals.md` for a new PIO method, `api/ui.md` for a new widget) with the new API surface
+4. Add the Java API stub in `sdk/java/picodroid/`. The class will be picked up automatically by the next release cut; between releases its name stays un-shrunk. Every SDK class is embedded, with its link table, in every board's firmware: check the flash it costs on `testbench_rp2040`, and if that board cannot carry it, add the class to its `framework_class_excludes`.
+5. Update the relevant [API reference](website/src/content/docs/api.md) page (e.g. [Peripherals](website/src/content/docs/api/peripherals.md) for a new PIO method, [Graphics & UI](website/src/content/docs/api/ui.md) for a new widget) with the new API surface
+
+> **Docs are mirrored.** `website/src/content/docs/project/contributing.md` is a copy of this file — edit both together so they don't drift. Likewise, if you change a board memory value (`board.toml`, `FreeRTOSConfig.h`, or the MCU `.toml`s), re-check [Limits & memory budgets](website/src/content/docs/reference/limits.md), which quotes those numbers.
+
+## Two Source Trees
+
+Family-neutral framework code lives in `crates/picodroid-core/` (JVM natives, lifecycle,
+graphics, networking, the simulator's HAL); family-specific code lives in `platforms/rp/`.
+Never create a file at the same relative path in both `src` trees: the pre-commit shadow-twin
+guard rejects it. When moving code between them, move it; don't copy. The
+[architecture page](website/src/content/docs/project/architecture.md) has the module map and the rules that go with it.
+
+Apps and examples import the SDK as `picodroid.*` (`import picodroid.view.View;`). The API is
+named to mirror `android.*` method for method, but there is no `android.*` alias layer, so an
+`android.*` import neither compiles nor loads.
 
 ## Cutting a New Release
+
+Run `./scripts/pre-commit --full` first: it is the release-cut gate.
 
 Shrink maps are tied 1:1 to picodroid package versions and are immutable
 once committed. Shrinking itself is **off by default** (opt-in per build
@@ -221,7 +276,7 @@ too; `--contract` maps the members the runtime serves on those classes.
 If a new SDK class or member is used from Rust before the next cut, run
 `scripts/gen-api-contract.sh` so `sdk/class-names.tsv` /
 `sdk/member-names.tsv` — the sources of the generated `c::` / `m::`
-constants — know about it. See [website/src/content/docs/reference/shrinker.md](website/src/content/docs/reference/shrinker.md) for the full design.
+constants — know about it. See [Shrinker](website/src/content/docs/reference/shrinker.md) for the full design.
 
 ## Submitting Changes
 
@@ -235,10 +290,10 @@ constants — know about it. See [website/src/content/docs/reference/shrinker.md
 picodroid-rs is dual-licensed: it is available to the public under the
 GPL-3.0-only license (see [LICENSE](LICENSE)), and separately under a
 proprietary commercial license for customers who need to distribute
-closed-source derivatives. See [LICENSING.md](LICENSING.md).
+closed-source derivatives. See [Licensing](website/src/content/docs/project/licensing.md).
 
 To preserve the project's ability to offer the commercial license, every
-contribution must be made under the terms of [CLA.md](CLA.md). By opening a
+contribution must be made under the terms of [CLA](website/src/content/docs/project/cla.md). By opening a
 pull request, you grant the project maintainer a perpetual, worldwide,
 non-exclusive, irrevocable, royalty-free license to reproduce, prepare
 derivative works of, and distribute your contribution as part of picodroid-rs

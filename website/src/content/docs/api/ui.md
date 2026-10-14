@@ -451,7 +451,7 @@ and a second `close()` is a no-op.
 | Constant | Value | Description |
 |----------|-------|-------------|
 | `View.VISIBLE` | 0 | Widget is visible and takes up layout space |
-| `View.INVISIBLE` | 4 | Widget is invisible but still takes up layout space; touches pass through it, as on Android |
+| `View.INVISIBLE` | 4 | Widget is invisible but still takes up layout space; touches pass through it, as on Android. `setAlpha` while INVISIBLE is remembered and applied on the return to VISIBLE |
 | `View.GONE` | 8 | Widget is invisible and takes no layout space |
 | `View.WRAP_CONTENT` | -2 | Passed to `setSize`: size to content. `MATCH_PARENT` (-1) is on [`ViewGroup.LayoutParams`](#picodroidviewviewgroup). |
 | `View.NO_ID` | -1 | What `getId()` returns for a view without an id; never matches in `findViewById`. |
@@ -608,7 +608,10 @@ group.removeView(child);
 group.removeAllViews();
 ```
 
-`getChildCount()`/`getChildAt()` track the children added through this API. One divergence from
+`getChildCount()`/`getChildAt()` track the children added through this API (a `ListView` counts
+its rows, the adapter's and `addItem`'s alike). A subclass hears every addition through
+`onViewAdded(View child)`, called after `child` joins through any `addView` overload, the
+inflater's included, as `android.view.ViewGroup#onViewAdded` is. One divergence from
 Android: `removeView` and `removeAllViews` also **free the removed view's widget** (an embedded
 panel cannot keep detached trees waiting for a re-add), so a removed view cannot be added again —
 `addView` throws `IllegalStateException` for it. Build a fresh view, or hide one with
@@ -1311,6 +1314,11 @@ bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
     // onStartTrackingTouch(SeekBar) / onStopTrackingTouch(SeekBar) have default no-op bodies
 });
 ```
+
+A drag or a key change reaches the listener with `fromUser == true`; `setProgress` and a
+`setMax` that pulls the progress down reach it with `fromUser == false`, as on Android, so the
+"keep a label in sync" idiom holds for programmatic changes too. Setting the progress the bar
+already has reports nothing.
 
 ### `picodroid.widget.Spinner`
 

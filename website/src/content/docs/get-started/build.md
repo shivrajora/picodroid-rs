@@ -144,7 +144,7 @@ Every RP2350 board is a **multi-app** board: its firmware carries the launcher a
 |-------|----------------|------------|------------|
 | `testbench_rp2040` | 1152 KB | 128 KB | 768 KB |
 | `testbench_rp2350`, `pico_enviro_mon` | 2048 KB | 512 KB | 1536 KB |
-| `testbench_rp2350w`, `pico_enviro_mon_w`, `pico_display2_w` | 2304 KB | 512 KB | 1280 KB |
+| `testbench_rp2350w`, `pico_enviro_mon_w`, `pico_display2_w` | 2560 KB | 512 KB | 1024 KB |
 | `pico_touch_kit` | 2560 KB | 4096 KB | 9728 KB |
 
 ```bash

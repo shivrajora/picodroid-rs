@@ -165,6 +165,15 @@ Log.i("Net", "got " + in.getLength() + " bytes");
 s.close();
 ```
 
+A datagram is sent and received whole: `send` writes the packet's window, `[offset, offset +
+length)` of its array (an `IOException` past 65,507 bytes), and `receive` fills the window and
+sets `getLength()` to what arrived, cut to the array as `java.net` does. `DatagramPacket` has the
+`java.net` window API: the `(buf, offset, length[, address, port])` constructors, `getOffset`,
+`setData`, `setLength`, `setAddress` and `setPort`, with their argument checks; a packet reused
+across receives keeps its window after a short datagram set `length`. The buffers behind a send
+or receive are allocated for the packet's size, so a heap that cannot spare them throws a
+catchable `OutOfMemoryError`.
+
 A datagram to `255.255.255.255` (or the subnet's broadcast address) reaches every host on the LAN.
 `setBroadcast(true)` is the default, as in Java, and picodroid's stacks never refuse a broadcast,
 so the flag is recorded rather than enforced. That is how a device can find its peer without being

@@ -3,7 +3,7 @@ title: "Known issues & current limits"
 description: "User-visible limitations in the current release: networking constraints, concurrency limits, simulator/hardware gaps, and platform caveats."
 ---
 
-What doesn't work (yet), as of v0.37.0. Items here are confirmed and tracked — not speculative.
+What doesn't work (yet), as of v0.37.0 and `main` at 2026-10-14. Items here are confirmed and tracked — not speculative.
 
 ## Networking (Pico 2 W)
 
@@ -39,7 +39,7 @@ What doesn't work (yet), as of v0.37.0. Items here are confirmed and tracked —
 ## Platform
 
 - **RP2040 flash is tight.** A `--release` `testbench_rp2040` image sits at 81% of the 1152 K program region (964,704 of 1,179,392 bytes for `helloworld` at the 2026-09-28 size baseline), and a committed size ratchet gates any growth. The region was 896 K until the framework's class link tables moved into flash and overflowed it by about 40 KB; the board's app region gave up 256 KB (1024 → 768 KB) to make the room. `scripts/build.sh` disables LTO on RP2040 (which paradoxically shrinks the image) and leaves line numbers out of every firmware image (since 2026-10-14; the RP2040 since 2026-09-26); a raw `cargo build --release` for RP2040 links a larger image than the one the scripts measure.
-- **A PAPK packed before 2026-09-28 does not install.** The package format is major version 2 (classes carry link tables built at pack time) and there is no reader for version 1: `pdb install` refuses the file on the host, a firmware build refuses to embed it, and a board does not load a version 1 image left in its app region. Re-pack the app with the current toolchain (`./scripts/build-apk.sh`).
+- **A PAPK packed before 2026-10-13 does not install.** The package format is major version 3 (classes carry link tables built at pack time, since 2026-09-28, and the section's string constants sit in one shared pool, since 2026-10-13) and there is no reader for an older version: `pdb install` refuses the file on the host, a firmware build refuses to embed it, and a board does not load an older image left in its app region. Re-pack the app with the current toolchain (`./scripts/build-apk.sh`).
 - **BME688 gas resistance is constant on hardware.** The gas sensor's heater profile is never programmed, so gas/IAQ readings sit at a fixed value on the device (temperature, humidity, and pressure are fine). Affects the picoenvmon IAQ tile cosmetically.
 
 ## Where these are tracked

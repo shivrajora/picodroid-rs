@@ -4,118 +4,199 @@ This document maps the picodroid-rs codebase by **reusability**: which pieces ar
 
 For end-user docs (writing apps, porting to a new board, debugging) see the documentation site: <https://shivrajora.github.io/picodroid-rs/>. `docs/` holds engineering notes — designs, audits, and dated bug records.
 
-## Reusable crates
+## At a glance
 
-These crates have no picodroid-specific knowledge and could be picked up by a different project as-is. They live under the workspace and are also independently buildable (`cargo build -p <crate>` against a host target).
+```mermaid
+graph TD
+    subgraph Host["Host (development machine)"]
+        PDB_CLI["pdb CLI tool"]
+    end
+
+    subgraph HW["Hardware"]
+        SILICON["RP2040 (Cortex-M0+ @ 125 MHz)<br/>RP2350 (Cortex-M33 @ 150 MHz)"]
+    end
+
+    subgraph RTOS["FreeRTOS SMP — both cores"]
+        PDB["pdb task<br/><i>core 0</i>"]
+        JVM_TASK["jvm task + fs / sensor / bg workers<br/><i>core 0</i>"]
+        CORE1["flash parker · cyw43 WiFi (WiFi boards)<br/><i>core 1</i>"]
+    end
+
+    subgraph JVM["JVM interpreter (crates/jvm/ crate)"]
+        BC["Java bytecode<br/>.papk app, linked at pack time"]
+        THREADS["Thread.start()<br/>child tasks (core 0)"]
+        GC["Mark-sweep GC"]
+    end
+
+    subgraph CORE["Framework (crates/picodroid-core/ crate)"]
+        NATIVE["Native dispatch<br/>GPIO · UART · I2C · SPI · Log · Display · Net · FS"]
+        LIFECYCLE["Lifecycle + widgets"]
+    end
+
+    SILICON --> RTOS
+    JVM_TASK --> JVM
+    BC --> THREADS
+    BC --> GC
+    BC --> NATIVE
+    NATIVE --> LIFECYCLE
+
+    PDB_CLI -- "USB CDC hot-swap" --> PDB
+    PDB -- "write .papk to flash<br/>restart JVM" --> JVM_TASK
+```
+
+Apps are hot-swapped at runtime with `pdb install`, without reflashing the
+firmware. The rest of this page is the map behind that picture.
+
+## How the runtime is put together
+
+A few decisions shape everything else, and each has a design note under
+[`docs/designs/`](docs/designs/).
+
+- **Classes are linked when they are packed.** `papk-pack` (apps) and the firmware build
+  (the framework) run `crates/class-link` over every class: the record a class loader would
+  parse, a name hash per class, superclass and interface, a signature hash per method, a 4-byte
+  descriptor per method reference, and a class index sorted by hash. The runtime reads the
+  tables in place from flash, so loading a class parses and allocates nothing (a registered
+  class is 16 bytes of RAM), classes are found by binary search, and a resolved call never
+  touches the constant pool. App and framework classes go through one reader
+  (`class-link-2026-09.md`).
+- **One task interprets Java at a time.** Every task that runs Java holds the JVM run lock, a
+  kernel mutex in `crates/pd-rtos`, and gives it up only around a blocking wait, inside the
+  RTOS seam's own wrappers. That is what keeps the shared heap safe without per-object locks
+  (`jvm-run-lock-2026-09.md`). On the RP family every Java task is also pinned to core 0.
+- **One heap, one loaded class set.** `Thread.start` children and background-pool workers
+  share the main task's heap and its class set; each builds only its own interpreter state.
+- **Stored values are 8 bytes.** Object fields, the collection buffers and lambda captures
+  are held as an 8-byte `Slot` (a `long` or `double` takes two); call frames keep the 16-byte
+  `Value` the opcode handlers pass around. `byte[]` and `boolean[]` are packed at one byte per
+  element (`value-slot-8b.md`).
+- **The hot code runs from SRAM on the RP2350.** The interpreter loop, the JVM's invoke and
+  field helpers, and named LVGL and FreeRTOS functions are copied to RAM at boot, because the
+  XIP cache cannot hold a UI's working set. The RAM comes out of the heap arena
+  (`jvm_loop_ram_kb`, `hot_ram_kb`); the RP2040 has no room for it
+  (`sram-hotpath-2026-09.md`).
+- **Several apps share one flash region.** On a multi-app board the app region holds each
+  installed PAPK as a run of 4 KB sectors behind a boot-meta sector; the package directory
+  (`picodroid_core::packages`) is rebuilt from a scan of those runs at boot, and the launcher
+  and settings apps are linked into the firmware. Each app's files live under `/data/<package>`
+  on the one LittleFS volume, with a per-app cap and a reserve for the system
+  (`multi-app-2026-09.md`).
+- **Widget handles carry a generation.** A Java `nativeHandle` is a slot index plus that
+  slot's generation, so the handle of a deleted widget reads as null instead of pointing into
+  freed LVGL memory (`handle-table-invalidation.md`).
+- **The main stack has a floor the linker enforces.** The core-0 main stack is what `.data`
+  and `.bss` leave of RAM; the generated linker script asserts it is at least 8,192 bytes, so
+  a static that grows too far fails the link instead of the boot.
+
+## Workspace crates
+
+The workspace members are `platforms/rp`, the crates under `crates/`, and the host tools under `tools/` (`papk-pack`, `papk-info`, `pdb`, `class-shrink`). The crates below are independently buildable (`cargo build -p <crate>` against a host target). Most of them have no picodroid-specific knowledge and could be picked up by a different project as-is; `picodroid-core` is the framework itself, and re-exports the smaller crates under the module paths they had before they were split out.
 
 | Crate | Path | Purpose |
 |---|---|---|
-| `pico-jvm` | [`crates/jvm/`](crates/jvm/) | `no_std` Java bytecode interpreter. Zero hardware deps, zero container-format knowledge (PAPK parsing lives in `papk-format`). Native methods plug in via the [`NativeMethodHandler`](crates/jvm/src/native/mod.rs) trait. See [`crates/jvm/README.md`](crates/jvm/README.md). |
-| `papk-format` | [`crates/papk-format/`](crates/papk-format/) | PAPK container format: `no_std` zero-copy parser + streaming scanners, `alloc`-gated writer (feature `write`). Single source of truth for the on-disk layout; consumed by firmware, build scripts, and every host tool. |
+| `pico-jvm` | [`crates/jvm/`](crates/jvm/) | `no_std` Java bytecode interpreter. Zero hardware deps. Native methods plug in via the [`NativeMethodHandler`](crates/jvm/src/native/mod.rs) trait. See [`crates/jvm/README.md`](crates/jvm/README.md). |
+| `picodroid-core` | [`crates/picodroid-core/`](crates/picodroid-core/) | The family-neutral framework: JVM natives, widget set + LVGL engine, lifecycle, generic drivers, networking, install orchestration, and the shared host simulator. Consumed by every `platforms/<family>/` crate. |
 | `compat` | [`crates/compat/`](crates/compat/) | PAPK ↔ firmware version compatibility check. `no_std`. Shared by device + host. See [`crates/compat/README.md`](crates/compat/README.md). |
+| `papk-format` | [`crates/papk-format/`](crates/papk-format/) | PAPK container (format v3) + flash-image layout (boot-meta sector, scan, write): `no_std` zero-copy parser, `alloc`-gated writer. Shared by device + host tools. |
+| `class-link` | [`crates/class-link/`](crates/class-link/) | Pack-time link tables for class files and the class section that carries a set of classes with a sorted index. `no_std` reader, `alloc`-gated builder and validator. |
+| `pdb-protocol` | [`crates/pdb-protocol/`](crates/pdb-protocol/) | PDB wire protocol (framing, command/status codes) shared by the firmware and the `pdb` host tool. `no_std`. |
+| `pd-rtos` | [`crates/pd-rtos/`](crates/pd-rtos/) | The kernel seam: the `Rtos` trait (tasks, queues, mutexes, semaphores, tick timer, delays) bound at link time by `set_rtos!`, plus the JVM run lock. `no_std`, no FreeRTOS. |
+| `pd-install` | [`crates/pd-install/`](crates/pd-install/) | Streaming, CRC-checked installer for app images into a NOR flash region, generic over transport, flash, core parking and the package directory. `no_std`. |
+| `pd-lvgl-sys` | [`crates/pd-lvgl-sys/`](crates/pd-lvgl-sys/) | Hand-written `no_std` LVGL v9.6 bindings plus the build of the vendored C sources, configured per board. |
+| `pd-drivers` | [`crates/pd-drivers/`](crates/pd-drivers/) | `embedded-hal` drivers: ST7789 / ST7796 panels, XPT2046 and GT911 touch, BME688 and LTR559 sensors. |
+| `pd-json` | [`crates/pd-json/`](crates/pd-json/) | Bounded `no_std` + `alloc` JSON tree: parser, capped node pool, serializer. Behind `picodroid.json`. |
+| `pd-tls` | [`crates/pd-tls/`](crates/pd-tls/) | TLS 1.3 client pieces: the compiled-in trust store, the certificate verifier, a session over any `embedded-io` socket, the handshake RNG. Behind `has_tls`. |
+| `http-head` | [`crates/http-head/`](crates/http-head/) | `no_std` HTTP/1.1 head parsing and a streaming chunked-transfer decoder. |
+| `heap4` | [`crates/heap4/`](crates/heap4/) | Rust port of FreeRTOS `heap_4` that keeps 32-bit block arithmetic on a 64-bit host, so the simulator reproduces a device heap. |
+| `picodroid-build-support` | [`crates/build_support/`](crates/build_support/) | Build-script library: `board.toml` parsing, board-derived codegen, flash layout, the C builds, PAPK and framework embedding. Host-only. |
 | `class-shrink` | [`tools/class-shrink/`](tools/class-shrink/) | Build-time Java class/method name shrinker. Host-only (uses `std`). See [`tools/class-shrink/README.md`](tools/class-shrink/README.md). |
-| `pdb-protocol` | [`crates/pdb-protocol/`](crates/pdb-protocol/) | The debug bridge's wire format: commands, CRC, greeting, sysmon, keycodes. `no_std`, no dependencies; shared by the device and the host tool. |
-| `pd-rtos` | [`crates/pd-rtos/`](crates/pd-rtos/) | The kernel seam: an `Rtos` trait (tasks, queues, mutexes, semaphores, tick timer, delays) bound at link time by `set_rtos!`, plus a run lock released around every blocking wait. `no_std`, no dependencies, no FreeRTOS. |
-| `pd-install` | [`crates/pd-install/`](crates/pd-install/) | Streaming, CRC-checked installer for app images into a NOR flash region, generic over transport, flash, core parking and the package directory. `no_std`; feature `mem-region` adds an in-memory NOR model for host tests. |
-| `pd-lvgl-sys` | [`crates/pd-lvgl-sys/`](crates/pd-lvgl-sys/) | Hand-written `no_std` LVGL v9.6 bindings plus the build of the vendored C sources (`links = "lvgl"`), configured per board. |
-| `pd-drivers` | [`crates/pd-drivers/`](crates/pd-drivers/) | `embedded-hal` drivers: ST7789 / ST7796 panels, XPT2046 and GT911 touch, BME688 and LTR559 sensors. `no_std`, one dependency. |
-| `pd-json` | [`crates/pd-json/`](crates/pd-json/) | Bounded `no_std` + `alloc` JSON tree: parser, capped node pool with identity semantics and owner-driven pruning, serializer. No global state. |
-| `micropb` (crates.io, `=0.6.0`) | `native_handler/protobuf/` | The protobuf wire codec behind `picodroid.protobuf`: `no_std`, no `alloc`, `num-traits` only, pinned exactly since `Cargo.lock` is gitignored. `heap_io.rs` adapts its `PbRead`/`PbWrite` to the JVM array heap. Compiled out on boards without `has_protobuf`. |
-| `http-head` | [`crates/http-head/`](crates/http-head/) | `no_std` HTTP/1.1 head parsing and a streaming chunked-transfer decoder. No I/O, no dependencies. |
-| `heap4` | [`crates/heap4/`](crates/heap4/) | Bit-faithful Rust port of FreeRTOS `heap_4` that keeps 32-bit block arithmetic on a 64-bit host, for host-side OOM and fragmentation parity. `no_std`. |
-| `picodroid-build-support` | [`crates/build_support/`](crates/build_support/) | Build-script library: board.toml parsing, board-derived codegen, flash layout, the C builds, PAPK embedding. Host-only. Reusable in the narrow sense — by another family's `build.rs`. |
-
-Two host-side Gradle projects sit next to the crates and are equally free of picodroid-specific runtime knowledge: [`sdk/inject/annotations`](sdk/inject/annotations/) (JSR-330 `javax.inject.Inject` / `Singleton` / `Scope`, `SOURCE` retention) and [`sdk/inject/compiler`](sdk/inject/compiler/) (the javac annotation processor that turns them into plain `Foo_Factory` / `Foo_MembersInjector` classes). `buildSrc`'s `picodroid-papk` plugin wires both into every Java app; the only runtime counterpart is a ~40-line probe in `crates/picodroid-core/src/lifecycle/mod.rs` that calls the generated leaf injector after a component's `<init>`. Design: [`docs/designs/inject-annotations-2026-08.md`](docs/designs/inject-annotations-2026-08.md).
 
 ## The picodroid binary
 
-The [`picodroid`](platforms/rp/) crate is an *application* of `pico-jvm` — it is not itself a library. It hosts the JVM on RP2040/RP2350 hardware (or a host simulator), loads framework + app classes, dispatches native methods, drives the display and input, and exposes the developer-facing USB-CDC debugger (`pdb`). Since the 2026-07 extraction it is a thin family shell over [`picodroid-core`](crates/picodroid-core/), which holds the framework itself.
+The [`picodroid`](platforms/rp/src/) crate is an *application* of `pico-jvm` — it is not itself a library. It hosts the JVM on RP2040/RP2350 hardware (or a host simulator), binding `picodroid-core`'s framework — class loading, native dispatch, display and input — to this family's silicon, and exposes the developer-facing USB-CDC debugger (`pdb`).
 
-Treat `platforms/rp/` as a **reference implementation** of how to bind a family to `picodroid-core`, not as code to lift wholesale. For porting picodroid to a new MCU, see the [porting guide](https://shivrajora.github.io/picodroid-rs/reference/porting-guide/).
+Treat `platforms/rp/src/` as a **reference implementation** of how to embed `pico-jvm` on Cortex-M, not as code to lift wholesale into another project. For porting picodroid to a new board, see the [porting guide](https://shivrajora.github.io/picodroid-rs/reference/porting-guide/).
 
 ## Module map
 
-The tree split in two during the 2026-07 shared-core extraction. Everything
-that does not know what chip it runs on is in `crates/picodroid-core/`; what is left
-in `platforms/rp/` is this family and nothing else.
+Since the family-neutral extraction the tree is two-layered: `platforms/rp/` holds only what knows it is on an RP2040/RP2350, and `crates/picodroid-core/` holds everything shared by every family and the simulator.
 
-### `crates/picodroid-core/src/` — shared by every family
+### `platforms/rp/src/`
 
-| Module | Purpose | Tag |
-|---|---|---|
-| [`boot.rs`](crates/picodroid-core/src/boot.rs) | Shared JVM heap, class loaders, `run_app` | `[picodroid]` |
-| [`graphics/`](crates/picodroid-core/src/graphics/) | LVGL engine, widget set, Java-facing binding layer | `[picodroid]` |
-| [`native_handler/`](crates/picodroid-core/src/native_handler/) | `pico-jvm` native dispatch (chain-of-responsibility per domain) | `[picodroid]` |
-| [`lifecycle/`](crates/picodroid-core/src/lifecycle/) (`mod.rs` run loops, `activity_stack.rs`, `widget_events.rs`, `input.rs`, `alarm_events.rs`) / [`service_lifecycle.rs`](crates/picodroid-core/src/service_lifecycle.rs) | Activity + Service lifecycle, event dispatch | `[picodroid]` |
-| [`hal/`](crates/picodroid-core/src/hal/) | HAL CONTRACT v2 traits, facade, registration macros | `[reusable]` candidate |
-| [`hal/sim/`](crates/picodroid-core/src/hal/sim/) | The simulator — shared, not copied per family, incl. the [`allocator.rs`](crates/picodroid-core/src/hal/sim/allocator.rs) device heap cap, [`heap4.rs`](crates/picodroid-core/src/hal/sim/heap4.rs) `heap_4` port and the [`boot_budget.rs`](crates/picodroid-core/src/hal/sim/boot_budget.rs) engine that charges a family's boot model | `[reusable]` candidate |
-| [`porting.rs`](crates/picodroid-core/src/porting.rs) | What a port provides: every seam item re-exported, the checklist as its doc, a test that keeps it and the porting guide complete | `[picodroid]` |
-| [`rtos/`](crates/picodroid-core/src/rtos/) / [`host.rs`](crates/picodroid-core/src/host.rs) | RTOS trait and platform hooks; `rtos/freertos.rs` is the one FreeRTOS-naming module outside the simulator | `[reusable]` candidate |
-| [`executors/`](crates/picodroid-core/src/executors/) | Main queue + background pool, behind the RTOS seam | `[reusable]` candidate |
-| [`hardware/`](crates/picodroid-core/src/hardware/) | Sensor sampler and mailbox | `[picodroid]` |
-| [`pio/`](crates/picodroid-core/src/pio/) / [`net/`](crates/picodroid-core/src/net/) / [`os/`](crates/picodroid-core/src/os/) / [`util/`](crates/picodroid-core/src/util/) | Java-side peripheral, network, OS and log surface | `[picodroid]` |
-| [`gc_roots.rs`](crates/picodroid-core/src/gc_roots.rs) | Root-provider registry (see the GC rule below) | `[picodroid]` |
-| [`drivers`](crates/pd-drivers/src/) | Re-export of the `pd-drivers` crate: `embedded-hal` drivers (ST7789, ST7796, XPT2046, GT911, BME688, LTR559) | `[reusable]` |
-| [`mem_diag.rs`](crates/picodroid-core/src/mem_diag.rs) | Memory monitor | `[picodroid]` |
-| [`lvgl_ffi`](crates/pd-lvgl-sys/src/lib.rs) | Re-export of the `pd-lvgl-sys` crate: hand-written LVGL C bindings plus the LVGL C build (`build.rs`, `lvgl/lv_conf.h`) | `[reusable]` |
-| [`shrink_names.rs`](crates/picodroid-core/src/shrink_names.rs) | `include!` of the build-generated `c::` / `m::` / `d::` name constants ([`crates/build_support/names.rs`](crates/build_support/names.rs)); nothing translates a name back at run time | `[picodroid]` |
+| Module | Purpose |
+|---|---|
+| [`app.rs`](platforms/rp/src/app.rs) | This family's APK blob + post-run idle loop (JVM startup itself is `picodroid_core::boot`) |
+| [`main.rs`](platforms/rp/src/main.rs) | FreeRTOS init, hardware bringup |
+| [`boards/`](platforms/rp/src/boards/) | Per-board feature glue (memory layout, capability cfgs) |
+| [`boot_budget.rs`](platforms/rp/src/boot_budget.rs) | Boot memory budget (task stacks etc.) the sim pre-charges identically |
+| [`boot_tasks.rs`](platforms/rp/src/boot_tasks.rs) | Task topology (`flashpark`, `pdb`, `cyw43`, `jvm`) and the JVM supervisor loop |
+| [`task_affinity.rs`](platforms/rp/src/task_affinity.rs) | Dual-core placement: the one spawn helper and the source scan that enforces it |
+| [`spin_guard.rs`](platforms/rp/src/spin_guard.rs) | The source scan that rejects a bare register-poll loop (`spin_until!` or a `spin-ok:` comment) |
+| [`fs/`](platforms/rp/src/fs/) | This family's end of the filesystem seam (LittleFS on-flash geometry) |
+| [`gc_root_registration.rs`](platforms/rp/src/gc_root_registration.rs) | Registers this crate's GC root providers with `picodroid_core::gc_roots` |
+| [`glue.rs`](platforms/rp/src/glue.rs) | The one file that binds core's seams to this family (`set_hal!`, `set_hal_fs!`, `set_hal_net!`, `set_rtos!`, `set_platform_hooks!`, `register_sim_platform!`) |
+| [`hal/`](platforms/rp/src/hal/) | Family HAL: [`contract.rs`](platforms/rp/src/hal/contract.rs) shape assertions plus [`rp/`](platforms/rp/src/hal/rp/) peripheral drivers — incl. [`port/`](platforms/rp/src/hal/rp/port/) C shims, the [`pio_spi.rs`](platforms/rp/src/hal/rp/pio_spi.rs) PIO+DMA gSPI transport, the [`cyw43/`](platforms/rp/src/hal/rp/cyw43/) WiFi link, [`psram.rs`](platforms/rp/src/hal/rp/psram.rs) (the RP2350B module's PSRAM), [`xip.rs`](platforms/rp/src/hal/rp/xip.rs), and the [`core1_park.rs`](platforms/rp/src/hal/rp/core1_park.rs) flash parker |
+| [`packagemanager/`](platforms/rp/src/packagemanager/) | This family's half of PAPK install over USB: `PapkRegionFlash` over the flash primitives (orchestration is `picodroid_core::install`, the `pd-install` crate) |
+| [`pdb/`](platforms/rp/src/pdb/) | This family's debug bridge transport + task (protocol lives in `pdb-protocol`) |
 
-### `platforms/rp/src/` — this family only
+### `crates/picodroid-core/src/` (highlights)
 
-| Module | Purpose | Tag |
-|---|---|---|
-| [`glue.rs`](platforms/rp/src/glue.rs) | The one file a new family reimplements: HAL / RTOS / hook registration, plus the `register_sim_platform!` call | `[picodroid]` |
-| [`main.rs`](platforms/rp/src/main.rs) | Entry point, panic handler, global allocator | `[picodroid]` |
-| [`app.rs`](platforms/rp/src/app.rs) | This family's APK blob and post-run idle loop | `[picodroid]` |
-| [`boot_tasks.rs`](platforms/rp/src/boot_tasks.rs) | Task topology and the JVM supervisor loop (the reference for the porting guide's checklist) | `[picodroid]` |
-| [`boot_budget.rs`](platforms/rp/src/boot_budget.rs) | Stack sizes and the boot-task model the simulator charges | `[picodroid]` |
-| [`task_affinity.rs`](platforms/rp/src/task_affinity.rs) | Dual-core placement: the one spawn helper and the scan that enforces it | `[picodroid]` |
-| [`hal/rp/`](platforms/rp/src/hal/rp/) | RP2040/RP2350 peripheral implementations | `[hardware]` |
-| [`fs/`](platforms/rp/src/fs/) | The flash region's geometry and its `FsBackingStore`; LittleFS itself is core's | `[picodroid]` |
-| [`pdb/`](platforms/rp/src/pdb/) | Debug-bridge family glue: CDC transport, park coordinator, FreeRTOS sysmon source. The protocol itself lives in [`crates/picodroid-core/src/pdb/`](crates/picodroid-core/src/pdb/), its wire layouts and USB identity in [`crates/pdb-protocol/`](crates/pdb-protocol/) | `[picodroid]` |
-| [`packagemanager/`](platforms/rp/src/packagemanager/) | `PapkSlotFlash` over the flash primitives, and the linker section probe-rs writes; the install orchestration and slot arithmetic are core's | `[picodroid]` |
-| [`boards/`](platforms/rp/src/boards/) | Per-board feature glue (memory layout, capability cfgs) | `[picodroid]` |
+| Module | Purpose |
+|---|---|
+| [`boot.rs`](crates/picodroid-core/src/boot.rs) | The shared JVM heap, class registration (the framework's class section, then the app's) and `run_app` |
+| [`framework_classes.rs`](crates/picodroid-core/src/framework_classes.rs) | The SDK's classes as one class section embedded in the firmware, linked at build time |
+| [`packages.rs`](crates/picodroid-core/src/packages.rs) | The package directory: the scan of the app region, the system apps, which image boots and which runs next |
+| [`storage/`](crates/picodroid-core/src/storage/) | Per-app storage: the `/data/<package>` sandbox and the quota |
+| [`porting.rs`](crates/picodroid-core/src/porting.rs) | What a port provides: every seam item re-exported, with the checklist as its doc |
+| [`rtos/`](crates/picodroid-core/src/rtos/) | Re-export of the `pd-rtos` crate; `rtos/freertos.rs` is the one FreeRTOS-naming module outside the simulator |
+| [`native_handler/`](crates/picodroid-core/src/native_handler/) | `pico-jvm` native dispatch (chain-of-responsibility per domain; `class_registry.rs`, `method_tables.rs`) |
+| [`lifecycle/`](crates/picodroid-core/src/lifecycle/) | Application/Activity lifecycle: the run loops (`mod.rs`), the back stack (`activity_stack.rs`), widget event dispatch (`widget_events.rs`), touch/key input (`input.rs`), alarm delivery (`alarm_events.rs`) |
+| [`graphics/`](crates/picodroid-core/src/graphics/) | Widget set: backend-neutral surface + LVGL implementation |
+| [`drivers`](crates/pd-drivers/src/) | Re-export of the `pd-drivers` crate: chip-agnostic device drivers over `embedded-hal` (ST7789, ST7796, XPT2046, GT911, BME688, LTR559) |
+| [`net/`](crates/picodroid-core/src/net/) | `picodroid.net` native implementations (sockets, HTTP, `NetworkInfo`) |
+| [`os/`](crates/picodroid-core/src/os/) | `picodroid.os` natives (`SystemClock`) |
+| [`pio/`](crates/picodroid-core/src/pio/) | Peripheral I/O natives (GPIO, I2C, SPI, UART, PWM, ADC) |
+| [`executors/`](crates/picodroid-core/src/executors/) | Java executors: main-thread FIFO + background worker pool |
+| [`monitor_store.rs`](crates/picodroid-core/src/monitor_store.rs) | Reentrant monitor store backing Java `synchronized` |
+| [`lvgl_ffi`](crates/pd-lvgl-sys/src/lib.rs) | Re-export of the `pd-lvgl-sys` crate: hand-written LVGL C bindings plus the LVGL C build |
+| [`install/`](crates/picodroid-core/src/install/) | The `pd-install` crate (validate, place, park, erase, stream, verify, commit), bound to this firmware's package directory and framework-map version |
+| [`fs/`](crates/picodroid-core/src/fs/) | LittleFS mounted once, reached through a serial worker |
+| [`hal/sim/`](crates/picodroid-core/src/hal/sim/) | Shared simulator HAL — the host implementation of the hardware surface |
+| [`sim_boot.rs`](crates/picodroid-core/src/sim_boot.rs) | Task topology for the simulator (`boot_tasks.rs` for the host) |
+| [`mem_diag.rs`](crates/picodroid-core/src/mem_diag.rs) | Opt-in `mem-diag` memory monitor glue |
+| [`sched_diag.rs`](crates/picodroid-core/src/sched_diag.rs) | Opt-in `sched-diag` scheduling monitor |
 
-`[reusable]` candidates are well-layered enough to lift into another project. The 2026-09 code-health round promoted the ones whose extraction was cheap and size-neutral to standalone crates (`pd-rtos`, `pd-install`, `pd-lvgl-sys`, `pd-drivers`, `pd-json`, `http-head`, `heap4`) rather than waiting for a second consumer; picodroid-core re-exports each under its old module path. What is left — `hal/`, `hal/sim/`, `executors/`, and the `graphics/lvgl/` engine above `pd-lvgl-sys` — is entangled in ways that cost flash or need a `pd-hal` crate first; see `docs/code-health-2026-09.md`.
+The old `[reusable] candidate` tags are gone: the second consumer materialised, and those modules now live in `picodroid-core`, where every family crate and the simulator consume them. The 2026-09 code-health round went one step further for the ones that were cheap to extract (`pd-rtos`, `pd-install`, `pd-lvgl-sys`, `pd-drivers`, `pd-json`, `http-head`, `heap4`): each is a crate of its own, re-exported from `picodroid-core` under its old module path.
 
 ## Boundaries that should not be crossed
 
 | Rule | Why |
 |---|---|
 | `pico-jvm` MUST NOT depend on `cortex_m`, `embassy`, `rp2*`, `cortex_m_rt`, or `panic_*` crates. | The JVM crate's value is that it is hardware-agnostic. Any of these imports would make it Cortex-M-only. Verify with `rg cortex_m crates/jvm/src` (must be empty). |
-| `pico-jvm` MUST NOT contain `picodroid/*` class names. | The JVM canonicalises class names via [`BUILTIN_CLASS_NAMES`](crates/jvm/src/native/mod.rs) plus the host-supplied list returned from [`NativeMethodHandler::native_class_names`](crates/jvm/src/native/mod.rs). Picodroid's list lives in [`PICODROID_NATIVE_CLASSES`](crates/picodroid-core/src/native_handler/mod.rs). |
+| `pico-jvm` MUST NOT contain `picodroid/*` class names. | The JVM canonicalises class names via [`BUILTIN_CLASS_NAMES`](crates/jvm/src/native/mod.rs) plus the host-supplied list returned from [`NativeMethodHandler::native_class_names`](crates/jvm/src/native/mod.rs). Picodroid's list lives in [`PICODROID_NATIVE_CLASSES`](crates/picodroid-core/src/native_handler/class_registry.rs). |
 | Adding a new entry to [`BUILTIN_DISPATCH`](crates/jvm/src/native/mod.rs) MUST also add it to `BUILTIN_CLASS_NAMES`. | Without canonicalisation, virtual dispatch silently returns "unknown" and breaks. The `builtin_dispatch_classes_subset_of_names` test enforces this. |
-| Adding a new framework class with native methods MUST add its FQN to [`PICODROID_NATIVE_CLASSES`](crates/picodroid-core/src/native_handler/mod.rs). | Same canonicalisation hazard, on the host side. |
-| `picodroid-core`'s Java-facing modules are the framework's surface — not a generic library. | Reusing them means you accept the picodroid widget/net/sensor vocabulary. If you want only the JVM, depend on `pico-jvm` directly. |
-| A family's `hal/` MUST NOT import from the framework modules. | HAL is a leaf. Verify with `rg "use crate::(system\|app)" platforms/*/src/hal/` (must be empty). |
-| A platform crate MUST NOT construct a `Jvm` — hand off to [`boot::run_app`](crates/picodroid-core/src/boot.rs). | Two JVM-driving crates monomorphise the interpreter twice: measured at ~38 KB across 23 duplicated symbols, which overflowed the RP2040 flash ceiling. LTO does not rescue it. |
-| A file MUST NOT exist at the same relative path under both `platforms/*/src` and `crates/picodroid-core/src`. | Shadow twins compile, one copy goes dead, and they drift silently (commit `fc896b3`; ESP's removed scaffold had 17). Enforced by `scripts/pre-commit`, with an allowlist for the four genuine seam pairs (`gc_root_registration.rs`, `hal/mod.rs`, `pdb/mod.rs`, `fs/mod.rs`). |
-| Every task the RP family creates MUST go through `task_affinity::spawn`, naming its core as `task_affinity::CORE0` — or `CORE1` only for a task listed in `CORE1_TASKS`; nothing else may write `Task::new()`, `.core_affinity(`, `xTaskCreate*` or `vTaskCoreAffinitySet`. | The shared JVM heap is lock-free on "one core interprets Java"; `volatile` is ignored and no barriers are emitted. `spawn` makes create+pin one scheduler-atomic step (freertos-rust pins *after* `xTaskCreate`, and the SMP kernel would otherwise start the task on idle core 1 first). Enforced by the source scan in [task_affinity.rs](platforms/rp/src/task_affinity.rs), which runs under `scripts/test.sh`. |
-| A blocking wait reachable from Java that does not go through the `rtos` seam wrappers MUST release the JVM run lock around it (`let _run = jvm_run_lock::unlocked();`); a short wait inside a native that is mid-mutation MUST NOT. | Only the task holding the [run lock](crates/pd-rtos/src/run_lock.rs) interprets Java, and it hands the heap over only at blocking points. A wait that keeps the lock freezes every other Java thread for its length; one that releases while a native holds unrooted Rust-side state hands a sibling the heap at the wrong moment. The seam wrappers (`delay_ms`, `queue_*`, `sem_take`, …) and the network facade already release. Design note: `docs/designs/jvm-run-lock-2026-09.md`. |
-| A native module holding Java object references MUST register a root provider. | An unregistered provider is swept while live and fails silently much later as dead input or `NoSuchMethod`. Both crates carry a source-scanning completeness guard over `gc_root_registration.rs`. |
-| Wire formats and wire identities live in the small protocol crates ([`pdb-protocol`](crates/pdb-protocol/), [`papk-format`](crates/papk-format/)) and are never hand-mirrored. | A copy on each end drifts, and here a drift fails as a corrupt install or an undetected device rather than loudly. The frame constants, the payload layouts, the boot-meta sector and the USB VID/PID have each been a hand-mirrored pair at some point. |
-| Simulator policy a family owns crosses as `register_sim_platform!` parameters (GC roots, the boot-budget model, the app entry), never as `PlatformHooks` methods. | A hook every *device* family must also stub exports simulator data to shared code for no reason; a macro parameter is a decision the family writes down once. |
-| Shared code reaches the kernel only through [`picodroid_core::rtos`](crates/pd-rtos/src/lib.rs) (the `pd-rtos` crate, re-exported). | Otherwise a second family cannot register its own kernel. Enforced by `rtos::seam_guard`, a source scan that bans FreeRTOS API names outside the simulator's backing and `rtos/freertos.rs`. |
+| Adding a new framework class with native methods MUST add its FQN to [`PICODROID_NATIVE_CLASSES`](crates/picodroid-core/src/native_handler/class_registry.rs). | Same canonicalisation hazard, on the host side. |
+| `sdk/java/picodroid/` is the framework's Java-side surface — not a generic library. | Reusing it means you accept the picodroid widget/net/sensor vocabulary. If you want only the JVM, depend on `pico-jvm` directly. |
+| `platforms/rp/src/hal/` MUST NOT import from `app`, `pdb`, or `packagemanager`. | HAL is a leaf. Verify with `rg "use crate::(app\|pdb\|packagemanager)" platforms/rp/src/hal/` (must be empty). |
+| A platform crate MUST NOT construct a `Jvm` — hand off to [`boot::run_app`](crates/picodroid-core/src/boot.rs). | Two JVM-driving crates monomorphise the interpreter twice: measured at ~38 KB, which overflowed the RP2040 flash ceiling. LTO does not rescue it. |
+| A file MUST NOT exist at the same relative path under both `platforms/*/src` and `crates/picodroid-core/src`. | Shadow twins compile, one copy goes dead, and they drift silently. Enforced by `scripts/pre-commit`, with an allowlist for the four genuine seam pairs (`gc_root_registration.rs`, `hal/mod.rs`, `pdb/mod.rs`, `fs/mod.rs`). |
+| Every task the RP family creates MUST go through `task_affinity::spawn`, naming its core. | The shared JVM heap relies on one core interpreting Java; `volatile` is ignored and no barriers are emitted. `spawn` makes create+pin one scheduler-atomic step. Enforced by the source scan in [task_affinity.rs](platforms/rp/src/task_affinity.rs), which runs under `scripts/test.sh`. |
+| A blocking wait reachable from Java that does not go through the `rtos` seam wrappers MUST release the JVM run lock around it; a short wait inside a native that is mid-mutation MUST NOT. | Only the task holding the [run lock](crates/pd-rtos/src/run_lock.rs) interprets Java. A wait that keeps the lock freezes every other Java thread for its length; one that releases while a native holds unrooted state hands a sibling the heap at the wrong moment. The seam wrappers and the network facade already release. |
+| A native module holding Java object references MUST register a GC root provider. | An unregistered provider is swept while live and fails much later as dead input or `NoSuchMethod`. Both crates carry a source-scanning guard over `gc_root_registration.rs`. |
+| Shared code reaches the kernel only through `picodroid_core::rtos`. | Otherwise a second family cannot register its own kernel. Enforced by `rtos::seam_guard`, a source scan that bans FreeRTOS API names outside the simulator's backing and `rtos/freertos.rs`. |
+| Wire formats live in the small protocol crates (`pdb-protocol`, `papk-format`, `class-link`) and are never hand-mirrored. | A copy on each end drifts, and here a drift fails as a corrupt install or an undetected device rather than loudly. |
 
 ## Multi-family seams
 
-Picodroid runs on RP2040 / RP2350 today, under `platforms/rp/`, with cross-family shared code in `crates/picodroid-core/`. An ESP32-S3 (Lilygo T-Deck Plus) Milestone-1 scaffold was removed in 2026-07 — retrieve it from git history (`platforms/esp/`) if a second family returns. The seams below remain the contract for future ports; [`picodroid_core::porting`](crates/picodroid-core/src/porting.rs) re-exports every one of them and is the checklist a port works from.
+Picodroid runs on RP2040/RP2350 today. An ESP32-S3 (Lilygo T-Deck Plus) Milestone-1 port was scaffolded and then removed in 2026-07 — it lives in git history, and the `platforms/<family>/` layout it validated remains the pattern for future families. The codebase is structured so that adding a chip family is additive rather than touching dozens of files. The seams below are the contract for ports.
 
 ### Family routing
 
-A family is its own binary crate under `platforms/<name>/`, depending on `picodroid-core`. Its `src/hal/mod.rs` routes a single `mod chip;` between its own peripherals and the shared simulator in [`picodroid_core::hal::sim`](crates/picodroid-core/src/hal/sim/). Nothing in `picodroid-core` needs editing to add one.
+A family is its own binary crate under `platforms/<name>/`, depending on `picodroid-core`; nothing in `picodroid-core` needs editing to add one. [platforms/rp/src/hal/mod.rs](platforms/rp/src/hal/mod.rs) dispatches a single `mod chip;` to the active family via `cfg(feature = "family-<name>")`. Sim/test always routes to the shared simulator in [`crates/picodroid-core/src/hal/sim/`](crates/picodroid-core/src/hal/sim/). Add a new family by creating a `platforms/<name>/` crate whose `glue.rs` implements **HAL CONTRACT v2** and forwards its `family-<name>` feature to `picodroid-core`.
 
 ### HAL CONTRACT v2
 
-The contract is the trait set in [`picodroid_core::hal`](crates/picodroid-core/src/hal/traits.rs): `HalDisplay`, `HalGpio`, `HalClock`, `HalTouch`, `HalI2c`, `HalAdc`, `HalPwm`, `HalSpi`, `HalUart`, `HalFs`, `HalNet` under `cfg(has_network)`, and `NetLink` — the network link driver a FreeRTOS+TCP family writes for its chip, driven by core's `run_link_task` (`docs/designs/network-seam-2026-09.md`). A family implements them and calls `set_hal!`, which emits the `#[no_mangle]` shims that core's facade binds at link time. A drifted signature fails to compile at the impl.
-
-This replaced v1's hand-written doc-block plus matching assertion list. The two had fallen out of step: converting to traits found `net::udp_sendto`/`udp_recvfrom` and `i2c::{write,read}` / `spi::{transfer,write}` / `uart::reconfigure` in live use by the natives and named in neither half.
-
-- **Trait-covered**: everything above, plus the debug bridge and install path — `PdbTransport`, `SysmonSource`, `CoreCoordinator` and `PapkFlash` in [`picodroid_core::pdb`](crates/picodroid-core/src/pdb/mod.rs) / [`picodroid_core::install`](crates/picodroid-core/src/install/orchestrator.rs) replaced the former `pdb_usb::*` assertion block; a family normally implements `PapkSlotFlash` (three constants and two flash primitives) and lets [`PapkSlot`](crates/picodroid-core/src/install/slot.rs) be its `PapkFlash`. The filesystem is `FsBackingStore` behind core's `littlefs` feature.
-- **Assertion-covered** (no trait, no shared counterpart): `boot::clock_init`, `flash::read_flash_papk` — still checked by [contract.rs](platforms/rp/src/hal/contract.rs). (`boot::start_tasks` left for `boot_tasks.rs` in stage 3f.)
-- **Family-private**: `delay`, `input_pin`, `output_pin`, `spi_bus` wire `picodroid-core`'s generic drivers to a family's peripherals; name and shape are the family's own.
-
-Chip-within-family symbols (e.g. `pdb_usb::queue_read_byte_busywait`, RP2350-only) are conditionally compiled at the family-internal level.
+The contract is `picodroid_core::hal`'s traits — `HalDisplay`, `HalGpio`, `HalClock`, `HalTouch`, `HalI2c`, `HalAdc`, `HalPwm`, `HalSpi`, `HalUart`, `HalFs`, (under `cfg(has_network)`) `HalNet`, and `NetLink` (the network link driver a FreeRTOS+TCP family writes for its chip) — defined in [crates/picodroid-core/src/hal/traits.rs](crates/picodroid-core/src/hal/traits.rs). A family implements them for one type and registers with `set_hal!` (see [platforms/rp/src/glue.rs](platforms/rp/src/glue.rs)); a signature that drifts fails to compile at the impl. Every seam item a port implements — these traits, `Rtos`, `PlatformHooks`, the debug-bridge and installer traits, the filesystem trait, the registration macros — is re-exported from [crates/picodroid-core/src/porting.rs](crates/picodroid-core/src/porting.rs), whose doc is the checklist and whose test keeps the [porting guide](https://shivrajora.github.io/picodroid-rs/reference/porting-guide/) complete. `boot` and `flash` have no traits — they have no shared counterpart to form a contract with — and are still shape-asserted by [platforms/rp/src/hal/contract.rs](platforms/rp/src/hal/contract.rs).
 
 ### MCU TOML schema
 
@@ -127,23 +208,26 @@ Chip-within-family symbols (e.g. `pdb_usb::queue_read_byte_busywait`, RP2350-onl
 - `freertos_c_defines` — semicolon-separated `KEY=VALUE` defines
 - `freertos_vector_aliases` — semicolon-separated `CMSIS=portasm` linker aliases
 - `init_array_segment` — destination memory region for `.init_array` (RP-specific quirk; leave unset on platforms that don't need it)
+- `heap_kb` — the FreeRTOS heap arena, less `jvm_loop_ram_kb` and the board's `hot_ram_kb` where code runs from RAM
 
-[crates/build_support/network.rs](crates/build_support/network.rs) compiles FreeRTOS+TCP, the shared stack glue in `crates/picodroid-core/net-freertos-tcp/`, and the link-driver sources a family lists in `NetStackBuild`; a `network_type` of `cyw43` also compiles the vendored cyw43 driver with the family's port file. Nothing in it names a chip family; the family's `build.rs` supplies its kernel port include and its port directory (`docs/designs/network-seam-2026-09.md`).
+`c_opt_level` (read by `config.rs`) pins the optimisation level of every C object built for the MCU; all three RP descriptors set `"s"`.
 
-[crates/build_support/names.rs](crates/build_support/names.rs) runs from both `crates/jvm/build.rs` and `crates/picodroid-core/build.rs`. From `sdk/class-names.tsv`, `sdk/member-names.tsv`, `sdk/descriptors.tsv` and `sdk/api-contract.tsv` it generates the `c::` / `m::` / `d::` constant modules every Rust dispatch site matches on — spelled through the active shrink map under `PICODROID_SHRINK=1` and verbatim otherwise — so a `--shrink` image carries no original Java name and a no-shrink image is byte-identical to one built before the shrinker existed. `no_original_name_literals` and `names_agree_with_pico_jvm` keep both crates on the generated spellings.
+[crates/build_support/flash_layout.rs](crates/build_support/flash_layout.rs) lays flash out from `flash_kb`, `fs_kb`, `app_region_kb` and `max_installed_apps` (a board may override the last three), renders the linker script's `MEMORY` block, and asserts the main-stack floor. The per-board results are in [System limits](https://shivrajora.github.io/picodroid-rs/reference/limits/).
+
+[crates/build_support/network.rs](crates/build_support/network.rs) compiles FreeRTOS+TCP, the shared stack glue in `crates/picodroid-core/net-freertos-tcp/`, and the link-driver sources a family lists in `NetStackBuild`; a `network_type` of `cyw43` also compiles the vendored cyw43 driver with the family's port file. Nothing in it names a chip family; the family's `build.rs` supplies its kernel port include and its port directory.
 
 ### Naming convention
 
 - `family-<name>` (Cargo feature) — e.g. `family-rp`. Activated transitively by chip features.
-- `chip-<mcu_name>` (Cargo feature) — e.g. `chip-rp2040`, `chip-rp2350`. Mechanical 1:1 with `platforms/<family>/mcus/<family>/<mcu_name>.toml`.
-- `board-<board_name>` (Cargo feature) — e.g. `board-testbench-rp2040`. Mechanical 1:1 with `platforms/<family>/boards/<board_name>/`.
+- `chip-<mcu_name>` (Cargo feature) — e.g. `chip-rp2040`, `chip-rp2350`. One per HAL crate rather than per descriptor: the `rp2350` and `rp2350b` descriptors under `platforms/<family>/mcus/<family>/` both build with `chip-rp2350`.
+- `board-<board_name>` (Cargo feature) — e.g. `board-testbench-rp2040`. Mechanical 1:1 with `boards/<board_name>/`.
 
 Boards declare their MCU via `mcu = "..."` in `board.toml`; [crates/build_support/config.rs](crates/build_support/config.rs)::`resolve_active_mcu` reads it directly. Chip features only exist to gate dep crates.
 
-### RP-specific concerns kept isolated for any future family
+### RP-specific patterns (boot, flash, timer)
 
-The following are deeply RP-specific and live entirely under [platforms/rp/src/hal/rp/](platforms/rp/src/hal/rp/). When a second hardware family is added, equivalent mechanisms (or replacements) will be derived for that family — the refactor's job was just to keep them isolated, not to abstract them.
+The following are deeply RP-specific and live entirely under [`platforms/rp/`](platforms/rp/). As hardware families are added, equivalent mechanisms (or replacements) are derived per family — the refactor's job was just to keep them isolated, not to abstract them.
 
-- **SMP / cross-core FIFO / Amazon-SMP affinity APIs** — [platforms/rp/src/boot_tasks.rs](platforms/rp/src/boot_tasks.rs) and the spawn arms in [glue.rs](platforms/rp/src/glue.rs) create every task through `task_affinity::spawn` with a V11 SMP core-affinity mask spelled as `task_affinity::CORE0` / `CORE1` ([task_affinity.rs](platforms/rp/src/task_affinity.rs)), which suspends the scheduler around create+pin. `configTASK_DEFAULT_CORE_AFFINITY` / `configIDLE_AFFINITY` are deliberately left unset: they pin the idle-task reaper (see `FreeRTOSConfig.h`). ESP-IDF FreeRTOS uses `xTaskCreatePinnedToCore` and stack sizes in bytes (not words).
-- **Same-core install flow** — PDB and JVM tasks are both pinned to core 0 (an RP2350 cross-core SRAM visibility bug retired the original cross-core park design); during install the JVM blocks on a FreeRTOS notification, and each flash erase/program window disables interrupts inside `with_xip_disabled!` ([platforms/rp/src/hal/rp/flash.rs](platforms/rp/src/hal/rp/flash.rs)). ESP32-S3 has cache-suspension APIs (`esp_flash_suspend_cache`) that obviate this pattern.
+- **SMP / cross-core FIFO / Amazon-SMP affinity APIs** — [boot_tasks.rs](platforms/rp/src/boot_tasks.rs) creates every task through `task_affinity::spawn`, which takes a V11 SMP core-affinity mask spelled as `task_affinity::CORE0` / `CORE1` and suspends the scheduler around create+pin; a source-scan test in `task_affinity.rs` fails the build for any spawn that bypasses it. Other vendors' FreeRTOS forks differ (e.g. `xTaskCreatePinnedToCore`, stack sizes in bytes rather than words).
+- **Install flow / flash parking** — PDB and JVM tasks are both pinned to core 0 (an RP2350 cross-core SRAM visibility bug retired the original cross-core park design); during install the JVM blocks on a FreeRTOS notification. Core 1 runs a dedicated `flashpark` parker task: each flash erase/program window first parks core 1 via a cross-core FreeRTOS task notification ([core1_park.rs](platforms/rp/src/hal/rp/core1_park.rs)), then disables interrupts inside `with_xip_disabled!` ([flash.rs](platforms/rp/src/hal/rp/flash.rs)). On the WiFi boards core 1 also hosts the `cyw43` WiFi task, at a priority below the parker.
 - **`platforms/rp/mcus/rp/FreeRTOSConfig.h` ARM macros** — keyed off `__ARM_ARCH_8M_MAIN__`. A future family supplies its own config keyed to its architecture.
