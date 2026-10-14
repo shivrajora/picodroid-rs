@@ -13,6 +13,25 @@
 
 use crate::host::NativeHeapStats;
 
+/// `picodroid_port_entropy_bytes` for the host (`hal::entropy`: the TLS
+/// handshake seed, the serial fallback): the OS's random source, which never
+/// says "not yet". Here rather than in `net` because every board needs it,
+/// networked or not.
+#[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub extern "C" fn picodroid_port_entropy_bytes(buf: *mut u8, len: usize) -> usize {
+    use std::io::Read;
+    if buf.is_null() || len == 0 {
+        return 0;
+    }
+    // SAFETY: the caller passes a live, writable buffer of `len` bytes.
+    let out = unsafe { core::slice::from_raw_parts_mut(buf, len) };
+    match std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(out)) {
+        Ok(()) => len,
+        Err(_) => 0,
+    }
+}
+
 /// Native heap statistics as the simulator sees them.
 ///
 /// Two independent sources: the byte meter that models the device arena (used
@@ -217,6 +236,9 @@ macro_rules! register_sim_platform {
                 fn uninstall_run(first_sector: u32, sectors: u32) -> bool {
                     $crate::hal::sim::app_region::uninstall_run(first_sector, sectors)
                 }
+                fn device_serial() -> Option<$crate::identity::Serial> {
+                    $crate::hal::sim::platform::device_serial()
+                }
             }
 
             $crate::set_rtos!(SimPlatform);
@@ -230,6 +252,13 @@ macro_rules! register_sim_platform {
             $crate::sim_boot::main(&$boot_budget)
         }
     };
+}
+
+/// The simulator's serial, `emulator-<pid>` as adb names an emulator. A sim
+/// reboot `exec`s the same process, so it survives one, and the default pdb
+/// socket is `pdb-<pid>.sock`, so `pdb` maps the one to the other.
+pub fn device_serial() -> Option<crate::identity::Serial> {
+    crate::identity::Serial::from_ascii(&std::format!("emulator-{}", std::process::id()))
 }
 
 /// The simulator's `STOP_JVM`, raised to end the running app the way a

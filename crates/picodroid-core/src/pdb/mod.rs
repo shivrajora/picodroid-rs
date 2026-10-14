@@ -113,9 +113,10 @@ fn handle_ping(transport: &mut impl PdbTransport, flash: &impl PapkFlash, len: u
     }
     // The greeting layout is `pdb_protocol::greeting`'s; this build supplies
     // the facts only it knows — region capacity, framework-map-version, the
-    // board it was built for and, on a multi-app board, the state of the
-    // package directory.
+    // board it was built for, this device's serial and, on a multi-app
+    // board, the state of the package directory.
     let board = crate::board_cfg::build_info::BOARD.as_bytes();
+    let serial = crate::identity::serial();
     let mut buf = [0u8; greeting::GREETING_MAX];
     #[cfg(has_multi_app)]
     let total = {
@@ -131,7 +132,7 @@ fn handle_ping(transport: &mut impl PdbTransport, flash: &impl PapkFlash, len: u
             flash.max_data_size() as u32,
             crate::framework_map::FRAMEWORK_MAP_VERSION.as_bytes(),
             board,
-            b"",
+            serial.as_bytes(),
             &apps,
             &mut buf,
         )
@@ -141,7 +142,7 @@ fn handle_ping(transport: &mut impl PdbTransport, flash: &impl PapkFlash, len: u
         flash.max_data_size() as u32,
         crate::framework_map::FRAMEWORK_MAP_VERSION.as_bytes(),
         board,
-        b"",
+        serial.as_bytes(),
         &mut buf,
     );
     send_response(transport, STATUS_OK, &buf[..total]);
@@ -274,10 +275,12 @@ mod tests {
 
     /// The greeting bytes themselves are pinned in `pdb_protocol::greeting`;
     /// what this build must still prove is the wiring — that `handle_ping`
-    /// answers with *this* firmware's framework-map-version and the flash
-    /// slot's real capacity, in a frame the host-side parser accepts.
+    /// answers with *this* firmware's framework-map-version, the flash
+    /// slot's real capacity and the published serial, in a frame the
+    /// host-side parser accepts.
     #[test]
     fn greeting_layout_is_stable() {
+        crate::identity::init();
         let crc = crc32_frame(CMD_PING, 0, &[]);
         let mut pipe = MockPipe::new(crc.to_le_bytes().to_vec());
         handle_ping(&mut pipe, &MockFlash, 0);
@@ -295,6 +298,8 @@ mod tests {
             crate::framework_map::FRAMEWORK_MAP_VERSION
         );
         assert_eq!(g.board, crate::board_cfg::build_info::BOARD);
+        assert_eq!(g.serial, crate::identity::serial().as_str());
+        assert_eq!(g.serial, "TEST0123456789AB");
         assert!(!g.is_legacy());
     }
 }

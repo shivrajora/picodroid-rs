@@ -15,8 +15,11 @@ use freertos_rust::{Duration, InterruptContext, Queue};
 
 // The descriptor tables are the shared reference set, built from the
 // identity in `pdb_protocol::usb`; this driver owns only the endpoint
-// machinery underneath them.
-use picodroid_core::pdb::usb_cdc::{CONFIG_DESC, DEVICE_DESC, LINE_CODING, STR0, STR1, STR2};
+// machinery underneath them. Strings, the run-time serial among them, come
+// from `string_descriptor`.
+use picodroid_core::pdb::usb_cdc::{
+    string_descriptor, CONFIG_DESC, DEVICE_DESC, LINE_CODING, STRING_DESC_MAX,
+};
 
 // ── Register addresses ──────────────────────────────────────────────────────
 
@@ -96,6 +99,9 @@ struct UsbState {
     ep0_tx_len: u16,
     ep0_data_stage: bool,
     ep0_out_pending: bool,
+    /// The string descriptor being sent: `ep0_send` continues a long one
+    /// from this buffer in the interrupt, so it outlives the request.
+    ep0_string: [u8; STRING_DESC_MAX],
 }
 
 static mut USB: UsbState = UsbState {
@@ -108,6 +114,7 @@ static mut USB: UsbState = UsbState {
     ep0_tx_len: 0,
     ep0_data_stage: false,
     ep0_out_pending: false,
+    ep0_string: [0; STRING_DESC_MAX],
 };
 
 /// Signalled by ISR when an EP1 IN transfer completes.
@@ -297,12 +304,14 @@ unsafe fn handle_get_descriptor(w_val: u16, w_len: u16) {
     match desc_type {
         1 => ep0_send(&DEVICE_DESC, w_len),
         2 => ep0_send(&CONFIG_DESC, w_len),
-        3 => match desc_idx {
-            0 => ep0_send(&STR0, w_len),
-            1 => ep0_send(&STR1, w_len),
-            2 => ep0_send(&STR2, w_len),
-            _ => ep0_stall(),
-        },
+        3 => {
+            let raw = &raw mut USB.ep0_string;
+            let buf: &mut [u8; STRING_DESC_MAX] = &mut *raw;
+            match string_descriptor(desc_idx, buf) {
+                Some(n) => ep0_send(&buf[..n], w_len),
+                None => ep0_stall(),
+            }
+        }
         6 => ep0_stall(), // DEVICE_QUALIFIER — full-speed only
         _ => ep0_stall(),
     }

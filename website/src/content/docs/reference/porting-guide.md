@@ -188,13 +188,40 @@ Rules that are easy to get wrong:
 ## 3. The hooks (`PlatformHooks`)
 
 Implement `picodroid_core::host::PlatformHooks` and register it with
-`set_platform_hooks!`. Seven methods: `stop_requested` (has a debugger asked
+`set_platform_hooks!`. Eight methods: `stop_requested` (has a debugger asked
 the JVM to stop — `false` if you have no bridge), `heap_bypass_enter/exit`
 and `heap_checkpoint` (no-ops on hardware; the simulator's heap model uses
 them), `native_heap_stats` (what the memory monitor prints),
-`register_gc_roots`, and `uninstall_run(first_sector, sectors)`, which erases
+`register_gc_roots`, `uninstall_run(first_sector, sectors)`, which erases
 an installed run for a Java `PackageInstaller.uninstall` while the app that
-asked keeps running (the RP family runs the erase on the LittleFS worker).
+asked keeps running (the RP family runs the erase on the LittleFS worker),
+and `device_serial`.
+
+### The device serial
+
+`device_serial` is the only part of the device's identity you write. Return
+your chip's ID formatted the way your vendor's own USB bootloader shows it,
+so `lsusb` reads the same in both modes (where it shows no per-chip serial,
+as the RP2040's does not, follow your vendor SDK's unique ID): `Serial::from_id_bytes` for the
+usual uppercase hex of a raw ID (up to 16 bytes), `Serial::from_ascii` for
+anything else (`[0-9A-Za-z._:-]`, at most 32 characters). Return `None` for
+a chip with no ID; core then makes a random serial once from your TRNG and
+keeps it in `/system/serial`.
+
+| Family | `device_serial()` |
+|---|---|
+| RP2350 | `from_id_bytes` of the OTP chip ID (bootrom `get_sys_info`) |
+| RP2040 | `from_id_bytes` of the QSPI flash's unique ID (`4Bh`, read with XIP off) |
+| STM32 | `from_ascii` of ST's DFU 12-character fold of the 96-bit UID |
+| nRF52 | `from_id_bytes` of `FICR.DEVICEID` |
+
+Call `picodroid_core::identity::init()` once from boot, after the
+filesystem mounts and before the scheduler, a second core or USB starts;
+a hook that needs XIP off may rely on that. Everything else is core's: the
+USB `iSerialNumber` string (your driver serves every string descriptor
+through `pdb::usb_cdc::string_descriptor`), the PING greeting,
+`Build.getSerial()`, and `pdb -s <serial>` on the host. Define
+`picodroid_port_entropy_bytes` too (return 0 without a TRNG).
 
 `register_gc_roots` is required, not defaulted, on purpose: a family with no
 native module holding Java references writes an empty body, which is a
@@ -306,8 +333,8 @@ picodroid-core = { path = "…", features = ["sim"] }
 The entry point, panic handler, exception handlers, the device
 `#[global_allocator]`, and your kernel's application hooks
 (`vApplicationMallocFailedHook` should be a no-op so allocation failure
-reaches the GC). Read the installed app, mount the filesystem, then start
-your tasks.
+reaches the GC). Read the installed app, mount the filesystem, call
+`identity::init()`, then start your tasks.
 
 ### The JVM supervisor loop
 

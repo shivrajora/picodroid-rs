@@ -109,24 +109,15 @@ impl TlsClock for WallClock {
 
 // ── Entropy ──────────────────────────────────────────────────────────────
 
-extern "C" {
-    /// The family's entropy for key material (RP: TRNG words under the
-    /// family's critical section, `hal/rp/entropy.rs`; simulator: the
-    /// host's random source). Non-blocking: writes what is harvested at
-    /// the front of `buf` and returns the count, 0 while the source is
-    /// still sampling. Never a pseudo-random fallback.
-    fn picodroid_port_entropy_bytes(buf: *mut u8, len: usize) -> usize;
-}
-
 /// The handshake seed: 32 bytes of hardware entropy, waiting up to two
 /// seconds for the TRNG (a 192-bit harvest takes ~64 ms on the RP2350).
 fn seed() -> Option<[u8; 32]> {
     let mut s = [0u8; 32];
     let mut filled = 0usize;
     for _ in 0..400 {
-        // SAFETY: `s[filled..]` is a live, writable slice of the stated length.
-        let n = unsafe { picodroid_port_entropy_bytes(s[filled..].as_mut_ptr(), s.len() - filled) };
-        filled += n.min(s.len() - filled);
+        // The family's TRNG (`hal::entropy`); never a pseudo-random fallback.
+        let n = crate::hal::entropy::fill(&mut s[filled..]);
+        filled += n;
         if filled == s.len() {
             return Some(s);
         }

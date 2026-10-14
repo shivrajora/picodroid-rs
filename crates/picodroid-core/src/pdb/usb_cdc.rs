@@ -13,12 +13,19 @@
 //! its own `CONFIG_DESC` — but must still take the identity from the protocol
 //! crate, which is the part a host depends on.
 //!
+//! Strings are served through [`string_descriptor`], never by matching
+//! indexes in a driver: string 3 is the device serial
+//! ([`crate::identity`]), known only at run time, and a driver that routes
+//! every GET_DESCRIPTOR(STRING) here serves it without knowing it exists.
+//!
 //! The simulator has no USB and needs none of this: its endpoint is a Unix
 //! socket (`crate::hal::sim::pdb`), serving the same [`crate::pdb`] command
 //! loop, install orchestration, sysmon and input a device serves over these
 //! descriptors (`docs/designs/sim-pdb-endpoint-2026-09.md`).
 
 use pdb_protocol::usb;
+
+use crate::identity;
 
 /// Device descriptor: USB 2.0, CDC class, 64-byte EP0, one configuration.
 pub const DEVICE_DESC: [u8; 18] = device_descriptor(usb::VID, usb::PID);
@@ -43,10 +50,38 @@ pub const CONFIG_DESC: [u8; 67] = [
 pub const STR0: [u8; 4] = [4, 0x03, 0x09, 0x04];
 
 /// String 1: the manufacturer / product name.
-pub const STR1: [u8; 20] = string_descriptor(usb::MANUFACTURER);
+pub const STR1: [u8; 20] = const_string_descriptor(usb::MANUFACTURER);
 
 /// String 2: the interface name.
-pub const STR2: [u8; 28] = string_descriptor(usb::INTERFACE);
+pub const STR2: [u8; 28] = const_string_descriptor(usb::INTERFACE);
+
+/// Index of the serial-number string (`iSerialNumber`).
+pub const SERIAL_STRING_INDEX: u8 = 3;
+
+/// The longest string descriptor [`string_descriptor`] writes: the serial
+/// at its cap. Size a driver's EP0 string buffer with this.
+pub const STRING_DESC_MAX: usize = 2 + 2 * identity::SERIAL_MAX;
+
+const _: () = assert!(STR1.len() <= STRING_DESC_MAX && STR2.len() <= STRING_DESC_MAX);
+
+/// GET_DESCRIPTOR(STRING, `index`): writes the descriptor into `out` and
+/// returns its length, or `None` for an index this device has no string for
+/// (the driver stalls). A driver that sends from the buffer after returning
+/// — the RP one continues a long descriptor from the interrupt — must keep
+/// `out` alive that long.
+pub fn string_descriptor(index: u8, out: &mut [u8; STRING_DESC_MAX]) -> Option<usize> {
+    let fixed: &[u8] = match index {
+        0 => &STR0,
+        1 => &STR1,
+        2 => &STR2,
+        SERIAL_STRING_INDEX => {
+            return Some(write_string(identity::serial().as_bytes(), out));
+        }
+        _ => return None,
+    };
+    out[..fixed.len()].copy_from_slice(fixed);
+    Some(fixed.len())
+}
 
 /// Line coding: 115200 8N1 (returned for GET_LINE_CODING).
 pub const LINE_CODING: [u8; 7] = [0x00, 0xC2, 0x01, 0x00, 0x00, 0x00, 0x08];
@@ -71,7 +106,7 @@ const fn device_descriptor(vid: u16, pid: u16) -> [u8; 18] {
         0x01,   //
         1,      // iManufacturer
         2,      // iProduct
-        0,      // iSerialNumber
+        3,      // iSerialNumber: SERIAL_STRING_INDEX
         1,      // bNumConfigurations
     ]
 }
@@ -79,14 +114,22 @@ const fn device_descriptor(vid: u16, pid: u16) -> [u8; 18] {
 /// Encode an ASCII string as a USB string descriptor (UTF-16LE). The length is
 /// checked at compile time, so a renamed string that no longer fits its table
 /// fails the build rather than truncating on the wire.
-const fn string_descriptor<const N: usize>(s: &str) -> [u8; N] {
-    let bytes = s.as_bytes();
+const fn const_string_descriptor<const N: usize>(s: &str) -> [u8; N] {
     assert!(
-        2 + 2 * bytes.len() == N,
+        2 + 2 * s.len() == N,
         "string descriptor table must be exactly 2 + 2 * chars long"
     );
     let mut out = [0u8; N];
-    out[0] = N as u8;
+    write_string(s.as_bytes(), &mut out);
+    out
+}
+
+/// The encoder both the const tables and the run-time serial use: `bytes`
+/// as a STRING descriptor at the front of `out`, returning its length.
+const fn write_string(bytes: &[u8], out: &mut [u8]) -> usize {
+    let n = 2 + 2 * bytes.len();
+    assert!(n <= out.len(), "string descriptor does not fit its buffer");
+    out[0] = n as u8;
     out[1] = 0x03; // STRING
     let mut i = 0;
     while i < bytes.len() {
@@ -95,9 +138,10 @@ const fn string_descriptor<const N: usize>(s: &str) -> [u8; N] {
             "USB strings here are ASCII encoded as UTF-16LE"
         );
         out[2 + 2 * i] = bytes[i];
+        out[3 + 2 * i] = 0;
         i += 1;
     }
-    out
+    n
 }
 
 #[cfg(test)]
@@ -173,9 +217,46 @@ mod tests {
     fn utf16_high_bytes_are_zero() {
         // Every odd byte after the header is the UTF-16 high byte: zero for
         // ASCII. A table built by hand with a shifted character would fail.
-        for desc in [&STR1[..], &STR2[..]] {
+        let mut str3 = [0u8; STRING_DESC_MAX];
+        let n = string_descriptor(SERIAL_STRING_INDEX, &mut str3).unwrap();
+        for desc in [&STR1[..], &STR2[..], &str3[..n]] {
             assert!(desc[2..].iter().skip(1).step_by(2).all(|&b| b == 0));
         }
+    }
+
+    /// String 3 is the published serial, and the device descriptor points
+    /// at it — what makes `/dev/serial/by-id/…_<serial>` appear.
+    #[test]
+    fn str3_is_the_device_serial() {
+        crate::identity::init();
+        assert_eq!(DEVICE_DESC[16], SERIAL_STRING_INDEX);
+        let mut out = [0u8; STRING_DESC_MAX];
+        let n = string_descriptor(SERIAL_STRING_INDEX, &mut out).unwrap();
+        assert_eq!(out[0] as usize, n);
+        assert_eq!(out[1], 0x03);
+        assert_eq!(decode_string(&out[..n]), crate::identity::serial().as_str());
+        assert_eq!(decode_string(&out[..n]), "TEST0123456789AB");
+    }
+
+    /// The fixed strings come back byte for byte, and an index with no
+    /// string is refused so the driver stalls.
+    #[test]
+    fn string_descriptor_serves_the_tables_and_refuses_the_rest() {
+        let mut out = [0u8; STRING_DESC_MAX];
+        for (i, table) in [&STR0[..], &STR1[..], &STR2[..]].into_iter().enumerate() {
+            let n = string_descriptor(i as u8, &mut out).unwrap();
+            assert_eq!(&out[..n], table);
+        }
+        assert_eq!(string_descriptor(4, &mut out), None);
+        assert_eq!(string_descriptor(0xEE, &mut out), None);
+    }
+
+    /// A serial at the cap fills the buffer exactly.
+    #[test]
+    fn the_longest_serial_fits() {
+        let mut out = [0u8; STRING_DESC_MAX];
+        let n = write_string(&[b'x'; crate::identity::SERIAL_MAX], &mut out);
+        assert_eq!(n, STRING_DESC_MAX);
     }
 
     #[test]

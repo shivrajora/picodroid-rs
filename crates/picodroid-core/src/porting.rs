@@ -37,7 +37,14 @@
 //!    on purpose: an empty body is a decision. Keep your own
 //!    `gc_root_registration.rs` with an `EXPECTED_PROVIDERS` and assert at
 //!    boot that [`provider_count`] equals [`CORE_EXPECTED_PROVIDERS`] plus
-//!    yours.
+//!    yours. `device_serial` is your chip's ID as its vendor's USB bootloader
+//!    shows it, built with [`Serial::from_id_bytes`] or
+//!    [`Serial::from_ascii`] (`None` if the chip has none); call
+//!    [`identity_init`] once from boot, after the filesystem mounts and
+//!    before the scheduler or USB starts. Core serves it everywhere else —
+//!    the USB string, the PING greeting, `Build.getSerial()`. Define
+//!    `picodroid_port_entropy_bytes` (`hal::entropy`'s contract; return 0
+//!    without a TRNG).
 //! 4. **The filesystem.** Enable this crate's `littlefs` feature, implement
 //!    [`FsBackingStore`] over your flash region (the block arithmetic is
 //!    [`FsGeometry`]'s), call [`init_device`] then [`spawn_worker`] before the
@@ -55,7 +62,9 @@
 //!    `packages::mark_verified` it (so an app is deep-checked on the first
 //!    boot after its install and not on every one), and run
 //!    `packages::boot_image()`. Wire layouts and the USB identity are
-//!    `pdb_protocol`'s; never retype them.
+//!    `pdb_protocol`'s; never retype them. Your USB driver answers every
+//!    GET_DESCRIPTOR(STRING) through [`string_descriptor`], never by
+//!    matching indexes itself: string 3 is the run-time serial.
 //! 6. **The simulator.** One [`register_sim_platform!`] call with your GC
 //!    roots and a `static` [`BootBudgetModel`] of the tasks your device
 //!    creates at boot ([`BootTask`]); it generates the simulator's `Rtos`,
@@ -126,6 +135,7 @@ pub use crate::task_priority;
 pub use crate::gc_root_registration::EXPECTED_PROVIDERS as CORE_EXPECTED_PROVIDERS;
 pub use crate::gc_roots::provider_count;
 pub use crate::host::{NativeHeapStats, PlatformHooks};
+pub use crate::identity::{init as identity_init, Serial};
 pub use crate::set_platform_hooks;
 
 // ── 4. filesystem ──────────────────────────────────────────────────────────
@@ -140,6 +150,7 @@ pub use crate::install::{
     InstallTransport, PapkFlash, PapkRegion, PapkRegionFlash, ReadError,
 };
 pub use crate::packages::{boot_image, cleanup, rescan, rescan_region};
+pub use crate::pdb::usb_cdc::{string_descriptor, STRING_DESC_MAX};
 pub use crate::pdb::{
     run_pdb_task, PdbTransport, SysmonSample, SysmonSource, TaskSample, MAX_TASKS,
 };

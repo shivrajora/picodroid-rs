@@ -38,6 +38,8 @@ pub mod hal;
 // `cfg(not(test))`).
 pub mod hardware;
 pub mod host;
+// The device serial: USB iSerialNumber, the PING greeting, Build.getSerial().
+pub mod identity;
 // Always compiled, including under `cfg(test)`: the whole point of moving the
 // install path here is that it finally runs in a test binary. It was gated
 // out of every host build while it lived in the family crate, so the one code

@@ -471,6 +471,10 @@ impl PlatformHooks for TestHooks {
     fn uninstall_run(_first_sector: u32, _sectors: u32) -> bool {
         false
     }
+    /// A fixed serial, so the greeting and descriptor tests can pin it.
+    fn device_serial() -> Option<crate::identity::Serial> {
+        crate::identity::Serial::from_ascii("TEST0123456789AB")
+    }
 }
 
 crate::set_platform_hooks!(TestHooks);

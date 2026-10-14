@@ -8,9 +8,10 @@
 //!   hardware TRNG word when one is buffered (`trng.rs`, NET-6), else a
 //!   timer-seeded LCG that every TRNG word XOR-mixes into; RP2040, which
 //!   has no TRNG, the LCG alone (no RP2040 board has a network).
-//! - `picodroid_port_entropy_bytes` for TLS key material
-//!   (`picodroid-core/src/net/tls.rs`): TRNG bytes only, or nothing yet —
-//!   a handshake seed must never come from the LCG.
+//! - `picodroid_port_entropy_bytes` for TLS key material and the random
+//!   serial of a chip without an ID (`picodroid-core/src/hal/entropy.rs`):
+//!   TRNG bytes only, or nothing yet — a handshake seed must never come
+//!   from the LCG.
 //!
 //! Two callers on two cores now (the IP task and a Java thread running a
 //! handshake), so the TRNG's buffer is reached under the family's
@@ -22,12 +23,14 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 static LCG_STATE: AtomicU32 = AtomicU32::new(0x1234_5678);
 
-#[cfg(feature = "chip-rp2350")]
+#[cfg(all(has_network, feature = "chip-rp2350"))]
 fn hardware_word() -> Option<u32> {
     critical_section::with(|_| super::trng::try_random_u32())
 }
 
-#[cfg(not(feature = "chip-rp2350"))]
+/// The RP2040 has no TRNG, and a board without a network does not bring
+/// the RP2350's up.
+#[cfg(not(all(has_network, feature = "chip-rp2350")))]
 fn hardware_word() -> Option<u32> {
     None
 }

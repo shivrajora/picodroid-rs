@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Platform hooks — the residue that is neither HAL nor RTOS.
 //!
-//! Four things shared code needs that no peripheral trait covers: whether a
+//! What shared code needs that no peripheral trait covers: whether a
 //! debugger has asked the JVM to stop, the JVM's shared heap (a `static` that
-//! must live in the binary crate), and the simulator's heap-accounting
-//! controls.
+//! must live in the binary crate), the simulator's heap-accounting controls,
+//! an uninstall's erase, and the chip's identity.
 //!
 //! Two candidates were deliberately *not* put here. Task stack sizing and the
 //! simulator's thread-spawn heap charge both looked like hooks, but they are
@@ -76,6 +76,15 @@ pub trait PlatformHooks {
     /// worker, whose flash operations never overlap; the simulator erases
     /// its in-memory region. `false` when it could not.
     fn uninstall_run(first_sector: u32, sectors: u32) -> bool;
+
+    /// This chip's serial, formatted as the vendor's own USB bootloader
+    /// shows it (so `lsusb` reads the same in both modes) or, where that
+    /// shows no per-chip serial, as the vendor SDK's unique ID; `None` for a chip
+    /// with no ID, which [`crate::identity`] then makes one for. Called once,
+    /// from [`crate::identity::init`]: single-threaded, before the scheduler,
+    /// a second core or USB starts — a read that needs XIP off may rely on
+    /// that. Required for the same reason `register_gc_roots` is.
+    fn device_serial() -> Option<crate::identity::Serial>;
 }
 
 // SAFETY: every symbol is defined once per link by `set_platform_hooks!`, whose bodies go
@@ -88,6 +97,7 @@ unsafe extern "Rust" {
     safe fn __pd_host_native_heap_stats() -> NativeHeapStats;
     safe fn __pd_host_register_gc_roots();
     safe fn __pd_host_uninstall_run(first_sector: u32, sectors: u32) -> bool;
+    safe fn __pd_host_device_serial() -> Option<crate::identity::Serial>;
 }
 
 /// Has a debug bridge asked the JVM to stop?
@@ -113,6 +123,12 @@ pub fn register_gc_roots() {
 /// See [`PlatformHooks::uninstall_run`].
 pub fn uninstall_run(first_sector: u32, sectors: u32) -> bool {
     __pd_host_uninstall_run(first_sector, sectors)
+}
+
+/// See [`PlatformHooks::device_serial`]. Everything else reads
+/// [`crate::identity::serial`], never this.
+pub fn device_serial() -> Option<crate::identity::Serial> {
+    __pd_host_device_serial()
 }
 
 /// RAII guard for a heap-accounting bypass region.
@@ -166,6 +182,10 @@ macro_rules! set_platform_hooks {
             #[no_mangle]
             extern "Rust" fn __pd_host_uninstall_run(first_sector: u32, sectors: u32) -> bool {
                 <$t as $crate::host::PlatformHooks>::uninstall_run(first_sector, sectors)
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_host_device_serial() -> Option<$crate::identity::Serial> {
+                <$t as $crate::host::PlatformHooks>::device_serial()
             }
         };
     };

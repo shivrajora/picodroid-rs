@@ -37,6 +37,9 @@ pub mod wifi;
 // host tests pin the retry ladder.
 #[cfg(any(test, network_link_wifi))]
 pub mod wifi_join;
+// The family's hardware entropy: the TLS seed and the random serial of a
+// chip without an ID.
+pub mod entropy;
 // Bounded register spins: the only sanctioned way to wait on hardware state
 // without the RTOS, and each one named and capped.
 pub mod spin;

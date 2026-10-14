@@ -164,6 +164,11 @@ fn main() -> ! {
     // directory is scanned and the volume is mounted (D10, P8). On a
     // single-app board that is every app flashed before this one.
     let _ = picodroid_core::storage::sweep_orphans();
+    // The serial, before USB enumerates and before core 1 starts: the RP2040
+    // reads it from the flash with XIP off. Its fallback for a chip without
+    // an ID needs the volume above.
+    picodroid_core::identity::init();
+    defmt::info!("serial {}", picodroid_core::identity::serial().as_str());
 
     boot_tasks::start_tasks(boot_apk)
 }

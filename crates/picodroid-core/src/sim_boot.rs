@@ -114,6 +114,8 @@ pub fn main(model: &'static BootBudgetModel) {
             let _ = crate::storage::sweep_orphans();
         }
     }
+    // The serial, as a device's boot publishes it before USB comes up.
+    crate::identity::init();
     allocator::checkpoint("post-app-region");
 
     run(model);

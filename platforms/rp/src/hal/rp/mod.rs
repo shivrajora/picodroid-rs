@@ -39,10 +39,11 @@ pub mod xip;
 pub mod cyw43;
 #[cfg(network_cyw43)]
 pub mod pio_spi;
-// The family's entropy seam for the shared FreeRTOS+TCP glue
-// (picodroid_port_entropy32), and the RP2350 TRNG behind it (NET-6). Both
-// exist only in network builds.
-#[cfg(has_network)]
+// The family's entropy seam: picodroid_port_entropy_bytes, which every build
+// links (core's `hal::entropy`: the TLS seed, the serial fallback), and
+// picodroid_port_entropy32 for the shared FreeRTOS+TCP glue. The RP2350
+// TRNG behind them (NET-6) is network builds only; elsewhere they answer
+// as the RP2040 does, with no hardware source.
 pub mod entropy;
 #[cfg(all(has_network, feature = "chip-rp2350"))]
 pub mod trng;

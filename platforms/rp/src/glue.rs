@@ -720,6 +720,12 @@ impl PlatformHooks for PlatformHost {
         true
     }
 
+    /// No chip ID yet: `identity`'s fallback (a random serial kept in
+    /// `/system/serial`) serves this family until it reads its own.
+    fn device_serial() -> Option<picodroid_core::identity::Serial> {
+        None
+    }
+
     /// Moved here verbatim from `mem_diag::sample_native_heap`, which used to
     /// carry the sim/device split itself. This half is FreeRTOS FFI; the
     /// simulator's reads its own allocator, and lives in picodroid-core.
