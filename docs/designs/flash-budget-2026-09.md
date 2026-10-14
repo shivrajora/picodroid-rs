@@ -446,15 +446,12 @@ shipped `picoenvmon` image is ~14 KB, and the `defmt`/RTT path is separate
 (1,490 B) so logging survives. Under `-Os` this bucket is 3.7 KB, so it
 matters more at `opt-level 3`.
 
-### 6.8 Shared cross-class string table — ~23 KB upper bound *(projected)*
+### 6.8 Shared cross-class string table — landed 2026-10-13 as one `Utf8` pool per section
 
-Identical `Utf8` text repeated across classes is 12,896 B in the SDK corpus
-and 10,862 B in the PAPK. A corpus-wide string table (one dedup'd blob, 2-byte
-indices in each class's pool) would recover most of it and also shrink the
-`Class`/`NameAndType` pointer structure, but it changes the on-flash class
-format and every `ClassFile` accessor. It is the only remaining lever on the
-descriptor and `<init>`/`Code`/`()V` residue, and it composes with everything
-above. Not worth doing before §6.3, which removes a third of the corpus.
+> **Landed 2026-10-13** (6c205169, link layout 3, PAPK v3), by a different design
+> from the one sketched here and with a larger saving: the text and the measured
+> numbers are in [completed/flash-budget-2026-09.md](../completed/flash-budget-2026-09.md) §6.8
+> and in `class-link-2026-09.md`, "Third round".
 
 ### 6.9 Small and measured
 
@@ -481,15 +478,24 @@ and the heap-census work, not here.
 
 ## 8. Recommended order
 
-Rows 1a, 1b, 2, 3 and 8 are closed and are in [completed/flash-budget-2026-09.md](../completed/flash-budget-2026-09.md).
+Rows 1a, 1b, 2, 3, 8 and 9 are closed and are in [completed/flash-budget-2026-09.md](../completed/flash-budget-2026-09.md).
+Savings re-measured on 2026-10-14 against the `pico_display2_w` debug image
+(LVGL 9.6, C at `-Os`; the 2026-10-14 amendment has the symbol sizes).
 
 | # | Change | Saving | Risk | Effort |
 |---|---|---:|---|---|
-| 4 | LVGL: ARGB8888 blend, blur, shadow off; font without kerning | ~18 KB | low–medium, visual check | `lv_conf.h` + font convert |
-| 5 | `java_float_layout` via `format_shortest` | ~8 KB | low, conformance tests exist | `object_heap/mod.rs` |
-| 6 | App-driven SDK tree-shake + derived `LV_USE_*` | ~20 KB + ~19 KB | medium — root discipline, `pdb install` guard | build.rs + board/app cfg |
-| 7 | `no-pdb` product feature | ~14 KB | low | feature flag |
-| 9 | Shared string table | ~23 KB | high — format change | after 6 |
+| 4 | LVGL: `LV_USE_LINE 0`; box shadow and blur stubbed out (ARGB8888 is reachable, kept; font unchanged) — **landed 2026-10-14** | −6,762 B `pico_display2_w` debug, −7,368 B rp2040, −6,776 B rp2350 (release) measured | pixel-identical sim shots of five apps | done: `lv_conf.h`, `pd_draw_sw_stubs.c`, `build_support/lvgl.rs`, a pd-lvgl-sys test |
+| 5 | `java_float_layout` via `format_shortest` — **measured 2026-10-14, not a lever** (2026-10-14 amendment §6.4): stable Rust links the exact-mode printer for every float `{}`/`{:e}` whatever `toString` uses; the rewrite cost +3.6 KB and was reverted | 0 | — | not taken |
+
+Deferred, product-image levers (2026-10-12 decision): both are opt-in switches a
+shipped single-app image would use. Neither shrinks the image the W debug gate
+measures unless it is on by default, which would break `pdb install` of other
+apps on the eight-slot W boards.
+
+| # | Change | Saving | Risk | Effort |
+|---|---|---:|---|---|
+| 6 | App-driven SDK tree-shake + derived `LV_USE_*` | ~20 KB + ~15–19 KB | medium — root discipline, `pdb install` guard | build.rs + board/app cfg |
+| 7 | `no-pdb` product feature | ~14 KB flash, 8 KB RAM | low | feature flag |
 
 Each step must advance `bench/parity/ratchet.toml` in the same commit, per
 that file's header.
@@ -569,3 +575,117 @@ connection, from the arena. Per-package `opt-level = "s"` on the crypto crates d
 under fat LTO (1.8 KB). The W boards are not on the ratchet; the two testbenches and the
 RP2040 carry no TLS and moved by nothing. The lever, if the region gets tight: a Cortex-M
 assembly P-384 (`tls-2026-09.md` §7).
+
+### 2026-10-14 — the W debug image measured; §6.5 on 9.6; line numbers; the October rounds
+
+**Where the W debug image stands.** `pico_display2_w`, `helloworld`, built four
+ways at cf3b3d5e (`scripts/build.sh`, the `Flash:` line of `print_memory_usage`;
+program region 2,621,440 B since 1112ddbf):
+
+| build | `Flash:` | headroom | note |
+|---|---:|---:|---|
+| debug, as CI links it (line numbers on) | 2,199,976 | 421,464 | was 2,358,688 at 1112ddbf (2026-10-11) |
+| debug, `PICODROID_LINE_NUMBERS=0` | 2,128,432 | 493,008 | **line numbers cost 71,544 B** |
+| `--release` | 2,121,148 | | fat LTO is worth 7,284 B over the debug image without lines |
+| `--release --shrink` | 2,040,524 | | the name shrink is worth 80,624 B |
+
+Static RAM: 408,140 B debug, 407,744 B release. The 158,712 B that came off
+the debug image between 2026-10-11 and today is the three October rounds,
+none of which touched this document: the duplicate-code campaign
+(36e33c3e..0c58890e, 14 commits, release `helloworld` −31,964 B rp2040 /
+−42,472 B rp2350), natives dispatched by FNV-1a hash (3b654785, −9,332 /
+−9,812 B) and one `Utf8` pool per class section (6c205169, −39,540 /
+−112,172 B; §6.8, now closed). The pool is why the line tables got cheaper
+too: the framework section with line numbers is 526,680 B against 461,036 B
+without, so the SDK's `LineNumberTable`/`SourceFile` are 65,644 B of the
+71,544; the launcher and settings PAPKs (program-region `.rodata` on a
+multi-app board) carry 4,816 B of tables, and the JVM's line-number code is
+the last ~1 KB. §8 row 1's old figure of ~27 KB was the RP2040 at 145 SDK
+classes; the SDK is 294 classes now.
+
+**The debug image, by bucket** (`nm -S -C` over the debug ELF, first-match
+patterns; `.bss` excluded; ±0.3 % for overlapping clones):
+
+| bucket | bytes | | bucket | bytes |
+|---|---:|---|---|---:|
+| embedded SDK + system apps (`FRAMEWORK_CLSS`, `SYS_0/1`) | 598,632 | | core float (`flt2dec`/`dec2flt`) | 34,772 |
+| TLS (`pd-tls`, fiat P-384, RSA, SHA) | 267,792 | | littlefs | 32,404 |
+| CYW43 radio firmware blob | 224,190 | | `core`/`alloc` other | 28,946 |
+| `picodroid_core` | 220,631 | | papk / class-link / install | 25,275 |
+| `pico_jvm` | 186,428 | | libm | 23,226 |
+| LVGL (C) | 128,682 | | pdb + USB CDC | 18,790 |
+| fonts (four Montserrat faces) | 109,094 | | FreeRTOS | 17,538 |
+| net (FreeRTOS+TCP, DNS, DHCP, HTTP) | 41,650 | | platform crate + HAL | 13,646 |
+| other (not matched) | 156,219 | | cyw43 driver, pd-json, compiler-rt | 12,640 / 12,566 / 9,740 |
+
+Three things that are not levers in this document but belong on the record:
+the radio blob (224 KB) and TLS (268 KB; `tls-2026-09.md` §7, a Cortex-M
+P-384 is the lever there) are 22 % of the image between them, and the four
+font faces are 109 KB, 63,942 B of it the 64 px face's glyph bitmaps
+(`text_sizes` in `mcus/rp/rp2350.toml`; a decision for the boards that never
+show a 64 px label, not for `lv_conf.h`).
+
+**Where the growth came from.** Between 1112ddbf's two overflows the
+ratchet trailers on `testbench_rp2350` (release) account for most of it, and
+every row is feature work, so the growth rate is the feature rate:
+
+| accept commit | date | rp2350 release | what |
+|---|---|---:|---|
+| bc25734d + e4708a19 | 09-30 | +8,792 | literal pool, instance layouts, verified page |
+| 24e40291 | 09-30 | −4,784 | toolchain 1.95 → 1.98 |
+| 723925f1 | 10-03 | +47,280 | XML pages, async inflation, repository + ViewModel, ServiceConnection |
+| 90406245 | 10-08 | +38,716 | PAPK v2 residue, lifecycle, app-portability stages |
+| 778aeaf5 | 10-09 | +2,912 | portability fixes |
+| 6b9d08da | 10-10 | +25,544 | java.io streams, Adapter.getView |
+| f16ace81 | 10-10 | +22,460 | time service, reflection-lite, Android manifest |
+
+The W-only residue is the NET-12 join supervisor, `DatagramSocket`, the
+chunked-HTTP guard and the settings app's time-zone list, plus the debug
+build's line tables for the ~150 SDK classes those rounds added. Nothing
+here is worth a landmark-build series; the trailers are the attribution.
+
+**§6.5 re-measured on LVGL 9.6 at `-Os`**, on the debug ELF (the 09-16
+amendment asked for this before quoting ~20–35 KB; the 9.2/`-O3` numbers
+were roughly twice these):
+
+| piece | 9.2 at `-O3` | 9.6 at `-Os` | verdict |
+|---|---:|---:|---|
+| `lv_draw_sw_blend_image_to_argb8888` + `color_to_argb8888` + helpers | 10,564 | 5,224 | **reachable, keep**: a rotated or scaled view draws through a TRANSFORM layer (`lv_obj_style.c`), which `lv_refr.c` allocates as ARGB8888 whenever the object does not cover the layer — every rotation; `View.animate().rotation()/scaleX()` set exactly those styles (`animations.rs`). Built once with the switch off to price it: −8,424 B (the two blenders, `argb8888_row_checked`, and the ARGB arms inside the RGB565 blenders and `lv_draw_sw_transform`); rejected on reachability |
+| `lv_draw_sw_box_shadow` | 4,216 | 2,800 | stub it out (row 4): the task exists only for `shadow_width != 0`, the dark theme sets none, no `set_style_shadow_*` is bound |
+| `lv_draw_sw_blur` | 4,868 | 1,842 | stub it out (row 4): no `blur_radius` is ever set |
+| `lv_draw_sw_transform` | 4,462 | 2,680 | reachable (`ImageView.setScale`, `View.setRotation`), keep |
+| `lv_theme_default_init` | 6,712 | 4,356 | `THEME_SIMPLE` restyles every widget; with deferred row 6 |
+| `lv_vsnprintf` (+ inner) | 2,468 | 1,172 | the calendar's `%d` and `lv_obj_tree`; a custom printf saves well under 1 KB — not worth it |
+| `lv_line_*` | — | 472 | `LV_USE_LINE 0` (row 4): nothing calls `lv_line_create` |
+| kerning, `kern_class_values` | 3,305 (14 px only) | 2,989 × 4 faces | **11,956 B on every RP2350 board**, the 20/28/64 faces included (`gen-fonts.sh` passes no `--no-kerning`). The 2026-10-12 decision keeps the 14 px face's kerning; dropping it from the three generated faces alone (~9 KB, large text only) is an open decision, not taken |
+| unused widgets | 19,296 | — | every widget in that row is created by an SDK wrapper; nothing is unused. Row 6 |
+
+**§6.4 on the debug ELF, and why row 5 is not a lever.** The exact-mode
+path is `dragon::format_exact` 4,758 + `grisu::format_exact_opt` 1,156 +
+`possibly_round` 462 + `float_to_decimal_common_exact` 746 +
+`float_to_exponential_common_exact` 716 = **7,838 B**. §6.4 assumed
+`java_float_layout`'s candidate loop (`{:.Ne}` at rising `N`) was what kept
+it linked. It is not: on stable Rust every `Display`/`LowerExp` on a float
+goes through `float_to_*_common`, which monomorphises *both* the exact and
+the shortest printer and branches on the `Formatter`'s precision at run
+time, so `String.format`'s own `{:e}` (its `shortest_digits`) links the
+exact path regardless. The rewrite was built and measured on this image:
+`toString` on `{:e}` alone, the `f32` formatted as an `f32` (the digits of
+`0.1f as f64` are `1.0000000149011612E-1`), Java's two-digit rule by
+scaling — **+3,153 B net** (`float_to_exponential_common_{exact,shortest}::<f32>`
++1,322, the scaling rule +776, the two wrappers +1,464 against −950 on the
+loop) with every exact-mode symbol still present. Reverted. What remains
+of row 5 is a correctness fix: the candidate loop now starts at one
+fractional digit, which is exactly JDK 19+'s rule for a one-digit shortest
+result (`Double.MIN_VALUE` prints `4.9E-324`, `Float.MIN_VALUE` `1.4E-45`;
+qa_coll's two "known divergence" lines are checks). The only way to drop
+the 7.8 KB is a hand-written shortest printer (a Ryu port) that bypasses
+`core::fmt`, which brings its own tables; not priced.
+
+**Decisions taken 2026-10-12 against this measurement**: line numbers off by
+default for every firmware build (row 1 of the plan, the 71,544 B above);
+row 4 as re-priced in §8 (landed the same day: −6,762 B on the W image,
+−7,368 / −6,776 B on the testbenches); row 5 measured and not taken; rows 6 and 7 deferred as product-image
+levers; the fonts untouched; a nightly size row for the W debug image so the
+next overflow is seen as a trend (`scripts/parity-bench.sh --size-only`,
+`pico_display2_w:debug`).
