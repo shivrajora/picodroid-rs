@@ -271,6 +271,14 @@ row_matches_board() {
   return 1
 }
 
+# board_has_touch BOARD: the board declares a touch panel ([touch] in its
+# board.toml), the same test build_support's has_touch cfg makes.
+board_has_touch() {
+  local toml
+  toml=$(find "$REPO_ROOT/platforms" -path "*/boards/$1/board.toml" | head -1)
+  [[ -n "$toml" ]] && grep -q '^\[touch\]' "$toml"
+}
+
 recover_probe() {
   hil_log "Recovering probe..."
   kill_probe_rs
@@ -320,6 +328,21 @@ run_pdb_test() {
 
   TOTAL=$((TOTAL + 1))
   hil_log "--- [$TOTAL] $test_name (pdb, ${timeout}s) ---"
+
+  # The launcher-driven rows tap the panel. On a board without one (no
+  # [touch] in board.toml, so no has_touch and `pdb input tap` answers "no
+  # touch panel") they used to build and flash a launcher image first and
+  # only then SKIP: ~2 min a row on the Display Pack W slot.
+  case "$pdb_cmd" in
+    launch|launch-soak|settings-uninstall)
+      if ! board_has_touch "$BOARD"; then
+        hil_log "SKIP $test_name (no touch panel: the tap cannot reach the launcher)"
+        echo "SKIP $test_name (no touch panel)" >> "$RESULTS_FILE"
+        SKIP=$((SKIP + 1))
+        return
+      fi
+      ;;
+  esac
 
   # After an RTT test, probe-rs may leave the MCU halted. Reset the device
   # so it boots normally and the USB CDC port enumerates.
