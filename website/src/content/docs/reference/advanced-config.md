@@ -78,7 +78,7 @@ The remaining `picodroid.*` properties are per-build switches that the top-level
 - `picodroid.shrink` — `1`/`true` applies the active release shrink map (`--shrink`; env fallback `PICODROID_SHRINK=1`).
 - `picodroid.shrinkApp` — also rename this app's own classes and private members (`--shrink-app`; env fallback `PICODROID_SHRINK_APP=1`). Needs `picodroid.shrink`.
 - `picodroid.stripDebug` — drop the `.class` debug attributes pico-jvm never reads on a device (`build-apk.sh --strip-debug`; every device path passes it).
-- `picodroid.keepLineNumbers` — with `stripDebug`, keep `LineNumberTable` and `SourceFile` for a firmware built with the `line-numbers` feature (`--keep-lines`; the debug-profile `flash.sh` / `build.sh` default).
+- `picodroid.keepLineNumbers` — with `stripDebug`, keep `LineNumberTable` and `SourceFile` for a firmware built with the `line-numbers` feature (`--keep-lines`; what `sim.sh` and a `PICODROID_LINE_NUMBERS=1` firmware build pass).
 - `picodroid.apiContract` — `error` (default), `warn` or `off` for the `verifyApiContract` check.
 
 See [Shrinker](/reference/shrinker/) and [Debugging](/guides/debugging/#stack-traces-and-shrunk-logs) for what each one changes.

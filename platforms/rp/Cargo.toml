@@ -27,9 +27,10 @@ mem-diag = ["pico-jvm/mem-diag", "picodroid-core/mem-diag"]
 # manual, flash-budget-checked opt-in like mem-diag).
 sched-diag = ["picodroid-core/sched-diag"]
 # Source positions in uncaught-exception traces (`(File.java:39)` instead of
-# `(pc=9)`). scripts/sim.sh always enables it; scripts/flash.sh enables it
-# for debug-profile firmware and drops it for --release (~15 KB of flash for
-# the SDK LineNumberTable/SourceFile on every board). Never a default.
+# `(pc=9)`). scripts/sim.sh always enables it; no firmware build does by
+# default since 2026-10-14 (the SDK's LineNumberTable/SourceFile plus the
+# JVM's paths were 71,544 B of a W board's debug image) — build-lib.sh adds
+# it only under PICODROID_LINE_NUMBERS=1. Never a default here.
 line-numbers = ["pico-jvm/line-numbers", "picodroid-core/line-numbers"]
 # defmt-rtt blocks the logging task whenever a probe host has set the RTT
 # channel to block-if-full (probe-rs does) and the 1 KB ring is full, so a

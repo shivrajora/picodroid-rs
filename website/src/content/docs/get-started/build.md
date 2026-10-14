@@ -195,7 +195,7 @@ On a multi-app board the app `--app` names is installed in the app region and is
 
 Firmware and PAPK must be built with the same `--shrink` setting, or the install is rejected with a version mismatch — see [Shrinker](/reference/shrinker/). A shrunk firmware prints the mapped names in `Class.getName()`, stack traces and logs; `./scripts/retrace.sh < log` (with the per-app map for a `--shrink-app` build) turns them back into the originals.
 
-Independently of shrinking, every device build strips the `.class` debug attributes pico-jvm never reads on a device. Debug-profile builds keep source line numbers (the `line-numbers` cargo feature, `build-apk.sh --keep-lines`), so an uncaught exception prints `at pkg.Class.method(File.java:42)`; `--release` builds, and every `testbench_rp2040` build (its program region has no room for the tables), print the bytecode offset, `(pc=N)`, which `./scripts/retrace.sh --app <name> < log` resolves on the host. `PICODROID_LINE_NUMBERS=0|1` overrides either way. See [Debugging](/guides/debugging/#stack-traces-and-shrunk-logs).
+Independently of shrinking, every device build strips the `.class` debug attributes pico-jvm never reads on a device, source line numbers included: an uncaught exception prints the bytecode offset, `at pkg.Class.method(pc=N)`, which `./scripts/retrace.sh --app <name> < log` resolves to `(File.java:42)` on the host. The simulator keeps the line numbers (the `line-numbers` cargo feature, `build-apk.sh --keep-lines`) and prints them directly; `PICODROID_LINE_NUMBERS=1` builds them into a firmware too, at about 70 KB of program flash on a W board. See [Debugging](/guides/debugging/#stack-traces-and-shrunk-logs).
 
 ## Generating a UF2 file
 

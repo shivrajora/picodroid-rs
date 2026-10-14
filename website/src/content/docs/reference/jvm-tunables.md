@@ -129,7 +129,7 @@ Four more build-time choices shape the JVM. None of them is a `[jvm]` key, and t
 |---|---|---|
 | `jvm_loop_ram_kb` | MCU toml (36 on `rp2350` and `rp2350b`, absent on `rp2040`) | RAM for the copy of the interpreter loop that runs from SRAM (`pico-jvm`'s `loop-in-ram` feature, which `chip-rp2350` enables). Comes out of the FreeRTOS arena. |
 | `hot_ram_kb` | `board.toml` (48 on every RP2350 board) | RAM for the other hot sets: the JVM's invoke, field and constant-pool helpers (`hot-in-ram`), and the LVGL and FreeRTOS functions listed in `mcus/rp/hot-ram-*.txt`. Comes out of the arena too. |
-| `line-numbers` | Cargo feature | `(File.java:39)` frames in stack traces instead of `(pc=9)`. The scripts enable it for the simulator and for debug-profile firmware on the RP2350 boards. |
+| `line-numbers` | Cargo feature | `(File.java:39)` frames in stack traces instead of `(pc=9)`. The scripts enable it for the simulator; no firmware build has it by default (`PICODROID_LINE_NUMBERS=1` asks for it, ~70 KB on a W board). |
 | `mem-diag` | Cargo feature | The memory monitor and offensive heap checks (`./scripts/sim.sh --mem-diag`, or `PICODROID_EXTRA_FEATURES=mem-diag` for firmware). Compiled out when off. |
 
 The arena each board links after the first two is in [System limits](/reference/limits/#per-board-memory-budget).

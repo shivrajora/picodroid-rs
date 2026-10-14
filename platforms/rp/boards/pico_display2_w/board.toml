@@ -26,6 +26,11 @@ mcu = "rp2350"
 # 109 KB each, still fit): the debug image had reached 2,350 KB of 2,304 KB
 # and the October bug-scan rounds (+13 KB over 51 fixes) put CI's
 # pico_display2_w link 4 KB over. Headroom is now ~258 KB.
+# 2026-10-14: line numbers are off by default on every board (71,544 B of
+# this debug image; PICODROID_LINE_NUMBERS=1 brings them back), after the
+# October rounds (dedup, hash dispatch, the Utf8 pool) had already taken it
+# from 2,358,688 to 2,199,976 B. Debug image 2,128,432 B, headroom ~481 KB
+# (docs/designs/flash-budget-2026-09.md, 2026-10-14 amendment).
 max_installed_apps = 8
 app_region_kb = 1024
 fs_kb = 512

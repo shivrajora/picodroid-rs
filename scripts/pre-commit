@@ -398,9 +398,9 @@ stage_apk() {
   # path is also what keeps the lanes from invalidating each other.
   # --strip-debug: this snapshot only ever feeds firmware lanes (the clippy
   # legs, the flash gate, the size ratchet), so it takes the device shape.
-  # Without --keep-lines, so the debug-profile flash gate measures a PAPK
-  # with no app line table (the SDK's rides in the firmware regardless);
-  # helloworld's would be a few dozen bytes.
+  # Without --keep-lines, which is what every firmware build does since
+  # 2026-10-14 (no firmware carries line tables by default), so the
+  # debug-profile flash gate measures the shape it ships.
   # `|| return 1` on every build: the lane runs this stage as `if ! stage`,
   # which switches errexit off inside the function, so a failed Gradle
   # build would otherwise be the stage's success and the firmware lanes

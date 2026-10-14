@@ -107,7 +107,8 @@ Since 2026-09-29 the W boards (`pico_display2_w`, `testbench_rp2350w`,
 `pico_enviro_mon_w`) give the program image 256 KB more — `FLASH` 2304K,
 `FS_FLASH` 512K at `0x10240000`, `PAPK_FLASH` 1280K (320 sectors) at
 `0x102C0000` — because their debug image (radio firmware, net, TLS, no name
-shrink, line numbers) outgrew 2048K once the framework's class link tables
+shrink, line numbers — off by default on every board since 2026-10-14)
+outgrew 2048K once the framework's class link tables
 moved into flash (docs/designs/class-link-2026-09.md). `pico_touch_kit`
 followed the same day for the same reason (its release image without
 `--shrink` was 35.6 KB over at the HIL nightly): `FLASH` 2304K, `FS_FLASH`

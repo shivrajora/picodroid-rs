@@ -138,29 +138,20 @@ build_system_apks() {
 build_firmware() {
   # Line numbers in stack traces — `(File.java:39)` frames instead of
   # `(pc=9)` — ride the `line-numbers` cargo feature plus the
-  # LineNumberTable/SourceFile the PAPK and the embedded SDK keep. On for
-  # debug-profile firmware (the flash.sh default, where a developer is reading
-  # RTT) and off for --release, which HIL, the size ratchet and CI build:
-  # the SDK tables alone are ~15 KB of flash on every board
-  # (docs/designs/flash-string-budget-2026-08.md §4). PICODROID_LINE_NUMBERS=0|1
-  # overrides either way. Resolved before the PAPK build because the PAPK
-  # must keep its tables for the same firmware; FIRMWARE_FEATURES is an
-  # output so flash.sh's `cargo run` links the identical feature set.
-  #
-  # Except on the RP2040 (thumbv6m), whose 896K program region the release
-  # image already fills to 99 %: line numbers cost its debug image ~27 KB
-  # (the SDK tables plus the JVM's line-number paths) and it stopped linking
-  # on 2026-09-26. A debug build there gets `(pc=N)` frames like --release;
-  # PICODROID_LINE_NUMBERS=1 still asks for them, and gets the overflow if
-  # there is no room. Same carve-out as the LTO one below.
-  local lines="${PICODROID_LINE_NUMBERS:-}"
-  if [[ -z "$lines" ]]; then
-    if [[ "${PROFILE:-debug}" == "release" || "$TARGET" == thumbv6m* ]]; then
-      lines=0
-    else
-      lines=1
-    fi
-  fi
+  # LineNumberTable/SourceFile the PAPK, the system apps and the embedded
+  # SDK keep. Off for every firmware build since 2026-10-14: they cost the
+  # W boards' debug image 71,544 B (65,644 of it the SDK's tables, 294
+  # classes; docs/designs/flash-budget-2026-09.md, 2026-10-14 amendment),
+  # the image that overflowed its program region on 2026-09-29 and
+  # 2026-10-11 and took 512 KB from the app region to keep linking; the
+  # RP2040 had already dropped them on 2026-09-26. Frames print `(pc=N)` on
+  # every board and scripts/retrace.sh resolves them on the host from this
+  # checkout's class trees. sim.sh keeps the feature on. PICODROID_LINE_NUMBERS=1
+  # asks for them on any board (and gets the overflow if there is no room);
+  # =0 is the default spelled out. Resolved before the PAPK build because
+  # the PAPK must keep its tables for the same firmware; FIRMWARE_FEATURES
+  # is an output so flash.sh's `cargo run` links the identical feature set.
+  local lines="${PICODROID_LINE_NUMBERS:-0}"
   FIRMWARE_FEATURES="$BOARD_FEATURE${PICODROID_EXTRA_FEATURES:+,$PICODROID_EXTRA_FEATURES}"
   local keep_lines=()
   if [[ "$lines" == "1" ]]; then

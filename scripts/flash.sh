@@ -19,11 +19,7 @@ Usage: $(basename "$0") [OPTIONS]
 Options:
   -b, --board <board>  Target board (default: testbench_rp2350)
   -a, --app  <app>     App to build and flash (default: blinky)
-  -r, --release        Build in release mode. Also drops the line-numbers
-                       feature: debug builds print (File.java:39) stack-trace
-                       frames, release builds print (pc=N) — resolve those
-                       on the host with scripts/retrace.sh.
-                       PICODROID_LINE_NUMBERS=0|1 overrides either way.
+  -r, --release        Build in release mode.
       --shrink         Apply the active release class-name shrink map
                        (off by default; see website/src/content/docs/reference/shrinker.md)
       --shrink-app     Also rename the app's own classes and private members
@@ -33,6 +29,11 @@ Options:
                        name. Built into the firmware; a name that is not
                        installed falls back to the usual rule.
   -h, --help           Show this help message
+
+Stack-trace frames print (pc=N) on every firmware, debug or release;
+`./scripts/retrace.sh --app <app> < rtt.log` turns them into (File.java:39)
+on the host. PICODROID_LINE_NUMBERS=1 builds the line tables into the
+firmware instead (~70 KB on a W board; the RP2040 has no room).
 
 Boards:
 $(list_boards)
@@ -82,6 +83,9 @@ require_device_lock --board "$BOARD" --app "$APP"
 # otherwise turn the flash into "Failed to parse probe index").
 pin_debug_probe >/dev/null
 build_firmware
+if [[ "$FIRMWARE_FEATURES" != *line-numbers* ]]; then
+  echo "note: frames print (pc=N); ./scripts/retrace.sh --app $APP < rtt.log resolves them; PICODROID_LINE_NUMBERS=1 builds them in"
+fi
 
 # Step 3: Flash the firmware. The same profile overrides as build_firmware
 # (FIRMWARE_PROFILE_ARGS), or cargo would rebuild the tree under the stock

@@ -360,8 +360,8 @@ How it is applied:
 - **SDK corpus (`build.rs`)** — every build embeds a stripped tree, and
   the `line-numbers` cargo feature picks which: without it the build
   script runs `./gradlew :sdk:stripClasses` and embeds
-  `sdk/build/classes-stripped/java/main`; with it (the simulator, and
-  debug-profile firmware on the RP2350 boards) it runs
+  `sdk/build/classes-stripped/java/main`; with it (the simulator, or a
+  firmware built with `PICODROID_LINE_NUMBERS=1`) it runs
   `:sdk:stripClassesLines` and embeds
   `sdk/build/classes-stripped-lines/java/main`, which keeps
   `LineNumberTable` and `SourceFile`. Under a member map the tasks are

@@ -251,6 +251,14 @@ release ratchet row, because `MethodInfo.lnt_offset` is a `u16` in padding.
 Raw SDK table bytes for reference: `LineNumberTable` 13,748 + `SourceFile`
 1,160 over 145 classes; `picoenvmon` adds 6,056 + 280 of its own.
 
+**Superseded again 2026-10-14.** The feature is off for every firmware build,
+not only `--release` and the RP2040: at 294 SDK classes the tables and the
+JVM's line-number paths were 71,544 B of the `pico_display2_w` debug image
+(65,644 B in the framework section, 4,816 B in the launcher and settings
+PAPKs, ~1 KB of JVM code; `flash-budget-2026-09.md`, 2026-10-14 amendment),
+the image that overflowed its program region twice in October.
+`PICODROID_LINE_NUMBERS=1` still builds them in; the sim is unchanged.
+
 ### 4.2 Where it hooks in — as landed (2026-09-01)
 
 Two call sites, because the app PAPK and the SDK corpus are packed by different

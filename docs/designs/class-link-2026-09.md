@@ -191,6 +191,12 @@ still fit). The debug image grew ~190 KB in the twelve days between the two
 overflows, so the next one is a matter of weeks unless the W debug profile
 gives something up (line numbers, as thumbv6m already does, are ~27 KB).
 
+2026-10-14: done — line numbers are off by default on every board, −71,544 B
+on this image (65,644 B of it the SDK's tables at 294 classes; the ~27 KB
+was the RP2040 at 145). With the Third round's `Utf8` pool and the October
+dedup rounds first, the image is 2,128,432 B, ~481 KB under the region
+(`flash-budget-2026-09.md`, 2026-10-14 amendment).
+
 ## Follow-ups (each gated by a measurement, none done here)
 
 - **Native-path name decode** (3.3 % of a graphics workload's CPU): a native
