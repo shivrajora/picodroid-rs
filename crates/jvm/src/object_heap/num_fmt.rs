@@ -76,9 +76,20 @@ pub fn int_to_decimal_buf(n: i32, buf: &mut [u8; 12]) -> &[u8] {
 /// The digits come from the exact-mode `{:.*e}` formatter at increasing
 /// precision until the result parses back to `x` — the closest `p`-digit
 /// decimal round-trips whenever any `p`-digit decimal does, so this is the
-/// shortest representation. Exact-mode formatting and `str::parse` are
-/// already linked for `String.format` and `parseDouble`; the shortest-mode
-/// `Display` path would cost ~6 KB of RP2040 flash.
+/// shortest representation. The precision starts at 1, not 0, which is
+/// Java's rule (JDK 19+ `Double.toString`): when one digit would do, print
+/// the closest decimal of one or two digits instead — `Double.MIN_VALUE`
+/// is `4.9E-324`, not `5.0E-324`, and `Float.MIN_VALUE` is `1.4E-45`. The
+/// two-digit candidate is never farther from `x` than the one-digit one,
+/// so it round-trips whenever that does, and a trailing `0` is stripped.
+///
+/// Not a flash lever (measured 2026-10-14, flash-budget-2026-09.md §6.4):
+/// on stable Rust every float `Display`/`LowerExp` call monomorphises both
+/// the exact-mode and the shortest-mode printers and branches on the
+/// `Formatter`'s precision at run time, so `String.format`'s `{:e}` keeps
+/// the exact path linked whatever this function uses, and a version of
+/// this on `{:e}` alone measured +3.6 KB (an `f32` instantiation, a scaled
+/// two-digit rule). `str::parse` stays for `parseDouble` and pd-json.
 pub(super) fn java_float_layout<'a>(
     d: f64,
     roundtrips: &dyn Fn(&str) -> bool,
@@ -130,7 +141,7 @@ pub(super) fn java_float_layout<'a>(
     // Shortest round-tripping digits, as `d.ddd…e±N` from the exact formatter.
     let mut raw = [0u8; 32];
     let mut raw_len = 0;
-    for prec in 0..17 {
+    for prec in 1..17 {
         let mut w = W {
             buf: &mut raw,
             len: 0,

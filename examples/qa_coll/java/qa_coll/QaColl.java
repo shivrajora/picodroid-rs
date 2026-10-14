@@ -738,8 +738,10 @@ public class QaColl extends Application {
     checkEq("valueOf -0.0", "-0.0", String.valueOf(-0.0));
     checkEq("valueOf NaN", "NaN", String.valueOf(0.0 / 0.0));
     checkEq("valueOf -Inf", "-Infinity", String.valueOf(-1.0 / 0.0));
-    // Java prints the subnormal minimum as 4.9E-324; the shortest round-trip form is 5.0E-324.
-    Log.i(TAG, "known divergence: valueOf(Double.MIN_VALUE) = " + String.valueOf(Double.MIN_VALUE));
+    // The subnormal minimum: Java's two-digit rule prints 4.9E-324, not the
+    // shortest round-trip 5.0E-324 (same for Float.MIN_VALUE, 1.4E-45).
+    checkEq("valueOf Double.MIN_VALUE", "4.9E-324", String.valueOf(Double.MIN_VALUE));
+    checkEq("valueOf Float.MIN_VALUE", "1.4E-45", String.valueOf(Float.MIN_VALUE));
     checkEq("valueOf MAX_VALUE", "1.7976931348623157E308", String.valueOf(Double.MAX_VALUE));
     checkEq("valueOf 100.0", "100.0", String.valueOf(100.0));
     checkEq("valueOf 1e21", "1.0E21", String.valueOf(1e21));
@@ -1076,7 +1078,7 @@ public class QaColl extends Application {
     checkEq("Double.toString 1e-3", "0.001", Double.toString(1e-3));
     checkEq("Double.toString 0.1+0.2", "0.30000000000000004", Double.toString(0.1 + 0.2));
     checkEq("Float.toString 3.4028235E38", "3.4028235E38", Float.toString(Float.MAX_VALUE));
-    Log.i(TAG, "known divergence: Float.toString(MIN_VALUE) = " + Float.toString(Float.MIN_VALUE));
+    checkEq("Float.toString MIN_VALUE", "1.4E-45", Float.toString(Float.MIN_VALUE));
     checkEq("Float.toString 100", "100.0", Float.toString(100f));
     checkEq("Boolean.toString", "true", Boolean.toString(true));
     checkEq("Character.toString", "q", Character.toString('q'));

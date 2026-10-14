@@ -111,10 +111,52 @@ fn float_to_str_buf_matches_java_float_to_string() {
         (3.4028235e38, b"3.4028235E38"),
         (0.0, b"0.0"),
         (-0.0, b"-0.0"),
+        // The notation boundaries: plain from 1e-3 inclusive to 1e7 exclusive.
+        (0.001, b"0.001"),
+        (1e7, b"1.0E7"),
+        (9999999.0, b"9999999.0"),
+        (1234567.0, b"1234567.0"),
+        (1e-5, b"1.0E-5"),
+        // Float.MIN_NORMAL: eight digits round-trip (JDK 19+ prints the same).
+        (1.17549435e-38, b"1.1754944E-38"),
+        // Java's two-digit rule at the subnormal floor (JDK 19+ `Float.toString`).
+        (f32::from_bits(1), b"1.4E-45"),
+        (f32::from_bits(2), b"2.8E-45"),
+        (f32::from_bits(3), b"4.2E-45"),
     ];
     for &(f, want) in cases {
         let mut buf = [0u8; 32];
         assert_eq!(float_to_str_buf(f, &mut buf), want, "{f}");
+    }
+}
+
+#[test]
+fn double_to_str_buf_matches_java_at_the_edges() {
+    let cases: &[(f64, &[u8])] = &[
+        (0.001, b"0.001"),
+        (9.99e-4, b"9.99E-4"),
+        (1e7, b"1.0E7"),
+        (9999999.0, b"9999999.0"),
+        (123456789.0, b"1.23456789E8"),
+        (100.0, b"100.0"),
+        (1e21, b"1.0E21"),
+        (1e23, b"1.0E23"),
+        (1.0 / 3.0, b"0.3333333333333333"),
+        (2.0 / 3.0, b"0.6666666666666666"),
+        (0.1 + 0.2, b"0.30000000000000004"),
+        (2.2250738585072014e-308, b"2.2250738585072014E-308"),
+        (1.7976931348623157e308, b"1.7976931348623157E308"),
+        (-2.5, b"-2.5"),
+        (0.5, b"0.5"),
+        (1e16, b"1.0E16"),
+        // Java's two-digit rule at the subnormal floor (JDK 19+ `Double.toString`).
+        (f64::from_bits(1), b"4.9E-324"),
+        (f64::from_bits(2), b"9.9E-324"),
+        (f64::from_bits(4), b"2.0E-323"),
+    ];
+    for &(d, want) in cases {
+        let mut buf = [0u8; 32];
+        assert_eq!(double_to_str_buf(d, &mut buf), want, "{d:e}");
     }
 }
 
