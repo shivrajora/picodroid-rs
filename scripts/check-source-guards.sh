@@ -102,7 +102,7 @@ UNSAFE_BASELINE="$REPO_ROOT/scripts/unsafe-baseline.conf"
 #   blocks        `unsafe {`
 #   fns           `unsafe fn`, `unsafe extern "C" fn`
 #   impls         `unsafe impl`
-#   static mut    `static mut`
+#   static mut    `static mut` declarations (not `&'static mut T`)
 #   undocumented  `unsafe {` with no SAFETY on its line or the three above
 unsafe_counts() {
   local dir
@@ -115,12 +115,17 @@ unsafe_counts() {
           {
             line = $0
             if (line !~ /^[[:space:]]*\/\//) {
+              # Code only: an ABI string is a token, any other string
+              # literal is text (a test fixture naming `unsafe impl`).
+              gsub(/extern[[:space:]]+"[A-Za-z]+"/, "extern_abi", line)
+              gsub(/"([^"\\]|\\.)*"/, "\"\"", line)
               n = gsub(/unsafe[[:space:]]*\{/, "&", line)
               blocks += n
               if (n > 0 && (a b c $0) !~ /SAFETY/) undoc += n
-              fns += gsub(/unsafe[[:space:]]+(extern[[:space:]]+"[A-Za-z]+"[[:space:]]+)?fn[[:space:]]/, "&", line)
+              fns += gsub(/unsafe[[:space:]]+(extern_abi[[:space:]]+)?fn[[:space:]]/, "&", line)
               impls += gsub(/unsafe[[:space:]]+impl[ <]/, "&", line)
-              smut += gsub(/static[[:space:]]+mut[[:space:]]/, "&", line)
+              # Not the `&'"'"'static mut T` of a return type.
+              smut += gsub(/(^|[^'"'"'])static[[:space:]]+mut[[:space:]]/, "&", line)
             }
             a = b; b = c; c = $0
           }
