@@ -55,13 +55,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi default-jdk-headless libudev-dev
       - name: Install ARM toolchain (macOS)
         if: runner.os == 'macOS'
-        # No `|| true`: a failed cask download (2026-10-14: Arm re-uploaded
-        # 15.3.rel2 ahead of the cask's checksum) must fail here, not as a
-        # cc-rs "arm-none-eabi-gcc not found" deep in the build.
-        run: |
-          brew install --cask gcc-arm-embedded
-          VERSION=$(ls /Applications/ArmGNUToolchain | head -1)
-          echo "/Applications/ArmGNUToolchain/$VERSION/arm-none-eabi/bin" >> $GITHUB_PATH
+        uses: ./.github/actions/arm-toolchain-macos
       - uses: actions/setup-java@v4
         if: runner.os == 'macOS'
         with:
@@ -246,7 +240,7 @@ jobs:
   # To re-enable: commit Cargo.lock, re-baseline (the recipe is in
   # bench/parity/ratchet.toml's header), uncomment below, and confirm CI's
   # numbers match. Until then the ratchet runs where the comparison is
-  # like-for-like: the 3 AM sim-run.sh nightly (its `size-ratchet` lane, on
+  # like-for-like: the 2 AM sim-run.sh nightly (its `size-ratchet` lane, on
   # the bench machine's own lockfile) and `./scripts/pre-commit --full`
   # before a release cut.
   # size-ratchet:
@@ -377,7 +371,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       # Headless end-to-end runs of the self-checking suites, both shrink
       # modes (sim-run default). Full matrix stays on the nightly cron; this
-      # job closes the push -> 3 AM detection window for the JVM, GC-stress,
+      # job closes the push -> 2 AM detection window for the JVM, GC-stress,
       # stdlib (langsuite), widget-callback dispatch, <clinit>, prefs/storage
       # and heap-pressure paths, and (resdemo) the resource compiler, the
       # generated R and the layout inflater; https_get is the TLS client

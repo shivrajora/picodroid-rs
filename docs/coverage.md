@@ -165,7 +165,7 @@ layer:
 
 A full `--sim` run is the no-shrink half of the sim matrix without its soaks,
 on a slower instrumented binary. It hasn't been timed yet; expect tens of
-minutes. The 03:00 sim nightly already runs until about 04:00, and the 04:00
+minutes. The 02:00 sim nightly runs until about 03:35, and the 04:00
 HIL fleet run builds firmware until about 08:30, so the suggested slot is
 after both:
 

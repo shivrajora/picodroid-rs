@@ -1,0 +1,43 @@
+name: ARM GNU toolchain (macOS)
+description: >
+  arm-none-eabi-gcc from Arm's own release tarball, checked against a pinned
+  sha256 and cached. Not `brew install --cask gcc-arm-embedded`: Arm
+  re-uploaded 15.3.rel2 on 2026-10-14 and the macOS runner images carry a
+  stale cask checksum, so the cask failed on some runners and not others.
+  Bump VERSION and SHA256 together; Arm publishes the hash next to the
+  tarball as <tarball>.sha256asc.
+runs:
+  using: composite
+  steps:
+    - name: Pin
+      id: pin
+      shell: bash
+      run: |
+        echo "version=15.3.rel2" >> "$GITHUB_OUTPUT"
+        echo "sha256=f011e4832046155f06408dda6b252b21b139a8159c8529802227371f06656c60" >> "$GITHUB_OUTPUT"
+        echo "dir=$RUNNER_TOOL_CACHE/arm-gnu-toolchain" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@v4
+      id: cache
+      with:
+        path: ${{ steps.pin.outputs.dir }}
+        key: arm-gnu-toolchain-${{ steps.pin.outputs.version }}-darwin-arm64-${{ steps.pin.outputs.sha256 }}
+    - name: Download
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        VERSION: ${{ steps.pin.outputs.version }}
+        SHA256: ${{ steps.pin.outputs.sha256 }}
+        DIR: ${{ steps.pin.outputs.dir }}
+      run: |
+        set -euo pipefail
+        name="arm-gnu-toolchain-$VERSION-darwin-arm64-arm-none-eabi"
+        url="https://gitlab.arm.com/api/v4/projects/tooling%2Fgnu-toolchains-for-arm/packages/generic/gnu-toolchain/$VERSION/$name.tar.xz"
+        curl -fsSL --retry 3 -o "$RUNNER_TEMP/$name.tar.xz" "$url"
+        echo "$SHA256  $RUNNER_TEMP/$name.tar.xz" | shasum -a 256 -c -
+        mkdir -p "$DIR"
+        tar -xJf "$RUNNER_TEMP/$name.tar.xz" -C "$DIR" --strip-components=1
+    - name: Add to PATH
+      shell: bash
+      run: |
+        echo "${{ steps.pin.outputs.dir }}/bin" >> "$GITHUB_PATH"
+        "${{ steps.pin.outputs.dir }}/bin/arm-none-eabi-gcc" --version | head -1

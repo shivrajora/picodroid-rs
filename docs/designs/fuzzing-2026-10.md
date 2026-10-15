@@ -238,8 +238,8 @@ this section wins.
   build behind it. The oversized-`len` refusal is pinned by a unit test
   instead (`an_oversized_len_is_refused_unread`). This is still open.
 - **The cron runs at 01:00, and the budget is 45 minutes, not 150.** The sim
-  nightly starts at **02:00** in the bench crontab, not 03:00 as
-  `CLAUDE.md` said. `fuzz.sh --nightly` splits 45 minutes by weight; on
+  nightly starts at **02:00** (c2b4f111), not at 03:00 as this design
+  assumed. `fuzz.sh --nightly` splits 45 minutes by weight; on
   Sundays it gives 15 of them to `cmin` and Miri. The cron line's
   `timeout 3500` is a backstop.
 - **`link_class` does not call `pico_jvm::ClassFile::parse`.** It leaks a

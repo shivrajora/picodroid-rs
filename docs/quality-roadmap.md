@@ -83,7 +83,7 @@ developer's sim filesystem image; rows and that lane now get a filesystem image 
 
 ### Pin nightly runs to a clean worktree
 
-The 3 AM / 4 AM cron runs execute whatever is in the working tree — uncommitted edits included;
+The 2 AM / 4 AM cron runs execute whatever is in the working tree — uncommitted edits included;
 the SHA in the report is only a label. Run them from a dedicated `git worktree` pinned to
 `origin/main`, or at minimum stamp the email with a `DIRTY` flag. **Tradeoff:** a worktree needs
 its own `build/` and first-build time; the flag-only variant is free but only labels the
