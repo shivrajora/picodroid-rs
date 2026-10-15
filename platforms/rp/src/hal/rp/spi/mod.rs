@@ -13,6 +13,13 @@ use xfer::{
 
 use super::clock::PCLK_HZ;
 
+// `reg.write(|w| w)` below stores the register's reset value — for every
+// register written that way here, 0: all interrupts masked, DMA requests
+// off, the controller disabled. It is the PAC's safe spelling of the raw
+// `bits(0)` it replaces, and compiles to the same store; `reset()` would
+// too, but shifts LLVM's inlining around `write_raw_start` (+16 B on the
+// RP2040).
+
 // ── Per-peripheral statics ───────────────────────────────────────────────────
 
 struct XferCell(UnsafeCell<SpiXferState>);
@@ -144,8 +151,9 @@ macro_rules! spi_isr_body {
 
         // 2. Check completion
         if state.rx_idx >= state.len {
-            $spi.sspimsc().write(|w| unsafe { w.bits(0) });
-            $spi.sspicr().write(|w| unsafe { w.bits(0x03) }); // clear RORIC + RTIC
+            $spi.sspimsc().write(|w| w);
+            $spi.sspicr() // clear RORIC + RTIC
+                .write(|w| w.roric().clear_bit_by_one().rtic().clear_bit_by_one());
             state.op = SpiOp::Idle;
             if let Some(sem) = unsafe { (*$done_static.0.get()).as_ref() } {
                 sem.give_from_isr(&mut ctx);
@@ -173,7 +181,8 @@ macro_rules! spi_isr_body {
         }
 
         // 5. Clear receive timeout / overrun if they fired
-        $spi.sspicr().write(|w| unsafe { w.bits(0x03) });
+        $spi.sspicr()
+            .write(|w| w.roric().clear_bit_by_one().rtic().clear_bit_by_one());
 
         // ctx drops here → freertos_rs_isr_yield if a higher-priority task woke
     }};
@@ -198,7 +207,7 @@ extern "C" fn SPI1_IRQ() {
 macro_rules! apply_config {
     ($spi:expr, $freq_hz:expr, $mode:expr) => {{
         // 1. Disable the SSP controller before reconfiguring
-        $spi.sspcr1().write(|w| unsafe { w.bits(0) });
+        $spi.sspcr1().write(|w| w);
 
         // 2. Clock prescale divisor (must be even, min 2)
         let (cpsdvsr, scr) = clock_divisors(PCLK_HZ, $freq_hz);
@@ -272,7 +281,8 @@ macro_rules! start_isr_xfer {
         }
         $state.tx_idx = seed;
         // Clear stale interrupts, enable TXIM + RTIM + RORIM
-        $spi.sspicr().write(|w| unsafe { w.bits(0x03) }); // clear RORIC + RTIC
+        $spi.sspicr() // clear RORIC + RTIC
+            .write(|w| w.roric().clear_bit_by_one().rtic().clear_bit_by_one());
         $spi.sspimsc()
             .write(|w| w.txim().set_bit().rtim().set_bit().rorim().set_bit());
     }};
@@ -378,7 +388,7 @@ macro_rules! finish_isr_xfer {
         };
         if !signalled {
             super::dma::abort($spi_id);
-            $spi.sspimsc().write(|w| unsafe { w.bits(0) });
+            $spi.sspimsc().write(|w| w);
             while $spi.sspsr().read().rne().bit_is_set() {
                 let _ = $spi.sspdr().read();
             }
@@ -501,7 +511,7 @@ pub fn init_with_pins(
     // Mask all SPI interrupts (ISR enables them per-transaction)
     macro_rules! setup_irq {
         ($spi:expr, $irq:expr) => {{
-            $spi.sspimsc().write(|w| unsafe { w.bits(0) });
+            $spi.sspimsc().write(|w| w);
             crate::hal::chip::periph::enable_irq($irq);
         }};
     }
@@ -561,8 +571,8 @@ pub fn write_raw_start(spi_id: u8, data: &[u8]) {
 
     // Mask SPI interrupts — DMA handles completion via DMA_IRQ_0
     match spi_id {
-        0 => p.SPI0.sspimsc().write(|w| unsafe { w.bits(0) }),
-        _ => p.SPI1.sspimsc().write(|w| unsafe { w.bits(0) }),
+        0 => p.SPI0.sspimsc().write(|w| w),
+        _ => p.SPI1.sspimsc().write(|w| w),
     }
 
     // Record the kind (and clear the ISR path's counters) so the wait in

@@ -139,15 +139,16 @@ macro_rules! apply_speed {
         $i2c.ic_fs_spklen()
             .write(|w| unsafe { w.ic_fs_spklen().bits(fs_spklen(lcnt)) });
 
-        // Default thresholds — the wait helpers re-program these per-step.
-        $i2c.ic_tx_tl().write(|w| unsafe { w.tx_tl().bits(0) });
-        $i2c.ic_rx_tl().write(|w| unsafe { w.rx_tl().bits(0) });
+        // Default thresholds, 0 (the registers' reset value) — the wait
+        // helpers re-program these per-step.
+        $i2c.ic_tx_tl().write(|w| w);
+        $i2c.ic_rx_tl().write(|w| w);
 
         // Mask all interrupts — they are armed only inside the wait helpers.
         $i2c.ic_intr_mask().write(|w| unsafe { w.bits(0) });
 
         // Re-enable.
-        $i2c.ic_enable().write(|w| unsafe { w.bits(1) });
+        $i2c.ic_enable().write(|w| w.enable().set_bit());
     }};
 }
 
@@ -363,7 +364,7 @@ macro_rules! impl_i2c_periph {
             }
             #[inline]
             fn ic_enable_write(&self, on: bool) {
-                self.ic_enable().write(|w| unsafe { w.bits(on as u32) });
+                self.ic_enable().write(|w| w.enable().bit(on));
             }
             #[inline]
             fn regs(&self) -> &pac::i2c0::RegisterBlock {
@@ -493,7 +494,7 @@ const DISABLE_SPIN_CAP: u32 = 100_000;
 /// the RP2040 those copies were ~800 B of flash.
 #[inline(never)]
 fn disable(i2c: &pac::i2c0::RegisterBlock) -> bool {
-    i2c.ic_enable().write(|w| unsafe { w.bits(0) });
+    i2c.ic_enable().write(|w| w); // reset value, 0: disabled
     if picodroid_core::spin_until!(
         i2c.ic_enable_status().read().ic_en().bit_is_clear(),
         DISABLE_SPIN_CAP,
@@ -532,7 +533,7 @@ fn select_target(i2c: &pac::i2c0::RegisterBlock, address: u8) -> bool {
         return false;
     }
     i2c.ic_tar().write(|w| unsafe { w.ic_tar().bits(target) });
-    i2c.ic_enable().write(|w| unsafe { w.bits(1) });
+    i2c.ic_enable().write(|w| w.enable().set_bit());
     true
 }
 

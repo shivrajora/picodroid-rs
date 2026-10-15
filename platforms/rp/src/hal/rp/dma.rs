@@ -237,10 +237,10 @@ pub fn abort(spi_id: u8) {
     // Clear any pending DMA interrupts for these channels
     p.DMA.ints0().write(|w| unsafe { w.bits(mask) });
 
-    // Disable SPI DMA requests
+    // Disable SPI DMA requests (DMACR's reset value, 0)
     match spi_id {
-        0 => p.SPI0.sspdmacr().write(|w| unsafe { w.bits(0) }),
-        _ => p.SPI1.sspdmacr().write(|w| unsafe { w.bits(0) }),
+        0 => p.SPI0.sspdmacr().write(|w| w),
+        _ => p.SPI1.sspdmacr().write(|w| w),
     }
 }
 
@@ -256,7 +256,7 @@ extern "C" fn DMA_IRQ_0() {
     // SPI0 RX drain channel completed
     if ints & (1 << CH_SPI0_RX) != 0 {
         p.DMA.ints0().write(|w| unsafe { w.bits(1 << CH_SPI0_RX) }); // W1C
-        p.SPI0.sspdmacr().write(|w| unsafe { w.bits(0) });
+        p.SPI0.sspdmacr().write(|w| w); // reset value: DMA requests off
         if let Some(sem) = unsafe { (*SPI0_DONE.0.get()).as_ref() } {
             sem.give_from_isr(&mut ctx);
         }
@@ -265,7 +265,7 @@ extern "C" fn DMA_IRQ_0() {
     // SPI1 RX drain channel completed
     if ints & (1 << CH_SPI1_RX) != 0 {
         p.DMA.ints0().write(|w| unsafe { w.bits(1 << CH_SPI1_RX) }); // W1C
-        p.SPI1.sspdmacr().write(|w| unsafe { w.bits(0) });
+        p.SPI1.sspdmacr().write(|w| w); // reset value: DMA requests off
         if let Some(sem) = unsafe { (*SPI1_DONE.0.get()).as_ref() } {
             sem.give_from_isr(&mut ctx);
         }

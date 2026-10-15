@@ -116,7 +116,10 @@ const CMD_QUAD_WRITE: u32 = 0x38;
 const KGD_GOOD: u8 = 0x5D;
 
 /// XIP_CS1n is pad function 9 on the pads that carry it (GPCK elsewhere).
-const FUNCSEL_XIP_CS1: u8 = 9;
+/// The PAC's function enum is one table for every pad, and names column 9
+/// after its usual occupant.
+const FUNCSEL_XIP_CS1: pac::io_bank0::gpio::gpio_ctrl::FUNCSEL_A =
+    pac::io_bank0::gpio::gpio_ctrl::FUNCSEL_A::GPCK;
 
 /// Window-1 timing for the part at `clock_hz`, pico-sdk's derivation
 /// (`psram_configure_params`).
@@ -337,7 +340,7 @@ pub fn init() {
     p.IO_BANK0
         .gpio(cs)
         .gpio_ctrl()
-        .write(|w| unsafe { w.funcsel().bits(FUNCSEL_XIP_CS1) });
+        .write(|w| w.funcsel().variant(FUNCSEL_XIP_CS1));
     // The ROM only lifts the pad isolation on GP0 for a chip select it does
     // not know about (erratum RP2350-E14); do it for the real pad.
     p.PADS_BANK0.gpio(cs).write(|w| {

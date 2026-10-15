@@ -27,6 +27,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 
 use freertos_rust::{Duration, InterruptContext, Semaphore};
 use rp235x_hal::pac;
+use rp235x_hal::pac::io_bank0::gpio::gpio_ctrl::FUNCSEL_A as Funcsel;
 
 use super::spi::SemCell;
 
@@ -41,8 +42,8 @@ const PIN_WL_D: u8 = 24; // shared DATA + active-high HOST_WAKE
 const PIN_WL_CS: u8 = 25; // SIO output, active low
 const PIN_WL_CLK: u8 = 29; // PIO side-set
 
-const FUNCSEL_SIO: u8 = 5;
-const FUNCSEL_PIO0: u8 = 6;
+const FUNCSEL_SIO: Funcsel = Funcsel::SIO;
+const FUNCSEL_PIO0: Funcsel = Funcsel::PIO0;
 
 // ── PIO/DMA resources ──────────────────────────────────────────────────────
 
@@ -134,11 +135,11 @@ fn steal() -> pac::Peripherals {
     crate::hal::chip::periph::steal()
 }
 
-fn pin_funcsel(p: &pac::Peripherals, pin: u8, funcsel: u8) {
+fn pin_funcsel(p: &pac::Peripherals, pin: u8, funcsel: Funcsel) {
     p.IO_BANK0
         .gpio(pin as usize)
         .gpio_ctrl()
-        .write(|w| unsafe { w.funcsel().bits(funcsel) });
+        .write(|w| w.funcsel().variant(funcsel));
 }
 
 fn sm_exec(p: &pac::Peripherals, instr: u16) {

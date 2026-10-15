@@ -22,7 +22,10 @@ fn baud_divisors(baudrate: i32) -> (u16, u8) {
 macro_rules! apply_config {
     ($uart:expr, $baudrate:expr, $data_size:expr, $parity:expr, $stop_bits:expr, $hw_flow:expr) => {{
         // 1. Disable UART before reconfiguring line-control registers
-        $uart.uartcr().write(|w| unsafe { w.bits(0) });
+        // Every field to 0: UARTEN, and TXE/RXE, which reset to 1.
+        $uart
+            .uartcr()
+            .write(|w| w.uarten().clear_bit().txe().clear_bit().rxe().clear_bit());
 
         // 2. Baud rate divisors
         let (ibrd, fbrd) = baud_divisors($baudrate);
@@ -44,11 +47,21 @@ macro_rules! apply_config {
         let lcrh: u32 = (wlen << 5) | (1 << 4) | (stp2 << 3) | (eps << 2) | (pen << 1);
         $uart.uartlcr_h().write(|w| unsafe { w.bits(lcrh) });
 
-        // 4. Control register (UARTCR) — raw bits.
-        //    bit layout: [15]=CTSEN [14]=RTSEN [9]=RXE [8]=TXE [0]=UARTEN
-        let flow: u32 = if $hw_flow != 0 { 1 } else { 0 };
-        let cr: u32 = (flow << 15) | (flow << 14) | (1 << 9) | (1 << 8) | 1;
-        $uart.uartcr().write(|w| unsafe { w.bits(cr) });
+        // 4. Control register (UARTCR): enable with TX and RX, and RTS/CTS
+        //    flow control when asked for; every other field 0.
+        let flow = $hw_flow != 0;
+        $uart.uartcr().write(|w| {
+            w.uarten()
+                .set_bit()
+                .txe()
+                .set_bit()
+                .rxe()
+                .set_bit()
+                .rtsen()
+                .bit(flow)
+                .ctsen()
+                .bit(flow)
+        });
     }};
 }
 

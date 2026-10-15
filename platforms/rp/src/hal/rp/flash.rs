@@ -383,8 +383,18 @@ pub fn flash_trigger_reset() -> ! {
     #[cfg(feature = "chip-rp2040")]
     p.PSM.wdsel().write(|w| unsafe { w.bits(0x0001_fffc) });
 
-    // Force-fire the watchdog (CTRL bit 31 = TRIGGER).
-    p.WATCHDOG.ctrl().write(|w| unsafe { w.bits(1 << 31) });
+    // Force-fire the watchdog: TRIGGER, with every other field 0 — the
+    // PAUSE_* bits reset to 1, so they are cleared by name.
+    p.WATCHDOG.ctrl().write(|w| {
+        w.trigger()
+            .set_bit()
+            .pause_jtag()
+            .clear_bit()
+            .pause_dbg0()
+            .clear_bit()
+            .pause_dbg1()
+            .clear_bit()
+    });
 
     // spin-ok: the watchdog is resetting the chip out from under this loop
     loop {
