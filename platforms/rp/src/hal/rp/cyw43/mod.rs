@@ -42,7 +42,12 @@ pub const COUNTRY_WORLDWIDE: u32 = ('X' as u32) | (('X' as u32) << 8);
 pub const CHANNEL_NONE: u32 = 0xffff_ffff;
 
 // C FFI bindings — hand-written (no bindgen dependency).
-extern "C" {
+//
+// Two of these are `safe`: they take nothing and return one word of the
+// driver's state, a zero-initialised C global that is readable at any time.
+// Everything else takes a pointer or writes the state, and is reached only
+// through [`Driver`].
+unsafe extern "C" {
     /// Opaque CYW43 driver state (allocated as a global in the C driver).
     pub static mut cyw43_state: Cyw43State;
 
@@ -91,11 +96,11 @@ extern "C" {
     // flag, whether a scan is running, a scan start that owns the options
     // struct, the driver's raw join-state word, and the async-event trace.
     fn picodroid_cyw43_sta_status() -> i32;
-    fn picodroid_cyw43_scan_active() -> i32;
+    safe fn picodroid_cyw43_scan_active() -> i32;
     fn picodroid_cyw43_scan_start(
         cb: Option<unsafe extern "C" fn(*mut core::ffi::c_void, *const ScanResult) -> i32>,
     ) -> i32;
-    fn picodroid_cyw43_join_state() -> u32;
+    safe fn picodroid_cyw43_join_state() -> u32;
     fn picodroid_cyw43_trace_events(on: i32);
 }
 
@@ -118,69 +123,6 @@ pub struct ScanResult {
     pub auth_mode: u32,
 }
 
-/// The STA's state as `NetworkInterface_CYW43.c` folds it: the driver's
-/// failure kinds (-3 BADAUTH, -2 NONET, -1 FAIL), 0 down, 1 associating,
-/// 2 associated.
-///
-/// # Safety
-/// [`init`] must have succeeded; a field read, safe from the link task.
-pub unsafe fn sta_status() -> i32 {
-    picodroid_cyw43_sta_status()
-}
-
-/// The driver's raw join-state word, for the log when a join is retried:
-/// bit 0 a join is active, 0x200 authenticated, 0x400 link up, 0x800
-/// keyed; a kind of 2/3/4 in the low nibble is FAIL/NONET/BADAUTH
-/// (`cyw43_ctrl.c`).
-///
-/// # Safety
-/// [`init`] must have succeeded; a field read, safe from the link task.
-pub unsafe fn join_state() -> u32 {
-    picodroid_cyw43_join_state()
-}
-
-/// Log every async event the chip sends (`cyw43: [ms] ASYNC(flags,NAME,
-/// status,reason,itf)`): the join's AUTH/LINK/SET_SSID/PSK_SUP sequence,
-/// a DEAUTH_IND from the AP, and each scan sighting while a scan runs.
-///
-/// # Safety
-/// [`init`] must have succeeded; call only from the CYW43 task.
-pub unsafe fn trace_events(on: bool) {
-    picodroid_cyw43_trace_events(on as i32)
-}
-
-/// Whether a scan started with [`scan_start`] is still running.
-///
-/// # Safety
-/// [`init`] must have succeeded.
-pub unsafe fn scan_active() -> bool {
-    picodroid_cyw43_scan_active() != 0
-}
-
-/// Start an active scan; `cb` sees every sighting from inside [`poll`].
-///
-/// # Safety
-/// [`init`] must have succeeded; call only from the CYW43 task.
-pub unsafe fn scan_start(
-    cb: unsafe extern "C" fn(*mut core::ffi::c_void, *const ScanResult) -> i32,
-) -> Result<(), i32> {
-    match picodroid_cyw43_scan_start(Some(cb)) {
-        0 => Ok(()),
-        e => Err(e),
-    }
-}
-
-/// Disassociate from the current access point.
-///
-/// # Safety
-/// [`init`] must have succeeded; call only from the CYW43 task.
-pub unsafe fn wifi_leave() -> Result<(), i32> {
-    match cyw43_wifi_leave(&raw mut cyw43_state, itf::STA) {
-        0 => Ok(()),
-        e => Err(e),
-    }
-}
-
 /// Opaque CYW43 driver state — sized to match the C struct.
 /// We never access fields directly; all operations go through FFI.
 #[repr(C)]
@@ -188,89 +130,187 @@ pub struct Cyw43State {
     _opaque: [u8; 4096], // Conservative upper bound; actual size is smaller
 }
 
-/// Initialise the CYW43439 driver state (no hardware access yet).
+/// The C driver, driven from the one task that owns it.
 ///
-/// # Safety
-/// Must be called exactly once, before the FreeRTOS scheduler starts or
-/// from within a FreeRTOS task, and before any other function in this module.
-pub unsafe fn init() {
-    cyw43_init(&raw mut cyw43_state);
+/// The vendored driver keeps one global state. Its entry points that other
+/// tasks also reach — the IP task's transmit, the poll dispatch the
+/// host-wake interrupt schedules — take the driver's own lock
+/// (`CYW43_THREAD_ENTER`). What it leaves to its caller is the rest: the
+/// reset (`cyw43_init`) runs unlocked and must come first and alone, the
+/// poll hook is read outside the lock, and the STA-status and trace helpers
+/// touch state fields unlocked, which is sound only on the task whose poll
+/// writes them.
+///
+/// A `Driver` is that caller. There is one ([`Driver::new`] is `unsafe`),
+/// it stays on the task that made it (a raw-pointer marker makes it neither
+/// `Send` nor `Sync`), and its creator calls [`Driver::init`] once before
+/// any other method — so every other method runs after the reset, on the
+/// owning task, and needs no `unsafe` at the call.
+pub struct Driver {
+    _owner_task: core::marker::PhantomData<*mut ()>,
 }
 
-/// Power up the chip, download WiFi firmware + CLM, and bring the STA
-/// interface up.  Void in C; a failure surfaces as get_mac/join failing.
-///
-/// # Safety
-/// [`init`] must have been called; call only from the CYW43 task.
-pub unsafe fn wifi_set_up(interface: i32, up: bool, country: u32) {
-    cyw43_wifi_set_up(&raw mut cyw43_state, interface, up, country);
-}
-
-/// Poll the driver — call from the CYW43 task loop.  A no-op until the
-/// driver has installed its poll hook (after firmware load).
-///
-/// # Safety
-/// [`init`] must have been called; call only from the CYW43 task.  Takes the
-/// driver lock: the IP task's TX path contends on the same driver state.
-pub unsafe fn poll() {
-    if let Some(f) = cyw43_poll {
-        cyw43_thread_enter();
-        f();
-        cyw43_thread_exit();
+impl Driver {
+    /// # Safety
+    ///
+    /// - No other `Driver` exists, now or later: the C state is one global.
+    /// - [`init`](Self::init) is called exactly once, before any other
+    ///   method.
+    /// - Nothing else calls into the driver except through its locked entry
+    ///   points (transmit, the scheduled poll dispatch).
+    pub const unsafe fn new() -> Self {
+        Driver {
+            _owner_task: core::marker::PhantomData,
+        }
     }
-}
 
-/// Register the FreeRTOS task handle used for CYW43 event notification.
-///
-/// # Safety
-/// `task_handle` must be a valid FreeRTOS task handle that outlives all
-/// driver activity.
-pub unsafe fn set_poll_task(task_handle: *mut core::ffi::c_void) {
-    cyw43_set_poll_task(task_handle);
-}
-
-/// Join a WiFi network.
-///
-/// `auth` is a `CYW43_AUTH_*` value from [`auth`]; pass `None` for the
-/// historical automatic choice (OPEN without a password, WPA2-AES with
-/// one).
-///
-/// # Safety
-/// [`init`] must have succeeded; call only from the CYW43 task (the driver
-/// state is unsynchronized).
-pub unsafe fn wifi_join(ssid: &[u8], password: &[u8], auth: Option<u32>) -> Result<(), i32> {
-    let auth = auth.unwrap_or(if password.is_empty() {
-        auth::OPEN
-    } else {
-        auth::WPA2_AES
-    });
-
-    let ret = cyw43_wifi_join(
-        &raw mut cyw43_state,
-        ssid.len(),
-        ssid.as_ptr(),
-        password.len(),
-        password.as_ptr(),
-        auth,
-        core::ptr::null(), // bssid (any)
-        CHANNEL_NONE,      // channel: use the AP's channel
-    );
-    if ret != 0 {
-        return Err(ret);
+    /// Reset the driver state (no hardware access yet).
+    pub fn init(&mut self) {
+        // SAFETY: `new`'s contract makes this the first call into the
+        // driver, made once, with no other task inside it; the state is the
+        // C global, valid for the whole program.
+        unsafe { cyw43_init(&raw mut cyw43_state) }
     }
-    Ok(())
-}
 
-/// Get the MAC address for the STA interface.
-///
-/// # Safety
-/// [`init`] must have succeeded; call only from the CYW43 task (the driver
-/// state is unsynchronized).
-pub unsafe fn get_mac() -> Result<[u8; 6], i32> {
-    let mut mac = [0u8; 6];
-    let ret = cyw43_wifi_get_mac(&raw mut cyw43_state, itf::STA, &mut mac);
-    if ret != 0 {
-        return Err(ret);
+    /// Register the FreeRTOS task handle used for CYW43 event notification.
+    ///
+    /// # Safety
+    /// `task_handle` must be a valid FreeRTOS task handle that outlives all
+    /// driver activity.
+    pub unsafe fn set_poll_task(&self, task_handle: *mut core::ffi::c_void) {
+        // SAFETY: the handle's validity is the caller's contract; the port
+        // only stores it, for the notify calls that follow.
+        unsafe { cyw43_set_poll_task(task_handle) }
     }
-    Ok(mac)
+
+    /// Power up the chip, download WiFi firmware + CLM, and bring the
+    /// interface up.  Void in C; a failure surfaces as get_mac/join failing.
+    pub fn wifi_set_up(&self, interface: i32, up: bool, country: u32) {
+        // SAFETY: after `init`, on the owning task (`new`'s contract); the
+        // driver takes its lock for the bring-up.
+        unsafe { cyw43_wifi_set_up(&raw mut cyw43_state, interface, up, country) }
+    }
+
+    /// Poll the driver — call from the CYW43 task loop.  A no-op until the
+    /// driver has installed its poll hook (after firmware load).  Takes the
+    /// driver lock: the IP task's TX path contends on the same driver state.
+    pub fn poll(&self) {
+        // SAFETY: the hook is NULL until the driver's bring-up stores
+        // `cyw43_poll_func` in it (cyw43_ensure_up, under the lock: first
+        // from `wifi_set_up` on this task; an ensure_up from the IP task's
+        // transmit can only store the same function). A word-sized load
+        // gives a valid `Option<fn>` either way, and the call itself runs
+        // under the lock.
+        unsafe {
+            if let Some(f) = cyw43_poll {
+                cyw43_thread_enter();
+                f();
+                cyw43_thread_exit();
+            }
+        }
+    }
+
+    /// Join a WiFi network.
+    ///
+    /// `auth` is a `CYW43_AUTH_*` value from [`auth`]; pass `None` for the
+    /// historical automatic choice (OPEN without a password, WPA2-AES with
+    /// one).
+    pub fn wifi_join(&self, ssid: &[u8], password: &[u8], auth: Option<u32>) -> Result<(), i32> {
+        let auth = auth.unwrap_or(if password.is_empty() {
+            auth::OPEN
+        } else {
+            auth::WPA2_AES
+        });
+
+        // SAFETY: after `init`, on the owning task; the driver reads both
+        // slices, for their lengths, during the call (it copies them into
+        // the join request under its lock); a null BSSID means any.
+        let ret = unsafe {
+            cyw43_wifi_join(
+                &raw mut cyw43_state,
+                ssid.len(),
+                ssid.as_ptr(),
+                password.len(),
+                password.as_ptr(),
+                auth,
+                core::ptr::null(), // bssid (any)
+                CHANNEL_NONE,      // channel: use the AP's channel
+            )
+        };
+        if ret != 0 {
+            return Err(ret);
+        }
+        Ok(())
+    }
+
+    /// Get the MAC address for the STA interface.
+    pub fn get_mac(&self) -> Result<[u8; 6], i32> {
+        let mut mac = [0u8; 6];
+        // SAFETY: the port copies six bytes (the OTP MAC from the state, or
+        // a placeholder before set-up) into `mac`, a live local of exactly
+        // that size.
+        let ret = unsafe { cyw43_wifi_get_mac(&raw mut cyw43_state, itf::STA, &mut mac) };
+        if ret != 0 {
+            return Err(ret);
+        }
+        Ok(mac)
+    }
+
+    /// Disassociate from the current access point.
+    pub fn wifi_leave(&self) -> Result<(), i32> {
+        // SAFETY: after `init`, on the owning task; an ioctl under the
+        // driver's lock, with no buffer.
+        match unsafe { cyw43_wifi_leave(&raw mut cyw43_state, itf::STA) } {
+            0 => Ok(()),
+            e => Err(e),
+        }
+    }
+
+    /// The STA's state as `NetworkInterface_CYW43.c` folds it: the driver's
+    /// failure kinds (-3 BADAUTH, -2 NONET, -1 FAIL), 0 down, 1 associating,
+    /// 2 associated.
+    pub fn sta_status(&self) -> i32 {
+        // SAFETY: reads plain fields of the state, and after a self-join
+        // that keyed, collapses the join word — unlocked, so sound only on
+        // the owning task, where the poll that writes them also runs.
+        unsafe { picodroid_cyw43_sta_status() }
+    }
+
+    /// The driver's raw join-state word, for the log when a join is retried:
+    /// bit 0 a join is active, 0x200 authenticated, 0x400 link up, 0x800
+    /// keyed; a kind of 2/3/4 in the low nibble is FAIL/NONET/BADAUTH
+    /// (`cyw43_ctrl.c`).
+    pub fn join_state(&self) -> u32 {
+        picodroid_cyw43_join_state()
+    }
+
+    /// Log every async event the chip sends (`cyw43: [ms] ASYNC(flags,NAME,
+    /// status,reason,itf)`): the join's AUTH/LINK/SET_SSID/PSK_SUP sequence,
+    /// a DEAUTH_IND from the AP, and each scan sighting while a scan runs.
+    pub fn trace_events(&self, on: bool) {
+        // SAFETY: sets or clears one bit of the state's trace flags,
+        // unlocked — sound on the owning task, whose poll reads them.
+        unsafe { picodroid_cyw43_trace_events(on as i32) }
+    }
+
+    /// Whether a scan started with [`scan_start`](Self::scan_start) is
+    /// still running.
+    pub fn scan_active(&self) -> bool {
+        picodroid_cyw43_scan_active() != 0
+    }
+
+    /// Start an active scan; `cb` sees every sighting from inside
+    /// [`poll`](Self::poll), on this task.
+    pub fn scan_start(
+        &self,
+        cb: unsafe extern "C" fn(*mut core::ffi::c_void, *const ScanResult) -> i32,
+    ) -> Result<(), i32> {
+        // SAFETY: after `init`, on the owning task; the driver takes its
+        // lock, and later calls `cb` with a null `env` and a result it owns
+        // for the length of the call, which is the callback's contract.
+        match unsafe { picodroid_cyw43_scan_start(Some(cb)) } {
+            0 => Ok(()),
+            e => Err(e),
+        }
+    }
 }
