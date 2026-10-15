@@ -7,12 +7,20 @@
 # apps run to completion and are checked for a clean [memmon] snapshot.
 #
 # Usage:
-#   ./scripts/test-memdiag.sh
+#   ./scripts/test-memdiag.sh             # the quick suite (sim-run's mem-diag lane)
+#   ./scripts/test-memdiag.sh --nightly   # the long strict soaks (mem-diag-strict lane)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PASS=0
 FAIL=0
+
+NIGHTLY=false
+case "${1:-}" in
+  "") ;;
+  --nightly) NIGHTLY=true ;;
+  *) echo "Unknown option: $1 (want --nightly or nothing)" >&2; exit 1 ;;
+esac
 
 # Soak an Activity app for a fixed duration under the strict sentinel.
 # sim.sh compiles before running, so the timeout budgets build time on top
@@ -92,6 +100,30 @@ snapshot_test() {
   fi
 }
 
+summary() {
+  echo ""
+  echo "==> mem-diag tests: $PASS passed, $FAIL failed"
+  if [[ $FAIL -gt 0 ]]; then
+    exit 1
+  fi
+}
+
+# ── Nightly: long strict soaks ────────────────────────────────────────────────
+
+# The sentinel trips on 4 KB of post-GC floor growth across 8 windows, so the
+# 30 s soak below only catches a leak of several KB a minute. Five minutes
+# under the same strict sentinel catches the slow ones -- under ~1 KB/min --
+# before they surface as a field OOM. The apps are the ones that churn without
+# input for as long as they run: animation frames, the enviro dashboard's
+# sensor refresh on its own board, the clock's once-a-second text update.
+if [[ "$NIGHTLY" == true ]]; then
+  soak_test "animdemo long strict soak" testbench_rp2350 animdemo 300
+  soak_test "picoenvmon long strict soak" pico_enviro_mon picoenvmon 300
+  soak_test "picoclock long strict soak" testbench_rp2350 picoclock 300
+  summary
+  exit 0
+fi
+
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
 # Animation churn exercises the render/timer path every frame; 30 s covers
@@ -158,8 +190,4 @@ fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 
-echo ""
-echo "==> mem-diag tests: $PASS passed, $FAIL failed"
-if [[ $FAIL -gt 0 ]]; then
-  exit 1
-fi
+summary

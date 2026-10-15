@@ -19,7 +19,7 @@ Audience: developers and AI agents. Every command below is copy-pasteable.
 | On-demand snapshot (sim) | `./scripts/sim-ctrl.sh memstats` against a running `sim-remote` (or write `memstats` to the control FIFO / stdin) |
 | On-demand census (sim) | `./scripts/sim-ctrl.sh heapcensus` (or write `heapcensus` to the control FIFO / stdin) — the live-set census, see "The heap census" below |
 | Device query | `./scripts/pdb.sh sysmon` — mem-diag firmware appends a JVM block (live bytes, post-GC floor, alloc total, largest free block) to the standard response |
-| Soak suite | `./scripts/test-memdiag.sh` (also runs as a `sim-run.sh` lane) |
+| Soak suite | `./scripts/test-memdiag.sh` (the nightly's `mem-diag` lane); `./scripts/test-memdiag.sh --nightly` — five-minute strict soaks of animdemo, picoenvmon and picoclock (the nightly's `mem-diag-strict` lane) |
 
 Runtime toggles within a `--mem-diag` sim build (all read once at startup):
 

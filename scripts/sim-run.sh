@@ -58,7 +58,8 @@ Usage: $(basename "$0") [OPTIONS]
 Options:
   --app <name>            Run only the specified test: a hil-tests.conf app,
                           or one of the extra lanes (picoenvmon, picoenvmon_kt,
-                          launcher, settings, pdb, alarmdemo, size-ratchet)
+                          launcher, settings, pdb, alarmdemo, size-ratchet,
+                          gc-stress, mem-diag-strict)
   --mode <no-shrink|shrink|both>
                           Shrink modes to exercise (default: both). Every
                           selected test is run once per mode so regressions
@@ -189,13 +190,25 @@ drive_test_ctrl() {
   done < "$script"
 }
 
+# The GC-stress pass (run_gc_stress_pass) reruns rows through run_test on a
+# sim binary of its own: VARIANT names it in the row's tag and log files,
+# VARIANT_CARGO_ENV is what its build adds, VARIANT_TARGET_DIR keeps that
+# build out of target/ (both binaries survive the night; toggling one
+# target dir would rebuild pico-jvm and everything above it twice).
+VARIANT=""
+VARIANT_CARGO_ENV=()
+VARIANT_TARGET_DIR=""
+# A coverage run's rows carry the tag too: app[no-shrink,cov].
+[[ "$COVERAGE" == true ]] && VARIANT=cov
+
 run_test() {
   local app="$1" category="$2" timeout="$3" patterns="$4" mode="$5" board="${6:-testbench_rp2350}"
   local board_feature="board-${board//_/-}"
   timeout=$((timeout * TIMEOUT_SCALE))
-  local tag="${app}[${mode}]"
-  local log_file="$RUN_LOG_DIR/${app}.${mode}.log"
-  local build_log="$RUN_LOG_DIR/${app}.${mode}.build.log"
+  local tag="${app}[${mode}${VARIANT:+,$VARIANT}]"
+  local stem="${app}.${mode}${VARIANT:+.$VARIANT}"
+  local log_file="$RUN_LOG_DIR/${stem}.log"
+  local build_log="$RUN_LOG_DIR/${stem}.build.log"
 
   TOTAL=$((TOTAL + 1))
   sim_log "--- [$TOTAL] $tag ($category, ${timeout}s) ---"
@@ -242,6 +255,8 @@ run_test() {
   local tls_ca_env
   tls_ca_env="$(tls_test_ca_env)"
   [[ -n "$tls_ca_env" ]] && cargo_env+=("$tls_ca_env")
+  cargo_env+=(${VARIANT_CARGO_ENV[@]+"${VARIANT_CARGO_ENV[@]}"})
+  [[ -n "$VARIANT_TARGET_DIR" ]] && cargo_env+=(CARGO_TARGET_DIR="$VARIANT_TARGET_DIR")
   if ! env "${cargo_env[@]}" cargo build \
     ${SIM_PROFILE_ARGS[@]+"${SIM_PROFILE_ARGS[@]}"} \
     --target "$HOST_TARGET" \
@@ -262,7 +277,7 @@ run_test() {
   # kernel and `Thread.start` with it (THR-01 closed, M7) — it is still passed
   # because the flag survives in the `cargo test` backing, where a spawn is
   # still refused. Both overridable from the environment.
-  local bin="$SIM_TARGET_DIR/$HOST_TARGET/$SIM_PROFILE_DIR/picodroid"
+  local bin="${VARIANT_TARGET_DIR:-$SIM_TARGET_DIR}/$HOST_TARGET/$SIM_PROFILE_DIR/picodroid"
   #
   # `< /dev/null` is load-bearing. The caller feeds hil-tests.conf into the
   # `while read` loop's stdin, and a sim that reaches display init spawns a
@@ -283,12 +298,18 @@ run_test() {
   local ctrl_file="$REPO_ROOT/examples/$app/test.ctrl"
   local fifo=""
   if [[ -f "$ctrl_file" ]]; then
-    fifo="$RUN_LOG_DIR/${app}.${mode}.fifo"
+    fifo="$RUN_LOG_DIR/${stem}.fifo"
     rm -f "$fifo"
     mkfifo "$fifo"
     app_env+=("PICODROID_SIM_CTRL_FIFO=$fifo")
   fi
-  env ${app_env[@]+"${app_env[@]}"} \
+  # A filesystem image of the run's own, shared by its rows in this mode, not
+  # the developer's working image (picodroid-core/target/sim-fs.img): state a
+  # session or another lane left there -- a time zone picked in Settings --
+  # failed langsuite's "default zone starts at UTC" night after night. An
+  # app's test.env may still name its own.
+  env PICODROID_SIM_FS="$RUN_LOG_DIR/sim-fs.${mode}${VARIANT:+.$VARIANT}.img" \
+      ${app_env[@]+"${app_env[@]}"} \
       PICODROID_APK_PATH="$apk_path" PICODROID_SIM_HEADLESS=1 \
       PICODROID_HANDLE_SANITIZER="${PICODROID_HANDLE_SANITIZER:-1}" \
       PICODROID_PARITY_STRICT="${PICODROID_PARITY_STRICT:-1}" \
@@ -850,12 +871,16 @@ run_settings_smoke() {
 
   local bin="$SIM_TARGET_DIR/$HOST_TARGET/$SIM_PROFILE_DIR/picodroid"
   local fifo="$RUN_LOG_DIR/${lane}.${mode}.fifo"
-  rm -f "$fifo"
+  # Its own filesystem: the lane picks a time zone, which on the developer's
+  # image every later langsuite run (TimeDemo) would inherit.
+  local fs_image="$RUN_LOG_DIR/${lane}.${mode}.fs.img"
+  rm -f "$fifo" "$fs_image"
   mkfifo "$fifo"
   PICODROID_APK_PATH="$apk_path" \
     PICODROID_SYSTEM_APKS="$launcher_path:$settings_path" \
     PICODROID_BOOT=launcher \
     PICODROID_SIM_CTRL_FIFO="$fifo" \
+    PICODROID_SIM_FS="$fs_image" \
     PICODROID_SIM_HEADLESS=1 \
     PICODROID_HANDLE_SANITIZER="${PICODROID_HANDLE_SANITIZER:-1}" \
     PICODROID_PARITY_STRICT="${PICODROID_PARITY_STRICT:-1}" \
@@ -1180,6 +1205,88 @@ run_enviro_w_smoke() {
   fi
 }
 
+# The GC-stress pass (docs/quality-roadmap.md, "Handle sanitizer + GC-stress
+# variant"): the rows below again, on a sim binary built with the JVM's
+# allocation-count GC trigger at its floor (PICODROID_JVM_GC_ALLOC_THRESHOLD,
+# 16 against the default 256), so a collection lands between almost any two
+# allocations. A native map or listener the GC root registry misses, or a
+# handle used after its object was swept, then fails near-deterministically
+# instead of once a month -- the two most frequent serious bug classes in this
+# repo's history. The handle sanitizer is on as for every row. The subset is
+# the collector's own stress apps, the suites that churn collections and
+# threads, and the UI apps whose native listener maps hold JVM references.
+# Rows are picked from hil-tests.conf by app name; an app here without a
+# term/sim/loop row is an ERROR, never a silent no-op. No-shrink only: the
+# trigger and the shrinker do not meet. Term and sim rows get twice their
+# budget (they stop once their patterns match, so the budget is a ceiling);
+# loop rows keep theirs, which is how long they run.
+GC_STRESS_THRESHOLD=16
+GC_STRESS_APPS=(
+  gcstress gcstress_kt heapstress
+  langsuite langsuite_kt qa_coll qa_oop qa_ui qa_life qa_thr
+  bugbash_ui jsondemo executorstress threadparity jucdemo
+  fragmentdemo pagerdemo swipedemo picoclock claudeusage picoenvmon
+  callbacktest dialogdemo navdemo animdemo bundledemo reclaimdemo
+)
+
+run_gc_stress_pass() {
+  sim_log "========================================="
+  sim_log "GC-stress pass (gc_alloc_threshold=$GC_STRESS_THRESHOLD, no-shrink)"
+  sim_log "========================================="
+  VARIANT="gc${GC_STRESS_THRESHOLD}"
+  VARIANT_CARGO_ENV=(PICODROID_JVM_GC_ALLOC_THRESHOLD="$GC_STRESS_THRESHOLD")
+  VARIANT_TARGET_DIR="$SIM_DIR/gc-stress-target"
+
+  local want app category timeout patterns extra found
+  for want in "${GC_STRESS_APPS[@]}"; do
+    found=0
+    while IFS='|' read -r app category timeout patterns extra; do
+      [[ "$app" == "$want" ]] || continue
+      case "$category" in
+        term|sim) timeout=$((timeout * 2)) ;;
+        loop) ;;
+        *) continue ;;
+      esac
+      found=1
+      if [[ "$category" == "sim" && -n "${extra:-}" ]]; then
+        run_test "$app" "$category" "$timeout" "$patterns" no-shrink "$extra"
+      else
+        run_test "$app" "$category" "$timeout" "$patterns" no-shrink
+      fi
+    done < "$SIM_CONF"
+    if [[ $found -eq 0 ]]; then
+      TOTAL=$((TOTAL + 1))
+      sim_log "ERROR $want[no-shrink,$VARIANT] (no term/sim/loop row in hil-tests.conf)"
+      echo "ERROR $want[no-shrink,$VARIANT] (no conf row)" >> "$RESULTS_FILE"
+      ERROR=$((ERROR + 1))
+    fi
+  done
+
+  VARIANT=""
+  VARIANT_CARGO_ENV=()
+  VARIANT_TARGET_DIR=""
+}
+
+# The strict memory soak (docs/quality-roadmap.md, "Nightly strict-sentinel
+# memory soak"): test-memdiag.sh's long soaks, five minutes per app under
+# PICODROID_MEMDIAG_STRICT=1, where the 30 s soak of the mem-diag lane is too
+# short for a slow leak to clear the sentinel's 8-window threshold.
+run_memdiag_strict_soak() {
+  TOTAL=$((TOTAL + 1))
+  sim_log "--- [$TOTAL] mem-diag strict soak ---"
+  local log="$RUN_LOG_DIR/mem-diag-strict.log"
+  if bash "$SCRIPT_DIR/test-memdiag.sh" --nightly > "$log" 2>&1; then
+    sim_log "  PASS"
+    echo "PASS mem-diag-strict" >> "$RESULTS_FILE"
+    PASS=$((PASS + 1))
+  else
+    sim_log "  FAIL"
+    tail -10 "$log" 2>/dev/null | while IFS= read -r line; do sim_log "    $line"; done || true
+    echo "FAIL mem-diag-strict" >> "$RESULTS_FILE"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
 # Run every selected test once per shrink mode.
 for MODE in "${MODES[@]}"; do
   sim_log "========================================="
@@ -1282,6 +1389,17 @@ for MODE in "${MODES[@]}"; do
       echo "FAIL mem-diag" >> "$RESULTS_FILE"
       FAIL=$((FAIL + 1))
     fi
+  fi
+
+  # The strict memory soak; `--app mem-diag-strict` reaches only this.
+  if [[ ( -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "mem-diag-strict" ) && "$MODE" != "shrink" && "$COVERAGE" == false ]]; then
+    run_memdiag_strict_soak
+  fi
+
+  # The GC-stress pass, after the no-shrink rows it repeats;
+  # `--app gc-stress` reaches only this.
+  if [[ ( -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "gc-stress" ) && "$MODE" != "shrink" && "$COVERAGE" == false ]]; then
+    run_gc_stress_pass
   fi
 
   # Scheduling-diagnostics soak (docs/scheduling-diagnostics.md): strict
