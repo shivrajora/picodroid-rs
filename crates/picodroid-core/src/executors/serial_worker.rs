@@ -42,9 +42,8 @@
 //! has called `submit` returns at once. The JVM supervisor loop learned this
 //! the hard way (`platforms/rp/src/boot_tasks.rs`).
 
-use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use alloc::boxed::Box;
 
@@ -65,28 +64,26 @@ struct Work {
     waiter: RawTask,
 }
 
-struct QueueCell(UnsafeCell<RawQueue>);
-// SAFETY: installed exactly once in `spawn()` pre-scheduler, then read-only.
-unsafe impl Sync for QueueCell {}
-
 /// A serial worker: one task, one request queue.
 ///
 /// Declared as a `static` by the owning module, so the queue handle has a
 /// place to live that does not depend on an allocator being up.
 pub struct SerialWorker {
-    requests: QueueCell,
+    /// The request queue's handle (a [`RawQueue`]), `0` until `spawn`.
+    /// Written once, pre-scheduler, so a relaxed load sees it: the scheduler
+    /// start orders the store before every task's first load.
+    requests: AtomicUsize,
 }
 
 impl SerialWorker {
     pub const fn new() -> Self {
         Self {
-            requests: QueueCell(UnsafeCell::new(0)),
+            requests: AtomicUsize::new(0),
         }
     }
 
     fn queue(&self) -> RawQueue {
-        // SAFETY: written once in `spawn` before any caller can reach here.
-        let q = unsafe { *self.requests.0.get() };
+        let q = self.requests.load(Ordering::Relaxed);
         debug_assert!(q != 0, "serial worker used before spawn()");
         q
     }
@@ -102,8 +99,7 @@ impl SerialWorker {
     pub fn spawn(&'static self, name: &'static str, kind: TaskKind, priority: u8) {
         let q = rtos::queue_create_ptr(QUEUE_CAPACITY);
         assert!(q != 0, "serial worker queue");
-        // SAFETY: pre-scheduler, single-threaded.
-        unsafe { *self.requests.0.get() = q };
+        self.requests.store(q, Ordering::Relaxed);
 
         let spec = TaskSpec {
             name,
@@ -118,13 +114,14 @@ impl SerialWorker {
                     Some(p) => p,
                     None => continue,
                 };
-                // SAFETY: `ptr` points at a `Work` on the caller's stack; the
-                // caller is blocked in `submit` until we notify, so the frame
-                // is live for the duration of this call.
                 // Copy the record out before running it: once `run` sets the
                 // submitter's `done` flag the submitter may return and the
                 // `Work` on its stack is gone.
+                // SAFETY: only `submit` sends on this queue: `ptr` points at a
+                // `Work` on its stack, live while it waits for `done`.
                 let Work { run, ctx, waiter } = unsafe { *(ptr as *const Work) };
+                // SAFETY: `run` is `trampoline::<F, R>` and `ctx` the live
+                // `Ctx<F, R>` of the same `submit`, sent once, `f` untaken.
                 unsafe { run(ctx) };
                 rtos::task_notify(waiter);
             }),
@@ -158,6 +155,7 @@ impl SerialWorker {
         where
             F: FnOnce() -> R,
         {
+            // SAFETY: this function's contract: a live, untaken `Ctx<F, R>`.
             let ctx = unsafe { &mut *(ctx as *mut Ctx<F, R>) };
             let f = ctx.f.take().expect("serial worker trampoline called twice");
             ctx.out.write(f());

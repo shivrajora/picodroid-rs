@@ -4,46 +4,72 @@
 //! which is why this file owns the GC-root provider for them.
 
 use super::*;
+use crate::util::local::Core0;
+use core::cell::Cell;
 
 // ── Touch-event dispatch ────────────────────────────────────────────────────
 
-/// Recycled MotionEvent handed to every `View.fireTouch` dispatch. Allocated
-/// on first touch with its full field span, rooted via [`visit_gc_roots`],
-/// cleared by [`reset_dispatch_event_state`] between app runs. All six fields
-/// are rewritten per event, so steady-state touch dispatch allocates nothing.
-/// Matches Android, whose MotionEvent.obtain()/recycle() pool reuses event
-/// instances (listeners must not retain them past the callback).
-///
-/// A fresh-per-event MotionEvent leaked: the allocations ran outside any
-/// interpreter safepoint (no GC pacing, no emergency GC on failure), and the
-/// default-0 field count lazy-grew the fields arena six times per event —
-/// ~250 tap gestures ratcheted the arena past 75 KB with zero GCs until its
-/// contiguous realloc failed, exactly the sensor-delivery OOM (1ac965f).
-pub(super) static mut RECYCLED_MOTION_EVENT: Option<u16> = None;
-
-pub(super) fn recycled_motion_event() -> &'static mut Option<u16> {
-    unsafe { &mut *core::ptr::addr_of_mut!(RECYCLED_MOTION_EVENT) }
+/// The dispatchers' state: the two recycled event objects and the held-key
+/// table, in one [`Core0`].
+struct InputState {
+    /// Recycled MotionEvent handed to every `View.fireTouch` dispatch.
+    /// Allocated on first touch with its full field span, rooted via
+    /// [`visit_gc_roots`], cleared by [`reset_dispatch_event_state`] between
+    /// app runs. All six fields are rewritten per event, so steady-state
+    /// touch dispatch allocates nothing. Matches Android, whose
+    /// MotionEvent.obtain()/recycle() pool reuses event instances (listeners
+    /// must not retain them past the callback).
+    ///
+    /// A fresh-per-event MotionEvent leaked: the allocations ran outside any
+    /// interpreter safepoint (no GC pacing, no emergency GC on failure), and
+    /// the default-0 field count lazy-grew the fields arena six times per
+    /// event — ~250 tap gestures ratcheted the arena past 75 KB with zero
+    /// GCs until its contiguous realloc failed, exactly the sensor-delivery
+    /// OOM (1ac965f).
+    motion_event: Cell<Option<u16>>,
+    /// Recycled KeyEvent handed to every `View.fireKey` dispatch — the
+    /// `motion_event` pattern applied to hardware keys. Allocated on first
+    /// key with its full field span (action, keyCode, repeatCount, flags,
+    /// downTime, eventTime), every field rewritten per event, so
+    /// steady-state key dispatch allocates nothing. Listeners must not
+    /// retain the event past the callback (Android's KeyEvent pool
+    /// contract).
+    key_event: Cell<Option<u16>>,
+    /// Held keys and their auto-repeat clocks — `KeyEvent.getRepeatCount()`
+    /// and the long-press. Fed by [`dispatch_key_events`] as it drains the
+    /// edge queue and polled once per tick after the drain; reset between
+    /// app runs by [`reset_dispatch_event_state`] and on an Activity
+    /// transition. Reached through [`with_key_repeat`].
+    key_repeat: Cell<crate::graphics::lvgl::key_repeat::KeyRepeat>,
 }
 
-/// Recycled KeyEvent handed to every `View.fireKey` dispatch — the
-/// [`RECYCLED_MOTION_EVENT`] pattern applied to hardware keys. Allocated on
-/// first key with its full field span (action, keyCode, repeatCount, flags,
-/// downTime, eventTime), every field rewritten per event, so steady-state
-/// key dispatch allocates nothing. Listeners must not retain the event past
-/// the callback (Android's KeyEvent pool contract).
-pub(super) static mut RECYCLED_KEY_EVENT: Option<u16> = None;
+// SAFETY: the dispatchers run on the UI task, and the GC root walk and the
+// per-app reset on JVM tasks; all are core-0 JVM tasks, and no interrupt
+// handler or core-1 task reaches this state.
+static INPUT_STATE: Core0<InputState> = unsafe {
+    Core0::new(InputState {
+        motion_event: Cell::new(None),
+        key_event: Cell::new(None),
+        key_repeat: Cell::new(crate::graphics::lvgl::key_repeat::KeyRepeat::new()),
+    })
+};
 
-pub(super) fn recycled_key_event() -> &'static mut Option<u16> {
-    unsafe { &mut *core::ptr::addr_of_mut!(RECYCLED_KEY_EVENT) }
+/// Run `f` on the held-key table: copied out, changed, copied back, so no
+/// borrow of the static outlives the call.
+fn with_key_repeat<R>(f: impl FnOnce(&mut crate::graphics::lvgl::key_repeat::KeyRepeat) -> R) -> R {
+    let mut k = INPUT_STATE.key_repeat.get();
+    let r = f(&mut k);
+    INPUT_STATE.key_repeat.set(k);
+    r
 }
 
 /// Emit GC roots owned by the event dispatchers. Called from
 /// `PicodroidNativeHandler::gc_visit_roots`.
 pub fn visit_gc_roots(visit: &mut dyn FnMut(pico_jvm::types::Value)) {
-    if let Some(idx) = *recycled_motion_event() {
+    if let Some(idx) = INPUT_STATE.motion_event.get() {
         visit(pico_jvm::types::Value::ObjectRef(idx));
     }
-    if let Some(idx) = *recycled_key_event() {
+    if let Some(idx) = INPUT_STATE.key_event.get() {
         visit(pico_jvm::types::Value::ObjectRef(idx));
     }
 }
@@ -51,9 +77,9 @@ pub fn visit_gc_roots(visit: &mut dyn FnMut(pico_jvm::types::Value)) {
 /// Drop dispatcher-owned heap refs — call before running a new app, next to
 /// `SharedJvmHeap::reset()` (the old index would dangle into the new heap).
 pub fn reset_dispatch_event_state() {
-    *recycled_motion_event() = None;
-    *recycled_key_event() = None;
-    key_repeat().reset();
+    INPUT_STATE.motion_event.set(None);
+    INPUT_STATE.key_event.set(None);
+    with_key_repeat(|k| k.reset());
 }
 
 /// Return the recycled MotionEvent, allocating it on first use. On
@@ -64,7 +90,7 @@ pub(super) fn ensure_recycled_motion_event(
     heap: &mut SharedJvmHeap,
     handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) -> Option<u16> {
-    if let Some(idx) = *recycled_motion_event() {
+    if let Some(idx) = INPUT_STATE.motion_event.get() {
         return Some(idx);
     }
     let class = c::picodroid_view_MotionEvent;
@@ -78,7 +104,7 @@ pub(super) fn ensure_recycled_motion_event(
     };
     #[cfg(feature = "mem-diag")]
     crate::mem_diag::note_native_alloc(1);
-    *recycled_motion_event() = Some(idx);
+    INPUT_STATE.motion_event.set(Some(idx));
     Some(idx)
 }
 
@@ -185,17 +211,6 @@ pub(super) fn dispatch_touch_events(
 }
 
 // ── Hardware key-event dispatch ─────────────────────────────────────────────
-
-/// Held keys and their auto-repeat clocks — `KeyEvent.getRepeatCount()` and
-/// the long-press. Fed by [`dispatch_key_events`] as it drains the edge queue
-/// and polled once per tick after the drain; reset between app runs by
-/// [`reset_dispatch_event_state`] and on an Activity transition.
-static mut KEY_REPEAT: crate::graphics::lvgl::key_repeat::KeyRepeat =
-    crate::graphics::lvgl::key_repeat::KeyRepeat::new();
-
-fn key_repeat() -> &'static mut crate::graphics::lvgl::key_repeat::KeyRepeat {
-    unsafe { &mut *core::ptr::addr_of_mut!(KEY_REPEAT) }
-}
 
 /// Mirrors of `KeyEvent`'s Java constants. Hard-coded because there's no
 /// enum bridge from Java to Rust for these.
@@ -319,7 +334,7 @@ pub(super) fn dispatch_key_events(
     //    (`KeyEvent.dispatch` turns that into `onKeyLongPress`). Polled after
     //    the drain, so a press and release queued together never repeat, and
     //    once per tick, so a repeat is late by at most one tick.
-    while let Some(rep) = key_repeat().next_due(now_ms) {
+    while let Some(rep) = with_key_repeat(|k| k.next_due(now_ms)) {
         let flags = if rep.repeat_count == 1 {
             FLAG_LONG_PRESS
         } else {
@@ -339,7 +354,7 @@ pub(super) fn dispatch_key_events(
             },
         );
         if handler.has_pending_activity_transition() {
-            key_repeat().reset();
+            with_key_repeat(|k| k.reset());
             return;
         }
     }
@@ -354,9 +369,9 @@ fn track_hold(keycode: i32, action: i32, edge_ms: u64) -> u64 {
     if keycode == KEYCODE_HOME {
         edge_ms
     } else if action == ACTION_UP {
-        key_repeat().release(keycode).unwrap_or(edge_ms)
+        with_key_repeat(|k| k.release(keycode)).unwrap_or(edge_ms)
     } else {
-        key_repeat().press(keycode, edge_ms);
+        with_key_repeat(|k| k.press(keycode, edge_ms));
         edge_ms
     }
 }
@@ -451,7 +466,7 @@ fn route_key(
     deliver_key(jvm, heap, handler, rec);
 
     if handler.has_pending_activity_transition() {
-        key_repeat().reset();
+        with_key_repeat(|k| k.reset());
         return true;
     }
     false
@@ -641,7 +656,7 @@ pub(super) fn ensure_recycled_key_event(
     heap: &mut SharedJvmHeap,
     handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) -> Option<u16> {
-    if let Some(idx) = *recycled_key_event() {
+    if let Some(idx) = INPUT_STATE.key_event.get() {
         return Some(idx);
     }
     let class = c::picodroid_view_KeyEvent;
@@ -655,6 +670,6 @@ pub(super) fn ensure_recycled_key_event(
     };
     #[cfg(feature = "mem-diag")]
     crate::mem_diag::note_native_alloc(1);
-    *recycled_key_event() = Some(idx);
+    INPUT_STATE.key_event.set(Some(idx));
     Some(idx)
 }

@@ -15,23 +15,21 @@
 //! `java.net` runs on; a null lookup (closed, not yet reused) surfaces as
 //! the catchable `SocketException("Socket is closed")`.
 //!
-//! Not locked: all callers run on the JVM task (natives dispatch there),
-//! matching the access pattern the per-width tables already assumed.
+//! Not locked: all callers are natives on JVM tasks (core 0, one at a time
+//! under the JVM run lock), so the tables are `Core0` statics and the slots
+//! `Cell`s.
 
-use core::cell::UnsafeCell;
+use core::cell::Cell;
 use core::ffi::c_void;
 
 pub(super) struct PtrTable<const N: usize> {
-    slots: UnsafeCell<[*mut c_void; N]>,
+    slots: [Cell<*mut c_void>; N],
 }
-
-// SAFETY: accessed only from the JVM task (see module docs).
-unsafe impl<const N: usize> Sync for PtrTable<N> {}
 
 impl<const N: usize> PtrTable<N> {
     pub const fn new() -> Self {
         Self {
-            slots: UnsafeCell::new([core::ptr::null_mut(); N]),
+            slots: [const { Cell::new(core::ptr::null_mut()) }; N],
         }
     }
 
@@ -41,10 +39,9 @@ impl<const N: usize> PtrTable<N> {
         if ptr.is_null() {
             return 0;
         }
-        let slots = unsafe { &mut *self.slots.get() };
-        for (i, slot) in slots.iter_mut().enumerate() {
-            if slot.is_null() {
-                *slot = ptr;
+        for (i, slot) in self.slots.iter().enumerate() {
+            if slot.get().is_null() {
+                slot.set(ptr);
                 return (i + 1) as i32;
             }
         }
@@ -53,18 +50,16 @@ impl<const N: usize> PtrTable<N> {
 
     /// Resolve a handle; null when it was never registered or was removed.
     pub fn lookup(&self, id: i32) -> *mut c_void {
-        let slots = unsafe { &*self.slots.get() };
         match id_to_slot::<N>(id) {
-            Some(i) => slots[i],
+            Some(i) => self.slots[i].get(),
             None => core::ptr::null_mut(),
         }
     }
 
     /// Free a handle's slot, making it available for reuse.
     pub fn remove(&self, id: i32) {
-        let slots = unsafe { &mut *self.slots.get() };
         if let Some(i) = id_to_slot::<N>(id) {
-            slots[i] = core::ptr::null_mut();
+            self.slots[i].set(core::ptr::null_mut());
         }
     }
 }

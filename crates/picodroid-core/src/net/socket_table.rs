@@ -9,10 +9,14 @@
 use core::ffi::c_void;
 
 use super::ptr_table::PtrTable;
+use crate::util::local::Core0;
 
 const MAX_HANDLES: usize = 32;
 
-static TABLE: PtrTable<MAX_HANDLES> = PtrTable::new();
+// SAFETY: every caller is a socket native, which runs on a core-0 JVM task
+// with the JVM run lock held (the table is never touched inside an
+// `unlocked()` scope).
+static TABLE: Core0<PtrTable<MAX_HANDLES>> = unsafe { Core0::new(PtrTable::new()) };
 
 pub fn register(ptr: *mut c_void) -> i32 {
     TABLE.register(ptr)

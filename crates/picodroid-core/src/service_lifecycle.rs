@@ -25,16 +25,19 @@
 
 #![cfg(not(test))]
 
+use core::cell::Cell;
+
 use pico_jvm::types::{JvmError, Value};
 use pico_jvm::{Jvm, SharedJvmHeap};
 
 use crate::dispatch_sites::{self, DISPATCH_SITES};
 use crate::native_handler::{PendingOp, PendingServiceOp, PicodroidNativeHandler};
+use crate::util::local::Core0;
 
 const MAX_SERVICES: usize = 8;
 const MAX_CONNECTIONS: usize = 16;
 
-/// One running Service. Cleared from [`SERVICE_REGISTRY`] when neither
+/// One running Service. Cleared from the registry when neither
 /// `started` nor `bind_count > 0`.
 #[derive(Copy, Clone)]
 struct ServiceEntry {
@@ -63,31 +66,48 @@ struct ConnectionEntry {
     owner_activity_ref: u16,
 }
 
-/// Registry — fixed-size to avoid heap growth on the hot path. Walking 8
-/// entries on lookup is cheaper than a hash map for the expected service
-/// counts on an MCU.
-static mut SERVICE_REGISTRY: [Option<ServiceEntry>; MAX_SERVICES] = [None; MAX_SERVICES];
-
-/// Connection table — fixed-size for the same reason.
-static mut CONNECTIONS: [Option<ConnectionEntry>; MAX_CONNECTIONS] = [None; MAX_CONNECTIONS];
-
-// SAFETY: every public function here takes `&mut SharedJvmHeap` (or runs
-// during Jvm execution at lifecycle boundaries), so the JVM's main-thread
-// invariant guarantees exclusive access. The static tables are only touched
-// from these entry points.
-
-fn registry() -> &'static mut [Option<ServiceEntry>] {
-    #[allow(static_mut_refs)]
-    unsafe {
-        &mut SERVICE_REGISTRY
-    }
+struct Tables {
+    /// Registry — fixed-size to avoid heap growth on the hot path. Walking 8
+    /// entries on lookup is cheaper than a hash map for the expected service
+    /// counts on an MCU.
+    services: [Cell<Option<ServiceEntry>>; MAX_SERVICES],
+    /// Connection table — fixed-size for the same reason.
+    connections: [Cell<Option<ConnectionEntry>>; MAX_CONNECTIONS],
 }
 
-fn connections() -> &'static mut [Option<ConnectionEntry>] {
-    #[allow(static_mut_refs)]
-    unsafe {
-        &mut CONNECTIONS
-    }
+// Every entry point runs on a JVM task — the op processors between frames,
+// the foreground calls from natives, the GC root walk from the collecting
+// task — and no interrupt handler or core-1 task reaches the tables.
+// SAFETY: so all access is from core-0 JVM tasks, one at a time.
+static TABLES: Core0<Tables> = unsafe {
+    Core0::new(Tables {
+        services: [const { Cell::new(None) }; MAX_SERVICES],
+        connections: [const { Cell::new(None) }; MAX_CONNECTIONS],
+    })
+};
+
+fn registry() -> &'static [Cell<Option<ServiceEntry>>] {
+    &TABLES.services
+}
+
+fn connections() -> &'static [Cell<Option<ConnectionEntry>>] {
+    &TABLES.connections
+}
+
+/// The Service in `slot`, by value.
+fn service(slot: usize) -> Option<ServiceEntry> {
+    registry()[slot].get()
+}
+
+/// Run `f` on the Service in `slot`: copied out, changed, copied back, so a
+/// Java callback can never find the table borrowed. `None` (and `f` not run)
+/// when the slot is empty.
+fn update_service<R>(slot: usize, f: impl FnOnce(&mut ServiceEntry) -> R) -> Option<R> {
+    let cell = &registry()[slot];
+    let mut e = cell.get()?;
+    let r = f(&mut e);
+    cell.set(Some(e));
+    Some(r)
 }
 
 /// Emit GC roots for every object ref stored in service-lifecycle native state.
@@ -97,13 +117,13 @@ fn connections() -> &'static mut [Option<ConnectionEntry>] {
 /// the moment they fall off the Java frame stack.
 pub fn visit_gc_roots(visit: &mut dyn FnMut(pico_jvm::types::Value)) {
     use pico_jvm::types::Value;
-    for e in registry().iter().flatten() {
+    for e in registry().iter().filter_map(Cell::get) {
         visit(Value::ObjectRef(e.obj_ref));
         if let Some(b) = e.binder_ref {
             visit(Value::ObjectRef(b));
         }
     }
-    for c in connections().iter().flatten() {
+    for c in connections().iter().filter_map(Cell::get) {
         visit(Value::ObjectRef(c.conn_ref));
         if c.owner_activity_ref != 0 {
             visit(Value::ObjectRef(c.owner_activity_ref));
@@ -114,13 +134,13 @@ pub fn visit_gc_roots(visit: &mut dyn FnMut(pico_jvm::types::Value)) {
 fn registry_find(class_name: &str) -> Option<usize> {
     registry()
         .iter()
-        .position(|e| matches!(e, Some(s) if s.class_name == class_name))
+        .position(|e| matches!(e.get(), Some(s) if s.class_name == class_name))
 }
 
 fn connection_find(conn_ref: u16) -> Option<usize> {
     connections()
         .iter()
-        .position(|c| matches!(c, Some(e) if e.conn_ref == conn_ref))
+        .position(|c| matches!(c.get(), Some(e) if e.conn_ref == conn_ref))
 }
 
 fn dispatch_class(idx: usize) -> &'static str {
@@ -179,7 +199,7 @@ pub(crate) fn set_foreground(class_name: &str, notif_id: i32, title: &str, text:
         Some(i) => i,
         None => return false,
     };
-    registry()[slot].as_mut().unwrap().foreground_id = Some(notif_id);
+    update_service(slot, |e| e.foreground_id = Some(notif_id)).unwrap();
     crate::notification::notify(notif_id, title, text);
     true
 }
@@ -187,8 +207,7 @@ pub(crate) fn set_foreground(class_name: &str, notif_id: i32, title: &str, text:
 /// Synchronously demote — invoked from the native dispatcher.
 pub(crate) fn clear_foreground(class_name: &str, remove: bool) {
     if let Some(slot) = registry_find(class_name) {
-        let id = registry()[slot].as_ref().unwrap().foreground_id;
-        registry()[slot].as_mut().unwrap().foreground_id = None;
+        let id = update_service(slot, |e| e.foreground_id.take()).unwrap();
         if remove {
             if let Some(id) = id {
                 crate::notification::cancel(id);
@@ -197,7 +216,7 @@ pub(crate) fn clear_foreground(class_name: &str, remove: bool) {
     }
 }
 
-/// Last-bind cleanup when an Activity is popped. Walks [`CONNECTIONS`],
+/// Last-bind cleanup when an Activity is popped. Walks the connections,
 /// unbinds each conn owned by `activity_ref` (silently, as Android unbinds
 /// a leaked connection), decrements bind counts, and runs `onDestroy` for
 /// any service that falls to (started=false, bind_count=0).
@@ -207,10 +226,10 @@ pub(crate) fn unbind_owned_by(
     heap: &mut SharedJvmHeap,
     handler: &mut PicodroidNativeHandler,
 ) {
-    // Snapshot indices first — process_unbind mutates CONNECTIONS in place.
+    // Snapshot indices first — process_unbind mutates the connections.
     let mut victims: [u16; MAX_CONNECTIONS] = [0; MAX_CONNECTIONS];
     let mut n = 0;
-    for e in connections().iter().flatten() {
+    for e in connections().iter().filter_map(Cell::get) {
         if e.owner_activity_ref == activity_ref {
             victims[n] = e.conn_ref;
             n += 1;
@@ -233,7 +252,7 @@ pub(crate) fn destroy_all(
     let mut victims: [Option<(u16, &'static str, Option<i32>)>; MAX_SERVICES] =
         [None; MAX_SERVICES];
     for (i, e) in registry().iter().enumerate() {
-        if let Some(s) = e {
+        if let Some(s) = e.get() {
             victims[i] = Some((s.obj_ref, s.class_name, s.foreground_id));
         }
     }
@@ -253,11 +272,11 @@ pub(crate) fn destroy_all(
         );
     }
     // Wipe the registry — apps that re-enter run_application get a fresh slate.
-    for e in registry().iter_mut() {
-        *e = None;
+    for e in registry() {
+        e.set(None);
     }
-    for c in connections().iter_mut() {
-        *c = None;
+    for c in connections() {
+        c.set(None);
     }
 }
 
@@ -273,8 +292,8 @@ fn ensure_registered(
         return Some(i);
     }
     let obj_ref = crate::lifecycle::instantiate_component(jvm, class_name, heap, handler)?;
-    let slot = registry().iter().position(|e| e.is_none())?;
-    registry()[slot] = Some(ServiceEntry {
+    let slot = registry().iter().position(|e| e.get().is_none())?;
+    registry()[slot].set(Some(ServiceEntry {
         obj_ref,
         class_name,
         binder_ref: None,
@@ -283,7 +302,7 @@ fn ensure_registered(
         foreground_id: None,
         next_start_id: 0,
         rebind_pending: false,
-    });
+    }));
     if invoke_lifecycle(
         jvm,
         class_name,
@@ -310,12 +329,12 @@ fn process_start(
         Some(s) => s,
         None => return crate::lifecycle::LifecycleControl::Continue,
     };
-    let (obj_ref, start_id) = {
-        let entry = registry()[slot].as_mut().unwrap();
+    let (obj_ref, start_id) = update_service(slot, |entry| {
         entry.started = true;
         entry.next_start_id += 1;
         (entry.obj_ref, entry.next_start_id)
-    };
+    })
+    .unwrap();
     invoke_service_on_start_command(
         jvm, class_name, obj_ref, intent_ref, start_id, heap, handler,
     )
@@ -326,8 +345,7 @@ fn process_start(
 /// isn't started, was never registered, or a newer start has since arrived.
 pub(crate) fn is_latest_start_id(class_name: &str, start_id: i32) -> bool {
     match registry_find(class_name) {
-        Some(slot) => registry()[slot]
-            .as_ref()
+        Some(slot) => service(slot)
             .map(|e| e.started && start_id >= 1 && e.next_start_id == start_id)
             .unwrap_or(false),
         None => false,
@@ -344,10 +362,7 @@ fn process_stop(
         Some(i) => i,
         None => return crate::lifecycle::LifecycleControl::Continue,
     };
-    {
-        let entry = registry()[slot].as_mut().unwrap();
-        entry.started = false;
-    }
+    update_service(slot, |entry| entry.started = false).unwrap();
     maybe_destroy(jvm, slot, heap, handler)
 }
 
@@ -364,7 +379,7 @@ fn process_bind(
     // while still bumping bind_count and delivering onServiceConnected left a
     // bind that unbindService could never find, so the Service never reached
     // onDestroy. Every other cap in this file is loud; this one was silent.
-    if connections().iter().all(|c| c.is_some()) {
+    if connections().iter().all(|c| c.get().is_some()) {
         crate::pd_warn!(
             "bindService: connection table full ({} connections), bind dropped",
             MAX_CONNECTIONS
@@ -378,14 +393,14 @@ fn process_bind(
     // First bind triggers onBind; subsequent ones reuse the cached IBinder.
     // A bind while rebind_pending (onUnbind returned true earlier) invokes
     // onRebind instead and reuses the cached binder — Android's contract.
-    let (obj_ref, first_bind, rebinding) = {
-        let entry = registry()[slot].as_mut().unwrap();
+    let (obj_ref, first_bind, rebinding) = update_service(slot, |entry| {
         let first = entry.bind_count == 0;
         let rebinding = first && entry.rebind_pending;
         entry.bind_count = entry.bind_count.saturating_add(1);
         entry.rebind_pending = false;
         (entry.obj_ref, first, rebinding)
-    };
+    })
+    .unwrap();
     if rebinding {
         // Reuse the cached binder; deliver onRebind(intent), not onBind.
         // onRebind is void — invoke via the bool helper and ignore the result.
@@ -409,7 +424,7 @@ fn process_bind(
             handler,
         ) {
             Ok(binder) => {
-                registry()[slot].as_mut().unwrap().binder_ref = binder;
+                update_service(slot, |e| e.binder_ref = binder).unwrap();
             }
             Err(crate::lifecycle::LifecycleControl::Break) => {
                 return crate::lifecycle::LifecycleControl::Break
@@ -418,19 +433,19 @@ fn process_bind(
         }
     }
     // Record the connection.
-    if let Some(slot) = connections().iter().position(|c| c.is_none()) {
-        connections()[slot] = Some(ConnectionEntry {
+    if let Some(slot) = connections().iter().position(|c| c.get().is_none()) {
+        connections()[slot].set(Some(ConnectionEntry {
             conn_ref,
             service_class: class_name,
             owner_activity_ref,
-        });
+        }));
     }
     // Queue onServiceConnected for the next turn of the main loop, with the
     // cached IBinder, ahead of everything the app queued after the bind.
     // Held through the rest of this drain (see `PendingServiceOp::Connected`);
     // the wake brings the loop straight back for it, so the callback follows
     // within a tick, in its own span.
-    let Some(binder_ref) = registry()[slot].as_ref().unwrap().binder_ref else {
+    let Some(binder_ref) = service(slot).unwrap().binder_ref else {
         return crate::lifecycle::LifecycleControl::Continue;
     };
     let queued = handler.enqueue_op_front(PendingOp::Service(PendingServiceOp::Connected {
@@ -461,7 +476,7 @@ fn process_connected(
     // Unbound before delivery (the app left before the turn came): a
     // connection the app no longer holds gets no callback.
     let Some(service_class) = connection_find(conn_ref)
-        .and_then(|i| connections()[i].as_ref())
+        .and_then(|i| connections()[i].get())
         .map(|c| c.service_class)
     else {
         return crate::lifecycle::LifecycleControl::Continue;
@@ -496,8 +511,8 @@ fn process_unbind(
         Some(i) => i,
         None => return crate::lifecycle::LifecycleControl::Continue,
     };
-    let class_name = connections()[conn_slot].as_ref().unwrap().service_class;
-    connections()[conn_slot] = None;
+    let class_name = connections()[conn_slot].get().unwrap().service_class;
+    connections()[conn_slot].set(None);
     // No `onServiceDisconnected`: Android delivers it only when a service's
     // process dies, never for the app's own `unbindService` or for a
     // connection its Activity leaked. Delivering it here turned the usual
@@ -508,14 +523,14 @@ fn process_unbind(
         Some(i) => i,
         None => return crate::lifecycle::LifecycleControl::Continue,
     };
-    let last_unbind = {
-        let entry = registry()[svc_slot].as_mut().unwrap();
+    let last_unbind = update_service(svc_slot, |entry| {
         entry.bind_count = entry.bind_count.saturating_sub(1);
         entry.bind_count == 0
-    };
+    })
+    .unwrap();
     if last_unbind {
         let (obj_ref, class_name) = {
-            let e = registry()[svc_slot].as_ref().unwrap();
+            let e = service(svc_slot).unwrap();
             (e.obj_ref, e.class_name)
         };
         // We don't carry an Intent for unbind — pass null. onUnbind returning
@@ -529,9 +544,7 @@ fn process_unbind(
             heap,
             handler,
         );
-        if let Some(e) = registry()[svc_slot].as_mut() {
-            e.rebind_pending = rebind;
-        }
+        update_service(svc_slot, |e| e.rebind_pending = rebind);
     }
     maybe_destroy(jvm, svc_slot, heap, handler)
 }
@@ -543,18 +556,18 @@ fn maybe_destroy(
     handler: &mut PicodroidNativeHandler,
 ) -> crate::lifecycle::LifecycleControl {
     let (obj_ref, class_name, do_destroy) = {
-        let e = registry()[slot].as_ref().unwrap();
+        let e = service(slot).unwrap();
         (e.obj_ref, e.class_name, !e.started && e.bind_count == 0)
     };
     if !do_destroy {
         return crate::lifecycle::LifecycleControl::Continue;
     }
     // Cancel any outstanding foreground notification before tearing down.
-    let foreground_id = registry()[slot].as_ref().unwrap().foreground_id;
+    let foreground_id = service(slot).unwrap().foreground_id;
     if let Some(id) = foreground_id {
         crate::notification::cancel(id);
     }
-    registry()[slot] = None;
+    registry()[slot].set(None);
     invoke_lifecycle(
         jvm,
         class_name,
@@ -710,7 +723,7 @@ fn invoke_service_returning_bool(
 /// The live Service of `class_name` as a callback argument, or `null` when it
 /// is already gone.
 fn service_value(class_name: &str) -> Value {
-    match registry_find(class_name).and_then(|i| registry()[i].as_ref()) {
+    match registry_find(class_name).and_then(service) {
         Some(e) => Value::ObjectRef(e.obj_ref),
         None => Value::Null,
     }

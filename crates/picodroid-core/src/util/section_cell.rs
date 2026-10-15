@@ -37,10 +37,10 @@ impl<T> SectionCell<T> {
     #[allow(clippy::mut_from_ref)]
     pub fn get<'a>(&'a self, held: &'a mut AtomicSection) -> &'a mut T {
         let _ = held;
-        // SAFETY: the scheduler is suspended while `held` lives, so no other
-        // core-0 task runs; the exclusive borrow of `held` makes this the
-        // only reference handed out under this guard; `new`'s contract
-        // covers the rest.
+        // The scheduler is suspended while `held` lives, so no other core-0
+        // task runs; `new`'s contract covers interrupts and core 1.
+        // SAFETY: and the exclusive borrow of `held` makes this the only
+        // reference handed out under this guard.
         unsafe { &mut *self.0.get() }
     }
 }

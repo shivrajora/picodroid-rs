@@ -43,12 +43,12 @@ pub struct GpioEventRing<const N: usize> {
     reported: AtomicU32,
 }
 
-// SAFETY: the producer writes `slots[head]` and then publishes `head` with
-// Release; the consumer loads `head` with Acquire before it reads
-// `slots[tail]`, and publishes `tail` with Release; the producer loads
-// `tail` with Acquire before it treats a slot as free. Under the one
-// producer / one consumer contract no slot is ever written and read at the
-// same time.
+// The producer writes `slots[head]` and then publishes `head` with Release;
+// the consumer loads `head` with Acquire before it reads `slots[tail]`, and
+// publishes `tail` with Release; the producer loads `tail` with Acquire
+// before it treats a slot as free.
+// SAFETY: so under the one producer / one consumer contract no slot is ever
+// written and read at the same time.
 unsafe impl<const N: usize> Sync for GpioEventRing<N> {}
 
 impl<const N: usize> GpioEventRing<N> {

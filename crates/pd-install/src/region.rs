@@ -222,6 +222,8 @@ mod tests {
     const SECTOR: usize = 4096;
     const LEN: usize = 4 * SECTOR;
 
+    // SAFETY: `MAPPED` is a static, readable for the life of the program and
+    // never written; the erase and program only record what they were asked.
     unsafe impl PapkRegionFlash for Mock {
         const REGION_OFFSET: u32 = REGION;
         const REGION_LEN: usize = LEN;
@@ -253,6 +255,8 @@ mod tests {
 
     #[test]
     fn a_run_is_erased_sector_by_sector_from_its_sector() {
+        // SAFETY: the mock only records the operation; nothing executes from
+        // it, so there is no core to park.
         let ops = run(|r| unsafe { r.erase_run(1, 2) });
         assert_eq!(
             ops,
@@ -266,6 +270,8 @@ mod tests {
     #[test]
     fn pages_land_after_the_selected_runs_meta_sector_at_256_byte_steps() {
         let page = [0xA5u8; 256];
+        // SAFETY: the mock only records the operation; nothing executes from
+        // it, so there is no core to park.
         let ops = run(|r| unsafe {
             r.select_run(1);
             assert!(r.write_page(0, &page));
@@ -286,6 +292,8 @@ mod tests {
         let page = [1u8; 256];
         // Run at sector 1: meta sector 1, data sectors 2..4 → 2 * 16 pages.
         let last = 2 * PAGES_PER_SECTOR - 1;
+        // SAFETY: the mock only records the operation; nothing executes from
+        // it, so there is no core to park.
         let ops = run(|r| unsafe {
             r.select_run(1);
             assert!(r.write_page(last, &page));
@@ -296,6 +304,8 @@ mod tests {
 
     #[test]
     fn commit_programs_both_meta_pages_at_the_selected_run() {
+        // SAFETY: the mock only records the operation; nothing executes from
+        // it, so there is no core to park.
         let ops = run(|r| unsafe {
             r.select_run(3);
             r.commit_metadata(4321, 1, 7)
@@ -312,8 +322,8 @@ mod tests {
     /// The receipt is its own page, after the two the install wrote.
     #[test]
     fn the_verified_page_is_one_program_at_its_own_offset() {
-        // SAFETY: the mock flash records the program; nothing is parked
-        // because nothing runs from it.
+        // SAFETY: the mock only records the program; nothing executes from
+        // it, so there is no core to park.
         let ops = run(|r| unsafe {
             r.select_run(3);
             r.write_meta_verified()
@@ -331,6 +341,8 @@ mod tests {
     /// as its own program — never the same page twice.
     #[test]
     fn header_and_commit_are_separate_single_programs() {
+        // SAFETY: the mock only records the operation; nothing executes from
+        // it, so there is no core to park.
         let ops = run(|r| unsafe {
             r.select_run(0);
             r.write_meta_header(64, 0, 9);
@@ -347,6 +359,8 @@ mod tests {
 
     #[test]
     fn copy_page_reads_the_mapped_source_and_programs_the_destination() {
+        // SAFETY: the mock only records the operation; nothing executes from
+        // it, so there is no core to park.
         let ops = run(|r| unsafe { r.copy_page(2, 0, 1) });
         let expected: Vec<u8> = (256..512).map(|i| (i % 251) as u8).collect();
         assert_eq!(ops, [Op::Program(REGION + 256, expected)]);

@@ -394,13 +394,14 @@ struct TaskStatusHost {
     stack_high_water_mark: u32,
 }
 
-extern "C" {
+unsafe extern "C" {
     fn uxTaskGetSystemState(
         pxTaskStatusArray: *mut TaskStatusHost,
         uxArraySize: libc::c_ulong,
         pulTotalRunTime: *mut u32,
     ) -> libc::c_ulong;
-    fn uxTaskGetNumberOfTasks() -> libc::c_ulong;
+    /// `safe`: no arguments, and it only reads the kernel's task count.
+    safe fn uxTaskGetNumberOfTasks() -> libc::c_ulong;
 }
 
 /// Task and heap statistics from the hosted kernel and the modeled arena.
@@ -415,8 +416,7 @@ impl SysmonSource for SimSysmon {
             [const { core::mem::MaybeUninit::uninit() }; MAX_TASKS];
         let mut total_run_time: u32 = 0;
 
-        // SAFETY: a plain kernel accessor.
-        let n = unsafe { uxTaskGetNumberOfTasks() } as usize;
+        let n = uxTaskGetNumberOfTasks() as usize;
         if n > MAX_TASKS {
             // The kernel fills nothing when the array is short (the device
             // source warns the same way).

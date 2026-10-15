@@ -34,7 +34,7 @@
 //! the runtime computes over its own (shrunk) constants.
 
 #![no_std]
-#![deny(unsafe_op_in_unsafe_fn)]
+#![deny(unsafe_op_in_unsafe_fn, clippy::undocumented_unsafe_blocks)]
 
 #[cfg(feature = "build")]
 extern crate alloc;

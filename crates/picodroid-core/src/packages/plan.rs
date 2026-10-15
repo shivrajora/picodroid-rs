@@ -251,10 +251,10 @@ pub(super) fn move_run(
     flags: u32,
     seq: u32,
 ) {
-    // SAFETY: the caller's contract (JVM parked); every sector touched is
-    // inside the region, and destination sectors are erased before they are
-    // programmed — including the old run's own sectors once the slide
-    // overtakes them, which is sound because their pages were copied first.
+    // Every sector touched is inside the region, and destination sectors are
+    // erased before they are programmed — including the old run's own
+    // sectors once the slide overtakes them, their pages copied first.
+    // SAFETY: the caller's contract: the JVM core is parked.
     unsafe {
         flash.erase_run(dst, 1);
         flash.select_run(dst);

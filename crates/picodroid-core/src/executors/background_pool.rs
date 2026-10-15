@@ -45,6 +45,9 @@ static WORKER_BODY: WorkerBodyCell = WorkerBodyCell(Cell::new(None));
 /// `main_queue::PENDING_RUNNABLES` (bugbash F2).
 const SHADOW_CAP: usize = config::POOL_QUEUE_DEPTH as usize;
 struct ShadowCell(Cell<[u16; SHADOW_CAP]>, Cell<usize>);
+// SAFETY: every access is inside an `AtomicSection` — push, pop and clear
+// open one, and the GC root walk runs inside the collector's — so no other
+// core-0 task runs meanwhile, and all callers are core-0 JVM tasks.
 unsafe impl Sync for ShadowCell {}
 static PENDING_RUNNABLES: ShadowCell = ShadowCell(Cell::new([0; SHADOW_CAP]), Cell::new(0));
 

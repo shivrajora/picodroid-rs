@@ -157,10 +157,11 @@ pub fn slowest_native() -> (usize, &'static str, &'static str) {
     if us == 0 {
         return (0, "", "");
     }
-    // SAFETY: the pointers were taken from `&str`s that borrow class data
-    // registered for the life of the JVM (see above); the lengths were
-    // stored with them. A torn read across two threads could pair a class
-    // pointer with the wrong length, so both are re-checked for UTF-8.
+    // A known gap in this diagnostic: a read racing `count_native`'s four
+    // stores can pair one name's pointer with another's length, which the
+    // UTF-8 re-check does not make an in-bounds read.
+    // SAFETY: otherwise each pointer and length came from one `&str` that
+    // borrows class data or a `names` constant, alive as long as the JVM.
     let name = |ptr: usize, len: usize| unsafe {
         core::str::from_utf8(core::slice::from_raw_parts(ptr as *const u8, len)).unwrap_or("?")
     };

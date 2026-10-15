@@ -39,9 +39,9 @@ mod prereserve_config {
 // no global lock. Parked-mid-execute tasks' frames stay visible to GC via
 // the frame registry in `GcState` (see pico_jvm::gc).
 
+struct SharedHeapCell(core::cell::UnsafeCell<SharedJvmHeap>);
 // SAFETY: upheld by the single-JVM-task invariant above, which is part of
 // the RTOS contract every platform implements.
-struct SharedHeapCell(core::cell::UnsafeCell<SharedJvmHeap>);
 unsafe impl Sync for SharedHeapCell {}
 
 static SHARED_HEAP: SharedHeapCell =
@@ -54,6 +54,11 @@ static SHARED_HEAP: SharedHeapCell =
 /// ObjectHeap/ArrayHeap is short enough that no task switch can land
 /// mid-alloc at a cooperative yield point (sleep / UART read).
 pub fn shared_heap() -> &'static mut SharedJvmHeap {
+    // Two calls give two `&mut` to one heap (docs/designs/
+    // unsafe-reduction-2026-09.md §6); what keeps them from overlapping is
+    // that one JVM task runs at a time and none keeps the reference past a
+    // yield point.
+    // SAFETY: the single-JVM-task invariant above.
     unsafe { &mut *SHARED_HEAP.0.get() }
 }
 
@@ -69,10 +74,10 @@ pub fn shared_heap() -> &'static mut SharedJvmHeap {
 // yield point, so under the single-JVM-task contract above a parked task is
 // never observed mid-parse.
 
+struct SharedJvmCell(core::cell::UnsafeCell<Option<Jvm>>);
 // SAFETY: same single-JVM-task invariant as SHARED_HEAP; additionally,
 // `run_app` publishes only after every class is registered, and children
 // cannot exist before Java code runs.
-struct SharedJvmCell(core::cell::UnsafeCell<Option<Jvm>>);
 unsafe impl Sync for SharedJvmCell {}
 
 static SHARED_JVM: SharedJvmCell = SharedJvmCell(core::cell::UnsafeCell::new(None));
@@ -84,12 +89,17 @@ static SHARED_JVM: SharedJvmCell = SharedJvmCell(core::cell::UnsafeCell::new(Non
 /// because children terminate before the previous app is torn down (the
 /// pre-existing `shared_heap().reset()` contract).
 pub fn shared_jvm() -> Option<&'static Jvm> {
+    // SAFETY: written only by `publish_jvm` on the main task, before any
+    // child executor that reads it exists, and replaced only once they have
+    // all ended; between those points the set is read-only.
     unsafe { (*SHARED_JVM.0.get()).as_ref() }
 }
 
 /// Move the fully-loaded class set into [`SHARED_JVM`] and hand the caller
 /// the main task's exclusive reference to it.
 fn publish_jvm(jvm: Jvm) -> &'static mut Jvm {
+    // SAFETY: `run_app` calls this once per app, on the main task, with no
+    // child executor alive and no `shared_jvm` borrow outstanding.
     unsafe {
         let slot = &mut *SHARED_JVM.0.get();
         slot.insert(jvm)
@@ -107,14 +117,16 @@ fn publish_jvm(jvm: Jvm) -> &'static mut Jvm {
 
 // ── run_app ──────────────────────────────────────────────────────────────────
 
-/// Run the JVM against `apk_data`.
+/// Run the JVM against `apk_data`: an installed image, which lives in flash
+/// (the simulator's leaked copy of it) for the life of the program, so the
+/// class set can point into it for the app's whole run.
 ///
 /// Resets the shared heap (clearing the previous app's state), loads
 /// framework and app classes, then launches an Activity if the manifest
 /// declares one, else `<main_class>.main()`. Returns when execution finishes
 /// or `pdb install` interrupts it; `JvmError::Interrupted` is a clean exit
 /// signal, not an error.
-pub fn run_app(apk_data: &[u8]) {
+pub fn run_app(apk_data: &'static [u8]) {
     // The class-file parse timer has no handler to ask for the time.
     #[cfg(feature = "parity-metrics")]
     pico_jvm::parity::set_clock(|| crate::hal::system_clock::elapsed_realtime_nanos() as u64);
@@ -264,12 +276,7 @@ pub fn run_app(apk_data: &[u8]) {
     host::heap_checkpoint("post-framework-load");
     // The PAPK sits in flash (the simulator's leaked copy of it) for the
     // app's whole run, and the class set points into it from here on.
-    // SAFETY: `apk_data` is the image `run_app` was handed — XIP flash on a
-    // device, a leaked buffer on the host — alive until the next app runs,
-    // by which time `run_app` has returned and this `Jvm` is gone.
-    let apk_static: &'static [u8] =
-        unsafe { core::slice::from_raw_parts(apk_data.as_ptr(), apk_data.len()) };
-    let app_section = match Papk::parse(apk_static).and_then(|p| p.class_section()) {
+    let app_section = match Papk::parse(apk_data).and_then(|p| p.class_section()) {
         Ok(s) => s,
         Err(e) => {
             #[cfg(not(feature = "sim"))]
@@ -311,7 +318,7 @@ pub fn run_app(apk_data: &[u8]) {
     // Determine the entry point from the APK manifest. The pre-sizing parse
     // above already returned on error, so a second failure here is a
     // fresh-bytes anomaly; bail cleanly rather than panic on-device.
-    let apk = match Papk::parse(apk_static) {
+    let apk = match Papk::parse(apk_data) {
         Ok(a) => a,
         Err(e) => {
             #[cfg(not(feature = "sim"))]
@@ -378,7 +385,7 @@ pub fn run_app(apk_data: &[u8]) {
     let start = std::time::Instant::now();
 
     if let Some(application_class) = apk.application() {
-        // Parsed from `apk_static`, so the class name is `'static` too and
+        // Parsed from `apk_data`, so the class name is `'static` too and
         // alloc() can store it in the object heap.
         let static_name: &'static str = application_class;
         crate::lifecycle::run_application(jvm, static_name, heap, &mut handler);

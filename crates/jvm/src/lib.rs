@@ -62,6 +62,7 @@
 //! ```
 
 #![no_std]
+#![deny(clippy::undocumented_unsafe_blocks)]
 #[cfg(test)]
 extern crate std;
 

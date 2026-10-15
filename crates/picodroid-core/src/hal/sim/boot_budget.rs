@@ -135,6 +135,9 @@ mod model {
     /// permanent ones (boot stacks the device never frees).
     pub fn charge(bytes: u32, what: &str, track: Option<Kind>) -> *mut u8 {
         // Deliberately not bypassed: this allocation *is* the device model.
+        // Every charge is a block the board model sizes — a stack, a TCB, the
+        // boot queue set, a socket or window-pool block — never zero bytes.
+        // SAFETY: so the layout's size is non-zero, `alloc`'s precondition.
         let p = unsafe { std::alloc::alloc(layout(bytes)) };
         if p.is_null() {
             eprintln!("[sim] boot budget: arena could not fit {bytes} B for {what}");
@@ -165,6 +168,8 @@ mod model {
         if let Some(p) = taken {
             // Not bypassed either: `dealloc` routes by pointer range, and this
             // block came from the arena.
+            // SAFETY: `p` came from `charge`'s `alloc` with `layout(bytes)`
+            // (the entry recorded `bytes`), and `swap_remove` gave it out once.
             unsafe { std::alloc::dealloc(p as *mut u8, layout(bytes)) };
         }
     }

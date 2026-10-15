@@ -29,6 +29,7 @@
 //! and the ledger would cost more RAM than the heap it describes.
 
 use std::collections::HashMap;
+use std::ffi::CStr;
 use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 use std::sync::Mutex;
 
@@ -54,29 +55,20 @@ static MIN_BYTES: AtomicU32 = AtomicU32::new(0);
 static SKIPPED_BYTES: AtomicU32 = AtomicU32::new(0);
 static SKIPPED_COUNT: AtomicU32 = AtomicU32::new(0);
 
-/// Read an environment variable without allocating: this runs inside the
-/// global allocator (the `heap_limit` discipline).
-fn getenv_u32(name: &[u8]) -> Option<u32> {
-    // SAFETY: `name` is NUL-terminated by every caller.
-    let p = unsafe { libc::getenv(name.as_ptr() as *const libc::c_char) };
-    if p.is_null() {
-        return None;
-    }
-    let mut v: u32 = 0;
-    let mut i = 0;
-    loop {
-        // SAFETY: getenv returns a NUL-terminated string.
-        let c = unsafe { *p.add(i) } as u8;
-        if c == 0 {
-            break;
+/// Read a decimal environment variable without allocating: this runs inside
+/// the global allocator (the `heap_limit` discipline).
+fn getenv_u32(name: &CStr) -> Option<u32> {
+    allocator::with_env(name, |v| {
+        let mut n: u32 = 0;
+        for &c in v {
+            if !c.is_ascii_digit() {
+                return None;
+            }
+            n = n.saturating_mul(10).saturating_add((c - b'0') as u32);
         }
-        if !c.is_ascii_digit() {
-            return None;
-        }
-        v = v.saturating_mul(10).saturating_add((c - b'0') as u32);
-        i += 1;
-    }
-    Some(v)
+        Some(n)
+    })
+    .flatten()
 }
 
 pub fn enabled() -> bool {
@@ -84,10 +76,10 @@ pub fn enabled() -> bool {
         1 => false,
         2 => true,
         _ => {
-            let on = getenv_u32(b"PICODROID_MEMDIAG_SITES\0").unwrap_or(0) != 0;
+            let on = getenv_u32(c"PICODROID_MEMDIAG_SITES").unwrap_or(0) != 0;
             if on {
                 MIN_BYTES.store(
-                    getenv_u32(b"PICODROID_MEMDIAG_SITES_MIN\0").unwrap_or(0),
+                    getenv_u32(c"PICODROID_MEMDIAG_SITES_MIN").unwrap_or(0),
                     Ordering::Relaxed,
                 );
             }
@@ -206,7 +198,7 @@ pub fn print_census() {
         return;
     }
     let _b = allocator::bypass();
-    let top_n = getenv_u32(b"PICODROID_MEMDIAG_SITES_TOP\0").unwrap_or(24) as usize;
+    let top_n = getenv_u32(c"PICODROID_MEMDIAG_SITES_TOP").unwrap_or(24) as usize;
     let g = lock();
     let Some(map) = g.as_ref() else {
         println!("[memmon] census native: no live blocks recorded");

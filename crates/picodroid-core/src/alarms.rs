@@ -38,6 +38,7 @@
 use pico_jvm::atomic_section::AtomicSection;
 
 use crate::packages::Name;
+use crate::util::section_cell::SectionCell;
 
 /// Alarms the framework holds at once, across every app.
 pub const CAPACITY: usize = 12;
@@ -236,18 +237,6 @@ pub enum Action {
     Wake(Wake),
 }
 
-struct TableCell(core::cell::UnsafeCell<[Option<Entry>; CAPACITY]>);
-// SAFETY: single-writer discipline — see the module docs. Every entry point
-// holds an `AtomicSection` for the whole of its access.
-unsafe impl Sync for TableCell {}
-
-static TABLE: TableCell = TableCell(core::cell::UnsafeCell::new([None; CAPACITY]));
-
-#[allow(clippy::mut_from_ref)]
-fn table() -> &'static mut [Option<Entry>; CAPACITY] {
-    unsafe { &mut *TABLE.0.get() }
-}
-
 /// When [`poll`] next has anything to decide, so the tick can skip it.
 ///
 /// Recomputed by every writer from the table it just changed. What it
@@ -288,23 +277,27 @@ impl Horizon {
     }
 }
 
-struct HorizonCell(core::cell::UnsafeCell<Horizon>);
-// SAFETY: as `TableCell` — written under the same `AtomicSection` as the
-// table it summarises, read under one too.
-unsafe impl Sync for HorizonCell {}
-
-static HORIZON: HorizonCell = HorizonCell(core::cell::UnsafeCell::new(Horizon::NOTHING));
-
-#[allow(clippy::mut_from_ref)]
-fn horizon() -> &'static mut Horizon {
-    unsafe { &mut *HORIZON.0.get() }
+/// The alarm table and the horizon that summarises it.
+struct Alarms {
+    table: [Option<Entry>; CAPACITY],
+    horizon: Horizon,
 }
+
+// SAFETY: single-writer discipline — see the module docs. Every caller is a
+// core-0 JVM task (the natives and the UI tick), and every entry point holds
+// an `AtomicSection` for the whole of its access, opening no other.
+static ALARMS: SectionCell<Alarms> = unsafe {
+    SectionCell::new(Alarms {
+        table: [None; CAPACITY],
+        horizon: Horizon::NOTHING,
+    })
+};
 
 /// Recompute the horizon from `table`. Every writer's last act. One copy for
 /// the five writers, on boards that count flash in bytes.
 #[inline(never)]
-fn refresh_horizon(table: &[Option<Entry>; CAPACITY]) {
-    *horizon() = Horizon::of(table);
+fn refresh_horizon(horizon: &mut Horizon, table: &[Option<Entry>; CAPACITY]) {
+    *horizon = Horizon::of(table);
 }
 
 /// Whether [`poll`] can have anything to decide at this instant.
@@ -320,8 +313,8 @@ fn refresh_horizon(table: &[Option<Entry>; CAPACITY]) {
 /// anchor.
 pub fn due(elapsed_ms: i64, wall_offset_ms: impl FnOnce() -> i64) -> bool {
     let h = {
-        let _atomic = AtomicSection::enter();
-        *horizon()
+        let mut atomic = AtomicSection::enter();
+        ALARMS.get(&mut atomic).horizon
     };
     h.firing
         || h.elapsed_ms.is_some_and(|t| elapsed_ms >= t)
@@ -363,15 +356,15 @@ pub fn set(
         entry.extras[i] = Extra::new(k, *v);
     }
 
-    let _atomic = AtomicSection::enter();
-    let table = table();
+    let mut atomic = AtomicSection::enter();
+    let Alarms { table, horizon } = ALARMS.get(&mut atomic);
 
     if let Some(i) = table.iter().position(|slot| {
         slot.as_ref()
             .is_some_and(|e| e.state == State::Armed && e.owns(owner, class, request_code))
     }) {
         table[i] = Some(entry);
-        refresh_horizon(table);
+        refresh_horizon(horizon, table);
         return Ok(true);
     }
 
@@ -389,7 +382,7 @@ pub fn set(
         .position(|slot| slot.is_none())
         .ok_or(SetError::Full)?;
     table[free] = Some(entry);
-    refresh_horizon(table);
+    refresh_horizon(horizon, table);
     Ok(false)
 }
 
@@ -397,15 +390,15 @@ pub fn set(
 /// nothing matched, or the alarm has already triggered and is on its way to
 /// the app, which Android does not let a cancel recall either.
 pub fn cancel(owner: &str, class: &str, request_code: i32) -> bool {
-    let _atomic = AtomicSection::enter();
-    let table = table();
+    let mut atomic = AtomicSection::enter();
+    let Alarms { table, horizon } = ALARMS.get(&mut atomic);
     match table.iter().position(|slot| {
         slot.as_ref()
             .is_some_and(|e| e.state == State::Armed && e.owns(owner, class, request_code))
     }) {
         Some(i) => {
             table[i] = None;
-            refresh_horizon(table);
+            refresh_horizon(horizon, table);
             true
         }
         None => false,
@@ -415,8 +408,8 @@ pub fn cancel(owner: &str, class: &str, request_code: i32) -> bool {
 /// Everything `package` has asked for, forgotten. Called when a package is
 /// uninstalled; [`poll`] also drops entries whose owner has gone.
 pub fn drop_package(package: &str) -> usize {
-    let _atomic = AtomicSection::enter();
-    let table = table();
+    let mut atomic = AtomicSection::enter();
+    let Alarms { table, horizon } = ALARMS.get(&mut atomic);
     let mut dropped = 0;
     for slot in table.iter_mut() {
         if slot
@@ -427,14 +420,14 @@ pub fn drop_package(package: &str) -> usize {
             dropped += 1;
         }
     }
-    refresh_horizon(table);
+    refresh_horizon(horizon, table);
     dropped
 }
 
 /// How many alarms the table holds, armed and firing alike. For diagnostics.
 pub fn len() -> usize {
-    let _atomic = AtomicSection::enter();
-    table().iter().flatten().count()
+    let mut atomic = AtomicSection::enter();
+    ALARMS.get(&mut atomic).table.iter().flatten().count()
 }
 
 /// Decide what the framework should do about alarms this tick, and return at
@@ -450,10 +443,10 @@ pub fn poll(
     installed: &dyn Fn(&str) -> bool,
     launch_pending: bool,
 ) -> Option<Action> {
-    let _atomic = AtomicSection::enter();
-    let table = table();
+    let mut atomic = AtomicSection::enter();
+    let Alarms { table, horizon } = ALARMS.get(&mut atomic);
     let action = decide(table, now, running, run_gen, installed, launch_pending);
-    refresh_horizon(table);
+    refresh_horizon(horizon, table);
     action
 }
 
@@ -577,8 +570,10 @@ fn fire_from(e: Entry, now: Now) -> Fire {
 
 #[cfg(test)]
 pub(crate) fn reset_for_test() {
-    *table() = [None; CAPACITY];
-    refresh_horizon(table());
+    let mut atomic = AtomicSection::enter();
+    let Alarms { table, horizon } = ALARMS.get(&mut atomic);
+    *table = [None; CAPACITY];
+    refresh_horizon(horizon, table);
 }
 
 #[cfg(test)]

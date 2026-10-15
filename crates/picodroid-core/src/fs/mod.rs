@@ -150,8 +150,8 @@ mod cell {
     use core::cell::UnsafeCell;
 
     pub(super) struct FsCell(UnsafeCell<Option<Fs>>);
-    // SAFETY: `with` is reachable from exactly two places, and neither can
-    // overlap the other or itself:
+    // `with` is reachable from exactly two places, and neither can overlap
+    // the other or itself:
     //
     //   * `with_fs`'s pre-scheduler arm, where nothing else is running yet —
     //     the same window `install` uses;
@@ -164,6 +164,7 @@ mod cell {
     // reach here through the worker. The host-service threads that live
     // outside the kernel (the control-channel reader) never touch the
     // filesystem.
+    // SAFETY: so the cell is reached by one thread of execution at a time.
     unsafe impl Sync for FsCell {}
 
     pub(super) static FS: FsCell = FsCell(UnsafeCell::new(None));

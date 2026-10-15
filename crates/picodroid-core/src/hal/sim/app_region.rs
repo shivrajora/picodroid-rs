@@ -100,12 +100,11 @@ pub(crate) fn with_region<R>(f: impl FnOnce(&mut MemRegion) -> R) -> Option<R> {
 /// gives a system app on a device. A PAPK's class section is read in place
 /// as `u16` words and 8-byte index entries; a `Vec<u8>` promises neither.
 fn leak_aligned(bytes: &[u8]) -> &'static [u8] {
-    let words: &'static mut [u64] =
-        Box::leak(vec![0u64; bytes.len().div_ceil(8)].into_boxed_slice());
-    // SAFETY: `words` holds at least `bytes.len()` bytes; a `u8` view of it,
-    // filled once here and never written again.
-    let dst =
-        unsafe { core::slice::from_raw_parts_mut(words.as_mut_ptr().cast::<u8>(), bytes.len()) };
+    // Seven spare bytes, so an 8-aligned window fits wherever the buffer
+    // landed (`MemRegion::new`'s way).
+    let buf: &'static mut [u8] = Box::leak(vec![0u8; bytes.len() + 7].into_boxed_slice());
+    let start = (8 - buf.as_ptr() as usize % 8) % 8;
+    let dst = &mut buf[start..start + bytes.len()];
     dst.copy_from_slice(bytes);
     dst
 }
@@ -143,6 +142,8 @@ pub fn init() {
                 packages::rescan_region(&region);
                 packages::mark_verified(&mut region);
                 println!("[sim] apps: warm boot from {snapshot}");
+                // SAFETY: `init` runs on the main thread before the scheduler
+                // starts, so nothing else can reach `REGION` yet.
                 unsafe { REGION = Some(region) };
                 print_list();
                 return;
@@ -178,6 +179,7 @@ pub fn init() {
     // As a device's boot does after its scan: what was just checked in
     // full gets its receipt.
     packages::mark_verified(&mut region);
+    // SAFETY: as above: pre-scheduler, single-threaded.
     unsafe { REGION = Some(region) };
     print_list();
 }
@@ -217,6 +219,8 @@ pub fn uninstall_run(first_sector: u32, sectors: u32) -> bool {
 /// What `build.rs` links into the region on a device: the image at sector
 /// 0 with both meta pages, the boot-default flag and sequence 0.
 fn bake(region: &mut MemRegion, bytes: &[u8]) {
+    // SAFETY: seeding, pre-scheduler: no JVM runs from the region, and the
+    // directory's slices into it are rebuilt by the rescan below.
     unsafe {
         region.select_run(0);
         for (i, chunk) in bytes.chunks(256).enumerate() {
