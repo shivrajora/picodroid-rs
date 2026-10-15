@@ -241,7 +241,7 @@ fn waits_by_irq(len: usize) -> bool {
 extern "C" fn DMA_IRQ_1() {
     let p = steal();
     let ints = p.DMA.ints1().read().bits();
-    p.DMA.ints1().write(|w| unsafe { w.bits(ints) }); // W1C
+    super::dma::ack_irq1(&p.DMA, ints);
     if ints & ((1 << DMA_CH_TX) | (1 << DMA_CH_RX)) != 0 {
         if let Some(sem) = dma_done() {
             let mut ctx = InterruptContext::new();
@@ -257,7 +257,7 @@ extern "C" fn DMA_IRQ_1() {
 /// logged failure than a wedged cyw43 task.
 fn abort_dma(p: &pac::Peripherals) {
     let mask = (1u32 << DMA_CH_TX) | (1u32 << DMA_CH_RX);
-    p.DMA.chan_abort().write(|w| unsafe { w.bits(mask) });
+    super::dma::request_abort(&p.DMA, mask);
     for ch in [DMA_CH_TX, DMA_CH_RX] {
         if picodroid_core::spin_until!(
             !p.DMA.ch(ch).ch_ctrl_trig().read().busy().bit_is_set(),
@@ -276,8 +276,16 @@ fn abort_dma(p: &pac::Peripherals) {
 /// little-endian word load would otherwise reverse them. `loud` lets the
 /// channel raise `DMA_IRQ_1` on completion; exactly one channel per
 /// transfer is loud, and only when the transfer waits by interrupt.
+///
+/// # Safety
+///
+/// [`super::dma::program`]'s: the channel runs on after this returns, so
+/// memory at `read_addr` (`words` words, when `incr_read`) must stay
+/// readable, and memory at `write_addr` (`words` words, when `incr_write`)
+/// writable and otherwise untouched, until the channel has retired or been
+/// aborted.
 #[allow(clippy::too_many_arguments)]
-fn dma_start(
+unsafe fn dma_start(
     p: &pac::Peripherals,
     ch: usize,
     read_addr: u32,
@@ -289,20 +297,24 @@ fn dma_start(
     loud: bool,
 ) {
     let c = p.DMA.ch(ch);
-    c.ch_read_addr().write(|w| unsafe { w.bits(read_addr) });
-    c.ch_write_addr().write(|w| unsafe { w.bits(write_addr) });
-    c.ch_trans_count().write(|w| unsafe { w.bits(words) });
-    // Writing CTRL_TRIG with EN set starts the channel.
-    c.ch_ctrl_trig().write(|w| unsafe {
-        w.data_size().size_word();
-        w.incr_read().bit(incr_read);
-        w.incr_write().bit(incr_write);
-        w.treq_sel().bits(treq);
-        w.chain_to().bits(ch as u8); // self = no chaining
-        w.bswap().set_bit();
-        w.irq_quiet().bit(!loud);
-        w.en().set_bit()
-    });
+    // SAFETY: this function's contract is `program`'s, passed on whole; the
+    // CTRL_TRIG write that starts the channel sets the extents it speaks
+    // of. TREQ_SEL and CHAIN_TO take raw numbers (a DREQ, a channel), which
+    // `bits` masks to the field.
+    unsafe {
+        super::dma::program(c, read_addr, write_addr, words);
+        // Writing CTRL_TRIG with EN set starts the channel.
+        c.ch_ctrl_trig().write(|w| {
+            w.data_size().size_word();
+            w.incr_read().bit(incr_read);
+            w.incr_write().bit(incr_write);
+            w.treq_sel().bits(treq);
+            w.chain_to().bits(ch as u8); // self = no chaining
+            w.bswap().set_bit();
+            w.irq_quiet().bit(!loud);
+            w.en().set_bit()
+        });
+    }
 }
 
 // ── Port entry points (cyw43_spi.h) ────────────────────────────────────────
@@ -564,6 +576,9 @@ pub unsafe extern "C" fn cyw43_spi_transfer(
         load_scratch(&p, INSTR_OUT_Y_32, (rx_length as u32 - 4) * 8 - 1);
         sm_exec(&p, INSTR_JMP_START);
 
+        // SAFETY (`dma_start`): reads one word at `tx_ptr` — the caller's
+        // `tx`, at least four bytes, or the bounce copy of it — into the
+        // PIO TX FIFO; no memory is written.
         dma_start(
             &p,
             DMA_CH_TX,
@@ -580,6 +595,12 @@ pub unsafe extern "C" fn cyw43_spi_transfer(
         } else {
             rx as u32 + 4
         };
+        // SAFETY (`dma_start`): writes `rx_length / 4 - 1` words from the
+        // PIO RX FIFO to `rx + 4` — the caller's buffer of `rx_length`
+        // bytes, or the bounce buffer, which holds 16 and is only used for
+        // a transfer of at most 16 (checked above). Both outlive the wait
+        // below, which returns once the channel is idle; if it never goes
+        // idle, see `abort_dma`.
         dma_start(
             &p,
             DMA_CH_RX,
@@ -629,6 +650,9 @@ pub unsafe extern "C" fn cyw43_spi_transfer(
         load_scratch(&p, INSTR_OUT_X_32, (tx_length as u32) * 8 - 1);
         sm_exec(&p, INSTR_JMP_START);
 
+        // SAFETY (`dma_start`): reads `tx_length / 4` words of the caller's
+        // `tx` (or its bounce copy) into the PIO TX FIFO; no memory is
+        // written.
         dma_start(
             &p,
             DMA_CH_TX,

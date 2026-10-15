@@ -8,6 +8,8 @@
 //! Completion is signalled by the RX drain channel's IRQ (via DMA_IRQ_0),
 //! which gives the existing `SPI_DONE` semaphore from `spi.rs`.
 
+#![deny(unsafe_op_in_unsafe_fn)]
+
 use freertos_rust::InterruptContext;
 
 #[cfg(feature = "chip-rp2350")]
@@ -29,6 +31,63 @@ static mut DMA_DUMMY_SINK: u8 = 0;
 
 /// Guard for one-time init — only accessed from task context during boot.
 static mut DMA_INITED: bool = false;
+
+// ── Channel helpers (also used by `pio_spi`) ───────────────────────────────
+
+/// Load a channel's read address, write address and transfer count, without
+/// starting it: the caller triggers it afterwards with its own `CTRL_TRIG`
+/// write, which picks the transfer size, the increments and the DREQ.
+///
+/// # Safety
+///
+/// Once the channel is triggered it reads `count` transfers from `read` and
+/// writes them to `write`, in hardware, while the program runs on; the
+/// caller's `CTRL_TRIG` settings give those the extents meant here. For as
+/// long as it can (until it finishes, or is aborted and has gone not-busy):
+/// - memory at `write` (when the address is memory, not a peripheral FIFO)
+///   must be valid for those writes and touched by nothing else, and
+/// - memory at `read` must stay valid for those reads.
+///
+/// `start_write` below spells the same three writes out: through this
+/// helper, LLVM inlined `spi::write_raw_start` differently (+16 B on the
+/// RP2040, −8 B on the RP2350), and that path's image is kept identical.
+#[cfg(network_cyw43)]
+#[inline(always)]
+pub(crate) unsafe fn program(ch: &pac::dma::CH, read: u32, write: u32, count: u32) {
+    // SAFETY: an address and a count are plain register values; what the
+    // channel then does with them is this function's contract.
+    unsafe {
+        ch.ch_read_addr().write(|w| w.bits(read));
+        ch.ch_write_addr().write(|w| w.bits(write));
+        ch.ch_trans_count().write(|w| w.bits(count));
+    }
+}
+
+/// Ask the channels in `mask` to abort. Returns at once: the caller waits
+/// for them to go not-busy.
+#[inline(always)]
+pub(crate) fn request_abort(dma: &pac::DMA, mask: u32) {
+    // SAFETY: CHAN_ABORT only stops channels, which ends the memory traffic
+    // `program` was trusted with rather than starting any; every bit names a
+    // channel (the RP2040's bits above 11 are ignored).
+    dma.chan_abort().write(|w| unsafe { w.bits(mask) });
+}
+
+/// Acknowledge (write-1-to-clear) the `DMA_IRQ_0` interrupts in `mask`.
+#[inline(always)]
+pub(crate) fn ack_irq0(dma: &pac::DMA, mask: u32) {
+    // SAFETY: INTS0 is write-1-to-clear: it drops pending interrupt flags
+    // and touches no channel or memory.
+    dma.ints0().write(|w| unsafe { w.bits(mask) });
+}
+
+/// Acknowledge (write-1-to-clear) the `DMA_IRQ_1` interrupts in `mask`.
+#[cfg(network_cyw43)]
+#[inline(always)]
+pub(crate) fn ack_irq1(dma: &pac::DMA, mask: u32) {
+    // SAFETY: as `ack_irq0`, for INTS1.
+    dma.ints1().write(|w| unsafe { w.bits(mask) });
+}
 
 // ── Initialisation ─────────────────────────────────────────────────────────
 
@@ -175,16 +234,29 @@ pub fn start_write(spi_id: u8, data: &[u8]) {
 
     // Configure RX drain channel (start first — it will wait on DREQ)
     let rx = p.DMA.ch(rx_ch);
-    rx.ch_read_addr().write(|w| unsafe { w.bits(sspdr_addr) });
-    rx.ch_write_addr().write(|w| unsafe { w.bits(dummy) });
-    rx.ch_trans_count().write(|w| unsafe { w.bits(len) });
+    // SAFETY: `program`'s contract. The drain channel reads the SPI data
+    // register and writes the one-byte static sink without incrementing
+    // (`configure_rx_channel`): no memory but that static, which nothing
+    // else reads or writes.
+    unsafe {
+        rx.ch_read_addr().write(|w| w.bits(sspdr_addr));
+        rx.ch_write_addr().write(|w| w.bits(dummy));
+        rx.ch_trans_count().write(|w| w.bits(len));
+    }
     rx.ch_ctrl_trig().modify(|_, w| w.en().set_bit());
 
     // Configure TX channel
     let tx = p.DMA.ch(tx_ch);
-    tx.ch_read_addr().write(|w| unsafe { w.bits(src) });
-    tx.ch_write_addr().write(|w| unsafe { w.bits(sspdr_addr) });
-    tx.ch_trans_count().write(|w| unsafe { w.bits(len) });
+    // SAFETY: `program`'s contract. The TX channel writes only the SPI
+    // data register; from memory it reads `len` bytes at `src`, which is
+    // `data`. A read cannot corrupt memory, and `write_raw_start`'s caller
+    // keeps `data` alive and unchanged until `write_raw_finish` has seen
+    // the channel retire, so the bytes clocked out are the ones asked for.
+    unsafe {
+        tx.ch_read_addr().write(|w| w.bits(src));
+        tx.ch_write_addr().write(|w| w.bits(sspdr_addr));
+        tx.ch_trans_count().write(|w| w.bits(len));
+    }
     tx.ch_ctrl_trig().modify(|_, w| w.en().set_bit());
 
     cortex_m::asm::dsb();
@@ -216,7 +288,7 @@ pub fn abort(spi_id: u8) {
     let mask = (1u32 << tx_ch) | (1u32 << rx_ch);
 
     // Request abort for both channels
-    p.DMA.chan_abort().write(|w| unsafe { w.bits(mask) });
+    request_abort(&p.DMA, mask);
 
     // Wait for the abort to retire (the channels go not-busy). Normally a
     // few cycles; a channel wedged on a DREQ that never asserts (the RP2040
@@ -235,7 +307,7 @@ pub fn abort(spi_id: u8) {
     }
 
     // Clear any pending DMA interrupts for these channels
-    p.DMA.ints0().write(|w| unsafe { w.bits(mask) });
+    ack_irq0(&p.DMA, mask);
 
     // Disable SPI DMA requests (DMACR's reset value, 0)
     match spi_id {
@@ -255,7 +327,7 @@ extern "C" fn DMA_IRQ_0() {
 
     // SPI0 RX drain channel completed
     if ints & (1 << CH_SPI0_RX) != 0 {
-        p.DMA.ints0().write(|w| unsafe { w.bits(1 << CH_SPI0_RX) }); // W1C
+        ack_irq0(&p.DMA, 1 << CH_SPI0_RX);
         p.SPI0.sspdmacr().write(|w| w); // reset value: DMA requests off
         if let Some(sem) = unsafe { (*SPI0_DONE.0.get()).as_ref() } {
             sem.give_from_isr(&mut ctx);
@@ -264,7 +336,7 @@ extern "C" fn DMA_IRQ_0() {
 
     // SPI1 RX drain channel completed
     if ints & (1 << CH_SPI1_RX) != 0 {
-        p.DMA.ints0().write(|w| unsafe { w.bits(1 << CH_SPI1_RX) }); // W1C
+        ack_irq0(&p.DMA, 1 << CH_SPI1_RX);
         p.SPI1.sspdmacr().write(|w| w); // reset value: DMA requests off
         if let Some(sem) = unsafe { (*SPI1_DONE.0.get()).as_ref() } {
             sem.give_from_isr(&mut ctx);
