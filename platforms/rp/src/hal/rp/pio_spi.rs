@@ -22,7 +22,7 @@
 //! ever added here.
 
 use core::ffi::c_void;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{compiler_fence, AtomicBool, Ordering};
 
 use freertos_rust::{Duration, InterruptContext, Semaphore};
 use picodroid_core::util::set_once::SetOnce;
@@ -119,7 +119,7 @@ const INSTR_SET_PINDIRS_IN: u16 = 0xE080; // set pindirs, 0  (DATA -> input)
 const INSTR_MOV_PINS_NULL: u16 = 0xA003; // mov pins, null  (park OUT reg low)
 
 /// One-time init guard — only touched from the cyw43 task during bring-up.
-static mut PIO_INITED: bool = false;
+static PIO_INITED: AtomicBool = AtomicBool::new(false);
 
 /// Aligned bounce buffer for the two boot-time swap-register transfers,
 /// whose 8-byte buffers live unaligned on the C stack (DMA runs 32-bit).
@@ -321,12 +321,10 @@ unsafe fn dma_start(
 /// `cyw43_spi_gpio_setup`/`cyw43_spi_reset`; all three are idempotent.
 #[no_mangle]
 pub extern "C" fn cyw43_spi_init(_self: *mut c_void) -> i32 {
-    unsafe {
-        if PIO_INITED {
-            return 0;
-        }
-        PIO_INITED = true;
+    if PIO_INITED.load(Ordering::Relaxed) {
+        return 0;
     }
+    PIO_INITED.store(true, Ordering::Relaxed);
     let p = steal();
 
     // Release PIO0 (and DMA — the display path normally does this, but do

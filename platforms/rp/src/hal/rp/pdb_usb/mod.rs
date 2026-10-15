@@ -153,9 +153,14 @@ fn ep1_in_ready_from_isr() {
 
 // ── Flow-control counters ───────────────────────────────────────────────────
 //
-// These are accessed from both the USB ISR and the PDB task, but always on
-// core 1 (ISR preempts task, never concurrent).  Volatile read/write is
-// sufficient — no need for full atomics (which aren't available on M0+).
+// These are accessed from both the USB ISR and the PDB task, both on core 0
+// (the pdb task is pinned there and unmasks USBCTRL_IRQ on its own core's
+// NVIC): the ISR preempts the task, never runs beside it, and the task's
+// read-modify-writes run with interrupts masked (`on_byte_consumed`).
+// Volatile read/write is sufficient. Relaxed atomics would serve as well and
+// end the `static mut`, but they let LLVM reorder these against the
+// handler's other accesses, which changes USBCTRL_IRQ's code; it is kept
+// as it is.
 
 /// Approximate number of bytes in the RX queue (incremented by ISR, decremented by task).
 static mut RX_QUEUE_LEVEL: u32 = 0;

@@ -10,6 +10,8 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
+use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+
 use freertos_rust::InterruptContext;
 
 #[cfg(feature = "chip-rp2350")]
@@ -26,11 +28,14 @@ const CH_SPI0_RX: usize = 1;
 const CH_SPI1_TX: usize = 2;
 const CH_SPI1_RX: usize = 3;
 
-/// Dummy byte that the RX drain channel writes into (discarded).
-static mut DMA_DUMMY_SINK: u8 = 0;
+/// Dummy byte that the RX drain channel writes into (discarded). Only the
+/// DMA engine touches it; the atomic is for the address, not the access.
+static DMA_DUMMY_SINK: AtomicU8 = AtomicU8::new(0);
 
 /// Guard for one-time init — only accessed from task context during boot.
-static mut DMA_INITED: bool = false;
+/// Load then store: one initialiser at a time (`spi::init_with_pins`'s
+/// rule), and thumbv6m has no swap.
+static DMA_INITED: AtomicBool = AtomicBool::new(false);
 
 // ── Channel helpers (also used by `pio_spi`) ───────────────────────────────
 
@@ -95,12 +100,10 @@ pub(crate) fn ack_irq1(dma: &pac::DMA, mask: u32) {
 /// and enable the DMA_IRQ_0 interrupt.  Safe to call more than once
 /// (second+ calls are no-ops).
 pub fn init() {
-    unsafe {
-        if DMA_INITED {
-            return;
-        }
-        DMA_INITED = true;
+    if DMA_INITED.load(Ordering::Relaxed) {
+        return;
     }
+    DMA_INITED.store(true, Ordering::Relaxed);
 
     let p = crate::hal::chip::periph::steal();
 
@@ -230,7 +233,7 @@ pub fn start_write(spi_id: u8, data: &[u8]) {
 
     let len = data.len() as u32;
     let src = data.as_ptr() as u32;
-    let dummy = (&raw mut DMA_DUMMY_SINK) as u32;
+    let dummy = DMA_DUMMY_SINK.as_ptr() as u32;
 
     // Configure RX drain channel (start first — it will wait on DREQ)
     let rx = p.DMA.ch(rx_ch);
