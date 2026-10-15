@@ -8,21 +8,26 @@
 //! growth. Only compiled under the `mem-diag` feature — absent the feature,
 //! none of this exists in the binary.
 //!
-//! Threading: all state lives in main-task-only `static mut`s accessed via
-//! `addr_of_mut!` (the `RECYCLED_MOTION_EVENT` discipline in
-//! `lifecycle.rs`) — every caller is the UI main task. The one exception is
-//! the sim control channel's `memstats` request, which crosses from the
-//! reader thread as a host `AtomicBool`. Counters are plain fields because
-//! thumbv6m (RP2040) has no atomic RMW instructions.
+//! Threading: the monitor state lives in a main-task-only `static mut`
+//! accessed via `addr_of_mut!` — every caller is the UI main task — and the
+//! child-`Jvm` registry in a `Core0` of JVM tasks. The one exception is the
+//! sim control channel's `memstats` request, which crosses from the reader
+//! thread as a host `AtomicBool`. Counters are plain fields, or atomics
+//! used by load and store only, because thumbv6m (RP2040) has no atomic
+//! RMW instructions.
 //!
 //! Output rules: the monitor never allocates. Device output is `defmt` with
 //! scalar args; sim output is `println!` under [`crate::host::heap_bypass`]
 //! so the report cannot perturb the arena numbers it is reporting.
 
+use core::cell::Cell;
+use core::sync::atomic::{AtomicU32, Ordering};
+
 use pico_jvm::mem_diag::GrowthSentinel;
 use pico_jvm::SharedJvmHeap;
 
 use crate::native_handler::PicodroidNativeHandler;
+use crate::util::local::Core0;
 
 /// Default monitor window when `PICODROID_MEMDIAG_WINDOW_MS` is unset (and
 /// the device value, which has no env). Keep >= 500 ms: the sampler shares
@@ -91,6 +96,9 @@ static mut STATE: MonitorState = MonitorState::new();
 
 /// Main-task-only accessor; see the module note on threading.
 fn state() -> &'static mut MonitorState {
+    // SAFETY: every caller is the UI main task (module note), and each takes
+    // the reference for one monitor step without calling back into another
+    // `state()` user while it holds it.
     unsafe { &mut *core::ptr::addr_of_mut!(STATE) }
 }
 
@@ -98,18 +106,18 @@ fn state() -> &'static mut MonitorState {
 /// `bump_alloc_count` funnel (direct `heap.objects.alloc` etc. in
 /// lifecycle/sensor code). Main-task-only; kept separate from the bytecode
 /// counter so `[memmon]` distinguishes app churn from native-glue churn.
-static mut NATIVE_ALLOC_TOTAL: u32 = 0;
+/// A load and a store, not `fetch_add`: thumbv6m has no atomic RMW, and the
+/// one writer (the main task) makes the pair as good as one.
+static NATIVE_ALLOC_TOTAL: AtomicU32 = AtomicU32::new(0);
 
 /// Record `n` native-side JVM allocations (see [`NATIVE_ALLOC_TOTAL`]).
 pub fn note_native_alloc(n: u32) {
-    unsafe {
-        let t = &mut *core::ptr::addr_of_mut!(NATIVE_ALLOC_TOTAL);
-        *t = t.wrapping_add(n);
-    }
+    let t = NATIVE_ALLOC_TOTAL.load(Ordering::Relaxed);
+    NATIVE_ALLOC_TOTAL.store(t.wrapping_add(n), Ordering::Relaxed);
 }
 
 fn native_alloc_total() -> u32 {
-    unsafe { *core::ptr::addr_of!(NATIVE_ALLOC_TOTAL) }
+    NATIVE_ALLOC_TOTAL.load(Ordering::Relaxed)
 }
 
 // ── Child-executor Jvm registry (census) ────────────────────────────────────
@@ -126,25 +134,33 @@ fn native_alloc_total() -> u32 {
 /// covers the 4-worker bg pool plus every observed `Thread.start` pattern;
 /// on overflow the census under-reports rather than failing.
 const MAX_CHILD_JVMS: usize = 8;
-static mut CHILD_JVMS: [Option<(&'static str, *const pico_jvm::Jvm)>; MAX_CHILD_JVMS] =
-    [None; MAX_CHILD_JVMS];
+type ChildJvm = Option<(&'static str, *const pico_jvm::Jvm)>;
+// SAFETY: registration and deregistration run on the child JVM tasks, the
+// census on the main task: all core-0 JVM tasks, one interpreting at a
+// time. No interrupt handler or core-1 task reaches the registry.
+static CHILD_JVMS: Core0<[Cell<ChildJvm>; MAX_CHILD_JVMS]> =
+    unsafe { Core0::new([const { Cell::new(None) }; MAX_CHILD_JVMS]) };
 
 /// Register a child executor's `Jvm` for the census. Call from the owning
 /// task after class loading; pair with [`unregister_child_jvm`] before the
 /// `Jvm` is dropped.
-pub fn register_child_jvm(name: &'static str, jvm: *const pico_jvm::Jvm) {
-    let slots = unsafe { &mut *core::ptr::addr_of_mut!(CHILD_JVMS) };
-    if let Some(slot) = slots.iter_mut().find(|s| s.is_none()) {
-        *slot = Some((name, jvm));
+///
+/// # Safety
+///
+/// `jvm` must point at a live `Jvm` until [`unregister_child_jvm`] removes
+/// it, and its owner must be parked at a yield point whenever the main task
+/// runs the census, which reads it through this pointer.
+pub unsafe fn register_child_jvm(name: &'static str, jvm: *const pico_jvm::Jvm) {
+    if let Some(slot) = CHILD_JVMS.iter().find(|s| s.get().is_none()) {
+        slot.set(Some((name, jvm)));
     }
 }
 
 /// Remove a child `Jvm` registered by [`register_child_jvm`].
 pub fn unregister_child_jvm(jvm: *const pico_jvm::Jvm) {
-    let slots = unsafe { &mut *core::ptr::addr_of_mut!(CHILD_JVMS) };
-    for s in slots.iter_mut() {
-        if matches!(s, Some((_, p)) if *p == jvm) {
-            *s = None;
+    for s in CHILD_JVMS.iter() {
+        if matches!(s.get(), Some((_, p)) if p == jvm) {
+            s.set(None);
         }
     }
 }
@@ -447,12 +463,11 @@ fn print_census(jvm: &pico_jvm::Jvm, heap: &SharedJvmHeap) {
         "[memmon] census classmeta main: {} classes tableB={table_host_b} tableB~={table_dev_b} (link tables in flash: 0 B of RAM)",
         jvm.class_count()
     );
-    let slots = unsafe { &*core::ptr::addr_of!(CHILD_JVMS) };
-    for (name, ptr) in slots.iter().flatten() {
-        // SAFETY: registry contract (see CHILD_JVMS) — the owning task is
-        // parked while the main task runs the census, so the pointee is
-        // alive and not mid-mutation.
-        let child = unsafe { &**ptr };
+    for (name, ptr) in CHILD_JVMS.iter().filter_map(Cell::get) {
+        // SAFETY: `register_child_jvm`'s contract — the pointee is alive
+        // until it is unregistered, and its owning task is parked while the
+        // main task runs the census, so it is not mid-mutation.
+        let child = unsafe { &*ptr };
         let (_, ctab) = child.class_table_bytes();
         println!(
             "[memmon] census classmeta child {name}: {} classes tableB~={ctab}",

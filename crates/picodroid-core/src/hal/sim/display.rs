@@ -3,7 +3,7 @@
 //! window.  Replaces the previous no-op stubs so that graphical apps (e.g.
 //! `displaydemo`) can be tested without hardware.
 
-use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
 use minifb::{Key, MouseButton, MouseMode, Scale, ScaleMode, Window, WindowOptions};
 
 // Display geometry from [display] in board.toml. This reads the *neutral*
@@ -56,11 +56,13 @@ fn heap_cap_bypass() -> impl Drop {
 static mut WINDOW: Option<Window> = None;
 static mut FRAMEBUF: [u32; NUM_PIXELS] = [0u32; NUM_PIXELS];
 
-/// Current draw region set by `set_window()`.
-static mut WIN_X0: u16 = 0;
-static mut WIN_Y0: u16 = 0;
-static mut WIN_X1: u16 = 0;
-static mut WIN_Y1: u16 = 0;
+/// Current draw region set by `set_window()`. Relaxed atomics: each is a
+/// plain register value with no ordering against other memory, written and
+/// read by the flush path only.
+static WIN_X0: AtomicU16 = AtomicU16::new(0);
+static WIN_Y0: AtomicU16 = AtomicU16::new(0);
+static WIN_X1: AtomicU16 = AtomicU16::new(0);
+static WIN_Y1: AtomicU16 = AtomicU16::new(0);
 
 /// The panel's vertical-scroll registers, emulated (ST7796 VSCRDEF and
 /// VSCRSADD; `hal::display::set_vertical_scroll_*`). `FRAMEBUF` above is the
@@ -70,9 +72,9 @@ static mut WIN_Y1: u16 = 0;
 /// in `graphics/lvgl/hw_scroll.rs` is a wrong picture in the sim window, not
 /// a hardware-only bug. `VSCROLL_ROWS == 0` means no area is defined —
 /// identity, the panel's power-on state.
-static mut VSCROLL_TOP: u16 = 0;
-static mut VSCROLL_ROWS: u16 = 0;
-static mut VSCROLL_START: u16 = 0;
+static VSCROLL_TOP: AtomicU16 = AtomicU16::new(0);
+static VSCROLL_ROWS: AtomicU16 = AtomicU16::new(0);
+static VSCROLL_START: AtomicU16 = AtomicU16::new(0);
 
 /// Mouse state sampled during `update_window()`. Atomic because the touch
 /// sampler reads it from its own task on boards where that runs, while
@@ -154,45 +156,45 @@ pub fn init() {
 }
 
 pub fn set_window(x0: u16, y0: u16, x1: u16, y1: u16) {
-    unsafe {
-        WIN_X0 = x0;
-        WIN_Y0 = y0;
-        WIN_X1 = x1;
-        WIN_Y1 = y1;
-    }
+    WIN_X0.store(x0, Ordering::Relaxed);
+    WIN_Y0.store(y0, Ordering::Relaxed);
+    WIN_X1.store(x1, Ordering::Relaxed);
+    WIN_Y1.store(y1, Ordering::Relaxed);
 }
 
 /// Write byte-swapped RGB565 pixel data into the framebuffer at the region
 /// previously set by `set_window()`.
 pub fn write_pixels(data: &[u8]) {
-    unsafe {
-        let x0 = WIN_X0 as usize;
-        let y0 = WIN_Y0 as usize;
-        let x1 = WIN_X1 as usize;
-        let _w = x1 - x0 + 1;
-        let stride = WIDTH as usize;
+    let x0 = WIN_X0.load(Ordering::Relaxed) as usize;
+    let y0 = WIN_Y0.load(Ordering::Relaxed) as usize;
+    let x1 = WIN_X1.load(Ordering::Relaxed) as usize;
+    let _w = x1 - x0 + 1;
+    let stride = WIDTH as usize;
+    // SAFETY: the frame memory is touched only by the display flush
+    // (`write_pixels`) and `update_window`, both on the UI task, never at
+    // once; this borrow ends with the function.
+    let framebuf = unsafe { &mut *core::ptr::addr_of_mut!(FRAMEBUF) };
 
-        let mut i = 0; // byte index into data
-        let mut row = y0;
-        let mut col = x0;
+    let mut i = 0; // byte index into data
+    let mut row = y0;
+    let mut col = x0;
 
-        while i + 1 < data.len() {
-            // LVGL renders LV_COLOR_FORMAT_RGB565_SWAPPED: bytes arrive big-endian
-            let raw = u16::from_be_bytes([data[i], data[i + 1]]);
-            let r = ((raw >> 11) & 0x1F) as u32;
-            let g = ((raw >> 5) & 0x3F) as u32;
-            let b = (raw & 0x1F) as u32;
-            let argb = 0xFF00_0000 | (r * 255 / 31) << 16 | (g * 255 / 63) << 8 | (b * 255 / 31);
+    while i + 1 < data.len() {
+        // LVGL renders LV_COLOR_FORMAT_RGB565_SWAPPED: bytes arrive big-endian
+        let raw = u16::from_be_bytes([data[i], data[i + 1]]);
+        let r = ((raw >> 11) & 0x1F) as u32;
+        let g = ((raw >> 5) & 0x3F) as u32;
+        let b = (raw & 0x1F) as u32;
+        let argb = 0xFF00_0000 | (r * 255 / 31) << 16 | (g * 255 / 63) << 8 | (b * 255 / 31);
 
-            FRAMEBUF[row * stride + col] = argb;
+        framebuf[row * stride + col] = argb;
 
-            col += 1;
-            if col > x1 {
-                col = x0;
-                row += 1;
-            }
-            i += 2;
+        col += 1;
+        if col > x1 {
+            col = x0;
+            row += 1;
         }
+        i += 2;
     }
 }
 
@@ -213,17 +215,16 @@ pub fn set_backlight(on: bool) {
 
 /// Emulated VSCRDEF: memory lines `[top_fixed, top_fixed + rows)` scroll.
 pub fn set_vertical_scroll_area(top_fixed: u16, rows: u16) {
-    unsafe {
-        VSCROLL_TOP = top_fixed;
-        VSCROLL_ROWS = rows.min(HEIGHT.saturating_sub(top_fixed));
-    }
+    VSCROLL_TOP.store(top_fixed, Ordering::Relaxed);
+    VSCROLL_ROWS.store(
+        rows.min(HEIGHT.saturating_sub(top_fixed)),
+        Ordering::Relaxed,
+    );
 }
 
 /// Emulated VSCRSADD: the memory line shown at the first row of the area.
 pub fn set_vertical_scroll_start(line: u16) {
-    unsafe {
-        VSCROLL_START = line;
-    }
+    VSCROLL_START.store(line, Ordering::Relaxed);
 }
 
 /// The memory row the panel shows at display row `y`, under the emulated
@@ -241,20 +242,19 @@ fn memory_row_for(y: usize, top: usize, rows: usize, start: usize) -> usize {
 /// Whether the emulated scroll registers map any row somewhere other than
 /// itself — the test for needing a composed frame in [`update_window`].
 fn vscroll_is_identity() -> bool {
-    unsafe { VSCROLL_ROWS == 0 || VSCROLL_START == VSCROLL_TOP }
+    VSCROLL_ROWS.load(Ordering::Relaxed) == 0
+        || VSCROLL_START.load(Ordering::Relaxed) == VSCROLL_TOP.load(Ordering::Relaxed)
 }
 
 /// Compose what the glass shows into `dst` from the frame memory `src`,
 /// through the emulated scroll registers.
 fn compose_scrolled(dst: &mut [u32], src: &[u32]) {
     let stride = WIDTH as usize;
-    let (top, rows, start) = unsafe {
-        (
-            VSCROLL_TOP as usize,
-            VSCROLL_ROWS as usize,
-            VSCROLL_START as usize,
-        )
-    };
+    let (top, rows, start) = (
+        VSCROLL_TOP.load(Ordering::Relaxed) as usize,
+        VSCROLL_ROWS.load(Ordering::Relaxed) as usize,
+        VSCROLL_START.load(Ordering::Relaxed) as usize,
+    );
     for y in 0..HEIGHT as usize {
         let src_row = memory_row_for(y, top, rows, start);
         dst[y * stride..(y + 1) * stride]
@@ -352,21 +352,18 @@ static mut COMPOSE_BUF: [u32; NUM_PIXELS] = [0u32; NUM_PIXELS];
 
 // ── Tap-debug overlay (PICODROID_SIM_TAP_DEBUG=1) ───────────────────────────
 
-static TAP_DEBUG_INIT: std::sync::Once = std::sync::Once::new();
-static mut TAP_DEBUG_ON: bool = false;
+static TAP_DEBUG_ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
 fn tap_debug_enabled() -> bool {
-    unsafe {
-        TAP_DEBUG_INIT.call_once(|| {
-            TAP_DEBUG_ON = std::env::var("PICODROID_SIM_TAP_DEBUG")
-                .map(|v| v == "1")
-                .unwrap_or(false);
-            if TAP_DEBUG_ON {
-                println!("[sim] Tap debug overlay: ON (red=raw mouse, green=post-driver)");
-            }
-        });
-        TAP_DEBUG_ON
-    }
+    *TAP_DEBUG_ON.get_or_init(|| {
+        let on = std::env::var("PICODROID_SIM_TAP_DEBUG")
+            .map(|v| v == "1")
+            .unwrap_or(false);
+        if on {
+            println!("[sim] Tap debug overlay: ON (red=raw mouse, green=post-driver)");
+        }
+        on
+    })
 }
 
 fn paint_tap_debug(buf: &mut [u32]) {

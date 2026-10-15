@@ -107,14 +107,16 @@ fn publish_jvm(jvm: Jvm) -> &'static mut Jvm {
 
 // ── run_app ──────────────────────────────────────────────────────────────────
 
-/// Run the JVM against `apk_data`.
+/// Run the JVM against `apk_data`: an installed image, which lives in flash
+/// (the simulator's leaked copy of it) for the life of the program, so the
+/// class set can point into it for the app's whole run.
 ///
 /// Resets the shared heap (clearing the previous app's state), loads
 /// framework and app classes, then launches an Activity if the manifest
 /// declares one, else `<main_class>.main()`. Returns when execution finishes
 /// or `pdb install` interrupts it; `JvmError::Interrupted` is a clean exit
 /// signal, not an error.
-pub fn run_app(apk_data: &[u8]) {
+pub fn run_app(apk_data: &'static [u8]) {
     // The class-file parse timer has no handler to ask for the time.
     #[cfg(feature = "parity-metrics")]
     pico_jvm::parity::set_clock(|| crate::hal::system_clock::elapsed_realtime_nanos() as u64);
@@ -264,12 +266,7 @@ pub fn run_app(apk_data: &[u8]) {
     host::heap_checkpoint("post-framework-load");
     // The PAPK sits in flash (the simulator's leaked copy of it) for the
     // app's whole run, and the class set points into it from here on.
-    // SAFETY: `apk_data` is the image `run_app` was handed — XIP flash on a
-    // device, a leaked buffer on the host — alive until the next app runs,
-    // by which time `run_app` has returned and this `Jvm` is gone.
-    let apk_static: &'static [u8] =
-        unsafe { core::slice::from_raw_parts(apk_data.as_ptr(), apk_data.len()) };
-    let app_section = match Papk::parse(apk_static).and_then(|p| p.class_section()) {
+    let app_section = match Papk::parse(apk_data).and_then(|p| p.class_section()) {
         Ok(s) => s,
         Err(e) => {
             #[cfg(not(feature = "sim"))]
@@ -311,7 +308,7 @@ pub fn run_app(apk_data: &[u8]) {
     // Determine the entry point from the APK manifest. The pre-sizing parse
     // above already returned on error, so a second failure here is a
     // fresh-bytes anomaly; bail cleanly rather than panic on-device.
-    let apk = match Papk::parse(apk_static) {
+    let apk = match Papk::parse(apk_data) {
         Ok(a) => a,
         Err(e) => {
             #[cfg(not(feature = "sim"))]
@@ -378,7 +375,7 @@ pub fn run_app(apk_data: &[u8]) {
     let start = std::time::Instant::now();
 
     if let Some(application_class) = apk.application() {
-        // Parsed from `apk_static`, so the class name is `'static` too and
+        // Parsed from `apk_data`, so the class name is `'static` too and
         // alloc() can store it in the object heap.
         let static_name: &'static str = application_class;
         crate::lifecycle::run_application(jvm, static_name, heap, &mut handler);

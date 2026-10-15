@@ -88,13 +88,11 @@ fn to_duration(t: Timeout) -> Duration {
     }
 }
 
-struct TimerCell(core::cell::UnsafeCell<Option<Timer>>);
-// SAFETY: mutated only by the UI task before the timer is in active use;
-// afterwards `Timer`'s operations go through the FreeRTOS timer command queue
-// and are themselves task-safe. Identical to the device's reasoning.
-unsafe impl Sync for TimerCell {}
-
-static TICK_TIMER: TimerCell = TimerCell(core::cell::UnsafeCell::new(None));
+/// The LVGL tick timer, created on first start. Write-once: `Timer`'s
+/// operations go through the FreeRTOS timer command queue and are task-safe
+/// (`freertos_rust::Timer` is `Send + Sync`). Every caller is the UI task
+/// (see `run_activity`), so the one-time initialisation never contends.
+static TICK_TIMER: std::sync::OnceLock<Timer> = std::sync::OnceLock::new();
 
 /// Java threads that have been started and have not yet returned.
 ///
@@ -444,38 +442,30 @@ pub fn sem_take(s: RawSem, t: Timeout) -> bool {
 }
 
 pub fn tick_timer_start(period_ms: u32, cb: fn()) {
-    // SAFETY: callers serialise on the UI task (see run_activity), which is
-    // the device arm's justification too.
-    unsafe {
-        if let Some(t) = (*TICK_TIMER.0.get()).as_ref() {
-            let _ = t.start(Duration::ms(0));
-            return;
-        }
-        let timer = Timer::new(Duration::ms(period_ms))
-            .set_name("lvgl-tick")
-            .set_auto_reload(true)
-            .create(move |_| cb())
-            .expect("lvgl-tick timer alloc");
-        timer.start(Duration::ms(0)).expect("lvgl-tick start");
-        *TICK_TIMER.0.get() = Some(timer);
+    if let Some(t) = TICK_TIMER.get() {
+        let _ = t.start(Duration::ms(0));
+        return;
     }
+    let timer = Timer::new(Duration::ms(period_ms))
+        .set_name("lvgl-tick")
+        .set_auto_reload(true)
+        .create(move |_| cb())
+        .expect("lvgl-tick timer alloc");
+    timer.start(Duration::ms(0)).expect("lvgl-tick start");
+    // Cannot be taken already: the only caller is the UI task, which found
+    // the cell empty above.
+    let _ = TICK_TIMER.set(timer);
 }
 
 pub fn tick_timer_pause() {
-    // SAFETY: see `tick_timer_start`.
-    unsafe {
-        if let Some(t) = (*TICK_TIMER.0.get()).as_ref() {
-            let _ = t.stop(Duration::ms(0));
-        }
+    if let Some(t) = TICK_TIMER.get() {
+        let _ = t.stop(Duration::ms(0));
     }
 }
 
 pub fn tick_timer_resume() {
-    // SAFETY: see `tick_timer_start`.
-    unsafe {
-        if let Some(t) = (*TICK_TIMER.0.get()).as_ref() {
-            let _ = t.start(Duration::ms(0));
-        }
+    if let Some(t) = TICK_TIMER.get() {
+        let _ = t.start(Duration::ms(0));
     }
 }
 
@@ -501,29 +491,30 @@ pub fn delay_ms(ms: u32) {
 /// never sleeps). Hence the kernel's own entry points, in its own width.
 type HostTick = core::ffi::c_ulong;
 
-extern "C" {
-    fn xTaskGetTickCount() -> HostTick;
+unsafe extern "C" {
+    /// `safe`: no arguments, and it only reads the kernel's tick count (0
+    /// before the scheduler starts).
+    safe fn xTaskGetTickCount() -> HostTick;
     fn xTaskDelayUntil(previous_wake: *mut HostTick, increment: HostTick) -> core::ffi::c_long;
 }
 
 // 1 kHz tick, as on the device: a tick count is a millisecond count.
 pub fn delay_until_anchor() -> u32 {
-    // SAFETY: FFI into the kernel; reads a counter.
-    (unsafe { xTaskGetTickCount() }) as u32
+    xTaskGetTickCount() as u32
 }
 
 pub fn delay_until(last_wake_ms: &mut u32, period_ms: u32) {
-    // SAFETY: FFI into the kernel from a task; `stamp` outlives the call.
-    unsafe {
-        // Widen the seam's 32-bit stamp onto the kernel's clock: the signed
-        // distance from now, so a stamp behind (a missed deadline) or ahead
-        // of the count both land where the caller meant.
-        let now = xTaskGetTickCount();
-        let behind = (now as u32).wrapping_sub(*last_wake_ms) as i32;
-        let mut stamp = now.wrapping_sub(behind as HostTick);
-        xTaskDelayUntil(&mut stamp, period_ms as HostTick);
-        *last_wake_ms = stamp as u32;
-    }
+    // Widen the seam's 32-bit stamp onto the kernel's clock: the signed
+    // distance from now, so a stamp behind (a missed deadline) or ahead
+    // of the count both land where the caller meant.
+    let now = xTaskGetTickCount();
+    let behind = (now as u32).wrapping_sub(*last_wake_ms) as i32;
+    let mut stamp = now.wrapping_sub(behind as HostTick);
+    // SAFETY: called from a task (the seam's contract); `stamp` is a live
+    // `HostTick`, the kernel's own tick width, that outlives the call, which
+    // reads and writes only it.
+    unsafe { xTaskDelayUntil(&mut stamp, period_ms as HostTick) };
+    *last_wake_ms = stamp as u32;
 }
 
 /// What the hosted kernel gives the scheduling monitor

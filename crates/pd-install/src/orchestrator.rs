@@ -661,13 +661,11 @@ mod tests {
         }
     }
 
-    /// Shared recorder. `Rc`-free: the three mocks each hold a raw pointer to
-    /// one `Vec` owned by the test, which is sound because they never outlive
-    /// it and the test is single-threaded under `SERIAL`.
-    struct Log(*mut Vec<Ev>);
+    /// Shared recorder: the three mocks each hold a handle on one `Vec`.
+    struct Log(std::rc::Rc<core::cell::RefCell<Vec<Ev>>>);
     impl Log {
         fn push(&self, e: Ev) {
-            unsafe { (*self.0).push(e) }
+            self.0.borrow_mut().push(e)
         }
     }
 
@@ -806,21 +804,20 @@ mod tests {
         fail_page: Option<u32>,
     ) -> Run {
         let _g = lock();
-        let mut events: Vec<Ev> = Vec::new();
-        let ptr: *mut Vec<Ev> = &mut events;
+        let events = std::rc::Rc::new(core::cell::RefCell::new(Vec::new()));
         let mut t = MockTransport {
-            log: Log(ptr),
+            log: Log(events.clone()),
             data: wire_bytes,
             pos: 0,
             cut_at: None,
         };
         let mut c = MockCoordinator {
-            log: Log(ptr),
+            log: Log(events.clone()),
             parks,
         };
         let region = alloc::vec![0xFFu8; max + META_SIZE].into_boxed_slice();
         let mut f = MockFlash {
-            log: Log(ptr),
+            log: Log(events.clone()),
             region,
             fail_page,
             written: Vec::new(),
@@ -832,7 +829,7 @@ mod tests {
         }))
         .is_err();
         Run {
-            events,
+            events: events.take(),
             written: f.written,
             reset,
         }

@@ -12,6 +12,7 @@ use super::*;
 use crate::class_file::Classes;
 use crate::names::{c, d, m};
 use crate::{array_heap::ArrayHeap, heap::StringTable, object_heap::ObjectHeap};
+use alloc::string::{String, ToString};
 
 mod arrays;
 mod boxed;
@@ -173,12 +174,10 @@ impl SbCtx {
             .expect("StringBuilder method not handled")
     }
 
-    fn to_string(&mut self) -> &str {
+    fn to_string(&mut self) -> String {
         let result = self.call(m::toString, d::__String, None).unwrap().unwrap();
         if let Value::Reference(idx) = result {
-            // SAFETY: the string is interned into self.strings and lives as long as self
-            let ptr = self.strings.resolve(idx).unwrap_or("") as *const str;
-            unsafe { &*ptr }
+            self.strings.resolve(idx).unwrap_or("").to_string()
         } else {
             panic!("toString returned non-Reference")
         }

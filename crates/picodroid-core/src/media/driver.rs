@@ -20,6 +20,7 @@ use pico_jvm::atomic_section::AtomicSection;
 use super::sequencer::{Action, Sequencer, MAX_SEGMENTS};
 use super::tone_table::{descriptor, Segment};
 use crate::hal::pwm;
+use crate::util::section_cell::SectionCell;
 
 include!(concat!(env!("OUT_DIR"), "/audio_config.rs"));
 
@@ -39,13 +40,25 @@ const IDLE_FREQ_HZ: f64 = 1000.0;
 
 /// The sequencer and the volume.
 ///
-/// `static mut` rather than atomics because the state is a compound the
+/// A [`SectionCell`] rather than atomics because the state is a compound the
 /// sequencer mutates in several steps, and because the RP2040's Cortex-M0+ has
 /// no `compare_exchange` to build one from. Every access goes through
 /// [`with_state`]: `on_tick` runs on the JVM main task while `start_tone` may
 /// be called from any Java thread, so the two really do race.
-static mut SEQ: Sequencer = Sequencer::new();
-static mut VOLUME: u8 = 0;
+struct State {
+    seq: Sequencer,
+    volume: u8,
+}
+
+// SAFETY: every caller is the JVM main task's tick or a native on a Java
+// thread — core-0 JVM tasks all — and `with_state`, the only access, opens
+// no second section while it holds the reference.
+static STATE: SectionCell<State> = unsafe {
+    SectionCell::new(State {
+        seq: Sequencer::new(),
+        volume: 0,
+    })
+};
 
 /// Whether a tone is playing, published for [`on_tick`]'s fast path.
 ///
@@ -58,13 +71,11 @@ static TONE_ACTIVE: AtomicBool = AtomicBool::new(false);
 /// Whether the PWM pad has been configured yet.
 static PIN_READY: AtomicBool = AtomicBool::new(false);
 
-#[allow(static_mut_refs)]
 fn with_state<R>(f: impl FnOnce(&mut Sequencer, &mut u8) -> R) -> R {
-    let _atomic = AtomicSection::enter();
-    // SAFETY: the atomic section is the mutual exclusion; see the statics' docs.
-    let r = unsafe { f(&mut SEQ, &mut VOLUME) };
-    // SAFETY: as above — still inside the section.
-    unsafe { TONE_ACTIVE.store(SEQ.is_active(), Ordering::Relaxed) };
+    let mut atomic = AtomicSection::enter();
+    let state = STATE.get(&mut atomic);
+    let r = f(&mut state.seq, &mut state.volume);
+    TONE_ACTIVE.store(state.seq.is_active(), Ordering::Relaxed);
     r
 }
 

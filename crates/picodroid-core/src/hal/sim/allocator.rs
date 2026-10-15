@@ -25,6 +25,7 @@
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
+use std::ffi::CStr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
@@ -303,11 +304,43 @@ impl CappedAllocator {
     /// the allocator itself, where panicking (which allocates) would either
     /// recurse or deadlock on the arena lock.
     fn die(msg: &str) -> ! {
-        unsafe {
-            libc::write(2, msg.as_ptr() as *const _, msg.len());
-        }
+        raw_stderr(msg.as_bytes());
         std::process::abort();
     }
+}
+
+/// Write `bytes` to stderr with one `write(2)` call: no `std::io` buffer, no
+/// lock and no allocation, so it is usable inside the global allocator. A
+/// short or failed write is ignored, as every caller is about to abort or
+/// return a null allocation anyway.
+pub(super) fn raw_stderr(bytes: &[u8]) {
+    // SAFETY: `bytes` is a live slice, so `write` reads exactly `bytes.len()`
+    // initialised bytes from valid memory; fd 2 needs no further invariant
+    // (a closed descriptor makes `write` fail with EBADF, which is ignored).
+    unsafe {
+        libc::write(2, bytes.as_ptr().cast(), bytes.len());
+    }
+}
+
+/// Look an environment variable up without allocating and hand its bytes to
+/// `f`; `None` when it is unset. `std::env::var` allocates a `String`, which
+/// inside the global allocator would re-enter it and deadlock on the arena
+/// lock, so the allocator and the site ledger read the environment this way.
+pub(super) fn with_env<R>(name: &CStr, f: impl FnOnce(&[u8]) -> R) -> Option<R> {
+    // SAFETY: `name` is a NUL-terminated C string by type. `getenv` returns
+    // NULL or a pointer to a NUL-terminated string inside the process
+    // environment, which stays valid until the environment is modified;
+    // nothing in this code base modifies it (no `set_var`, `remove_var`,
+    // `setenv` or `putenv` anywhere in the tree), and the borrow handed to
+    // `f` ends before this function returns.
+    let value = unsafe {
+        let p = libc::getenv(name.as_ptr());
+        if p.is_null() {
+            return None;
+        }
+        CStr::from_ptr(p)
+    };
+    Some(f(value.to_bytes()))
 }
 
 /// Read the heap limit once per process. Defaults to [`DEVICE_HEAP_BYTES`]
@@ -339,13 +372,12 @@ use crate::board_cfg::heap::DEVICE_HEAP_BYTES;
 /// Parse `PICODROID_HEAP_LIMIT_KB` from the environment without allocating.
 /// Unset or unparseable → the chip's device heap size; `0` → uncapped.
 fn parse_env_limit() -> usize {
-    let name = b"PICODROID_HEAP_LIMIT_KB\0";
-    let ptr = unsafe { libc::getenv(name.as_ptr() as *const libc::c_char) };
-    if ptr.is_null() {
-        return DEVICE_HEAP_BYTES;
-    }
-    let cstr = unsafe { std::ffi::CStr::from_ptr(ptr) };
-    match cstr.to_str().ok().and_then(|s| s.parse::<usize>().ok()) {
+    let kb = with_env(c"PICODROID_HEAP_LIMIT_KB", |v| {
+        core::str::from_utf8(v)
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+    });
+    match kb.flatten() {
         Some(0) => usize::MAX,
         Some(kb) => kb * 1024,
         None => DEVICE_HEAP_BYTES,
@@ -368,12 +400,10 @@ fn canaries_enabled() -> bool {
         1 => false,
         2 => true,
         _ => {
-            let name = b"PICODROID_MEMDIAG_OFFENSIVE\0";
-            let ptr = unsafe { libc::getenv(name.as_ptr() as *const libc::c_char) };
-            let on = !ptr.is_null()
-                && unsafe { std::ffi::CStr::from_ptr(ptr) }
-                    .to_str()
-                    .is_ok_and(|v| matches!(v, "1" | "on" | "true" | "yes"));
+            let on = with_env(c"PICODROID_MEMDIAG_OFFENSIVE", |v| {
+                matches!(v, b"1" | b"on" | b"true" | b"yes")
+            })
+            .unwrap_or(false);
             STATE.store(if on { 2 } else { 1 }, Ordering::Relaxed);
             on
         }
@@ -514,9 +544,7 @@ unsafe impl GlobalAlloc for CappedAllocator {
                     );
                     w.pos
                 };
-                unsafe {
-                    libc::write(2, buf.as_ptr() as *const _, pos);
-                }
+                raw_stderr(&buf[..pos]);
                 std::ptr::null_mut()
             }
         };
@@ -553,9 +581,7 @@ unsafe impl GlobalAlloc for CappedAllocator {
                         // held yet and println would recurse into alloc.
                         let msg = b"[sim] FATAL: heap canary smashed - buffer overrun past \
                                     allocation end (mem-diag offensive mode)\n";
-                        unsafe {
-                            libc::write(2, msg.as_ptr() as *const _, msg.len());
-                        }
+                        raw_stderr(msg);
                         std::process::abort();
                     }
                 }
@@ -566,10 +592,8 @@ unsafe impl GlobalAlloc for CappedAllocator {
                 if let Some(heap) = guard.as_mut() {
                     if let Err(msg) = heap.free((addr - base) as u32) {
                         drop(guard);
-                        unsafe {
-                            libc::write(2, msg.as_ptr() as *const _, msg.len());
-                            libc::write(2, b"\n".as_ptr() as *const _, 1);
-                        }
+                        raw_stderr(msg.as_bytes());
+                        raw_stderr(b"\n");
                         std::process::abort();
                     }
                 }
@@ -595,58 +619,82 @@ unsafe impl GlobalAlloc for CappedAllocator {
 mod tests {
     use super::*;
 
+    /// A block handed out by [`alloc`], owning the pointer until [`free`]
+    /// consumes it. Only `alloc` builds one, so `free` always returns a
+    /// pointer to the allocator that produced it, with its own layout.
+    struct Block<'a> {
+        from: &'a CappedAllocator,
+        ptr: *mut u8,
+        layout: Layout,
+    }
+
+    /// `GlobalAlloc::alloc` for the tests; `None` is the allocator's null.
+    fn alloc(from: &CappedAllocator, layout: Layout) -> Option<Block<'_>> {
+        assert_ne!(layout.size(), 0, "GlobalAlloc::alloc needs a non-zero size");
+        // SAFETY: the layout's size is non-zero (asserted above), the only
+        // precondition of `GlobalAlloc::alloc`.
+        let ptr = unsafe { GlobalAlloc::alloc(from, layout) };
+        (!ptr.is_null()).then_some(Block { from, ptr, layout })
+    }
+
+    /// `GlobalAlloc::dealloc` of a block from [`alloc`].
+    fn free(b: Block<'_>) {
+        // SAFETY: a `Block` is only built by `alloc` from a non-null pointer
+        // that `b.from` returned for `b.layout`, and `free` takes it by value,
+        // so the pointer is live, currently allocated by this allocator with
+        // this layout, and freed exactly once.
+        unsafe { GlobalAlloc::dealloc(b.from, b.ptr, b.layout) };
+    }
+
     /// Uncapped-mode metering (legacy counter behavior behind `-l 0`).
     #[test]
     fn uncapped_tracking_accuracy() {
-        let alloc = CappedAllocator::new();
-        alloc.set_limit_for_test(usize::MAX);
-        alloc.arm_for_test();
+        let heap = CappedAllocator::new();
+        heap.set_limit_for_test(usize::MAX);
+        heap.arm_for_test();
         let layout = Layout::from_size_align(256, 8).unwrap();
 
-        let ptr = unsafe { GlobalAlloc::alloc(&alloc, layout) };
-        assert!(!ptr.is_null());
-        let (current, peak, _) = alloc.heap_stats();
+        let b = alloc(&heap, layout).expect("alloc");
+        let (current, peak, _) = heap.heap_stats();
         assert_eq!(current, 256);
         assert_eq!(peak, 256);
 
-        unsafe { GlobalAlloc::dealloc(&alloc, ptr, layout) };
-        let (current, peak, _) = alloc.heap_stats();
+        free(b);
+        let (current, peak, _) = heap.heap_stats();
         assert_eq!(current, 0);
         assert_eq!(peak, 256); // peak unchanged
     }
 
     #[test]
     fn unarmed_allocations_are_not_counted() {
-        let alloc = CappedAllocator::new();
-        alloc.set_limit_for_test(usize::MAX);
+        let heap = CappedAllocator::new();
+        heap.set_limit_for_test(usize::MAX);
         let layout = Layout::from_size_align(512, 8).unwrap();
-        let ptr = unsafe { GlobalAlloc::alloc(&alloc, layout) };
-        assert!(!ptr.is_null());
+        let b = alloc(&heap, layout).expect("alloc");
         assert_eq!(
-            alloc.heap_stats().0,
+            heap.heap_stats().0,
             0,
             "pre-arm allocs have no device analog"
         );
-        unsafe { GlobalAlloc::dealloc(&alloc, ptr, layout) };
-        assert_eq!(alloc.heap_stats().0, 0);
+        free(b);
+        assert_eq!(heap.heap_stats().0, 0);
     }
 
     /// Capped mode is a real heap_4 arena: device header costs, real OOM,
     /// and device-comparable stats.
     #[test]
     fn arena_mode_charges_heap4_costs_and_ooms() {
-        let alloc = CappedAllocator::new();
-        alloc.set_limit_for_test(64 * 1024);
-        alloc.arm_for_test();
+        let heap = CappedAllocator::new();
+        heap.set_limit_for_test(64 * 1024);
+        heap.arm_for_test();
 
         // The pxEnd marker occupies 8 B of the arena forever — the device's
         // `configTOTAL_HEAP_SIZE - xPortGetFreeHeapSize` includes it too.
         const PXEND: usize = 8;
 
         let layout = Layout::from_size_align(1, 1).unwrap();
-        let p = unsafe { GlobalAlloc::alloc(&alloc, layout) };
-        assert!(!p.is_null());
-        let (current, _, limit) = alloc.heap_stats();
+        let p = alloc(&heap, layout).expect("alloc");
+        let (current, _, limit) = heap.heap_stats();
         assert_eq!(limit, 64 * 1024);
         assert_eq!(
             current,
@@ -654,40 +702,38 @@ mod tests {
             "1-byte alloc costs a 16 B heap_4 block (plus the pxEnd marker)"
         );
 
-        unsafe { GlobalAlloc::dealloc(&alloc, p, layout) };
-        assert_eq!(alloc.heap_stats().0, PXEND);
+        free(p);
+        assert_eq!(heap.heap_stats().0, PXEND);
 
         // Exhaust the arena → null, like pvPortMalloc.
         let big = Layout::from_size_align(60 * 1024, 8).unwrap();
-        let a = unsafe { GlobalAlloc::alloc(&alloc, big) };
-        assert!(!a.is_null());
-        let b = unsafe { GlobalAlloc::alloc(&alloc, big) };
-        assert!(b.is_null(), "second 60 KB cannot fit a 64 KB arena");
-        unsafe { GlobalAlloc::dealloc(&alloc, a, big) };
-        let c = unsafe { GlobalAlloc::alloc(&alloc, big) };
-        assert!(!c.is_null(), "freed arena space is reusable");
-        unsafe { GlobalAlloc::dealloc(&alloc, c, big) };
+        let a = alloc(&heap, big).expect("first 60 KB fits");
+        assert!(
+            alloc(&heap, big).is_none(),
+            "second 60 KB cannot fit a 64 KB arena"
+        );
+        free(a);
+        let c = alloc(&heap, big).expect("freed arena space is reusable");
+        free(c);
     }
 
     #[test]
     fn bypass_allocations_stay_off_the_arena() {
-        let alloc = CappedAllocator::new();
-        alloc.set_limit_for_test(64 * 1024);
-        alloc.arm_for_test();
+        let heap = CappedAllocator::new();
+        heap.set_limit_for_test(64 * 1024);
+        heap.arm_for_test();
         let layout = Layout::from_size_align(4096, 8).unwrap();
 
         // Trigger arena creation with one small counted alloc.
-        let counted = unsafe { GlobalAlloc::alloc(&alloc, layout) };
-        assert!(!counted.is_null());
-        let used_before = alloc.heap_stats().0;
+        let counted = alloc(&heap, layout).expect("alloc");
+        let used_before = heap.heap_stats().0;
 
         let p = {
             let _bypass = bypass();
-            unsafe { GlobalAlloc::alloc(&alloc, layout) }
+            alloc(&heap, layout).expect("bypassed alloc")
         };
-        assert!(!p.is_null());
         assert_eq!(
-            alloc.heap_stats().0,
+            heap.heap_stats().0,
             used_before,
             "bypassed alloc is uncounted"
         );
@@ -695,15 +741,15 @@ mod tests {
         // Freed OUTSIDE the bypass region: pointer-range routing sends it to
         // the host allocator, and the arena books stay balanced. (The old
         // "balance rule" made this an accounting bug; now it's just correct.)
-        unsafe { GlobalAlloc::dealloc(&alloc, p, layout) };
-        assert_eq!(alloc.heap_stats().0, used_before);
+        free(p);
+        assert_eq!(heap.heap_stats().0, used_before);
 
         // And an arena pointer freed INSIDE a bypass region still returns to
         // the arena. Only the 8 B pxEnd marker remains occupied.
         {
             let _bypass = bypass();
-            unsafe { GlobalAlloc::dealloc(&alloc, counted, layout) };
+            free(counted);
         }
-        assert_eq!(alloc.heap_stats().0, 8);
+        assert_eq!(heap.heap_stats().0, 8);
     }
 }

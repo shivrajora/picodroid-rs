@@ -155,24 +155,34 @@ impl Default for IdleTimer {
     }
 }
 
-// SAFETY: UI-task state: the input callbacks and the main loop run on the
-// JVM task.
-static TIMER: Core0<Cell<IdleTimer>> = unsafe { Core0::new(Cell::new(IdleTimer::new())) };
-/// How many live views keep the screen on.
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static KEEP_ON: Core0<Cell<u32>> = unsafe { Core0::new(Cell::new(0)) };
-/// The stored timeout once read: `Some(Some(ms))`, `Some(None)` for never,
-/// `None` before the first read.
-// SAFETY: UI-task state.
-static STORED_TIMEOUT: Core0<Cell<Option<Option<u64>>>> = unsafe { Core0::new(Cell::new(None)) };
-/// How many times the panel has dozed: the number in the log lines.
-// SAFETY: UI-task state.
-static DOZES: Core0<Cell<u32>> = unsafe { Core0::new(Cell::new(0)) };
+/// The module's state, one `Core0` for all of it.
+struct Power {
+    timer: Cell<IdleTimer>,
+    /// How many live views keep the screen on.
+    keep_on: Cell<u32>,
+    /// The stored timeout once read: `Some(Some(ms))`, `Some(None)` for
+    /// never, `None` before the first read.
+    stored_timeout: Cell<Option<Option<u64>>>,
+    /// How many times the panel has dozed: the number in the log lines.
+    dozes: Cell<u32>,
+}
+
+// SAFETY: UI-task and widget-layer state: the input callbacks, the main loop
+// and the views that hold the screen on all run on core-0 JVM tasks; no
+// interrupt handler or core-1 task calls into this module.
+static STATE: Core0<Power> = unsafe {
+    Core0::new(Power {
+        timer: Cell::new(IdleTimer::new()),
+        keep_on: Cell::new(0),
+        stored_timeout: Cell::new(None),
+        dozes: Cell::new(0),
+    })
+};
 
 fn with_timer<R>(f: impl FnOnce(&mut IdleTimer) -> R) -> R {
-    let mut t = TIMER.get();
+    let mut t = STATE.timer.get();
     let r = f(&mut t);
-    TIMER.set(t);
+    STATE.timer.set(t);
     r
 }
 
@@ -187,7 +197,7 @@ pub fn user_activity() {
 
 /// Whether the panel is on (`PowerManager.isInteractive()`).
 pub fn is_interactive() -> bool {
-    !TIMER.get().dozing()
+    !STATE.timer.get().dozing()
 }
 
 /// Doze on the next tick (`KEYCODE_SLEEP`, or `KEYCODE_POWER` while awake).
@@ -212,23 +222,25 @@ pub fn request_toggle() {
 
 /// A view set `keepScreenOn`, or dropped it (deleted, or set it false).
 pub fn hold_screen(on: bool) {
-    let n = KEEP_ON.get();
-    KEEP_ON.set(if on { n + 1 } else { n.saturating_sub(1) });
+    let n = STATE.keep_on.get();
+    STATE
+        .keep_on
+        .set(if on { n + 1 } else { n.saturating_sub(1) });
 }
 
 /// Forget every hold: the app that held them is gone.
 pub fn reset_holds() {
-    KEEP_ON.set(0);
+    STATE.keep_on.set(0);
 }
 
 /// The screen timeout in force: the stored setting, else the board's
 /// default. `None` is never.
 pub fn timeout_ms() -> Option<u64> {
-    match STORED_TIMEOUT.get() {
+    match STATE.stored_timeout.get() {
         Some(stored) => stored,
         None => {
             let stored = load_stored().unwrap_or(IDLE_TIMEOUT_MS);
-            STORED_TIMEOUT.set(Some(stored));
+            STATE.stored_timeout.set(Some(stored));
             stored
         }
     }
@@ -238,7 +250,7 @@ pub fn timeout_ms() -> Option<u64> {
 /// stored.
 pub fn set_timeout_ms(ms: u32) -> bool {
     let value = if ms == 0 { None } else { Some(u64::from(ms)) };
-    STORED_TIMEOUT.set(Some(value));
+    STATE.stored_timeout.set(Some(value));
     save_stored(ms)
 }
 
@@ -246,17 +258,17 @@ pub fn set_timeout_ms(ms: u32) -> bool {
 /// pending. Stamps the activity on a wake and counts a doze.
 pub fn poll(key_pending: bool, touch_pending: bool) -> Transition {
     let timeout = timeout_ms();
-    let held = KEEP_ON.get() > 0;
+    let held = STATE.keep_on.get() > 0;
     let t = with_timer(|t| t.poll(now_ms(), timeout, held, key_pending, touch_pending));
     if matches!(t, Transition::Doze(_)) {
-        DOZES.set(DOZES.get() + 1);
+        STATE.dozes.set(STATE.dozes.get() + 1);
     }
     t
 }
 
 /// The number of the doze in progress or just ended, for the log.
 pub fn doze_number() -> u32 {
-    DOZES.get()
+    STATE.dozes.get()
 }
 
 #[cfg(not(test))]

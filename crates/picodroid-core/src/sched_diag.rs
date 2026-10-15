@@ -53,8 +53,8 @@
 //! stack.
 
 use core::ffi::{c_char, c_ulong};
-use core::ptr::{addr_of, addr_of_mut, read_volatile, write_volatile};
-use core::sync::atomic::{compiler_fence, fence, Ordering};
+use core::ptr::{addr_of, addr_of_mut};
+use core::sync::atomic::{compiler_fence, fence, AtomicBool, AtomicU32, Ordering};
 
 use crate::task_priority::{PRIORITY_JVM_NORM, PRIORITY_RT_1};
 
@@ -315,49 +315,59 @@ static mut LIVE: Live = Live::new();
 
 /// Hook-side accessor (kernel locks held).
 fn live() -> &'static mut Live {
+    // SAFETY: the table's writers are the kernel hooks, serialised by the
+    // kernel's own locks (module note), plus `init`/`exempt_task` before the
+    // hooks report anything and the tolerated plain stores of `note_spin` /
+    // `note_busy_delay`. Each caller holds the reference for one hook body
+    // and never across a call that re-enters a hook.
     unsafe { &mut *addr_of_mut!(LIVE) }
 }
 
 /// The report the closing hook fills, guarded by [`PENDING_SEQ`] (odd while
 /// being written).
 static mut PENDING: Report = Report::EMPTY;
-static mut PENDING_SEQ: u32 = 0;
-/// Last sequence the printer took.
-static mut CONSUMED_SEQ: u32 = 0;
+/// Load/store only, never read-modify-write: thumbv6m has no CAS, and the
+/// closing hook is the one writer. The `SeqCst` fences around the `PENDING`
+/// copy order these against the report's plain fields.
+static PENDING_SEQ: AtomicU32 = AtomicU32::new(0);
+/// Last sequence the printer took. Written by the printer only.
+static CONSUMED_SEQ: AtomicU32 = AtomicU32::new(0);
 /// The printer's copy. A static, not a stack frame: the idle task's stack
 /// is the kernel's minimum.
 static mut PRINTING: Report = Report::EMPTY;
 
+/// Configuration, set once by [`init`] on the JVM task and read after. Three
+/// relaxed flags: none orders other memory.
 struct Config {
-    strict: bool,
-    selftest: bool,
-    selftest_done: bool,
+    strict: AtomicBool,
+    selftest: AtomicBool,
+    selftest_done: AtomicBool,
 }
 
-static mut CFG: Config = Config {
-    strict: false,
-    selftest: false,
-    selftest_done: false,
+static CFG: Config = Config {
+    strict: AtomicBool::new(false),
+    selftest: AtomicBool::new(false),
+    selftest_done: AtomicBool::new(false),
 };
-
-fn cfg() -> &'static mut Config {
-    unsafe { &mut *addr_of_mut!(CFG) }
-}
 
 // ── Time ────────────────────────────────────────────────────────────────────
 
-extern "C" {
+unsafe extern "C" {
     /// The run-time-stats counter every FreeRTOS-hosted platform provides:
     /// a free-running 32-bit microsecond count (the RP family's hardware
     /// timer, `Instant`-based in the simulator). Wraps every ~71 minutes;
     /// everything here is a wrapping difference.
-    fn picodroid_get_runtime_counter() -> u32;
+    ///
+    /// `safe`: it takes nothing and only reads a counter — a volatile load
+    /// of the always-running `TIMERAWL` register on the device
+    /// (`pico_shim_rp20x0.c`), `Instant::elapsed` in the simulator — so it
+    /// is sound from any context, interrupts included.
+    safe fn picodroid_get_runtime_counter() -> u32;
 }
 
 #[inline]
 fn now_us() -> u32 {
-    // SAFETY: a read of a free-running counter, valid from any context.
-    unsafe { picodroid_get_runtime_counter() }
+    picodroid_get_runtime_counter()
 }
 
 // ── Names ───────────────────────────────────────────────────────────────────
@@ -521,18 +531,21 @@ fn close_window(live: &mut Live, now: u32) {
 
     live.window_index = live.window_index.wrapping_add(1);
 
-    // SAFETY: single writer (see the module note); the printer only reads
-    // PENDING between two equal even reads of PENDING_SEQ.
-    unsafe {
-        let seq = read_volatile(addr_of!(PENDING_SEQ));
-        if seq != read_volatile(addr_of!(CONSUMED_SEQ)) {
-            live.lost = live.lost.wrapping_add(1);
-        } else {
-            live.lost = 0;
-        }
-        write_volatile(addr_of_mut!(PENDING_SEQ), seq.wrapping_add(1));
-        fence(Ordering::SeqCst);
-        let p = &mut *addr_of_mut!(PENDING);
+    let seq = PENDING_SEQ.load(Ordering::Relaxed);
+    if seq != CONSUMED_SEQ.load(Ordering::Relaxed) {
+        live.lost = live.lost.wrapping_add(1);
+    } else {
+        live.lost = 0;
+    }
+    PENDING_SEQ.store(seq.wrapping_add(1), Ordering::Relaxed);
+    fence(Ordering::SeqCst);
+    {
+        // SAFETY: the closing hook is PENDING's single writer (the module
+        // note: it runs under the kernel's locks), and the printer only
+        // trusts a copy of it taken between two equal even reads of
+        // PENDING_SEQ, which is odd from the store above until the one
+        // below.
+        let p = unsafe { &mut *addr_of_mut!(PENDING) };
         p.window = live.window_index;
         p.elapsed_us = elapsed;
         p.lost = live.lost;
@@ -564,9 +577,9 @@ fn close_window(live: &mut Live, now: u32) {
                 p.n_rows += 1;
             }
         }
-        fence(Ordering::SeqCst);
-        write_volatile(addr_of_mut!(PENDING_SEQ), seq.wrapping_add(2));
     }
+    fence(Ordering::SeqCst);
+    PENDING_SEQ.store(seq.wrapping_add(2), Ordering::Relaxed);
 
     for s in live.slots.iter_mut() {
         s.switch_ins = 0;
@@ -682,13 +695,12 @@ pub extern "C" fn vApplicationTickHook() {
     let live = live();
     let now = now_us();
     let elapsed = now.wrapping_sub(live.window_start_us);
-    // SAFETY: see `flush`.
-    let flush = unsafe { read_volatile(addr_of!(FLUSH_REQUESTED)) };
+    let flush = FLUSH_REQUESTED.load(Ordering::Relaxed);
     if elapsed >= live.window_us || (flush && elapsed > 0) {
         close_window(live, now);
     }
     if flush {
-        unsafe { write_volatile(addr_of_mut!(FLUSH_REQUESTED), false) };
+        FLUSH_REQUESTED.store(false, Ordering::Relaxed);
     }
     for core in 0..MAX_CORES {
         let r = live.running[core];
@@ -794,7 +806,7 @@ fn env_flag(name: &str) -> bool {
 /// build time (`option_env!`, the `mem_diag::apply_device_flags` pattern),
 /// the window is fixed.
 pub fn init() {
-    let c = cfg();
+    let c = &CFG;
     let live = live();
     #[cfg(feature = "sim")]
     {
@@ -804,30 +816,42 @@ pub fn init() {
             .filter(|ms| *ms >= MIN_WINDOW_MS)
             .unwrap_or(DEFAULT_WINDOW_MS);
         live.window_us = window_ms * 1000;
-        c.strict = env_flag("PICODROID_SCHEDDIAG_STRICT");
-        c.selftest = env_flag("PICODROID_SCHEDDIAG_SELFTEST");
+        c.strict
+            .store(env_flag("PICODROID_SCHEDDIAG_STRICT"), Ordering::Relaxed);
+        c.selftest
+            .store(env_flag("PICODROID_SCHEDDIAG_SELFTEST"), Ordering::Relaxed);
     }
     #[cfg(not(feature = "sim"))]
     {
-        c.strict = matches!(option_env!("PICODROID_SCHEDDIAG_STRICT"), Some("1"));
-        c.selftest = matches!(option_env!("PICODROID_SCHEDDIAG_SELFTEST"), Some("1"));
+        c.strict.store(
+            matches!(option_env!("PICODROID_SCHEDDIAG_STRICT"), Some("1")),
+            Ordering::Relaxed,
+        );
+        c.selftest.store(
+            matches!(option_env!("PICODROID_SCHEDDIAG_SELFTEST"), Some("1")),
+            Ordering::Relaxed,
+        );
     }
+    let (strict, selftest) = (
+        c.strict.load(Ordering::Relaxed),
+        c.selftest.load(Ordering::Relaxed),
+    );
     #[cfg(feature = "sim")]
     {
         let _b = crate::host::heap_bypass();
         println!(
             "[schedmon] scheddiag: ACTIVE (window={}ms strict={} selftest={})",
             live.window_us / 1000,
-            if c.strict { "on" } else { "off" },
-            if c.selftest { "on" } else { "off" },
+            if strict { "on" } else { "off" },
+            if selftest { "on" } else { "off" },
         );
     }
     #[cfg(not(feature = "sim"))]
     defmt::info!(
         "scheddiag: ACTIVE (window={=u32}ms strict={=bool} selftest={=bool})",
         live.window_us / 1000,
-        c.strict,
-        c.selftest
+        strict,
+        selftest
     );
 }
 
@@ -837,14 +861,14 @@ pub fn init() {
 /// a `HOG` (and abort on, in strict mode). Proves the path end to end
 /// rather than only that healthy apps stay quiet.
 pub fn selftest_on_timer_task() {
-    let c = cfg();
-    if !c.selftest || c.selftest_done {
+    let c = &CFG;
+    if !c.selftest.load(Ordering::Relaxed) || c.selftest_done.load(Ordering::Relaxed) {
         return;
     }
     if live().window_index == 0 {
         return;
     }
-    c.selftest_done = true;
+    c.selftest_done.store(true, Ordering::Relaxed);
     let t0 = now_us();
     // spin-ok: the sched-diag self-test hogs the timer task on purpose
     while now_us().wrapping_sub(t0) < 5_000 {
@@ -865,15 +889,13 @@ pub fn idle_hook() {
 /// [`print_pending`] starts with, for the simulator's printer thread to
 /// poll without taking its lock.
 pub fn has_pending() -> bool {
-    // SAFETY: plain reads of the two sequence words, see `close_window`.
-    unsafe {
-        let seq = read_volatile(addr_of!(PENDING_SEQ));
-        seq & 1 == 0 && seq != read_volatile(addr_of!(CONSUMED_SEQ))
-    }
+    let seq = PENDING_SEQ.load(Ordering::Relaxed);
+    seq & 1 == 0 && seq != CONSUMED_SEQ.load(Ordering::Relaxed)
 }
 
 /// Set by [`flush`], honoured by the next tick hook: close the window now.
-static mut FLUSH_REQUESTED: bool = false;
+/// Written by the exit path and cleared by the hook; a plain flag.
+static FLUSH_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 /// App exit, from the JVM task: report the window in progress, so an app
 /// that ran flat out for under a second (the interpreter benchmark) or
@@ -885,9 +907,7 @@ static mut FLUSH_REQUESTED: bool = false;
 /// still pending. Strict mode applies to the partial window as to any other.
 pub fn flush() {
     printer();
-    // SAFETY: a plain store the tick hook reads; the only writer besides
-    // the hook's clear is this exit path.
-    unsafe { write_volatile(addr_of_mut!(FLUSH_REQUESTED), true) };
+    FLUSH_REQUESTED.store(true, Ordering::Relaxed);
     crate::rtos::delay_ms(2);
     printer();
 }
@@ -912,24 +932,28 @@ fn printer() {
 /// only one at a time: the device's idle hook or its exit flush, the
 /// simulator's printer thread or its flush under that thread's lock.
 pub fn print_pending() {
-    // SAFETY: reads guarded by PENDING_SEQ, see `close_window`; PRINTING is
-    // touched only here.
+    let seq = PENDING_SEQ.load(Ordering::Relaxed);
+    if seq & 1 == 1 || seq == CONSUMED_SEQ.load(Ordering::Relaxed) {
+        return;
+    }
+    fence(Ordering::SeqCst);
+    // SAFETY: the caller is the only printer (this function's contract) and
+    // PRINTING is touched only here, so the copy's destination is unaliased
+    // and the shared borrow of it lasts until this call returns, before the
+    // next `print_pending` can rewrite it. PENDING may be mid-rewrite by the
+    // closing hook; the copy is a plain byte copy of a report of plain
+    // integers, and a torn one is discarded by the sequence check below.
     let report = unsafe {
-        let seq = read_volatile(addr_of!(PENDING_SEQ));
-        if seq & 1 == 1 || seq == read_volatile(addr_of!(CONSUMED_SEQ)) {
-            return;
-        }
-        fence(Ordering::SeqCst);
         core::ptr::copy_nonoverlapping(addr_of!(PENDING), addr_of_mut!(PRINTING), 1);
-        fence(Ordering::SeqCst);
-        if read_volatile(addr_of!(PENDING_SEQ)) != seq {
-            return;
-        }
-        write_volatile(addr_of_mut!(CONSUMED_SEQ), seq);
         &*addr_of!(PRINTING)
     };
+    fence(Ordering::SeqCst);
+    if PENDING_SEQ.load(Ordering::Relaxed) != seq {
+        return;
+    }
+    CONSUMED_SEQ.store(seq, Ordering::Relaxed);
     print_report(report);
-    if cfg().strict && report.any_finding() {
+    if CFG.strict.load(Ordering::Relaxed) && report.any_finding() {
         strict_abort(report);
     }
 }

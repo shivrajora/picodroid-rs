@@ -100,12 +100,11 @@ pub(crate) fn with_region<R>(f: impl FnOnce(&mut MemRegion) -> R) -> Option<R> {
 /// gives a system app on a device. A PAPK's class section is read in place
 /// as `u16` words and 8-byte index entries; a `Vec<u8>` promises neither.
 fn leak_aligned(bytes: &[u8]) -> &'static [u8] {
-    let words: &'static mut [u64] =
-        Box::leak(vec![0u64; bytes.len().div_ceil(8)].into_boxed_slice());
-    // SAFETY: `words` holds at least `bytes.len()` bytes; a `u8` view of it,
-    // filled once here and never written again.
-    let dst =
-        unsafe { core::slice::from_raw_parts_mut(words.as_mut_ptr().cast::<u8>(), bytes.len()) };
+    // Seven spare bytes, so an 8-aligned window fits wherever the buffer
+    // landed (`MemRegion::new`'s way).
+    let buf: &'static mut [u8] = Box::leak(vec![0u8; bytes.len() + 7].into_boxed_slice());
+    let start = (8 - buf.as_ptr() as usize % 8) % 8;
+    let dst = &mut buf[start..start + bytes.len()];
     dst.copy_from_slice(bytes);
     dst
 }

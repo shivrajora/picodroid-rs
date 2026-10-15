@@ -54,7 +54,7 @@ pub use device::spawn;
 
 #[cfg(all(not(feature = "sim"), any_sensor))]
 mod device {
-    use core::cell::UnsafeCell;
+    use core::sync::atomic::{AtomicUsize, Ordering};
 
     use crate::rtos::{self, RawSem, TaskKind, TaskSpec, Timeout};
 
@@ -79,14 +79,12 @@ mod device {
     /// stall sampling by this much.
     const MAX_WAIT_MS: u64 = 1000;
 
-    struct SemCell(UnsafeCell<RawSem>);
-    // SAFETY: written once pre-scheduler; only read afterwards.
-    unsafe impl Sync for SemCell {}
-    /// `0` until `spawn()` creates it.
-    static WAKE: SemCell = SemCell(UnsafeCell::new(0));
+    /// The wake semaphore's handle (a [`RawSem`]), `0` until `spawn()`
+    /// creates it. Written once, pre-scheduler; a relaxed load suffices.
+    static WAKE: AtomicUsize = AtomicUsize::new(0);
 
     fn wake_sem() -> Option<RawSem> {
-        match unsafe { *WAKE.0.get() } {
+        match WAKE.load(Ordering::Relaxed) {
             0 => None,
             s => Some(s),
         }
@@ -108,10 +106,7 @@ mod device {
     /// and Java `I2cDevice` users may share a bus (per-transfer bus locks
     /// make that safe once init has happened).
     pub fn spawn() {
-        // SAFETY: pre-scheduler, single-threaded.
-        unsafe {
-            *WAKE.0.get() = rtos::sem_binary_create();
-        }
+        WAKE.store(rtos::sem_binary_create(), Ordering::Relaxed);
         for cfg in sensor_table::SENSORS {
             crate::hal::i2c::init(cfg.bus_id);
         }

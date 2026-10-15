@@ -128,9 +128,17 @@ const ERR_EADDRINUSE: i32 = -112;
 const ERR_ETIMEDOUT: i32 = -116;
 const ERR_ENOTCONN: i32 = -128;
 
-// FreeRTOS+TCP socket FFI (hand-written bindings).
-extern "C" {
-    fn FreeRTOS_socket(domain: i32, r#type: i32, protocol: i32) -> *mut c_void;
+// FreeRTOS+TCP socket FFI (hand-written bindings). The calls marked `safe`
+// take only scalars and have no precondition a bad value can break:
+// `FreeRTOS_socket` checks the network task is up and the domain, type and
+// protocol are a valid triple, answering `FREERTOS_INVALID_SOCKET` otherwise
+// (its `configASSERT`s are no-ops on the device build), and returns an owned
+// handle that is merely leaked if dropped; `FreeRTOS_GetIPAddress` and
+// `FreeRTOS_IsNetworkUp` only read the endpoint list, which is empty, not
+// dangling, before the stack starts. Like every kernel call here they run in
+// task context, never from an interrupt.
+unsafe extern "C" {
+    safe fn FreeRTOS_socket(domain: i32, r#type: i32, protocol: i32) -> *mut c_void;
 
     fn FreeRTOS_bind(socket: *mut c_void, addr: *const FreertosSocketAddr, addr_len: u32) -> i32;
 
@@ -181,8 +189,8 @@ extern "C" {
         option_len: u32,
     ) -> i32;
 
-    fn FreeRTOS_GetIPAddress() -> u32;
-    fn FreeRTOS_IsNetworkUp() -> i32;
+    safe fn FreeRTOS_GetIPAddress() -> u32;
+    safe fn FreeRTOS_IsNetworkUp() -> i32;
 
     fn FreeRTOS_gethostbyname(pc_host_name: *const u8) -> u32;
 }
@@ -316,9 +324,7 @@ fn bind_kind(ret: i32) -> NetErrorKind {
 impl HalNet for FreeRtosTcpNet {
     /// Create a TCP socket.  Returns a handle (pointer cast to i32 via handle table).
     fn tcp_socket() -> Result<*mut c_void, NetError> {
-        let sock = unsafe {
-            FreeRTOS_socket(FREERTOS_AF_INET, FREERTOS_SOCK_STREAM, FREERTOS_IPPROTO_TCP)
-        };
+        let sock = FreeRTOS_socket(FREERTOS_AF_INET, FREERTOS_SOCK_STREAM, FREERTOS_IPPROTO_TCP);
         if socket_invalid(sock) {
             return Err(NetError::other(-1));
         }
@@ -430,8 +436,7 @@ impl HalNet for FreeRtosTcpNet {
 
     /// Create a UDP socket bound to a local port.
     fn udp_socket(local_port: u16) -> Result<*mut c_void, NetError> {
-        let sock =
-            unsafe { FreeRTOS_socket(FREERTOS_AF_INET, FREERTOS_SOCK_DGRAM, FREERTOS_IPPROTO_UDP) };
+        let sock = FreeRTOS_socket(FREERTOS_AF_INET, FREERTOS_SOCK_DGRAM, FREERTOS_IPPROTO_UDP);
         if socket_invalid(sock) {
             return Err(NetError::other(-1));
         }
@@ -521,14 +526,14 @@ impl HalNet for FreeRtosTcpNet {
     /// IP — the stack is only usable once DHCP (or static config) has
     /// produced an address.
     fn is_network_up() -> bool {
-        unsafe { FreeRTOS_IsNetworkUp() != 0 && FreeRTOS_GetIPAddress() != 0 }
+        FreeRTOS_IsNetworkUp() != 0 && FreeRTOS_GetIPAddress() != 0
     }
 
     /// Get the assigned IP address (from DHCP or static config), in the
     /// picodroid HAL convention (MSB = first octet) — matching the sim HAL
     /// and `picodroid.net.InetAddress`.
     fn get_ip_address() -> u32 {
-        unsafe { FreeRTOS_GetIPAddress() }.swap_bytes()
+        FreeRTOS_GetIPAddress().swap_bytes()
     }
 
     /// Resolve a hostname to a packed IPv4 address in the picodroid HAL

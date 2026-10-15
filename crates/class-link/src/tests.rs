@@ -36,23 +36,29 @@ static CALLER: &[u8] = &[
     0x00, 0x00,
 ];
 
-/// A copy of `bytes` at an 8-byte aligned address (a `Vec<u8>` promises
-/// nothing), as the section reader requires.
-fn aligned(bytes: &[u8]) -> Vec<u64> {
-    let mut v = vec![0u64; bytes.len().div_ceil(8)];
-    // SAFETY: `v` holds at least `bytes.len()` bytes; a `u8` view of `u64`s.
-    let dst = unsafe { core::slice::from_raw_parts_mut(v.as_mut_ptr().cast::<u8>(), bytes.len()) };
-    dst.copy_from_slice(bytes);
-    v
+/// A copy of some bytes at an 8-byte aligned address (a `Vec<u8>` promises
+/// nothing), as the section reader requires: seven spare bytes, so an
+/// 8-aligned window fits wherever the allocator put the buffer.
+struct Aligned {
+    bytes: Vec<u8>,
+    start: usize,
 }
 
-fn as_bytes(v: &[u64], len: usize) -> &[u8] {
-    // SAFETY: `v` holds at least `len` bytes.
-    unsafe { core::slice::from_raw_parts(v.as_ptr().cast::<u8>(), len) }
+fn aligned(bytes: &[u8]) -> Aligned {
+    // Never resized after this, so the window stays where it is.
+    let mut copy = vec![0u8; bytes.len() + 7];
+    let start = (8 - copy.as_ptr() as usize % 8) % 8;
+    copy[start..start + bytes.len()].copy_from_slice(bytes);
+    Aligned { bytes: copy, start }
+}
+
+/// The first `len` bytes of the aligned copy.
+fn as_bytes(v: &Aligned, len: usize) -> &[u8] {
+    &v.bytes[v.start..v.start + len]
 }
 
 /// A linked section, aligned, to read classes out of.
-struct Sec(Vec<u64>, usize);
+struct Sec(Aligned, usize);
 
 impl Sec {
     fn of(classes: &[&[u8]]) -> Sec {
