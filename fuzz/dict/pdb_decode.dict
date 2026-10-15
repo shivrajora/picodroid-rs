@@ -1,0 +1,10 @@
+# libFuzzer dictionary for the pdb_decode target (scripts/fuzz.sh passes it).
+"picodroid/2.4"
+"picodroid/2.0"
+"picodroid/2.3"
+"\x01"
+"\x02"
+"\x03"
+"\x00\x00\x10\x00"
+"testbench_rp2350"
+"0.40.0"

@@ -3,6 +3,11 @@ name: Rust Nightly Reference Build
 # The `building` job of ci_checks.yml on nightly Rust: an early warning of what
 # the next stable will break, never a gate. Weekly, because a per-push run told
 # us nothing a weekly one does not. Keep the steps in step with `building`.
+#
+# `fuzzing` builds the cargo-fuzz shims (nightly-only, so no other workflow
+# compiles them) and gives every target a minute from its committed seeds.
+# The real search is the bench's 1 AM scripts/fuzz.sh --nightly; this only
+# keeps fuzz/ from rotting where the bench machine cannot see it.
 on:
   schedule:
     - cron: '0 12 * * 1'
@@ -64,3 +69,31 @@ jobs:
       # local `./scripts/pre-commit --full` shrink_image stage.
       - run: bash scripts/build.sh --board testbench_rp2350 --app helloworld --release --shrink --shrink-app
       - run: bash scripts/check-shrunk-image.sh target/thumbv8m.main-none-eabihf/release/picodroid helloworld/
+
+  fuzzing:
+    name: Fuzz targets (nightly Rust)
+    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: fuzz-nightly
+          workspaces: fuzz
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
+      - run: bash scripts/fuzz.sh --build
+      - run: bash scripts/fuzz.sh --target all --time 60 --jobs 2
+      - name: Upload findings
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-findings
+          path: |
+            build/fuzz/crashes
+            build/fuzz/logs
+          retention-days: 30

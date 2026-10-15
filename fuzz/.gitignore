@@ -1,0 +1,6 @@
+# cargo-fuzz's own default directories. scripts/fuzz.sh keeps the living
+# corpus and the findings under build/fuzz/ instead; what is committed is
+# regress/ (seeds and reproducers) and dict/.
+artifacts/
+corpus/
+coverage/

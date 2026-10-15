@@ -191,6 +191,9 @@ STAGES=(
   "clippy_host_tools|host|fast|rust|clippy (host tools)"
   "clippy_sim_memdiag|host|full|rust|clippy (sim + mem-diag)"
   "clippy_sim_scheddiag|host|full|rust|clippy (sim + sched-diag)"
+  # The libFuzzer shims build only on nightly; nothing else compiles them
+  # between the weekly rust_nightly.yml run and the 1 AM fuzz nightly.
+  "fuzz_build|host|full|rust|fuzz targets build (cargo-fuzz, nightly)"
 
   "clippy_rp2040|arm6|fast|rust|clippy (testbench_rp2040)"
   "clippy_rp2040_legacy_cast|arm6|full|rust|clippy (testbench_rp2040 + legacy-handle-cast)"
@@ -508,7 +511,7 @@ stage_clippy_sim() { clippy_sim_features "sim,board-testbench-rp2350,line-number
 stage_clippy_host_tools() {
   # shellcheck disable=SC2086
   if ! cargo $LINT_PLUS clippy -p pdb -p papk-pack -p papk-info -p class-shrink \
-         -p picodroid-build-support --all-targets --all-features \
+         -p picodroid-build-support -p fuzz-targets --all-targets --all-features \
          --jobs "$JOBS" --target "$HOST_TARGET" -- --deny=warnings; then
     echo ""
     echo "ERROR: Clippy check failed (host tools). Fix the warnings above."
@@ -519,6 +522,15 @@ stage_clippy_host_tools() {
 # Keeps the opt-in memory diagnostics compiling and warning-clean
 # (docs/memory-diagnostics.md); the firmware flash budget for mem-diag is
 # checked by build_rp2350_memdiag.
+stage_fuzz_build() {
+  if ! cargo +nightly fuzz --version > /dev/null 2>&1; then
+    echo "skipped: no cargo-fuzz on nightly (rustup toolchain install nightly &&"
+    echo "         cargo install cargo-fuzz --locked); rust_nightly.yml builds the targets weekly"
+    return 0
+  fi
+  bash "$SCRIPT_DIR/fuzz.sh" --build
+}
+
 stage_clippy_sim_memdiag() { clippy_sim_features "sim,board-testbench-rp2350,mem-diag"; }
 
 # The scheduling monitor's host arm (docs/scheduling-diagnostics.md); the

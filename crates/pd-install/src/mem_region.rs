@@ -88,6 +88,15 @@ impl MemRegion {
         self.buf.copy_from_slice(image);
     }
 
+    /// Back to the state [`Self::new`] made: every byte erased, the op log
+    /// empty. For a caller that runs many installs in one process — a fuzz
+    /// harness — since `new` leaks its buffer by design.
+    pub fn erase_all(&mut self) {
+        self.buf.fill(0xFF);
+        self.target = 0;
+        self.ops.clear();
+    }
+
     fn program(&mut self, sector: u32, offset: usize, data: &[u8]) {
         let start = sector as usize * META_SIZE + offset;
         assert!(

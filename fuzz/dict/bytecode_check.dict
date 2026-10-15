@@ -1,0 +1,12 @@
+# libFuzzer dictionary for the bytecode_check target (scripts/fuzz.sh passes it).
+"\xAA"
+"\xAB"
+"\xA7"
+"\xC8"
+"\xB6"
+"\xB8"
+"\xC4"
+"\xAC"
+"\xB1"
+"\x00\x00\x00\x00"
+"\x7F\xFF\xFF\xFF"

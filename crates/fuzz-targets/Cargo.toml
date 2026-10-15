@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[package]
+name = "fuzz-targets"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "The fuzz targets for every parser that takes untrusted bytes, as plain functions: libFuzzer drives them from fuzz/, and `cargo test` replays fuzz/regress/ through them on the pinned stable toolchain. Host-only."
+
+[lib]
+path = "src/lib.rs"
+
+# Exactly the crates under test, with the features the targets reach. No
+# fuzzing or property-testing dependency: the workspace stays free of them
+# (docs/designs/fuzzing-2026-10.md §1); libfuzzer-sys lives in fuzz/ alone.
+[dependencies]
+class-link = { path = "../class-link", features = ["build"] }
+compat = { path = "../compat" }
+http-head = { path = "../http-head" }
+papk-format = { path = "../papk-format", features = ["write"] }
+pd-install = { path = "../pd-install", features = ["mem-region"] }
+pd-json = { path = "../pd-json" }
+pd-tls = { path = "../pd-tls" }
+pdb-protocol = { path = "../pdb-protocol" }
+pico-jvm = { path = "../jvm", features = ["link-at-load"] }

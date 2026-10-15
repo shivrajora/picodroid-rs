@@ -3,6 +3,7 @@ members = [
     "crates/build_support",
     "crates/class-link",
     "crates/compat",
+    "crates/fuzz-targets",
     "crates/heap4",
     "crates/http-head",
     "crates/jvm",
@@ -22,6 +23,9 @@ members = [
     "tools/papk-pack",
     "tools/pdb",
 ]
+# The cargo-fuzz crate: nightly-only, with its own lockfile and its own copy
+# of [patch.crates-io] below (scripts/fuzz.sh checks the two agree).
+exclude = ["fuzz"]
 resolver = "2"
 
 # Local fork of littlefs-rust-core v0.1.0 with `lfs_alignup` patched to use

@@ -1,0 +1,134 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# The cargo-fuzz crate (docs/designs/fuzzing-2026-10.md). Nightly-only and
+# outside the root workspace, so libfuzzer-sys never reaches a stable build.
+# Each target is a three-line shim over crates/fuzz-targets, where the logic
+# and the stable replay of fuzz/regress/ live. Run through scripts/fuzz.sh.
+[package]
+name = "picodroid-fuzz"
+version = "0.0.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+fuzz-targets = { path = "../crates/fuzz-targets" }
+
+[workspace]
+members = ["."]
+
+# The root workspace's patch for every patched crate this graph reaches,
+# verbatim but for the path; scripts/fuzz.sh refuses to run when they differ.
+[patch.crates-io]
+embedded-tls = { path = "../third_party/embedded-tls" }
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "papk"
+path = "fuzz_targets/papk.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "papk_prefix"
+path = "fuzz_targets/papk_prefix.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "papk_roundtrip"
+path = "fuzz_targets/papk_roundtrip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "class_section"
+path = "fuzz_targets/class_section.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "link_class"
+path = "fuzz_targets/link_class.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bytecode_check"
+path = "fuzz_targets/bytecode_check.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "interp"
+path = "fuzz_targets/interp.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pdb_decode"
+path = "fuzz_targets/pdb_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "install"
+path = "fuzz_targets/install.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "http_head"
+path = "fuzz_targets/http_head.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "http_chunked"
+path = "fuzz_targets/http_chunked.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "json"
+path = "fuzz_targets/json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "der"
+path = "fuzz_targets/der.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tls_server"
+path = "fuzz_targets/tls_server.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "records"
+path = "fuzz_targets/records.rs"
+test = false
+doc = false
+bench = false
