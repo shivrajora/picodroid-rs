@@ -134,6 +134,58 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
       - run: bash scripts/test.sh
+  # Measured coverage of the same unit tests (docs/coverage.md): the per-crate
+  # table goes to the job summary, the HTML report and lcov to an artifact.
+  # Report only for now; `--check` against scripts/coverage-baseline.conf
+  # turns it into a ratchet once the numbers have proven stable. A separate
+  # job from `testing` while it is report-only, so an instrumentation problem
+  # can never hide a test failure there.
+  coverage:
+    name: Coverage
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install ARM toolchain and JDK
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi default-jdk-headless libudev-dev
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: llvm-tools-preview
+          target: thumbv6m-none-eabi
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: coverage
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov@0.9.1
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+      - run: bash scripts/coverage.sh
+      - name: Coverage table
+        if: always()
+        run: cat build/coverage/summary.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: |
+            build/coverage/html
+            build/coverage/lcov.info
+            build/coverage/summary.json
+            build/coverage/summary.md
+            build/coverage/uncompiled.txt
+          if-no-files-found: ignore
+          retention-days: 30
   linting:
     name: Linting
     timeout-minutes: 40

@@ -275,6 +275,15 @@ impl PicodroidNativeHandler {
         self.pending_ops.take_next()
     }
 
+    /// Root a component [`crate::lifecycle::instantiate_component`] just
+    /// allocated until the next [`take_next_pending_op`](Self::take_next_pending_op),
+    /// by which time it is on the Activity stack or in the Service registry.
+    pub fn hold_component(&mut self, obj_ref: u16) {
+        if !self.pending_ops.hold_component(obj_ref) {
+            crate::pd_warn!("in-flight component roots full: {} unrooted", obj_ref);
+        }
+    }
+
     /// Start a drain: a `Connected` a previous drain queued becomes ready.
     /// See `PendingServiceOp::Connected`.
     pub fn release_held_ops(&mut self) {

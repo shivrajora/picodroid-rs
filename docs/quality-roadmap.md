@@ -62,6 +62,25 @@ probabilistic, and the sanitizer + forced-frequent GC make them near-determinist
 **Tradeoff:** GC-stress rows run slower (subset only), and the sanitizer may surface latent
 stale lookups that have to be triaged before the run can gate.
 
+*2026-10-14:* **the GC-stress half landed.** `sim-run.sh` runs a GC-stress pass after the
+no-shrink rows (`run_gc_stress_pass`; `--app gc-stress` reaches only it): 27 apps' term, sim and
+loop rows again — the collector's stress apps, the churning suites (`langsuite*`, `qa_*`,
+`jsondemo`, `executorstress`, `threadparity`, `jucdemo`) and the UI apps with native listener
+maps — on a sim binary built with `PICODROID_JVM_GC_ALLOC_THRESHOLD=16` into its own target
+directory (`build/sim/gc-stress-target`), tagged `app[no-shrink,gc16]`. gcstress runs 128
+collections a phase where the default build runs 8. 32 rows, ~11 minutes warm. The first run
+found a real rooting gap: a Push held its new Activity in a native local while the covered
+Activity's `onPause` ran, and a collection there swept it (`qa_life` hung on
+`InvalidReference`). `PendingOpQueue` now roots the op being run and the components it builds
+until the next take. With that fixed it found a second, intermittent one (2 runs in 48 under
+load): a finished thread's native tail called `terminate_by_obj` with its own object id after
+`exit0` had already released it, and when a collection had meanwhile swept that Thread and a
+sibling's new Thread had taken the id, the call deleted the sibling's registry entry — its only
+root — so the sibling was swept before it ran (`OptionsMenu.run` NoSuchMethod in qa_life's ActD
+watcher). The tail now terminates by task (`threads::terminate_current`); 96 of 96 runs pass.
+The same pass found langsuite's TimeDemo failing on a time zone the settings lane left in the
+developer's sim filesystem image; rows and that lane now get a filesystem image of the run's own.
+
 ### Pin nightly runs to a clean worktree
 
 The 3 AM / 4 AM cron runs execute whatever is in the working tree — uncommitted edits included;
@@ -109,6 +128,12 @@ Complements the GC-stress nightly variant above (that one forces collection freq
 this one watches the post-GC floor). **Tradeoff:** nightly wall-time; sentinel
 false-positives on apps with legitimate slow warm-up need per-row window/threshold tuning
 via `PICODROID_MEMDIAG_WINDOW_MS`.
+
+*2026-10-14:* **landed** as the `mem-diag-strict` lane of `sim-run.sh` (once a night, no-shrink
+pass; `--app mem-diag-strict` reaches only it): `test-memdiag.sh --nightly` soaks animdemo
+(testbench_rp2350), picoenvmon (its own board, pico_enviro_mon) and picoclock for 300 s each
+under `PICODROID_MEMDIAG_STRICT=1`. The term-category apps are left out: in the simulator they
+finish in seconds, under the sentinel's 8-window arm time.
 
 ### HIL board/app coverage *(deferred)*
 

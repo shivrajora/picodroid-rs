@@ -174,8 +174,13 @@ Ranked by value over cost.
 9. Kotlin `buildSrc/classfile/*` has no tests and is a third class-file
    parser; the `pdb list` text schema is still hand-mirrored
    (`docs/designs/pdb-schema-as-code.md`).
-10. A coverage tool. None is configured; every coverage statement in this
-    document is inferred from which modules compile under test.
+10. ~~A coverage tool.~~ **Done 2026-10-14:** `scripts/coverage.sh`
+    ([coverage.md](coverage.md)) measures the unit tests (CI's `Coverage`
+    job) and the sim rows (`--sim`). First unit-layer numbers: workspace
+    62.4 %, `jvm` 83.2 %, `picodroid-core` 44.3 %; `activity_stack.rs`,
+    `lifecycle/mod.rs` and `native_handler/mod.rs` 0 % (item 2). The
+    statements above remain inferences from what compiles; the report is
+    now the source of truth.
 
 ## Needs hardware
 
