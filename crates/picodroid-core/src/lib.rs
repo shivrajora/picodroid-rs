@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #![cfg_attr(not(any(test, feature = "sim")), no_std)]
+// Every `unsafe` block and `unsafe impl` says why it is sound, in a
+// SAFETY comment directly above it; CI's clippy legs hold the line.
+#![deny(clippy::undocumented_unsafe_blocks)]
 
 extern crate alloc;
 

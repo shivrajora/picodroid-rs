@@ -103,7 +103,10 @@ UNSAFE_BASELINE="$REPO_ROOT/scripts/unsafe-baseline.conf"
 #   fns           `unsafe fn`, `unsafe extern "C" fn`
 #   impls         `unsafe impl`
 #   static mut    `static mut` declarations (not `&'static mut T`)
-#   undocumented  `unsafe {` with no SAFETY on its line or the three above
+#   undocumented  `unsafe {` with no SAFETY on its line, the three above, or
+#                 the comment run (attributes included) above its statement --
+#                 the text shadow of clippy::undocumented_unsafe_blocks,
+#                 which picodroid-core and platforms/rp deny
 unsafe_counts() {
   local dir
   for dir in "$REPO_ROOT"/crates/*/ "$REPO_ROOT"/platforms/*/ "$REPO_ROOT"/tools/*/; do
@@ -111,7 +114,7 @@ unsafe_counts() {
     dir="${dir%/}"
     find "$dir" -name target -prune -o -name '*.rs' -print0 | sort -z \
       | xargs -0 awk -v crate="${dir#"$REPO_ROOT"/}" '
-          FNR == 1 { a = b = c = "" }
+          FNR == 1 { a = b = c = run = "" }
           {
             line = $0
             if (line !~ /^[[:space:]]*\/\//) {
@@ -121,13 +124,19 @@ unsafe_counts() {
               gsub(/"([^"\\]|\\.)*"/, "\"\"", line)
               n = gsub(/unsafe[[:space:]]*\{/, "&", line)
               blocks += n
-              if (n > 0 && (a b c $0) !~ /SAFETY/) undoc += n
+              if (n > 0 && (a b c run $0) !~ /SAFETY/) undoc += n
               fns += gsub(/unsafe[[:space:]]+(extern_abi[[:space:]]+)?fn[[:space:]]/, "&", line)
               impls += gsub(/unsafe[[:space:]]+impl[ <]/, "&", line)
               # Not the `&'"'"'static mut T` of a return type.
               smut += gsub(/(^|[^'"'"'])static[[:space:]]+mut[[:space:]]/, "&", line)
             }
             a = b; b = c; c = $0
+            # The comment run above the statement the next line belongs to:
+            # comment and attribute lines extend it, a line that ends a
+            # statement or opens or closes a block ends it, and the middle
+            # lines of a statement split over several lines keep it.
+            if ($0 ~ /^[[:space:]]*(\/\/|#\[)/) run = run $0
+            else if ($0 ~ /[;{},][[:space:]]*$/ || $0 ~ /^[[:space:]]*$/) run = ""
           }
           END { printf "%s %d %d %d %d %d\n", crate, blocks, fns, impls, smut, undoc }'
   done
