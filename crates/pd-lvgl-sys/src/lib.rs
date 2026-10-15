@@ -4,7 +4,9 @@
 //!
 //! Only the subset of functions needed by picodroid is declared here.
 //! Opaque LVGL types (lv_display_t, lv_obj_t, etc.) are represented as
-//! `core::ffi::c_void` behind raw pointers.
+//! `core::ffi::c_void`; the bindings take them as the typed handles [`Obj`],
+//! [`Group`], [`Indev`] and [`Display`], whose docs carry the argument for
+//! why a call that takes only those and scalars is `safe`.
 //!
 //! The crate declares `links = "lvgl"`: exactly one crate in a build may
 //! compile LVGL, because a `cc` static lib reaches the final binary through
@@ -13,12 +15,16 @@
 
 #![cfg_attr(not(test), no_std)]
 #![allow(non_camel_case_types)]
+#![deny(clippy::undocumented_unsafe_blocks)]
 
 use core::ffi::c_void;
-// `c_char` is only referenced by the real LVGL `extern "C"` block below, which
-// is `#[cfg(not(test))]`; gate the import to match so test builds don't warn.
+// `c_char` and `CStr` are only referenced by the real LVGL `extern "C"` block
+// below and its safe forms, which are `#[cfg(not(test))]`; gate the imports
+// to match so test builds don't warn.
 #[cfg(not(test))]
-use core::ffi::c_char;
+use core::ffi::{c_char, CStr};
+use core::marker::PhantomData;
+use core::ptr::NonNull;
 
 // ---------------------------------------------------------------------------
 // Compiler-rt intrinsic required by LVGL's TLSF allocator on Cortex-M0+
@@ -467,10 +473,12 @@ pub struct lv_image_dsc_t {
     pub reserved_2: *const core::ffi::c_void,
 }
 
-// `lv_image_dsc_t` is shared with LVGL by raw pointer; the descriptor is
-// immutable after init and the pixel data lives in `'static` flash, so it's
-// safe to send/sync across the FreeRTOS tasks that use it.
+// SAFETY: the raw pointers are the only thing keeping the auto traits off.
+// A descriptor is written once, before LVGL is handed its address, and only
+// read after; `data` points at pixels in `'static` flash or `.rodata`, which
+// nothing writes. Sending or sharing one across tasks shares only reads.
 unsafe impl Send for lv_image_dsc_t {}
+// SAFETY: as for `Send`: every access after construction is a read.
 unsafe impl Sync for lv_image_dsc_t {}
 
 // Opacity constants
@@ -554,6 +562,252 @@ pub type lv_indev_read_cb_t =
 pub type lv_event_cb_t = Option<unsafe extern "C" fn(e: *mut lv_event_t)>;
 
 // ---------------------------------------------------------------------------
+// Typed handles
+// ---------------------------------------------------------------------------
+//
+// LVGL is built with `LV_USE_CHECK_ARG 0` (lv_conf.h): no public call checks
+// its object argument, so a null or freed `lv_obj_t *` handed to any of them
+// is a wild access in C. The types below carry that obligation in Rust's type
+// system instead of at every call site: a function whose pointer arguments
+// are all `Obj`/`Group`/`Indev`/`Display` (the rest scalars, enums or `Copy`
+// structs by value or by reference) is declared `safe fn`, and the argument
+// for why each such handle is valid is made once, here.
+
+/// A live LVGL object: non-null, and not deleted.
+///
+/// # Where an `Obj` comes from, and why it is live
+///
+/// An `Obj` is only ever made by:
+///
+/// - a `lv_*_create` call (`Option<Obj>`, `None` when LVGL could not
+///   allocate the object);
+/// - a getter LVGL answers from its own tree — [`lv_screen_active`],
+///   [`lv_layer_top`], [`lv_obj_get_parent`], [`lv_obj_get_child`],
+///   [`lv_group_get_focused`] — each `Option<Obj>`;
+/// - [`ObjEvent::target`] / [`ObjEvent::current_target`], inside an event
+///   callback, where LVGL is dispatching an event to that object;
+/// - picodroid-core's handle table (`handle_table::get`), which hands out an
+///   object only while its generation-tagged slot is current; the slot is
+///   invalidated by an `LV_EVENT_DELETE` hook that LVGL runs before it frees
+///   the object;
+/// - [`Obj::from_raw`], which is `unsafe`: its caller vouches for liveness
+///   (the slot tables that keep raw addresses across natives clear them in
+///   their own `LV_EVENT_DELETE` callbacks).
+///
+/// Each of those yields an object LVGL has not deleted at that moment. What
+/// keeps it live afterwards is that, in this codebase, an object is deleted
+/// only by the `unsafe` [`lv_obj_delete`] and [`lv_obj_clean`] (on the
+/// object and its descendants): picodroid binds no `lv_obj_delete_async`,
+/// loads no screen with auto-delete, and holds no `Obj` for a child a widget
+/// creates and deletes internally. `lv_timer_handler` stays `unsafe` for the
+/// same reason.
+///
+/// # The limit
+///
+/// `Obj` is `Copy`, and nothing ties a copy to the object's lifetime: a copy
+/// taken before a delete names freed memory after it. That is why every
+/// delete is `unsafe` and its caller must show that no `Obj` naming the
+/// deleted subtree is used afterwards — in practice an `Obj` is a local of
+/// one native call or one callback, and state that outlives a call stores
+/// the address (`usize`) and goes back through `from_raw`. An `Obj` must not
+/// be kept in a static across natives unless that object is never deleted
+/// while it is stored, which the static's declaration must say.
+#[repr(transparent)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub struct Obj(NonNull<lv_obj_t>);
+
+impl Obj {
+    /// An `Obj` for `ptr`, `None` for null.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must be null or point at an LVGL object that has not been
+    /// deleted, and the result must not be used after that object is
+    /// deleted (see the type's docs).
+    #[inline(always)]
+    pub unsafe fn from_raw(ptr: *mut lv_obj_t) -> Option<Obj> {
+        NonNull::new(ptr).map(Obj)
+    }
+
+    /// The raw pointer, for a C call that takes it as data.
+    #[inline(always)]
+    pub fn as_ptr(self) -> *mut lv_obj_t {
+        self.0.as_ptr()
+    }
+
+    /// The object's address: the key the widget layer's slot tables and
+    /// listener maps store.
+    #[inline(always)]
+    pub fn addr(self) -> usize {
+        self.0.as_ptr() as usize
+    }
+}
+
+/// A live LVGL focus group. Created by [`lv_group_create`], deleted only by
+/// the `unsafe` [`lv_group_delete`], whose caller must drop every copy.
+#[repr(transparent)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub struct Group(NonNull<lv_group_t>);
+
+impl Group {
+    /// The raw pointer.
+    #[inline(always)]
+    pub fn as_ptr(self) -> *mut lv_group_t {
+        self.0.as_ptr()
+    }
+}
+
+/// An LVGL input device. Made only by [`lv_indev_create`] or answered by
+/// LVGL ([`lv_indev_active`], [`ObjEvent::indev`]); picodroid never deletes
+/// one (no `lv_indev_delete` is bound), so every `Indev` stays valid.
+#[repr(transparent)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub struct Indev(NonNull<lv_indev_t>);
+
+impl Indev {
+    /// The raw pointer.
+    #[inline(always)]
+    pub fn as_ptr(self) -> *mut lv_indev_t {
+        self.0.as_ptr()
+    }
+}
+
+/// An LVGL display. Made only by [`lv_display_create`] or answered by
+/// [`lv_display_get_default`]; picodroid never deletes one (no
+/// `lv_display_delete` is bound), so every `Display` stays valid.
+#[repr(transparent)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub struct Display(NonNull<lv_display_t>);
+
+impl Display {
+    /// The raw pointer.
+    #[inline(always)]
+    pub fn as_ptr(self) -> *mut lv_display_t {
+        self.0.as_ptr()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Object events
+// ---------------------------------------------------------------------------
+
+/// The event an object's callback is running for, valid for that call.
+///
+/// Only [`lv_event_cb!`] makes one, from the pointer LVGL hands the callback;
+/// the lifetime keeps it inside the callback's body.
+pub struct ObjEvent<'a> {
+    raw: NonNull<lv_event_t>,
+    _call: PhantomData<&'a mut lv_event_t>,
+}
+
+impl ObjEvent<'_> {
+    /// # Safety
+    ///
+    /// `raw` must be the event LVGL passed to a callback it is running from
+    /// an object's event list (one registered with [`lv_obj_add_event_cb`]
+    /// or [`add_event_cb`]), and the result must not outlive that call.
+    #[inline(always)]
+    pub unsafe fn from_raw(raw: *mut lv_event_t) -> Self {
+        Self {
+            // SAFETY: LVGL never runs a callback with a null event (the
+            // caller's contract).
+            raw: unsafe { NonNull::new_unchecked(raw) },
+            _call: PhantomData,
+        }
+    }
+
+    /// The raw event, for the accessors that stay `unsafe`
+    /// ([`lv_event_get_param`]).
+    #[inline(always)]
+    pub fn as_ptr(&self) -> *mut lv_event_t {
+        self.raw.as_ptr()
+    }
+
+    /// The object the event was sent to (for a bubbled event, the child it
+    /// started at).
+    #[cfg(not(test))]
+    #[inline(always)]
+    pub fn target(&self) -> Obj {
+        // SAFETY: `raw` is the event LVGL is dispatching (`from_raw`). An
+        // object event's target is the object `lv_obj_send_event` was called
+        // on, never null, and LVGL is still holding it: even a
+        // `LV_EVENT_DELETE` callback runs before the object is freed.
+        unsafe {
+            Obj(NonNull::new_unchecked(lv_event_get_target_obj(
+                self.as_ptr(),
+            )))
+        }
+    }
+
+    /// The object whose callback this is: the target, or for a bubbled event
+    /// the ancestor the event has climbed to.
+    #[cfg(not(test))]
+    #[inline(always)]
+    pub fn current_target(&self) -> Obj {
+        // SAFETY: as in `target`: LVGL sets the current target to the object
+        // whose event list it is walking.
+        unsafe {
+            Obj(NonNull::new_unchecked(lv_event_get_current_target_obj(
+                self.as_ptr(),
+            )))
+        }
+    }
+
+    /// The input device that caused the event, if one did.
+    #[cfg(not(test))]
+    #[inline(always)]
+    pub fn indev(&self) -> Option<Indev> {
+        // SAFETY: `raw` is the event LVGL is dispatching (`from_raw`).
+        unsafe { lv_event_get_indev(self.as_ptr()) }
+    }
+
+    /// The `user_data` the running callback was registered with, as the
+    /// address it was given as.
+    #[cfg(not(test))]
+    #[inline(always)]
+    pub fn user_data(&self) -> usize {
+        // SAFETY: `raw` is the event LVGL is dispatching (`from_raw`); the
+        // value is returned as a number, never dereferenced here.
+        unsafe { lv_event_get_user_data(self.as_ptr()) as usize }
+    }
+}
+
+/// Define an LVGL object-event callback.
+///
+/// ```ignore
+/// lv_event_cb! {
+///     /// Doc comment.
+///     fn value_changed_cb(e) {
+///         QUEUE.push(e.target().addr());
+///     }
+/// }
+/// ```
+///
+/// expands to `unsafe extern "C" fn value_changed_cb(raw: *mut lv_event_t)`
+/// whose body sees `e: ObjEvent<'_>`. Register it with [`add_event_cb`] (or
+/// [`lv_obj_add_event_cb`]) on an object — never on a display or an input
+/// device, whose events have no object target; those callbacks are written
+/// by hand against the raw event.
+#[macro_export]
+macro_rules! lv_event_cb {
+    ($(#[$attr:meta])* $vis:vis fn $name:ident($e:ident) $body:block) => {
+        $(#[$attr])*
+        $vis unsafe extern "C" fn $name(raw: *mut $crate::lv_event_t) {
+            // SAFETY: LVGL calls an object-event callback only from
+            // `lv_obj_send_event`, with the event it is dispatching, valid
+            // for the call; `ObjEvent`'s lifetime keeps it inside the body.
+            // These callbacks are registered on objects: putting one on a
+            // display's or an input device's list takes the `unsafe`
+            // `lv_display_add_event_cb` / `lv_indev_add_event_cb`, whose
+            // contract rules that out.
+            #[allow(unused_variables)]
+            let $e = unsafe { $crate::ObjEvent::from_raw(raw) };
+            $body
+        }
+    };
+}
+
+// ---------------------------------------------------------------------------
 // Extern "C" function declarations
 // ---------------------------------------------------------------------------
 // Excluded under `cfg(test)` so the constants + drift-check tests below
@@ -574,96 +828,140 @@ pub struct lv_mem_monitor_t {
     pub frag_pct: u8,
 }
 
+// Every `lv_*_create` returns `Option<Obj>`. LVGL asserts on a failed
+// allocation of the object itself (`LV_ASSERT_MALLOC`, a `while(1)` here), but
+// `lv_obj_class_create_obj` returns NULL without asserting when growing the
+// parent's child array fails (`lv_obj_add_child`, third_party/lvgl
+// src/core/lv_obj.c), so the NULL is a real, if unlikely, return.
+//
+// Functions that create a display, an input device or a group, or that walk
+// LVGL's heap, stay `unsafe`: called before `lv_init` they reach an allocator
+// that does not exist yet.
+//
+// Widget classes: a function named after a widget class (`lv_label_*`,
+// `lv_bar_*`, `lv_roller_*`, …) casts its object to that class's struct and
+// reads or writes past the base `lv_obj_t` (`LV_USE_CHECK_OBJ_CLASSTYPE` is 0,
+// so nothing checks). An `Obj` does not carry its class, so those functions
+// stay `unsafe`: the caller shows that the object was made by that class's
+// `lv_*_create` (or a subclass's). The `lv_obj_*`, style, flag, state and
+// group functions read only the base object and are `safe`.
 #[cfg(not(test))]
-extern "C" {
+unsafe extern "C" {
     // Core
+    /// # Safety
+    /// Once per boot, before any other LVGL call.
     pub fn lv_init();
     // lvgl/lv_draw_buf_sram.c: a pool in PSRAM keeps its render targets in
     // SRAM (board.toml `lv_mem_in_psram`).
+    /// # Safety
+    /// After `lv_init`, before the display is created.
     #[cfg(lv_mem_in_psram)]
     pub fn picodroid_lv_draw_buf_use_sram();
     #[cfg(lv_mem_in_psram)]
-    pub fn picodroid_lv_draw_buf_pool_fallbacks() -> u32;
-    pub fn lv_tick_inc(tick_period: u32);
+    pub safe fn picodroid_lv_draw_buf_pool_fallbacks() -> u32;
+    pub safe fn lv_tick_inc(tick_period: u32);
     // Walks the TLSF pool: a few hundred blocks, for the rare caller that
     // needs the pool's free level (lifecycle's reclaim policy).
-    pub fn lv_mem_monitor(mon_p: *mut lv_mem_monitor_t);
+    /// # Safety
+    /// After `lv_init` (the pool does not exist before).
+    pub fn lv_mem_monitor(mon_p: &mut lv_mem_monitor_t);
+    /// Runs LVGL's timers: rendering, input reads and every callback they
+    /// fire.
+    ///
+    /// # Safety
+    /// After `lv_init`. Like any delete, a timer may free objects; no `Obj`
+    /// held across this call may be used after it unless it is known to
+    /// survive (see [`Obj`]).
     pub fn lv_timer_handler() -> u32;
 
     // Display
-    pub fn lv_display_create(hor_res: i32, ver_res: i32) -> *mut lv_display_t;
-    pub fn lv_display_set_flush_cb(disp: *mut lv_display_t, flush_cb: lv_display_flush_cb_t);
+    /// # Safety
+    /// After `lv_init`.
+    pub fn lv_display_create(hor_res: i32, ver_res: i32) -> Option<Display>;
+    pub safe fn lv_display_set_flush_cb(disp: Display, flush_cb: lv_display_flush_cb_t);
     /// With a wait callback set, LVGL never spins on `flushing`: it calls
     /// this wherever it needs the last flush finished and clears the flag
     /// itself afterwards, so `lv_display_flush_ready` is not called at all.
-    pub fn lv_display_set_flush_wait_cb(
-        disp: *mut lv_display_t,
-        wait_cb: lv_display_flush_wait_cb_t,
-    );
+    pub safe fn lv_display_set_flush_wait_cb(disp: Display, wait_cb: lv_display_flush_wait_cb_t);
+    /// # Safety
+    /// `buf1` (and `buf2` unless null) must point at `buf_size` writable
+    /// bytes, aligned to `LV_DRAW_BUF_ALIGN`, that outlive the display and
+    /// that nothing else writes.
     pub fn lv_display_set_buffers(
-        disp: *mut lv_display_t,
+        disp: Display,
         buf1: *mut c_void,
         buf2: *mut c_void,
         buf_size: u32,
         render_mode: lv_display_render_mode_t,
     );
-    pub fn lv_display_flush_ready(disp: *mut lv_display_t);
-    pub fn lv_display_get_default() -> *mut lv_display_t;
+    pub safe fn lv_display_get_default() -> Option<Display>;
     /// The display's logical size — what the screen and its layers are laid
     /// out in: the panel. (An app's compat window is an object on the
     /// screen, `graphics/lvgl/window.rs`, not a display resolution.)
-    pub fn lv_display_get_horizontal_resolution(disp: *const lv_display_t) -> i32;
-    pub fn lv_display_get_vertical_resolution(disp: *const lv_display_t) -> i32;
+    pub safe fn lv_display_get_horizontal_resolution(disp: Display) -> i32;
+    pub safe fn lv_display_get_vertical_resolution(disp: Display) -> i32;
     /// The layer LVGL draws above every screen: where system overlays (toast,
     /// snackbar, dialog scrim, the soft keyboard) live, so a screen that pans
-    /// its oversized content leaves them in place.
-    pub fn lv_layer_top() -> *mut lv_obj_t;
+    /// its oversized content leaves them in place. `None` before a display
+    /// exists.
+    pub safe fn lv_layer_top() -> Option<Obj>;
     /// Display-level events (`LV_EVENT_INVALIDATE_AREA`, the refresh and
     /// render milestones). Same descriptor model as `lv_obj_add_event_cb`,
     /// but there is nothing to return: the display keeps the list.
+    ///
+    /// # Safety
+    /// `event_cb` must treat its event as a display event — never an
+    /// [`lv_event_cb!`] callback, whose [`ObjEvent`] assumes an object
+    /// target — and must expect `user_data` as it is passed.
     pub fn lv_display_add_event_cb(
-        disp: *mut lv_display_t,
+        disp: Display,
         event_cb: lv_event_cb_t,
         filter: lv_event_code_t,
         user_data: *mut c_void,
     );
     /// The event's parameter: for `LV_EVENT_INVALIDATE_AREA` the mutable
     /// `lv_area_t` LVGL is about to record.
+    ///
+    /// # Safety
+    /// `e` must be the event of a running callback.
     pub fn lv_event_get_param(e: *mut lv_event_t) -> *mut c_void;
 
     // Scroll position and the scrollbar geometry LVGL would draw for it.
     // Positions are the distance scrolled (positive once content has moved
     // up or left), i.e. the negated internal offset.
-    pub fn lv_obj_get_scroll_x(obj: *const lv_obj_t) -> i32;
-    pub fn lv_obj_get_scroll_y(obj: *const lv_obj_t) -> i32;
+    pub safe fn lv_obj_get_scroll_x(obj: Obj) -> i32;
+    pub safe fn lv_obj_get_scroll_y(obj: Obj) -> i32;
     /// The thumb rectangles LVGL will draw, or `x2 < x1` when a bar is not
     /// shown.
-    pub fn lv_obj_get_scrollbar_area(
-        obj: *mut lv_obj_t,
-        hor_area: *mut lv_area_t,
-        ver_area: *mut lv_area_t,
+    pub safe fn lv_obj_get_scrollbar_area(
+        obj: Obj,
+        hor_area: &mut lv_area_t,
+        ver_area: &mut lv_area_t,
     );
     /// Mark part of `obj` for redraw. Returns `lv_result_t`, which nothing
     /// here reads.
-    pub fn lv_obj_invalidate_area(obj: *const lv_obj_t, area: *const lv_area_t);
+    pub safe fn lv_obj_invalidate_area(obj: Obj, area: &lv_area_t);
     /// Detach the styles bound to exactly `selector` (a null `style` means
     /// all of them) — how a widget sheds a theme binding it does not want.
-    pub fn lv_obj_remove_style(
-        obj: *mut lv_obj_t,
-        style: *const c_void,
-        selector: lv_style_selector_t,
-    );
+    ///
+    /// # Safety
+    /// `style` must be null or a live `lv_style_t`.
+    pub fn lv_obj_remove_style(obj: Obj, style: *const c_void, selector: lv_style_selector_t);
     /// Drop one property of `obj`'s own (local) style for `selector`, so the
     /// theme's value shows again. Returns whether it was set.
-    pub fn lv_obj_remove_local_style_prop(
-        obj: *mut lv_obj_t,
+    pub safe fn lv_obj_remove_local_style_prop(
+        obj: Obj,
         prop: lv_style_prop_t,
         selector: lv_style_selector_t,
     ) -> bool;
     /// A null transition descriptor turns the theme's animated style changes
     /// off for that part.
+    ///
+    /// # Safety
+    /// `value` must be null or an `lv_style_transition_dsc_t` that outlives
+    /// the object.
     pub fn lv_obj_set_style_transition(
-        obj: *mut lv_obj_t,
+        obj: Obj,
         value: *const c_void,
         selector: lv_style_selector_t,
     );
@@ -674,122 +972,143 @@ extern "C" {
     /// is those rows (always full width) and the return value is how many of
     /// `overlays` were filled with static things drawn on top of them; a
     /// negative value names why not.
+    ///
+    /// # Safety
+    /// `overlays` must point at `max_overlays` writable areas.
     #[cfg(hw_vscroll)]
     pub fn picodroid_hw_vscroll_region(
-        scroller: *mut lv_obj_t,
-        region: *mut lv_area_t,
+        scroller: Obj,
+        region: &mut lv_area_t,
         overlays: *mut lv_area_t,
         max_overlays: i32,
     ) -> i32;
     /// The panel moved `region`'s content by `dy` rows: grow every area
     /// already queued for redraw to cover where its pixels went.
     #[cfg(hw_vscroll)]
-    pub fn picodroid_hw_vscroll_shift_pending(
-        disp: *mut lv_display_t,
-        region: *const lv_area_t,
-        dy: i32,
-    );
+    pub safe fn picodroid_hw_vscroll_shift_pending(disp: Display, region: &lv_area_t, dy: i32);
     /// The scrollbar thumb's corner radius when the thumb is one flat opaque
     /// colour — so that only its two ends need repainting after a shift —
     /// or -1 when it is translucent, bordered or otherwise not.
     #[cfg(hw_vscroll)]
-    pub fn picodroid_hw_vscroll_thumb_flat_radius(obj: *mut lv_obj_t) -> i32;
+    pub safe fn picodroid_hw_vscroll_thumb_flat_radius(obj: Obj) -> i32;
 
     // Input device
-    pub fn lv_indev_create() -> *mut lv_indev_t;
-    pub fn lv_indev_set_type(indev: *mut lv_indev_t, indev_type: lv_indev_type_t);
-    pub fn lv_indev_set_read_cb(indev: *mut lv_indev_t, read_cb: lv_indev_read_cb_t);
+    /// # Safety
+    /// After `lv_init`.
+    pub fn lv_indev_create() -> Option<Indev>;
+    pub safe fn lv_indev_set_type(indev: Indev, indev_type: lv_indev_type_t);
+    pub safe fn lv_indev_set_read_cb(indev: Indev, read_cb: lv_indev_read_cb_t);
     /// Ignore the current press until it is released: the finger that woke
     /// the panel must not land as a click on what it finds there.
-    pub fn lv_indev_wait_release(indev: *mut lv_indev_t);
-    pub fn lv_indev_set_scroll_limit(indev: *mut lv_indev_t, scroll_limit: u8);
+    pub safe fn lv_indev_wait_release(indev: Indev);
+    pub safe fn lv_indev_set_scroll_limit(indev: Indev, scroll_limit: u8);
     /// The indev that triggered the currently-running event. Read inside an
     /// `LV_EVENT_GESTURE` callback to recover gesture parameters.
-    pub fn lv_indev_active() -> *mut lv_indev_t;
+    pub safe fn lv_indev_active() -> Option<Indev>;
     /// Direction of the most recent gesture detected on `indev`. Returns
     /// one of `LV_DIR_LEFT/RIGHT/TOP/BOTTOM` (or NONE if no gesture).
-    pub fn lv_indev_get_gesture_dir(indev: *const lv_indev_t) -> lv_dir_t;
-    pub fn lv_indev_set_group(indev: *mut lv_indev_t, group: *mut lv_group_t);
+    pub safe fn lv_indev_get_gesture_dir(indev: Indev) -> lv_dir_t;
+    pub safe fn lv_indev_set_group(indev: Indev, group: Option<Group>);
     /// An input device's own event list. `LV_EVENT_PRESSED` and the other
     /// press and key events go here before they go to the pressed object,
     /// whatever that object's bubbling, with the object as the event's
     /// parameter (`lv_event_get_param`). Returns the descriptor, unused here.
+    ///
+    /// # Safety
+    /// As for [`lv_display_add_event_cb`]: `event_cb` must treat its event
+    /// as an input-device event, never an [`lv_event_cb!`] callback.
     pub fn lv_indev_add_event_cb(
-        indev: *mut lv_indev_t,
+        indev: Indev,
         event_cb: lv_event_cb_t,
         filter: lv_event_code_t,
         user_data: *mut c_void,
     ) -> *mut c_void;
     /// Remove every registration of `event_cb` with `user_data` from the
-    /// device's list; returns how many went.
-    pub fn lv_indev_remove_event_cb_with_user_data(
-        indev: *mut lv_indev_t,
+    /// device's list; returns how many went. Both are only compared.
+    pub safe fn lv_indev_remove_event_cb_with_user_data(
+        indev: Indev,
         event_cb: lv_event_cb_t,
         user_data: *mut c_void,
     ) -> u32;
 
     // Groups (keypad focus navigation)
-    pub fn lv_group_create() -> *mut lv_group_t;
-    pub fn lv_group_add_obj(group: *mut lv_group_t, obj: *mut lv_obj_t);
-    pub fn lv_group_set_default(group: *mut lv_group_t);
-    pub fn lv_group_get_default() -> *mut lv_group_t;
-    pub fn lv_group_get_focused(group: *mut lv_group_t) -> *mut lv_obj_t;
+    /// # Safety
+    /// After `lv_init`.
+    pub fn lv_group_create() -> Option<Group>;
+    pub safe fn lv_group_add_obj(group: Group, obj: Obj);
+    pub safe fn lv_group_set_default(group: Option<Group>);
+    pub safe fn lv_group_get_default() -> Option<Group>;
+    pub safe fn lv_group_get_focused(group: Group) -> Option<Obj>;
     /// Focus `obj` within its own group. No-op if `obj` belongs to no group,
     /// so it is safe to call on a non-focusable widget.
-    pub fn lv_group_focus_obj(obj: *mut lv_obj_t);
+    pub safe fn lv_group_focus_obj(obj: Obj);
     /// Remove `obj` from whatever group it belongs to. No-op if ungrouped.
-    pub fn lv_group_remove_obj(obj: *mut lv_obj_t);
-    /// The group `obj` belongs to, or null.
-    pub fn lv_obj_get_group(obj: *const lv_obj_t) -> *mut lv_group_t;
+    pub safe fn lv_group_remove_obj(obj: Obj);
+    /// The group `obj` belongs to, if any.
+    pub safe fn lv_obj_get_group(obj: Obj) -> Option<Group>;
     /// Delete a focus group. Used to tear down a per-Activity group on pop.
-    pub fn lv_group_delete(group: *mut lv_group_t);
+    ///
+    /// # Safety
+    /// No copy of `group` may be used afterwards, and no input device or
+    /// default may still point at it.
+    pub fn lv_group_delete(group: Group);
 
     // Screen
-    pub fn lv_screen_active() -> *mut lv_obj_t;
+    /// The active screen; `None` before a display exists.
+    pub safe fn lv_screen_active() -> Option<Obj>;
 
     // Objects
-    pub fn lv_obj_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
-    pub fn lv_obj_clean(obj: *mut lv_obj_t);
-    pub fn lv_obj_set_pos(obj: *mut lv_obj_t, x: i32, y: i32);
+    pub safe fn lv_obj_create(parent: Obj) -> Option<Obj>;
+    /// Delete every child of `obj` (and their descendants).
+    ///
+    /// # Safety
+    /// No `Obj` naming one of the deleted objects may be used afterwards.
+    pub fn lv_obj_clean(obj: Obj);
+    pub safe fn lv_obj_set_pos(obj: Obj, x: i32, y: i32);
     /// `lv_align_t`: the reference point `set_pos` / `set_x` / `set_y` offset
     /// from. Widgets whose constructor aligns them elsewhere (`lv_keyboard`
     /// is BOTTOM_MID) need it back at TOP_LEFT for absolute placement.
-    pub fn lv_obj_set_align(obj: *mut lv_obj_t, align: u8);
+    pub safe fn lv_obj_set_align(obj: Obj, align: u8);
     /// `lv_obj_set_align` and `lv_obj_set_pos` in one: place `obj` against
     /// `align` in its parent, offset by (`x_ofs`, `y_ofs`).
-    pub fn lv_obj_align(obj: *mut lv_obj_t, align: u8, x_ofs: i32, y_ofs: i32);
+    pub safe fn lv_obj_align(obj: Obj, align: u8, x_ofs: i32, y_ofs: i32);
     /// Set just the x coordinate (preserves y). Used by ViewPropertyAnimator
     /// to animate axes independently — `lv_obj_set_pos` would clobber the
     /// other axis if a y-anim were running concurrently.
-    pub fn lv_obj_set_x(obj: *mut lv_obj_t, x: i32);
+    pub safe fn lv_obj_set_x(obj: Obj, x: i32);
     /// See [`lv_obj_set_x`].
-    pub fn lv_obj_set_y(obj: *mut lv_obj_t, y: i32);
-    pub fn lv_obj_set_size(obj: *mut lv_obj_t, w: i32, h: i32);
+    pub safe fn lv_obj_set_y(obj: Obj, y: i32);
+    pub safe fn lv_obj_set_size(obj: Obj, w: i32, h: i32);
     /// Grow the area a press lands in by `size` pixels on every side without
     /// moving a pixel of layout: how a small clickable view reaches the
     /// board's minimum touch target.
-    pub fn lv_obj_set_ext_click_area(obj: *mut lv_obj_t, size: i32);
+    pub safe fn lv_obj_set_ext_click_area(obj: Obj, size: i32);
     // Laid-out geometry readback for the View.getWidth/getHeight/getLeft/
     // getTop getters. Reads are only valid after a layout pass —
     // `lv_obj_update_layout` forces one (cheap no-op when nothing is dirty).
-    pub fn lv_obj_get_x(obj: *const lv_obj_t) -> i32;
-    pub fn lv_obj_get_y(obj: *const lv_obj_t) -> i32;
-    pub fn lv_obj_get_width(obj: *const lv_obj_t) -> i32;
-    pub fn lv_obj_get_height(obj: *const lv_obj_t) -> i32;
+    pub safe fn lv_obj_get_x(obj: Obj) -> i32;
+    pub safe fn lv_obj_get_y(obj: Obj) -> i32;
+    pub safe fn lv_obj_get_width(obj: Obj) -> i32;
+    pub safe fn lv_obj_get_height(obj: Obj) -> i32;
     /// Fill `coords` with the object's screen-absolute bounding box (x1/y1 =
     /// top-left). Unlike `lv_obj_get_x` (parent-relative), this gives the
     /// absolute origin needed to convert a screen touch point to
     /// view-relative MotionEvent coordinates.
-    pub fn lv_obj_get_coords(obj: *const lv_obj_t, coords: *mut lv_area_t);
-    pub fn lv_obj_update_layout(obj: *const lv_obj_t);
-    pub fn lv_obj_center(obj: *mut lv_obj_t);
-    pub fn lv_obj_set_style_bg_color(
-        obj: *mut lv_obj_t,
+    pub safe fn lv_obj_get_coords(obj: Obj, coords: &mut lv_area_t);
+    pub safe fn lv_obj_update_layout(obj: Obj);
+    pub safe fn lv_obj_center(obj: Obj);
+    pub safe fn lv_obj_set_style_bg_color(
+        obj: Obj,
         value: lv_color_t,
         selector: lv_style_selector_t,
     );
+    /// # Safety
+    /// `event_cb` must be fine to run for any event LVGL sends `obj` with
+    /// `user_data` as given: either it ignores `user_data`, or it reads it
+    /// as the value passed here. [`add_event_cb`] is the safe form, with a
+    /// null `user_data`.
     pub fn lv_obj_add_event_cb(
-        obj: *mut lv_obj_t,
+        obj: Obj,
         event_cb: lv_event_cb_t,
         filter: lv_event_code_t,
         user_data: *mut c_void,
@@ -797,17 +1116,21 @@ extern "C" {
     /// Remove every callback descriptor on `obj` whose function matches
     /// `event_cb`. Returns the count removed. Used by the soft keyboard's
     /// press-outside dismiss to detach its screen-level press hook on hide.
-    pub fn lv_obj_remove_event_cb(obj: *mut lv_obj_t, event_cb: lv_event_cb_t) -> u32;
-    /// Walk one step up the widget tree. Returns null when `obj` is the
-    /// active screen. Used by the keyboard outside-press hook to decide if
-    /// a tap landed on the keyboard or one of its keys.
-    pub fn lv_obj_get_parent(obj: *const lv_obj_t) -> *mut lv_obj_t;
+    pub safe fn lv_obj_remove_event_cb(obj: Obj, event_cb: lv_event_cb_t) -> u32;
+    /// Walk one step up the widget tree. `None` when `obj` is a screen. Used
+    /// by the keyboard outside-press hook to decide if a tap landed on the
+    /// keyboard or one of its keys.
+    pub safe fn lv_obj_get_parent(obj: Obj) -> Option<Obj>;
     /// Reorder `obj` among its siblings; `-1` is the last (topmost) slot.
-    pub fn lv_obj_move_to_index(obj: *mut lv_obj_t, index: i32);
+    /// Refuses an out-of-range index and a parentless object.
+    pub safe fn lv_obj_move_to_index(obj: Obj, index: i32);
     /// The widget class `obj` was created as; compared against the class
     /// statics below to tell a slider from a roller when the keypad asks
     /// what the focused widget is (events/keypad.rs).
-    pub fn lv_obj_get_class(obj: *const lv_obj_t) -> *const lv_obj_class_t;
+    pub safe fn lv_obj_get_class(obj: Obj) -> *const lv_obj_class_t;
+    pub static lv_label_class: lv_obj_class_t;
+    pub static lv_bar_class: lv_obj_class_t;
+    pub static lv_spinner_class: lv_obj_class_t;
     pub static lv_slider_class: lv_obj_class_t;
     pub static lv_checkbox_class: lv_obj_class_t;
     pub static lv_roller_class: lv_obj_class_t;
@@ -815,66 +1138,75 @@ extern "C" {
     pub static lv_buttonmatrix_class: lv_obj_class_t;
     /// Scroll by `(dx, dy)`, clamped to the content: the keypad's page step
     /// on a `ScrollView` with nothing focusable inside.
-    pub fn lv_obj_scroll_by_bounded(
-        obj: *mut lv_obj_t,
-        dx: i32,
-        dy: i32,
-        anim_en: lv_anim_enable_t,
-    );
+    pub safe fn lv_obj_scroll_by_bounded(obj: Obj, dx: i32, dy: i32, anim_en: lv_anim_enable_t);
     /// Scroll so that `(x, y)` of the content sits at the object's origin:
     /// `(0, 0)` puts the screen back at its top-left after it panned.
-    pub fn lv_obj_scroll_to(obj: *mut lv_obj_t, x: i32, y: i32, anim_en: lv_anim_enable_t);
-    pub fn lv_group_get_obj_count(group: *mut lv_group_t) -> u32;
+    pub safe fn lv_obj_scroll_to(obj: Obj, x: i32, y: i32, anim_en: lv_anim_enable_t);
+    pub safe fn lv_group_get_obj_count(group: Group) -> u32;
     /// How far the content reaches past the right / bottom edge, i.e. how
     /// far the object can still scroll that way: the `[layout]` fit check
     /// reads them off the screen after a `setContentView`.
-    pub fn lv_obj_get_scroll_right(obj: *const lv_obj_t) -> i32;
-    pub fn lv_obj_get_scroll_bottom(obj: *const lv_obj_t) -> i32;
+    pub safe fn lv_obj_get_scroll_right(obj: Obj) -> i32;
+    pub safe fn lv_obj_get_scroll_bottom(obj: Obj) -> i32;
 
     // Restrict the axes a scrollable object will scroll/over-pull on.
     // Default is LV_DIR_ALL; set to LV_DIR_VER on ScrollView so horizontal
     // drags don't trigger elastic over-pull or a transient scrollbar.
-    pub fn lv_obj_set_scroll_dir(obj: *mut lv_obj_t, dir: lv_dir_t);
+    pub safe fn lv_obj_set_scroll_dir(obj: Obj, dir: lv_dir_t);
 
     // Control scrollbar drawing independently of scrollability. OFF on
     // EditText: the object stays scrollable (horizontal scroll-to-cursor
     // for long one-line text) but never draws a scrollbar, like Android.
-    pub fn lv_obj_set_scrollbar_mode(obj: *mut lv_obj_t, mode: lv_scrollbar_mode_t);
+    pub safe fn lv_obj_set_scrollbar_mode(obj: Obj, mode: lv_scrollbar_mode_t);
 
     // Flex layout
-    pub fn lv_obj_set_flex_flow(obj: *mut lv_obj_t, flow: lv_flex_flow_t);
-    pub fn lv_obj_set_flex_align(
-        obj: *mut lv_obj_t,
+    pub safe fn lv_obj_set_flex_flow(obj: Obj, flow: lv_flex_flow_t);
+    pub safe fn lv_obj_set_flex_align(
+        obj: Obj,
         main_place: lv_flex_align_t,
         cross_place: lv_flex_align_t,
         track_cross_place: lv_flex_align_t,
     );
 
     // Label widget
-    pub fn lv_label_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
-    pub fn lv_label_set_text(obj: *mut lv_obj_t, text: *const c_char);
-    pub fn lv_label_set_long_mode(obj: *mut lv_obj_t, long_mode: lv_label_long_mode_t);
-    pub fn lv_label_get_long_mode(obj: *const lv_obj_t) -> lv_label_long_mode_t;
+    pub safe fn lv_label_create(parent: Obj) -> Option<Obj>;
+    /// # Safety
+    /// `obj` must be an `lv_label`, and `text` a NUL-terminated string (LVGL
+    /// copies it).
+    pub fn lv_label_set_text(obj: Obj, text: *const c_char);
+    /// # Safety
+    /// `obj` must be an `lv_label` (see "Widget classes" above).
+    pub fn lv_label_set_long_mode(obj: Obj, long_mode: lv_label_long_mode_t);
+    /// # Safety
+    /// `obj` must be an `lv_label` (see "Widget classes" above).
+    pub fn lv_label_get_long_mode(obj: Obj) -> lv_label_long_mode_t;
     /// Line height of a font from `lv_obj_get_style_prop(.., LV_STYLE_TEXT_FONT).ptr`.
+    ///
+    /// # Safety
+    /// `font` must be a live `lv_font_t`.
     pub fn lv_font_get_line_height(font: *const lv_font_t) -> i32;
     /// The faces this build compiled (`lvgl/pd_fonts.c`), ascending by size; `count` receives
     /// the row count. Never empty: the default face is always the first row.
-    pub fn pd_font_table(count: *mut usize) -> *const pd_font_t;
+    pub safe fn pd_font_table(count: &mut usize) -> *const pd_font_t;
     /// Blank rows between a face's line top and its digit tops (`lvgl/pd_fonts.c`); 0 for null.
+    ///
+    /// # Safety
+    /// `font` must be null or a live `lv_font_t`.
     pub fn pd_font_top_leading(font: *const lv_font_t) -> i32;
 
     // The retained display list behind `picodroid.graphics.Canvas` (`lvgl/pd_canvas.c`).
     // View-local coordinates, inclusive right/bottom; colours 0xAARRGGBB. Each op returns 0,
-    // or -1 when it was dropped (no list on the object, or the list is full).
+    // or -1 when it was dropped (no list on the object, or the list is full). An object
+    // without a list (its `user_data` null, as LVGL leaves it) ignores every op.
     /// Give an object a display list and its draw and delete hooks; once per object.
-    pub fn pd_canvas_attach(obj: *mut lv_obj_t) -> i32;
+    pub safe fn pd_canvas_attach(obj: Obj) -> i32;
     /// Empty the list before a new `onDraw`.
-    pub fn pd_canvas_begin(obj: *mut lv_obj_t);
+    pub safe fn pd_canvas_begin(obj: Obj);
     /// Invalidate the object; returns the ops this pass dropped for want of room.
-    pub fn pd_canvas_end(obj: *mut lv_obj_t) -> i32;
-    pub fn pd_canvas_fill(obj: *mut lv_obj_t, argb: u32) -> i32;
-    pub fn pd_canvas_rect(
-        obj: *mut lv_obj_t,
+    pub safe fn pd_canvas_end(obj: Obj) -> i32;
+    pub safe fn pd_canvas_fill(obj: Obj, argb: u32) -> i32;
+    pub safe fn pd_canvas_rect(
+        obj: Obj,
         x1: i32,
         y1: i32,
         x2: i32,
@@ -884,8 +1216,8 @@ extern "C" {
         stroke_argb: u32,
         stroke_width: i32,
     ) -> i32;
-    pub fn pd_canvas_line(
-        obj: *mut lv_obj_t,
+    pub safe fn pd_canvas_line(
+        obj: Obj,
         x1: i32,
         y1: i32,
         x2: i32,
@@ -894,8 +1226,8 @@ extern "C" {
         argb: u32,
         round_caps: i32,
     ) -> i32;
-    pub fn pd_canvas_arc(
-        obj: *mut lv_obj_t,
+    pub safe fn pd_canvas_arc(
+        obj: Obj,
         cx: i32,
         cy: i32,
         radius: i32,
@@ -908,8 +1240,11 @@ extern "C" {
     /// `x` anchors per `align` (`LV_TEXT_ALIGN_*`), `baseline` is Android's `y`,
     /// `font_index` a row of `pd_font_table`; the text is copied, so it need not be
     /// NUL-terminated.
+    ///
+    /// # Safety
+    /// `utf8` must point at `len` readable bytes.
     pub fn pd_canvas_text(
-        obj: *mut lv_obj_t,
+        obj: Obj,
         x: i32,
         baseline: i32,
         font_index: i32,
@@ -919,242 +1254,229 @@ extern "C" {
         len: usize,
     ) -> i32;
     /// `Paint.ascent()`: the line's top above the baseline, negative; 0 for no face.
-    pub fn pd_canvas_ascent(font_index: i32) -> i32;
+    pub safe fn pd_canvas_ascent(font_index: i32) -> i32;
     /// `Paint.descent()`: the line's bottom below the baseline; 0 for no face.
-    pub fn pd_canvas_descent(font_index: i32) -> i32;
+    pub safe fn pd_canvas_descent(font_index: i32) -> i32;
     /// `Paint.measureText()`: one line's width in the face; the text is copied.
+    ///
+    /// # Safety
+    /// `utf8` must point at `len` readable bytes.
     pub fn pd_canvas_text_width(font_index: i32, utf8: *const c_char, len: usize) -> i32;
 
     // Button widget
-    pub fn lv_button_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
+    pub safe fn lv_button_create(parent: Obj) -> Option<Obj>;
 
     // Bar widget
-    pub fn lv_bar_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
-    pub fn lv_bar_set_value(obj: *mut lv_obj_t, value: i32, anim: lv_anim_enable_t);
-    pub fn lv_bar_set_range(obj: *mut lv_obj_t, min: i32, max: i32);
+    pub safe fn lv_bar_create(parent: Obj) -> Option<Obj>;
+    /// # Safety
+    /// `obj` must be an `lv_bar` (see "Widget classes" above).
+    pub fn lv_bar_set_value(obj: Obj, value: i32, anim: lv_anim_enable_t);
+    /// # Safety
+    /// `obj` must be an `lv_bar` (see "Widget classes" above).
+    pub fn lv_bar_set_range(obj: Obj, min: i32, max: i32);
 
     // Spinner widget — indeterminate counterpart of lv_bar; animates a
     // rotating arc whose duration and sweep are configurable. Used by the
     // indeterminate variant of `picodroid.widget.ProgressBar`.
-    pub fn lv_spinner_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
-    pub fn lv_spinner_set_anim_params(obj: *mut lv_obj_t, t_ms: u32, angle_deg: u32);
+    pub safe fn lv_spinner_create(parent: Obj) -> Option<Obj>;
+    /// # Safety
+    /// `obj` must be an `lv_spinner` (see "Widget classes" above).
+    pub fn lv_spinner_set_anim_params(obj: Obj, t_ms: u32, angle_deg: u32);
 
     // Arc widget — the determinate ring behind `CircularProgressIndicator`.
     // Angles are `lv_value_precise_t`, which is `int32_t` because lv_conf.h
     // sets `LV_USE_FLOAT 0` (guarded by `lv_use_float_is_off`): flipping it
     // would silently change these signatures to `float`.
-    pub fn lv_arc_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
+    pub safe fn lv_arc_create(parent: Obj) -> Option<Obj>;
     /// The track's span, `start`..`end` clockwise from 3 o'clock; LVGL wraps
     /// either past 360 (so a full circle is exactly `0, 360`).
-    pub fn lv_arc_set_bg_angles(obj: *mut lv_obj_t, start: i32, end: i32);
+    /// # Safety
+    /// `obj` must be an `lv_arc` (see "Widget classes" above).
+    pub fn lv_arc_set_bg_angles(obj: Obj, start: i32, end: i32);
     /// Added to every angle at draw time; normalised into [0, 360).
-    pub fn lv_arc_set_rotation(obj: *mut lv_obj_t, rotation: i32);
-    pub fn lv_arc_set_mode(obj: *mut lv_obj_t, mode: lv_arc_mode_t);
-    pub fn lv_arc_set_value(obj: *mut lv_obj_t, value: i32);
-    pub fn lv_arc_set_range(obj: *mut lv_obj_t, min: i32, max: i32);
+    /// # Safety
+    /// `obj` must be an `lv_arc` (see "Widget classes" above).
+    pub fn lv_arc_set_rotation(obj: Obj, rotation: i32);
+    /// # Safety
+    /// `obj` must be an `lv_arc` (see "Widget classes" above).
+    pub fn lv_arc_set_mode(obj: Obj, mode: lv_arc_mode_t);
+    /// # Safety
+    /// `obj` must be an `lv_arc` (see "Widget classes" above).
+    pub fn lv_arc_set_value(obj: Obj, value: i32);
+    /// # Safety
+    /// `obj` must be an `lv_arc` (see "Widget classes" above).
+    pub fn lv_arc_set_range(obj: Obj, min: i32, max: i32);
 
     // Switch widget
-    pub fn lv_switch_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
+    pub safe fn lv_switch_create(parent: Obj) -> Option<Obj>;
 
     // Color
-    pub fn lv_color_hex(c: u32) -> lv_color_t;
+    pub safe fn lv_color_hex(c: u32) -> lv_color_t;
 
-    // Events
+    // Events — the raw accessors behind `ObjEvent`.
+    /// # Safety
+    /// `e` must be the event of a running callback.
     pub fn lv_event_get_target_obj(e: *mut lv_event_t) -> *mut lv_obj_t;
     /// The `user_data` passed to `lv_obj_add_event_cb` for the descriptor whose
     /// callback is currently running. The handle table rides the slot id here so
     /// its delete callback can clear the right entry in O(1).
+    ///
+    /// # Safety
+    /// `e` must be the event of a running callback.
     pub fn lv_event_get_user_data(e: *mut lv_event_t) -> *mut c_void;
     /// The widget the firing handler is bound to. Differs from
     /// `lv_event_get_target_obj` when an event bubbles up from a child
     /// (e.g. lv_calendar's inner btnmatrix VALUE_CHANGED bubbles to the
     /// calendar root via LV_OBJ_FLAG_EVENT_BUBBLE).
+    ///
+    /// # Safety
+    /// `e` must be the event of a running callback.
     pub fn lv_event_get_current_target_obj(e: *mut lv_event_t) -> *mut lv_obj_t;
 
     /// Get the indev (touch / keypad) that originated `e`. Used by the
     /// touch-event trampolines to fetch the current pointer position.
-    pub fn lv_event_get_indev(e: *mut lv_event_t) -> *mut lv_indev_t;
+    ///
+    /// # Safety
+    /// `e` must be the event of a running callback.
+    pub fn lv_event_get_indev(e: *mut lv_event_t) -> Option<Indev>;
 
     /// Fill `point` with the indev's current pointer position. Result is
-    /// in display pixel coordinates. For non-pointer indevs (keypad) the
-    /// behavior is undefined — only call from PRESSED/PRESSING/RELEASED
-    /// touch callbacks.
-    pub fn lv_indev_get_point(indev: *const lv_indev_t, point: *mut lv_point_t);
+    /// in display pixel coordinates. For a keypad it reads the keypad's
+    /// unused point field — a meaningless value, but a defined one; only the
+    /// PRESSED/PRESSING/RELEASED touch callbacks ask.
+    pub safe fn lv_indev_get_point(indev: Indev, point: &mut lv_point_t);
     /// Synchronously fire `event_code` on `obj`. Invokes every matching
     /// event callback on this object (so e.g. `LV_EVENT_CLICKED` on a
     /// Button goes through the same `button_click_cb` a real touch would
     /// trigger). Returns `lv_result_t` (0 = OK, 1 = invalid).
-    pub fn lv_obj_send_event(
-        obj: *mut lv_obj_t,
-        event_code: lv_event_code_t,
-        param: *mut c_void,
-    ) -> u32;
+    ///
+    /// # Safety
+    /// `param` is what every callback reached reads as the event's
+    /// parameter: null, or what those callbacks expect for `event_code`.
+    /// [`send_event`] is the safe form, with a null parameter.
+    pub fn lv_obj_send_event(obj: Obj, event_code: lv_event_code_t, param: *mut c_void) -> u32;
 
     // Object lifecycle
-    pub fn lv_obj_delete(obj: *mut lv_obj_t);
+    /// # Safety
+    /// No `Obj` naming `obj` or one of its descendants may be used
+    /// afterwards (see [`Obj`]).
+    pub fn lv_obj_delete(obj: Obj);
 
     // Mark the entire object as needing redraw on the next refresh.
-    pub fn lv_obj_invalidate(obj: *mut lv_obj_t);
+    pub safe fn lv_obj_invalidate(obj: Obj);
     /// LVGL's automatic style refresh, a global flag: off, `lv_obj_set_style_*`
     /// records the value and does nothing else (see `graphics::lvgl::style_batch`).
-    pub fn lv_obj_enable_style_refresh(en: bool);
+    pub safe fn lv_obj_enable_style_refresh(en: bool);
     /// The refresh a `lv_obj_set_style_*` of `prop` on `part` would have run.
-    pub fn lv_obj_refresh_style(obj: *mut lv_obj_t, part: lv_part_t, prop: lv_style_prop_t);
+    pub safe fn lv_obj_refresh_style(obj: Obj, part: lv_part_t, prop: lv_style_prop_t);
 
     // Object parent / child
-    pub fn lv_obj_set_parent(obj: *mut lv_obj_t, parent: *mut lv_obj_t);
-    pub fn lv_obj_get_child(obj: *mut lv_obj_t, idx: i32) -> *mut lv_obj_t;
-    pub fn lv_obj_get_child_count(obj: *const lv_obj_t) -> u32;
+    /// Move `obj` under `parent`. LVGL does not look for a cycle.
+    ///
+    /// # Safety
+    /// `parent` must be neither `obj` nor one of its descendants: the tree
+    /// would loop, and deleting it would recurse without end.
+    pub fn lv_obj_set_parent(obj: Obj, parent: Obj);
+    /// The child at `idx` (negative counts from the end), `None` past the
+    /// last.
+    pub safe fn lv_obj_get_child(obj: Obj, idx: i32) -> Option<Obj>;
+    pub safe fn lv_obj_get_child_count(obj: Obj) -> u32;
 
     // Flex layout — set_flex_flow / align live above; this declaration
     // backs `LinearLayout.LayoutParams.weight` so weighted children expand
     // along the flex axis. Maps directly to `lv_obj_set_flex_grow`.
-    pub fn lv_obj_set_flex_grow(obj: *mut lv_obj_t, grow: u8);
+    pub safe fn lv_obj_set_flex_grow(obj: Obj, grow: u8);
 
     // Object flags
-    pub fn lv_obj_add_flag(obj: *mut lv_obj_t, f: u32);
-    pub fn lv_obj_remove_flag(obj: *mut lv_obj_t, f: u32);
+    pub safe fn lv_obj_add_flag(obj: Obj, f: u32);
+    pub safe fn lv_obj_remove_flag(obj: Obj, f: u32);
 
     // ListView rows (widgets/list_view.rs): stretch an adapter's row view to
     // the list's width and give it the list button's padding and separator.
-    pub fn lv_obj_set_width(obj: *mut lv_obj_t, w: i32);
-    pub fn lv_obj_set_style_pad_all(obj: *mut lv_obj_t, value: i32, selector: lv_style_selector_t);
-    pub fn lv_obj_set_style_border_side(
-        obj: *mut lv_obj_t,
+    pub safe fn lv_obj_set_width(obj: Obj, w: i32);
+    pub safe fn lv_obj_set_style_pad_all(obj: Obj, value: i32, selector: lv_style_selector_t);
+    pub safe fn lv_obj_set_style_border_side(
+        obj: Obj,
         value: lv_border_side_t,
         selector: lv_style_selector_t,
     );
 
     // Object state
-    pub fn lv_obj_has_state(obj: *mut lv_obj_t, state: u32) -> bool;
-    pub fn lv_obj_add_state(obj: *mut lv_obj_t, state: u32);
-    pub fn lv_obj_remove_state(obj: *mut lv_obj_t, state: u32);
+    pub safe fn lv_obj_has_state(obj: Obj, state: u32) -> bool;
+    pub safe fn lv_obj_add_state(obj: Obj, state: u32);
+    pub safe fn lv_obj_remove_state(obj: Obj, state: u32);
 
     // Text style
-    pub fn lv_obj_set_style_text_color(
-        obj: *mut lv_obj_t,
+    pub safe fn lv_obj_set_style_text_color(
+        obj: Obj,
         value: lv_color_t,
         selector: lv_style_selector_t,
     );
+    /// # Safety
+    /// `value` must be a font that outlives the object: one of
+    /// `pd_font_table`'s compiled faces.
     pub fn lv_obj_set_style_text_font(
-        obj: *mut lv_obj_t,
+        obj: Obj,
         value: *const lv_font_t,
         selector: lv_style_selector_t,
     );
-    pub fn lv_obj_set_style_text_align(
-        obj: *mut lv_obj_t,
+    pub safe fn lv_obj_set_style_text_align(
+        obj: Obj,
         value: lv_text_align_t,
         selector: lv_style_selector_t,
     );
 
     // Margin style: the space a flex layout keeps clear around a child.
-    pub fn lv_obj_set_style_margin_left(
-        obj: *mut lv_obj_t,
-        value: i32,
-        selector: lv_style_selector_t,
-    );
-    pub fn lv_obj_set_style_margin_top(
-        obj: *mut lv_obj_t,
-        value: i32,
-        selector: lv_style_selector_t,
-    );
-    pub fn lv_obj_set_style_margin_right(
-        obj: *mut lv_obj_t,
-        value: i32,
-        selector: lv_style_selector_t,
-    );
-    pub fn lv_obj_set_style_margin_bottom(
-        obj: *mut lv_obj_t,
-        value: i32,
-        selector: lv_style_selector_t,
-    );
+    pub safe fn lv_obj_set_style_margin_left(obj: Obj, value: i32, selector: lv_style_selector_t);
+    pub safe fn lv_obj_set_style_margin_top(obj: Obj, value: i32, selector: lv_style_selector_t);
+    pub safe fn lv_obj_set_style_margin_right(obj: Obj, value: i32, selector: lv_style_selector_t);
+    pub safe fn lv_obj_set_style_margin_bottom(obj: Obj, value: i32, selector: lv_style_selector_t);
 
     // Padding style
-    pub fn lv_obj_set_style_pad_left(obj: *mut lv_obj_t, value: i32, selector: lv_style_selector_t);
-    pub fn lv_obj_set_style_pad_right(
-        obj: *mut lv_obj_t,
-        value: i32,
-        selector: lv_style_selector_t,
-    );
-    pub fn lv_obj_set_style_pad_top(obj: *mut lv_obj_t, value: i32, selector: lv_style_selector_t);
-    pub fn lv_obj_set_style_max_height(
-        obj: *mut lv_obj_t,
-        value: i32,
-        selector: lv_style_selector_t,
-    );
+    pub safe fn lv_obj_set_style_pad_left(obj: Obj, value: i32, selector: lv_style_selector_t);
+    pub safe fn lv_obj_set_style_pad_right(obj: Obj, value: i32, selector: lv_style_selector_t);
+    pub safe fn lv_obj_set_style_pad_top(obj: Obj, value: i32, selector: lv_style_selector_t);
+    pub safe fn lv_obj_set_style_max_height(obj: Obj, value: i32, selector: lv_style_selector_t);
     /// `View.setMinimumWidth/Height` and `TextView.setMaxWidth`: bounds on
     /// the laid-out size that a content-sized or weighted view respects.
-    pub fn lv_obj_set_style_min_width(
-        obj: *mut lv_obj_t,
-        value: i32,
-        selector: lv_style_selector_t,
-    );
-    pub fn lv_obj_set_style_min_height(
-        obj: *mut lv_obj_t,
-        value: i32,
-        selector: lv_style_selector_t,
-    );
-    pub fn lv_obj_set_style_max_width(
-        obj: *mut lv_obj_t,
-        value: i32,
-        selector: lv_style_selector_t,
-    );
+    pub safe fn lv_obj_set_style_min_width(obj: Obj, value: i32, selector: lv_style_selector_t);
+    pub safe fn lv_obj_set_style_min_height(obj: Obj, value: i32, selector: lv_style_selector_t);
+    pub safe fn lv_obj_set_style_max_width(obj: Obj, value: i32, selector: lv_style_selector_t);
     /// Whether `f` is set on `obj`.
-    pub fn lv_obj_has_flag(obj: *const lv_obj_t, f: u32) -> bool;
-    pub fn lv_obj_set_style_pad_bottom(
-        obj: *mut lv_obj_t,
-        value: i32,
-        selector: lv_style_selector_t,
-    );
+    pub safe fn lv_obj_has_flag(obj: Obj, f: u32) -> bool;
+    pub safe fn lv_obj_set_style_pad_bottom(obj: Obj, value: i32, selector: lv_style_selector_t);
     // Outline style — drawn outside the object's border. Used by NumberPicker
     // to replicate the theme's outline_primary/outline_secondary focus/edit
     // feedback, which the default theme applies to group-default widgets but
     // not to plain lv_obj containers.
-    pub fn lv_obj_set_style_outline_width(
-        obj: *mut lv_obj_t,
-        value: i32,
-        selector: lv_style_selector_t,
-    );
-    pub fn lv_obj_set_style_outline_pad(
-        obj: *mut lv_obj_t,
-        value: i32,
-        selector: lv_style_selector_t,
-    );
-    pub fn lv_obj_set_style_outline_opa(
-        obj: *mut lv_obj_t,
-        value: u8,
-        selector: lv_style_selector_t,
-    );
-    pub fn lv_obj_set_style_outline_color(
-        obj: *mut lv_obj_t,
+    pub safe fn lv_obj_set_style_outline_width(obj: Obj, value: i32, selector: lv_style_selector_t);
+    pub safe fn lv_obj_set_style_outline_pad(obj: Obj, value: i32, selector: lv_style_selector_t);
+    pub safe fn lv_obj_set_style_outline_opa(obj: Obj, value: u8, selector: lv_style_selector_t);
+    pub safe fn lv_obj_set_style_outline_color(
+        obj: Obj,
         value: lv_color_t,
         selector: lv_style_selector_t,
     );
 
     // Active theme's primary/secondary accent colors (lv_theme.h). `obj` picks
     // the display whose theme is consulted; pass the widget being styled.
-    pub fn lv_theme_get_color_primary(obj: *mut lv_obj_t) -> lv_color_t;
-    pub fn lv_theme_get_color_secondary(obj: *mut lv_obj_t) -> lv_color_t;
+    pub safe fn lv_theme_get_color_primary(obj: Obj) -> lv_color_t;
+    pub safe fn lv_theme_get_color_secondary(obj: Obj) -> lv_color_t;
 
-    pub fn lv_obj_set_style_pad_row(obj: *mut lv_obj_t, value: i32, selector: lv_style_selector_t);
-    pub fn lv_obj_set_style_pad_column(
-        obj: *mut lv_obj_t,
-        value: i32,
-        selector: lv_style_selector_t,
-    );
+    pub safe fn lv_obj_set_style_pad_row(obj: Obj, value: i32, selector: lv_style_selector_t);
+    pub safe fn lv_obj_set_style_pad_column(obj: Obj, value: i32, selector: lv_style_selector_t);
 
     // Opacity style
-    pub fn lv_obj_set_style_opa(obj: *mut lv_obj_t, value: u8, selector: lv_style_selector_t);
-    pub fn lv_obj_set_style_bg_opa(obj: *mut lv_obj_t, value: u8, selector: lv_style_selector_t);
+    pub safe fn lv_obj_set_style_opa(obj: Obj, value: u8, selector: lv_style_selector_t);
+    pub safe fn lv_obj_set_style_bg_opa(obj: Obj, value: u8, selector: lv_style_selector_t);
     /// Duration `LV_ANIM_ON` setters (`lv_bar_set_value`, ...) animate over;
     /// the property default is 0 ms.
-    pub fn lv_obj_set_style_anim_duration(
-        obj: *mut lv_obj_t,
-        value: u32,
-        selector: lv_style_selector_t,
-    );
+    pub safe fn lv_obj_set_style_anim_duration(obj: Obj, value: u32, selector: lv_style_selector_t);
+    /// # Safety
+    /// `src` must be null or an image source (`lv_image_dsc_t`, a symbol or
+    /// path string) that outlives the object.
     pub fn lv_obj_set_style_bg_image_src(
-        obj: *mut lv_obj_t,
+        obj: Obj,
         src: *const c_void,
         selector: lv_style_selector_t,
     );
@@ -1162,8 +1484,8 @@ extern "C" {
     // Style readback. The typed `lv_obj_get_style_<prop>()` getters are
     // `static inline` in LVGL 9, so this generic exported one is the only
     // linkable entry; unset props return the property's default.
-    pub fn lv_obj_get_style_prop(
-        obj: *const lv_obj_t,
+    pub safe fn lv_obj_get_style_prop(
+        obj: Obj,
         part: lv_part_t,
         prop: lv_style_prop_t,
     ) -> lv_style_value_t;
@@ -1171,103 +1493,96 @@ extern "C" {
     // Transform styles — ViewPropertyAnimator and View.setTranslationX & co.
     // translate in px; rotation in 0.1°; scale with LV_SCALE_NONE (256) = 1.0;
     // pivot as a coordinate (`lv_pct(50)` = the object's centre).
-    pub fn lv_obj_set_style_translate_x(
-        obj: *mut lv_obj_t,
+    pub safe fn lv_obj_set_style_translate_x(obj: Obj, value: i32, selector: lv_style_selector_t);
+    pub safe fn lv_obj_set_style_translate_y(obj: Obj, value: i32, selector: lv_style_selector_t);
+    pub safe fn lv_obj_set_style_transform_rotation(
+        obj: Obj,
         value: i32,
         selector: lv_style_selector_t,
     );
-    pub fn lv_obj_set_style_translate_y(
-        obj: *mut lv_obj_t,
+    pub safe fn lv_obj_set_style_transform_scale_x(
+        obj: Obj,
         value: i32,
         selector: lv_style_selector_t,
     );
-    pub fn lv_obj_set_style_transform_rotation(
-        obj: *mut lv_obj_t,
+    pub safe fn lv_obj_set_style_transform_scale_y(
+        obj: Obj,
         value: i32,
         selector: lv_style_selector_t,
     );
-    pub fn lv_obj_set_style_transform_scale_x(
-        obj: *mut lv_obj_t,
+    pub safe fn lv_obj_set_style_transform_pivot_x(
+        obj: Obj,
         value: i32,
         selector: lv_style_selector_t,
     );
-    pub fn lv_obj_set_style_transform_scale_y(
-        obj: *mut lv_obj_t,
-        value: i32,
-        selector: lv_style_selector_t,
-    );
-    pub fn lv_obj_set_style_transform_pivot_x(
-        obj: *mut lv_obj_t,
-        value: i32,
-        selector: lv_style_selector_t,
-    );
-    pub fn lv_obj_set_style_transform_pivot_y(
-        obj: *mut lv_obj_t,
+    pub safe fn lv_obj_set_style_transform_pivot_y(
+        obj: Obj,
         value: i32,
         selector: lv_style_selector_t,
     );
     /// `LV_PCT(x)` as the exported function — percentage coordinate encoding.
-    pub fn lv_pct(x: i32) -> i32;
+    pub safe fn lv_pct(x: i32) -> i32;
 
     // Drawable styles — used by GradientDrawable to apply a bundle of
     // visual properties at once.
-    pub fn lv_obj_set_style_radius(obj: *mut lv_obj_t, value: i32, selector: lv_style_selector_t);
-    pub fn lv_obj_set_style_border_width(
-        obj: *mut lv_obj_t,
-        value: i32,
-        selector: lv_style_selector_t,
-    );
-    pub fn lv_obj_set_style_border_color(
-        obj: *mut lv_obj_t,
+    pub safe fn lv_obj_set_style_radius(obj: Obj, value: i32, selector: lv_style_selector_t);
+    pub safe fn lv_obj_set_style_border_width(obj: Obj, value: i32, selector: lv_style_selector_t);
+    pub safe fn lv_obj_set_style_border_color(
+        obj: Obj,
         value: lv_color_t,
         selector: lv_style_selector_t,
     );
-    pub fn lv_obj_set_style_border_opa(
-        obj: *mut lv_obj_t,
-        value: u8,
-        selector: lv_style_selector_t,
-    );
-    pub fn lv_obj_set_style_bg_grad_color(
-        obj: *mut lv_obj_t,
+    pub safe fn lv_obj_set_style_border_opa(obj: Obj, value: u8, selector: lv_style_selector_t);
+    pub safe fn lv_obj_set_style_bg_grad_color(
+        obj: Obj,
         value: lv_color_t,
         selector: lv_style_selector_t,
     );
-    pub fn lv_obj_set_style_bg_grad_dir(
-        obj: *mut lv_obj_t,
+    pub safe fn lv_obj_set_style_bg_grad_dir(
+        obj: Obj,
         value: lv_grad_dir_t,
         selector: lv_style_selector_t,
     );
 
     // List widget
-    pub fn lv_list_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
-    pub fn lv_list_add_text(list: *mut lv_obj_t, text: *const c_char) -> *mut lv_obj_t;
-    pub fn lv_list_add_button(
-        list: *mut lv_obj_t,
-        icon: *const c_char,
-        text: *const c_char,
-    ) -> *mut lv_obj_t;
+    pub safe fn lv_list_create(parent: Obj) -> Option<Obj>;
+    /// # Safety
+    /// `text` must be a NUL-terminated string (LVGL copies it).
+    pub fn lv_list_add_text(list: Obj, text: *const c_char) -> Option<Obj>;
+    /// # Safety
+    /// `icon` must be null or an image source that outlives the row; `text`
+    /// null or a NUL-terminated string (LVGL copies it).
+    pub fn lv_list_add_button(list: Obj, icon: *const c_char, text: *const c_char) -> Option<Obj>;
 
     // Image widget
-    pub fn lv_image_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
-    pub fn lv_image_set_src(obj: *mut lv_obj_t, src: *const c_void);
+    pub safe fn lv_image_create(parent: Obj) -> Option<Obj>;
+    /// # Safety
+    /// `obj` must be an `lv_image`, and `src` an image source
+    /// (`lv_image_dsc_t`, symbol or path string) that outlives it: LVGL keeps
+    /// the pointer.
+    pub fn lv_image_set_src(obj: Obj, src: *const c_void);
     /// Set the inner alignment of the image inside its widget area. Used by
     /// `ImageView.setScaleType` to map Android's FIT_CENTER / CENTER_CROP /
     /// FIT_XY / TILE onto LVGL's `lv_image_align_t` enum.
-    pub fn lv_image_set_inner_align(obj: *mut lv_obj_t, align: lv_image_align_t);
+    /// # Safety
+    /// `obj` must be an `lv_image` (see "Widget classes" above).
+    pub fn lv_image_set_inner_align(obj: Obj, align: lv_image_align_t);
     /// Uniform image scale; `256` = 1.0×.
-    pub fn lv_image_set_scale(obj: *mut lv_obj_t, zoom: u32);
+    /// # Safety
+    /// `obj` must be an `lv_image` (see "Widget classes" above).
+    pub fn lv_image_set_scale(obj: Obj, zoom: u32);
 
     /// Image recolor (tint) — applies a tint color to the rendered image.
     /// Recolor is a *style* property on the lv_image widget; pair with
     /// `lv_obj_set_style_image_recolor_opa(..., 0..255, ...)` to control
     /// blend strength (0 = no tint, 255 = fully recolored).
-    pub fn lv_obj_set_style_image_recolor(
-        obj: *mut lv_obj_t,
+    pub safe fn lv_obj_set_style_image_recolor(
+        obj: Obj,
         value: lv_color_t,
         selector: lv_style_selector_t,
     );
-    pub fn lv_obj_set_style_image_recolor_opa(
-        obj: *mut lv_obj_t,
+    pub safe fn lv_obj_set_style_image_recolor_opa(
+        obj: Obj,
         value: u8,
         selector: lv_style_selector_t,
     );
@@ -1275,99 +1590,285 @@ extern "C" {
     // Arc style — used by `lv_arc` and its subclass `lv_spinner`. Pair with
     // a part selector (e.g. `LV_PART_INDICATOR` for the moving sweep,
     // `LV_PART_MAIN` for the background ring).
-    pub fn lv_obj_set_style_arc_color(
-        obj: *mut lv_obj_t,
+    pub safe fn lv_obj_set_style_arc_color(
+        obj: Obj,
         value: lv_color_t,
         selector: lv_style_selector_t,
     );
-    pub fn lv_obj_set_style_arc_width(
-        obj: *mut lv_obj_t,
-        value: i32,
-        selector: lv_style_selector_t,
-    );
-    pub fn lv_obj_set_style_arc_rounded(
-        obj: *mut lv_obj_t,
-        value: bool,
-        selector: lv_style_selector_t,
-    );
+    pub safe fn lv_obj_set_style_arc_width(obj: Obj, value: i32, selector: lv_style_selector_t);
+    pub safe fn lv_obj_set_style_arc_rounded(obj: Obj, value: bool, selector: lv_style_selector_t);
     /// Opacity of one part's arc (`LV_OPA_COVER` = 255): how a Java colour's
     /// alpha byte reaches the ring, `lv_color_t` carrying none.
-    pub fn lv_obj_set_style_arc_opa(obj: *mut lv_obj_t, value: u8, selector: lv_style_selector_t);
+    pub safe fn lv_obj_set_style_arc_opa(obj: Obj, value: u8, selector: lv_style_selector_t);
 
     // Slider widget
-    pub fn lv_slider_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
-    pub fn lv_slider_set_value(obj: *mut lv_obj_t, value: i32, anim: lv_anim_enable_t);
-    pub fn lv_slider_set_range(obj: *mut lv_obj_t, min: i32, max: i32);
-    pub fn lv_slider_get_value(obj: *const lv_obj_t) -> i32;
+    pub safe fn lv_slider_create(parent: Obj) -> Option<Obj>;
+    /// # Safety
+    /// `obj` must be an `lv_slider` (see "Widget classes" above).
+    pub fn lv_slider_set_value(obj: Obj, value: i32, anim: lv_anim_enable_t);
+    /// # Safety
+    /// `obj` must be an `lv_slider` (see "Widget classes" above).
+    pub fn lv_slider_set_range(obj: Obj, min: i32, max: i32);
+    /// # Safety
+    /// `obj` must be an `lv_slider` (see "Widget classes" above).
+    pub fn lv_slider_get_value(obj: Obj) -> i32;
 
     // Checkbox widget
-    pub fn lv_checkbox_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
-    pub fn lv_checkbox_set_text(obj: *mut lv_obj_t, txt: *const c_char);
+    pub safe fn lv_checkbox_create(parent: Obj) -> Option<Obj>;
+    /// # Safety
+    /// `obj` must be an `lv_checkbox`, and `txt` a NUL-terminated string (LVGL
+    /// copies it).
+    pub fn lv_checkbox_set_text(obj: Obj, txt: *const c_char);
 
     // Button-matrix widget — one focusable lv_obj rendering a grid of
     // buttons from a NUL-terminated `map` of `*const c_char` (with `"\n"`
     // entries as row breaks and a final null entry). Backs AlertDialog's
     // item / choice lists: a single widget regardless of row count dodges
-    // the >12-focusable-lv_list-rows renderer hang. The `map` array (and
-    // the CStrings it points at) must outlive the widget — callers own that
-    // storage. Selecting fires LV_EVENT_VALUE_CHANGED;
-    // `get_selected_button` returns `LV_BUTTONMATRIX_BUTTON_NONE` (0xFFFF)
-    // when nothing is selected.
-    pub fn lv_buttonmatrix_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
-    pub fn lv_buttonmatrix_set_map(obj: *mut lv_obj_t, map: *const *const c_char);
-    pub fn lv_buttonmatrix_set_button_ctrl(obj: *mut lv_obj_t, btn_id: u32, ctrl: u16);
-    pub fn lv_buttonmatrix_clear_button_ctrl(obj: *mut lv_obj_t, btn_id: u32, ctrl: u16);
-    pub fn lv_buttonmatrix_set_one_checked(obj: *mut lv_obj_t, en: bool);
-    pub fn lv_buttonmatrix_get_selected_button(obj: *const lv_obj_t) -> u32;
+    // the >12-focusable-lv_list-rows renderer hang. Selecting fires
+    // LV_EVENT_VALUE_CHANGED; `get_selected_button` returns
+    // `LV_BUTTONMATRIX_BUTTON_NONE` (0xFFFF) when nothing is selected. The
+    // per-button setters and getters ignore a `btn_id` past the last button
+    // (lv_buttonmatrix.c checks it against `btn_cnt`).
+    pub safe fn lv_buttonmatrix_create(parent: Obj) -> Option<Obj>;
+    /// # Safety
+    /// `obj` must be an `lv_buttonmatrix`; `map` and every string it points
+    /// at must outlive the widget (LVGL keeps the pointers) and follow the
+    /// map format above.
+    pub fn lv_buttonmatrix_set_map(obj: Obj, map: *const *const c_char);
+    /// # Safety
+    /// `obj` must be an `lv_buttonmatrix` (see "Widget classes" above).
+    pub fn lv_buttonmatrix_set_button_ctrl(obj: Obj, btn_id: u32, ctrl: u16);
+    /// # Safety
+    /// `obj` must be an `lv_buttonmatrix` (see "Widget classes" above).
+    pub fn lv_buttonmatrix_clear_button_ctrl(obj: Obj, btn_id: u32, ctrl: u16);
+    /// # Safety
+    /// `obj` must be an `lv_buttonmatrix` (see "Widget classes" above).
+    pub fn lv_buttonmatrix_set_one_checked(obj: Obj, en: bool);
+    /// # Safety
+    /// `obj` must be an `lv_buttonmatrix` (see "Widget classes" above).
+    pub fn lv_buttonmatrix_get_selected_button(obj: Obj) -> u32;
     /// The key LEFT/RIGHT walk from and ENTER presses; a keypad-focused
     /// keyboard starts on its first character key, not on a mode switch.
-    pub fn lv_buttonmatrix_set_selected_button(obj: *mut lv_obj_t, btn_id: u32);
-    pub fn lv_buttonmatrix_has_button_ctrl(obj: *mut lv_obj_t, btn_id: u32, ctrl: u16) -> bool;
+    /// # Safety
+    /// `obj` must be an `lv_buttonmatrix` (see "Widget classes" above).
+    pub fn lv_buttonmatrix_set_selected_button(obj: Obj, btn_id: u32);
+    /// # Safety
+    /// `obj` must be an `lv_buttonmatrix` (see "Widget classes" above).
+    pub fn lv_buttonmatrix_has_button_ctrl(obj: Obj, btn_id: u32, ctrl: u16) -> bool;
 
     // Dropdown widget
-    pub fn lv_dropdown_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
-    pub fn lv_dropdown_set_options(obj: *mut lv_obj_t, options: *const c_char);
-    pub fn lv_dropdown_get_selected(obj: *const lv_obj_t) -> u32;
+    pub safe fn lv_dropdown_create(parent: Obj) -> Option<Obj>;
+    /// # Safety
+    /// `obj` must be an `lv_dropdown`, and `options` a NUL-terminated string (LVGL
+    /// copies it).
+    pub fn lv_dropdown_set_options(obj: Obj, options: *const c_char);
+    /// # Safety
+    /// `obj` must be an `lv_dropdown` (see "Widget classes" above).
+    pub fn lv_dropdown_get_selected(obj: Obj) -> u32;
     /// Whether the option list is showing: while it is, the keypad's PREV/NEXT
     /// walk it (events/keypad.rs::widget_remap).
-    pub fn lv_dropdown_is_open(obj: *mut lv_obj_t) -> bool;
+    /// # Safety
+    /// `obj` must be an `lv_dropdown` (see "Widget classes" above).
+    pub fn lv_dropdown_is_open(obj: Obj) -> bool;
 
     // Roller widget — vertically-scrolling option list. Used by TimePicker
     // (hour + minute) and could back a future date-roller variant.
-    pub fn lv_roller_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
-    pub fn lv_roller_set_options(
-        obj: *mut lv_obj_t,
-        options: *const c_char,
-        mode: lv_roller_mode_t,
-    );
-    pub fn lv_roller_set_selected(obj: *mut lv_obj_t, sel_opt: u32, anim: lv_anim_enable_t);
-    pub fn lv_roller_get_selected(obj: *const lv_obj_t) -> u32;
-    pub fn lv_roller_set_visible_row_count(obj: *mut lv_obj_t, row_cnt: u32);
+    pub safe fn lv_roller_create(parent: Obj) -> Option<Obj>;
+    /// # Safety
+    /// `obj` must be an `lv_roller`, and `options` a NUL-terminated string (LVGL
+    /// copies it).
+    pub fn lv_roller_set_options(obj: Obj, options: *const c_char, mode: lv_roller_mode_t);
+    /// # Safety
+    /// `obj` must be an `lv_roller` (see "Widget classes" above).
+    pub fn lv_roller_set_selected(obj: Obj, sel_opt: u32, anim: lv_anim_enable_t);
+    /// # Safety
+    /// `obj` must be an `lv_roller` (see "Widget classes" above).
+    pub fn lv_roller_get_selected(obj: Obj) -> u32;
+    /// # Safety
+    /// `obj` must be an `lv_roller` (see "Widget classes" above).
+    pub fn lv_roller_set_visible_row_count(obj: Obj, row_cnt: u32);
 
     // Calendar widget — backs DatePicker. `lv_calendar_get_pressed_date`
     // populates a caller-allocated `lv_calendar_date_t`.
-    pub fn lv_calendar_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
-    pub fn lv_calendar_set_today_date(obj: *mut lv_obj_t, year: u32, month: u32, day: u32);
-    pub fn lv_calendar_set_month_shown(obj: *mut lv_obj_t, year: u32, month: u32);
-    pub fn lv_calendar_get_pressed_date(
-        obj: *const lv_obj_t,
-        date: *mut lv_calendar_date_t,
-    ) -> lv_result_t;
+    pub safe fn lv_calendar_create(parent: Obj) -> Option<Obj>;
+    /// # Safety
+    /// `obj` must be an `lv_calendar` (see "Widget classes" above).
+    pub fn lv_calendar_set_today_date(obj: Obj, year: u32, month: u32, day: u32);
+    /// # Safety
+    /// `obj` must be an `lv_calendar` (see "Widget classes" above).
+    pub fn lv_calendar_set_month_shown(obj: Obj, year: u32, month: u32);
+    /// # Safety
+    /// `obj` must be an `lv_calendar` (see "Widget classes" above).
+    pub fn lv_calendar_get_pressed_date(obj: Obj, date: &mut lv_calendar_date_t) -> lv_result_t;
 
     // Textarea widget
-    pub fn lv_textarea_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
-    pub fn lv_textarea_set_text(obj: *mut lv_obj_t, txt: *const c_char);
-    pub fn lv_textarea_get_text(obj: *const lv_obj_t) -> *const c_char;
-    pub fn lv_label_get_text(obj: *const lv_obj_t) -> *const c_char;
-    pub fn lv_textarea_set_placeholder_text(obj: *mut lv_obj_t, txt: *const c_char);
-    pub fn lv_textarea_set_one_line(obj: *mut lv_obj_t, en: bool);
-    pub fn lv_textarea_set_password_mode(obj: *mut lv_obj_t, en: bool);
-    pub fn lv_textarea_add_text(obj: *mut lv_obj_t, txt: *const c_char);
+    pub safe fn lv_textarea_create(parent: Obj) -> Option<Obj>;
+    /// # Safety
+    /// `obj` must be an `lv_textarea`, and `txt` a NUL-terminated string (LVGL
+    /// copies it).
+    pub fn lv_textarea_set_text(obj: Obj, txt: *const c_char);
+    /// The text LVGL holds, NUL-terminated; valid until the next edit.
+    /// # Safety
+    /// `obj` must be an `lv_textarea` (see "Widget classes" above).
+    pub fn lv_textarea_get_text(obj: Obj) -> *const c_char;
+    /// As [`lv_textarea_get_text`], for a label.
+    /// # Safety
+    /// `obj` must be an `lv_label` (see "Widget classes" above).
+    pub fn lv_label_get_text(obj: Obj) -> *const c_char;
+    /// # Safety
+    /// `obj` must be an `lv_textarea`, and `txt` a NUL-terminated string (LVGL
+    /// copies it).
+    pub fn lv_textarea_set_placeholder_text(obj: Obj, txt: *const c_char);
+    /// # Safety
+    /// `obj` must be an `lv_textarea` (see "Widget classes" above).
+    pub fn lv_textarea_set_one_line(obj: Obj, en: bool);
+    /// # Safety
+    /// `obj` must be an `lv_textarea` (see "Widget classes" above).
+    pub fn lv_textarea_set_password_mode(obj: Obj, en: bool);
+    /// # Safety
+    /// `obj` must be an `lv_textarea`, and `txt` a NUL-terminated string (LVGL
+    /// copies it).
+    pub fn lv_textarea_add_text(obj: Obj, txt: *const c_char);
 
     // Keyboard widget
-    pub fn lv_keyboard_create(parent: *mut lv_obj_t) -> *mut lv_obj_t;
-    pub fn lv_keyboard_set_textarea(kb: *mut lv_obj_t, ta: *mut lv_obj_t);
-    pub fn lv_keyboard_set_mode(kb: *mut lv_obj_t, mode: lv_keyboard_mode_t);
+    pub safe fn lv_keyboard_create(parent: Obj) -> Option<Obj>;
+    /// Bind the keyboard to `ta`, or to nothing.
+    ///
+    /// # Safety
+    /// `kb` must be an `lv_keyboard` and `ta` an `lv_textarea`.
+    pub fn lv_keyboard_set_textarea(kb: Obj, ta: Option<Obj>);
+    /// # Safety
+    /// `obj` must be an `lv_keyboard` (see "Widget classes" above).
+    pub fn lv_keyboard_set_mode(kb: Obj, mode: lv_keyboard_mode_t);
+}
+
+// ---------------------------------------------------------------------------
+// Safe forms of the calls above that take strings or optional pointers
+// ---------------------------------------------------------------------------
+
+/// [`lv_obj_add_event_cb`] with a null `user_data`: what every registration
+/// but the handle table's makes. `event_cb` is an `unsafe extern "C" fn` LVGL
+/// calls with the event it is dispatching to `obj`, which is all an object
+/// callback may assume.
+#[cfg(not(test))]
+#[inline(always)]
+pub fn add_event_cb(
+    obj: Obj,
+    event_cb: unsafe extern "C" fn(*mut lv_event_t),
+    filter: lv_event_code_t,
+) {
+    // SAFETY: a null `user_data` — the callback is given nothing it could
+    // misread.
+    unsafe { lv_obj_add_event_cb(obj, Some(event_cb), filter, core::ptr::null_mut()) };
+}
+
+/// The events [`send_event`] may send with no parameter and outside an input
+/// device's read. In the vendored sources no class reads a parameter for any
+/// of them (`lv_event_get_param` appears under none of these codes), every
+/// class handler that asks which input device caused one checks for none
+/// (lv_obj, slider, roller, button matrix, textarea), and LVGL itself sends
+/// `VALUE_CHANGED` with a null parameter, so no object callback can rely on
+/// one. `PRESSING` is left out: the button matrix reads its device
+/// unchecked there.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum Notice {
+    Clicked,
+    LongPressed,
+    Pressed,
+    Released,
+    ValueChanged,
+}
+
+/// [`lv_obj_send_event`] for a [`Notice`], with a null parameter.
+#[cfg(not(test))]
+#[inline(always)]
+pub fn send_event(obj: Obj, notice: Notice) -> u32 {
+    let code = match notice {
+        Notice::Clicked => LV_EVENT_CLICKED,
+        Notice::LongPressed => LV_EVENT_LONG_PRESSED,
+        Notice::Pressed => LV_EVENT_PRESSED,
+        Notice::Released => LV_EVENT_RELEASED,
+        Notice::ValueChanged => LV_EVENT_VALUE_CHANGED,
+    };
+    // SAFETY: a null parameter, for a code nothing reads a parameter of
+    // (see `Notice`).
+    unsafe { lv_obj_send_event(obj, code, core::ptr::null_mut()) }
+}
+
+/// [`lv_obj_remove_style`] for every style bound to `selector`.
+#[cfg(not(test))]
+#[inline(always)]
+pub fn remove_styles(obj: Obj, selector: lv_style_selector_t) {
+    // SAFETY: a null style means "all of them".
+    unsafe { lv_obj_remove_style(obj, core::ptr::null(), selector) };
+}
+
+/// [`lv_obj_set_style_transition`] with no transition: style changes on
+/// `selector` apply at once.
+#[cfg(not(test))]
+#[inline(always)]
+pub fn remove_transition(obj: Obj, selector: lv_style_selector_t) {
+    // SAFETY: a null descriptor, which LVGL reads as "no transition".
+    unsafe { lv_obj_set_style_transition(obj, core::ptr::null(), selector) };
+}
+
+/// [`lv_list_add_button`] with no icon; LVGL copies the text.
+#[cfg(not(test))]
+#[inline(always)]
+pub fn list_add_button(list: Obj, text: &CStr) -> Option<Obj> {
+    // SAFETY: no icon, and `text` is NUL-terminated and copied by LVGL.
+    unsafe { lv_list_add_button(list, core::ptr::null(), text.as_ptr()) }
+}
+
+/// [`pd_canvas_text`] over a byte slice; the text is copied.
+#[cfg(not(test))]
+#[allow(clippy::too_many_arguments)]
+#[inline(always)]
+pub fn canvas_text(
+    obj: Obj,
+    x: i32,
+    baseline: i32,
+    font_index: i32,
+    argb: u32,
+    align: i32,
+    utf8: &[u8],
+) -> i32 {
+    // SAFETY: `utf8` is `len` readable bytes, copied before the call returns.
+    unsafe {
+        pd_canvas_text(
+            obj,
+            x,
+            baseline,
+            font_index,
+            argb,
+            align,
+            utf8.as_ptr().cast(),
+            utf8.len(),
+        )
+    }
+}
+
+/// [`pd_canvas_text_width`] over a byte slice.
+#[cfg(not(test))]
+#[inline(always)]
+pub fn canvas_text_width(font_index: i32, utf8: &[u8]) -> i32 {
+    // SAFETY: `utf8` is `len` readable bytes, read before the call returns.
+    unsafe { pd_canvas_text_width(font_index, utf8.as_ptr().cast(), utf8.len()) }
+}
+
+/// [`picodroid_hw_vscroll_region`] filling a slice of overlay areas.
+#[cfg(all(not(test), hw_vscroll))]
+#[inline(always)]
+pub fn hw_vscroll_region(scroller: Obj, region: &mut lv_area_t, overlays: &mut [lv_area_t]) -> i32 {
+    // SAFETY: `overlays` is `len` writable areas.
+    unsafe {
+        picodroid_hw_vscroll_region(
+            scroller,
+            region,
+            overlays.as_mut_ptr(),
+            overlays.len() as i32,
+        )
+    }
 }
 
 #[cfg(test)]

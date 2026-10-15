@@ -38,104 +38,100 @@ const DEFAULT_MAX: i32 = 100;
 const INDICATOR_DIRECTION_COUNTERCLOCKWISE: i32 = 1;
 
 pub(in crate::graphics) fn create(indicator_argb: i32, track_argb: i32) -> i32 {
-    let ptr = unsafe {
-        let a = lv_arc_create(lifecycle::screen_ptr());
-        // The theme styles a knob at the indicator's end (lv_theme_default.c
-        // binds `styles.knob` to LV_PART_KNOB) and the arc constructor makes it
-        // clickable; a progress indicator is knobless and passive.
-        lv_obj_remove_style(a, core::ptr::null(), LV_PART_KNOB);
-        lv_obj_set_style_bg_opa(a, 0, LV_PART_KNOB);
-        lv_obj_remove_flag(a, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_set_size(a, DEFAULT_SIZE_PX, DEFAULT_SIZE_PX);
+    let Some(a) = lifecycle::screen_ptr().and_then(|o| lv_arc_create(o)) else {
+        return 0;
+    };
+    // The theme styles a knob at the indicator's end (lv_theme_default.c
+    // binds `styles.knob` to LV_PART_KNOB) and the arc constructor makes it
+    // clickable; a progress indicator is knobless and passive.
+    remove_styles(a, LV_PART_KNOB);
+    lv_obj_set_style_bg_opa(a, 0, LV_PART_KNOB);
+    lv_obj_remove_flag(a, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(a, DEFAULT_SIZE_PX, DEFAULT_SIZE_PX);
+    // SAFETY: `a` was just made by `lv_arc_create`.
+    unsafe {
         lv_arc_set_rotation(a, DEFAULT_START_DEG);
         lv_arc_set_bg_angles(a, 0, FULL_SWEEP_DEG);
         lv_arc_set_mode(a, LV_ARC_MODE_NORMAL);
         lv_arc_set_range(a, DEFAULT_MIN, DEFAULT_MAX);
         // An arc starts VALUE_UNSET and draws no indicator until a value lands.
         lv_arc_set_value(a, DEFAULT_MIN);
-        for part in [LV_PART_MAIN, LV_PART_INDICATOR] {
-            lv_obj_set_style_arc_width(a, DEFAULT_TRACK_THICKNESS_PX, part);
-            lv_obj_set_style_arc_rounded(a, true, part);
-        }
-        apply_color(a, LV_PART_INDICATOR, indicator_argb);
-        apply_color(a, LV_PART_MAIN, track_argb);
-        a
-    };
-    handle_table::register(ptr)
+    }
+    for part in [LV_PART_MAIN, LV_PART_INDICATOR] {
+        lv_obj_set_style_arc_width(a, DEFAULT_TRACK_THICKNESS_PX, part);
+        lv_obj_set_style_arc_rounded(a, true, part);
+    }
+    apply_color(a, LV_PART_INDICATOR, indicator_argb);
+    apply_color(a, LV_PART_MAIN, track_argb);
+    handle_table::register(a)
 }
 
 /// `ProgressBar.setProgress` on a ring: LVGL clamps into the range itself.
 pub(in crate::graphics) fn set_value(id: i32, value: i32) {
-    let obj = handle_table::lookup(id);
-    if obj.is_null() {
+    let Some(obj) = handle_table::get(id) else {
         return;
-    }
+    };
+    // SAFETY: a `CircularProgressIndicator` native: its constructors pass
+    // `ProgressBar` the `lv_arc` [`create`] made, and no other handle.
     unsafe { lv_arc_set_value(obj, value) };
 }
 
 pub(in crate::graphics) fn set_range(id: i32, min: i32, max: i32) {
-    let obj = handle_table::lookup(id);
-    if obj.is_null() {
+    let Some(obj) = handle_table::get(id) else {
         return;
-    }
+    };
+    // SAFETY: a `CircularProgressIndicator` native: its constructors pass
+    // `ProgressBar` the `lv_arc` [`create`] made, and no other handle.
     unsafe { lv_arc_set_range(obj, min, max) };
 }
 
 pub(in crate::graphics) fn set_indicator_color(id: i32, argb: i32) {
-    let obj = handle_table::lookup(id);
-    if obj.is_null() {
-        return;
+    if let Some(obj) = handle_table::get(id) {
+        apply_color(obj, LV_PART_INDICATOR, argb);
     }
-    unsafe { apply_color(obj, LV_PART_INDICATOR, argb) };
 }
 
 pub(in crate::graphics) fn set_track_color(id: i32, argb: i32) {
-    let obj = handle_table::lookup(id);
-    if obj.is_null() {
-        return;
+    if let Some(obj) = handle_table::get(id) {
+        apply_color(obj, LV_PART_MAIN, argb);
     }
-    unsafe { apply_color(obj, LV_PART_MAIN, argb) };
 }
 
 pub(in crate::graphics) fn set_track_thickness(id: i32, px: i32) {
-    let obj = handle_table::lookup(id);
-    if obj.is_null() {
+    let Some(obj) = handle_table::get(id) else {
         return;
-    }
-    unsafe {
-        for part in [LV_PART_MAIN, LV_PART_INDICATOR] {
-            lv_obj_set_style_arc_width(obj, px, part);
-        }
+    };
+    for part in [LV_PART_MAIN, LV_PART_INDICATOR] {
+        lv_obj_set_style_arc_width(obj, px, part);
     }
 }
 
 pub(in crate::graphics) fn set_indicator_direction(id: i32, direction: i32) {
-    let obj = handle_table::lookup(id);
-    if obj.is_null() {
+    let Some(obj) = handle_table::get(id) else {
         return;
-    }
+    };
+    // SAFETY: a `CircularProgressIndicator` native: its constructors pass
+    // `ProgressBar` the `lv_arc` [`create`] made, and no other handle.
     unsafe { lv_arc_set_mode(obj, arc_mode(direction)) };
 }
 
 pub(in crate::graphics) fn set_track_corner_radius(id: i32, radius: i32) {
-    let obj = handle_table::lookup(id);
-    if obj.is_null() {
+    let Some(obj) = handle_table::get(id) else {
         return;
-    }
-    unsafe {
-        for part in [LV_PART_MAIN, LV_PART_INDICATOR] {
-            lv_obj_set_style_arc_rounded(obj, radius > 0, part);
-        }
+    };
+    for part in [LV_PART_MAIN, LV_PART_INDICATOR] {
+        lv_obj_set_style_arc_rounded(obj, radius > 0, part);
     }
 }
 
 /// `startAngle`/`sweepAngle` in `Canvas.drawArc` terms: degrees clockwise
 /// from 3 o'clock, which is also LVGL's convention.
 pub(in crate::graphics) fn set_angles(id: i32, start_deg: i32, sweep_deg: i32) {
-    let obj = handle_table::lookup(id);
-    if obj.is_null() {
+    let Some(obj) = handle_table::get(id) else {
         return;
-    }
+    };
+    // SAFETY: a `CircularProgressIndicator` native: its constructors pass
+    // `ProgressBar` the `lv_arc` [`create`] made, and no other handle.
     unsafe {
         // Rotation normalises itself into [0, 360).
         lv_arc_set_rotation(obj, start_deg);
@@ -143,7 +139,7 @@ pub(in crate::graphics) fn set_angles(id: i32, start_deg: i32, sweep_deg: i32) {
     }
 }
 
-unsafe fn apply_color(obj: *mut lv_obj_t, part: lv_style_selector_t, argb: i32) {
+fn apply_color(obj: Obj, part: lv_style_selector_t, argb: i32) {
     let (rgb, opa) = split_argb(argb);
     lv_obj_set_style_arc_color(obj, lv_color_hex(rgb), part);
     lv_obj_set_style_arc_opa(obj, opa, part);

@@ -5,99 +5,104 @@ use crate::lvgl_ffi::*;
 
 use super::super::handle_table;
 use super::super::lifecycle;
-use super::super::listener_map::{warn_full, PtrMap, Upsert};
+use super::super::listener_map::PtrMap;
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
 
 const QUEUE_SIZE: usize = 16;
-// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
-static QUEUE: Core0<LocalRing<usize, QUEUE_SIZE>> = unsafe { Core0::new(LocalRing::new(0)) };
-
-const MAX_LISTENERS: usize = 32;
-// SAFETY: a listener registry, reached only from JVM tasks.
-static HANDLE_MAP: Core0<PtrMap<MAX_LISTENERS>> = unsafe { Core0::new(PtrMap::new()) };
-
-unsafe extern "C" fn map_delete_cb(e: *mut lv_event_t) {
-    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    HANDLE_MAP.remove(obj)
+struct State {
+    queue: LocalRing<usize, QUEUE_SIZE>,
+    handle_map: PtrMap<MAX_LISTENERS>,
 }
 
-unsafe extern "C" fn value_changed_cb(e: *mut lv_event_t) {
-    let obj = unsafe { lv_event_get_target_obj(e) };
-    QUEUE.push(obj as usize);
+// SAFETY: filled by LVGL callbacks and by natives, drained by the framework
+// loop, all on core-0 JVM tasks.
+static STATE: Core0<State> = unsafe {
+    Core0::new(State {
+        queue: LocalRing::new(0),
+        handle_map: PtrMap::new(),
+    })
+};
+
+const MAX_LISTENERS: usize = 32;
+
+lv_event_cb! {
+    fn map_delete_cb(e) {
+        let obj = e.target().addr();
+        STATE.handle_map.remove(obj)
+    }
+}
+
+lv_event_cb! {
+    fn value_changed_cb(e) {
+        let obj = e.target();
+        STATE.queue.push(obj.addr());
+    }
 }
 
 pub(in crate::graphics) fn create() -> i32 {
-    let ptr = unsafe {
-        let dd = lv_dropdown_create(lifecycle::screen_ptr());
-        // LVGL creates a dropdown with no options at all (lv_conf.h turns
-        // the "Option 1..3" defaults off); an empty list is what an adapter
-        // with no items shows, and it is never a null string to draw.
-        lv_dropdown_set_options(dd, c"".as_ptr());
-        lv_obj_add_event_cb(
-            dd,
-            Some(value_changed_cb),
-            LV_EVENT_VALUE_CHANGED,
-            core::ptr::null_mut(),
-        );
-        dd
+    let Some(dd) = lifecycle::screen_ptr().and_then(|o| lv_dropdown_create(o)) else {
+        return 0;
     };
-    handle_table::register(ptr)
+    // LVGL creates a dropdown with no options at all (lv_conf.h turns
+    // the "Option 1..3" defaults off); an empty list is what an adapter
+    // with no items shows, and it is never a null string to draw.
+    // SAFETY: `dd` was just made by `lv_dropdown_create`; the options are a
+    // NUL-terminated literal LVGL copies.
+    unsafe { lv_dropdown_set_options(dd, c"".as_ptr()) };
+    add_event_cb(dd, value_changed_cb, LV_EVENT_VALUE_CHANGED);
+    handle_table::register(dd)
 }
 
 pub(in crate::graphics) fn set_items(id: i32, items: &str) {
-    let dd = handle_table::lookup(id);
-    if dd.is_null() {
+    let Some(dd) = handle_table::get(id) else {
         return; // stale handle — mutating a destroyed View is a no-op
-    }
+    };
     // Any length: a 128-byte buffer here showed twenty "Option NN" items as
     // twelve and a fragment, and nothing past the twelfth could be picked.
-    super::text_view::with_cstr(items, |p| unsafe { lv_dropdown_set_options(dd, p) });
+    // SAFETY: a `Spinner` native: its constructors give `AdapterView` the
+    // `lv_dropdown` [`create`] made, and no other handle.
+    // The options are NUL-terminated and LVGL copies them.
+    super::text_view::with_cstr(items, |p| unsafe {
+        lv_dropdown_set_options(dd, p.as_ptr())
+    });
 }
 
+/// The selected row; 0 for a stale handle.
 pub(in crate::graphics) fn get_selected(id: i32) -> i32 {
-    unsafe { lv_dropdown_get_selected(handle_table::lookup(id)) as i32 }
+    let Some(dd) = handle_table::get(id) else {
+        return 0;
+    };
+    // SAFETY: a `Spinner` native: its constructors give `AdapterView` the
+    // `lv_dropdown` [`create`] made, and no other handle.
+    unsafe { lv_dropdown_get_selected(dd) as i32 }
 }
 
 pub(in crate::graphics) fn perform_item_selected(id: i32) {
-    unsafe {
-        lv_obj_send_event(
-            handle_table::lookup(id),
-            LV_EVENT_VALUE_CHANGED,
-            core::ptr::null_mut(),
-        );
+    if let Some(dd) = handle_table::get(id) {
+        send_event(dd, Notice::ValueChanged);
     }
 }
 
 pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
-    let raw_ptr = handle_table::lookup(id) as usize;
-    unsafe {
-        match HANDLE_MAP.upsert(raw_ptr, obj_ref) {
-            Upsert::Updated => {}
-            Upsert::Full => warn_full("spinner"),
-            Upsert::Inserted => {
-                // Unregister on widget delete so a recycled lv_obj address
-                // can't alias a dead widget's listener entry.
-                lv_obj_add_event_cb(
-                    raw_ptr as *mut lv_obj_t,
-                    Some(map_delete_cb),
-                    LV_EVENT_DELETE,
-                    core::ptr::null_mut(),
-                );
-            }
-        }
-    }
+    super::compound::register_listener_with_delete_hook(
+        &STATE.handle_map,
+        id,
+        obj_ref,
+        map_delete_cb,
+        "spinner",
+    );
 }
 
 pub fn drain_spinner_change_queue() -> Option<usize> {
-    QUEUE.pop()
+    STATE.queue.pop()
 }
 
 pub fn lookup_spinner_obj(handle: usize) -> Option<u16> {
-    HANDLE_MAP.lookup(handle)
+    STATE.handle_map.lookup(handle)
 }
 
 pub fn reset_spinner_state() {
-    HANDLE_MAP.reset();
-    QUEUE.clear();
+    STATE.handle_map.reset();
+    STATE.queue.clear();
 }

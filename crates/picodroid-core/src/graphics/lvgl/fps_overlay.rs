@@ -13,100 +13,113 @@ use core::cell::Cell;
 /// Number of frames in the sliding window.
 const WINDOW_SIZE: usize = 10;
 
-/// Whether the FPS overlay is enabled.
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static ENABLED: Core0<Cell<bool>> = unsafe { Core0::new(Cell::new(false)) };
+struct State {
+    /// Whether the FPS overlay is enabled.
+    enabled: Cell<bool>,
+    /// The LVGL label widget (`None` until the first `update()`). Kept as an
+    /// `Obj` across frames because nothing deletes it: it lives on the top
+    /// layer, which nothing cleans.
+    fps_label: Cell<Option<Obj>>,
+    /// Current write position in the ring buffer.
+    ring_idx: Cell<usize>,
+    /// Number of samples collected so far (caps at `WINDOW_SIZE`).
+    samples: Cell<usize>,
+    /// Timestamp of the previous frame (nanos).
+    last_nanos: Cell<i64>,
+    /// Frame counter — used to throttle label updates.
+    frame_count: Cell<u32>,
+    /// Ring buffer of the last `WINDOW_SIZE` frame durations (microseconds).
+    frame_us: [Cell<u64>; WINDOW_SIZE],
+}
 
-/// Pointer to the LVGL label widget (null until first `update()`).
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static FPS_LABEL: Core0<Cell<*mut lv_obj_t>> =
-    unsafe { Core0::new(Cell::new(core::ptr::null_mut())) };
-
-/// Ring buffer of the last `WINDOW_SIZE` frame durations (microseconds).
-static mut FRAME_US: [u64; WINDOW_SIZE] = [16_667; WINDOW_SIZE];
-
-/// Current write position in the ring buffer.
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static RING_IDX: Core0<Cell<usize>> = unsafe { Core0::new(Cell::new(0)) };
-
-/// Number of samples collected so far (caps at `WINDOW_SIZE`).
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static SAMPLES: Core0<Cell<usize>> = unsafe { Core0::new(Cell::new(0)) };
-
-/// Timestamp of the previous frame (nanos).
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static LAST_NANOS: Core0<Cell<i64>> = unsafe { Core0::new(Cell::new(0)) };
-
-/// Frame counter — used to throttle label updates.
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static FRAME_COUNT: Core0<Cell<u32>> = unsafe { Core0::new(Cell::new(0)) };
+// SAFETY: enabled by a native and updated by the frame loop, both on core-0
+// JVM tasks.
+static STATE: Core0<State> = unsafe {
+    Core0::new(State {
+        enabled: Cell::new(false),
+        fps_label: Cell::new(None),
+        ring_idx: Cell::new(0),
+        samples: Cell::new(0),
+        last_nanos: Cell::new(0),
+        frame_count: Cell::new(0),
+        // Only the first `samples` entries are averaged, each written first.
+        frame_us: [const { Cell::new(0) }; WINDOW_SIZE],
+    })
+};
 
 /// Mark the overlay as enabled.  The label is created lazily in `update()`.
 pub fn enable() {
-    ENABLED.set(true);
+    STATE.enabled.set(true);
 }
 
 /// Called once per frame from the render loop.  No-op when disabled.
 pub fn update() {
-    unsafe {
-        if !ENABLED.get() {
-            return;
-        }
+    if !STATE.enabled.get() {
+        return;
+    }
 
-        let now = hal::system_clock::elapsed_realtime_nanos();
+    let now = hal::system_clock::elapsed_realtime_nanos();
 
-        // First frame — just record the timestamp; no delta yet.
-        if LAST_NANOS.get() == 0 {
-            LAST_NANOS.set(now);
-            create_label();
-            return;
-        }
+    // First frame — just record the timestamp; no delta yet.
+    if STATE.last_nanos.get() == 0 {
+        STATE.last_nanos.set(now);
+        create_label();
+        return;
+    }
 
-        let delta_ns = now - LAST_NANOS.get();
-        LAST_NANOS.set(now);
+    let delta_ns = now - STATE.last_nanos.get();
+    STATE.last_nanos.set(now);
 
-        let frame_us = (delta_ns / 1000) as u64;
-        if frame_us == 0 {
-            return;
-        }
+    let frame_us = (delta_ns / 1000) as u64;
+    if frame_us == 0 {
+        return;
+    }
 
-        // Store in ring buffer.
-        FRAME_US[RING_IDX.get()] = frame_us;
-        RING_IDX.set((RING_IDX.get() + 1) % WINDOW_SIZE);
-        if SAMPLES.get() < WINDOW_SIZE {
-            SAMPLES.set(SAMPLES.get() + 1);
-        }
+    // Store in ring buffer.
+    STATE.frame_us[STATE.ring_idx.get()].set(frame_us);
+    STATE.ring_idx.set((STATE.ring_idx.get() + 1) % WINDOW_SIZE);
+    if STATE.samples.get() < WINDOW_SIZE {
+        STATE.samples.set(STATE.samples.get() + 1);
+    }
 
-        FRAME_COUNT.set(FRAME_COUNT.get() + 1);
-        if FRAME_COUNT.get().is_multiple_of(WINDOW_SIZE as u32) {
-            let avg_us = FRAME_US[..SAMPLES.get()].iter().sum::<u64>() / SAMPLES.get() as u64;
-            let fps = if avg_us > 0 {
-                1_000_000u64.checked_div(avg_us).unwrap_or(0) as u32
-            } else {
-                0
-            };
-            let mut buf = [0u8; 16];
-            let text = format_fps(fps, &mut buf);
-            lv_label_set_text(FPS_LABEL.get(), text.as_ptr() as *const _);
+    STATE.frame_count.set(STATE.frame_count.get() + 1);
+    if STATE.frame_count.get().is_multiple_of(WINDOW_SIZE as u32) {
+        let samples = STATE.samples.get();
+        let avg_us = STATE.frame_us[..samples].iter().map(Cell::get).sum::<u64>() / samples as u64;
+        let fps = if avg_us > 0 {
+            1_000_000u64.checked_div(avg_us).unwrap_or(0) as u32
+        } else {
+            0
+        };
+        let mut buf = [0u8; 16];
+        let text = format_fps(fps, &mut buf);
+        if let Some(label) = STATE.fps_label.get() {
+            // SAFETY: `fps_label` is the `lv_label` `create_label` made;
+            // `format_fps` NUL-terminates the text, which LVGL copies.
+            unsafe { lv_label_set_text(label, text.as_ptr() as *const _) };
         }
     }
 }
 
 /// Create the LVGL label in the top-right corner of the window, on the
 /// overlay layer so it rides above every screen and never pans with one.
-unsafe fn create_label() {
-    let layer = lv_layer_top();
-    FPS_LABEL.set(lv_label_create(layer));
-    lv_label_set_text(FPS_LABEL.get(), c"-- FPS".as_ptr());
+fn create_label() {
+    let Some(label) = lv_layer_top().and_then(|o| lv_label_create(o)) else {
+        return;
+    };
+    STATE.fps_label.set(Some(label));
+    // SAFETY: `label` was just made by `lv_label_create`; the text is a
+    // NUL-terminated literal LVGL copies.
+    unsafe { lv_label_set_text(label, c"-- FPS".as_ptr()) };
 
     // Position in top-right corner (leave a small margin).
-    let win_w = lv_display_get_horizontal_resolution(lv_display_get_default());
-    lv_obj_set_pos(FPS_LABEL.get(), win_w - 70, 2);
+    let win_w = lv_display_get_default().map_or(0, |d| lv_display_get_horizontal_resolution(d));
+    lv_obj_set_pos(label, win_w - 70, 2);
 
     // Green text on dark background.
-    lv_obj_set_style_text_color(FPS_LABEL.get(), lv_color_hex(0x00FF00), 0);
-    lv_obj_set_style_bg_color(FPS_LABEL.get(), lv_color_hex(0x000000), 0);
-    lv_obj_set_style_bg_opa(FPS_LABEL.get(), LV_OPA_COVER, 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(0x00FF00), 0);
+    lv_obj_set_style_bg_color(label, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(label, LV_OPA_COVER, 0);
 }
 
 /// Format `"NN FPS\0"` into `buf` without heap allocation.

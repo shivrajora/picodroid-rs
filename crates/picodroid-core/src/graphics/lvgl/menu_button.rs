@@ -30,27 +30,36 @@ const EXT_CLICK: i32 = 8;
 /// the symbol range the 14 px face carries.
 const GLYPH: &core::ffi::CStr = c"\u{F0C9}";
 
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static CONTROL: Core0<Cell<*mut lv_obj_t>> =
-    unsafe { Core0::new(Cell::new(core::ptr::null_mut())) };
-/// Whether the resumed Activity has a menu to open.
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static AVAILABLE: Core0<Cell<bool>> = unsafe { Core0::new(Cell::new(false)) };
-/// Hidden by the system keyboard, whatever the Activity has.
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static COVERED: Core0<Cell<bool>> = unsafe { Core0::new(Cell::new(false)) };
+struct State {
+    /// The control, once made. Kept as an `Obj` across natives because
+    /// nothing deletes it: it lives on the top layer, which nothing cleans.
+    control: Cell<Option<Obj>>,
+    /// Whether the resumed Activity has a menu to open.
+    available: Cell<bool>,
+    /// Hidden by the system keyboard, whatever the Activity has.
+    covered: Cell<bool>,
+}
+
+// SAFETY: created by LVGL init, toggled by the lifecycle and keyboard
+// natives and the control's click callback, all on core-0 JVM tasks.
+static STATE: Core0<State> = unsafe {
+    Core0::new(State {
+        control: Cell::new(None),
+        available: Cell::new(false),
+        covered: Cell::new(false),
+    })
+};
 
 /// Create the control once LVGL is up, hidden until an Activity has a menu.
 /// Idempotent.
 pub fn ensure() {
-    if !CONTROL.get().is_null() {
+    if STATE.control.get().is_some() {
         return;
     }
-    let layer = lifecycle::overlay_layer();
-    // SAFETY: the top layer is a live LVGL object for the display's lifetime;
-    // the callback reads only the event LVGL hands it.
-    unsafe {
-        let btn = lv_button_create(layer);
+    let Some(btn) = lifecycle::overlay_layer().and_then(|o| lv_button_create(o)) else {
+        return;
+    };
+    {
         lv_obj_set_size(btn, SIZE, SIZE);
         lv_obj_align(btn, LV_ALIGN_BOTTOM_RIGHT, -INSET, -INSET);
         lv_obj_set_style_radius(btn, LV_RADIUS_CIRCLE, 0);
@@ -66,42 +75,38 @@ pub fn ensure() {
         // Out of the keypad focus ring, like the soft-nav control.
         lv_obj_remove_flag(btn, LV_OBJ_FLAG_CLICK_FOCUSABLE);
         lv_obj_add_flag(btn, LV_OBJ_FLAG_HIDDEN);
-        let label = lv_label_create(btn);
-        lv_label_set_text(label, GLYPH.as_ptr());
-        lv_obj_set_style_text_color(label, lv_color_hex(0xE0E0E0), 0);
-        lv_obj_center(label);
-        lv_obj_add_event_cb(
-            btn,
-            Some(clicked_cb),
-            LV_EVENT_CLICKED,
-            core::ptr::null_mut(),
-        );
-        CONTROL.set(btn);
+        if let Some(label) = lv_label_create(btn) {
+            // SAFETY: `label` was just made by `lv_label_create`; the glyph
+            // is a NUL-terminated literal LVGL copies.
+            unsafe { lv_label_set_text(label, GLYPH.as_ptr()) };
+            lv_obj_set_style_text_color(label, lv_color_hex(0xE0E0E0), 0);
+            lv_obj_center(label);
+        }
+        add_event_cb(btn, clicked_cb, LV_EVENT_CLICKED);
+        STATE.control.set(Some(btn));
     }
     apply();
 }
 
 /// What the resumed Activity reported: `Activity.nativeSetOptionsMenuAvailable`.
 pub fn set_available(available: bool) {
-    AVAILABLE.set(available);
+    STATE.available.set(available);
     apply();
 }
 
 /// Hide or show the control: hidden while the system keyboard is up.
 pub fn set_hidden(hidden: bool) {
-    COVERED.set(hidden);
+    STATE.covered.set(hidden);
     apply();
 }
 
 /// Bring the control above whatever was added to the top layer since — a
 /// dialog's scrim — so the menu stays reachable while a dialog shows.
 pub fn raise() {
-    let btn = CONTROL.get();
-    if btn.is_null() {
+    let Some(btn) = STATE.control.get() else {
         return;
-    }
-    // SAFETY: `btn` is the live control (created once, never deleted).
-    unsafe { lv_obj_move_to_index(btn, -1) };
+    };
+    lv_obj_move_to_index(btn, -1);
 }
 
 /// Between apps: the next app's first Activity says whether it has a menu.
@@ -110,21 +115,19 @@ pub fn reset() {
 }
 
 fn apply() {
-    let btn = CONTROL.get();
-    if btn.is_null() {
+    let Some(btn) = STATE.control.get() else {
         return;
-    }
-    // SAFETY: `btn` is the live control.
-    unsafe {
-        if AVAILABLE.get() && !COVERED.get() {
-            lv_obj_remove_flag(btn, LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_add_flag(btn, LV_OBJ_FLAG_HIDDEN);
-        }
+    };
+    if STATE.available.get() && !STATE.covered.get() {
+        lv_obj_remove_flag(btn, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(btn, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
-unsafe extern "C" fn clicked_cb(_e: *mut lv_event_t) {
-    crate::pd_info!("soft menu: tap -> MENU");
-    crate::input_inject::push_soft_key_press(crate::input_inject::KEYCODE_MENU);
+lv_event_cb! {
+    fn clicked_cb(_e) {
+        crate::pd_info!("soft menu: tap -> MENU");
+        crate::input_inject::push_soft_key_press(crate::input_inject::KEYCODE_MENU);
+    }
 }

@@ -57,14 +57,6 @@ const EMPTY_SLOT: SnackbarSlot = SnackbarSlot {
     indefinite: false,
 };
 
-static mut SLOTS: [SnackbarSlot; MAX_SNACKBARS] = [EMPTY_SLOT; MAX_SNACKBARS];
-
-/// Monotonic millisecond counter accumulated from `LvglGfx::tick(ms)`. Same
-/// model as `widgets::toast` — drift-free with the LVGL animation loop and
-/// independent of hardware time so the sim builds match.
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static ELAPSED_MS: Core0<Cell<u64>> = unsafe { Core0::new(Cell::new(0)) };
-
 // ── Action-click event queue (ring buffer) ──────────────────────────────────
 //
 // Mirror of `widgets::alert_dialog::dialog_button_click_cb` — the ring stores
@@ -72,9 +64,6 @@ static ELAPSED_MS: Core0<Cell<u64>> = unsafe { Core0::new(Cell::new(0)) };
 // `Snackbar` from a single click record.
 
 const CLICK_QUEUE_SIZE: usize = 8;
-// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
-static CLICK_QUEUE: Core0<LocalRing<usize, CLICK_QUEUE_SIZE>> =
-    unsafe { Core0::new(LocalRing::new(0)) };
 
 // ── Action button → snackbar mapping ────────────────────────────────────────
 
@@ -94,28 +83,45 @@ const EMPTY_ACTION: ActionEntry = ActionEntry {
     bar_handle: 0,
 };
 
-static mut ACTION_MAP: [ActionEntry; MAX_ACTIONS] = [EMPTY_ACTION; MAX_ACTIONS];
+struct State {
+    slots: [Cell<SnackbarSlot>; MAX_SNACKBARS],
+    /// Monotonic millisecond counter accumulated from `LvglGfx::tick(ms)`.
+    /// Same model as `widgets::toast` — drift-free with the LVGL animation
+    /// loop and independent of hardware time so the sim builds match.
+    elapsed_ms: Cell<u64>,
+    click_queue: LocalRing<usize, CLICK_QUEUE_SIZE>,
+    action_map: [Cell<ActionEntry>; MAX_ACTIONS],
+    /// Snackbar → Java object mapping (the action-click dispatch target).
+    obj_map: [Cell<(usize, u16)>; MAX_SNACKBARS],
+}
 
-// ── Snackbar → Java object mapping (action-click dispatch target) ───────────
-
-static mut SNACKBAR_OBJ_MAP: [(usize, u16); MAX_SNACKBARS] = [(0, 0); MAX_SNACKBARS];
+// SAFETY: filled by natives and the frame tick, read by LVGL's click
+// callback, all on core-0 JVM tasks.
+static STATE: Core0<State> = unsafe {
+    Core0::new(State {
+        slots: [const { Cell::new(EMPTY_SLOT) }; MAX_SNACKBARS],
+        elapsed_ms: Cell::new(0),
+        click_queue: LocalRing::new(0),
+        action_map: [const { Cell::new(EMPTY_ACTION) }; MAX_ACTIONS],
+        obj_map: [const { Cell::new((0, 0)) }; MAX_SNACKBARS],
+    })
+};
 
 // ── LVGL trampoline ─────────────────────────────────────────────────────────
 
-unsafe extern "C" fn action_click_cb(e: *mut lv_event_t) {
-    let btn = unsafe { lv_event_get_target_obj(e) } as usize;
-    unsafe {
-        let mut bar_handle: usize = 0;
-        for entry in &ACTION_MAP[..] {
-            if entry.button_handle == btn {
-                bar_handle = entry.bar_handle;
-                break;
-            }
-        }
+lv_event_cb! {
+    fn action_click_cb(e) {
+        let btn = e.target().addr();
+        let bar_handle = STATE
+            .action_map
+            .iter()
+            .map(Cell::get)
+            .find(|entry| entry.button_handle == btn)
+            .map_or(0, |entry| entry.bar_handle);
         if bar_handle == 0 {
             return;
         }
-        CLICK_QUEUE.push(bar_handle);
+        STATE.click_queue.push(bar_handle);
     }
 }
 
@@ -136,13 +142,13 @@ fn bar_box(w: i32) -> (i32, i32, i32) {
 /// and stays hidden until [`show`] is called. Returns the Java-side
 /// `nativeHandle`.
 pub(in crate::graphics) fn create(text: &str, duration: i32) -> i32 {
-    let layer = lifecycle::overlay_layer();
-    // SAFETY: the top layer is a live LVGL object for the display's lifetime.
-    let bar = unsafe { lv_obj_create(layer) };
+    let Some(bar) = lifecycle::overlay_layer().and_then(|o| lv_obj_create(o)) else {
+        return 0;
+    };
     let (win_w, _) = lifecycle::window_size();
     let (width, x, bottom_gap) = bar_box(win_w);
 
-    unsafe {
+    {
         // Hidden until show() — avoids a one-frame flash before the typical
         // `Snackbar.make(...).show()` sequence completes.
         lv_obj_add_flag(bar, LV_OBJ_FLAG_HIDDEN);
@@ -177,17 +183,21 @@ pub(in crate::graphics) fn create(text: &str, duration: i32) -> i32 {
             LV_FLEX_ALIGN_CENTER,
         );
 
-        let label = lv_label_create(bar);
-        super::text_view::with_cstr(text, |p| lv_label_set_text(label, p));
-        lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
-        // The width left beside the action, wrapping onto further lines;
-        // the action keeps its own width at the end of the row.
-        lv_obj_set_flex_grow(label, 1);
-        lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_WRAP);
+        if let Some(label) = lv_label_create(bar) {
+            // SAFETY: `label` was just made by `lv_label_create`; the text
+            // is NUL-terminated and LVGL copies it.
+            super::text_view::with_cstr(text, |p| unsafe { lv_label_set_text(label, p.as_ptr()) });
+            lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
+            // The width left beside the action, wrapping onto further lines;
+            // the action keeps its own width at the end of the row.
+            lv_obj_set_flex_grow(label, 1);
+            // SAFETY: `label` was just made by `lv_label_create`.
+            unsafe { lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_WRAP) };
+        }
     }
 
     let indefinite = duration == DURATION_INDEFINITE;
-    register_pending(bar as usize, duration_to_ms(duration), indefinite);
+    register_pending(bar.addr(), duration_to_ms(duration), indefinite);
     handle_table::register(bar)
 }
 
@@ -195,73 +205,66 @@ pub(in crate::graphics) fn create(text: &str, duration: i32) -> i32 {
 /// call replaces the prior label and re-registers the click trampoline so
 /// the listener target stays current.
 pub(in crate::graphics) fn set_action(id: i32, label_text: &str) {
-    let bar = handle_table::lookup(id);
-    if bar.is_null() {
+    let Some(bar) = handle_table::get(id) else {
         return;
-    }
-    let bar_ptr = bar as usize;
+    };
+    let bar_ptr = bar.addr();
 
     // Drop any prior action button for this bar before adding a new one.
     // This keeps `set_action` safely idempotent even though the Java side
     // currently calls it at most once.
     remove_action_for(bar_ptr);
 
-    unsafe {
-        let btn = lv_button_create(bar);
-        lv_obj_set_size(btn, 70, 32);
-        let lbl = lv_label_create(btn);
-        super::text_view::with_cstr(label_text, |p| lv_label_set_text(lbl, p));
+    let Some(btn) = lv_button_create(bar) else {
+        return;
+    };
+    lv_obj_set_size(btn, 70, 32);
+    if let Some(lbl) = lv_label_create(btn) {
+        // SAFETY: `lbl` was just made by `lv_label_create`; the text is
+        // NUL-terminated and LVGL copies it.
+        super::text_view::with_cstr(label_text, |p| unsafe {
+            lv_label_set_text(lbl, p.as_ptr())
+        });
         lv_obj_center(lbl);
-        lv_obj_add_event_cb(
-            btn,
-            Some(action_click_cb),
-            LV_EVENT_CLICKED,
-            core::ptr::null_mut(),
-        );
-        register_action(btn as usize, bar_ptr);
     }
+    add_event_cb(btn, action_click_cb, LV_EVENT_CLICKED);
+    register_action(btn.addr(), bar_ptr);
 }
 
 /// Reveal the snackbar and arm its auto-dismiss timer (no-op for
 /// LENGTH_INDEFINITE).
 pub(in crate::graphics) fn show(id: i32) {
-    let bar = handle_table::lookup(id);
-    if bar.is_null() {
+    let Some(bar) = handle_table::get(id) else {
         return;
-    }
-    unsafe { lv_obj_remove_flag(bar, LV_OBJ_FLAG_HIDDEN) };
-    arm(bar as usize);
+    };
+    lv_obj_remove_flag(bar, LV_OBJ_FLAG_HIDDEN);
+    arm(bar.addr());
 }
 
 /// Hide and delete the snackbar immediately. Detaches all bookkeeping
 /// (slot, action map, obj map) before deletion so the LVGL tree teardown
 /// can't dangle a click record into a freed handle.
 pub(in crate::graphics) fn dismiss(id: i32) {
-    let bar = handle_table::lookup(id);
-    if bar.is_null() {
+    let Some(bar) = handle_table::get(id) else {
         return;
-    }
-    let bar_ptr = bar as usize;
-    unregister(bar_ptr);
-    super::super::view_ops::delete_obj(bar);
+    };
+    unregister(bar.addr());
+    // SAFETY: `bar` is not used after, its bookkeeping is gone, and the
+    // handle goes stale through its delete hook.
+    unsafe { super::super::view_ops::delete_obj(bar) };
 }
 
 /// Record a Java `Snackbar` ObjectRef as the action-click target for `id`.
 pub(in crate::graphics) fn register_action_click_listener(id: i32, obj_ref: u16) {
-    let bar_ptr = handle_table::lookup(id) as usize;
-    if bar_ptr == 0 {
+    let Some(bar) = handle_table::get(id) else {
         return;
-    }
-    unsafe {
-        for entry in &mut SNACKBAR_OBJ_MAP[..] {
-            if entry.0 == bar_ptr {
-                entry.1 = obj_ref;
-                return;
-            }
-            if entry.0 == 0 {
-                *entry = (bar_ptr, obj_ref);
-                return;
-            }
+    };
+    let bar_ptr = bar.addr();
+    for entry in &STATE.obj_map {
+        let (bar, _) = entry.get();
+        if bar == bar_ptr || bar == 0 {
+            entry.set((bar_ptr, obj_ref));
+            return;
         }
     }
 }
@@ -269,22 +272,28 @@ pub(in crate::graphics) fn register_action_click_listener(id: i32, obj_ref: u16)
 /// Per-frame tick — advances the elapsed clock and dismisses any snackbars
 /// past their deadline. Wired from `LvglGfx::tick` next to `toast::tick`.
 pub fn tick(ms: u32) {
-    unsafe {
-        ELAPSED_MS.set(ELAPSED_MS.get().saturating_add(ms as u64));
-        let now = ELAPSED_MS.get();
-        for slot in &mut SLOTS[..] {
-            if !slot.armed || slot.handle == 0 || slot.indefinite {
-                continue;
-            }
-            if now >= slot.expire_at_ms {
-                let bar = slot.handle as *mut lv_obj_t;
-                let bar_ptr = slot.handle;
-                *slot = EMPTY_SLOT;
-                // Detach action map + obj map for this bar before deletion
-                // — same rationale as `dismiss`.
-                detach_action_for(bar_ptr);
-                detach_obj_for(bar_ptr);
-                super::super::view_ops::delete_obj(bar);
+    let elapsed = &STATE.elapsed_ms;
+    elapsed.set(elapsed.get().saturating_add(ms as u64));
+    let now = elapsed.get();
+    for slot in &STATE.slots {
+        let s = slot.get();
+        if !s.armed || s.handle == 0 || s.indefinite {
+            continue;
+        }
+        if now >= s.expire_at_ms {
+            let bar_ptr = s.handle;
+            slot.set(EMPTY_SLOT);
+            // Detach action map + obj map for this bar before deletion
+            // — same rationale as `dismiss`.
+            detach_action_for(bar_ptr);
+            detach_obj_for(bar_ptr);
+            // SAFETY: a slot holds a bar from `create` until `dismiss` or
+            // this tick takes it out, and nothing else deletes a bar: it
+            // lives on the top layer, which nothing cleans. Its bookkeeping
+            // is gone, and the handle goes stale through its delete hook.
+            if let Some(bar) = unsafe { Obj::from_raw(bar_ptr as *mut lv_obj_t) } {
+                // SAFETY: as above; no other copy of `bar` is used after.
+                unsafe { super::super::view_ops::delete_obj(bar) };
             }
         }
     }
@@ -292,35 +301,31 @@ pub fn tick(ms: u32) {
 
 /// Drain one queued action click (raw bar `lv_obj_t*` value).
 pub fn drain_click_queue() -> Option<usize> {
-    CLICK_QUEUE.pop()
+    STATE.click_queue.pop()
 }
 
 /// Look up the Java `Snackbar` ObjectRef for a bar's raw pointer.
 pub fn lookup_snackbar_obj(handle: usize) -> Option<u16> {
-    unsafe {
-        for entry in &SNACKBAR_OBJ_MAP[..] {
-            if entry.0 == handle {
-                return Some(entry.1);
-            }
-        }
-    }
-    None
+    STATE
+        .obj_map
+        .iter()
+        .map(Cell::get)
+        .find(|&(bar, _)| bar == handle)
+        .map(|(_, obj_ref)| obj_ref)
 }
 
 pub fn reset_snackbar_state() {
-    unsafe {
-        for slot in &mut SLOTS[..] {
-            *slot = EMPTY_SLOT;
-        }
-        for entry in &mut ACTION_MAP[..] {
-            *entry = EMPTY_ACTION;
-        }
-        for entry in &mut SNACKBAR_OBJ_MAP[..] {
-            *entry = (0, 0);
-        }
-        CLICK_QUEUE.clear();
-        ELAPSED_MS.set(0);
+    for slot in &STATE.slots {
+        slot.set(EMPTY_SLOT);
     }
+    for entry in &STATE.action_map {
+        entry.set(EMPTY_ACTION);
+    }
+    for entry in &STATE.obj_map {
+        entry.set((0, 0));
+    }
+    STATE.click_queue.clear();
+    STATE.elapsed_ms.set(0);
 }
 
 // ── Internals ───────────────────────────────────────────────────────────────
@@ -335,19 +340,15 @@ fn duration_to_ms(duration: i32) -> u32 {
 }
 
 fn register_pending(bar_ptr: usize, duration_ms: u32, indefinite: bool) {
-    unsafe {
-        for slot in &mut SLOTS[..] {
-            if slot.handle == 0 {
-                *slot = SnackbarSlot {
-                    handle: bar_ptr,
-                    duration_ms,
-                    expire_at_ms: 0,
-                    armed: false,
-                    indefinite,
-                };
-                return;
-            }
-        }
+    if let Some(slot) = STATE.slots.iter().find(|s| s.get().handle == 0) {
+        slot.set(SnackbarSlot {
+            handle: bar_ptr,
+            duration_ms,
+            expire_at_ms: 0,
+            armed: false,
+            indefinite,
+        });
+        return;
     }
     // Slot table full: caller's snackbar still renders but won't auto-
     // dismiss until something frees a slot. Matches Toast's overflow
@@ -356,76 +357,63 @@ fn register_pending(bar_ptr: usize, duration_ms: u32, indefinite: bool) {
 }
 
 fn arm(bar_ptr: usize) {
-    unsafe {
-        let now = ELAPSED_MS.get();
-        for slot in &mut SLOTS[..] {
-            if slot.handle == bar_ptr {
-                if slot.indefinite {
-                    slot.armed = true;
-                } else {
-                    slot.expire_at_ms = now + slot.duration_ms as u64;
-                    slot.armed = true;
-                }
-                return;
-            }
+    let now = STATE.elapsed_ms.get();
+    if let Some(slot) = STATE.slots.iter().find(|s| s.get().handle == bar_ptr) {
+        let mut s = slot.get();
+        if !s.indefinite {
+            s.expire_at_ms = now + s.duration_ms as u64;
         }
+        s.armed = true;
+        slot.set(s);
     }
 }
 
 fn register_action(button_handle: usize, bar_handle: usize) {
-    unsafe {
-        for slot in &mut ACTION_MAP[..] {
-            if slot.button_handle == 0 {
-                *slot = ActionEntry {
-                    button_handle,
-                    bar_handle,
-                };
-                return;
-            }
-        }
+    if let Some(slot) = STATE.action_map.iter().find(|s| s.get().button_handle == 0) {
+        slot.set(ActionEntry {
+            button_handle,
+            bar_handle,
+        });
     }
 }
 
 fn remove_action_for(bar_ptr: usize) {
-    unsafe {
-        for slot in &mut ACTION_MAP[..] {
-            if slot.bar_handle == bar_ptr {
-                let btn = slot.button_handle as *mut lv_obj_t;
-                *slot = EMPTY_ACTION;
-                if !btn.is_null() {
-                    lv_obj_delete(btn);
-                }
+    for slot in &STATE.action_map {
+        let entry = slot.get();
+        if entry.bar_handle == bar_ptr {
+            slot.set(EMPTY_ACTION);
+            // SAFETY: an action button is in the map from `set_action` until
+            // its bar's bookkeeping goes (`unregister`, the tick) — before
+            // the bar, and the button with it, is deleted — or this call
+            // deletes it, its entry already cleared. No handle names it.
+            if let Some(btn) = unsafe { Obj::from_raw(entry.button_handle as *mut lv_obj_t) } {
+                // SAFETY: as above; nothing uses `btn` after.
+                unsafe { lv_obj_delete(btn) };
             }
         }
     }
 }
 
 fn detach_action_for(bar_ptr: usize) {
-    unsafe {
-        for slot in &mut ACTION_MAP[..] {
-            if slot.bar_handle == bar_ptr {
-                *slot = EMPTY_ACTION;
-            }
+    for slot in &STATE.action_map {
+        if slot.get().bar_handle == bar_ptr {
+            slot.set(EMPTY_ACTION);
         }
     }
 }
 
 fn detach_obj_for(bar_ptr: usize) {
-    unsafe {
-        for entry in &mut SNACKBAR_OBJ_MAP[..] {
-            if entry.0 == bar_ptr {
-                *entry = (0, 0);
-            }
+    for entry in &STATE.obj_map {
+        if entry.get().0 == bar_ptr {
+            entry.set((0, 0));
         }
     }
 }
 
 fn unregister(bar_ptr: usize) {
-    unsafe {
-        for slot in &mut SLOTS[..] {
-            if slot.handle == bar_ptr {
-                *slot = EMPTY_SLOT;
-            }
+    for slot in &STATE.slots {
+        if slot.get().handle == bar_ptr {
+            slot.set(EMPTY_SLOT);
         }
     }
     detach_action_for(bar_ptr);

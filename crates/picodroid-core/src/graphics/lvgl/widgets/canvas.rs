@@ -224,137 +224,121 @@ pub(crate) fn text_align(ordinal: i32) -> i32 {
 /// object with a display list. A plain Android `View` takes no touches until it
 /// gets a listener, which sets CLICKABLE again (`view::register_click_listener`).
 pub(in crate::graphics) fn create() -> i32 {
-    let ptr = unsafe {
-        let o = lv_obj_create(lifecycle::screen_ptr());
-        super::frame_layout::make_flat(o);
-        lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-        if pd_canvas_attach(o) != 0 {
-            note_no_list();
-        }
-        o
+    let Some(o) = lifecycle::screen_ptr().and_then(|o| lv_obj_create(o)) else {
+        return 0;
     };
-    handle_table::register(ptr)
+    super::frame_layout::make_flat(o);
+    lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    if pd_canvas_attach(o) != 0 {
+        note_no_list();
+    }
+    handle_table::register(o)
 }
 
 /// `View.nativeBeginDraw`: empties the view's list and returns its laid-out
 /// size, which the canvas reports as `getWidth` / `getHeight`. A size set in
 /// this tick is not laid out yet, so layout runs first (a no-op when clean).
 pub(in crate::graphics) fn begin(id: i32) -> (i32, i32) {
-    let obj = handle_table::lookup(id);
-    if obj.is_null() {
+    let Some(obj) = handle_table::get(id) else {
         return (0, 0);
-    }
-    unsafe {
-        lv_obj_update_layout(obj);
-        pd_canvas_begin(obj);
-        (lv_obj_get_width(obj), lv_obj_get_height(obj))
-    }
+    };
+    lv_obj_update_layout(obj);
+    pd_canvas_begin(obj);
+    (lv_obj_get_width(obj), lv_obj_get_height(obj))
 }
 
 /// `View.nativeEndDraw`: the list is complete; repaint the view.
 pub(in crate::graphics) fn end(id: i32) {
-    let obj = handle_table::lookup(id);
-    if obj.is_null() {
+    let Some(obj) = handle_table::get(id) else {
         return;
-    }
-    let dropped = unsafe { pd_canvas_end(obj) };
+    };
+    let dropped = pd_canvas_end(obj);
     if dropped > 0 {
         note_dropped(dropped);
     }
 }
 
 pub(in crate::graphics) fn fill(id: i32, argb: u32) {
-    let obj = handle_table::lookup(id);
-    if !obj.is_null() {
-        unsafe { pd_canvas_fill(obj, argb) };
+    if let Some(obj) = handle_table::get(id) {
+        pd_canvas_fill(obj, argb);
     }
 }
 
 pub(in crate::graphics) fn rect(id: i32, op: &RectOp) {
-    let obj = handle_table::lookup(id);
-    if obj.is_null() {
+    let Some(obj) = handle_table::get(id) else {
         return;
-    }
-    unsafe {
-        pd_canvas_rect(
-            obj,
-            op.x1,
-            op.y1,
-            op.x2,
-            op.y2,
-            op.radius,
-            op.fill,
-            op.stroke,
-            op.stroke_width,
-        )
     };
+    pd_canvas_rect(
+        obj,
+        op.x1,
+        op.y1,
+        op.x2,
+        op.y2,
+        op.radius,
+        op.fill,
+        op.stroke,
+        op.stroke_width,
+    );
 }
 
 pub(in crate::graphics) fn line(id: i32, x1: f32, y1: f32, x2: f32, y2: f32, p: &PaintSpec) {
-    let obj = handle_table::lookup(id);
-    if obj.is_null() {
+    let Some(obj) = handle_table::get(id) else {
         return;
-    }
-    unsafe {
-        pd_canvas_line(
-            obj,
-            round_px(x1),
-            round_px(y1),
-            round_px(x2),
-            round_px(y2),
-            stroke_px(p.stroke_width),
-            p.color,
-            i32::from(p.cap == CAP_ROUND),
-        )
     };
+    pd_canvas_line(
+        obj,
+        round_px(x1),
+        round_px(y1),
+        round_px(x2),
+        round_px(y2),
+        stroke_px(p.stroke_width),
+        p.color,
+        i32::from(p.cap == CAP_ROUND),
+    );
 }
 
 pub(in crate::graphics) fn arc(id: i32, op: &ArcOp, argb: u32) {
-    let obj = handle_table::lookup(id);
-    if obj.is_null() {
+    let Some(obj) = handle_table::get(id) else {
         return;
-    }
-    unsafe {
-        pd_canvas_arc(
-            obj,
-            op.cx,
-            op.cy,
-            op.radius,
-            op.start,
-            op.end,
-            op.width,
-            argb,
-            i32::from(op.rounded),
-        )
     };
+    pd_canvas_arc(
+        obj,
+        op.cx,
+        op.cy,
+        op.radius,
+        op.start,
+        op.end,
+        op.width,
+        argb,
+        i32::from(op.rounded),
+    );
 }
 
 pub(in crate::graphics) fn text(id: i32, s: &str, x: f32, y: f32, p: &PaintSpec) {
-    let obj = handle_table::lookup(id);
-    if obj.is_null() || s.is_empty() {
+    let Some(obj) = handle_table::get(id) else {
+        return;
+    };
+    if s.is_empty() {
         return;
     }
     let Some(face) = super::text_view::face_index_for_px(p.text_size) else {
         return;
     };
-    unsafe {
-        pd_canvas_text(
-            obj,
-            round_px(x),
-            round_px(y),
-            face as i32,
-            p.color,
-            text_align(p.text_align),
-            s.as_ptr().cast(),
-            s.len(),
-        )
-    };
+    canvas_text(
+        obj,
+        round_px(x),
+        round_px(y),
+        face as i32,
+        p.color,
+        text_align(p.text_align),
+        s.as_bytes(),
+    );
 }
 
 /// `Paint.ascent()`: the face's line top above the baseline, negative.
 pub(in crate::graphics) fn ascent(text_size: f32) -> i32 {
     match super::text_view::face_index_for_px(text_size) {
-        Some(face) => unsafe { pd_canvas_ascent(face as i32) },
+        Some(face) => pd_canvas_ascent(face as i32),
         None => 0,
     }
 }
@@ -362,7 +346,7 @@ pub(in crate::graphics) fn ascent(text_size: f32) -> i32 {
 /// `Paint.descent()`: the face's line bottom below the baseline.
 pub(in crate::graphics) fn descent(text_size: f32) -> i32 {
     match super::text_view::face_index_for_px(text_size) {
-        Some(face) => unsafe { pd_canvas_descent(face as i32) },
+        Some(face) => pd_canvas_descent(face as i32),
         None => 0,
     }
 }
@@ -370,9 +354,7 @@ pub(in crate::graphics) fn descent(text_size: f32) -> i32 {
 /// `Paint.measureText()`: one line's width in the face.
 pub(in crate::graphics) fn text_width(s: &str, text_size: f32) -> i32 {
     match super::text_view::face_index_for_px(text_size) {
-        Some(face) if !s.is_empty() => unsafe {
-            pd_canvas_text_width(face as i32, s.as_ptr().cast(), s.len())
-        },
+        Some(face) if !s.is_empty() => canvas_text_width(face as i32, s.as_bytes()),
         _ => 0,
     }
 }

@@ -8,8 +8,10 @@ use super::super::lifecycle;
 use super::super::style_batch;
 
 pub(in crate::graphics) fn create() -> i32 {
-    let ptr = unsafe {
-        let o = lv_obj_create(lifecycle::screen_ptr());
+    let Some(o) = lifecycle::screen_ptr().and_then(|o| lv_obj_create(o)) else {
+        return 0;
+    };
+    {
         // Android LinearLayout never scrolls — use ScrollView for that. Clearing
         // SCROLLABLE also kills the stray scrollbars LVGL would otherwise draw
         // when content brushes the inner edge.
@@ -32,9 +34,8 @@ pub(in crate::graphics) fn create() -> i32 {
                 LV_FLEX_ALIGN_START,
             );
         });
-        o
-    };
-    handle_table::register(ptr)
+    }
+    handle_table::register(o)
 }
 
 /// `orientation`: 0 = horizontal (row), non-zero = vertical (column).
@@ -44,17 +45,19 @@ pub(in crate::graphics) fn set_orientation(id: i32, orientation: i32) {
     } else {
         LV_FLEX_FLOW_COLUMN
     };
-    unsafe { lv_obj_set_flex_flow(handle_table::lookup(id), flow) };
+    if let Some(o) = handle_table::get(id) {
+        lv_obj_set_flex_flow(o, flow);
+    }
 }
 
 /// Gap in pixels between adjacent children. Sets both row and column gap so
 /// the value applies whether the layout is later switched to horizontal flow.
 pub(in crate::graphics) fn set_spacing(id: i32, spacing: i32) {
-    unsafe {
-        let o = handle_table::lookup(id);
-        lv_obj_set_style_pad_row(o, spacing, 0);
-        lv_obj_set_style_pad_column(o, spacing, 0);
-    }
+    let Some(o) = handle_table::get(id) else {
+        return;
+    };
+    lv_obj_set_style_pad_row(o, spacing, 0);
+    lv_obj_set_style_pad_column(o, spacing, 0);
 }
 
 /// Place the children from an Android gravity bitmask.
@@ -66,15 +69,15 @@ pub(in crate::graphics) fn set_spacing(id: i32, spacing: i32) {
 /// `gravity::flex_align` holds the decoding, and its divergences, in one
 /// tested place.
 pub(in crate::graphics) fn set_gravity(id: i32, gravity: i32) {
-    let obj = handle_table::lookup(id);
-    if obj.is_null() {
+    let Some(obj) = handle_table::get(id) else {
         return; // stale handle — mutating a destroyed View is a no-op
-    }
-    unsafe {
-        let flow = lv_obj_get_style_prop(obj, LV_PART_MAIN, LV_STYLE_FLEX_FLOW).num as u32;
-        // Only ROW and COLUMN are ever set, and COLUMN is the low bit of every
-        // column flow LVGL defines.
-        let (main, cross) = super::gravity::flex_align(gravity, flow & LV_FLEX_FLOW_COLUMN != 0);
-        lv_obj_set_flex_align(obj, main, cross, cross);
-    }
+    };
+    let v = lv_obj_get_style_prop(obj, LV_PART_MAIN, LV_STYLE_FLEX_FLOW);
+    // SAFETY: the flex flow is a numeric property, which LVGL returns in
+    // `num`.
+    let flow = unsafe { v.num } as u32;
+    // Only ROW and COLUMN are ever set, and COLUMN is the low bit of every
+    // column flow LVGL defines.
+    let (main, cross) = super::gravity::flex_align(gravity, flow & LV_FLEX_FLOW_COLUMN != 0);
+    lv_obj_set_flex_align(obj, main, cross, cross);
 }

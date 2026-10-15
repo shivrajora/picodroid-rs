@@ -18,9 +18,10 @@ use core::ffi::c_char;
 
 use super::super::handle_table;
 use super::super::lifecycle;
-use super::super::listener_map::{warn_full, PtrMap, Upsert};
+use super::super::listener_map::{warn_full, PtrMap};
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
+use core::cell::Cell;
 
 const HOURS_24: &[u8] = b"00\n01\n02\n03\n04\n05\n06\n07\n08\n09\n10\n11\n\
 12\n13\n14\n15\n16\n17\n18\n19\n20\n21\n22\n23\0";
@@ -61,204 +62,195 @@ const EMPTY_SLOT: PickerSlot = PickerSlot {
     hour: 0,
     minute: 0,
     am_pm: 0,
-    is_24hour: true,
+    // Never read: a free slot is matched by no container, and
+    // `register_picker` writes every field. False keeps the table in .bss.
+    is_24hour: false,
     suppress: false,
 };
-
-static mut SLOTS: [PickerSlot; MAX_PICKERS] = [EMPTY_SLOT; MAX_PICKERS];
 
 // ── Change-event ring buffer ────────────────────────────────────────────────
 
 const QUEUE_SIZE: usize = 8;
-// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
-static QUEUE: Core0<LocalRing<usize, QUEUE_SIZE>> = unsafe { Core0::new(LocalRing::new(0)) };
 
 // ── Container → Java object map ─────────────────────────────────────────────
 
 const MAX_LISTENERS: usize = 4;
-// SAFETY: a listener registry, reached only from JVM tasks.
-static HANDLE_MAP: Core0<PtrMap<MAX_LISTENERS>> = unsafe { Core0::new(PtrMap::new()) };
-
-unsafe extern "C" fn map_delete_cb(e: *mut lv_event_t) {
-    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    HANDLE_MAP.remove(obj)
-}
-
-/// Release a picker's `SLOTS` entry and its three `ROLLER_MAP` entries when the
-/// container is deleted. Registered on every picker at create time, not only on
-/// ones that took a listener: without it the four slots are consumed for good
-/// and the *fifth* `TimePicker` a process ever builds gets none, at which point
-/// `set_time` silently does nothing and `get_hour`/`get_minute` answer zero —
-/// a screen offering midnight instead of the time, and setting midnight if the
-/// user accepts it. Screens are built and destroyed freely, so four is a handful
-/// of navigations, not a lifetime's worth.
-unsafe extern "C" fn slot_delete_cb(e: *mut lv_event_t) {
-    let container = unsafe { lv_event_get_target_obj(e) } as usize;
-    if container == 0 {
-        return;
-    }
-    unsafe {
-        for slot in &mut SLOTS[..] {
-            if slot.container == container {
-                *slot = EMPTY_SLOT;
-            }
-        }
-        for entry in &mut ROLLER_MAP[..] {
-            if entry.1 == container {
-                *entry = (0, 0);
-            }
-        }
-        HANDLE_MAP.remove(container);
-    }
-}
 
 // ── Roller → container map (so the trampoline can resolve the parent) ──────
 //
 // Three rollers per picker (hour, minute, am_pm).
 
 const MAX_ROLLERS: usize = MAX_PICKERS * 3;
-static mut ROLLER_MAP: [(usize, usize); MAX_ROLLERS] = [(0, 0); MAX_ROLLERS];
 
-unsafe extern "C" fn value_changed_cb(e: *mut lv_event_t) {
-    let roller = unsafe { lv_event_get_target_obj(e) } as usize;
-    unsafe {
-        let mut container: usize = 0;
-        for &(r, c) in &ROLLER_MAP[..] {
-            if r == roller {
-                container = c;
-                break;
+struct State {
+    slots: [Cell<PickerSlot>; MAX_PICKERS],
+    queue: LocalRing<usize, QUEUE_SIZE>,
+    handle_map: PtrMap<MAX_LISTENERS>,
+    roller_map: [Cell<(usize, usize)>; MAX_ROLLERS],
+}
+
+// SAFETY: filled by natives and LVGL callbacks, drained by natives, all on
+// core-0 JVM tasks.
+static STATE: Core0<State> = unsafe {
+    Core0::new(State {
+        slots: [const { Cell::new(EMPTY_SLOT) }; MAX_PICKERS],
+        queue: LocalRing::new(0),
+        handle_map: PtrMap::new(),
+        roller_map: [const { Cell::new((0, 0)) }; MAX_ROLLERS],
+    })
+};
+
+lv_event_cb! {
+    fn map_delete_cb(e) {
+        let obj = e.target().addr();
+        STATE.handle_map.remove(obj)
+    }
+}
+
+lv_event_cb! {
+    /// Release a picker's `SLOTS` entry and its three `ROLLER_MAP` entries when the
+    /// container is deleted. Registered on every picker at create time, not only on
+    /// ones that took a listener: without it the four slots are consumed for good
+    /// and the *fifth* `TimePicker` a process ever builds gets none, at which point
+    /// `set_time` silently does nothing and `get_hour`/`get_minute` answer zero —
+    /// a screen offering midnight instead of the time, and setting midnight if the
+    /// user accepts it. Screens are built and destroyed freely, so four is a handful
+    /// of navigations, not a lifetime's worth.
+    fn slot_delete_cb(e) {
+        let container = e.target().addr();
+        if container == 0 {
+            return;
+        }
+        for slot in &STATE.slots {
+            if slot.get().container == container {
+                slot.set(EMPTY_SLOT);
             }
         }
+        for entry in &STATE.roller_map {
+            if entry.get().1 == container {
+                entry.set((0, 0));
+            }
+        }
+        STATE.handle_map.remove(container);
+    }
+}
+
+lv_event_cb! {
+    fn value_changed_cb(e) {
+        let roller = e.target().addr();
+        let container = STATE
+            .roller_map
+            .iter()
+            .map(Cell::get)
+            .find(|&(r, _)| r == roller)
+            .map_or(0, |(_, c)| c);
         if container == 0 {
             return;
         }
         // Drop programmatic events — they happen during set_is_24hour /
         // set_time round-trips and should not look like user input.
-        for slot in &SLOTS[..] {
-            if slot.container == container && slot.suppress {
-                return;
-            }
+        if STATE
+            .slots
+            .iter()
+            .map(Cell::get)
+            .any(|slot| slot.container == container && slot.suppress)
+        {
+            return;
         }
-        QUEUE.push(container);
+        STATE.queue.push(container);
     }
+}
+
+/// One roller of a picker: made by `lv_roller_create`, queued on
+/// VALUE_CHANGED and on KEY (a key-driven change — `lv_roller_set_selected`
+/// from LVGL's own key handler, docs/designs/app-portability-2026-10.md K7 —
+/// sends no VALUE_CHANGED; the KEY event, which runs after the class handled
+/// it, is the same notice).
+fn add_roller(container: Obj, options: &[u8], mode: lv_roller_mode_t) -> Option<Obj> {
+    let roller = lv_roller_create(container)?;
+    // SAFETY: `roller` was just made by `lv_roller_create`; `options` is one
+    // of this module's NUL-terminated option lists, which LVGL copies.
+    unsafe {
+        lv_roller_set_options(roller, options.as_ptr() as *const c_char, mode);
+        lv_roller_set_visible_row_count(roller, VISIBLE_ROWS);
+    }
+    add_event_cb(roller, value_changed_cb, LV_EVENT_VALUE_CHANGED);
+    add_event_cb(roller, value_changed_cb, LV_EVENT_KEY);
+    Some(roller)
 }
 
 pub(in crate::graphics) fn create() -> i32 {
-    unsafe {
-        let container = lv_obj_create(lifecycle::screen_ptr());
-        lv_obj_set_size(container, 200, 100);
-        lv_obj_set_style_pad_left(container, 0, 0);
-        lv_obj_set_style_pad_right(container, 0, 0);
-        lv_obj_set_style_pad_top(container, 0, 0);
-        lv_obj_set_style_pad_bottom(container, 0, 0);
-        lv_obj_set_flex_flow(container, LV_FLEX_FLOW_ROW);
-        lv_obj_set_flex_align(
-            container,
-            LV_FLEX_ALIGN_CENTER,
-            LV_FLEX_ALIGN_CENTER,
-            LV_FLEX_ALIGN_CENTER,
-        );
+    let Some(container) = lifecycle::screen_ptr().and_then(|o| lv_obj_create(o)) else {
+        return 0;
+    };
+    lv_obj_set_size(container, 200, 100);
+    lv_obj_set_style_pad_left(container, 0, 0);
+    lv_obj_set_style_pad_right(container, 0, 0);
+    lv_obj_set_style_pad_top(container, 0, 0);
+    lv_obj_set_style_pad_bottom(container, 0, 0);
+    lv_obj_set_flex_flow(container, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(
+        container,
+        LV_FLEX_ALIGN_CENTER,
+        LV_FLEX_ALIGN_CENTER,
+        LV_FLEX_ALIGN_CENTER,
+    );
 
-        let hour = lv_roller_create(container);
-        // Default mode is 24-hour, infinite scroll feels right for 0..23.
-        lv_roller_set_options(
-            hour,
-            HOURS_24.as_ptr() as *const c_char,
-            LV_ROLLER_MODE_INFINITE,
-        );
-        lv_roller_set_visible_row_count(hour, VISIBLE_ROWS);
-        lv_obj_add_event_cb(
-            hour,
-            Some(value_changed_cb),
-            LV_EVENT_VALUE_CHANGED,
-            core::ptr::null_mut(),
-        );
-        // A key-driven change (`lv_roller_set_selected` from LVGL's own key
-        // handler, docs/designs/app-portability-2026-10.md K7) sends no
-        // VALUE_CHANGED; the KEY event, which runs after the class handled
-        // it, is the same notice.
-        lv_obj_add_event_cb(
-            hour,
-            Some(value_changed_cb),
-            LV_EVENT_KEY,
-            core::ptr::null_mut(),
-        );
-
-        let minute = lv_roller_create(container);
-        lv_roller_set_options(
-            minute,
-            MINUTES_OPTIONS.as_ptr() as *const c_char,
-            LV_ROLLER_MODE_INFINITE,
-        );
-        lv_roller_set_visible_row_count(minute, VISIBLE_ROWS);
-        lv_obj_add_event_cb(
-            minute,
-            Some(value_changed_cb),
-            LV_EVENT_VALUE_CHANGED,
-            core::ptr::null_mut(),
-        );
-        // A key-driven change (`lv_roller_set_selected` from LVGL's own key
-        // handler, docs/designs/app-portability-2026-10.md K7) sends no
-        // VALUE_CHANGED; the KEY event, which runs after the class handled
-        // it, is the same notice.
-        lv_obj_add_event_cb(
-            minute,
-            Some(value_changed_cb),
-            LV_EVENT_KEY,
-            core::ptr::null_mut(),
-        );
-
-        // AM/PM roller — NORMAL mode (wrapping over 2 options would be
-        // jarring). Hidden initially since 24-hour is the default.
-        let am_pm = lv_roller_create(container);
-        lv_roller_set_options(
-            am_pm,
-            AM_PM_OPTIONS.as_ptr() as *const c_char,
-            LV_ROLLER_MODE_NORMAL,
-        );
-        lv_roller_set_visible_row_count(am_pm, VISIBLE_ROWS);
+    // Default mode is 24-hour, infinite scroll feels right for 0..23.
+    let hour = add_roller(container, HOURS_24, LV_ROLLER_MODE_INFINITE);
+    let minute = add_roller(container, MINUTES_OPTIONS, LV_ROLLER_MODE_INFINITE);
+    // AM/PM roller — NORMAL mode (wrapping over 2 options would be
+    // jarring). Hidden initially since 24-hour is the default.
+    let am_pm = add_roller(container, AM_PM_OPTIONS, LV_ROLLER_MODE_NORMAL);
+    if let Some(am_pm) = am_pm {
         lv_obj_add_flag(am_pm, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_event_cb(
-            am_pm,
-            Some(value_changed_cb),
-            LV_EVENT_VALUE_CHANGED,
-            core::ptr::null_mut(),
-        );
-        // A key-driven change (`lv_roller_set_selected` from LVGL's own key
-        // handler, docs/designs/app-portability-2026-10.md K7) sends no
-        // VALUE_CHANGED; the KEY event, which runs after the class handled
-        // it, is the same notice.
-        lv_obj_add_event_cb(
-            am_pm,
-            Some(value_changed_cb),
-            LV_EVENT_KEY,
-            core::ptr::null_mut(),
-        );
-
-        register_picker(
-            container as usize,
-            hour as usize,
-            minute as usize,
-            am_pm as usize,
-        );
-        lv_obj_add_event_cb(
-            container,
-            Some(slot_delete_cb),
-            LV_EVENT_DELETE,
-            core::ptr::null_mut(),
-        );
-        handle_table::register(container)
     }
+
+    register_picker(
+        container.addr(),
+        hour.map_or(0, Obj::addr),
+        minute.map_or(0, Obj::addr),
+        am_pm.map_or(0, Obj::addr),
+    );
+    add_event_cb(container, slot_delete_cb, LV_EVENT_DELETE);
+    handle_table::register(container)
+}
+
+/// A roller `create` made with `lv_roller_create`, as [`rollers`] answers it.
+#[derive(Copy, Clone)]
+struct Roller(Obj);
+
+/// Slot `idx`'s three rollers, each `None` if it could not be made.
+fn rollers(idx: usize) -> [Option<Roller>; 3] {
+    let slot = STATE.slots[idx].get();
+    // SAFETY: a slot names the rollers `create` made under its container,
+    // from `register_picker` until `slot_delete_cb` clears it, which LVGL
+    // runs on the container's delete before it frees the container's
+    // children.
+    [slot.hour, slot.minute, slot.am_pm]
+        .map(|r| unsafe { Obj::from_raw(r as *mut lv_obj_t) }.map(Roller))
+}
+
+/// The selected row of a roller from [`rollers`].
+fn selected(roller: Roller) -> u32 {
+    // SAFETY: a `Roller` was made by `lv_roller_create`.
+    unsafe { lv_roller_get_selected(roller.0) }
+}
+
+/// Select row `row` of a roller from [`rollers`], without animation.
+fn select(roller: Roller, row: u32) {
+    // SAFETY: as in [`selected`].
+    unsafe { lv_roller_set_selected(roller.0, row, LV_ANIM_OFF) };
+}
+
+/// The slot of `id`'s picker, if the handle is live and has one.
+fn slot_of(id: i32) -> Option<usize> {
+    find_slot_idx(handle_table::get(id)?.addr())
 }
 
 pub(in crate::graphics) fn set_time(id: i32, hour: i32, minute: i32) {
-    let container = handle_table::lookup(id);
-    if container.is_null() {
+    let Some(slot_idx) = slot_of(id) else {
         return;
-    }
-    let slot_idx = match find_slot_idx(container as usize) {
-        Some(i) => i,
-        None => return,
     };
     let m = minute.clamp(0, 59) as u32;
     let h24 = hour.clamp(0, 23);
@@ -266,224 +258,174 @@ pub(in crate::graphics) fn set_time(id: i32, hour: i32, minute: i32) {
 }
 
 pub(in crate::graphics) fn get_hour(id: i32) -> i32 {
-    let container = handle_table::lookup(id);
-    if container.is_null() {
-        return 0;
-    }
-    let slot = match find_slot(container as usize) {
-        Some(s) => s,
-        None => return 0,
-    };
-    let hour_ptr = slot.hour as *mut lv_obj_t;
-    if hour_ptr.is_null() {
-        return 0;
-    }
-    let hour_idx = unsafe { lv_roller_get_selected(hour_ptr) } as i32;
-    if slot.is_24hour {
-        hour_idx
-    } else {
-        let am_pm_ptr = slot.am_pm as *mut lv_obj_t;
-        let pm = !am_pm_ptr.is_null() && unsafe { lv_roller_get_selected(am_pm_ptr) } == 1;
-        twelve_hour_to_24(hour_idx, pm)
+    match slot_of(id) {
+        Some(slot_idx) => read_24hour(slot_idx),
+        None => 0,
     }
 }
 
 pub(in crate::graphics) fn get_minute(id: i32) -> i32 {
-    let container = handle_table::lookup(id);
-    if container.is_null() {
+    let Some(slot_idx) = slot_of(id) else {
         return 0;
-    }
-    if let Some(slot) = find_slot(container as usize) {
-        let m_ptr = slot.minute as *mut lv_obj_t;
-        if !m_ptr.is_null() {
-            return unsafe { lv_roller_get_selected(m_ptr) as i32 };
-        }
-    }
-    0
+    };
+    let [_, minute, _] = rollers(slot_idx);
+    minute.map_or(0, |m| selected(m) as i32)
 }
 
 /// `setIs24HourView(boolean)` — runtime toggle that preserves the currently
 /// selected time across the switch.
 pub(in crate::graphics) fn set_is_24hour(id: i32, is_24hour: bool) {
-    let container = handle_table::lookup(id);
-    if container.is_null() {
+    let Some(slot_idx) = slot_of(id) else {
         return;
-    }
-    let slot_idx = match find_slot_idx(container as usize) {
-        Some(i) => i,
-        None => return,
     };
-    let prev_24hour = unsafe { SLOTS[slot_idx].is_24hour };
+    let cell = &STATE.slots[slot_idx];
+    let prev_24hour = cell.get().is_24hour;
     if prev_24hour == is_24hour {
         return;
     }
     // Snapshot the current 24-hour value BEFORE mutating mode/options so
     // the round-trip preserves what the user was looking at.
     let saved_h = read_24hour(slot_idx);
-    let saved_m = unsafe {
-        let m_ptr = SLOTS[slot_idx].minute as *mut lv_obj_t;
-        if m_ptr.is_null() {
-            0
-        } else {
-            lv_roller_get_selected(m_ptr) as i32
-        }
-    };
+    let [hour, minute, am_pm] = rollers(slot_idx);
+    let saved_m = minute.map_or(0, |m| selected(m) as i32);
 
-    unsafe {
-        SLOTS[slot_idx].suppress = true;
-        SLOTS[slot_idx].is_24hour = is_24hour;
-
-        let hour_ptr = SLOTS[slot_idx].hour as *mut lv_obj_t;
-        let am_pm_ptr = SLOTS[slot_idx].am_pm as *mut lv_obj_t;
-
-        if is_24hour {
-            // 24-hour: swap to the 0..23 list, hide AM/PM column.
-            if !hour_ptr.is_null() {
+    cell.set(PickerSlot {
+        suppress: true,
+        is_24hour,
+        ..cell.get()
+    });
+    if is_24hour {
+        // 24-hour: swap to the 0..23 list, hide AM/PM column.
+        if let Some(hour) = hour {
+            // SAFETY: a `Roller` was made by `lv_roller_create`; the options
+            // are a NUL-terminated static LVGL copies.
+            unsafe {
                 lv_roller_set_options(
-                    hour_ptr,
+                    hour.0,
                     HOURS_24.as_ptr() as *const c_char,
                     LV_ROLLER_MODE_INFINITE,
                 );
             }
-            if !am_pm_ptr.is_null() {
-                lv_obj_add_flag(am_pm_ptr, LV_OBJ_FLAG_HIDDEN);
-            }
-        } else {
-            // 12-hour: swap to 12,01..11 (NORMAL, no wrap), reveal AM/PM.
-            if !hour_ptr.is_null() {
+        }
+        if let Some(am_pm) = am_pm {
+            lv_obj_add_flag(am_pm.0, LV_OBJ_FLAG_HIDDEN);
+        }
+    } else {
+        // 12-hour: swap to 12,01..11 (NORMAL, no wrap), reveal AM/PM.
+        if let Some(hour) = hour {
+            // SAFETY: as above.
+            unsafe {
                 lv_roller_set_options(
-                    hour_ptr,
+                    hour.0,
                     HOURS_12.as_ptr() as *const c_char,
                     LV_ROLLER_MODE_NORMAL,
                 );
             }
-            if !am_pm_ptr.is_null() {
-                lv_obj_remove_flag(am_pm_ptr, LV_OBJ_FLAG_HIDDEN);
-            }
+        }
+        if let Some(am_pm) = am_pm {
+            lv_obj_remove_flag(am_pm.0, LV_OBJ_FLAG_HIDDEN);
         }
     }
 
     apply_hour_and_minute(slot_idx, saved_h, saved_m as u32);
 
-    unsafe { SLOTS[slot_idx].suppress = false };
+    cell.set(PickerSlot {
+        suppress: false,
+        ..cell.get()
+    });
 }
 
 pub(in crate::graphics) fn is_24hour(id: i32) -> bool {
-    let container = handle_table::lookup(id);
-    if container.is_null() {
+    let Some(container) = handle_table::get(id) else {
         return true;
-    }
-    find_slot(container as usize)
+    };
+    find_slot(container.addr())
         .map(|s| s.is_24hour)
         .unwrap_or(true)
 }
 
 pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
-    let raw_ptr = handle_table::lookup(id) as usize;
-    if raw_ptr == 0 {
-        return;
-    }
-    unsafe {
-        match HANDLE_MAP.upsert(raw_ptr, obj_ref) {
-            Upsert::Updated => {}
-            Upsert::Full => warn_full("time-picker"),
-            Upsert::Inserted => {
-                // Unregister on widget delete so a recycled lv_obj address
-                // can't alias a dead widget's listener entry.
-                lv_obj_add_event_cb(
-                    raw_ptr as *mut lv_obj_t,
-                    Some(map_delete_cb),
-                    LV_EVENT_DELETE,
-                    core::ptr::null_mut(),
-                );
-            }
-        }
-    }
+    super::compound::register_listener_with_delete_hook(
+        &STATE.handle_map,
+        id,
+        obj_ref,
+        map_delete_cb,
+        "time-picker",
+    );
 }
 
 pub fn drain_time_picker_queue() -> Option<usize> {
-    QUEUE.pop()
+    STATE.queue.pop()
 }
 
 pub fn lookup_time_picker_obj(handle: usize) -> Option<u16> {
-    HANDLE_MAP.lookup(handle)
+    STATE.handle_map.lookup(handle)
 }
 
 pub fn reset_time_picker_state() {
-    unsafe {
-        for slot in &mut SLOTS[..] {
-            *slot = EMPTY_SLOT;
-        }
-        for entry in &mut ROLLER_MAP[..] {
-            *entry = (0, 0);
-        }
-        HANDLE_MAP.reset();
-        QUEUE.clear();
+    for slot in &STATE.slots {
+        slot.set(EMPTY_SLOT);
     }
+    for entry in &STATE.roller_map {
+        entry.set((0, 0));
+    }
+    STATE.handle_map.reset();
+    STATE.queue.clear();
 }
 
 // ── Internals ───────────────────────────────────────────────────────────────
 
 fn register_picker(container: usize, hour: usize, minute: usize, am_pm: usize) {
-    unsafe {
-        match SLOTS[..].iter().position(|s| s.container == 0) {
-            Some(i) => {
-                SLOTS[i] = PickerSlot {
-                    container,
-                    hour,
-                    minute,
-                    am_pm,
-                    is_24hour: true,
-                    suppress: false,
-                };
-            }
-            // A picker with no slot is inert: set_time does nothing and the
-            // getters answer zero. Say so rather than hand back a widget that
-            // quietly ignores every call made on it.
-            None => warn_full("time-picker slots"),
-        }
-        for &r in &[hour, minute, am_pm] {
-            for entry in &mut ROLLER_MAP[..] {
-                if entry.0 == 0 {
-                    *entry = (r, container);
-                    break;
-                }
-            }
+    match STATE.slots.iter().find(|s| s.get().container == 0) {
+        Some(slot) => slot.set(PickerSlot {
+            container,
+            hour,
+            minute,
+            am_pm,
+            is_24hour: true,
+            suppress: false,
+        }),
+        // A picker with no slot is inert: set_time does nothing and the
+        // getters answer zero. Say so rather than hand back a widget that
+        // quietly ignores every call made on it.
+        None => warn_full("time-picker slots"),
+    }
+    for &r in &[hour, minute, am_pm] {
+        if let Some(entry) = STATE.roller_map.iter().find(|e| e.get().0 == 0) {
+            entry.set((r, container));
         }
     }
 }
 
 fn find_slot(container: usize) -> Option<PickerSlot> {
-    unsafe {
-        for slot in &SLOTS[..] {
-            if slot.container == container {
-                return Some(*slot);
-            }
+    for slot in &STATE.slots {
+        let slot = slot.get();
+        if slot.container == container {
+            return Some(slot);
         }
     }
     None
 }
 
 fn find_slot_idx(container: usize) -> Option<usize> {
-    unsafe { SLOTS[..].iter().position(|s| s.container == container) }
+    STATE
+        .slots
+        .iter()
+        .position(|s| s.get().container == container)
 }
 
 /// Read the current 24-hour value from the rollers (independent of mode).
 fn read_24hour(slot_idx: usize) -> i32 {
-    unsafe {
-        let slot = SLOTS[slot_idx];
-        let h_ptr = slot.hour as *mut lv_obj_t;
-        if h_ptr.is_null() {
-            return 0;
-        }
-        let h_idx = lv_roller_get_selected(h_ptr) as i32;
-        if slot.is_24hour {
-            h_idx
-        } else {
-            let am_pm_ptr = slot.am_pm as *mut lv_obj_t;
-            let pm = !am_pm_ptr.is_null() && lv_roller_get_selected(am_pm_ptr) == 1;
-            twelve_hour_to_24(h_idx, pm)
-        }
+    let [hour, _, am_pm] = rollers(slot_idx);
+    let Some(hour) = hour else {
+        return 0;
+    };
+    let h_idx = selected(hour) as i32;
+    if STATE.slots[slot_idx].get().is_24hour {
+        h_idx
+    } else {
+        let pm = am_pm.is_some_and(|r| selected(r) == 1);
+        twelve_hour_to_24(h_idx, pm)
     }
 }
 
@@ -491,28 +433,22 @@ fn read_24hour(slot_idx: usize) -> i32 {
 /// current display mode. Caller is responsible for setting/clearing the
 /// `suppress` flag if the call shouldn't fire `fireTimeChanged`.
 fn apply_hour_and_minute(slot_idx: usize, hour_24: i32, minute: u32) {
-    unsafe {
-        let slot = SLOTS[slot_idx];
-        let h_ptr = slot.hour as *mut lv_obj_t;
-        let m_ptr = slot.minute as *mut lv_obj_t;
-        let am_pm_ptr = slot.am_pm as *mut lv_obj_t;
-
-        if slot.is_24hour {
-            if !h_ptr.is_null() {
-                lv_roller_set_selected(h_ptr, hour_24 as u32, LV_ANIM_OFF);
-            }
-        } else {
-            let (idx, pm) = twentyfour_to_12(hour_24);
-            if !h_ptr.is_null() {
-                lv_roller_set_selected(h_ptr, idx, LV_ANIM_OFF);
-            }
-            if !am_pm_ptr.is_null() {
-                lv_roller_set_selected(am_pm_ptr, if pm { 1 } else { 0 }, LV_ANIM_OFF);
-            }
+    let [hour, minute_roller, am_pm] = rollers(slot_idx);
+    if STATE.slots[slot_idx].get().is_24hour {
+        if let Some(hour) = hour {
+            select(hour, hour_24 as u32);
         }
-        if !m_ptr.is_null() {
-            lv_roller_set_selected(m_ptr, minute, LV_ANIM_OFF);
+    } else {
+        let (idx, pm) = twentyfour_to_12(hour_24);
+        if let Some(hour) = hour {
+            select(hour, idx);
         }
+        if let Some(am_pm) = am_pm {
+            select(am_pm, if pm { 1 } else { 0 });
+        }
+    }
+    if let Some(m) = minute_roller {
+        select(m, minute);
     }
 }
 

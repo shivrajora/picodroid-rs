@@ -21,27 +21,32 @@ use crate::util::local_ring::LocalRing;
 // ── Click event queue (ring buffer) ─────────────────────────────────────────
 
 const CLICK_QUEUE_SIZE: usize = 16;
-// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
-static CLICK_QUEUE: Core0<LocalRing<usize, CLICK_QUEUE_SIZE>> =
-    unsafe { Core0::new(LocalRing::new(0)) };
+struct State {
+    click_queue: LocalRing<usize, CLICK_QUEUE_SIZE>,
+    view_click_map: PtrMap<MAX_CLICK_VIEWS>,
+    long_click_queue: LocalRing<usize, CLICK_QUEUE_SIZE>,
+    view_long_click_map: PtrMap<MAX_CLICK_VIEWS>,
+}
+
+// SAFETY: filled by LVGL's click callbacks and by natives, drained by the
+// framework loop, all on core-0 JVM tasks.
+static STATE: Core0<State> = unsafe {
+    Core0::new(State {
+        click_queue: LocalRing::new(0),
+        view_click_map: PtrMap::new(),
+        long_click_queue: LocalRing::new(0),
+        view_long_click_map: PtrMap::new(),
+    })
+};
 
 // ── Handle → Java object mapping (for click dispatch) ───────────────────────
 
 const MAX_CLICK_VIEWS: usize = 32;
-// SAFETY: a listener registry, reached only from JVM tasks.
-static VIEW_CLICK_MAP: Core0<PtrMap<MAX_CLICK_VIEWS>> = unsafe { Core0::new(PtrMap::new()) };
 
 // ── Long-click pathway (LV_EVENT_LONG_PRESSED) ──────────────────────────────
 //
 // Parallel to the click pathway above. A view with an OnLongClickListener
 // registers here; LVGL emits LV_EVENT_LONG_PRESSED ~400 ms into a press.
-
-// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
-static LONG_CLICK_QUEUE: Core0<LocalRing<usize, CLICK_QUEUE_SIZE>> =
-    unsafe { Core0::new(LocalRing::new(0)) };
-
-// SAFETY: a listener registry, reached only from JVM tasks.
-static VIEW_LONG_CLICK_MAP: Core0<PtrMap<MAX_CLICK_VIEWS>> = unsafe { Core0::new(PtrMap::new()) };
 
 // ── Minimum touch target (touch boards) ─────────────────────────────────────
 //
@@ -61,27 +66,15 @@ mod touch_target {
 
     /// Size `obj`'s extended click area now and again whenever its layout
     /// changes.
-    ///
-    /// # Safety
-    /// `obj` is a live LVGL object (the caller just looked it up in the
-    /// handle table).
-    pub(super) unsafe fn watch(obj: *mut lv_obj_t) {
-        // SAFETY: `obj` is live per the contract above; the callback reads
-        // only the object LVGL hands it.
-        unsafe {
-            lv_obj_add_event_cb(
-                obj,
-                Some(size_changed_cb),
-                LV_EVENT_SIZE_CHANGED,
-                core::ptr::null_mut(),
-            );
-            apply(obj);
-        }
+    pub(super) fn watch(obj: Obj) {
+        add_event_cb(obj, size_changed_cb, LV_EVENT_SIZE_CHANGED);
+        apply(obj);
     }
 
-    unsafe extern "C" fn size_changed_cb(e: *mut lv_event_t) {
-        // SAFETY: LVGL calls this with the event of a live object.
-        unsafe { apply(lv_event_get_target_obj(e)) }
+    lv_event_cb! {
+        fn size_changed_cb(e) {
+            apply(e.target());
+        }
     }
 
     /// Half the shortfall of the shorter edge against the target, on every
@@ -94,37 +87,40 @@ mod touch_target {
         ((TARGET_PX - short) / 2).clamp(0, TARGET_PX / 4)
     }
 
-    /// # Safety
-    /// `obj` is a live LVGL object.
-    unsafe fn apply(obj: *mut lv_obj_t) {
-        // SAFETY: `obj` is live per the contract above.
-        unsafe {
-            let grow = growth(lv_obj_get_width(obj), lv_obj_get_height(obj));
-            lv_obj_set_ext_click_area(obj, grow);
-        }
+    fn apply(obj: Obj) {
+        let grow = growth(lv_obj_get_width(obj), lv_obj_get_height(obj));
+        lv_obj_set_ext_click_area(obj, grow);
     }
 }
 
 // ── LVGL trampoline ─────────────────────────────────────────────────────────
 
-unsafe extern "C" fn view_click_cb(e: *mut lv_event_t) {
-    let obj = unsafe { lv_event_get_target_obj(e) };
-    CLICK_QUEUE.push(obj as usize);
+lv_event_cb! {
+    fn view_click_cb(e) {
+        let obj = e.target();
+        STATE.click_queue.push(obj.addr());
+    }
 }
 
-unsafe extern "C" fn view_long_click_cb(e: *mut lv_event_t) {
-    let obj = unsafe { lv_event_get_target_obj(e) };
-    LONG_CLICK_QUEUE.push(obj as usize);
+lv_event_cb! {
+    fn view_long_click_cb(e) {
+        let obj = e.target();
+        STATE.long_click_queue.push(obj.addr());
+    }
 }
 
-unsafe extern "C" fn click_map_delete_cb(e: *mut lv_event_t) {
-    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    VIEW_CLICK_MAP.remove(obj)
+lv_event_cb! {
+    fn click_map_delete_cb(e) {
+        let obj = e.target().addr();
+        STATE.view_click_map.remove(obj)
+    }
 }
 
-unsafe extern "C" fn long_click_map_delete_cb(e: *mut lv_event_t) {
-    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    VIEW_LONG_CLICK_MAP.remove(obj)
+lv_event_cb! {
+    fn long_click_map_delete_cb(e) {
+        let obj = e.target().addr();
+        STATE.view_long_click_map.remove(obj)
+    }
 }
 
 // ── LVGL ops (plain-Rust; called from widgets/*.rs Java shims) ──────────────
@@ -134,26 +130,23 @@ unsafe extern "C" fn long_click_map_delete_cb(e: *mut lv_event_t) {
 /// `LV_EVENT_CLICKED` trampoline is attached lazily by [`register_click_listener`]
 /// on the first `View.setOnClickListener` call.
 pub(in crate::graphics) fn create(text: &str) -> i32 {
-    let btn = unsafe { lv_button_create(lifecycle::screen_ptr()) };
-    let label = unsafe { lv_label_create(btn) };
-
-    unsafe {
-        super::text_view::with_cstr(text, |p| lv_label_set_text(label, p));
+    let Some(btn) = lifecycle::screen_ptr().and_then(|o| lv_button_create(o)) else {
+        return 0;
+    };
+    if let Some(label) = lv_label_create(btn) {
+        // SAFETY: `label` was just made by `lv_label_create`; the text is
+        // NUL-terminated and LVGL copies it.
+        super::text_view::with_cstr(text, |p| unsafe { lv_label_set_text(label, p.as_ptr()) });
         lv_obj_center(label);
     }
-
     handle_table::register(btn)
 }
 
 /// Synthetically fire `LV_EVENT_CLICKED` on the underlying widget.
 /// No-op if no click listener has been registered (no trampoline attached).
 pub(in crate::graphics) fn perform_click(id: i32) {
-    unsafe {
-        lv_obj_send_event(
-            handle_table::lookup(id),
-            LV_EVENT_CLICKED,
-            core::ptr::null_mut(),
-        );
+    if let Some(o) = handle_table::get(id) {
+        send_event(o, Notice::Clicked);
     }
 }
 
@@ -165,32 +158,21 @@ pub(in crate::graphics) fn perform_click(id: i32) {
 /// callbacks intact — a recycled address always takes the insert path
 /// because the old widget's delete callback removed its entry.
 pub(in crate::graphics) fn register_click_listener(id: i32, obj_ref: u16) -> bool {
-    let raw_ptr = handle_table::lookup(id) as usize;
-    unsafe {
-        match VIEW_CLICK_MAP.upsert(raw_ptr, obj_ref) {
-            Upsert::Updated => {}
-            Upsert::Full => {
-                warn_full("view-click");
-                return false;
-            }
-            Upsert::Inserted => {
-                let obj = raw_ptr as *mut lv_obj_t;
-                lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
-                #[cfg(has_touch)]
-                touch_target::watch(obj);
-                lv_obj_add_event_cb(
-                    obj,
-                    Some(view_click_cb),
-                    LV_EVENT_CLICKED,
-                    core::ptr::null_mut(),
-                );
-                lv_obj_add_event_cb(
-                    obj,
-                    Some(click_map_delete_cb),
-                    LV_EVENT_DELETE,
-                    core::ptr::null_mut(),
-                );
-            }
+    let Some(obj) = handle_table::get(id) else {
+        return true; // a released view: nothing to listen to, nothing full
+    };
+    match STATE.view_click_map.upsert(obj.addr(), obj_ref) {
+        Upsert::Updated => {}
+        Upsert::Full => {
+            warn_full("view-click");
+            return false;
+        }
+        Upsert::Inserted => {
+            lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+            #[cfg(has_touch)]
+            touch_target::watch(obj);
+            add_event_cb(obj, view_click_cb, LV_EVENT_CLICKED);
+            add_event_cb(obj, click_map_delete_cb, LV_EVENT_DELETE);
         }
     }
     true
@@ -200,27 +182,16 @@ pub(in crate::graphics) fn register_click_listener(id: i32, obj_ref: u16) -> boo
 /// `LV_EVENT_LONG_PRESSED` trampoline and flips CLICKABLE on first
 /// registration, mirroring [`register_click_listener`].
 pub(in crate::graphics) fn register_long_click_listener(id: i32, obj_ref: u16) {
-    let raw_ptr = handle_table::lookup(id) as usize;
-    unsafe {
-        match VIEW_LONG_CLICK_MAP.upsert(raw_ptr, obj_ref) {
-            Upsert::Updated => {}
-            Upsert::Full => warn_full("view-long-click"),
-            Upsert::Inserted => {
-                let obj = raw_ptr as *mut lv_obj_t;
-                lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
-                lv_obj_add_event_cb(
-                    obj,
-                    Some(view_long_click_cb),
-                    LV_EVENT_LONG_PRESSED,
-                    core::ptr::null_mut(),
-                );
-                lv_obj_add_event_cb(
-                    obj,
-                    Some(long_click_map_delete_cb),
-                    LV_EVENT_DELETE,
-                    core::ptr::null_mut(),
-                );
-            }
+    let Some(obj) = handle_table::get(id) else {
+        return;
+    };
+    match STATE.view_long_click_map.upsert(obj.addr(), obj_ref) {
+        Upsert::Updated => {}
+        Upsert::Full => warn_full("view-long-click"),
+        Upsert::Inserted => {
+            lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+            add_event_cb(obj, view_long_click_cb, LV_EVENT_LONG_PRESSED);
+            add_event_cb(obj, long_click_map_delete_cb, LV_EVENT_DELETE);
         }
     }
 }
@@ -229,46 +200,42 @@ pub(in crate::graphics) fn register_long_click_listener(id: i32, obj_ref: u16) {
 /// real-input counterpart of `View.performLongClick` is pure Java, but this
 /// drives the LVGL long-press path for scripted tests.
 pub(in crate::graphics) fn perform_long_press(id: i32) {
-    unsafe {
-        lv_obj_send_event(
-            handle_table::lookup(id),
-            LV_EVENT_LONG_PRESSED,
-            core::ptr::null_mut(),
-        );
+    if let Some(o) = handle_table::get(id) {
+        send_event(o, Notice::LongPressed);
     }
 }
 
 /// Drain one long-click event (raw `lv_obj_t*`) from the queue.
 pub fn drain_long_click_queue() -> Option<usize> {
-    LONG_CLICK_QUEUE.pop()
+    STATE.long_click_queue.pop()
 }
 
 /// Look up the Java `View` object index for a long-clickable widget's pointer.
 pub fn lookup_long_click_obj(handle: usize) -> Option<u16> {
-    VIEW_LONG_CLICK_MAP.lookup(handle)
+    STATE.view_long_click_map.lookup(handle)
 }
 
 /// GC roots for the long-click map — same unrooted-View hazard as
 /// [`visit_click_listener_roots`].
 pub fn visit_long_click_listener_roots(visit: &mut dyn FnMut(u16)) {
-    VIEW_LONG_CLICK_MAP.visit(visit)
+    STATE.view_long_click_map.visit(visit)
 }
 
 /// Drain one click event (raw `lv_obj_t*` value) from the queue.
 pub fn drain_click_queue() -> Option<usize> {
-    CLICK_QUEUE.pop()
+    STATE.click_queue.pop()
 }
 
 /// Look up the Java `View` object index for a clickable widget's raw LVGL pointer.
 pub fn lookup_button_obj(handle: usize) -> Option<u16> {
-    VIEW_CLICK_MAP.lookup(handle)
+    STATE.view_click_map.lookup(handle)
 }
 
 pub fn reset_button_state() {
-    VIEW_CLICK_MAP.reset();
-    CLICK_QUEUE.clear();
-    VIEW_LONG_CLICK_MAP.reset();
-    LONG_CLICK_QUEUE.clear();
+    STATE.view_click_map.reset();
+    STATE.click_queue.clear();
+    STATE.view_long_click_map.reset();
+    STATE.long_click_queue.clear();
 }
 
 /// Visit the Java `View` object ref of every view registered for an onClick
@@ -277,5 +244,5 @@ pub fn reset_button_state() {
 /// after which its click silently stops dispatching. See
 /// `events::visit_view_listener_roots`.
 pub fn visit_click_listener_roots(visit: &mut dyn FnMut(u16)) {
-    VIEW_CLICK_MAP.visit(visit)
+    STATE.view_click_map.visit(visit)
 }

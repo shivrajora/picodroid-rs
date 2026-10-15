@@ -15,6 +15,9 @@
 //! `pub(in crate::graphics)` visibility discipline, which cannot span
 //! crates and would otherwise have had to widen to `pub`.
 
+// Every `unsafe` block in the graphics layer says why it is sound.
+#![deny(clippy::undocumented_unsafe_blocks)]
+
 pub mod gfx;
 pub mod lvgl;
 

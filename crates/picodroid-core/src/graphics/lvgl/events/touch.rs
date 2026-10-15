@@ -27,13 +27,12 @@ use core::cell::Cell;
 // TextView and LinearLayout.
 
 pub(super) const MAX_TOUCH_LISTENERS: usize = 32;
-// SAFETY: a listener registry, reached only from JVM tasks.
-pub(super) static VIEW_TOUCH_MAP: Core0<PtrMap<MAX_TOUCH_LISTENERS>> =
-    unsafe { Core0::new(PtrMap::new()) };
 
-pub(super) unsafe extern "C" fn touch_map_delete_cb(e: *mut lv_event_t) {
-    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    VIEW_TOUCH_MAP.remove(obj)
+lv_event_cb! {
+    pub(super) fn touch_map_delete_cb(e) {
+        let obj = e.target().addr();
+        TOUCH.view_map.remove(obj)
+    }
 }
 
 /// Action codes — must match the constants on `picodroid.view.MotionEvent`.
@@ -72,23 +71,42 @@ pub(super) const EMPTY_TOUCH: TouchRecord = TouchRecord {
 // crossing 240 px at 60 Hz produces ~60 distinct positions even after
 // coalescing identical samples, and 32 became the obvious choke point.
 pub(super) const TOUCH_QUEUE_SIZE: usize = 64;
-// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
-pub(super) static TOUCH_QUEUE: Core0<LocalRing<TouchRecord, TOUCH_QUEUE_SIZE>> =
-    unsafe { Core0::new(LocalRing::new(EMPTY_TOUCH)) };
 
-// Producer-local "last MOVE we pushed" snapshot used to coalesce LVGL
-// PRESSING events that report the same coordinates as the previous
-// sample. LVGL fires PRESSING every indev refresh tick whether or not
-// the finger moved; without this filter a held finger floods the queue.
-// Single shared slot is correct under the v1 single-touch assumption
-// (matching every other touch path). i32::MIN sentinel ensures the
-// first PRESSING after each fresh press always pushes.
-// SAFETY: widget-layer state, reached only from JVM tasks.
-pub(super) static LAST_PRESSING_VIEW: Core0<Cell<usize>> = unsafe { Core0::new(Cell::new(0)) };
-// SAFETY: widget-layer state, reached only from JVM tasks.
-pub(super) static LAST_PRESSING_X: Core0<Cell<i32>> = unsafe { Core0::new(Cell::new(i32::MIN)) };
-// SAFETY: widget-layer state, reached only from JVM tasks.
-pub(super) static LAST_PRESSING_Y: Core0<Cell<i32>> = unsafe { Core0::new(Cell::new(i32::MIN)) };
+pub(super) const MAX_SUPPRESS: usize = 32;
+
+pub(super) struct Touch {
+    pub(super) view_map: PtrMap<MAX_TOUCH_LISTENERS>,
+    queue: LocalRing<TouchRecord, TOUCH_QUEUE_SIZE>,
+    // Producer-local "last MOVE we pushed" snapshot used to coalesce LVGL
+    // PRESSING events that report the same coordinates as the previous
+    // sample. LVGL fires PRESSING every indev refresh tick whether or not
+    // the finger moved; without this filter a held finger floods the queue.
+    // Single shared slot is correct under the v1 single-touch assumption
+    // (matching every other touch path). A view of 0 is the "nothing yet"
+    // sentinel: no record names a null view, so the first PRESSING after
+    // each fresh press always pushes. (All-zero, so the state sits in .bss.)
+    last_pressing_view: Cell<usize>,
+    last_pressing_x: Cell<i32>,
+    last_pressing_y: Cell<i32>,
+    /// The click-suppression flags (below).
+    click_suppress: LocalSet<usize, MAX_SUPPRESS>,
+    /// The pointer press hook (below).
+    pointer_press_hook: Cell<lv_event_cb_t>,
+}
+
+// SAFETY: filled by LVGL's touch callbacks, which run from the UI task's
+// timer handler, and read and drained by natives: all core-0 JVM tasks.
+pub(super) static TOUCH: Core0<Touch> = unsafe {
+    Core0::new(Touch {
+        view_map: PtrMap::new(),
+        queue: LocalRing::new(EMPTY_TOUCH),
+        last_pressing_view: Cell::new(0),
+        last_pressing_x: Cell::new(0),
+        last_pressing_y: Cell::new(0),
+        click_suppress: LocalSet::new(0),
+        pointer_press_hook: Cell::new(None),
+    })
+};
 
 /// Read the current monotonic ms from the LVGL tick clock. Used as the
 /// timestamp on each touch event; aligns with the same clock GestureDetector
@@ -98,20 +116,14 @@ pub(super) fn now_ms_for_touch() -> u64 {
 }
 
 pub(super) fn push_touch(record: TouchRecord) {
-    TOUCH_QUEUE.push(record);
+    TOUCH.queue.push(record);
 }
 
-pub(super) unsafe fn touch_event_record(e: *mut lv_event_t, action: i32) -> Option<TouchRecord> {
-    let target = unsafe { lv_event_get_target_obj(e) };
-    if target.is_null() {
-        return None;
-    }
-    let indev = unsafe { lv_event_get_indev(e) };
-    if indev.is_null() {
-        return None;
-    }
+pub(super) fn touch_event_record(e: &ObjEvent<'_>, action: i32) -> Option<TouchRecord> {
+    let target = e.target();
+    let indev = e.indev()?;
     let mut p = lv_point_t { x: 0, y: 0 };
-    unsafe { lv_indev_get_point(indev, &mut p as *mut lv_point_t) };
+    lv_indev_get_point(indev, &mut p);
     // Capture the target's screen-absolute origin so the dispatcher can make
     // getX/getY view-relative (Android) while keeping getRawX/getRawY screen.
     let mut coords = lv_area_t {
@@ -120,9 +132,9 @@ pub(super) unsafe fn touch_event_record(e: *mut lv_event_t, action: i32) -> Opti
         x2: 0,
         y2: 0,
     };
-    unsafe { lv_obj_get_coords(target, &mut coords as *mut lv_area_t) };
+    lv_obj_get_coords(target, &mut coords);
     Some(TouchRecord {
-        view_handle: target as usize,
+        view_handle: target.addr(),
         action,
         x: p.x,
         y: p.y,
@@ -133,43 +145,51 @@ pub(super) unsafe fn touch_event_record(e: *mut lv_event_t, action: i32) -> Opti
 }
 
 pub(super) fn reset_pressing_coalesce() {
-    LAST_PRESSING_VIEW.set(0);
-    LAST_PRESSING_X.set(i32::MIN);
-    LAST_PRESSING_Y.set(i32::MIN);
+    TOUCH.last_pressing_view.set(0);
+    TOUCH.last_pressing_x.set(0);
+    TOUCH.last_pressing_y.set(0);
 }
 
-pub(super) unsafe extern "C" fn touch_press_cb(e: *mut lv_event_t) {
-    reset_pressing_coalesce();
-    if let Some(rec) = unsafe { touch_event_record(e, ACTION_DOWN) } {
-        push_touch(rec);
-    }
-}
-
-pub(super) unsafe extern "C" fn touch_release_cb(e: *mut lv_event_t) {
-    reset_pressing_coalesce();
-    if let Some(rec) = unsafe { touch_event_record(e, ACTION_UP) } {
-        push_touch(rec);
-    }
-}
-
-pub(super) unsafe extern "C" fn touch_long_press_cb(e: *mut lv_event_t) {
-    if let Some(rec) = unsafe { touch_event_record(e, ACTION_LONG_PRESS) } {
-        push_touch(rec);
-    }
-}
-
-pub(super) unsafe extern "C" fn touch_pressing_cb(e: *mut lv_event_t) {
-    if let Some(rec) = unsafe { touch_event_record(e, ACTION_MOVE) } {
-        if LAST_PRESSING_VIEW.get() == rec.view_handle
-            && LAST_PRESSING_X.get() == rec.x
-            && LAST_PRESSING_Y.get() == rec.y
-        {
-            return;
+lv_event_cb! {
+    pub(super) fn touch_press_cb(e) {
+        reset_pressing_coalesce();
+        if let Some(rec) = touch_event_record(&e, ACTION_DOWN) {
+            push_touch(rec);
         }
-        LAST_PRESSING_VIEW.set(rec.view_handle);
-        LAST_PRESSING_X.set(rec.x);
-        LAST_PRESSING_Y.set(rec.y);
-        push_touch(rec);
+    }
+}
+
+lv_event_cb! {
+    pub(super) fn touch_release_cb(e) {
+        reset_pressing_coalesce();
+        if let Some(rec) = touch_event_record(&e, ACTION_UP) {
+            push_touch(rec);
+        }
+    }
+}
+
+lv_event_cb! {
+    pub(super) fn touch_long_press_cb(e) {
+        if let Some(rec) = touch_event_record(&e, ACTION_LONG_PRESS) {
+            push_touch(rec);
+        }
+    }
+}
+
+lv_event_cb! {
+    pub(super) fn touch_pressing_cb(e) {
+        if let Some(rec) = touch_event_record(&e, ACTION_MOVE) {
+            if TOUCH.last_pressing_view.get() == rec.view_handle
+                && TOUCH.last_pressing_x.get() == rec.x
+                && TOUCH.last_pressing_y.get() == rec.y
+            {
+                return;
+            }
+            TOUCH.last_pressing_view.set(rec.view_handle);
+            TOUCH.last_pressing_x.set(rec.x);
+            TOUCH.last_pressing_y.set(rec.y);
+            push_touch(rec);
+        }
     }
 }
 
@@ -179,14 +199,12 @@ pub(super) unsafe extern "C" fn touch_pressing_cb(e: *mut lv_event_t) {
 /// updates the obj_ref slot (no duplicate LVGL callbacks — LVGL tolerates
 /// duplicates but we'd waste slot table space).
 pub fn register_view_touch_listener(id: i32, obj_ref: u16) {
-    let raw_obj = super::super::handle_table::lookup(id);
-    if raw_obj.is_null() {
+    let Some(raw_obj) = super::super::handle_table::get(id) else {
         return;
-    }
-    let raw_ptr = raw_obj as usize;
+    };
 
-    unsafe {
-        match VIEW_TOUCH_MAP.upsert(raw_ptr, obj_ref) {
+    {
+        match TOUCH.view_map.upsert(raw_obj.addr(), obj_ref) {
             // Already registered with LVGL — the obj_ref was refreshed.
             Upsert::Updated => return,
             Upsert::Full => {
@@ -205,53 +223,28 @@ pub fn register_view_touch_listener(id: i32, obj_ref: u16) {
         // Register the four event callbacks. LVGL allows multiple
         // descriptors on the same (obj, code) pair so existing
         // click-handling on Buttons isn't disturbed.
-        lv_obj_add_event_cb(
-            raw_obj,
-            Some(touch_press_cb),
-            LV_EVENT_PRESSED,
-            core::ptr::null_mut(),
-        );
-        lv_obj_add_event_cb(
-            raw_obj,
-            Some(touch_release_cb),
-            LV_EVENT_RELEASED,
-            core::ptr::null_mut(),
-        );
-        lv_obj_add_event_cb(
-            raw_obj,
-            Some(touch_long_press_cb),
-            LV_EVENT_LONG_PRESSED,
-            core::ptr::null_mut(),
-        );
-        lv_obj_add_event_cb(
-            raw_obj,
-            Some(touch_pressing_cb),
-            LV_EVENT_PRESSING,
-            core::ptr::null_mut(),
-        );
-        lv_obj_add_event_cb(
-            raw_obj,
-            Some(touch_map_delete_cb),
-            LV_EVENT_DELETE,
-            core::ptr::null_mut(),
-        );
+        add_event_cb(raw_obj, touch_press_cb, LV_EVENT_PRESSED);
+        add_event_cb(raw_obj, touch_release_cb, LV_EVENT_RELEASED);
+        add_event_cb(raw_obj, touch_long_press_cb, LV_EVENT_LONG_PRESSED);
+        add_event_cb(raw_obj, touch_pressing_cb, LV_EVENT_PRESSING);
+        add_event_cb(raw_obj, touch_map_delete_cb, LV_EVENT_DELETE);
     }
 }
 
 /// Pop one touch event from the queue, if any.
 pub fn drain_touch_event() -> Option<TouchRecord> {
-    TOUCH_QUEUE.pop()
+    TOUCH.queue.pop()
 }
 
 /// Look up the Java `View` object reference for a registered LVGL widget.
 pub fn lookup_touch_view_obj(handle: usize) -> Option<u16> {
-    VIEW_TOUCH_MAP.lookup(handle)
+    TOUCH.view_map.lookup(handle)
 }
 
 pub fn reset_view_touch_listener_state() {
-    VIEW_TOUCH_MAP.reset();
-    TOUCH_QUEUE.clear();
-    CLICK_SUPPRESS.clear();
+    TOUCH.view_map.reset();
+    TOUCH.queue.clear();
+    TOUCH.click_suppress.clear();
     reset_pressing_coalesce();
 }
 
@@ -262,27 +255,22 @@ pub fn reset_view_touch_listener_state() {
 // Set when onTouch or onLongClick returns true; cleared on ACTION_DOWN (start
 // of a fresh gesture) and consumed (check-and-clear) by the click dispatcher.
 
-pub(super) const MAX_SUPPRESS: usize = 32;
-// SAFETY: a widget registry, reached only from JVM tasks.
-pub(super) static CLICK_SUPPRESS: Core0<LocalSet<usize, MAX_SUPPRESS>> =
-    unsafe { Core0::new(LocalSet::new(0)) };
-
 /// Mark `handle`'s next synthetic click as suppressed (onTouch / long-press
 /// consumed the gesture). A full registry drops the mark.
 pub fn set_click_suppressed(handle: usize) {
-    CLICK_SUPPRESS.insert(handle);
+    TOUCH.click_suppress.insert(handle);
 }
 
 /// Clear `handle`'s suppress flag — called on ACTION_DOWN to start each
 /// gesture clean.
 pub fn clear_click_suppressed(handle: usize) {
-    CLICK_SUPPRESS.remove(handle);
+    TOUCH.click_suppress.remove(handle);
 }
 
 /// Check-and-clear: returns whether the next click for `handle` should be
 /// suppressed, consuming the flag. Called by the click dispatcher.
 pub fn take_click_suppressed(handle: usize) -> bool {
-    CLICK_SUPPRESS.remove(handle)
+    TOUCH.click_suppress.remove(handle)
 }
 
 // ── Pointer press hook (single-slot, used by soft keyboard dismiss) ─────────
@@ -304,10 +292,6 @@ use crate::lvgl_ffi::{
     lv_event_cb_t, lv_indev_add_event_cb, lv_indev_remove_event_cb_with_user_data, LV_EVENT_PRESSED,
 };
 
-// SAFETY: widget-layer state, reached only from JVM tasks.
-pub(super) static POINTER_PRESS_HOOK: Core0<Cell<lv_event_cb_t>> =
-    unsafe { Core0::new(Cell::new(None)) };
-
 /// Attach `cb` to the pointer device as an `LV_EVENT_PRESSED` listener; the
 /// pressed object is the event's parameter. Idempotent — a second call
 /// detaches whatever was previously attached before re-attaching, so only
@@ -318,36 +302,33 @@ pub(super) static POINTER_PRESS_HOOK: Core0<Cell<lv_event_cb_t>> =
 /// lint correctly warns that fn-pointer equality isn't reliable across
 /// codegen units. Detach-then-re-attach is two cheap LVGL list
 /// operations and is unconditionally correct.
-pub fn attach_pointer_press_hook(cb: lv_event_cb_t) {
-    let indev = super::super::lifecycle::pointer_indev();
-    if indev.is_null() {
+///
+/// # Safety
+/// `cb` must be written for the input device's `LV_EVENT_PRESSED`: its
+/// event has no object target, and its parameter is the object pressed.
+/// An [`lv_event_cb!`] callback is not one.
+pub unsafe fn attach_pointer_press_hook(cb: lv_event_cb_t) {
+    let Some(indev) = super::super::lifecycle::pointer_indev() else {
         return;
+    };
+    if let Some(prev) = TOUCH.pointer_press_hook.get() {
+        lv_indev_remove_event_cb_with_user_data(indev, Some(prev), core::ptr::null_mut());
     }
-    // SAFETY: the pointer device is created in `lifecycle::init` and never
-    // deleted; a null `cb` is a valid "nothing" to LVGL's list.
-    unsafe {
-        if let Some(prev) = POINTER_PRESS_HOOK.get() {
-            lv_indev_remove_event_cb_with_user_data(indev, Some(prev), core::ptr::null_mut());
-        }
-        if cb.is_some() {
-            lv_indev_add_event_cb(indev, cb, LV_EVENT_PRESSED, core::ptr::null_mut());
-        }
-        POINTER_PRESS_HOOK.set(cb);
+    if cb.is_some() {
+        // SAFETY: the caller's contract; a null `user_data`.
+        unsafe { lv_indev_add_event_cb(indev, cb, LV_EVENT_PRESSED, core::ptr::null_mut()) };
     }
+    TOUCH.pointer_press_hook.set(cb);
 }
 
 /// Detach the pointer press hook, if one is attached. The device outlives
 /// every app and screen, so this is also what an app reload calls: a
 /// registration left behind would fire on the next app's presses.
 pub fn detach_pointer_press_hook() {
-    let indev = super::super::lifecycle::pointer_indev();
-    if let Some(prev) = POINTER_PRESS_HOOK.get() {
-        if !indev.is_null() {
-            // SAFETY: as in `attach_pointer_press_hook`.
-            unsafe {
-                lv_indev_remove_event_cb_with_user_data(indev, Some(prev), core::ptr::null_mut());
-            }
+    if let Some(prev) = TOUCH.pointer_press_hook.get() {
+        if let Some(indev) = super::super::lifecycle::pointer_indev() {
+            lv_indev_remove_event_cb_with_user_data(indev, Some(prev), core::ptr::null_mut());
         }
-        POINTER_PRESS_HOOK.set(None);
+        TOUCH.pointer_press_hook.set(None);
     }
 }

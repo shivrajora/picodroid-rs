@@ -23,7 +23,7 @@ use crate::graphics::gfx::Handle;
 use crate::hal;
 use crate::lvgl_ffi::*;
 use crate::util::local::Core0;
-use core::cell::Cell;
+use core::cell::{Cell, UnsafeCell};
 use core::ffi::c_void;
 
 use super::handle_table;
@@ -37,21 +37,52 @@ const BAND_BUF_SIZE: usize = hal::display::WIDTH as usize * BAND_HEIGHT * 2;
 /// the one static, so the second is `BAND_BUF_SIZE` past the first.
 const DRAW_BUFFERS: usize = hal::display::DRAW_BUFFERS;
 
-/// Wrapper to get a raw pointer without creating a mutable reference.
+/// The render bands, as memory LVGL owns: Rust only takes the address.
 /// Must be 4-byte aligned to satisfy LVGL's `LV_DRAW_BUF_ALIGN` requirement
 /// on all platforms (x86_64 defaults byte arrays to 1-byte alignment).
 #[repr(align(4))]
-#[allow(dead_code)] // field accessed only via raw pointer (LVGL flush callback)
-struct BandBuf([u8; BAND_BUF_SIZE * DRAW_BUFFERS]);
-static mut BAND_BUF: BandBuf = BandBuf([0u8; BAND_BUF_SIZE * DRAW_BUFFERS]);
+struct BandBuf(UnsafeCell<[u8; BAND_BUF_SIZE * DRAW_BUFFERS]>);
 
-// ── Screen handle cache ─────────────────────────────────────────────────────
+// SAFETY: no Rust code holds a reference into the bytes across a call into
+// LVGL. `init` hands their address to `lv_display_set_buffers`; from then on
+// LVGL renders into them on the UI task, and the only Rust read is
+// `flush_cb`'s view of the one band LVGL has just finished and passed it,
+// which LVGL does not touch again until `flush_wait_cb` has returned.
+unsafe impl Sync for BandBuf {}
 
-/// Handle table id of the active screen, set during `init`. The active
-/// screen pointer is stable across the program's lifetime in our usage
-/// (we never call `lv_screen_load`), so caching once is safe.
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static SCREEN_HANDLE: Core0<Cell<Handle>> = unsafe { Core0::new(Cell::new(Handle::NULL)) };
+static BAND_BUF: BandBuf = BandBuf(UnsafeCell::new([0u8; BAND_BUF_SIZE * DRAW_BUFFERS]));
+
+// ── Lifecycle state ─────────────────────────────────────────────────────────
+
+struct State {
+    /// Handle table id of the active screen, set during `init`. The active
+    /// screen pointer is stable across the program's lifetime in our usage
+    /// (we never call `lv_screen_load`), so caching once is safe.
+    screen: Cell<Handle>,
+    /// The handle `screen_handle` answers while a compat window is up, null
+    /// otherwise (the pinned screen handle then).
+    content: Cell<Handle>,
+    /// The pointer input device, kept so a wake can tell it to sit out the
+    /// press that woke the panel, and so the soft keyboard can listen for a
+    /// press anywhere on it. Created in `init`, never deleted; `None` before.
+    pointer_indev: Cell<Option<Indev>>,
+    /// The last sample handed to LVGL. When the sampler's ring is empty — an
+    /// unmoving finger, or no finger — LVGL still asks on every read and has
+    /// to be told the state it is already in, or a held press would look
+    /// like a lift.
+    last_delivered: Cell<Option<(u16, u16)>>,
+}
+
+// SAFETY: written by `init`, the wake path and the touch read callback, read
+// by widget natives: all on core-0 JVM tasks.
+static STATE: Core0<State> = unsafe {
+    Core0::new(State {
+        screen: Cell::new(Handle::NULL),
+        content: Cell::new(Handle::NULL),
+        pointer_indev: Cell::new(None),
+        last_delivered: Cell::new(None),
+    })
+};
 
 // ── Public lifecycle entry points (called from LvglGfx trait impl) ──────────
 
@@ -66,6 +97,9 @@ pub(in crate::graphics) fn init(width: u16, height: u16) {
     hal::touch_sampler::start();
     hal::display::set_backlight(true);
 
+    // SAFETY: `init` runs once (`LvglGfx::init`'s latch), on the UI task,
+    // before any other LVGL call; the PSRAM draw-buffer switch must come
+    // after `lv_init` and before the display exists, as here.
     unsafe {
         lv_init();
         // A pool in PSRAM holds what LVGL keeps between frames; the layers
@@ -73,16 +107,24 @@ pub(in crate::graphics) fn init(width: u16, height: u16) {
         // (lvgl/lv_draw_buf_sram.c).
         #[cfg(lv_mem_in_psram)]
         picodroid_lv_draw_buf_use_sram();
+    }
 
-        let disp = lv_display_create(width as i32, height as i32);
-        lv_display_set_flush_cb(disp, Some(flush_cb));
-        lv_display_set_flush_wait_cb(disp, Some(flush_wait_cb));
-        let buf1 = core::ptr::addr_of_mut!(BAND_BUF).cast::<u8>();
-        let buf2 = if DRAW_BUFFERS == 2 {
-            buf1.add(BAND_BUF_SIZE)
-        } else {
-            core::ptr::null_mut()
-        };
+    // SAFETY: `lv_init` has run.
+    let Some(disp) = (unsafe { lv_display_create(width as i32, height as i32) }) else {
+        return;
+    };
+    lv_display_set_flush_cb(disp, Some(flush_cb));
+    lv_display_set_flush_wait_cb(disp, Some(flush_wait_cb));
+    let buf1 = BAND_BUF.0.get().cast::<u8>();
+    let buf2 = if DRAW_BUFFERS == 2 {
+        buf1.wrapping_add(BAND_BUF_SIZE)
+    } else {
+        core::ptr::null_mut()
+    };
+    // SAFETY: `BAND_BUF` holds `DRAW_BUFFERS` bands of `BAND_BUF_SIZE` bytes
+    // back to back, 4-byte aligned, static, and written by nothing but LVGL
+    // (see `BandBuf`); `buf2` is the second band or null.
+    unsafe {
         lv_display_set_buffers(
             disp,
             buf1 as *mut c_void,
@@ -90,25 +132,30 @@ pub(in crate::graphics) fn init(width: u16, height: u16) {
             BAND_BUF_SIZE as u32,
             LV_DISPLAY_RENDER_MODE_PARTIAL,
         );
-        // A panel that can scroll its own frame memory: hook the display's
-        // invalidation and refresh events so a scroll step renders only the
-        // rows it exposed (hw_scroll.rs).
-        #[cfg(hw_vscroll)]
-        super::hw_scroll::install(disp);
+    }
+    // A panel that can scroll its own frame memory: hook the display's
+    // invalidation and refresh events so a scroll step renders only the
+    // rows it exposed (hw_scroll.rs).
+    #[cfg(hw_vscroll)]
+    super::hw_scroll::install(disp);
 
-        let indev = lv_indev_create();
+    // SAFETY: `lv_init` has run.
+    if let Some(indev) = unsafe { lv_indev_create() } {
         lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
         lv_indev_set_read_cb(indev, Some(touch_read_cb));
         lv_indev_set_scroll_limit(indev, hal::display::SCROLL_LIMIT);
-        POINTER_INDEV.set(indev);
+        STATE.pointer_indev.set(Some(indev));
+    }
 
-        // Cache a Handle for the screen so `LvglGfx::screen()` can return
-        // a backend-neutral type. The screen pointer is stable post-init.
-        // Pinned: the screen is never deleted, must survive the between-app
-        // handle_table::reset() (PDB reload), and must not accumulate
-        // LV_EVENT_DELETE hooks — register_pinned covers all three.
-        let scr = lv_screen_active();
-        SCREEN_HANDLE.set(Handle::from_java(handle_table::register_pinned(scr)));
+    // Cache a Handle for the screen so `LvglGfx::screen()` can return
+    // a backend-neutral type. The screen pointer is stable post-init.
+    // Pinned: the screen is never deleted, must survive the between-app
+    // handle_table::reset() (PDB reload), and must not accumulate
+    // LV_EVENT_DELETE hooks — register_pinned covers all three.
+    if let Some(scr) = lv_screen_active() {
+        STATE
+            .screen
+            .set(Handle::from_java(handle_table::register_pinned(scr)));
     }
     // The app may have declared a design size before the display existed
     // (`run_app` runs first on a cold boot): the window takes effect now.
@@ -120,10 +167,15 @@ pub(in crate::graphics) fn init(width: u16, height: u16) {
 }
 
 pub(in crate::graphics) fn tick(ms: u32) {
-    unsafe {
-        lv_tick_inc(ms);
-        lv_timer_handler();
-    }
+    lv_tick_inc(ms);
+    // SAFETY: LVGL is initialised (`tick` runs only through the graphics
+    // backend after `init`). The timers delete no object: picodroid makes
+    // no object LVGL deletes by itself (no `lv_obj_delete_async`, no
+    // auto-deleting screen load or message box), and the callbacks they
+    // fire delete only through `view_ops::delete_obj`'s callers, which
+    // never run from a callback. An `Obj` a caller holds across this call
+    // (calibration's labels) stays valid.
+    unsafe { lv_timer_handler() };
     // A draw buffer the arena could not serve went to the PSRAM pool and
     // was rendered through the QSPI bus: say so once, so an unexplained
     // slow frame has a line in the log rather than a mystery.
@@ -131,7 +183,7 @@ pub(in crate::graphics) fn tick(ms: u32) {
     {
         use core::sync::atomic::{AtomicBool, Ordering};
         static WARNED: AtomicBool = AtomicBool::new(false);
-        let n = unsafe { picodroid_lv_draw_buf_pool_fallbacks() };
+        let n = picodroid_lv_draw_buf_pool_fallbacks();
         if n > 0 && !WARNED.swap(true, Ordering::Relaxed) {
             defmt::warn!(
                 "lvgl: {=u32} draw buffer(s) fell back to the PSRAM pool (arena full)",
@@ -141,16 +193,9 @@ pub(in crate::graphics) fn tick(ms: u32) {
     }
 }
 
-/// The pointer input device, kept so a wake can tell it to sit out the
-/// press that woke the panel, and so the soft keyboard can listen for a
-/// press anywhere on it.
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static POINTER_INDEV: Core0<Cell<*mut lv_indev_t>> =
-    unsafe { Core0::new(Cell::new(core::ptr::null_mut())) };
-
-/// The pointer input device: created in `init`, never deleted; null before.
-pub(in crate::graphics) fn pointer_indev() -> *mut lv_indev_t {
-    POINTER_INDEV.get()
+/// The pointer input device: created in `init`, never deleted; `None` before.
+pub(in crate::graphics) fn pointer_indev() -> Option<Indev> {
+    STATE.pointer_indev.get()
 }
 
 pub(in crate::graphics) fn sleep() {
@@ -164,11 +209,9 @@ fn swallow_wake_input() {
     while hal::gpio::drain_gpio_event().is_some() {}
     crate::input_inject::reset_soft_keys();
     while hal::touch_sampler::next().is_some() {}
-    LAST_DELIVERED.set(None);
-    let indev = POINTER_INDEV.get();
-    if !indev.is_null() {
-        // SAFETY: the pointer indev is created in `init` and never deleted.
-        unsafe { lv_indev_wait_release(indev) };
+    STATE.last_delivered.set(None);
+    if let Some(indev) = STATE.pointer_indev.get() {
+        lv_indev_wait_release(indev);
     }
 }
 
@@ -180,20 +223,17 @@ pub(in crate::graphics) fn wake() {
     // to its registers.
     #[cfg(hw_vscroll)]
     super::hw_scroll::panel_reset();
-    unsafe {
-        let scr = lv_screen_active();
-        if !scr.is_null() {
-            lv_obj_invalidate(scr);
-        }
+    if let Some(scr) = lv_screen_active() {
+        lv_obj_invalidate(scr);
     }
 }
 
 /// Where content roots go: the screen, or the compat window's object while
 /// an app with a design size runs (`window.rs`).
 pub(in crate::graphics) fn screen_handle() -> Handle {
-    let content = CONTENT_HANDLE.get();
+    let content = STATE.content.get();
     if content.is_null() {
-        SCREEN_HANDLE.get()
+        STATE.screen.get()
     } else {
         content
     }
@@ -202,22 +242,18 @@ pub(in crate::graphics) fn screen_handle() -> Handle {
 /// The compat window's object (registered for the Java side) as the content
 /// parent, or the screen again when `pinned` is false and `obj` is the
 /// screen. Called by `window::sync` only.
-pub(super) fn set_content_parent(obj: *mut lv_obj_t, windowed: bool) {
-    CONTENT_HANDLE.set(if windowed {
+pub(super) fn set_content_parent(obj: Obj, windowed: bool) {
+    STATE.content.set(if windowed {
         Handle::from_java(handle_table::register(obj))
     } else {
         Handle::NULL
     });
 }
 
-/// The handle `screen_handle` answers while a compat window is up, null
-/// otherwise (the pinned screen handle then).
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static CONTENT_HANDLE: Core0<Cell<Handle>> = unsafe { Core0::new(Cell::new(Handle::NULL)) };
-
-/// Raw pointer every widget is created under before `addView` re-parents
-/// it: the screen, or the compat window's object (`window.rs`).
-pub(in crate::graphics) fn screen_ptr() -> *mut lv_obj_t {
+/// The object every widget is created under before `addView` re-parents
+/// it: the screen, or the compat window's object (`window.rs`). `None`
+/// before a display exists.
+pub(in crate::graphics) fn screen_ptr() -> Option<Obj> {
     super::window::content_root()
 }
 
@@ -226,10 +262,8 @@ pub(in crate::graphics) fn screen_ptr() -> *mut lv_obj_t {
 /// larger than the window (docs/designs/app-portability-2026-10.md D6); a
 /// toast, snackbar, dialog or the soft keyboard must not pan with it, and must
 /// outlive a `setContentView` that replaces the root.
-pub(in crate::graphics) fn overlay_layer() -> *mut lv_obj_t {
-    // SAFETY: LVGL is initialised before any widget code runs; the top layer
-    // is created with the display and lives as long as it does.
-    unsafe { lv_layer_top() }
+pub(in crate::graphics) fn overlay_layer() -> Option<Obj> {
+    lv_layer_top()
 }
 
 /// The window an app and the overlays are laid out in: the display's logical
@@ -237,15 +271,12 @@ pub(in crate::graphics) fn overlay_layer() -> *mut lv_obj_t {
 /// size, which is why overlays size themselves from here and not from the
 /// `hal::display` panel constants.
 pub(in crate::graphics) fn window_size() -> (i32, i32) {
-    // SAFETY: the default display exists from `init` on and is never deleted;
-    // the getters only read it.
-    unsafe {
-        let disp = lv_display_get_default();
+    lv_display_get_default().map_or((0, 0), |disp| {
         (
             lv_display_get_horizontal_resolution(disp),
             lv_display_get_vertical_resolution(disp),
         )
-    }
+    })
 }
 
 // ── Display flush callback ──────────────────────────────────────────────────
@@ -285,6 +316,8 @@ fn crc32(data: &[u8]) -> u32 {
 /// # Safety
 /// Called from LVGL's internal rendering pipeline.
 unsafe extern "C" fn flush_cb(_disp: *mut lv_display_t, area: *const lv_area_t, px_map: *mut u8) {
+    // SAFETY: LVGL passes the area of the band it has just rendered, valid
+    // for the call.
     let area = unsafe { &*area };
     let x1 = area.x1 as u16;
     let y1 = area.y1 as u16;
@@ -297,6 +330,10 @@ unsafe extern "C" fn flush_cb(_disp: *mut lv_display_t, area: *const lv_area_t, 
     let w = (x2 - x1 + 1) as usize;
     let h = (y2 - y1 + 1) as usize;
     let byte_count = w * h * 2; // RGB565 = 2 bytes per pixel
+
+    // SAFETY: `px_map` is the band LVGL rendered for `area`: `w * h` RGB565
+    // pixels, inside `BAND_BUF`, which LVGL does not write again until
+    // `flush_wait_cb` has returned.
     let data = unsafe { core::slice::from_raw_parts(px_map, byte_count) };
 
     #[cfg(feature = "parity-metrics")]
@@ -345,12 +382,6 @@ unsafe extern "C" fn flush_wait_cb(_disp: *mut lv_display_t) {
 
 // ── Touch read callback ─────────────────────────────────────────────────────
 
-/// The last sample handed to LVGL. When the sampler's ring is empty — an
-/// unmoving finger, or no finger — LVGL still asks on every read and has to be
-/// told the state it is already in, or a held press would look like a lift.
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static LAST_DELIVERED: Core0<Cell<Option<(u16, u16)>>> = unsafe { Core0::new(Cell::new(None)) };
-
 /// LVGL input device read callback — called by LVGL to poll touch state.
 ///
 /// Where [`hal::touch_sampler`] owns the panel this drains its ring, one
@@ -364,18 +395,19 @@ static LAST_DELIVERED: Core0<Cell<Option<(u16, u16)>>> = unsafe { Core0::new(Cel
 /// # Safety
 /// Called from LVGL's internal input processing pipeline.
 unsafe extern "C" fn touch_read_cb(_indev: *mut lv_indev_t, data: *mut lv_indev_data_t) {
+    // SAFETY: LVGL passes its own read record, valid and unaliased for the
+    // call.
     let data = unsafe { &mut *data };
 
     let (sample, more) = if hal::touch_sampler::running() {
         match hal::touch_sampler::next() {
             Some(s) => (s, hal::touch_sampler::pending()),
-            // SAFETY: single-threaded LVGL callback; only this fn touches it.
-            None => (LAST_DELIVERED.get(), false),
+            None => (STATE.last_delivered.get(), false),
         }
     } else {
         (hal::touch_sampler::sample_panel(), false)
     };
-    LAST_DELIVERED.set(sample);
+    STATE.last_delivered.set(sample);
 
     match sample {
         Some((x, y)) => {

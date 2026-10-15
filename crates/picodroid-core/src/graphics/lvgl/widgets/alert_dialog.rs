@@ -19,6 +19,7 @@
 use crate::lvgl_ffi::*;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
+use core::cell::Cell;
 use core::ffi::c_char;
 
 use super::super::handle_table;
@@ -61,10 +62,6 @@ const EMPTY_CLICK: ClickRecord = ClickRecord {
     which: 0,
 };
 
-// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
-static CLICK_QUEUE: Core0<LocalRing<ClickRecord, CLICK_QUEUE_SIZE>> =
-    unsafe { Core0::new(LocalRing::new(EMPTY_CLICK)) };
-
 // ── Item-click event queue (list dialogs) ───────────────────────────────────
 
 #[derive(Copy, Clone)]
@@ -82,10 +79,6 @@ const EMPTY_ITEM: ItemRecord = ItemRecord {
     checked: false,
 };
 
-// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
-static ITEM_QUEUE: Core0<LocalRing<ItemRecord, CLICK_QUEUE_SIZE>> =
-    unsafe { Core0::new(LocalRing::new(EMPTY_ITEM)) };
-
 // ── List storage (owned button-matrix maps) ─────────────────────────────────
 //
 // LVGL's `lv_buttonmatrix_set_map` stores the `*const *const c_char` pointer
@@ -99,37 +92,29 @@ const MAP_TERMINATOR: &[u8] = b"\0";
 
 const MAX_LIST_DIALOGS: usize = 4;
 
+#[derive(Copy, Clone)]
 struct ListSlot {
     dialog_handle: usize,
     /// The matrix object — its mode controls how clicks are interpreted.
     matrix: usize,
     mode: i32,
-    /// Owned NUL-terminated item strings; addresses must stay stable while
-    /// the matrix lives, so each is its own boxed slice.
-    items: Vec<Box<[u8]>>,
-    /// The map array LVGL points at: item ptr, "\n", item ptr, …, "". Boxed
-    /// so its address is stable across the Vec's own moves.
-    map: Vec<*const c_char>,
 }
 
 const EMPTY_LIST_SLOT: ListSlot = ListSlot {
     dialog_handle: 0,
     matrix: 0,
     mode: LIST_MODE_ITEMS,
-    items: Vec::new(),
-    map: Vec::new(),
 };
 
-static mut LIST_SLOTS: [ListSlot; MAX_LIST_DIALOGS] = [
-    EMPTY_LIST_SLOT,
-    EMPTY_LIST_SLOT,
-    EMPTY_LIST_SLOT,
-    EMPTY_LIST_SLOT,
-];
-
-/// Map of `(matrix ptr → dialog scrim ptr)` so the VALUE_CHANGED trampoline
-/// can find the owning dialog (and its list slot) from the fired matrix.
-static mut MATRIX_MAP: [(usize, usize); MAX_LIST_DIALOGS] = [(0, 0); MAX_LIST_DIALOGS];
+/// What a list slot's matrix points into, kept alive with the slot.
+struct ListStorage {
+    /// Owned NUL-terminated item strings; addresses must stay stable while
+    /// the matrix lives, so each is its own boxed slice.
+    items: Vec<Box<[u8]>>,
+    /// The map array LVGL points at: item ptr, "\n", item ptr, …, "". Its
+    /// heap buffer stays put however the `Vec` itself moves.
+    _map: Vec<*const c_char>,
+}
 
 // ── Button → dialog mapping (each LVGL button knows its parent dialog) ──────
 //
@@ -153,21 +138,19 @@ const EMPTY_BUTTON: ButtonEntry = ButtonEntry {
     which: 0,
 };
 
-static mut BUTTON_MAP: [ButtonEntry; MAX_BUTTONS] = [EMPTY_BUTTON; MAX_BUTTONS];
-
 // ── Dialog → Java object mapping (for click dispatch) ───────────────────────
 
 const MAX_DIALOGS: usize = 8;
-// SAFETY: a listener registry, reached only from JVM tasks.
-static DIALOG_OBJ_MAP: Core0<PtrMap<MAX_DIALOGS>> = unsafe { Core0::new(PtrMap::new()) };
 
-/// Belt-and-braces unregistration for any path that deletes the scrim without
-/// going through [`dismiss`] (which already calls `unregister_dialog`).
-/// Attached to every scrim at create; double removal is a no-op.
-unsafe extern "C" fn scrim_delete_cb(e: *mut lv_event_t) {
-    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    unregister_dialog(obj);
-    unregister_list(obj);
+lv_event_cb! {
+    /// Belt-and-braces unregistration for any path that deletes the scrim without
+    /// going through [`dismiss`] (which already calls `unregister_dialog`).
+    /// Attached to every scrim at create; double removal is a no-op.
+    fn scrim_delete_cb(e) {
+        let obj = e.target().addr();
+        unregister_dialog(obj);
+        unregister_list(obj);
+    }
 }
 
 // ── Shown-dialog stack ──────────────────────────────────────────────────────
@@ -179,8 +162,54 @@ unsafe extern "C" fn scrim_delete_cb(e: *mut lv_event_t) {
 // Activity and leak onto the one beneath as an input-absorbing modal.
 
 const MAX_SHOWN: usize = 8;
-static mut SHOWN: [i32; MAX_SHOWN] = [0; MAX_SHOWN];
-static mut SHOWN_LEN: usize = 0;
+
+struct State {
+    click_queue: LocalRing<ClickRecord, CLICK_QUEUE_SIZE>,
+    item_queue: LocalRing<ItemRecord, CLICK_QUEUE_SIZE>,
+    list_slots: [Cell<ListSlot>; MAX_LIST_DIALOGS],
+    /// Map of `(matrix ptr → dialog scrim ptr)` so the VALUE_CHANGED
+    /// trampoline can find the owning dialog (and its list slot) from the
+    /// fired matrix.
+    matrix_map: [Cell<(usize, usize)>; MAX_LIST_DIALOGS],
+    button_map: [Cell<ButtonEntry>; MAX_BUTTONS],
+    dialog_obj_map: PtrMap<MAX_DIALOGS>,
+    /// The shown-dialog stack: `shown[..shown_len]`, oldest first.
+    shown: [Cell<i32>; MAX_SHOWN],
+    shown_len: Cell<usize>,
+    /// Dialogs the framework dismissed, for Java (see below).
+    dismiss_queue: LocalRing<u16, MAX_SHOWN>,
+}
+
+// SAFETY: built and dismissed by natives, filled by LVGL's click callbacks,
+// drained by the framework loop, all on core-0 JVM tasks.
+static STATE: Core0<State> = unsafe {
+    Core0::new(State {
+        click_queue: LocalRing::new(EMPTY_CLICK),
+        item_queue: LocalRing::new(EMPTY_ITEM),
+        list_slots: [const { Cell::new(EMPTY_LIST_SLOT) }; MAX_LIST_DIALOGS],
+        matrix_map: [const { Cell::new((0, 0)) }; MAX_LIST_DIALOGS],
+        button_map: [const { Cell::new(EMPTY_BUTTON) }; MAX_BUTTONS],
+        dialog_obj_map: PtrMap::new(),
+        shown: [const { Cell::new(0) }; MAX_SHOWN],
+        shown_len: Cell::new(0),
+        dismiss_queue: LocalRing::new(0),
+    })
+};
+
+/// `STATE.list_slots[i]`'s strings and map, `None` while the slot is free.
+/// A static of its own: an empty `Vec` is not all-zero bytes, and kept apart
+/// it leaves the rest of the dialog state in .bss.
+// SAFETY: written by the list-dialog natives and the scrim's delete
+// callback, all on core-0 JVM tasks.
+static LIST_STORAGE: Core0<[Cell<Option<ListStorage>>; MAX_LIST_DIALOGS]> =
+    unsafe { Core0::new([const { Cell::new(None) }; MAX_LIST_DIALOGS]) };
+
+/// Free list slot `i`'s strings and map. Not inlined: the drop is the bulk
+/// of it, and the callers loop over the slots.
+#[inline(never)]
+fn free_list_storage(i: usize) {
+    LIST_STORAGE[i].set(None);
+}
 
 /// Track `id` as the topmost shown dialog. Returns the oldest dialog's id
 /// when the table was full — the caller must dismiss it. An untracked
@@ -188,51 +217,43 @@ static mut SHOWN_LEN: usize = 0;
 /// reach tracked ids, so a dropped entry left an input-absorbing scrim
 /// alive across Activities (the AlertDialog-leak symptom past the cap).
 fn shown_push(id: i32) -> Option<i32> {
-    unsafe {
-        shown_remove(id); // de-dup so re-show moves it to the top
-        let evicted = if SHOWN_LEN == MAX_SHOWN {
-            let oldest = SHOWN[0];
-            shown_remove(oldest);
-            Some(oldest)
-        } else {
-            None
-        };
-        SHOWN[SHOWN_LEN] = id;
-        SHOWN_LEN += 1;
-        evicted
-    }
+    shown_remove(id); // de-dup so re-show moves it to the top
+    let evicted = if STATE.shown_len.get() == MAX_SHOWN {
+        let oldest = STATE.shown[0].get();
+        shown_remove(oldest);
+        Some(oldest)
+    } else {
+        None
+    };
+    let len = STATE.shown_len.get();
+    STATE.shown[len].set(id);
+    STATE.shown_len.set(len + 1);
+    evicted
 }
 
+#[inline(never)]
 fn shown_remove(id: i32) {
-    unsafe {
-        // `&mut SHOWN[..]` (indexed slice) rather than letting a method autoref
-        // the whole static — the latter trips `static_mut_refs`; this matches
-        // the `&mut BUTTON_MAP[..]` idiom used elsewhere in this file.
-        let len = SHOWN_LEN;
-        let s = &mut SHOWN[..];
-        if let Some(pos) = s[..len].iter().position(|&x| x == id) {
-            s.copy_within(pos + 1..len, pos); // left-shift over the hole
-            s[len - 1] = 0;
-            SHOWN_LEN = len - 1;
+    let len = STATE.shown_len.get();
+    let s = &STATE.shown[..len];
+    if let Some(pos) = s.iter().position(|x| x.get() == id) {
+        for pair in s[pos..].windows(2) {
+            pair[0].set(pair[1].get()); // left-shift over the hole
         }
+        s[len - 1].set(0);
+        STATE.shown_len.set(len - 1);
     }
 }
 
 /// True if any dialog is currently on screen.
 pub fn has_shown_dialog() -> bool {
-    unsafe { SHOWN_LEN > 0 }
+    STATE.shown_len.get() > 0
 }
 
 /// The Java handle id of the most-recently-shown dialog, if any is showing.
 fn topmost_shown_id() -> Option<i32> {
-    // SAFETY: a read of the shown stack, on the JVM task that pushes and
-    // pops it.
-    unsafe {
-        if SHOWN_LEN == 0 {
-            None
-        } else {
-            Some(SHOWN[SHOWN_LEN - 1])
-        }
+    match STATE.shown_len.get() {
+        0 => None,
+        len => Some(STATE.shown[len - 1].get()),
     }
 }
 
@@ -256,8 +277,6 @@ pub fn dismiss_topmost_dialog() -> bool {
 // from that; it used to stay "showing" and the next MENU closed it again
 // (QA round 2, R1). The object refs wait here until the drain and are GC
 // roots meanwhile: the map entry that rooted them went with the scrim.
-// SAFETY: filled and drained on JVM tasks.
-static DISMISS_QUEUE: Core0<LocalRing<u16, MAX_SHOWN>> = unsafe { Core0::new(LocalRing::new(0)) };
 
 /// BACK: dismiss the most-recently-shown dialog and queue its Java object
 /// for `fireDismiss`. Returns `true` if one was dismissed, `false` if none
@@ -267,13 +286,15 @@ pub fn cancel_topmost_dialog() -> bool {
         return false;
     };
     let obj_ref = if handle_table::is_live(id) {
-        DIALOG_OBJ_MAP.lookup(handle_table::lookup(id) as usize)
+        STATE
+            .dialog_obj_map
+            .lookup(handle_table::get(id).map_or(0, Obj::addr))
     } else {
         None
     };
     dismiss(id); // also pops it from SHOWN
     if let Some(obj_ref) = obj_ref {
-        if !DISMISS_QUEUE.push(obj_ref) {
+        if !STATE.dismiss_queue.push(obj_ref) {
             crate::pd_warn!("AlertDialog: dismiss queue full, a listener is skipped");
         }
     }
@@ -283,62 +304,60 @@ pub fn cancel_topmost_dialog() -> bool {
 /// Drain one framework-dismissed dialog: the Java object to call
 /// `fireDismiss` on.
 pub fn drain_dismiss_queue() -> Option<u16> {
-    DISMISS_QUEUE.pop()
+    STATE.dismiss_queue.pop()
 }
 
 // ── LVGL trampoline ─────────────────────────────────────────────────────────
 
-unsafe extern "C" fn dialog_button_click_cb(e: *mut lv_event_t) {
-    let btn = unsafe { lv_event_get_target_obj(e) } as usize;
-    unsafe {
+lv_event_cb! {
+    fn dialog_button_click_cb(e) {
+        let btn = e.target().addr();
         // Look up which dialog this button belongs to.
-        let mut found: Option<(usize, i32)> = None;
-        for entry in &BUTTON_MAP[..] {
-            if entry.button_handle == btn {
-                found = Some((entry.dialog_handle, entry.which));
-                break;
-            }
-        }
-        let (dialog_handle, which) = match found {
-            Some(x) => x,
-            None => return,
+        let Some(entry) = STATE
+            .button_map
+            .iter()
+            .map(Cell::get)
+            .find(|entry| entry.button_handle == btn)
+        else {
+            return;
         };
-
-        CLICK_QUEUE.push(ClickRecord {
-            dialog_handle,
-            which,
+        STATE.click_queue.push(ClickRecord {
+            dialog_handle: entry.dialog_handle,
+            which: entry.which,
         });
     }
 }
 
-/// VALUE_CHANGED trampoline for a list dialog's button-matrix. Enqueues the
-/// selected row index plus (for choice lists) its post-click checked state.
-unsafe extern "C" fn dialog_item_click_cb(e: *mut lv_event_t) {
-    let matrix = unsafe { lv_event_get_target_obj(e) } as usize;
-    unsafe {
-        let mut dialog_handle = 0usize;
-        for &(m, d) in &MATRIX_MAP[..] {
-            if m == matrix {
-                dialog_handle = d;
-                break;
-            }
-        }
+lv_event_cb! {
+    /// VALUE_CHANGED trampoline for a list dialog's button-matrix. Enqueues
+    /// the selected row index plus (for choice lists) its post-click checked
+    /// state.
+    fn dialog_item_click_cb(e) {
+        // The matrix this callback is on (`create_with_list` registered it
+        // there).
+        let matrix = e.current_target();
+        let dialog_handle = STATE
+            .matrix_map
+            .iter()
+            .map(Cell::get)
+            .find(|&(m, _)| m == matrix.addr())
+            .map_or(0, |(_, d)| d);
         if dialog_handle == 0 {
             return;
         }
-        let sel = lv_buttonmatrix_get_selected_button(matrix as *const lv_obj_t);
+        // SAFETY: `matrix` is in `matrix_map`, so `create_with_list` made it
+        // with `lv_buttonmatrix_create`.
+        let sel = unsafe { lv_buttonmatrix_get_selected_button(matrix) };
         if sel == LV_BUTTONMATRIX_BUTTON_NONE {
             return;
         }
         // For checkable (choice) lists, report the row's post-click checked
         // state; for plain item lists every click is a select (true).
-        let checked = lv_buttonmatrix_has_button_ctrl(
-            matrix as *mut lv_obj_t,
-            sel,
-            LV_BUTTONMATRIX_CTRL_CHECKED,
-        );
+        // SAFETY: as above.
+        let checked =
+            unsafe { lv_buttonmatrix_has_button_ctrl(matrix, sel, LV_BUTTONMATRIX_CTRL_CHECKED) };
 
-        ITEM_QUEUE.push(ItemRecord {
+        STATE.item_queue.push(ItemRecord {
             dialog_handle,
             position: sel as i32,
             checked,
@@ -366,23 +385,13 @@ fn dialog_content_width() -> i32 {
 /// `(scrim, card)`; the caller appends any list matrix and then the button
 /// row (flex-column order = creation order). `card` height defaults to 160
 /// but is overridden by list dialogs to fit the matrix.
-unsafe fn build_dialog_shell(
-    title: &str,
-    message: &str,
-    card_h: i32,
-) -> (*mut lv_obj_t, *mut lv_obj_t) {
+fn build_dialog_shell(title: &str, message: &str, card_h: i32) -> Option<(Obj, Obj)> {
     // On the overlay layer, above the screen: a dialog must not pan with an
     // oversized content root, and it belongs to the Activity, not to the
     // root a `setContentView` replaces (the shown-dialog stack ties its life
     // to the Activity's). See `lifecycle::overlay_layer`.
-    let layer = lifecycle::overlay_layer();
-    let scrim = lv_obj_create(layer);
-    lv_obj_add_event_cb(
-        scrim,
-        Some(scrim_delete_cb),
-        LV_EVENT_DELETE,
-        core::ptr::null_mut(),
-    );
+    let scrim = lifecycle::overlay_layer().and_then(|o| lv_obj_create(o))?;
+    add_event_cb(scrim, scrim_delete_cb, LV_EVENT_DELETE);
 
     // Modal scrim: the whole window, dim, click-absorbing. The whole window,
     // not a 240 px square: on the 320-wide testbench a tap beside the scrim
@@ -401,7 +410,7 @@ unsafe fn build_dialog_shell(
     lv_obj_set_style_pad_bottom(scrim, 0, 0);
 
     // Card: vertical flex with title, message, and a button row.
-    let card = lv_obj_create(scrim);
+    let card = lv_obj_create(scrim)?;
     lv_obj_set_size(card, card_w, card_h);
     // Center the card in the window. Vertical offset keeps the card
     // centered as it grows for list content.
@@ -426,31 +435,33 @@ unsafe fn build_dialog_shell(
     );
 
     if !title.is_empty() {
-        let title_label = lv_label_create(card);
-        set_label_text(title_label, title);
-        lv_obj_set_style_text_color(title_label, lv_color_hex(0x000000), 0);
+        if let Some(title_label) = add_label(card, title) {
+            lv_obj_set_style_text_color(title_label, lv_color_hex(0x000000), 0);
+        }
     }
 
     if !message.is_empty() {
-        let msg_label = lv_label_create(card);
-        set_label_text(msg_label, message);
-        lv_obj_set_style_text_color(msg_label, lv_color_hex(0x303030), 0);
+        if let Some(msg_label) = add_label(card, message) {
+            lv_obj_set_style_text_color(msg_label, lv_color_hex(0x303030), 0);
+        }
     }
 
-    (scrim, card)
+    Some((scrim, card))
 }
 
 /// Append the title/cancel button row to `card`. Empty strings suppress the
 /// corresponding button. Neutral is leftmost, then negative, then positive
 /// (Android placement).
-unsafe fn add_button_row(
-    card: *mut lv_obj_t,
+fn add_button_row(
+    card: Obj,
     scrim_ptr: usize,
     positive_text: &str,
     negative_text: &str,
     neutral_text: &str,
 ) {
-    let btn_row = lv_obj_create(card);
+    let Some(btn_row) = lv_obj_create(card) else {
+        return;
+    };
     lv_obj_set_size(btn_row, dialog_content_width(), 50);
     lv_obj_set_style_bg_opa(btn_row, 0, 0);
     // A transparent row, not a boxed one: the theme gives every plain
@@ -480,18 +491,15 @@ unsafe fn add_button_row(
         if text.is_empty() {
             return;
         }
-        let btn = lv_button_create(btn_row);
+        let Some(btn) = lv_button_create(btn_row) else {
+            return;
+        };
         lv_obj_set_size(btn, btn_w, 36);
-        let label = lv_label_create(btn);
-        set_label_text(label, text);
-        lv_obj_center(label);
-        lv_obj_add_event_cb(
-            btn,
-            Some(dialog_button_click_cb),
-            LV_EVENT_CLICKED,
-            core::ptr::null_mut(),
-        );
-        register_button(btn as usize, scrim_ptr, which);
+        if let Some(label) = add_label(btn, text) {
+            lv_obj_center(label);
+        }
+        add_event_cb(btn, dialog_button_click_cb, LV_EVENT_CLICKED);
+        register_button(btn.addr(), scrim_ptr, which);
     };
 
     add(neutral_text, BUTTON_NEUTRAL);
@@ -509,17 +517,16 @@ pub(in crate::graphics) fn create(
     negative_text: &str,
     neutral_text: &str,
 ) -> i32 {
-    let scrim = unsafe {
-        let (scrim, card) = build_dialog_shell(title, message, 160);
-        add_button_row(
-            card,
-            scrim as usize,
-            positive_text,
-            negative_text,
-            neutral_text,
-        );
-        scrim
+    let Some((scrim, card)) = build_dialog_shell(title, message, 160) else {
+        return 0;
     };
+    add_button_row(
+        card,
+        scrim.addr(),
+        positive_text,
+        negative_text,
+        neutral_text,
+    );
     handle_table::register(scrim)
 }
 
@@ -563,7 +570,7 @@ pub(in crate::graphics) fn create_with_list(
     // holds the `*const *const c_char` we hand it, so dropping the storage
     // would dangle. Fall back to a plain (buttons-only) dialog rather than
     // risk a use-after-free when more than MAX_LIST_DIALOGS stack.
-    let has_free_slot = unsafe { LIST_SLOTS[..].iter().any(|s| s.dialog_handle == 0) };
+    let has_free_slot = STATE.list_slots.iter().any(|s| s.get().dialog_handle == 0);
     if !has_free_slot {
         return create(title, message, positive_text, negative_text, neutral_text);
     }
@@ -572,10 +579,11 @@ pub(in crate::graphics) fn create_with_list(
     // Taller card so the matrix has room (≈26px per row, plus chrome).
     let card_h = (90 + (n_items as i32) * 28).min(220);
 
-    let scrim = unsafe {
-        let (scrim, card) = build_dialog_shell(title, "", card_h);
-        let scrim_ptr = scrim as usize;
-
+    let Some((scrim, card)) = build_dialog_shell(title, "", card_h) else {
+        return 0;
+    };
+    let scrim_ptr = scrim.addr();
+    {
         // Build the matrix map: item, "\n", item, "\n", …, item, "".
         let mut map: Vec<*const c_char> = Vec::with_capacity(n_items * 2);
         for (i, it) in item_strs.iter().enumerate() {
@@ -586,78 +594,94 @@ pub(in crate::graphics) fn create_with_list(
         }
         map.push(MAP_TERMINATOR.as_ptr() as *const c_char);
 
-        let matrix = lv_buttonmatrix_create(card);
-        lv_obj_set_size(
-            matrix,
-            dialog_content_width(),
-            (n_items as i32 * 28).min(160),
-        );
-        lv_obj_set_style_bg_opa(matrix, 0, 0);
-        lv_obj_set_style_pad_left(matrix, 2, 0);
-        lv_obj_set_style_pad_right(matrix, 2, 0);
-        lv_obj_set_style_pad_top(matrix, 2, 0);
-        lv_obj_set_style_pad_bottom(matrix, 2, 0);
-        lv_buttonmatrix_set_map(matrix, map.as_ptr());
+        if let Some(matrix) = lv_buttonmatrix_create(card) {
+            lv_obj_set_size(
+                matrix,
+                dialog_content_width(),
+                (n_items as i32 * 28).min(160),
+            );
+            lv_obj_set_style_bg_opa(matrix, 0, 0);
+            lv_obj_set_style_pad_left(matrix, 2, 0);
+            lv_obj_set_style_pad_right(matrix, 2, 0);
+            lv_obj_set_style_pad_top(matrix, 2, 0);
+            lv_obj_set_style_pad_bottom(matrix, 2, 0);
+            // SAFETY: `matrix` was just made by `lv_buttonmatrix_create`. The map
+            // and the item strings it points at are heap buffers that move into
+            // `LIST_STORAGE` below (a free slot was checked for above; moving a
+            // `Vec` or a `Box` keeps its buffer where it is) and are freed only
+            // by `unregister_list`, which runs
+            // from the scrim's delete callback or `dismiss`, as the matrix goes.
+            // The separators are statics. Row ids past the last are ignored by
+            // the per-button calls (`lv_buttonmatrix.c`).
+            unsafe {
+                lv_buttonmatrix_set_map(matrix, map.as_ptr());
 
-        if mode == LIST_MODE_SINGLE {
-            // Radio behavior: every row checkable, only one checked at a time.
-            for i in 0..n_items as u32 {
-                lv_buttonmatrix_set_button_ctrl(matrix, i, LV_BUTTONMATRIX_CTRL_CHECKABLE);
-            }
-            lv_buttonmatrix_set_one_checked(matrix, true);
-            if checked_mask != 0 {
-                // Single-choice seeds exactly one row (lowest set bit).
-                let row = checked_mask.trailing_zeros();
-                if (row as usize) < n_items {
-                    lv_buttonmatrix_set_button_ctrl(matrix, row, LV_BUTTONMATRIX_CTRL_CHECKED);
+                if mode == LIST_MODE_SINGLE {
+                    // Radio behavior: every row checkable, only one checked at a time.
+                    for i in 0..n_items as u32 {
+                        lv_buttonmatrix_set_button_ctrl(matrix, i, LV_BUTTONMATRIX_CTRL_CHECKABLE);
+                    }
+                    lv_buttonmatrix_set_one_checked(matrix, true);
+                    if checked_mask != 0 {
+                        // Single-choice seeds exactly one row (lowest set bit).
+                        let row = checked_mask.trailing_zeros();
+                        if (row as usize) < n_items {
+                            lv_buttonmatrix_set_button_ctrl(
+                                matrix,
+                                row,
+                                LV_BUTTONMATRIX_CTRL_CHECKED,
+                            );
+                        }
+                    }
+                } else if mode == LIST_MODE_MULTI {
+                    for i in 0..n_items as u32 {
+                        lv_buttonmatrix_set_button_ctrl(matrix, i, LV_BUTTONMATRIX_CTRL_CHECKABLE);
+                        if checked_mask & (1 << i) != 0 {
+                            lv_buttonmatrix_set_button_ctrl(
+                                matrix,
+                                i,
+                                LV_BUTTONMATRIX_CTRL_CHECKED,
+                            );
+                        }
+                    }
+                } else {
+                    // Plain items: the mask is the disabled rows — an options menu's
+                    // `MenuItem.setEnabled(false)`. LVGL draws such a row in its
+                    // disabled state, the keypad's walk skips it, and a tap or ENTER
+                    // on it sends no VALUE_CHANGED, so the dialog stays open as
+                    // Android's menu does over a disabled item (QA F7).
+                    for i in 0..n_items as u32 {
+                        if checked_mask & (1 << i) != 0 {
+                            lv_buttonmatrix_set_button_ctrl(
+                                matrix,
+                                i,
+                                LV_BUTTONMATRIX_CTRL_DISABLED,
+                            );
+                        }
+                    }
                 }
             }
-        } else if mode == LIST_MODE_MULTI {
-            for i in 0..n_items as u32 {
-                lv_buttonmatrix_set_button_ctrl(matrix, i, LV_BUTTONMATRIX_CTRL_CHECKABLE);
-                if checked_mask & (1 << i) != 0 {
-                    lv_buttonmatrix_set_button_ctrl(matrix, i, LV_BUTTONMATRIX_CTRL_CHECKED);
-                }
-            }
-        } else {
-            // Plain items: the mask is the disabled rows — an options menu's
-            // `MenuItem.setEnabled(false)`. LVGL draws such a row in its
-            // disabled state, the keypad's walk skips it, and a tap or ENTER
-            // on it sends no VALUE_CHANGED, so the dialog stays open as
-            // Android's menu does over a disabled item (QA F7).
-            for i in 0..n_items as u32 {
-                if checked_mask & (1 << i) != 0 {
-                    lv_buttonmatrix_set_button_ctrl(matrix, i, LV_BUTTONMATRIX_CTRL_DISABLED);
-                }
-            }
+
+            add_event_cb(matrix, dialog_item_click_cb, LV_EVENT_VALUE_CHANGED);
+
+            register_list(scrim_ptr, matrix.addr(), mode, item_strs, map);
         }
 
-        lv_obj_add_event_cb(
-            matrix,
-            Some(dialog_item_click_cb),
-            LV_EVENT_VALUE_CHANGED,
-            core::ptr::null_mut(),
-        );
-
-        register_list(scrim_ptr, matrix as usize, mode, item_strs, map);
-
         add_button_row(card, scrim_ptr, positive_text, negative_text, neutral_text);
-        scrim
-    };
+    }
     handle_table::register(scrim)
 }
 
 pub(in crate::graphics) fn show(id: i32) {
-    let scrim = handle_table::lookup(id);
-    if scrim.is_null() {
+    let Some(scrim) = handle_table::get(id) else {
         return;
-    }
-    unsafe { lv_obj_remove_flag(scrim, LV_OBJ_FLAG_HIDDEN) };
+    };
+    lv_obj_remove_flag(scrim, LV_OBJ_FLAG_HIDDEN);
     // The scrim joined the top layer after the soft-nav control did; keep
     // BACK reachable above it, as a cancelable dialog's outside stays live.
     super::super::soft_nav::raise();
     super::super::menu_button::raise();
-    focus_dialog_buttons(scrim as usize);
+    focus_dialog_buttons(scrim.addr());
     if let Some(oldest) = shown_push(id) {
         crate::pd_warn!(
             "AlertDialog: {} shown at once, dismissing the oldest",
@@ -674,65 +698,66 @@ pub(in crate::graphics) fn show(id: i32) {
 /// dismiss, and the last dismiss hands the keypad back to the Activity. See
 /// project_picoenvmon_alertdialog_leak.
 fn focus_dialog_buttons(scrim_ptr: usize) {
-    unsafe {
-        // The dialog's own group, so NEXT/PREV stay on its buttons instead
-        // of walking the rows behind the scrim; handed back on dismiss.
-        let group = crate::graphics::lvgl::events::enter_modal_group();
-        if group.is_null() {
-            return;
-        }
-        // A list dialog's matrix first: it joined the Activity's group when
-        // it was created (a button matrix is group-default), so move it to
-        // the dialog's, where PREV/NEXT walk its rows (keypad.rs::widget_remap)
-        // and SELECT picks one — and focus it, as Android focuses the list.
-        let mut focus_target: *mut lv_obj_t = core::ptr::null_mut();
-        for slot in &LIST_SLOTS[..] {
-            if slot.dialog_handle == scrim_ptr && slot.matrix != 0 {
-                let matrix = slot.matrix as *mut lv_obj_t;
+    // The dialog's own group, so NEXT/PREV stay on its buttons instead
+    // of walking the rows behind the scrim; handed back on dismiss.
+    let Some(group) = crate::graphics::lvgl::events::enter_modal_group() else {
+        return;
+    };
+    // A list dialog's matrix first: it joined the Activity's group when
+    // it was created (a button matrix is group-default), so move it to
+    // the dialog's, where PREV/NEXT walk its rows (keypad.rs::widget_remap)
+    // and SELECT picks one — and focus it, as Android focuses the list.
+    let mut focus_target: Option<Obj> = None;
+    for slot in STATE.list_slots.iter().map(Cell::get) {
+        if slot.dialog_handle == scrim_ptr {
+            // SAFETY: a list slot holds its matrix from `register_list`
+            // until `unregister_list`, which the scrim's delete callback
+            // runs before LVGL frees the scrim's children.
+            if let Some(matrix) = unsafe { Obj::from_raw(slot.matrix as *mut lv_obj_t) } {
                 lv_group_remove_obj(matrix);
                 lv_group_add_obj(group, matrix);
-                focus_target = matrix;
+                focus_target = Some(matrix);
             }
         }
-        for slot in &BUTTON_MAP[..] {
-            if slot.button_handle != 0 && slot.dialog_handle == scrim_ptr {
-                let btn = slot.button_handle as *mut lv_obj_t;
-                lv_group_add_obj(group, btn);
-                if focus_target.is_null()
-                    || slot.which == BUTTON_POSITIVE && !is_matrix(focus_target)
-                {
-                    focus_target = btn;
-                }
+    }
+    for slot in STATE.button_map.iter().map(Cell::get) {
+        if slot.dialog_handle != scrim_ptr {
+            continue;
+        }
+        // SAFETY: a button is in the map from `register_button` until
+        // `unregister_dialog`, which the scrim's delete callback runs
+        // before LVGL frees the scrim's children.
+        if let Some(btn) = unsafe { Obj::from_raw(slot.button_handle as *mut lv_obj_t) } {
+            lv_group_add_obj(group, btn);
+            if focus_target.is_none_or(|f| slot.which == BUTTON_POSITIVE && !is_matrix(f)) {
+                focus_target = Some(btn);
             }
         }
-        if !focus_target.is_null() {
-            lv_group_focus_obj(focus_target);
-            // A keypad-focused matrix selects nothing until a key arrives,
-            // and that first key would only land on row 0: start there, so
-            // NEXT is row 1, as the keyboard starts on its first letter.
-            if is_matrix(focus_target) {
-                // Focused from a quiet pass, so the group set FOCUSED but not
-                // FOCUS_KEY, which is the state the matrix draws its selected
-                // row in (as `focus_system_keyboard` does for the keyboard).
-                lv_obj_add_state(focus_target, LV_STATE_FOCUS_KEY);
-                lv_buttonmatrix_set_selected_button(focus_target, 0);
-                lv_obj_invalidate(focus_target);
-            }
+    }
+    if let Some(target) = focus_target {
+        lv_group_focus_obj(target);
+        // A keypad-focused matrix selects nothing until a key arrives,
+        // and that first key would only land on row 0: start there, so
+        // NEXT is row 1, as the keyboard starts on its first letter.
+        if is_matrix(target) {
+            // Focused from a quiet pass, so the group set FOCUSED but not
+            // FOCUS_KEY, which is the state the matrix draws its selected
+            // row in (as `focus_system_keyboard` does for the keyboard).
+            lv_obj_add_state(target, LV_STATE_FOCUS_KEY);
+            // SAFETY: `target` is in `matrix_map`, so `create_with_list`
+            // made it with `lv_buttonmatrix_create`.
+            unsafe { lv_buttonmatrix_set_selected_button(target, 0) };
+            lv_obj_invalidate(target);
         }
     }
 }
 
 /// Whether `obj` is a list dialog's matrix.
-fn is_matrix(obj: *mut lv_obj_t) -> bool {
-    // SAFETY: a read of a registry of raw pointers, on the JVM task.
-    unsafe {
-        for entry in &MATRIX_MAP[..] {
-            if entry.0 == obj as usize {
-                return true;
-            }
-        }
-    }
-    false
+fn is_matrix(obj: Obj) -> bool {
+    STATE
+        .matrix_map
+        .iter()
+        .any(|entry| entry.get().0 == obj.addr())
 }
 
 pub(in crate::graphics) fn dismiss(id: i32) {
@@ -746,15 +771,18 @@ pub(in crate::graphics) fn dismiss(id: i32) {
     if !handle_table::is_live(id) {
         return;
     }
-    let scrim = handle_table::lookup(id);
-    if scrim.is_null() {
+    let Some(scrim) = handle_table::get(id) else {
         return;
-    }
-    let scrim_ptr = scrim as usize;
+    };
+    let scrim_ptr = scrim.addr();
     unregister_dialog(scrim_ptr);
     unregister_list(scrim_ptr); // drops the owned matrix map/strings, if any
-                                // Deleting the scrim takes its children (card, buttons, labels) with
-                                // it via LVGL's owns-children semantics — no need to walk the tree.
+
+    // Deleting the scrim takes its children (card, buttons, labels) with
+    // it via LVGL's owns-children semantics — no need to walk the tree.
+    // SAFETY: `scrim` is not used after; the dialog's bookkeeping is gone,
+    // its Java object is the one dismissing it, and the handle goes stale
+    // through its delete hook.
     unsafe { lv_obj_delete(scrim) };
 }
 
@@ -768,23 +796,20 @@ fn register_list(
     items: Vec<Box<[u8]>>,
     map: Vec<*const c_char>,
 ) {
-    unsafe {
-        for slot in &mut LIST_SLOTS[..] {
-            if slot.dialog_handle == 0 {
-                slot.dialog_handle = scrim_ptr;
-                slot.matrix = matrix;
-                slot.mode = mode;
-                slot.items = items;
-                slot.map = map;
-                break;
-            }
-        }
-        for entry in &mut MATRIX_MAP[..] {
-            if entry.0 == 0 {
-                *entry = (matrix, scrim_ptr);
-                break;
-            }
-        }
+    if let Some(i) = STATE
+        .list_slots
+        .iter()
+        .position(|s| s.get().dialog_handle == 0)
+    {
+        STATE.list_slots[i].set(ListSlot {
+            dialog_handle: scrim_ptr,
+            matrix,
+            mode,
+        });
+        LIST_STORAGE[i].set(Some(ListStorage { items, _map: map }));
+    }
+    if let Some(entry) = STATE.matrix_map.iter().find(|e| e.get().0 == 0) {
+        entry.set((matrix, scrim_ptr));
     }
 }
 
@@ -792,20 +817,16 @@ fn register_list(
 /// owned map array and item strings; the matrix object itself is freed by
 /// the scrim deletion.
 fn unregister_list(scrim_ptr: usize) {
-    unsafe {
-        for slot in &mut LIST_SLOTS[..] {
-            if slot.dialog_handle == scrim_ptr {
-                for entry in &mut MATRIX_MAP[..] {
-                    if entry.0 == slot.matrix {
-                        *entry = (0, 0);
-                    }
+    for (i, slot) in STATE.list_slots.iter().enumerate() {
+        let s = slot.get();
+        if s.dialog_handle == scrim_ptr {
+            for entry in &STATE.matrix_map {
+                if entry.get().0 == s.matrix {
+                    entry.set((0, 0));
                 }
-                slot.dialog_handle = 0;
-                slot.matrix = 0;
-                slot.mode = LIST_MODE_ITEMS;
-                slot.items = Vec::new();
-                slot.map = Vec::new();
             }
+            slot.set(EMPTY_LIST_SLOT);
+            free_list_storage(i);
         }
     }
 }
@@ -815,20 +836,34 @@ fn unregister_list(scrim_ptr: usize) {
 /// checkable toggle the LVGL widget would, then enqueues the item record so
 /// the full Java dispatch (`fireItemClick`) runs on the next tick.
 pub(in crate::graphics) fn perform_item_click(id: i32, position: i32) {
-    let scrim = handle_table::lookup(id);
-    if scrim.is_null() || position < 0 {
+    let Some(scrim) = handle_table::get(id) else {
+        return;
+    };
+    if position < 0 {
         return;
     }
-    let scrim_ptr = scrim as usize;
-    unsafe {
-        for slot in &mut LIST_SLOTS[..] {
-            if slot.dialog_handle != scrim_ptr {
-                continue;
-            }
-            if position as usize >= slot.items.len() {
-                return;
-            }
-            let matrix = slot.matrix as *mut lv_obj_t;
+    let scrim_ptr = scrim.addr();
+    for (slot, storage) in STATE.list_slots.iter().zip(&*LIST_STORAGE) {
+        let slot = slot.get();
+        if slot.dialog_handle != scrim_ptr {
+            continue;
+        }
+        let held = storage.take();
+        let n_items = held.as_ref().map_or(0, |l| l.items.len());
+        // What comes back is the `None` that `take` left: nothing to drop.
+        core::mem::forget(storage.replace(held));
+        if position as usize >= n_items {
+            return;
+        }
+        // SAFETY: a list slot holds its matrix, made by
+        // `lv_buttonmatrix_create`, from `register_list` until
+        // `unregister_list`, which the scrim's delete callback runs before
+        // LVGL frees it; `pos` is below the item count, checked above.
+        let Some(matrix) = (unsafe { Obj::from_raw(slot.matrix as *mut lv_obj_t) }) else {
+            return;
+        };
+        // SAFETY: as above.
+        unsafe {
             let pos = position as u32;
             let checked = if slot.mode == LIST_MODE_SINGLE {
                 // Radio: one_checked clears the others; set this one.
@@ -846,38 +881,37 @@ pub(in crate::graphics) fn perform_item_click(id: i32, position: i32) {
             } else {
                 true
             };
-            ITEM_QUEUE.push(ItemRecord {
+            STATE.item_queue.push(ItemRecord {
                 dialog_handle: scrim_ptr,
                 position,
                 checked,
             });
-            return;
         }
+        return;
     }
 }
 
 /// Drain one item-click event from a list dialog. Returns
 /// `(dialog_handle, position, checked)`.
 pub fn drain_item_click_queue() -> Option<(usize, i32, bool)> {
-    let rec = ITEM_QUEUE.pop()?;
+    let rec = STATE.item_queue.pop()?;
     Some((rec.dialog_handle, rec.position, rec.checked))
 }
 
 /// Register a Java `AlertDialog` object as the click-listener target for
 /// the given dialog handle.
 pub(in crate::graphics) fn register_button_click_listener(id: i32, obj_ref: u16) {
-    let scrim_ptr = handle_table::lookup(id) as usize;
-    if scrim_ptr == 0 {
+    let Some(scrim) = handle_table::get(id) else {
         return;
-    }
-    if let Upsert::Full = DIALOG_OBJ_MAP.upsert(scrim_ptr, obj_ref) {
+    };
+    if let Upsert::Full = STATE.dialog_obj_map.upsert(scrim.addr(), obj_ref) {
         warn_full("alert-dialog");
     }
 }
 
 /// Drain one click event from the queue. Returns (dialog_handle, which).
 pub fn drain_click_queue() -> Option<(usize, i32)> {
-    let rec = CLICK_QUEUE.pop()?;
+    let rec = STATE.click_queue.pop()?;
     Some((rec.dialog_handle, rec.which))
 }
 
@@ -886,71 +920,64 @@ pub fn drain_click_queue() -> Option<(usize, i32)> {
 /// would otherwise be swept, after which its button click can't dispatch. See
 /// `events::visit_view_listener_roots`.
 pub fn visit_dialog_obj_roots(visit: &mut dyn FnMut(u16)) {
-    DIALOG_OBJ_MAP.visit(visit);
-    DISMISS_QUEUE.for_each(visit);
+    STATE.dialog_obj_map.visit(visit);
+    STATE.dismiss_queue.for_each(visit);
 }
 
 /// Look up the Java `AlertDialog` object index for a dialog's raw scrim
 /// pointer.
 pub fn lookup_dialog_obj(handle: usize) -> Option<u16> {
-    DIALOG_OBJ_MAP.lookup(handle)
+    STATE.dialog_obj_map.lookup(handle)
 }
 
 pub fn reset_alert_dialog_state() {
-    unsafe {
-        for slot in &mut BUTTON_MAP[..] {
-            *slot = EMPTY_BUTTON;
-        }
-        DIALOG_OBJ_MAP.reset();
-        CLICK_QUEUE.clear();
-        ITEM_QUEUE.clear();
-        DISMISS_QUEUE.clear();
-        for slot in &mut LIST_SLOTS[..] {
-            slot.dialog_handle = 0;
-            slot.matrix = 0;
-            slot.mode = LIST_MODE_ITEMS;
-            slot.items = Vec::new();
-            slot.map = Vec::new();
-        }
-        for entry in &mut MATRIX_MAP[..] {
-            *entry = (0, 0);
-        }
-        for s in &mut SHOWN[..] {
-            *s = 0;
-        }
-        SHOWN_LEN = 0;
+    for slot in &STATE.button_map {
+        slot.set(EMPTY_BUTTON);
     }
+    STATE.dialog_obj_map.reset();
+    STATE.click_queue.clear();
+    STATE.item_queue.clear();
+    STATE.dismiss_queue.clear();
+    for (i, slot) in STATE.list_slots.iter().enumerate() {
+        slot.set(EMPTY_LIST_SLOT);
+        free_list_storage(i);
+    }
+    for entry in &STATE.matrix_map {
+        entry.set((0, 0));
+    }
+    for s in &STATE.shown {
+        s.set(0);
+    }
+    STATE.shown_len.set(0);
 }
 
 // ── Internals ───────────────────────────────────────────────────────────────
 
-unsafe fn set_label_text(label: *mut lv_obj_t, text: &str) {
-    super::text_view::with_cstr(text, |p| unsafe { lv_label_set_text(label, p) });
+/// A new label under `parent` showing `text`.
+fn add_label(parent: Obj, text: &str) -> Option<Obj> {
+    let label = lv_label_create(parent)?;
+    // SAFETY: `label` was just made by `lv_label_create`; the text is
+    // NUL-terminated and LVGL copies it.
+    super::text_view::with_cstr(text, |p| unsafe { lv_label_set_text(label, p.as_ptr()) });
+    Some(label)
 }
 
 fn register_button(button_handle: usize, dialog_handle: usize, which: i32) {
-    unsafe {
-        for slot in &mut BUTTON_MAP[..] {
-            if slot.button_handle == 0 {
-                *slot = ButtonEntry {
-                    button_handle,
-                    dialog_handle,
-                    which,
-                };
-                return;
-            }
-        }
-        warn_full("alert-dialog-button");
+    match STATE.button_map.iter().find(|s| s.get().button_handle == 0) {
+        Some(slot) => slot.set(ButtonEntry {
+            button_handle,
+            dialog_handle,
+            which,
+        }),
+        None => warn_full("alert-dialog-button"),
     }
 }
 
 fn unregister_dialog(scrim_ptr: usize) {
-    unsafe {
-        for slot in &mut BUTTON_MAP[..] {
-            if slot.dialog_handle == scrim_ptr {
-                *slot = EMPTY_BUTTON;
-            }
+    for slot in &STATE.button_map {
+        if slot.get().dialog_handle == scrim_ptr {
+            slot.set(EMPTY_BUTTON);
         }
-        DIALOG_OBJ_MAP.remove(scrim_ptr);
     }
+    STATE.dialog_obj_map.remove(scrim_ptr);
 }

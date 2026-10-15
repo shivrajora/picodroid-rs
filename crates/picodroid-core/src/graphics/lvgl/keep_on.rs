@@ -18,10 +18,10 @@ const MAX_HOLDERS: usize = 8;
 // SAFETY: a listener registry, reached only from JVM tasks.
 static HOLDERS: Core0<PtrMap<MAX_HOLDERS>> = unsafe { Core0::new(PtrMap::new()) };
 
-unsafe extern "C" fn holder_delete_cb(e: *mut lv_event_t) {
-    // SAFETY: LVGL calls this with the event of the object being deleted.
-    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    release(obj);
+lv_event_cb! {
+    fn holder_delete_cb(e) {
+        release(e.target().addr());
+    }
 }
 
 fn release(obj: usize) {
@@ -33,11 +33,10 @@ fn release(obj: usize) {
 
 /// `View.setKeepScreenOn(flag)` on the view behind `id`.
 pub(in crate::graphics) fn set(id: i32, on: bool) {
-    let raw = handle_table::lookup(id);
-    if raw.is_null() {
+    let Some(raw) = handle_table::get(id) else {
         return;
-    }
-    let obj = raw as usize;
+    };
+    let obj = raw.addr();
     if !on {
         release(obj);
         // The delete hook stays attached: harmless, and the view may hold
@@ -49,15 +48,7 @@ pub(in crate::graphics) fn set(id: i32, on: bool) {
         Upsert::Full => warn_full("keep-screen-on"),
         Upsert::Inserted => {
             crate::power::hold_screen(true);
-            // SAFETY: `raw` is the live object the handle table just returned.
-            unsafe {
-                lv_obj_add_event_cb(
-                    raw,
-                    Some(holder_delete_cb),
-                    LV_EVENT_DELETE,
-                    core::ptr::null_mut(),
-                );
-            }
+            add_event_cb(raw, holder_delete_cb, LV_EVENT_DELETE);
         }
     }
 }

@@ -29,6 +29,7 @@
 use crate::lvgl_ffi::*;
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
+use core::cell::Cell;
 
 use super::handle_table;
 
@@ -90,8 +91,6 @@ const EMPTY_ANIM: AnimSlot = AnimSlot {
     active: false,
 };
 
-static mut ANIM_SLOTS: [AnimSlot; MAX_ANIMATIONS] = [EMPTY_ANIM; MAX_ANIMATIONS];
-
 // ── End-action storage (Android's withEndAction) ────────────────────────────
 //
 // A Runnable per animating handle, fired once when that handle's last active
@@ -100,15 +99,27 @@ static mut ANIM_SLOTS: [AnimSlot; MAX_ANIMATIONS] = [EMPTY_ANIM; MAX_ANIMATIONS]
 // without firing on cancel — Android skips withEndAction on cancel.
 
 const MAX_END_ACTIONS: usize = 8;
-static mut END_ACTIONS: [(i32, u16); MAX_END_ACTIONS] = [(0, 0); MAX_END_ACTIONS];
 
 // Completion queue: obj_refs of end-action Runnables whose animations just
 // finished, drained by the lifecycle loop and run through the Executors
 // bytecode bridge (lambda proxies only resolve there).
 const COMPLETION_QUEUE_SIZE: usize = 8;
-// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
-static COMPLETION_QUEUE: Core0<LocalRing<u16, COMPLETION_QUEUE_SIZE>> =
-    unsafe { Core0::new(LocalRing::new(0)) };
+
+struct State {
+    slots: [Cell<AnimSlot>; MAX_ANIMATIONS],
+    end_actions: [Cell<(i32, u16)>; MAX_END_ACTIONS],
+    completions: LocalRing<u16, COMPLETION_QUEUE_SIZE>,
+}
+
+// SAFETY: started and cancelled by natives, advanced by the frame tick, all
+// on core-0 JVM tasks.
+static STATE: Core0<State> = unsafe {
+    Core0::new(State {
+        slots: [const { Cell::new(EMPTY_ANIM) }; MAX_ANIMATIONS],
+        end_actions: [const { Cell::new((0, 0)) }; MAX_END_ACTIONS],
+        completions: LocalRing::new(0),
+    })
+};
 
 // ── Units ───────────────────────────────────────────────────────────────────
 
@@ -152,24 +163,26 @@ fn is_transform(property: i32) -> bool {
 
 /// A numeric style property of `obj`'s main part. Unset props come back as
 /// LVGL's defaults: opa 255, scale `LV_SCALE_NONE`, translate / rotation 0.
-unsafe fn style_num(obj: *const lv_obj_t, prop: lv_style_prop_t) -> i32 {
-    lv_obj_get_style_prop(obj, LV_PART_MAIN, prop).num
+/// Callers pass only numeric properties (opa, translate, transform).
+fn style_num(obj: Obj, prop: lv_style_prop_t) -> i32 {
+    let v = lv_obj_get_style_prop(obj, LV_PART_MAIN, prop);
+    // SAFETY: every `prop` this module reads is numeric, and LVGL returns a
+    // numeric property in `num`, the field it wrote.
+    unsafe { v.num }
 }
 
 /// The view's translation (x, y) in pixels. LVGL folds `translate_*` into
 /// the laid-out coords, so the geometry reader (`view_ops::frame`) subtracts
 /// this to report Android's translation-free `getLeft` / `getTop`.
-pub(super) fn translation_of(obj: *const lv_obj_t) -> (i32, i32) {
-    unsafe {
-        (
-            style_num(obj, LV_STYLE_TRANSLATE_X),
-            style_num(obj, LV_STYLE_TRANSLATE_Y),
-        )
-    }
+pub(super) fn translation_of(obj: Obj) -> (i32, i32) {
+    (
+        style_num(obj, LV_STYLE_TRANSLATE_X),
+        style_num(obj, LV_STYLE_TRANSLATE_Y),
+    )
 }
 
 /// The property's current value in LVGL units — the implicit `from`.
-unsafe fn read_current(obj: *mut lv_obj_t, property: i32) -> i32 {
+fn read_current(obj: Obj, property: i32) -> i32 {
     match property {
         PROPERTY_ALPHA => style_num(obj, LV_STYLE_OPA),
         PROPERTY_X => {
@@ -192,7 +205,7 @@ unsafe fn read_current(obj: *mut lv_obj_t, property: i32) -> i32 {
 
 /// Android rotates and scales about the view's centre; LVGL's default pivot
 /// is the top-left corner. Set on every transform start — cheap, idempotent.
-unsafe fn ensure_center_pivot(obj: *mut lv_obj_t) {
+fn ensure_center_pivot(obj: Obj) {
     let half = lv_pct(50);
     lv_obj_set_style_transform_pivot_x(obj, half, 0);
     lv_obj_set_style_transform_pivot_y(obj, half, 0);
@@ -205,21 +218,22 @@ unsafe fn ensure_center_pivot(obj: *mut lv_obj_t) {
 /// `view.animate().alpha(...)` must not pile up old slots); a delayed start
 /// passes `false` so it only displaces another *pending* slot for its key and
 /// lets the running one continue until the delay expires.
-unsafe fn insert_slot(new_slot: AnimSlot, replace_running: bool) {
-    let slots = &mut *core::ptr::addr_of_mut!(ANIM_SLOTS);
-    for slot in slots.iter_mut() {
-        if slot.active
-            && slot.handle == new_slot.handle
-            && slot.property == new_slot.property
-            && (replace_running || slot.from_pending)
+fn insert_slot(new_slot: AnimSlot, replace_running: bool) {
+    let slots = &STATE.slots;
+    for slot in slots {
+        let s = slot.get();
+        if s.active
+            && s.handle == new_slot.handle
+            && s.property == new_slot.property
+            && (replace_running || s.from_pending)
         {
-            *slot = new_slot;
+            slot.set(new_slot);
             return;
         }
     }
-    for slot in slots.iter_mut() {
-        if !slot.active {
-            *slot = new_slot;
+    for slot in slots {
+        if !slot.get().active {
+            slot.set(new_slot);
             return;
         }
     }
@@ -250,7 +264,7 @@ pub fn start(handle: i32, property: i32, from: i32, to: i32, duration_ms: u32, i
         from_pending: false,
         active: true,
     };
-    unsafe { insert_slot(new_slot, true) }
+    insert_slot(new_slot, true)
 }
 
 /// Begin a to-only animation — Java `ViewPropertyAnimator.start()`. `to` is
@@ -264,41 +278,38 @@ pub fn start_to(
     delay_ms: u32,
     interpolator: i32,
 ) {
-    let obj = handle_table::lookup(handle);
-    if obj.is_null() {
+    let Some(obj) = handle_table::get(handle) else {
         return; // stale handle — nothing to animate
-    }
+    };
     let to = to_units(property, to);
-    unsafe {
-        if is_transform(property) {
-            ensure_center_pivot(obj);
-        }
-        if duration_ms == 0 && delay_ms == 0 {
-            apply_to_obj(obj, property, to);
-            return;
-        }
-        let from_pending = delay_ms > 0;
-        let from = if from_pending {
-            0
-        } else {
-            read_current(obj, property)
-        };
-        insert_slot(
-            AnimSlot {
-                handle,
-                property,
-                from,
-                to,
-                duration_ms,
-                elapsed_ms: 0,
-                delay_ms,
-                interpolator,
-                from_pending,
-                active: true,
-            },
-            !from_pending,
-        );
+    if is_transform(property) {
+        ensure_center_pivot(obj);
     }
+    if duration_ms == 0 && delay_ms == 0 {
+        apply_to_obj(obj, property, to);
+        return;
+    }
+    let from_pending = delay_ms > 0;
+    let from = if from_pending {
+        0
+    } else {
+        read_current(obj, property)
+    };
+    insert_slot(
+        AnimSlot {
+            handle,
+            property,
+            from,
+            to,
+            duration_ms,
+            elapsed_ms: 0,
+            delay_ms,
+            interpolator,
+            from_pending,
+            active: true,
+        },
+        !from_pending,
+    );
 }
 
 /// Register a Runnable to fire once `handle`'s animations complete (Android's
@@ -310,34 +321,26 @@ pub fn set_end_action(handle: i32, obj_ref: u16) {
         // registration silently overwrites and the GC roots forever.
         return;
     }
-    unsafe {
-        for entry in &mut END_ACTIONS[..] {
-            if entry.0 == handle {
-                entry.1 = obj_ref;
-                return;
-            }
-        }
-        for entry in &mut END_ACTIONS[..] {
-            if entry.0 == 0 {
-                *entry = (handle, obj_ref);
-                break;
-            }
-        }
-        // Nothing animating for this view (a zero-duration chain applied at
-        // once, or a stale handle): the action is due now. Without this it
-        // sat in the table, GC-rooted, until some later animation of the
-        // same view retired and fired it.
-        maybe_fire_end_action(handle);
+    let end_actions = &STATE.end_actions;
+    if let Some(entry) = end_actions.iter().find(|e| e.get().0 == handle) {
+        entry.set((handle, obj_ref));
+        return;
     }
+    if let Some(entry) = end_actions.iter().find(|e| e.get().0 == 0) {
+        entry.set((handle, obj_ref));
+    }
+    // Nothing animating for this view (a zero-duration chain applied at
+    // once, or a stale handle): the action is due now. Without this it
+    // sat in the table, GC-rooted, until some later animation of the
+    // same view retired and fired it.
+    maybe_fire_end_action(handle);
 }
 
 /// Drop `handle`'s end action without firing it (cancel path).
 fn clear_end_action(handle: i32) {
-    unsafe {
-        for entry in &mut END_ACTIONS[..] {
-            if entry.0 == handle {
-                *entry = (0, 0);
-            }
+    for entry in &STATE.end_actions {
+        if entry.get().0 == handle {
+            entry.set((0, 0));
         }
     }
 }
@@ -345,17 +348,18 @@ fn clear_end_action(handle: i32) {
 /// Fire `handle`'s end action (enqueue its Runnable) if one is registered and
 /// no other slot for `handle` is still animating (pending ones included, so a
 /// chain with a delayed leg fires once, at the end). Called when a slot retires.
-unsafe fn maybe_fire_end_action(handle: i32) {
-    for slot in &ANIM_SLOTS[..] {
-        if slot.active && slot.handle == handle {
+fn maybe_fire_end_action(handle: i32) {
+    for slot in &STATE.slots {
+        let s = slot.get();
+        if s.active && s.handle == handle {
             return; // another property of this view is still animating
         }
     }
-    for entry in &mut END_ACTIONS[..] {
-        if entry.0 == handle && entry.1 != 0 {
-            let obj_ref = entry.1;
-            *entry = (0, 0);
-            COMPLETION_QUEUE.push(obj_ref);
+    for entry in &STATE.end_actions {
+        let (h, obj_ref) = entry.get();
+        if h == handle && obj_ref != 0 {
+            entry.set((0, 0));
+            STATE.completions.push(obj_ref);
             return;
         }
     }
@@ -363,25 +367,24 @@ unsafe fn maybe_fire_end_action(handle: i32) {
 
 /// Drain one completed end-action Runnable obj_ref, if any.
 pub fn drain_completed_end_action() -> Option<u16> {
-    COMPLETION_QUEUE.pop()
+    STATE.completions.pop()
 }
 
 /// GC roots for pending end-action Runnables — a withEndAction lambda kept
 /// alive only by this native map would otherwise be swept before it runs
 /// (exactly the historical click/dialog-map bug class).
 pub fn visit_end_action_roots(visit: &mut dyn FnMut(u16)) {
-    unsafe {
-        for &(_, r) in &END_ACTIONS[..] {
-            if r != 0 {
-                visit(r);
-            }
+    for entry in &STATE.end_actions {
+        let (_, r) = entry.get();
+        if r != 0 {
+            visit(r);
         }
-        COMPLETION_QUEUE.for_each(&mut |r| {
-            if r != 0 {
-                visit(r);
-            }
-        });
     }
+    STATE.completions.for_each(&mut |r| {
+        if r != 0 {
+            visit(r);
+        }
+    });
 }
 
 /// Apply the slot's interpolator to a linear progress fraction `p` (0..=`EASE_SCALE`),
@@ -406,11 +409,10 @@ fn ease(interpolator: i32, p: i64) -> i64 {
 /// `ViewPropertyAnimator.cancel()`. The view's current property values
 /// remain at whatever the last frame left them — Android does the same.
 pub fn cancel(handle: i32) {
-    unsafe {
-        for slot in &mut ANIM_SLOTS[..] {
-            if slot.active && slot.handle == handle {
-                *slot = EMPTY_ANIM;
-            }
+    for slot in &STATE.slots {
+        let s = slot.get();
+        if s.active && s.handle == handle {
+            slot.set(EMPTY_ANIM);
         }
     }
     // Android skips withEndAction on cancel — drop it without firing.
@@ -429,28 +431,23 @@ pub fn cancel(handle: i32) {
 /// `while(1)` hang (observed: backing out of the picoenvmon Live screen while a
 /// `flashOnBreach` tile alpha animation was still running). 64-bit/sim never
 /// hit this because its handle table invalidates deleted slots to null.
-pub fn cancel_subtree(root: *mut lv_obj_t) {
-    if root.is_null() {
-        return;
-    }
-    unsafe {
-        for slot in &mut ANIM_SLOTS[..] {
-            if !slot.active {
-                continue;
+pub fn cancel_subtree(root: Obj) {
+    for slot in &STATE.slots {
+        let s = slot.get();
+        if !s.active {
+            continue;
+        }
+        // Walk up from the animated object; if we reach `root` it is in the
+        // subtree being deleted. Resolved now, before lv_obj_delete frees it.
+        let mut cur = handle_table::get(s.handle);
+        while let Some(o) = cur {
+            if o == root {
+                slot.set(EMPTY_ANIM);
+                // Drop the end action without firing — the view is gone.
+                clear_end_action(s.handle);
+                break;
             }
-            // Walk up from the animated object; if we reach `root` it is in the
-            // subtree being deleted. Resolved now, before lv_obj_delete frees it.
-            let mut cur = handle_table::lookup(slot.handle);
-            while !cur.is_null() {
-                if cur == root {
-                    let handle = slot.handle;
-                    *slot = EMPTY_ANIM;
-                    // Drop the end action without firing — the view is gone.
-                    clear_end_action(handle);
-                    break;
-                }
-                cur = lv_obj_get_parent(cur);
-            }
+            cur = lv_obj_get_parent(o);
         }
     }
 }
@@ -463,100 +460,91 @@ pub fn tick(ms: u32) {
     // after the main loop so we don't read ANIM_SLOTS while iterating it `mut`.
     let mut retired: [i32; MAX_ANIMATIONS] = [0; MAX_ANIMATIONS];
     let mut retired_len = 0usize;
-    unsafe {
-        let slots = &mut *core::ptr::addr_of_mut!(ANIM_SLOTS);
-        for i in 0..MAX_ANIMATIONS {
-            let mut slot = slots[i];
-            if !slot.active {
+    let slots = &STATE.slots;
+    for i in 0..MAX_ANIMATIONS {
+        let mut slot = slots[i].get();
+        if !slot.active {
+            continue;
+        }
+        // Burn the start delay first; a tick that crosses the boundary
+        // carries its remainder into the animation proper.
+        let mut step = ms;
+        if slot.delay_ms > 0 {
+            if slot.delay_ms > step {
+                slot.delay_ms -= step;
+                slots[i].set(slot);
                 continue;
             }
-            // Burn the start delay first; a tick that crosses the boundary
-            // carries its remainder into the animation proper.
-            let mut step = ms;
-            if slot.delay_ms > 0 {
-                if slot.delay_ms > step {
-                    slot.delay_ms -= step;
-                    slots[i] = slot;
-                    continue;
-                }
-                step -= slot.delay_ms;
-                slot.delay_ms = 0;
-            }
-            if slot.from_pending {
-                // The delay just expired: start from the value the view has
-                // *now*, and take over from any still-running animation of the
-                // same property (kept alive until here only to be superseded).
-                slot.from_pending = false;
-                let obj = handle_table::lookup(slot.handle);
-                if !obj.is_null() {
-                    slot.from = read_current(obj, slot.property);
-                }
-                for (j, other) in slots.iter_mut().enumerate() {
-                    if j != i
-                        && other.active
-                        && other.handle == slot.handle
-                        && other.property == slot.property
-                    {
-                        *other = EMPTY_ANIM;
-                    }
-                }
-            }
-            slot.elapsed_ms = slot.elapsed_ms.saturating_add(step);
-            let value = if slot.elapsed_ms >= slot.duration_ms {
-                slot.to
-            } else {
-                // Normalize progress to the 0..EASE_SCALE fixed-point fraction,
-                // apply the interpolator, then interpolate. All i64 to avoid
-                // overflow; the bounded fraction keeps the easing products small.
-                let t_den = slot.duration_ms.max(1) as i64;
-                let p = (slot.elapsed_ms as i64 * EASE_SCALE / t_den).min(EASE_SCALE);
-                let eased = ease(slot.interpolator, p);
-                let delta = (slot.to - slot.from) as i64;
-                slot.from + (delta * eased / EASE_SCALE) as i32
-            };
-            apply(slot.handle, slot.property, value);
-            if slot.elapsed_ms >= slot.duration_ms {
-                slot.active = false;
-                retired[retired_len] = slot.handle;
-                retired_len += 1;
-            }
-            slots[i] = slot;
+            step -= slot.delay_ms;
+            slot.delay_ms = 0;
         }
-        // Fire end actions for any handle whose last slot just retired.
-        for &h in &retired[..retired_len] {
-            maybe_fire_end_action(h);
+        if slot.from_pending {
+            // The delay just expired: start from the value the view has
+            // *now*, and take over from any still-running animation of the
+            // same property (kept alive until here only to be superseded).
+            slot.from_pending = false;
+            if let Some(obj) = handle_table::get(slot.handle) {
+                slot.from = read_current(obj, slot.property);
+            }
+            for (j, other) in slots.iter().enumerate() {
+                let o = other.get();
+                if j != i && o.active && o.handle == slot.handle && o.property == slot.property {
+                    other.set(EMPTY_ANIM);
+                }
+            }
         }
+        slot.elapsed_ms = slot.elapsed_ms.saturating_add(step);
+        let value = if slot.elapsed_ms >= slot.duration_ms {
+            slot.to
+        } else {
+            // Normalize progress to the 0..EASE_SCALE fixed-point fraction,
+            // apply the interpolator, then interpolate. All i64 to avoid
+            // overflow; the bounded fraction keeps the easing products small.
+            let t_den = slot.duration_ms.max(1) as i64;
+            let p = (slot.elapsed_ms as i64 * EASE_SCALE / t_den).min(EASE_SCALE);
+            let eased = ease(slot.interpolator, p);
+            let delta = (slot.to - slot.from) as i64;
+            slot.from + (delta * eased / EASE_SCALE) as i32
+        };
+        apply(slot.handle, slot.property, value);
+        if slot.elapsed_ms >= slot.duration_ms {
+            slot.active = false;
+            retired[retired_len] = slot.handle;
+            retired_len += 1;
+        }
+        slots[i].set(slot);
+    }
+    // Fire end actions for any handle whose last slot just retired.
+    for &h in &retired[..retired_len] {
+        maybe_fire_end_action(h);
     }
 }
 
 pub fn reset_animation_state() {
-    unsafe {
-        for slot in &mut ANIM_SLOTS[..] {
-            *slot = EMPTY_ANIM;
-        }
-        for entry in &mut END_ACTIONS[..] {
-            *entry = (0, 0);
-        }
-        COMPLETION_QUEUE.clear();
+    for slot in &STATE.slots {
+        slot.set(EMPTY_ANIM);
     }
+    for entry in &STATE.end_actions {
+        entry.set((0, 0));
+    }
+    STATE.completions.clear();
 }
 
 // ── Property setters ────────────────────────────────────────────────────────
 
 fn apply(handle: i32, property: i32, value: i32) {
-    let obj = handle_table::lookup(handle);
-    if obj.is_null() {
+    let Some(obj) = handle_table::get(handle) else {
         // The view was deleted out from under the animation — silently
-        // drop the rest of the slot via the elapsed-check in `tick` (the
-        // null obj means no LVGL FFI call). We don't proactively clear
-        // the slot here because handle_table::lookup is non-allocating
-        // and the slot will retire on its own deadline.
+        // drop the rest of the slot via the elapsed-check in `tick` (no
+        // object means no LVGL FFI call). We don't proactively clear the
+        // slot here because handle_table::get is non-allocating and the
+        // slot will retire on its own deadline.
         return;
-    }
-    unsafe { apply_to_obj(obj, property, value) }
+    };
+    apply_to_obj(obj, property, value)
 }
 
-unsafe fn apply_to_obj(obj: *mut lv_obj_t, property: i32, value: i32) {
+fn apply_to_obj(obj: Obj, property: i32, value: i32) {
     match property {
         PROPERTY_ALPHA => {
             let alpha = value.clamp(0, 255) as u8;
@@ -579,30 +567,25 @@ unsafe fn apply_to_obj(obj: *mut lv_obj_t, property: i32, value: i32) {
 /// same property keeps going and will overwrite this on its next frame —
 /// as on Android, where a setter during an animation is a one-frame blip.
 pub fn set_property(handle: i32, property: i32, value: f32) {
-    let obj = handle_table::lookup(handle);
-    if obj.is_null() {
+    let Some(obj) = handle_table::get(handle) else {
         return; // stale handle — mutating a destroyed View is a no-op
+    };
+    if is_transform(property) {
+        ensure_center_pivot(obj);
     }
-    unsafe {
-        if is_transform(property) {
-            ensure_center_pivot(obj);
-        }
-        apply_to_obj(obj, property, to_units(property, value));
-    }
+    apply_to_obj(obj, property, to_units(property, value));
 }
 
 /// The property's current value, Android units. A stale handle reports the
 /// property's identity (0, or 1.0 for alpha and scale).
 pub fn get_property(handle: i32, property: i32) -> f32 {
-    let obj = handle_table::lookup(handle);
-    let units = if obj.is_null() {
-        match property {
+    let units = match handle_table::get(handle) {
+        Some(obj) => read_current(obj, property),
+        None => match property {
             PROPERTY_ALPHA => 255,
             PROPERTY_SCALE_X | PROPERTY_SCALE_Y => LV_SCALE_NONE,
             _ => 0,
-        }
-    } else {
-        unsafe { read_current(obj, property) }
+        },
     };
     from_units(property, units)
 }

@@ -15,9 +15,10 @@ use crate::lvgl_ffi::*;
 
 use super::super::handle_table;
 use super::super::lifecycle;
-use super::super::listener_map::{warn_full, PtrMap, Upsert};
+use super::super::listener_map::PtrMap;
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
+use core::cell::Cell;
 
 const MAX_LAYOUTS: usize = 4;
 
@@ -38,52 +39,80 @@ const EMPTY: Slot = Slot {
     refreshing: false,
 };
 
-static mut SLOTS: [Slot; MAX_LAYOUTS] = [EMPTY; MAX_LAYOUTS];
-
 const QUEUE_SIZE: usize = 8;
-// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
-static QUEUE: Core0<LocalRing<usize, QUEUE_SIZE>> = unsafe { Core0::new(LocalRing::new(0)) };
 
 const MAX_LISTENERS: usize = MAX_LAYOUTS;
-// SAFETY: a listener registry, reached only from JVM tasks.
-static HANDLE_MAP: Core0<PtrMap<MAX_LISTENERS>> = unsafe { Core0::new(PtrMap::new()) };
 
-unsafe extern "C" fn map_delete_cb(e: *mut lv_event_t) {
-    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    HANDLE_MAP.remove(obj)
+struct State {
+    slots: [Cell<Slot>; MAX_LAYOUTS],
+    queue: LocalRing<usize, QUEUE_SIZE>,
+    handle_map: PtrMap<MAX_LISTENERS>,
 }
 
-unsafe extern "C" fn gesture_cb(e: *mut lv_event_t) {
-    let container = unsafe { lv_event_get_target_obj(e) } as usize;
-    unsafe {
-        let indev = lv_indev_active();
-        if indev.is_null() {
+// SAFETY: filled by natives and LVGL's gesture callback, drained by natives,
+// all on core-0 JVM tasks.
+static STATE: Core0<State> = unsafe {
+    Core0::new(State {
+        slots: [const { Cell::new(EMPTY) }; MAX_LAYOUTS],
+        queue: LocalRing::new(0),
+        handle_map: PtrMap::new(),
+    })
+};
+
+lv_event_cb! {
+    fn map_delete_cb(e) {
+        let obj = e.target().addr();
+        STATE.handle_map.remove(obj)
+    }
+}
+
+lv_event_cb! {
+    fn gesture_cb(e) {
+        let container = e.target().addr();
+        let Some(indev) = lv_indev_active() else {
             return;
-        }
+        };
         pull_down(container, lv_indev_get_gesture_dir(indev));
+    }
+}
+
+lv_event_cb! {
+    /// Release a layout's slot when its container is deleted, so the slot's
+    /// spinner address never outlives the spinner (the container's delete
+    /// runs before LVGL frees its children) and a recycled address is never
+    /// taken for a layout.
+    fn slot_delete_cb(e) {
+        let container = e.target().addr();
+        for slot in &STATE.slots {
+            if slot.get().container == container {
+                slot.set(EMPTY);
+            }
+        }
     }
 }
 
 /// Start a refresh on `container` for a pull-down. Only pull-down
 /// (LV_DIR_BOTTOM, finger moving downward) counts, and not while a refresh
 /// is already showing. Returns whether the gesture was taken.
-unsafe fn pull_down(container: usize, dir: lv_dir_t) -> bool {
+fn pull_down(container: usize, dir: lv_dir_t) -> bool {
     if dir & LV_DIR_BOTTOM == 0 {
         return false;
     }
-    unsafe {
-        for slot in &mut SLOTS[..] {
-            if slot.container == container {
-                if slot.refreshing {
-                    return false;
-                }
-                slot.refreshing = true;
-                if slot.spinner != 0 {
-                    lv_obj_remove_flag(slot.spinner as *mut lv_obj_t, LV_OBJ_FLAG_HIDDEN);
-                }
-                QUEUE.push(container);
-                return true;
+    for (i, slot) in STATE.slots.iter().enumerate() {
+        let s = slot.get();
+        if s.container == container {
+            if s.refreshing {
+                return false;
             }
+            slot.set(Slot {
+                refreshing: true,
+                ..s
+            });
+            if let Some(spinner) = spinner_of(i) {
+                lv_obj_remove_flag(spinner, LV_OBJ_FLAG_HIDDEN);
+            }
+            STATE.queue.push(container);
+            return true;
         }
     }
     false
@@ -93,23 +122,32 @@ unsafe fn pull_down(container: usize, dir: lv_dir_t) -> bool {
 /// descendant with its own swipe listener: a pull-down inside a
 /// SwipeRefreshLayout refreshes, and the child does not see it. Every other
 /// direction stays with the child. Returns whether a layout took it.
-pub(in crate::graphics) fn intercept(obj: *mut lv_obj_t, dir: lv_dir_t) -> bool {
-    unsafe {
-        let mut o = lv_obj_get_parent(obj);
-        while !o.is_null() {
-            if SLOTS[..].iter().any(|s| s.container == o as usize) {
-                return pull_down(o as usize, dir);
-            }
-            o = lv_obj_get_parent(o);
+pub(in crate::graphics) fn intercept(obj: Obj, dir: lv_dir_t) -> bool {
+    let mut o = lv_obj_get_parent(obj);
+    while let Some(p) = o {
+        if STATE.slots.iter().any(|s| s.get().container == p.addr()) {
+            return pull_down(p.addr(), dir);
         }
+        o = lv_obj_get_parent(p);
     }
     false
 }
 
+/// The spinner of layout slot `idx`.
+fn spinner_of(idx: usize) -> Option<Obj> {
+    let slot = STATE.slots[idx].get();
+    // SAFETY: a slot names the spinner `create` made under its container,
+    // from `register_layout` until `slot_delete_cb` clears it, which LVGL
+    // runs on the container's delete before it frees the container's
+    // children.
+    unsafe { Obj::from_raw(slot.spinner as *mut lv_obj_t) }
+}
+
 pub(in crate::graphics) fn create() -> i32 {
-    unsafe {
-        let scr = lifecycle::screen_ptr();
-        let container = lv_obj_create(scr);
+    let Some(container) = lifecycle::screen_ptr().and_then(|o| lv_obj_create(o)) else {
+        return 0;
+    };
+    {
         lv_obj_set_size(container, 240, 240);
         lv_obj_set_style_pad_left(container, 0, 0);
         lv_obj_set_style_pad_right(container, 0, 0);
@@ -125,102 +163,82 @@ pub(in crate::graphics) fn create() -> i32 {
         // Spinner overlay — pinned to the top center, hidden by default.
         // Shown while a refresh is in flight.
         let spinner = lv_spinner_create(container);
-        lv_spinner_set_anim_params(spinner, 1000, 60);
-        lv_obj_set_size(spinner, 32, 32);
-        lv_obj_set_pos(spinner, 104, 4);
-        lv_obj_add_flag(spinner, LV_OBJ_FLAG_HIDDEN);
+        if let Some(spinner) = spinner {
+            // SAFETY: `spinner` was just made by `lv_spinner_create`.
+            unsafe { lv_spinner_set_anim_params(spinner, 1000, 60) };
+            lv_obj_set_size(spinner, 32, 32);
+            lv_obj_set_pos(spinner, 104, 4);
+            lv_obj_add_flag(spinner, LV_OBJ_FLAG_HIDDEN);
+        }
 
         // Stop gestures here instead of passing them up to the screen
         // (LVGL sets GESTURE_BUBBLE on every child; see events/swipe.rs).
         lv_obj_remove_flag(container, LV_OBJ_FLAG_GESTURE_BUBBLE);
-        lv_obj_add_event_cb(
-            container,
-            Some(gesture_cb),
-            LV_EVENT_GESTURE,
-            core::ptr::null_mut(),
-        );
+        add_event_cb(container, gesture_cb, LV_EVENT_GESTURE);
+        add_event_cb(container, slot_delete_cb, LV_EVENT_DELETE);
 
-        register_layout(container as usize, spinner as usize);
+        register_layout(container.addr(), spinner.map_or(0, Obj::addr));
         handle_table::register(container)
     }
 }
 
 pub(in crate::graphics) fn set_refreshing(id: i32, refreshing: bool) {
-    let container = handle_table::lookup(id);
-    if container.is_null() {
+    let Some(container) = handle_table::get(id) else {
         return;
-    }
-    let container_ptr = container as usize;
-    unsafe {
-        for slot in &mut SLOTS[..] {
-            if slot.container == container_ptr {
-                slot.refreshing = refreshing;
-                if slot.spinner != 0 {
-                    let s = slot.spinner as *mut lv_obj_t;
-                    if refreshing {
-                        lv_obj_remove_flag(s, LV_OBJ_FLAG_HIDDEN);
-                    } else {
-                        lv_obj_add_flag(s, LV_OBJ_FLAG_HIDDEN);
-                    }
-                }
-                return;
+    };
+    let container_ptr = container.addr();
+    if let Some(idx) = STATE
+        .slots
+        .iter()
+        .position(|s| s.get().container == container_ptr)
+    {
+        let slot = &STATE.slots[idx];
+        slot.set(Slot {
+            refreshing,
+            ..slot.get()
+        });
+        if let Some(spinner) = spinner_of(idx) {
+            if refreshing {
+                lv_obj_remove_flag(spinner, LV_OBJ_FLAG_HIDDEN);
+            } else {
+                lv_obj_add_flag(spinner, LV_OBJ_FLAG_HIDDEN);
             }
         }
     }
 }
 
 pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
-    let raw_ptr = handle_table::lookup(id) as usize;
-    if raw_ptr == 0 {
-        return;
-    }
-    unsafe {
-        match HANDLE_MAP.upsert(raw_ptr, obj_ref) {
-            Upsert::Updated => {}
-            Upsert::Full => warn_full("swipe-refresh"),
-            Upsert::Inserted => {
-                // Unregister on widget delete so a recycled lv_obj address
-                // can't alias a dead widget's listener entry.
-                lv_obj_add_event_cb(
-                    raw_ptr as *mut lv_obj_t,
-                    Some(map_delete_cb),
-                    LV_EVENT_DELETE,
-                    core::ptr::null_mut(),
-                );
-            }
-        }
-    }
+    super::compound::register_listener_with_delete_hook(
+        &STATE.handle_map,
+        id,
+        obj_ref,
+        map_delete_cb,
+        "swipe-refresh",
+    );
 }
 
 pub fn drain_refresh_queue() -> Option<usize> {
-    QUEUE.pop()
+    STATE.queue.pop()
 }
 
 pub fn lookup_refresh_obj(handle: usize) -> Option<u16> {
-    HANDLE_MAP.lookup(handle)
+    STATE.handle_map.lookup(handle)
 }
 
 pub fn reset_swipe_refresh_state() {
-    unsafe {
-        for slot in &mut SLOTS[..] {
-            *slot = EMPTY;
-        }
-        HANDLE_MAP.reset();
-        QUEUE.clear();
+    for slot in &STATE.slots {
+        slot.set(EMPTY);
     }
+    STATE.handle_map.reset();
+    STATE.queue.clear();
 }
 
 fn register_layout(container: usize, spinner: usize) {
-    unsafe {
-        for slot in &mut SLOTS[..] {
-            if slot.container == 0 {
-                *slot = Slot {
-                    container,
-                    spinner,
-                    refreshing: false,
-                };
-                return;
-            }
-        }
+    if let Some(slot) = STATE.slots.iter().find(|s| s.get().container == 0) {
+        slot.set(Slot {
+            container,
+            spinner,
+            refreshing: false,
+        });
     }
 }

@@ -20,7 +20,7 @@ use crate::lvgl_ffi::*;
 
 use super::super::handle_table;
 use super::super::lifecycle;
-use super::super::listener_map::{warn_full, PtrMap, Upsert};
+use super::super::listener_map::PtrMap;
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
 
@@ -32,31 +32,42 @@ const FOCUS_HIGHLIGHT_RGB: u32 = 0x0026_A69A;
 // ── Item-click event queue (raw row `lv_obj_t*` pointers) ───────────────────
 
 const ITEM_CLICK_QUEUE_SIZE: usize = 16;
-// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
-static ITEM_CLICK_QUEUE: Core0<LocalRing<usize, ITEM_CLICK_QUEUE_SIZE>> =
-    unsafe { Core0::new(LocalRing::new(0)) };
+struct State {
+    item_click_queue: LocalRing<usize, ITEM_CLICK_QUEUE_SIZE>,
+    listener_map: PtrMap<MAX_LIST_LISTENERS>,
+}
+
+// SAFETY: filled by LVGL callbacks and by natives, drained by the framework
+// loop, all on core-0 JVM tasks.
+static STATE: Core0<State> = unsafe {
+    Core0::new(State {
+        item_click_queue: LocalRing::new(0),
+        listener_map: PtrMap::new(),
+    })
+};
 
 // ── ListView handle → Java object mapping (one entry per ListView) ──────────
 
 const MAX_LIST_LISTENERS: usize = 16;
-// SAFETY: a listener registry, reached only from JVM tasks.
-static LISTENER_MAP: Core0<PtrMap<MAX_LIST_LISTENERS>> = unsafe { Core0::new(PtrMap::new()) };
 
 // Keyed by the LIST object; its rows' trampolines die with the rows, and this
 // delete callback (attached at first registration) drops the map entry when
 // the list itself is deleted.
-unsafe extern "C" fn list_map_delete_cb(e: *mut lv_event_t) {
-    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    LISTENER_MAP.remove(obj)
+lv_event_cb! {
+    fn list_map_delete_cb(e) {
+        let obj = e.target().addr();
+        STATE.listener_map.remove(obj)
+    }
 }
 
-unsafe extern "C" fn row_click_cb(e: *mut lv_event_t) {
-    // The *current* target is the row the callback is registered on. An
-    // adapter's row may be a layout whose child bubbles the click up
-    // (LV_OBJ_FLAG_EVENT_BUBBLE); the original target would then be the
-    // child, which is no child of the list and would never resolve.
-    let row = unsafe { lv_event_get_current_target_obj(e) };
-    ITEM_CLICK_QUEUE.push(row as usize);
+lv_event_cb! {
+    fn row_click_cb(e) {
+        // The *current* target is the row the callback is registered on. An
+        // adapter's row may be a layout whose child bubbles the click up
+        // (LV_OBJ_FLAG_EVENT_BUBBLE); the original target would then be the
+        // child, which is no child of the list and would never resolve.
+        STATE.item_click_queue.push(e.current_target().addr());
+    }
 }
 
 /// Separator under each row (RGB888): the default theme's grey list divider.
@@ -69,51 +80,34 @@ const ROW_PAD: i32 = 10;
 /// the list's width, padded, separated, clickable, keypad-focusable in the
 /// Activity's group, highlighted when focused, and enqueueing the item click.
 pub(in crate::graphics) fn style_row(row_id: i32) {
-    let row = handle_table::lookup(row_id);
-    if row.is_null() {
+    let Some(row) = handle_table::get(row_id) else {
         return; // released between getView and here: nothing to style
-    }
-    // SAFETY: `row` is a live object the handle table just resolved, on the
-    // JVM task that owns LVGL; the style setters only write its style
-    // properties and flags.
-    unsafe {
-        lv_obj_set_width(row, lv_pct(100));
-        lv_obj_set_style_pad_all(row, ROW_PAD, LV_PART_MAIN);
-        lv_obj_set_style_border_width(row, 1, LV_PART_MAIN);
-        lv_obj_set_style_border_color(row, lv_color_hex(ROW_SEPARATOR_RGB), LV_PART_MAIN);
-        lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, LV_PART_MAIN);
-        // A label is not clickable by default; a layout is. Either way the
-        // row itself must take the click and the keypad focus.
-        lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_CLICK_FOCUSABLE);
-    }
+    };
+    lv_obj_set_width(row, lv_pct(100));
+    lv_obj_set_style_pad_all(row, ROW_PAD, LV_PART_MAIN);
+    lv_obj_set_style_border_width(row, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(row, lv_color_hex(ROW_SEPARATOR_RGB), LV_PART_MAIN);
+    lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, LV_PART_MAIN);
+    // A label is not clickable by default; a layout is. Either way the
+    // row itself must take the click and the keypad focus.
+    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_CLICK_FOCUSABLE);
     row_make_interactive(row);
 }
 
 /// The part of a row's setup shared by native text rows and adapter rows:
 /// focus-group membership, the click trampoline and the focus highlight.
-/// `row` must be a live, non-null `lv_obj_t` (both callers just created or
-/// resolved it).
-fn row_make_interactive(row: *mut lv_obj_t) {
-    // SAFETY: `row` is live and non-null (see above) and this runs on the
-    // JVM task that owns LVGL. The group pointer is checked before use, and
-    // the callback registered takes no user data.
-    unsafe {
+fn row_make_interactive(row: Obj) {
+    {
         // Make the row keypad-traversable: join the active Activity focus
         // group. Idempotent if `lv_list_add_button` already auto-joined it, and
         // a no-op when no group is active (non-button boards, or before the
         // first Activity launches), matching `events::set_view_focusable`.
-        let group = lv_group_get_default();
-        if !group.is_null() {
+        if let Some(group) = lv_group_get_default() {
             lv_group_add_obj(group, row);
         }
         // Every row is clickable; the trampoline enqueues the row pointer. The
         // drain side no-ops if the row's list has no registered item listener.
-        lv_obj_add_event_cb(
-            row,
-            Some(row_click_cb),
-            LV_EVENT_CLICKED,
-            core::ptr::null_mut(),
-        );
+        add_event_cb(row, row_click_cb, LV_EVENT_CLICKED);
         // Make the keypad-focus highlight unmistakable: the default theme's
         // focused style is too subtle on dark backgrounds, and a no-touch
         // 4-button device relies entirely on seeing which row ENTER will
@@ -130,23 +124,22 @@ fn row_make_interactive(row: *mut lv_obj_t) {
 }
 
 pub(in crate::graphics) fn create() -> i32 {
-    let ptr = unsafe { lv_list_create(lifecycle::screen_ptr()) };
+    let Some(list) = lifecycle::screen_ptr().and_then(|o| lv_list_create(o)) else {
+        return 0;
+    };
     // A list scrolls vertically too; whether a step may use the panel is
     // decided per step (hw_scroll.rs), and a themed list with its border
     // will be refused until an app strips it.
     #[cfg(hw_vscroll)]
-    super::super::hw_scroll::watch(ptr);
-    handle_table::register(ptr)
+    super::super::hw_scroll::watch(list);
+    handle_table::register(list)
 }
 
 pub(in crate::graphics) fn add_item(id: i32, text: &str) {
-    unsafe {
-        let list = handle_table::lookup(id);
-        if list.is_null() {
-            return; // stale handle — mutating a destroyed View is a no-op
-        }
-        let row =
-            super::text_view::with_cstr(text, |p| lv_list_add_button(list, core::ptr::null(), p));
+    let Some(list) = handle_table::get(id) else {
+        return; // stale handle — mutating a destroyed View is a no-op
+    };
+    if let Some(row) = super::text_view::with_cstr(text, |p| list_add_button(list, p)) {
         row_make_interactive(row);
     }
 }
@@ -155,30 +148,19 @@ pub(in crate::graphics) fn add_item(id: i32, text: &str) {
 /// as the item-click target for the list handle. Mirrors
 /// `spinner::register_listener` — update-in-place if already registered.
 pub(in crate::graphics) fn register_item_click_listener(id: i32, obj_ref: u16) {
-    let raw_obj = handle_table::lookup(id);
-    if raw_obj.is_null() {
-        return; // deleted/stale list: never hand LVGL a null, never map key 0
-    }
-    let raw_ptr = raw_obj as usize;
-    unsafe {
-        match LISTENER_MAP.upsert(raw_ptr, obj_ref) {
-            Upsert::Updated => {}
-            Upsert::Full => warn_full("list-item-click"),
-            Upsert::Inserted => {
-                lv_obj_add_event_cb(
-                    raw_ptr as *mut lv_obj_t,
-                    Some(list_map_delete_cb),
-                    LV_EVENT_DELETE,
-                    core::ptr::null_mut(),
-                );
-            }
-        }
-    }
+    // A deleted/stale list: never hand LVGL a null, never map key 0.
+    super::compound::register_listener_with_delete_hook(
+        &STATE.listener_map,
+        id,
+        obj_ref,
+        list_map_delete_cb,
+        "list-item-click",
+    );
 }
 
 /// Drain one item-click event (raw row `lv_obj_t*`) from the queue.
 pub fn drain_item_click_queue() -> Option<usize> {
-    ITEM_CLICK_QUEUE.pop()
+    STATE.item_click_queue.pop()
 }
 
 /// Resolve a clicked row pointer to `(Java ListView object ref, item position)`.
@@ -193,29 +175,30 @@ pub fn lookup_item_click(row: usize) -> Option<(u16, i32)> {
     // every list that still has a listener (those pointers are kept live by
     // list_map_delete_cb) and match the row by address — a freed row is
     // simply not found.
-    let row_obj = row as *mut lv_obj_t;
     let mut hit = None;
-    unsafe {
-        LISTENER_MAP.for_each(&mut |list, obj_ref| {
-            if hit.is_some() {
+    STATE.listener_map.for_each(&mut |list, obj_ref| {
+        if hit.is_some() {
+            return;
+        }
+        // SAFETY: a list is in the map from its first registration until
+        // `list_map_delete_cb`, which LVGL runs before it frees the object.
+        let Some(list) = (unsafe { Obj::from_raw(list as *mut lv_obj_t) }) else {
+            return;
+        };
+        let n = lv_obj_get_child_count(list) as i32;
+        for i in 0..n {
+            if lv_obj_get_child(list, i).map(Obj::addr) == Some(row) {
+                hit = Some((obj_ref, i));
                 return;
             }
-            let list = list as *mut lv_obj_t;
-            let n = lv_obj_get_child_count(list) as i32;
-            for i in 0..n {
-                if lv_obj_get_child(list, i) == row_obj {
-                    hit = Some((obj_ref, i));
-                    return;
-                }
-            }
-        });
-    }
+        }
+    });
     hit
 }
 
 pub fn reset_list_view_state() {
-    LISTENER_MAP.reset();
-    ITEM_CLICK_QUEUE.clear();
+    STATE.listener_map.reset();
+    STATE.item_click_queue.clear();
 }
 
 /// Visit the Java `ListView` object ref of every list registered for an
@@ -224,5 +207,5 @@ pub fn reset_list_view_state() {
 /// after which its item-clicks silently stop dispatching. See
 /// `widgets::button::visit_click_listener_roots`.
 pub fn visit_item_click_listener_roots(visit: &mut dyn FnMut(u16)) {
-    LISTENER_MAP.visit(visit)
+    STATE.listener_map.visit(visit)
 }

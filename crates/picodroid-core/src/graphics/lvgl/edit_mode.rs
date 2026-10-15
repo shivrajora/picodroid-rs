@@ -109,7 +109,7 @@ pub enum Transition {
     Exited(usize),
 }
 
-#[derive(Default)]
+#[derive(Default, Copy, Clone)]
 pub struct EditMode {
     /// Raw `lv_obj_t*` of the widget being edited; 0 = inactive.
     active_obj: usize,
