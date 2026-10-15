@@ -26,7 +26,7 @@ Two checks, both cheap. CI and the nightlies are the regression gates, not your 
    ```
 
    Confirm `[HelloWorld] Hello, World!` appears. Docs, example-app and script-only edits need
-   no smoke; every other app runs in CI's sim smoke or in the 2 AM sim nightly.
+   no smoke; every other app runs in CI's sim smoke or in the sim nightly.
 
 2. **Pre-commit.** `./scripts/pre-commit` must end with `==> All checks passed.` See
    [Pre-commit Hook](#pre-commit-hook).
@@ -83,9 +83,9 @@ API contract, both formatters, and a sim smoke in four parallel shards covering
 all three langsuites; its Building job also links one WiFi board in debug
 (`pico_display2_w`), the largest image of the fleet, and its Linting job runs on
 Java 21. `ci_light.yml` runs the same source guards, the markdown lint and
-the docs-site link check, docs-only commits included. The 2 AM `sim-run.sh` nightly runs the whole
+the docs-site link check, docs-only commits included. The 1 AM `scripts/nightly.sh` runs the fuzzers, then `sim-run.sh` over the whole
 `hil-tests.conf` matrix in both shrink modes — the `qa_*` apps, the diagnostics
-soaks and the binary-size ratchet — and the 4 AM `hil-fleet.sh` runs it on
+soaks and the binary-size ratchet — then `hil-fleet.sh` over it on
 every bench board. CI takes about 20 minutes; after a push, `gh run list --limit 3`
 shows it. Nightly results arrive by email and under `build/sim/results/` and
 `build/hil/results/`.

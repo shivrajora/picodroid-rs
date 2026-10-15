@@ -6,7 +6,7 @@ name: Rust Nightly Reference Build
 #
 # `fuzzing` builds the cargo-fuzz shims (nightly-only, so no other workflow
 # compiles them) and gives every target a minute from its committed seeds.
-# The real search is the bench's 1 AM scripts/fuzz.sh --nightly; this only
+# The real search is the bench's nightly fuzz stage (scripts/nightly.sh); this only
 # keeps fuzz/ from rotting where the bench machine cannot see it.
 on:
   schedule:

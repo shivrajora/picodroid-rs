@@ -165,9 +165,9 @@ layer:
 
 A full `--sim` run is the no-shrink half of the sim matrix without its soaks,
 on a slower instrumented binary. It hasn't been timed yet; expect tens of
-minutes. The 02:00 sim nightly runs until about 03:35, and the 04:00
-HIL fleet run builds firmware until about 08:30, so the suggested slot is
-after both:
+minutes. The 01:00 `nightly.sh` (fuzz, then sim, then the HIL fleet, back to
+back) runs until about 07:30, and later on a slow night, so the suggested
+slot is after it:
 
 ```cron
 30 9 * * * cd /home/shiv/projects/picodroid-rs && mkdir -p build/coverage && ./scripts/coverage.sh --sim --out build/coverage/nightly --history build/coverage/history.csv >> build/coverage/cron.log 2>&1

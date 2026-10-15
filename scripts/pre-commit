@@ -24,9 +24,9 @@
 # runs rp2040+rp2350 in debug and release, test.sh in
 # both shrink modes, every example APK and its API contract, both formatters,
 # the same source guards (scripts/check-source-guards.sh) and a 15-app sim
-# smoke that includes the three langsuites; the 2 AM sim-run.sh runs the whole
+# smoke that includes the three langsuites; the 1 AM nightly.sh runs fuzz.sh, then sim-run.sh over the whole
 # hil-tests.conf matrix (the qa_* apps, benchmark, blinky, the mem-diag /
-# sched-diag soaks, the size ratchet) and the 4 AM hil-fleet.sh runs it on
+# sched-diag soaks, the size ratchet), then hil-fleet.sh over it on
 # hardware. Pushing does not wait for --full: CI and the nightlies are the
 # regression gates.
 #
@@ -192,7 +192,7 @@ STAGES=(
   "clippy_sim_memdiag|host|full|rust|clippy (sim + mem-diag)"
   "clippy_sim_scheddiag|host|full|rust|clippy (sim + sched-diag)"
   # The libFuzzer shims build only on nightly; nothing else compiles them
-  # between the weekly rust_nightly.yml run and the 1 AM fuzz nightly.
+  # between the weekly rust_nightly.yml run and the nightly fuzz stage.
   "fuzz_build|host|full|rust|fuzz targets build (cargo-fuzz, nightly)"
 
   "clippy_rp2040|arm6|fast|rust|clippy (testbench_rp2040)"

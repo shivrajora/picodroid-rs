@@ -14,12 +14,12 @@
 #   ./scripts/fuzz.sh --target all --time 60         # every target in turn
 #   ./scripts/fuzz.sh --target papk --reproduce FILE # run one input (a crash) under the fuzz build
 #   ./scripts/fuzz.sh --build                        # build every target (the --full pre-commit stage)
-#   ./scripts/fuzz.sh --nightly                      # the 1 AM cron: pull, every target, mail
+#   ./scripts/fuzz.sh --nightly                      # the nightly stage: pull, every target, mail
 #
 # Options:
 #   --jobs N        libFuzzer worker processes per target (default: cores - 2)
-#   --budget MIN    --nightly's total fuzzing minutes, split by weight (default 45:
-#                   the 1 AM run must end before the 2 AM sim nightly)
+#   --budget MIN    --nightly's total fuzzing minutes, split by weight (default 45;
+#                   nightly.sh runs sim and HIL after it, so more delays them)
 #   --no-email      --nightly without the mail
 #   --no-pull       --nightly on the tree as it is
 #   --weekly        also run the Sunday chores: corpus minimization and the
@@ -283,7 +283,7 @@ if ! check_patches > "$RUN_LOG_DIR/fuzz-patches.log" 2>&1; then
 fi
 
 # Sunday's chores below take their time out of the fuzzing, so the run
-# still ends before the 2 AM sim nightly wants the machine.
+# still hands the machine to the sim stage on time.
 SUNDAY=false
 [[ "$WEEKLY" == true || "$(date +%u)" == 7 ]] && SUNDAY=true
 [[ "$SUNDAY" == true ]] && BUDGET=$(( BUDGET > 25 ? BUDGET - 15 : BUDGET ))

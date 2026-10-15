@@ -76,15 +76,19 @@ ASAN_OPTIONS=detect_leaks=0 gdb -batch -ex 'break alloc::alloc::handle_alloc_err
 
 ## Nightly
 
-The bench machine runs the whole set at 01:00:
+The bench machine runs the whole set at 01:00, as the first stage of
+`scripts/nightly.sh` (fuzz, then the sim matrix, then the HIL fleet, each
+starting when the previous one exits):
 
 ```text
-0 1 * * * cd /home/shiv/projects/picodroid-rs && mkdir -p build/fuzz && [ -x scripts/fuzz.sh ] && timeout -k 60 3500 ./scripts/fuzz.sh --nightly >> build/fuzz/cron.log 2>&1
+0 1 * * * cd /home/shiv/projects/picodroid-rs && mkdir -p build/nightly && ./scripts/nightly.sh >> build/nightly/cron.log 2>&1
 ```
 
+`nightly.sh` pulls main once and runs `fuzz.sh --nightly --no-pull` under a
+3500 s `timeout`; the fuzzer's own output goes to `build/fuzz/cron.log`.
 `--nightly` does the following:
 
-1. Pulls main.
+1. Pulls main (unless `--no-pull`).
 2. Runs the stable replay.
 3. Checks that `fuzz/Cargo.toml` restates the root's `[patch.crates-io]`.
 4. Fuzzes every target for its share of 45 minutes. The share is set by the
@@ -93,8 +97,8 @@ The bench machine runs the whole set at 01:00:
 5. Mails the result through `hil-email.py --suite fuzz`. Like the sim and
    HIL mails, it separates new failures from known ones.
 
-The run ends before the 02:00 sim nightly needs the machine. The `timeout`
-in the cron line is only a backstop.
+The sim stage starts when this one exits, so a bigger budget delays the sim
+and HIL results by the same amount. The `timeout` is only a backstop.
 
 On Sundays the run gives 15 of its minutes to two chores:
 

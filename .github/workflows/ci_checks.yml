@@ -240,7 +240,7 @@ jobs:
   # To re-enable: commit Cargo.lock, re-baseline (the recipe is in
   # bench/parity/ratchet.toml's header), uncomment below, and confirm CI's
   # numbers match. Until then the ratchet runs where the comparison is
-  # like-for-like: the 2 AM sim-run.sh nightly (its `size-ratchet` lane, on
+  # like-for-like: the nightly sim-run.sh stage (its `size-ratchet` lane, on
   # the bench machine's own lockfile) and `./scripts/pre-commit --full`
   # before a release cut.
   # size-ratchet:
@@ -371,7 +371,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       # Headless end-to-end runs of the self-checking suites, both shrink
       # modes (sim-run default). Full matrix stays on the nightly cron; this
-      # job closes the push -> 2 AM detection window for the JVM, GC-stress,
+      # job closes the push -> nightly detection window for the JVM, GC-stress,
       # stdlib (langsuite), widget-callback dispatch, <clinit>, prefs/storage
       # and heap-pressure paths, and (resdemo) the resource compiler, the
       # generated R and the layout inflater; https_get is the TLS client

@@ -37,6 +37,11 @@ and the repo's "3 AM" wording says 2 AM. The run should end around 03:35, before
 listeners start. The no-shrink 03:15 case stays open: watch the next nightlies for
 `already in use`. If it comes back, option 3 below is the general fix.
 
+**Sim/HIL collision closed for good 2026-10-15:** one 01:00 cron entry now runs
+`scripts/nightly.sh`, which starts `hil-fleet.sh` only after `sim-run.sh` has exited (and the
+sim only after the fuzz stage), so the fleet's listeners can no longer meet a sim row however
+long the sim runs.
+
 Fix options, cheapest first:
 
 1. Start the sim cron at 02:00 (`crontab -e`, plus the "3 AM" wording in `CLAUDE.md` and

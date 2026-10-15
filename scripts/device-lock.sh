@@ -2,7 +2,7 @@
 # Machine-wide lease on a dev board.
 #
 # One probe per board, several parallel sessions (Claude Code sessions in
-# worktrees, a terminal, the 4 AM hil-fleet cron). Whoever holds the lease may
+# worktrees, a terminal, the nightly hil-fleet run). Whoever holds the lease may
 # flash, power-cycle or talk pdb to that board; everyone else fails fast with
 # exit 75 or queues with `acquire --wait` and is handed the board in FIFO
 # order. Every device script calls lock-lib.sh::require_device_lock, which
