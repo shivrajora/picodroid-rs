@@ -35,7 +35,7 @@ pub use sysmon::{SysmonSample, SysmonSource, TaskSample, MAX_TASKS};
 
 use pdb_protocol::{
     crc32_frame, greeting, CMD_INPUT, CMD_INSTALL, CMD_PING, CMD_SYSMON, FRAME_MAGIC,
-    STATUS_CRC_FAIL, STATUS_ERR, STATUS_OK,
+    STATUS_CRC_FAIL, STATUS_ERR, STATUS_OK, STATUS_TOO_LARGE,
 };
 
 use crate::install::{CoreCoordinator, PapkFlash};
@@ -103,6 +103,22 @@ fn wait_for_magic(transport: &mut impl PdbTransport) -> bool {
     false
 }
 
+/// Answer `STATUS_TOO_LARGE` to a request whose `len` exceeds what its verb
+/// can carry, without reading the payload. `true` if refused.
+///
+/// The unread payload and CRC are then garbage to [`wait_for_magic`], which
+/// skips them on the way to the next frame; draining `len` bytes instead
+/// would block for as many bytes as a hostile `u32` names.
+fn refuse_oversized(transport: &mut impl PdbTransport, cmd: u8, len: u32) -> bool {
+    match pdb_protocol::max_request_payload(cmd) {
+        Some(max) if len > max => {
+            send_response(transport, STATUS_TOO_LARGE, b"payload too large");
+            true
+        }
+        _ => false,
+    }
+}
+
 fn handle_ping(transport: &mut impl PdbTransport, flash: &impl PapkFlash, len: u32) {
     // A framed command with an empty payload: consume the trailing CRC so the
     // stream stays aligned whether or not it matches.
@@ -167,6 +183,9 @@ pub fn run_pdb_task(
         }
         let cmd = transport.read_byte();
         let len = transport.read_u32_le();
+        if refuse_oversized(&mut transport, cmd, len) {
+            continue;
+        }
         match cmd {
             CMD_PING => handle_ping(&mut transport, &flash, len),
             CMD_INSTALL => {
@@ -245,6 +264,29 @@ mod tests {
         let mut p = MockPipe::new(alloc::vec![0u8; 8]);
         // Reads past the end yield zeros forever; the loop must still stop.
         assert!(!wait_for_magic(&mut p));
+    }
+
+    /// A `len` its verb cannot carry is answered before a byte of payload is
+    /// read: draining `u32::MAX` bytes would park the bridge indefinitely.
+    #[test]
+    fn an_oversized_len_is_refused_unread() {
+        let mut p = MockPipe::new(alloc::vec::Vec::new());
+        assert!(refuse_oversized(&mut p, CMD_INPUT, u32::MAX));
+        assert_eq!(p.pos, 0, "nothing read");
+        assert_eq!(&p.tx[..4], FRAME_MAGIC);
+        assert_eq!(p.tx[4], STATUS_TOO_LARGE);
+
+        let mut p = MockPipe::new(alloc::vec::Vec::new());
+        assert!(refuse_oversized(&mut p, CMD_PING, 1));
+        let max_input = pdb_protocol::input::MAX_INPUT_PAYLOAD as u32;
+        for (cmd, len) in [(CMD_PING, 0), (CMD_SYSMON, 0), (CMD_INPUT, max_input)] {
+            let mut p = MockPipe::new(alloc::vec::Vec::new());
+            assert!(!refuse_oversized(&mut p, cmd, len), "cmd {cmd} len {len}");
+            assert!(p.tx.is_empty());
+        }
+        // The install header's `len` is the PAPK size, bounded elsewhere.
+        let mut p = MockPipe::new(alloc::vec::Vec::new());
+        assert!(!refuse_oversized(&mut p, CMD_INSTALL, u32::MAX));
     }
 
     struct MockFlash;

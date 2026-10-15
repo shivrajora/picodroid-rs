@@ -75,6 +75,12 @@ pub fn recv_response(port: &mut dyn Read) -> io::Result<(u8, Vec<u8>)> {
     let mut len_buf = [0u8; 4];
     port.read_exact(&mut len_buf)?;
     let len = u32::from_le_bytes(len_buf) as usize;
+    if len > MAX_RESPONSE_PAYLOAD {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("response declares {len} bytes; the largest real one is a few KB"),
+        ));
+    }
 
     let mut payload = vec![0u8; len];
     port.read_exact(&mut payload)?;
@@ -205,6 +211,19 @@ mod tests {
         let mut raw = encode_response(STATUS_OK, b"");
         raw[0] = b'X'; // corrupt magic
         assert!(recv_response(&mut Cursor::new(raw)).is_err());
+    }
+
+    /// A garbled or hostile device must not be able to make the host
+    /// allocate whatever its `len` says: `u32::MAX` would abort the process.
+    #[test]
+    fn recv_response_refuses_a_length_no_response_has() {
+        let mut raw = encode_response(STATUS_OK, b"");
+        raw[5..9].copy_from_slice(&u32::MAX.to_le_bytes());
+        let err = recv_response(&mut Cursor::new(raw)).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+
+        let at_cap = encode_response(STATUS_OK, &vec![0u8; MAX_RESPONSE_PAYLOAD]);
+        assert!(recv_response(&mut Cursor::new(at_cap)).is_ok());
     }
 
     #[test]

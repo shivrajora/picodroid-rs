@@ -311,12 +311,12 @@ fn assets_section_absent_without_assets() {
 
 #[test]
 fn assets_section_iterates_records() {
-    // Two assets: a 2x2 RGB565 (cf=18) and a 1x1 single-byte (cf=99).
+    // Two assets: a 2x2 RGB565 (cf=18) and a 1x1 RGB888 (cf=15) row.
     let asset_a: &[u8] = &[0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80];
-    let asset_b: &[u8] = &[0xAB];
+    let asset_b: &[u8] = &[0xAB, 0xCD, 0xEF];
     let papk = build_papk_with_assets(&[
         ("logo.png", 2, 2, 18, 0, asset_a),
-        ("dot.png", 1, 1, 99, 1, asset_b),
+        ("dot.png", 1, 1, 15, 3, asset_b),
     ]);
     let p = parse_leaked(papk);
     let mut iter = p.assets().unwrap().expect("ASSETS section present");
@@ -331,8 +331,8 @@ fn assets_section_iterates_records() {
     assert_eq!(b.name, b"dot.png");
     assert_eq!(b.width, 1);
     assert_eq!(b.height, 1);
-    assert_eq!(b.cf, 99);
-    assert_eq!(b.stride, 1);
+    assert_eq!(b.cf, 15);
+    assert_eq!(b.stride, 3);
     assert_eq!(b.data, asset_b);
     assert!(iter.next().is_none());
 }
@@ -352,6 +352,32 @@ fn assets_data_is_4_byte_aligned_within_section() {
     let section = p.assets_section_data().unwrap().unwrap();
     let data_offset = (entry.data.as_ptr() as usize).wrapping_sub(section.as_ptr() as usize);
     assert_eq!(data_offset % 4, 0, "asset data must be 4-byte aligned");
+}
+
+/// LVGL reads `stride * height` bytes from an asset's pixels with nothing to
+/// bound it but this check: a record whose geometry outgrows its data, names
+/// a row narrower than its pixels, or a format whose size is unknown must
+/// end the iteration, and so fail `validate_structure`'s count.
+#[test]
+fn an_asset_whose_pixels_do_not_fit_its_geometry_is_refused() {
+    let px = [0u8; 8];
+    for (what, w, h, cf, stride, data) in [
+        ("taller than its data", 2u16, 3u16, 18u8, 0u16, &px[..]),
+        ("explicit stride overruns", 1, 2, 18, 8, &px[..]),
+        ("stride narrower than a row", 4, 1, 18, 2, &px[..]),
+        ("unknown colour format", 1, 1, 99, 1, &px[..]),
+        ("huge geometry", u16::MAX, u16::MAX, 16, 0, &px[..]),
+    ] {
+        let papk = build_papk_with_assets(&[("x.png", w, h, cf, stride, data)]);
+        let p = parse_leaked(papk.clone());
+        assert!(p.assets().unwrap().unwrap().next().is_none(), "{what}");
+        assert!(crate::validate_structure(&papk).is_err(), "{what}");
+    }
+    // The exact fit, both ways of saying the stride.
+    for stride in [0u16, 4] {
+        let papk = build_papk_with_assets(&[("x.png", 2, 2, 18, stride, &px[..])]);
+        assert!(crate::validate_structure(&papk).is_ok(), "stride {stride}");
+    }
 }
 
 #[test]

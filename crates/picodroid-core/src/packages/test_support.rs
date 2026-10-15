@@ -34,11 +34,13 @@ pub fn papk(package: &str, extra: usize) -> alloc::vec::Vec<u8> {
     });
     b.class("t/Main", &main);
     if extra > 0 {
+        // A 0x0 image: any filler length fits its geometry, which the
+        // reader checks (an asset's pixels must cover width x height).
         b.asset(AssetSpec {
             name: "pad",
-            width: 1,
-            height: 1,
-            cf: 0,
+            width: 0,
+            height: 0,
+            cf: 0x12,
             stride: 0,
             data: &filler,
         });

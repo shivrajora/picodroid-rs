@@ -1938,4 +1938,26 @@ mod color_format_guard {
              every packed image asset would render corrupted."
         );
     }
+
+    /// papk-format refuses an asset whose pixels do not fill its geometry,
+    /// which needs the bits per pixel of each format it accepts; this is
+    /// where those format bytes meet the vendored header.
+    #[test]
+    fn papk_formats_asset_table_matches_vendored_header() {
+        let close = LV_COLOR_HEADER
+            .find("} lv_color_format_t")
+            .expect("enum close");
+        let open = LV_COLOR_HEADER[..close]
+            .rfind("typedef enum")
+            .expect("enum open");
+        let body = &LV_COLOR_HEADER[open..close];
+        for (name, bpp) in [
+            ("LV_COLOR_FORMAT_RGB888", 24),
+            ("LV_COLOR_FORMAT_ARGB8888", 32),
+            ("LV_COLOR_FORMAT_RGB565", 16),
+        ] {
+            let cf = lookup_assigned_hex(body, name).expect(name) as u8;
+            assert_eq!(papk_format::asset_bits_per_pixel(cf), Some(bpp), "{name}");
+        }
+    }
 }

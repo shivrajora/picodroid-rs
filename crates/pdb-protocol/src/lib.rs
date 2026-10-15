@@ -116,6 +116,27 @@ pub const STATUS_NOT_FOUND: u8 = 0xFA;
 /// header + 16-byte section header + a typical manifest.
 pub const INSTALL_PEEK_BYTES: usize = 512;
 
+/// Largest payload a request may declare for `cmd`, or `None` where this
+/// crate sets no bound: [`CMD_INSTALL`], whose `len` is the PAPK size and is
+/// checked against the slot, and an unknown command, refused unread.
+///
+/// The device refuses a larger `len` before reading a byte of it. Every bound
+/// is tens of bytes, and draining a hostile `u32` instead would park the
+/// bridge on up to 4 GiB of blocking reads.
+pub fn max_request_payload(cmd: u8) -> Option<u32> {
+    match cmd {
+        CMD_PING | CMD_SYSMON | CMD_LIST => Some(0),
+        CMD_INPUT => Some(input::MAX_INPUT_PAYLOAD as u32),
+        CMD_UNINSTALL => Some(MAX_PACKAGE_NAME as u32),
+        _ => None,
+    }
+}
+
+/// Largest response payload the host accepts. The biggest real one is the
+/// `CMD_LIST` text, about a kilobyte; the cap only has to sit far above that
+/// and far below an allocation that a garbled `len` could make fatal.
+pub const MAX_RESPONSE_PAYLOAD: usize = 64 * 1024;
+
 /// CRC32 over `[cmd byte][4-byte len LE][payload]` — protects all variable
 /// fields of a request frame.
 ///

@@ -52,15 +52,13 @@ impl input_inject::InputSink for HalSink {
 }
 
 pub fn handle(transport: &mut impl PdbTransport, len: u32) {
-    // Drain the framed payload (bounded) + trailing CRC, keeping the byte
-    // stream in sync even if the payload is malformed or oversized.
+    // The payload + trailing CRC. `run_pdb_task` refused any `len` above
+    // MAX_INPUT_PAYLOAD before calling here; the `min` keeps this function
+    // safe on its own.
     let mut payload = [0u8; MAX_INPUT_PAYLOAD];
     let n = (len as usize).min(MAX_INPUT_PAYLOAD);
     for b in payload.iter_mut().take(n) {
         *b = transport.read_byte();
-    }
-    for _ in MAX_INPUT_PAYLOAD..len as usize {
-        let _ = transport.read_byte(); // discard overflow
     }
     let wire_crc = transport.read_u32_le();
 

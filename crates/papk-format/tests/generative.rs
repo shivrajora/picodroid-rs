@@ -106,15 +106,26 @@ fn gen_spec(rng: &mut XorShift, max_class_blob: usize, max_asset_data: usize) ->
     for _ in 0..rng.below(4) {
         let name_len = 1 + rng.below(24);
         let name = rng.ascii_string(name_len);
-        // Arbitrary (incl. odd) lengths to force padding paths.
-        let data_len = rng.below(max_asset_data + 1);
+        // A geometry the pixels fit (the reader refuses any other), at
+        // either stride spelling, plus arbitrary (incl. odd) slack to force
+        // the padding paths.
+        let (cf, bpp) = [(0x0F, 3), (0x10, 4), (0x12, 2)][rng.below(3)];
+        let width = 1 + rng.below(16);
+        let height = 1 + rng.below(16);
+        let row = width * bpp + if rng.below(2) == 0 { 0 } else { rng.below(8) };
+        let stride = if row == width * bpp && rng.below(2) == 0 {
+            0
+        } else {
+            row
+        };
+        let data_len = row * height + rng.below(max_asset_data + 1);
         let data = rng.bytes(data_len);
         assets.push(GenAsset {
             name,
-            width: 1 + rng.below(64) as u16,
-            height: 1 + rng.below(64) as u16,
-            cf: rng.next_u64() as u8,
-            stride: rng.next_u64() as u16,
+            width: width as u16,
+            height: height as u16,
+            cf,
+            stride: stride as u16,
             data,
         });
     }

@@ -124,7 +124,13 @@ fn parse_status_code(line: &[u8]) -> Result<i32, MalformedStatusLine> {
         .ok_or(MalformedStatusLine)?;
     let rest = &line[first_sp + 1..];
     let second_sp = rest.iter().position(|&b| b == b' ').unwrap_or(rest.len());
-    let code = parse_decimal(&rest[..second_sp]);
+    // Three digits (RFC 9110 §15). Anything longer used to saturate and then
+    // truncate through `as i32`: `4294967496` read as 200.
+    let digits = &rest[..second_sp];
+    if digits.len() != 3 {
+        return Err(MalformedStatusLine);
+    }
+    let code = parse_decimal(digits);
     if code < 0 {
         return Err(MalformedStatusLine);
     }
@@ -257,21 +263,20 @@ impl ChunkDecoder {
                     }
                     b';' => in_ext = true,
                     _ if in_ext => {}
-                    b'0'..=b'9' => {
-                        val = val.saturating_mul(16) + (b - b'0') as u64;
-                        seen_digit = true;
-                    }
-                    b'a'..=b'f' => {
-                        val = val.saturating_mul(16) + (b - b'a' + 10) as u64;
-                        seen_digit = true;
-                    }
-                    b'A'..=b'F' => {
-                        val = val.saturating_mul(16) + (b - b'A' + 10) as u64;
-                        seen_digit = true;
-                    }
                     _ => {
-                        self.state = Bad;
-                        return ChunkEvent::Bad;
+                        // A size past u64 is malformed, not "very large":
+                        // saturating then adding a digit overflowed (a
+                        // panic in a test build, a wrap to a small size on
+                        // the device). Found by the http_chunked fuzz target.
+                        let next = (b as char)
+                            .to_digit(16)
+                            .and_then(|d| val.checked_mul(16)?.checked_add(d as u64));
+                        let Some(next) = next else {
+                            self.state = Bad;
+                            return ChunkEvent::Bad;
+                        };
+                        val = next;
+                        seen_digit = true;
                     }
                 }
                 self.state = Size {
@@ -434,6 +439,16 @@ mod tests {
         assert_eq!(dechunk(b"zz\r\nWiki\r\n0\r\n\r\n"), Err("bad"));
         assert_eq!(dechunk(b"4\r\nWikiXX\r\n0\r\n\r\n"), Err("bad"));
         assert_eq!(dechunk(b"4\r\nWiki\r\n0\r\n"), Err("truncated"));
+        // Seventeen hex digits do not fit a u64; refused, not wrapped to 0
+        // (which would have read as the last chunk).
+        assert_eq!(
+            dechunk(b"10000000000000000\r\nWiki\r\n0\r\n\r\n"),
+            Err("bad")
+        );
+        assert_eq!(
+            dechunk(b"0000000000000000004\r\nWiki\r\n0\r\n\r\n"),
+            Ok(b"Wiki".to_vec())
+        );
     }
 
     const HEAD: &[u8] =
@@ -470,6 +485,10 @@ mod tests {
     fn malformed_status_line_is_rejected() {
         assert!(parse_head_bytes(b"NOT-HTTP\r\n\r\n").is_err());
         assert!(parse_head_bytes(b"HTTP/1.1 abc OK\r\n\r\n").is_err());
+        assert!(parse_head_bytes(b"HTTP/1.1 4294967496 OK\r\n\r\n").is_err());
+        assert!(parse_head_bytes(b"HTTP/1.1 20 OK\r\n\r\n").is_err());
+        assert!(parse_head_bytes(b"HTTP/1.1  200 OK\r\n\r\n").is_err());
+        assert_eq!(parse_head_bytes(b"HTTP/1.1 204\r\n\r\n"), Ok((204, -1)));
     }
 
     #[test]

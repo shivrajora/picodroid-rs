@@ -96,15 +96,13 @@ pub fn handle_uninstall(
     flash: &mut impl PapkFlash,
     len: u32,
 ) {
-    // Drain the framed payload (bounded) + trailing CRC, keeping the byte
-    // stream in sync even if the payload is malformed or oversized.
+    // The payload + trailing CRC. `run_pdb_task` refused any `len` above
+    // MAX_PACKAGE_NAME before calling here; the `min` keeps this function
+    // safe on its own.
     let mut name = [0u8; MAX_PACKAGE_NAME];
     let n = (len as usize).min(MAX_PACKAGE_NAME);
     for b in name.iter_mut().take(n) {
         *b = transport.read_byte();
-    }
-    for _ in MAX_PACKAGE_NAME..len as usize {
-        let _ = transport.read_byte();
     }
     let wire_crc = transport.read_u32_le();
     if wire_crc != crc32_frame(CMD_UNINSTALL, len, &name[..n]) {

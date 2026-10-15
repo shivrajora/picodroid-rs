@@ -800,12 +800,17 @@ impl<'a> Linked<'a> {
     }
 
     /// `max_stack` of method `m`; 0 for a method without bytecode.
+    ///
+    /// This and the two below read just before the bytecode. A validated
+    /// table puts it at least 8 bytes in; on any other, an offset under 8
+    /// wraps to one `be16`/`be32` refuses (a plain subtraction panicked in
+    /// a test build — the `papk` fuzz target).
     #[inline]
     pub fn method_max_stack(&self, m: &MethodInfo) -> u16 {
         if m.code_offset == 0 {
             return 0;
         }
-        be16(self.class, m.code_offset as usize - 8).unwrap_or(0)
+        be16(self.class, (m.code_offset as usize).wrapping_sub(8)).unwrap_or(0)
     }
 
     /// `max_locals` of method `m`; 0 for a method without bytecode.
@@ -814,7 +819,7 @@ impl<'a> Linked<'a> {
         if m.code_offset == 0 {
             return 0;
         }
-        be16(self.class, m.code_offset as usize - 6).unwrap_or(0)
+        be16(self.class, (m.code_offset as usize).wrapping_sub(6)).unwrap_or(0)
     }
 
     /// `code_length` of method `m`; 0 for a method without bytecode.
@@ -823,15 +828,16 @@ impl<'a> Linked<'a> {
         if m.code_offset == 0 {
             return 0;
         }
-        be32(self.class, m.code_offset as usize - 4).unwrap_or(0) as usize
+        be32(self.class, (m.code_offset as usize).wrapping_sub(4)).unwrap_or(0) as usize
     }
 
     /// The bytecode of method `m`; empty for a method without any.
     #[inline]
     pub fn method_code(&self, m: &MethodInfo) -> &'a [u8] {
         let start = m.code_offset as usize;
-        self.class
-            .get(start..start + self.method_code_len(m))
+        start
+            .checked_add(self.method_code_len(m))
+            .and_then(|end| self.class.get(start..end))
             .unwrap_or(&[])
     }
 

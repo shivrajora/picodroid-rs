@@ -446,6 +446,12 @@ impl<'a> AssetIter<'a> {
             return None;
         }
         let data = &self.data[self.pos..data_end];
+        // LVGL reads `stride * height` bytes from the pixel pointer and has
+        // no length of its own to check that against, so a record whose
+        // pixels do not fit its own geometry is malformed, not an image.
+        if !asset_pixels_fit(width, height, cf, stride, data.len()) {
+            return None;
+        }
         self.pos = data_end;
         // Pad up to a 4-byte boundary within the section before the next record.
         self.pos = self.pos.checked_add(3)? & !3;
@@ -459,6 +465,41 @@ impl<'a> AssetIter<'a> {
             data,
         })
     }
+}
+
+/// Bits per pixel of the LVGL colour formats (`lv_color_format_t`) an asset
+/// may use, or `None` for any other. papk-pack emits RGB565 only; the list is
+/// the formats LVGL's software renderer draws straight from flash, with no
+/// palette and no second alpha plane whose size this check would also need.
+pub fn asset_bits_per_pixel(cf: u8) -> Option<u32> {
+    match cf {
+        0x0F => Some(24), // LV_COLOR_FORMAT_RGB888
+        0x10 => Some(32), // LV_COLOR_FORMAT_ARGB8888
+        0x12 => Some(16), // LV_COLOR_FORMAT_RGB565
+        _ => None,
+    }
+}
+
+/// True when `data_len` bytes hold a `width` x `height` image of format `cf`
+/// at `stride` bytes per row (`0`: LVGL derives the tightest row, as
+/// `LV_DRAW_BUF_STRIDE_ALIGN` is 1).
+pub(crate) fn asset_pixels_fit(
+    width: u16,
+    height: u16,
+    cf: u8,
+    stride: u16,
+    data_len: usize,
+) -> bool {
+    let Some(bpp) = asset_bits_per_pixel(cf) else {
+        return false;
+    };
+    let min_row = (u32::from(width) * bpp).div_ceil(8);
+    let row = match stride {
+        0 => min_row,
+        s if u32::from(s) >= min_row => u32::from(s),
+        _ => return false,
+    };
+    row as usize * height as usize <= data_len
 }
 
 /// Iterator over key/value pairs in the MANIFEST section. Fused: `None`

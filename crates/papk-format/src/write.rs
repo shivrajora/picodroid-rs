@@ -83,10 +83,11 @@ pub struct AssetSpec<'a> {
     pub name: &'a str,
     pub width: u16,
     pub height: u16,
-    /// Opaque LVGL color-format byte (`lv_color_format_t`); papk-format does
-    /// NOT know LVGL — `LV_COLOR_FORMAT_RGB565` stays in papk-pack, `cf_label`
-    /// stays in papk-info (accepted duplication that can drift from vendored
-    /// LVGL; both keep their own drift guards).
+    /// LVGL color-format byte (`lv_color_format_t`). papk-format knows only
+    /// the bits per pixel of the few an asset may use
+    /// ([`crate::asset_bits_per_pixel`], drift-guarded against the vendored
+    /// header in papk-pack); `LV_COLOR_FORMAT_RGB565` stays in papk-pack and
+    /// `cf_label` in papk-info.
     pub cf: u8,
     /// Bytes per row; `0` = derive from `width` + `cf` (papk-pack always
     /// writes 0).
@@ -111,6 +112,10 @@ pub enum BuildError {
     /// not UTF-8, two classes with one name or one hash), or spells a name
     /// other than the one it was added under.
     Link(class_link::LinkError),
+    /// An asset's pixels do not fill its `width`, `height`, `stride` and
+    /// colour format, or the format is not one an asset may use
+    /// ([`crate::asset_bits_per_pixel`]). The reader would refuse it.
+    AssetGeometry,
 }
 
 impl core::fmt::Display for BuildError {
@@ -121,6 +126,7 @@ impl core::fmt::Display for BuildError {
             Self::TooManyEntries => "too many classes or assets for the u32 count field",
             Self::TooLarge => "section offset or length exceeds the u32 header fields",
             Self::Link(e) => return write!(f, "class section: {e}"),
+            Self::AssetGeometry => "asset pixels do not fit its size, stride and colour format",
         };
         f.write_str(s)
     }
@@ -330,6 +336,9 @@ impl<'a> PapkBuilder<'a> {
         let count = u32::try_from(self.assets.len()).map_err(|_| BuildError::TooManyEntries)?;
         data.extend_from_slice(&count.to_le_bytes());
         for a in &self.assets {
+            if !crate::asset_pixels_fit(a.width, a.height, a.cf, a.stride, a.data.len()) {
+                return Err(BuildError::AssetGeometry);
+            }
             push_bytes_u16(&mut data, a.name.as_bytes(), BuildError::NameTooLong)?;
             data.extend_from_slice(&a.width.to_le_bytes());
             data.extend_from_slice(&a.height.to_le_bytes());
@@ -725,6 +734,7 @@ mod tests {
             BuildError::TooManyEntries,
             BuildError::TooLarge,
             BuildError::Link(class_link::LinkError::Truncated),
+            BuildError::AssetGeometry,
         ] {
             assert!(!e.to_string().is_empty());
         }
