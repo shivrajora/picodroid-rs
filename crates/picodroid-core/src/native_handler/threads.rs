@@ -209,8 +209,15 @@ fn thread_start0(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError>
             // reserved it — `terminate(slot)` here wiped the new thread's
             // entry, and its interrupt(), join() and isAlive() then looked
             // up a Thread the registry no longer knew (threadparity and
-            // qa_thr, every nightly from 2026-09-26).
-            threads::terminate_by_obj(this);
+            // qa_thr, every nightly from 2026-09-26). Nor by object: once
+            // `exit0` dropped the entry, nothing roots `this`, a collection
+            // can sweep it and the sibling's new Thread take its id, and
+            // `terminate_by_obj(this)` wiped that entry instead — the
+            // sibling's only root, so it was swept before it ran
+            // (`OptionsMenu.run` NoSuchMethod in qa_life's ActD watcher,
+            // GC-stress nightly pass). By task: this task's own entry, if
+            // `exit0` has not already dropped it.
+            threads::terminate_current();
         }) as alloc::boxed::Box<dyn FnOnce() + Send>
     };
     let mut spawned = false;

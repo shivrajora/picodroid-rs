@@ -210,6 +210,21 @@ pub fn is_alive(obj: u16) -> bool {
 /// callers that may have already terminated once go through
 /// [`terminate_by_obj`] instead.
 pub fn terminate(slot: usize) {
+    terminate_where(|_| Some(slot));
+}
+
+/// [`terminate`] the calling task's own entry, if it still has one: a
+/// started thread's last act, after the interpreter returned. Its slot and
+/// its `Thread` object no longer name it by then — `exit0` may have freed
+/// both, for a sibling's `Thread.start` to reuse — but its task does.
+pub fn terminate_current() {
+    let me = rtos::task_current();
+    terminate_where(|t| slot_by_task(t, me));
+}
+
+/// The entry `find` picks, found and dropped in one atomic section, so no
+/// other task can free and refill the slot between the two.
+fn terminate_where(find: impl FnOnce(&Table) -> Option<usize>) {
     // Monitors are the calling task's own to give back (FreeRTOS refuses a
     // give from another task), so this is meaningful only on the normal
     // path; on the spawn-failure path the thread never ran and holds none.
@@ -218,6 +233,9 @@ pub fn terminate(slot: usize) {
     {
         let mut atomic = AtomicSection::enter();
         let t = TABLE.get(&mut atomic);
+        let Some(slot) = find(t) else {
+            return;
+        };
         if t.entries[slot].is_none() {
             return;
         }
@@ -591,6 +609,46 @@ mod tests {
         assert_eq!(roots(), vec![6]);
         terminate(slot);
         assert!(!is_alive(6));
+    }
+
+    #[test]
+    fn a_finished_threads_trailing_terminate_spares_a_sibling_with_its_old_id() {
+        let _g = serial();
+        // Thread 5 runs on its own task and finishes: `exit0` drops its
+        // entry, leaving its object unrooted …
+        let slot = reserve(5).unwrap();
+        let (go_tx, go_rx) = mpsc::channel::<()>();
+        let child = std::thread::spawn(move || {
+            bind_current(slot);
+            terminate_by_obj(5);
+            go_rx.recv().unwrap();
+            terminate_current();
+        });
+        wait_until(|| !is_alive(5));
+        // … a collection sweeps it, and a sibling's new Thread takes id 5
+        // and its slot before thread 5's task runs its trailing cleanup.
+        assert_eq!(reserve(5), Some(slot));
+        go_tx.send(()).unwrap();
+        child.join().unwrap();
+        assert!(
+            is_alive(5),
+            "thread 5's trailing terminate must not take the new thread 5's entry"
+        );
+        assert_eq!(roots(), vec![5]);
+    }
+
+    #[test]
+    fn terminate_current_drops_the_calling_tasks_entry() {
+        let _g = serial();
+        let slot = reserve(8).unwrap();
+        std::thread::spawn(move || {
+            bind_current(slot);
+            terminate_current();
+        })
+        .join()
+        .unwrap();
+        assert!(!is_alive(8));
+        assert!(roots().is_empty());
     }
 
     #[test]
