@@ -26,31 +26,21 @@ pub fn set_direction(pin: u8, direction: i32) {
         w.ie().clear_bit().od().clear_bit()
     });
 
-    p.SIO
-        .gpio_oe_set()
-        .write(|w| unsafe { w.bits(1u32 << pin) });
+    crate::hal::chip::periph::sio_oe_set(&p.SIO, 1u32 << pin);
 
     if direction == 1 {
-        p.SIO
-            .gpio_out_set()
-            .write(|w| unsafe { w.bits(1u32 << pin) });
+        crate::hal::chip::periph::sio_out_set(&p.SIO, 1u32 << pin);
     } else {
-        p.SIO
-            .gpio_out_clr()
-            .write(|w| unsafe { w.bits(1u32 << pin) });
+        crate::hal::chip::periph::sio_out_clr(&p.SIO, 1u32 << pin);
     }
 }
 
 pub fn set_value(pin: u8, high: bool) {
     let p = crate::hal::chip::periph::steal();
     if high {
-        p.SIO
-            .gpio_out_set()
-            .write(|w| unsafe { w.bits(1u32 << pin) });
+        crate::hal::chip::periph::sio_out_set(&p.SIO, 1u32 << pin);
     } else {
-        p.SIO
-            .gpio_out_clr()
-            .write(|w| unsafe { w.bits(1u32 << pin) });
+        crate::hal::chip::periph::sio_out_clr(&p.SIO, 1u32 << pin);
     }
 }
 
@@ -78,9 +68,7 @@ pub fn set_input(pin: u8, pull: Pull) {
     });
 
     // Disable output driver
-    p.SIO
-        .gpio_oe_clr()
-        .write(|w| unsafe { w.bits(1u32 << pin) });
+    crate::hal::chip::periph::sio_oe_clr(&p.SIO, 1u32 << pin);
 }
 
 pub fn read(pin: u8) -> bool {

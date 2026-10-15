@@ -449,9 +449,7 @@ pub extern "C" fn cyw43_spi_init(_self: *mut c_void) -> i32 {
 pub extern "C" fn cyw43_spi_deinit(_self: *mut c_void) {
     let p = steal();
     sm_set_enabled(&p, false);
-    p.SIO
-        .gpio_out_clr()
-        .write(|w| unsafe { w.bits(1u32 << PIN_WL_ON) });
+    crate::hal::chip::periph::sio_out_clr(&p.SIO, 1u32 << PIN_WL_ON);
 }
 
 /// SIO-controlled pins: REG_ON and CS outputs (CS deasserted high); the PIO
@@ -469,12 +467,8 @@ pub extern "C" fn cyw43_spi_gpio_setup() {
             w.schmitt().set_bit()
         });
     }
-    p.SIO
-        .gpio_out_set()
-        .write(|w| unsafe { w.bits(1u32 << PIN_WL_CS) }); // CS deasserted
-    p.SIO
-        .gpio_oe_set()
-        .write(|w| unsafe { w.bits((1u32 << PIN_WL_ON) | (1u32 << PIN_WL_CS)) });
+    crate::hal::chip::periph::sio_out_set(&p.SIO, 1u32 << PIN_WL_CS); // CS deasserted
+    crate::hal::chip::periph::sio_oe_set(&p.SIO, (1u32 << PIN_WL_ON) | (1u32 << PIN_WL_CS));
 
     pin_funcsel(&p, PIN_WL_D, FUNCSEL_PIO0);
     pin_funcsel(&p, PIN_WL_CLK, FUNCSEL_PIO0);
@@ -488,25 +482,15 @@ pub extern "C" fn cyw43_spi_reset() {
     let p = steal();
 
     pin_funcsel(&p, PIN_WL_D, FUNCSEL_SIO);
-    p.SIO
-        .gpio_out_clr()
-        .write(|w| unsafe { w.bits(1u32 << PIN_WL_D) });
-    p.SIO
-        .gpio_oe_set()
-        .write(|w| unsafe { w.bits(1u32 << PIN_WL_D) });
+    crate::hal::chip::periph::sio_out_clr(&p.SIO, 1u32 << PIN_WL_D);
+    crate::hal::chip::periph::sio_oe_set(&p.SIO, 1u32 << PIN_WL_D);
 
-    p.SIO
-        .gpio_out_clr()
-        .write(|w| unsafe { w.bits(1u32 << PIN_WL_ON) });
+    crate::hal::chip::periph::sio_out_clr(&p.SIO, 1u32 << PIN_WL_ON);
     unsafe { cyw43_delay_ms(20) };
-    p.SIO
-        .gpio_out_set()
-        .write(|w| unsafe { w.bits(1u32 << PIN_WL_ON) });
+    crate::hal::chip::periph::sio_out_set(&p.SIO, 1u32 << PIN_WL_ON);
     unsafe { cyw43_delay_ms(250) };
 
-    p.SIO
-        .gpio_oe_clr()
-        .write(|w| unsafe { w.bits(1u32 << PIN_WL_D) });
+    crate::hal::chip::periph::sio_oe_clr(&p.SIO, 1u32 << PIN_WL_D);
     pin_funcsel(&p, PIN_WL_D, FUNCSEL_PIO0);
 }
 
@@ -566,9 +550,7 @@ pub unsafe extern "C" fn cyw43_spi_transfer(
     pin_funcsel(&p, PIN_WL_CLK, FUNCSEL_PIO0);
 
     // CS low — frame start.
-    p.SIO
-        .gpio_out_clr()
-        .write(|w| unsafe { w.bits(1u32 << PIN_WL_CS) });
+    crate::hal::chip::periph::sio_out_clr(&p.SIO, 1u32 << PIN_WL_CS);
 
     sm_set_enabled(&p, false);
 
@@ -695,9 +677,7 @@ pub unsafe extern "C" fn cyw43_spi_transfer(
     sm_set_enabled(&p, false);
     sm_exec(&p, INSTR_SET_PINDIRS_IN);
     sm_exec(&p, INSTR_MOV_PINS_NULL);
-    p.SIO
-        .gpio_out_set()
-        .write(|w| unsafe { w.bits(1u32 << PIN_WL_CS) });
+    crate::hal::chip::periph::sio_out_set(&p.SIO, 1u32 << PIN_WL_CS);
     // spin-ok: ~100 ns, pico-sdk's IRQ_SAMPLE_DELAY_NS before host-wake is read
     for _ in 0..16 {
         core::hint::spin_loop();

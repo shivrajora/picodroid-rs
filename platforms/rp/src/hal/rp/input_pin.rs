@@ -45,9 +45,7 @@ impl RpInputPin {
         });
 
         // Disable output driver (input only)
-        p.SIO
-            .gpio_oe_clr()
-            .write(|w| unsafe { w.bits(1u32 << pin) });
+        crate::hal::chip::periph::sio_oe_clr(&p.SIO, 1u32 << pin);
 
         Self { pin }
     }
