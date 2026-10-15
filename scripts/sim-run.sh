@@ -8,6 +8,7 @@
 #   ./scripts/sim-run.sh                  # run all sim-compatible tests, send email report
 #   ./scripts/sim-run.sh --app helloworld # run one test only
 #   ./scripts/sim-run.sh --no-email       # skip email report
+#   ./scripts/sim-run.sh --coverage       # instrumented sim; scripts/coverage.sh --sim
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -31,6 +32,7 @@ PULL=true
 # default runtime behavior) and once with it. Override with --mode if you
 # want to inspect a single side.
 MODES=("no-shrink" "shrink")
+COVERAGE=false
 
 # ── Argument parsing ────────────────────────────────────────────────────────
 
@@ -39,6 +41,7 @@ while [[ $# -gt 0 ]]; do
     --app)        SPECIFIC_APP="$2"; shift 2 ;;
     --no-email)   SEND_EMAIL=false; shift ;;
     --no-pull)    PULL=false; shift ;;
+    --coverage)   COVERAGE=true; shift ;;
     --mode)
       case "$2" in
         no-shrink) MODES=("no-shrink") ;;
@@ -63,6 +66,12 @@ Options:
   --no-email              Skip sending the email report
   --no-pull               Run the working tree as it is (no git pull). What a
                           verification run wants; the nightly pulls.
+  --coverage              Build the sim instrumented (cargo-llvm-cov, dev
+                          profile, target/llvm-cov-target) and leave a
+                          .profraw per sim process there; no-shrink only, no
+                          soak/size lanes. Normally run by scripts/coverage.sh
+                          --sim, which owns the clean and the report
+                          (docs/coverage.md).
   -h, --help              Show this help message
 EOF
       exit 0
@@ -70,6 +79,50 @@ EOF
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
+
+# Where the sim binaries are built, and with which profile. Every lane runs
+# the binary at $SIM_TARGET_DIR/<host>/$SIM_PROFILE_DIR, so an exported
+# CARGO_TARGET_DIR moves the build and the run together. (Until 2026-10-14 the
+# run paths said target/ whatever CARGO_TARGET_DIR was, and a private one ran
+# a stale binary: FrameworkVersionMismatch on the no-shrink pass.)
+SIM_PROFILE_ARGS=(--release)
+SIM_PROFILE_DIR=release
+# Scales each conf row's timeout; an instrumented binary is slower.
+TIMEOUT_SCALE=1
+if [[ "$COVERAGE" == true ]]; then
+  if ! cargo llvm-cov --version > /dev/null 2>&1; then
+    echo "--coverage needs cargo-llvm-cov: see docs/coverage.md" >&2
+    exit 1
+  fi
+  export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$REPO_ROOT/target/llvm-cov-target}"
+  # RUSTC_WRAPPER and friends: instrument the workspace crates of every cargo
+  # build below (the sim, pdb, and the host tools the APK build runs).
+  eval "$(cargo llvm-cov show-env --sh 2> /dev/null)"
+  # Continuous mode (%c): the counters live in the mmap'd file itself, so a
+  # sim stopped by SIGTERM -- most rows, once their patterns match -- or by
+  # timeout or an abort still leaves its coverage. %m opens an existing file
+  # to merge instead of truncating it: the pdb lane's reboot re-execs the
+  # sim under the same pid, and without it the new image wiped the counters
+  # of the one it replaced.
+  # On ELF it needs runtime counter relocation, or the runtime refuses ("Neither
+  # __llvm_profile_counter_bias nor __llvm_profile_bitmap_bias is defined") and
+  # leaves an empty file. Through the target's config key, which cargo appends
+  # to .cargo/config.toml's host rustflags (aes_force_soft) rather than
+  # replacing them the way RUSTFLAGS would.
+  cov_triple="$(host_target)"
+  cov_triple="${cov_triple//-/_}"
+  export "CARGO_TARGET_${cov_triple^^}_RUSTFLAGS=-Cllvm-args=-runtime-counter-relocation"
+  export LLVM_PROFILE_FILE="$CARGO_TARGET_DIR/sim-%p-%m%c.profraw"
+  # The dev profile: `cargo llvm-cov report` reads one profile directory, and
+  # the unit-test layer's binaries are in debug/. No fat LTO to wait for.
+  SIM_PROFILE_ARGS=()
+  SIM_PROFILE_DIR=debug
+  TIMEOUT_SCALE="${PICODROID_SIM_TIMEOUT_SCALE:-2}"
+  # Shrinking renames Java names, not Rust paths: one mode covers the code.
+  MODES=("no-shrink")
+fi
+SIM_TARGET_DIR="${CARGO_TARGET_DIR:-$REPO_ROOT/target}"
+[[ "$SIM_TARGET_DIR" == /* ]] || SIM_TARGET_DIR="$PWD/$SIM_TARGET_DIR"
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -139,6 +192,7 @@ drive_test_ctrl() {
 run_test() {
   local app="$1" category="$2" timeout="$3" patterns="$4" mode="$5" board="${6:-testbench_rp2350}"
   local board_feature="board-${board//_/-}"
+  timeout=$((timeout * TIMEOUT_SCALE))
   local tag="${app}[${mode}]"
   local log_file="$RUN_LOG_DIR/${app}.${mode}.log"
   local build_log="$RUN_LOG_DIR/${app}.${mode}.build.log"
@@ -189,7 +243,7 @@ run_test() {
   tls_ca_env="$(tls_test_ca_env)"
   [[ -n "$tls_ca_env" ]] && cargo_env+=("$tls_ca_env")
   if ! env "${cargo_env[@]}" cargo build \
-    --release \
+    ${SIM_PROFILE_ARGS[@]+"${SIM_PROFILE_ARGS[@]}"} \
     --target "$HOST_TARGET" \
     --no-default-features \
     --features "sim,$board_feature,line-numbers" >> "$build_log" 2>&1; then
@@ -208,7 +262,7 @@ run_test() {
   # kernel and `Thread.start` with it (THR-01 closed, M7) — it is still passed
   # because the flag survives in the `cargo test` backing, where a spawn is
   # still refused. Both overridable from the environment.
-  local bin="$REPO_ROOT/target/$HOST_TARGET/release/picodroid"
+  local bin="$SIM_TARGET_DIR/$HOST_TARGET/$SIM_PROFILE_DIR/picodroid"
   #
   # `< /dev/null` is load-bearing. The caller feeds hil-tests.conf into the
   # `while read` loop's stdin, and a sim that reaches display init spawns a
@@ -332,7 +386,7 @@ run_enviro_smoke() {
   local -a cargo_env=(PICODROID_APK_PATH="sim-runtime")
   [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
   if ! env "${cargo_env[@]}" cargo build \
-    --release \
+    ${SIM_PROFILE_ARGS[@]+"${SIM_PROFILE_ARGS[@]}"} \
     --target "$HOST_TARGET" \
     --no-default-features \
     --features "sim,board-pico-enviro-mon,line-numbers" >> "$build_log" 2>&1; then
@@ -342,7 +396,7 @@ run_enviro_smoke() {
     return
   fi
 
-  local bin="$REPO_ROOT/target/$HOST_TARGET/release/picodroid"
+  local bin="$SIM_TARGET_DIR/$HOST_TARGET/$SIM_PROFILE_DIR/picodroid"
   PICODROID_APK_PATH="$apk_path" \
     PICODROID_SIM_HEADLESS=1 \
     PICODROID_HANDLE_SANITIZER="${PICODROID_HANDLE_SANITIZER:-1}" \
@@ -419,7 +473,7 @@ run_launcher_smoke() {
   local -a cargo_env=(PICODROID_APK_PATH="sim-runtime")
   [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
   if ! env "${cargo_env[@]}" cargo build \
-    --release \
+    ${SIM_PROFILE_ARGS[@]+"${SIM_PROFILE_ARGS[@]}"} \
     --target "$HOST_TARGET" \
     --no-default-features \
     --features "sim,${board_feature},line-numbers" >> "$build_log" 2>&1; then
@@ -429,7 +483,7 @@ run_launcher_smoke() {
     return
   fi
 
-  local bin="$REPO_ROOT/target/$HOST_TARGET/release/picodroid"
+  local bin="$SIM_TARGET_DIR/$HOST_TARGET/$SIM_PROFILE_DIR/picodroid"
   local fifo="$RUN_LOG_DIR/${lane}.${mode}.fifo"
   rm -f "$fifo"
   mkfifo "$fifo"
@@ -542,7 +596,7 @@ run_pdb_smoke() {
   local -a cargo_env=(PICODROID_APK_PATH="sim-runtime")
   [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
   if ! env "${cargo_env[@]}" cargo build \
-    --release \
+    ${SIM_PROFILE_ARGS[@]+"${SIM_PROFILE_ARGS[@]}"} \
     --target "$HOST_TARGET" \
     --no-default-features \
     --features "sim,board-testbench-rp2350,line-numbers" >> "$build_log" 2>&1; then
@@ -551,7 +605,7 @@ run_pdb_smoke() {
     ERROR=$((ERROR + 1))
     return
   fi
-  if ! cargo build --release --target "$HOST_TARGET" \
+  if ! cargo build ${SIM_PROFILE_ARGS[@]+"${SIM_PROFILE_ARGS[@]}"} --target "$HOST_TARGET" \
     --manifest-path "$REPO_ROOT/tools/pdb/Cargo.toml" >> "$build_log" 2>&1; then
     sim_log "  BUILD FAILED (pdb)"
     echo "ERROR $tag (pdb build failed)" >> "$RESULTS_FILE"
@@ -559,8 +613,8 @@ run_pdb_smoke() {
     return
   fi
 
-  local bin="$REPO_ROOT/target/$HOST_TARGET/release/picodroid"
-  local pdb="$REPO_ROOT/target/$HOST_TARGET/release/pdb"
+  local bin="$SIM_TARGET_DIR/$HOST_TARGET/$SIM_PROFILE_DIR/picodroid"
+  local pdb="$SIM_TARGET_DIR/$HOST_TARGET/$SIM_PROFILE_DIR/pdb"
   # A short socket path (Unix sockets cap the path at ~100 bytes) of this
   # lane's own, so a developer's simulator on the same host is never picked.
   local sockdir
@@ -682,7 +736,7 @@ run_alarm_smoke() {
   local -a cargo_env=(PICODROID_APK_PATH="sim-runtime")
   [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
   if ! env "${cargo_env[@]}" cargo build \
-    --release \
+    ${SIM_PROFILE_ARGS[@]+"${SIM_PROFILE_ARGS[@]}"} \
     --target "$HOST_TARGET" \
     --no-default-features \
     --features "sim,board-testbench-rp2350,line-numbers" >> "$build_log" 2>&1; then
@@ -692,7 +746,7 @@ run_alarm_smoke() {
     return
   fi
 
-  local bin="$REPO_ROOT/target/$HOST_TARGET/release/picodroid"
+  local bin="$SIM_TARGET_DIR/$HOST_TARGET/$SIM_PROFILE_DIR/picodroid"
   local fifo="$RUN_LOG_DIR/${lane}.${mode}.fifo"
   rm -f "$fifo"
   mkfifo "$fifo"
@@ -784,7 +838,7 @@ run_settings_smoke() {
   local -a cargo_env=(PICODROID_APK_PATH="sim-runtime")
   [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
   if ! env "${cargo_env[@]}" cargo build \
-    --release \
+    ${SIM_PROFILE_ARGS[@]+"${SIM_PROFILE_ARGS[@]}"} \
     --target "$HOST_TARGET" \
     --no-default-features \
     --features "sim,board-testbench-rp2350,line-numbers" >> "$build_log" 2>&1; then
@@ -794,7 +848,7 @@ run_settings_smoke() {
     return
   fi
 
-  local bin="$REPO_ROOT/target/$HOST_TARGET/release/picodroid"
+  local bin="$SIM_TARGET_DIR/$HOST_TARGET/$SIM_PROFILE_DIR/picodroid"
   local fifo="$RUN_LOG_DIR/${lane}.${mode}.fifo"
   rm -f "$fifo"
   mkfifo "$fifo"
@@ -933,7 +987,7 @@ run_settings_wifi_smoke() {
   local -a cargo_env=(PICODROID_APK_PATH="sim-runtime")
   [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
   if ! env "${cargo_env[@]}" cargo build \
-    --release \
+    ${SIM_PROFILE_ARGS[@]+"${SIM_PROFILE_ARGS[@]}"} \
     --target "$HOST_TARGET" \
     --no-default-features \
     --features "sim,${feature},line-numbers" >> "$build_log" 2>&1; then
@@ -943,7 +997,7 @@ run_settings_wifi_smoke() {
     return
   fi
 
-  local bin="$REPO_ROOT/target/$HOST_TARGET/release/picodroid"
+  local bin="$SIM_TARGET_DIR/$HOST_TARGET/$SIM_PROFILE_DIR/picodroid"
   local fifo="$RUN_LOG_DIR/${lane}.${mode}.fifo"
   rm -f "$fifo" "$fs_image"
   mkfifo "$fifo"
@@ -1072,7 +1126,7 @@ run_enviro_w_smoke() {
   local -a cargo_env=(PICODROID_APK_PATH="sim-runtime")
   [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
   if ! env "${cargo_env[@]}" cargo build \
-    --release \
+    ${SIM_PROFILE_ARGS[@]+"${SIM_PROFILE_ARGS[@]}"} \
     --target "$HOST_TARGET" \
     --no-default-features \
     --features "sim,board-pico-enviro-mon-w,line-numbers" >> "$build_log" 2>&1; then
@@ -1082,7 +1136,7 @@ run_enviro_w_smoke() {
     return
   fi
 
-  local bin="$REPO_ROOT/target/$HOST_TARGET/release/picodroid"
+  local bin="$SIM_TARGET_DIR/$HOST_TARGET/$SIM_PROFILE_DIR/picodroid"
   PICODROID_APK_PATH="$apk_path" \
     PICODROID_SIM_HEADLESS=1 \
     PICODROID_HANDLE_SANITIZER="${PICODROID_HANDLE_SANITIZER:-1}" \
@@ -1193,7 +1247,7 @@ for MODE in "${MODES[@]}"; do
   # Heap pressure tests (sim-based; bundled here so they run on every sim cycle
   # instead of slowing down pre-commit). Also mode-varied to catch any shrink
   # regressions in the allocator path.
-  if [[ -z "$SPECIFIC_APP" ]]; then
+  if [[ -z "$SPECIFIC_APP" && "$COVERAGE" == false ]]; then
     TOTAL=$((TOTAL + 1))
     sim_log "--- [$TOTAL] heap-pressure[$MODE] ---"
     heap_log="$RUN_LOG_DIR/heap-pressure.${MODE}.log"
@@ -1214,7 +1268,7 @@ for MODE in "${MODES[@]}"; do
   # Memory-diagnostics soak (docs/memory-diagnostics.md): strict growth
   # sentinel + offensive checks + detector self-test. Shrink-invariant, so
   # one pass per cycle is enough.
-  if [[ -z "$SPECIFIC_APP" && "$MODE" != "shrink" ]]; then
+  if [[ -z "$SPECIFIC_APP" && "$MODE" != "shrink" && "$COVERAGE" == false ]]; then
     TOTAL=$((TOTAL + 1))
     sim_log "--- [$TOTAL] mem-diag soak ---"
     memdiag_log="$RUN_LOG_DIR/mem-diag.log"
@@ -1233,7 +1287,7 @@ for MODE in "${MODES[@]}"; do
   # Scheduling-diagnostics soak (docs/scheduling-diagnostics.md): strict
   # monitor over the tick loop, Java threads and the clock app, plus the
   # detector self-test. Shrink-invariant like mem-diag: once per cycle.
-  if [[ -z "$SPECIFIC_APP" && "$MODE" != "shrink" ]]; then
+  if [[ -z "$SPECIFIC_APP" && "$MODE" != "shrink" && "$COVERAGE" == false ]]; then
     TOTAL=$((TOTAL + 1))
     sim_log "--- [$TOTAL] sched-diag soak ---"
     scheddiag_log="$RUN_LOG_DIR/sched-diag.log"
@@ -1256,7 +1310,7 @@ for MODE in "${MODES[@]}"; do
   # no tree change. This machine's lockfile is the one the baseline was cut
   # with. The ratchet measures the no-shrink image: once per cycle.
   # `--app size-ratchet` reaches only this.
-  if [[ ( -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "size-ratchet" ) && "$MODE" != "shrink" ]]; then
+  if [[ ( -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "size-ratchet" ) && "$MODE" != "shrink" && "$COVERAGE" == false ]]; then
     TOTAL=$((TOTAL + 1))
     sim_log "--- [$TOTAL] size-ratchet ---"
     size_dir="$RUN_LOG_DIR/size"

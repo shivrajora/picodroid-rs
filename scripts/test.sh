@@ -7,7 +7,18 @@
 # `src/dispatch_sites.rs::every_site_resolves_under_active_shrink_map` under
 # both maps, the regression guard for the shrink-breaks-callbacks bug fixed
 # in eba57c3.
+#
+# --coverage runs the same two passes instrumented (`cargo llvm-cov
+# --no-report`), accumulating one profile set across both shrink modes, and
+# leaves the report to scripts/coverage.sh (docs/coverage.md).
 set -euo pipefail
+
+COVERAGE=0
+case "${1:-}" in
+  --coverage) COVERAGE=1 ;;
+  "") ;;
+  *) echo "usage: $0 [--coverage]" >&2; exit 2 ;;
+esac
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib.sh
@@ -25,19 +36,31 @@ HOST_TARGET="$(host_target)"
 # Override it here rather than in Cargo.toml: [profile.dev] and [profile.release]
 # feed flashed images -- release is what bench/parity/ratchet.toml is baselined
 # against, dev is what the 896K debug flash gate measures -- so a profile edit
-# there would move the image. --config on a host-target `cargo test` cannot
-# reach either. (The device C is sized separately: `c_opt_level` in the MCU
+# there would move the image. A [profile.test] override on a host `cargo test`
+# reaches neither. (The device C is sized separately: `c_opt_level` in the MCU
 # toml -- see the note above [profile.dev] in Cargo.toml.)
 #
 # PICODROID_TEST_FAST=0 reproduces the stock profile exactly.
-TEST_PROFILE_ARGS=()
+#
+# As CARGO_PROFILE_* variables rather than --config: `cargo llvm-cov` takes no
+# --config, and both runners must build the same profile.
+TEST_PROFILE_ENV=()
 if [[ "${PICODROID_TEST_FAST:-1}" == "1" ]]; then
-  TEST_PROFILE_ARGS=(
-    --config profile.test.codegen-units=16
-    --config profile.test.incremental=true
-    --config profile.test.opt-level=2
+  TEST_PROFILE_ENV=(
+    CARGO_PROFILE_TEST_CODEGEN_UNITS=16
+    CARGO_PROFILE_TEST_INCREMENTAL=true
+    CARGO_PROFILE_TEST_OPT_LEVEL=2
   )
 fi
+
+# The test runner: plain cargo test, or the instrumented one. cargo llvm-cov
+# builds into target/llvm-cov-target, so a coverage run never invalidates the
+# plain build in target/.
+CARGO_TEST=(cargo test)
+# --no-report never cleans: profiles accumulate across both passes, and
+# across whatever else coverage.sh runs before its one report. coverage.sh
+# owns the `cargo llvm-cov clean`.
+[[ "$COVERAGE" == "1" ]] && CARGO_TEST=(cargo llvm-cov --no-report)
 
 # The dispatch_sites test needs FRAMEWORK_CLASSES embedded, which requires
 # PICODROID_APK_PATH at build.rs time. Build helloworld once and reuse it
@@ -54,10 +77,9 @@ if [[ ! -f "$APK_PATH" ]]; then
 fi
 
 echo "==> Running tests (no-shrink)..."
-PICODROID_APK_PATH="$APK_PATH" \
-  cargo test --workspace --jobs "$JOBS" --target "$HOST_TARGET" \
-    --features "$LINE_NUMBER_FEATURES" \
-  "${TEST_PROFILE_ARGS[@]}"
+env ${TEST_PROFILE_ENV[@]+"${TEST_PROFILE_ENV[@]}"} PICODROID_APK_PATH="$APK_PATH" \
+  "${CARGO_TEST[@]}" --workspace --jobs "$JOBS" --target "$HOST_TARGET" \
+    --features "$LINE_NUMBER_FEATURES"
 
 # Re-build the APK under the active shrink map so the embedded framework
 # classes match what PICODROID_SHRINK=1 expects.
@@ -72,7 +94,7 @@ echo "==> Building helloworld APK (shrink)..."
 bash "$REPO_ROOT/scripts/build-apk.sh" --app helloworld --shrink -o "$SHRINK_APK_PATH"
 
 echo "==> Running tests (shrink)..."
-PICODROID_APK_PATH="$SHRINK_APK_PATH" PICODROID_SHRINK=1 \
-  cargo test --workspace --jobs "$JOBS" --target "$HOST_TARGET" \
-    --features "$LINE_NUMBER_FEATURES" \
-  "${TEST_PROFILE_ARGS[@]}"
+env ${TEST_PROFILE_ENV[@]+"${TEST_PROFILE_ENV[@]}"} \
+  PICODROID_APK_PATH="$SHRINK_APK_PATH" PICODROID_SHRINK=1 \
+  "${CARGO_TEST[@]}" --workspace --jobs "$JOBS" --target "$HOST_TARGET" \
+    --features "$LINE_NUMBER_FEATURES"
