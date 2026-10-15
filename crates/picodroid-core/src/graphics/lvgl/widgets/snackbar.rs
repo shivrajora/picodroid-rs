@@ -109,18 +109,20 @@ static STATE: Core0<State> = unsafe {
 
 // ── LVGL trampoline ─────────────────────────────────────────────────────────
 
-unsafe extern "C" fn action_click_cb(e: *mut lv_event_t) {
-    let btn = unsafe { lv_event_get_target_obj(e) } as usize;
-    let bar_handle = STATE
-        .action_map
-        .iter()
-        .map(Cell::get)
-        .find(|entry| entry.button_handle == btn)
-        .map_or(0, |entry| entry.bar_handle);
-    if bar_handle == 0 {
-        return;
+lv_event_cb! {
+    fn action_click_cb(e) {
+        let btn = e.target().addr();
+        let bar_handle = STATE
+            .action_map
+            .iter()
+            .map(Cell::get)
+            .find(|entry| entry.button_handle == btn)
+            .map_or(0, |entry| entry.bar_handle);
+        if bar_handle == 0 {
+            return;
+        }
+        STATE.click_queue.push(bar_handle);
     }
-    STATE.click_queue.push(bar_handle);
 }
 
 // ── LVGL ops ────────────────────────────────────────────────────────────────
@@ -140,13 +142,13 @@ fn bar_box(w: i32) -> (i32, i32, i32) {
 /// and stays hidden until [`show`] is called. Returns the Java-side
 /// `nativeHandle`.
 pub(in crate::graphics) fn create(text: &str, duration: i32) -> i32 {
-    let layer = lifecycle::overlay_layer();
-    // SAFETY: the top layer is a live LVGL object for the display's lifetime.
-    let bar = unsafe { lv_obj_create(layer) };
+    let Some(bar) = lifecycle::overlay_layer().and_then(|o| lv_obj_create(o)) else {
+        return 0;
+    };
     let (win_w, _) = lifecycle::window_size();
     let (width, x, bottom_gap) = bar_box(win_w);
 
-    unsafe {
+    {
         // Hidden until show() — avoids a one-frame flash before the typical
         // `Snackbar.make(...).show()` sequence completes.
         lv_obj_add_flag(bar, LV_OBJ_FLAG_HIDDEN);
@@ -181,17 +183,21 @@ pub(in crate::graphics) fn create(text: &str, duration: i32) -> i32 {
             LV_FLEX_ALIGN_CENTER,
         );
 
-        let label = lv_label_create(bar);
-        super::text_view::with_cstr(text, |p| lv_label_set_text(label, p));
-        lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
-        // The width left beside the action, wrapping onto further lines;
-        // the action keeps its own width at the end of the row.
-        lv_obj_set_flex_grow(label, 1);
-        lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_WRAP);
+        if let Some(label) = lv_label_create(bar) {
+            // SAFETY: `label` was just made by `lv_label_create`; the text
+            // is NUL-terminated and LVGL copies it.
+            super::text_view::with_cstr(text, |p| unsafe { lv_label_set_text(label, p.as_ptr()) });
+            lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
+            // The width left beside the action, wrapping onto further lines;
+            // the action keeps its own width at the end of the row.
+            lv_obj_set_flex_grow(label, 1);
+            // SAFETY: `label` was just made by `lv_label_create`.
+            unsafe { lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_WRAP) };
+        }
     }
 
     let indefinite = duration == DURATION_INDEFINITE;
-    register_pending(bar as usize, duration_to_ms(duration), indefinite);
+    register_pending(bar.addr(), duration_to_ms(duration), indefinite);
     handle_table::register(bar)
 }
 
@@ -199,63 +205,61 @@ pub(in crate::graphics) fn create(text: &str, duration: i32) -> i32 {
 /// call replaces the prior label and re-registers the click trampoline so
 /// the listener target stays current.
 pub(in crate::graphics) fn set_action(id: i32, label_text: &str) {
-    let bar = handle_table::lookup(id);
-    if bar.is_null() {
+    let Some(bar) = handle_table::get(id) else {
         return;
-    }
-    let bar_ptr = bar as usize;
+    };
+    let bar_ptr = bar.addr();
 
     // Drop any prior action button for this bar before adding a new one.
     // This keeps `set_action` safely idempotent even though the Java side
     // currently calls it at most once.
     remove_action_for(bar_ptr);
 
-    unsafe {
-        let btn = lv_button_create(bar);
-        lv_obj_set_size(btn, 70, 32);
-        let lbl = lv_label_create(btn);
-        super::text_view::with_cstr(label_text, |p| lv_label_set_text(lbl, p));
+    let Some(btn) = lv_button_create(bar) else {
+        return;
+    };
+    lv_obj_set_size(btn, 70, 32);
+    if let Some(lbl) = lv_label_create(btn) {
+        // SAFETY: `lbl` was just made by `lv_label_create`; the text is
+        // NUL-terminated and LVGL copies it.
+        super::text_view::with_cstr(label_text, |p| unsafe {
+            lv_label_set_text(lbl, p.as_ptr())
+        });
         lv_obj_center(lbl);
-        lv_obj_add_event_cb(
-            btn,
-            Some(action_click_cb),
-            LV_EVENT_CLICKED,
-            core::ptr::null_mut(),
-        );
-        register_action(btn as usize, bar_ptr);
     }
+    add_event_cb(btn, action_click_cb, LV_EVENT_CLICKED);
+    register_action(btn.addr(), bar_ptr);
 }
 
 /// Reveal the snackbar and arm its auto-dismiss timer (no-op for
 /// LENGTH_INDEFINITE).
 pub(in crate::graphics) fn show(id: i32) {
-    let bar = handle_table::lookup(id);
-    if bar.is_null() {
+    let Some(bar) = handle_table::get(id) else {
         return;
-    }
-    unsafe { lv_obj_remove_flag(bar, LV_OBJ_FLAG_HIDDEN) };
-    arm(bar as usize);
+    };
+    lv_obj_remove_flag(bar, LV_OBJ_FLAG_HIDDEN);
+    arm(bar.addr());
 }
 
 /// Hide and delete the snackbar immediately. Detaches all bookkeeping
 /// (slot, action map, obj map) before deletion so the LVGL tree teardown
 /// can't dangle a click record into a freed handle.
 pub(in crate::graphics) fn dismiss(id: i32) {
-    let bar = handle_table::lookup(id);
-    if bar.is_null() {
+    let Some(bar) = handle_table::get(id) else {
         return;
-    }
-    let bar_ptr = bar as usize;
-    unregister(bar_ptr);
-    super::super::view_ops::delete_obj(bar);
+    };
+    unregister(bar.addr());
+    // SAFETY: `bar` is not used after, its bookkeeping is gone, and the
+    // handle goes stale through its delete hook.
+    unsafe { super::super::view_ops::delete_obj(bar) };
 }
 
 /// Record a Java `Snackbar` ObjectRef as the action-click target for `id`.
 pub(in crate::graphics) fn register_action_click_listener(id: i32, obj_ref: u16) {
-    let bar_ptr = handle_table::lookup(id) as usize;
-    if bar_ptr == 0 {
+    let Some(bar) = handle_table::get(id) else {
         return;
-    }
+    };
+    let bar_ptr = bar.addr();
     for entry in &STATE.obj_map {
         let (bar, _) = entry.get();
         if bar == bar_ptr || bar == 0 {
@@ -283,7 +287,14 @@ pub fn tick(ms: u32) {
             // — same rationale as `dismiss`.
             detach_action_for(bar_ptr);
             detach_obj_for(bar_ptr);
-            super::super::view_ops::delete_obj(bar_ptr as *mut lv_obj_t);
+            // SAFETY: a slot holds a bar from `create` until `dismiss` or
+            // this tick takes it out, and nothing else deletes a bar: it
+            // lives on the top layer, which nothing cleans. Its bookkeeping
+            // is gone, and the handle goes stale through its delete hook.
+            if let Some(bar) = unsafe { Obj::from_raw(bar_ptr as *mut lv_obj_t) } {
+                // SAFETY: as above; no other copy of `bar` is used after.
+                unsafe { super::super::view_ops::delete_obj(bar) };
+            }
         }
     }
 }
@@ -371,8 +382,12 @@ fn remove_action_for(bar_ptr: usize) {
         let entry = slot.get();
         if entry.bar_handle == bar_ptr {
             slot.set(EMPTY_ACTION);
-            let btn = entry.button_handle as *mut lv_obj_t;
-            if !btn.is_null() {
+            // SAFETY: an action button is in the map from `set_action` until
+            // its bar's bookkeeping goes (`unregister`, the tick) — before
+            // the bar, and the button with it, is deleted — or this call
+            // deletes it, its entry already cleared. No handle names it.
+            if let Some(btn) = unsafe { Obj::from_raw(entry.button_handle as *mut lv_obj_t) } {
+                // SAFETY: as above; nothing uses `btn` after.
                 unsafe { lv_obj_delete(btn) };
             }
         }

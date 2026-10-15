@@ -48,7 +48,7 @@ const CAL_TARGETS: [(i32, i32); 4] = [
 /// No-op in sim mode (no touch hardware).
 #[cfg(not(feature = "sim"))]
 pub fn calibrate() {
-    unsafe { calibrate_inner() }
+    calibrate_inner()
 }
 
 #[cfg(feature = "sim")]
@@ -69,52 +69,78 @@ fn stopped() -> bool {
     crate::host::stop_requested()
 }
 
+/// A label under `parent` showing `text`.
 #[cfg(not(feature = "sim"))]
-unsafe fn calibrate_inner() {
-    let scr = lifecycle::screen_ptr();
+fn add_label(parent: Obj, text: &core::ffi::CStr) -> Option<Obj> {
+    let label = lv_label_create(parent)?;
+    // SAFETY: `label` was just made by `lv_label_create`; the text is
+    // NUL-terminated and LVGL copies it.
+    unsafe { lv_label_set_text(label, text.as_ptr()) };
+    Some(label)
+}
 
-    let instr = lv_label_create(scr);
-    lv_label_set_text(instr, c"Touch each + target".as_ptr());
-    lv_obj_set_pos(instr, 60, 10);
+/// Empty the screen again: the calibration's own labels are its only
+/// children (it runs before an app has built anything).
+#[cfg(not(feature = "sim"))]
+fn clear(scr: Obj) {
+    // SAFETY: the labels this module made are the screen's children and are
+    // not used after; nothing else holds an `Obj` for them.
+    unsafe { lv_obj_clean(scr) };
+}
 
-    let cross = lv_label_create(scr);
-    lv_label_set_text(cross, c"+".as_ptr());
+#[cfg(not(feature = "sim"))]
+fn calibrate_inner() {
+    let Some(scr) = lifecycle::screen_ptr() else {
+        return;
+    };
 
+    if let Some(instr) = add_label(scr, c"Touch each + target") {
+        lv_obj_set_pos(instr, 60, 10);
+    }
+    let cross = add_label(scr, c"+");
     let step_lbl = lv_label_create(scr);
 
     let mut raw_pts: [(u16, u16); 4] = [(0, 0); 4];
 
     for (i, &(tx, ty)) in CAL_TARGETS.iter().enumerate() {
         if stopped() {
-            lv_obj_clean(scr);
+            clear(scr);
             return;
         }
 
-        let mut buf = [0u8; 16];
-        buf[0] = b'1' + i as u8;
-        buf[1..6].copy_from_slice(b" / 4\0");
-        lv_label_set_text(step_lbl, buf.as_ptr() as *const _);
-        lv_obj_set_pos(step_lbl, 130, 110);
+        if let Some(step_lbl) = step_lbl {
+            let mut buf = [0u8; 16];
+            buf[0] = b'1' + i as u8;
+            buf[1..6].copy_from_slice(b" / 4\0");
+            // SAFETY: `step_lbl` was made by `lv_label_create`; `buf` is
+            // NUL-terminated and LVGL copies it.
+            unsafe { lv_label_set_text(step_lbl, buf.as_ptr() as *const _) };
+            lv_obj_set_pos(step_lbl, 130, 110);
+        }
 
-        lv_obj_set_pos(cross, tx - GLYPH_HALF_W, ty - GLYPH_HALF_H);
+        if let Some(cross) = cross {
+            lv_obj_set_pos(cross, tx - GLYPH_HALF_W, ty - GLYPH_HALF_H);
+        }
         lifecycle::tick(crate::executors::tick_source::step_ms());
 
         wait_for_release();
         raw_pts[i] = wait_for_debounced_touch();
 
         // Brief visual feedback
-        lv_obj_set_pos(cross, -50, -50);
+        if let Some(cross) = cross {
+            lv_obj_set_pos(cross, -50, -50);
+        }
         lifecycle::tick(crate::executors::tick_source::step_ms());
         hal::system_clock::sleep(200);
     }
 
     if stopped() {
-        lv_obj_clean(scr);
+        clear(scr);
         return;
     }
     apply_calibration(&raw_pts);
 
-    lv_obj_clean(scr);
+    clear(scr);
     lifecycle::tick(crate::executors::tick_source::step_ms());
 }
 

@@ -79,13 +79,13 @@ fn toast_box(w: i32, h: i32) -> (i32, i32, i32, i32) {
 /// on the overlay layer so it survives a `setContentView` and stays put
 /// while a screen pans.
 pub(in crate::graphics) fn create(text: &str, duration: i32) -> i32 {
-    let layer = lifecycle::overlay_layer();
-    // SAFETY: the top layer is a live LVGL object for the display's lifetime.
-    let toast = unsafe { lv_obj_create(layer) };
+    let Some(toast) = lifecycle::overlay_layer().and_then(|o| lv_obj_create(o)) else {
+        return 0;
+    };
     let (win_w, win_h) = lifecycle::window_size();
     let (width, height, x, y) = toast_box(win_w, win_h);
 
-    unsafe {
+    {
         // Hidden until show() — avoids a one-frame flash before the caller
         // calls show() in the typical `Toast.makeText(...).show()` pattern.
         lv_obj_add_flag(toast, LV_OBJ_FLAG_HIDDEN);
@@ -100,33 +100,37 @@ pub(in crate::graphics) fn create(text: &str, duration: i32) -> i32 {
         lv_obj_set_size(toast, width, height);
         lv_obj_set_pos(toast, x, y);
 
-        let label = lv_label_create(toast);
-        super::text_view::with_cstr(text, |p| lv_label_set_text(label, p));
-        lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_center(label);
+        if let Some(label) = lv_label_create(toast) {
+            // SAFETY: `label` was just made by `lv_label_create`; the text is
+            // NUL-terminated and LVGL copies it.
+            super::text_view::with_cstr(text, |p| unsafe { lv_label_set_text(label, p.as_ptr()) });
+            lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
+            lv_obj_center(label);
+        }
     }
 
-    register_pending(toast as usize, duration_to_ms(duration));
+    register_pending(toast.addr(), duration_to_ms(duration));
     handle_table::register(toast)
 }
 
 /// Reveal the toast and schedule its auto-dismiss.
 pub(in crate::graphics) fn show(id: i32) {
-    let toast = handle_table::lookup(id);
-    if toast.is_null() {
+    let Some(toast) = handle_table::get(id) else {
         return;
-    }
-    unsafe { lv_obj_remove_flag(toast, LV_OBJ_FLAG_HIDDEN) };
-    arm(toast as usize);
+    };
+    lv_obj_remove_flag(toast, LV_OBJ_FLAG_HIDDEN);
+    arm(toast.addr());
 }
 
 /// Hide and delete the toast immediately.
 pub(in crate::graphics) fn cancel(id: i32) {
-    let toast = handle_table::lookup(id);
-    if toast.is_null() {
+    let Some(toast) = handle_table::get(id) else {
         return;
-    }
-    unregister(toast as usize);
+    };
+    unregister(toast.addr());
+    // SAFETY: `toast` is not used after, its slot is gone, and the Java
+    // `Toast` that held the handle is the one cancelling; the handle goes
+    // stale through its delete hook.
     unsafe { lv_obj_delete(toast) };
 }
 
@@ -134,16 +138,11 @@ pub(in crate::graphics) fn cancel(id: i32) {
 /// (already showing) toast keeps its original deadline — the new duration
 /// applies if `show()` arms it again, matching the Java-side javadoc.
 pub(in crate::graphics) fn set_duration(id: i32, duration: i32) {
-    let toast = handle_table::lookup(id);
-    if toast.is_null() {
+    let Some(toast) = handle_table::get(id) else {
         return;
-    }
+    };
     let ms = duration_to_ms(duration);
-    if let Some(slot) = STATE
-        .slots
-        .iter()
-        .find(|s| s.get().handle == toast as usize)
-    {
+    if let Some(slot) = STATE.slots.iter().find(|s| s.get().handle == toast.addr()) {
         slot.set(ToastSlot {
             duration_ms: ms,
             ..slot.get()
@@ -164,7 +163,15 @@ pub fn tick(ms: u32) {
         }
         if now >= s.expire_at_ms {
             slot.set(EMPTY_SLOT);
-            super::super::view_ops::delete_obj(s.handle as *mut lv_obj_t);
+            // SAFETY: a slot holds a toast from `create` until `cancel` or
+            // this tick takes it out, and nothing else deletes a toast: it
+            // lives on the top layer, which nothing cleans. The slot is
+            // cleared first, and the handle goes stale through its delete
+            // hook.
+            if let Some(toast) = unsafe { Obj::from_raw(s.handle as *mut lv_obj_t) } {
+                // SAFETY: as above; no other copy of `toast` is used after.
+                unsafe { super::super::view_ops::delete_obj(toast) };
+            }
         }
     }
 }

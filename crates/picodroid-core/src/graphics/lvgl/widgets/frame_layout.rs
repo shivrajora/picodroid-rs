@@ -17,17 +17,16 @@ use super::super::lifecycle;
 /// (`setPadding`, a `GradientDrawable`, flex flow) apply on top as before. Until 2026-09-24 every
 /// container drew the theme's 2 px border, rounded corners and card fill, which every app then
 /// stripped by hand.
-pub(in crate::graphics::lvgl::widgets) fn make_flat(o: *mut lv_obj_t) {
-    unsafe { lv_obj_remove_style(o, core::ptr::null(), LV_PART_ANY | LV_STATE_ANY) };
+pub(in crate::graphics::lvgl::widgets) fn make_flat(o: Obj) {
+    remove_styles(o, LV_PART_ANY | LV_STATE_ANY);
 }
 
 pub(in crate::graphics) fn create() -> i32 {
-    let ptr = unsafe {
-        let o = lv_obj_create(lifecycle::screen_ptr());
-        make_flat(o);
-        // Android FrameLayout never scrolls — use ScrollView for that.
-        lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
-        o
+    let Some(o) = lifecycle::screen_ptr().and_then(|o| lv_obj_create(o)) else {
+        return 0;
     };
-    handle_table::register(ptr)
+    make_flat(o);
+    // Android FrameLayout never scrolls — use ScrollView for that.
+    lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+    handle_table::register(o)
 }

@@ -163,24 +163,26 @@ fn is_transform(property: i32) -> bool {
 
 /// A numeric style property of `obj`'s main part. Unset props come back as
 /// LVGL's defaults: opa 255, scale `LV_SCALE_NONE`, translate / rotation 0.
-unsafe fn style_num(obj: *const lv_obj_t, prop: lv_style_prop_t) -> i32 {
-    lv_obj_get_style_prop(obj, LV_PART_MAIN, prop).num
+/// Callers pass only numeric properties (opa, translate, transform).
+fn style_num(obj: Obj, prop: lv_style_prop_t) -> i32 {
+    let v = lv_obj_get_style_prop(obj, LV_PART_MAIN, prop);
+    // SAFETY: every `prop` this module reads is numeric, and LVGL returns a
+    // numeric property in `num`, the field it wrote.
+    unsafe { v.num }
 }
 
 /// The view's translation (x, y) in pixels. LVGL folds `translate_*` into
 /// the laid-out coords, so the geometry reader (`view_ops::frame`) subtracts
 /// this to report Android's translation-free `getLeft` / `getTop`.
-pub(super) fn translation_of(obj: *const lv_obj_t) -> (i32, i32) {
-    unsafe {
-        (
-            style_num(obj, LV_STYLE_TRANSLATE_X),
-            style_num(obj, LV_STYLE_TRANSLATE_Y),
-        )
-    }
+pub(super) fn translation_of(obj: Obj) -> (i32, i32) {
+    (
+        style_num(obj, LV_STYLE_TRANSLATE_X),
+        style_num(obj, LV_STYLE_TRANSLATE_Y),
+    )
 }
 
 /// The property's current value in LVGL units — the implicit `from`.
-unsafe fn read_current(obj: *mut lv_obj_t, property: i32) -> i32 {
+fn read_current(obj: Obj, property: i32) -> i32 {
     match property {
         PROPERTY_ALPHA => style_num(obj, LV_STYLE_OPA),
         PROPERTY_X => {
@@ -203,7 +205,7 @@ unsafe fn read_current(obj: *mut lv_obj_t, property: i32) -> i32 {
 
 /// Android rotates and scales about the view's centre; LVGL's default pivot
 /// is the top-left corner. Set on every transform start — cheap, idempotent.
-unsafe fn ensure_center_pivot(obj: *mut lv_obj_t) {
+fn ensure_center_pivot(obj: Obj) {
     let half = lv_pct(50);
     lv_obj_set_style_transform_pivot_x(obj, half, 0);
     lv_obj_set_style_transform_pivot_y(obj, half, 0);
@@ -276,41 +278,38 @@ pub fn start_to(
     delay_ms: u32,
     interpolator: i32,
 ) {
-    let obj = handle_table::lookup(handle);
-    if obj.is_null() {
+    let Some(obj) = handle_table::get(handle) else {
         return; // stale handle — nothing to animate
-    }
+    };
     let to = to_units(property, to);
-    unsafe {
-        if is_transform(property) {
-            ensure_center_pivot(obj);
-        }
-        if duration_ms == 0 && delay_ms == 0 {
-            apply_to_obj(obj, property, to);
-            return;
-        }
-        let from_pending = delay_ms > 0;
-        let from = if from_pending {
-            0
-        } else {
-            read_current(obj, property)
-        };
-        insert_slot(
-            AnimSlot {
-                handle,
-                property,
-                from,
-                to,
-                duration_ms,
-                elapsed_ms: 0,
-                delay_ms,
-                interpolator,
-                from_pending,
-                active: true,
-            },
-            !from_pending,
-        );
+    if is_transform(property) {
+        ensure_center_pivot(obj);
     }
+    if duration_ms == 0 && delay_ms == 0 {
+        apply_to_obj(obj, property, to);
+        return;
+    }
+    let from_pending = delay_ms > 0;
+    let from = if from_pending {
+        0
+    } else {
+        read_current(obj, property)
+    };
+    insert_slot(
+        AnimSlot {
+            handle,
+            property,
+            from,
+            to,
+            duration_ms,
+            elapsed_ms: 0,
+            delay_ms,
+            interpolator,
+            from_pending,
+            active: true,
+        },
+        !from_pending,
+    );
 }
 
 /// Register a Runnable to fire once `handle`'s animations complete (Android's
@@ -432,10 +431,7 @@ pub fn cancel(handle: i32) {
 /// `while(1)` hang (observed: backing out of the picoenvmon Live screen while a
 /// `flashOnBreach` tile alpha animation was still running). 64-bit/sim never
 /// hit this because its handle table invalidates deleted slots to null.
-pub fn cancel_subtree(root: *mut lv_obj_t) {
-    if root.is_null() {
-        return;
-    }
+pub fn cancel_subtree(root: Obj) {
     for slot in &STATE.slots {
         let s = slot.get();
         if !s.active {
@@ -443,15 +439,15 @@ pub fn cancel_subtree(root: *mut lv_obj_t) {
         }
         // Walk up from the animated object; if we reach `root` it is in the
         // subtree being deleted. Resolved now, before lv_obj_delete frees it.
-        let mut cur = handle_table::lookup(s.handle);
-        while !cur.is_null() {
-            if cur == root {
+        let mut cur = handle_table::get(s.handle);
+        while let Some(o) = cur {
+            if o == root {
                 slot.set(EMPTY_ANIM);
                 // Drop the end action without firing — the view is gone.
                 clear_end_action(s.handle);
                 break;
             }
-            cur = unsafe { lv_obj_get_parent(cur) };
+            cur = lv_obj_get_parent(o);
         }
     }
 }
@@ -487,9 +483,8 @@ pub fn tick(ms: u32) {
             // *now*, and take over from any still-running animation of the
             // same property (kept alive until here only to be superseded).
             slot.from_pending = false;
-            let obj = handle_table::lookup(slot.handle);
-            if !obj.is_null() {
-                slot.from = unsafe { read_current(obj, slot.property) };
+            if let Some(obj) = handle_table::get(slot.handle) {
+                slot.from = read_current(obj, slot.property);
             }
             for (j, other) in slots.iter().enumerate() {
                 let o = other.get();
@@ -538,19 +533,18 @@ pub fn reset_animation_state() {
 // ── Property setters ────────────────────────────────────────────────────────
 
 fn apply(handle: i32, property: i32, value: i32) {
-    let obj = handle_table::lookup(handle);
-    if obj.is_null() {
+    let Some(obj) = handle_table::get(handle) else {
         // The view was deleted out from under the animation — silently
-        // drop the rest of the slot via the elapsed-check in `tick` (the
-        // null obj means no LVGL FFI call). We don't proactively clear
-        // the slot here because handle_table::lookup is non-allocating
-        // and the slot will retire on its own deadline.
+        // drop the rest of the slot via the elapsed-check in `tick` (no
+        // object means no LVGL FFI call). We don't proactively clear the
+        // slot here because handle_table::get is non-allocating and the
+        // slot will retire on its own deadline.
         return;
-    }
-    unsafe { apply_to_obj(obj, property, value) }
+    };
+    apply_to_obj(obj, property, value)
 }
 
-unsafe fn apply_to_obj(obj: *mut lv_obj_t, property: i32, value: i32) {
+fn apply_to_obj(obj: Obj, property: i32, value: i32) {
     match property {
         PROPERTY_ALPHA => {
             let alpha = value.clamp(0, 255) as u8;
@@ -573,30 +567,25 @@ unsafe fn apply_to_obj(obj: *mut lv_obj_t, property: i32, value: i32) {
 /// same property keeps going and will overwrite this on its next frame —
 /// as on Android, where a setter during an animation is a one-frame blip.
 pub fn set_property(handle: i32, property: i32, value: f32) {
-    let obj = handle_table::lookup(handle);
-    if obj.is_null() {
+    let Some(obj) = handle_table::get(handle) else {
         return; // stale handle — mutating a destroyed View is a no-op
+    };
+    if is_transform(property) {
+        ensure_center_pivot(obj);
     }
-    unsafe {
-        if is_transform(property) {
-            ensure_center_pivot(obj);
-        }
-        apply_to_obj(obj, property, to_units(property, value));
-    }
+    apply_to_obj(obj, property, to_units(property, value));
 }
 
 /// The property's current value, Android units. A stale handle reports the
 /// property's identity (0, or 1.0 for alpha and scale).
 pub fn get_property(handle: i32, property: i32) -> f32 {
-    let obj = handle_table::lookup(handle);
-    let units = if obj.is_null() {
-        match property {
+    let units = match handle_table::get(handle) {
+        Some(obj) => read_current(obj, property),
+        None => match property {
             PROPERTY_ALPHA => 255,
             PROPERTY_SCALE_X | PROPERTY_SCALE_Y => LV_SCALE_NONE,
             _ => 0,
-        }
-    } else {
-        unsafe { read_current(obj, property) }
+        },
     };
     from_units(property, units)
 }

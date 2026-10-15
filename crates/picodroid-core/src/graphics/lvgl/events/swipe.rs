@@ -39,66 +39,53 @@ pub(super) static SWIPE: Core0<Swipe> = unsafe {
     })
 };
 
-pub(super) unsafe extern "C" fn swipe_map_delete_cb(e: *mut lv_event_t) {
-    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    SWIPE.view_map.remove(obj)
+lv_event_cb! {
+    pub(super) fn swipe_map_delete_cb(e) {
+        let obj = e.target().addr();
+        SWIPE.view_map.remove(obj)
+    }
 }
 
-pub(super) unsafe extern "C" fn swipe_gesture_cb(e: *mut lv_event_t) {
-    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    unsafe {
-        let indev = lv_indev_active();
-        if indev.is_null() {
+lv_event_cb! {
+    pub(super) fn swipe_gesture_cb(e) {
+        let obj = e.target();
+        let Some(indev) = lv_indev_active() else {
             return;
-        }
+        };
         let dir = lv_indev_get_gesture_dir(indev);
         if dir == LV_DIR_NONE {
             return;
         }
-        if super::super::widgets::swipe_refresh_layout::intercept(obj as *mut lv_obj_t, dir) {
+        if super::super::widgets::swipe_refresh_layout::intercept(obj, dir) {
             return;
         }
         SWIPE.queue.push(SwipeRecord {
-            view_handle: obj,
+            view_handle: obj.addr(),
             direction: dir as i32,
         });
     }
 }
 
 pub fn register_view_swipe_listener(id: i32, obj_ref: u16) {
-    let raw_obj = super::super::handle_table::lookup(id);
-    if raw_obj.is_null() {
+    let Some(raw_obj) = super::super::handle_table::get(id) else {
         return;
-    }
-    let raw_ptr = raw_obj as usize;
-    unsafe {
-        match SWIPE.view_map.upsert(raw_ptr, obj_ref) {
-            Upsert::Updated => return,
-            Upsert::Full => {
-                warn_full("view-swipe");
-                return;
-            }
-            Upsert::Inserted => {}
+    };
+    match SWIPE.view_map.upsert(raw_obj.addr(), obj_ref) {
+        Upsert::Updated => return,
+        Upsert::Full => {
+            warn_full("view-swipe");
+            return;
         }
-        // LVGL sets GESTURE_BUBBLE on every object with a parent, so a
-        // gesture climbs from the pressed object to the screen and only the
-        // screen hears it. Clearing it here makes this view the target for a
-        // swipe that starts on it or on any descendant still bubbling —
-        // Android's "the nearest view with a listener".
-        lv_obj_remove_flag(raw_obj, LV_OBJ_FLAG_GESTURE_BUBBLE);
-        lv_obj_add_event_cb(
-            raw_obj,
-            Some(swipe_gesture_cb),
-            LV_EVENT_GESTURE,
-            core::ptr::null_mut(),
-        );
-        lv_obj_add_event_cb(
-            raw_obj,
-            Some(swipe_map_delete_cb),
-            LV_EVENT_DELETE,
-            core::ptr::null_mut(),
-        );
+        Upsert::Inserted => {}
     }
+    // LVGL sets GESTURE_BUBBLE on every object with a parent, so a
+    // gesture climbs from the pressed object to the screen and only the
+    // screen hears it. Clearing it here makes this view the target for a
+    // swipe that starts on it or on any descendant still bubbling —
+    // Android's "the nearest view with a listener".
+    lv_obj_remove_flag(raw_obj, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    add_event_cb(raw_obj, swipe_gesture_cb, LV_EVENT_GESTURE);
+    add_event_cb(raw_obj, swipe_map_delete_cb, LV_EVENT_DELETE);
 }
 
 pub fn drain_swipe_event() -> Option<SwipeRecord> {

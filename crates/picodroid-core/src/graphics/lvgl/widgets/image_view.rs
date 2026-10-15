@@ -14,15 +14,22 @@ const JAVA_SCALE_TILE: i32 = 3;
 const JAVA_SCALE_CENTER: i32 = 4;
 
 pub(in crate::graphics) fn create() -> i32 {
-    let ptr = unsafe { lv_image_create(lifecycle::screen_ptr()) };
-    handle_table::register(ptr)
+    match lifecycle::screen_ptr().and_then(|o| lv_image_create(o)) {
+        Some(img) => handle_table::register(img),
+        None => 0,
+    }
+}
+
+/// `id`'s image object. `ImageView`'s natives only: its constructors give
+/// `View` the `lv_image` [`create`] made, and no other handle.
+fn image(id: i32) -> Option<Obj> {
+    handle_table::get(id)
 }
 
 pub(in crate::graphics) fn set_scale_type(id: i32, scale_type: i32) {
-    let obj = handle_table::lookup(id);
-    if obj.is_null() {
+    let Some(obj) = image(id) else {
         return;
-    }
+    };
     let align = match scale_type {
         JAVA_SCALE_FIT_CENTER => LV_IMAGE_ALIGN_CONTAIN,
         JAVA_SCALE_CENTER_CROP => LV_IMAGE_ALIGN_COVER,
@@ -34,45 +41,42 @@ pub(in crate::graphics) fn set_scale_type(id: i32, scale_type: i32) {
         // ordinal.
         _ => LV_IMAGE_ALIGN_CENTER,
     };
+    // SAFETY: `image` answers an `ImageView`'s `lv_image`.
     unsafe { lv_image_set_inner_align(obj, align) };
 }
 
 pub(in crate::graphics) fn set_tint(id: i32, argb: i32) {
-    let obj = handle_table::lookup(id);
-    if obj.is_null() {
+    let Some(obj) = image(id) else {
         return;
-    }
+    };
     // Top byte is alpha (blend opacity); low 24 bits are the tint color.
     // Cast through u32 first so a negative i32 (e.g. 0xFFRRGGBB stored as a
     // signed Java int) keeps its bit pattern.
     let argb_u = argb as u32;
     let alpha = (argb_u >> 24) as u8;
     let rgb = argb_u & 0x00FF_FFFF;
-    unsafe {
-        lv_obj_set_style_image_recolor(obj, lv_color_hex(rgb), 0);
-        lv_obj_set_style_image_recolor_opa(obj, alpha, 0);
-    }
+    lv_obj_set_style_image_recolor(obj, lv_color_hex(rgb), 0);
+    lv_obj_set_style_image_recolor_opa(obj, alpha, 0);
 }
 
 pub(in crate::graphics) fn set_scale(id: i32, zoom: i32) {
-    let obj = handle_table::lookup(id);
-    if obj.is_null() {
+    let Some(obj) = image(id) else {
         return;
-    }
+    };
     // LVGL takes uint32_t. Negative zoom values are nonsensical; clamp to 0.
     let z = if zoom < 0 { 0u32 } else { zoom as u32 };
+    // SAFETY: `image` answers an `ImageView`'s `lv_image`.
     unsafe { lv_image_set_scale(obj, z) };
 }
 
 /// Hand a bundled-asset descriptor to LVGL for this image widget.
-///
-/// `dsc` must outlive the widget — it is `'static` in practice because we
-/// only call this with pointers from `graphics::assets`, which leaks each
-/// descriptor for the firmware's lifetime.
-pub(in crate::graphics) fn set_src(id: i32, dsc: *const lv_image_dsc_t) {
-    let obj = handle_table::lookup(id);
-    if obj.is_null() || dsc.is_null() {
+#[cfg(not(test))] // the asset registry is `cfg(not(test))`
+pub(in crate::graphics) fn set_src(id: i32, src: crate::graphics::assets::AssetImage) {
+    let Some(obj) = image(id) else {
         return;
-    }
-    unsafe { lv_image_set_src(obj, dsc as *const core::ffi::c_void) };
+    };
+    // SAFETY: `image` answers an `ImageView`'s `lv_image`, and an
+    // `AssetImage` lives in the asset registry until the app reset, after
+    // the widget tree that shows it is gone (`assets.rs`).
+    unsafe { lv_image_set_src(obj, src.as_src()) };
 }

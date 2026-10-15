@@ -87,17 +87,8 @@ pub fn reset_held_keys() {
 /// widget, if one is registered as a key listener via
 /// [`register_view_key_listener`].
 pub fn focused_view_obj() -> Option<u16> {
-    unsafe {
-        let group = lv_group_get_default();
-        if group.is_null() {
-            return None;
-        }
-        let focused = lv_group_get_focused(group);
-        if focused.is_null() {
-            return None;
-        }
-        lookup_view_obj(focused as usize)
-    }
+    let focused = lv_group_get_default().and_then(|o| lv_group_get_focused(o))?;
+    lookup_view_obj(focused.addr())
 }
 
 // ── View key-listener registry (raw lv_obj_t* → Java View ObjectRef) ────────
@@ -106,9 +97,11 @@ const MAX_KEY_LISTENERS: usize = 32;
 // SAFETY: a listener registry, reached only from JVM tasks.
 static VIEW_KEY_MAP: Core0<PtrMap<MAX_KEY_LISTENERS>> = unsafe { Core0::new(PtrMap::new()) };
 
-unsafe extern "C" fn key_map_delete_cb(e: *mut lv_event_t) {
-    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    VIEW_KEY_MAP.remove(obj)
+lv_event_cb! {
+    fn key_map_delete_cb(e) {
+        let obj = e.target().addr();
+        VIEW_KEY_MAP.remove(obj)
+    }
 }
 
 /// Record a Java `View` object as the key-listener target for the given
@@ -118,24 +111,13 @@ unsafe extern "C" fn key_map_delete_cb(e: *mut lv_event_t) {
 /// first registration still attaches the `LV_EVENT_DELETE` unregistration
 /// hook so a destroyed view's entry doesn't pin its Java graph.
 pub fn register_view_key_listener(id: i32, obj_ref: u16) {
-    let raw_obj = super::handle_table::lookup(id);
-    if raw_obj.is_null() {
+    let Some(raw_obj) = super::handle_table::get(id) else {
         return; // deleted/stale view: never hand LVGL a null, never map key 0
-    }
-    let raw_ptr = raw_obj as usize;
-    unsafe {
-        match VIEW_KEY_MAP.upsert(raw_ptr, obj_ref) {
-            Upsert::Updated => {}
-            Upsert::Full => warn_full("view-key"),
-            Upsert::Inserted => {
-                lv_obj_add_event_cb(
-                    raw_ptr as *mut lv_obj_t,
-                    Some(key_map_delete_cb),
-                    LV_EVENT_DELETE,
-                    core::ptr::null_mut(),
-                );
-            }
-        }
+    };
+    match VIEW_KEY_MAP.upsert(raw_obj.addr(), obj_ref) {
+        Upsert::Updated => {}
+        Upsert::Full => warn_full("view-key"),
+        Upsert::Inserted => add_event_cb(raw_obj, key_map_delete_cb, LV_EVENT_DELETE),
     }
 }
 
@@ -167,11 +149,12 @@ pub fn visit_view_listener_roots(visit: &mut dyn FnMut(u16)) {
 /// No-op on boards without `[[button]]` entries in board.toml.
 pub(in crate::graphics) fn init_keypad() {
     #[cfg(has_buttons)]
-    unsafe {
-        let keypad = lv_indev_create();
+    // SAFETY: called from `LvglGfx::init` after `lifecycle::init` has run
+    // `lv_init`.
+    if let Some(keypad) = unsafe { lv_indev_create() } {
         lv_indev_set_type(keypad, LV_INDEV_TYPE_KEYPAD);
         lv_indev_set_read_cb(keypad, Some(keypad_read_cb));
-        GROUPS.keypad_indev.set(keypad);
+        GROUPS.keypad_indev.set(Some(keypad));
         // No default group yet: each Activity owns its own keypad focus group,
         // created by `push_activity_group()` as the Activity is launched (see
         // the "Per-Activity keypad focus groups" section). Until the first

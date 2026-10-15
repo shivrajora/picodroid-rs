@@ -174,23 +174,22 @@ pub fn fit_check_after_tick() {
     if root_id == 0 {
         return;
     }
-    let root = super::lvgl::handle_table::lookup(root_id);
-    if root.is_null() {
+    let Some(root) = super::lvgl::handle_table::get(root_id) else {
         return;
-    }
+    };
+    // The app's window (window.rs): the screen, or the design-sized object
+    // a `<supports-screens>` app runs in.
+    let Some(scr) = super::lvgl::window::content_root() else {
+        return;
+    };
     let (win_w, win_h) = super::lvgl::window::size();
     use crate::lvgl_ffi::{
         lv_area_t, lv_obj_get_coords, lv_obj_get_scroll_bottom, lv_obj_get_scroll_right,
         lv_obj_update_layout,
     };
-    // SAFETY: `root` is a live view (the handle table resolved it) and the
-    // window object or screen exists while an app runs; these are LVGL
-    // getters on the UI task, after the tick that laid the tree out (the
-    // explicit update is a no-op then, and the guarantee when it was not).
-    let (w, h, pan_x, pan_y, cut_x, cut_y, by, short_x, short_y) = unsafe {
-        // The app's window (window.rs): the screen, or the design-sized
-        // object a `<supports-screens>` app runs in.
-        let scr = super::lvgl::window::content_root();
+    // Getters after the tick that laid the tree out (the explicit update is
+    // a no-op then, and the guarantee when it was not).
+    let (w, h, pan_x, pan_y, cut_x, cut_y, by, short_x, short_y) = {
         lv_obj_update_layout(scr);
         let mut a = lv_area_t {
             x1: 0,
@@ -315,11 +314,8 @@ impl Reach {
 /// what it holds past its edge is cut, at that edge, whether or not the
 /// window's is further out. Bounded in depth; a view tree is a dozen
 /// levels at most.
-///
-/// # Safety
-/// `obj` must be a live LVGL object, read on the UI task.
 #[cfg(any(feature = "sim", debug_assertions))]
-unsafe fn reach(obj: *mut crate::lvgl_ffi::lv_obj_t, depth: u32) -> Reach {
+fn reach(obj: crate::lvgl_ffi::Obj, depth: u32) -> Reach {
     use crate::lvgl_ffi::{
         lv_area_t, lv_obj_get_child, lv_obj_get_child_count, lv_obj_get_coords, lv_obj_has_flag,
         LV_OBJ_FLAG_FLOATING, LV_OBJ_FLAG_HIDDEN, LV_OBJ_FLAG_SCROLLABLE,
@@ -331,9 +327,7 @@ unsafe fn reach(obj: *mut crate::lvgl_ffi::lv_obj_t, depth: u32) -> Reach {
         x2: 0,
         y2: 0,
     };
-    // SAFETY: `obj` is live (the caller's contract; a child LVGL just
-    // listed is live too), and these are getters on the UI task.
-    unsafe {
+    {
         lv_obj_get_coords(obj, &mut a);
         let mut r = Reach {
             right: a.x2,
@@ -347,9 +341,10 @@ unsafe fn reach(obj: *mut crate::lvgl_ffi::lv_obj_t, depth: u32) -> Reach {
         }
         let size = (a.x2 - a.x1 + 1, a.y2 - a.y1 + 1);
         for i in 0..lv_obj_get_child_count(obj) {
-            let child = lv_obj_get_child(obj, i as i32);
-            if child.is_null()
-                || lv_obj_has_flag(child, LV_OBJ_FLAG_HIDDEN)
+            let Some(child) = lv_obj_get_child(obj, i as i32) else {
+                continue;
+            };
+            if lv_obj_has_flag(child, LV_OBJ_FLAG_HIDDEN)
                 || lv_obj_has_flag(child, LV_OBJ_FLAG_FLOATING)
             {
                 continue;

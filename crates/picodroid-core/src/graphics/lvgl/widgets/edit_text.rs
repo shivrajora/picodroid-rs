@@ -63,10 +63,10 @@ pub(in crate::graphics) fn is_numeric(raw_ptr: usize) -> bool {
 
 /// Mark/clear the EditText `id` as numeric. Idempotent in both directions.
 pub(in crate::graphics) fn set_numeric(id: i32, numeric: bool) {
-    let raw_ptr = handle_table::lookup(id) as usize;
-    if raw_ptr == 0 {
+    let Some(o) = handle_table::get(id) else {
         return;
-    }
+    };
+    let raw_ptr = o.addr();
     // A full registry drops the request, as it always has.
     if numeric {
         STATE.numeric_fields.insert(raw_ptr);
@@ -89,11 +89,10 @@ fn lookup_editor_action_obj(raw_ptr: usize) -> u16 {
 }
 
 pub(in crate::graphics) fn register_editor_action_listener(id: i32, obj_ref: u16) {
-    let raw_ptr = handle_table::lookup(id) as usize;
-    if raw_ptr == 0 {
+    let Some(o) = handle_table::get(id) else {
         return;
-    }
-    if let Upsert::Full = STATE.editor_action_map.upsert(raw_ptr, obj_ref) {
+    };
+    if let Upsert::Full = STATE.editor_action_map.upsert(o.addr(), obj_ref) {
         warn_full("editor-action");
     }
 }
@@ -108,39 +107,28 @@ const MAX_TEXT_WATCHERS: usize = 16;
 
 const TEXT_QUEUE_SIZE: usize = 16;
 
-unsafe extern "C" fn textarea_value_changed_cb(e: *mut lv_event_t) {
-    let ta = unsafe { lv_event_get_target_obj(e) };
-    if ta.is_null() {
-        return;
+lv_event_cb! {
+    fn textarea_value_changed_cb(e) {
+        let ta = e.target();
+        // Coalesce: the Java side re-reads the final text at dispatch time,
+        // so collapsing a burst of per-keystroke events into one queue entry
+        // is lossless and keeps fast typing from overflowing the ring.
+        if STATE.text_queue.any(|queued| queued == ta.addr()) {
+            return;
+        }
+        STATE.text_queue.push(ta.addr());
     }
-    // Coalesce: the Java side re-reads the final text at dispatch time,
-    // so collapsing a burst of per-keystroke events into one queue entry
-    // is lossless and keeps fast typing from overflowing the ring.
-    if STATE.text_queue.any(|queued| queued == ta as usize) {
-        return;
-    }
-    STATE.text_queue.push(ta as usize);
 }
 
 pub(in crate::graphics) fn register_text_changed_listener(id: i32, obj_ref: u16) {
-    let raw_ptr = handle_table::lookup(id) as usize;
-    if raw_ptr == 0 {
+    let Some(o) = handle_table::get(id) else {
         return;
-    }
-    unsafe {
-        match STATE.text_watch_map.upsert(raw_ptr, obj_ref) {
-            // Event cb already installed.
-            Upsert::Updated => {}
-            Upsert::Full => warn_full("text-watcher"),
-            Upsert::Inserted => {
-                lv_obj_add_event_cb(
-                    raw_ptr as *mut lv_obj_t,
-                    Some(textarea_value_changed_cb),
-                    LV_EVENT_VALUE_CHANGED,
-                    core::ptr::null_mut(),
-                );
-            }
-        }
+    };
+    match STATE.text_watch_map.upsert(o.addr(), obj_ref) {
+        // Event cb already installed.
+        Upsert::Updated => {}
+        Upsert::Full => warn_full("text-watcher"),
+        Upsert::Inserted => add_event_cb(o, textarea_value_changed_cb, LV_EVENT_VALUE_CHANGED),
     }
 }
 
@@ -158,37 +146,42 @@ pub fn visit_text_changed_listener_roots(visit: &mut dyn FnMut(u16)) {
     STATE.text_watch_map.visit(visit)
 }
 
-/// Purge the dying textarea from every per-widget registry in this module:
-/// the two listener maps plus the raw-ptr opt-out/numeric lists (a stale ptr
-/// there would apply this field's flags to a recycled address).
-unsafe extern "C" fn edit_text_delete_cb(e: *mut lv_event_t) {
-    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    STATE.editor_action_map.remove(obj);
-    STATE.text_watch_map.remove(obj);
-    STATE.autoshow_disabled.remove(obj);
-    STATE.numeric_fields.remove(obj);
+lv_event_cb! {
+    /// Purge the dying textarea from every per-widget registry in this module:
+    /// the two listener maps plus the raw-ptr opt-out/numeric lists (a stale ptr
+    /// there would apply this field's flags to a recycled address).
+    fn edit_text_delete_cb(e) {
+        let obj = e.target().addr();
+        STATE.editor_action_map.remove(obj);
+        STATE.text_watch_map.remove(obj);
+        STATE.autoshow_disabled.remove(obj);
+        STATE.numeric_fields.remove(obj);
+    }
 }
 
-unsafe extern "C" fn textarea_pressed_cb(e: *mut lv_event_t) {
-    let ta = unsafe { lv_event_get_target_obj(e) };
-    if ta.is_null() {
-        return;
+lv_event_cb! {
+    fn textarea_pressed_cb(e) {
+        // The textarea this callback is on (`create` registered it there).
+        let ta = e.current_target();
+        if is_autoshow_disabled(ta.addr()) {
+            return;
+        }
+        let obj_ref = lookup_editor_action_obj(ta.addr());
+        keyboard::show_system_for(ta, obj_ref);
     }
-    if is_autoshow_disabled(ta as usize) {
-        return;
-    }
-    let obj_ref = lookup_editor_action_obj(ta as usize);
-    keyboard::show_system_for(ta, obj_ref);
 }
 
 pub(in crate::graphics) fn create() -> i32 {
-    let ptr = unsafe { lv_textarea_create(lifecycle::screen_ptr()) };
-    unsafe {
+    let Some(ptr) = lifecycle::screen_ptr().and_then(|o| lv_textarea_create(o)) else {
+        return 0;
+    };
+    {
         // EditText is documented as single-line. Without this the textarea is
         // multi-line, and on a keypad board the ENTER (X) that opens the soft
         // keyboard also inserts a newline — the cursor jumps to an empty second
         // line and the field looks cleared (its text becomes e.g. "30\n").
-        lv_textarea_set_one_line(ptr, true);
+        // SAFETY: `ptr` was just made by `lv_textarea_create`.
+        unsafe { lv_textarea_set_one_line(ptr, true) };
         // The theme styles textareas as card+pad_small (10 px pad + 2 px border
         // per side), so an app-set height like 26 px leaves ~2 px of content for
         // a 16 px font line. That vertical overflow draws a scrollbar and feeds
@@ -203,18 +196,8 @@ pub(in crate::graphics) fn create() -> i32 {
         // Android EditText never draws scrollbars. SCROLLABLE itself stays set:
         // horizontal scroll-to-cursor must keep working for long one-line text.
         lv_obj_set_scrollbar_mode(ptr, LV_SCROLLBAR_MODE_OFF);
-        lv_obj_add_event_cb(
-            ptr,
-            Some(textarea_pressed_cb),
-            LV_EVENT_PRESSED,
-            core::ptr::null_mut(),
-        );
-        lv_obj_add_event_cb(
-            ptr,
-            Some(edit_text_delete_cb),
-            LV_EVENT_DELETE,
-            core::ptr::null_mut(),
-        );
+        add_event_cb(ptr, textarea_pressed_cb, LV_EVENT_PRESSED);
+        add_event_cb(ptr, edit_text_delete_cb, LV_EVENT_DELETE);
     }
     handle_table::register(ptr)
 }
@@ -224,10 +207,10 @@ pub(in crate::graphics) fn create() -> i32 {
 /// the textarea to the opt-out registry, and `set_autoshow(id, true)`
 /// removes it. Idempotent in both directions.
 pub(in crate::graphics) fn set_autoshow(id: i32, enabled: bool) {
-    let raw_ptr = handle_table::lookup(id) as usize;
-    if raw_ptr == 0 {
+    let Some(o) = handle_table::get(id) else {
         return;
-    }
+    };
+    let raw_ptr = o.addr();
     // A full registry drops the request, as it always has.
     if enabled {
         STATE.autoshow_disabled.remove(raw_ptr);
@@ -258,22 +241,33 @@ pub fn visit_editor_action_listener_roots(visit: &mut dyn FnMut(u16)) {
 /// shows bullets, briefly revealing the last character typed, and
 /// `getText()` still reads the real text.
 pub(in crate::graphics) fn set_password(id: i32, masked: bool) {
-    let ta = handle_table::lookup(id);
-    if ta.is_null() {
+    let Some(ta) = handle_table::get(id) else {
         return;
-    }
+    };
+    // SAFETY: an `EditText` native: its constructor gives `View` the
+    // `lv_textarea` [`create`] made, and no other handle.
     unsafe { lv_textarea_set_password_mode(ta, masked) };
 }
 
 pub(in crate::graphics) fn set_text(id: i32, text: &str) {
-    super::text_view::with_cstr(text, |p| unsafe {
-        lv_textarea_set_text(handle_table::lookup(id), p)
-    });
+    let Some(ta) = handle_table::get(id) else {
+        return;
+    };
+    // SAFETY: an `EditText` native: its constructor gives `View` the
+    // `lv_textarea` [`create`] made, and no other handle.
+    // The text is NUL-terminated and LVGL copies it.
+    super::text_view::with_cstr(text, |p| unsafe { lv_textarea_set_text(ta, p.as_ptr()) });
 }
 
 pub(in crate::graphics) fn set_hint(id: i32, hint: &str) {
+    let Some(ta) = handle_table::get(id) else {
+        return;
+    };
+    // SAFETY: an `EditText` native: its constructor gives `View` the
+    // `lv_textarea` [`create`] made, and no other handle.
+    // The text is NUL-terminated and LVGL copies it.
     super::text_view::with_cstr(hint, |p| unsafe {
-        lv_textarea_set_placeholder_text(handle_table::lookup(id), p)
+        lv_textarea_set_placeholder_text(ta, p.as_ptr())
     });
 }
 
@@ -283,9 +277,14 @@ pub(in crate::graphics) fn set_hint(id: i32, hint: &str) {
 /// Run `f` over the field's current text, whatever its length. `None`
 /// when LVGL holds no text for it.
 pub(in crate::graphics) fn with_text<R>(id: i32, f: impl FnOnce(&[u8]) -> R) -> Option<R> {
-    let cstr = unsafe { lv_textarea_get_text(handle_table::lookup(id)) };
+    let ta = handle_table::get(id)?;
+    // SAFETY: an `EditText` native: its constructor gives `View` the
+    // `lv_textarea` [`create`] made, and no other handle.
+    let cstr = unsafe { lv_textarea_get_text(ta) };
     if cstr.is_null() {
         return None;
     }
+    // SAFETY: LVGL's own NUL-terminated text buffer, read before anything
+    // can edit the field again (`f` reads it into the Java string).
     Some(f(unsafe { super::text_view::cstr_bytes(cstr) }))
 }

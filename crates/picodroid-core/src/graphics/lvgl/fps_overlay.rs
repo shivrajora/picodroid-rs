@@ -16,8 +16,10 @@ const WINDOW_SIZE: usize = 10;
 struct State {
     /// Whether the FPS overlay is enabled.
     enabled: Cell<bool>,
-    /// Pointer to the LVGL label widget (null until first `update()`).
-    fps_label: Cell<*mut lv_obj_t>,
+    /// The LVGL label widget (`None` until the first `update()`). Kept as an
+    /// `Obj` across frames because nothing deletes it: it lives on the top
+    /// layer, which nothing cleans.
+    fps_label: Cell<Option<Obj>>,
     /// Current write position in the ring buffer.
     ring_idx: Cell<usize>,
     /// Number of samples collected so far (caps at `WINDOW_SIZE`).
@@ -35,7 +37,7 @@ struct State {
 static STATE: Core0<State> = unsafe {
     Core0::new(State {
         enabled: Cell::new(false),
-        fps_label: Cell::new(core::ptr::null_mut()),
+        fps_label: Cell::new(None),
         ring_idx: Cell::new(0),
         samples: Cell::new(0),
         last_nanos: Cell::new(0),
@@ -52,67 +54,72 @@ pub fn enable() {
 
 /// Called once per frame from the render loop.  No-op when disabled.
 pub fn update() {
-    unsafe {
-        if !STATE.enabled.get() {
-            return;
-        }
+    if !STATE.enabled.get() {
+        return;
+    }
 
-        let now = hal::system_clock::elapsed_realtime_nanos();
+    let now = hal::system_clock::elapsed_realtime_nanos();
 
-        // First frame — just record the timestamp; no delta yet.
-        if STATE.last_nanos.get() == 0 {
-            STATE.last_nanos.set(now);
-            create_label();
-            return;
-        }
-
-        let delta_ns = now - STATE.last_nanos.get();
+    // First frame — just record the timestamp; no delta yet.
+    if STATE.last_nanos.get() == 0 {
         STATE.last_nanos.set(now);
+        create_label();
+        return;
+    }
 
-        let frame_us = (delta_ns / 1000) as u64;
-        if frame_us == 0 {
-            return;
-        }
+    let delta_ns = now - STATE.last_nanos.get();
+    STATE.last_nanos.set(now);
 
-        // Store in ring buffer.
-        STATE.frame_us[STATE.ring_idx.get()].set(frame_us);
-        STATE.ring_idx.set((STATE.ring_idx.get() + 1) % WINDOW_SIZE);
-        if STATE.samples.get() < WINDOW_SIZE {
-            STATE.samples.set(STATE.samples.get() + 1);
-        }
+    let frame_us = (delta_ns / 1000) as u64;
+    if frame_us == 0 {
+        return;
+    }
 
-        STATE.frame_count.set(STATE.frame_count.get() + 1);
-        if STATE.frame_count.get().is_multiple_of(WINDOW_SIZE as u32) {
-            let samples = STATE.samples.get();
-            let avg_us =
-                STATE.frame_us[..samples].iter().map(Cell::get).sum::<u64>() / samples as u64;
-            let fps = if avg_us > 0 {
-                1_000_000u64.checked_div(avg_us).unwrap_or(0) as u32
-            } else {
-                0
-            };
-            let mut buf = [0u8; 16];
-            let text = format_fps(fps, &mut buf);
-            lv_label_set_text(STATE.fps_label.get(), text.as_ptr() as *const _);
+    // Store in ring buffer.
+    STATE.frame_us[STATE.ring_idx.get()].set(frame_us);
+    STATE.ring_idx.set((STATE.ring_idx.get() + 1) % WINDOW_SIZE);
+    if STATE.samples.get() < WINDOW_SIZE {
+        STATE.samples.set(STATE.samples.get() + 1);
+    }
+
+    STATE.frame_count.set(STATE.frame_count.get() + 1);
+    if STATE.frame_count.get().is_multiple_of(WINDOW_SIZE as u32) {
+        let samples = STATE.samples.get();
+        let avg_us = STATE.frame_us[..samples].iter().map(Cell::get).sum::<u64>() / samples as u64;
+        let fps = if avg_us > 0 {
+            1_000_000u64.checked_div(avg_us).unwrap_or(0) as u32
+        } else {
+            0
+        };
+        let mut buf = [0u8; 16];
+        let text = format_fps(fps, &mut buf);
+        if let Some(label) = STATE.fps_label.get() {
+            // SAFETY: `fps_label` is the `lv_label` `create_label` made;
+            // `format_fps` NUL-terminates the text, which LVGL copies.
+            unsafe { lv_label_set_text(label, text.as_ptr() as *const _) };
         }
     }
 }
 
 /// Create the LVGL label in the top-right corner of the window, on the
 /// overlay layer so it rides above every screen and never pans with one.
-unsafe fn create_label() {
-    let layer = lv_layer_top();
-    STATE.fps_label.set(lv_label_create(layer));
-    lv_label_set_text(STATE.fps_label.get(), c"-- FPS".as_ptr());
+fn create_label() {
+    let Some(label) = lv_layer_top().and_then(|o| lv_label_create(o)) else {
+        return;
+    };
+    STATE.fps_label.set(Some(label));
+    // SAFETY: `label` was just made by `lv_label_create`; the text is a
+    // NUL-terminated literal LVGL copies.
+    unsafe { lv_label_set_text(label, c"-- FPS".as_ptr()) };
 
     // Position in top-right corner (leave a small margin).
-    let win_w = lv_display_get_horizontal_resolution(lv_display_get_default());
-    lv_obj_set_pos(STATE.fps_label.get(), win_w - 70, 2);
+    let win_w = lv_display_get_default().map_or(0, |d| lv_display_get_horizontal_resolution(d));
+    lv_obj_set_pos(label, win_w - 70, 2);
 
     // Green text on dark background.
-    lv_obj_set_style_text_color(STATE.fps_label.get(), lv_color_hex(0x00FF00), 0);
-    lv_obj_set_style_bg_color(STATE.fps_label.get(), lv_color_hex(0x000000), 0);
-    lv_obj_set_style_bg_opa(STATE.fps_label.get(), LV_OPA_COVER, 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(0x00FF00), 0);
+    lv_obj_set_style_bg_color(label, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(label, LV_OPA_COVER, 0);
 }
 
 /// Format `"NN FPS\0"` into `buf` without heap allocation.

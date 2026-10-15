@@ -10,7 +10,7 @@ use core::ffi::c_char;
 
 use super::super::handle_table;
 use super::super::lifecycle;
-use super::super::listener_map::{warn_full, PtrMap, Upsert};
+use super::super::listener_map::{warn_full, PtrMap};
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
 use core::cell::Cell;
@@ -61,22 +61,24 @@ static STATE: Core0<State> = unsafe {
     })
 };
 
-/// Remove the dying widget from both per-widget tables: the listener map and
-/// the `entries` label side-table (a stale `raw_ptr` there would relabel a
-/// recycled address).
-unsafe extern "C" fn map_delete_cb(e: *mut lv_event_t) {
-    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    STATE.handle_map.remove(obj);
-    let entries = &STATE.entries;
-    let mut i = 0;
-    while i < STATE.entry_count.get() {
-        let last = STATE.entry_count.get() - 1;
-        if entries[i].get().raw_ptr == obj {
-            entries[i].set(entries[last].get());
-            entries[last].set(Entry::empty());
-            STATE.entry_count.set(last);
-        } else {
-            i += 1;
+lv_event_cb! {
+    /// Remove the dying widget from both per-widget tables: the listener map and
+    /// the `entries` label side-table (a stale `raw_ptr` there would relabel a
+    /// recycled address).
+    fn map_delete_cb(e) {
+        let obj = e.target().addr();
+        STATE.handle_map.remove(obj);
+        let entries = &STATE.entries;
+        let mut i = 0;
+        while i < STATE.entry_count.get() {
+            let last = STATE.entry_count.get() - 1;
+            if entries[i].get().raw_ptr == obj {
+                entries[i].set(entries[last].get());
+                entries[last].set(Entry::empty());
+                STATE.entry_count.set(last);
+            } else {
+                i += 1;
+            }
         }
     }
 }
@@ -88,21 +90,24 @@ fn find_entry(raw_ptr: usize) -> Option<&'static Cell<Entry>> {
         .find(|e| e.get().raw_ptr == raw_ptr)
 }
 
-unsafe fn update_label(obj: *mut lv_obj_t) {
-    unsafe {
-        if let Some(entry) = find_entry(obj as usize).map(Cell::get) {
-            let label = lv_obj_get_child(obj, 0);
-            if !label.is_null() {
-                let checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
-                let text = if checked {
-                    &entry.text_on
-                } else {
-                    &entry.text_off
-                };
-                lv_label_set_text(label, text.as_ptr() as *const c_char);
-            }
-        }
-    }
+/// Show the text for `obj`'s checked state on its label.
+fn update_label(obj: Obj) {
+    let Some(entry) = find_entry(obj.addr()).map(Cell::get) else {
+        return;
+    };
+    let Some(label) = lv_obj_get_child(obj, 0) else {
+        return;
+    };
+    let text = if lv_obj_has_state(obj, LV_STATE_CHECKED) {
+        &entry.text_on
+    } else {
+        &entry.text_off
+    };
+    // SAFETY: `obj` has an entry, so it is a toggle button `create_internal`
+    // made, whose only child is the `lv_label` made there (a ToggleButton is
+    // no ViewGroup); both texts are NUL-terminated by `register_entry` and
+    // `copy_into`, and LVGL copies them.
+    unsafe { lv_label_set_text(label, text.as_ptr() as *const c_char) };
 }
 
 fn register_entry(raw_ptr: usize, text_on: &[u8], text_off: &[u8]) {
@@ -124,38 +129,33 @@ fn register_entry(raw_ptr: usize, text_on: &[u8], text_off: &[u8]) {
     STATE.entry_count.set(count + 1);
 }
 
-unsafe extern "C" fn value_changed_cb(e: *mut lv_event_t) {
-    let obj = unsafe { lv_event_get_target_obj(e) };
-    unsafe { update_label(obj) };
-    STATE.queue.push(obj as usize);
+lv_event_cb! {
+    fn value_changed_cb(e) {
+        let obj = e.target();
+        update_label(obj);
+        STATE.queue.push(obj.addr());
+    }
 }
 
 fn create_internal(text_on: &[u8], text_off: &[u8]) -> i32 {
-    let btn = unsafe { lv_button_create(lifecycle::screen_ptr()) };
-    unsafe {
-        lv_obj_add_flag(btn, LV_OBJ_FLAG_CHECKABLE);
-        let label = lv_label_create(btn);
+    let Some(btn) = lifecycle::screen_ptr().and_then(|o| lv_button_create(o)) else {
+        return 0;
+    };
+    lv_obj_add_flag(btn, LV_OBJ_FLAG_CHECKABLE);
+    if let Some(label) = lv_label_create(btn) {
         // Initial label shows the off-state text.
         let mut buf = [0u8; TEXT_BUF_SIZE];
         let len = text_off.len().min(TEXT_BUF_SIZE - 1);
         buf[..len].copy_from_slice(&text_off[..len]);
         buf[len] = 0;
-        lv_label_set_text(label, buf.as_ptr() as *const c_char);
+        // SAFETY: `label` was just made by `lv_label_create`; `buf` is
+        // NUL-terminated and LVGL copies it.
+        unsafe { lv_label_set_text(label, buf.as_ptr() as *const c_char) };
         lv_obj_center(label);
-        lv_obj_add_event_cb(
-            btn,
-            Some(value_changed_cb),
-            LV_EVENT_VALUE_CHANGED,
-            core::ptr::null_mut(),
-        );
-        lv_obj_add_event_cb(
-            btn,
-            Some(map_delete_cb),
-            LV_EVENT_DELETE,
-            core::ptr::null_mut(),
-        );
-        register_entry(btn as usize, text_on, text_off);
     }
+    add_event_cb(btn, value_changed_cb, LV_EVENT_VALUE_CHANGED);
+    add_event_cb(btn, map_delete_cb, LV_EVENT_DELETE);
+    register_entry(btn.addr(), text_on, text_off);
     handle_table::register(btn)
 }
 
@@ -168,43 +168,23 @@ pub(in crate::graphics) fn create_with_text(text_on: &str, text_off: &str) -> i3
 }
 
 pub(in crate::graphics) fn is_checked(id: i32) -> bool {
-    unsafe { lv_obj_has_state(handle_table::lookup(id), LV_STATE_CHECKED) }
+    super::compound::is_checked(id)
 }
 
 pub(in crate::graphics) fn set_checked(id: i32, checked: bool) {
-    unsafe {
-        let obj = handle_table::lookup(id);
-        if checked {
-            lv_obj_add_state(obj, LV_STATE_CHECKED);
-        } else {
-            lv_obj_remove_state(obj, LV_STATE_CHECKED);
-        }
+    if let Some(obj) = super::compound::set_checked(id, checked) {
         update_label(obj);
     }
 }
 
 pub(in crate::graphics) fn toggle(id: i32) {
-    unsafe {
-        let obj = handle_table::lookup(id);
-        if lv_obj_has_state(obj, LV_STATE_CHECKED) {
-            lv_obj_remove_state(obj, LV_STATE_CHECKED);
-        } else {
-            lv_obj_add_state(obj, LV_STATE_CHECKED);
-        }
+    if let Some(obj) = super::compound::toggle(id) {
         update_label(obj);
     }
 }
 
 pub(in crate::graphics) fn perform_checked_change(id: i32) {
-    unsafe {
-        let obj = handle_table::lookup(id);
-        if lv_obj_has_state(obj, LV_STATE_CHECKED) {
-            lv_obj_remove_state(obj, LV_STATE_CHECKED);
-        } else {
-            lv_obj_add_state(obj, LV_STATE_CHECKED);
-        }
-        lv_obj_send_event(obj, LV_EVENT_VALUE_CHANGED, core::ptr::null_mut());
-    }
+    super::compound::perform_checked_change(id);
 }
 
 fn copy_into(dst: &mut [u8; TEXT_BUF_SIZE], src: &str) {
@@ -214,38 +194,35 @@ fn copy_into(dst: &mut [u8; TEXT_BUF_SIZE], src: &str) {
 }
 
 pub(in crate::graphics) fn set_text_on(id: i32, text: &str) {
-    unsafe {
-        let obj = handle_table::lookup(id);
-        if let Some(cell) = find_entry(obj as usize) {
-            let mut entry = cell.get();
-            copy_into(&mut entry.text_on, text);
-            cell.set(entry);
-        }
-        if lv_obj_has_state(obj, LV_STATE_CHECKED) {
-            update_label(obj);
-        }
+    let Some(obj) = handle_table::get(id) else {
+        return;
+    };
+    if let Some(cell) = find_entry(obj.addr()) {
+        let mut entry = cell.get();
+        copy_into(&mut entry.text_on, text);
+        cell.set(entry);
+    }
+    if lv_obj_has_state(obj, LV_STATE_CHECKED) {
+        update_label(obj);
     }
 }
 
 pub(in crate::graphics) fn set_text_off(id: i32, text: &str) {
-    unsafe {
-        let obj = handle_table::lookup(id);
-        if let Some(cell) = find_entry(obj as usize) {
-            let mut entry = cell.get();
-            copy_into(&mut entry.text_off, text);
-            cell.set(entry);
-        }
-        if !lv_obj_has_state(obj, LV_STATE_CHECKED) {
-            update_label(obj);
-        }
+    let Some(obj) = handle_table::get(id) else {
+        return;
+    };
+    if let Some(cell) = find_entry(obj.addr()) {
+        let mut entry = cell.get();
+        copy_into(&mut entry.text_off, text);
+        cell.set(entry);
+    }
+    if !lv_obj_has_state(obj, LV_STATE_CHECKED) {
+        update_label(obj);
     }
 }
 
 pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
-    let raw_ptr = handle_table::lookup(id) as usize;
-    if let Upsert::Full = STATE.handle_map.upsert(raw_ptr, obj_ref) {
-        warn_full("toggle-checked");
-    }
+    super::compound::register_listener(&STATE.handle_map, id, obj_ref, "toggle-checked");
 }
 
 pub fn drain_checked_change_queue() -> Option<usize> {

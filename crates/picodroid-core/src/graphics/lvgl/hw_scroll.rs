@@ -120,7 +120,7 @@ fn disabled_by_env() -> bool {
 
 /// Hook the display. Called once from [`super::lifecycle::init`] after the
 /// display exists.
-pub(super) fn install(disp: *mut lv_display_t) {
+pub(super) fn install(disp: Display) {
     let st = &*STATE;
     st.enabled.set(!disabled_by_env());
     if !st.enabled.get() {
@@ -128,6 +128,9 @@ pub(super) fn install(disp: *mut lv_display_t) {
         return;
     }
     let none = core::ptr::null_mut::<c_void>();
+    // SAFETY: the three are written for display events: `invalidate_cb`
+    // reads its parameter as the area being queued, the other two read
+    // nothing. None takes user data.
     unsafe {
         lv_display_add_event_cb(disp, Some(invalidate_cb), LV_EVENT_INVALIDATE_AREA, none);
         lv_display_add_event_cb(disp, Some(refr_start_cb), LV_EVENT_REFR_START, none);
@@ -138,29 +141,29 @@ pub(super) fn install(disp: *mut lv_display_t) {
 /// Let `obj`'s scroll steps use the panel. Called at widget creation for
 /// every vertical scroller; whether a given step qualifies is decided per
 /// step, so watching a scroller that never will costs one event callback.
-pub(super) fn watch(obj: *mut lv_obj_t) {
+pub(super) fn watch(obj: Obj) {
     let st = &*STATE;
     if !st.enabled.get() {
         return;
     }
-    unsafe {
-        lv_obj_add_event_cb(obj, Some(scroll_cb), LV_EVENT_SCROLL, core::ptr::null_mut());
-        lv_obj_add_event_cb(obj, Some(delete_cb), LV_EVENT_DELETE, core::ptr::null_mut());
-        // A new scroller stands at the origin, so its very first step has a
-        // delta and can take the panel path.
-        st.last_obj.set(obj);
-        st.last_scroll
-            .set((lv_obj_get_scroll_x(obj), lv_obj_get_scroll_y(obj)));
-        st.last_bar.set(EMPTY);
-    }
+    add_event_cb(obj, scroll_cb, LV_EVENT_SCROLL);
+    add_event_cb(obj, delete_cb, LV_EVENT_DELETE);
+    // A new scroller stands at the origin, so its very first step has a
+    // delta and can take the panel path.
+    st.last_obj.set(obj.as_ptr());
+    st.last_scroll
+        .set((lv_obj_get_scroll_x(obj), lv_obj_get_scroll_y(obj)));
+    st.last_bar.set(EMPTY);
 }
 
-/// `LV_EVENT_DELETE` on a watched scroller: its address may be reused by
-/// the next one, whose first step must not inherit this one's position.
-unsafe extern "C" fn delete_cb(e: *mut lv_event_t) {
-    let obj = unsafe { lv_event_get_target_obj(e) };
-    if STATE.last_obj.get() == obj {
-        STATE.last_obj.set(core::ptr::null_mut());
+lv_event_cb! {
+    /// `LV_EVENT_DELETE` on a watched scroller: its address may be reused by
+    /// the next one, whose first step must not inherit this one's position.
+    fn delete_cb(e) {
+        let obj = e.target();
+        if STATE.last_obj.get() == obj.as_ptr() {
+            STATE.last_obj.set(core::ptr::null_mut());
+        }
     }
 }
 
@@ -219,12 +222,12 @@ fn is_valid(a: &lv_area_t) -> bool {
 
 /// Repaint a static rectangle inside the band after the content under it
 /// moved by `dy`: where it is, and where its old pixels went, as one box.
-unsafe fn repaint_static(obj: *mut lv_obj_t, a: &lv_area_t, dy: i32, band: &lv_area_t) {
+fn repaint_static(obj: Obj, a: &lv_area_t, dy: i32, band: &lv_area_t) {
     let mut box_ = *a;
     box_.y1 = (a.y1 + dy.min(0)).max(band.y1);
     box_.y2 = (a.y2 + dy.max(0)).min(band.y2);
     if is_valid(&box_) {
-        unsafe { lv_obj_invalidate_area(obj, &box_) };
+        lv_obj_invalidate_area(obj, &box_);
     }
 }
 
@@ -236,22 +239,16 @@ unsafe fn repaint_static(obj: *mut lv_obj_t, a: &lv_area_t, dy: i32, band: &lv_a
 /// colour — so two short boxes replace the thumb-length one, each reaching
 /// `radius` rows past the ends to cover the rounded caps. Anything else (a
 /// translucent thumb, a bordered one) is repainted end to end.
-unsafe fn repaint_thumb(
-    obj: *mut lv_obj_t,
-    prev: &lv_area_t,
-    bar: &lv_area_t,
-    dy: i32,
-    band: &lv_area_t,
-) {
-    let radius = unsafe { picodroid_hw_vscroll_thumb_flat_radius(obj) };
+fn repaint_thumb(obj: Obj, prev: &lv_area_t, bar: &lv_area_t, dy: i32, band: &lv_area_t) {
+    let radius = picodroid_hw_vscroll_thumb_flat_radius(obj);
     let flat =
         radius >= 0 && is_valid(prev) && is_valid(bar) && prev.x1 == bar.x1 && prev.x2 == bar.x2;
     if !flat {
         if is_valid(prev) {
-            unsafe { repaint_static(obj, prev, dy, band) };
+            repaint_static(obj, prev, dy, band);
         }
         if is_valid(bar) {
-            unsafe { lv_obj_invalidate_area(obj, bar) };
+            lv_obj_invalidate_area(obj, bar);
         }
         return;
     }
@@ -266,26 +263,31 @@ unsafe fn repaint_thumb(
         e.y1 = e.y1.max(band.y1);
         e.y2 = e.y2.min(band.y2);
         if is_valid(e) {
-            unsafe { lv_obj_invalidate_area(obj, e) };
+            lv_obj_invalidate_area(obj, e);
         }
     }
 }
 
-/// `LV_EVENT_SCROLL` on a watched scroller: the children have moved, the
-/// scroller is about to invalidate itself.
-unsafe extern "C" fn scroll_cb(e: *mut lv_event_t) {
-    let obj = unsafe { lv_event_get_target_obj(e) };
+lv_event_cb! {
+    /// `LV_EVENT_SCROLL` on a watched scroller: the children have moved, the
+    /// scroller is about to invalidate itself.
+    fn scroll_cb(e) {
+        scroll_step(e.target());
+    }
+}
+
+fn scroll_step(obj: Obj) {
     let st = &*STATE;
 
-    let now = unsafe { (lv_obj_get_scroll_x(obj), lv_obj_get_scroll_y(obj)) };
-    let same = st.last_obj.get() == obj;
+    let now = (lv_obj_get_scroll_x(obj), lv_obj_get_scroll_y(obj));
+    let same = st.last_obj.get() == obj.as_ptr();
     let prev = st.last_scroll.get();
-    st.last_obj.set(obj);
+    st.last_obj.set(obj.as_ptr());
     st.last_scroll.set(now);
 
     let mut hor_bar = EMPTY;
     let mut bar = EMPTY;
-    unsafe { lv_obj_get_scrollbar_area(obj, &mut hor_bar, &mut bar) };
+    lv_obj_get_scrollbar_area(obj, &mut hor_bar, &mut bar);
     let prev_bar = st.last_bar.replace(bar);
 
     // A scroller seen for the first time gives no delta; sideways motion the
@@ -302,9 +304,7 @@ unsafe extern "C" fn scroll_cb(e: *mut lv_event_t) {
 
     let mut band = EMPTY;
     let mut overlays = [EMPTY; MAX_OVERLAYS];
-    let n = unsafe {
-        picodroid_hw_vscroll_region(obj, &mut band, overlays.as_mut_ptr(), MAX_OVERLAYS as i32)
-    };
+    let n = hw_vscroll_region(obj, &mut band, &mut overlays);
     if n < 0 {
         if !st.refused_logged.get() {
             st.refused_logged.set(true);
@@ -331,26 +331,29 @@ unsafe extern "C" fn scroll_cb(e: *mut lv_event_t) {
             // true; this step is that repaint.
             st.origin.set(0);
             st.region.set(Some(region));
-            unsafe { lv_obj_invalidate(lv_screen_active()) };
+            if let Some(scr) = lv_screen_active() {
+                lv_obj_invalidate(scr);
+            }
             return;
         }
         st.region.set(Some(region));
     }
 
-    let disp = unsafe { lv_display_get_default() };
-    unsafe { picodroid_hw_vscroll_shift_pending(disp, &band, dy) };
+    if let Some(disp) = lv_display_get_default() {
+        picodroid_hw_vscroll_shift_pending(disp, &band, dy);
+    }
     st.origin.set(advance(st.origin.get(), region.rows, dy));
 
     // What did not move: the scrollbar thumb, then and now, and whatever is
     // drawn over the band.
     let n = n as usize;
     for a in &overlays[..n] {
-        unsafe { repaint_static(obj, a, dy, &band) };
+        repaint_static(obj, a, dy, &band);
     }
     if is_valid(&hor_bar) {
-        unsafe { repaint_static(obj, &hor_bar, dy, &band) };
+        repaint_static(obj, &hor_bar, dy, &band);
     }
-    unsafe { repaint_thumb(obj, &prev_bar, &bar, dy, &band) };
+    repaint_thumb(obj, &prev_bar, &bar, dy, &band);
 
     // And the rows that scrolled in: the scroller's own invalidation, which
     // arrives next, becomes just these.
@@ -359,7 +362,15 @@ unsafe extern "C" fn scroll_cb(e: *mut lv_event_t) {
 
 /// `LV_EVENT_INVALIDATE_AREA` on the display, with the area LVGL is about to
 /// queue, before it is queued.
+///
+/// # Safety
+///
+/// Only LVGL calls this, as an `LV_EVENT_INVALIDATE_AREA` callback on the
+/// display, with the event it is dispatching.
 unsafe extern "C" fn invalidate_cb(e: *mut lv_event_t) {
+    // SAFETY: LVGL runs this display callback with the event it is
+    // dispatching, whose parameter for `LV_EVENT_INVALIDATE_AREA` is the
+    // area it is about to queue, writable and unaliased for the call.
     let area = unsafe { &mut *(lv_event_get_param(e) as *mut lv_area_t) };
     let st = &*STATE;
     let (w, h) = (hal::display::WIDTH as i32, hal::display::HEIGHT as i32);
@@ -382,14 +393,14 @@ unsafe extern "C" fn invalidate_cb(e: *mut lv_event_t) {
     }
 }
 
-/// `LV_EVENT_REFR_START`: a narrowing that was never consumed must not
-/// outlive the frame that armed it.
-unsafe extern "C" fn refr_start_cb(_e: *mut lv_event_t) {
+/// `LV_EVENT_REFR_START` on the display: a narrowing that was never consumed
+/// must not outlive the frame that armed it.
+extern "C" fn refr_start_cb(_e: *mut lv_event_t) {
     STATE.pending.set(None);
 }
 
-/// `LV_EVENT_RENDER_START`: the panel shifts now, and the rows that shift
-/// exposes are the first thing the render that follows overwrites.
-unsafe extern "C" fn render_start_cb(_e: *mut lv_event_t) {
+/// `LV_EVENT_RENDER_START` on the display: the panel shifts now, and the rows
+/// that shift exposes are the first thing the render that follows overwrites.
+extern "C" fn render_start_cb(_e: *mut lv_event_t) {
     sync_panel();
 }

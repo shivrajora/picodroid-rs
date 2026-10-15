@@ -25,7 +25,7 @@ use super::super::animations;
 use super::super::events;
 use super::super::handle_table;
 use super::super::lifecycle;
-use super::super::listener_map::{warn_full, PtrMap, Upsert};
+use super::super::listener_map::PtrMap;
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
 use core::cell::Cell;
@@ -36,14 +36,18 @@ const READY_QUEUE_SIZE: usize = 16;
 
 const MAX_KEYBOARDS: usize = 4;
 
-unsafe extern "C" fn map_delete_cb(e: *mut lv_event_t) {
-    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    STATE.handle_map.remove(obj)
+lv_event_cb! {
+    fn map_delete_cb(e) {
+        let obj = e.target().addr();
+        STATE.handle_map.remove(obj)
+    }
 }
 
-unsafe extern "C" fn keyboard_ready_cb(e: *mut lv_event_t) {
-    let obj = unsafe { lv_event_get_target_obj(e) };
-    STATE.ready_queue.push(obj as usize);
+lv_event_cb! {
+    fn keyboard_ready_cb(e) {
+        let obj = e.target();
+        STATE.ready_queue.push(obj.addr());
+    }
 }
 
 // ── System keyboard singleton ───────────────────────────────────────────────
@@ -86,8 +90,10 @@ struct State {
     /// READY events of the per-instance keyboards.
     ready_queue: LocalRing<usize, READY_QUEUE_SIZE>,
     handle_map: PtrMap<MAX_KEYBOARDS>,
-    /// The system keyboard, null until the first show.
-    system: Cell<*mut lv_obj_t>,
+    /// The system keyboard, `None` until the first show. Kept as an `Obj`
+    /// across natives because nothing deletes it: it lives on the top
+    /// layer, which nothing cleans, and a reset only forgets it.
+    system: Cell<Option<Obj>>,
     system_handle: Cell<i32>,
     visible: Cell<bool>,
     /// Java `ObjectRef` of the EditText that triggered the most recent show.
@@ -117,7 +123,7 @@ static STATE: Core0<State> = unsafe {
     Core0::new(State {
         ready_queue: LocalRing::new(0),
         handle_map: PtrMap::new(),
-        system: Cell::new(core::ptr::null_mut()),
+        system: Cell::new(None),
         system_handle: Cell::new(0),
         visible: Cell::new(false),
         bound_et: Cell::new(0),
@@ -129,20 +135,22 @@ static STATE: Core0<State> = unsafe {
     })
 };
 
-unsafe extern "C" fn system_keyboard_ready_cb(_e: *mut lv_event_t) {
-    // OK key on the system keyboard: queue an editor-action for dispatch
-    // and dismiss. The Java listener may return `true` to suppress the
-    // dismiss — that decision is made by the dispatch site after Java
-    // returns, so we hide first and the dispatch site re-shows if needed.
-    // For v1 we always hide; suppressing dismiss is a follow-up if any
-    // app actually requires it.
-    if STATE.bound_et.get() != 0 {
-        STATE.pending_editor_action.set(Some(EditorActionRecord {
-            edit_text_ref: STATE.bound_et.get(),
-            action_id: 6, // EditorInfo.IME_ACTION_DONE
-        }));
+lv_event_cb! {
+    fn system_keyboard_ready_cb(_e) {
+        // OK key on the system keyboard: queue an editor-action for dispatch
+        // and dismiss. The Java listener may return `true` to suppress the
+        // dismiss — that decision is made by the dispatch site after Java
+        // returns, so we hide first and the dispatch site re-shows if needed.
+        // For v1 we always hide; suppressing dismiss is a follow-up if any
+        // app actually requires it.
+        if STATE.bound_et.get() != 0 {
+            STATE.pending_editor_action.set(Some(EditorActionRecord {
+                edit_text_ref: STATE.bound_et.get(),
+                action_id: 6, // EditorInfo.IME_ACTION_DONE
+            }));
+        }
+        hide_system();
     }
-    hide_system();
 }
 
 /// `LV_EVENT_PRESSED` on the pointer device while the keyboard is up
@@ -150,61 +158,71 @@ unsafe extern "C" fn system_keyboard_ready_cb(_e: *mut lv_event_t) {
 /// event's parameter. A press on the keyboard or one of its keys, or on
 /// the field it is typing into, keeps it up; a press anywhere else — the
 /// app's own views included — dismisses it, as Android's does.
+///
+/// # Safety
+///
+/// Only LVGL calls this, as an `LV_EVENT_PRESSED` callback on the pointer
+/// input device, with the event it is dispatching.
 unsafe extern "C" fn pointer_press_outside_cb(e: *mut lv_event_t) {
-    let target = unsafe { lv_event_get_param(e) } as *mut lv_obj_t;
-    if target.is_null() {
+    // SAFETY: LVGL runs this input-device callback with the event it is
+    // dispatching; for `LV_EVENT_PRESSED` on a pointer device the parameter
+    // is the object pressed, which LVGL holds for the dispatch.
+    let Some(target) = (unsafe { Obj::from_raw(lv_event_get_param(e).cast()) }) else {
         return;
-    }
-    let kb = STATE.system.get();
-    if kb.is_null() {
+    };
+    let Some(kb) = STATE.system.get() else {
         return;
-    }
+    };
     let ta = STATE.bound_ta.get();
-    let mut cur: *mut lv_obj_t = target;
-    while !cur.is_null() {
-        if cur == kb || (!ta.is_null() && cur == ta) {
+    let mut cur = Some(target);
+    while let Some(o) = cur {
+        if o == kb || (!ta.is_null() && o.as_ptr() == ta) {
             return;
         }
-        cur = unsafe { lv_obj_get_parent(cur) };
+        cur = lv_obj_get_parent(o);
     }
     hide_system();
 }
 
-unsafe fn ensure_system_keyboard() -> *mut lv_obj_t {
-    unsafe {
-        if !STATE.system.get().is_null() {
-            return STATE.system.get();
-        }
-        // On the overlay layer, above the screen: the keyboard belongs to the
-        // framework, not to the content root a `setContentView` replaces, and
-        // it must not pan with an oversized root. See `lifecycle::overlay_layer`.
-        let layer = lifecycle::overlay_layer();
-        let kb = lv_keyboard_create(layer);
-        // The constructor aligns a keyboard to the parent's BOTTOM_MID, which
-        // turns every `set_y` into an offset *below* the bottom edge: at rest
-        // y=100 the keyboard used to sit at 200, mostly off screen. Back to
-        // the top-left origin, then an explicit size + position so we don't
-        // depend on LVGL's default heuristics (which vary by version): full
-        // width, flush with the bottom edge. On a 240x240 panel this leaves
-        // the top 100px for the form.
-        lv_obj_set_align(kb, LV_ALIGN_TOP_LEFT);
-        lv_obj_set_pos(kb, 0, system_keyboard_rest_y());
-        lv_obj_set_size(kb, lifecycle::window_size().0, system_keyboard_height());
-        lv_obj_set_style_bg_opa(kb, LV_OPA_COVER, 0);
-        // Hidden until the first show_system_for call.
-        lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_event_cb(
-            kb,
-            Some(system_keyboard_ready_cb),
-            LV_EVENT_READY,
-            core::ptr::null_mut(),
-        );
-        STATE.system.set(kb);
-        // Register the keyboard in the handle table so `animations::start`
-        // can locate it by handle on each tick.
-        STATE.system_handle.set(handle_table::register(kb));
-        kb
+/// The textarea the system keyboard types into, if any.
+fn bound_ta() -> Option<Obj> {
+    // SAFETY: `bound_ta` names a live textarea or is null: it is set from
+    // the live field `show_system_for` binds, and cleared by
+    // `unbind_if_deleting`, which the framework's delete paths
+    // (`view_ops::delete_obj`, `remove_all_children`) run before LVGL frees
+    // the field. (`window::sync` deletes the old compat window directly;
+    // a field bound inside it at that moment is not covered — see the
+    // report that came with this change.)
+    unsafe { Obj::from_raw(STATE.bound_ta.get()) }
+}
+
+fn ensure_system_keyboard() -> Option<Obj> {
+    if let Some(kb) = STATE.system.get() {
+        return Some(kb);
     }
+    // On the overlay layer, above the screen: the keyboard belongs to the
+    // framework, not to the content root a `setContentView` replaces, and
+    // it must not pan with an oversized root. See `lifecycle::overlay_layer`.
+    let kb = lifecycle::overlay_layer().and_then(|o| lv_keyboard_create(o))?;
+    // The constructor aligns a keyboard to the parent's BOTTOM_MID, which
+    // turns every `set_y` into an offset *below* the bottom edge: at rest
+    // y=100 the keyboard used to sit at 200, mostly off screen. Back to
+    // the top-left origin, then an explicit size + position so we don't
+    // depend on LVGL's default heuristics (which vary by version): full
+    // width, flush with the bottom edge. On a 240x240 panel this leaves
+    // the top 100px for the form.
+    lv_obj_set_align(kb, LV_ALIGN_TOP_LEFT);
+    lv_obj_set_pos(kb, 0, system_keyboard_rest_y());
+    lv_obj_set_size(kb, lifecycle::window_size().0, system_keyboard_height());
+    lv_obj_set_style_bg_opa(kb, LV_OPA_COVER, 0);
+    // Hidden until the first show_system_for call.
+    lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
+    add_event_cb(kb, system_keyboard_ready_cb, LV_EVENT_READY);
+    STATE.system.set(Some(kb));
+    // Register the keyboard in the handle table so `animations::start`
+    // can locate it by handle on each tick.
+    STATE.system_handle.set(handle_table::register(kb));
+    Some(kb)
 }
 
 /// Show the system keyboard, binding it to `ta` and recording the Java
@@ -213,62 +231,67 @@ unsafe fn ensure_system_keyboard() -> *mut lv_obj_t {
 /// hidden→visible transition; a re-show while already visible re-runs
 /// the slide for visual feedback. Called from the EditText auto-show
 /// trampoline in [`super::edit_text`], its only caller — hence
-/// `pub(in crate::graphics)` rather than `pub`: `ta` is an LVGL object
-/// pointer from the handle table, and nothing outside this tree should be
-/// able to hand one in.
-pub(in crate::graphics) fn show_system_for(ta: *mut lv_obj_t, et_obj_ref: u16) {
-    if ta.is_null() {
+/// `pub(in crate::graphics)` rather than `pub`: `ta` must be an EditText's
+/// `lv_textarea`, and nothing outside this tree should be able to hand
+/// one in.
+pub(in crate::graphics) fn show_system_for(ta: Obj, et_obj_ref: u16) {
+    let Some(kb) = ensure_system_keyboard() else {
         return;
-    }
-    unsafe {
-        let kb = ensure_system_keyboard();
-        lv_keyboard_set_textarea(kb, ta);
-        STATE.bound_ta.set(ta); // mirror kb->ta for use-after-delete cleanup
-                                // Pick the keypad layout for the field being bound. EditTexts flagged
-                                // numeric (setInputType TYPE_CLASS_NUMBER) get the digit pad; everything
-                                // else gets the default text layout. Set every show because the system
-                                // keyboard is shared across fields.
-        let numeric = super::edit_text::is_numeric(ta as usize);
-        let mode = if numeric {
-            LV_KEYBOARD_MODE_NUMBER
-        } else {
-            LV_KEYBOARD_MODE_TEXT_LOWER
-        };
-        lv_keyboard_set_mode(kb, mode);
-        STATE.first_key.set(if numeric { 0 } else { 1 });
-        STATE.bound_et.set(et_obj_ref);
-        // Visibility flag must be cleared *before* starting the y-anim,
-        // otherwise the first frame paints at the off-screen y position
-        // while still HIDDEN — fine — and then becomes visible mid-slide
-        // which produces a pop. Clearing first means LVGL renders every
-        // frame of the slide.
-        lv_obj_remove_flag(kb, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_set_y(kb, system_keyboard_offscreen_y());
-        animations::start(
-            STATE.system_handle.get(),
-            /* PROPERTY_Y */ 2,
-            system_keyboard_offscreen_y(),
-            system_keyboard_rest_y(),
-            SYSTEM_KEYBOARD_SLIDE_DURATION_MS,
-            /* INTERP_LINEAR */ 0,
-        );
-        STATE.visible.set(true);
-        // The soft-nav control sits where the keyboard's bottom-left key
-        // does; the keyboard has its own dismiss affordances.
-        super::super::soft_nav::set_hidden(true);
-        super::super::menu_button::set_hidden(true);
-        // On a keypad board the keyboard takes the focus while it shows:
-        // `keypad_remap` then turns PREV/NEXT into LEFT/RIGHT, which walk
-        // its keys, and ENTER presses the selected one (LVGL's own path).
-        // Not yet, though: the ENTER that opened it is still down, and its
-        // release would land on the keyboard's first key. `keypad_read_cb`
-        // moves the focus on its next quiet pass (`take_pending_focus`).
-        STATE.focus_pending.set(true);
-        // Press-outside dismiss, attached now that the press that opened
-        // us has been and gone (we are shown from the field's click, after
-        // LVGL's pass): the hook sees only the presses that follow.
-        events::attach_pointer_press_hook(Some(pointer_press_outside_cb));
-    }
+    };
+    // SAFETY: `kb` is the system keyboard, made by `lv_keyboard_create`;
+    // `ta` is the textarea of the EditText whose press callback calls this
+    // (the callback's own object).
+    unsafe { lv_keyboard_set_textarea(kb, Some(ta)) };
+    STATE.bound_ta.set(ta.as_ptr()); // mirror kb->ta for use-after-delete cleanup
+
+    // Pick the keypad layout for the field being bound. EditTexts flagged
+    // numeric (setInputType TYPE_CLASS_NUMBER) get the digit pad; everything
+    // else gets the default text layout. Set every show because the system
+    // keyboard is shared across fields.
+    let numeric = super::edit_text::is_numeric(ta.addr());
+    let mode = if numeric {
+        LV_KEYBOARD_MODE_NUMBER
+    } else {
+        LV_KEYBOARD_MODE_TEXT_LOWER
+    };
+    // SAFETY: `kb` is an `lv_keyboard` (above).
+    unsafe { lv_keyboard_set_mode(kb, mode) };
+    STATE.first_key.set(if numeric { 0 } else { 1 });
+    STATE.bound_et.set(et_obj_ref);
+    // Visibility flag must be cleared *before* starting the y-anim,
+    // otherwise the first frame paints at the off-screen y position
+    // while still HIDDEN — fine — and then becomes visible mid-slide
+    // which produces a pop. Clearing first means LVGL renders every
+    // frame of the slide.
+    lv_obj_remove_flag(kb, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_y(kb, system_keyboard_offscreen_y());
+    animations::start(
+        STATE.system_handle.get(),
+        /* PROPERTY_Y */ 2,
+        system_keyboard_offscreen_y(),
+        system_keyboard_rest_y(),
+        SYSTEM_KEYBOARD_SLIDE_DURATION_MS,
+        /* INTERP_LINEAR */ 0,
+    );
+    STATE.visible.set(true);
+    // The soft-nav control sits where the keyboard's bottom-left key
+    // does; the keyboard has its own dismiss affordances.
+    super::super::soft_nav::set_hidden(true);
+    super::super::menu_button::set_hidden(true);
+    // On a keypad board the keyboard takes the focus while it shows:
+    // `keypad_remap` then turns PREV/NEXT into LEFT/RIGHT, which walk
+    // its keys, and ENTER presses the selected one (LVGL's own path).
+    // Not yet, though: the ENTER that opened it is still down, and its
+    // release would land on the keyboard's first key. `keypad_read_cb`
+    // moves the focus on its next quiet pass (`take_pending_focus`).
+    STATE.focus_pending.set(true);
+    // Press-outside dismiss, attached now that the press that opened
+    // us has been and gone (we are shown from the field's click, after
+    // LVGL's pass): the hook sees only the presses that follow.
+    // SAFETY: `pointer_press_outside_cb` is written for the pointer device's
+    // PRESSED event: it reads the parameter as the pressed object and never
+    // asks for a target.
+    unsafe { events::attach_pointer_press_hook(Some(pointer_press_outside_cb)) };
 }
 
 /// Hide the system keyboard if currently visible. Returns `true` if a
@@ -276,52 +299,50 @@ pub(in crate::graphics) fn show_system_for(ta: *mut lv_obj_t, et_obj_ref: u16) {
 /// `lifecycle.rs::dispatch_key_events` to decide whether to consume the
 /// event.
 pub fn hide_system() -> bool {
-    unsafe {
-        if STATE.system.get().is_null() || !STATE.visible.get() {
-            return false;
-        }
-        // Cancel any in-flight slide so the keyboard's saved y doesn't
-        // creep back to the rest position after the next show. The next
-        // show_system_for re-snaps y=offscreen explicitly anyway, so
-        // this is belt-and-braces.
-        animations::cancel(STATE.system_handle.get());
-        lv_obj_add_flag(STATE.system.get(), LV_OBJ_FLAG_HIDDEN);
-        STATE.visible.set(false);
-        super::super::soft_nav::set_hidden(false);
-        super::super::menu_button::set_hidden(false);
-        STATE.bound_et.set(0);
-        STATE.focus_pending.set(false);
-        events::detach_pointer_press_hook();
-        // The field it was typing into takes the keypad focus back. The
-        // bound textarea is live: `unbind_if_deleting` clears it before its
-        // Activity's tree is freed.
-        events::unfocus_system_keyboard(STATE.system.get(), STATE.bound_ta.get());
-        true
+    let Some(kb) = STATE.system.get() else {
+        return false;
+    };
+    if !STATE.visible.get() {
+        return false;
     }
+    // Cancel any in-flight slide so the keyboard's saved y doesn't
+    // creep back to the rest position after the next show. The next
+    // show_system_for re-snaps y=offscreen explicitly anyway, so
+    // this is belt-and-braces.
+    animations::cancel(STATE.system_handle.get());
+    lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
+    STATE.visible.set(false);
+    super::super::soft_nav::set_hidden(false);
+    super::super::menu_button::set_hidden(false);
+    STATE.bound_et.set(0);
+    STATE.focus_pending.set(false);
+    events::detach_pointer_press_hook();
+    // The field it was typing into takes the keypad focus back. The
+    // bound textarea is live: `unbind_if_deleting` clears it before its
+    // Activity's tree is freed.
+    events::unfocus_system_keyboard(kb, bound_ta());
+    true
 }
 
 /// The keyboard waiting to take the keypad focus, if one is, and the key
 /// its walk starts on: shown by a key press whose release has now been
 /// read. Clears the wait; the caller (`keypad_read_cb`, on a pass with no
 /// edge and no key down) does the focusing.
-pub fn take_pending_focus() -> Option<(*mut lv_obj_t, u32)> {
+pub fn take_pending_focus() -> Option<(Obj, u32)> {
     if !STATE.focus_pending.get() || !STATE.visible.get() {
         return None;
     }
     STATE.focus_pending.set(false);
-    Some((STATE.system.get(), STATE.first_key.get()))
+    Some((STATE.system.get()?, STATE.first_key.get()))
 }
 
 /// Whether the system keyboard is showing and holds the keypad focus: the
 /// condition under which `keypad_read_cb` walks its keys with PREV/NEXT.
 pub fn is_system_keyboard_focused() -> bool {
-    unsafe {
-        if STATE.system.get().is_null() || !STATE.visible.get() {
-            return false;
-        }
-        let group = lv_group_get_default();
-        !group.is_null() && lv_group_get_focused(group) == STATE.system.get()
-    }
+    let Some(kb) = STATE.system.get() else {
+        return false;
+    };
+    STATE.visible.get() && lv_group_get_default().and_then(|o| lv_group_get_focused(o)) == Some(kb)
 }
 
 /// The LVGL key a keypad edge becomes while the system keyboard has the
@@ -344,13 +365,15 @@ pub fn keypad_remap(key: u32) -> Option<u32> {
 /// burst of key presses would — the simulator's `input text` verb. False
 /// when the keyboard is not showing.
 pub fn type_text(text: &str) -> bool {
-    unsafe {
-        if !STATE.visible.get() || STATE.bound_ta.get().is_null() {
-            return false;
-        }
-        let ta = STATE.bound_ta.get();
-        super::text_view::with_cstr(text, |p| lv_textarea_add_text(ta, p));
+    if !STATE.visible.get() {
+        return false;
     }
+    let Some(ta) = bound_ta() else {
+        return false;
+    };
+    // SAFETY: the bound field is an EditText's `lv_textarea`
+    // (`show_system_for`); the text is NUL-terminated and LVGL copies it.
+    super::text_view::with_cstr(text, |p| unsafe { lv_textarea_add_text(ta, p.as_ptr()) });
     true
 }
 
@@ -365,40 +388,33 @@ pub fn type_text(text: &str) -> bool {
 /// use-after-free segfault (lv_keyboard_set_textarea → lv_obj_remove_state →
 /// lv_event_send over a freed event list). Unbinding here, while the textarea
 /// is still alive, defuses it. Mirrors [`super::super::animations::cancel_subtree`].
-pub fn unbind_if_deleting(root: *mut lv_obj_t) {
-    if root.is_null() {
+pub fn unbind_if_deleting(root: Obj) {
+    let Some(kb) = STATE.system.get() else {
         return;
-    }
-    unsafe {
-        let kb = STATE.system.get();
-        let ta = STATE.bound_ta.get();
-        if kb.is_null() || ta.is_null() {
+    };
+    let Some(ta) = bound_ta() else {
+        return;
+    };
+    // Walk up from the bound textarea; if we reach `root` it is in the
+    // subtree being deleted, so unbind it now (still alive == safe).
+    let mut cur = Some(ta);
+    while let Some(o) = cur {
+        if o == root {
+            // SAFETY: `kb` is the system keyboard, made by
+            // `lv_keyboard_create`.
+            unsafe { lv_keyboard_set_textarea(kb, None) };
+            STATE.bound_ta.set(core::ptr::null_mut());
+            let _ = hide_system();
             return;
         }
-        // Walk up from the bound textarea; if we reach `root` it is in the
-        // subtree being deleted, so unbind it now (still alive == safe).
-        let mut cur = ta;
-        while !cur.is_null() {
-            if cur == root {
-                lv_keyboard_set_textarea(kb, core::ptr::null_mut());
-                STATE.bound_ta.set(core::ptr::null_mut());
-                let _ = hide_system();
-                return;
-            }
-            cur = lv_obj_get_parent(cur);
-        }
+        cur = lv_obj_get_parent(o);
     }
 }
 
 /// Pop the pending editor-action, if any. The JVM event pump in
 /// `lifecycle.rs` consumes this every tick.
 pub fn drain_editor_action() -> Option<EditorActionRecord> {
-    // Manual take() — `Option::take` would require &mut to a mutable
-    // static, which trips Rust 2024's `static_mut_refs` lint. The record
-    // is `Copy`, so a load + store is equivalent and lint-clean.
-    let popped = STATE.pending_editor_action.get();
-    STATE.pending_editor_action.set(None);
-    popped
+    STATE.pending_editor_action.take()
 }
 
 // ── Per-instance widget ops (called from widgets/keyboard.rs Java shim) ─────
@@ -406,60 +422,44 @@ pub fn drain_editor_action() -> Option<EditorActionRecord> {
 /// `Keyboard.nativeCreate()` — fresh per-instance keyboard parented to
 /// the screen. Distinct from the system keyboard above.
 pub(in crate::graphics) fn create() -> i32 {
-    let kb = unsafe { lv_keyboard_create(lifecycle::screen_ptr()) };
-    unsafe {
-        // As for the system keyboard: `View.setPosition` is absolute.
-        lv_obj_set_align(kb, LV_ALIGN_TOP_LEFT);
-        lv_obj_add_event_cb(
-            kb,
-            Some(keyboard_ready_cb),
-            LV_EVENT_READY,
-            core::ptr::null_mut(),
-        );
-    }
+    let Some(kb) = lifecycle::screen_ptr().and_then(|o| lv_keyboard_create(o)) else {
+        return 0;
+    };
+    // As for the system keyboard: `View.setPosition` is absolute.
+    lv_obj_set_align(kb, LV_ALIGN_TOP_LEFT);
+    add_event_cb(kb, keyboard_ready_cb, LV_EVENT_READY);
     handle_table::register(kb)
 }
 
 pub(in crate::graphics) fn set_textarea(kb_id: i32, ta_id: i32) {
-    let kb = handle_table::lookup(kb_id);
-    let ta = handle_table::lookup(ta_id);
-    if kb.is_null() || ta.is_null() {
+    let (Some(kb), Some(ta)) = (handle_table::get(kb_id), handle_table::get(ta_id)) else {
         return;
-    }
-    unsafe { lv_keyboard_set_textarea(kb, ta) };
+    };
+    // SAFETY: `Keyboard.setEditText(EditText)`: `kb` is a Keyboard's
+    // `lv_keyboard` (its constructors pass [`create`]'s), and `ta` an
+    // EditText's `lv_textarea` (the Java parameter type).
+    unsafe { lv_keyboard_set_textarea(kb, Some(ta)) };
 }
 
 pub(in crate::graphics) fn set_mode(kb_id: i32, mode: lv_keyboard_mode_t) {
-    let kb = handle_table::lookup(kb_id);
-    if kb.is_null() {
+    let Some(kb) = handle_table::get(kb_id) else {
         return;
-    }
+    };
+    // SAFETY: a `Keyboard` native: its constructors give `View` the
+    // `lv_keyboard` [`create`] made, and no other handle.
     unsafe { lv_keyboard_set_mode(kb, mode) };
 }
 
 /// Register a Java `Keyboard` object as the READY-listener target for
 /// the given instance. Mirrors the Button pattern.
 pub(in crate::graphics) fn register_ready_listener(id: i32, obj_ref: u16) {
-    let raw_ptr = handle_table::lookup(id) as usize;
-    if raw_ptr == 0 {
-        return;
-    }
-    unsafe {
-        match STATE.handle_map.upsert(raw_ptr, obj_ref) {
-            Upsert::Updated => {}
-            Upsert::Full => warn_full("keyboard-ready"),
-            Upsert::Inserted => {
-                // Unregister on widget delete so a recycled lv_obj address
-                // can't alias a dead widget's listener entry.
-                lv_obj_add_event_cb(
-                    raw_ptr as *mut lv_obj_t,
-                    Some(map_delete_cb),
-                    LV_EVENT_DELETE,
-                    core::ptr::null_mut(),
-                );
-            }
-        }
-    }
+    super::compound::register_listener_with_delete_hook(
+        &STATE.handle_map,
+        id,
+        obj_ref,
+        map_delete_cb,
+        "keyboard-ready",
+    );
 }
 
 /// Drain one READY event (raw `lv_obj_t*` value) from the per-instance
@@ -479,7 +479,7 @@ pub fn reset_keyboard_state() {
     // The screen tree is torn down by handle_table::reset on app
     // reload, so the system keyboard pointer is dangling — drop our
     // cache so the next show recreates from scratch.
-    STATE.system.set(core::ptr::null_mut());
+    STATE.system.set(None);
     STATE.system_handle.set(0);
     STATE.visible.set(false);
     STATE.bound_et.set(0);

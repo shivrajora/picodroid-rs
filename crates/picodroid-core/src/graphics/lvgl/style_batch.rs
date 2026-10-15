@@ -26,12 +26,9 @@ use crate::lvgl_ffi::*;
 /// refresh back on, and the sets after it refresh one by one again — still
 /// correct, no longer batched) and must not set styles on another object
 /// (those would go unrefreshed).
-///
-/// # Safety
-/// `obj` must be a live LVGL object, on the UI task like every `lv_*` call.
 #[inline]
-pub(in crate::graphics) unsafe fn with_one_refresh<R>(
-    obj: *mut lv_obj_t,
+pub(in crate::graphics) fn with_one_refresh<R>(
+    obj: Obj,
     prop: lv_style_prop_t,
     f: impl FnOnce() -> R,
 ) -> R {

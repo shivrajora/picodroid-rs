@@ -26,6 +26,24 @@ use papk_format::Papk;
 
 use crate::util::local::Core0;
 
+/// An image descriptor the registry owns: what `lv_image_set_src` and
+/// `lv_obj_set_style_bg_image_src` are handed. Only this module makes one,
+/// and the descriptor lives until [`clear`], which the app reset runs after
+/// the widget tree that could show it is gone.
+#[derive(Copy, Clone)]
+pub struct AssetImage(core::ptr::NonNull<lv_image_dsc_t>);
+
+impl AssetImage {
+    fn of(dsc: &lv_image_dsc_t) -> Self {
+        Self(core::ptr::NonNull::from(dsc))
+    }
+
+    /// The descriptor as LVGL's image-source pointer.
+    pub(in crate::graphics) fn as_src(self) -> *const core::ffi::c_void {
+        self.0.as_ptr().cast()
+    }
+}
+
 struct Registry {
     initialized: bool,
     entries: Vec<(String, Box<lv_image_dsc_t>)>,
@@ -119,16 +137,16 @@ fn init_registry(reg: &mut Registry, papk: &Papk<'_>) {
 
 /// Look up a bundled asset by exact name (e.g. `"logo.png"`).
 ///
-/// Returns the LVGL descriptor pointer suitable for `lv_image_set_src`.
-/// `None` means the name isn't in the bundle — callers typically log a
-/// warning and leave the image widget empty.
-pub fn lookup(name: &str) -> Option<*const lv_image_dsc_t> {
+/// Returns the descriptor to hand `lv_image_set_src`. `None` means the name
+/// isn't in the bundle — callers typically log a warning and leave the image
+/// widget empty.
+pub fn lookup(name: &str) -> Option<AssetImage> {
     REGISTRY
         .borrow()
         .entries
         .iter()
         .find(|(n, _)| n == name)
-        .map(|(_, dsc)| &**dsc as *const lv_image_dsc_t)
+        .map(|(_, dsc)| AssetImage::of(dsc))
 }
 
 /// Number of registered assets — exposed for sim smoke tests and debug
@@ -183,13 +201,9 @@ pub fn register_icon(entry: &crate::packages::Entry) -> Option<i32> {
 
 /// The descriptor behind a `BitmapDrawable` handle.
 #[cfg(has_multi_app)]
-pub fn icon_dsc(handle: i32) -> Option<*const lv_image_dsc_t> {
+pub fn icon_dsc(handle: i32) -> Option<AssetImage> {
     let i = usize::try_from(handle).ok()?;
-    REGISTRY
-        .borrow()
-        .icons
-        .get(i)
-        .map(|d| &**d as *const lv_image_dsc_t)
+    REGISTRY.borrow().icons.get(i).map(|d| AssetImage::of(d))
 }
 
 #[cfg(test)]

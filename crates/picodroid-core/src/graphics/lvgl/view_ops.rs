@@ -3,8 +3,9 @@
 //!
 //! Every widget hits this surface (set_pos, set_size, set_bg_color, …)
 //! regardless of widget kind. Implementation is one indirection: resolve
-//! the [`Handle`] to a `*mut lv_obj_t` via `handle_table::lookup`, then
-//! issue the LVGL call.
+//! the [`Handle`] to an [`Obj`] via `handle_table::get`, then issue the
+//! LVGL call. A stale handle resolves to nothing, and mutating a destroyed
+//! View is a no-op.
 //!
 //! These functions are called from `impl Gfx for LvglGfx` in
 //! [`super::mod`]. Free functions rather than inherent methods so the
@@ -16,8 +17,8 @@ use super::super::gfx::{Handle, Reparent, Visibility};
 use super::handle_table;
 
 #[inline]
-fn obj(h: Handle) -> *mut lv_obj_t {
-    handle_table::lookup(h.to_java())
+fn obj(h: Handle) -> Option<Obj> {
+    handle_table::get(h.to_java())
 }
 
 /// Convert an ARGB packed `0xAARRGGBB` to an `lv_color_t` (RGB888 — alpha
@@ -31,11 +32,8 @@ fn argb_to_lv_color(argb: u32) -> lv_color_t {
 }
 
 pub(in crate::graphics) fn set_pos(h: Handle, x: i32, y: i32) {
-    let o = obj(h);
-    if o.is_null() {
-        return; // stale handle — mutating a destroyed View is a no-op
-    }
-    unsafe { lv_obj_set_pos(o, x, y) };
+    let Some(o) = obj(h) else { return };
+    lv_obj_set_pos(o, x, y);
 }
 
 /// LVGL `LV_SIZE_CONTENT = LV_COORD_MAX | LV_COORD_TYPE_SPEC = (1<<30)-1`. Mirrors Java
@@ -53,7 +51,7 @@ const LV_SIZE_CONTENT: i32 = (1 << 30) - 1;
 /// pixels to the right) and `getWidth()` told the truth. `resdemo`'s geometry
 /// checks are what caught it.
 fn match_parent() -> i32 {
-    unsafe { lv_pct(100) }
+    lv_pct(100)
 }
 
 fn translate_dim(v: i32) -> i32 {
@@ -65,140 +63,101 @@ fn translate_dim(v: i32) -> i32 {
 }
 
 pub(in crate::graphics) fn set_size(h: Handle, w: i32, height: i32) {
-    let o = obj(h);
-    if o.is_null() {
-        return; // stale handle — mutating a destroyed View is a no-op
-    }
-    unsafe { lv_obj_set_size(o, translate_dim(w), translate_dim(height)) };
+    let Some(o) = obj(h) else { return };
+    lv_obj_set_size(o, translate_dim(w), translate_dim(height));
 }
 
 pub(in crate::graphics) fn set_bg_color(h: Handle, argb: u32) {
-    let o = obj(h);
-    if o.is_null() {
-        return; // stale handle — mutating a destroyed View is a no-op
-    }
+    let Some(o) = obj(h) else { return };
     let color = argb_to_lv_color(argb);
     // The alpha byte is the fill's opacity, as on Android: `Color.TRANSPARENT` clears the
     // background and an opaque colour paints it, on a label (transparent by default) as much as
     // on a container. Before 2026-09-24 only the colour was written, so a transparent colour
     // painted opaque black on a container and a label never showed a background at all.
-    unsafe {
-        lv_obj_set_style_bg_color(o, color, 0);
-        lv_obj_set_style_bg_opa(o, (argb >> 24) as u8, 0);
-    }
+    lv_obj_set_style_bg_color(o, color, 0);
+    lv_obj_set_style_bg_opa(o, (argb >> 24) as u8, 0);
 }
 
 /// `View.setBackgroundTintList`: the colour alone. The opacity, the radius and
 /// the border are whatever the background set, so a rounded dot stays a dot
 /// and a view without a background still shows none.
 pub(in crate::graphics) fn set_bg_tint(h: Handle, argb: u32) {
-    let o = obj(h);
-    if o.is_null() {
-        return; // stale handle — mutating a destroyed View is a no-op
-    }
-    unsafe { lv_obj_set_style_bg_color(o, argb_to_lv_color(argb), 0) };
+    let Some(o) = obj(h) else { return };
+    lv_obj_set_style_bg_color(o, argb_to_lv_color(argb), 0);
 }
 
 pub(in crate::graphics) fn set_padding(h: Handle, left: i32, top: i32, right: i32, bottom: i32) {
-    let o = obj(h);
-    if o.is_null() {
-        return; // stale handle — mutating a destroyed View is a no-op
-    }
+    let Some(o) = obj(h) else { return };
     // Four sets, one refresh (style_batch.rs).
-    unsafe {
-        super::style_batch::with_one_refresh(o, LV_STYLE_PAD_TOP, || {
-            lv_obj_set_style_pad_left(o, left, 0);
-            lv_obj_set_style_pad_top(o, top, 0);
-            lv_obj_set_style_pad_right(o, right, 0);
-            lv_obj_set_style_pad_bottom(o, bottom, 0);
-        });
-    }
+    super::style_batch::with_one_refresh(o, LV_STYLE_PAD_TOP, || {
+        lv_obj_set_style_pad_left(o, left, 0);
+        lv_obj_set_style_pad_top(o, top, 0);
+        lv_obj_set_style_pad_right(o, right, 0);
+        lv_obj_set_style_pad_bottom(o, bottom, 0);
+    });
 }
 
 pub(in crate::graphics) fn set_visibility(h: Handle, v: Visibility) {
-    let o = obj(h);
-    if o.is_null() {
-        return; // stale handle — mutating a destroyed View is a no-op
-    }
-    unsafe {
-        match v {
-            Visibility::Visible => {
-                lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
-                // Back from INVISIBLE: opaque again (the Java side then
-                // re-applies any alpha of its own), and clickable again if it
-                // was before.
-                lv_obj_set_style_opa(o, LV_OPA_COVER, 0);
-                if lv_obj_has_flag(o, LV_OBJ_FLAG_USER_1) {
-                    lv_obj_remove_flag(o, LV_OBJ_FLAG_USER_1);
-                    lv_obj_add_flag(o, LV_OBJ_FLAG_CLICKABLE);
-                }
+    let Some(o) = obj(h) else { return };
+    match v {
+        Visibility::Visible => {
+            lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
+            // Back from INVISIBLE: opaque again (the Java side then
+            // re-applies any alpha of its own), and clickable again if it
+            // was before.
+            lv_obj_set_style_opa(o, LV_OPA_COVER, 0);
+            if lv_obj_has_flag(o, LV_OBJ_FLAG_USER_1) {
+                lv_obj_remove_flag(o, LV_OBJ_FLAG_USER_1);
+                lv_obj_add_flag(o, LV_OBJ_FLAG_CLICKABLE);
             }
-            // INVISIBLE keeps its place in the layout and draws nothing, and
-            // touches pass through it, as on Android: transparent, and not
-            // clickable for the while (USER_1 remembers that it was).
-            Visibility::Invisible => {
-                lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_style_opa(o, 0, 0);
-                if lv_obj_has_flag(o, LV_OBJ_FLAG_CLICKABLE) {
-                    lv_obj_remove_flag(o, LV_OBJ_FLAG_CLICKABLE);
-                    lv_obj_add_flag(o, LV_OBJ_FLAG_USER_1);
-                }
-            }
-            // GONE takes no layout space either.
-            Visibility::Gone => lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN),
         }
+        // INVISIBLE keeps its place in the layout and draws nothing, and
+        // touches pass through it, as on Android: transparent, and not
+        // clickable for the while (USER_1 remembers that it was).
+        Visibility::Invisible => {
+            lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_opa(o, 0, 0);
+            if lv_obj_has_flag(o, LV_OBJ_FLAG_CLICKABLE) {
+                lv_obj_remove_flag(o, LV_OBJ_FLAG_CLICKABLE);
+                lv_obj_add_flag(o, LV_OBJ_FLAG_USER_1);
+            }
+        }
+        // GONE takes no layout space either.
+        Visibility::Gone => lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN),
     }
 }
 
 /// `View.setMinimumWidth/Height`: a floor under the laid-out size. A
 /// negative value leaves that axis as it is.
 pub(in crate::graphics) fn set_min_size(h: Handle, width: i32, height: i32) {
-    let o = obj(h);
-    if o.is_null() {
-        return; // stale handle — mutating a destroyed View is a no-op
+    let Some(o) = obj(h) else { return };
+    if width >= 0 {
+        lv_obj_set_style_min_width(o, width, 0);
     }
-    // SAFETY: `o` is the live object the handle table returned.
-    unsafe {
-        if width >= 0 {
-            lv_obj_set_style_min_width(o, width, 0);
-        }
-        if height >= 0 {
-            lv_obj_set_style_min_height(o, height, 0);
-        }
+    if height >= 0 {
+        lv_obj_set_style_min_height(o, height, 0);
     }
 }
 
 /// `TextView.setMaxWidth`: a ceiling on the laid-out width, so a
 /// content-sized label wraps or ellipsizes instead of growing.
 pub(in crate::graphics) fn set_max_width(h: Handle, width: i32) {
-    let o = obj(h);
-    if o.is_null() {
-        return; // stale handle — mutating a destroyed View is a no-op
-    }
-    // SAFETY: `o` is the live object the handle table returned.
-    unsafe { lv_obj_set_style_max_width(o, width, 0) };
+    let Some(o) = obj(h) else { return };
+    lv_obj_set_style_max_width(o, width, 0);
 }
 
 pub(in crate::graphics) fn set_enabled(h: Handle, on: bool) {
-    let o = obj(h);
-    if o.is_null() {
-        return; // stale handle — mutating a destroyed View is a no-op
-    }
-    unsafe {
-        if on {
-            lv_obj_remove_state(o, LV_STATE_DISABLED);
-        } else {
-            lv_obj_add_state(o, LV_STATE_DISABLED);
-        }
+    let Some(o) = obj(h) else { return };
+    if on {
+        lv_obj_remove_state(o, LV_STATE_DISABLED);
+    } else {
+        lv_obj_add_state(o, LV_STATE_DISABLED);
     }
 }
 
 pub(in crate::graphics) fn set_alpha(h: Handle, alpha: u8) {
-    let o = obj(h);
-    if o.is_null() {
-        return; // stale handle — mutating a destroyed View is a no-op
-    }
-    unsafe { lv_obj_set_style_opa(o, alpha, 0) };
+    let Some(o) = obj(h) else { return };
+    lv_obj_set_style_opa(o, alpha, 0);
 }
 
 pub(in crate::graphics) fn set_parent(h: Handle, parent: Handle) -> Reparent {
@@ -216,34 +175,33 @@ pub(in crate::graphics) fn set_parent(h: Handle, parent: Handle) -> Reparent {
     if !handle_table::is_live(parent.to_java()) {
         return Reparent::StaleParent;
     }
-    // Probe liveness first: `obj()` of a released handle is a use-after-
-    // delete to the sanitizer, and this is the one place a stale handle is
-    // a legitimate question rather than a bug.
-    if !handle_table::is_live(h.to_java()) {
+    let Some(child) = obj(h) else {
         return Reparent::StaleChild;
-    }
-    if !handle_table::is_live(parent.to_java()) {
+    };
+    let Some(parent) = obj(parent) else {
         return Reparent::StaleParent;
-    }
-    let (child, parent) = (obj(h), obj(parent));
-    if child.is_null() {
-        return Reparent::StaleChild;
-    }
-    if parent.is_null() {
-        return Reparent::StaleParent;
-    }
+    };
+    // SAFETY: both objects are live (the handle table resolved them). LVGL
+    // does not refuse a parent that is `child` itself or one of its
+    // descendants, and neither does `ViewGroup.addView` on the Java side
+    // (Android throws "already has a parent" before it could get here): an
+    // app that adds a view into its own subtree makes a cycle. That is an
+    // open finding, reported with this change rather than fixed in it.
     unsafe { lv_obj_set_parent(child, parent) };
     Reparent::Done
 }
 
 pub(in crate::graphics) fn delete(h: Handle) {
-    let o = obj(h);
-    if o.is_null() {
+    let Some(o) = obj(h) else {
         return; // already deleted (stale handle)
-    }
+    };
     #[cfg(feature = "sim")]
     check_not_under_java_parent(h, o);
-    delete_obj(o);
+    // SAFETY: `o` came from the handle table for this one call and is not
+    // used after; the Java `View` that held the handle drops it on close,
+    // and the table invalidates the handle (and every descendant's) from
+    // the delete hooks LVGL runs before freeing.
+    unsafe { delete_obj(o) };
 }
 
 /// Offensive check, sim only: `View.close()` reaching a widget that still
@@ -260,12 +218,14 @@ pub(in crate::graphics) fn delete(h: Handle) {
 /// windowed app report D3, and the sanitizer's backtrace capture then
 /// died as an OOM under the heap cap (QA F1).
 #[cfg(feature = "sim")]
-fn check_not_under_java_parent(h: Handle, o: *mut lv_obj_t) {
-    let parent = unsafe { lv_obj_get_parent(o) };
-    if parent.is_null() || unsafe { lv_obj_get_parent(parent) }.is_null() {
-        return; // no parent, or the parent is a screen
+fn check_not_under_java_parent(h: Handle, o: Obj) {
+    let Some(parent) = lv_obj_get_parent(o) else {
+        return; // no parent
+    };
+    if lv_obj_get_parent(parent).is_none() {
+        return; // the parent is a screen
     }
-    if parent == super::window::content_root() {
+    if Some(parent) == super::window::content_root() {
         return; // the compat window: the framework's, with no Java child list
     }
     if handle_table::is_registered(parent) {
@@ -273,30 +233,31 @@ fn check_not_under_java_parent(h: Handle, o: *mut lv_obj_t) {
     }
 }
 
-/// Delete an LVGL subtree by raw pointer, running the same pre-delete
-/// cleanup as [`delete`]: every framework-owned `lv_obj_delete` must go
-/// through here (toast/snackbar timers included), or a running animation or
-/// bound keyboard keeps a pointer into freed memory.
-pub(in crate::graphics) fn delete_obj(o: *mut lv_obj_t) {
-    if o.is_null() {
-        return;
-    }
+/// Delete an LVGL subtree, running the same pre-delete cleanup as
+/// [`delete`]: every framework-owned `lv_obj_delete` must go through here
+/// (toast/snackbar timers included), or a running animation or bound
+/// keyboard keeps a pointer into freed memory.
+///
+/// # Safety
+/// As [`lv_obj_delete`]: no `Obj` naming `o` or a descendant may be used
+/// afterwards.
+pub(in crate::graphics) unsafe fn delete_obj(o: Obj) {
     // Drop dangling references into this subtree before its objects are freed:
     // animations keyed by handle (the Live-screen back-out hang) and the system
     // keyboard's bound-textarea pointer (the Settings re-open segfault).
     super::animations::cancel_subtree(o);
     super::widgets::keyboard::unbind_if_deleting(o);
+    // SAFETY: the caller's contract.
     unsafe { lv_obj_delete(o) };
 }
 
 // ── ViewGroup ops ──────────────────────────────────────────────────────────
 
 pub(in crate::graphics) fn child_count(h: Handle) -> i32 {
-    let o = obj(h);
-    if o.is_null() {
+    let Some(o) = obj(h) else {
         return 0; // stale handle — no children
-    }
-    unsafe { lv_obj_get_child_count(o as *const lv_obj_t) as i32 }
+    };
+    lv_obj_get_child_count(o) as i32
 }
 
 // There is no `child_at`: no reverse map (raw lv_obj_t* → Java View
@@ -306,32 +267,28 @@ pub(in crate::graphics) fn child_count(h: Handle) -> i32 {
 
 pub(in crate::graphics) fn remove_child(_parent: Handle, child: Handle) {
     // LVGL's delete walks the tree to detach from the parent automatically.
-    let c = obj(child);
-    if c.is_null() {
+    let Some(c) = obj(child) else {
         return; // already deleted (stale handle)
-    }
-    // Drop dangling refs (animations + bound keyboard textarea) before freeing.
-    super::animations::cancel_subtree(c);
-    super::widgets::keyboard::unbind_if_deleting(c);
-    unsafe { lv_obj_delete(c) };
+    };
+    // SAFETY: `c` came from the handle table for this call and is not used
+    // after; `removeView` drops the Java side's reference to the released
+    // child, and the delete hooks invalidate its handles.
+    unsafe { delete_obj(c) };
 }
 
 pub(in crate::graphics) fn move_to_index(h: Handle, index: i32) {
-    let o = obj(h);
-    if o.is_null() {
+    let Some(o) = obj(h) else {
         return; // stale handle: nothing to move
-    }
-    // SAFETY: `o` is a live object (null was just excluded) on the JVM task
-    // that owns LVGL; `lv_obj_move_to_index` refuses an out-of-range index
-    // and a parentless object.
-    unsafe { lv_obj_move_to_index(o, index) };
+    };
+    // `lv_obj_move_to_index` refuses an out-of-range index and a parentless
+    // object.
+    lv_obj_move_to_index(o, index);
 }
 
 pub(in crate::graphics) fn remove_all_children(h: Handle) {
-    let o = obj(h);
-    if o.is_null() {
+    let Some(o) = obj(h) else {
         return; // stale handle — nothing to clean
-    }
+    };
     // The children (and their descendants) are about to be freed — drop any
     // dangling refs into them first (animations keyed by handle, and the system
     // keyboard's bound textarea). Conservatively also covers `o` itself, which
@@ -339,6 +296,8 @@ pub(in crate::graphics) fn remove_all_children(h: Handle) {
     // re-established on next use).
     super::animations::cancel_subtree(o);
     super::widgets::keyboard::unbind_if_deleting(o);
+    // SAFETY: only `o` is used afterwards (nowhere here), and it survives the
+    // clean; the children's handles are invalidated by their delete hooks.
     unsafe { lv_obj_clean(o) };
 }
 
@@ -348,48 +307,37 @@ pub(in crate::graphics) fn remove_all_children(h: Handle) {
 /// `getTop` exclude translation (`getX() = getLeft() + getTranslationX()`),
 /// so it is subtracted back out here.
 pub(in crate::graphics) fn frame(h: Handle) -> (i32, i32, i32, i32) {
-    let o = obj(h);
-    if o.is_null() {
+    let Some(o) = obj(h) else {
         return (0, 0, 0, 0); // stale handle — no geometry to report
-    }
-    unsafe {
-        lv_obj_update_layout(o);
-        let (tx, ty) = super::animations::translation_of(o);
-        (
-            lv_obj_get_x(o) - tx,
-            lv_obj_get_y(o) - ty,
-            lv_obj_get_width(o),
-            lv_obj_get_height(o),
-        )
-    }
+    };
+    lv_obj_update_layout(o);
+    let (tx, ty) = super::animations::translation_of(o);
+    (
+        lv_obj_get_x(o) - tx,
+        lv_obj_get_y(o) - ty,
+        lv_obj_get_width(o),
+        lv_obj_get_height(o),
+    )
 }
 
 /// `LayoutParams` margins: the space a `LinearLayout` (an LVGL flex layout)
 /// keeps clear around this child. Four sets, one refresh (style_batch.rs).
 pub(in crate::graphics) fn set_margins(h: Handle, left: i32, top: i32, right: i32, bottom: i32) {
-    let o = obj(h);
-    if o.is_null() {
-        return; // stale handle — mutating a destroyed View is a no-op
-    }
-    unsafe {
-        // PAD_TOP's flags are the ones a margin has: a layout update.
-        super::style_batch::with_one_refresh(o, LV_STYLE_PAD_TOP, || {
-            lv_obj_set_style_margin_left(o, left, 0);
-            lv_obj_set_style_margin_top(o, top, 0);
-            lv_obj_set_style_margin_right(o, right, 0);
-            lv_obj_set_style_margin_bottom(o, bottom, 0);
-        });
-    }
+    let Some(o) = obj(h) else { return };
+    // PAD_TOP's flags are the ones a margin has: a layout update.
+    super::style_batch::with_one_refresh(o, LV_STYLE_PAD_TOP, || {
+        lv_obj_set_style_margin_left(o, left, 0);
+        lv_obj_set_style_margin_top(o, top, 0);
+        lv_obj_set_style_margin_right(o, right, 0);
+        lv_obj_set_style_margin_bottom(o, bottom, 0);
+    });
 }
 
 /// A `FrameLayout` child's place: against the corner, edge or centre its
 /// gravity names, moved by (`dx`, `dy`).
 pub(in crate::graphics) fn set_frame_gravity(h: Handle, gravity: i32, dx: i32, dy: i32) {
-    let o = obj(h);
-    if o.is_null() {
-        return; // stale handle — mutating a destroyed View is a no-op
-    }
-    unsafe { lv_obj_align(o, super::widgets::gravity::frame_align(gravity), dx, dy) };
+    let Some(o) = obj(h) else { return };
+    lv_obj_align(o, super::widgets::gravity::frame_align(gravity), dx, dy);
 }
 
 pub(in crate::graphics) fn set_flex_grow(h: Handle, weight: i32) {
@@ -400,9 +348,6 @@ pub(in crate::graphics) fn set_flex_grow(h: Handle, weight: i32) {
     } else {
         weight as u8
     };
-    let o = obj(h);
-    if o.is_null() {
-        return; // stale handle — mutating a destroyed View is a no-op
-    }
-    unsafe { lv_obj_set_flex_grow(o, w) };
+    let Some(o) = obj(h) else { return };
+    lv_obj_set_flex_grow(o, w);
 }

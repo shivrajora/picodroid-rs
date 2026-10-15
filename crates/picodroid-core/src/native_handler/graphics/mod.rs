@@ -2,6 +2,9 @@
 //! Top-level native dispatch for `picodroid.graphics.*`, `picodroid.view.*`,
 //! and `picodroid.widget.*`. Delegates to a [`GraphicsBackend`] so the LVGL
 //! implementation can be swapped for a test fake in the future.
+
+#![deny(clippy::undocumented_unsafe_blocks)]
+
 use crate::shrink_names::{c, ch};
 use pico_jvm::NativeKey;
 

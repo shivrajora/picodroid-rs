@@ -25,36 +25,34 @@ fn live_add(obj: usize) {
     }
 }
 
-unsafe extern "C" fn live_delete_cb(e: *mut lv_event_t) {
-    // SAFETY: LVGL calls this with the event of the object being deleted.
-    let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    let mut live = LIVE.get();
-    for slot in live.iter_mut() {
-        if *slot == obj {
-            *slot = 0;
+lv_event_cb! {
+    fn live_delete_cb(e) {
+        let obj = e.target().addr();
+        let mut live = LIVE.get();
+        for slot in live.iter_mut() {
+            if *slot == obj {
+                *slot = 0;
+            }
         }
+        LIVE.set(live);
     }
-    LIVE.set(live);
 }
 
-/// The first live scroller, or null.
-pub fn first_live() -> *mut lv_obj_t {
-    LIVE.get()
-        .iter()
-        .find(|s| **s != 0)
-        .map_or(core::ptr::null_mut(), |s| *s as *mut lv_obj_t)
+/// The first live scroller, if any.
+pub fn first_live() -> Option<Obj> {
+    let addr = LIVE.get().into_iter().find(|&s| s != 0)?;
+    // SAFETY: a scroller's address is in `LIVE` from its `create` until
+    // `live_delete_cb`, which LVGL runs before it frees the object.
+    unsafe { Obj::from_raw(addr as *mut lv_obj_t) }
 }
 
 pub(in crate::graphics) fn create() -> i32 {
-    let ptr = unsafe {
-        let o = lv_obj_create(lifecycle::screen_ptr());
-        lv_obj_add_event_cb(
-            o,
-            Some(live_delete_cb),
-            LV_EVENT_DELETE,
-            core::ptr::null_mut(),
-        );
-        live_add(o as usize);
+    let Some(o) = lifecycle::screen_ptr().and_then(|o| lv_obj_create(o)) else {
+        return 0;
+    };
+    add_event_cb(o, live_delete_cb, LV_EVENT_DELETE);
+    live_add(o.addr());
+    {
         // Every style set below under one refresh (style_batch.rs).
         style_batch::with_one_refresh(o, LV_STYLE_PAD_TOP, || {
             // Clear theme padding so the scroll container is transparent;
@@ -84,14 +82,13 @@ pub(in crate::graphics) fn create() -> i32 {
             // Opaque rather than 40%, so the thumb is one flat colour: what lets
             // the hardware scroll path repaint only its two ends after a step
             // (hw_scroll.rs) instead of its whole length.
-            lv_obj_remove_style(o, core::ptr::null(), LV_PART_SCROLLBAR | LV_STATE_SCROLLED);
-            lv_obj_set_style_transition(o, core::ptr::null(), LV_PART_SCROLLBAR);
+            remove_styles(o, LV_PART_SCROLLBAR | LV_STATE_SCROLLED);
+            remove_transition(o, LV_PART_SCROLLBAR);
             lv_obj_set_style_bg_opa(o, LV_OPA_COVER, LV_PART_SCROLLBAR);
         });
-        o
-    };
+    }
     // Let the panel scroll it where the panel can (hw_scroll.rs).
     #[cfg(hw_vscroll)]
-    super::super::hw_scroll::watch(ptr);
-    handle_table::register(ptr)
+    super::super::hw_scroll::watch(o);
+    handle_table::register(o)
 }

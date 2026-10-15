@@ -144,14 +144,22 @@ pub(super) fn push_key_event_raw(pin: u8, rising: bool, t_us: u32, forward: bool
 #[cfg(has_buttons)]
 pub(super) fn apply_edit_transition(t: super::super::edit_mode::Transition) {
     use super::super::edit_mode::Transition;
-    match t {
-        Transition::None => {}
-        Transition::Entered(obj) => unsafe {
-            lv_obj_add_state(obj as *mut lv_obj_t, LV_STATE_EDITED);
-        },
-        Transition::Exited(obj) => unsafe {
-            lv_obj_remove_state(obj as *mut lv_obj_t, LV_STATE_EDITED);
-        },
+    let (obj, entered) = match t {
+        Transition::None => return,
+        Transition::Entered(obj) => (obj, true),
+        Transition::Exited(obj) => (obj, false),
+    };
+    // SAFETY: a transition carries the widget the edit mode was entered on,
+    // which was the group's focused object when entered, and the edit mode
+    // forgets it (`notify_picker_gone`) when it is defocused or deleted —
+    // LVGL sends both before it frees an object.
+    let Some(obj) = (unsafe { Obj::from_raw(obj as *mut lv_obj_t) }) else {
+        return;
+    };
+    if entered {
+        lv_obj_add_state(obj, LV_STATE_EDITED);
+    } else {
+        lv_obj_remove_state(obj, LV_STATE_EDITED);
     }
 }
 
@@ -179,18 +187,12 @@ pub fn reset_edit_mode() {
 #[cfg(not(has_buttons))]
 pub fn reset_edit_mode() {}
 
-/// The active group's focused widget as a raw pointer (0 if none), plus how
-/// it is edited, if it is a value widget — the edit-mode filter's inputs.
+/// The active group's focused widget, if any, plus how it is edited, if it
+/// is a value widget — the edit-mode filter's inputs.
 #[cfg(has_buttons)]
-pub(super) fn focused_obj_for_edit_mode() -> (usize, Option<EditKind>) {
-    unsafe {
-        let group = lv_group_get_default();
-        if group.is_null() {
-            return (0, None);
-        }
-        let focused = lv_group_get_focused(group) as usize;
-        (focused, edit_kind_of(focused))
-    }
+pub(super) fn focused_obj_for_edit_mode() -> (Option<Obj>, Option<EditKind>) {
+    let focused = lv_group_get_default().and_then(|o| lv_group_get_focused(o));
+    (focused, focused.and_then(edit_kind_of))
 }
 
 /// How the four keys edit the focused widget once SELECT has entered edit
@@ -201,31 +203,24 @@ pub(super) fn focused_obj_for_edit_mode() -> (usize, Option<EditKind>) {
 /// SELECT activates, and a dropdown, whose open list the keys walk without an
 /// edit mode (`widget_remap`).
 #[cfg(has_buttons)]
-fn edit_kind_of(focused: usize) -> Option<EditKind> {
-    if focused == 0 {
-        return None;
-    }
-    if super::super::widgets::number_picker::is_number_picker(focused) {
+fn edit_kind_of(focused: Obj) -> Option<EditKind> {
+    if super::super::widgets::number_picker::is_number_picker(focused.addr()) {
         return Some(EditKind::Step);
     }
-    // SAFETY: `focused` is the live object the group just reported; the
-    // class statics are LVGL's own.
-    unsafe {
-        let class = lv_obj_get_class(focused as *const lv_obj_t);
-        if class == &raw const lv_slider_class || class == &raw const lv_roller_class {
-            return Some(EditKind::Keys {
-                prev: LV_KEY_UP,
-                next: LV_KEY_DOWN,
-                enter_passes: false,
-            });
-        }
-        if class == &raw const lv_buttonmatrix_class && !super::in_modal_group() {
-            return Some(EditKind::Keys {
-                prev: LV_KEY_LEFT,
-                next: LV_KEY_RIGHT,
-                enter_passes: true,
-            });
-        }
+    let class = lv_obj_get_class(focused);
+    if class == &raw const lv_slider_class || class == &raw const lv_roller_class {
+        return Some(EditKind::Keys {
+            prev: LV_KEY_UP,
+            next: LV_KEY_DOWN,
+            enter_passes: false,
+        });
+    }
+    if class == &raw const lv_buttonmatrix_class && !super::in_modal_group() {
+        return Some(EditKind::Keys {
+            prev: LV_KEY_LEFT,
+            next: LV_KEY_RIGHT,
+            enter_passes: true,
+        });
     }
     None
 }
@@ -240,35 +235,32 @@ fn edit_kind_of(focused: usize) -> Option<EditKind> {
 /// that had just picked a menu item, and a hold reopened the menu it closed
 /// (QA round 2, R2). `None` leaves the key as it is.
 #[cfg(has_buttons)]
-fn widget_remap(key: u32, focused: usize) -> Option<u32> {
+fn widget_remap(key: u32, focused: Option<Obj>) -> Option<u32> {
     let modal = super::in_modal_group();
     if modal && key == LV_KEY_ESC {
         return None; // BACK: `input.rs` dismisses the dialog
     }
-    if focused == 0 {
+    let Some(o) = focused else {
         return if modal { Some(key) } else { None };
-    }
-    let o = focused as *mut lv_obj_t;
-    // SAFETY: `focused` is the live object the group just reported.
-    unsafe {
-        let class = lv_obj_get_class(o);
-        if modal {
-            if class == &raw const lv_buttonmatrix_class {
-                return Some(match key {
-                    LV_KEY_PREV => LV_KEY_UP,
-                    LV_KEY_NEXT => LV_KEY_DOWN,
-                    k => k,
-                });
-            }
-            return Some(key);
-        }
-        if class == &raw const lv_dropdown_class && lv_dropdown_is_open(o) {
+    };
+    let class = lv_obj_get_class(o);
+    if modal {
+        if class == &raw const lv_buttonmatrix_class {
             return Some(match key {
                 LV_KEY_PREV => LV_KEY_UP,
                 LV_KEY_NEXT => LV_KEY_DOWN,
                 k => k,
             });
         }
+        return Some(key);
+    }
+    // SAFETY: `lv_dropdown_is_open` only once the class is the dropdown's.
+    if class == &raw const lv_dropdown_class && unsafe { lv_dropdown_is_open(o) } {
+        return Some(match key {
+            LV_KEY_PREV => LV_KEY_UP,
+            LV_KEY_NEXT => LV_KEY_DOWN,
+            k => k,
+        });
     }
     None
 }
@@ -282,20 +274,18 @@ fn scroll_lone_scroll_view(key: u32) {
     if !matches!(key, LV_KEY_PREV | LV_KEY_NEXT) {
         return;
     }
-    // SAFETY: the group and the scroller are live LVGL objects.
-    unsafe {
-        let group = lv_group_get_default();
-        if group.is_null() || lv_group_get_obj_count(group) != 0 {
-            return;
-        }
-        let sv = super::super::widgets::scroll_view::first_live();
-        if sv.is_null() {
-            return;
-        }
-        let step = (lv_obj_get_height(sv) / 4).max(1);
-        let dy = if key == LV_KEY_PREV { step } else { -step };
-        lv_obj_scroll_by_bounded(sv, 0, dy, LV_ANIM_ON);
+    let Some(group) = lv_group_get_default() else {
+        return;
+    };
+    if lv_group_get_obj_count(group) != 0 {
+        return;
     }
+    let Some(sv) = super::super::widgets::scroll_view::first_live() else {
+        return;
+    };
+    let step = (lv_obj_get_height(sv) / 4).max(1);
+    let dy = if key == LV_KEY_PREV { step } else { -step };
+    lv_obj_scroll_by_bounded(sv, 0, dy, LV_ANIM_ON);
 }
 
 // ── HOME on a held BACK ─────────────────────────────────────────────────────
@@ -361,11 +351,19 @@ pub(super) fn reset_held() {
 #[cfg(not(has_buttons))]
 pub(super) fn reset_held() {}
 
+/// LVGL's read callback for the keypad input device.
+///
+/// # Safety
+///
+/// Only LVGL calls this, with the read record of the input device it is
+/// polling.
 #[cfg(has_buttons)]
 pub(super) unsafe extern "C" fn keypad_read_cb(
     _indev: *mut lv_indev_t,
     data: *mut lv_indev_data_t,
 ) {
+    // SAFETY: LVGL passes its own read record, valid and unaliased for the
+    // call.
     let d = unsafe { &mut *data };
     let now_us = crate::hal::system_clock::elapsed_realtime_nanos() as u64 / 1_000;
     if crate::board_cfg::input::BACK_HOLD_IS_HOME {
@@ -408,8 +406,9 @@ pub(super) unsafe extern "C" fn keypad_read_cb(
         let (focused, kind) = focused_obj_for_edit_mode();
         let decision = match key {
             Some(k) => {
+                let focused_addr = focused.map_or(0, Obj::addr);
                 let (decision, transition) = update(&KEYPAD.edit_mode, |em| {
-                    em.filter(k, !event.rising, focused, kind)
+                    em.filter(k, !event.rising, focused_addr, kind)
                 });
                 apply_edit_transition(transition);
                 decision
@@ -500,9 +499,7 @@ pub(super) unsafe extern "C" fn keypad_read_cb(
         // now without that release landing on its first key.
         if !KEYPAD.key_held.get() {
             if let Some((kb, first_key)) = super::super::widgets::keyboard::take_pending_focus() {
-                // SAFETY: the keyboard is the live system keyboard (visible,
-                // never freed while the graphics singleton lives).
-                unsafe { focus_system_keyboard(kb, first_key) };
+                focus_system_keyboard(kb, first_key);
             }
         }
     }

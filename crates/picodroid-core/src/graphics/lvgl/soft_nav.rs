@@ -37,7 +37,9 @@ const EXT_CLICK: i32 = 8;
 const GLYPH: &core::ffi::CStr = c"\u{F053}";
 
 struct State {
-    control: Cell<*mut lv_obj_t>,
+    /// The control, once made. Kept as an `Obj` across natives because
+    /// nothing deletes it: it lives on the top layer, which nothing cleans.
+    control: Cell<Option<Obj>>,
     pressed_at_ms: Cell<i64>,
     home_fired: Cell<bool>,
 }
@@ -47,7 +49,7 @@ struct State {
 // tasks.
 static STATE: Core0<State> = unsafe {
     Core0::new(State {
-        control: Cell::new(core::ptr::null_mut()),
+        control: Cell::new(None),
         pressed_at_ms: Cell::new(0),
         home_fired: Cell::new(false),
     })
@@ -55,14 +57,13 @@ static STATE: Core0<State> = unsafe {
 
 /// Create the control once LVGL is up. Idempotent.
 pub fn ensure() {
-    if !STATE.control.get().is_null() {
+    if STATE.control.get().is_some() {
         return;
     }
-    let layer = lifecycle::overlay_layer();
-    // SAFETY: the top layer is a live LVGL object for the display's lifetime;
-    // the callbacks read only the event LVGL hands them.
-    unsafe {
-        let btn = lv_button_create(layer);
+    let Some(btn) = lifecycle::overlay_layer().and_then(|o| lv_button_create(o)) else {
+        return;
+    };
+    {
         lv_obj_set_size(btn, SIZE, SIZE);
         lv_obj_align(btn, LV_ALIGN_BOTTOM_LEFT, INSET, -INSET);
         lv_obj_set_style_radius(btn, LV_RADIUS_CIRCLE, 0);
@@ -78,86 +79,74 @@ pub fn ensure() {
         // Out of the keypad focus ring: a soft-nav board has no nav keys, and
         // a future one with both must not land ENTER on the control.
         lv_obj_remove_flag(btn, LV_OBJ_FLAG_CLICK_FOCUSABLE);
-        let label = lv_label_create(btn);
-        lv_label_set_text(label, GLYPH.as_ptr());
-        lv_obj_set_style_text_color(label, lv_color_hex(0xE0E0E0), 0);
-        lv_obj_center(label);
-        lv_obj_add_event_cb(
-            btn,
-            Some(pressed_cb),
-            LV_EVENT_PRESSED,
-            core::ptr::null_mut(),
-        );
-        lv_obj_add_event_cb(
-            btn,
-            Some(pressing_cb),
-            LV_EVENT_LONG_PRESSED_REPEAT,
-            core::ptr::null_mut(),
-        );
-        lv_obj_add_event_cb(
-            btn,
-            Some(released_cb),
-            LV_EVENT_RELEASED,
-            core::ptr::null_mut(),
-        );
-        STATE.control.set(btn);
+        if let Some(label) = lv_label_create(btn) {
+            // SAFETY: `label` was just made by `lv_label_create`; the glyph
+            // is a NUL-terminated literal LVGL copies.
+            unsafe { lv_label_set_text(label, GLYPH.as_ptr()) };
+            lv_obj_set_style_text_color(label, lv_color_hex(0xE0E0E0), 0);
+            lv_obj_center(label);
+        }
+        add_event_cb(btn, pressed_cb, LV_EVENT_PRESSED);
+        add_event_cb(btn, pressing_cb, LV_EVENT_LONG_PRESSED_REPEAT);
+        add_event_cb(btn, released_cb, LV_EVENT_RELEASED);
+        STATE.control.set(Some(btn));
     }
 }
 
 /// Hide or show the control: hidden while the system keyboard is up.
 pub fn set_hidden(hidden: bool) {
-    let btn = STATE.control.get();
-    if btn.is_null() {
+    let Some(btn) = STATE.control.get() else {
         return;
-    }
-    // SAFETY: `btn` is the live control (created once, never deleted).
-    unsafe {
-        if hidden {
-            lv_obj_add_flag(btn, LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_remove_flag(btn, LV_OBJ_FLAG_HIDDEN);
-        }
+    };
+    if hidden {
+        lv_obj_add_flag(btn, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_remove_flag(btn, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
 /// Bring the control above whatever was added to the top layer since — a
 /// dialog's scrim — so BACK stays reachable while the dialog shows.
 pub fn raise() {
-    let btn = STATE.control.get();
-    if btn.is_null() {
+    let Some(btn) = STATE.control.get() else {
         return;
-    }
-    // SAFETY: `btn` is the live control.
-    unsafe { lv_obj_move_to_index(btn, -1) };
+    };
+    lv_obj_move_to_index(btn, -1);
 }
 
 fn now_ms() -> i64 {
     crate::hal::system_clock::elapsed_realtime_nanos() / 1_000_000
 }
 
-unsafe extern "C" fn pressed_cb(_e: *mut lv_event_t) {
-    STATE.pressed_at_ms.set(now_ms());
-    STATE.home_fired.set(false);
-}
-
-/// LVGL repeats this every `long_press_repeat_time` while the control is
-/// held, from `long_press_time` on: the clock for the hold-for-HOME.
-unsafe extern "C" fn pressing_cb(_e: *mut lv_event_t) {
-    if STATE.home_fired.get() {
-        return;
-    }
-    if now_ms() - STATE.pressed_at_ms.get() >= i64::from(HOME_HOLD_MS) {
-        STATE.home_fired.set(true);
-        crate::pd_info!("soft nav: held -> HOME");
-        crate::input_inject::push_soft_key_press(crate::input_inject::KEYCODE_HOME);
-    }
-}
-
-unsafe extern "C" fn released_cb(_e: *mut lv_event_t) {
-    if STATE.home_fired.get() {
+lv_event_cb! {
+    fn pressed_cb(_e) {
+        STATE.pressed_at_ms.set(now_ms());
         STATE.home_fired.set(false);
-        return;
     }
-    crate::pd_info!("soft nav: tap -> BACK");
-    crate::input_inject::push_soft_key_press(crate::input_inject::KEYCODE_BACK);
+}
+
+lv_event_cb! {
+    /// LVGL repeats this every `long_press_repeat_time` while the control is
+    /// held, from `long_press_time` on: the clock for the hold-for-HOME.
+    fn pressing_cb(_e) {
+        if STATE.home_fired.get() {
+            return;
+        }
+        if now_ms() - STATE.pressed_at_ms.get() >= i64::from(HOME_HOLD_MS) {
+            STATE.home_fired.set(true);
+            crate::pd_info!("soft nav: held -> HOME");
+            crate::input_inject::push_soft_key_press(crate::input_inject::KEYCODE_HOME);
+        }
+    }
+}
+
+lv_event_cb! {
+    fn released_cb(_e) {
+        if STATE.home_fired.get() {
+            STATE.home_fired.set(false);
+            return;
+        }
+        crate::pd_info!("soft nav: tap -> BACK");
+        crate::input_inject::push_soft_key_press(crate::input_inject::KEYCODE_BACK);
+    }
 }

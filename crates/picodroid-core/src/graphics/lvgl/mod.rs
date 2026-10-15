@@ -265,25 +265,31 @@ pub fn is_initialized() -> bool {
 /// (`Activity.nativeFocusTakesLongPress`, app-portability K9).
 #[cfg(not(test))]
 pub fn focused_view_takes_long_press() -> bool {
-    // SAFETY: LVGL getters on the UI task; a null group or focus reads as none.
-    let focused = unsafe {
-        let group = crate::lvgl_ffi::lv_group_get_default();
-        if group.is_null() {
-            return false;
-        }
-        crate::lvgl_ffi::lv_group_get_focused(group)
-    };
-    !focused.is_null() && widgets::button::lookup_long_click_obj(focused as usize).is_some()
+    use crate::lvgl_ffi::{lv_group_get_default, lv_group_get_focused};
+    lv_group_get_default()
+        .and_then(|o| lv_group_get_focused(o))
+        .is_some_and(|focused| widgets::button::lookup_long_click_obj(focused.addr()).is_some())
 }
 
 /// The LVGL pool's `(free, total)` bytes. UI task only, like every LVGL call.
+/// Callers ask [`is_initialized`] first.
 #[cfg(not(test))]
 pub fn pool_free_bytes() -> (usize, usize) {
     let mut mon = crate::lvgl_ffi::lv_mem_monitor_t::default();
-    // SAFETY: `mon` is a valid out-parameter; LVGL is initialised before any
-    // Activity runs, and this is the UI task.
+    // SAFETY: the pool exists: the one caller (mem_diag) asks
+    // `is_initialized` first, and `lv_init` built it.
     unsafe { crate::lvgl_ffi::lv_mem_monitor(&mut mon) };
     (mon.free_size, mon.total_size)
+}
+
+/// Whether `o` was made by `class`'s create function: the check a native
+/// makes before a class-specific `lv_*` call where Java cannot vouch for the
+/// class (a `protected` constructor lets a subclass hand in any handle).
+pub(in crate::graphics) fn is_class(
+    o: crate::lvgl_ffi::Obj,
+    class: *const crate::lvgl_ffi::lv_obj_class_t,
+) -> bool {
+    core::ptr::eq(crate::lvgl_ffi::lv_obj_get_class(o), class)
 }
 
 /// Run a closure with mutable access to the global graphics backend.

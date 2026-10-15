@@ -8,9 +8,13 @@
 //!   the spinner animates by itself.
 //!
 //! The flavour is fixed at construction and known to Java (`indeterminate`),
-//! which routes every call, so the bar entry points here never see a spinner
-//! pointer. That matters: `LV_USE_ASSERT_OBJ` is off, so an `lv_bar_*` call on
-//! the wrong class would be undefined behaviour rather than a checked no-op.
+//! which routes every call, so the bar entry points here should never see a
+//! spinner. They check anyway: class checks are off in LVGL
+//! (`LV_USE_CHECK_OBJ_CLASSTYPE` 0), so an `lv_bar_*` call on the wrong class
+//! would be undefined behaviour, and `ProgressBar`'s constructor that takes a
+//! handle is `protected` — `CircularProgressIndicator` hands it an `lv_arc`,
+//! and any subclass could hand it anything. On the wrong class the call is a
+//! no-op.
 
 use crate::lvgl_ffi::*;
 
@@ -41,30 +45,35 @@ const TINT_PROGRESS_BACKGROUND: i32 = 1;
 const TINT_INDETERMINATE: i32 = 2;
 
 pub(in crate::graphics) fn create() -> i32 {
-    let ptr = unsafe {
-        let b = lv_bar_create(lifecycle::screen_ptr());
-        lv_bar_set_value(b, 0, LV_ANIM_OFF);
-        lv_obj_set_style_anim_duration(b, PROGRESS_ANIM_DURATION_MS, LV_PART_MAIN);
-        b
+    let Some(b) = lifecycle::screen_ptr().and_then(|o| lv_bar_create(o)) else {
+        return 0;
     };
-    handle_table::register(ptr)
+    // SAFETY: `b` was just made by `lv_bar_create`.
+    unsafe { lv_bar_set_value(b, 0, LV_ANIM_OFF) };
+    lv_obj_set_style_anim_duration(b, PROGRESS_ANIM_DURATION_MS, LV_PART_MAIN);
+    handle_table::register(b)
 }
 
 pub(in crate::graphics) fn create_indeterminate(argb: i32) -> i32 {
-    let ptr = unsafe {
-        let s = lv_spinner_create(lifecycle::screen_ptr());
-        lv_spinner_set_anim_params(s, SPINNER_ANIM_DURATION_MS, SPINNER_ARC_SWEEP_DEG);
-        apply_indeterminate_style(s, argb);
-        s
+    let Some(s) = lifecycle::screen_ptr().and_then(|o| lv_spinner_create(o)) else {
+        return 0;
     };
-    handle_table::register(ptr)
+    // SAFETY: `s` was just made by `lv_spinner_create`.
+    unsafe { lv_spinner_set_anim_params(s, SPINNER_ANIM_DURATION_MS, SPINNER_ARC_SWEEP_DEG) };
+    apply_indeterminate_style(s, argb);
+    handle_table::register(s)
+}
+
+/// `id`'s object if it is an `lv_bar`: the determinate bar `create` made.
+fn bar(id: i32) -> Option<Obj> {
+    handle_table::get(id).filter(|&o| super::super::is_class(o, &raw const lv_bar_class))
 }
 
 /// Stamps the visual defaults expected of an Android-style indeterminate
 /// ProgressBar onto a freshly-created spinner. The track ring keeps LVGL's
 /// default theme color (faint gray) — only the moving sweep is tinted, so
 /// the result reads as "indicator over groove" rather than a flat ring.
-unsafe fn apply_indeterminate_style(obj: *mut lv_obj_t, argb: i32) {
+fn apply_indeterminate_style(obj: Obj, argb: i32) {
     set_arc_color(obj, argb);
     lv_obj_set_style_arc_width(obj, SPINNER_ARC_WIDTH_PX, LV_PART_INDICATOR);
     lv_obj_set_style_arc_width(obj, SPINNER_ARC_WIDTH_PX, LV_PART_MAIN);
@@ -74,18 +83,18 @@ unsafe fn apply_indeterminate_style(obj: *mut lv_obj_t, argb: i32) {
 
 /// Cast through u32 so a negative Java int keeps its bit pattern; the arc
 /// colour is opaque in LVGL, so the top (alpha) byte is dropped.
-unsafe fn set_arc_color(obj: *mut lv_obj_t, argb: i32) {
+fn set_arc_color(obj: Obj, argb: i32) {
     let rgb = (argb as u32) & 0x00FF_FFFF;
     lv_obj_set_style_arc_color(obj, lv_color_hex(rgb), LV_PART_INDICATOR);
 }
 
 /// `value` is already clamped to the range by Java.
 pub(in crate::graphics) fn set_progress(id: i32, value: i32, animate: bool) {
-    let obj = handle_table::lookup(id);
-    if obj.is_null() {
+    let Some(obj) = bar(id) else {
         return;
-    }
+    };
     let anim = if animate { LV_ANIM_ON } else { LV_ANIM_OFF };
+    // SAFETY: `bar` answers only an `lv_bar`.
     unsafe { lv_bar_set_value(obj, value, anim) };
 }
 
@@ -101,10 +110,10 @@ pub(in crate::graphics) fn set_progress(id: i32, value: i32, animate: bool) {
 /// current one, so bounce through both bounds first: the value cannot equal
 /// both, so at least one bounce takes that path. Nothing renders in between.
 pub(in crate::graphics) fn set_range(id: i32, min: i32, max: i32, progress: i32) {
-    let obj = handle_table::lookup(id);
-    if obj.is_null() {
+    let Some(obj) = bar(id) else {
         return;
-    }
+    };
+    // SAFETY: `bar` answers only an `lv_bar`.
     unsafe {
         lv_bar_set_range(obj, min, max);
         if min < max {
@@ -118,30 +127,28 @@ pub(in crate::graphics) fn set_range(id: i32, min: i32, max: i32, progress: i32)
 /// Targets 0 and 1 (bar fill and track) set or, with `apply == false`, drop
 /// the part's local background colour; target 2 recolours the spinner arc.
 pub(in crate::graphics) fn set_tint(id: i32, target: i32, argb: i32, apply: bool) {
-    let obj = handle_table::lookup(id);
-    if obj.is_null() {
+    let Some(obj) = handle_table::get(id) else {
         return;
-    }
+    };
+    // Style sets only: no class-specific call, so any object takes them.
     let part = match target {
         TINT_PROGRESS => LV_PART_INDICATOR,
         TINT_PROGRESS_BACKGROUND => LV_PART_MAIN,
         TINT_INDETERMINATE => {
-            unsafe { set_arc_color(obj, argb) };
+            set_arc_color(obj, argb);
             return;
         }
         _ => return,
     };
     // Top byte is alpha, low 24 bits the colour (the ImageView.setTint idiom).
     let argb = argb as u32;
-    unsafe {
-        if apply {
-            lv_obj_set_style_bg_color(obj, lv_color_hex(argb & 0x00FF_FFFF), part);
-            lv_obj_set_style_bg_opa(obj, (argb >> 24) as u8, part);
-        } else {
-            // Back to the theme's own colour. Its track is translucent
-            // (`bg_opa` 20 %), so the opacity has to go with the colour.
-            lv_obj_remove_local_style_prop(obj, LV_STYLE_BG_COLOR, part);
-            lv_obj_remove_local_style_prop(obj, LV_STYLE_BG_OPA, part);
-        }
+    if apply {
+        lv_obj_set_style_bg_color(obj, lv_color_hex(argb & 0x00FF_FFFF), part);
+        lv_obj_set_style_bg_opa(obj, (argb >> 24) as u8, part);
+    } else {
+        // Back to the theme's own colour. Its track is translucent
+        // (`bg_opa` 20 %), so the opacity has to go with the colour.
+        lv_obj_remove_local_style_prop(obj, LV_STYLE_BG_COLOR, part);
+        lv_obj_remove_local_style_prop(obj, LV_STYLE_BG_OPA, part);
     }
 }

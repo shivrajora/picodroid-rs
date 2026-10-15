@@ -35,14 +35,13 @@ pub fn apply_gradient_drawable(
     gradient_end_argb: u32,
     gradient_direction: u32,
 ) {
-    let obj = handle_table::lookup(handle);
-    if obj.is_null() {
+    let Some(obj) = handle_table::get(handle) else {
         return;
-    }
+    };
 
     // Up to six sets, one refresh (style_batch.rs). The border width is the
     // one property here with a layout flag, so it stands for the batch.
-    unsafe {
+    {
         super::style_batch::with_one_refresh(obj, LV_STYLE_BORDER_WIDTH, || {
             // Radius and border are independent of fill/gradient — set first.
             lv_obj_set_style_radius(obj, radius.max(0), 0);
@@ -81,13 +80,14 @@ pub fn apply_gradient_drawable(
 }
 
 /// Paint an image asset as a widget's background: `BitmapDrawable` applied
-/// to a View that is not an ImageView. `dsc` lives as long as the assets
-/// registry entry it came from.
-#[cfg(has_multi_app)]
-pub fn set_background_image(handle: i32, dsc: *const lv_image_dsc_t) {
-    let obj = handle_table::lookup(handle);
-    if obj.is_null() || dsc.is_null() {
+/// to a View that is not an ImageView.
+// The asset registry is `cfg(not(test))`.
+#[cfg(all(has_multi_app, not(test)))]
+pub fn set_background_image(handle: i32, image: crate::graphics::assets::AssetImage) {
+    let Some(obj) = handle_table::get(handle) else {
         return;
-    }
-    unsafe { lv_obj_set_style_bg_image_src(obj, dsc as *const core::ffi::c_void, 0) };
+    };
+    // SAFETY: an `AssetImage` lives in the asset registry until the app
+    // reset, after the widget tree that shows it is gone (`assets.rs`).
+    unsafe { lv_obj_set_style_bg_image_src(obj, image.as_src(), 0) };
 }

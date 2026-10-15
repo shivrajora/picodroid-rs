@@ -12,6 +12,7 @@ pub mod button;
 pub mod canvas;
 pub mod check_box;
 pub mod circular_progress_indicator;
+mod compound;
 pub mod date_picker;
 pub mod edit_text;
 pub mod frame_layout;
