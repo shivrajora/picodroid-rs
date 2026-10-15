@@ -329,6 +329,7 @@ mod rtos_impl {
     use picodroid_core::rtos::{
         RawMutex, RawQueue, RawSem, RawTask, Rtos, TaskKind, TaskSpec, Timeout,
     };
+    use picodroid_core::util::set_once::SetOnce;
 
     fn to_duration(t: Timeout) -> Duration {
         match t {
@@ -338,13 +339,9 @@ mod rtos_impl {
         }
     }
 
-    struct TimerCell(core::cell::UnsafeCell<Option<Timer>>);
-    // SAFETY: mutated only by the UI thread before the timer is in active
-    // use; afterwards `Timer`'s own operations go through the FreeRTOS timer
-    // command queue and are themselves thread-safe.
-    unsafe impl Sync for TimerCell {}
-
-    static TICK_TIMER: TimerCell = TimerCell(core::cell::UnsafeCell::new(None));
+    /// The UI tick. Created by the first `tick_timer_start` and kept for the
+    /// life of the process; every access is from the UI thread.
+    static TICK_TIMER: SetOnce<Timer> = SetOnce::new();
 
     unsafe impl Rtos for PlatformRtos {
         fn spawn(spec: &TaskSpec, body: Box<dyn FnOnce() + Send>) -> bool {
@@ -599,20 +596,21 @@ mod rtos_impl {
         }
 
         fn tick_timer_start(period_ms: u32, cb: fn()) {
-            // SAFETY: callers serialise on the UI thread (see run_activity).
-            unsafe {
-                if let Some(t) = (*TICK_TIMER.0.get()).as_ref() {
-                    let _ = t.start(Duration::ms(0));
-                    return;
-                }
-                let timer = Timer::new(Duration::ms(period_ms))
-                    .set_name("lvgl-tick")
-                    .set_auto_reload(true)
-                    .create(move |_| cb())
-                    .expect("lvgl-tick timer alloc");
-                timer.start(Duration::ms(0)).expect("lvgl-tick start");
-                *TICK_TIMER.0.get() = Some(timer);
+            if let Some(t) = TICK_TIMER.get() {
+                let _ = t.start(Duration::ms(0));
+                return;
             }
+            let timer = Timer::new(Duration::ms(period_ms))
+                .set_name("lvgl-tick")
+                .set_auto_reload(true)
+                .create(move |_| cb())
+                .expect("lvgl-tick timer alloc");
+            timer.start(Duration::ms(0)).expect("lvgl-tick start");
+            // SAFETY: the cell is empty (checked above), and every access —
+            // this one, `tick_timer_pause`, `tick_timer_resume` — comes from
+            // the UI thread, one at a time (see run_activity); the timer's
+            // own callback never touches the cell.
+            unsafe { TICK_TIMER.set(timer) };
         }
 
         /// Genuinely stop the timer rather than filtering at the callback:
@@ -620,20 +618,14 @@ mod rtos_impl {
         /// chip can reach a deeper idle state, which only happens if nothing
         /// is still firing.
         fn tick_timer_pause() {
-            // SAFETY: see `tick_timer_start`.
-            unsafe {
-                if let Some(t) = (*TICK_TIMER.0.get()).as_ref() {
-                    let _ = t.stop(Duration::ms(0));
-                }
+            if let Some(t) = TICK_TIMER.get() {
+                let _ = t.stop(Duration::ms(0));
             }
         }
 
         fn tick_timer_resume() {
-            // SAFETY: see `tick_timer_start`.
-            unsafe {
-                if let Some(t) = (*TICK_TIMER.0.get()).as_ref() {
-                    let _ = t.start(Duration::ms(0));
-                }
+            if let Some(t) = TICK_TIMER.get() {
+                let _ = t.start(Duration::ms(0));
             }
         }
 

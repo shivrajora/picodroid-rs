@@ -108,6 +108,23 @@ where
         .start(body)
 }
 
+/// A task handle other tasks may hold: what [`SetOnce`] needs to publish one.
+///
+/// `freertos_rust::Task` is `Send` but not `Sync`, though it is a bare
+/// handle with no `Drop` and every `&self` method is a kernel call that any
+/// task may make on any other (`notify`, `abort_delay`, `suspend`, a stack
+/// or name query) — the crate simply never says so.
+///
+/// [`SetOnce`]: picodroid_core::util::set_once::SetOnce
+#[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
+#[repr(transparent)]
+pub struct SharedTask(pub freertos_rust::Task);
+
+// SAFETY: see the type's docs: a shared `&Task` only reaches FreeRTOS calls
+// that are sound from any task, and the handle owns nothing to race on.
+#[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
+unsafe impl Sync for SharedTask {}
+
 #[cfg(test)]
 use test_support::source_scan;
 

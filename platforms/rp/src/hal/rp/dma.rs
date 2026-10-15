@@ -329,7 +329,7 @@ extern "C" fn DMA_IRQ_0() {
     if ints & (1 << CH_SPI0_RX) != 0 {
         ack_irq0(&p.DMA, 1 << CH_SPI0_RX);
         p.SPI0.sspdmacr().write(|w| w); // reset value: DMA requests off
-        if let Some(sem) = unsafe { (*SPI0_DONE.0.get()).as_ref() } {
+        if let Some(sem) = SPI0_DONE.get() {
             sem.give_from_isr(&mut ctx);
         }
     }
@@ -338,7 +338,7 @@ extern "C" fn DMA_IRQ_0() {
     if ints & (1 << CH_SPI1_RX) != 0 {
         ack_irq0(&p.DMA, 1 << CH_SPI1_RX);
         p.SPI1.sspdmacr().write(|w| w); // reset value: DMA requests off
-        if let Some(sem) = unsafe { (*SPI1_DONE.0.get()).as_ref() } {
+        if let Some(sem) = SPI1_DONE.get() {
             sem.give_from_isr(&mut ctx);
         }
     }

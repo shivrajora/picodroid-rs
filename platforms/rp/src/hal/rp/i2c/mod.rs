@@ -23,9 +23,8 @@
 //! semaphore.
 pub mod timing;
 
-use core::cell::UnsafeCell;
-
 use freertos_rust::{Duration, InterruptContext, Semaphore};
+use picodroid_core::util::set_once::SetOnce;
 
 use timing::{
     fs_spklen, ic_con_for_speed, scl_counts, sda_tx_hold_count, FIFO_DEPTH, IC_DATA_CMD_READ,
@@ -41,33 +40,29 @@ use rp_pico::hal::pac;
 
 // ── Per-peripheral statics ───────────────────────────────────────────────────
 
-struct SemCell(UnsafeCell<Option<Semaphore>>);
-unsafe impl Sync for SemCell {}
+/// The bus lock. Stored by `init_with_pins`.
+static I2C0_LOCK: SetOnce<Semaphore> = SetOnce::new();
+static I2C1_LOCK: SetOnce<Semaphore> = SetOnce::new();
 
-static I2C0_LOCK: SemCell = SemCell(UnsafeCell::new(None));
-static I2C1_LOCK: SemCell = SemCell(UnsafeCell::new(None));
-
-static I2C0_WAKE: SemCell = SemCell(UnsafeCell::new(None));
-static I2C1_WAKE: SemCell = SemCell(UnsafeCell::new(None));
+/// Given by the bus interrupt, taken by the waiting transfer. Stored by
+/// `init_with_pins`.
+static I2C0_WAKE: SetOnce<Semaphore> = SetOnce::new();
+static I2C1_WAKE: SetOnce<Semaphore> = SetOnce::new();
 
 fn i2c_lock(id: u8) -> &'static Semaphore {
-    unsafe {
-        match id {
-            0 => (*I2C0_LOCK.0.get()).as_ref(),
-            _ => (*I2C1_LOCK.0.get()).as_ref(),
-        }
-        .expect("I2C lock semaphore not initialised")
+    match id {
+        0 => I2C0_LOCK.get(),
+        _ => I2C1_LOCK.get(),
     }
+    .expect("I2C lock semaphore not initialised")
 }
 
 fn i2c_wake(id: u8) -> &'static Semaphore {
-    unsafe {
-        match id {
-            0 => (*I2C0_WAKE.0.get()).as_ref(),
-            _ => (*I2C1_WAKE.0.get()).as_ref(),
-        }
-        .expect("I2C wake semaphore not initialised")
+    match id {
+        0 => I2C0_WAKE.get(),
+        _ => I2C1_WAKE.get(),
     }
+    .expect("I2C wake semaphore not initialised")
 }
 
 // ── ISR ──────────────────────────────────────────────────────────────────────
@@ -79,7 +74,7 @@ macro_rules! i2c_isr_body {
     ($i2c:expr, $wake_static:expr) => {{
         $i2c.ic_intr_mask().write(|w| unsafe { w.bits(0) });
         let mut ctx = InterruptContext::new();
-        if let Some(sem) = unsafe { (*$wake_static.0.get()).as_ref() } {
+        if let Some(sem) = $wake_static.get() {
             sem.give_from_isr(&mut ctx);
         }
     }};
@@ -163,11 +158,9 @@ fn reconfigure(i2c_id: u8, speed_hz: u32) {
 // ── Public API ───────────────────────────────────────────────────────────────
 
 fn is_initialised(i2c_id: u8) -> bool {
-    unsafe {
-        match i2c_id {
-            0 => (*I2C0_LOCK.0.get()).is_some(),
-            _ => (*I2C1_LOCK.0.get()).is_some(),
-        }
+    match i2c_id {
+        0 => I2C0_LOCK.get().is_some(),
+        _ => I2C1_LOCK.get().is_some(),
     }
 }
 
@@ -256,14 +249,22 @@ pub fn init_with_pins(i2c_id: u8, sda: Option<u8>, scl: Option<u8>) {
     lock.give();
     // Per-bus ISR-to-task wake (binary semaphore released → none pending).
     let wake = Semaphore::new_binary().expect("i2c wake sem alloc");
+    // SAFETY: the cells are empty (`is_initialised` returned above
+    // otherwise), and nothing reads them yet: the bus interrupt that reads
+    // the wake cell is unmasked below, and the transfer paths reach both
+    // through `i2c_lock`, which panics on an empty cell — a caller's first
+    // transfer comes after this returns. Concurrent init of one bus would
+    // race; the sensor sampler is spawned before the scheduler so its init
+    // cannot meet a Java `I2cDevice`'s (boot_tasks.rs), and the
+    // check-then-store has always assumed one initialiser per bus.
     match i2c_id {
         0 => unsafe {
-            *I2C0_LOCK.0.get() = Some(lock);
-            *I2C0_WAKE.0.get() = Some(wake);
+            I2C0_LOCK.set(lock);
+            I2C0_WAKE.set(wake);
         },
         _ => unsafe {
-            *I2C1_LOCK.0.get() = Some(lock);
-            *I2C1_WAKE.0.get() = Some(wake);
+            I2C1_LOCK.set(lock);
+            I2C1_WAKE.set(wake);
         },
     }
 

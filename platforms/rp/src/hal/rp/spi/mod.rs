@@ -5,6 +5,7 @@ use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 
 use freertos_rust::{Duration, InterruptContext, Semaphore};
+use picodroid_core::util::set_once::SetOnce;
 
 use xfer::{
     clock_divisors, may_queue_tx, transfer_finished, SpiOp, SpiXferState, SMALL_XFER_THRESHOLD,
@@ -25,17 +26,17 @@ use super::clock::PCLK_HZ;
 struct XferCell(UnsafeCell<SpiXferState>);
 unsafe impl Sync for XferCell {}
 
-pub(crate) struct SemCell(pub(crate) UnsafeCell<Option<Semaphore>>);
-unsafe impl Sync for SemCell {}
-
 static SPI0_STATE: XferCell = XferCell(UnsafeCell::new(SpiXferState::new()));
 static SPI1_STATE: XferCell = XferCell(UnsafeCell::new(SpiXferState::new()));
 
-pub(crate) static SPI0_DONE: SemCell = SemCell(UnsafeCell::new(None));
-pub(crate) static SPI1_DONE: SemCell = SemCell(UnsafeCell::new(None));
+/// Given by the completion interrupts (`SPIx_IRQ` here, `DMA_IRQ_0` in
+/// `dma.rs`), taken by the transfer's task. Stored by `init_with_pins`.
+pub(crate) static SPI0_DONE: SetOnce<Semaphore> = SetOnce::new();
+pub(crate) static SPI1_DONE: SetOnce<Semaphore> = SetOnce::new();
 
-static SPI0_LOCK: SemCell = SemCell(UnsafeCell::new(None));
-static SPI1_LOCK: SemCell = SemCell(UnsafeCell::new(None));
+/// The bus lock. Stored by `init_with_pins`.
+static SPI0_LOCK: SetOnce<Semaphore> = SetOnce::new();
+static SPI1_LOCK: SetOnce<Semaphore> = SetOnce::new();
 
 /// A DMA write `write_raw_start` began and nobody has collected yet. While
 /// set, the bus lock is held on the starter's behalf. Only the task that
@@ -105,23 +106,19 @@ fn spi_state(id: u8) -> &'static mut SpiXferState {
 }
 
 fn spi_done(id: u8) -> &'static Semaphore {
-    unsafe {
-        match id {
-            0 => (*SPI0_DONE.0.get()).as_ref(),
-            _ => (*SPI1_DONE.0.get()).as_ref(),
-        }
-        .expect("SPI done semaphore not initialised")
+    match id {
+        0 => SPI0_DONE.get(),
+        _ => SPI1_DONE.get(),
     }
+    .expect("SPI done semaphore not initialised")
 }
 
 fn spi_lock(id: u8) -> &'static Semaphore {
-    unsafe {
-        match id {
-            0 => (*SPI0_LOCK.0.get()).as_ref(),
-            _ => (*SPI1_LOCK.0.get()).as_ref(),
-        }
-        .expect("SPI lock semaphore not initialised")
+    match id {
+        0 => SPI0_LOCK.get(),
+        _ => SPI1_LOCK.get(),
     }
+    .expect("SPI lock semaphore not initialised")
 }
 
 // ── ISR ──────────────────────────────────────────────────────────────────────
@@ -155,7 +152,7 @@ macro_rules! spi_isr_body {
             $spi.sspicr() // clear RORIC + RTIC
                 .write(|w| w.roric().clear_bit_by_one().rtic().clear_bit_by_one());
             state.op = SpiOp::Idle;
-            if let Some(sem) = unsafe { (*$done_static.0.get()).as_ref() } {
+            if let Some(sem) = $done_static.get() {
                 sem.give_from_isr(&mut ctx);
             }
             return;
@@ -412,11 +409,9 @@ macro_rules! finish_isr_xfer {
 /// init and `PeripheralManager.openSpi` can each request the same bus without
 /// re-allocating semaphores.
 fn is_initialised(spi_id: u8) -> bool {
-    unsafe {
-        match spi_id {
-            0 => (*SPI0_LOCK.0.get()).is_some(),
-            _ => (*SPI1_LOCK.0.get()).is_some(),
-        }
+    match spi_id {
+        0 => SPI0_LOCK.get().is_some(),
+        _ => SPI1_LOCK.get().is_some(),
     }
 }
 
@@ -497,14 +492,24 @@ pub fn init_with_pins(
     let lock = Semaphore::new_binary().expect("spi lock sem alloc");
     lock.give();
 
+    // SAFETY: the cells are empty (`is_initialised` returned above
+    // otherwise), and nothing reads them yet: this bus's interrupt is
+    // unmasked below, its DMA completion (`DMA_IRQ_0`, possibly live for the
+    // other bus) only reads this bus's cell once a transfer started by
+    // `write_raw_start` on this bus finishes, and every task path reaches
+    // the cells through `spi_lock`, which panics on an empty cell rather
+    // than racing it — so the caller's own first transfer comes after this.
+    // Two tasks initialising the same bus at once would race here; bus
+    // init runs from board bring-up and from `PeripheralManager.openSpi`,
+    // which do not overlap (the check-then-store has always assumed so).
     match spi_id {
         0 => unsafe {
-            *SPI0_DONE.0.get() = Some(done);
-            *SPI0_LOCK.0.get() = Some(lock);
+            SPI0_DONE.set(done);
+            SPI0_LOCK.set(lock);
         },
         _ => unsafe {
-            *SPI1_DONE.0.get() = Some(done);
-            *SPI1_LOCK.0.get() = Some(lock);
+            SPI1_DONE.set(done);
+            SPI1_LOCK.set(lock);
         },
     }
 

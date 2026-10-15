@@ -21,15 +21,13 @@
 //! (`SPI_RESP_DELAY_F1` = 16, programmed by the driver); no dummy clocks are
 //! ever added here.
 
-use core::cell::UnsafeCell;
 use core::ffi::c_void;
 use core::sync::atomic::{compiler_fence, Ordering};
 
 use freertos_rust::{Duration, InterruptContext, Semaphore};
+use picodroid_core::util::set_once::SetOnce;
 use rp235x_hal::pac;
 use rp235x_hal::pac::io_bank0::gpio::gpio_ctrl::FUNCSEL_A as Funcsel;
-
-use super::spi::SemCell;
 
 extern "C" {
     fn cyw43_delay_ms(ms: u32);
@@ -80,10 +78,10 @@ const DMA_WAIT_MS: u32 = 5;
 /// One binary semaphore serves both directions: the driver serialises
 /// transfers under its own lock (`CYW43_THREAD_ENTER`), so there is never
 /// more than one in flight.
-static DMA_DONE: SemCell = SemCell(UnsafeCell::new(None));
+static DMA_DONE: SetOnce<Semaphore> = SetOnce::new();
 
 fn dma_done() -> Option<&'static Semaphore> {
-    unsafe { (*DMA_DONE.0.get()).as_ref() }
+    DMA_DONE.get()
 }
 
 /// PIO0 SM0 DREQs on RP2350 (datasheet §12.6.4.1).
@@ -346,10 +344,13 @@ pub extern "C" fn cyw43_spi_init(_self: *mut c_void) -> i32 {
     p.DMA
         .inte1()
         .write(|w| unsafe { w.bits((1 << DMA_CH_TX) | (1 << DMA_CH_RX)) });
-    unsafe {
-        if (*DMA_DONE.0.get()).is_none() {
-            *DMA_DONE.0.get() = Some(Semaphore::new_binary().expect("pio_spi dma sem alloc"));
-        }
+    if DMA_DONE.get().is_none() {
+        let sem = Semaphore::new_binary().expect("pio_spi dma sem alloc");
+        // SAFETY: the cell is empty, and nothing can read it yet: this runs
+        // once (`PIO_INITED`), on the cyw43 task, before `DMA_IRQ_1` is
+        // unmasked just below and before the driver's first transfer, which
+        // is the only task path to `dma_done`.
+        unsafe { DMA_DONE.set(sem) };
     }
     crate::hal::chip::periph::enable_irq(pac::Interrupt::DMA_IRQ_1);
 

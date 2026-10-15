@@ -7,11 +7,11 @@
 //! Both RP2040 and RP2350 share the same USB 1.1 controller at the same memory
 //! addresses, so one driver covers both chips.
 
-use core::cell::UnsafeCell;
 use core::ptr::{read_volatile, write_volatile};
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use freertos_rust::{Duration, InterruptContext, Queue};
+use picodroid_core::util::set_once::SetOnce;
 
 // The descriptor tables are the shared reference set, built from the
 // identity in `pdb_protocol::usb`; this driver owns only the endpoint
@@ -125,7 +125,7 @@ static mut USB: UsbState = UsbState {
 /// of spinning at priority 21 on the JVM's core at no cost to the RP2040's
 /// flash (a semaphore's or a notification's own ISR entry points were ~1 KB
 /// there; docs/scheduling-audit-2026-09.md, F3).
-static EP1_IN_READY: QueueCell = QueueCell(UnsafeCell::new(None));
+static EP1_IN_READY: SetOnce<Queue<u8>> = SetOnce::new();
 
 /// Set when a completion never came within [`TX_TIMEOUT_MS`] — the host
 /// stopped collecting (a client killed mid-response, a suspended bus).
@@ -138,7 +138,7 @@ static TX_DEAD: AtomicBool = AtomicBool::new(false);
 const TX_TIMEOUT_MS: u32 = 500;
 
 fn ep1_in_ready() -> Option<&'static Queue<u8>> {
-    unsafe { (*EP1_IN_READY.0.get()).as_ref() }
+    EP1_IN_READY.get()
 }
 
 /// ISR context: a bulk-IN transfer completed (or the endpoint was just
@@ -171,16 +171,11 @@ static mut EP1_OUT_ARMED: bool = false;
 
 const RX_QUEUE_CAPACITY: u32 = 512;
 
-struct QueueCell(UnsafeCell<Option<Queue<u8>>>);
-unsafe impl Sync for QueueCell {}
-static USB_RX_QUEUE: QueueCell = QueueCell(UnsafeCell::new(None));
+/// Bytes the USB interrupt received, for the pdb task. Stored by `init`.
+static USB_RX_QUEUE: SetOnce<Queue<u8>> = SetOnce::new();
 
 fn rx_queue() -> &'static Queue<u8> {
-    unsafe {
-        (*USB_RX_QUEUE.0.get())
-            .as_ref()
-            .expect("USB_RX_QUEUE not initialised")
-    }
+    USB_RX_QUEUE.get().expect("USB_RX_QUEUE not initialised")
 }
 
 // ── Low-level register helpers ──────────────────────────────────────────────
@@ -437,11 +432,15 @@ extern "C" fn USBCTRL_IRQ() {
 /// Initialise the USB CDC driver and enable the DP pull-up.
 pub fn init() {
     let q = Queue::new(512).expect("pdb usb rx queue");
-    unsafe { *USB_RX_QUEUE.0.get() = Some(q) };
+    // SAFETY: `init` runs once, at the start of the pdb task, before the
+    // controller leaves reset and before `USBCTRL_IRQ` is unmasked below;
+    // the interrupt and this task's later reads are the only readers.
+    unsafe { USB_RX_QUEUE.set(q) };
     // The endpoint starts out ready: one token in the completion queue.
     let ready = Queue::new(1).expect("pdb usb ep1-in queue");
     let _ = ready.send(0u8, Duration::zero());
-    unsafe { *EP1_IN_READY.0.get() = Some(ready) };
+    // SAFETY: as for `USB_RX_QUEUE` just above.
+    unsafe { EP1_IN_READY.set(ready) };
 
     // Release USBCTRL from reset.
     {
