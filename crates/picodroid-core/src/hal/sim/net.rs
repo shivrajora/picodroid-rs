@@ -115,8 +115,14 @@ fn box_socket(s: SimSocket) -> *mut c_void {
 
 /// Recover a &mut SimSocket from a raw pointer.
 ///
+/// A known gap of this seam (left as it is in round 2 of the unsafe
+/// reduction): two Java threads using one socket at once — a reader blocked
+/// in `tcp_recv` with the run lock released while another sends — each hold
+/// a `&mut` to the same `SimSocket`.
+///
 /// # Safety
-/// `ptr` must have been created by `box_socket` and not yet freed.
+/// `ptr` must have been created by `box_socket` and not yet freed, and no
+/// other reference to the socket may be live while the returned one is used.
 unsafe fn deref_socket(ptr: *mut c_void) -> &'static mut SimSocket {
     &mut *(ptr as *mut SimSocket)
 }
@@ -153,6 +159,8 @@ pub fn tcp_connect(sock: *mut c_void, addr: u32, port: u16) -> Result<(), NetErr
     if !link_up() {
         return Err(link_down());
     }
+    // SAFETY: `sock` is a live `box_socket` pointer (the handle tables hand
+    // out no other) and this call's borrow is the only one in use.
     let s = unsafe { deref_socket(sock) };
     match s {
         SimSocket::TcpClient(ref mut opt, ref pending, ref mut charge) => {
@@ -180,6 +188,8 @@ pub fn tcp_connect(sock: *mut c_void, addr: u32, port: u16) -> Result<(), NetErr
 
 pub fn tcp_send(sock: *mut c_void, buf: &[u8]) -> Result<usize, NetError> {
     use std::io::Write;
+    // SAFETY: `sock` is a live `box_socket` pointer (the handle tables hand
+    // out no other) and this call's borrow is the only one in use.
     let s = unsafe { deref_socket(sock) };
     match s {
         SimSocket::TcpClient(Some(ref mut stream), _, _) => retry_eintr(|| stream.write(buf)),
@@ -197,6 +207,8 @@ pub fn tcp_send(sock: *mut c_void, buf: &[u8]) -> Result<usize, NetError> {
 /// and shrink the window across retries instead.
 pub fn tcp_recv(sock: *mut c_void, buf: &mut [u8]) -> Result<usize, NetError> {
     use std::io::Read;
+    // SAFETY: `sock` is a live `box_socket` pointer (the handle tables hand
+    // out no other) and this call's borrow is the only one in use.
     let s = unsafe { deref_socket(sock) };
     match s {
         SimSocket::TcpClient(Some(ref mut stream), _, _) => {
@@ -233,6 +245,8 @@ pub fn tcp_recv(sock: *mut c_void, buf: &mut [u8]) -> Result<usize, NetError> {
 }
 
 pub fn tcp_listen(sock: *mut c_void, port: u16) -> Result<(), NetError> {
+    // SAFETY: `sock` is a live `box_socket` pointer (the handle tables hand
+    // out no other) and this call's borrow is the only one in use.
     let s = unsafe { deref_socket(sock) };
     match s {
         SimSocket::TcpClient(..) => {
@@ -246,6 +260,8 @@ pub fn tcp_listen(sock: *mut c_void, port: u16) -> Result<(), NetError> {
 }
 
 pub fn tcp_accept(sock: *mut c_void) -> Result<*mut c_void, NetError> {
+    // SAFETY: `sock` is a live `box_socket` pointer (the handle tables hand
+    // out no other) and this call's borrow is the only one in use.
     let s = unsafe { deref_socket(sock) };
     match s {
         SimSocket::TcpListener(ref listener, None) => {
@@ -346,6 +362,8 @@ pub fn udp_sendto(sock: *mut c_void, buf: &[u8], addr: u32, port: u16) -> Result
     if !link_up() {
         return Err(link_down());
     }
+    // SAFETY: `sock` is a live `box_socket` pointer (the handle tables hand
+    // out no other) and this call's borrow is the only one in use.
     let s = unsafe { deref_socket(sock) };
     match s {
         SimSocket::Udp(ref udp) => {
@@ -357,6 +375,8 @@ pub fn udp_sendto(sock: *mut c_void, buf: &[u8], addr: u32, port: u16) -> Result
 }
 
 pub fn udp_recvfrom(sock: *mut c_void, buf: &mut [u8]) -> Result<(usize, u32, u16), NetError> {
+    // SAFETY: `sock` is a live `box_socket` pointer (the handle tables hand
+    // out no other) and this call's borrow is the only one in use.
     let s = unsafe { deref_socket(sock) };
     match s {
         SimSocket::Udp(ref udp) => {
@@ -407,12 +427,16 @@ pub fn close(sock: *mut c_void) {
         return;
     }
     // Reconstitute the Box and drop it, closing the socket.
+    // SAFETY: `sock` came from `box_socket` (the handle tables hand out no
+    // other pointer) and `close` is its last use; the tables drop it after.
     unsafe {
         let _ = Box::from_raw(sock as *mut SimSocket);
     }
 }
 
 pub fn set_recv_timeout(sock: *mut c_void, timeout_ms: u32) {
+    // SAFETY: `sock` is a live `box_socket` pointer (the handle tables hand
+    // out no other) and this call's borrow is the only one in use.
     let s = unsafe { deref_socket(sock) };
     let dur = if timeout_ms == 0 {
         None

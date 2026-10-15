@@ -189,6 +189,7 @@ unsafe fn q_send<T>(q: RawQueue, val: T, _t: Timeout) -> bool {
     if q == 0 {
         return false;
     }
+    // SAFETY: this function's contract: `q` is a live `q_create::<T>` handle.
     let queue = unsafe { &*(q as *const SimQueue<T>) };
     let mut items = queue
         .items
@@ -209,6 +210,7 @@ unsafe fn q_recv<T>(q: RawQueue, t: Timeout) -> Option<T> {
     if q == 0 {
         return None;
     }
+    // SAFETY: this function's contract: `q` is a live `q_create::<T>` handle.
     let queue = unsafe { &*(q as *const SimQueue<T>) };
     let mut items = queue
         .items
@@ -346,6 +348,8 @@ pub fn mutex_recursive_lock(m: RawMutex, t: Timeout) -> bool {
     if m == 0 {
         return false;
     }
+    // SAFETY: `m` is a live `mutex_recursive_create` handle: shared code only
+    // passes back the handles it was given, and none after its delete.
     let mutex = unsafe { &*(m as *const SimMutex) };
     let me = std::thread::current().id();
     let mut state = mutex
@@ -390,6 +394,8 @@ pub fn mutex_recursive_unlock(m: RawMutex) {
     if m == 0 {
         return;
     }
+    // SAFETY: `m` is a live `mutex_recursive_create` handle: shared code only
+    // passes back the handles it was given, and none after its delete.
     let mutex = unsafe { &*(m as *const SimMutex) };
     let mut state = mutex
         .state
@@ -425,6 +431,8 @@ pub fn sem_give(s: RawSem) {
     if s == 0 {
         return;
     }
+    // SAFETY: `s` is a `sem_binary_create` handle: shared code only passes
+    // back the handles it was given, and those are never freed.
     let sem = unsafe { &*(s as *const SimSem) };
     let mut count = sem
         .count
@@ -445,6 +453,8 @@ pub fn sem_take(s: RawSem, t: Timeout) -> bool {
     if s == 0 {
         return false;
     }
+    // SAFETY: `s` is a `sem_binary_create` handle: shared code only passes
+    // back the handles it was given, and those are never freed.
     let sem = unsafe { &*(s as *const SimSem) };
     let mut count = sem
         .count

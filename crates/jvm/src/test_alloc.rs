@@ -69,11 +69,14 @@ unsafe impl GlobalAlloc for Capped {
         if !Self::charge(layout.size()) {
             return ptr::null_mut();
         }
+        // SAFETY: the caller's `GlobalAlloc::alloc` contract, forwarded.
         unsafe { System.alloc(layout) }
     }
 
     unsafe fn dealloc(&self, p: *mut u8, layout: Layout) {
         Self::refund(layout.size());
+        // SAFETY: the caller's `GlobalAlloc::dealloc` contract: `p` came
+        // from this allocator, which got it from `System`, with `layout`.
         unsafe { System.dealloc(p, layout) }
     }
 
@@ -81,6 +84,7 @@ unsafe impl GlobalAlloc for Capped {
         if !Self::charge(layout.size()) {
             return ptr::null_mut();
         }
+        // SAFETY: the caller's `GlobalAlloc::alloc_zeroed` contract.
         unsafe { System.alloc_zeroed(layout) }
     }
 
@@ -93,6 +97,8 @@ unsafe impl GlobalAlloc for Capped {
         } else {
             Self::refund(layout.size() - new_size);
         }
+        // SAFETY: the caller's `GlobalAlloc::realloc` contract; `p` is a
+        // `System` block, as in `dealloc`.
         unsafe { System.realloc(p, layout, new_size) }
     }
 }

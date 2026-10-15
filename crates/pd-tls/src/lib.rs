@@ -10,6 +10,7 @@
 //! Design and measurements: `docs/designs/tls-2026-09.md`.
 
 #![cfg_attr(not(test), no_std)]
+#![deny(clippy::undocumented_unsafe_blocks)]
 
 extern crate alloc;
 

@@ -202,6 +202,8 @@ impl StringTable {
         let _atomic = crate::atomic_section::AtomicSection::enter();
         // Deduplicate against existing static entries.
         for i in 0..self.dyn_start {
+            // SAFETY: entries below `dyn_start` are static: `intern` stored a
+            // `&'static [u8]`'s pointer and length.
             let existing =
                 unsafe { core::slice::from_raw_parts(self.ptrs[i], self.lens[i] as usize) };
             if existing == s {
@@ -220,6 +222,8 @@ impl StringTable {
                 continue; // GC-freed slot — its ptr is dangling
             }
             let i = self.dyn_start + di;
+            // SAFETY: slot `di` is live: the pointer and length are its owned
+            // `Vec`'s, which neither moves nor shrinks while it is there.
             let existing =
                 unsafe { core::slice::from_raw_parts(self.ptrs[i], self.lens[i] as usize) };
             if existing == s {
@@ -460,6 +464,9 @@ impl StringTable {
         if ptr.is_null() {
             return None;
         }
+        // A non-null entry is a static `&'static [u8]` or a live dynamic one
+        // whose buffer this table owns (`free_dyn` nulls the pointer).
+        // SAFETY: so `ptr` spans `lens[i]` bytes, kept alive by `&self`.
         let slice = unsafe { core::slice::from_raw_parts(ptr, self.lens[i] as usize) };
         core::str::from_utf8(slice).ok()
     }

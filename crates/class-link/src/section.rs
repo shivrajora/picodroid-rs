@@ -318,11 +318,11 @@ impl<'a> ClassSection<'a> {
     #[inline]
     pub fn index(&self) -> &'a [IndexEntry] {
         let bytes = &self.data[self.index_off..self.index_off + INDEX_ENTRY_LEN * self.count];
-        // SAFETY: `parse` checked the section is 4-aligned and `index_off`
-        // is a multiple of 4, so the entries are aligned for `IndexEntry`
-        // (alignment 4); the length is a whole number of 8-byte entries;
-        // the record is `#[repr(C)]` plain integers, every bit pattern
-        // valid; little-endian target (asserted at the crate root).
+        // `parse` checked the section is 4-aligned and `index_off` is a
+        // multiple of 4; little-endian target (asserted at the crate root).
+        // SAFETY: so the entries are aligned for `IndexEntry` (alignment 4),
+        // a `#[repr(C)]` record of plain integers that any bits make valid,
+        // and the slice is `count` whole 8-byte entries of `self.data`.
         unsafe { core::slice::from_raw_parts(bytes.as_ptr().cast::<IndexEntry>(), self.count) }
     }
 

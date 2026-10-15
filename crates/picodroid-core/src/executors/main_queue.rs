@@ -78,6 +78,9 @@ static TICK_IN_QUEUE: TickFlagCell = TickFlagCell(Cell::new(false));
 /// compound operations use, because `enqueue_runnable` may run on a
 /// different task than the draining UI loop.
 struct ShadowCell(Cell<[u16; CAPACITY]>, Cell<usize>);
+// SAFETY: every access is inside an `AtomicSection` — push, pop and clear
+// open one, and the GC root walk runs inside the collector's — so no other
+// core-0 task runs meanwhile, and all callers are core-0 JVM tasks.
 unsafe impl Sync for ShadowCell {}
 static PENDING_RUNNABLES: ShadowCell = ShadowCell(Cell::new([0; CAPACITY]), Cell::new(0));
 

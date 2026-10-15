@@ -26,6 +26,7 @@
 //! every logged `free/min_ever` pair must match bit-for-bit.
 
 #![cfg_attr(not(test), no_std)]
+#![deny(clippy::undocumented_unsafe_blocks)]
 
 /// `xHeapStructSize` on the 32-bit device: `sizeof(BlockLink_t)` (8) already
 /// 8-aligned.
@@ -65,8 +66,9 @@ pub struct Heap4 {
     frees: u32,
 }
 
-// The arena is exclusively owned by the Heap4 instance (itself behind the
-// allocator's process-wide lock, the stand-in for vTaskSuspendAll).
+// SAFETY: the arena is exclusively owned by the Heap4 instance (`init`'s
+// contract), so moving the instance to another thread moves sole access to
+// it; the simulator keeps it behind its process-wide lock.
 unsafe impl Send for Heap4 {}
 
 impl Heap4 {
@@ -108,22 +110,32 @@ impl Heap4 {
         // BlockLink_t field order. No debug_assert here: this runs inside
         // the global allocator, where a panic path (which allocates) can
         // deadlock; corruption is caught by `free`'s Result checks instead.
+        // Every block offset is below `end_off`, which leaves 8 bytes before
+        // the arena's end: one this heap computed, or a payload offset
+        // `free` range-checked and takes on trust from the allocator.
+        // SAFETY: so `off + 4 * idx` (`idx` is 0 or 1) stays inside the
+        // `size` bytes at `base` that `init` was given.
         unsafe { (self.base.add(off as usize) as *mut u32).add(idx as usize) }
     }
     #[inline]
     fn next(&self, off: u32) -> u32 {
+        // SAFETY: an aligned header word inside the arena (see `word`), which
+        // only this instance touches.
         unsafe { *self.word(off, 0) }
     }
     #[inline]
     fn set_next(&mut self, off: u32, v: u32) {
+        // SAFETY: as `next`; `&mut self` makes this the only access.
         unsafe { *self.word(off, 0) = v }
     }
     #[inline]
     fn bsize(&self, off: u32) -> u32 {
+        // SAFETY: as `next`.
         unsafe { *self.word(off, 1) }
     }
     #[inline]
     fn set_bsize(&mut self, off: u32, v: u32) {
+        // SAFETY: as `set_next`.
         unsafe { *self.word(off, 1) = v }
     }
     /// `pxIterator->pxNextFreeBlock` where `START` models `&xStart`.
@@ -313,8 +325,11 @@ mod tests {
     /// 8-aligned test arena. Leaked on purpose — tests only.
     fn arena(size: u32) -> Heap4 {
         let layout = std::alloc::Layout::from_size_align(size as usize, 8).unwrap();
+        // SAFETY: every test arena is at least 2 KB, a non-zero size.
         let base = unsafe { std::alloc::alloc_zeroed(layout) };
         assert!(!base.is_null());
+        // SAFETY: a fresh, leaked, 8-aligned block of `size` bytes that only
+        // this heap uses.
         unsafe { Heap4::init(base, size) }
     }
 

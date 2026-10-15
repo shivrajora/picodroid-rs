@@ -335,6 +335,9 @@ impl HalNet for FreeRtosTcpNet {
     fn tcp_connect(sock: *mut c_void, addr: u32, port: u16) -> Result<(), NetError> {
         let sa = FreertosSocketAddr::ipv4(addr, port);
         let t0 = now_ms();
+        // SAFETY: `sock` is a live socket from this layer (the handle-table
+        // discipline above); `sa` is a full-size address that outlives the
+        // call.
         let ret = unsafe { FreeRTOS_connect(sock, &sa, FreertosSocketAddr::SIZE) };
         if ret != 0 {
             let elapsed_ms = now_ms().wrapping_sub(t0);
@@ -373,6 +376,9 @@ impl HalNet for FreeRtosTcpNet {
     /// `-ENOTCONN` and thus reads as EOF — Android apps treat both as
     /// end-of-stream in practice, accept the approximation.)
     fn tcp_recv(sock: *mut c_void, buf: &mut [u8]) -> Result<usize, NetError> {
+        // SAFETY: `sock` is a live socket from this layer (the handle-table
+        // discipline above); the stack writes at most `buf.len()` bytes to
+        // `buf`.
         let ret = unsafe { FreeRTOS_recv(sock, buf.as_mut_ptr(), buf.len(), 0) };
         match ret {
             0 => Err(NetError::new(NetErrorKind::TimedOut, 0)),
@@ -384,6 +390,8 @@ impl HalNet for FreeRtosTcpNet {
 
     /// Send data on a TCP socket.
     fn tcp_send(sock: *mut c_void, buf: &[u8]) -> Result<usize, NetError> {
+        // SAFETY: `sock` is a live socket from this layer (the handle-table
+        // discipline above); the stack reads `buf.len()` bytes of `buf`.
         let ret = unsafe { FreeRTOS_send(sock, buf.as_ptr(), buf.len(), 0) };
         if ret < 0 {
             let kind = match ret {
@@ -422,7 +430,11 @@ impl HalNet for FreeRtosTcpNet {
 
     /// Set receive timeout (milliseconds).
     fn set_recv_timeout(sock: *mut c_void, timeout_ms: u32) {
-        let ticks = timeout_ms; // FreeRTOS+TCP expects ticks, 1 tick = 1 ms at 1000 Hz
+        // FreeRTOS+TCP expects ticks, 1 tick = 1 ms at 1000 Hz.
+        let ticks = timeout_ms;
+        // SAFETY: `sock` is a live socket from this layer (the handle-table
+        // discipline above); the value is the live `u32` `ticks`, its size
+        // passed with it.
         unsafe {
             FreeRTOS_setsockopt(
                 sock,
@@ -441,8 +453,13 @@ impl HalNet for FreeRtosTcpNet {
             return Err(NetError::other(-1));
         }
         let sa = FreertosSocketAddr::ipv4(0, local_port); // INADDR_ANY
+
+        // SAFETY: `sock` is the valid socket just created; `sa` is a
+        // full-size address that outlives the call.
         let ret = unsafe { FreeRTOS_bind(sock, &sa, FreertosSocketAddr::SIZE) };
         if ret != 0 {
+            // SAFETY: the socket created above, closed once and never used
+            // again.
             unsafe { FreeRTOS_closesocket(sock) };
             return Err(NetError::new(bind_kind(ret), ret));
         }
@@ -452,6 +469,9 @@ impl HalNet for FreeRtosTcpNet {
     /// Send a UDP datagram.
     fn udp_sendto(sock: *mut c_void, buf: &[u8], addr: u32, port: u16) -> Result<usize, NetError> {
         let sa = FreertosSocketAddr::ipv4(addr, port);
+        // SAFETY: `sock` is a live socket from this layer (the handle-table
+        // discipline above); the stack reads `buf.len()` bytes of `buf` and
+        // the full-size address `sa`.
         let ret = unsafe {
             FreeRTOS_sendto(
                 sock,
@@ -472,6 +492,9 @@ impl HalNet for FreeRtosTcpNet {
     fn udp_recvfrom(sock: *mut c_void, buf: &mut [u8]) -> Result<(usize, u32, u16), NetError> {
         let mut sa = FreertosSocketAddr::zeroed();
         let mut sa_len = FreertosSocketAddr::SIZE;
+        // SAFETY: `sock` is a live socket from this layer (the handle-table
+        // discipline above); the stack writes at most `buf.len()` bytes to
+        // `buf` and a full-size address to `sa`.
         let ret = unsafe {
             FreeRTOS_recvfrom(sock, buf.as_mut_ptr(), buf.len(), 0, &mut sa, &mut sa_len)
         };
@@ -493,10 +516,16 @@ impl HalNet for FreeRtosTcpNet {
     /// Bind a TCP socket to a local port and start listening.
     fn tcp_listen(sock: *mut c_void, port: u16) -> Result<(), NetError> {
         let sa = FreertosSocketAddr::ipv4(0, port); // INADDR_ANY
+
+        // SAFETY: `sock` is a live socket from this layer (the handle-table
+        // discipline above); `sa` is a full-size address that outlives the
+        // call.
         let ret = unsafe { FreeRTOS_bind(sock, &sa, FreertosSocketAddr::SIZE) };
         if ret != 0 {
             return Err(NetError::new(bind_kind(ret), ret));
         }
+        // SAFETY: `sock` is a live socket from this layer (the handle-table
+        // discipline above).
         let ret = unsafe { FreeRTOS_listen(sock, 1) };
         if ret != 0 {
             return Err(NetError::other(ret));
@@ -512,6 +541,9 @@ impl HalNet for FreeRtosTcpNet {
     fn tcp_accept(sock: *mut c_void) -> Result<*mut c_void, NetError> {
         let mut sa = FreertosSocketAddr::zeroed();
         let mut sa_len = FreertosSocketAddr::SIZE;
+        // SAFETY: `sock` is a live socket from this layer (the handle-table
+        // discipline above); `sa` and `sa_len` describe a full-size address
+        // the stack may fill.
         let client = unsafe { FreeRTOS_accept(sock, &mut sa, &mut sa_len) };
         if socket_invalid(client) {
             return Err(NetError::new(NetErrorKind::TimedOut, -1));
@@ -549,6 +581,8 @@ impl HalNet for FreeRtosTcpNet {
         }
         cbuf[..bytes.len()].copy_from_slice(bytes);
         // cbuf[bytes.len()] is already 0.
+        // SAFETY: `cbuf` holds the name and a NUL terminator (the length check
+        // above), and outlives the call.
         let addr = unsafe { FreeRTOS_gethostbyname(cbuf.as_ptr()) };
         if addr == 0 {
             return Err(NetError::new(NetErrorKind::HostLookup, 0));

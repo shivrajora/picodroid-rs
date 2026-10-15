@@ -75,10 +75,10 @@ struct Tables {
     connections: [Cell<Option<ConnectionEntry>>; MAX_CONNECTIONS],
 }
 
-// SAFETY: every entry point runs on the main JVM task — the op processors
-// between frames, the foreground calls from natives, the GC root walk from
-// the collecting JVM task — all core-0 JVM tasks, one at a time. No
-// interrupt handler or core-1 task reaches the tables.
+// Every entry point runs on a JVM task — the op processors between frames,
+// the foreground calls from natives, the GC root walk from the collecting
+// task — and no interrupt handler or core-1 task reaches the tables.
+// SAFETY: so all access is from core-0 JVM tasks, one at a time.
 static TABLES: Core0<Tables> = unsafe {
     Core0::new(Tables {
         services: [const { Cell::new(None) }; MAX_SERVICES],

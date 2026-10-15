@@ -281,15 +281,21 @@ pub struct StringDesc {
     pub lit: u16,
 }
 
+// SAFETY: `#[repr(C)]`, three `u16` fields and nothing else (size 6,
+// asserted below).
 unsafe impl WordRecord for FieldInfo {
     const WORDS: usize = 3;
 }
+// SAFETY: `#[repr(C)]`, three `u16` fields and nothing else (size 6).
 unsafe impl WordRecord for IfaceInfo {
     const WORDS: usize = 3;
 }
+// SAFETY: `#[repr(C)]`, six `u16` fields and nothing else (size 12,
+// alignment 2, asserted below).
 unsafe impl WordRecord for MethodInfo {
     const WORDS: usize = 6;
 }
+// SAFETY: `#[repr(C)]`, two `u16` fields and nothing else (size 4).
 unsafe impl WordRecord for MethodrefDesc {
     const WORDS: usize = 2;
 }
@@ -355,9 +361,10 @@ impl<'a> Link<'a> {
         if !bytes.len().is_multiple_of(2) {
             return Err(LinkError::BadHeader);
         }
+        // Little-endian target only (asserted at the crate root), so the
+        // words read as written.
         // SAFETY: 2-aligned, even length; every bit pattern is a valid
-        // `u16`; the lifetime is the bytes'. Little-endian target only
-        // (asserted at the crate root), so the words read as written.
+        // `u16`; the lifetime is the bytes'.
         let words =
             unsafe { core::slice::from_raw_parts(bytes.as_ptr().cast::<u16>(), bytes.len() / 2) };
         Self::new(words, pool)

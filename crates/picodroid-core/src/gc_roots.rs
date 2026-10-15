@@ -64,11 +64,12 @@ struct Registry {
     count: usize,
 }
 
-// SAFETY: single-threaded access by construction. Registration happens on the
-// boot task before any other task exists; `visit_all` runs from the collector
-// with the world stopped. This is the same single-core contract the object
-// heap itself relies on (see boot.rs's SharedHeapCell).
 struct RegistryCell(core::cell::UnsafeCell<Registry>);
+// Registration happens once, on the JVM main task before its first class
+// load — before any other JVM task exists or any collection can run;
+// `visit_all` runs from the collector with the world stopped. This is the
+// same single-core contract the object heap relies on (boot.rs).
+// SAFETY: so access is single-threaded by construction.
 unsafe impl Sync for RegistryCell {}
 
 static REGISTRY: RegistryCell = RegistryCell(core::cell::UnsafeCell::new(Registry {
@@ -77,6 +78,8 @@ static REGISTRY: RegistryCell = RegistryCell(core::cell::UnsafeCell::new(Registr
 }));
 
 fn registry() -> &'static mut Registry {
+    // SAFETY: see `RegistryCell`: one thread of execution at a time, and each
+    // caller holds the reference for its own short walk only.
     unsafe { &mut *REGISTRY.0.get() }
 }
 

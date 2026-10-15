@@ -367,6 +367,9 @@ pub fn set_current_ssid(ssid: &[u8]) {
     let n = ssid.len().min(SSID_MAX);
     let seq = CURRENT_SEQ.load(Ordering::Relaxed);
     CURRENT_SEQ.store(seq.wrapping_add(1), Ordering::Release);
+    // SAFETY: the link driver is `CURRENT`'s only writer, and a reader on the
+    // other core trusts only a copy taken between two equal even sequence
+    // reads; the sequence is odd from the store above to the one below.
     unsafe {
         let cur = &mut *core::ptr::addr_of_mut!(CURRENT);
         cur.ssid[..n].copy_from_slice(&ssid[..n]);
@@ -383,6 +386,9 @@ pub fn current_ssid(out: &mut [u8; SSID_MAX]) -> usize {
         if s1 & 1 == 1 {
             continue;
         }
+        // SAFETY: a seqlock read of plain bytes (any bits are a valid `u8`):
+        // `n` is clamped to `SSID_MAX` by the writer, and a copy torn by a
+        // concurrent write is discarded by the re-check below.
         let len = unsafe {
             let cur = &*core::ptr::addr_of!(CURRENT);
             let n = cur.len as usize;
@@ -474,6 +480,8 @@ pub fn scan_begin() {
 /// full table drops the weakest for a stronger newcomer. Link-driver side.
 pub fn scan_add(entry: ScanEntry) {
     let seq = scan_write_begin();
+    // SAFETY: the link driver is `SCAN`'s only writer, inside the odd
+    // sequence `scan_write_begin` opened; readers retry a torn copy.
     unsafe {
         let table = &mut *core::ptr::addr_of_mut!(SCAN);
         let len = SCAN_LEN.load(Ordering::Relaxed);
@@ -508,6 +516,7 @@ pub fn scan_add(entry: ScanEntry) {
 /// and [`WIFI_EVENTS`]. Link-driver side.
 pub fn scan_end() {
     let seq = scan_write_begin();
+    // SAFETY: as in `scan_add`: the only writer, inside the odd sequence.
     unsafe {
         let table = &mut *core::ptr::addr_of_mut!(SCAN);
         let len = SCAN_LEN.load(Ordering::Relaxed);
@@ -539,6 +548,9 @@ pub fn scan_entry(i: usize) -> Option<ScanEntry> {
         if s1 & 1 == 1 {
             continue;
         }
+        // SAFETY: a seqlock read of a `Copy` entry whose fields any bits make
+        // valid but `security`, which only ever holds a whole written value;
+        // a copy torn by a concurrent write is discarded by the re-check.
         let got = unsafe {
             let table = &*core::ptr::addr_of!(SCAN);
             let len = SCAN_LEN.load(Ordering::Relaxed).min(SCAN_MAX);
@@ -599,6 +611,9 @@ pub fn submit(req: Request) -> bool {
     }
     let kind = match req {
         Request::Join(c) => {
+            // SAFETY: the slot is written only while `REQ_KIND` reads none,
+            // i.e. the consumer has taken any earlier request, and published
+            // by the Release store below.
             unsafe {
                 *core::ptr::addr_of_mut!(REQ_CREDS) = c;
             }
@@ -616,6 +631,9 @@ pub fn submit(req: Request) -> bool {
 pub fn take_request() -> Option<Request> {
     let req = match REQ_KIND.load(Ordering::Acquire) {
         REQ_NONE => return None,
+        // SAFETY: the Acquire load saw `REQ_JOIN`, stored after the slot was
+        // written, and the producer writes it again only after the store of
+        // none below.
         REQ_JOIN => Request::Join(unsafe { *core::ptr::addr_of!(REQ_CREDS) }),
         REQ_SCAN => Request::Scan,
         _ => Request::Leave,

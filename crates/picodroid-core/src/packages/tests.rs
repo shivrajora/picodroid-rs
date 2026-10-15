@@ -26,6 +26,8 @@ fn fresh(sectors: usize, max_apps: usize) -> MemRegion {
 
 /// What build.rs links into the region: the meta pages, then the image.
 fn bake(r: &mut MemRegion, sector: u32, image: &[u8], flags: u32, seq: u32) {
+    // SAFETY: a test region nothing executes from; the directory's slices into
+    // it are rebuilt by the rescan that follows before anything reads them.
     unsafe {
         r.select_run(sector);
         for (i, chunk) in image.chunks(256).enumerate() {
@@ -101,6 +103,9 @@ fn a_baked_run_is_found_and_is_the_boot_default() {
     let mut r = fresh(16, MAX);
     let a = papk("com.a", 100);
     // What build.rs links into the region: meta pages then the image.
+    // SAFETY: a test region nothing executes from; the directory's slices
+    // into it are rebuilt by the rescan that follows before anything reads
+    // them.
     unsafe {
         r.select_run(0);
         for (i, chunk) in a.chunks(256).enumerate() {
@@ -241,6 +246,8 @@ fn boot_default_is_inherited_by_a_reinstall_of_the_same_package() {
     // Mark it the boot default the way the baked image is.
     let (first, sectors) = find("com.a").unwrap().run();
     let a = image_of("com.a");
+    // SAFETY: a test region nothing executes from; the directory's slices into
+    // it are rebuilt by the rescan that follows before anything reads them.
     unsafe {
         r.erase_run(first, sectors);
         r.select_run(first);
@@ -334,6 +341,9 @@ fn a_commit_less_run_is_stale_and_cleanup_erases_it() {
     let mut r = fresh(16, MAX);
     do_install(&mut r, &papk_of_sectors("com.a", 2)).unwrap();
     // A relocation or install that lost power after the header page.
+    // SAFETY: a test region nothing executes from; the directory's slices
+    // into it are rebuilt by the rescan that follows before anything reads
+    // them.
     unsafe {
         r.select_run(5);
         r.write_meta_header(100, 0, 9);
@@ -355,6 +365,9 @@ fn duplicates_resolve_to_the_higher_seq_and_the_loser_is_cleaned_up() {
     let a2 = papk_of_sectors("com.a", 2);
     // Two committed copies, as a power loss between commit and evict leaves.
     for (sector, image, seq) in [(0u32, &a1, 1u32), (4, &a2, 2)] {
+        // SAFETY: a test region nothing executes from; the directory's slices
+        // into it are rebuilt by the rescan that follows before anything reads
+        // them.
         unsafe {
             r.select_run(sector);
             for (i, chunk) in image.chunks(256).enumerate() {

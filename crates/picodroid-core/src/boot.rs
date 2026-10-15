@@ -39,9 +39,9 @@ mod prereserve_config {
 // no global lock. Parked-mid-execute tasks' frames stay visible to GC via
 // the frame registry in `GcState` (see pico_jvm::gc).
 
+struct SharedHeapCell(core::cell::UnsafeCell<SharedJvmHeap>);
 // SAFETY: upheld by the single-JVM-task invariant above, which is part of
 // the RTOS contract every platform implements.
-struct SharedHeapCell(core::cell::UnsafeCell<SharedJvmHeap>);
 unsafe impl Sync for SharedHeapCell {}
 
 static SHARED_HEAP: SharedHeapCell =
@@ -54,6 +54,11 @@ static SHARED_HEAP: SharedHeapCell =
 /// ObjectHeap/ArrayHeap is short enough that no task switch can land
 /// mid-alloc at a cooperative yield point (sleep / UART read).
 pub fn shared_heap() -> &'static mut SharedJvmHeap {
+    // Two calls give two `&mut` to one heap (docs/designs/
+    // unsafe-reduction-2026-09.md §6); what keeps them from overlapping is
+    // that one JVM task runs at a time and none keeps the reference past a
+    // yield point.
+    // SAFETY: the single-JVM-task invariant above.
     unsafe { &mut *SHARED_HEAP.0.get() }
 }
 
@@ -69,10 +74,10 @@ pub fn shared_heap() -> &'static mut SharedJvmHeap {
 // yield point, so under the single-JVM-task contract above a parked task is
 // never observed mid-parse.
 
+struct SharedJvmCell(core::cell::UnsafeCell<Option<Jvm>>);
 // SAFETY: same single-JVM-task invariant as SHARED_HEAP; additionally,
 // `run_app` publishes only after every class is registered, and children
 // cannot exist before Java code runs.
-struct SharedJvmCell(core::cell::UnsafeCell<Option<Jvm>>);
 unsafe impl Sync for SharedJvmCell {}
 
 static SHARED_JVM: SharedJvmCell = SharedJvmCell(core::cell::UnsafeCell::new(None));
@@ -84,12 +89,17 @@ static SHARED_JVM: SharedJvmCell = SharedJvmCell(core::cell::UnsafeCell::new(Non
 /// because children terminate before the previous app is torn down (the
 /// pre-existing `shared_heap().reset()` contract).
 pub fn shared_jvm() -> Option<&'static Jvm> {
+    // SAFETY: written only by `publish_jvm` on the main task, before any
+    // child executor that reads it exists, and replaced only once they have
+    // all ended; between those points the set is read-only.
     unsafe { (*SHARED_JVM.0.get()).as_ref() }
 }
 
 /// Move the fully-loaded class set into [`SHARED_JVM`] and hand the caller
 /// the main task's exclusive reference to it.
 fn publish_jvm(jvm: Jvm) -> &'static mut Jvm {
+    // SAFETY: `run_app` calls this once per app, on the main task, with no
+    // child executor alive and no `shared_jvm` borrow outstanding.
     unsafe {
         let slot = &mut *SHARED_JVM.0.get();
         slot.insert(jvm)

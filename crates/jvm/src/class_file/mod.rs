@@ -85,6 +85,7 @@ pub struct ClassFile {
 // SAFETY: the pointer is to an immutable table in flash (or a leaked buffer
 // in tests), shared freely; `ClassFile` hands out only shared views.
 unsafe impl Send for ClassFile {}
+// SAFETY: as for `Send`: every view is shared, of data nothing mutates.
 unsafe impl Sync for ClassFile {}
 
 // Loosen only with a parity-audit update: 32 B on a 64-bit host, 16 B on

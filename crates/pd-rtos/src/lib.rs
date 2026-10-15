@@ -27,6 +27,7 @@
 //! debugger-visible task registration live in the platform's [`Rtos`] impl.
 
 #![cfg_attr(not(test), no_std)]
+#![deny(clippy::undocumented_unsafe_blocks)]
 
 extern crate alloc;
 

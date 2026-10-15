@@ -26,8 +26,9 @@ const PEEK_BUF_LEN: usize = pdb_protocol::INSTALL_PEEK_BYTES;
 // ── 256-byte page buffer for streaming flash writes ───────────────────────────
 //
 // Used only during install handling.
-// SAFETY: single-core; only install logic writes, no concurrent reader.
 struct PageBufCell(UnsafeCell<[u8; 256]>);
+// SAFETY: only `stream_and_verify` touches the buffer, and an install has one
+// caller, the family's debug-bridge task, which never runs two at once.
 unsafe impl Sync for PageBufCell {}
 static PAGE_BUF: PageBufCell = PageBufCell(UnsafeCell::new([0u8; 256]));
 
@@ -281,6 +282,7 @@ pub fn install(
 
     // Core 0 is now parked in RAM with interrupts disabled. Safe to erase
     // flash: the target run, plus an old copy it replaces in place.
+    // SAFETY: `wait_for_park` returned true above: the JVM core is parked.
     unsafe { flash.erase_run(plan.erase_before.0, plan.erase_before.1) };
     flash.select_run(plan.first_sector);
     transport.report_ready();
@@ -345,9 +347,12 @@ pub fn install(
     }
 
     // ── Commit metadata, retire the old copy, respond ─────────────────────
+    // SAFETY: the JVM core is still parked: nothing since the park released
+    // it.
     unsafe { flash.commit_metadata(papk_len, plan.flags, plan.seq) };
     if let Some((first, sectors)) = plan.evict_after {
         // Only now: until the new run committed, the old one was the app.
+        // SAFETY: still parked, as for the commit above.
         unsafe { flash.erase_run(first, sectors) };
     }
     directory.rescan(flash);
@@ -468,6 +473,7 @@ pub fn uninstall(
         coordinator.cancel_park_request();
         return false;
     }
+    // SAFETY: `wait_for_park` returned true above: the JVM core is parked.
     unsafe { flash.erase_run(first_sector, sectors) };
     directory.rescan(flash);
     transport.report_success();
@@ -491,6 +497,8 @@ fn stream_and_verify(
     let mut page_index: u32 = 0;
     while bytes_remaining > 0 {
         let chunk = bytes_remaining.min(256);
+        // SAFETY: the one user of `PAGE_BUF` (see its `Sync` impl); the
+        // borrow ends with this iteration.
         let page = unsafe { &mut *PAGE_BUF.0.get() };
         for b in page[..chunk].iter_mut() {
             match transport.read_byte() {
@@ -507,6 +515,7 @@ fn stream_and_verify(
         if chunk < 256 {
             page[chunk..].fill(0xFF);
         }
+        // SAFETY: the caller streams with the JVM core parked (`install`).
         if !unsafe { flash.write_page(page_index, page) } {
             coordinator.release();
             transport.report_error(InstallError::FlashWriteFailed);
@@ -730,6 +739,8 @@ mod tests {
         written: Vec<u8>,
     }
 
+    // SAFETY: a mock: `mapped_base` is its own buffer of `region_len` bytes,
+    // alive as long as it is, and nothing executes from what it writes.
     unsafe impl PapkFlash for MockFlash {
         fn region_len(&self) -> usize {
             self.region.len()

@@ -209,6 +209,8 @@ mod inner {
         );
         touch.set_swap_xy(generated::TOUCH_SWAP_XY);
         touch.init();
+        // SAFETY: `init` runs once, from the graphics bring-up on the UI
+        // task, before anything reads the panel.
         unsafe {
             addr_of_mut!(TOUCH).write(Some(touch));
         }
@@ -228,6 +230,9 @@ mod inner {
     }
 
     fn touch() -> &'static mut Touch {
+        // SAFETY: the panel has one reader — the touch sampler's task where
+        // it runs, otherwise the UI task (`hal::touch_sampler`) — and each
+        // caller's borrow ends with its call.
         unsafe { (*addr_of_mut!(TOUCH)).as_mut().unwrap() }
     }
 
@@ -469,6 +474,8 @@ mod inner {
             ),
             Err(e) => println!("[sim] Touch: GT911 model rejected its own product id: {e:?}"),
         }
+        // SAFETY: `init` runs once, from the graphics bring-up on the UI
+        // task, before anything reads the panel.
         unsafe {
             addr_of_mut!(TOUCH).write(Some(touch));
         }
@@ -480,6 +487,9 @@ mod inner {
     }
 
     fn touch() -> &'static mut Touch {
+        // SAFETY: the panel has one reader — the touch sampler's task where
+        // it runs, otherwise the UI task (`hal::touch_sampler`) — and each
+        // caller's borrow ends with its call.
         unsafe { (*addr_of_mut!(TOUCH)).as_mut().unwrap() }
     }
 

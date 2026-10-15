@@ -114,13 +114,14 @@ impl SerialWorker {
                     Some(p) => p,
                     None => continue,
                 };
-                // SAFETY: `ptr` points at a `Work` on the caller's stack; the
-                // caller is blocked in `submit` until we notify, so the frame
-                // is live for the duration of this call.
                 // Copy the record out before running it: once `run` sets the
                 // submitter's `done` flag the submitter may return and the
                 // `Work` on its stack is gone.
+                // SAFETY: only `submit` sends on this queue: `ptr` points at a
+                // `Work` on its stack, live while it waits for `done`.
                 let Work { run, ctx, waiter } = unsafe { *(ptr as *const Work) };
+                // SAFETY: `run` is `trampoline::<F, R>` and `ctx` the live
+                // `Ctx<F, R>` of the same `submit`, sent once, `f` untaken.
                 unsafe { run(ctx) };
                 rtos::task_notify(waiter);
             }),
@@ -154,6 +155,7 @@ impl SerialWorker {
         where
             F: FnOnce() -> R,
         {
+            // SAFETY: this function's contract: a live, untaken `Ctx<F, R>`.
             let ctx = unsafe { &mut *(ctx as *mut Ctx<F, R>) };
             let f = ctx.f.take().expect("serial worker trampoline called twice");
             ctx.out.write(f());

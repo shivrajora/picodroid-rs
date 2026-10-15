@@ -121,6 +121,10 @@ macro_rules! register_sim_platform {
             /// The shared simulator, as the platform registers it.
             struct SimPlatform;
 
+            // Every method forwards to the simulator's backing: the POSIX
+            // FreeRTOS port's blocking queues and recursive mutexes, or
+            // under `cargo test` the std ones that model them.
+            // SAFETY: both provide the exclusion and wakeups the trait asks for.
             unsafe impl $crate::rtos::Rtos for SimPlatform {
                 fn spawn(spec: &TaskSpec, body: ::alloc::boxed::Box<dyn FnOnce() + Send>) -> bool {
                     rtos::spawn(spec, body, charge, release)

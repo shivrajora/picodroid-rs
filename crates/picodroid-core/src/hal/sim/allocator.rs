@@ -62,6 +62,8 @@ macro_rules! declare_sim_global_allocator {
         /// picodroid-core.
         struct SimGlobalAlloc;
 
+        // SAFETY: a stateless forwarder: every method hands its arguments
+        // unchanged to `GLOBAL`, whose `GlobalAlloc` impl upholds the trait.
         unsafe impl ::core::alloc::GlobalAlloc for SimGlobalAlloc {
             unsafe fn alloc(&self, layout: ::core::alloc::Layout) -> *mut u8 {
                 ::core::alloc::GlobalAlloc::alloc(&$crate::hal::sim::allocator::GLOBAL, layout)
@@ -327,12 +329,12 @@ pub(super) fn raw_stderr(bytes: &[u8]) {
 /// inside the global allocator would re-enter it and deadlock on the arena
 /// lock, so the allocator and the site ledger read the environment this way.
 pub(super) fn with_env<R>(name: &CStr, f: impl FnOnce(&[u8]) -> R) -> Option<R> {
-    // SAFETY: `name` is a NUL-terminated C string by type. `getenv` returns
-    // NULL or a pointer to a NUL-terminated string inside the process
-    // environment, which stays valid until the environment is modified;
+    // `getenv` returns NULL or a pointer to a NUL-terminated string inside
+    // the process environment, valid until the environment is modified, and
     // nothing in this code base modifies it (no `set_var`, `remove_var`,
-    // `setenv` or `putenv` anywhere in the tree), and the borrow handed to
-    // `f` ends before this function returns.
+    // `setenv` or `putenv` anywhere in the tree).
+    // SAFETY: `name` is NUL-terminated by type; the pointer is valid as
+    // above, and the borrow handed to `f` ends before this returns.
     let value = unsafe {
         let p = libc::getenv(name.as_ptr());
         if p.is_null() {
@@ -431,14 +433,23 @@ impl core::fmt::Write for StackWriter<'_> {
     }
 }
 
+// Blocks come from `System` (bypass, pre-arm, uncapped) or from the heap_4
+// arena, whose blocks are 8-aligned and which aborts on an `align > 8`
+// request; `dealloc` routes by address.
+// SAFETY: so `alloc` returns null or a block fit for `layout` that nothing
+// else uses until `dealloc` hands it back to the allocator that made it.
 unsafe impl GlobalAlloc for CappedAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         // Host-only allocation (see `bypass`): serve it uncounted and uncapped.
         if bypass_active() {
+            // SAFETY: the caller's `GlobalAlloc::alloc` contract (a non-zero
+            // size).
             return unsafe { System.alloc(layout) };
         }
         // Pre-arm: host runtime startup, no device counterpart.
         if !self.armed.load(Ordering::Acquire) {
+            // SAFETY: the caller's `GlobalAlloc::alloc` contract (a non-zero
+            // size).
             return unsafe { System.alloc(layout) };
         }
 
@@ -448,6 +459,8 @@ unsafe impl GlobalAlloc for CappedAllocator {
         if limit == usize::MAX {
             // Uncapped mode: plain byte metering over the host allocator.
             let prev = self.allocated.fetch_add(size, Ordering::Relaxed);
+            // SAFETY: the caller's `GlobalAlloc::alloc` contract (a non-zero
+            // size).
             let ptr = unsafe { System.alloc(layout) };
             if ptr.is_null() {
                 self.allocated.fetch_sub(size, Ordering::Relaxed);
@@ -497,10 +510,14 @@ unsafe impl GlobalAlloc for CappedAllocator {
                 );
             }
             let arena_layout = Layout::from_size_align(limit, 8).unwrap();
+            // SAFETY: `limit` is non-zero (`heap_limit` maps 0 to uncapped,
+            // handled above), so the layout has a non-zero size.
             let base = unsafe { System.alloc(arena_layout) };
             if base.is_null() {
                 Self::die("[sim] FATAL: host allocation of the sim arena failed\n");
             }
+            // SAFETY: `base` is a fresh 8-aligned host block of `limit` bytes
+            // that is never freed and that only this arena uses.
             *guard = Some(unsafe { Heap4::init(base, limit as u32) });
             self.arena_len.store(limit, Ordering::Relaxed);
             self.arena_base.store(base as usize, Ordering::Release);
@@ -509,11 +526,16 @@ unsafe impl GlobalAlloc for CappedAllocator {
         let p = match heap.malloc(want) {
             Some(off) => {
                 let base = self.arena_base.load(Ordering::Relaxed);
+                // SAFETY: `off` is a payload offset `malloc` returned, inside
+                // the arena of `arena_len` bytes at `base`.
                 let p = unsafe { (base as *mut u8).add(off as usize) };
                 #[cfg(feature = "mem-diag")]
                 if canaries_enabled() {
                     // Trailing canary right past the requested size; the
                     // matching check runs in `dealloc` before the free.
+                    // SAFETY: offensive mode asked `malloc` for `size + 4`
+                    // bytes, so the four canary bytes past `size` are inside
+                    // this block.
                     unsafe { core::ptr::write_unaligned(p.add(size) as *mut u32, CANARY) };
                 }
                 p
@@ -571,6 +593,9 @@ unsafe impl GlobalAlloc for CappedAllocator {
                 super::alloc_ledger::forget(ptr);
                 #[cfg(feature = "mem-diag")]
                 if canaries_enabled() {
+                    // SAFETY: an arena block allocated with `layout` (the
+                    // `dealloc` contract) while canaries were on, so it has
+                    // four canary bytes past `layout.size()`.
                     let c = unsafe {
                         core::ptr::read_unaligned(
                             (ptr as *const u8).add(layout.size()) as *const u32
@@ -600,6 +625,8 @@ unsafe impl GlobalAlloc for CappedAllocator {
                 return;
             }
         }
+        // SAFETY: `ptr` is outside the arena, so `alloc` got it from `System`
+        // with `layout` (the caller's `GlobalAlloc::dealloc` contract).
         unsafe { System.dealloc(ptr, layout) };
         if bypass_active() || !self.armed.load(Ordering::Acquire) {
             return;
@@ -639,9 +666,9 @@ mod tests {
 
     /// `GlobalAlloc::dealloc` of a block from [`alloc`].
     fn free(b: Block<'_>) {
-        // SAFETY: a `Block` is only built by `alloc` from a non-null pointer
-        // that `b.from` returned for `b.layout`, and `free` takes it by value,
-        // so the pointer is live, currently allocated by this allocator with
+        // Only `alloc` builds a `Block`, from a non-null pointer `b.from`
+        // returned for `b.layout`, and `free` consumes it.
+        // SAFETY: so the pointer is live, allocated by this allocator with
         // this layout, and freed exactly once.
         unsafe { GlobalAlloc::dealloc(b.from, b.ptr, b.layout) };
     }

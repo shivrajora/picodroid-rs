@@ -426,10 +426,10 @@ pub fn collect(
     // `parked_frames` field docs for the safety contract). May re-visit the
     // collector's own registered stack; marking is idempotent.
     for &pf in &gc.parked_frames {
-        // SAFETY: the owning task is parked (single core, no time slicing)
-        // and cannot mutate its frames while this task runs; the pointer is
-        // valid for the duration of that task's `execute()` call, which
-        // spans this collection.
+        // The pointer is valid for the duration of the owning task's
+        // `execute()` call, which spans this collection.
+        // SAFETY: so it is live, and that task is parked (single core, no
+        // time slicing), so nothing mutates its frames while this reads them.
         let parked = unsafe { &*pf };
         for frame in parked {
             for v in &frame.locals {

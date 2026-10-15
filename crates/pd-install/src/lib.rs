@@ -33,6 +33,7 @@
 //! picodroid-core's `packages` tests pin it again against the real directory.
 
 #![cfg_attr(not(any(test, feature = "mem-region")), no_std)]
+#![deny(clippy::undocumented_unsafe_blocks)]
 
 extern crate alloc;
 

@@ -150,6 +150,8 @@ pub fn init() {
     // Limit update rate to ~60 fps
     win.set_target_fps(60);
 
+    // SAFETY: `init` runs on the UI task before its first `update_window`,
+    // and that task is the only one that touches `WINDOW`.
     unsafe {
         WINDOW = Some(win);
     }
@@ -287,6 +289,10 @@ pub fn asleep() -> bool {
 ///
 /// Call once per frame after `with_gfx(|g| g.tick(16))`.
 pub fn update_window() {
+    // `write_pixels` runs from the LVGL flush on the same task, never during
+    // this call.
+    // SAFETY: the UI task is the only one that touches `WINDOW`, `FRAMEBUF`
+    // and `COMPOSE_BUF`, so the borrows taken here are unaliased.
     unsafe {
         if let Some(ref mut win) = WINDOW {
             // The frame memory is shown through a copy when the picture is
@@ -400,6 +406,8 @@ fn paint_crosshair(buf: &mut [u32], cx: u16, cy: u16, color: u32) {
 
 /// Returns `true` if the emulator window is still open (user hasn't closed it).
 pub fn is_window_open() -> bool {
+    // SAFETY: a shared borrow of `WINDOW` on the UI task, its only user, with
+    // no `&mut` to it live.
     unsafe {
         let ptr = &raw const WINDOW;
         match &*ptr {

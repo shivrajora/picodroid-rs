@@ -135,9 +135,9 @@ fn native_alloc_total() -> u32 {
 /// on overflow the census under-reports rather than failing.
 const MAX_CHILD_JVMS: usize = 8;
 type ChildJvm = Option<(&'static str, *const pico_jvm::Jvm)>;
-// SAFETY: registration and deregistration run on the child JVM tasks, the
-// census on the main task: all core-0 JVM tasks, one interpreting at a
-// time. No interrupt handler or core-1 task reaches the registry.
+// Registration and deregistration run on the child JVM tasks, the census
+// on the main task; no interrupt handler or core-1 task reaches it.
+// SAFETY: so all access is from core-0 JVM tasks, one at a time.
 static CHILD_JVMS: Core0<[Cell<ChildJvm>; MAX_CHILD_JVMS]> =
     unsafe { Core0::new([const { Cell::new(None) }; MAX_CHILD_JVMS]) };
 

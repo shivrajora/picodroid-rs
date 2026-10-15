@@ -142,6 +142,8 @@ pub fn init() {
                 packages::rescan_region(&region);
                 packages::mark_verified(&mut region);
                 println!("[sim] apps: warm boot from {snapshot}");
+                // SAFETY: `init` runs on the main thread before the scheduler
+                // starts, so nothing else can reach `REGION` yet.
                 unsafe { REGION = Some(region) };
                 print_list();
                 return;
@@ -177,6 +179,7 @@ pub fn init() {
     // As a device's boot does after its scan: what was just checked in
     // full gets its receipt.
     packages::mark_verified(&mut region);
+    // SAFETY: as above: pre-scheduler, single-threaded.
     unsafe { REGION = Some(region) };
     print_list();
 }
@@ -216,6 +219,8 @@ pub fn uninstall_run(first_sector: u32, sectors: u32) -> bool {
 /// What `build.rs` links into the region on a device: the image at sector
 /// 0 with both meta pages, the boot-default flag and sequence 0.
 fn bake(region: &mut MemRegion, bytes: &[u8]) {
+    // SAFETY: seeding, pre-scheduler: no JVM runs from the region, and the
+    // directory's slices into it are rebuilt by the rescan below.
     unsafe {
         region.select_run(0);
         for (i, chunk) in bytes.chunks(256).enumerate() {

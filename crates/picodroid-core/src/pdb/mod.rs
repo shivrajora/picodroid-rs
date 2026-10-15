@@ -248,15 +248,19 @@ mod tests {
     }
 
     struct MockFlash;
+    /// What the mock maps: two erased sectors.
+    static MOCK_REGION: [u8; 2 * 4096] = [0xFF; 2 * 4096];
+    // SAFETY: `mapped_base` is a static of `region_len` bytes, readable for
+    // the life of the program and never written; the writes are no-ops.
     unsafe impl PapkFlash for MockFlash {
         fn region_len(&self) -> usize {
-            0x0010_0000
+            MOCK_REGION.len()
         }
         fn max_installed_apps(&self) -> usize {
             1
         }
         fn mapped_base(&self) -> *const u8 {
-            core::ptr::null()
+            MOCK_REGION.as_ptr()
         }
         fn select_run(&mut self, _first_sector: u32) {}
         unsafe fn erase_run(&mut self, _first_sector: u32, _sectors: u32) {}

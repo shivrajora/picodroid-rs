@@ -119,6 +119,9 @@ impl SensorState {
 static mut STATE: SensorState = SensorState::new();
 
 fn state() -> &'static mut SensorState {
+    // SAFETY: every caller is a SensorManager native or the UI tick's
+    // delivery, on core-0 JVM tasks one at a time (the sampler only touches
+    // the mailbox), and none keeps the reference past its own call.
     unsafe { &mut *core::ptr::addr_of_mut!(STATE) }
 }
 

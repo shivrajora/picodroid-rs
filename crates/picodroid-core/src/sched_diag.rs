@@ -315,11 +315,12 @@ static mut LIVE: Live = Live::new();
 
 /// Hook-side accessor (kernel locks held).
 fn live() -> &'static mut Live {
-    // SAFETY: the table's writers are the kernel hooks, serialised by the
-    // kernel's own locks (module note), plus `init`/`exempt_task` before the
-    // hooks report anything and the tolerated plain stores of `note_spin` /
-    // `note_busy_delay`. Each caller holds the reference for one hook body
-    // and never across a call that re-enters a hook.
+    // The table's writers are the kernel hooks, serialised by the kernel's
+    // own locks (module note), plus `init`/`exempt_task` before the hooks
+    // report anything and the tolerated plain stores of `note_spin` /
+    // `note_busy_delay`.
+    // SAFETY: so one writer at a time, and each caller holds the reference
+    // for one hook body, never across a call that re-enters a hook.
     unsafe { &mut *addr_of_mut!(LIVE) }
 }
 
@@ -540,11 +541,10 @@ fn close_window(live: &mut Live, now: u32) {
     PENDING_SEQ.store(seq.wrapping_add(1), Ordering::Relaxed);
     fence(Ordering::SeqCst);
     {
-        // SAFETY: the closing hook is PENDING's single writer (the module
-        // note: it runs under the kernel's locks), and the printer only
-        // trusts a copy of it taken between two equal even reads of
-        // PENDING_SEQ, which is odd from the store above until the one
-        // below.
+        // The printer only trusts a copy taken between two equal even reads
+        // of PENDING_SEQ, which is odd from the store above to the one below.
+        // SAFETY: the closing hook, under the kernel's locks, is PENDING's
+        // single writer (module note).
         let p = unsafe { &mut *addr_of_mut!(PENDING) };
         p.window = live.window_index;
         p.elapsed_us = elapsed;
@@ -937,12 +937,11 @@ pub fn print_pending() {
         return;
     }
     fence(Ordering::SeqCst);
+    // PENDING may be mid-rewrite by the closing hook; the copy is a plain
+    // byte copy of a report of plain integers, and a torn one is discarded by
+    // the sequence check below.
     // SAFETY: the caller is the only printer (this function's contract) and
-    // PRINTING is touched only here, so the copy's destination is unaliased
-    // and the shared borrow of it lasts until this call returns, before the
-    // next `print_pending` can rewrite it. PENDING may be mid-rewrite by the
-    // closing hook; the copy is a plain byte copy of a report of plain
-    // integers, and a torn one is discarded by the sequence check below.
+    // PRINTING is touched only here, so its borrow is unaliased until return.
     let report = unsafe {
         core::ptr::copy_nonoverlapping(addr_of!(PENDING), addr_of_mut!(PRINTING), 1);
         &*addr_of!(PRINTING)

@@ -229,6 +229,10 @@ static DIR: DirCell = DirCell(UnsafeCell::new(Dir {
 }));
 
 fn dir() -> &'static mut Dir {
+    // One writer at a time (the module docs: boot before the scheduler, the
+    // bridge with the JVM parked, the JVM task), readers on the JVM task.
+    // SAFETY: so no two run at once, and each caller holds the reference
+    // only for its own call.
     unsafe { &mut *DIR.0.get() }
 }
 
@@ -275,6 +279,8 @@ pub unsafe fn rescan(base: *const u8, len: usize) {
         // SAFETY: `base` maps `len` readable bytes (the caller's contract) and
         // `s` stays inside them.
         let sector_ptr = unsafe { base.add(s * SECTOR) };
+        // SAFETY: the sector's first `VERIFIED_READ_LEN` bytes, inside it and
+        // so inside the mapping, which no write changes during the scan.
         let header = unsafe { core::slice::from_raw_parts(sector_ptr, VERIFIED_READ_LEN) };
         let max_len = (sectors - s - 1) * SECTOR;
         let Some(meta) = parse_header(header, max_len) else {
@@ -289,6 +295,10 @@ pub unsafe fn rescan(base: *const u8, len: usize) {
             s += span;
             continue;
         }
+        // `parse_header` bounded `meta.len` by `max_len`, the sectors after
+        // this one.
+        // SAFETY: so the image lies inside the mapping, which stays readable
+        // for the program's life (the caller's contract).
         let image =
             unsafe { core::slice::from_raw_parts(sector_ptr.add(META_SIZE), meta.len as usize) };
         // A run with its receipt was deep-checked by an earlier scan (or
