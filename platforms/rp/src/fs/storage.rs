@@ -56,7 +56,7 @@ impl FsBackingStore for FlashStorage {
 impl LfsStorage for FlashStorage {
     fn read(&mut self, block: u32, offset: u32, buf: &mut [u8]) -> Result<(), LfsError> {
         let addr = self.resolve(block, offset, buf.len())?;
-        // Safety: addr is within the FS region and XIP is enabled in task
+        // SAFETY: addr is within the FS region and XIP is enabled in task
         // context.  Concurrent writes on other cores are prevented by the fs
         // worker: every caller reaches this through `picodroid_core::fs::
         // with_fs`, which runs the operation on one core-0-pinned task.
