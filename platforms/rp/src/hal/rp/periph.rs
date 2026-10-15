@@ -33,6 +33,11 @@ pub(crate) fn steal() -> pac::Peripherals {
 /// 0x10 is `configMAX_SYSCALL_INTERRUPT_PRIORITY`: the kernel's critical
 /// sections mask the interrupt, so its handler may call `FromISR`
 /// functions. The NVIC is banked per core; this configures the caller's.
+///
+/// ARMv6-M defines only word access to the IPR registers, so on the RP2040
+/// the byte store below probably leaves the priority unset (round 1's §6
+/// finding): a question of behaviour, not memory safety, left for its own
+/// change.
 #[inline(always)]
 pub(crate) fn enable_irq(irq: pac::Interrupt) {
     // SAFETY: NVIC_IPR is a fixed system register and each interrupt has
