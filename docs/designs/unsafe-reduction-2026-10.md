@@ -200,6 +200,9 @@ copy-in/copy-out `Core0` structs are a small codegen change.
 Found during this round. None is fixed here. Each one is a behaviour change, so each gets its own
 decision and its own commit.
 
+The backlog, with failure scenarios and fix options for these and for round 1's still-open rows, is
+[bugs-unsafe-review-2026-10.md](../bugs-unsafe-review-2026-10.md).
+
 | Where | What |
 |---|---|
 | `platforms/rp/src/hal/rp/pio_spi.rs`, abort | If `abort_dma`'s spin times out, `cyw43_spi_transfer` returns −1 while the RX channel may still be writing into the caller's buffer. This is the most serious one. |
