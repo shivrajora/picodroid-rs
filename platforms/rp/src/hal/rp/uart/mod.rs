@@ -22,16 +22,22 @@ fn baud_divisors(baudrate: i32) -> (u16, u8) {
 macro_rules! apply_config {
     ($uart:expr, $baudrate:expr, $data_size:expr, $parity:expr, $stop_bits:expr, $hw_flow:expr) => {{
         // 1. Disable UART before reconfiguring line-control registers
-        $uart.uartcr().write(|w| unsafe { w.bits(0) });
+        // Every field to 0: UARTEN, and TXE/RXE, which reset to 1.
+        $uart
+            .uartcr()
+            .write(|w| w.uarten().clear_bit().txe().clear_bit().rxe().clear_bit());
 
         // 2. Baud rate divisors
         let (ibrd, fbrd) = baud_divisors($baudrate);
-        $uart
-            .uartibrd()
-            .write(|w| unsafe { w.baud_divint().bits(ibrd) });
-        $uart
-            .uartfbrd()
-            .write(|w| unsafe { w.baud_divfrac().bits(fbrd) });
+        $uart.uartibrd().write(|w| {
+            // SAFETY: a divisor `math::baud_divisors` computed, into a
+            // field the PAC has no range for; the UART reaches no memory.
+            unsafe { w.baud_divint().bits(ibrd) }
+        });
+        $uart.uartfbrd().write(|w| {
+            // SAFETY: as just above, the fractional divisor.
+            unsafe { w.baud_divfrac().bits(fbrd) }
+        });
 
         // 3. Line control register (UARTLCR_H) — compute raw bits to avoid type
         //    inference issues with the 2-bit WLEN field writer.
@@ -42,13 +48,24 @@ macro_rules! apply_config {
         let pen: u32 = if $parity != 0 { 1 } else { 0 }; // PARITY_NONE = 0
         let eps: u32 = if $parity == 1 { 1 } else { 0 }; // PARITY_EVEN = 1
         let lcrh: u32 = (wlen << 5) | (1 << 4) | (stp2 << 3) | (eps << 2) | (pen << 1);
+        // SAFETY: the UARTLCR_H value assembled just above.
         $uart.uartlcr_h().write(|w| unsafe { w.bits(lcrh) });
 
-        // 4. Control register (UARTCR) — raw bits.
-        //    bit layout: [15]=CTSEN [14]=RTSEN [9]=RXE [8]=TXE [0]=UARTEN
-        let flow: u32 = if $hw_flow != 0 { 1 } else { 0 };
-        let cr: u32 = (flow << 15) | (flow << 14) | (1 << 9) | (1 << 8) | 1;
-        $uart.uartcr().write(|w| unsafe { w.bits(cr) });
+        // 4. Control register (UARTCR): enable with TX and RX, and RTS/CTS
+        //    flow control when asked for; every other field 0.
+        let flow = $hw_flow != 0;
+        $uart.uartcr().write(|w| {
+            w.uarten()
+                .set_bit()
+                .txe()
+                .set_bit()
+                .rxe()
+                .set_bit()
+                .rtsen()
+                .bit(flow)
+                .ctsen()
+                .bit(flow)
+        });
     }};
 }
 
@@ -186,6 +203,8 @@ pub fn write_byte(uart_id: u8, byte: u8) {
         _ => &p.UART1,
     };
     if wait_tx_room(uart) {
+        // SAFETY: one data byte into the TX FIFO; the UART reaches no
+        // memory.
         uart.uartdr().write(|w| unsafe { w.data().bits(byte) });
     }
 }

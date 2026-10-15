@@ -39,8 +39,11 @@
 //! serialised onto the fs worker, PAPK installs park the JVM first, and both
 //! tasks are pinned to core 0.
 
-use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicU32, Ordering};
+
+use picodroid_core::util::set_once::SetOnce;
+
+use crate::task_affinity::SharedTask;
 
 /// Set by core 0 to ask core 1 to park; cleared to release it.
 static PARK_REQUESTED: AtomicU32 = AtomicU32::new(0);
@@ -48,16 +51,15 @@ static PARK_REQUESTED: AtomicU32 = AtomicU32::new(0);
 /// cleared on its way out.  Core 0 must not touch flash while this is 0.
 static PARKED: AtomicU32 = AtomicU32::new(0);
 
-// SAFETY: written once from `start_tasks` before the scheduler starts
-// (single-core at that point); read-only afterwards.
-struct TaskCell(UnsafeCell<Option<freertos_rust::Task>>);
-unsafe impl Sync for TaskCell {}
-static PARKER_TASK: TaskCell = TaskCell(UnsafeCell::new(None));
+/// The `flashpark` task, for [`park_core1_for_flash`] to wake.
+static PARKER_TASK: SetOnce<SharedTask> = SetOnce::new();
 
 /// Store the parker task handle.  Called once from `start_tasks`, right after
 /// the task is created and before the scheduler starts.
 pub fn set_parker_task(task: freertos_rust::Task) {
-    unsafe { *PARKER_TASK.0.get() = Some(task) };
+    // SAFETY: `start_tasks` calls this once, before the scheduler starts:
+    // one thread of execution, and no task that could read the cell runs.
+    unsafe { PARKER_TASK.set(SharedTask(task)) };
 }
 
 /// Body of the `flashpark` task (core 1, `PRIORITY_FLASH_PARK`).
@@ -68,6 +70,10 @@ pub fn run_parker_task() -> ! {
             // Entered with XIP still enabled (core 0 waits for PARKED before
             // touching flash) and left after it is restored (core 0 clears
             // PARK_REQUESTED only after the operation completes).
+            // SAFETY: both pointers are the two atomics' cells, statics in
+            // SRAM, valid for the life of the program and only ever read and
+            // written whole; this is the parker task on core 1, which is
+            // what `park_until_released` is for.
             unsafe { park_until_released(PARK_REQUESTED.as_ptr(), PARKED.as_ptr()) };
         }
     }
@@ -77,6 +83,13 @@ pub fn run_parker_task() -> ! {
 /// un-signal, unmask.  One `asm!` block in `.data` so that *nothing* — not
 /// even a precompiled `core::` helper in a debug build — is fetched from
 /// flash while core 0 has XIP disabled.  SRAM data reads are always safe.
+///
+/// # Safety
+///
+/// `req` and `ack` point at word-aligned `u32`s in SRAM that stay valid
+/// while this runs and are accessed only as whole words. Masking the
+/// calling core's interrupts until `*req` reads 0 must be acceptable to the
+/// caller: it is meant for the core-1 parker task alone.
 #[link_section = ".data"]
 #[inline(never)]
 unsafe fn park_until_released(req: *const u32, ack: *mut u32) {
@@ -112,8 +125,7 @@ pub struct FlashParkGuard {
 /// running: core 1 is only launched by `xPortStartScheduler`, so earlier
 /// flash operations are single-core and need no parking.
 pub fn park_core1_for_flash() -> FlashParkGuard {
-    let parker = unsafe { (*PARKER_TASK.0.get()).as_ref() };
-    let Some(parker) = parker else {
+    let Some(SharedTask(parker)) = PARKER_TASK.get() else {
         return FlashParkGuard { active: false };
     };
     if freertos_rust::FreeRtosUtils::scheduler_state()

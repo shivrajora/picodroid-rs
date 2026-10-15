@@ -135,9 +135,11 @@ pub fn start_tasks(boot_apk: Option<&'static [u8]>) -> ! {
         task_priority::PRIORITY_RT_2,
         task_affinity::CORE1,
         move |_| {
-            picodroid_core::hal::freertos_tcp::run_link_task(
-                crate::hal::cyw43::link::Cyw43Link::new(),
-            )
+            // SAFETY: the one link, made on the task that drives it;
+            // `run_link_task` calls `init` on it first and once, never
+            // returns, and hands it to no other task.
+            let link = unsafe { crate::hal::cyw43::link::Cyw43Link::new() };
+            picodroid_core::hal::freertos_tcp::run_link_task(link)
         },
     )
     .unwrap();

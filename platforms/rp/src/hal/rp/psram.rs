@@ -116,7 +116,10 @@ const CMD_QUAD_WRITE: u32 = 0x38;
 const KGD_GOOD: u8 = 0x5D;
 
 /// XIP_CS1n is pad function 9 on the pads that carry it (GPCK elsewhere).
-const FUNCSEL_XIP_CS1: u8 = 9;
+/// The PAC's function enum is one table for every pad, and names column 9
+/// after its usual occupant.
+const FUNCSEL_XIP_CS1: pac::io_bank0::gpio::gpio_ctrl::FUNCSEL_A =
+    pac::io_bank0::gpio::gpio_ctrl::FUNCSEL_A::GPCK;
 
 /// Window-1 timing for the part at `clock_hz`, pico-sdk's derivation
 /// (`psram_configure_params`).
@@ -206,6 +209,12 @@ macro_rules! reg {
 /// nothing here may fetch from flash — no calls, no `defmt`, no iterators;
 /// the rules `with_xip_disabled!` follows in flash.rs. Interrupts are not
 /// masked because nothing runs yet: this is pre-scheduler, single-core boot.
+///
+/// # Safety
+///
+/// `qmi` and `xip_ctrl` are those two peripherals' base addresses, and the
+/// caller is boot code on one core with nothing else running and nothing
+/// executing from flash but itself — while this runs, flash is not mapped.
 #[link_section = ".data"]
 #[inline(never)]
 unsafe fn bring_up(qmi: *mut u32, xip_ctrl: *mut u32) -> (u8, u8) {
@@ -311,6 +320,7 @@ fn spot_check() -> Result<(), (usize, u32, u32)> {
         for w in 0..WORDS {
             let want = pattern(site + w * 4, salt);
             for p in [raw, cached] {
+                // SAFETY: the words just written, through either alias.
                 let got = unsafe { p.add(w).read_volatile() };
                 if got != want {
                     return Err((site + w * 4, want, got));
@@ -337,7 +347,7 @@ pub fn init() {
     p.IO_BANK0
         .gpio(cs)
         .gpio_ctrl()
-        .write(|w| unsafe { w.funcsel().bits(FUNCSEL_XIP_CS1) });
+        .write(|w| w.funcsel().variant(FUNCSEL_XIP_CS1));
     // The ROM only lifts the pad isolation on GP0 for a chip select it does
     // not know about (erratum RP2350-E14); do it for the real pad.
     p.PADS_BANK0.gpio(cs).write(|w| {
@@ -345,6 +355,9 @@ pub fn init() {
         w.ie().set_bit().od().clear_bit()
     });
 
+    // SAFETY: the QMI's and XIP_CTRL's base addresses, and this is the
+    // single-core, pre-scheduler boot `bring_up` requires; the chip select
+    // was routed to XIP_CS1 just above.
     let (kgd, eid) = unsafe {
         bring_up(
             pac::QMI::ptr() as *mut u32,
@@ -469,14 +482,19 @@ fn sweep() {
     for (pass, salt) in [0u32, 0xFFFF_FFFF].into_iter().enumerate() {
         let t0 = now();
         for w in 0..words {
+            // SAFETY: inside the PSRAM window, whose whole length the boot
+            // check proved backed; the sweep runs before anything maps it.
             unsafe { cached.add(w).write_volatile(pattern(w * 4, salt)) };
         }
+        // SAFETY: byte writes into the XIP cache-maintenance alias, which
+        // clean lines and touch no memory but the cache's own.
         unsafe { xip_cache_clean_all!() };
         let t1 = now();
         let mut bad = 0u32;
         let mut first: Option<(usize, u32, u32)> = None;
         for w in 0..words {
             let want = pattern(w * 4, salt);
+            // SAFETY: as the writes above, through the uncached alias.
             let got = unsafe { raw.add(w).read_volatile() };
             if got != want {
                 bad += 1;
@@ -486,6 +504,7 @@ fn sweep() {
         let t2 = now();
         for w in 0..words {
             let want = pattern(w * 4, salt);
+            // SAFETY: as the writes above.
             let got = unsafe { cached.add(w).read_volatile() };
             if got != want {
                 bad += 1;

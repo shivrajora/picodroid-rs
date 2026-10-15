@@ -33,6 +33,11 @@ pub(crate) fn steal() -> pac::Peripherals {
 /// 0x10 is `configMAX_SYSCALL_INTERRUPT_PRIORITY`: the kernel's critical
 /// sections mask the interrupt, so its handler may call `FromISR`
 /// functions. The NVIC is banked per core; this configures the caller's.
+///
+/// ARMv6-M defines only word access to the IPR registers, so on the RP2040
+/// the byte store below probably leaves the priority unset (round 1's §6
+/// finding): a question of behaviour, not memory safety, left for its own
+/// change.
 #[inline(always)]
 pub(crate) fn enable_irq(irq: pac::Interrupt) {
     // SAFETY: NVIC_IPR is a fixed system register and each interrupt has
@@ -44,4 +49,51 @@ pub(crate) fn enable_irq(irq: pac::Interrupt) {
         nvic_ipr.add(irqn as usize).write_volatile(0x10);
         cortex_m::peripheral::NVIC::unmask(irq);
     }
+}
+
+/// Pin-mask writes to the single-cycle IO block: drive the pins in `mask`
+/// high or low, or turn their output drivers on or off. Each register is a
+/// write-only alias that changes exactly the pins whose bits are set and
+/// has no other effect — no FIFO, no interrupt, no DMA request.
+///
+/// They are safe for the reason the PAC's own `funcsel().sio()` is: a pad
+/// level is not memory. SIO drives only pads whose function select is SIO,
+/// and none of those carries anything Rust's memory depends on: the flash
+/// sits on the QSPI pads, and the PSRAM's chip select is a bank-0 pad set
+/// to XIP_CS1, which SIO does not drive.
+/// Which pads an app may drive is a policy question PeripheralManager
+/// answers (it refuses the board's own pads); a wrong level there is a
+/// misbehaving peripheral, not undefined behaviour. The PAC types these
+/// registers as raw `bits` only because its generator gives every
+/// whole-register write that shape; on the RP2040 bits 30 and 31 name no
+/// pad and are ignored.
+#[inline(always)]
+pub(crate) fn sio_out_set(sio: &pac::SIO, mask: u32) {
+    // SAFETY: GPIO_OUT_SET only raises the output level of the pads in
+    // `mask` (see above); any `u32` is a valid value.
+    sio.gpio_out_set().write(|w| unsafe { w.bits(mask) });
+}
+
+/// Drive the pins in `mask` low. See [`sio_out_set`].
+#[inline(always)]
+pub(crate) fn sio_out_clr(sio: &pac::SIO, mask: u32) {
+    // SAFETY: GPIO_OUT_CLR only lowers the output level of the pads in
+    // `mask` (see `sio_out_set`); any `u32` is a valid value.
+    sio.gpio_out_clr().write(|w| unsafe { w.bits(mask) });
+}
+
+/// Turn on the output drivers of the pins in `mask`. See [`sio_out_set`].
+#[inline(always)]
+pub(crate) fn sio_oe_set(sio: &pac::SIO, mask: u32) {
+    // SAFETY: GPIO_OE_SET only enables the output drivers of the pads in
+    // `mask` (see `sio_out_set`); any `u32` is a valid value.
+    sio.gpio_oe_set().write(|w| unsafe { w.bits(mask) });
+}
+
+/// Turn off the output drivers of the pins in `mask`. See [`sio_out_set`].
+#[inline(always)]
+pub(crate) fn sio_oe_clr(sio: &pac::SIO, mask: u32) {
+    // SAFETY: GPIO_OE_CLR only disables the output drivers of the pads in
+    // `mask` (see `sio_out_set`); any `u32` is a valid value.
+    sio.gpio_oe_clr().write(|w| unsafe { w.bits(mask) });
 }

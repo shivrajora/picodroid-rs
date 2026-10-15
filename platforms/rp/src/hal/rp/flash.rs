@@ -263,6 +263,10 @@ pub unsafe fn flash_erase_range(flash_offset: u32, len: usize) {
     flash_erase_range_xip_off(flash_offset, len);
 }
 
+/// The RAM-resident half of [`flash_erase_range`].
+///
+/// # Safety
+/// [`flash_erase_range`]'s, with core 1 already parked.
 #[link_section = ".data"]
 #[inline(never)]
 unsafe fn flash_erase_range_xip_off(flash_offset: u32, len: usize) {
@@ -281,6 +285,10 @@ pub unsafe fn flash_program_range(flash_offset: u32, data: *const u8, len: usize
     flash_program_range_xip_off(flash_offset, data, len);
 }
 
+/// The RAM-resident half of [`flash_program_range`].
+///
+/// # Safety
+/// [`flash_program_range`]'s, with core 1 already parked.
 #[link_section = ".data"]
 #[inline(never)]
 unsafe fn flash_program_range_xip_off(flash_offset: u32, data: *const u8, len: usize) {
@@ -317,6 +325,9 @@ pub unsafe fn flash_unique_id() -> [u8; 8] {
 /// select forced low, the SSI (left in serial mode by `flash_exit_xip`)
 /// clocking one byte out for each byte in, then chip select released. No
 /// indexing and no `?`: a bounds-check panic would call into flash.
+///
+/// # Safety
+/// [`flash_unique_id`]'s, with core 1 already parked.
 #[cfg(feature = "chip-rp2040")]
 #[link_section = ".data"]
 #[inline(never)]
@@ -378,13 +389,26 @@ pub fn flash_trigger_reset() -> ! {
     // both processors and left the processors, SIO and XIP running: the
     // pico_touch_kit (RP2350B) came out of every software reboot with SWD
     // and USB dead until a physical reset (2026-09-13).
+    // SAFETY: WDSEL is a mask of the subsystems the watchdog resets, every
+    // bit one subsystem; the values are the ones worked out above.
     #[cfg(feature = "chip-rp2350")]
     p.PSM.wdsel().write(|w| unsafe { w.bits(0x01ff_fff3) });
+    // SAFETY: as above, for the RP2040's layout.
     #[cfg(feature = "chip-rp2040")]
     p.PSM.wdsel().write(|w| unsafe { w.bits(0x0001_fffc) });
 
-    // Force-fire the watchdog (CTRL bit 31 = TRIGGER).
-    p.WATCHDOG.ctrl().write(|w| unsafe { w.bits(1 << 31) });
+    // Force-fire the watchdog: TRIGGER, with every other field 0 — the
+    // PAUSE_* bits reset to 1, so they are cleared by name.
+    p.WATCHDOG.ctrl().write(|w| {
+        w.trigger()
+            .set_bit()
+            .pause_jtag()
+            .clear_bit()
+            .pause_dbg0()
+            .clear_bit()
+            .pause_dbg1()
+            .clear_bit()
+    });
 
     // spin-ok: the watchdog is resetting the chip out from under this loop
     loop {

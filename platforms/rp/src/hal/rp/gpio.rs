@@ -26,31 +26,21 @@ pub fn set_direction(pin: u8, direction: i32) {
         w.ie().clear_bit().od().clear_bit()
     });
 
-    p.SIO
-        .gpio_oe_set()
-        .write(|w| unsafe { w.bits(1u32 << pin) });
+    crate::hal::chip::periph::sio_oe_set(&p.SIO, 1u32 << pin);
 
     if direction == 1 {
-        p.SIO
-            .gpio_out_set()
-            .write(|w| unsafe { w.bits(1u32 << pin) });
+        crate::hal::chip::periph::sio_out_set(&p.SIO, 1u32 << pin);
     } else {
-        p.SIO
-            .gpio_out_clr()
-            .write(|w| unsafe { w.bits(1u32 << pin) });
+        crate::hal::chip::periph::sio_out_clr(&p.SIO, 1u32 << pin);
     }
 }
 
 pub fn set_value(pin: u8, high: bool) {
     let p = crate::hal::chip::periph::steal();
     if high {
-        p.SIO
-            .gpio_out_set()
-            .write(|w| unsafe { w.bits(1u32 << pin) });
+        crate::hal::chip::periph::sio_out_set(&p.SIO, 1u32 << pin);
     } else {
-        p.SIO
-            .gpio_out_clr()
-            .write(|w| unsafe { w.bits(1u32 << pin) });
+        crate::hal::chip::periph::sio_out_clr(&p.SIO, 1u32 << pin);
     }
 }
 
@@ -78,9 +68,7 @@ pub fn set_input(pin: u8, pull: Pull) {
     });
 
     // Disable output driver
-    p.SIO
-        .gpio_oe_clr()
-        .write(|w| unsafe { w.bits(1u32 << pin) });
+    crate::hal::chip::periph::sio_oe_clr(&p.SIO, 1u32 << pin);
 }
 
 pub fn read(pin: u8) -> bool {
@@ -106,6 +94,9 @@ pub fn enable_edge_irq(pin: u8, edge: EdgeTrigger) {
         EdgeTrigger::Both => edge_low_bit | edge_high_bit,
     };
 
+    // SAFETY: PROC0_INTE is a mask of interrupt enables, four per pin; this
+    // sets the pin's edge bits. IO_IRQ_BANK0's handler is sound for any
+    // pending bit (it enqueues an event or gives a semaphore).
     p.IO_BANK0
         .proc0_inte(reg_idx)
         .modify(|r, w| unsafe { w.bits(r.bits() | mask) });
@@ -118,6 +109,7 @@ pub fn disable_edge_irq(pin: u8) {
     let bit_pos = (pin as usize % 8) * 4;
     let clear_mask = !(0xFu32 << bit_pos);
 
+    // SAFETY: clears the pin's four enable bits in the PROC0_INTE mask.
     p.IO_BANK0
         .proc0_inte(reg_idx)
         .modify(|r, w| unsafe { w.bits(r.bits() & clear_mask) });
@@ -191,6 +183,9 @@ pub mod hostwake {
     #[no_mangle]
     pub extern "C" fn picodroid_cyw43_hostwake_rearm() {
         let p = crate::hal::chip::periph::steal();
+        // SAFETY: sets the host-wake pin's level-high bit in the PROC1_INTE
+        // enable mask; core 1, the only core that touches PROC1_* (see the
+        // handler), so the read-modify-write cannot race.
         p.IO_BANK0
             .proc1_inte(REG_IDX)
             .modify(|r, w| unsafe { w.bits(r.bits() | LEVEL_HIGH_BIT) });
@@ -229,9 +224,14 @@ extern "C" fn IO_IRQ_BANK0() {
         {
             let ints = p.IO_BANK0.proc1_ints(hostwake::REG_IDX).read().bits();
             if ints & hostwake::LEVEL_HIGH_BIT != 0 {
+                // SAFETY: clears the host-wake bit in PROC1_INTE, on core 1
+                // (the re-arm's core), so the read-modify-write cannot race.
                 p.IO_BANK0
                     .proc1_inte(hostwake::REG_IDX)
                     .modify(|r, w| unsafe { w.bits(r.bits() & !hostwake::LEVEL_HIGH_BIT) });
+                // SAFETY: interrupt context, which the call's FromISR notify
+                // wants; it notifies the poll task only once
+                // `Driver::set_poll_task` registered a live handle.
                 unsafe { picodroid_cyw43_hostwake_notify_from_isr() };
             }
         }
@@ -263,6 +263,8 @@ extern "C" fn IO_IRQ_BANK0() {
             }
         }
         // Clear by writing 1s to the raw interrupt register
+        // SAFETY: INTR is write-1-to-clear; this acknowledges exactly the
+        // edges just handled.
         p.IO_BANK0.intr(reg_idx).write(|w| unsafe { w.bits(ints) });
     }
 }
@@ -289,7 +291,7 @@ fn core_num() -> u32 {
 // ISR-safe, no hi/lo latch. Wraps every ~71.6 min, which is fine for the
 // wrapping_sub deltas the debounce performs on `GpioEvent::t_us`.
 fn now_us() -> u32 {
-    // SAFETY: read-only register access, no side effects.
+    // A read-only register access, with no side effects.
     let p = crate::hal::chip::periph::steal();
     #[cfg(feature = "chip-rp2350")]
     return p.TIMER0.timerawl().read().bits();

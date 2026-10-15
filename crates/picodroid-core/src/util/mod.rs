@@ -3,6 +3,7 @@ pub mod local;
 pub mod local_ring;
 pub mod local_set;
 pub mod section_cell;
+pub mod set_once;
 // Reaches the JVM natives' logging path, which host tests do not build.
 #[cfg(not(test))]
 pub mod log;

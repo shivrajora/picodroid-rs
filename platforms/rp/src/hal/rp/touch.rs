@@ -202,16 +202,27 @@ mod inner {
 
     // ── Shared facade ───────────────────────────────────────────────────────
 
+    /// The controller driver. Written once by `init` at board bring-up;
+    /// afterwards driven by one task — the touch sampler where the panel has
+    /// a bus of its own (GT911), the UI task's input read where it shares
+    /// the display's (XPT2046), and calibration only on the latter.
     static mut TOUCH: Option<Touch> = None;
 
     pub fn init() {
         let touch = build_touch();
+        // SAFETY: board bring-up, before the sampler or LVGL's input read
+        // exists; nothing else reads the static.
         unsafe {
             addr_of_mut!(TOUCH).write(Some(touch));
         }
     }
 
     fn touch() -> &'static mut Touch {
+        // SAFETY: one task drives the controller (see `TOUCH`) and each call
+        // drops the reference before it returns. A GT911 board's UI task
+        // reading the raw point while its sampler runs would break this;
+        // calibration, the raw read's only caller, runs on XPT2046 panels.
+        // The `&'static mut` signature is round 1's §6 aliasing finding.
         unsafe { (*addr_of_mut!(TOUCH)).as_mut().unwrap() }
     }
 

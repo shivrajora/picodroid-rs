@@ -51,6 +51,11 @@ mod inner {
          (PCLK / 2, PCLK / 4, PCLK / 6, ...); it would be rounded up past the request"
     );
 
+    /// The panel driver. Written once by `init` at board bring-up, before
+    /// LVGL runs; reached afterwards only from the UI task, whose flush and
+    /// sleep/wake paths make every call below (and, on a board where the
+    /// touch controller shares the display's bus, the UI task's touch read,
+    /// which collects the band first).
     static mut DISPLAY: Option<Display> = None;
 
     pub fn init() {
@@ -83,12 +88,18 @@ mod inner {
         );
         display.init();
 
+        // SAFETY: board bring-up, before LVGL — and so the UI task's first
+        // call into this module — exists; nothing else reads the static.
         unsafe {
             addr_of_mut!(DISPLAY).write(Some(display));
         }
     }
 
     fn display() -> &'static mut Display {
+        // SAFETY: every caller is the UI task (see `DISPLAY`) and drops the
+        // reference before it returns, so no two are used at once — though
+        // the `&'static mut` signature cannot say so (round 1's §6 aliasing
+        // finding for such accessors).
         unsafe { (*addr_of_mut!(DISPLAY)).as_mut().unwrap() }
     }
 

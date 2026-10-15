@@ -44,6 +44,8 @@ pub fn read(pin: u8) -> f64 {
     let channel = pin - 26; // GP26 → channel 0, GP27 → 1, GP28 → 2, GP29 → 3
 
     // Select ADC channel and trigger a single conversion
+    // SAFETY: AINSEL takes the channel number (the PAC has no range for it,
+    // and `bits` masks to the field); the ADC reaches no memory.
     p.ADC
         .cs()
         .modify(|_, w| unsafe { w.ainsel().bits(channel).start_once().set_bit() });

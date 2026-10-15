@@ -56,6 +56,11 @@ fn regs() -> (u32, u32, u32) {
 
 /// RAM-resident, so the write cannot race an instruction fetch of its own
 /// code through the window it retimes.
+///
+/// # Safety
+/// `timing` must keep window 0 readable at the current clk_sys, and nothing
+/// else may be fetching through it — or using the QMI — while it changes:
+/// single-core boot, before the PSRAM bring-up.
 #[link_section = ".data"]
 #[inline(never)]
 unsafe fn set_m0_timing(timing: u32) {

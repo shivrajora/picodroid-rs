@@ -5,6 +5,7 @@ use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 
 use freertos_rust::{Duration, InterruptContext, Semaphore};
+use picodroid_core::util::set_once::SetOnce;
 
 use xfer::{
     clock_divisors, may_queue_tx, transfer_finished, SpiOp, SpiXferState, SMALL_XFER_THRESHOLD,
@@ -13,22 +14,45 @@ use xfer::{
 
 use super::clock::PCLK_HZ;
 
+// `reg.write(|w| w)` below stores the register's reset value — for every
+// register written that way here, 0: all interrupts masked, DMA requests
+// off, the controller disabled. It is the PAC's safe spelling of the raw
+// `bits(0)` it replaces, and compiles to the same store; `reset()` would
+// too, but shifts LLVM's inlining around `write_raw_start` (+16 B on the
+// RP2040).
+//
+// The raw writes that remain are the data register and two clock
+// registers, whose numeric fields the PAC has no range for. The SPI block
+// reaches no memory by itself — DMA does that, from `dma.rs` — so any value
+// written is memory-safe; a wrong one garbles the bus.
+
 // ── Per-peripheral statics ───────────────────────────────────────────────────
 
+/// A transfer's state, shared by the task that runs the transfer and the
+/// bus's interrupt handler.
 struct XferCell(UnsafeCell<SpiXferState>);
+// SAFETY: the two contexts that reach a bus's state take turns, by the
+// controller's interrupt mask: the task writes it (holding the bus lock)
+// while SSPIMSC is 0, `start_isr_xfer!` unmasks, the handler alone advances
+// it until it masks again at completion, and the task reads it back
+// afterwards. The one overlap is the waiter's look at the counters after a
+// poll timeout, while the handler may still run: word-sized reads of
+// fields the handler writes whole, which can be stale but not torn. (It
+// still means two `&mut` to one value exist at once — the aliasing
+// finding round 1 recorded for `&'static mut` accessors; see `spi_state`.)
 unsafe impl Sync for XferCell {}
-
-pub(crate) struct SemCell(pub(crate) UnsafeCell<Option<Semaphore>>);
-unsafe impl Sync for SemCell {}
 
 static SPI0_STATE: XferCell = XferCell(UnsafeCell::new(SpiXferState::new()));
 static SPI1_STATE: XferCell = XferCell(UnsafeCell::new(SpiXferState::new()));
 
-pub(crate) static SPI0_DONE: SemCell = SemCell(UnsafeCell::new(None));
-pub(crate) static SPI1_DONE: SemCell = SemCell(UnsafeCell::new(None));
+/// Given by the completion interrupts (`SPIx_IRQ` here, `DMA_IRQ_0` in
+/// `dma.rs`), taken by the transfer's task. Stored by `init_with_pins`.
+pub(crate) static SPI0_DONE: SetOnce<Semaphore> = SetOnce::new();
+pub(crate) static SPI1_DONE: SetOnce<Semaphore> = SetOnce::new();
 
-static SPI0_LOCK: SemCell = SemCell(UnsafeCell::new(None));
-static SPI1_LOCK: SemCell = SemCell(UnsafeCell::new(None));
+/// The bus lock. Stored by `init_with_pins`.
+static SPI0_LOCK: SetOnce<Semaphore> = SetOnce::new();
+static SPI1_LOCK: SetOnce<Semaphore> = SetOnce::new();
 
 /// A DMA write `write_raw_start` began and nobody has collected yet. While
 /// set, the bus lock is held on the starter's behalf. Only the task that
@@ -88,7 +112,16 @@ fn collect_own_write(spi_id: u8) {
     }
 }
 
+/// The bus's transfer state, for the task that holds the bus lock.
+///
+/// Returns `&'static mut` from a shared static, as round 1's §6 finding
+/// describes: two calls give two live `&mut`, and the interrupt handler
+/// makes its own. Every caller uses the reference for a few field accesses
+/// and drops it, and `XferCell`'s turn-taking keeps the accesses apart;
+/// the signature is what is left to fix.
 fn spi_state(id: u8) -> &'static mut SpiXferState {
+    // SAFETY: the cells are statics, so the pointer is valid for 'static;
+    // exclusivity is by turn-taking (see `XferCell`), not by the type.
     unsafe {
         &mut *match id {
             0 => SPI0_STATE.0.get(),
@@ -98,29 +131,28 @@ fn spi_state(id: u8) -> &'static mut SpiXferState {
 }
 
 fn spi_done(id: u8) -> &'static Semaphore {
-    unsafe {
-        match id {
-            0 => (*SPI0_DONE.0.get()).as_ref(),
-            _ => (*SPI1_DONE.0.get()).as_ref(),
-        }
-        .expect("SPI done semaphore not initialised")
+    match id {
+        0 => SPI0_DONE.get(),
+        _ => SPI1_DONE.get(),
     }
+    .expect("SPI done semaphore not initialised")
 }
 
 fn spi_lock(id: u8) -> &'static Semaphore {
-    unsafe {
-        match id {
-            0 => (*SPI0_LOCK.0.get()).as_ref(),
-            _ => (*SPI1_LOCK.0.get()).as_ref(),
-        }
-        .expect("SPI lock semaphore not initialised")
+    match id {
+        0 => SPI0_LOCK.get(),
+        _ => SPI1_LOCK.get(),
     }
+    .expect("SPI lock semaphore not initialised")
 }
 
 // ── ISR ──────────────────────────────────────────────────────────────────────
 
 macro_rules! spi_isr_body {
     ($spi:expr, $state_static:expr, $done_static:expr) => {{
+        // SAFETY: the handler runs only while the transfer has the bus's
+        // interrupts unmasked, which is the handler's turn with the state
+        // (see `XferCell`).
         let state = unsafe { &mut *$state_static.0.get() };
         let mut ctx = InterruptContext::new();
 
@@ -137,6 +169,11 @@ macro_rules! spi_isr_body {
         while $spi.sspsr().read().rne().bit_is_set() && state.rx_idx < state.len {
             let byte = $spi.sspdr().read().data().bits() as u8;
             if state.op == SpiOp::FullDuplex {
+                // SAFETY: `rx_ptr` is `transfer_raw`'s `rx`, which outlives
+                // the transfer (the task waits for it), and `rx_idx < len`.
+                // That `rx` holds `len` bytes is NOT checked: `len` is the
+                // TX length, and an `rx` shorter than `tx` overruns here
+                // (round 1 §6). Today's callers pass equal lengths.
                 unsafe { *state.rx_ptr.add(state.rx_idx) = byte };
             }
             state.rx_idx += 1;
@@ -144,10 +181,11 @@ macro_rules! spi_isr_body {
 
         // 2. Check completion
         if state.rx_idx >= state.len {
-            $spi.sspimsc().write(|w| unsafe { w.bits(0) });
-            $spi.sspicr().write(|w| unsafe { w.bits(0x03) }); // clear RORIC + RTIC
+            $spi.sspimsc().write(|w| w);
+            $spi.sspicr() // clear RORIC + RTIC
+                .write(|w| w.roric().clear_bit_by_one().rtic().clear_bit_by_one());
             state.op = SpiOp::Idle;
-            if let Some(sem) = unsafe { (*$done_static.0.get()).as_ref() } {
+            if let Some(sem) = $done_static.get() {
                 sem.give_from_isr(&mut ctx);
             }
             return;
@@ -160,9 +198,13 @@ macro_rules! spi_isr_body {
         while may_queue_tx(state.tx_idx, state.rx_idx, state.len)
             && $spi.sspsr().read().tnf().bit_is_set()
         {
+            // SAFETY: `tx_ptr` is the transfer's `tx`, alive until it ends,
+            // and `may_queue_tx` holds `tx_idx < len`, its length.
             let byte = unsafe { *state.tx_ptr.add(state.tx_idx) };
-            $spi.sspdr()
-                .write(|w| unsafe { w.data().bits(byte as u16) });
+            $spi.sspdr().write(|w| {
+                // SAFETY: one data byte (the note on raw writes at the top).
+                unsafe { w.data().bits(byte as u16) }
+            });
             state.tx_idx += 1;
         }
 
@@ -173,7 +215,8 @@ macro_rules! spi_isr_body {
         }
 
         // 5. Clear receive timeout / overrun if they fired
-        $spi.sspicr().write(|w| unsafe { w.bits(0x03) });
+        $spi.sspicr()
+            .write(|w| w.roric().clear_bit_by_one().rtic().clear_bit_by_one());
 
         // ctx drops here → freertos_rs_isr_yield if a higher-priority task woke
     }};
@@ -198,18 +241,23 @@ extern "C" fn SPI1_IRQ() {
 macro_rules! apply_config {
     ($spi:expr, $freq_hz:expr, $mode:expr) => {{
         // 1. Disable the SSP controller before reconfiguring
-        $spi.sspcr1().write(|w| unsafe { w.bits(0) });
+        $spi.sspcr1().write(|w| w);
 
         // 2. Clock prescale divisor (must be even, min 2)
         let (cpsdvsr, scr) = clock_divisors(PCLK_HZ, $freq_hz);
-        $spi.sspcpsr()
-            .write(|w| unsafe { w.cpsdvsr().bits(cpsdvsr) });
+        $spi.sspcpsr().write(|w| {
+            // SAFETY: the even prescale divisor `clock_divisors` computed (the
+            // note on raw writes at the top).
+            unsafe { w.cpsdvsr().bits(cpsdvsr) }
+        });
 
         // 3. SSPCR0: DSS=8-bit (0b0111), FRF=Motorola SPI (0b00),
         //    SPO=CPOL (mode bit 1), SPH=CPHA (mode bit 0), SCR in bits [15:8]
         let spo: u32 = (($mode >> 1) & 1) as u32;
         let sph: u32 = ($mode & 1) as u32;
         let cr0: u32 = ((scr as u32) << 8) | (sph << 7) | (spo << 6) | 0b0111;
+        // SAFETY: the SSPCR0 value assembled just above (the note on raw
+        // writes at the top).
         $spi.sspcr0().write(|w| unsafe { w.bits(cr0) });
 
         // 4. Re-enable: SSE=1, MS=0 (master mode)
@@ -236,8 +284,10 @@ macro_rules! poll_write_raw {
     ($spi:expr, $data:expr) => {{
         for &byte in $data {
             while $spi.sspsr().read().tnf().bit_is_clear() {}
-            $spi.sspdr()
-                .write(|w| unsafe { w.data().bits(byte as u16) });
+            $spi.sspdr().write(|w| {
+                // SAFETY: one data byte (the note on raw writes at the top).
+                unsafe { w.data().bits(byte as u16) }
+            });
             while $spi.sspsr().read().rne().bit_is_clear() {}
             let _ = $spi.sspdr().read();
         }
@@ -250,8 +300,10 @@ macro_rules! poll_transfer_raw {
     ($spi:expr, $tx:expr, $rx:expr) => {{
         for i in 0..$tx.len() {
             while $spi.sspsr().read().tnf().bit_is_clear() {}
-            $spi.sspdr()
-                .write(|w| unsafe { w.data().bits($tx[i] as u16) });
+            $spi.sspdr().write(|w| {
+                // SAFETY: one data byte (the note on raw writes at the top).
+                unsafe { w.data().bits($tx[i] as u16) }
+            });
             while $spi.sspsr().read().rne().bit_is_clear() {}
             $rx[i] = $spi.sspdr().read().data().bits() as u8;
         }
@@ -266,13 +318,18 @@ macro_rules! start_isr_xfer {
         // Seed TX FIFO (up to FIFO depth)
         let seed = $state.len.min(SPI_FIFO_DEPTH);
         for i in 0..seed {
+            // SAFETY: `tx_ptr` is the transfer's `tx`, just stored with its
+            // length in `len`, and `i < seed <= len`.
             let byte = unsafe { *$state.tx_ptr.add(i) };
-            $spi.sspdr()
-                .write(|w| unsafe { w.data().bits(byte as u16) });
+            $spi.sspdr().write(|w| {
+                // SAFETY: one data byte (the note on raw writes at the top).
+                unsafe { w.data().bits(byte as u16) }
+            });
         }
         $state.tx_idx = seed;
         // Clear stale interrupts, enable TXIM + RTIM + RORIM
-        $spi.sspicr().write(|w| unsafe { w.bits(0x03) }); // clear RORIC + RTIC
+        $spi.sspicr() // clear RORIC + RTIC
+            .write(|w| w.roric().clear_bit_by_one().rtic().clear_bit_by_one());
         $spi.sspimsc()
             .write(|w| w.txim().set_bit().rtim().set_bit().rorim().set_bit());
     }};
@@ -378,7 +435,7 @@ macro_rules! finish_isr_xfer {
         };
         if !signalled {
             super::dma::abort($spi_id);
-            $spi.sspimsc().write(|w| unsafe { w.bits(0) });
+            $spi.sspimsc().write(|w| w);
             while $spi.sspsr().read().rne().bit_is_set() {
                 let _ = $spi.sspdr().read();
             }
@@ -402,11 +459,9 @@ macro_rules! finish_isr_xfer {
 /// init and `PeripheralManager.openSpi` can each request the same bus without
 /// re-allocating semaphores.
 fn is_initialised(spi_id: u8) -> bool {
-    unsafe {
-        match spi_id {
-            0 => (*SPI0_LOCK.0.get()).is_some(),
-            _ => (*SPI1_LOCK.0.get()).is_some(),
-        }
+    match spi_id {
+        0 => SPI0_LOCK.get().is_some(),
+        _ => SPI1_LOCK.get().is_some(),
     }
 }
 
@@ -487,21 +542,33 @@ pub fn init_with_pins(
     let lock = Semaphore::new_binary().expect("spi lock sem alloc");
     lock.give();
 
+    // SAFETY: the cells are empty (`is_initialised` returned above
+    // otherwise), and nothing reads them yet: this bus's interrupt is
+    // unmasked below, its DMA completion (`DMA_IRQ_0`, possibly live for the
+    // other bus) only reads this bus's cell once a transfer started by
+    // `write_raw_start` on this bus finishes, and every task path reaches
+    // the cells through `spi_lock`, which panics on an empty cell rather
+    // than racing it — so the caller's own first transfer comes after this.
+    // Two tasks initialising the same bus at once would race here; bus
+    // init runs from board bring-up and from `PeripheralManager.openSpi`,
+    // which do not overlap (the check-then-store has always assumed so).
     match spi_id {
+        // SAFETY: the argument above, for bus 0's cells.
         0 => unsafe {
-            *SPI0_DONE.0.get() = Some(done);
-            *SPI0_LOCK.0.get() = Some(lock);
+            SPI0_DONE.set(done);
+            SPI0_LOCK.set(lock);
         },
+        // SAFETY: the argument above, for bus 1's cells.
         _ => unsafe {
-            *SPI1_DONE.0.get() = Some(done);
-            *SPI1_LOCK.0.get() = Some(lock);
+            SPI1_DONE.set(done);
+            SPI1_LOCK.set(lock);
         },
     }
 
     // Mask all SPI interrupts (ISR enables them per-transaction)
     macro_rules! setup_irq {
         ($spi:expr, $irq:expr) => {{
-            $spi.sspimsc().write(|w| unsafe { w.bits(0) });
+            $spi.sspimsc().write(|w| w);
             crate::hal::chip::periph::enable_irq($irq);
         }};
     }
@@ -561,8 +628,8 @@ pub fn write_raw_start(spi_id: u8, data: &[u8]) {
 
     // Mask SPI interrupts — DMA handles completion via DMA_IRQ_0
     match spi_id {
-        0 => p.SPI0.sspimsc().write(|w| unsafe { w.bits(0) }),
-        _ => p.SPI1.sspimsc().write(|w| unsafe { w.bits(0) }),
+        0 => p.SPI0.sspimsc().write(|w| w),
+        _ => p.SPI1.sspimsc().write(|w| w),
     }
 
     // Record the kind (and clear the ISR path's counters) so the wait in

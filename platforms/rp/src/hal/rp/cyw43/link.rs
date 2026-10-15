@@ -119,6 +119,9 @@ unsafe extern "C" fn scan_result_cb(
     if result.is_null() {
         return 0;
     }
+    // SAFETY: the driver hands a non-null result that it owns for the
+    // length of this call (`Driver::scan_start`), laid out as `ScanResult`
+    // mirrors it.
     let r = unsafe { &*result };
     let len = (r.ssid_len as usize).min(r.ssid.len());
     if len == 0 {
@@ -138,6 +141,8 @@ unsafe extern "C" fn scan_result_cb(
 
 /// The CYW43439 over the family's PIO gSPI transport (`pio_spi.rs`).
 pub struct Cyw43Link {
+    /// Every call into the C driver goes through this.
+    drv: super::Driver,
     /// A scan is running: `scan_end` once the driver says it is done, or
     /// at `scan_started_ms + SCAN_TIMEOUT_MS`.
     scan_started_ms: Option<u32>,
@@ -156,8 +161,18 @@ pub struct Cyw43Link {
 }
 
 impl Cyw43Link {
-    pub const fn new() -> Self {
+    /// # Safety
+    ///
+    /// The link owns the C driver ([`super::Driver::new`]'s contract): make
+    /// one, on the task that will drive it, keep it there, and call
+    /// [`NetLink::init`] on it once before any other method — which is what
+    /// `run_link_task` does with the link it is handed.
+    pub const unsafe fn new() -> Self {
         Cyw43Link {
+            // SAFETY: this function's contract, passed on: one link, one
+            // task, `init` first and once (it is the only caller of
+            // `Driver::init`).
+            drv: unsafe { super::Driver::new() },
             scan_started_ms: None,
             pending_join: None,
             last_status: None,
@@ -181,7 +196,7 @@ impl Cyw43Link {
             return;
         };
         self.supervisor.issued(now_ms());
-        match unsafe { super::wifi_join(c.ssid(), c.pass(), Some(auth)) } {
+        match self.drv.wifi_join(c.ssid(), c.pass(), Some(auth)) {
             Ok(()) => {
                 defmt::info!("wifi: join \"{=str}\" requested ({=str})", ssid, why);
                 self.last_status = Some(Status::Joining);
@@ -197,7 +212,7 @@ impl Cyw43Link {
 
     /// Leave now and join `c` once the driver's DEAUTH has had its moment.
     fn leave_then_join(&mut self, c: Credentials, why: &'static str) {
-        match unsafe { super::wifi_leave() } {
+        match self.drv.wifi_leave() {
             Ok(()) => defmt::info!("wifi: leaving for a new join"),
             Err(e) => defmt::warn!("wifi: leave failed: {=i32}", e),
         }
@@ -212,7 +227,7 @@ impl Cyw43Link {
     fn request_join(&mut self, c: Credentials) {
         self.wanted = Some(c);
         self.supervisor.requested(now_ms());
-        if unsafe { super::sta_status() } > 0 {
+        if self.drv.sta_status() > 0 {
             self.leave_then_join(c, "app");
         } else {
             self.join(&c, "app");
@@ -224,7 +239,7 @@ impl Cyw43Link {
             return; // one at a time; the table fills from the running scan
         }
         wifi::scan_begin();
-        match unsafe { super::scan_start(scan_result_cb) } {
+        match self.drv.scan_start(scan_result_cb) {
             Ok(()) => {
                 defmt::info!("wifi: scan started");
                 self.scan_started_ms = Some(now_ms());
@@ -240,7 +255,7 @@ impl Cyw43Link {
         self.pending_join = None;
         self.wanted = None;
         self.supervisor.cleared();
-        match unsafe { super::wifi_leave() } {
+        match self.drv.wifi_leave() {
             Ok(()) => defmt::info!("wifi: left"),
             Err(e) => defmt::warn!("wifi: leave failed: {=i32}", e),
         }
@@ -258,7 +273,7 @@ impl Cyw43Link {
         if self.pending_join.is_some() {
             return;
         }
-        let status = match unsafe { super::sta_status() } {
+        let status = match self.drv.sta_status() {
             -3 => Status::BadAuth,
             -2 => Status::NoNet,
             -1 => Status::Fail,
@@ -295,9 +310,7 @@ impl Cyw43Link {
             self.self_join_seen_ms = None;
             return;
         };
-        // SAFETY: a field read of the driver state, on the link task after
-        // `init`; `service` only runs once `init` succeeded.
-        let join_state = unsafe { super::join_state() };
+        let join_state = self.drv.join_state();
         // Progress bits over a failure verdict: the chip is joining by
         // itself (bench run 3b cycle 42 — the retry landed on top of it
         // and the two joins raced). Give it a moment; the port's collapse
@@ -324,12 +337,6 @@ impl Cyw43Link {
     }
 }
 
-impl Default for Cyw43Link {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl NetLink for Cyw43Link {
     const KIND: LinkKind = LinkKind::Wifi;
     const NAME: &'static str = "cyw43";
@@ -341,30 +348,30 @@ impl NetLink for Cyw43Link {
     /// pass, so a retry lands within a second of falling due.
     const SERVICE_TIMEOUT_MS: Option<u32> = Some(1000);
 
-    /// # Safety
-    /// All CYW43 FFI calls are unsafe. This is the sole caller of the
-    /// driver's init/set_up functions, on the dedicated link task.
+    /// The sole caller of the driver's init/set_up functions, on the
+    /// dedicated link task.
     fn init(&mut self) -> Result<(), i32> {
         // Reset driver state (no hardware access yet).
-        unsafe {
-            super::init();
-        }
+        self.drv.init();
 
         // Register this task so the CYW43 ISR can wake us via task notification.
         // freertos-rust returns the handle as `*const c_void`; FreeRTOS itself treats
         // task handles as opaque `void*` so the const-to-mut cast is a no-op in C.
         let task = Task::current().unwrap();
+        // SAFETY: the handle is this task's, and this task runs the driver
+        // for the rest of the program (it never returns from
+        // `run_link_task`), so it outlives every notify the port sends.
         unsafe {
-            super::set_poll_task(task.raw_handle() as *mut core::ffi::c_void);
+            self.drv
+                .set_poll_task(task.raw_handle() as *mut core::ffi::c_void);
         }
         // And so a `WifiManager` request wakes the service loop at once.
         wifi::register_link_task(picodroid_core::rtos::task_current());
 
         // Power the chip, download WiFi firmware + CLM, bring the STA interface up.
         defmt::info!("wifi: cyw43 set_up (STA)");
-        unsafe {
-            super::wifi_set_up(super::itf::STA, true, super::COUNTRY_WORLDWIDE);
-        }
+        self.drv
+            .wifi_set_up(super::itf::STA, true, super::COUNTRY_WORLDWIDE);
         // Log the chip's async events: a join that goes wrong then says how
         // (NET-12 stayed open for weeks on `net: down` alone). Half a dozen
         // lines per join and one per sighting during a scan; every build,
@@ -372,11 +379,7 @@ impl NetLink for Cyw43Link {
         // on purpose. (`cfg(debug_assertions)` is off in device firmware of
         // both profiles — build-lib.sh::build_firmware — so it cannot gate
         // this.)
-        // SAFETY: `set_up` ran above on this task, the only one that
-        // touches the driver.
-        unsafe {
-            super::trace_events(true);
-        }
+        self.drv.trace_events(true);
 
         // Arm the GP24 host-wake IRQ (NET-5): RX now wakes this task the moment
         // the chip asserts the wake line instead of waiting out the poll
@@ -389,7 +392,7 @@ impl NetLink for Cyw43Link {
 
     /// OTP-derived; valid once `set_up` succeeded.
     fn mac(&mut self) -> [u8; 6] {
-        unsafe { super::get_mac() }.expect("cyw43 get_mac failed")
+        self.drv.get_mac().expect("cyw43 get_mac failed")
     }
 
     /// Join the configured network: the build-time one, else the stored one.
@@ -415,9 +418,7 @@ impl NetLink for Cyw43Link {
         // itself is running when diagnosing RX stalls (Bug B in
         // docs/designs/cyw43-pio-transport.md).
         INSTR_CYW43_POLLS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        unsafe {
-            super::poll();
-        }
+        self.drv.poll();
 
         // What the app asked for since the last pass.
         if let Some(req) = wifi::take_request() {
@@ -431,7 +432,7 @@ impl NetLink for Cyw43Link {
         // A join parked behind a leave.
         if let Some((c, not_before, why)) = self.pending_join {
             let now = now_ms();
-            if unsafe { super::sta_status() } <= 0 || now.wrapping_sub(not_before) < u32::MAX / 2 {
+            if self.drv.sta_status() <= 0 || now.wrapping_sub(not_before) < u32::MAX / 2 {
                 self.pending_join = None;
                 self.join(&c, why);
             }
@@ -439,7 +440,7 @@ impl NetLink for Cyw43Link {
 
         // A running scan: closed when the driver says so, or on timeout.
         if let Some(started) = self.scan_started_ms {
-            let done = !unsafe { super::scan_active() };
+            let done = !self.drv.scan_active();
             let timed_out = now_ms().wrapping_sub(started) >= SCAN_TIMEOUT_MS;
             if done || timed_out {
                 self.scan_started_ms = None;

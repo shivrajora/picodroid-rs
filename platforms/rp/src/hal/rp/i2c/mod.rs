@@ -21,11 +21,17 @@
 //! re-pending after an in-ISR mask change). The CPU never busy-spins on
 //! peripheral state — every wait point yields to FreeRTOS via the wake
 //! semaphore.
+//!
+//! Raw register writes: the PAC types a whole-register write, and a write
+//! to a numeric field it has no range for, as `unsafe` `bits`. None of the
+//! I2C block's registers reaches memory — it has no DMA channel here, and
+//! its FIFOs are fed and drained by this code — so any value written is
+//! memory-safe; a wrong one misconfigures the bus. Field `bits` also masks
+//! to the field. The `SAFETY` comments below say which value goes where.
 pub mod timing;
 
-use core::cell::UnsafeCell;
-
 use freertos_rust::{Duration, InterruptContext, Semaphore};
+use picodroid_core::util::set_once::SetOnce;
 
 use timing::{
     fs_spklen, ic_con_for_speed, scl_counts, sda_tx_hold_count, FIFO_DEPTH, IC_DATA_CMD_READ,
@@ -41,33 +47,29 @@ use rp_pico::hal::pac;
 
 // ── Per-peripheral statics ───────────────────────────────────────────────────
 
-struct SemCell(UnsafeCell<Option<Semaphore>>);
-unsafe impl Sync for SemCell {}
+/// The bus lock. Stored by `init_with_pins`.
+static I2C0_LOCK: SetOnce<Semaphore> = SetOnce::new();
+static I2C1_LOCK: SetOnce<Semaphore> = SetOnce::new();
 
-static I2C0_LOCK: SemCell = SemCell(UnsafeCell::new(None));
-static I2C1_LOCK: SemCell = SemCell(UnsafeCell::new(None));
-
-static I2C0_WAKE: SemCell = SemCell(UnsafeCell::new(None));
-static I2C1_WAKE: SemCell = SemCell(UnsafeCell::new(None));
+/// Given by the bus interrupt, taken by the waiting transfer. Stored by
+/// `init_with_pins`.
+static I2C0_WAKE: SetOnce<Semaphore> = SetOnce::new();
+static I2C1_WAKE: SetOnce<Semaphore> = SetOnce::new();
 
 fn i2c_lock(id: u8) -> &'static Semaphore {
-    unsafe {
-        match id {
-            0 => (*I2C0_LOCK.0.get()).as_ref(),
-            _ => (*I2C1_LOCK.0.get()).as_ref(),
-        }
-        .expect("I2C lock semaphore not initialised")
+    match id {
+        0 => I2C0_LOCK.get(),
+        _ => I2C1_LOCK.get(),
     }
+    .expect("I2C lock semaphore not initialised")
 }
 
 fn i2c_wake(id: u8) -> &'static Semaphore {
-    unsafe {
-        match id {
-            0 => (*I2C0_WAKE.0.get()).as_ref(),
-            _ => (*I2C1_WAKE.0.get()).as_ref(),
-        }
-        .expect("I2C wake semaphore not initialised")
+    match id {
+        0 => I2C0_WAKE.get(),
+        _ => I2C1_WAKE.get(),
     }
+    .expect("I2C wake semaphore not initialised")
 }
 
 // ── ISR ──────────────────────────────────────────────────────────────────────
@@ -77,9 +79,10 @@ fn i2c_wake(id: u8) -> &'static Semaphore {
 /// implicit because the level signal is gone) and signal the waiter.
 macro_rules! i2c_isr_body {
     ($i2c:expr, $wake_static:expr) => {{
+        // SAFETY: 0 masks every interrupt (the module's note on raw writes).
         $i2c.ic_intr_mask().write(|w| unsafe { w.bits(0) });
         let mut ctx = InterruptContext::new();
-        if let Some(sem) = unsafe { (*$wake_static.0.get()).as_ref() } {
+        if let Some(sem) = $wake_static.get() {
             sem.give_from_isr(&mut ctx);
         }
     }};
@@ -113,41 +116,49 @@ macro_rules! apply_speed {
         // IC_CON: master mode, fast speed, restart enabled, slave disabled,
         // tx_empty_ctrl on, rx-FIFO clock stretching on.
         let con = ic_con_for_speed($speed_hz);
-        $i2c.ic_con().write(|w| unsafe { w.bits(con) });
-
         // SCL counts — program both SS and FS registers so set_speed() can
         // switch between modes without re-init.
         let (hcnt, lcnt) = scl_counts(PCLK_HZ, $speed_hz);
-        $i2c.ic_ss_scl_hcnt()
-            .write(|w| unsafe { w.ic_ss_scl_hcnt().bits(hcnt) });
-        $i2c.ic_ss_scl_lcnt()
-            .write(|w| unsafe { w.ic_ss_scl_lcnt().bits(lcnt) });
-        $i2c.ic_fs_scl_hcnt()
-            .write(|w| unsafe { w.ic_fs_scl_hcnt().bits(hcnt) });
-        $i2c.ic_fs_scl_lcnt()
-            .write(|w| unsafe { w.ic_fs_scl_lcnt().bits(lcnt) });
+        // SAFETY: IC_CON's raw value and the timing counts, all computed in
+        // `timing` (the module's note on raw writes: nothing here reaches
+        // memory, and each field `bits` masks to its field).
+        unsafe {
+            $i2c.ic_con().write(|w| w.bits(con));
 
-        // SDA hold time: the DW IP resets IC_SDA_HOLD to 1 cycle (~7 ns at
-        // 150 MHz); without programming this every byte NACKs because slaves
-        // can't latch our edges. pico-sdk's `i2c_init` formula.
-        $i2c.ic_sda_hold().write(|w| unsafe {
-            w.ic_sda_tx_hold()
-                .bits(sda_tx_hold_count(PCLK_HZ, $speed_hz))
-        });
+            $i2c.ic_ss_scl_hcnt()
+                .write(|w| w.ic_ss_scl_hcnt().bits(hcnt));
+            $i2c.ic_ss_scl_lcnt()
+                .write(|w| w.ic_ss_scl_lcnt().bits(lcnt));
+            $i2c.ic_fs_scl_hcnt()
+                .write(|w| w.ic_fs_scl_hcnt().bits(hcnt));
+            $i2c.ic_fs_scl_lcnt()
+                .write(|w| w.ic_fs_scl_lcnt().bits(lcnt));
 
-        // Fast-mode spike-suppression length (reset value 7 is too short).
-        $i2c.ic_fs_spklen()
-            .write(|w| unsafe { w.ic_fs_spklen().bits(fs_spklen(lcnt)) });
+            // SDA hold time: the DW IP resets IC_SDA_HOLD to 1 cycle (~7 ns
+            // at 150 MHz); without programming this every byte NACKs because
+            // slaves can't latch our edges. pico-sdk's `i2c_init` formula.
+            $i2c.ic_sda_hold().write(|w| {
+                w.ic_sda_tx_hold()
+                    .bits(sda_tx_hold_count(PCLK_HZ, $speed_hz))
+            });
 
-        // Default thresholds — the wait helpers re-program these per-step.
-        $i2c.ic_tx_tl().write(|w| unsafe { w.tx_tl().bits(0) });
-        $i2c.ic_rx_tl().write(|w| unsafe { w.rx_tl().bits(0) });
+            // Fast-mode spike-suppression length (reset value 7 is too
+            // short).
+            $i2c.ic_fs_spklen()
+                .write(|w| w.ic_fs_spklen().bits(fs_spklen(lcnt)));
+        }
+
+        // Default thresholds, 0 (the registers' reset value) — the wait
+        // helpers re-program these per-step.
+        $i2c.ic_tx_tl().write(|w| w);
+        $i2c.ic_rx_tl().write(|w| w);
 
         // Mask all interrupts — they are armed only inside the wait helpers.
+        // SAFETY: 0 masks every interrupt (the module's note on raw writes).
         $i2c.ic_intr_mask().write(|w| unsafe { w.bits(0) });
 
         // Re-enable.
-        $i2c.ic_enable().write(|w| unsafe { w.bits(1) });
+        $i2c.ic_enable().write(|w| w.enable().set_bit());
     }};
 }
 
@@ -162,11 +173,9 @@ fn reconfigure(i2c_id: u8, speed_hz: u32) {
 // ── Public API ───────────────────────────────────────────────────────────────
 
 fn is_initialised(i2c_id: u8) -> bool {
-    unsafe {
-        match i2c_id {
-            0 => (*I2C0_LOCK.0.get()).is_some(),
-            _ => (*I2C1_LOCK.0.get()).is_some(),
-        }
+    match i2c_id {
+        0 => I2C0_LOCK.get().is_some(),
+        _ => I2C1_LOCK.get().is_some(),
     }
 }
 
@@ -255,14 +264,24 @@ pub fn init_with_pins(i2c_id: u8, sda: Option<u8>, scl: Option<u8>) {
     lock.give();
     // Per-bus ISR-to-task wake (binary semaphore released → none pending).
     let wake = Semaphore::new_binary().expect("i2c wake sem alloc");
+    // SAFETY: the cells are empty (`is_initialised` returned above
+    // otherwise), and nothing reads them yet: the bus interrupt that reads
+    // the wake cell is unmasked below, and the transfer paths reach both
+    // through `i2c_lock`, which panics on an empty cell — a caller's first
+    // transfer comes after this returns. Concurrent init of one bus would
+    // race; the sensor sampler is spawned before the scheduler so its init
+    // cannot meet a Java `I2cDevice`'s (boot_tasks.rs), and the
+    // check-then-store has always assumed one initialiser per bus.
     match i2c_id {
+        // SAFETY: the argument above, for bus 0's cells.
         0 => unsafe {
-            *I2C0_LOCK.0.get() = Some(lock);
-            *I2C0_WAKE.0.get() = Some(wake);
+            I2C0_LOCK.set(lock);
+            I2C0_WAKE.set(wake);
         },
+        // SAFETY: the argument above, for bus 1's cells.
         _ => unsafe {
-            *I2C1_LOCK.0.get() = Some(lock);
-            *I2C1_WAKE.0.get() = Some(wake);
+            I2C1_LOCK.set(lock);
+            I2C1_WAKE.set(wake);
         },
     }
 
@@ -271,6 +290,8 @@ pub fn init_with_pins(i2c_id: u8, sda: Option<u8>, scl: Option<u8>) {
     // FreeRTOS critical sections and may safely call `_from_isr` APIs).
     macro_rules! setup_irq {
         ($i2c:expr, $irq:expr) => {{
+            // SAFETY: 0 masks every interrupt (the module's note on raw
+            // writes).
             $i2c.ic_intr_mask().write(|w| unsafe { w.bits(0) });
             crate::hal::chip::periph::enable_irq($irq);
         }};
@@ -343,18 +364,24 @@ macro_rules! impl_i2c_periph {
         impl I2cPeriph for $t {
             #[inline]
             fn ic_intr_mask_write(&self, mask: u32) {
+                // SAFETY: an interrupt mask; every bit is an interrupt
+                // enable (the module's note on raw writes).
                 self.ic_intr_mask().write(|w| unsafe { w.bits(mask) });
             }
             #[inline]
             fn ic_tx_tl_write(&self, tl: u8) {
+                // SAFETY: a FIFO threshold (the module's note on raw writes).
                 self.ic_tx_tl().write(|w| unsafe { w.tx_tl().bits(tl) });
             }
             #[inline]
             fn ic_rx_tl_write(&self, tl: u8) {
+                // SAFETY: a FIFO threshold (the module's note on raw writes).
                 self.ic_rx_tl().write(|w| unsafe { w.rx_tl().bits(tl) });
             }
             #[inline]
             fn ic_data_cmd_write(&self, cmd: u32) {
+                // SAFETY: a data byte or read command with its STOP bit,
+                // pushed into the TX FIFO (the module's note on raw writes).
                 self.ic_data_cmd().write(|w| unsafe { w.bits(cmd) });
             }
             #[inline]
@@ -363,7 +390,7 @@ macro_rules! impl_i2c_periph {
             }
             #[inline]
             fn ic_enable_write(&self, on: bool) {
-                self.ic_enable().write(|w| unsafe { w.bits(on as u32) });
+                self.ic_enable().write(|w| w.enable().bit(on));
             }
             #[inline]
             fn regs(&self) -> &pac::i2c0::RegisterBlock {
@@ -493,7 +520,7 @@ const DISABLE_SPIN_CAP: u32 = 100_000;
 /// the RP2040 those copies were ~800 B of flash.
 #[inline(never)]
 fn disable(i2c: &pac::i2c0::RegisterBlock) -> bool {
-    i2c.ic_enable().write(|w| unsafe { w.bits(0) });
+    i2c.ic_enable().write(|w| w); // reset value, 0: disabled
     if picodroid_core::spin_until!(
         i2c.ic_enable_status().read().ic_en().bit_is_clear(),
         DISABLE_SPIN_CAP,
@@ -531,8 +558,9 @@ fn select_target(i2c: &pac::i2c0::RegisterBlock, address: u8) -> bool {
     if !disable(i2c) {
         return false;
     }
+    // SAFETY: the 7-bit target address (the module's note on raw writes).
     i2c.ic_tar().write(|w| unsafe { w.ic_tar().bits(target) });
-    i2c.ic_enable().write(|w| unsafe { w.bits(1) });
+    i2c.ic_enable().write(|w| w.enable().set_bit());
     true
 }
 

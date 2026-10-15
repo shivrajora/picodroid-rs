@@ -25,7 +25,7 @@ static LCG_STATE: AtomicU32 = AtomicU32::new(0x1234_5678);
 
 #[cfg(all(has_network, feature = "chip-rp2350"))]
 fn hardware_word() -> Option<u32> {
-    critical_section::with(|_| super::trng::try_random_u32())
+    critical_section::with(super::trng::try_random_u32)
 }
 
 /// The RP2040 has no TRNG, and a board without a network does not bring

@@ -20,18 +20,27 @@
 //! All lengths are multiples of 4. F1 response-delay padding is inside N
 //! (`SPI_RESP_DELAY_F1` = 16, programmed by the driver); no dummy clocks are
 //! ever added here.
+//!
+//! Raw register writes: the PAC types PIO's numeric fields (instructions,
+//! pin bases, counts, the clock divider, the SM-enable and restart masks)
+//! as `unsafe` `bits`, having no range for them. PIO0 is this module's
+//! alone, and a state machine moves pin levels and FIFO words, never
+//! memory — DMA does that, through `dma_start` — so any value written is
+//! memory-safe; a wrong one garbles the bus. Field `bits` also masks to the
+//! field.
 
-use core::cell::UnsafeCell;
 use core::ffi::c_void;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{compiler_fence, AtomicBool, Ordering};
 
 use freertos_rust::{Duration, InterruptContext, Semaphore};
+use picodroid_core::util::set_once::SetOnce;
 use rp235x_hal::pac;
+use rp235x_hal::pac::io_bank0::gpio::gpio_ctrl::FUNCSEL_A as Funcsel;
 
-use super::spi::SemCell;
-
-extern "C" {
-    fn cyw43_delay_ms(ms: u32);
+unsafe extern "C" {
+    /// cyw43_port.c: `vTaskDelay` once the scheduler runs, a timed spin
+    /// before. Takes a count and touches no memory of ours.
+    safe fn cyw43_delay_ms(ms: u32);
 }
 
 // ── Pins (must match CYW43_PIN_WL_* in cyw43_configport.h) ─────────────────
@@ -41,8 +50,8 @@ const PIN_WL_D: u8 = 24; // shared DATA + active-high HOST_WAKE
 const PIN_WL_CS: u8 = 25; // SIO output, active low
 const PIN_WL_CLK: u8 = 29; // PIO side-set
 
-const FUNCSEL_SIO: u8 = 5;
-const FUNCSEL_PIO0: u8 = 6;
+const FUNCSEL_SIO: Funcsel = Funcsel::SIO;
+const FUNCSEL_PIO0: Funcsel = Funcsel::PIO0;
 
 // ── PIO/DMA resources ──────────────────────────────────────────────────────
 
@@ -79,10 +88,10 @@ const DMA_WAIT_MS: u32 = 5;
 /// One binary semaphore serves both directions: the driver serialises
 /// transfers under its own lock (`CYW43_THREAD_ENTER`), so there is never
 /// more than one in flight.
-static DMA_DONE: SemCell = SemCell(UnsafeCell::new(None));
+static DMA_DONE: SetOnce<Semaphore> = SetOnce::new();
 
 fn dma_done() -> Option<&'static Semaphore> {
-    unsafe { (*DMA_DONE.0.get()).as_ref() }
+    DMA_DONE.get()
 }
 
 /// PIO0 SM0 DREQs on RP2350 (datasheet §12.6.4.1).
@@ -120,10 +129,12 @@ const INSTR_SET_PINDIRS_IN: u16 = 0xE080; // set pindirs, 0  (DATA -> input)
 const INSTR_MOV_PINS_NULL: u16 = 0xA003; // mov pins, null  (park OUT reg low)
 
 /// One-time init guard — only touched from the cyw43 task during bring-up.
-static mut PIO_INITED: bool = false;
+static PIO_INITED: AtomicBool = AtomicBool::new(false);
 
 /// Aligned bounce buffer for the two boot-time swap-register transfers,
 /// whose 8-byte buffers live unaligned on the C stack (DMA runs 32-bit).
+/// Reached only by raw pointer, inside `cyw43_spi_transfer`, which the
+/// driver calls under its own lock — one transfer at a time.
 #[repr(align(4))]
 struct Bounce([u8; 16]);
 static mut BOUNCE: Bounce = Bounce([0; 16]);
@@ -134,14 +145,16 @@ fn steal() -> pac::Peripherals {
     crate::hal::chip::periph::steal()
 }
 
-fn pin_funcsel(p: &pac::Peripherals, pin: u8, funcsel: u8) {
+fn pin_funcsel(p: &pac::Peripherals, pin: u8, funcsel: Funcsel) {
     p.IO_BANK0
         .gpio(pin as usize)
         .gpio_ctrl()
-        .write(|w| unsafe { w.funcsel().bits(funcsel) });
+        .write(|w| w.funcsel().variant(funcsel));
 }
 
 fn sm_exec(p: &pac::Peripherals, instr: u16) {
+    // SAFETY: one PIO instruction for SM0 to execute (the module's note on
+    // raw writes).
     p.PIO0
         .sm(SM)
         .sm_instr()
@@ -149,6 +162,8 @@ fn sm_exec(p: &pac::Peripherals, instr: u16) {
 }
 
 fn sm_set_enabled(p: &pac::Peripherals, en: bool) {
+    // SAFETY: the SM-enable mask with SM0's bit changed (the module's note
+    // on raw writes).
     p.PIO0.ctrl().modify(|r, w| unsafe {
         let cur = r.sm_enable().bits();
         w.sm_enable().bits(if en {
@@ -162,6 +177,8 @@ fn sm_set_enabled(p: &pac::Peripherals, en: bool) {
 /// Restart the SM (clears ISR/OSR, shift counters, latched delay/side-set
 /// state — X/Y survive) and its clock divider phase.
 fn sm_restart(p: &pac::Peripherals) {
+    // SAFETY: SM0's bit in the two restart masks (the module's note on raw
+    // writes).
     p.PIO0.ctrl().modify(|_, w| unsafe {
         w.sm_restart().bits(1 << SM);
         w.clkdiv_restart().bits(1 << SM)
@@ -173,6 +190,8 @@ fn sm_restart(p: &pac::Peripherals) {
 /// turnaround) — the reason this module drives the PAC directly instead of
 /// rp235x-hal's typed PIO API, which cannot rewrite EXECCTRL at runtime.
 fn set_wrap(p: &pac::Peripherals, top: u8) {
+    // SAFETY: program addresses within the 32-slot instruction memory (the
+    // module's note on raw writes).
     p.PIO0.sm(SM).sm_execctrl().modify(|_, w| unsafe {
         w.wrap_bottom().bits(0);
         w.wrap_top().bits(top)
@@ -189,6 +208,7 @@ fn clear_fifos(p: &pac::Peripherals) {
 /// Push a word to the TX FIFO and move it into a scratch register via an
 /// injected `out` — the standard trick for loading a >5-bit immediate.
 fn load_scratch(p: &pac::Peripherals, out_instr: u16, value: u32) {
+    // SAFETY: one word into SM0's TX FIFO (the module's note on raw writes).
     p.PIO0.txf(SM).write(|w| unsafe { w.bits(value) });
     sm_exec(p, out_instr);
 }
@@ -240,7 +260,7 @@ fn waits_by_irq(len: usize) -> bool {
 extern "C" fn DMA_IRQ_1() {
     let p = steal();
     let ints = p.DMA.ints1().read().bits();
-    p.DMA.ints1().write(|w| unsafe { w.bits(ints) }); // W1C
+    super::dma::ack_irq1(&p.DMA, ints);
     if ints & ((1 << DMA_CH_TX) | (1 << DMA_CH_RX)) != 0 {
         if let Some(sem) = dma_done() {
             let mut ctx = InterruptContext::new();
@@ -256,7 +276,7 @@ extern "C" fn DMA_IRQ_1() {
 /// logged failure than a wedged cyw43 task.
 fn abort_dma(p: &pac::Peripherals) {
     let mask = (1u32 << DMA_CH_TX) | (1u32 << DMA_CH_RX);
-    p.DMA.chan_abort().write(|w| unsafe { w.bits(mask) });
+    super::dma::request_abort(&p.DMA, mask);
     for ch in [DMA_CH_TX, DMA_CH_RX] {
         if picodroid_core::spin_until!(
             !p.DMA.ch(ch).ch_ctrl_trig().read().busy().bit_is_set(),
@@ -275,8 +295,16 @@ fn abort_dma(p: &pac::Peripherals) {
 /// little-endian word load would otherwise reverse them. `loud` lets the
 /// channel raise `DMA_IRQ_1` on completion; exactly one channel per
 /// transfer is loud, and only when the transfer waits by interrupt.
+///
+/// # Safety
+///
+/// [`super::dma::program`]'s: the channel runs on after this returns, so
+/// memory at `read_addr` (`words` words, when `incr_read`) must stay
+/// readable, and memory at `write_addr` (`words` words, when `incr_write`)
+/// writable and otherwise untouched, until the channel has retired or been
+/// aborted.
 #[allow(clippy::too_many_arguments)]
-fn dma_start(
+unsafe fn dma_start(
     p: &pac::Peripherals,
     ch: usize,
     read_addr: u32,
@@ -288,20 +316,24 @@ fn dma_start(
     loud: bool,
 ) {
     let c = p.DMA.ch(ch);
-    c.ch_read_addr().write(|w| unsafe { w.bits(read_addr) });
-    c.ch_write_addr().write(|w| unsafe { w.bits(write_addr) });
-    c.ch_trans_count().write(|w| unsafe { w.bits(words) });
-    // Writing CTRL_TRIG with EN set starts the channel.
-    c.ch_ctrl_trig().write(|w| unsafe {
-        w.data_size().size_word();
-        w.incr_read().bit(incr_read);
-        w.incr_write().bit(incr_write);
-        w.treq_sel().bits(treq);
-        w.chain_to().bits(ch as u8); // self = no chaining
-        w.bswap().set_bit();
-        w.irq_quiet().bit(!loud);
-        w.en().set_bit()
-    });
+    // SAFETY: this function's contract is `program`'s, passed on whole; the
+    // CTRL_TRIG write that starts the channel sets the extents it speaks
+    // of. TREQ_SEL and CHAIN_TO take raw numbers (a DREQ, a channel), which
+    // `bits` masks to the field.
+    unsafe {
+        super::dma::program(c, read_addr, write_addr, words);
+        // Writing CTRL_TRIG with EN set starts the channel.
+        c.ch_ctrl_trig().write(|w| {
+            w.data_size().size_word();
+            w.incr_read().bit(incr_read);
+            w.incr_write().bit(incr_write);
+            w.treq_sel().bits(treq);
+            w.chain_to().bits(ch as u8); // self = no chaining
+            w.bswap().set_bit();
+            w.irq_quiet().bit(!loud);
+            w.en().set_bit()
+        });
+    }
 }
 
 // ── Port entry points (cyw43_spi.h) ────────────────────────────────────────
@@ -310,12 +342,10 @@ fn dma_start(
 /// `cyw43_spi_gpio_setup`/`cyw43_spi_reset`; all three are idempotent.
 #[no_mangle]
 pub extern "C" fn cyw43_spi_init(_self: *mut c_void) -> i32 {
-    unsafe {
-        if PIO_INITED {
-            return 0;
-        }
-        PIO_INITED = true;
+    if PIO_INITED.load(Ordering::Relaxed) {
+        return 0;
     }
+    PIO_INITED.store(true, Ordering::Relaxed);
     let p = steal();
 
     // Release PIO0 (and DMA — the display path normally does this, but do
@@ -330,13 +360,19 @@ pub extern "C" fn cyw43_spi_init(_self: *mut c_void) -> i32 {
     // per transfer through IRQ_QUIET. Unmasked on the core running this —
     // the cyw43 task's, core 1 — at the kernel-safe priority, like every
     // other peripheral IRQ in this HAL.
+    // SAFETY: routes channels 4 and 5 to DMA_IRQ_1, whose handler below
+    // only acknowledges what is pending and gives a semaphore that may not
+    // exist yet (`dma_done` is an Option): sound for any bit pattern.
     p.DMA
         .inte1()
         .write(|w| unsafe { w.bits((1 << DMA_CH_TX) | (1 << DMA_CH_RX)) });
-    unsafe {
-        if (*DMA_DONE.0.get()).is_none() {
-            *DMA_DONE.0.get() = Some(Semaphore::new_binary().expect("pio_spi dma sem alloc"));
-        }
+    if DMA_DONE.get().is_none() {
+        let sem = Semaphore::new_binary().expect("pio_spi dma sem alloc");
+        // SAFETY: the cell is empty, and nothing can read it yet: this runs
+        // once (`PIO_INITED`), on the cyw43 task, before `DMA_IRQ_1` is
+        // unmasked just below and before the driver's first transfer, which
+        // is the only task path to `dma_done`.
+        unsafe { DMA_DONE.set(sem) };
     }
     crate::hal::chip::periph::enable_irq(pac::Interrupt::DMA_IRQ_1);
 
@@ -357,49 +393,55 @@ pub extern "C" fn cyw43_spi_init(_self: *mut c_void) -> i32 {
     );
     debug_assert_eq!(asm.public_defines.lp1_end, OFFSET_LP1_END as i32);
     debug_assert_eq!(asm.public_defines.end, OFFSET_END as i32);
-    for (i, instr) in asm.program.code.iter().enumerate() {
-        p.PIO0
-            .instr_mem(i)
-            .write(|w| unsafe { w.bits(*instr as u32) });
-    }
-
     let sm = p.PIO0.sm(SM);
-    sm.sm_clkdiv().write(|w| unsafe {
-        w.int().bits(CLKDIV_INT);
-        w.frac().bits(0)
-    });
-    sm.sm_execctrl().write(|w| unsafe {
-        w.wrap_bottom().bits(0);
-        w.wrap_top().bits(OFFSET_END - 1);
-        w.side_en().clear_bit(); // side-set is non-optional
-        w.side_pindir().clear_bit()
-    });
-    // Shift LEFT in both directions = MSB-first on the wire; thresholds 0
-    // encode 32. The SM never executes push/pull — auto machinery + DMA only.
-    sm.sm_shiftctrl().write(|w| unsafe {
-        w.autopull().set_bit();
-        w.pull_thresh().bits(0);
-        w.autopush().set_bit();
-        w.push_thresh().bits(0);
-        w.in_shiftdir().clear_bit();
-        w.out_shiftdir().clear_bit()
-    });
-    sm.sm_pinctrl().write(|w| unsafe {
-        w.out_base().bits(PIN_WL_D);
-        w.out_count().bits(1);
-        w.in_base().bits(PIN_WL_D);
-        w.set_base().bits(PIN_WL_D);
-        w.set_count().bits(1);
-        w.sideset_base().bits(PIN_WL_CLK);
-        w.sideset_count().bits(1)
-    });
+    // SAFETY: the assembled program's instruction words, then SM0's clock
+    // divider, wrap, shift and pin configuration as constants, then one more
+    // pad bit in the synchroniser bypass (the module's note on raw writes:
+    // PIO0 is ours, and none of it reaches memory).
+    unsafe {
+        for (i, instr) in asm.program.code.iter().enumerate() {
+            p.PIO0.instr_mem(i).write(|w| w.bits(*instr as u32));
+        }
 
-    // Bypass the 2-flop input synchroniser on DATA. Mandatory: `in pins`
-    // samples the bit the chip presents *before* the clock pulse, and the
-    // synchroniser would deliver it two SM cycles (one full bit) late.
-    p.PIO0
-        .input_sync_bypass()
-        .modify(|r, w| unsafe { w.bits(r.bits() | (1 << PIN_WL_D)) });
+        sm.sm_clkdiv().write(|w| {
+            w.int().bits(CLKDIV_INT);
+            w.frac().bits(0)
+        });
+        sm.sm_execctrl().write(|w| {
+            w.wrap_bottom().bits(0);
+            w.wrap_top().bits(OFFSET_END - 1);
+            w.side_en().clear_bit(); // side-set is non-optional
+            w.side_pindir().clear_bit()
+        });
+        // Shift LEFT in both directions = MSB-first on the wire; thresholds
+        // 0 encode 32. The SM never executes push/pull — auto machinery +
+        // DMA only.
+        sm.sm_shiftctrl().write(|w| {
+            w.autopull().set_bit();
+            w.pull_thresh().bits(0);
+            w.autopush().set_bit();
+            w.push_thresh().bits(0);
+            w.in_shiftdir().clear_bit();
+            w.out_shiftdir().clear_bit()
+        });
+        sm.sm_pinctrl().write(|w| {
+            w.out_base().bits(PIN_WL_D);
+            w.out_count().bits(1);
+            w.in_base().bits(PIN_WL_D);
+            w.set_base().bits(PIN_WL_D);
+            w.set_count().bits(1);
+            w.sideset_base().bits(PIN_WL_CLK);
+            w.sideset_count().bits(1)
+        });
+
+        // Bypass the 2-flop input synchroniser on DATA. Mandatory: `in pins`
+        // samples the bit the chip presents *before* the clock pulse, and
+        // the synchroniser would deliver it two SM cycles (one full bit)
+        // late.
+        p.PIO0
+            .input_sync_bypass()
+            .modify(|r, w| w.bits(r.bits() | (1 << PIN_WL_D)));
+    }
 
     // Pads. DATA: input enable, schmitt, pull-DOWN — the line doubles as the
     // active-high host-wake, and a pull-up fakes "work pending" forever.
@@ -425,11 +467,14 @@ pub extern "C" fn cyw43_spi_init(_self: *mut c_void) -> i32 {
     // CLK for the pindir exec, then the real mapping is restored and DATA is
     // parked as input with its output latch low (`mov pins, null`), ready
     // for the first turnaround.
+    // SAFETY: SET's pin base and count, constants (the module's note on raw
+    // writes).
     sm.sm_pinctrl().modify(|_, w| unsafe {
         w.set_base().bits(PIN_WL_CLK);
         w.set_count().bits(1)
     });
     sm_exec(&p, INSTR_SET_PINDIRS_OUT);
+    // SAFETY: as above.
     sm.sm_pinctrl().modify(|_, w| unsafe {
         w.set_base().bits(PIN_WL_D);
         w.set_count().bits(1)
@@ -448,9 +493,7 @@ pub extern "C" fn cyw43_spi_init(_self: *mut c_void) -> i32 {
 pub extern "C" fn cyw43_spi_deinit(_self: *mut c_void) {
     let p = steal();
     sm_set_enabled(&p, false);
-    p.SIO
-        .gpio_out_clr()
-        .write(|w| unsafe { w.bits(1u32 << PIN_WL_ON) });
+    crate::hal::chip::periph::sio_out_clr(&p.SIO, 1u32 << PIN_WL_ON);
 }
 
 /// SIO-controlled pins: REG_ON and CS outputs (CS deasserted high); the PIO
@@ -468,12 +511,8 @@ pub extern "C" fn cyw43_spi_gpio_setup() {
             w.schmitt().set_bit()
         });
     }
-    p.SIO
-        .gpio_out_set()
-        .write(|w| unsafe { w.bits(1u32 << PIN_WL_CS) }); // CS deasserted
-    p.SIO
-        .gpio_oe_set()
-        .write(|w| unsafe { w.bits((1u32 << PIN_WL_ON) | (1u32 << PIN_WL_CS)) });
+    crate::hal::chip::periph::sio_out_set(&p.SIO, 1u32 << PIN_WL_CS); // CS deasserted
+    crate::hal::chip::periph::sio_oe_set(&p.SIO, (1u32 << PIN_WL_ON) | (1u32 << PIN_WL_CS));
 
     pin_funcsel(&p, PIN_WL_D, FUNCSEL_PIO0);
     pin_funcsel(&p, PIN_WL_CLK, FUNCSEL_PIO0);
@@ -487,25 +526,15 @@ pub extern "C" fn cyw43_spi_reset() {
     let p = steal();
 
     pin_funcsel(&p, PIN_WL_D, FUNCSEL_SIO);
-    p.SIO
-        .gpio_out_clr()
-        .write(|w| unsafe { w.bits(1u32 << PIN_WL_D) });
-    p.SIO
-        .gpio_oe_set()
-        .write(|w| unsafe { w.bits(1u32 << PIN_WL_D) });
+    crate::hal::chip::periph::sio_out_clr(&p.SIO, 1u32 << PIN_WL_D);
+    crate::hal::chip::periph::sio_oe_set(&p.SIO, 1u32 << PIN_WL_D);
 
-    p.SIO
-        .gpio_out_clr()
-        .write(|w| unsafe { w.bits(1u32 << PIN_WL_ON) });
-    unsafe { cyw43_delay_ms(20) };
-    p.SIO
-        .gpio_out_set()
-        .write(|w| unsafe { w.bits(1u32 << PIN_WL_ON) });
-    unsafe { cyw43_delay_ms(250) };
+    crate::hal::chip::periph::sio_out_clr(&p.SIO, 1u32 << PIN_WL_ON);
+    cyw43_delay_ms(20);
+    crate::hal::chip::periph::sio_out_set(&p.SIO, 1u32 << PIN_WL_ON);
+    cyw43_delay_ms(250);
 
-    p.SIO
-        .gpio_oe_clr()
-        .write(|w| unsafe { w.bits(1u32 << PIN_WL_D) });
+    crate::hal::chip::periph::sio_oe_clr(&p.SIO, 1u32 << PIN_WL_D);
     pin_funcsel(&p, PIN_WL_D, FUNCSEL_PIO0);
 }
 
@@ -519,6 +548,13 @@ pub extern "C" fn cyw43_spi_set_polarity(_self: *mut c_void, _pol: i32) {}
 /// point of the PIO port. Worst case a preemption delays CS deassert past an
 /// already-completed frame, which the chip tolerates (CS framing, clock
 /// parked low).
+///
+/// # Safety
+///
+/// Called by the vendored driver, under its lock, in one of the two shapes
+/// in the module docs: `tx` points at `tx_length` readable bytes, and `rx`
+/// is null or is `tx` itself, writable for `rx_length == tx_length` bytes.
+/// Both stay valid until this returns.
 #[no_mangle]
 pub unsafe extern "C" fn cyw43_spi_transfer(
     _self: *mut c_void,
@@ -565,9 +601,7 @@ pub unsafe extern "C" fn cyw43_spi_transfer(
     pin_funcsel(&p, PIN_WL_CLK, FUNCSEL_PIO0);
 
     // CS low — frame start.
-    p.SIO
-        .gpio_out_clr()
-        .write(|w| unsafe { w.bits(1u32 << PIN_WL_CS) });
+    crate::hal::chip::periph::sio_out_clr(&p.SIO, 1u32 << PIN_WL_CS);
 
     sm_set_enabled(&p, false);
 
@@ -581,6 +615,9 @@ pub unsafe extern "C" fn cyw43_spi_transfer(
         load_scratch(&p, INSTR_OUT_Y_32, (rx_length as u32 - 4) * 8 - 1);
         sm_exec(&p, INSTR_JMP_START);
 
+        // SAFETY (`dma_start`): reads one word at `tx_ptr` — the caller's
+        // `tx`, at least four bytes, or the bounce copy of it — into the
+        // PIO TX FIFO; no memory is written.
         dma_start(
             &p,
             DMA_CH_TX,
@@ -597,6 +634,12 @@ pub unsafe extern "C" fn cyw43_spi_transfer(
         } else {
             rx as u32 + 4
         };
+        // SAFETY (`dma_start`): writes `rx_length / 4 - 1` words from the
+        // PIO RX FIFO to `rx + 4` — the caller's buffer of `rx_length`
+        // bytes, or the bounce buffer, which holds 16 and is only used for
+        // a transfer of at most 16 (checked above). Both outlive the wait
+        // below, which returns once the channel is idle; if it never goes
+        // idle, see `abort_dma`.
         dma_start(
             &p,
             DMA_CH_RX,
@@ -646,6 +689,9 @@ pub unsafe extern "C" fn cyw43_spi_transfer(
         load_scratch(&p, INSTR_OUT_X_32, (tx_length as u32) * 8 - 1);
         sm_exec(&p, INSTR_JMP_START);
 
+        // SAFETY (`dma_start`): reads `tx_length / 4` words of the caller's
+        // `tx` (or its bounce copy) into the PIO TX FIFO; no memory is
+        // written.
         dma_start(
             &p,
             DMA_CH_TX,
@@ -666,6 +712,8 @@ pub unsafe extern "C" fn cyw43_spi_transfer(
         // ~3.4 µs on the wire (bounded like the DMA wait).
         let mut ok = wait_dma(&p, DMA_CH_TX, by_irq);
         if ok.is_ok() {
+            // SAFETY: SM0's bit in the write-1-to-clear TXSTALL mask (the
+            // module's note on raw writes).
             p.PIO0
                 .fdebug()
                 .write(|w| unsafe { w.txstall().bits(1 << SM) });
@@ -694,9 +742,7 @@ pub unsafe extern "C" fn cyw43_spi_transfer(
     sm_set_enabled(&p, false);
     sm_exec(&p, INSTR_SET_PINDIRS_IN);
     sm_exec(&p, INSTR_MOV_PINS_NULL);
-    p.SIO
-        .gpio_out_set()
-        .write(|w| unsafe { w.bits(1u32 << PIN_WL_CS) });
+    crate::hal::chip::periph::sio_out_set(&p.SIO, 1u32 << PIN_WL_CS);
     // spin-ok: ~100 ns, pico-sdk's IRQ_SAMPLE_DELAY_NS before host-wake is read
     for _ in 0..16 {
         core::hint::spin_loop();

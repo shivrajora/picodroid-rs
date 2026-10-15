@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #![cfg_attr(not(any(test, feature = "sim")), no_std)]
 #![cfg_attr(not(any(test, feature = "sim")), no_main)]
+// Every `unsafe` block and `unsafe impl` says why it is sound, in a
+// SAFETY comment directly above it; CI's clippy legs hold the line.
+#![deny(clippy::undocumented_unsafe_blocks)]
 
 extern crate alloc;
 
@@ -187,6 +190,8 @@ fn main() {
 #[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
 #[allow(non_snake_case)]
 #[exception]
+/// # Safety
+/// An exception vector: entered by the hardware, never called.
 unsafe fn DefaultHandler(_irqn: i16) {
     asm::bkpt();
     #[allow(clippy::empty_loop)]
@@ -196,6 +201,9 @@ unsafe fn DefaultHandler(_irqn: i16) {
 #[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
 #[allow(non_snake_case)]
 #[exception]
+/// # Safety
+/// An exception vector: entered by the hardware with the stacked frame,
+/// never called.
 unsafe fn HardFault(ef: &ExceptionFrame) -> ! {
     // The stacked frame is the only record of where the fault came from: a
     // debugger that halts here backtraces the *handler*, and probe-rs prints
