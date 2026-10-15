@@ -461,10 +461,29 @@ impl Default for ActivityStack {
     }
 }
 
+/// Components [`PendingOpQueue::hold_component`] can root at once. One op
+/// builds at most one (a Push or a Recreate its Activity, a Start or a Bind
+/// its Service); the boot path builds an Application and then an Activity.
+pub const MAX_IN_FLIGHT_COMPONENTS: usize = 4;
+
 /// Fixed-capacity FIFO of [`PendingOp`]s. Enqueue fails soft on overflow.
+///
+/// The queue roots more than what is queued: the op [`take_next`] last
+/// handed out, and the components built while it runs, stay roots until the
+/// next `take_next`. Between being taken and being stored where the GC can
+/// see them (the Activity stack, the Service registry) they are held only by
+/// a native local, and the op runs Java in between — the covered Activity's
+/// `onPause`, the new one's `<init>` and member injection — any of which can
+/// cross the allocation-count GC trigger. A Push lost its new Activity that
+/// way: `InvalidReference` from every lifecycle callback and a hung app
+/// (`qa_life`, found by the GC-stress nightly pass, threshold 16).
+///
+/// [`take_next`]: Self::take_next
 pub struct PendingOpQueue {
     entries: [Option<PendingOp>; MAX_PENDING_OPS],
     len: usize,
+    in_flight: Option<PendingOp>,
+    in_flight_components: [Option<u16>; MAX_IN_FLIGHT_COMPONENTS],
 }
 
 impl PendingOpQueue {
@@ -472,6 +491,23 @@ impl PendingOpQueue {
         Self {
             entries: [None; MAX_PENDING_OPS],
             len: 0,
+            in_flight: None,
+            in_flight_components: [None; MAX_IN_FLIGHT_COMPONENTS],
+        }
+    }
+
+    /// Root a freshly built component until the next [`take_next`]
+    /// (see the type docs). Returns `false` when every slot is taken, which
+    /// no op does; the component is then unrooted, as before this existed.
+    ///
+    /// [`take_next`]: Self::take_next
+    pub fn hold_component(&mut self, obj_ref: u16) -> bool {
+        match self.in_flight_components.iter_mut().find(|s| s.is_none()) {
+            Some(slot) => {
+                *slot = Some(obj_ref);
+                true
+            }
+            None => false,
         }
     }
 
@@ -538,6 +574,9 @@ impl PendingOpQueue {
     /// Take the oldest queued op, unless it is a held `Connected`: then
     /// nothing is ready until [`release_held`](Self::release_held).
     pub fn take_next(&mut self) -> Option<PendingOp> {
+        // Whoever takes again is done with the previous op's refs.
+        self.in_flight = None;
+        self.in_flight_components = [None; MAX_IN_FLIGHT_COMPONENTS];
         if self.len == 0
             || matches!(
                 self.entries[0],
@@ -554,6 +593,7 @@ impl PendingOpQueue {
             self.entries[i - 1] = self.entries[i].take();
         }
         self.len -= 1;
+        self.in_flight = op;
         op
     }
 
@@ -572,8 +612,15 @@ impl PendingOpQueue {
     /// ops. Used by GC root scanning — without this the `intent` / `conn` /
     /// `owner_activity` refs in a queued Service op could be swept before
     /// the op is processed.
+    ///
+    /// Also the op being run and the components it built (see the type
+    /// docs).
     pub fn visit_object_refs(&self, visit: &mut dyn FnMut(u16)) {
-        for op in self.entries[..self.len].iter().flatten() {
+        for op in self.entries[..self.len]
+            .iter()
+            .chain(core::iter::once(&self.in_flight))
+            .flatten()
+        {
             match op {
                 PendingOp::Activity(PendingActivityOp::Push { intent_ref, .. }) => {
                     if let Some(r) = intent_ref {
@@ -613,6 +660,9 @@ impl PendingOpQueue {
                     }
                 },
             }
+        }
+        for r in self.in_flight_components.iter().flatten() {
+            visit(*r);
         }
     }
 }
@@ -987,6 +1037,45 @@ mod tests {
         let mut visited: alloc::vec::Vec<u16> = alloc::vec::Vec::new();
         q.visit_object_refs(&mut |r| visited.push(r));
         assert_eq!(visited, alloc::vec![11, 22, 33, 44, 55]);
+    }
+
+    #[test]
+    fn the_taken_op_and_its_components_stay_roots_until_the_next_take() {
+        let mut q = PendingOpQueue::new();
+        q.enqueue(PendingOp::Activity(PendingActivityOp::Push {
+            class_name: A,
+            intent_ref: Some(11),
+            request_code: None,
+            caller: 0,
+        }));
+        q.enqueue(PendingOp::Service(PendingServiceOp::Start {
+            class_name: B,
+            intent_ref: 22,
+        }));
+        assert!(q.take_next().is_some());
+        assert!(q.hold_component(33));
+        let mut visited: alloc::vec::Vec<u16> = alloc::vec::Vec::new();
+        q.visit_object_refs(&mut |r| visited.push(r));
+        assert_eq!(visited, alloc::vec![22, 11, 33], "queued, in flight, built");
+
+        assert!(q.take_next().is_some());
+        visited.clear();
+        q.visit_object_refs(&mut |r| visited.push(r));
+        assert_eq!(visited, alloc::vec![22], "the Push's refs are released");
+
+        assert!(q.take_next().is_none());
+        visited.clear();
+        q.visit_object_refs(&mut |r| visited.push(r));
+        assert!(visited.is_empty(), "an empty take releases the last op");
+    }
+
+    #[test]
+    fn hold_component_fails_soft_when_full() {
+        let mut q = PendingOpQueue::new();
+        for r in 0..MAX_IN_FLIGHT_COMPONENTS as u16 {
+            assert!(q.hold_component(r));
+        }
+        assert!(!q.hold_component(99));
     }
 
     fn connected(conn_ref: u16, held: bool) -> PendingOp {

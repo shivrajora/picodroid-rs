@@ -563,6 +563,10 @@ pub(crate) fn instantiate_component(
     let obj_ref = heap
         .objects
         .alloc_with_defaults(class_name, jvm.classes())?;
+    // Rooted until the caller has stored it: `<init>` returning takes it off
+    // the interpreter's frames, and the injector and the caller (a Push runs
+    // the covered Activity's `onPause` next) run Java before it is stored.
+    handler.hold_component(obj_ref);
     // Run <init> via the leaf class — invokespecial chains up to super.<init>.
     // If the class doesn't declare <init> (e.g. inherits the implicit default
     // from the superclass), ignore MethodNotFound: field defaults are already
