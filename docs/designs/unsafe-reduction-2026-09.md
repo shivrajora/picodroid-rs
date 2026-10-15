@@ -2,6 +2,7 @@
 
 **Status: phases 0–7 built, 2026-09-29.** `unsafe {` 1,197 → 919, `static mut` 243 → 113; the
 execution log at the bottom has the per-phase counts, and §4.1 says what was planned and left out.
+Round 2 (2026-10) is [unsafe-reduction-2026-10.md](unsafe-reduction-2026-10.md).
 
 Started 2026-09-28. The rule for every phase: no change in behaviour, flash, RAM or
 timing. Anything that would change behaviour, including fixes for the soundness findings
@@ -122,6 +123,11 @@ Found while surveying. Each is a behaviour change to fix, so none is fixed here.
 | `platforms/rp/src/hal/rp/spi/mod.rs`, `transfer_raw` | An `rx` shorter than `tx` overruns in the interrupt handler. Today's callers pass equal lengths. Not re-verified. |
 | `boot.rs` `shared_heap()` and 18 other safe functions returning `&'static mut T` | Two calls give two aliasing exclusive references. |
 | About 50 call sites in `graphics/lvgl` | An unchecked `handle_table::lookup` result goes to LVGL, which is built with `LV_USE_CHECK_ARG 0`. |
+
+Round 2 ([unsafe-reduction-2026-10.md](unsafe-reduction-2026-10.md)) closed the last row (the typed
+LVGL `Obj`, so a stale handle is now a no-op) and the `SLOTS` row. It also closed the `&'static mut`
+row for service_lifecycle, alarms, the media driver and `hw_scroll`; `shared_heap` and the
+`platforms/rp` driver accessors are still open. The other rows are still open.
 
 ### 6.1 The seam declarations are not checked against their definitions
 
