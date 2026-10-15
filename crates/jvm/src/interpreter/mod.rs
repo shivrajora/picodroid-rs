@@ -121,6 +121,7 @@ pub(crate) fn upcall_from_native<H: NativeMethodHandler>(
         pending_clinit_frames: Vec::new(),
         insn_count: 0,
         upcall_depth: *upcall_depth,
+        own_frames: &**frames,
     };
     ex.invoke_java(frames, recv, method_name, descriptor, args)
 }
@@ -157,6 +158,11 @@ pub(crate) struct Executor<'a, H: NativeMethodHandler> {
     /// Seeded from the enclosing executor by `invoke_java`, so it counts Rust
     /// recursion depth rather than anything heap-wide. See [`MAX_UPCALL_DEPTH`].
     pub upcall_depth: u8,
+    /// The frame stack this executor runs, as `execute` registered it in
+    /// `GcState::parked_frames` (null when it registered none). A
+    /// collection from this executor takes it out of that list for its
+    /// duration: see [`collect_garbage`].
+    pub own_frames: *const Vec<Frame>,
 }
 
 impl<'a, H: NativeMethodHandler> Executor<'a, H> {
@@ -249,7 +255,7 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
         }
 
         // Superclass chain, class-first: [ci, Parent, ..., Object]
-        let chain = helpers::superclass_chain_indices(self.classes, ci);
+        let chain = helpers::superclass_chain_indices(self.classes, ci)?;
         if chain.iter().any(|&c| self.statics.is_erroneous(c)) {
             // Step 8: a superclass in the erroneous state makes this class
             // erroneous too.
@@ -469,25 +475,32 @@ fn deliver_exception<H: NativeMethodHandler>(
     }
 
     // No handler anywhere — build the stack trace from the intact frame stack.
-    let trace: Vec<StackTraceEntry> = frames[floor..]
-        .iter()
-        .rev()
-        .filter_map(|f| {
-            let cf = &ex.classes[f.class_idx];
-            let cn = core::str::from_utf8(cf.class_name()?).ok()?;
-            let method = &cf.methods()[f.method_idx];
-            let mn = core::str::from_utf8(cf.method_name(method)?).ok()?;
-            Some(StackTraceEntry {
-                class_name: cn,
-                method_name: mn,
-                pc: f.inst_pc,
-                #[cfg(feature = "line-numbers")]
-                line: cf.pc_to_line(method, f.inst_pc),
-                #[cfg(feature = "line-numbers")]
-                source_file: cf.source_file().and_then(|b| core::str::from_utf8(b).ok()),
-            })
-        })
-        .collect();
+    // An uncaught OutOfMemoryError gets here with the heap still full, so the
+    // trace is reserved fallibly: one the heap cannot hold is left empty, not
+    // an abort that resets the board (the `interp` fuzz target).
+    let mut trace: Vec<StackTraceEntry> = Vec::new();
+    let room = trace.try_reserve_exact(frames.len() - floor).is_ok();
+    trace.extend(
+        frames[floor..]
+            .iter()
+            .rev()
+            .take_while(|_| room)
+            .filter_map(|f| {
+                let cf = &ex.classes[f.class_idx];
+                let cn = core::str::from_utf8(cf.class_name()?).ok()?;
+                let method = &cf.methods()[f.method_idx];
+                let mn = core::str::from_utf8(cf.method_name(method)?).ok()?;
+                Some(StackTraceEntry {
+                    class_name: cn,
+                    method_name: mn,
+                    pc: f.inst_pc,
+                    #[cfg(feature = "line-numbers")]
+                    line: cf.pc_to_line(method, f.inst_pc),
+                    #[cfg(feature = "line-numbers")]
+                    source_file: cf.source_file().and_then(|b| core::str::from_utf8(b).ok()),
+                })
+            }),
+    );
     let exception_class = ex.objects.class_name(obj_idx).unwrap_or("<unknown>");
     let message = ex
         .objects
@@ -587,7 +600,13 @@ fn collect_garbage<H: NativeMethodHandler>(
     ex: &mut Executor<'_, H>,
     frames: &mut [Frame],
 ) -> usize {
-    gc_cycle(
+    // This stack is registered in `parked_frames` too, for other executors'
+    // collections. Left there, this collection walked it a second time back
+    // through that raw pointer, aliasing the `&mut` the run loop holds —
+    // undefined behavior by Miri (the Sunday Miri pass over the `interp`
+    // inputs). It sits out the collection instead; the slice roots it.
+    let parked = ex.gc_state.unregister_frames(ex.own_frames);
+    let freed = gc_cycle(
         frames,
         ex.objects,
         ex.arrays,
@@ -596,7 +615,12 @@ fn collect_garbage<H: NativeMethodHandler>(
         ex.class_objects,
         ex.gc_state,
         ex.handler,
-    )
+    );
+    if parked {
+        // Into the slot the unregister freed: no allocation.
+        ex.gc_state.register_frames(ex.own_frames);
+    }
+    freed
 }
 
 /// The one copy of a collection cycle, for the run loop
@@ -786,6 +810,7 @@ fn execute_frames<H: NativeMethodHandler>(
         pending_clinit_frames: Vec::new(),
         insn_count: 0,
         upcall_depth: 0,
+        own_frames: &*frames,
     };
     ex.run(frames, 0)
 }

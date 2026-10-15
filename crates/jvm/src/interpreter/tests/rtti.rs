@@ -302,6 +302,7 @@ fn class_cast_exception_is_alloc_by_name() {
         pending_clinit_frames: Vec::new(),
         insn_count: 0,
         upcall_depth: 0,
+        own_frames: core::ptr::null(),
     };
     let JvmError::Exception(e) = ex.class_cast_exception() else {
         panic!("expected an Exception");

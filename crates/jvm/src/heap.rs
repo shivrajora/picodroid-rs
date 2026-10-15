@@ -238,7 +238,13 @@ impl StringTable {
             crate::parity::count_literal_copy(s.len());
             return self.intern_dyn(s);
         }
-        if self.ptrs.len() >= self.lit_floor {
+        // Room in both tables first, as `intern_dyn_owned` does: an `ldc`
+        // under a full heap is an OutOfMemoryError, not an abort (the
+        // `interp` fuzz target).
+        if self.ptrs.len() >= self.lit_floor
+            || crate::object_heap::reserve_fallible(&mut self.ptrs, 1).is_err()
+            || crate::object_heap::reserve_fallible(&mut self.lens, 1).is_err()
+        {
             return None;
         }
         let idx = self.ptrs.len() as u16;

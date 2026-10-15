@@ -172,6 +172,25 @@ impl Frame {
 
     #[inline]
     pub fn push(&mut self, v: Value) -> Result<(), JvmError> {
+        // `new` reserved `max_stack`; only code that outgrows it (the
+        // pack-time checker does not track depth) reaches the growth, which
+        // is fallible like the reservation was, not an abort under a full
+        // heap (the `interp` fuzz target).
+        if self.stack.len() == self.stack.capacity() {
+            return self.grow_and_push(v);
+        }
+        self.stack.push(v);
+        Ok(())
+    }
+
+    /// [`Self::push`]'s growth, out of line: every opcode inlines `push`,
+    /// and with the room known the inlined `Vec::push` keeps no grow path.
+    #[cold]
+    #[inline(never)]
+    fn grow_and_push(&mut self, v: Value) -> Result<(), JvmError> {
+        self.stack
+            .try_reserve(1)
+            .map_err(|_| JvmError::StackOverflow)?;
         self.stack.push(v);
         Ok(())
     }
@@ -196,7 +215,14 @@ impl Frame {
             *slot = v;
         } else {
             // Rare: idx exceeds pre-allocated max_locals (should not happen
-            // with well-formed class files, but handle gracefully).
+            // with well-formed class files, but handle gracefully). A `wide`
+            // store can name local 65535, a megabyte of locals, so the growth
+            // is fallible: past what the heap holds it is this crate's
+            // allocation-failure signal, an OutOfMemoryError, not an abort
+            // (the `interp` fuzz target).
+            self.locals
+                .try_reserve_exact(i + 1 - self.locals.len())
+                .map_err(|_| JvmError::StackOverflow)?;
             self.locals.resize(i + 1, Value::Null);
             self.locals[i] = v;
         }
@@ -306,6 +332,27 @@ mod qa_oom_tests {
             "expected the allocation-failure signal, got {:?}",
             r.err()
         );
+    }
+
+    /// `wide astore 65535` in a method with four locals grows them to a
+    /// megabyte; on a heap that cannot hold that it is the allocation-failure
+    /// signal, not an abort (the `interp` fuzz target).
+    #[test]
+    fn a_store_past_max_locals_grows_fallibly() {
+        let mut frame = Frame::new(0, 0, &[], 4, 4).unwrap();
+        let r = with_budget(64 * 1024, || frame.store_local(u16::MAX, Value::Int(1)));
+        assert!(matches!(r, Err(JvmError::StackOverflow)), "{r:?}");
+        assert_eq!(frame.store_local(9, Value::Int(2)), Ok(()));
+        assert_eq!(frame.load_local(9), Ok(Value::Int(2)));
+    }
+
+    /// Pushing past `max_stack` grows the operand stack, fallibly.
+    #[test]
+    fn a_push_past_max_stack_grows_fallibly() {
+        let mut frame = Frame::new(0, 0, &[], 1, 1).unwrap();
+        let r = with_budget(0, || (0..64).try_for_each(|i| frame.push(Value::Int(i))));
+        assert!(matches!(r, Err(JvmError::StackOverflow)), "{r:?}");
+        assert_eq!(frame.push(Value::Int(7)), Ok(()));
     }
 
     #[test]

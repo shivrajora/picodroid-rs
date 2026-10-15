@@ -76,6 +76,49 @@ static CLASS_MULTIANEWARRAY_PARTIAL: &[u8] = &[
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ];
 
+/// `CLASS_MULTIANEWARRAY` with `iconst_2, iconst_3` replaced by `with`
+/// (bytes that leave two ints), the Code lengths adjusted to match.
+fn multianewarray_of(with: &[u8]) -> &'static [u8] {
+    let mut class = CLASS_MULTIANEWARRAY.to_vec();
+    let at = class
+        .windows(4)
+        .position(|w| w == [0x05, 0x06, 0xC5, 0x00])
+        .unwrap();
+    class.splice(at..at + 2, with.iter().copied());
+    let attr = class
+        .windows(6)
+        .position(|w| w == [0x00, 0x07, 0x00, 0x00, 0x00, 0x20])
+        .unwrap();
+    let grow = with.len() as u8 - 2;
+    class[attr + 5] += grow; // Code attribute length
+    class[attr + 13] += grow; // code_length
+    alloc::boxed::Box::leak(class.into_boxed_slice())
+}
+
+/// `new int[200][1000]` is 800 KB of ints on a 64 KB heap. Each attempt
+/// fails part way through and the emergency GC used to free the partial
+/// tree, so "the GC freed something" let the retry run again, for ever. The
+/// tree is handed back as soon as it fails now, the GC frees nothing, and
+/// the program gets its OutOfMemoryError.
+#[test]
+fn multianewarray_too_big_for_the_heap_throws_instead_of_spinning() {
+    let class = multianewarray_of(&[0x11, 0x00, 0xC8, 0x11, 0x03, 0xE8]);
+    let r = crate::test_alloc::with_budget(64 * 1024, || run(class));
+    assert!(r.is_err(), "{r:?}");
+}
+
+/// `new int[65535][1]` needs 65,536 arrays, one more than there are array
+/// references. It is an OutOfMemoryError at once, as `newarray` past `u16`
+/// is: allocated array by array it used to wrap the 65,536th reference to
+/// the first, and refused array by array it made GC-and-retry spin for
+/// ever, each retry freeing the partial tree the last one built.
+#[test]
+fn multianewarray_past_the_reference_space_is_oom_not_a_spin() {
+    // sipush 255, sipush 257, imul, iconst_1: counts 65535 and 1.
+    let class = multianewarray_of(&[0x11, 0x00, 0xFF, 0x11, 0x01, 0x01, 0x68, 0x04]);
+    assert!(run(class).is_err());
+}
+
 #[test]
 fn multianewarray_outer_dim_only() {
     assert_eq!(

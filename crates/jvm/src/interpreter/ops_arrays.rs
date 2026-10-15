@@ -455,7 +455,13 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 // Pop counts. Stack order is outermost...innermost (top),
                 // so pop gives innermost first; fill from the back to get
                 // [outer..inner] (no `reverse()`: at opt-level 3 it unrolls).
-                let mut counts: alloc::vec::Vec<i32> = alloc::vec![0; dims as usize];
+                // Fallible, as every allocation a program can reach under a
+                // full heap must be (the `interp` fuzz target).
+                let mut counts: alloc::vec::Vec<i32> = alloc::vec::Vec::new();
+                counts
+                    .try_reserve_exact(dims as usize)
+                    .map_err(|_| JvmError::StackOverflow)?;
+                counts.resize(dims as usize, 0);
                 for slot in counts.iter_mut().rev() {
                     match frame.pop()? {
                         Value::Int(n) => *slot = n,
@@ -466,6 +472,21 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
                 for &c in &counts {
                     if c < 0 {
                         return Err(JvmError::NegativeArraySize);
+                    }
+                }
+                // Unsatisfiable regardless of GC, as for `newarray`: a
+                // length past `u16` (`alloc_multi` used to truncate it), or
+                // more arrays than there are array references. The second
+                // used to wrap the reference; refused per array instead, it
+                // made the GC-and-retry below spin for ever, each retry
+                // freeing the partial tree the last one built (both found
+                // by the `interp` fuzz target).
+                let (mut arrays_needed, mut at_depth) = (0u64, 1u64);
+                for &n in &counts {
+                    arrays_needed += at_depth;
+                    at_depth = at_depth.saturating_mul(n as u64);
+                    if n > u16::MAX as i32 || arrays_needed > crate::heap::REF_TOP as u64 {
+                        return Err(self.runtime_fault(c::java_lang_OutOfMemoryError));
                     }
                 }
 
@@ -552,10 +573,33 @@ fn alloc_multi(
     let arr_idx = arrays.alloc(atype, count)?;
     if !is_innermost {
         for i in 0..(count as usize) {
-            let child = alloc_multi(arrays, counts, depth + 1, inner_atype)?;
+            let Some(child) = alloc_multi(arrays, counts, depth + 1, inner_atype) else {
+                // Hand the partial tree back. Left to the collector it is
+                // garbage the emergency GC frees every time, so the retry
+                // never sees "nothing freed", never throws, and spins for
+                // ever on a tree that cannot fit (the `interp` fuzz target).
+                free_tree(arrays, arr_idx, counts.len() - depth);
+                return None;
+            };
             let raw = ((child as u32) | crate::array_heap::ARRAY_TAG) as i32;
             arrays.store(arr_idx, i, raw)?;
         }
     }
     Some(arr_idx)
+}
+
+/// Free array `idx` and the `levels - 1` levels of arrays below it that
+/// [`alloc_multi`] built and wired in; a null (not yet built) child is
+/// skipped.
+fn free_tree(arrays: &mut crate::array_heap::ArrayHeap, idx: u16, levels: usize) {
+    if levels > 1 {
+        for i in 0..arrays.length(idx).unwrap_or(0) as usize {
+            if let Some(Value::ArrayRef(child)) =
+                arrays.load(idx, i).map(crate::array_heap::decode_ref)
+            {
+                free_tree(arrays, child, levels - 1);
+            }
+        }
+    }
+    arrays.free(idx);
 }

@@ -25,6 +25,9 @@ impl ObjectHeap {
             }
             return Some(idx as u16);
         }
+        if self.list_bufs.len() >= crate::heap::REF_TOP {
+            return None;
+        }
         let idx = self.list_bufs.len() as u16;
         reserve_fallible(&mut self.list_bufs, 1).ok()?;
         reserve_fallible(&mut self.list_mods, 1).ok()?;

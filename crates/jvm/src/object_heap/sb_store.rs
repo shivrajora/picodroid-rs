@@ -23,6 +23,9 @@ impl ObjectHeap {
             self.sb_bufs[idx] = Some(Vec::new());
             return Some(idx as u16);
         }
+        if self.sb_bufs.len() >= crate::heap::REF_TOP {
+            return None;
+        }
         let idx = self.sb_bufs.len() as u16;
         reserve_fallible(&mut self.sb_bufs, 1).ok()?;
         self.sb_bufs.push(Some(Vec::new()));

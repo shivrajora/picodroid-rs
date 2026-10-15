@@ -53,9 +53,13 @@ impl ClassObjectCache {
     }
 
     /// Insert a `(name_idx, obj_ref)` pair. Caller must have verified there
-    /// is no existing entry for `name_idx`.
-    pub fn insert(&mut self, name_idx: u16, obj_ref: u16) {
+    /// is no existing entry for `name_idx`. `None` when the heap cannot grow
+    /// the cache: a class literal under a full heap is an OutOfMemoryError,
+    /// not an abort (the `interp` fuzz target).
+    pub fn insert(&mut self, name_idx: u16, obj_ref: u16) -> Option<()> {
+        self.entries.try_reserve(1).ok()?;
         self.entries.push((name_idx, obj_ref));
+        Some(())
     }
 
     /// Iterate cached object references. Used by the GC to mark each cached

@@ -177,8 +177,8 @@ pub struct GcState {
     /// owning task's slice. (The former justification — single core plus
     /// `configUSE_TIME_SLICING = 0` — was insufficient: the SMP kernel's
     /// equal-priority wake yield preempted mid-collection; see the
-    /// atomic_section module docs.) Entries can include the collector's
-    /// own stack; re-visiting is harmless (marking is idempotent). A panic
+    /// atomic_section module docs.) The collecting executor takes its own
+    /// stack out for the collection (`interpreter::collect_garbage`). A panic
     /// mid-`execute` leaks its entry — acceptable: panics are fatal on
     /// target.
     parked_frames: Vec<*const Vec<Frame>>,
@@ -272,11 +272,13 @@ impl GcState {
 
     /// Remove a frame stack registered by [`Self::register_frames`].
     /// Removes the most recent matching entry (registration is stack-like
-    /// under nested `execute` calls).
-    pub fn unregister_frames(&mut self, frames: *const Vec<Frame>) {
+    /// under nested `execute` calls). `true` if there was one.
+    pub fn unregister_frames(&mut self, frames: *const Vec<Frame>) -> bool {
         if let Some(i) = self.parked_frames.iter().rposition(|&p| p == frames) {
             self.parked_frames.remove(i);
+            return true;
         }
+        false
     }
 
     /// Root `values` for the duration of a native→Java upcall, returning the

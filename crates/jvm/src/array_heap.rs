@@ -243,7 +243,15 @@ impl ArrayHeap {
         // reservations above are careful to answer `None` instead. Every
         // caller already treats `None` as "GC and retry", so the last step
         // of an allocation must not be the one that panics.
-        if self.arrays.try_push(Some(new_arr)).is_none() {
+        //
+        // An array is addressed by a `u16`, so the table is full at
+        // `REF_TOP` slots too: the next index used to wrap to 0 and alias
+        // the first array, and the compactor's sort key, which packs the
+        // slot into 16 bits, mixed it into the arena offset (found by the
+        // `interp` fuzz target, through `multianewarray`).
+        if self.arrays.len() >= crate::heap::REF_TOP
+            || self.arrays.try_push(Some(new_arr)).is_none()
+        {
             // The payload was reserved before the slot; hand it back rather
             // than stranding it in the arena until the next compaction.
             match rollback {

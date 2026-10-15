@@ -31,6 +31,23 @@ fn alloc_beyond_old_capacity_succeeds() {
     }
 }
 
+/// Arrays are addressed by a `u16`: once every reference is taken the next
+/// allocation is refused (OOM, so GC and retry) instead of wrapping to 0
+/// and handing out an alias of the first array — and its arena payload is
+/// handed back, not stranded.
+#[test]
+fn alloc_refuses_past_the_last_reference() {
+    let mut heap = ArrayHeap::new();
+    for i in 0..crate::heap::REF_TOP {
+        assert_eq!(heap.alloc(ATYPE_INT, 0), Some(i as u16));
+    }
+    assert_eq!(heap.alloc(ATYPE_INT, 0), None);
+    let arena = heap.arena.len();
+    assert_eq!(heap.alloc(ATYPE_INT, 100), None);
+    assert_eq!(heap.arena.len(), arena, "a refused array keeps no payload");
+    assert_eq!(heap.length(0), Some(0), "array 0 untouched");
+}
+
 #[test]
 fn alloc_large_array_succeeds() {
     let mut heap = ArrayHeap::new();

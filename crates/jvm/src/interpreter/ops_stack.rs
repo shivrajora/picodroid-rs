@@ -74,6 +74,10 @@ fn dup_x(stack: &mut alloc::vec::Vec<Value>, opcode: u8) -> Result<(), JvmError>
     if len < depth {
         return Err(JvmError::StackUnderflow);
     }
+    // Room first, fallibly, as `Frame::push` grows: past `max_stack` the
+    // inserts would otherwise grow the stack infallibly (the `interp` fuzz
+    // target).
+    stack.try_reserve(n).map_err(|_| JvmError::StackOverflow)?;
     let mut copy = [Value::Null; 2];
     copy[..n].copy_from_slice(&stack[len - n..]);
     for (i, v) in copy[..n].iter().enumerate() {

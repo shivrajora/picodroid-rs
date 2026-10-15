@@ -290,7 +290,9 @@ pub(super) fn class_object_for_name(
     objects
         .set_field(obj, 0, Value::Reference(name_idx))
         .ok_or(JvmError::InvalidReference)?;
-    class_objects.insert(name_idx, obj);
+    class_objects
+        .insert(name_idx, obj)
+        .ok_or(JvmError::StackOverflow)?;
     Ok(Value::ObjectRef(obj))
 }
 
@@ -1115,14 +1117,21 @@ pub(super) fn find_clinit_in(cf: &ClassFile) -> Option<usize> {
 /// The superclass chain of class `ci`, `ci` first and the root last, as
 /// class indices. Only classes present in the loaded set are included; the
 /// chain ends where a superclass has no class file.
-pub(super) fn superclass_chain_indices(classes: Classes<'_>, ci: usize) -> Vec<usize> {
+///
+/// Fallible, as the frames built from it are: a `new` under a full heap is
+/// an OutOfMemoryError, not an abort (the `interp` fuzz target).
+pub(super) fn superclass_chain_indices(
+    classes: Classes<'_>,
+    ci: usize,
+) -> Result<Vec<usize>, JvmError> {
     let mut chain: Vec<usize> = Vec::new();
     let mut current = Some(ci);
     while let Some(i) = current {
+        chain.try_reserve(1).map_err(|_| JvmError::StackOverflow)?;
         chain.push(i);
         current = super_index(classes, i);
     }
-    chain
+    Ok(chain)
 }
 
 /// JVMS §5.4.3.2 field resolution for a static: the class named by the

@@ -534,6 +534,10 @@ impl ObjectHeap {
             }
             self.first_free += 1;
         }
+        // Addressed by a `u16`, as arrays are (`ArrayHeap::alloc`).
+        if self.objects.len() >= crate::heap::REF_TOP {
+            return None;
+        }
         let idx = self.objects.len() as u16;
         self.objects.try_push(Some(obj))?;
         self.first_free = self.objects.len();
