@@ -244,12 +244,8 @@ fn property_code(p: ViewProperty) -> i32 {
 
 // ── global accessor ─────────────────────────────────────────────────────────
 //
-// Mirrors today's static-state shape — the LVGL library is global, our
-// `BAND_BUF` is global, and the handle table is global. A single static
-// `LvglGfx` matches that lifetime and avoids any per-call alloc.
-
-#[cfg(not(test))]
-static mut GFX: LvglGfx = LvglGfx::new();
+// The LVGL library is global, and so are our `BAND_BUF`, handle table and
+// widget tables; `LvglGfx` itself holds nothing, so the accessor makes one.
 
 /// Whether `lv_init` has run: false for a plain main-class app that never
 /// touched the display, where every LVGL query is undefined.
@@ -299,11 +295,7 @@ pub fn pool_free_bytes() -> (usize, usize) {
 /// from the per-handle slot tables in `lvgl/events.rs`.
 #[cfg(not(test))]
 pub fn with_gfx<R>(f: impl FnOnce(&mut dyn Gfx) -> R) -> R {
-    // SAFETY: single-threaded access to a `'static mut` singleton; same
-    // contract as the existing global state in `engine.rs` (SCREEN_HOLDER,
-    // KEY_LISTENERS, etc.) which this is replacing.
-    unsafe {
-        let gfx: &mut LvglGfx = &mut *core::ptr::addr_of_mut!(GFX);
-        f(gfx)
-    }
+    // A zero-sized receiver: the state it fronts is LVGL's and the widget
+    // layer's own statics.
+    f(&mut LvglGfx::new())
 }

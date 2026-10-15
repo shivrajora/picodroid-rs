@@ -21,12 +21,10 @@ use crate::lvgl_ffi::{lv_image_dsc_t, lv_image_header_t};
 use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use core::cell::UnsafeCell;
+use core::cell::RefCell;
 use papk_format::Papk;
 
-struct RegistryCell {
-    inner: UnsafeCell<Registry>,
-}
+use crate::util::local::Core0;
 
 struct Registry {
     initialized: bool,
@@ -39,22 +37,15 @@ struct Registry {
     icons: Vec<Box<lv_image_dsc_t>>,
 }
 
-// SAFETY: single-core JVM task ownership, mirrors `monitor_store::MonitorStoreCell`.
-// `init_from_papk` runs once at app start before any lookup can happen, so the
-// `&mut` it takes during init does not race with `lookup`'s `&` reads.
-unsafe impl Sync for RegistryCell {}
-
-static REGISTRY: RegistryCell = RegistryCell {
-    inner: UnsafeCell::new(Registry {
+// SAFETY: built by the app loader and read by widget natives, all on core-0
+// JVM tasks.
+static REGISTRY: Core0<RefCell<Registry>> = unsafe {
+    Core0::new(RefCell::new(Registry {
         initialized: false,
         entries: Vec::new(),
         icons: Vec::new(),
-    }),
+    }))
 };
-
-fn registry() -> &'static mut Registry {
-    unsafe { &mut *REGISTRY.inner.get() }
-}
 
 /// Walk the papk's ASSETS section and build the lookup table.
 ///
@@ -69,7 +60,10 @@ fn registry() -> &'static mut Registry {
 /// or the static `pdb` receive buffer. We extract raw pointers into the
 /// pixel data and hand them to LVGL, which holds them indefinitely.
 pub fn init_from_papk(papk: &Papk<'_>) {
-    let reg = registry();
+    init_registry(&mut REGISTRY.borrow_mut(), papk);
+}
+
+fn init_registry(reg: &mut Registry, papk: &Papk<'_>) {
     if reg.initialized {
         return;
     }
@@ -129,7 +123,8 @@ pub fn init_from_papk(papk: &Papk<'_>) {
 /// `None` means the name isn't in the bundle — callers typically log a
 /// warning and leave the image widget empty.
 pub fn lookup(name: &str) -> Option<*const lv_image_dsc_t> {
-    registry()
+    REGISTRY
+        .borrow()
         .entries
         .iter()
         .find(|(n, _)| n == name)
@@ -140,7 +135,7 @@ pub fn lookup(name: &str) -> Option<*const lv_image_dsc_t> {
 /// output. Allowed to be dead in production builds; exists so app code can
 /// log a startup line that confirms the bundle parsed.
 pub fn count() -> usize {
-    registry().entries.len()
+    REGISTRY.borrow().entries.len()
 }
 
 /// Drop all asset descriptors. Called on app reset before the next app runs
@@ -149,7 +144,7 @@ pub fn count() -> usize {
 /// rather than leaked. App switching (multi-app M2) makes this a
 /// steady-state path, not a one-off developer flow.
 pub fn clear() {
-    let reg = registry();
+    let mut reg = REGISTRY.borrow_mut();
     reg.entries.clear();
     reg.icons.clear();
     reg.initialized = false;
@@ -167,7 +162,7 @@ pub fn register_icon(entry: &crate::packages::Entry) -> Option<i32> {
     let papk = Papk::parse(entry.image).ok()?;
     let mut assets = papk.assets().ok()??;
     let asset = assets.find(|a| a.name == name.as_bytes())?;
-    let reg = registry();
+    let mut reg = REGISTRY.borrow_mut();
     if let Some(i) = reg
         .icons
         .iter()
@@ -190,7 +185,8 @@ pub fn register_icon(entry: &crate::packages::Entry) -> Option<i32> {
 #[cfg(has_multi_app)]
 pub fn icon_dsc(handle: i32) -> Option<*const lv_image_dsc_t> {
     let i = usize::try_from(handle).ok()?;
-    registry()
+    REGISTRY
+        .borrow()
         .icons
         .get(i)
         .map(|d| &**d as *const lv_image_dsc_t)

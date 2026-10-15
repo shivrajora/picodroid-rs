@@ -16,26 +16,35 @@ use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
 
 const QUEUE_SIZE: usize = 8;
-// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
-static QUEUE: Core0<LocalRing<usize, QUEUE_SIZE>> = unsafe { Core0::new(LocalRing::new(0)) };
+struct State {
+    queue: LocalRing<usize, QUEUE_SIZE>,
+    handle_map: PtrMap<MAX_LISTENERS>,
+}
+
+// SAFETY: filled by LVGL callbacks and by natives, drained by the framework
+// loop, all on core-0 JVM tasks.
+static STATE: Core0<State> = unsafe {
+    Core0::new(State {
+        queue: LocalRing::new(0),
+        handle_map: PtrMap::new(),
+    })
+};
 
 const MAX_LISTENERS: usize = 4;
-// SAFETY: a listener registry, reached only from JVM tasks.
-static HANDLE_MAP: Core0<PtrMap<MAX_LISTENERS>> = unsafe { Core0::new(PtrMap::new()) };
 
 unsafe extern "C" fn map_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    HANDLE_MAP.remove(obj)
+    STATE.handle_map.remove(obj)
 }
 
 unsafe extern "C" fn value_changed_cb(e: *mut lv_event_t) {
     // lv_calendar's inner btnmatrix bubbles VALUE_CHANGED up via
     // LV_OBJ_FLAG_EVENT_BUBBLE (lv_calendar.c:358), so the original
     // event target is the btnmatrix, not the calendar root we registered
-    // in HANDLE_MAP. Use the *current* target — the widget this handler
+    // in STATE.handle_map. Use the *current* target — the widget this handler
     // is bound to — to recover the calendar pointer.
     let obj = unsafe { lv_event_get_current_target_obj(e) };
-    QUEUE.push(obj as usize);
+    STATE.queue.push(obj as usize);
 }
 
 pub(in crate::graphics) fn create() -> i32 {
@@ -93,7 +102,7 @@ pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
         return;
     }
     unsafe {
-        match HANDLE_MAP.upsert(raw_ptr, obj_ref) {
+        match STATE.handle_map.upsert(raw_ptr, obj_ref) {
             Upsert::Updated => {}
             Upsert::Full => warn_full("date-picker"),
             Upsert::Inserted => {
@@ -111,14 +120,14 @@ pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
 }
 
 pub fn drain_date_picker_queue() -> Option<usize> {
-    QUEUE.pop()
+    STATE.queue.pop()
 }
 
 pub fn lookup_date_picker_obj(handle: usize) -> Option<u16> {
-    HANDLE_MAP.lookup(handle)
+    STATE.handle_map.lookup(handle)
 }
 
 pub fn reset_date_picker_state() {
-    HANDLE_MAP.reset();
-    QUEUE.clear();
+    STATE.handle_map.reset();
+    STATE.queue.clear();
 }

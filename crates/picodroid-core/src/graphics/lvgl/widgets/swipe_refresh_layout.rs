@@ -18,6 +18,7 @@ use super::super::lifecycle;
 use super::super::listener_map::{warn_full, PtrMap, Upsert};
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
+use core::cell::Cell;
 
 const MAX_LAYOUTS: usize = 4;
 
@@ -38,19 +39,29 @@ const EMPTY: Slot = Slot {
     refreshing: false,
 };
 
-static mut SLOTS: [Slot; MAX_LAYOUTS] = [EMPTY; MAX_LAYOUTS];
-
 const QUEUE_SIZE: usize = 8;
-// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
-static QUEUE: Core0<LocalRing<usize, QUEUE_SIZE>> = unsafe { Core0::new(LocalRing::new(0)) };
 
 const MAX_LISTENERS: usize = MAX_LAYOUTS;
-// SAFETY: a listener registry, reached only from JVM tasks.
-static HANDLE_MAP: Core0<PtrMap<MAX_LISTENERS>> = unsafe { Core0::new(PtrMap::new()) };
+
+struct State {
+    slots: [Cell<Slot>; MAX_LAYOUTS],
+    queue: LocalRing<usize, QUEUE_SIZE>,
+    handle_map: PtrMap<MAX_LISTENERS>,
+}
+
+// SAFETY: filled by natives and LVGL's gesture callback, drained by natives,
+// all on core-0 JVM tasks.
+static STATE: Core0<State> = unsafe {
+    Core0::new(State {
+        slots: [const { Cell::new(EMPTY) }; MAX_LAYOUTS],
+        queue: LocalRing::new(0),
+        handle_map: PtrMap::new(),
+    })
+};
 
 unsafe extern "C" fn map_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    HANDLE_MAP.remove(obj)
+    STATE.handle_map.remove(obj)
 }
 
 unsafe extern "C" fn gesture_cb(e: *mut lv_event_t) {
@@ -71,19 +82,21 @@ unsafe fn pull_down(container: usize, dir: lv_dir_t) -> bool {
     if dir & LV_DIR_BOTTOM == 0 {
         return false;
     }
-    unsafe {
-        for slot in &mut SLOTS[..] {
-            if slot.container == container {
-                if slot.refreshing {
-                    return false;
-                }
-                slot.refreshing = true;
-                if slot.spinner != 0 {
-                    lv_obj_remove_flag(slot.spinner as *mut lv_obj_t, LV_OBJ_FLAG_HIDDEN);
-                }
-                QUEUE.push(container);
-                return true;
+    for slot in &STATE.slots {
+        let s = slot.get();
+        if s.container == container {
+            if s.refreshing {
+                return false;
             }
+            slot.set(Slot {
+                refreshing: true,
+                ..s
+            });
+            if s.spinner != 0 {
+                unsafe { lv_obj_remove_flag(s.spinner as *mut lv_obj_t, LV_OBJ_FLAG_HIDDEN) };
+            }
+            STATE.queue.push(container);
+            return true;
         }
     }
     false
@@ -97,7 +110,7 @@ pub(in crate::graphics) fn intercept(obj: *mut lv_obj_t, dir: lv_dir_t) -> bool 
     unsafe {
         let mut o = lv_obj_get_parent(obj);
         while !o.is_null() {
-            if SLOTS[..].iter().any(|s| s.container == o as usize) {
+            if STATE.slots.iter().any(|s| s.get().container == o as usize) {
                 return pull_down(o as usize, dir);
             }
             o = lv_obj_get_parent(o);
@@ -151,19 +164,21 @@ pub(in crate::graphics) fn set_refreshing(id: i32, refreshing: bool) {
         return;
     }
     let container_ptr = container as usize;
-    unsafe {
-        for slot in &mut SLOTS[..] {
-            if slot.container == container_ptr {
-                slot.refreshing = refreshing;
-                if slot.spinner != 0 {
-                    let s = slot.spinner as *mut lv_obj_t;
-                    if refreshing {
-                        lv_obj_remove_flag(s, LV_OBJ_FLAG_HIDDEN);
-                    } else {
-                        lv_obj_add_flag(s, LV_OBJ_FLAG_HIDDEN);
-                    }
+    if let Some(slot) = STATE
+        .slots
+        .iter()
+        .find(|s| s.get().container == container_ptr)
+    {
+        let s = slot.get();
+        slot.set(Slot { refreshing, ..s });
+        if s.spinner != 0 {
+            let spinner = s.spinner as *mut lv_obj_t;
+            unsafe {
+                if refreshing {
+                    lv_obj_remove_flag(spinner, LV_OBJ_FLAG_HIDDEN);
+                } else {
+                    lv_obj_add_flag(spinner, LV_OBJ_FLAG_HIDDEN);
                 }
-                return;
             }
         }
     }
@@ -175,7 +190,7 @@ pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
         return;
     }
     unsafe {
-        match HANDLE_MAP.upsert(raw_ptr, obj_ref) {
+        match STATE.handle_map.upsert(raw_ptr, obj_ref) {
             Upsert::Updated => {}
             Upsert::Full => warn_full("swipe-refresh"),
             Upsert::Inserted => {
@@ -193,34 +208,27 @@ pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
 }
 
 pub fn drain_refresh_queue() -> Option<usize> {
-    QUEUE.pop()
+    STATE.queue.pop()
 }
 
 pub fn lookup_refresh_obj(handle: usize) -> Option<u16> {
-    HANDLE_MAP.lookup(handle)
+    STATE.handle_map.lookup(handle)
 }
 
 pub fn reset_swipe_refresh_state() {
-    unsafe {
-        for slot in &mut SLOTS[..] {
-            *slot = EMPTY;
-        }
-        HANDLE_MAP.reset();
-        QUEUE.clear();
+    for slot in &STATE.slots {
+        slot.set(EMPTY);
     }
+    STATE.handle_map.reset();
+    STATE.queue.clear();
 }
 
 fn register_layout(container: usize, spinner: usize) {
-    unsafe {
-        for slot in &mut SLOTS[..] {
-            if slot.container == 0 {
-                *slot = Slot {
-                    container,
-                    spinner,
-                    refreshing: false,
-                };
-                return;
-            }
-        }
+    if let Some(slot) = STATE.slots.iter().find(|s| s.get().container == 0) {
+        slot.set(Slot {
+            container,
+            spinner,
+            refreshing: false,
+        });
     }
 }

@@ -17,36 +17,98 @@ use core::cell::Cell;
 // a whole stall's worth of batched PREV/NEXT edges here before the Java
 // dispatch drains them.
 pub(super) const KEY_EVENT_QUEUE_SIZE: usize = 64;
-// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
-pub(super) static KEY_EVENT_QUEUE: Core0<LocalRing<KeyEventRaw, KEY_EVENT_QUEUE_SIZE>> = unsafe {
-    Core0::new(LocalRing::new(KeyEventRaw {
-        pin: 0,
-        rising: false,
-        t_us: 0,
-    }))
+
+/// The keypad's state: the Java-visible queue on every board, and on a board
+/// with buttons the filters `keypad_read_cb` runs each edge through.
+pub(super) struct Keypad {
+    pub(super) queue: LocalRing<KeyEventRaw, KEY_EVENT_QUEUE_SIZE>,
+    /// Press-state filter — drops the phantom rising-edge IRQs that fire at
+    /// boot when `enable_edge_irq` arms the GPIO peripheral on pins that were
+    /// in an indeterminate state during init (observed on Pico Enviro+ Pack:
+    /// every button GP12-15 fires a phantom release within the first 50 ms,
+    /// which dispatched BACK and finished the activity before sensors could
+    /// deliver a second event). Pure logic lives in `super::super::key_filter`.
+    #[cfg(has_buttons)]
+    press_filter: Cell<super::super::key_filter::KeyPressFilter>,
+    /// Contact debounce — collapses each mechanical chatter burst to its
+    /// first edge, comparing ISR-captured `GpioEvent::t_us` values. Runs in
+    /// `keypad_read_cb` directly after the drain, ahead of the edit-mode
+    /// filter and both fan-out paths (LVGL indev + Java queue), so every
+    /// consumer sees the same debounced stream. Window rationale and tuning
+    /// data live in `super::super::key_debounce`. Edges discarded by the
+    /// lifecycle transition flush bypass this (they are dropped wholesale
+    /// anyway; a chatter tail surviving a flush is bounded by the
+    /// phantom-release filter).
+    #[cfg(has_buttons)]
+    debounce: Cell<super::super::key_debounce::KeyDebounce>,
+    /// Keypad edit mode (NumberPicker stepping), see below.
+    #[cfg(has_buttons)]
+    edit_mode: Cell<super::super::edit_mode::EditMode>,
+    /// Whether the last edge read was a press: a key is down until its
+    /// release is read. The system keyboard waits for that release before it
+    /// takes the focus (`take_pending_focus`), or the release would land on
+    /// its first key.
+    #[cfg(has_buttons)]
+    key_held: Cell<bool>,
+    /// The LVGL key the last press edge was given and that is still down, if
+    /// any (docs/designs/app-portability-2026-10.md Stage 10). A quiet read
+    /// pass reports it pressed again, so LVGL's keypad clock runs on it: a
+    /// held ENTER long-presses the focused widget (`OnLongClickListener`), a
+    /// held PREV/NEXT walks the focus ring at LVGL's repeat rate. The newest
+    /// press wins (LVGL's keypad knows one key at a time); a press the edit
+    /// mode or a remap kept from LVGL holds nothing.
+    #[cfg(has_buttons)]
+    lvgl_key_held: Cell<Option<(u8, u32)>>,
+    /// When the current BACK press landed, while it is held (HOME on a held
+    /// BACK, below).
+    #[cfg(has_buttons)]
+    back_held_since_ms: Cell<Option<u64>>,
+    /// Whether this hold has already become HOME.
+    #[cfg(has_buttons)]
+    back_home_fired: Cell<bool>,
+    /// Set when a hold became HOME, for the dispatcher to cancel the release.
+    #[cfg(has_buttons)]
+    back_up_cancelled: Cell<bool>,
+}
+
+// SAFETY: filled by the keypad indev's read callback, which LVGL runs from
+// the UI task's timer handler, and drained by the framework loop: both
+// core-0 JVM tasks.
+pub(super) static KEYPAD: Core0<Keypad> = unsafe {
+    Core0::new(Keypad {
+        queue: LocalRing::new(KeyEventRaw {
+            pin: 0,
+            rising: false,
+            t_us: 0,
+        }),
+        #[cfg(has_buttons)]
+        press_filter: Cell::new(super::super::key_filter::KeyPressFilter::new()),
+        #[cfg(has_buttons)]
+        debounce: Cell::new(super::super::key_debounce::KeyDebounce::new()),
+        #[cfg(has_buttons)]
+        edit_mode: Cell::new(super::super::edit_mode::EditMode::new()),
+        #[cfg(has_buttons)]
+        key_held: Cell::new(false),
+        #[cfg(has_buttons)]
+        lvgl_key_held: Cell::new(None),
+        #[cfg(has_buttons)]
+        back_held_since_ms: Cell::new(None),
+        #[cfg(has_buttons)]
+        back_home_fired: Cell::new(false),
+        #[cfg(has_buttons)]
+        back_up_cancelled: Cell::new(false),
+    })
 };
 
-/// Press-state filter — drops the phantom rising-edge IRQs that fire at boot
-/// when `enable_edge_irq` arms the GPIO peripheral on pins that were in an
-/// indeterminate state during init (observed on Pico Enviro+ Pack: every
-/// button GP12-15 fires a phantom release within the first 50 ms, which
-/// dispatched BACK and finished the activity before sensors could deliver a
-/// second event). Pure logic lives in `super::super::key_filter`.
+/// Run `f` on a copy of `cell`'s value and store the copy back: the `&mut`
+/// methods of the pure filter types, on state held in a `Cell`.
 #[cfg(has_buttons)]
-pub(super) static mut KEY_PRESS_FILTER: super::super::key_filter::KeyPressFilter =
-    super::super::key_filter::KeyPressFilter::new();
-
-/// Contact debounce — collapses each mechanical chatter burst to its first
-/// edge, comparing ISR-captured `GpioEvent::t_us` values. Runs in
-/// `keypad_read_cb` directly after the drain, ahead of the edit-mode filter
-/// and both fan-out paths (LVGL indev + Java queue), so every consumer sees
-/// the same debounced stream. Window rationale and tuning data live in
-/// `super::super::key_debounce`. Edges discarded by the lifecycle transition flush
-/// bypass this (they are dropped wholesale anyway; a chatter tail surviving
-/// a flush is bounded by the phantom-release filter).
-#[cfg(has_buttons)]
-pub(super) static mut KEY_DEBOUNCE: super::super::key_debounce::KeyDebounce =
-    super::super::key_debounce::KeyDebounce::new();
+fn update<T: Copy, R>(cell: &Cell<T>, f: impl FnOnce(&mut T) -> R) -> R {
+    let mut value = cell.get();
+    let r = f(&mut value);
+    cell.set(value);
+    r
+}
 
 /// Queue one edge for Java. `forward` is the fan-out's decision for a
 /// press; a release follows its press instead — the press-state filter
@@ -61,29 +123,20 @@ pub(super) fn push_key_event_raw(pin: u8, rising: bool, t_us: u32, forward: bool
     if !rising && !forward {
         return;
     }
-    unsafe {
-        // `&raw mut` then deref: forming `&mut KEY_PRESS_FILTER` directly trips
-        // the `static_mut_refs` lint (Rust 2024 compat). See handle_table.rs /
-        // socket_table.rs for the same idiom.
-        let filter = &raw mut KEY_PRESS_FILTER;
-        if !(*filter).observe(pin, rising) {
-            return;
-        }
-        if !KEY_EVENT_QUEUE.push(KeyEventRaw { pin, rising, t_us }) {
-            crate::pd_warn!("key: java queue full, dropped pin {} edge", pin);
-        }
+    if !update(&KEYPAD.press_filter, |f| f.observe(pin, rising)) {
+        return;
+    }
+    if !KEYPAD.queue.push(KeyEventRaw { pin, rising, t_us }) {
+        crate::pd_warn!("key: java queue full, dropped pin {} edge", pin);
     }
 }
 
 // ── Keypad edit mode (NumberPicker stepping) ────────────────────────────────
 //
-// One EditMode instance filters every key edge *before* it fans out to the
-// LVGL indev and the Java queue below — the single interception point that
-// keeps both paths consistent (see edit_mode.rs for the protocol).
-
-#[cfg(has_buttons)]
-pub(super) static mut EDIT_MODE: super::super::edit_mode::EditMode =
-    super::super::edit_mode::EditMode::new();
+// One EditMode instance (`Keypad::edit_mode`) filters every key edge
+// *before* it fans out to the LVGL indev and the Java queue below — the
+// single interception point that keeps both paths consistent (see
+// edit_mode.rs for the protocol).
 
 /// Mirror an edit-mode transition onto the widget: LV_STATE_EDITED drives the
 /// theme-matching secondary outline. The carried pointer is the currently
@@ -108,10 +161,7 @@ pub(super) fn apply_edit_transition(t: super::super::edit_mode::Transition) {
 /// filter state so PREV/NEXT go back to navigating.
 #[cfg(has_buttons)]
 pub fn notify_picker_gone(raw_obj: usize) {
-    unsafe {
-        let em = &raw mut EDIT_MODE;
-        (*em).notify_gone(raw_obj);
-    }
+    update(&KEYPAD.edit_mode, |em| em.notify_gone(raw_obj));
 }
 
 #[cfg(not(has_buttons))]
@@ -121,10 +171,9 @@ pub fn notify_picker_gone(_raw_obj: usize) {}
 /// block alongside the other widget-state resets.
 #[cfg(has_buttons)]
 pub fn reset_edit_mode() {
-    unsafe {
-        let em = &raw mut EDIT_MODE;
-        *em = super::super::edit_mode::EditMode::new();
-    }
+    KEYPAD
+        .edit_mode
+        .set(super::super::edit_mode::EditMode::new());
 }
 
 #[cfg(not(has_buttons))]
@@ -249,24 +298,6 @@ fn scroll_lone_scroll_view(key: u32) {
     }
 }
 
-/// Whether the last edge read was a press: a key is down until its release
-/// is read. The system keyboard waits for that release before it takes the
-/// focus (`take_pending_focus`), or the release would land on its first key.
-#[cfg(has_buttons)]
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static KEY_HELD: Core0<Cell<bool>> = unsafe { Core0::new(Cell::new(false)) };
-
-/// The LVGL key the last press edge was given and that is still down, if
-/// any (docs/designs/app-portability-2026-10.md Stage 10). A quiet read
-/// pass reports it pressed again, so LVGL's keypad clock runs on it: a
-/// held ENTER long-presses the focused widget (`OnLongClickListener`), a
-/// held PREV/NEXT walks the focus ring at LVGL's repeat rate. The newest
-/// press wins (LVGL's keypad knows one key at a time); a press the edit
-/// mode or a remap kept from LVGL holds nothing.
-#[cfg(has_buttons)]
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static LVGL_KEY_HELD: Core0<Cell<Option<(u8, u32)>>> = unsafe { Core0::new(Cell::new(None)) };
-
 // ── HOME on a held BACK ─────────────────────────────────────────────────────
 //
 // A board with a launcher but no HOME key reaches HOME by holding BACK for
@@ -277,45 +308,32 @@ static LVGL_KEY_HELD: Core0<Cell<Option<(u8, u32)>>> = unsafe { Core0::new(Cell:
 // long-press on the way (the Java repeat engine does that), then the HOME,
 // then a release flagged cancelled so `onBackPressed` stays out of it.
 
-/// When the current BACK press landed, while it is held.
-#[cfg(has_buttons)]
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static BACK_HELD_SINCE_MS: Core0<Cell<Option<u64>>> = unsafe { Core0::new(Cell::new(None)) };
-/// Whether this hold has already become HOME.
-#[cfg(has_buttons)]
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static BACK_HOME_FIRED: Core0<Cell<bool>> = unsafe { Core0::new(Cell::new(false)) };
-/// Set when a hold became HOME, for the dispatcher to cancel the release.
-#[cfg(has_buttons)]
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static BACK_UP_CANCELLED: Core0<Cell<bool>> = unsafe { Core0::new(Cell::new(false)) };
-
 /// A BACK edge: start or end the hold.
 #[cfg(has_buttons)]
 fn note_back_edge(rising: bool, edge_ms: u64) {
     if rising {
-        BACK_HELD_SINCE_MS.set(None);
-        if BACK_HOME_FIRED.replace(false) {
-            BACK_UP_CANCELLED.set(true);
+        KEYPAD.back_held_since_ms.set(None);
+        if KEYPAD.back_home_fired.replace(false) {
+            KEYPAD.back_up_cancelled.set(true);
         }
     } else {
-        BACK_HELD_SINCE_MS.set(Some(edge_ms));
-        BACK_HOME_FIRED.set(false);
+        KEYPAD.back_held_since_ms.set(Some(edge_ms));
+        KEYPAD.back_home_fired.set(false);
     }
 }
 
 /// Once per read pass: a BACK held past the threshold becomes HOME, once.
 #[cfg(has_buttons)]
 fn check_back_hold(now_ms: u64) {
-    let Some(since) = BACK_HELD_SINCE_MS.get() else {
+    let Some(since) = KEYPAD.back_held_since_ms.get() else {
         return;
     };
-    if BACK_HOME_FIRED.get()
+    if KEYPAD.back_home_fired.get()
         || now_ms.saturating_sub(since) < u64::from(crate::board_cfg::input::HOME_HOLD_MS)
     {
         return;
     }
-    BACK_HOME_FIRED.set(true);
+    KEYPAD.back_home_fired.set(true);
     crate::pd_info!("key: BACK held -> HOME");
     crate::input_inject::push_soft_key_press(crate::input_inject::KEYCODE_HOME);
 }
@@ -325,7 +343,7 @@ fn check_back_hold(now_ms: u64) {
 pub fn take_back_up_cancelled() -> bool {
     #[cfg(has_buttons)]
     {
-        BACK_UP_CANCELLED.replace(false)
+        KEYPAD.back_up_cancelled.replace(false)
     }
     #[cfg(not(has_buttons))]
     {
@@ -337,8 +355,8 @@ pub fn take_back_up_cancelled() -> bool {
 /// Forget a key held across an app reset.
 #[cfg(has_buttons)]
 pub(super) fn reset_held() {
-    LVGL_KEY_HELD.set(None);
-    KEY_HELD.set(false);
+    KEYPAD.lvgl_key_held.set(None);
+    KEYPAD.key_held.set(false);
 }
 #[cfg(not(has_buttons))]
 pub(super) fn reset_held() {}
@@ -358,11 +376,7 @@ pub(super) unsafe extern "C" fn keypad_read_cb(
     let debounced = loop {
         match hal::gpio::drain_gpio_event() {
             Some(ev) => {
-                let accepted = unsafe {
-                    let deb = &raw mut KEY_DEBOUNCE;
-                    (*deb).accept(ev.pin, ev.t_us)
-                };
-                if accepted {
+                if update(&KEYPAD.debounce, |deb| deb.accept(ev.pin, ev.t_us)) {
                     break Some(ev);
                 }
             }
@@ -370,7 +384,7 @@ pub(super) unsafe extern "C" fn keypad_read_cb(
         }
     };
     if let Some(event) = debounced {
-        KEY_HELD.set(!event.rising);
+        KEYPAD.key_held.set(!event.rising);
         // A real edge: the panel stays on (power.rs).
         crate::power::user_activity();
         if crate::board_cfg::input::BACK_HOLD_IS_HOME
@@ -394,10 +408,9 @@ pub(super) unsafe extern "C" fn keypad_read_cb(
         let (focused, kind) = focused_obj_for_edit_mode();
         let decision = match key {
             Some(k) => {
-                let (decision, transition) = unsafe {
-                    let em = &raw mut EDIT_MODE;
-                    (*em).filter(k, !event.rising, focused, kind)
-                };
+                let (decision, transition) = update(&KEYPAD.edit_mode, |em| {
+                    em.filter(k, !event.rising, focused, kind)
+                });
                 apply_edit_transition(transition);
                 decision
             }
@@ -452,11 +465,12 @@ pub(super) unsafe extern "C" fn keypad_read_cb(
         // What LVGL holds between edges: this press, or nothing once its
         // pin — or any pin, when the press never reached LVGL — comes up.
         match (event.rising, decision.lvgl_key) {
-            (false, Some(k)) => LVGL_KEY_HELD.set(Some((event.pin, k))),
+            (false, Some(k)) => KEYPAD.lvgl_key_held.set(Some((event.pin, k))),
             (false, None) => {}
             (true, _) => {
-                if LVGL_KEY_HELD.get().is_none_or(|(pin, _)| pin == event.pin) {
-                    LVGL_KEY_HELD.set(None);
+                let held = &KEYPAD.lvgl_key_held;
+                if held.get().is_none_or(|(pin, _)| pin == event.pin) {
+                    held.set(None);
                 }
             }
         }
@@ -473,7 +487,7 @@ pub(super) unsafe extern "C" fn keypad_read_cb(
         d.continue_reading = hal::gpio::has_pending_event() && !activation;
     } else {
         // No edge: the key LVGL was last given is still down, or nothing is.
-        match LVGL_KEY_HELD.get() {
+        match KEYPAD.lvgl_key_held.get() {
             Some((_, k)) => {
                 d.key = k;
                 d.state = LV_INDEV_STATE_PRESSED;
@@ -484,7 +498,7 @@ pub(super) unsafe extern "C" fn keypad_read_cb(
         // A quiet pass with every key up: the key that opened the system
         // keyboard has been released, so the keyboard may take the focus
         // now without that release landing on its first key.
-        if !KEY_HELD.get() {
+        if !KEYPAD.key_held.get() {
             if let Some((kb, first_key)) = super::super::widgets::keyboard::take_pending_focus() {
                 // SAFETY: the keyboard is the live system keyboard (visible,
                 // never freed while the graphics singleton lives).

@@ -38,6 +38,7 @@
 pub const DEBOUNCE_WINDOW_US: u32 = 5_000;
 
 /// Per-pin debounce state, indexed by `pin & 0x1f`.
+#[derive(Copy, Clone)]
 pub struct KeyDebounce {
     /// `t_us` of the last accepted edge, per pin.
     last_accepted_us: [u32; 32],

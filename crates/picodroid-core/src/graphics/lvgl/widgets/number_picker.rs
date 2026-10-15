@@ -19,19 +19,27 @@ use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
 
 const MAX_PICKERS: usize = 16;
-/// (container raw ptr, Java obj_ref). Registered from the `NumberPicker`
-/// constructor via `nativeRegisterPicker`, so — unlike the listener maps —
-/// every live picker has an entry: `is_number_picker` drives the keypad
-/// edit-mode filter, and the obj_ref is the `fireStep` dispatch target.
-/// Entries are removed by the LV_EVENT_DELETE trampoline, so a recycled
-/// `lv_obj_t*` from a later Activity can't be misidentified as a picker.
-// SAFETY: a listener registry, reached only from JVM tasks.
-static PICKER_MAP: Core0<PtrMap<MAX_PICKERS>> = unsafe { Core0::new(PtrMap::new()) };
+struct State {
+    /// (container raw ptr, Java obj_ref). Registered from the `NumberPicker`
+    /// constructor via `nativeRegisterPicker`, so — unlike the listener maps —
+    /// every live picker has an entry: `is_number_picker` drives the keypad
+    /// edit-mode filter, and the obj_ref is the `fireStep` dispatch target.
+    /// Entries are removed by the LV_EVENT_DELETE trampoline, so a recycled
+    /// `lv_obj_t*` from a later Activity can't be misidentified as a picker.
+    picker_map: PtrMap<MAX_PICKERS>,
+    step_queue: LocalRing<(usize, i32), STEP_QUEUE_SIZE>,
+}
+
+// SAFETY: filled by LVGL callbacks and by natives, drained by the framework
+// loop, all on core-0 JVM tasks.
+static STATE: Core0<State> = unsafe {
+    Core0::new(State {
+        picker_map: PtrMap::new(),
+        step_queue: LocalRing::new((0, 0)),
+    })
+};
 
 const STEP_QUEUE_SIZE: usize = 16;
-// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
-static STEP_QUEUE: Core0<LocalRing<(usize, i32), STEP_QUEUE_SIZE>> =
-    unsafe { Core0::new(LocalRing::new((0, 0))) };
 
 unsafe extern "C" fn picker_defocused_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) };
@@ -48,7 +56,7 @@ unsafe extern "C" fn picker_defocused_cb(e: *mut lv_event_t) {
 
 unsafe extern "C" fn picker_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    PICKER_MAP.remove(obj);
+    STATE.picker_map.remove(obj);
     super::super::events::notify_picker_gone(obj);
 }
 
@@ -153,7 +161,7 @@ pub(in crate::graphics) fn register_picker(id: i32, obj_ref: u16) {
     if raw_ptr == 0 {
         return;
     }
-    if let Upsert::Full = PICKER_MAP.upsert(raw_ptr, obj_ref) {
+    if let Upsert::Full = STATE.picker_map.upsert(raw_ptr, obj_ref) {
         warn_full("number-picker");
     }
 }
@@ -161,26 +169,26 @@ pub(in crate::graphics) fn register_picker(id: i32, obj_ref: u16) {
 /// Whether the widget at `raw_ptr` is a registered NumberPicker. Consulted by
 /// the keypad edit-mode filter on every ENTER press.
 pub fn is_number_picker(raw_ptr: usize) -> bool {
-    PICKER_MAP.lookup(raw_ptr).is_some()
+    STATE.picker_map.lookup(raw_ptr).is_some()
 }
 
 /// Queue one edit-mode step (+1/-1) for the picker at `raw_ptr`; drained by
 /// `lifecycle::dispatch_number_picker_steps` into `NumberPicker.fireStep`.
 pub fn push_step(raw_ptr: usize, direction: i32) {
-    STEP_QUEUE.push((raw_ptr, direction));
+    STATE.step_queue.push((raw_ptr, direction));
 }
 
 pub fn drain_step_queue() -> Option<(usize, i32)> {
-    STEP_QUEUE.pop()
+    STATE.step_queue.pop()
 }
 
 pub fn lookup_picker_obj(handle: usize) -> Option<u16> {
-    PICKER_MAP.lookup(handle)
+    STATE.picker_map.lookup(handle)
 }
 
 pub fn reset_number_picker_state() {
-    PICKER_MAP.reset();
-    STEP_QUEUE.clear();
+    STATE.picker_map.reset();
+    STATE.step_queue.clear();
 }
 
 /// Visit the Java `NumberPicker` object ref of every registered picker so the
@@ -190,5 +198,5 @@ pub fn reset_number_picker_state() {
 /// `fireStep` dispatch resolves a dead ref → `NoSuchMethod`. See
 /// `widgets::button::visit_click_listener_roots`.
 pub fn visit_picker_roots(visit: &mut dyn FnMut(u16)) {
-    PICKER_MAP.visit(visit)
+    STATE.picker_map.visit(visit)
 }

@@ -85,6 +85,8 @@ mod imp {
 #[cfg(any(not(target_pointer_width = "32"), not(feature = "legacy-handle-cast")))]
 mod imp {
     use super::lv_obj_t;
+    use crate::util::local::Core0;
+    use core::cell::Cell;
     use core::ptr::null_mut;
 
     // Device slot count is board-tunable (`handle_slots` in board.toml,
@@ -108,23 +110,49 @@ mod imp {
     const _: () = assert!(SLOTS.is_power_of_two());
     const _: () = assert!(INDEX_BITS + 16 <= 31);
 
-    // SAFETY/concurrency: same `static mut` + single-threaded-JVM contract
-    // as the rest of the LVGL layer (documented in `LvglGfx::init`); tests
-    // serialize on a lock.
-    static mut PTRS: [*mut lv_obj_t; SLOTS] = [null_mut(); SLOTS];
-    static mut GENS: [u16; SLOTS] = [1; SLOTS];
-    static mut NEXT: [u16; SLOTS] = initial_free_chain();
-    static mut FREE_HEAD: u16 = 0;
-    /// Live registrations (diagnostics; reported when the table fills).
-    static mut LIVE: u16 = 0;
-    /// Handle of the pinned slot (the screen), 0 = none. Survives [`reset`].
-    static mut PINNED: i32 = 0;
+    /// The table, slot-indexed. A null `ptrs[i]` is a free slot. All zero
+    /// at boot, so it sits in .bss; the generations and the free chain,
+    /// which start non-zero, are [`LINKS`].
+    struct Table {
+        ptrs: [Cell<*mut lv_obj_t>; SLOTS],
+        free_head: Cell<u16>,
+        /// Live registrations (diagnostics; reported when the table fills).
+        live: Cell<u16>,
+        /// Handle of the pinned slot (the screen), 0 = none. Survives [`reset`].
+        pinned: Cell<i32>,
+    }
 
-    const fn initial_free_chain() -> [u16; SLOTS] {
-        let mut next = [0u16; SLOTS];
+    struct Links {
+        gens: [Cell<u16>; SLOTS],
+        /// Free-list links: the slot after `i`, or `EMPTY`.
+        next: [Cell<u16>; SLOTS],
+    }
+
+    // SAFETY: registered into and looked up by widget natives, invalidated by
+    // LVGL's delete callbacks, all on core-0 JVM tasks; the host tests
+    // serialize on a lock.
+    static TABLE: Core0<Table> = unsafe {
+        Core0::new(Table {
+            ptrs: [const { Cell::new(null_mut()) }; SLOTS],
+            free_head: Cell::new(0),
+            live: Cell::new(0),
+            pinned: Cell::new(0),
+        })
+    };
+
+    // SAFETY: `TABLE`'s other half, reached by the same functions only.
+    static LINKS: Core0<Links> = unsafe {
+        Core0::new(Links {
+            gens: [const { Cell::new(1) }; SLOTS],
+            next: initial_free_chain(),
+        })
+    };
+
+    const fn initial_free_chain() -> [Cell<u16>; SLOTS] {
+        let mut next = [const { Cell::new(0) }; SLOTS];
         let mut i = 0;
         while i < SLOTS {
-            next[i] = (i + 1) as u16; // last slot links to EMPTY (= SLOTS)
+            next[i] = Cell::new((i + 1) as u16); // last slot links to EMPTY (= SLOTS)
             i += 1;
         }
         next
@@ -159,7 +187,7 @@ mod imp {
     /// runs preserves the cached `SCREEN_HANDLE`.
     pub fn register_pinned(ptr: *mut lv_obj_t) -> i32 {
         let handle = register_impl(ptr, false);
-        unsafe { PINNED = handle };
+        TABLE.pinned.set(handle);
         handle
     }
 
@@ -168,22 +196,21 @@ mod imp {
         if ptr.is_null() {
             return 0;
         }
-        unsafe {
-            let head = FREE_HEAD;
-            if head == EMPTY {
-                note_full();
-                return 0;
-            }
-            let idx = head as usize;
-            FREE_HEAD = NEXT[idx];
-            PTRS[idx] = ptr;
-            LIVE += 1;
-            let handle = encode(GENS[idx], idx);
-            if install_hook {
-                install_delete_hook(ptr, handle);
-            }
-            handle
+        let t = &*TABLE;
+        let head = t.free_head.get();
+        if head == EMPTY {
+            note_full();
+            return 0;
         }
+        let idx = head as usize;
+        t.free_head.set(LINKS.next[idx].get());
+        t.ptrs[idx].set(ptr);
+        t.live.set(t.live.get() + 1);
+        let handle = encode(LINKS.gens[idx].get(), idx);
+        if install_hook {
+            install_delete_hook(ptr, handle);
+        }
+        handle
     }
 
     /// Look up the pointer for a handle. Returns null for id ≤ 0 or any id
@@ -202,7 +229,7 @@ mod imp {
             return false;
         }
         let idx = (id as usize) & (SLOTS - 1);
-        unsafe { encode(GENS[idx], idx) == id && !PTRS[idx].is_null() }
+        encode(LINKS.gens[idx].get(), idx) == id && !TABLE.ptrs[idx].get().is_null()
     }
 
     /// Whether `ptr` is a registered widget — one some Java object holds
@@ -213,7 +240,7 @@ mod imp {
         if ptr.is_null() {
             return false;
         }
-        (0..SLOTS).any(|i| unsafe { PTRS[i] } == ptr)
+        TABLE.ptrs.iter().any(|p| p.get() == ptr)
     }
 
     /// `View.close()` reached a widget that still sits under a Java-owned
@@ -258,42 +285,41 @@ mod imp {
             return null_mut();
         }
         let idx = (id as usize) & (SLOTS - 1);
-        unsafe {
-            if encode(GENS[idx], idx) != id {
-                note_stale(id, GENS[idx]);
-                return null_mut();
-            }
-            PTRS[idx]
+        let gen = LINKS.gens[idx].get();
+        if encode(gen, idx) != id {
+            note_stale(id, gen);
+            return null_mut();
         }
+        TABLE.ptrs[idx].get()
     }
 
     /// Invalidate every non-pinned slot and rebuild the free list (called
     /// between app runs). The pinned screen slot survives, so `SCREEN_HANDLE`
     /// stays valid across PDB app reloads.
     pub fn reset() {
-        unsafe {
-            let pinned_idx = if PINNED > 0 {
-                Some((PINNED as usize) & (SLOTS - 1))
-            } else {
-                None
-            };
-            FREE_HEAD = EMPTY;
-            LIVE = 0;
-            // Back-to-front so low slots pop first (keeps handles small).
-            let mut i = SLOTS;
-            while i > 0 {
-                i -= 1;
-                if Some(i) == pinned_idx {
-                    LIVE += 1;
-                    continue;
-                }
-                if !PTRS[i].is_null() {
-                    PTRS[i] = null_mut();
-                    GENS[i] = next_gen(GENS[i]);
-                }
-                NEXT[i] = FREE_HEAD;
-                FREE_HEAD = i as u16;
+        let t = &*TABLE;
+        let pinned = t.pinned.get();
+        let pinned_idx = if pinned > 0 {
+            Some((pinned as usize) & (SLOTS - 1))
+        } else {
+            None
+        };
+        t.free_head.set(EMPTY);
+        t.live.set(0);
+        // Back-to-front so low slots pop first (keeps handles small).
+        let mut i = SLOTS;
+        while i > 0 {
+            i -= 1;
+            if Some(i) == pinned_idx {
+                t.live.set(t.live.get() + 1);
+                continue;
             }
+            if !t.ptrs[i].get().is_null() {
+                t.ptrs[i].set(null_mut());
+                LINKS.gens[i].set(next_gen(LINKS.gens[i].get()));
+            }
+            LINKS.next[i].set(t.free_head.get());
+            t.free_head.set(i as u16);
         }
     }
 
@@ -306,14 +332,13 @@ mod imp {
             return;
         }
         let idx = (handle as usize) & (SLOTS - 1);
-        unsafe {
-            if encode(GENS[idx], idx) == handle && PTRS[idx] == obj {
-                PTRS[idx] = null_mut();
-                GENS[idx] = next_gen(GENS[idx]);
-                NEXT[idx] = FREE_HEAD;
-                FREE_HEAD = idx as u16;
-                LIVE = LIVE.saturating_sub(1);
-            }
+        let t = &*TABLE;
+        if encode(LINKS.gens[idx].get(), idx) == handle && t.ptrs[idx].get() == obj {
+            t.ptrs[idx].set(null_mut());
+            LINKS.gens[idx].set(next_gen(LINKS.gens[idx].get()));
+            LINKS.next[idx].set(t.free_head.get());
+            t.free_head.set(idx as u16);
+            t.live.set(t.live.get().saturating_sub(1));
         }
     }
 
@@ -394,7 +419,7 @@ mod imp {
         defmt::error!(
             "handle table full ({=usize} slots, {=u16} live) — widget creation returns NULL",
             SLOTS,
-            unsafe { LIVE }
+            TABLE.live.get()
         );
     }
 
@@ -445,7 +470,7 @@ mod imp {
         fn setup() -> std::sync::MutexGuard<'static, ()> {
             let guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
             sanitizer::force(false);
-            unsafe { PINNED = 0 };
+            TABLE.pinned.set(0);
             reset();
             guard
         }
@@ -544,10 +569,10 @@ mod imp {
             let _g = setup();
             let h = register(fake(7));
             let idx = h as usize & (SLOTS - 1);
-            unsafe { GENS[idx] = u16::MAX };
+            LINKS.gens[idx].set(u16::MAX);
             let h_max = encode(u16::MAX, idx);
             invalidate_if_current(h_max, fake(7));
-            unsafe { assert_eq!(GENS[idx], 1, "wrap must skip generation 0") };
+            assert_eq!(LINKS.gens[idx].get(), 1, "wrap must skip generation 0");
             let h2 = register(fake(8));
             assert!(h2 > 0, "post-wrap handle encodes non-zero");
         }

@@ -10,27 +10,34 @@ use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
 
 const QUEUE_SIZE: usize = 16;
-// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
-static QUEUE: Core0<LocalRing<usize, QUEUE_SIZE>> = unsafe { Core0::new(LocalRing::new(0)) };
+struct State {
+    queue: LocalRing<usize, QUEUE_SIZE>,
+    /// Press/release edges for onStartTrackingTouch/onStopTrackingTouch —
+    /// `(slider ptr, started)` where `started` is true on LV_EVENT_PRESSED.
+    track_queue: LocalRing<(usize, bool), QUEUE_SIZE>,
+    handle_map: PtrMap<MAX_LISTENERS>,
+}
 
-/// Press/release edges for onStartTrackingTouch/onStopTrackingTouch —
-/// `(slider ptr, started)` where `started` is true on LV_EVENT_PRESSED.
-// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
-static TRACK_QUEUE: Core0<LocalRing<(usize, bool), QUEUE_SIZE>> =
-    unsafe { Core0::new(LocalRing::new((0, false))) };
+// SAFETY: filled by LVGL's slider callbacks and by natives, drained by the
+// framework loop, all on core-0 JVM tasks.
+static STATE: Core0<State> = unsafe {
+    Core0::new(State {
+        queue: LocalRing::new(0),
+        track_queue: LocalRing::new((0, false)),
+        handle_map: PtrMap::new(),
+    })
+};
 
 const MAX_LISTENERS: usize = 32;
-// SAFETY: a listener registry, reached only from JVM tasks.
-static HANDLE_MAP: Core0<PtrMap<MAX_LISTENERS>> = unsafe { Core0::new(PtrMap::new()) };
 
 unsafe extern "C" fn map_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    HANDLE_MAP.remove(obj)
+    STATE.handle_map.remove(obj)
 }
 
 unsafe extern "C" fn value_changed_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) };
-    QUEUE.push(obj as usize);
+    STATE.queue.push(obj as usize);
 }
 
 unsafe extern "C" fn pressed_cb(e: *mut lv_event_t) {
@@ -44,7 +51,7 @@ unsafe extern "C" fn released_cb(e: *mut lv_event_t) {
 }
 
 fn enqueue_track(handle: usize, started: bool) {
-    TRACK_QUEUE.push((handle, started));
+    STATE.track_queue.push((handle, started));
 }
 
 fn create_internal(max: i32) -> i32 {
@@ -125,7 +132,7 @@ pub(in crate::graphics) fn perform_tracking_touch(id: i32) {
 pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
     let raw_ptr = handle_table::lookup(id) as usize;
     unsafe {
-        match HANDLE_MAP.upsert(raw_ptr, obj_ref) {
+        match STATE.handle_map.upsert(raw_ptr, obj_ref) {
             Upsert::Updated => {}
             Upsert::Full => warn_full("seek-bar"),
             Upsert::Inserted => {
@@ -143,19 +150,19 @@ pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
 }
 
 pub fn drain_seek_change_queue() -> Option<usize> {
-    QUEUE.pop()
+    STATE.queue.pop()
 }
 
 pub fn drain_seek_tracking_queue() -> Option<(usize, bool)> {
-    TRACK_QUEUE.pop()
+    STATE.track_queue.pop()
 }
 
 pub fn lookup_seek_bar_obj(handle: usize) -> Option<u16> {
-    HANDLE_MAP.lookup(handle)
+    STATE.handle_map.lookup(handle)
 }
 
 pub fn reset_seek_bar_state() {
-    HANDLE_MAP.reset();
-    QUEUE.clear();
-    TRACK_QUEUE.clear();
+    STATE.handle_map.reset();
+    STATE.queue.clear();
+    STATE.track_queue.clear();
 }

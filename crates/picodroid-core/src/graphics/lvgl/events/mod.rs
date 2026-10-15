@@ -69,12 +69,12 @@ pub fn keycode_to_pin(keycode: i32) -> Option<u8> {
 
 /// Pop one key event from the Java-visible queue, if any.
 pub fn drain_key_event() -> Option<KeyEventRaw> {
-    KEY_EVENT_QUEUE.pop()
+    KEYPAD.queue.pop()
 }
 
 /// Clear the key event queue between app runs.
 pub fn reset_key_event_queue() {
-    KEY_EVENT_QUEUE.clear();
+    KEYPAD.queue.clear();
 }
 
 /// Forget a key held across an app reset (Stage 10): the next app's first
@@ -157,9 +157,9 @@ pub fn reset_view_key_listener_state() {
 /// Called from `PicodroidNativeHandler::gc_visit_roots`.
 pub fn visit_view_listener_roots(visit: &mut dyn FnMut(u16)) {
     VIEW_KEY_MAP.visit(visit);
-    VIEW_TOUCH_MAP.visit(visit);
-    VIEW_SWIPE_MAP.visit(visit);
-    VIEW_FOCUS_MAP.visit(visit);
+    TOUCH.view_map.visit(visit);
+    SWIPE.view_map.visit(visit);
+    FOCUS.view_map.visit(visit);
 }
 
 /// Initialize the LVGL keypad indev, focus group, and hardware button GPIO
@@ -171,7 +171,7 @@ pub(in crate::graphics) fn init_keypad() {
         let keypad = lv_indev_create();
         lv_indev_set_type(keypad, LV_INDEV_TYPE_KEYPAD);
         lv_indev_set_read_cb(keypad, Some(keypad_read_cb));
-        KEYPAD_INDEV.set(keypad);
+        GROUPS.keypad_indev.set(keypad);
         // No default group yet: each Activity owns its own keypad focus group,
         // created by `push_activity_group()` as the Activity is launched (see
         // the "Per-Activity keypad focus groups" section). Until the first

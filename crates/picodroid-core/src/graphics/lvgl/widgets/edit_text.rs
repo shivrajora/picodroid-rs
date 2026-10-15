@@ -24,12 +24,28 @@ use crate::util::local_set::LocalSet;
 // `setShowKeyboardOnTouch(false)` end up in this list.
 
 const MAX_AUTOSHOW_OPTOUTS: usize = 16;
-// SAFETY: a widget registry, reached only from JVM tasks.
-static AUTOSHOW_DISABLED: Core0<LocalSet<usize, MAX_AUTOSHOW_OPTOUTS>> =
-    unsafe { Core0::new(LocalSet::new(0)) };
+struct State {
+    autoshow_disabled: LocalSet<usize, MAX_AUTOSHOW_OPTOUTS>,
+    numeric_fields: LocalSet<usize, MAX_NUMERIC_FIELDS>,
+    editor_action_map: PtrMap<MAX_EDITOR_ACTION_LISTENERS>,
+    text_watch_map: PtrMap<MAX_TEXT_WATCHERS>,
+    text_queue: LocalRing<usize, TEXT_QUEUE_SIZE>,
+}
+
+// SAFETY: filled by natives and LVGL's textarea callbacks, drained by the
+// framework loop, all on core-0 JVM tasks.
+static STATE: Core0<State> = unsafe {
+    Core0::new(State {
+        autoshow_disabled: LocalSet::new(0),
+        numeric_fields: LocalSet::new(0),
+        editor_action_map: PtrMap::new(),
+        text_watch_map: PtrMap::new(),
+        text_queue: LocalRing::new(0),
+    })
+};
 
 fn is_autoshow_disabled(raw_ptr: usize) -> bool {
-    AUTOSHOW_DISABLED.contains(raw_ptr)
+    STATE.autoshow_disabled.contains(raw_ptr)
 }
 
 // ── Numeric-input registry (raw lv_obj_t* of EditTexts that want a number pad) ──
@@ -39,13 +55,10 @@ fn is_autoshow_disabled(raw_ptr: usize) -> bool {
 // the default text layout for the field it's binding to.
 
 const MAX_NUMERIC_FIELDS: usize = 16;
-// SAFETY: a widget registry, reached only from JVM tasks.
-static NUMERIC_FIELDS: Core0<LocalSet<usize, MAX_NUMERIC_FIELDS>> =
-    unsafe { Core0::new(LocalSet::new(0)) };
 
 /// Whether the textarea at `raw_ptr` was marked numeric (digits-only keypad).
 pub(in crate::graphics) fn is_numeric(raw_ptr: usize) -> bool {
-    NUMERIC_FIELDS.contains(raw_ptr)
+    STATE.numeric_fields.contains(raw_ptr)
 }
 
 /// Mark/clear the EditText `id` as numeric. Idempotent in both directions.
@@ -56,9 +69,9 @@ pub(in crate::graphics) fn set_numeric(id: i32, numeric: bool) {
     }
     // A full registry drops the request, as it always has.
     if numeric {
-        NUMERIC_FIELDS.insert(raw_ptr);
+        STATE.numeric_fields.insert(raw_ptr);
     } else {
-        NUMERIC_FIELDS.remove(raw_ptr);
+        STATE.numeric_fields.remove(raw_ptr);
     }
 }
 
@@ -70,12 +83,9 @@ pub(in crate::graphics) fn set_numeric(id: i32, numeric: bool) {
 // keyboard's OK callback will skip editor-action dispatch.
 
 const MAX_EDITOR_ACTION_LISTENERS: usize = 16;
-// SAFETY: a listener registry, reached only from JVM tasks.
-static EDITOR_ACTION_MAP: Core0<PtrMap<MAX_EDITOR_ACTION_LISTENERS>> =
-    unsafe { Core0::new(PtrMap::new()) };
 
 fn lookup_editor_action_obj(raw_ptr: usize) -> u16 {
-    EDITOR_ACTION_MAP.lookup(raw_ptr).unwrap_or(0)
+    STATE.editor_action_map.lookup(raw_ptr).unwrap_or(0)
 }
 
 pub(in crate::graphics) fn register_editor_action_listener(id: i32, obj_ref: u16) {
@@ -83,7 +93,7 @@ pub(in crate::graphics) fn register_editor_action_listener(id: i32, obj_ref: u16
     if raw_ptr == 0 {
         return;
     }
-    if let Upsert::Full = EDITOR_ACTION_MAP.upsert(raw_ptr, obj_ref) {
+    if let Upsert::Full = STATE.editor_action_map.upsert(raw_ptr, obj_ref) {
         warn_full("editor-action");
     }
 }
@@ -95,13 +105,8 @@ pub(in crate::graphics) fn register_editor_action_listener(id: i32, obj_ref: u16
 // installed lazily on first registration so unwatched fields never enqueue.
 
 const MAX_TEXT_WATCHERS: usize = 16;
-// SAFETY: a listener registry, reached only from JVM tasks.
-static TEXT_WATCH_MAP: Core0<PtrMap<MAX_TEXT_WATCHERS>> = unsafe { Core0::new(PtrMap::new()) };
 
 const TEXT_QUEUE_SIZE: usize = 16;
-// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
-static TEXT_QUEUE: Core0<LocalRing<usize, TEXT_QUEUE_SIZE>> =
-    unsafe { Core0::new(LocalRing::new(0)) };
 
 unsafe extern "C" fn textarea_value_changed_cb(e: *mut lv_event_t) {
     let ta = unsafe { lv_event_get_target_obj(e) };
@@ -111,10 +116,10 @@ unsafe extern "C" fn textarea_value_changed_cb(e: *mut lv_event_t) {
     // Coalesce: the Java side re-reads the final text at dispatch time,
     // so collapsing a burst of per-keystroke events into one queue entry
     // is lossless and keeps fast typing from overflowing the ring.
-    if TEXT_QUEUE.any(|queued| queued == ta as usize) {
+    if STATE.text_queue.any(|queued| queued == ta as usize) {
         return;
     }
-    TEXT_QUEUE.push(ta as usize);
+    STATE.text_queue.push(ta as usize);
 }
 
 pub(in crate::graphics) fn register_text_changed_listener(id: i32, obj_ref: u16) {
@@ -123,7 +128,7 @@ pub(in crate::graphics) fn register_text_changed_listener(id: i32, obj_ref: u16)
         return;
     }
     unsafe {
-        match TEXT_WATCH_MAP.upsert(raw_ptr, obj_ref) {
+        match STATE.text_watch_map.upsert(raw_ptr, obj_ref) {
             // Event cb already installed.
             Upsert::Updated => {}
             Upsert::Full => warn_full("text-watcher"),
@@ -140,17 +145,17 @@ pub(in crate::graphics) fn register_text_changed_listener(id: i32, obj_ref: u16)
 }
 
 pub fn drain_text_changed_queue() -> Option<usize> {
-    TEXT_QUEUE.pop()
+    STATE.text_queue.pop()
 }
 
 pub fn lookup_text_watch_obj(handle: usize) -> Option<u16> {
-    TEXT_WATCH_MAP.lookup(handle)
+    STATE.text_watch_map.lookup(handle)
 }
 
 /// GC roots for the TextWatcher map — same contract as
 /// [`visit_editor_action_listener_roots`].
 pub fn visit_text_changed_listener_roots(visit: &mut dyn FnMut(u16)) {
-    TEXT_WATCH_MAP.visit(visit)
+    STATE.text_watch_map.visit(visit)
 }
 
 /// Purge the dying textarea from every per-widget registry in this module:
@@ -158,10 +163,10 @@ pub fn visit_text_changed_listener_roots(visit: &mut dyn FnMut(u16)) {
 /// there would apply this field's flags to a recycled address).
 unsafe extern "C" fn edit_text_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    EDITOR_ACTION_MAP.remove(obj);
-    TEXT_WATCH_MAP.remove(obj);
-    AUTOSHOW_DISABLED.remove(obj);
-    NUMERIC_FIELDS.remove(obj);
+    STATE.editor_action_map.remove(obj);
+    STATE.text_watch_map.remove(obj);
+    STATE.autoshow_disabled.remove(obj);
+    STATE.numeric_fields.remove(obj);
 }
 
 unsafe extern "C" fn textarea_pressed_cb(e: *mut lv_event_t) {
@@ -225,18 +230,18 @@ pub(in crate::graphics) fn set_autoshow(id: i32, enabled: bool) {
     }
     // A full registry drops the request, as it always has.
     if enabled {
-        AUTOSHOW_DISABLED.remove(raw_ptr);
+        STATE.autoshow_disabled.remove(raw_ptr);
     } else {
-        AUTOSHOW_DISABLED.insert(raw_ptr);
+        STATE.autoshow_disabled.insert(raw_ptr);
     }
 }
 
 pub fn reset_edit_text_state() {
-    AUTOSHOW_DISABLED.clear();
-    EDITOR_ACTION_MAP.reset();
-    NUMERIC_FIELDS.clear();
-    TEXT_WATCH_MAP.reset();
-    TEXT_QUEUE.clear();
+    STATE.autoshow_disabled.clear();
+    STATE.editor_action_map.reset();
+    STATE.numeric_fields.clear();
+    STATE.text_watch_map.reset();
+    STATE.text_queue.clear();
 }
 
 /// Visit the Java `EditText` object ref of every textarea registered for an
@@ -246,7 +251,7 @@ pub fn reset_edit_text_state() {
 /// later dispatch resolves a dead ref → `NoSuchMethod`. See
 /// `widgets::button::visit_click_listener_roots`.
 pub fn visit_editor_action_listener_roots(visit: &mut dyn FnMut(u16)) {
-    EDITOR_ACTION_MAP.visit(visit)
+    STATE.editor_action_map.visit(visit)
 }
 
 /// Mask the field's text (`InputType.TYPE_TEXT_VARIATION_PASSWORD`): LVGL

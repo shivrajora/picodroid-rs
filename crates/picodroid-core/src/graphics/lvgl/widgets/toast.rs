@@ -44,14 +44,22 @@ const EMPTY_SLOT: ToastSlot = ToastSlot {
     armed: false,
 };
 
-static mut TOAST_SLOTS: [ToastSlot; MAX_TOASTS] = [EMPTY_SLOT; MAX_TOASTS];
+struct State {
+    slots: [Cell<ToastSlot>; MAX_TOASTS],
+    /// Monotonic millisecond counter accumulated from `LvglGfx::tick(ms)`.
+    /// Not the same clock as `system_clock::elapsed_realtime_nanos` — using
+    /// the tick-driven clock avoids depending on hardware time in sim builds
+    /// and stays drift-free with the LVGL animation loop.
+    elapsed_ms: Cell<u64>,
+}
 
-/// Monotonic millisecond counter accumulated from `LvglGfx::tick(ms)`. Not
-/// the same clock as `system_clock::elapsed_realtime_nanos` — using the
-/// tick-driven clock avoids depending on hardware time in sim builds and
-/// stays drift-free with the LVGL animation loop.
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static ELAPSED_MS: Core0<Cell<u64>> = unsafe { Core0::new(Cell::new(0)) };
+// SAFETY: written by natives and the frame tick, both on core-0 JVM tasks.
+static STATE: Core0<State> = unsafe {
+    Core0::new(State {
+        slots: [const { Cell::new(EMPTY_SLOT) }; MAX_TOASTS],
+        elapsed_ms: Cell::new(0),
+    })
+};
 
 // ── LVGL ops ────────────────────────────────────────────────────────────────
 
@@ -131,42 +139,41 @@ pub(in crate::graphics) fn set_duration(id: i32, duration: i32) {
         return;
     }
     let ms = duration_to_ms(duration);
-    unsafe {
-        for slot in &mut TOAST_SLOTS[..] {
-            if slot.handle == toast as usize {
-                slot.duration_ms = ms;
-                return;
-            }
-        }
+    if let Some(slot) = STATE
+        .slots
+        .iter()
+        .find(|s| s.get().handle == toast as usize)
+    {
+        slot.set(ToastSlot {
+            duration_ms: ms,
+            ..slot.get()
+        });
     }
 }
 
 /// Called from `LvglGfx::tick(ms)` each frame. Advances the internal clock
 /// and deletes any toasts whose deadline has passed.
 pub fn tick(ms: u32) {
-    unsafe {
-        ELAPSED_MS.set(ELAPSED_MS.get().saturating_add(ms as u64));
-        let now = ELAPSED_MS.get();
-        for slot in &mut TOAST_SLOTS[..] {
-            if !slot.armed || slot.handle == 0 {
-                continue;
-            }
-            if now >= slot.expire_at_ms {
-                let toast = slot.handle as *mut lv_obj_t;
-                *slot = EMPTY_SLOT;
-                super::super::view_ops::delete_obj(toast);
-            }
+    let elapsed = &STATE.elapsed_ms;
+    elapsed.set(elapsed.get().saturating_add(ms as u64));
+    let now = elapsed.get();
+    for slot in &STATE.slots {
+        let s = slot.get();
+        if !s.armed || s.handle == 0 {
+            continue;
+        }
+        if now >= s.expire_at_ms {
+            slot.set(EMPTY_SLOT);
+            super::super::view_ops::delete_obj(s.handle as *mut lv_obj_t);
         }
     }
 }
 
 pub fn reset_toast_state() {
-    unsafe {
-        for slot in &mut TOAST_SLOTS[..] {
-            *slot = EMPTY_SLOT;
-        }
-        ELAPSED_MS.set(0);
+    for slot in &STATE.slots {
+        slot.set(EMPTY_SLOT);
     }
+    STATE.elapsed_ms.set(0);
 }
 
 // ── Internals ───────────────────────────────────────────────────────────────
@@ -179,41 +186,30 @@ fn duration_to_ms(duration: i32) -> u32 {
 }
 
 fn register_pending(toast_ptr: usize, duration_ms: u32) {
-    unsafe {
-        for slot in &mut TOAST_SLOTS[..] {
-            if slot.handle == 0 {
-                *slot = ToastSlot {
-                    handle: toast_ptr,
-                    duration_ms,
-                    expire_at_ms: 0,
-                    armed: false,
-                };
-                return;
-            }
-        }
+    if let Some(slot) = STATE.slots.iter().find(|s| s.get().handle == 0) {
+        slot.set(ToastSlot {
+            handle: toast_ptr,
+            duration_ms,
+            expire_at_ms: 0,
+            armed: false,
+        });
     }
 }
 
 fn arm(toast_ptr: usize) {
-    unsafe {
-        let now = ELAPSED_MS.get();
-        for slot in &mut TOAST_SLOTS[..] {
-            if slot.handle == toast_ptr {
-                slot.expire_at_ms = now + slot.duration_ms as u64;
-                slot.armed = true;
-                return;
-            }
-        }
+    let now = STATE.elapsed_ms.get();
+    if let Some(slot) = STATE.slots.iter().find(|s| s.get().handle == toast_ptr) {
+        let s = slot.get();
+        slot.set(ToastSlot {
+            expire_at_ms: now + s.duration_ms as u64,
+            armed: true,
+            ..s
+        });
     }
 }
 
 fn unregister(toast_ptr: usize) {
-    unsafe {
-        for slot in &mut TOAST_SLOTS[..] {
-            if slot.handle == toast_ptr {
-                *slot = EMPTY_SLOT;
-                return;
-            }
-        }
+    if let Some(slot) = STATE.slots.iter().find(|s| s.get().handle == toast_ptr) {
+        slot.set(EMPTY_SLOT);
     }
 }

@@ -71,42 +71,48 @@ pub fn fit(design: (u16, u16), panel: (u16, u16)) -> Window {
 
 const PANEL: (u16, u16) = (hal::display::WIDTH, hal::display::HEIGHT);
 
-/// The design size the running app declared, if any. Set by `run_app`
-/// before the app's first frame, possibly before LVGL exists; applied by
-/// [`sync`] once it does.
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static DESIGN: Core0<Cell<Option<(u16, u16)>>> = unsafe { Core0::new(Cell::new(None)) };
+struct State {
+    /// The design size the running app declared, if any. Set by `run_app`
+    /// before the app's first frame, possibly before LVGL exists; applied by
+    /// [`sync`] once it does.
+    design: Cell<Option<(u16, u16)>>,
+    /// The window in effect.
+    current: Cell<Window>,
+    /// The window object on the screen, null while the window is the screen.
+    container: Cell<*mut lv_obj_t>,
+}
 
-/// The window in effect.
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static CURRENT: Core0<Cell<Window>> =
-    unsafe { Core0::new(Cell::new(Window::panel(PANEL.0, PANEL.1))) };
-
-/// The window object on the screen, null while the window is the screen.
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static CONTAINER: Core0<Cell<*mut lv_obj_t>> = unsafe { Core0::new(Cell::new(null_mut())) };
+// SAFETY: set by the app loader and `Display` natives, read by widget
+// natives, all on core-0 JVM tasks.
+static STATE: Core0<State> = unsafe {
+    Core0::new(State {
+        design: Cell::new(None),
+        current: Cell::new(Window::panel(PANEL.0, PANEL.1)),
+        container: Cell::new(null_mut()),
+    })
+};
 
 /// The app's window: the panel unless a design size applied.
 pub fn current() -> Window {
-    CURRENT.get()
+    STATE.current.get()
 }
 
 /// The logical size the app lays out against: its design size as soon as
 /// `run_app` has read the manifest (before LVGL exists on a cold boot, and
 /// before the window object does), else the panel.
 pub fn size() -> (u16, u16) {
-    DESIGN.get().unwrap_or(PANEL)
+    STATE.design.get().unwrap_or(PANEL)
 }
 
 /// Whether a window other than the panel is in effect.
 pub fn active() -> bool {
-    !CONTAINER.get().is_null()
+    !STATE.container.get().is_null()
 }
 
 /// Where new views and content roots belong: the window object, or the
 /// screen when the window is the screen.
 pub fn content_root() -> *mut lv_obj_t {
-    let c = CONTAINER.get();
+    let c = STATE.container.get();
     if c.is_null() {
         // SAFETY: LVGL is initialised whenever a view is created; the active
         // screen exists for the program's life.
@@ -131,7 +137,7 @@ pub fn reset_pan() {
     // deletes it. A scroll of zero is a no-op.
     unsafe {
         lv_obj_scroll_to(lv_screen_active(), 0, 0, LV_ANIM_OFF);
-        let c = CONTAINER.get();
+        let c = STATE.container.get();
         if !c.is_null() {
             lv_obj_scroll_to(c, 0, 0, LV_ANIM_OFF);
         }
@@ -142,7 +148,7 @@ pub fn reset_pan() {
 /// the screen. Applied now when LVGL is up, else by [`sync`] when it comes
 /// up (`lifecycle::init`).
 pub fn set_design(design: Option<(u16, u16)>) {
-    DESIGN.set(design);
+    STATE.design.set(design);
     sync();
 }
 
@@ -152,12 +158,12 @@ pub fn sync() {
     if !super::is_initialized() {
         return;
     }
-    let want = match DESIGN.get() {
+    let want = match STATE.design.get() {
         Some(design) => fit(design, PANEL),
         None => Window::panel(PANEL.0, PANEL.1),
     };
     let windowed = want.differs_from(PANEL);
-    if want == CURRENT.get() && windowed == active() {
+    if want == STATE.current.get() && windowed == active() {
         return;
     }
     // LVGL is initialised (checked above) and this runs on the UI task
@@ -171,7 +177,7 @@ pub fn sync() {
         // object about to go (its children, the previous app's views, go
         // with it).
         super::lifecycle::set_content_parent(scr, false);
-        let old = CONTAINER.replace(null_mut());
+        let old = STATE.container.replace(null_mut());
         if !old.is_null() {
             lv_obj_delete(old);
         }
@@ -191,12 +197,12 @@ pub fn sync() {
             lv_obj_remove_flag(c, LV_OBJ_FLAG_SCROLLABLE);
             lv_obj_set_size(c, want.width as i32, want.height as i32);
             lv_obj_set_pos(c, want.x as i32, want.y as i32);
-            CONTAINER.set(c);
+            STATE.container.set(c);
             super::lifecycle::set_content_parent(c, true);
         }
         lv_obj_invalidate(scr);
     }
-    CURRENT.set(want);
+    STATE.current.set(want);
     if windowed {
         crate::pd_info!(
             "window {}x{} @ ({},{}) on the {}x{} panel",

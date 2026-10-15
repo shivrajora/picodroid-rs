@@ -21,21 +21,27 @@ pub struct SwipeRecord {
 }
 
 pub(super) const SWIPE_QUEUE_SIZE: usize = 16;
-// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
-pub(super) static SWIPE_QUEUE: Core0<LocalRing<SwipeRecord, SWIPE_QUEUE_SIZE>> = unsafe {
-    Core0::new(LocalRing::new(SwipeRecord {
-        view_handle: 0,
-        direction: 0,
-    }))
-};
 
-// SAFETY: a listener registry, reached only from JVM tasks.
-pub(super) static VIEW_SWIPE_MAP: Core0<PtrMap<MAX_SWIPE_LISTENERS>> =
-    unsafe { Core0::new(PtrMap::new()) };
+pub(super) struct Swipe {
+    queue: LocalRing<SwipeRecord, SWIPE_QUEUE_SIZE>,
+    pub(super) view_map: PtrMap<MAX_SWIPE_LISTENERS>,
+}
+
+// SAFETY: filled by LVGL's gesture callback and by natives, drained by the
+// framework loop, all on core-0 JVM tasks.
+pub(super) static SWIPE: Core0<Swipe> = unsafe {
+    Core0::new(Swipe {
+        queue: LocalRing::new(SwipeRecord {
+            view_handle: 0,
+            direction: 0,
+        }),
+        view_map: PtrMap::new(),
+    })
+};
 
 pub(super) unsafe extern "C" fn swipe_map_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    VIEW_SWIPE_MAP.remove(obj)
+    SWIPE.view_map.remove(obj)
 }
 
 pub(super) unsafe extern "C" fn swipe_gesture_cb(e: *mut lv_event_t) {
@@ -52,7 +58,7 @@ pub(super) unsafe extern "C" fn swipe_gesture_cb(e: *mut lv_event_t) {
         if super::super::widgets::swipe_refresh_layout::intercept(obj as *mut lv_obj_t, dir) {
             return;
         }
-        SWIPE_QUEUE.push(SwipeRecord {
+        SWIPE.queue.push(SwipeRecord {
             view_handle: obj,
             direction: dir as i32,
         });
@@ -66,7 +72,7 @@ pub fn register_view_swipe_listener(id: i32, obj_ref: u16) {
     }
     let raw_ptr = raw_obj as usize;
     unsafe {
-        match VIEW_SWIPE_MAP.upsert(raw_ptr, obj_ref) {
+        match SWIPE.view_map.upsert(raw_ptr, obj_ref) {
             Upsert::Updated => return,
             Upsert::Full => {
                 warn_full("view-swipe");
@@ -96,14 +102,14 @@ pub fn register_view_swipe_listener(id: i32, obj_ref: u16) {
 }
 
 pub fn drain_swipe_event() -> Option<SwipeRecord> {
-    SWIPE_QUEUE.pop()
+    SWIPE.queue.pop()
 }
 
 pub fn lookup_swipe_view_obj(handle: usize) -> Option<u16> {
-    VIEW_SWIPE_MAP.lookup(handle)
+    SWIPE.view_map.lookup(handle)
 }
 
 pub fn reset_view_swipe_listener_state() {
-    VIEW_SWIPE_MAP.reset();
-    SWIPE_QUEUE.clear();
+    SWIPE.view_map.reset();
+    SWIPE.queue.clear();
 }

@@ -21,6 +21,7 @@ use super::super::lifecycle;
 use super::super::listener_map::{warn_full, PtrMap, Upsert};
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
+use core::cell::Cell;
 
 const HOURS_24: &[u8] = b"00\n01\n02\n03\n04\n05\n06\n07\n08\n09\n10\n11\n\
 12\n13\n14\n15\n16\n17\n18\n19\n20\n21\n22\n23\0";
@@ -61,27 +62,47 @@ const EMPTY_SLOT: PickerSlot = PickerSlot {
     hour: 0,
     minute: 0,
     am_pm: 0,
-    is_24hour: true,
+    // Never read: a free slot is matched by no container, and
+    // `register_picker` writes every field. False keeps the table in .bss.
+    is_24hour: false,
     suppress: false,
 };
-
-static mut SLOTS: [PickerSlot; MAX_PICKERS] = [EMPTY_SLOT; MAX_PICKERS];
 
 // ── Change-event ring buffer ────────────────────────────────────────────────
 
 const QUEUE_SIZE: usize = 8;
-// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
-static QUEUE: Core0<LocalRing<usize, QUEUE_SIZE>> = unsafe { Core0::new(LocalRing::new(0)) };
 
 // ── Container → Java object map ─────────────────────────────────────────────
 
 const MAX_LISTENERS: usize = 4;
-// SAFETY: a listener registry, reached only from JVM tasks.
-static HANDLE_MAP: Core0<PtrMap<MAX_LISTENERS>> = unsafe { Core0::new(PtrMap::new()) };
+
+// ── Roller → container map (so the trampoline can resolve the parent) ──────
+//
+// Three rollers per picker (hour, minute, am_pm).
+
+const MAX_ROLLERS: usize = MAX_PICKERS * 3;
+
+struct State {
+    slots: [Cell<PickerSlot>; MAX_PICKERS],
+    queue: LocalRing<usize, QUEUE_SIZE>,
+    handle_map: PtrMap<MAX_LISTENERS>,
+    roller_map: [Cell<(usize, usize)>; MAX_ROLLERS],
+}
+
+// SAFETY: filled by natives and LVGL callbacks, drained by natives, all on
+// core-0 JVM tasks.
+static STATE: Core0<State> = unsafe {
+    Core0::new(State {
+        slots: [const { Cell::new(EMPTY_SLOT) }; MAX_PICKERS],
+        queue: LocalRing::new(0),
+        handle_map: PtrMap::new(),
+        roller_map: [const { Cell::new((0, 0)) }; MAX_ROLLERS],
+    })
+};
 
 unsafe extern "C" fn map_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    HANDLE_MAP.remove(obj)
+    STATE.handle_map.remove(obj)
 }
 
 /// Release a picker's `SLOTS` entry and its three `ROLLER_MAP` entries when the
@@ -97,50 +118,41 @@ unsafe extern "C" fn slot_delete_cb(e: *mut lv_event_t) {
     if container == 0 {
         return;
     }
-    unsafe {
-        for slot in &mut SLOTS[..] {
-            if slot.container == container {
-                *slot = EMPTY_SLOT;
-            }
+    for slot in &STATE.slots {
+        if slot.get().container == container {
+            slot.set(EMPTY_SLOT);
         }
-        for entry in &mut ROLLER_MAP[..] {
-            if entry.1 == container {
-                *entry = (0, 0);
-            }
-        }
-        HANDLE_MAP.remove(container);
     }
+    for entry in &STATE.roller_map {
+        if entry.get().1 == container {
+            entry.set((0, 0));
+        }
+    }
+    STATE.handle_map.remove(container);
 }
-
-// ── Roller → container map (so the trampoline can resolve the parent) ──────
-//
-// Three rollers per picker (hour, minute, am_pm).
-
-const MAX_ROLLERS: usize = MAX_PICKERS * 3;
-static mut ROLLER_MAP: [(usize, usize); MAX_ROLLERS] = [(0, 0); MAX_ROLLERS];
 
 unsafe extern "C" fn value_changed_cb(e: *mut lv_event_t) {
     let roller = unsafe { lv_event_get_target_obj(e) } as usize;
-    unsafe {
-        let mut container: usize = 0;
-        for &(r, c) in &ROLLER_MAP[..] {
-            if r == roller {
-                container = c;
-                break;
-            }
-        }
-        if container == 0 {
-            return;
-        }
-        // Drop programmatic events — they happen during set_is_24hour /
-        // set_time round-trips and should not look like user input.
-        for slot in &SLOTS[..] {
-            if slot.container == container && slot.suppress {
-                return;
-            }
-        }
-        QUEUE.push(container);
+    let container = STATE
+        .roller_map
+        .iter()
+        .map(Cell::get)
+        .find(|&(r, _)| r == roller)
+        .map_or(0, |(_, c)| c);
+    if container == 0 {
+        return;
     }
+    // Drop programmatic events — they happen during set_is_24hour /
+    // set_time round-trips and should not look like user input.
+    if STATE
+        .slots
+        .iter()
+        .map(Cell::get)
+        .any(|slot| slot.container == container && slot.suppress)
+    {
+        return;
+    }
+    STATE.queue.push(container);
 }
 
 pub(in crate::graphics) fn create() -> i32 {
@@ -313,7 +325,8 @@ pub(in crate::graphics) fn set_is_24hour(id: i32, is_24hour: bool) {
         Some(i) => i,
         None => return,
     };
-    let prev_24hour = unsafe { SLOTS[slot_idx].is_24hour };
+    let cell = &STATE.slots[slot_idx];
+    let prev_24hour = cell.get().is_24hour;
     if prev_24hour == is_24hour {
         return;
     }
@@ -321,7 +334,7 @@ pub(in crate::graphics) fn set_is_24hour(id: i32, is_24hour: bool) {
     // the round-trip preserves what the user was looking at.
     let saved_h = read_24hour(slot_idx);
     let saved_m = unsafe {
-        let m_ptr = SLOTS[slot_idx].minute as *mut lv_obj_t;
+        let m_ptr = cell.get().minute as *mut lv_obj_t;
         if m_ptr.is_null() {
             0
         } else {
@@ -329,12 +342,14 @@ pub(in crate::graphics) fn set_is_24hour(id: i32, is_24hour: bool) {
         }
     };
 
+    cell.set(PickerSlot {
+        suppress: true,
+        is_24hour,
+        ..cell.get()
+    });
     unsafe {
-        SLOTS[slot_idx].suppress = true;
-        SLOTS[slot_idx].is_24hour = is_24hour;
-
-        let hour_ptr = SLOTS[slot_idx].hour as *mut lv_obj_t;
-        let am_pm_ptr = SLOTS[slot_idx].am_pm as *mut lv_obj_t;
+        let hour_ptr = cell.get().hour as *mut lv_obj_t;
+        let am_pm_ptr = cell.get().am_pm as *mut lv_obj_t;
 
         if is_24hour {
             // 24-hour: swap to the 0..23 list, hide AM/PM column.
@@ -365,7 +380,10 @@ pub(in crate::graphics) fn set_is_24hour(id: i32, is_24hour: bool) {
 
     apply_hour_and_minute(slot_idx, saved_h, saved_m as u32);
 
-    unsafe { SLOTS[slot_idx].suppress = false };
+    cell.set(PickerSlot {
+        suppress: false,
+        ..cell.get()
+    });
 }
 
 pub(in crate::graphics) fn is_24hour(id: i32) -> bool {
@@ -384,7 +402,7 @@ pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
         return;
     }
     unsafe {
-        match HANDLE_MAP.upsert(raw_ptr, obj_ref) {
+        match STATE.handle_map.upsert(raw_ptr, obj_ref) {
             Upsert::Updated => {}
             Upsert::Full => warn_full("time-picker"),
             Upsert::Inserted => {
@@ -402,76 +420,69 @@ pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
 }
 
 pub fn drain_time_picker_queue() -> Option<usize> {
-    QUEUE.pop()
+    STATE.queue.pop()
 }
 
 pub fn lookup_time_picker_obj(handle: usize) -> Option<u16> {
-    HANDLE_MAP.lookup(handle)
+    STATE.handle_map.lookup(handle)
 }
 
 pub fn reset_time_picker_state() {
-    unsafe {
-        for slot in &mut SLOTS[..] {
-            *slot = EMPTY_SLOT;
-        }
-        for entry in &mut ROLLER_MAP[..] {
-            *entry = (0, 0);
-        }
-        HANDLE_MAP.reset();
-        QUEUE.clear();
+    for slot in &STATE.slots {
+        slot.set(EMPTY_SLOT);
     }
+    for entry in &STATE.roller_map {
+        entry.set((0, 0));
+    }
+    STATE.handle_map.reset();
+    STATE.queue.clear();
 }
 
 // ── Internals ───────────────────────────────────────────────────────────────
 
 fn register_picker(container: usize, hour: usize, minute: usize, am_pm: usize) {
-    unsafe {
-        match SLOTS[..].iter().position(|s| s.container == 0) {
-            Some(i) => {
-                SLOTS[i] = PickerSlot {
-                    container,
-                    hour,
-                    minute,
-                    am_pm,
-                    is_24hour: true,
-                    suppress: false,
-                };
-            }
-            // A picker with no slot is inert: set_time does nothing and the
-            // getters answer zero. Say so rather than hand back a widget that
-            // quietly ignores every call made on it.
-            None => warn_full("time-picker slots"),
-        }
-        for &r in &[hour, minute, am_pm] {
-            for entry in &mut ROLLER_MAP[..] {
-                if entry.0 == 0 {
-                    *entry = (r, container);
-                    break;
-                }
-            }
+    match STATE.slots.iter().find(|s| s.get().container == 0) {
+        Some(slot) => slot.set(PickerSlot {
+            container,
+            hour,
+            minute,
+            am_pm,
+            is_24hour: true,
+            suppress: false,
+        }),
+        // A picker with no slot is inert: set_time does nothing and the
+        // getters answer zero. Say so rather than hand back a widget that
+        // quietly ignores every call made on it.
+        None => warn_full("time-picker slots"),
+    }
+    for &r in &[hour, minute, am_pm] {
+        if let Some(entry) = STATE.roller_map.iter().find(|e| e.get().0 == 0) {
+            entry.set((r, container));
         }
     }
 }
 
 fn find_slot(container: usize) -> Option<PickerSlot> {
-    unsafe {
-        for slot in &SLOTS[..] {
-            if slot.container == container {
-                return Some(*slot);
-            }
+    for slot in &STATE.slots {
+        let slot = slot.get();
+        if slot.container == container {
+            return Some(slot);
         }
     }
     None
 }
 
 fn find_slot_idx(container: usize) -> Option<usize> {
-    unsafe { SLOTS[..].iter().position(|s| s.container == container) }
+    STATE
+        .slots
+        .iter()
+        .position(|s| s.get().container == container)
 }
 
 /// Read the current 24-hour value from the rollers (independent of mode).
 fn read_24hour(slot_idx: usize) -> i32 {
+    let slot = STATE.slots[slot_idx].get();
     unsafe {
-        let slot = SLOTS[slot_idx];
         let h_ptr = slot.hour as *mut lv_obj_t;
         if h_ptr.is_null() {
             return 0;
@@ -491,8 +502,8 @@ fn read_24hour(slot_idx: usize) -> i32 {
 /// current display mode. Caller is responsible for setting/clearing the
 /// `suppress` flag if the call shouldn't fire `fireTimeChanged`.
 fn apply_hour_and_minute(slot_idx: usize, hour_24: i32, minute: u32) {
+    let slot = STATE.slots[slot_idx].get();
     unsafe {
-        let slot = SLOTS[slot_idx];
         let h_ptr = slot.hour as *mut lv_obj_t;
         let m_ptr = slot.minute as *mut lv_obj_t;
         let am_pm_ptr = slot.am_pm as *mut lv_obj_t;

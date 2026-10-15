@@ -32,22 +32,30 @@ const FOCUS_HIGHLIGHT_RGB: u32 = 0x0026_A69A;
 // ── Item-click event queue (raw row `lv_obj_t*` pointers) ───────────────────
 
 const ITEM_CLICK_QUEUE_SIZE: usize = 16;
-// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
-static ITEM_CLICK_QUEUE: Core0<LocalRing<usize, ITEM_CLICK_QUEUE_SIZE>> =
-    unsafe { Core0::new(LocalRing::new(0)) };
+struct State {
+    item_click_queue: LocalRing<usize, ITEM_CLICK_QUEUE_SIZE>,
+    listener_map: PtrMap<MAX_LIST_LISTENERS>,
+}
+
+// SAFETY: filled by LVGL callbacks and by natives, drained by the framework
+// loop, all on core-0 JVM tasks.
+static STATE: Core0<State> = unsafe {
+    Core0::new(State {
+        item_click_queue: LocalRing::new(0),
+        listener_map: PtrMap::new(),
+    })
+};
 
 // ── ListView handle → Java object mapping (one entry per ListView) ──────────
 
 const MAX_LIST_LISTENERS: usize = 16;
-// SAFETY: a listener registry, reached only from JVM tasks.
-static LISTENER_MAP: Core0<PtrMap<MAX_LIST_LISTENERS>> = unsafe { Core0::new(PtrMap::new()) };
 
 // Keyed by the LIST object; its rows' trampolines die with the rows, and this
 // delete callback (attached at first registration) drops the map entry when
 // the list itself is deleted.
 unsafe extern "C" fn list_map_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    LISTENER_MAP.remove(obj)
+    STATE.listener_map.remove(obj)
 }
 
 unsafe extern "C" fn row_click_cb(e: *mut lv_event_t) {
@@ -56,7 +64,7 @@ unsafe extern "C" fn row_click_cb(e: *mut lv_event_t) {
     // (LV_OBJ_FLAG_EVENT_BUBBLE); the original target would then be the
     // child, which is no child of the list and would never resolve.
     let row = unsafe { lv_event_get_current_target_obj(e) };
-    ITEM_CLICK_QUEUE.push(row as usize);
+    STATE.item_click_queue.push(row as usize);
 }
 
 /// Separator under each row (RGB888): the default theme's grey list divider.
@@ -161,7 +169,7 @@ pub(in crate::graphics) fn register_item_click_listener(id: i32, obj_ref: u16) {
     }
     let raw_ptr = raw_obj as usize;
     unsafe {
-        match LISTENER_MAP.upsert(raw_ptr, obj_ref) {
+        match STATE.listener_map.upsert(raw_ptr, obj_ref) {
             Upsert::Updated => {}
             Upsert::Full => warn_full("list-item-click"),
             Upsert::Inserted => {
@@ -178,7 +186,7 @@ pub(in crate::graphics) fn register_item_click_listener(id: i32, obj_ref: u16) {
 
 /// Drain one item-click event (raw row `lv_obj_t*`) from the queue.
 pub fn drain_item_click_queue() -> Option<usize> {
-    ITEM_CLICK_QUEUE.pop()
+    STATE.item_click_queue.pop()
 }
 
 /// Resolve a clicked row pointer to `(Java ListView object ref, item position)`.
@@ -196,7 +204,7 @@ pub fn lookup_item_click(row: usize) -> Option<(u16, i32)> {
     let row_obj = row as *mut lv_obj_t;
     let mut hit = None;
     unsafe {
-        LISTENER_MAP.for_each(&mut |list, obj_ref| {
+        STATE.listener_map.for_each(&mut |list, obj_ref| {
             if hit.is_some() {
                 return;
             }
@@ -214,8 +222,8 @@ pub fn lookup_item_click(row: usize) -> Option<(u16, i32)> {
 }
 
 pub fn reset_list_view_state() {
-    LISTENER_MAP.reset();
-    ITEM_CLICK_QUEUE.clear();
+    STATE.listener_map.reset();
+    STATE.item_click_queue.clear();
 }
 
 /// Visit the Java `ListView` object ref of every list registered for an
@@ -224,5 +232,5 @@ pub fn reset_list_view_state() {
 /// after which its item-clicks silently stop dispatching. See
 /// `widgets::button::visit_click_listener_roots`.
 pub fn visit_item_click_listener_roots(visit: &mut dyn FnMut(u16)) {
-    LISTENER_MAP.visit(visit)
+    STATE.listener_map.visit(visit)
 }

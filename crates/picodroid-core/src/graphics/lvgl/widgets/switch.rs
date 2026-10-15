@@ -10,21 +10,30 @@ use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
 
 const QUEUE_SIZE: usize = 16;
-// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
-static QUEUE: Core0<LocalRing<usize, QUEUE_SIZE>> = unsafe { Core0::new(LocalRing::new(0)) };
+struct State {
+    queue: LocalRing<usize, QUEUE_SIZE>,
+    handle_map: PtrMap<MAX_LISTENERS>,
+}
+
+// SAFETY: filled by LVGL callbacks and by natives, drained by the framework
+// loop, all on core-0 JVM tasks.
+static STATE: Core0<State> = unsafe {
+    Core0::new(State {
+        queue: LocalRing::new(0),
+        handle_map: PtrMap::new(),
+    })
+};
 
 const MAX_LISTENERS: usize = 32;
-// SAFETY: a listener registry, reached only from JVM tasks.
-static HANDLE_MAP: Core0<PtrMap<MAX_LISTENERS>> = unsafe { Core0::new(PtrMap::new()) };
 
 unsafe extern "C" fn map_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    HANDLE_MAP.remove(obj)
+    STATE.handle_map.remove(obj)
 }
 
 unsafe extern "C" fn value_changed_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) };
-    QUEUE.push(obj as usize);
+    STATE.queue.push(obj as usize);
 }
 
 pub(in crate::graphics) fn create() -> i32 {
@@ -87,22 +96,22 @@ pub(in crate::graphics) fn perform_checked_change(id: i32) {
 
 pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
     let raw_ptr = handle_table::lookup(id) as usize;
-    if let Upsert::Full = HANDLE_MAP.upsert(raw_ptr, obj_ref) {
+    if let Upsert::Full = STATE.handle_map.upsert(raw_ptr, obj_ref) {
         warn_full("switch-checked");
     }
 }
 
 pub fn drain_sw_checked_change_queue() -> Option<usize> {
-    QUEUE.pop()
+    STATE.queue.pop()
 }
 
 pub fn lookup_sw_checked_change_obj(handle: usize) -> Option<u16> {
-    HANDLE_MAP.lookup(handle)
+    STATE.handle_map.lookup(handle)
 }
 
 pub fn reset_switch_state() {
-    HANDLE_MAP.reset();
-    QUEUE.clear();
+    STATE.handle_map.reset();
+    STATE.queue.clear();
 }
 
 /// Visit the Java `Switch` object ref of every switch registered for a
@@ -113,5 +122,5 @@ pub fn reset_switch_state() {
 /// allocation and the next Activity's dispatch resolves a dead ref →
 /// `NoSuchMethod`. See `widgets::button::visit_click_listener_roots`.
 pub fn visit_checked_change_listener_roots(visit: &mut dyn FnMut(u16)) {
-    HANDLE_MAP.visit(visit)
+    STATE.handle_map.visit(visit)
 }

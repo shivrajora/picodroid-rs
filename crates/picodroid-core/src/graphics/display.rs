@@ -22,11 +22,26 @@ use core::sync::atomic::{AtomicU16, Ordering};
 /// Heap index of the singleton `Display` object (`u16::MAX` = not yet allocated).
 static DISPLAY_INSTANCE: AtomicU16 = AtomicU16::new(u16::MAX);
 
-/// Java `nativeHandle` of the current root view installed by
-/// `setContentView`. `0` = no root set yet. Single-threaded access (the
-/// JVM owns the only frontend), same contract as the prior `usize` cell.
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static CURRENT_ROOT_ID: Core0<Cell<i32>> = unsafe { Core0::new(Cell::new(0)) };
+struct State {
+    /// Java `nativeHandle` of the current root view installed by
+    /// `setContentView`. `0` = no root set yet. Single-threaded access (the
+    /// JVM owns the only frontend), same contract as the prior `usize` cell.
+    current_root_id: Cell<i32>,
+    /// Set by `setContentView`, cleared by [`fit_check_after_tick`] once LVGL
+    /// has laid the new root out.
+    #[cfg(any(feature = "sim", debug_assertions))]
+    fit_pending: Cell<bool>,
+}
+
+// SAFETY: set and read by `Display` natives and the GC root walk, all on
+// core-0 JVM tasks.
+static STATE: Core0<State> = unsafe {
+    Core0::new(State {
+        current_root_id: Cell::new(0),
+        #[cfg(any(feature = "sim", debug_assertions))]
+        fit_pending: Cell::new(false),
+    })
+};
 
 /// Root the singleton `Display` object during GC so it is never swept.
 ///
@@ -97,7 +112,7 @@ pub fn get_instance(objects: &mut ObjectHeap) -> Result<Option<Value>, JvmError>
 /// `pub` rather than `pub(crate)` only because its caller, `lifecycle.rs`,
 /// is still in the platform crate; tighten this back when that moves.
 pub fn current_root_id() -> i32 {
-    CURRENT_ROOT_ID.get()
+    STATE.current_root_id.get()
 }
 
 /// Write `CURRENT_ROOT_ID`. Used by the lifecycle handler to clear it on
@@ -106,7 +121,7 @@ pub fn current_root_id() -> i32 {
 ///
 /// See [`current_root_id`] for why this is `pub`.
 pub fn set_current_root_id(id: i32) {
-    CURRENT_ROOT_ID.set(id);
+    STATE.current_root_id.set(id);
 }
 
 /// `Display.setContentView(View root)` — installs `root` as the screen's
@@ -115,8 +130,8 @@ pub fn set_content_view(args: &[Value], objects: &ObjectHeap) -> Result<Option<V
     let root_id = view::extract_handle_at(args, 1, objects)?;
     // SAFETY: single-threaded access matches the prior usize-cell contract.
     let prev_id = {
-        let prev = CURRENT_ROOT_ID.get();
-        CURRENT_ROOT_ID.set(root_id);
+        let prev = STATE.current_root_id.get();
+        STATE.current_root_id.set(root_id);
         prev
     };
 
@@ -139,15 +154,9 @@ pub fn set_content_view(args: &[Value], objects: &ObjectHeap) -> Result<Option<V
     // left on the screen is not its own.
     super::lvgl::window::reset_pan();
     #[cfg(any(feature = "sim", debug_assertions))]
-    FIT_PENDING.set(true);
+    STATE.fit_pending.set(true);
     Ok(None)
 }
-
-/// Set by `setContentView`, cleared by [`fit_check_after_tick`] once LVGL
-/// has laid the new root out.
-// SAFETY: widget-layer state, reached only from JVM tasks.
-#[cfg(any(feature = "sim", debug_assertions))]
-static FIT_PENDING: Core0<Cell<bool>> = unsafe { Core0::new(Cell::new(false)) };
 
 /// The `[layout]` line (docs/designs/app-portability-2026-10.md D6): after
 /// the first LVGL tick that follows a `setContentView`, say whether the
@@ -158,10 +167,10 @@ static FIT_PENDING: Core0<Cell<bool>> = unsafe { Core0::new(Cell::new(false)) };
 /// debug builds only — release firmware has no reader for it.
 #[cfg(any(feature = "sim", debug_assertions))]
 pub fn fit_check_after_tick() {
-    if !FIT_PENDING.replace(false) {
+    if !STATE.fit_pending.replace(false) {
         return;
     }
-    let root_id = CURRENT_ROOT_ID.get();
+    let root_id = STATE.current_root_id.get();
     if root_id == 0 {
         return;
     }

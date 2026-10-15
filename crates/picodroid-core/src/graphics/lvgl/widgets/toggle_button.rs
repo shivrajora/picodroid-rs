@@ -13,10 +13,12 @@ use super::super::lifecycle;
 use super::super::listener_map::{warn_full, PtrMap, Upsert};
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
+use core::cell::Cell;
 
 const MAX_TOGGLE_BUTTONS: usize = 16;
 const TEXT_BUF_SIZE: usize = 32;
 
+#[derive(Copy, Clone)]
 struct Entry {
     /// Raw `lv_obj_t*` cast to `usize` — matches LVGL callback values.
     raw_ptr: usize,
@@ -36,50 +38,59 @@ impl Entry {
 
 const EMPTY_ENTRY: Entry = Entry::empty();
 
-static mut ENTRIES: [Entry; MAX_TOGGLE_BUTTONS] = [EMPTY_ENTRY; MAX_TOGGLE_BUTTONS];
-static mut ENTRY_COUNT: usize = 0;
-
 const QUEUE_SIZE: usize = 16;
-// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
-static QUEUE: Core0<LocalRing<usize, QUEUE_SIZE>> = unsafe { Core0::new(LocalRing::new(0)) };
 
 const MAX_LISTENERS: usize = 32;
-// SAFETY: a listener registry, reached only from JVM tasks.
-static HANDLE_MAP: Core0<PtrMap<MAX_LISTENERS>> = unsafe { Core0::new(PtrMap::new()) };
+
+struct State {
+    /// The label texts, `entries[..entry_count]`.
+    entries: [Cell<Entry>; MAX_TOGGLE_BUTTONS],
+    entry_count: Cell<usize>,
+    queue: LocalRing<usize, QUEUE_SIZE>,
+    handle_map: PtrMap<MAX_LISTENERS>,
+}
+
+// SAFETY: filled by natives and LVGL callbacks, drained by natives, all on
+// core-0 JVM tasks.
+static STATE: Core0<State> = unsafe {
+    Core0::new(State {
+        entries: [const { Cell::new(EMPTY_ENTRY) }; MAX_TOGGLE_BUTTONS],
+        entry_count: Cell::new(0),
+        queue: LocalRing::new(0),
+        handle_map: PtrMap::new(),
+    })
+};
 
 /// Remove the dying widget from both per-widget tables: the listener map and
-/// the `ENTRIES` label side-table (a stale `raw_ptr` there would relabel a
+/// the `entries` label side-table (a stale `raw_ptr` there would relabel a
 /// recycled address).
 unsafe extern "C" fn map_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    unsafe {
-        HANDLE_MAP.remove(obj);
-        let entries = &raw mut ENTRIES;
-        let entries = &mut *entries;
-        let mut i = 0;
-        while i < ENTRY_COUNT {
-            if entries[i].raw_ptr == obj {
-                entries.swap(i, ENTRY_COUNT - 1);
-                entries[ENTRY_COUNT - 1] = Entry::empty();
-                ENTRY_COUNT -= 1;
-            } else {
-                i += 1;
-            }
+    STATE.handle_map.remove(obj);
+    let entries = &STATE.entries;
+    let mut i = 0;
+    while i < STATE.entry_count.get() {
+        let last = STATE.entry_count.get() - 1;
+        if entries[i].get().raw_ptr == obj {
+            entries[i].set(entries[last].get());
+            entries[last].set(Entry::empty());
+            STATE.entry_count.set(last);
+        } else {
+            i += 1;
         }
     }
 }
 
-unsafe fn find_entry(raw_ptr: usize) -> Option<&'static mut Entry> {
-    unsafe {
-        ENTRIES[..ENTRY_COUNT]
-            .iter_mut()
-            .find(|e| e.raw_ptr == raw_ptr)
-    }
+/// The side-table cell of the toggle button at `raw_ptr`.
+fn find_entry(raw_ptr: usize) -> Option<&'static Cell<Entry>> {
+    STATE.entries[..STATE.entry_count.get()]
+        .iter()
+        .find(|e| e.get().raw_ptr == raw_ptr)
 }
 
 unsafe fn update_label(obj: *mut lv_obj_t) {
     unsafe {
-        if let Some(entry) = find_entry(obj as usize) {
+        if let Some(entry) = find_entry(obj as usize).map(Cell::get) {
             let label = lv_obj_get_child(obj, 0);
             if !label.is_null() {
                 let checked = lv_obj_has_state(obj, LV_STATE_CHECKED);
@@ -94,30 +105,29 @@ unsafe fn update_label(obj: *mut lv_obj_t) {
     }
 }
 
-unsafe fn register_entry(raw_ptr: usize, text_on: &[u8], text_off: &[u8]) {
-    unsafe {
-        if ENTRY_COUNT >= MAX_TOGGLE_BUTTONS {
-            warn_full("toggle-button-entries");
-            return;
-        }
-        let entry = &mut ENTRIES[ENTRY_COUNT];
-        entry.raw_ptr = raw_ptr;
-        let on_len = text_on.len().min(TEXT_BUF_SIZE - 1);
-        entry.text_on[..on_len].copy_from_slice(&text_on[..on_len]);
-        entry.text_on[on_len] = 0;
-        let off_len = text_off.len().min(TEXT_BUF_SIZE - 1);
-        entry.text_off[..off_len].copy_from_slice(&text_off[..off_len]);
-        entry.text_off[off_len] = 0;
-        ENTRY_COUNT += 1;
+fn register_entry(raw_ptr: usize, text_on: &[u8], text_off: &[u8]) {
+    let count = STATE.entry_count.get();
+    if count >= MAX_TOGGLE_BUTTONS {
+        warn_full("toggle-button-entries");
+        return;
     }
+    let cell = &STATE.entries[count];
+    let mut entry = cell.get();
+    entry.raw_ptr = raw_ptr;
+    let on_len = text_on.len().min(TEXT_BUF_SIZE - 1);
+    entry.text_on[..on_len].copy_from_slice(&text_on[..on_len]);
+    entry.text_on[on_len] = 0;
+    let off_len = text_off.len().min(TEXT_BUF_SIZE - 1);
+    entry.text_off[..off_len].copy_from_slice(&text_off[..off_len]);
+    entry.text_off[off_len] = 0;
+    cell.set(entry);
+    STATE.entry_count.set(count + 1);
 }
 
 unsafe extern "C" fn value_changed_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) };
-    unsafe {
-        update_label(obj);
-        QUEUE.push(obj as usize);
-    }
+    unsafe { update_label(obj) };
+    STATE.queue.push(obj as usize);
 }
 
 fn create_internal(text_on: &[u8], text_off: &[u8]) -> i32 {
@@ -206,8 +216,10 @@ fn copy_into(dst: &mut [u8; TEXT_BUF_SIZE], src: &str) {
 pub(in crate::graphics) fn set_text_on(id: i32, text: &str) {
     unsafe {
         let obj = handle_table::lookup(id);
-        if let Some(entry) = find_entry(obj as usize) {
+        if let Some(cell) = find_entry(obj as usize) {
+            let mut entry = cell.get();
             copy_into(&mut entry.text_on, text);
+            cell.set(entry);
         }
         if lv_obj_has_state(obj, LV_STATE_CHECKED) {
             update_label(obj);
@@ -218,8 +230,10 @@ pub(in crate::graphics) fn set_text_on(id: i32, text: &str) {
 pub(in crate::graphics) fn set_text_off(id: i32, text: &str) {
     unsafe {
         let obj = handle_table::lookup(id);
-        if let Some(entry) = find_entry(obj as usize) {
+        if let Some(cell) = find_entry(obj as usize) {
+            let mut entry = cell.get();
             copy_into(&mut entry.text_off, text);
+            cell.set(entry);
         }
         if !lv_obj_has_state(obj, LV_STATE_CHECKED) {
             update_label(obj);
@@ -229,27 +243,26 @@ pub(in crate::graphics) fn set_text_off(id: i32, text: &str) {
 
 pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
     let raw_ptr = handle_table::lookup(id) as usize;
-    if let Upsert::Full = HANDLE_MAP.upsert(raw_ptr, obj_ref) {
+    if let Upsert::Full = STATE.handle_map.upsert(raw_ptr, obj_ref) {
         warn_full("toggle-checked");
     }
 }
 
 pub fn drain_checked_change_queue() -> Option<usize> {
-    QUEUE.pop()
+    STATE.queue.pop()
 }
 
 pub fn lookup_checked_change_obj(handle: usize) -> Option<u16> {
-    HANDLE_MAP.lookup(handle)
+    STATE.handle_map.lookup(handle)
 }
 
 pub fn reset_toggle_button_state() {
-    unsafe {
-        ENTRY_COUNT = 0;
-        let entries = &raw mut ENTRIES;
-        *entries = [EMPTY_ENTRY; MAX_TOGGLE_BUTTONS];
-        HANDLE_MAP.reset();
-        QUEUE.clear();
+    STATE.entry_count.set(0);
+    for entry in &STATE.entries {
+        entry.set(EMPTY_ENTRY);
     }
+    STATE.handle_map.reset();
+    STATE.queue.clear();
 }
 
 /// Visit the Java `ToggleButton` object ref of every toggle button registered
@@ -259,5 +272,5 @@ pub fn reset_toggle_button_state() {
 /// a later dispatch resolves a dead ref → `NoSuchMethod`. See
 /// `widgets::button::visit_click_listener_roots`.
 pub fn visit_checked_change_listener_roots(visit: &mut dyn FnMut(u16)) {
-    HANDLE_MAP.visit(visit)
+    STATE.handle_map.visit(visit)
 }

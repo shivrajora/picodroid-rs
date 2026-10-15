@@ -38,24 +38,37 @@ pub(super) const MAX_ACTIVITY_GROUPS: usize = 32;
 const _: () = assert!(crate::board_cfg::jvm_state::ACTIVITY_STACK_DEPTH <= MAX_ACTIVITY_GROUPS);
 
 #[cfg(has_buttons)]
-// SAFETY: widget-layer state, reached only from JVM tasks.
-pub(super) static KEYPAD_INDEV: Core0<Cell<*mut lv_indev_t>> =
-    unsafe { Core0::new(Cell::new(core::ptr::null_mut())) };
+pub(super) struct Groups {
+    /// The keypad input device, created by `init_keypad`; null before.
+    pub(super) keypad_indev: Cell<*mut lv_indev_t>,
+    /// One group per Activity on the stack: `activity[..depth]`, bottom first.
+    activity: [Cell<*mut lv_group_t>; MAX_ACTIVITY_GROUPS],
+    depth: Cell<usize>,
+    /// The group a modal dialog's buttons live in while any dialog is shown
+    /// ([`enter_modal_group`]); null between dialogs.
+    modal: Cell<*mut lv_group_t>,
+}
 
+// SAFETY: pushed and popped by the lifecycle and dialog natives, read by
+// the keypad indev's read callback, all on core-0 JVM tasks.
 #[cfg(has_buttons)]
-pub(super) static mut ACTIVITY_GROUPS: [*mut lv_group_t; MAX_ACTIVITY_GROUPS] =
-    [core::ptr::null_mut(); MAX_ACTIVITY_GROUPS];
+pub(super) static GROUPS: Core0<Groups> = unsafe {
+    Core0::new(Groups {
+        keypad_indev: Cell::new(core::ptr::null_mut()),
+        activity: [const { Cell::new(core::ptr::null_mut()) }; MAX_ACTIVITY_GROUPS],
+        depth: Cell::new(0),
+        modal: Cell::new(core::ptr::null_mut()),
+    })
+};
 
+/// The top Activity's group, or null with no Activity on the stack.
 #[cfg(has_buttons)]
-// SAFETY: widget-layer state, reached only from JVM tasks.
-pub(super) static ACTIVITY_GROUP_DEPTH: Core0<Cell<usize>> = unsafe { Core0::new(Cell::new(0)) };
-
-/// The group a modal dialog's buttons live in while any dialog is shown
-/// ([`enter_modal_group`]); null between dialogs.
-#[cfg(has_buttons)]
-// SAFETY: widget-layer state, reached only from JVM tasks.
-pub(super) static MODAL_GROUP: Core0<Cell<*mut lv_group_t>> =
-    unsafe { Core0::new(Cell::new(core::ptr::null_mut())) };
+fn top_activity_group() -> *mut lv_group_t {
+    match GROUPS.depth.get() {
+        0 => core::ptr::null_mut(),
+        depth => GROUPS.activity[depth - 1].get(),
+    }
+}
 
 /// Create a fresh focus group for a newly-launched Activity and make it the
 /// active group (LVGL default + keypad indev). Called from the lifecycle
@@ -63,23 +76,25 @@ pub(super) static MODAL_GROUP: Core0<Cell<*mut lv_group_t>> =
 /// widgets auto-join this group.
 #[cfg(has_buttons)]
 pub fn push_activity_group() {
+    let depth = GROUPS.depth.get();
+    if depth >= MAX_ACTIVITY_GROUPS {
+        return; // unreachable: the Activity stack caps depth first
+    }
+    let indev = GROUPS.keypad_indev.get();
     unsafe {
-        if ACTIVITY_GROUP_DEPTH.get() >= MAX_ACTIVITY_GROUPS {
-            return; // unreachable: the Activity stack caps depth first
-        }
         let group = lv_group_create();
         lv_group_set_default(group);
-        if !KEYPAD_INDEV.get().is_null() {
-            lv_indev_set_group(KEYPAD_INDEV.get(), group);
+        if !indev.is_null() {
+            lv_indev_set_group(indev, group);
             // The key that moved the keypad to this group is still down; its
             // release must not land on whatever this group focuses (a dialog
             // picked on SELECT's press used to be reopened by SELECT's release
             // clicking the row beneath it).
-            lv_indev_wait_release(KEYPAD_INDEV.get());
+            lv_indev_wait_release(indev);
         }
-        ACTIVITY_GROUPS[ACTIVITY_GROUP_DEPTH.get()] = group;
-        ACTIVITY_GROUP_DEPTH.set(ACTIVITY_GROUP_DEPTH.get() + 1);
+        GROUPS.activity[depth].set(group);
     }
+    GROUPS.depth.set(depth + 1);
 }
 
 /// Tear down the top Activity's focus group and reactivate the parent's (or
@@ -89,34 +104,30 @@ pub fn push_activity_group() {
 /// a deleted group.
 #[cfg(has_buttons)]
 pub fn pop_activity_group() {
+    let depth = GROUPS.depth.get();
+    if depth == 0 {
+        return;
+    }
+    GROUPS.depth.set(depth - 1);
+    let group = GROUPS.activity[depth - 1].replace(core::ptr::null_mut());
+    let parent = top_activity_group();
+    // A dialog still up on the parent keeps the keypad: its buttons are
+    // in the modal group, not the parent's.
+    let active = if GROUPS.modal.get().is_null() {
+        parent
+    } else {
+        GROUPS.modal.get()
+    };
+    let indev = GROUPS.keypad_indev.get();
     unsafe {
-        if ACTIVITY_GROUP_DEPTH.get() == 0 {
-            return;
-        }
-        ACTIVITY_GROUP_DEPTH.set(ACTIVITY_GROUP_DEPTH.get() - 1);
-        let group = ACTIVITY_GROUPS[ACTIVITY_GROUP_DEPTH.get()];
-        ACTIVITY_GROUPS[ACTIVITY_GROUP_DEPTH.get()] = core::ptr::null_mut();
-
-        let parent = if ACTIVITY_GROUP_DEPTH.get() > 0 {
-            ACTIVITY_GROUPS[ACTIVITY_GROUP_DEPTH.get() - 1]
-        } else {
-            core::ptr::null_mut()
-        };
-        // A dialog still up on the parent keeps the keypad: its buttons are
-        // in the modal group, not the parent's.
-        let active = if MODAL_GROUP.get().is_null() {
-            parent
-        } else {
-            MODAL_GROUP.get()
-        };
         lv_group_set_default(active);
-        if !KEYPAD_INDEV.get().is_null() {
-            lv_indev_set_group(KEYPAD_INDEV.get(), active);
+        if !indev.is_null() {
+            lv_indev_set_group(indev, active);
             // The key that moved the keypad to this group is still down; its
             // release must not land on whatever this group focuses (a dialog
             // picked on SELECT's press used to be reopened by SELECT's release
             // clicking the row beneath it).
-            lv_indev_wait_release(KEYPAD_INDEV.get());
+            lv_indev_wait_release(indev);
         }
         if !group.is_null() {
             lv_group_delete(group);
@@ -132,23 +143,25 @@ pub fn pop_activity_group() {
 /// when no Activity group is active, as `lv_group_get_default` was.
 #[cfg(has_buttons)]
 pub fn enter_modal_group() -> *mut lv_group_t {
+    if GROUPS.depth.get() == 0 {
+        return core::ptr::null_mut();
+    }
+    let indev = GROUPS.keypad_indev.get();
     unsafe {
-        if ACTIVITY_GROUP_DEPTH.get() == 0 {
-            return core::ptr::null_mut();
+        if GROUPS.modal.get().is_null() {
+            GROUPS.modal.set(lv_group_create());
         }
-        if MODAL_GROUP.get().is_null() {
-            MODAL_GROUP.set(lv_group_create());
-        }
-        lv_group_set_default(MODAL_GROUP.get());
-        if !KEYPAD_INDEV.get().is_null() {
-            lv_indev_set_group(KEYPAD_INDEV.get(), MODAL_GROUP.get());
+        let modal = GROUPS.modal.get();
+        lv_group_set_default(modal);
+        if !indev.is_null() {
+            lv_indev_set_group(indev, modal);
             // The key that moved the keypad to this group is still down; its
             // release must not land on whatever this group focuses (a dialog
             // picked on SELECT's press used to be reopened by SELECT's release
             // clicking the row beneath it).
-            lv_indev_wait_release(KEYPAD_INDEV.get());
+            lv_indev_wait_release(indev);
         }
-        MODAL_GROUP.get()
+        modal
     }
 }
 
@@ -156,63 +169,59 @@ pub fn enter_modal_group() -> *mut lv_group_t {
 /// and the modal group is freed. A no-op when no dialog had one.
 #[cfg(has_buttons)]
 pub fn leave_modal_group() {
+    let modal = GROUPS.modal.get();
+    if modal.is_null() {
+        return;
+    }
+    let top = top_activity_group();
+    let indev = GROUPS.keypad_indev.get();
     unsafe {
-        if MODAL_GROUP.get().is_null() {
-            return;
-        }
-        let top = if ACTIVITY_GROUP_DEPTH.get() > 0 {
-            ACTIVITY_GROUPS[ACTIVITY_GROUP_DEPTH.get() - 1]
-        } else {
-            core::ptr::null_mut()
-        };
         lv_group_set_default(top);
-        if !KEYPAD_INDEV.get().is_null() {
-            lv_indev_set_group(KEYPAD_INDEV.get(), top);
+        if !indev.is_null() {
+            lv_indev_set_group(indev, top);
             // The key that moved the keypad to this group is still down; its
             // release must not land on whatever this group focuses (a dialog
             // picked on SELECT's press used to be reopened by SELECT's release
             // clicking the row beneath it).
-            lv_indev_wait_release(KEYPAD_INDEV.get());
+            lv_indev_wait_release(indev);
         }
-        lv_group_delete(MODAL_GROUP.get());
-        MODAL_GROUP.set(core::ptr::null_mut());
+        lv_group_delete(modal);
     }
+    GROUPS.modal.set(core::ptr::null_mut());
 }
 
 /// Delete every remaining Activity focus group and reset the stack. Called from
 /// the between-app-run reset path so a fresh app starts with a clean keypad.
 #[cfg(has_buttons)]
 pub fn reset_activity_groups() {
-    unsafe {
-        // Slice idiom (matching `&mut VIEW_KEY_MAP[..]` elsewhere in this file)
-        // rather than an index range — keeps clippy's needless_range_loop quiet
-        // without taking a `&mut` to the whole static (static_mut_refs).
-        let had_groups = ACTIVITY_GROUP_DEPTH.get() > 0;
-        for slot in &mut ACTIVITY_GROUPS[..ACTIVITY_GROUP_DEPTH.get()] {
-            let g = *slot;
-            *slot = core::ptr::null_mut();
-            if !g.is_null() {
-                lv_group_delete(g);
-            }
+    let depth = GROUPS.depth.get();
+    let had_groups = depth > 0;
+    for slot in &GROUPS.activity[..depth] {
+        let g = slot.replace(core::ptr::null_mut());
+        if !g.is_null() {
+            unsafe { lv_group_delete(g) };
         }
-        ACTIVITY_GROUP_DEPTH.set(0);
-        if !MODAL_GROUP.get().is_null() {
-            lv_group_delete(MODAL_GROUP.get());
-            MODAL_GROUP.set(core::ptr::null_mut());
-        }
-        // Only touch LVGL when groups actually existed. This runs at app start
-        // before `init_keypad`, so on the very first run LVGL isn't initialized
-        // yet and KEYPAD_INDEV is null; a non-zero depth implies a prior run on
-        // the persistent graphics singleton, where these pointers are live.
-        if had_groups {
+    }
+    GROUPS.depth.set(0);
+    let modal = GROUPS.modal.replace(core::ptr::null_mut());
+    if !modal.is_null() {
+        unsafe { lv_group_delete(modal) };
+    }
+    // Only touch LVGL when groups actually existed. This runs at app start
+    // before `init_keypad`, so on the very first run LVGL isn't initialized
+    // yet and the keypad indev is null; a non-zero depth implies a prior run
+    // on the persistent graphics singleton, where these pointers are live.
+    if had_groups {
+        let indev = GROUPS.keypad_indev.get();
+        unsafe {
             lv_group_set_default(core::ptr::null_mut());
-            if !KEYPAD_INDEV.get().is_null() {
-                lv_indev_set_group(KEYPAD_INDEV.get(), core::ptr::null_mut());
+            if !indev.is_null() {
+                lv_indev_set_group(indev, core::ptr::null_mut());
                 // The key that moved the keypad to this group is still down; its
                 // release must not land on whatever this group focuses (a dialog
                 // picked on SELECT's press used to be reopened by SELECT's release
                 // clicking the row beneath it).
-                lv_indev_wait_release(KEYPAD_INDEV.get());
+                lv_indev_wait_release(indev);
             }
         }
     }
@@ -222,7 +231,7 @@ pub fn reset_activity_groups() {
 /// walk, so the keypad reads a focused button matrix as the dialog's list.
 #[cfg(has_buttons)]
 pub fn in_modal_group() -> bool {
-    !MODAL_GROUP.get().is_null()
+    !GROUPS.modal.get().is_null()
 }
 
 // No-button boards have no keypad indev — the group machinery is inert, but the

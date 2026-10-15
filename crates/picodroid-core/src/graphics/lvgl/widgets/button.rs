@@ -21,27 +21,32 @@ use crate::util::local_ring::LocalRing;
 // ── Click event queue (ring buffer) ─────────────────────────────────────────
 
 const CLICK_QUEUE_SIZE: usize = 16;
-// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
-static CLICK_QUEUE: Core0<LocalRing<usize, CLICK_QUEUE_SIZE>> =
-    unsafe { Core0::new(LocalRing::new(0)) };
+struct State {
+    click_queue: LocalRing<usize, CLICK_QUEUE_SIZE>,
+    view_click_map: PtrMap<MAX_CLICK_VIEWS>,
+    long_click_queue: LocalRing<usize, CLICK_QUEUE_SIZE>,
+    view_long_click_map: PtrMap<MAX_CLICK_VIEWS>,
+}
+
+// SAFETY: filled by LVGL's click callbacks and by natives, drained by the
+// framework loop, all on core-0 JVM tasks.
+static STATE: Core0<State> = unsafe {
+    Core0::new(State {
+        click_queue: LocalRing::new(0),
+        view_click_map: PtrMap::new(),
+        long_click_queue: LocalRing::new(0),
+        view_long_click_map: PtrMap::new(),
+    })
+};
 
 // ── Handle → Java object mapping (for click dispatch) ───────────────────────
 
 const MAX_CLICK_VIEWS: usize = 32;
-// SAFETY: a listener registry, reached only from JVM tasks.
-static VIEW_CLICK_MAP: Core0<PtrMap<MAX_CLICK_VIEWS>> = unsafe { Core0::new(PtrMap::new()) };
 
 // ── Long-click pathway (LV_EVENT_LONG_PRESSED) ──────────────────────────────
 //
 // Parallel to the click pathway above. A view with an OnLongClickListener
 // registers here; LVGL emits LV_EVENT_LONG_PRESSED ~400 ms into a press.
-
-// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
-static LONG_CLICK_QUEUE: Core0<LocalRing<usize, CLICK_QUEUE_SIZE>> =
-    unsafe { Core0::new(LocalRing::new(0)) };
-
-// SAFETY: a listener registry, reached only from JVM tasks.
-static VIEW_LONG_CLICK_MAP: Core0<PtrMap<MAX_CLICK_VIEWS>> = unsafe { Core0::new(PtrMap::new()) };
 
 // ── Minimum touch target (touch boards) ─────────────────────────────────────
 //
@@ -109,22 +114,22 @@ mod touch_target {
 
 unsafe extern "C" fn view_click_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) };
-    CLICK_QUEUE.push(obj as usize);
+    STATE.click_queue.push(obj as usize);
 }
 
 unsafe extern "C" fn view_long_click_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) };
-    LONG_CLICK_QUEUE.push(obj as usize);
+    STATE.long_click_queue.push(obj as usize);
 }
 
 unsafe extern "C" fn click_map_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    VIEW_CLICK_MAP.remove(obj)
+    STATE.view_click_map.remove(obj)
 }
 
 unsafe extern "C" fn long_click_map_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    VIEW_LONG_CLICK_MAP.remove(obj)
+    STATE.view_long_click_map.remove(obj)
 }
 
 // ── LVGL ops (plain-Rust; called from widgets/*.rs Java shims) ──────────────
@@ -167,7 +172,7 @@ pub(in crate::graphics) fn perform_click(id: i32) {
 pub(in crate::graphics) fn register_click_listener(id: i32, obj_ref: u16) -> bool {
     let raw_ptr = handle_table::lookup(id) as usize;
     unsafe {
-        match VIEW_CLICK_MAP.upsert(raw_ptr, obj_ref) {
+        match STATE.view_click_map.upsert(raw_ptr, obj_ref) {
             Upsert::Updated => {}
             Upsert::Full => {
                 warn_full("view-click");
@@ -202,7 +207,7 @@ pub(in crate::graphics) fn register_click_listener(id: i32, obj_ref: u16) -> boo
 pub(in crate::graphics) fn register_long_click_listener(id: i32, obj_ref: u16) {
     let raw_ptr = handle_table::lookup(id) as usize;
     unsafe {
-        match VIEW_LONG_CLICK_MAP.upsert(raw_ptr, obj_ref) {
+        match STATE.view_long_click_map.upsert(raw_ptr, obj_ref) {
             Upsert::Updated => {}
             Upsert::Full => warn_full("view-long-click"),
             Upsert::Inserted => {
@@ -240,35 +245,35 @@ pub(in crate::graphics) fn perform_long_press(id: i32) {
 
 /// Drain one long-click event (raw `lv_obj_t*`) from the queue.
 pub fn drain_long_click_queue() -> Option<usize> {
-    LONG_CLICK_QUEUE.pop()
+    STATE.long_click_queue.pop()
 }
 
 /// Look up the Java `View` object index for a long-clickable widget's pointer.
 pub fn lookup_long_click_obj(handle: usize) -> Option<u16> {
-    VIEW_LONG_CLICK_MAP.lookup(handle)
+    STATE.view_long_click_map.lookup(handle)
 }
 
 /// GC roots for the long-click map — same unrooted-View hazard as
 /// [`visit_click_listener_roots`].
 pub fn visit_long_click_listener_roots(visit: &mut dyn FnMut(u16)) {
-    VIEW_LONG_CLICK_MAP.visit(visit)
+    STATE.view_long_click_map.visit(visit)
 }
 
 /// Drain one click event (raw `lv_obj_t*` value) from the queue.
 pub fn drain_click_queue() -> Option<usize> {
-    CLICK_QUEUE.pop()
+    STATE.click_queue.pop()
 }
 
 /// Look up the Java `View` object index for a clickable widget's raw LVGL pointer.
 pub fn lookup_button_obj(handle: usize) -> Option<u16> {
-    VIEW_CLICK_MAP.lookup(handle)
+    STATE.view_click_map.lookup(handle)
 }
 
 pub fn reset_button_state() {
-    VIEW_CLICK_MAP.reset();
-    CLICK_QUEUE.clear();
-    VIEW_LONG_CLICK_MAP.reset();
-    LONG_CLICK_QUEUE.clear();
+    STATE.view_click_map.reset();
+    STATE.click_queue.clear();
+    STATE.view_long_click_map.reset();
+    STATE.long_click_queue.clear();
 }
 
 /// Visit the Java `View` object ref of every view registered for an onClick
@@ -277,5 +282,5 @@ pub fn reset_button_state() {
 /// after which its click silently stops dispatching. See
 /// `events::visit_view_listener_roots`.
 pub fn visit_click_listener_roots(visit: &mut dyn FnMut(u16)) {
-    VIEW_CLICK_MAP.visit(visit)
+    STATE.view_click_map.visit(visit)
 }

@@ -36,17 +36,26 @@ const EXT_CLICK: i32 = 8;
 /// 14 px face carries.
 const GLYPH: &core::ffi::CStr = c"\u{F053}";
 
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static CONTROL: Core0<Cell<*mut lv_obj_t>> =
-    unsafe { Core0::new(Cell::new(core::ptr::null_mut())) };
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static PRESSED_AT_MS: Core0<Cell<i64>> = unsafe { Core0::new(Cell::new(0)) };
-// SAFETY: widget-layer state, reached only from JVM tasks.
-static HOME_FIRED: Core0<Cell<bool>> = unsafe { Core0::new(Cell::new(false)) };
+struct State {
+    control: Cell<*mut lv_obj_t>,
+    pressed_at_ms: Cell<i64>,
+    home_fired: Cell<bool>,
+}
+
+// SAFETY: created by LVGL init and driven by the control's own press
+// callbacks, which LVGL runs from the UI task's timer handler: core-0 JVM
+// tasks.
+static STATE: Core0<State> = unsafe {
+    Core0::new(State {
+        control: Cell::new(core::ptr::null_mut()),
+        pressed_at_ms: Cell::new(0),
+        home_fired: Cell::new(false),
+    })
+};
 
 /// Create the control once LVGL is up. Idempotent.
 pub fn ensure() {
-    if !CONTROL.get().is_null() {
+    if !STATE.control.get().is_null() {
         return;
     }
     let layer = lifecycle::overlay_layer();
@@ -91,13 +100,13 @@ pub fn ensure() {
             LV_EVENT_RELEASED,
             core::ptr::null_mut(),
         );
-        CONTROL.set(btn);
+        STATE.control.set(btn);
     }
 }
 
 /// Hide or show the control: hidden while the system keyboard is up.
 pub fn set_hidden(hidden: bool) {
-    let btn = CONTROL.get();
+    let btn = STATE.control.get();
     if btn.is_null() {
         return;
     }
@@ -114,7 +123,7 @@ pub fn set_hidden(hidden: bool) {
 /// Bring the control above whatever was added to the top layer since — a
 /// dialog's scrim — so BACK stays reachable while the dialog shows.
 pub fn raise() {
-    let btn = CONTROL.get();
+    let btn = STATE.control.get();
     if btn.is_null() {
         return;
     }
@@ -127,26 +136,26 @@ fn now_ms() -> i64 {
 }
 
 unsafe extern "C" fn pressed_cb(_e: *mut lv_event_t) {
-    PRESSED_AT_MS.set(now_ms());
-    HOME_FIRED.set(false);
+    STATE.pressed_at_ms.set(now_ms());
+    STATE.home_fired.set(false);
 }
 
 /// LVGL repeats this every `long_press_repeat_time` while the control is
 /// held, from `long_press_time` on: the clock for the hold-for-HOME.
 unsafe extern "C" fn pressing_cb(_e: *mut lv_event_t) {
-    if HOME_FIRED.get() {
+    if STATE.home_fired.get() {
         return;
     }
-    if now_ms() - PRESSED_AT_MS.get() >= i64::from(HOME_HOLD_MS) {
-        HOME_FIRED.set(true);
+    if now_ms() - STATE.pressed_at_ms.get() >= i64::from(HOME_HOLD_MS) {
+        STATE.home_fired.set(true);
         crate::pd_info!("soft nav: held -> HOME");
         crate::input_inject::push_soft_key_press(crate::input_inject::KEYCODE_HOME);
     }
 }
 
 unsafe extern "C" fn released_cb(_e: *mut lv_event_t) {
-    if HOME_FIRED.get() {
-        HOME_FIRED.set(false);
+    if STATE.home_fired.get() {
+        STATE.home_fired.set(false);
         return;
     }
     crate::pd_info!("soft nav: tap -> BACK");

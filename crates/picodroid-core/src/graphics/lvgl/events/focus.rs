@@ -25,25 +25,31 @@ pub struct FocusRecord {
 }
 
 pub(super) const FOCUS_QUEUE_SIZE: usize = 16;
-// SAFETY: filled by LVGL callbacks and drained by natives, all on JVM tasks.
-pub(super) static FOCUS_QUEUE: Core0<LocalRing<FocusRecord, FOCUS_QUEUE_SIZE>> = unsafe {
-    Core0::new(LocalRing::new(FocusRecord {
-        view_handle: 0,
-        has_focus: false,
-    }))
-};
 
-// SAFETY: a listener registry, reached only from JVM tasks.
-pub(super) static VIEW_FOCUS_MAP: Core0<PtrMap<MAX_FOCUS_LISTENERS>> =
-    unsafe { Core0::new(PtrMap::new()) };
+pub(super) struct Focus {
+    queue: LocalRing<FocusRecord, FOCUS_QUEUE_SIZE>,
+    pub(super) view_map: PtrMap<MAX_FOCUS_LISTENERS>,
+}
+
+// SAFETY: filled by LVGL's focus callbacks and by natives, drained by the
+// framework loop, all on core-0 JVM tasks.
+pub(super) static FOCUS: Core0<Focus> = unsafe {
+    Core0::new(Focus {
+        queue: LocalRing::new(FocusRecord {
+            view_handle: 0,
+            has_focus: false,
+        }),
+        view_map: PtrMap::new(),
+    })
+};
 
 pub(super) unsafe extern "C" fn focus_map_delete_cb(e: *mut lv_event_t) {
     let obj = unsafe { lv_event_get_target_obj(e) } as usize;
-    VIEW_FOCUS_MAP.remove(obj)
+    FOCUS.view_map.remove(obj)
 }
 
 pub(super) fn push_focus_event(handle: usize, has_focus: bool) {
-    FOCUS_QUEUE.push(FocusRecord {
+    FOCUS.queue.push(FocusRecord {
         view_handle: handle,
         has_focus,
     });
@@ -87,7 +93,7 @@ pub fn register_view_focus_change_listener(id: i32, obj_ref: u16) {
     }
     let raw_ptr = raw_obj as usize;
     unsafe {
-        match VIEW_FOCUS_MAP.upsert(raw_ptr, obj_ref) {
+        match FOCUS.view_map.upsert(raw_ptr, obj_ref) {
             Upsert::Updated => return,
             Upsert::Full => {
                 warn_full("view-focus");
@@ -117,14 +123,14 @@ pub fn register_view_focus_change_listener(id: i32, obj_ref: u16) {
 }
 
 pub fn drain_focus_change_event() -> Option<FocusRecord> {
-    FOCUS_QUEUE.pop()
+    FOCUS.queue.pop()
 }
 
 pub fn lookup_focus_view_obj(handle: usize) -> Option<u16> {
-    VIEW_FOCUS_MAP.lookup(handle)
+    FOCUS.view_map.lookup(handle)
 }
 
 pub fn reset_view_focus_listener_state() {
-    VIEW_FOCUS_MAP.reset();
-    FOCUS_QUEUE.clear();
+    FOCUS.view_map.reset();
+    FOCUS.queue.clear();
 }
