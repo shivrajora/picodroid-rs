@@ -32,6 +32,11 @@ There are two separate collisions:
   `sim-run.sh --coverage` by hand at that hour fits, but there is no evidence for it. By 09:19
   the port was free.
 
+**Shrink-pass collision fixed 2026-10-15:** the sim cron starts at 02:00 now (it was 03:00),
+and the repo's "3 AM" wording says 2 AM. The run should end around 03:35, before the fleet's
+listeners start. The no-shrink 03:15 case stays open: watch the next nightlies for
+`already in use`. If it comes back, option 3 below is the general fix.
+
 Fix options, cheapest first:
 
 1. Start the sim cron at 02:00 (`crontab -e`, plus the "3 AM" wording in `CLAUDE.md` and
