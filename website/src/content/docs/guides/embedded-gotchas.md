@@ -62,7 +62,7 @@ Why: `setContentView(root)` is the only call that parents your tree to the LVGL 
 
 Symptom: input works for a few seconds, then the keypad silently "loses focus," or a fresh screen throws `NoSuchMethod`.
 
-The framework now roots listener-bound Views (key, touch, swipe, click, dialog, switch, checkbox, editor-action) as GC roots, so this no longer crashes on its own. But holding a Java field is the cleanest, most Android-idiomatic guard, and it removes any reliance on the native rooting — treat it as defense-in-depth.
+The framework roots listener-bound Views (key, touch, swipe, click, dialog, switch, checkbox, editor-action) as GC roots, so this does not crash on its own. But holding a Java field is the cleanest, most Android-idiomatic guard, and it removes any reliance on the native rooting — treat it as defense-in-depth.
 
 ```java
 // FRAGILE: the only reference to this ListView lives in a native listener map.
@@ -254,9 +254,9 @@ See [HTTPS](/api/networking/#https).
 
 ## EditText is single-line, and supports a numeric (digit-pad) mode
 
-Symptom: on a keypad board the X/ENTER that opens the soft keyboard used to insert a newline, making a field look cleared.
+Symptom: on a keypad board the X/ENTER that opens the soft keyboard would, in a multi-line field, insert a newline and make the field look cleared.
 
-EditText is single-line by design and now enforces it natively, so ENTER no longer inserts a newline. For numeric fields, select the digit pad with `InputType.TYPE_CLASS_NUMBER`; for a password, a password variation (`InputType.TYPE_TEXT_VARIATION_PASSWORD`) masks the field with bullets, and `getText()` still returns the real text.
+EditText is single-line by design and enforces it natively, so ENTER never inserts a newline. For numeric fields, select the digit pad with `InputType.TYPE_CLASS_NUMBER`; for a password, a password variation (`InputType.TYPE_TEXT_VARIATION_PASSWORD`) masks the field with bullets, and `getText()` still returns the real text.
 
 ```java
 // WRONG: expecting multi-line entry, and a text keyboard for a number field.

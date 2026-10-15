@@ -25,7 +25,7 @@ let firmware_version = "0.1.0";         // from build.rs
 match check(papk_version, firmware_version) {
     Ok(()) => { /* load PAPK */ }
     Err(CompatError::Mismatch) => { /* refuse — versions are incompatible */ }
-    Err(CompatError::Missing)  => { /* refuse — legacy PAPK on shrunk firmware */ }
+    Err(CompatError::Missing)  => { /* refuse — PAPK has no framework-map-version, firmware is shrunk */ }
     Err(CompatError::BadVersion) => { /* refuse — malformed semver */ }
 }
 ```

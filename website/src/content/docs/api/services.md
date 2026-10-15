@@ -3,10 +3,6 @@ title: "Services & DI"
 description: "Service / ServiceConnection / Notification / IBinder, AlarmManager / PendingIntent, plus dependency injection: compile-time @Inject / @Singleton, @Module / @Provides, Provider / Lazy, and the manual DI components."
 ---
 
-:::caution[Preview]
-The Services & DI surface was introduced in v0.4.0. APIs documented on this page are reasonably stable but may change between releases — check [Release notes](/project/release-notes/) before relying on a specific signature in long-lived code.
-:::
-
 Picodroid mirrors the Android `Service` shape closely enough that an Android developer can pick it up without re-learning the pattern, but pares the lifecycle down to what fits on a Pico: no Binder IPC, no remote services, no system-process dispatch.
 
 ## `picodroid.app.Service`
@@ -101,7 +97,7 @@ public class LocalBinder extends Binder {
 
 Picodroid is single-process, so there is no AIDL / Messenger / true Binder IPC. Clients cast the
 `IBinder` they receive back to your `LocalBinder` type and call `getService()`. A class that only
-`implements IBinder` (the shape before `Binder` existed) still works.
+`implements IBinder` works too.
 
 ## `picodroid.app.Notification` and `startForeground`
 
@@ -391,7 +387,7 @@ Kotlin apps get the same processor through kapt (`picodroid-papk-kotlin` applies
 
 ## Manual DI: `ApplicationComponent` / `ActivitySingletonComponent`
 
-The hand-written shape predates `@Inject` and remains supported for apps that want an explicit graph with no generated code:
+The hand-written shape is for apps that want an explicit graph with no generated code:
 
 ```java
 import picodroid.di.ApplicationComponent;
@@ -416,6 +412,6 @@ public final class HomeActivityComponent extends ActivitySingletonComponent {
 
 This pattern keeps the dependency graph explicit, statically typed, and visible in the source — no reflection, no codegen, no startup cost.
 
-The two styles coexist: an `ApplicationComponent` subclass can itself be a `@Singleton` with an `@Inject` constructor, which makes it injectable while `ApplicationComponent.current()` keeps working for legacy call sites (`LegacyComponent` in `injectdemo`).
+The two styles mix: an `ApplicationComponent` subclass can itself be a `@Singleton` with an `@Inject` constructor, which makes it injectable while `ApplicationComponent.current()` serves the hand-written call sites (`LegacyComponent` in `injectdemo`).
 
 See [`examples/servicedemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/servicedemo) for the full Service v1 lifecycle in one non-UI run, and [`examples/picoenvmon/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/picoenvmon) for `@Inject` / `@Singleton` in production-shape code.

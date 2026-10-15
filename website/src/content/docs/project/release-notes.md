@@ -14,11 +14,6 @@ dispatched by hash instead of string compare; line-number tables are out of ever
 image; and two bug-scan rounds landed about ninety one-bug fixes across the JVM, the widgets,
 the `java.*` shim and the packer.
 
-Three changes here need action: **every `.papk` must be re-packed**, because the package format
-moved to major version 3; **`DatePicker.getMonth()` and the listener's month are now 0-based**,
-as on Android; and **a `--shrink` build writes `build/apks/<app>-shrunk.papk`**, so a script that
-read `<app>.papk` after one needs the new name.
-
 **Every device has a serial number (2026-10-14)**
 
 Written up in [device-serial-2026-10.md](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/device-serial-2026-10.md).
@@ -52,9 +47,8 @@ a pool holding each distinct `Utf8` once, and a class keeps only the entry's tag
 runtime reads through the pool, a registered class is still 16 bytes of RAM. The framework
 section shrank from 261,296 to 219,256 B on the RP2040 and from 561,804 to 460,796 B on the
 RP2350 (flash −39.5 KB and −112 KB); `claudeusage`'s packed classes −18.8 %, a one-class app
-+52 B. **Action needed:** the package format is major version 3, so a PAPK packed before
-2026-10-13 is refused at install and at boot; re-pack with `./scripts/build-apk.sh`.
-`papk-pack --repack` puts the constants back when it rewrites a file.
++52 B. The package format is major version 3. `papk-pack --repack` puts the constants back
+when it rewrites a file.
 
 **Natives dispatched by hash (2026-10-12)**
 
@@ -94,9 +88,7 @@ shrinker](/reference/shrinker/).
 `getMonth()` and `getDayOfMonth()` with Android's signatures, the month 0-based (January is 0)
 in all of them and in `OnDateChangedListener`, so a ported `new GregorianCalendar(y,
 picker.getMonth(), d)` lands on the month shown. The picker shows 1 January 2026 until a date
-is set (the getters used to read 0 until a tap). **Action needed:** `getMonth()` was 1-based;
-the original `setDate(year, month, day)` (month 1-based) and `getDay()` remain as deprecated
-aliases. `pickerdemo` follows. Doc: [`DatePicker`](/api/ui/#picodroidwidgetdatepicker).
+is set (the getters used to read 0 until a tap). `pickerdemo` follows. Doc: [`DatePicker`](/api/ui/#picodroidwidgetdatepicker).
 
 **`PeripheralManager` refuses the pads the board owns (2026-10-12)**
 
@@ -258,9 +250,6 @@ so the factory overrides apps used to need are gone. The platform sets the wall 
 and keeps the time zone as a user setting. `java.io` streams and `Adapter.getView` with
 `convertView` are here too.
 
-One change here needs action: **a `BaseAdapter` subclass must now implement `getView`**, in the
-`Adapter.getView` entry below.
-
 **The Android-shaped manifest: `<activity>`, `<service>`, `android:theme` (2026-10-09)**
 
 Decision F4 of the [claudeusage decisions](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/claudeusage-decisions-2026-10.md),
@@ -335,8 +324,7 @@ place on `notifyDataSetChanged()`, frees the surplus, starts fresh on `setAdapte
 row to `onItemClick` as `view`. `ArrayAdapter` renders a `TextView` per item or inflates Android's
 layout-resource constructors (`(Context, int resource[, int textViewResourceId], T[] | List<T>)`),
 and gained `addAll`, `insert`, `remove`, `getPosition`. `ViewGroup.addView(View, int index)`.
-**Action needed:** a `BaseAdapter` subclass must now implement `getView` (it was not part of the
-interface before). Roadmap T3.4.
+A `BaseAdapter` subclass implements `getView`. Roadmap T3.4.
 Doc: [`ListView`](/api/ui/#picodroidwidgetlistview).
 
 **Map v0.37.0 (2026-10-10)**
@@ -357,11 +345,6 @@ the one place an app's actions live. Apps can ask what board they landed on
 (`Resources.getConfiguration`, `KeyCharacterMap.deviceHasKey`), and the display dozes while the
 app keeps running. `picodroid.lifecycle` brings `ViewModel` and `LiveData`. Classes are linked
 when they are packed (PAPK v2), which makes calls about a fifth faster on the RP2350.
-
-Two changes here need action: **every `.papk` must be re-packed**, because the
-package format moved to major version 2, and **three SDK signatures changed** to Android's
-(`ServiceConnection` / `bindService`, `Executors.newSingleThreadScheduledExecutor`,
-`DatagramPacket.getAddress`), in the first entry below.
 
 **The options menu: actions without buttons (2026-10-06)**
 
@@ -566,23 +549,21 @@ write an app once against a 240×240 logical-pixel floor and let the framework p
 **Android-shaped app code: the `claudeusage` round (2026-10-01)**
 
 The remaining places where `examples/claudeusage` read differently from the same app written
-for Android, closed in the SDK. Several are source-incompatible; each says what to change.
+for Android, closed in the SDK.
 
-- **Breaking: `ServiceConnection` and `bindService` have Android's signatures.**
+- **`ServiceConnection` and `bindService` have Android's signatures.**
   `onServiceConnected(ComponentName name, IBinder service)`,
   `onServiceDisconnected(ComponentName name)` and
   `boolean bindService(Intent, ServiceConnection, int flags)` with `Context.BIND_AUTO_CREATE`
-  replace the one-argument, no-argument and two-argument forms. Add the `ComponentName`
-  parameter to both callbacks and `BIND_AUTO_CREATE` to the bind. The callbacks are ordinary
+  replace the one-argument, no-argument and two-argument forms. The callbacks are ordinary
   interface calls now, so a connection may inherit them from a base class (the flat lookup that
   found them only on the exact class is gone). New with them: `picodroid.content.ComponentName`,
-  `picodroid.os.Binder` (extend it for a LocalBinder; `implements IBinder` still works) and
+  `picodroid.os.Binder` (extend it for a LocalBinder; `implements IBinder` works too) and
   `new Intent(Context, Class)`.
-- **Breaking: `Executors.newSingleThreadScheduledExecutor()` runs on a thread of its own**, as in
-  the JDK: its tasks may block and must not touch views. The main-thread scheduler it used to
-  return is `Executors.mainScheduledExecutor()`: rename the call where the tasks touch the UI
-  (every example did).
-- **Breaking: `DatagramPacket.getAddress()` returns an `InetAddress`**, not the packed `int`
+- **`Executors.newSingleThreadScheduledExecutor()` runs on a thread of its own**, as in
+  the JDK: its tasks may block and must not touch views. The main-thread scheduler is
+  `Executors.mainScheduledExecutor()`, for tasks that touch the UI.
+- **`DatagramPacket.getAddress()` returns an `InetAddress`**, not the packed `int`
   (`getAddress().getRawAddress()` is the old value). `InetAddress.getByAddress(byte[])` and
   `getAddress()` are new.
 - **`SharedPreferences` behaves as Android's.** `Context.getSharedPreferences` returns one
@@ -637,10 +618,8 @@ for Android, closed in the SDK. Several are source-incompatible; each says what 
   example's total drops from 123.6 s to 97.0 s (−21.6 %): virtual calls −28 %, interface calls
   −25 %, object allocation −40 %, string operations −48 %. `claudeusage`'s History page uses
   81 KB less of the JVM arena.
-- **Breaking:** the PAPK header is 28 bytes and its major version is 2. `pdb install`
-  refuses a v1 file with a message that says to re-pack it, and a device does not load one
-  that is already in its flash; there is no legacy path. Rebuild your apps with the current toolchain (`./scripts/build-apk.sh`).
-  `papk-info` validates the link tables of a packed file.
+- The PAPK header is 28 bytes and its major version is 2. `papk-info` validates the link
+  tables of a packed file.
 - The tables live in flash: +126 KB on `testbench_rp2350`, +61 KB on `testbench_rp2040`. The
   flash layout of four boards moved to make room, below.
 
@@ -1066,9 +1045,8 @@ The apps-and-networks release, and the first tag since the release version start
 - `setProgress(int)` is now instant, as on Android. It was nominally animated, but LVGL's theme
   gives the bar a 0 ms animation, so nothing visible changes; ask for motion with
   `setProgress(value, true)`.
-- `ProgressBar.setTint(int)` is deprecated in favour of `setIndeterminateTintList` and keeps
-  working. `examples/claudeusage` draws its limit and model bars with `ProgressBar` instead of
-  nested `FrameLayout`s.
+- `examples/claudeusage` draws its limit and model bars with `ProgressBar` instead of nested
+  `FrameLayout`s.
 
 **Activity callbacks reach a base-class override (map v0.28.0, package 0.28.0)**
 
@@ -1089,15 +1067,13 @@ The apps-and-networks release, and the first tag since the release version start
   `size` / `isEmpty` / `containsKey` / `remove` / `clear` / `keySet` / `putAll` and a copy
   constructor. An `Intent`'s extras are one `Bundle` now, reachable as `getExtras` /
   `putExtras` / `getBundleExtra` / `putBundle`. See `examples/bundledemo`.
-- **Breaking — `onCreate()` takes a `Bundle`.** The no-arg `onCreate()` an `Activity` used to
-  override is gone rather than deprecated, because an override that no longer matches would
-  compile and simply never run. Every `Activity` declares
+- **`onCreate()` takes a `Bundle`.** Every `Activity` declares
   `protected void onCreate(Bundle savedInstanceState)` and calls
-  `super.onCreate(savedInstanceState)`; the build rejects an app `Activity` that still declares
-  the no-arg form (`ApiContract.RETIRED_CALLBACKS`). `Application` and `Service` keep their
-  no-arg `onCreate()` — that is their Android shape too. The 63 in-tree Activities and the
-  guides are migrated. Also removed: `Intent`'s `extraCount` / `extraKey` / `extraInt` /
-  `isIntExtra`, which the `Bundle` accessors replace.
+  `super.onCreate(savedInstanceState)`, as on Android; the build rejects an app `Activity` that
+  declares a no-arg `onCreate()` (`ApiContract.RETIRED_CALLBACKS`), because without `@Override`
+  it would compile and never run. `Application` and `Service` have the no-arg `onCreate()`,
+  their Android shape. `Intent`'s `extraCount` / `extraKey` / `extraInt` / `isIntExtra` are
+  gone; the `Bundle` accessors replace them.
 - **A covered Activity can now be destroyed and rebuilt from its Bundle.** Until this release
   the framework never reclaimed one, so a saved `Bundle` only ever came back through
   `recreate()`. An Activity covered by another is now released — oldest first, at both ends of a
@@ -1634,13 +1610,13 @@ The apps-and-networks release, and the first tag since the release version start
 - **A `--shrink` firmware carries no original Java name anywhere.** Previously the runtime kept both spellings of every framework class (a 300-arm `unshrink_class` match translated `a/AB` back to `picodroid/view/View` on every native call), undid the `b/` prefix for `java/**` names at the JVM's class-file boundary, and kept the ~125 `java/**` member names it dispatches by literal (`toString`, `hashCode`, `equals`, `hasNext`, …) unmapped. All three are gone: every class, member and descriptor the Rust runtime names is now a build-generated constant (`c::picodroid_view_View`, `m::toString`, `d::String__V` — `build_support/names.rs`) whose value is the loaded spelling, the contract members and javac's `$` synthetics are mapped like everything else, and the image is checked after linking (`scripts/check-shrunk-image.sh`, in `pre-commit --full`). `picoenvmon` on `pico_enviro_mon` (`--release --shrink`): see the [flash budget](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/flash-budget-2026-09.md) §6.2 for the measured delta. No-shrink builds are byte-identical.
 - **`Class.getName()`, stack traces and log lines show the mapped name under `--shrink`** (`"x".getClass().getName()` is `b.AQ`), exactly as in a ProGuard build. Build without `--shrink` for readable names, or pipe a shrunk log through the new `scripts/retrace.sh` (`class-shrink retrace`), the host-side inverse of the map. `examples/classlit` now checks name consistency rather than literal spellings.
 - **`--shrink` is faster than no-shrink again, by design.** Uniform four-byte class names had turned every class-table scan in the JVM (`find_method`, the superclass walk, `new`) into a `bcmp` call per candidate — 57 M compare calls per sim `benchmark` run against 3.2 M unshrunk, and a 16 % slower `TOTAL` (`string_operations` +73 %). Every registered class now carries a name hash and every scan goes through one `find_class`; the builtin dispatch table carries the same hash. Compare calls: 372 k shrunk / 310 k unshrunk. On `testbench_rp2350` the old shrink image was +19.5 % overall (+138 % string operations, +69 % allocation, 20 runs each, σ ≤ 5 ms); the fixed shrink image is −18 % against it and the fastest of the four measured, and in the sim `--shrink` and no-shrink are at parity overall with the lookup-heavy sections 3–5 % faster shrunk. Costs ~0.9 KB of flash. Caveat for anyone reading device numbers: a 120-byte shift of the interpreter loop in XIP flash moves pure-arithmetic sections by up to 40 %, so compare only the sections a change touches (`docs/designs/unconditional-shrink-2026-09.md` §8.3).
-- **Compatibility:** the member floor moves to v0.17.0 — a PAPK shrunk with an older map is refused by 0.17.0 firmware (`pdb install`: *PAPK was shrunk before method/field names were*); rebuild it. A no-shrink PAPK on shrink firmware (and vice versa) was already refused. `cut-release` takes `--contract` (was `--keep-contract`; the names are now mapped, not kept) and `--floor`.
+- The member floor moves to v0.17.0 — a PAPK shrunk with an older map is refused by 0.17.0 firmware (`pdb install`: *PAPK was shrunk before method/field names were*). `cut-release` takes `--contract` (was `--keep-contract`; the names are now mapped, not kept) and `--floor`.
 
-**Breaking — API shape corrections (T2.7).** Three `picodroid.*` shapes that had diverged from their `android.*` counterparts are corrected in place. There are no compatibility shims: apps recompile against the new signatures, and the in-tree examples show the migrated form.
+**API shape corrections (T2.7).** Three `picodroid.*` shapes that had diverged from their `android.*` counterparts are corrected in place.
 
-- **`Service extends Context`, and `onStartCommand` takes Android's three arguments** — `onStartCommand(Intent intent, int flags, int startId)`. `flags` is always `0` (`START_FLAG_REDELIVERY` / `START_FLAG_RETRY` describe redelivery after a process kill, which never happens on an MCU; the constants exist so Android code that tests them compiles). Inside a Service, `getSystemService`, `getSharedPreferences`, `startService` and `bindService` now work on `this`. *Migration:* add the `int flags` parameter to every override — the framework invokes the three-argument form, so an unmigrated two-argument override is no longer called.
+- **`Service extends Context`, and `onStartCommand` takes Android's three arguments** — `onStartCommand(Intent intent, int flags, int startId)`. `flags` is always `0` (`START_FLAG_REDELIVERY` / `START_FLAG_RETRY` describe redelivery after a process kill, which never happens on an MCU; the constants exist so Android code that tests them compiles). Inside a Service, `getSystemService`, `getSharedPreferences`, `startService` and `bindService` now work on `this`.
 - **`Button extends TextView`** (was `View`), as on Android: `setTextColor` is available on a Button, and a Button can be passed wherever a `TextView` is expected. `setText` keeps its button-specific native implementation.
-- **`ViewPropertyAnimator` is to-only.** `alpha(float)`, `x(float)`, `y(float)` and `setDuration(long)` take only the target; the `from, to` overloads are gone and the animation starts from the view's current value, read back from the renderer. New on the animator: `translationX/Y(float)`, `rotation(float)`, `scaleX/Y(float)`, `setStartDelay(long)`, `getDuration()`, `getStartDelay()`. New on `View`: `setTranslationX/Y`, `setRotation`, `setScaleX/Y` and their getters; `getX()` is now `getLeft() + getTranslationX()`. Starting a property that is already animating replaces the running animation; a delayed start takes over when its delay expires. Rotation and scale render through an off-screen layer of the view's own size (from LVGL's 64 KB pool) — keep transformed views small. *Migration:* `alpha(1f, 0f)` → `alpha(0f)`; `x(20, 60)` → `x(60f)`; two back-to-back animations of one property become a `withEndAction` chain.
+- **`ViewPropertyAnimator` is to-only.** `alpha(float)`, `x(float)`, `y(float)` and `setDuration(long)` take only the target; the `from, to` overloads are gone and the animation starts from the view's current value, read back from the renderer. New on the animator: `translationX/Y(float)`, `rotation(float)`, `scaleX/Y(float)`, `setStartDelay(long)`, `getDuration()`, `getStartDelay()`. New on `View`: `setTranslationX/Y`, `setRotation`, `setScaleX/Y` and their getters; `getX()` is now `getLeft() + getTranslationX()`. Starting a property that is already animating replaces the running animation; a delayed start takes over when its delay expires. Rotation and scale render through an off-screen layer of the view's own size (from LVGL's 64 KB pool) — keep transformed views small.
 
 **Interface-typed collections, and a leaner framework**
 
@@ -1830,7 +1806,7 @@ The networking release. WiFi on the Pico 2 W goes from "compiles" to validated e
 - WiFi credentials are baked in at build time via `PICODROID_WIFI_SSID` / `PICODROID_WIFI_PASS` — see the new [WiFi & networking setup guide](/get-started/networking/). On hardware, poll `NetworkInfo.isConnected()` before the first socket call; `netdemo` and `http_get` show the pattern (an app's `onCreate` races the WiFi join + DHCP window).
 - Current limits are collected on the new [known issues](/reference/known-issues/) page: open/WPA2-AES networks only, no TLS, 256-byte socket I/O chunking, coarse HTTP error reporting.
 
-**Breaking: ESP32-S3 support removed**
+**ESP32-S3 support removed**
 
 - The compile-only ESP32-S3 / Lilygo T-Deck Plus target (Milestone-1 scaffolding from v0.9.0) is gone: `platforms/esp/`, the `tdeck_plus` board, its cargo aliases, and its docs pages. Retrieve `platforms/esp/` from git history if it returns. Supported boards are now the four RP-family ones (Pico, Pico 2, Pico 2 W, Pico + Enviro+ pack).
 

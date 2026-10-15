@@ -128,21 +128,14 @@ The most common causes:
    version bumped past what the firmware knows). Rebuild the PAPK
    against the current source tree.
 
-3. **PAPK was shrunk before method/field names were.** Since map
-   v0.17.0 the firmware's own dispatch uses the mapped member names, so
-   a PAPK shrunk with an older map is refused by a v0.17.0-or-later
-   firmware even though older maps are otherwise accepted (the member
-   floor). Rebuild the PAPK; `pdb install` names this reason
-   explicitly.
-
 `--shrink-app` never causes a mismatch: the per-app map extends the
 release map without changing `framework-map-version`, so a
 `--shrink-app` PAPK installs on any `--shrink` firmware of the same
 release.
 
-`FrameworkVersionMissing` means the PAPK predates the manifest key
-entirely (legacy, pre-M1). Also fixed by rebuilding. See
-[Shrinker](/reference/shrinker/) for the full compatibility story.
+`FrameworkVersionMissing` means the PAPK carries no `framework-map-version`
+key at all (a hand-assembled file; the packer always writes one). Also fixed
+by rebuilding. See [Shrinker](/reference/shrinker/) for the rule.
 
 ## `api contract: FAILED` — the app build stops in `verifyApiContract`
 
@@ -158,12 +151,6 @@ surface. An `EXCLUDED ON BOARD` section means the target board drops that
 class from its framework (`framework_class_excludes` in its `board.toml`);
 build for a larger board or probe-and-degrade.
 
-A `callback retired: the framework never calls it` entry is an `Activity`
-that still declares the no-arg `onCreate()`. Declare
-`protected void onCreate(Bundle savedInstanceState)` (import
-`picodroid.os.Bundle`) and call `super.onCreate(savedInstanceState)`;
-`Application` and `Service` keep their no-arg `onCreate()`.
-
 `-Ppicodroid.apiContract=warn` (or `off`) bypasses the check while
 experimenting, e.g. `./gradlew :examples:myapp:assemblePapk -Ppicodroid.apiContract=warn`.
 Do not edit `sdk/api-contract.tsv` — it is generated from the runtime's
@@ -173,26 +160,18 @@ tables; to support a new member add the builtin arm and its
 ## `pdb install` says "Refusing to install"
 
 `pdb install` runs a host-side compatibility pre-flight against the
-device's running firmware before erasing flash. Two messages you may see:
+device's running firmware before erasing flash. The messages you may see:
 
 1. **"PAPK is incompatible with running firmware"** — the PAPK and the
-   running firmware disagree about `--shrink` (or the PAPK's release map
-   is newer than the firmware's, or older than its member floor). The
-   on-device PAPK is untouched. Rebuild the PAPK
-   with the matching `--shrink` setting and re-run `pdb install`.
+   running firmware disagree about `--shrink`, or were built from
+   different source trees so their maps differ. The on-device PAPK is
+   untouched. Rebuild the PAPK with the matching `--shrink` setting
+   against the same tree and re-run `pdb install`.
 
-2. **"Firmware advertises 'picodroid/2.0', which predates the
-   framework-map-version protocol field"** — the firmware was built
-   before the compat-check protocol. `pdb install` won't push to it
-   over USB. Reflash the firmware via SWD with `./scripts/flash.sh`,
-   which brings up a current (`picodroid/2.2`) build that advertises the field.
+2. **"PAPK file is not a valid PAPK"** — the file is truncated or
+   malformed. Rebuild it with `./scripts/build-apk.sh --app <name>`.
 
-3. **"PAPK file is not a valid PAPK"** — the file is truncated or
-   malformed, or it was packed before the current PAPK format, v3
-   (`PAPK format version is not the one this build reads (an older file:
-   re-pack it with the current toolchain)`). Rebuild it with `./scripts/build-apk.sh --app <name>`.
-
-4. **"PAPK has no package-name; a multi-app device cannot place it"** —
+3. **"PAPK has no package-name; a multi-app device cannot place it"** —
    the manifest has no `package`. Add one, or repack the file with the
    `papk-pack --repack` command the message prints.
 

@@ -125,9 +125,7 @@ For scaled rendering to be anti-aliased, `LV_DRAW_SW_SUPPORT_RGB565A8` must be e
 
 Bundled assets land outside the framework class set, so they don't change the **shrink map**, and `--shrink` / `--shrink-app` never rename an asset: the name passed to `setImageSource` is a string literal, which the shrinker leaves alone.
 
-The container itself is at format **v3**: classes are linked when the app is packed, and a file packed by an older toolchain (v1 or v2) is refused rather than read — `pdb install` prints `PAPK file is not a valid PAPK: PAPK format version is not the one this build reads (an older file: re-pack it with the current toolchain)`. Rebuild the app with `./scripts/build-apk.sh`; nothing about its `assets/` needs to change.
-
-A PAPK packed before sections were aligned (2026-09-15) can place an image's pixels at an odd address. The firmware skips such an image instead of drawing it and logs `[assets] <name> skipped: pixel data is not 2-byte aligned`; re-pack the app to fix it.
+The container itself is at format **v3**: classes are linked when the app is packed, and `pdb install` and the firmware read only that version (`PAPK file is not a valid PAPK: PAPK format version is not the one this build reads`). Sections are 2-byte aligned, so an image's pixels never land at an odd address; the firmware skips, rather than draws, an image whose pixels do and logs `[assets] <name> skipped: pixel data is not 2-byte aligned`.
 
 The `papk-info` tool prints both the manifest and the asset table:
 

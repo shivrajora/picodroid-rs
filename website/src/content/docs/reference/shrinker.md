@@ -37,9 +37,8 @@ Shrink maps are **release-versioned** and **append-only**:
   (retain their original full names) until the next release cut
   folds them in. Symbols in the active map are never renamed.
 
-The append-only rule is what lets old PAPKs keep working on newer
-firmware: every name a PAPK-at-version-P refers to is still present in
-firmware-at-version-F ≥ P.
+The append-only rule keeps every mapping stable once cut: a name a
+PAPK-at-version-P refers to is present in firmware-at-version-F ≥ P.
 
 PAPK compatibility is enforced at load time
 ([crates/papk-format/src/lib.rs](https://github.com/shivrajora/picodroid-rs/blob/main/crates/papk-format/src/lib.rs) `verify_compat`): a PAPK with a map
@@ -92,12 +91,11 @@ Thirty-seven release maps are committed today, `v0.1.0` through `v0.37.0`:
 
 ## Scope
 
-Maps rename **class names** (every release since v0.1.0) and, since
-v0.16.0, **method and field names** (see [Member names](#member-names)).
-Class names collapse into two synthetic packages, each with its own counter: `a/`
-for framework classes (`picodroid/**`, `javax/**`; 42 of them in the first
-cut) and, since v0.15.0, `b/` for the `java/**` classes pico-jvm serves
-natively. Nothing translates either prefix back at run time: the Rust
+Maps rename **class names** and **method and field names** (see
+[Member names](#member-names)). Class names collapse into two synthetic
+packages, each with its own counter: `a/` for framework classes
+(`picodroid/**`, `javax/**`) and `b/` for the `java/**` classes pico-jvm
+serves natively. Nothing translates either prefix back at run time: the Rust
 runtime is compiled against constants generated from the active map
 (`c::java_lang_String` is `"java/lang/String"` in a no-shrink build and
 `"b/AQ"` under `--shrink` — see [Native dispatch](#native-dispatch--every-name-generated)),
@@ -174,17 +172,15 @@ which `build.rs` invokes (map path as `-Ppicodroid.shrinkMap`) whenever the
 active map has member rows. `papk-pack --shrink-map` translates the
 `onCreate` it looks for in the entry point the same way.
 
-**Compatibility.** Class renames are additive, so an older PAPK keeps
-resolving on newer firmware. A map that renames *existing* members
-breaks that rule, so it moves the member floor
-(`compat::MEMBER_SHRINK_FLOOR`, recorded as `member-floor` in every map
-from v0.16.0 on): v0.16.0 introduced member renames, v0.17.0 extended them
-to the contract members, and firmware at or past the floor rejects a
-shrunk PAPK cut before it with `FrameworkVersionMismatch` (`pdb install`
-says *PAPK was shrunk before method/field names were*). Every workflow
-rebuilds PAPK and firmware together; the check turns the stale case into
-a clear error instead of a runtime `NoSuchMethod`. Un-keeping another
-member later would need another floor.
+**The member floor.** Class renames are additive. A map that renames
+*existing* members is not, so it moves the member floor
+(`compat::MEMBER_SHRINK_FLOOR`, recorded as `member-floor` in every map),
+and firmware at or past the floor rejects a shrunk PAPK cut before it with
+`FrameworkVersionMismatch` (`pdb install` says *PAPK was shrunk before
+method/field names were*). Every workflow rebuilds PAPK and firmware
+together; the check turns a stale pair into a clear error instead of a
+runtime `NoSuchMethod`. Un-keeping another member later would need
+another floor.
 
 ## Enabling shrinking
 
@@ -410,12 +406,12 @@ Two things to keep in mind:
 | Firmware    | PAPK        | Accepted? | Why |
 |-------------|-------------|-----------|-----|
 | `0.0.0`     | `0.0.0`     | Yes       | Both unshrunk, names match. |
-| `v` ≥ 0.17.0 | `v'` < 0.17.0 | No (`FrameworkVersionMismatch`) | PAPK predates the member floor: names the firmware now spells mapped are verbatim in the PAPK. |
+| `v` ≥ floor | `v'` < floor | No (`FrameworkVersionMismatch`) | PAPK is below the member floor: names the firmware spells mapped are verbatim in the PAPK. |
 | `v` (≥1)    | `v'` (≥1) and `v' ≤ v` | Yes | Append-only maps: every shrunk name the PAPK uses is still present in firmware. |
 | `v` (≥1)    | `v'` (≥1) and `v' > v` | No (`FrameworkVersionMismatch`) | PAPK may reference shrunk names added after firmware's release. |
 | `0.0.0`     | non-zero    | No        | PAPK's shrunk refs don't exist in unshrunk firmware. |
 | non-zero    | `0.0.0`     | No        | PAPK's original refs don't exist in shrunk firmware. |
-| anything    | unversioned (legacy, pre-M1) | Only if firmware is `0.0.0` (`FrameworkVersionMissing` otherwise) | Backward compat. |
+| anything    | no key      | Only if firmware is `0.0.0` (`FrameworkVersionMissing` otherwise) | A hand-assembled file; the packer always writes the key. |
 
 ## Native dispatch — every name generated
 
@@ -651,5 +647,6 @@ PAPK against matching firmware:
 ./scripts/build-apk.sh --app <name>
 ```
 
-`PapkError::FrameworkVersionMissing` means the PAPK predates the
-manifest key but the firmware has a shrink map active. Again, rebuild.
+`PapkError::FrameworkVersionMissing` means the PAPK carries no
+`framework-map-version` key but the firmware has a shrink map active.
+Again, rebuild.

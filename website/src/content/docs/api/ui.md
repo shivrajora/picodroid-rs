@@ -68,10 +68,6 @@ The full Android-style lifecycle is dispatched by the runtime. Override only the
 
 The content view installed in `onCreate` (or `onResume`) is **preserved across pause** — when this Activity returns to the foreground, the saved widget tree is restored automatically. Rebuilding the tree from `onResume` is still supported; the new root replaces the saved one.
 
-:::caution[Migrating from `onCreate()`]
-Activities used to override a no-argument `onCreate()`. It is gone: override `protected void onCreate(Bundle savedInstanceState)` and call `super.onCreate(savedInstanceState)`. The build rejects an Activity that still declares the old one (`api contract: … callback retired`), because without `@Override` it would compile and then never be called. `Application.onCreate()` and `Service.onCreate()` are unchanged — they take no argument on Android either.
-:::
-
 ### Saved instance state
 
 `recreate()` destroys the foreground Activity and starts a new instance of it in the same back-stack slot, the Android way of rebuilding a screen from scratch. State crosses over in a [`Bundle`](#picodroidosbundle):
@@ -921,7 +917,7 @@ btn.setOnClickListener(new View.OnClickListener() {
 btn.setOnClickListener(v -> Log.i("UI", "Button clicked!"));
 ```
 
-> **Typed listeners (since v0.10.0):** widget callbacks are Android-style single-method
+> **Typed listeners:** widget callbacks are Android-style single-method
 > interfaces, not bare `Runnable`s. Each widget below names its interface — e.g.
 > `View.OnClickListener`, `CompoundButton.OnCheckedChangeListener`,
 > `SeekBar.OnSeekBarChangeListener`, `AdapterView.OnItemClickListener`,
@@ -1116,7 +1112,7 @@ spinner.setIndeterminateTintList(ColorStateList.valueOf(Color.RED));  // the arc
 
 `indeterminate()` returns a `ProgressBar` backed by `lv_spinner` and ignores `setProgress`; the mode
 is fixed at construction (there is no `setIndeterminate(boolean)`). A tint set on the flavour that is not showing is kept for its getter but
-not drawn. `setTint(int)` is a deprecated alias of `setIndeterminateTintList`.
+not drawn.
 
 ### `picodroid.widget.CircularProgressIndicator`
 
@@ -1167,7 +1163,7 @@ list.addItem("Item 2");
 list.addItem("Item 3");
 ```
 
-**Adapter-backed (the Tier 2 `Adapter` pattern, since v0.10.0).** Bind an `ArrayAdapter` and
+**Adapter-backed (the `Adapter` pattern).** Bind an `ArrayAdapter` and
 receive typed click callbacks. Each item renders as a `TextView` showing its `toString()`:
 
 ```java
@@ -1606,7 +1602,7 @@ kb.show();
 
 LVGL switches modes internally as the user taps the keyboard's "abc"/"ABC"/"123"/"!@#" toggle keys. v1 caveats: US-English layout only; explicit instances do not auto-hide on the OK key (the listener decides).
 
-**Polish pass (since v0.5.0).** The system keyboard:
+The system keyboard:
 
 - Slides up from the bottom edge over ~150 ms when an `EditText` gains focus, and slides back down on dismiss — no instant jump.
 - Forwards the OK key to any `OnEditorActionListener` registered on the focused `EditText` before the default close behavior runs.
@@ -1710,7 +1706,7 @@ tp.setOnTimeChangedListener(new TimePicker.OnTimeChangedListener() {
 });
 ```
 
-12-hour / AM-PM mode (since v0.7.0):
+12-hour / AM-PM mode:
 
 ```java
 tp.setIs24HourView(false);   // adds an AM/PM column; 14:30 shows as 2:30 PM

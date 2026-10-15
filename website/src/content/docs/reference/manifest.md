@@ -405,12 +405,10 @@ flash.
   hash. The framework's own classes are embedded in the firmware in the same
   form.
 
-This is format version 2, written since 2026-09-28. There is no reader for
-version 1: a PAPK packed before that date is refused by `pdb install`, by
-`papk-info` and by the firmware build, and a board does not load one left in
-its app region. Re-pack it with `./scripts/build-apk.sh --app <name>`; nothing
-in the app's source or manifest changes. Packing also refuses a class file over
-65,535 bytes and two classes whose names hash alike.
+This is format version 3; `pdb install`, `papk-info` and the firmware build read
+no other, and a board does not load a file of another version left in its app
+region. Packing also refuses a class file over 65,535 bytes and two classes
+whose names hash alike.
 
 `./scripts/papk-info.sh build/apks/<name>.papk` prints the header, the manifest
 keys, the classes with their sizes, the assets and the resource counts, and
@@ -497,7 +495,7 @@ log, the usual cause is a typo'd entry-point string or a dotted name. See
 ### Install compatibility check
 
 Every PAPK embeds a `framework-map-version` key, written by the packer. The
-firmware only loads a file that is format version 2 and whose link tables match
+firmware only loads a file that is format version 3 and whose link tables match
 their class bytes (checked when the app region is scanned at boot); at load time
 it compares the key against the version it was built with (`verify_compat`). The two sides share one rule: both unshrunk (`0.0.0`) is OK,
 both shrunk with a compatible map is OK, and an asymmetric `--shrink` setting (or

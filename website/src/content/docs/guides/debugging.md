@@ -282,16 +282,6 @@ It returns `false` when the listener or sensor argument is not a valid object, w
 
 Every refusal prints `Refusing to install: <reason>` and exits non-zero. The reasons you'll actually hit:
 
-**Legacy firmware (no compat protocol).** The firmware predates the framework-map-version handshake, so `pdb` can't verify compatibility over USB:
-
-```text
-Firmware advertises "picodroid/2.0", which predates the framework-map-version protocol field.
-pdb cannot verify install compatibility against this firmware.
-Reflash firmware via SWD (./scripts/flash.sh) to install over USB.
-```
-
-Recovery: reflash via SWD (`./scripts/flash.sh`) to advance to a firmware that advertises the field. See [`pdb install` says "Refusing to install"](/guides/troubleshooting/#pdb-install-says-refusing-to-install).
-
 **Shrink-map version mismatch.** The PAPK and the running firmware were built with different `--shrink` settings, so their framework maps don't line up:
 
 ```text
@@ -302,13 +292,13 @@ PAPK is incompatible with running firmware.
   Rebuild the PAPK with matching --shrink setting (see reference/shrinker in the docs).
 ```
 
-`Reason` is usually one of three: the two sides disagree about `--shrink` (one of them reports `0.0.0`) or the PAPK's map is newer than the firmware's — both print *version mismatch (asymmetric --shrink, or PAPK newer than firmware)* — or *PAPK was shrunk before method/field names were (map < member floor)* — a firmware at v0.17.0 or later dispatches on mapped member names and refuses a PAPK shrunk with an older map even though older maps are otherwise accepted. `--shrink-app` does not enter into it: the per-app map extends the release map without changing `framework-map-version`, so a `--shrink-app` PAPK installs on any `--shrink` firmware of the same release.
+`Reason` is usually that the two sides disagree about `--shrink` (one of them reports `0.0.0`) or that the PAPK and the firmware were built from different source trees, so their maps differ — *version mismatch (asymmetric --shrink, or PAPK newer than firmware)*. `--shrink-app` does not enter into it: the per-app map extends the release map without changing `framework-map-version`, so a `--shrink-app` PAPK installs on any `--shrink` firmware of the same release.
 
 The same condition can surface as a firmware-load panic, `PAPK framework-map-version incompatible with firmware`. **Recovery:** rebuild the APK and firmware with the *same* `--shrink` flag, or rebuild the PAPK without `--shrink` to match a non-shrunk firmware, or reflash matching firmware. The shrinker is documented in [Shrinker](/reference/shrinker/); the panic and recovery steps are in [`PAPK framework-map-version incompatible with firmware`](/guides/troubleshooting/#papk-framework-map-version-incompatible-with-firmware).
 
 **No room, or no package name** (multi-app boards). `device rejected install: STATUS_NO_ROOM` means the app region has no contiguous run for the package even after compaction, or the directory is full; nothing was erased. Free room with `pdb uninstall <package>` (`pdb list` shows what is installed). `PAPK has no package-name; a multi-app device cannot place it` means the manifest lacks `package`; the message carries the `papk-pack --repack` command that adds one.
 
-**Other refusals.** A malformed package is rejected unconditionally with `PAPK file is not a valid PAPK: <error>` (this check runs even under `--skip-host-check`, to prevent bricking). A package built before the current PAPK format (v3 since 2026-10-13) is one of them — `PAPK format version is not the one this build reads (an older file: re-pack it with the current toolchain)` — so rebuild it with `./scripts/build-apk.sh`. An over-size package fails with `error: PAPK is <n> KB but device supports max <n> KB`. If you bypass the host check, the device can still reject with `device rejected install: STATUS_INCOMPAT — framework-map-version mismatch` — and the existing PAPK on flash is left untouched.
+**Other refusals.** A malformed package is rejected unconditionally with `PAPK file is not a valid PAPK: <error>` (this check runs even under `--skip-host-check`, to prevent bricking). An over-size package fails with `error: PAPK is <n> KB but device supports max <n> KB`. If you bypass the host check, the device can still reject with `device rejected install: STATUS_INCOMPAT — framework-map-version mismatch` — and the existing PAPK on flash is left untouched.
 
 ### Driving the simulator headlessly
 

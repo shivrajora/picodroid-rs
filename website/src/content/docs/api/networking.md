@@ -414,7 +414,7 @@ Network failures throw the `java.net` exception types Android apps expect, with 
 | No memory or entropy for the TLS session | `javax.net.ssl.SSLException` | `out of memory for the TLS session…`, `no hardware entropy for the handshake` |
 | Anything else | `java.io.IOException` | `<op> failed (err N)` |
 
-`Socket.recv` and `HttpInputStream.read` return `-1` **only** at orderly end-of-stream — timeouts and transport errors always throw, so a stalled-but-alive server no longer reads as a clean EOF. The hierarchy matches real Java: `ConnectException` and `BindException` extend `SocketException`; `SocketTimeoutException` extends `InterruptedIOException`, *not* `SocketException`; `SSLHandshakeException` and `SSLPeerUnverifiedException` extend `SSLException`, an `IOException`.
+`Socket.recv` and `HttpInputStream.read` return `-1` **only** at orderly end-of-stream — timeouts and transport errors always throw, so a stalled-but-alive server never reads as a clean EOF. The hierarchy matches real Java: `ConnectException` and `BindException` extend `SocketException`; `SocketTimeoutException` extends `InterruptedIOException`, *not* `SocketException`; `SSLHandshakeException` and `SSLPeerUnverifiedException` extend `SSLException`, an `IOException`.
 
 ```java
 import java.io.IOException;

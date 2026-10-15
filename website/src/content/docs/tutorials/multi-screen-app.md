@@ -310,7 +310,7 @@ int start = getIntent().getIntExtra("start", 0);
 For *shared state* — a repository, settings, a sensor cache — the idiomatic way is an app-scoped
 singleton injected where it is needed: mark the class `@Singleton` with an `@Inject` constructor and
 declare `@Inject` fields in each Activity; the framework populates them before `onCreate()`. The
-hand-written `ApplicationComponent` / `ApplicationComponent.current()` shape still works if you
+hand-written `ApplicationComponent` / `ApplicationComponent.current()` shape is there if you
 prefer no generated code. See the [Services & DI reference](/api/services/) for both, and the
 [background service tutorial](/tutorials/background-service/) for extras delivered to Services.
 
