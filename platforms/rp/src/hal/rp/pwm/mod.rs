@@ -16,15 +16,20 @@ macro_rules! configure_ch {
     ($ch:expr, $channel:expr, $div_int:expr, $wrap:expr, $cc:expr, $enabled:expr) => {{
         // Disable before reconfiguring to avoid glitches
         $ch.csr().write(|w| w.en().clear_bit());
-        // Clock divisor: integer only (frac=0 resets to 0 via write())
-        $ch.div().write(|w| unsafe { w.int().bits($div_int) });
-        // Counter wrap = period - 1
-        $ch.top().write(|w| unsafe { w.top().bits($wrap) });
-        // Compare value: modify to preserve the other channel's CC
-        if $channel == 0 {
-            $ch.cc().modify(|_, w| unsafe { w.a().bits($cc) });
-        } else {
-            $ch.cc().modify(|_, w| unsafe { w.b().bits($cc) });
+        // SAFETY: the divisor, wrap and compare values `math` computed,
+        // into numeric fields the PAC has no range for (`bits` masks to the
+        // field); a PWM slice drives a pin and reaches no memory.
+        unsafe {
+            // Clock divisor: integer only (frac=0 resets to 0 via write())
+            $ch.div().write(|w| w.int().bits($div_int));
+            // Counter wrap = period - 1
+            $ch.top().write(|w| w.top().bits($wrap));
+            // Compare value: modify to preserve the other channel's CC
+            if $channel == 0 {
+                $ch.cc().modify(|_, w| w.a().bits($cc));
+            } else {
+                $ch.cc().modify(|_, w| w.b().bits($cc));
+            }
         }
         // Re-enable if requested
         if $enabled {

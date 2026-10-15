@@ -318,6 +318,18 @@ mod rtos_impl {
     //! seam: they are policy this family owns, derived from `boot_budget`.
     //! FreeRTOS counts stacks in words, the seam speaks bytes, and the
     //! conversion happens at exactly this boundary.
+    //!
+    //! Handles. A `RawQueue`, `RawMutex` or `RawSem` this family hands out
+    //! is a leaked `Box` of the `freertos_rust` object, and the seam's
+    //! methods turn it back into a reference. That is sound for the handles
+    //! shared code actually passes: it only ever passes back what the
+    //! matching `*_create` returned (0 is checked for), queues and
+    //! semaphores are never destroyed, and a mutex is destroyed only by
+    //! `mutex_recursive_delete`, which the monitor store calls once no task
+    //! can still name it. The seam's methods are safe functions taking a
+    //! `usize`, so a caller passing anything else would be undefined
+    //! behaviour this family cannot check — a property of the `pd-rtos`
+    //! seam's raw-handle design, not of these bodies.
 
     use super::PlatformRtos;
     use alloc::boxed::Box;
@@ -343,6 +355,10 @@ mod rtos_impl {
     /// life of the process; every access is from the UI thread.
     static TICK_TIMER: SetOnce<Timer> = SetOnce::new();
 
+    // SAFETY: `Rtos`'s contract is genuine mutual exclusion and cross-task
+    // wakeups: every method below is the FreeRTOS kernel object or call of
+    // that name (recursive mutexes for `mutex_recursive_*`, blocking queue
+    // receives, task notifications), not an emulation of one.
     unsafe impl Rtos for PlatformRtos {
         fn spawn(spec: &TaskSpec, body: Box<dyn FnOnce() + Send>) -> bool {
             // Default stack sizes live in `boot_budget` so this allocation and
@@ -433,6 +449,8 @@ mod rtos_impl {
             if q == 0 {
                 return false;
             }
+            // SAFETY: a `queue_create` handle, non-zero (the handle note at
+            // the top of this module).
             let queue = unsafe { &*(q as *const Queue<u32>) };
             queue.send(word, to_duration(t)).is_ok()
         }
@@ -441,6 +459,8 @@ mod rtos_impl {
             if q == 0 {
                 return None;
             }
+            // SAFETY: a `queue_create` handle, non-zero (the handle note at
+            // the top of this module).
             let queue = unsafe { &*(q as *const Queue<u32>) };
             queue.receive(to_duration(t)).ok()
         }
@@ -512,6 +532,8 @@ mod rtos_impl {
             if q == 0 {
                 return false;
             }
+            // SAFETY: a `queue_create_ptr` handle, non-zero (the handle note
+            // at the top of this module).
             let queue = unsafe { &*(q as *const Queue<usize>) };
             queue.send(val, to_duration(t)).is_ok()
         }
@@ -520,6 +542,8 @@ mod rtos_impl {
             if q == 0 {
                 return None;
             }
+            // SAFETY: a `queue_create_ptr` handle, non-zero (the handle note
+            // at the top of this module).
             let queue = unsafe { &*(q as *const Queue<usize>) };
             queue.receive(to_duration(t)).ok()
         }
@@ -539,6 +563,8 @@ mod rtos_impl {
             // `monitorexit` are separate bytecodes, so no Rust scope spans
             // the critical region. This is the same shape monitor_store.rs
             // already used.
+            // SAFETY: a `mutex_recursive_create` handle, non-zero and not yet
+            // deleted (the handle note at the top of this module).
             let mutex = unsafe { &*(m as *const MutexRecursive) };
             mutex.take(to_duration(t)).is_ok()
         }
@@ -547,6 +573,7 @@ mod rtos_impl {
             if m == 0 {
                 return;
             }
+            // SAFETY: as `mutex_recursive_lock`.
             let mutex = unsafe { &*(m as *const MutexRecursive) };
             mutex.give();
         }
@@ -572,6 +599,8 @@ mod rtos_impl {
             if s == 0 {
                 return;
             }
+            // SAFETY: a `sem_binary_create` handle, non-zero (the handle
+            // note at the top of this module).
             let sem = unsafe { &*(s as *const Semaphore) };
             sem.give();
         }
@@ -580,6 +609,8 @@ mod rtos_impl {
             if s == 0 {
                 return false;
             }
+            // SAFETY: a `sem_binary_create` handle, non-zero (the handle
+            // note at the top of this module).
             let sem = unsafe { &*(s as *const Semaphore) };
             // See `task_notify_from_isr` for the context's drop.
             let mut ctx = freertos_rust::InterruptContext::new();
@@ -591,6 +622,8 @@ mod rtos_impl {
             if s == 0 {
                 return false;
             }
+            // SAFETY: a `sem_binary_create` handle, non-zero (the handle
+            // note at the top of this module).
             let sem = unsafe { &*(s as *const Semaphore) };
             sem.take(to_duration(t)).is_ok()
         }
@@ -735,25 +768,26 @@ impl PlatformHooks for PlatformHost {
             number_of_successful_allocations: u32,
             number_of_successful_frees: u32,
         }
-        extern "C" {
-            fn xPortGetFreeHeapSize() -> u32;
-            fn xPortGetMinimumEverFreeHeapSize() -> u32;
+        unsafe extern "C" {
+            // heap_4's counters: a word read each, any time.
+            safe fn xPortGetFreeHeapSize() -> u32;
+            safe fn xPortGetMinimumEverFreeHeapSize() -> u32;
             fn vPortGetHeapStats(stats: *mut FreeRtosHeapStats);
         }
-        // SAFETY: plain FreeRTOS accessors; vPortGetHeapStats fills the
-        // struct it is handed (layout mirrored above).
-        unsafe {
-            let free = xPortGetFreeHeapSize();
-            let mut stats = core::mem::MaybeUninit::<FreeRtosHeapStats>::uninit();
+        let free = xPortGetFreeHeapSize();
+        let mut stats = core::mem::MaybeUninit::<FreeRtosHeapStats>::uninit();
+        // SAFETY: vPortGetHeapStats fills every field of the struct it is
+        // handed (layout mirrored above), so it is initialised after.
+        let stats = unsafe {
             vPortGetHeapStats(stats.as_mut_ptr());
-            let stats = stats.assume_init();
-            NativeHeapStats {
-                used_bytes: picodroid_core::board_cfg::heap::DEVICE_ARENA_BYTES
-                    .saturating_sub(free as usize),
-                free_bytes: free as usize,
-                min_ever_free_bytes: xPortGetMinimumEverFreeHeapSize() as usize,
-                largest_free_block: stats.size_of_largest_free_block_in_bytes as usize,
-            }
+            stats.assume_init()
+        };
+        NativeHeapStats {
+            used_bytes: picodroid_core::board_cfg::heap::DEVICE_ARENA_BYTES
+                .saturating_sub(free as usize),
+            free_bytes: free as usize,
+            min_ever_free_bytes: xPortGetMinimumEverFreeHeapSize() as usize,
+            largest_free_block: stats.size_of_largest_free_block_in_bytes as usize,
         }
     }
 }

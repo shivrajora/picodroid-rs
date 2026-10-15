@@ -60,15 +60,16 @@ impl PdbTransport for CdcTransport {
 
 // ── Task statistics ──────────────────────────────────────────────────────────
 
-extern "C" {
-    fn xPortGetFreeHeapSize() -> u32;
-    fn xPortGetMinimumEverFreeHeapSize() -> u32;
+unsafe extern "C" {
+    // Counters the kernel and heap_4 keep: a word read each, any time.
+    safe fn xPortGetFreeHeapSize() -> u32;
+    safe fn xPortGetMinimumEverFreeHeapSize() -> u32;
     fn uxTaskGetSystemState(
         pxTaskStatusArray: *mut TaskStatusC,
         uxArraySize: FreeRtosUBaseType,
         pulTotalRunTime: *mut u32,
     ) -> FreeRtosUBaseType;
-    fn uxTaskGetNumberOfTasks() -> FreeRtosUBaseType;
+    safe fn uxTaskGetNumberOfTasks() -> FreeRtosUBaseType;
 }
 
 /// `TaskStatus_t` as *this* build lays it out:
@@ -108,8 +109,7 @@ impl SysmonSource for FreeRtosSysmon {
             [const { MaybeUninit::uninit() }; MAX_TASKS];
         let mut total_run_time: u32 = 0;
 
-        // SAFETY: plain FreeRTOS accessor.
-        let n = unsafe { uxTaskGetNumberOfTasks() } as usize;
+        let n = uxTaskGetNumberOfTasks() as usize;
         if n > MAX_TASKS {
             // The kernel fills nothing when the array is short, so the host
             // would see an empty table with no hint why. Say why.
@@ -130,12 +130,11 @@ impl SysmonSource for FreeRtosSysmon {
         } as usize;
         let count = count.min(MAX_TASKS);
 
-        // SAFETY: plain FreeRTOS accessors.
-        unsafe {
-            out.uptime_ticks = freertos_rs_xTaskGetTickCount();
-            out.free_heap = xPortGetFreeHeapSize();
-            out.min_free_heap = xPortGetMinimumEverFreeHeapSize();
-        }
+        // SAFETY: the kernel's tick count, a word read with no argument
+        // (`freertos_rust` declares it unsafe, as it does every binding).
+        out.uptime_ticks = unsafe { freertos_rs_xTaskGetTickCount() };
+        out.free_heap = xPortGetFreeHeapSize();
+        out.min_free_heap = xPortGetMinimumEverFreeHeapSize();
         out.total_run_time = total_run_time;
         out.task_count = count as u8;
 
@@ -147,7 +146,11 @@ impl SysmonSource for FreeRtosSysmon {
             // field and stop at the NUL.
             let mut name = [0u8; 16];
             for (i, dst) in name.iter_mut().enumerate() {
-                // SAFETY: FreeRTOS guarantees a NUL-terminated name.
+                // SAFETY: the kernel's copy of the task name, NUL-terminated
+                // within its configMAX_TASK_NAME_LEN (16) bytes, and the
+                // loop stops at the NUL or the 16th byte; the task table is
+                // read with the scheduler running, as the kernel's own
+                // trace utilities do.
                 let b = unsafe { *t.task_name.add(i) };
                 if b == 0 {
                     break;

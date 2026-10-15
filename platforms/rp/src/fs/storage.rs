@@ -67,12 +67,19 @@ impl LfsStorage for FlashStorage {
     fn write(&mut self, block: u32, offset: u32, data: &[u8]) -> Result<(), LfsError> {
         GEOMETRY.check_prog(offset, data.len())?;
         let addr = self.resolve(block, offset, data.len())?;
+        // SAFETY: `resolve` kept the range inside the filesystem region, so
+        // no code or other data is programmed; `data` is a live slice of
+        // that length; and the fs worker is the only flash writer in flight
+        // (every caller comes through `fs::with_fs`, one core-0 task), which
+        // is the single-flash-operation rule `flash_program_range` needs.
         unsafe { flash::flash_program_range(addr, data.as_ptr(), data.len()) };
         Ok(())
     }
 
     fn erase(&mut self, block: u32) -> Result<(), LfsError> {
         let addr = self.resolve(block, 0, GEOMETRY.block as usize)?;
+        // SAFETY: as `write`: one block inside the filesystem region, erased
+        // by the only flash operation in flight.
         unsafe { flash::flash_erase_range(addr, GEOMETRY.block as usize) };
         Ok(())
     }

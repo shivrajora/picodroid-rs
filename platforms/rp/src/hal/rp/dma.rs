@@ -124,6 +124,9 @@ pub fn init() {
     configure_rx_channel(&p.DMA, CH_SPI1_RX, spi_dreq_rx(1));
 
     // Enable IRQ0 for both RX drain channels
+    // SAFETY: routes channels 1 and 3 to DMA_IRQ_0, whose handler below
+    // acts only on those two bits and gives semaphores through `SetOnce`
+    // reads that tolerate an empty cell: sound for any bit pattern.
     p.DMA
         .inte0()
         .write(|w| unsafe { w.bits((1 << CH_SPI0_RX) | (1 << CH_SPI1_RX)) });
@@ -134,6 +137,9 @@ pub fn init() {
 
 fn configure_tx_channel(dma: &pac::DMA, ch: usize, dreq: u8) {
     let c = dma.ch(ch);
+    // SAFETY: TREQ_SEL and CHAIN_TO take raw numbers (a DREQ, this
+    // channel), which `bits` masks to the field; EN stays clear, so nothing
+    // is started — `start_write` arms the channel.
     c.ch_ctrl_trig().write(|w| unsafe {
         w.en().clear_bit();
         w.data_size().size_byte();
@@ -148,6 +154,8 @@ fn configure_tx_channel(dma: &pac::DMA, ch: usize, dreq: u8) {
 
 fn configure_rx_channel(dma: &pac::DMA, ch: usize, dreq: u8) {
     let c = dma.ch(ch);
+    // SAFETY: as `configure_tx_channel`: raw DREQ and channel numbers, and
+    // EN clear.
     c.ch_ctrl_trig().write(|w| unsafe {
         w.en().clear_bit();
         w.data_size().size_byte();

@@ -36,9 +36,11 @@ const SAMPLE_CLOCKS: u32 = 50_000;
 
 /// Program the sampling config and start the ROSC entropy source.
 fn arm(trng: &pac::TRNG) {
-    // Shortest inverter chain (0) is the datasheet-default source select.
-    trng.trng_config()
-        .write(|w| unsafe { w.rnd_src_sel().bits(0) });
+    // Shortest inverter chain (0) is the datasheet-default source select:
+    // TRNG_CONFIG's reset value, which `write` starts from.
+    trng.trng_config().write(|w| w);
+    // SAFETY: SAMPLE_CNT1 takes a clock count the PAC has no range for
+    // (`bits` masks to the field); the TRNG reaches no memory.
     trng.sample_cnt1()
         .write(|w| unsafe { w.sample_cntr1().bits(SAMPLE_CLOCKS) });
     trng.rnd_source_enable().write(|w| w.rnd_src_en().set_bit());

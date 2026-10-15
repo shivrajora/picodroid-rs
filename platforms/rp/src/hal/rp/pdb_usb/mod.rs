@@ -88,6 +88,16 @@ const EC_BULK: u32 = 2 << 26;
 const EC_INTERRUPT: u32 = 3 << 26;
 
 // ── Static state ────────────────────────────────────────────────────────────
+//
+// The USB rule. `USB`, the flow-control counters below and the endpoint
+// buffers in DPRAM are reached from USBCTRL_IRQ and from the pdb task,
+// both on core 0, where the handler preempts the task and never runs beside
+// it. The task's side is `init` (before the handler is unmasked),
+// `on_byte_consumed` (with interrupts masked) and `write_bytes`, which
+// touches only EP1 IN: its buffer, its buffer-control word and
+// `ep1_in_pid` — the one field both sides write unmasked (`ep1_in_pid` on a
+// bus reset), round 1's §6 finding. Every `unsafe fn` below is to be
+// called under this rule.
 
 struct UsbState {
     pending_addr: u8,
@@ -104,6 +114,7 @@ struct UsbState {
     ep0_string: [u8; STRING_DESC_MAX],
 }
 
+/// Control-endpoint and data-toggle state, under the USB rule above.
 static mut USB: UsbState = UsbState {
     pending_addr: 0,
     configured: false,
@@ -185,14 +196,22 @@ fn rx_queue() -> &'static Queue<u8> {
 
 // ── Low-level register helpers ──────────────────────────────────────────────
 
+/// # Safety
+/// `addr` is one of this module's USB register or DPRAM word addresses.
 unsafe fn rr(addr: usize) -> u32 {
     read_volatile(addr as *const u32)
 }
 
+/// # Safety
+/// `addr` is one of this module's USB register or DPRAM word addresses,
+/// written under the USB rule above.
 unsafe fn wr(addr: usize, val: u32) {
     write_volatile(addr as *mut u32, val);
 }
 
+/// # Safety
+/// `offset + data.len()` is within the 4 KB DPRAM, and the buffer it names
+/// is one the caller owns under the USB rule above.
 unsafe fn dpram_write(offset: usize, data: &[u8]) {
     let base = (DPRAM + offset) as *mut u8;
     for (i, &b) in data.iter().enumerate() {
@@ -202,6 +221,11 @@ unsafe fn dpram_write(offset: usize, data: &[u8]) {
 
 // ── EP0 helpers ─────────────────────────────────────────────────────────────
 
+/// # Safety
+/// The USB rule above, and `data` must outlive the control transfer: past
+/// the first 64 bytes the handler keeps sending it from `ep0_tx_src`. Every
+/// caller passes a static descriptor, `LINE_CODING`, a promoted literal or
+/// `USB.ep0_string`.
 unsafe fn ep0_send(data: &[u8], max_len: u16) {
     USB.ep0_data_stage = true;
     let len = data.len().min(max_len as usize);
@@ -224,6 +248,9 @@ unsafe fn ep0_send(data: &[u8], max_len: u16) {
 }
 
 /// Send a zero-length IN packet for the status stage (always DATA1).
+///
+/// # Safety
+/// The USB rule above.
 unsafe fn ep0_zlp() {
     USB.ep0_data_stage = false;
     USB.ep0_tx_src = 0;
@@ -231,12 +258,16 @@ unsafe fn ep0_zlp() {
     wr(DP_EP0_IN_BC, BC_FULL | BC_DATA1 | BC_LAST | BC_AVAIL);
 }
 
+/// # Safety
+/// The USB rule above.
 unsafe fn ep0_stall() {
     wr(EP_STALL_ARM, 0x03); // stall EP0 IN + OUT
     wr(DP_EP0_IN_BC, BC_STALL);
     wr(DP_EP0_OUT_BC, BC_STALL);
 }
 
+/// # Safety
+/// The USB rule above.
 unsafe fn arm_ep1_out() {
     core::ptr::write_volatile(&raw mut EP1_OUT_ARMED, true);
     let pid = if USB.ep1_out_pid { BC_DATA1 } else { 0 };
@@ -245,6 +276,8 @@ unsafe fn arm_ep1_out() {
 
 // ── SETUP packet handlers ───────────────────────────────────────────────────
 
+/// # Safety
+/// From USBCTRL_IRQ (the USB rule above).
 unsafe fn handle_setup() {
     wr(SIE_STATUS, SS_SETUP_REC);
 
@@ -298,6 +331,8 @@ unsafe fn handle_setup() {
     }
 }
 
+/// # Safety
+/// From USBCTRL_IRQ (the USB rule above).
 unsafe fn handle_get_descriptor(w_val: u16, w_len: u16) {
     let desc_type = (w_val >> 8) as u8;
     let desc_idx = (w_val & 0xFF) as u8;
@@ -319,6 +354,9 @@ unsafe fn handle_get_descriptor(w_val: u16, w_len: u16) {
 
 // ── Buffer completion handlers ──────────────────────────────────────────────
 
+/// # Safety
+/// From USBCTRL_IRQ (the USB rule above); `ep0_tx_src` holds what
+/// `ep0_send` left there.
 unsafe fn handle_ep0_in_done() {
     if USB.pending_addr != 0 {
         wr(ADDR_ENDP, USB.pending_addr as u32);
@@ -344,6 +382,8 @@ unsafe fn handle_ep0_in_done() {
     }
 }
 
+/// # Safety
+/// From USBCTRL_IRQ (the USB rule above).
 unsafe fn handle_ep0_out_done() {
     if USB.ep0_out_pending {
         USB.ep0_out_pending = false;
@@ -352,6 +392,8 @@ unsafe fn handle_ep0_out_done() {
     }
 }
 
+/// # Safety
+/// From USBCTRL_IRQ (the USB rule above).
 unsafe fn handle_ep1_out_data() {
     // Hardware cleared AVAIL after receiving — endpoint is no longer armed.
     core::ptr::write_volatile(&raw mut EP1_OUT_ARMED, false);
@@ -392,6 +434,8 @@ unsafe fn handle_ep1_out_data() {
 #[allow(non_snake_case)]
 #[no_mangle]
 extern "C" fn USBCTRL_IRQ() {
+    // SAFETY: this is USBCTRL_IRQ, the handler side of the USB rule at the
+    // top; the registers and DPRAM words are this module's fixed addresses.
     unsafe {
         let ints = rr(INTS);
 
@@ -454,6 +498,8 @@ pub fn init() {
         while p.RESETS.reset_done().read().usbctrl().bit_is_clear() {}
     }
 
+    // SAFETY: the task side of the USB rule, before USBCTRL_IRQ is unmasked
+    // below; the 1024 words cleared are exactly the DPRAM.
     unsafe {
         // Clear DPRAM (4 KiB)
         let base = DPRAM as *mut u32;
@@ -490,6 +536,9 @@ pub fn init() {
 fn on_byte_consumed() {
     // Prevent the USB ISR from preempting the RX_QUEUE_LEVEL
     // read-modify-write and the deferred-packet drain sequence.
+    // SAFETY: the task side of the USB rule, with interrupts masked; the
+    // deferred packet sits in EP1 OUT's buffer, which the controller does
+    // not write while the endpoint is not armed.
     cortex_m::interrupt::free(|_| unsafe {
         let level = core::ptr::read_volatile(&raw const RX_QUEUE_LEVEL).saturating_sub(1);
         core::ptr::write_volatile(&raw mut RX_QUEUE_LEVEL, level);
@@ -548,6 +597,8 @@ pub fn queue_read_byte_timeout() -> Option<u8> {
 #[cfg(feature = "chip-rp2350")]
 pub fn queue_read_byte_busywait(timeout_us: u32) -> Option<u8> {
     const TIMERAWL: usize = 0x400B_0000 + 0x28;
+    // SAFETY: TIMER0's raw low word, a read-only register with no side
+    // effects.
     let timer = || unsafe { read_volatile(TIMERAWL as *const u32) };
     let start = timer();
     loop {
@@ -611,6 +662,9 @@ pub fn write_bytes(data: &[u8]) {
         if !wait_tx_ready() {
             return;
         }
+        // SAFETY: the task side of the USB rule: EP1 IN's buffer (64 bytes,
+        // and a chunk is at most 64) is free — the completion was just
+        // claimed — and its control word is the task's to write.
         unsafe {
             dpram_write(BUF_EP1_IN, chunk);
             let pid = if USB.ep1_in_pid { BC_DATA1 } else { 0 };

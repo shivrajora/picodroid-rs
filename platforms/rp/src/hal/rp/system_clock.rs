@@ -27,7 +27,7 @@ pub fn elapsed_realtime_nanos() -> i64 {
     // the high word is stable across the low-word read.
     #[cfg(feature = "chip-rp2040")]
     {
-        // SAFETY: read-only register access, no side effects.
+        // Read-only register accesses, with no side effects.
         let p = crate::hal::chip::periph::steal();
         let mut hi = p.TIMER.timerawh().read().bits();
         let us = loop {
@@ -42,7 +42,7 @@ pub fn elapsed_realtime_nanos() -> i64 {
     }
     #[cfg(feature = "chip-rp2350")]
     {
-        // SAFETY: read-only register access, no side effects.
+        // Read-only register accesses, with no side effects.
         let p = crate::hal::chip::periph::steal();
         let mut hi = p.TIMER0.timerawh().read().bits();
         let us = loop {

@@ -70,6 +70,10 @@ pub fn run_parker_task() -> ! {
             // Entered with XIP still enabled (core 0 waits for PARKED before
             // touching flash) and left after it is restored (core 0 clears
             // PARK_REQUESTED only after the operation completes).
+            // SAFETY: both pointers are the two atomics' cells, statics in
+            // SRAM, valid for the life of the program and only ever read and
+            // written whole; this is the parker task on core 1, which is
+            // what `park_until_released` is for.
             unsafe { park_until_released(PARK_REQUESTED.as_ptr(), PARKED.as_ptr()) };
         }
     }
@@ -79,6 +83,13 @@ pub fn run_parker_task() -> ! {
 /// un-signal, unmask.  One `asm!` block in `.data` so that *nothing* — not
 /// even a precompiled `core::` helper in a debug build — is fetched from
 /// flash while core 0 has XIP disabled.  SRAM data reads are always safe.
+///
+/// # Safety
+///
+/// `req` and `ack` point at word-aligned `u32`s in SRAM that stay valid
+/// while this runs and are accessed only as whole words. Masking the
+/// calling core's interrupts until `*req` reads 0 must be acceptable to the
+/// caller: it is meant for the core-1 parker task alone.
 #[link_section = ".data"]
 #[inline(never)]
 unsafe fn park_until_released(req: *const u32, ack: *mut u32) {

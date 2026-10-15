@@ -38,8 +38,6 @@ pub struct SpiXferState {
     pub rx_idx: usize,
 }
 
-unsafe impl Send for SpiXferState {}
-
 impl SpiXferState {
     pub const fn new() -> Self {
         Self {
