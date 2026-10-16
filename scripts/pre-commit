@@ -189,6 +189,10 @@ STAGES=(
   # caught at commit time instead of twenty minutes after the push.
   "clippy_sim|host|fast|rust|clippy (sim)"
   "clippy_host_tools|host|fast|rust|clippy (host tools)"
+  # The clippy legs lint library code only; #[cfg(test)] code compiles
+  # nowhere before CI's Testing job. A signature change with a stale test
+  # caller red-lit main twice that way (2026-10-16, UR-15).
+  "test_build|host|fast|rust|test binaries compile (test.sh, --no-run)"
   "clippy_sim_memdiag|host|full|rust|clippy (sim + mem-diag)"
   "clippy_sim_scheddiag|host|full|rust|clippy (sim + sched-diag)"
   # The libFuzzer shims build only on nightly; nothing else compiles them
@@ -507,6 +511,19 @@ clippy_sim_features() {
 }
 
 stage_clippy_sim() { clippy_sim_features "sim,board-testbench-rp2350,line-numbers"; }
+
+# test.sh's no-shrink build, compiled but not run: same features and test
+# profile, so it warms target/ for the next test.sh rather than thrashing it.
+stage_test_build() {
+  if ! env CARGO_PROFILE_TEST_CODEGEN_UNITS=16 CARGO_PROFILE_TEST_INCREMENTAL=true \
+         CARGO_PROFILE_TEST_OPT_LEVEL=2 PICODROID_APK_PATH="$APK_PATH" \
+       cargo test --no-run --workspace --jobs "$JOBS" --target "$HOST_TARGET" \
+         --features pico-jvm/line-numbers,picodroid-core/line-numbers,picodroid/line-numbers; then
+    echo ""
+    echo "ERROR: Test code does not compile. Fix it, then run ./scripts/test.sh."
+    return 1
+  fi
+}
 
 stage_clippy_host_tools() {
   # shellcheck disable=SC2086
