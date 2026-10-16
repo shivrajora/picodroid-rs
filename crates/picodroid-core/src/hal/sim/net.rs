@@ -14,8 +14,8 @@
 use core::ffi::c_void;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 use std::os::fd::AsRawFd;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Once;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Once, OnceLock};
 use std::time::Duration;
 
 pub use crate::hal::types::{NetError, NetErrorKind};
@@ -88,43 +88,100 @@ const fn bad_handle() -> NetError {
     NetError::new(NetErrorKind::Closed, -1)
 }
 
-/// Tagged union wrapping the different std::net socket types behind
-/// a single `*mut c_void` pointer for the HAL API.
+/// A TCP handle's state. [`tcp_socket`] makes it unbound; [`tcp_connect`]
+/// fills `stream` and [`tcp_listen`] fills `listener`, each at most once,
+/// and nothing empties them: the socket is closed by dropping the record.
 ///
-/// The listener carries its accept timeout: `std::net::TcpListener` has no
-/// native accept deadline (unlike read timeouts on streams), so
-/// [`tcp_accept`] emulates one with a nonblocking poll loop.
+/// Everything here is reached through `&self`: std's socket calls take
+/// `&self`, the two `OnceLock`s are filled through `&self`, and the timeout
+/// is an atomic. So a socket needs no `&mut` after `box_socket`, and two
+/// Java threads on one socket — a reader blocked in `tcp_recv` with the run
+/// lock released while another sends — hold two shared references, which
+/// is allowed.
+struct TcpState {
+    /// The connected stream: `tcp_connect`'s, or an accepted connection's.
+    stream: OnceLock<TcpStream>,
+    /// The listening socket (`tcp_listen`).
+    listener: OnceLock<TcpListener>,
+    /// The receive timeout set while `stream` is empty, in nanoseconds; 0
+    /// is none. The device stores `FREERTOS_SO_RCVTIMEO` in the socket,
+    /// where it bounds `FreeRTOS_connect` and `FreeRTOS_accept` and then
+    /// stays on as the receive timeout; std splits that one value across
+    /// `connect_timeout`, an accept poll and `set_read_timeout`, so the
+    /// setting is stashed here until [`tcp_connect`] applies it to both,
+    /// and [`tcp_accept`] reads it as its deadline. (`TcpListener` has no
+    /// native accept deadline, unlike read timeouts on streams, so the
+    /// accept emulates one with a nonblocking poll loop.)
+    timeout_ns: AtomicU64,
+    /// The device's arena cost of the connection, released when the socket
+    /// is dropped (closed).
+    charge: OnceLock<NetCharge>,
+}
+
+impl TcpState {
+    fn unbound() -> Self {
+        Self {
+            stream: OnceLock::new(),
+            listener: OnceLock::new(),
+            timeout_ns: AtomicU64::new(0),
+            charge: OnceLock::new(),
+        }
+    }
+
+    /// An accepted connection, charged like a connected one.
+    fn connected(stream: TcpStream) -> Self {
+        Self {
+            stream: OnceLock::from(stream),
+            listener: OnceLock::new(),
+            timeout_ns: AtomicU64::new(0),
+            charge: OnceLock::from(NetCharge::new()),
+        }
+    }
+
+    /// The connected stream, or the error every operation that needs one
+    /// reports on a handle that has none.
+    fn stream(&self) -> Result<&TcpStream, NetError> {
+        self.stream.get().ok_or_else(bad_handle)
+    }
+
+    fn timeout(&self) -> Option<Duration> {
+        let ns = self.timeout_ns.load(Ordering::Relaxed);
+        (ns != 0).then(|| Duration::from_nanos(ns))
+    }
+
+    fn set_timeout(&self, dur: Option<Duration>) {
+        let ns = dur.map_or(0, |d| d.as_nanos().min(u64::MAX as u128) as u64);
+        self.timeout_ns.store(ns, Ordering::Relaxed);
+    }
+}
+
+/// Tagged union wrapping the std::net socket types behind a single
+/// `*mut c_void` pointer for the HAL API.
 enum SimSocket {
-    /// The client's second field is a receive timeout configured *before*
-    /// connect. The device stores `FREERTOS_SO_RCVTIMEO` in the socket, where
-    /// it bounds `FreeRTOS_connect` and then stays on as the receive timeout;
-    /// std splits that one value across `connect_timeout` +
-    /// `set_read_timeout`, so the pre-connect setting is stashed here until
-    /// [`tcp_connect`] applies it to both.
-    /// The third field is the device's arena cost of the connection,
-    /// released when the socket is dropped (closed).
-    TcpClient(Option<TcpStream>, Option<Duration>, Option<NetCharge>),
-    TcpListener(TcpListener, Option<Duration>),
+    Tcp(TcpState),
     Udp(UdpSocket),
 }
+
+// `deref_socket` hands a `&SimSocket` to whichever Java thread holds the
+// handle, so the record must be shareable between threads.
+const _: () = {
+    fn assert_sync<T: Sync>() {}
+    let _ = assert_sync::<SimSocket>;
+};
 
 /// Box a SimSocket and leak it as a raw pointer.
 fn box_socket(s: SimSocket) -> *mut c_void {
     Box::into_raw(Box::new(s)) as *mut c_void
 }
 
-/// Recover a &mut SimSocket from a raw pointer.
-///
-/// A known gap of this seam (left as it is in round 2 of the unsafe
-/// reduction): two Java threads using one socket at once — a reader blocked
-/// in `tcp_recv` with the run lock released while another sends — each hold
-/// a `&mut` to the same `SimSocket`.
+/// Recover a `&SimSocket` from a raw pointer. Shared, not exclusive: see
+/// [`TcpState`] for why no operation needs `&mut`.
 ///
 /// # Safety
-/// `ptr` must have been created by `box_socket` and not yet freed, and no
-/// other reference to the socket may be live while the returned one is used.
-unsafe fn deref_socket(ptr: *mut c_void) -> &'static mut SimSocket {
-    &mut *(ptr as *mut SimSocket)
+/// `ptr` must have been created by `box_socket` and not yet passed to
+/// [`close`].
+unsafe fn deref_socket(ptr: *mut c_void) -> &'static SimSocket {
+    &*(ptr as *const SimSocket)
 }
 
 /// Convert a packed u32 IPv4 address to std Ipv4Addr.
@@ -152,7 +209,7 @@ fn retry_eintr<T>(mut f: impl FnMut() -> std::io::Result<T>) -> Result<T, NetErr
 // ── TCP ──────────────────────────────────────────────────────────────────────
 
 pub fn tcp_socket() -> Result<*mut c_void, NetError> {
-    Ok(box_socket(SimSocket::TcpClient(None, None, None)))
+    Ok(box_socket(SimSocket::Tcp(TcpState::unbound())))
 }
 
 pub fn tcp_connect(sock: *mut c_void, addr: u32, port: u16) -> Result<(), NetError> {
@@ -160,41 +217,53 @@ pub fn tcp_connect(sock: *mut c_void, addr: u32, port: u16) -> Result<(), NetErr
         return Err(link_down());
     }
     // SAFETY: `sock` is a live `box_socket` pointer (the handle tables hand
-    // out no other) and this call's borrow is the only one in use.
+    // out no other) that `close` has not been given.
     let s = unsafe { deref_socket(sock) };
-    match s {
-        SimSocket::TcpClient(ref mut opt, ref pending, ref mut charge) => {
-            let sa = SocketAddrV4::new(u32_to_ipv4(addr), port);
-            let stream = match pending {
-                // std's connect_timeout tracks its deadline across EINTR
-                // internally (a poll loop with recomputed remaining time),
-                // so no retry_eintr wrapper — one would restart the window.
-                Some(d) => TcpStream::connect_timeout(&std::net::SocketAddr::V4(sa), *d)
-                    .map_err(map_io_err)?,
-                None => retry_eintr(|| TcpStream::connect(sa))?,
-            };
-            if let Some(d) = pending {
-                // Device parity: a pre-connect RCVTIMEO stays on as the
-                // socket's receive timeout after connect.
-                let _ = stream.set_read_timeout(Some(*d));
-            }
-            *opt = Some(stream);
-            *charge = Some(NetCharge::new());
-            Ok(())
-        }
-        _ => Err(bad_handle()),
+    let SimSocket::Tcp(t) = s else {
+        return Err(bad_handle());
+    };
+    if t.stream.get().is_some() || t.listener.get().is_some() {
+        // Already connected or listening: `java.net.Socket.connect` throws
+        // on a second connect, and the device's stack refuses one too.
+        return Err(NetError::other(-1));
     }
+    let pending = t.timeout();
+    let sa = SocketAddrV4::new(u32_to_ipv4(addr), port);
+    let stream = match pending {
+        // std's connect_timeout tracks its deadline across EINTR
+        // internally (a poll loop with recomputed remaining time),
+        // so no retry_eintr wrapper — one would restart the window.
+        Some(d) => {
+            TcpStream::connect_timeout(&std::net::SocketAddr::V4(sa), d).map_err(map_io_err)?
+        }
+        None => retry_eintr(|| TcpStream::connect(sa))?,
+    };
+    if let Some(d) = pending {
+        // Device parity: a pre-connect RCVTIMEO stays on as the
+        // socket's receive timeout after connect.
+        let _ = stream.set_read_timeout(Some(d));
+    }
+    // Two connects racing on one unbound handle: the first to finish owns
+    // the socket, the other's stream is dropped here and it reports the
+    // "already connected" error above.
+    if t.stream.set(stream).is_err() {
+        return Err(NetError::other(-1));
+    }
+    let _ = t.charge.set(NetCharge::new());
+    Ok(())
 }
 
 pub fn tcp_send(sock: *mut c_void, buf: &[u8]) -> Result<usize, NetError> {
     use std::io::Write;
     // SAFETY: `sock` is a live `box_socket` pointer (the handle tables hand
-    // out no other) and this call's borrow is the only one in use.
+    // out no other) that `close` has not been given.
     let s = unsafe { deref_socket(sock) };
-    match s {
-        SimSocket::TcpClient(Some(ref mut stream), _, _) => retry_eintr(|| stream.write(buf)),
-        _ => Err(bad_handle()),
-    }
+    let SimSocket::Tcp(t) = s else {
+        return Err(bad_handle());
+    };
+    // `Write` is implemented for `&TcpStream`: a send needs no `&mut`.
+    let mut stream = t.stream()?;
+    retry_eintr(|| stream.write(buf))
 }
 
 /// Blocking receive. `Ok(0)` means orderly EOF — a read-timeout expiry is
@@ -208,133 +277,128 @@ pub fn tcp_send(sock: *mut c_void, buf: &[u8]) -> Result<usize, NetError> {
 pub fn tcp_recv(sock: *mut c_void, buf: &mut [u8]) -> Result<usize, NetError> {
     use std::io::Read;
     // SAFETY: `sock` is a live `box_socket` pointer (the handle tables hand
-    // out no other) and this call's borrow is the only one in use.
+    // out no other) that `close` has not been given.
     let s = unsafe { deref_socket(sock) };
-    match s {
-        SimSocket::TcpClient(Some(ref mut stream), _, _) => {
-            let configured = stream.read_timeout().ok().flatten();
-            let Some(window) = configured else {
-                // No timeout: an EINTR retry loop is exactly right.
-                return retry_eintr(|| stream.read(buf));
-            };
-            let deadline = std::time::Instant::now() + window;
-            let result = loop {
-                match stream.read(buf) {
-                    Ok(v) => break Ok(v),
-                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {
-                        let now = std::time::Instant::now();
-                        let remaining = deadline.saturating_duration_since(now);
-                        // set_read_timeout rejects a zero Duration, and a
-                        // sub-millisecond window would just EINTR again.
-                        if remaining < Duration::from_millis(1) {
-                            break Err(NetError::new(NetErrorKind::TimedOut, -1));
-                        }
-                        let _ = stream.set_read_timeout(Some(remaining));
-                    }
-                    // WouldBlock/TimedOut only occur at window expiry →
-                    // map_io_err turns them into TimedOut.
-                    Err(e) => break Err(map_io_err(e)),
+    let SimSocket::Tcp(t) = s else {
+        return Err(bad_handle());
+    };
+    // `Read` is implemented for `&TcpStream`: a receive needs no `&mut`.
+    let mut stream = t.stream()?;
+    let configured = stream.read_timeout().ok().flatten();
+    let Some(window) = configured else {
+        // No timeout: an EINTR retry loop is exactly right.
+        return retry_eintr(|| stream.read(buf));
+    };
+    let deadline = std::time::Instant::now() + window;
+    let result = loop {
+        match stream.read(buf) {
+            Ok(v) => break Ok(v),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {
+                let now = std::time::Instant::now();
+                let remaining = deadline.saturating_duration_since(now);
+                // set_read_timeout rejects a zero Duration, and a
+                // sub-millisecond window would just EINTR again.
+                if remaining < Duration::from_millis(1) {
+                    break Err(NetError::new(NetErrorKind::TimedOut, -1));
                 }
-            };
-            // Restore the configured value for the next call.
-            let _ = stream.set_read_timeout(Some(window));
-            result
+                let _ = stream.set_read_timeout(Some(remaining));
+            }
+            // WouldBlock/TimedOut only occur at window expiry →
+            // map_io_err turns them into TimedOut.
+            Err(e) => break Err(map_io_err(e)),
         }
-        _ => Err(bad_handle()),
-    }
+    };
+    // Restore the configured value for the next call.
+    let _ = stream.set_read_timeout(Some(window));
+    result
 }
 
 pub fn tcp_listen(sock: *mut c_void, port: u16) -> Result<(), NetError> {
     // SAFETY: `sock` is a live `box_socket` pointer (the handle tables hand
-    // out no other) and this call's borrow is the only one in use.
+    // out no other) that `close` has not been given.
     let s = unsafe { deref_socket(sock) };
-    match s {
-        SimSocket::TcpClient(..) => {
-            let listener =
-                retry_eintr(|| TcpListener::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port)))?;
-            *s = SimSocket::TcpListener(listener, None);
-            Ok(())
-        }
-        _ => Err(bad_handle()),
+    let SimSocket::Tcp(t) = s else {
+        return Err(bad_handle());
+    };
+    if t.stream.get().is_some() || t.listener.get().is_some() {
+        return Err(bad_handle());
     }
+    let listener =
+        retry_eintr(|| TcpListener::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port)))?;
+    // Two listens racing on one handle: the first to finish owns it.
+    t.listener.set(listener).map_err(|_| bad_handle())
 }
 
 pub fn tcp_accept(sock: *mut c_void) -> Result<*mut c_void, NetError> {
     // SAFETY: `sock` is a live `box_socket` pointer (the handle tables hand
-    // out no other) and this call's borrow is the only one in use.
+    // out no other) that `close` has not been given.
     let s = unsafe { deref_socket(sock) };
-    match s {
-        SimSocket::TcpListener(ref listener, None) => {
-            let (stream, _addr) = retry_eintr(|| listener.accept())?;
-            Ok(box_socket(SimSocket::TcpClient(
-                Some(stream),
-                None,
-                Some(NetCharge::new()),
-            )))
+    let SimSocket::Tcp(t) = s else {
+        return Err(bad_handle());
+    };
+    let Some(listener) = t.listener.get() else {
+        return Err(bad_handle());
+    };
+    let Some(dur) = t.timeout() else {
+        let (stream, _addr) = retry_eintr(|| listener.accept())?;
+        return Ok(box_socket(SimSocket::Tcp(TcpState::connected(stream))));
+    };
+    // With a timeout set, emulate an accept deadline by polling a
+    // nonblocking listener — WouldBlock here means "nothing pending
+    // yet", never the deadline itself, so it must not go through
+    // `map_io_err` (which reads WouldBlock as TimedOut).
+    //
+    // Block in `poll(2)` until a connection is pending or the
+    // deadline passes, then accept without blocking. The device
+    // blocks in `FreeRTOS_accept` with the timeout in the socket;
+    // `SO_RCVTIMEO` would be the host equivalent, but `accept`
+    // honours it only on Linux, so the wait is a poll — deadline
+    // tracked across the `EINTR` the simulator's 1 ms `SIGALRM`
+    // tick delivers, and never a sleep-poll (audit F17).
+    let deadline = std::time::Instant::now() + dur;
+    listener.set_nonblocking(true).map_err(map_io_err)?;
+    let result = loop {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            break Err(NetError::new(NetErrorKind::TimedOut, -1));
         }
-        // With a timeout set, emulate an accept deadline by polling a
-        // nonblocking listener — WouldBlock here means "nothing pending
-        // yet", never the deadline itself, so it must not go through
-        // `map_io_err` (which reads WouldBlock as TimedOut).
-        SimSocket::TcpListener(ref listener, Some(dur)) => {
-            // Block in `poll(2)` until a connection is pending or the
-            // deadline passes, then accept without blocking. The device
-            // blocks in `FreeRTOS_accept` with the timeout in the socket;
-            // `SO_RCVTIMEO` would be the host equivalent, but `accept`
-            // honours it only on Linux, so the wait is a poll — deadline
-            // tracked across the `EINTR` the simulator's 1 ms `SIGALRM`
-            // tick delivers, and never a sleep-poll (audit F17).
-            let deadline = std::time::Instant::now() + *dur;
-            listener.set_nonblocking(true).map_err(map_io_err)?;
-            let result = loop {
-                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-                if remaining.is_zero() {
-                    break Err(NetError::new(NetErrorKind::TimedOut, -1));
-                }
-                let mut pfd = libc::pollfd {
-                    fd: listener.as_raw_fd(),
-                    events: libc::POLLIN,
-                    revents: 0,
-                };
-                // Round up: a sub-millisecond remainder must still wait.
-                let wait_ms = remaining
-                    .as_millis()
-                    .saturating_add(1)
-                    .min(i32::MAX as u128) as i32;
-                // SAFETY: one valid `pollfd` for the one-element array.
-                let ready = unsafe { libc::poll(&mut pfd, 1, wait_ms) };
-                if ready < 0 {
-                    let e = std::io::Error::last_os_error();
-                    if e.kind() == std::io::ErrorKind::Interrupted {
-                        continue;
-                    }
-                    break Err(map_io_err(e));
-                }
-                if ready == 0 {
-                    continue; // deadline is re-checked at the top
-                }
-                match listener.accept() {
-                    Ok((stream, _addr)) => {
-                        let _ = stream.set_nonblocking(false);
-                        break Ok(box_socket(SimSocket::TcpClient(
-                            Some(stream),
-                            None,
-                            Some(NetCharge::new()),
-                        )));
-                    }
-                    // Readable but gone by the time we looked (the peer
-                    // reset): wait for the next one.
-                    Err(e)
-                        if e.kind() == std::io::ErrorKind::WouldBlock
-                            || e.kind() == std::io::ErrorKind::Interrupted => {}
-                    Err(e) => break Err(map_io_err(e)),
-                }
-            };
-            let _ = listener.set_nonblocking(false);
-            result
+        let mut pfd = libc::pollfd {
+            fd: listener.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // Round up: a sub-millisecond remainder must still wait.
+        let wait_ms = remaining
+            .as_millis()
+            .saturating_add(1)
+            .min(i32::MAX as u128) as i32;
+        // SAFETY: one valid `pollfd` for the one-element array.
+        let ready = unsafe { libc::poll(&mut pfd, 1, wait_ms) };
+        if ready < 0 {
+            let e = std::io::Error::last_os_error();
+            if e.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            break Err(map_io_err(e));
         }
-        _ => Err(bad_handle()),
-    }
+        if ready == 0 {
+            continue; // deadline is re-checked at the top
+        }
+        match listener.accept() {
+            Ok((stream, _addr)) => {
+                let _ = stream.set_nonblocking(false);
+                break Ok(box_socket(SimSocket::Tcp(TcpState::connected(stream))));
+            }
+            // Readable but gone by the time we looked (the peer
+            // reset): wait for the next one.
+            Err(e)
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => break Err(map_io_err(e)),
+        }
+    };
+    let _ = listener.set_nonblocking(false);
+    result
 }
 
 // ── UDP ──────────────────────────────────────────────────────────────────────
@@ -363,10 +427,10 @@ pub fn udp_sendto(sock: *mut c_void, buf: &[u8], addr: u32, port: u16) -> Result
         return Err(link_down());
     }
     // SAFETY: `sock` is a live `box_socket` pointer (the handle tables hand
-    // out no other) and this call's borrow is the only one in use.
+    // out no other) that `close` has not been given.
     let s = unsafe { deref_socket(sock) };
     match s {
-        SimSocket::Udp(ref udp) => {
+        SimSocket::Udp(udp) => {
             let ip = u32_to_ipv4(addr);
             retry_eintr(|| udp.send_to(buf, SocketAddrV4::new(ip, port)))
         }
@@ -376,10 +440,10 @@ pub fn udp_sendto(sock: *mut c_void, buf: &[u8], addr: u32, port: u16) -> Result
 
 pub fn udp_recvfrom(sock: *mut c_void, buf: &mut [u8]) -> Result<(usize, u32, u16), NetError> {
     // SAFETY: `sock` is a live `box_socket` pointer (the handle tables hand
-    // out no other) and this call's borrow is the only one in use.
+    // out no other) that `close` has not been given.
     let s = unsafe { deref_socket(sock) };
     match s {
-        SimSocket::Udp(ref udp) => {
+        SimSocket::Udp(udp) => {
             // Same deadline discipline as tcp_recv: the sim's SIGALRM ticks
             // EINTR a blocking recv every millisecond, and a naive retry
             // restarts SO_RCVTIMEO from scratch, so a timeout never expires.
@@ -436,7 +500,7 @@ pub fn close(sock: *mut c_void) {
 
 pub fn set_recv_timeout(sock: *mut c_void, timeout_ms: u32) {
     // SAFETY: `sock` is a live `box_socket` pointer (the handle tables hand
-    // out no other) and this call's borrow is the only one in use.
+    // out no other) that `close` has not been given.
     let s = unsafe { deref_socket(sock) };
     let dur = if timeout_ms == 0 {
         None
@@ -444,20 +508,18 @@ pub fn set_recv_timeout(sock: *mut c_void, timeout_ms: u32) {
         Some(Duration::from_millis(timeout_ms as u64))
     };
     match s {
-        SimSocket::TcpClient(Some(ref stream), _, _) => {
-            let _ = stream.set_read_timeout(dur);
-        }
-        // Not connected yet: stash for `tcp_connect`, which uses it as the
-        // connect deadline and then applies it as the read timeout — the
-        // device's pre-connect RCVTIMEO semantics.
-        SimSocket::TcpClient(None, ref mut pending, _) => {
-            *pending = dur;
-        }
-        SimSocket::Udp(ref udp) => {
+        SimSocket::Tcp(t) => match t.stream.get() {
+            Some(stream) => {
+                let _ = stream.set_read_timeout(dur);
+            }
+            // Not connected: stash it. `tcp_connect` uses it as the connect
+            // deadline and then applies it as the read timeout — the
+            // device's pre-connect RCVTIMEO semantics — and `tcp_accept` as
+            // its deadline.
+            None => t.set_timeout(dur),
+        },
+        SimSocket::Udp(udp) => {
             let _ = udp.set_read_timeout(dur);
-        }
-        SimSocket::TcpListener(_, ref mut timeout) => {
-            *timeout = dur;
         }
     }
 }

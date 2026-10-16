@@ -30,7 +30,7 @@ table is in severity order.
 | [UR-10](#ur-10) | low — **fixed** | `spi/mod.rs`, `i2c/mod.rs`, `pdb/pending.rs` | Bus init is check-then-store; `JVM_TASK` is protected from the pdb task by timing only |
 | [UR-11](#ur-11) | low — **fixed** | `graphics/lvgl/widgets/keyboard.rs` | An app reload forgets the system keyboard without deleting it, so each reload leaks one |
 | [UR-12](#ur-12) | low (sim) — **fixed** | `crates/heap4/src/lib.rs` | `Heap4::free` is safe and public; a misaligned or mid-block offset corrupts the free list |
-| [UR-13](#ur-13) | low (sim) | `hal/sim/net.rs` | A reader and a sender on one socket hold two `&mut SimSocket` |
+| [UR-13](#ur-13) | low (sim) — **fixed** | `hal/sim/net.rs` | A reader and a sender on one socket hold two `&mut SimSocket` |
 | [UR-14](#ur-14) | low | `crates/jvm/src/parity.rs` | `slowest_native` can pair one name's pointer with another's length |
 | [UR-15](#ur-15) | low | `crates/pd-install/src/orchestrator.rs` | `install` is safe and public over a static page buffer; it is sound only with one caller |
 
@@ -369,6 +369,20 @@ Simulator only.
 - **Fix:** hand out `&SimSocket` with the mutable parts behind a per-socket lock (`Arc` plus a
   lock that can't priority-deadlock; see round-1 §4.1), or split the stream with `try_clone` so the
   read and write halves are separate objects.
+- **Fixed 2026-10-15**, with no lock at all. std's socket calls take `&self` (`Read` and `Write`
+  are implemented for `&TcpStream`), so the only reason the record needed `&mut` was its own
+  fields: the stream and listener filled after creation, the pre-connect timeout, the budget
+  charge. Those are now a `TcpState` of two `OnceLock`s (stream, listener, each filled at most
+  once; nothing empties them, the socket closes by dropping the record), an `AtomicU64` timeout
+  and a `OnceLock<NetCharge>`. `deref_socket` returns `&SimSocket`, a `const` block asserts
+  `SimSocket: Sync`, and a reader blocked in `tcp_recv` beside a sender holds a shared borrow like
+  everyone else. Two behaviour changes, both toward the device: a second `connect` on a connected
+  handle now fails instead of replacing the stream, and a receive timeout set before `listen`
+  carries over as the accept deadline (one `RCVTIMEO` per socket) instead of being dropped.
+  Verified with the `netdemo` sim row (TCP echo and UDP against the host listeners). What remains
+  is a different hazard: `close` on one thread while another is blocked in `recv` on the same
+  socket frees the record under the reader. The device has the same race against its stack; it is
+  not a two-`&mut` problem and is not fixed here.
 
 ### UR-14
 
