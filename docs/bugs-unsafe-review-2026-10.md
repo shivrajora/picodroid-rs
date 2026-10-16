@@ -26,7 +26,7 @@ table is in severity order.
 | [UR-6](#ur-6) | medium — **fixed** | `platforms/rp/src/hal/rp/pdb_usb/mod.rs` | `ep1_in_pid` is written by the task and by `USBCTRL_IRQ` with interrupts unmasked |
 | [UR-7](#ur-7) | medium — **fixed** | `platforms/rp/src/main.rs` | The FreeRTOS malloc-failed and stack-overflow hooks are called from C but are not `extern "C"` |
 | [UR-8](#ur-8) | medium — **fixed** | `platforms/rp/src/hal/rp/periph.rs` | NVIC priority is written a byte at a time; ARMv6-M allows word access only |
-| [UR-9](#ur-9) | low | `platforms/rp/src/hal/rp/entropy.rs` | `picodroid_port_entropy_bytes` is a safe C entry point that writes through a raw pointer |
+| [UR-9](#ur-9) | low — **fixed** | `platforms/rp/src/hal/rp/entropy.rs` | `picodroid_port_entropy_bytes` is a safe C entry point that writes through a raw pointer |
 | [UR-10](#ur-10) | low | `spi/mod.rs`, `i2c/mod.rs`, `pdb/pending.rs` | Bus init is check-then-store; `JVM_TASK` is protected from the pdb task by timing only |
 | [UR-11](#ur-11) | low | `graphics/lvgl/widgets/keyboard.rs` | An app reload forgets the system keyboard without deleting it, so each reload leaks one |
 | [UR-12](#ur-12) | low (sim) | `crates/heap4/src/lib.rs` | `Heap4::free` is safe and public; a misaligned or mid-block offset corrupts the free list |
@@ -221,6 +221,11 @@ back.**
   stack in C, which passes a valid buffer.
 - **Fix:** make it `pub unsafe extern "C" fn` with a `# Safety` section. Nothing in Rust calls it,
   so no call site changes.
+- **Fixed 2026-10-15.** Both definitions, the RP family's and the simulator's in
+  `hal/sim/platform.rs`, are `pub unsafe extern "C" fn` with the contract (`buf` null, or `len`
+  writable bytes nothing else touches during the call) in a `# Safety` section; the
+  `not_unsafe_ptr_arg_deref` allows are gone. The one caller is the `extern "C"` declaration in
+  core's `hal::entropy`, already called inside `unsafe`, so no call site changed.
 
 ### UR-10
 

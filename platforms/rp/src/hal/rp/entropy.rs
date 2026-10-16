@@ -57,13 +57,18 @@ pub extern "C" fn picodroid_port_entropy32() -> u32 {
 /// still sampling (a 192-bit round takes ~64 ms), so the caller waits and
 /// asks again. Never the LCG: key material needs the real source. Always 0
 /// on the RP2040, which has no TRNG.
+///
+/// # Safety
+///
+/// `buf` must be null or point to `len` writable bytes that nothing else
+/// reads or writes for the duration of the call. Only the TLS stack (C)
+/// calls this, through `hal::entropy`'s declaration.
 #[no_mangle]
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub extern "C" fn picodroid_port_entropy_bytes(buf: *mut u8, len: usize) -> usize {
+pub unsafe extern "C" fn picodroid_port_entropy_bytes(buf: *mut u8, len: usize) -> usize {
     if buf.is_null() || len == 0 {
         return 0;
     }
-    // SAFETY: the caller passes a live, writable buffer of `len` bytes.
+    // SAFETY: the caller's contract: a live, writable buffer of `len` bytes.
     let out = unsafe { core::slice::from_raw_parts_mut(buf, len) };
     let mut filled = 0usize;
     for chunk in out.chunks_mut(4) {

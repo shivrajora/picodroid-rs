@@ -17,14 +17,18 @@ use crate::host::NativeHeapStats;
 /// handshake seed, the serial fallback): the OS's random source, which never
 /// says "not yet". Here rather than in `net` because every board needs it,
 /// networked or not.
+///
+/// # Safety
+///
+/// `buf` must be null or point to `len` writable bytes that nothing else
+/// reads or writes for the duration of the call.
 #[no_mangle]
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub extern "C" fn picodroid_port_entropy_bytes(buf: *mut u8, len: usize) -> usize {
+pub unsafe extern "C" fn picodroid_port_entropy_bytes(buf: *mut u8, len: usize) -> usize {
     use std::io::Read;
     if buf.is_null() || len == 0 {
         return 0;
     }
-    // SAFETY: the caller passes a live, writable buffer of `len` bytes.
+    // SAFETY: the caller's contract: a live, writable buffer of `len` bytes.
     let out = unsafe { core::slice::from_raw_parts_mut(buf, len) };
     match std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(out)) {
         Ok(()) => len,
