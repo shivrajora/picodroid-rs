@@ -227,7 +227,16 @@ impl Heap4 {
     /// Returns `Err` instead of panicking: this runs inside the global
     /// allocator holding its lock, where a panic (which itself allocates)
     /// would deadlock — the caller reports and aborts via a no-alloc path.
-    pub fn free(&mut self, payload_off: u32) -> Result<(), &'static str> {
+    ///
+    /// # Safety
+    ///
+    /// `payload_off` must be an offset [`malloc`](Self::malloc) returned
+    /// from this heap and not yet freed. The checks below catch an offset
+    /// outside the arena and the two header corruptions the C asserts on,
+    /// but not an offset that is in range yet misaligned or inside a
+    /// block's payload: that reads a "header" out of payload bytes
+    /// (unaligned) and links a bogus address into the free list.
+    pub unsafe fn free(&mut self, payload_off: u32) -> Result<(), &'static str> {
         if payload_off < HEAP_STRUCT_SIZE || payload_off >= self.size {
             return Err("sim heap_4: free of an offset outside the arena");
         }
@@ -376,7 +385,8 @@ mod tests {
         let mut h = arena(4096);
         let a = h.malloc(100).unwrap(); // block size 112
         let _guard = h.malloc(100).unwrap(); // pin the region below
-        h.free(a).unwrap();
+                                             // SAFETY: `a` came from `malloc` above and is freed once.
+        unsafe { h.free(a) }.unwrap();
         let before = h.free_bytes();
         // 112 - cost(88)=96 = 16 → NOT > 16 → no split, full 112 charged.
         let b = h.malloc(88).unwrap();
@@ -386,7 +396,8 @@ mod tests {
             112,
             "no-split hands out the whole block"
         );
-        h.free(b).unwrap();
+        // SAFETY: `b` came from `malloc` above and is freed once.
+        unsafe { h.free(b) }.unwrap();
         // 112 - cost(80)=88 = 24 → > 16 → split, exactly 88 charged.
         let before = h.free_bytes();
         let c = h.malloc(80).unwrap();
@@ -402,11 +413,14 @@ mod tests {
         let c = h.malloc(56).unwrap();
         let _pin = h.malloc(56).unwrap();
         // Free a and c: two islands.
-        h.free(a).unwrap();
-        h.free(c).unwrap();
+        // SAFETY: `a` came from `malloc` above and is freed once.
+        unsafe { h.free(a) }.unwrap();
+        // SAFETY: `c` came from `malloc` above and is freed once.
+        unsafe { h.free(c) }.unwrap();
         assert_eq!(h.stats().free_blocks, 3); // a, c, tail
                                               // Free b: must merge a+b+c into one 192-byte block.
-        h.free(b).unwrap();
+                                              // SAFETY: `b` came from `malloc` above and is freed once.
+        unsafe { h.free(b) }.unwrap();
         let s = h.stats();
         assert_eq!(s.free_blocks, 2); // merged island + tail
         let island = h.bsize(a - HEAP_STRUCT_SIZE); // block at a's header
@@ -427,7 +441,8 @@ mod tests {
         let mut freed = 0u32;
         for (i, &b) in blocks.iter().enumerate() {
             if i % 2 == 0 {
-                h.free(b).unwrap();
+                // SAFETY: `b` came from `malloc` above and is freed once.
+                unsafe { h.free(b) }.unwrap();
                 freed += 64;
             }
         }
@@ -447,7 +462,8 @@ mod tests {
         let mut h = arena(4096);
         let a = h.malloc(1000).unwrap();
         let low = h.free_bytes();
-        h.free(a).unwrap();
+        // SAFETY: `a` came from `malloc` above and is freed once.
+        unsafe { h.free(a) }.unwrap();
         assert!(h.free_bytes() > low);
         assert_eq!(h.min_ever_free_bytes(), low);
     }
@@ -503,7 +519,8 @@ mod tests {
                     slots[idx] = Some(p);
                 }
                 Some(p) => {
-                    h.free(p).unwrap();
+                    // SAFETY: `p` came from `malloc` above and is freed once.
+                    unsafe { h.free(p) }.unwrap();
                     slots[idx] = None;
                 }
             }
@@ -518,11 +535,13 @@ mod tests {
         );
         for s in slots.iter_mut() {
             if let Some(p) = s.take() {
-                h.free(p).unwrap();
+                // SAFETY: `p` came from `malloc` above and is freed once.
+                unsafe { h.free(p) }.unwrap();
             }
         }
         assert_eq!(h.free_bytes(), TRACE_START_FREE, "balanced teardown");
         assert_eq!(h.min_ever_free_bytes(), 381_416, "global low-water mark");
-        h.free(pad).unwrap();
+        // SAFETY: `pad` came from `malloc` above and is freed once.
+        unsafe { h.free(pad) }.unwrap();
     }
 }

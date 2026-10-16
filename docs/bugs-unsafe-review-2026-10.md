@@ -29,7 +29,7 @@ table is in severity order.
 | [UR-9](#ur-9) | low — **fixed** | `platforms/rp/src/hal/rp/entropy.rs` | `picodroid_port_entropy_bytes` is a safe C entry point that writes through a raw pointer |
 | [UR-10](#ur-10) | low — **fixed** | `spi/mod.rs`, `i2c/mod.rs`, `pdb/pending.rs` | Bus init is check-then-store; `JVM_TASK` is protected from the pdb task by timing only |
 | [UR-11](#ur-11) | low — **fixed** | `graphics/lvgl/widgets/keyboard.rs` | An app reload forgets the system keyboard without deleting it, so each reload leaks one |
-| [UR-12](#ur-12) | low (sim) | `crates/heap4/src/lib.rs` | `Heap4::free` is safe and public; a misaligned or mid-block offset corrupts the free list |
+| [UR-12](#ur-12) | low (sim) — **fixed** | `crates/heap4/src/lib.rs` | `Heap4::free` is safe and public; a misaligned or mid-block offset corrupts the free list |
 | [UR-13](#ur-13) | low (sim) | `hal/sim/net.rs` | A reader and a sender on one socket hold two `&mut SimSocket` |
 | [UR-14](#ur-14) | low | `crates/jvm/src/parity.rs` | `slowest_native` can pair one name's pointer with another's length |
 | [UR-15](#ur-15) | low | `crates/pd-install/src/orchestrator.rs` | `install` is safe and public over a static page buffer; it is sound only with one caller |
@@ -352,6 +352,10 @@ Simulator only.
 - **Fix:** make `free` an `unsafe fn` whose contract is "an offset `malloc` returned and not yet
   freed". That moves the obligation to the allocator, the one real caller, and costs about 11 test
   blocks.
+- **Fixed 2026-10-15.** `Heap4::free` is `pub unsafe fn` with that contract in its `# Safety`
+  section, and still returns `Err` for the three corruptions it can detect. The allocator's call
+  carries the `GlobalAlloc::dealloc` argument; the ten test frees carry one-line SAFETY comments.
+  Unsafe baseline: heap4 +10 blocks, +1 fn, as predicted.
 
 ### UR-13
 

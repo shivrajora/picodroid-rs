@@ -615,7 +615,11 @@ unsafe impl GlobalAlloc for CappedAllocator {
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
                 if let Some(heap) = guard.as_mut() {
-                    if let Err(msg) = heap.free((addr - base) as u32) {
+                    // SAFETY: `ptr` is inside the arena, so `alloc` got it
+                    // from this heap's `malloc` with `layout`, and the
+                    // `GlobalAlloc::dealloc` contract frees it once.
+                    let freed = unsafe { heap.free((addr - base) as u32) };
+                    if let Err(msg) = freed {
                         drop(guard);
                         raw_stderr(msg.as_bytes());
                         raw_stderr(b"\n");
