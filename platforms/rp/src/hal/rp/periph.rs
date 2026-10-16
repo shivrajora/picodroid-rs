@@ -34,21 +34,29 @@ pub(crate) fn steal() -> pac::Peripherals {
 /// sections mask the interrupt, so its handler may call `FromISR`
 /// functions. The NVIC is banked per core; this configures the caller's.
 ///
-/// ARMv6-M defines only word access to the IPR registers, so on the RP2040
-/// the byte store below probably leaves the priority unset (round 1's §6
-/// finding): a question of behaviour, not memory safety, left for its own
-/// change.
+/// The priority goes through `NVIC::set_priority`, which stores the byte
+/// on ARMv7-M and ARMv8-M and read-modify-writes the containing IPR word
+/// on ARMv6-M, the only access that architecture defines for those
+/// registers. The read-modify-write runs with interrupts masked so a task
+/// switch cannot land between the read and the write and lose a
+/// neighbouring interrupt's byte.
 #[inline(always)]
 pub(crate) fn enable_irq(irq: pac::Interrupt) {
-    // SAFETY: NVIC_IPR is a fixed system register and each interrupt has
-    // its own byte in it; unmasking is sound once the handler's statics are
-    // in place, which every caller arranges before it calls this.
-    unsafe {
-        let nvic_ipr = 0xE000_E400 as *mut u8;
-        let irqn = irq as u8;
-        nvic_ipr.add(irqn as usize).write_volatile(0x10);
-        cortex_m::peripheral::NVIC::unmask(irq);
-    }
+    cortex_m::interrupt::free(|_| {
+        // SAFETY: the NVIC handle aliases nothing Rust owns: no code takes
+        // `cortex_m::Peripherals`, and the handle is used for one priority
+        // store under the interrupt mask. The priority is the one the
+        // kernel's BASEPRI critical sections (RP2350) mask up to, so a
+        // handler at it cannot run inside one; the RP2040 port masks with
+        // PRIMASK and no priority-based section exists. Unmasking is sound
+        // once the handler's statics are in place, which every caller
+        // arranges before it calls this.
+        unsafe {
+            let mut nvic = cortex_m::Peripherals::steal().NVIC;
+            nvic.set_priority(irq, 0x10);
+            cortex_m::peripheral::NVIC::unmask(irq);
+        }
+    });
 }
 
 /// Pin-mask writes to the single-cycle IO block: drive the pins in `mask`
