@@ -46,7 +46,14 @@ fn boot_package() -> Option<&'static str> {
 
 fn do_install(region: &mut MemRegion, bytes: &[u8]) -> Result<(), InstallError> {
     let mut t = MemTransport::for_papk(bytes);
-    let ok = install(&mut t, &mut NoCoordinator, region, bytes.len() as u32);
+    let mut page: crate::install::PageBuf = [0u8; 256];
+    let ok = install(
+        &mut t,
+        &mut NoCoordinator,
+        region,
+        &mut page,
+        bytes.len() as u32,
+    );
     match t.error {
         Some(e) => Err(e),
         None => {
