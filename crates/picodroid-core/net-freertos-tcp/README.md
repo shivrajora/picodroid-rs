@@ -8,7 +8,7 @@ itself; the LVGL precedent does not transfer).
 | File | What it is |
 |---|---|
 | `net_init.c` | `picodroid_net_stack_init(mac)`: registers the link driver's interface, fills a DHCP endpoint, starts the IP task. Plus the five FreeRTOS+TCP application hooks. |
-| `libc_str.c` | `strcmp`/`strncmp`/`strcpy`/`strncpy`/`strchr` for targets that link without a libc (FreeRTOS+TCP's DNS files need them). |
+| `libc_str.c` | `strcmp`/`strncmp`/`strcasecmp`/`strcpy`/`strncpy`/`strchr` for targets that link without a libc (FreeRTOS+TCP's DNS files need them). |
 | `FreeRTOSIPConfig.h` | The IP stack policy. Its first include is the family's `FreeRTOSIPConfig_family.h`. |
 
 Two seams a family or link driver provides (link-time C symbols):
