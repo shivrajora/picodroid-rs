@@ -40,6 +40,7 @@ public abstract class ViewGroup extends View implements ViewParent {
 
   private void attach(View child) {
     checkNotReleased(child);
+    checkNotAncestor(child);
     nativeAddView(child);
     if (child == null) {
       return;
@@ -119,6 +120,22 @@ public abstract class ViewGroup extends View implements ViewParent {
       throw new IllegalStateException(
           "addView: this view was released by removeView; picodroid frees a removed view, create a"
               + " new one");
+    }
+  }
+
+  /**
+   * A view cannot be added to itself or to one of its own descendants: the widget tree would have a
+   * cycle, which layout, draw and delete walk forever. Android reports this as "the specified child
+   * already has a parent"; picodroid lets {@link #addView} move a parented view, so the cycle is
+   * named directly. The native side checks the same thing on the widget tree.
+   */
+  private void checkNotAncestor(View child) {
+    for (ViewGroup p = this; p != null; p = p.mParent) {
+      if (p == child) {
+        throw new IllegalStateException(
+            "addView: the child is this view or one of its ancestors; a view cannot contain"
+                + " itself");
+      }
     }
   }
 

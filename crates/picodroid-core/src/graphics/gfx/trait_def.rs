@@ -54,6 +54,9 @@ pub enum Reparent {
     StaleChild,
     /// The parent handle names a deleted widget (the child is untouched).
     StaleParent,
+    /// `parent` is `h` itself or one of its descendants: the add would make
+    /// a parent cycle in the widget tree, so nothing was changed.
+    Cycle,
 }
 
 pub trait Gfx {
@@ -100,7 +103,9 @@ pub trait Gfx {
     /// longer names a live widget — a child `removeView` released — so the
     /// Java side can refuse the add instead of losing the view silently;
     /// [`Reparent::StaleParent`] (an Activity's freed layout reached by a
-    /// deferred callback) is a quiet no-op.
+    /// deferred callback) is a quiet no-op. [`Reparent::Cycle`] refuses a
+    /// parent inside `h`'s own subtree (UR-3), which the Java side turns
+    /// into an `IllegalStateException`.
     fn set_parent(&mut self, h: Handle, parent: Handle) -> Reparent;
     fn delete(&mut self, h: Handle);
 

@@ -20,6 +20,11 @@ use super::view::{extract_handle_at, extract_native_handle};
 /// `IllegalStateException` the app can read, where it used to be a view that
 /// silently never appeared (QA 2026-09-13). Android keeps a removed child
 /// usable; picodroid frees it on removal to keep LVGL's memory bounded.
+///
+/// A parent inside the child's own subtree is refused the same way (UR-3):
+/// LVGL would accept it and the widget tree would have a cycle. Java's
+/// `ViewGroup.addView` catches this first through its own parent chain; this
+/// is the backstop for a chain the Java side does not know about.
 pub fn add_view(
     args: &[Value],
     strings: &mut StringTable,
@@ -34,6 +39,17 @@ pub fn add_view(
             .ok_or(JvmError::StackOverflow)?;
         if let Some(m) = strings.intern_dyn(
             b"addView: this view was released by removeView; picodroid frees a removed view, create a new one",
+        ) {
+            let _ = objects.register_exception_message(idx, m);
+        }
+        return Err(JvmError::Exception(idx));
+    }
+    if outcome == Reparent::Cycle {
+        let idx = objects
+            .alloc(c::java_lang_IllegalStateException)
+            .ok_or(JvmError::StackOverflow)?;
+        if let Some(m) = strings.intern_dyn(
+            b"addView: the child is this view or one of its ancestors; a view cannot contain itself",
         ) {
             let _ = objects.register_exception_message(idx, m);
         }

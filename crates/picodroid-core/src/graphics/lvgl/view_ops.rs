@@ -181,14 +181,29 @@ pub(in crate::graphics) fn set_parent(h: Handle, parent: Handle) -> Reparent {
     let Some(parent) = obj(parent) else {
         return Reparent::StaleParent;
     };
-    // SAFETY: both objects are live (the handle table resolved them). LVGL
-    // does not refuse a parent that is `child` itself or one of its
-    // descendants, and neither does `ViewGroup.addView` on the Java side
-    // (Android throws "already has a parent" before it could get here): an
-    // app that adds a view into its own subtree makes a cycle. That is an
-    // open finding, reported with this change rather than fixed in it.
+    if is_self_or_ancestor(child, parent) {
+        return Reparent::Cycle;
+    }
+    // SAFETY: both objects are live (the handle table resolved them), and
+    // `parent` is outside `child`'s subtree (checked just above: LVGL does
+    // not refuse a parent that is `child` itself or one of its descendants,
+    // and the result would be a cycle that layout, draw and delete walk
+    // forever; UR-3). `lv_obj_set_parent` is otherwise total on live objects.
     unsafe { lv_obj_set_parent(child, parent) };
     Reparent::Done
+}
+
+/// Whether `o` is `candidate` itself or one of its ancestors: the walk from
+/// `candidate` to its screen passes through `o`. Bounded by tree depth.
+fn is_self_or_ancestor(o: Obj, candidate: Obj) -> bool {
+    let mut cur = Some(candidate);
+    while let Some(c) = cur {
+        if c == o {
+            return true;
+        }
+        cur = lv_obj_get_parent(c);
+    }
+    false
 }
 
 pub(in crate::graphics) fn delete(h: Handle) {

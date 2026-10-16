@@ -1,6 +1,6 @@
 # Bug backlog: soundness findings from the unsafe review — 2026-10-15
 
-**Status: open, except UR-1 and UR-2 (fixed 2026-10-15).** Every item is a memory-safety or concurrency defect found
+**Status: open, except UR-1, UR-2 and UR-3 (fixed 2026-10-15).** Every item is a memory-safety or concurrency defect found
 while reading unsafe code during the two unsafe-reduction rounds:
 [designs/unsafe-reduction-2026-09.md](designs/unsafe-reduction-2026-09.md) §6 and
 [designs/unsafe-reduction-2026-10.md](designs/unsafe-reduction-2026-10.md) §6.
@@ -20,7 +20,7 @@ table is in severity order.
 |---|---|---|---|
 | [UR-1](#ur-1) | high — **fixed** | `platforms/rp/src/hal/rp/pio_spi.rs` | A cyw43 transfer whose DMA abort times out returns while the RX channel may still be armed on the caller's buffer |
 | [UR-2](#ur-2) | high — **fixed** | `platforms/rp/src/hal/rp/spi/mod.rs` | `transfer_raw` with `rx` shorter than `tx` overruns `rx` in the interrupt handler |
-| [UR-3](#ur-3) | medium | `graphics/lvgl/view_ops.rs` | `addView` into the view's own subtree makes an LVGL parent cycle |
+| [UR-3](#ur-3) | medium — **fixed** | `graphics/lvgl/view_ops.rs` | `addView` into the view's own subtree makes an LVGL parent cycle |
 | [UR-4](#ur-4) | medium | `graphics/lvgl/window.rs`, `widgets/keyboard.rs` | `window::sync` deletes the old window with a raw delete, so the keyboard's bound textarea can dangle |
 | [UR-5](#ur-5) | medium | `platforms/rp` `spi_state`, `display()`, `touch()`; `boot.rs` `shared_heap` | Safe functions return `&'static mut`, so two calls alias |
 | [UR-6](#ur-6) | medium | `platforms/rp/src/hal/rp/pdb_usb/mod.rs` | `ep1_in_pid` is written by the task and by `USBCTRL_IRQ` with interrupts unmasked |
@@ -211,6 +211,13 @@ back.**
   does for an already-parented child. The walk is bounded by tree depth.
 - **Verify:** add a `qa_ui` probe that adds a LinearLayout into its own child and expects the
   exception.
+- **Fixed 2026-10-15**, both halves. `view_ops::set_parent` walks from `parent` to its screen
+  with `lv_obj_get_parent` and returns `Reparent::Cycle` when the walk meets `child`, before the
+  `lv_obj_set_parent` call; `view_group::add_view` turns that into an `IllegalStateException`.
+  `ViewGroup.attach` on the Java side walks its own `mParent` chain first and throws the same
+  exception before any native call, so the native check is the backstop. Two `qa_ui` probes in
+  `tree()` (a layout into its own child, a layout into itself) pass with either check alone: the
+  suite was run once with the Java check disabled to prove the native one.
 
 ### UR-4
 

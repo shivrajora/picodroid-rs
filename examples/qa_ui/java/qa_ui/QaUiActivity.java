@@ -265,6 +265,31 @@ public class QaUiActivity extends Activity {
             && root.getChildAt(4) == rows[4]);
     other.close();
     check("close of an unparented group", other.getParent() == null && root.getChildCount() == 5);
+    // A view added into its own subtree would make a parent cycle (UR-3): refused loudly, and
+    // nothing moves.
+    LinearLayout outer = new LinearLayout(this);
+    LinearLayout inner = new LinearLayout(this);
+    outer.addView(inner);
+    boolean cycleRefused = false;
+    try {
+      inner.addView(outer);
+    } catch (IllegalStateException e) {
+      cycleRefused = true;
+    }
+    check(
+        "addView into own descendant throws",
+        cycleRefused
+            && inner.getChildCount() == 0
+            && outer.getParent() == null
+            && inner.getParent() == outer);
+    boolean selfRefused = false;
+    try {
+      inner.addView(inner);
+    } catch (IllegalStateException e) {
+      selfRefused = true;
+    }
+    check("addView of self throws", selfRefused && inner.getChildCount() == 0);
+    outer.close();
     check("null tag", new TextView(this).getTag() == null);
     TextView tagged = new TextView(this);
     Object tag = new Object();
