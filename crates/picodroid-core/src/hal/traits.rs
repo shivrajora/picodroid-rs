@@ -174,6 +174,11 @@ pub trait HalSpi {
     fn init(spi_id: u8);
     fn reconfigure(spi_id: u8, freq_hz: u32, mode: u32);
     fn write_raw(spi_id: u8, data: &[u8]);
+    /// Full duplex: clock every byte of `tx` out and store the bytes read
+    /// back in `rx`, in order, until it is full. The lengths may differ:
+    /// replies past `rx.len()` are discarded, and an `rx` longer than `tx`
+    /// keeps its tail. An implementation must never index either slice by
+    /// the other's length.
     fn transfer_raw(spi_id: u8, tx: &[u8], rx: &mut [u8]);
 
     /// JVM-array-addressed counterparts of the `_raw` pair — the

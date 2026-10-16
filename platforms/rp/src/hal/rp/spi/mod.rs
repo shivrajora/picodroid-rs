@@ -8,8 +8,8 @@ use freertos_rust::{Duration, InterruptContext, Semaphore};
 use picodroid_core::util::set_once::SetOnce;
 
 use xfer::{
-    clock_divisors, may_queue_tx, transfer_finished, SpiOp, SpiXferState, SMALL_XFER_THRESHOLD,
-    SPI_FIFO_DEPTH, SPI_XFER_POLL_MS, SPI_XFER_TIMEOUT_MS,
+    clock_divisors, may_queue_tx, stores_rx, transfer_finished, SpiOp, SpiXferState,
+    SMALL_XFER_THRESHOLD, SPI_FIFO_DEPTH, SPI_XFER_POLL_MS, SPI_XFER_TIMEOUT_MS,
 };
 
 use super::clock::PCLK_HZ;
@@ -168,12 +168,12 @@ macro_rules! spi_isr_body {
         // 1. Drain RX FIFO first (prevents overrun)
         while $spi.sspsr().read().rne().bit_is_set() && state.rx_idx < state.len {
             let byte = $spi.sspdr().read().data().bits() as u8;
-            if state.op == SpiOp::FullDuplex {
+            if stores_rx(state.op, state.rx_idx, state.rx_len) {
                 // SAFETY: `rx_ptr` is `transfer_raw`'s `rx`, which outlives
-                // the transfer (the task waits for it), and `rx_idx < len`.
-                // That `rx` holds `len` bytes is NOT checked: `len` is the
-                // TX length, and an `rx` shorter than `tx` overruns here
-                // (round 1 §6). Today's callers pass equal lengths.
+                // the transfer (the task waits for it), and `rx_len` is that
+                // slice's length, so `rx_idx < rx_len` keeps the write in
+                // bounds. An `rx` shorter than `tx` has its tail discarded
+                // here (UR-2).
                 unsafe { *state.rx_ptr.add(state.rx_idx) = byte };
             }
             state.rx_idx += 1;
@@ -296,16 +296,21 @@ macro_rules! poll_write_raw {
 }
 
 // spin-ok: as poll_write_raw — at most SMALL_XFER_THRESHOLD bytes.
+// Same length contract as the ISR path: every `tx` byte is clocked, and a
+// received byte is kept only while `rx` has room for it (UR-2).
 macro_rules! poll_transfer_raw {
     ($spi:expr, $tx:expr, $rx:expr) => {{
-        for i in 0..$tx.len() {
+        for (i, &byte) in $tx.iter().enumerate() {
             while $spi.sspsr().read().tnf().bit_is_clear() {}
             $spi.sspdr().write(|w| {
                 // SAFETY: one data byte (the note on raw writes at the top).
-                unsafe { w.data().bits($tx[i] as u16) }
+                unsafe { w.data().bits(byte as u16) }
             });
             while $spi.sspsr().read().rne().bit_is_clear() {}
-            $rx[i] = $spi.sspdr().read().data().bits() as u8;
+            let got = $spi.sspdr().read().data().bits() as u8;
+            if let Some(slot) = $rx.get_mut(i) {
+                *slot = got;
+            }
         }
         while $spi.sspsr().read().bsy().bit_is_set() {}
     }};
@@ -640,6 +645,7 @@ pub fn write_raw_start(spi_id: u8, data: &[u8]) {
     state.tx_ptr = data.as_ptr();
     state.rx_ptr = core::ptr::null_mut();
     state.len = data.len();
+    state.rx_len = 0;
     state.tx_idx = 0;
     state.rx_idx = 0;
 
@@ -669,6 +675,14 @@ pub fn write_raw_finish(spi_id: u8) {
 }
 
 /// Full-duplex transfer with raw Rust slices.
+///
+/// Clocks every byte of `tx` out. The bytes read back land in `rx` in
+/// order until it is full; any received after that are discarded, and an
+/// `rx` longer than `tx` keeps its tail untouched. So the lengths need not
+/// match, and neither slice is ever indexed past its end: the ISR and the
+/// polling path both stop storing at `rx.len()` ([`xfer::stores_rx`]).
+/// Callers that want embedded-hal's "pad `tx` with zeros to fill `rx`" go
+/// through `RpSpiBus::transfer`, which does that on top of this.
 pub fn transfer_raw(spi_id: u8, tx: &[u8], rx: &mut [u8]) {
     collect_own_write(spi_id);
     if tx.is_empty() {
@@ -695,6 +709,7 @@ pub fn transfer_raw(spi_id: u8, tx: &[u8], rx: &mut [u8]) {
     state.tx_ptr = tx.as_ptr();
     state.rx_ptr = rx.as_mut_ptr();
     state.len = tx.len();
+    state.rx_len = rx.len();
     state.tx_idx = 0;
     state.rx_idx = 0;
 

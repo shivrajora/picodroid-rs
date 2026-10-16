@@ -1,6 +1,6 @@
 # Bug backlog: soundness findings from the unsafe review — 2026-10-15
 
-**Status: open, except UR-1 (fixed 2026-10-15).** Every item is a memory-safety or concurrency defect found
+**Status: open, except UR-1 and UR-2 (fixed 2026-10-15).** Every item is a memory-safety or concurrency defect found
 while reading unsafe code during the two unsafe-reduction rounds:
 [designs/unsafe-reduction-2026-09.md](designs/unsafe-reduction-2026-09.md) §6 and
 [designs/unsafe-reduction-2026-10.md](designs/unsafe-reduction-2026-10.md) §6.
@@ -19,7 +19,7 @@ table is in severity order.
 | Id | Severity | Where | One line |
 |---|---|---|---|
 | [UR-1](#ur-1) | high — **fixed** | `platforms/rp/src/hal/rp/pio_spi.rs` | A cyw43 transfer whose DMA abort times out returns while the RX channel may still be armed on the caller's buffer |
-| [UR-2](#ur-2) | high | `platforms/rp/src/hal/rp/spi/mod.rs` | `transfer_raw` with `rx` shorter than `tx` overruns `rx` in the interrupt handler |
+| [UR-2](#ur-2) | high — **fixed** | `platforms/rp/src/hal/rp/spi/mod.rs` | `transfer_raw` with `rx` shorter than `tx` overruns `rx` in the interrupt handler |
 | [UR-3](#ur-3) | medium | `graphics/lvgl/view_ops.rs` | `addView` into the view's own subtree makes an LVGL parent cycle |
 | [UR-4](#ur-4) | medium | `graphics/lvgl/window.rs`, `widgets/keyboard.rs` | `window::sync` deletes the old window with a raw delete, so the keyboard's bound textarea can dangle |
 | [UR-5](#ur-5) | medium | `platforms/rp` `spi_state`, `display()`, `touch()`; `boot.rs` `shared_heap` | Safe functions return `&'static mut`, so two calls alias |
@@ -87,6 +87,14 @@ back.**
   in place, as embedded-hal's `SpiBus::transfer_in_place` does. Add a host test of the length contract if
   the function moves behind the HAL trait.
 - First recorded in round-1 §6.
+- **Fixed 2026-10-15.** The transfer state carries `rx_len` beside `len`, and both paths store a
+  received byte only while it fits (`xfer::stores_rx`, host-tested): every `tx` byte is still
+  clocked and counted, so the transfer ends on the count, but nothing is written past `rx.len()`.
+  The polling path indexes `rx` with `get_mut`. The contract (lengths may differ, replies past
+  `rx` are dropped, a longer `rx` keeps its tail) is on `HalSpi::transfer_raw`; the sim already
+  behaved that way. `RpSpiBus::transfer` adds embedded-hal's other half, clocking zeros to fill
+  a `read` longer than `write`. Not reproduced on a board; build-checked and unit-tested only.
+
 ### UR-5
 
 **Safe functions that return `&'static mut`.**

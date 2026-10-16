@@ -80,7 +80,13 @@ impl SpiBus for RpSpiBus {
     }
 
     fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Infallible> {
+        // embedded-hal's contract for unequal lengths: a `write` longer than
+        // `read` has its extra replies discarded, which `transfer_raw` does
+        // itself; a `read` longer than `write` is filled by clocking zeros.
         super::spi::transfer_raw(self.spi_id, write, read);
+        if read.len() > write.len() {
+            self.read(&mut read[write.len()..])?;
+        }
         Ok(())
     }
 

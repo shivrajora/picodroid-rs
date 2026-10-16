@@ -33,7 +33,13 @@ pub struct SpiXferState {
     pub op: SpiOp,
     pub tx_ptr: *const u8,
     pub rx_ptr: *mut u8,
+    /// Bytes to clock: the TX length. Every byte received is counted
+    /// against it; only the first `rx_len` are stored.
     pub len: usize,
+    /// How many bytes `rx_ptr` has room for. `rx_len <= len` for every
+    /// transfer `transfer_raw` starts; a byte at or past it is discarded
+    /// (see [`stores_rx`]).
+    pub rx_len: usize,
     pub tx_idx: usize,
     pub rx_idx: usize,
 }
@@ -45,6 +51,7 @@ impl SpiXferState {
             tx_ptr: core::ptr::null(),
             rx_ptr: core::ptr::null_mut(),
             len: 0,
+            rx_len: 0,
             tx_idx: 0,
             rx_idx: 0,
         }
@@ -92,6 +99,17 @@ pub fn transfer_finished(
         SpiOp::DmaWrite => dma_write_finished(dma_busy, tx_fifo_empty, busy),
         SpiOp::Idle => false,
     }
+}
+
+/// Whether the byte just taken from the RX FIFO, the `rx_idx`th of the
+/// transfer, is stored through `rx_ptr` or discarded. A DMA write has no
+/// `rx` at all, and a full-duplex transfer whose `rx` is shorter than its
+/// `tx` has none for the tail: the bytes are still clocked and counted
+/// (the transfer ends on the count), but nothing past `rx_len` is written.
+/// This is the bound that keeps `transfer_raw` safe for `rx.len() < tx.len()`
+/// (bugs-unsafe-review-2026-10.md, UR-2).
+pub fn stores_rx(op: SpiOp, rx_idx: usize, rx_len: usize) -> bool {
+    op == SpiOp::FullDuplex && rx_idx < rx_len
 }
 
 /// Whether the ISR may queue one more TX byte. Bounded by the bytes
@@ -276,6 +294,39 @@ mod tests {
         assert_eq!(tx - rx, SPI_FIFO_DEPTH);
     }
 
+    // ── The RX store bound (UR-2) ────────────────────────────────────────
+
+    #[test]
+    fn rx_is_stored_only_while_it_fits() {
+        // tx of 30 bytes, rx of 4: the first four land, the rest are clocked
+        // and counted but never written.
+        assert!(stores_rx(SpiOp::FullDuplex, 0, 4));
+        assert!(stores_rx(SpiOp::FullDuplex, 3, 4));
+        assert!(!stores_rx(SpiOp::FullDuplex, 4, 4));
+        assert!(!stores_rx(SpiOp::FullDuplex, 29, 4));
+    }
+
+    #[test]
+    fn an_empty_rx_stores_nothing() {
+        assert!(!stores_rx(SpiOp::FullDuplex, 0, 0));
+    }
+
+    #[test]
+    fn a_dma_write_never_stores_rx() {
+        // Its `rx_ptr` is null and `rx_len` 0; the ISR path never sees it,
+        // but the predicate must not say yes if it did.
+        assert!(!stores_rx(SpiOp::DmaWrite, 0, 8));
+        assert!(!stores_rx(SpiOp::Idle, 0, 8));
+    }
+
+    #[test]
+    fn equal_lengths_store_every_byte() {
+        for i in 0..30 {
+            assert!(stores_rx(SpiOp::FullDuplex, i, 30));
+        }
+        assert!(!stores_rx(SpiOp::FullDuplex, 30, 30));
+    }
+
     // ── Constants ────────────────────────────────────────────────────────
 
     #[test]
@@ -296,6 +347,7 @@ mod tests {
         let s = SpiXferState::new();
         assert!(s.op == SpiOp::Idle);
         assert_eq!(s.len, 0);
+        assert_eq!(s.rx_len, 0);
         assert_eq!(s.tx_idx, 0);
         assert_eq!(s.rx_idx, 0);
     }
