@@ -1,6 +1,6 @@
 # Bug backlog: soundness findings from the unsafe review — 2026-10-15
 
-**Status: open.** Nothing below is fixed. Every item is a memory-safety or concurrency defect found
+**Status: open, except UR-1 (fixed 2026-10-15).** Every item is a memory-safety or concurrency defect found
 while reading unsafe code during the two unsafe-reduction rounds:
 [designs/unsafe-reduction-2026-09.md](designs/unsafe-reduction-2026-09.md) §6 and
 [designs/unsafe-reduction-2026-10.md](designs/unsafe-reduction-2026-10.md) §6.
@@ -18,7 +18,7 @@ table is in severity order.
 
 | Id | Severity | Where | One line |
 |---|---|---|---|
-| [UR-1](#ur-1) | high | `platforms/rp/src/hal/rp/pio_spi.rs` | A cyw43 transfer whose DMA abort times out returns while the RX channel may still be armed on the caller's buffer |
+| [UR-1](#ur-1) | high — **fixed** | `platforms/rp/src/hal/rp/pio_spi.rs` | A cyw43 transfer whose DMA abort times out returns while the RX channel may still be armed on the caller's buffer |
 | [UR-2](#ur-2) | high | `platforms/rp/src/hal/rp/spi/mod.rs` | `transfer_raw` with `rx` shorter than `tx` overruns `rx` in the interrupt handler |
 | [UR-3](#ur-3) | medium | `graphics/lvgl/view_ops.rs` | `addView` into the view's own subtree makes an LVGL parent cycle |
 | [UR-4](#ur-4) | medium | `graphics/lvgl/window.rs`, `widgets/keyboard.rs` | `window::sync` deletes the old window with a raw delete, so the keyboard's bound textarea can dangle |
@@ -64,6 +64,13 @@ back.**
     aimed at a caller's buffer.
 - **Verify:** force the timeout (lower the spin bound in a test build, or hold the PIO SM stalled)
   and check that the next transfer doesn't run on the stale channel.
+- **Fixed 2026-10-15** (first option). `abort_dma` pauses a channel that did not retire (clears
+  `EN`, so it issues no transfer even if its DREQ asserts) and sets `BUS_DEAD`; every later
+  `cyw43_spi_transfer` returns −1 before the bounce copy, the SM enable, the FIFO flush or any
+  channel programming. The SM is already left disabled at the transfer tail, so the RX DREQ never
+  asserts again. The bus stays retired until reboot: freeing the channel would take a reset of the
+  DMA block, which the display's channels share. Wi-Fi is lost for that boot, logged once at
+  `error`. Not reproduced on a board; build-checked only.
 
 ### UR-2
 
@@ -80,7 +87,6 @@ back.**
   in place, as embedded-hal's `SpiBus::transfer_in_place` does. Add a host test of the length contract if
   the function moves behind the HAL trait.
 - First recorded in round-1 §6.
-
 ### UR-5
 
 **Safe functions that return `&'static mut`.**

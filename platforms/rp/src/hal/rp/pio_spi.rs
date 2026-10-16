@@ -131,6 +131,13 @@ const INSTR_MOV_PINS_NULL: u16 = 0xA003; // mov pins, null  (park OUT reg low)
 /// One-time init guard — only touched from the cyw43 task during bring-up.
 static PIO_INITED: AtomicBool = AtomicBool::new(false);
 
+/// Set by [`abort_dma`] when a channel would not abort, and never cleared:
+/// that channel is still armed on a buffer its caller has taken back, so
+/// the transport is retired for the rest of this boot. Every transfer
+/// after that returns −1 without touching the SM or the channels (see
+/// [`cyw43_spi_transfer`]). Written and read on the cyw43 task only.
+static BUS_DEAD: AtomicBool = AtomicBool::new(false);
+
 /// Aligned bounce buffer for the two boot-time swap-register transfers,
 /// whose 8-byte buffers live unaligned on the C stack (DMA runs 32-bit).
 /// Reached only by raw pointer, inside `cyw43_spi_transfer`, which the
@@ -274,6 +281,14 @@ extern "C" fn DMA_IRQ_1() {
 /// retires within a few cycles, but a channel wedged on a DREQ that never
 /// asserts never clears busy, and this is the recovery path — better a
 /// logged failure than a wedged cyw43 task.
+///
+/// A channel that does not retire is still aimed at the transfer's
+/// buffers, which the caller takes back as soon as the transfer returns.
+/// It must never move again: it is paused (EN clear, so it issues no
+/// transfer even if its DREQ asserts) and the transport is retired
+/// through [`BUS_DEAD`], so no later transfer re-enables the SM, flushes
+/// the FIFOs or re-programs the channel. Resetting the DMA block would
+/// free it, but the block is shared with the display's channels.
 fn abort_dma(p: &pac::Peripherals) {
     let mask = (1u32 << DMA_CH_TX) | (1u32 << DMA_CH_RX);
     super::dma::request_abort(&p.DMA, mask);
@@ -285,7 +300,17 @@ fn abort_dma(p: &pac::Peripherals) {
         )
         .is_err()
         {
-            defmt::error!("pio_spi: DMA channel {} did not abort", ch);
+            // Pausing does not trigger anything: a CTRL_TRIG write starts
+            // a channel only with EN set.
+            p.DMA
+                .ch(ch)
+                .ch_ctrl_trig()
+                .modify(|_, w| w.en().clear_bit());
+            BUS_DEAD.store(true, Ordering::Relaxed);
+            defmt::error!(
+                "pio_spi: DMA channel {} did not abort; cyw43 bus retired until reboot",
+                ch
+            );
         }
     }
 }
@@ -554,7 +579,10 @@ pub extern "C" fn cyw43_spi_set_polarity(_self: *mut c_void, _pol: i32) {}
 /// Called by the vendored driver, under its lock, in one of the two shapes
 /// in the module docs: `tx` points at `tx_length` readable bytes, and `rx`
 /// is null or is `tx` itself, writable for `rx_length == tx_length` bytes.
-/// Both stay valid until this returns.
+/// Both stay valid until this returns. The DMA channels are done with them
+/// by then: a transfer that times out aborts them, and a channel that will
+/// not abort is paused and the transport retired (`abort_dma`), so nothing
+/// ever runs it again.
 #[no_mangle]
 pub unsafe extern "C" fn cyw43_spi_transfer(
     _self: *mut c_void,
@@ -563,6 +591,13 @@ pub unsafe extern "C" fn cyw43_spi_transfer(
     rx: *mut u8,
     rx_length: usize,
 ) -> i32 {
+    // Retired by a failed abort: a channel may still be armed on an earlier
+    // transfer's buffer, and only leaving the SM disabled, the FIFOs alone
+    // and the channels unprogrammed keeps it from moving. Checked before
+    // the bounce copy too, since `BOUNCE` may be that buffer.
+    if BUS_DEAD.load(Ordering::Relaxed) {
+        return -1;
+    }
     if tx.is_null() || tx_length < 4 || !tx_length.is_multiple_of(4) {
         return -1;
     }
@@ -639,7 +674,8 @@ pub unsafe extern "C" fn cyw43_spi_transfer(
         // bytes, or the bounce buffer, which holds 16 and is only used for
         // a transfer of at most 16 (checked above). Both outlive the wait
         // below, which returns once the channel is idle; if it never goes
-        // idle, see `abort_dma`.
+        // idle, `abort_dma` stops it, or pauses it for good and retires
+        // the transport so it is never re-triggered.
         dma_start(
             &p,
             DMA_CH_RX,
