@@ -1054,6 +1054,7 @@ M	checkMinute
 M	checkName
 M	checkNano
 M	checkNoSpaceLeft
+M	checkNotAncestor
 M	checkNotReleased
 M	checkSecond
 M	checkStateLoss
