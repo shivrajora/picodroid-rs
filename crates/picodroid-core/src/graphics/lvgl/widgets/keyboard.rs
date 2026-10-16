@@ -475,10 +475,18 @@ pub fn lookup_keyboard_obj(handle: usize) -> Option<u16> {
 pub fn reset_keyboard_state() {
     STATE.handle_map.reset();
     STATE.ready_queue.clear();
-    // The screen tree is torn down by handle_table::reset on app
-    // reload, so the system keyboard pointer is dangling — drop our
-    // cache so the next show recreates from scratch.
-    STATE.system.set(None);
+    // The system keyboard lives on the overlay layer, which no reload step
+    // tears down (`handle_table::reset` forgets handles, it deletes no
+    // object), so it is still live here: delete it, through the path every
+    // framework delete takes, or each reload that showed one would leave a
+    // keyboard in the LVGL pool with its callbacks attached. The next show
+    // creates a fresh one.
+    if let Some(kb) = STATE.system.take() {
+        // SAFETY: `kb` was made by `lv_keyboard_create` and nothing has
+        // deleted it since: it is on the overlay layer, which only this
+        // function clears, and it is cleared from the cache first.
+        unsafe { super::super::view_ops::delete_obj(kb) };
+    }
     STATE.system_handle.set(0);
     STATE.visible.set(false);
     STATE.bound_et.set(0);

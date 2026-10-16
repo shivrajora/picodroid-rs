@@ -28,7 +28,7 @@ table is in severity order.
 | [UR-8](#ur-8) | medium — **fixed** | `platforms/rp/src/hal/rp/periph.rs` | NVIC priority is written a byte at a time; ARMv6-M allows word access only |
 | [UR-9](#ur-9) | low — **fixed** | `platforms/rp/src/hal/rp/entropy.rs` | `picodroid_port_entropy_bytes` is a safe C entry point that writes through a raw pointer |
 | [UR-10](#ur-10) | low — **fixed** | `spi/mod.rs`, `i2c/mod.rs`, `pdb/pending.rs` | Bus init is check-then-store; `JVM_TASK` is protected from the pdb task by timing only |
-| [UR-11](#ur-11) | low | `graphics/lvgl/widgets/keyboard.rs` | An app reload forgets the system keyboard without deleting it, so each reload leaks one |
+| [UR-11](#ur-11) | low — **fixed** | `graphics/lvgl/widgets/keyboard.rs` | An app reload forgets the system keyboard without deleting it, so each reload leaks one |
 | [UR-12](#ur-12) | low (sim) | `crates/heap4/src/lib.rs` | `Heap4::free` is safe and public; a misaligned or mid-block offset corrupts the free list |
 | [UR-13](#ur-13) | low (sim) | `hal/sim/net.rs` | A reader and a sender on one socket hold two `&mut SimSocket` |
 | [UR-14](#ur-14) | low | `crates/jvm/src/parity.rs` | `slowest_native` can pair one name's pointer with another's length |
@@ -329,6 +329,14 @@ back.**
 - **Fix:** delete the cached keyboard in the reset (it is still live), or keep it across reloads
   and re-bind it.
 - **Verify:** `lv_mem_monitor` free bytes before and after ten reloads that each open the keyboard.
+- **Fixed 2026-10-15** (the delete). `reset_keyboard_state` takes the cached `Obj` and deletes it
+  through `view_ops::delete_obj`, the same path as UR-4, so the subtree's animation slots are
+  retired before LVGL frees it; the next show creates a fresh keyboard. The old comment's premise
+  was wrong in a way worth recording: `handle_table::reset` forgets handles and deletes no object,
+  and nothing on the reload path cleans the top layer, so the keyboard was live, not dangling.
+  Verified in the simulator: `keyboarddemo` with the system keyboard up, then a `pdb install` of
+  another app; the reload logs the delete and the new app comes up clean under the handle
+  sanitizer.
 
 ### UR-12
 
