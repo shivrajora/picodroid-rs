@@ -116,7 +116,7 @@ Found while surveying. Each is a behaviour change to fix, so none is fixed here.
 | Where | What |
 |---|---|
 | `platforms/rp/src/main.rs`, `vApplicationMallocFailedHook` and `vApplicationStackOverflowHook` | `#[no_mangle] fn` without `extern "C"`, called from C. The idle hooks beside them have it. |
-| `platforms/rp/src/hal/rp/pdb_usb/mod.rs`, `ep1_in_pid` | Read-modify-write in task context with interrupts unmasked; `USBCTRL_IRQ` writes the same field. |
+| `platforms/rp/src/hal/rp/pdb_usb/mod.rs`, `ep1_in_pid` | Read-modify-write in task context with interrupts unmasked; `USBCTRL_IRQ` writes the same field. Fixed 2026-10-15 as UR-6 in [../bugs-unsafe-review-2026-10.md](../bugs-unsafe-review-2026-10.md): `write_bytes` toggles it under `cortex_m::interrupt::free`. |
 | `crates/picodroid-core/src/executors/main_queue.rs`, `ShadowCell` | A `Cell<bool>` written from two tasks. |
 | Seven byte writes to the NVIC priority registers at `0xE000_E400` | ARMv6-M allows word access only, so the priority is probably not applied on the RP2040. |
 | `graphics/lvgl/widgets/swipe_refresh_layout.rs`, `SLOTS` | Never cleared when the container is deleted; `time_picker.rs` has the fix. Not re-verified. |

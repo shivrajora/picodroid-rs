@@ -1,6 +1,6 @@
 # Bug backlog: soundness findings from the unsafe review — 2026-10-15
 
-**Status: open, except UR-1 to UR-5 (fixed 2026-10-15).** Every item is a memory-safety or concurrency defect found
+**Status: open, except UR-1 to UR-6 (fixed 2026-10-15).** Every item is a memory-safety or concurrency defect found
 while reading unsafe code during the two unsafe-reduction rounds:
 [designs/unsafe-reduction-2026-09.md](designs/unsafe-reduction-2026-09.md) §6 and
 [designs/unsafe-reduction-2026-10.md](designs/unsafe-reduction-2026-10.md) §6.
@@ -23,7 +23,7 @@ table is in severity order.
 | [UR-3](#ur-3) | medium — **fixed** | `graphics/lvgl/view_ops.rs` | `addView` into the view's own subtree makes an LVGL parent cycle |
 | [UR-4](#ur-4) | medium — **fixed** | `graphics/lvgl/window.rs`, `widgets/keyboard.rs` | `window::sync` deletes the old window with a raw delete, so the keyboard's bound textarea can dangle |
 | [UR-5](#ur-5) | medium — **fixed** | `platforms/rp` `spi_state`, `display()`, `touch()`; `boot.rs` `shared_heap` | Safe functions return `&'static mut`, so two calls alias |
-| [UR-6](#ur-6) | medium | `platforms/rp/src/hal/rp/pdb_usb/mod.rs` | `ep1_in_pid` is written by the task and by `USBCTRL_IRQ` with interrupts unmasked |
+| [UR-6](#ur-6) | medium — **fixed** | `platforms/rp/src/hal/rp/pdb_usb/mod.rs` | `ep1_in_pid` is written by the task and by `USBCTRL_IRQ` with interrupts unmasked |
 | [UR-7](#ur-7) | medium | `platforms/rp/src/main.rs` | The FreeRTOS malloc-failed and stack-overflow hooks are called from C but are not `extern "C"` |
 | [UR-8](#ur-8) | medium | `platforms/rp/src/hal/rp/periph.rs` | NVIC priority is written a byte at a time; ARMv6-M allows word access only |
 | [UR-9](#ur-9) | low | `platforms/rp/src/hal/rp/entropy.rs` | `picodroid_port_entropy_bytes` is a safe C entry point that writes through a raw pointer |
@@ -154,6 +154,14 @@ back.**
 - **When it fires:** a bus reset during a pdb reply. That is rare, but it loses a reply silently.
 - **Fix:** mask `USBCTRL_IRQ` (or take a `critical_section`) around the toggle in `write_bytes`.
 - First recorded in round-1 §6.
+- **Fixed 2026-10-15** (the mask). `write_bytes` runs each packet's buffer copy, toggle
+  read-modify-write and buffer-control store inside `cortex_m::interrupt::free`, the same section
+  `on_byte_consumed` already uses on the RX side; the pdb task is pinned to core 0, where
+  `USBCTRL_IRQ` is unmasked, so PRIMASK on that core holds the handler off. A bus reset that
+  arrives during the section is taken when it ends and clears the toggle after the task's
+  write-back, so the next IN packet goes out as DATA0 as the host expects. The section is one
+  64-byte copy and three word stores per packet. The module's USB-rule note no longer carries the
+  unmasked-field exception. Not reproduced on a board; build-checked only.
 
 ### UR-7
 

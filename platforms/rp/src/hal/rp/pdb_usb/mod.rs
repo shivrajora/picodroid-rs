@@ -92,12 +92,13 @@ const EC_INTERRUPT: u32 = 3 << 26;
 // The USB rule. `USB`, the flow-control counters below and the endpoint
 // buffers in DPRAM are reached from USBCTRL_IRQ and from the pdb task,
 // both on core 0, where the handler preempts the task and never runs beside
-// it. The task's side is `init` (before the handler is unmasked),
-// `on_byte_consumed` (with interrupts masked) and `write_bytes`, which
-// touches only EP1 IN: its buffer, its buffer-control word and
-// `ep1_in_pid` — the one field both sides write unmasked (`ep1_in_pid` on a
-// bus reset), round 1's §6 finding. Every `unsafe fn` below is to be
-// called under this rule.
+// it. The task's side is `init` (before the handler is unmasked), and
+// `on_byte_consumed` and `write_bytes`, which run their accesses with
+// interrupts masked. `write_bytes` touches only EP1 IN: its buffer, its
+// buffer-control word and `ep1_in_pid`, the one field both sides write (the
+// handler clears it on a bus reset), so its read-modify-write of the toggle
+// sits under the mask (UR-6). Every `unsafe fn` below is to be called under
+// this rule.
 
 struct UsbState {
     pending_addr: u8,
@@ -662,10 +663,15 @@ pub fn write_bytes(data: &[u8]) {
         if !wait_tx_ready() {
             return;
         }
-        // SAFETY: the task side of the USB rule: EP1 IN's buffer (64 bytes,
-        // and a chunk is at most 64) is free — the completion was just
-        // claimed — and its control word is the task's to write.
-        unsafe {
+        // SAFETY: the task side of the USB rule, with interrupts masked: EP1
+        // IN's buffer (64 bytes, and a chunk is at most 64) is free — the
+        // completion was just claimed — and its control word is the task's
+        // to write. The mask keeps a bus reset in USBCTRL_IRQ, which clears
+        // `ep1_in_pid`, from landing between this read of the toggle and
+        // its write-back; unmasked, the task would restore the pre-reset
+        // toggle and the next IN packet would carry the wrong DATA0/DATA1
+        // (UR-6). The section is one 64-byte copy and three word stores.
+        cortex_m::interrupt::free(|_| unsafe {
             dpram_write(BUF_EP1_IN, chunk);
             let pid = if USB.ep1_in_pid { BC_DATA1 } else { 0 };
             USB.ep1_in_pid = !USB.ep1_in_pid;
@@ -673,7 +679,7 @@ pub fn write_bytes(data: &[u8]) {
                 DP_EP1_IN_BC,
                 BC_FULL | pid | BC_LAST | chunk.len() as u32 | BC_AVAIL,
             );
-        }
+        });
     }
 }
 
