@@ -31,7 +31,7 @@ table is in severity order.
 | [UR-11](#ur-11) | low — **fixed** | `graphics/lvgl/widgets/keyboard.rs` | An app reload forgets the system keyboard without deleting it, so each reload leaks one |
 | [UR-12](#ur-12) | low (sim) — **fixed** | `crates/heap4/src/lib.rs` | `Heap4::free` is safe and public; a misaligned or mid-block offset corrupts the free list |
 | [UR-13](#ur-13) | low (sim) — **fixed** | `hal/sim/net.rs` | A reader and a sender on one socket hold two `&mut SimSocket` |
-| [UR-14](#ur-14) | low | `crates/jvm/src/parity.rs` | `slowest_native` can pair one name's pointer with another's length |
+| [UR-14](#ur-14) | low — **fixed** | `crates/jvm/src/parity.rs` | `slowest_native` can pair one name's pointer with another's length |
 | [UR-15](#ur-15) | low | `crates/pd-install/src/orchestrator.rs` | `install` is safe and public over a static page buffer; it is sound only with one caller |
 
 "Severity" estimates how bad it would be if it fired and how reachable it is today. It is not a
@@ -397,6 +397,14 @@ Parity-metrics builds only.
   `&'static str`.
 - **Fix:** store an index into a table of names, or a single `&'static str` behind a seqlock. Or
   take `&'static str` in `count_native`, which every caller can provide.
+- **Fixed 2026-10-15.** The four words are written and read only inside an `AtomicSection`, the
+  JVM's own scheduler-suspended section, so a reader sees one call's pointer with that call's
+  length. The writer side is out of line (`record_slowest`) and entered only on a new maximum,
+  re-checked under the section, so the per-native-call cost is unchanged: one load. The reader is
+  the lifecycle span report, once per slow handler. `count_native` still takes `&str` of any
+  lifetime; the names are constant-pool bytes or `names::c` constants that outlive any reader of a
+  diagnostic about them, which the doc comment now says where the argument lives. `pico-jvm` builds
+  with `parity-metrics`; not run on a board.
 
 ### UR-15
 

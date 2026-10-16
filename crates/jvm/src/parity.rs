@@ -114,6 +114,9 @@ pub fn count_cache_decline() {
 }
 
 static SLOWEST_US: AtomicUsize = AtomicUsize::new(0);
+// The slowest call's names. The four words are only ever written or read
+// together inside an `AtomicSection`, so a reader never pairs one name's
+// pointer with another's length: the record changes as a unit.
 static SLOWEST_CLASS: AtomicUsize = AtomicUsize::new(0);
 static SLOWEST_CLASS_LEN: AtomicUsize = AtomicUsize::new(0);
 static SLOWEST_METHOD: AtomicUsize = AtomicUsize::new(0);
@@ -124,6 +127,10 @@ static SLOWEST_METHOD_LEN: AtomicUsize = AtomicUsize::new(0);
 /// wrapping deltas, never absolutes. Also keeps the slowest call since
 /// [`reset_slowest_native`], by name, so a slow span can say whether one
 /// native dominated it.
+///
+/// The names are the interpreter's own: constant-pool bytes of a loaded
+/// class or a `names::c` constant, both alive as long as the app is, which
+/// is the lifetime of anyone reading a diagnostic about it.
 #[inline(always)]
 pub fn count_native(ns: u64, class_name: &str, method_name: &str) {
     let us = (ns / 1_000) as usize;
@@ -133,12 +140,25 @@ pub fn count_native(ns: u64, class_name: &str, method_name: &str) {
         FASTEST_US.store(us, Ordering::Relaxed);
     }
     if us > SLOWEST_US.load(Ordering::Relaxed) {
-        SLOWEST_US.store(us, Ordering::Relaxed);
-        SLOWEST_CLASS.store(class_name.as_ptr() as usize, Ordering::Relaxed);
-        SLOWEST_CLASS_LEN.store(class_name.len(), Ordering::Relaxed);
-        SLOWEST_METHOD.store(method_name.as_ptr() as usize, Ordering::Relaxed);
-        SLOWEST_METHOD_LEN.store(method_name.len(), Ordering::Relaxed);
+        record_slowest(us, class_name, method_name);
     }
+}
+
+/// The new-maximum half of [`count_native`], out of line: it runs once per
+/// new maximum, not once per native call.
+#[inline(never)]
+fn record_slowest(us: usize, class_name: &str, method_name: &str) {
+    let _atomic = crate::atomic_section::AtomicSection::enter();
+    // Re-checked under the section: another task may have recorded a
+    // slower call between the caller's load and this one.
+    if us <= SLOWEST_US.load(Ordering::Relaxed) {
+        return;
+    }
+    SLOWEST_US.store(us, Ordering::Relaxed);
+    SLOWEST_CLASS.store(class_name.as_ptr() as usize, Ordering::Relaxed);
+    SLOWEST_CLASS_LEN.store(class_name.len(), Ordering::Relaxed);
+    SLOWEST_METHOD.store(method_name.as_ptr() as usize, Ordering::Relaxed);
+    SLOWEST_METHOD_LEN.store(method_name.len(), Ordering::Relaxed);
 }
 
 /// Forget the slowest native seen so far (a span is starting).
@@ -148,19 +168,17 @@ pub fn reset_slowest_native() {
 }
 
 /// The slowest native call since the last reset: (microseconds, class,
-/// method). The names are the interpreter's own: constant-pool bytes of a
-/// loaded class or a `names::c` constant, both alive as long as the app is,
-/// which is the lifetime of anyone reading a diagnostic about it. Empty
-/// names when nothing was recorded.
+/// method). The names are the interpreter's own (see [`count_native`]).
+/// Empty names when nothing was recorded.
 pub fn slowest_native() -> (usize, &'static str, &'static str) {
+    let _atomic = crate::atomic_section::AtomicSection::enter();
     let us = SLOWEST_US.load(Ordering::Relaxed);
     if us == 0 {
         return (0, "", "");
     }
-    // A known gap in this diagnostic: a read racing `count_native`'s four
-    // stores can pair one name's pointer with another's length, which the
-    // UTF-8 re-check does not make an in-bounds read.
-    // SAFETY: otherwise each pointer and length came from one `&str` that
+    // SAFETY: the four words were stored together by `record_slowest`
+    // inside an `AtomicSection`, and this read is inside one too, so each
+    // pointer is read with its own length; both came from one `&str` that
     // borrows class data or a `names` constant, alive as long as the JVM.
     let name = |ptr: usize, len: usize| unsafe {
         core::str::from_utf8(core::slice::from_raw_parts(ptr as *const u8, len)).unwrap_or("?")
