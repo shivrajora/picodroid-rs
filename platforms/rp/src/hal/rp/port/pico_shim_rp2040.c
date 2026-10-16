@@ -155,8 +155,15 @@ static void ensure_ram_vt(void) {
     vt_initialized = 1;
 }
 
+/* ARMv6-M defines only word access to NVIC_IPR (a byte store is
+ * UNPREDICTABLE on the Cortex-M0+), so the containing word is
+ * read-modify-written, as pico-sdk's irq_set_priority does. The RP2350
+ * shim keeps the byte store, which ARMv8-M allows. One caller: the kernel
+ * port, for the SIO FIFO interrupt, before the scheduler starts. */
 void irq_set_priority(uint32_t num, uint8_t hardware_priority) {
-    NVIC_IPR[num] = hardware_priority;
+    volatile uint32_t *word = (volatile uint32_t *)(NVIC_IPR + (num & ~3u));
+    uint32_t shift = 8u * (num & 3u);
+    *word = (*word & ~(0xFFu << shift)) | ((uint32_t)hardware_priority << shift);
 }
 
 void irq_set_exclusive_handler(uint32_t num, void (*handler)(void)) {

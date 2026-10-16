@@ -71,6 +71,14 @@ back.**
   asserts again. The bus stays retired until reboot: freeing the channel would take a reset of the
   DMA block, which the display's channels share. Wi-Fi is lost for that boot, logged once at
   `error`. Not reproduced on a board; build-checked only.
+- **Run on a board 2026-10-15 (evening)** with a temporary injection (the first read transfer after
+  N ms of uptime has its DMA wait treated as failed and `abort_dma` treats the RX channel as one
+  that did not retire). Fired during the Wi-Fi join on a `testbench_rp2350w`: the retire message
+  is logged once, `net: down` follows, the app's link wait times out, and the launcher and display
+  keep running for the rest of the capture. Fired on an idle link the driver reports `Bus error
+  condition detected` and nothing else happens. Left open: the join supervisor does not know the
+  bus is retired, so it rejoins every 20 s and each attempt logs a run of `STALL ... timeout`
+  lines until reboot; a `BUS_DEAD` check before a rejoin would quiet it.
 
 ### UR-2
 
@@ -209,6 +217,14 @@ back.**
   are implemented, so it reads back as 0, and the RP2040 port's critical sections use PRIMASK, so
   the priority never decided what a critical section masks there. Not read back over SWD;
   build-checked on every clippy leg and sim-smoked.
+- **Follow-up 2026-10-15 (evening).** "No byte store to `0xE000_E4xx` left" was true of the Rust
+  sites only. The C shim `platforms/rp/src/hal/rp/port/pico_shim_rp2040.c::irq_set_priority` still
+  wrote `NVIC_IPR[num]` through a `volatile uint8_t *` (a `strb` in the rp2040 release
+  disassembly); the FreeRTOS RP2040 port calls it once at scheduler start, for the SIO FIFO
+  interrupt (IRQ 15) at `portMIN_INTERRUPT_PRIORITY`. It is now a word read-modify-write, the
+  shape pico-sdk's own `irq_set_priority` has; the RP2350 shim keeps its byte store, which ARMv8-M
+  allows. Found by listing every `.word 0xe000e4..` literal in the rp2040 ELF and reading the code
+  around each load, which is the check to repeat after any change to interrupt setup.
 
 ### UR-9
 
