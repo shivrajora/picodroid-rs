@@ -57,6 +57,7 @@ pub fn run_install(
     transport: &mut impl InstallTransport,
     coordinator: &mut impl CoreCoordinator,
     flash: &mut impl PapkFlash,
+    page: &mut PageBuf,
     papk_len: u32,
 ) {
     pd_install::run_install(
@@ -64,6 +65,7 @@ pub fn run_install(
         coordinator,
         flash,
         &mut CoreDirectory,
+        page,
         FRAMEWORK_MAP_VERSION,
         papk_len,
     )
@@ -74,6 +76,7 @@ pub fn install(
     transport: &mut impl InstallTransport,
     coordinator: &mut impl CoreCoordinator,
     flash: &mut impl PapkFlash,
+    page: &mut PageBuf,
     papk_len: u32,
 ) -> bool {
     pd_install::install(
@@ -81,6 +84,7 @@ pub fn install(
         coordinator,
         flash,
         &mut CoreDirectory,
+        page,
         FRAMEWORK_MAP_VERSION,
         papk_len,
     )

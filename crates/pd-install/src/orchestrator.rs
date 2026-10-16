@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-only
-use core::cell::UnsafeCell;
-
 use papk_format::flash_image::META_SIZE;
 
 use super::directory::{run_sectors, PackageDirectory, Plan, PlanError};
@@ -23,14 +21,10 @@ const CRC_TAG_INSTALL: u8 = pdb_protocol::CMD_INSTALL;
 /// count from `pdb-protocol`, so they cannot disagree.
 const PEEK_BUF_LEN: usize = pdb_protocol::INSTALL_PEEK_BYTES;
 
-// ── 256-byte page buffer for streaming flash writes ───────────────────────────
-//
-// Used only during install handling.
-struct PageBufCell(UnsafeCell<[u8; 256]>);
-// SAFETY: only `stream_and_verify` touches the buffer, and an install has one
-// caller, the family's debug-bridge task, which never runs two at once.
-unsafe impl Sync for PageBufCell {}
-static PAGE_BUF: PageBufCell = PageBufCell(UnsafeCell::new([0u8; 256]));
+/// One flash page, the unit [`install`] streams the PAPK in. The caller
+/// owns it (the family's debug-bridge task keeps one on its stack), so two
+/// installs can never share a buffer: there is no static behind this.
+pub type PageBuf = [u8; 256];
 
 /// Coordinates with the JVM core during flash operations.
 ///
@@ -159,6 +153,7 @@ pub fn run_install(
     coordinator: &mut impl CoreCoordinator,
     flash: &mut impl PapkFlash,
     directory: &mut impl PackageDirectory,
+    page: &mut PageBuf,
     fw_map_version: &str,
     papk_len: u32,
 ) {
@@ -167,6 +162,7 @@ pub fn run_install(
         coordinator,
         flash,
         directory,
+        page,
         fw_map_version,
         papk_len,
     ) {
@@ -188,11 +184,15 @@ pub fn run_install(
 ///
 /// On any error, the execution core is released and the error is reported
 /// via the transport.  The caller can then resume its command loop.
+///
+/// `page` is the one-page staging buffer phase B streams through; the
+/// caller lends it for the call.
 pub fn install(
     transport: &mut impl InstallTransport,
     coordinator: &mut impl CoreCoordinator,
     flash: &mut impl PapkFlash,
     directory: &mut impl PackageDirectory,
+    page: &mut PageBuf,
     fw_map_version: &str,
     papk_len: u32,
 ) -> bool {
@@ -293,7 +293,7 @@ pub fn install(
         pos: 0,
         inner: transport,
     };
-    if !stream_and_verify(&mut prefixed, coordinator, flash, papk_len) {
+    if !stream_and_verify(&mut prefixed, coordinator, flash, page, papk_len) {
         // stream_and_verify released core 0; withdraw the park request as
         // the Phase-A failure paths do, otherwise jvm_task re-parks on its
         // next supervisor loop and the device is wedged until another
@@ -487,6 +487,7 @@ fn stream_and_verify(
     transport: &mut impl InstallTransport,
     coordinator: &mut impl CoreCoordinator,
     flash: &mut impl PapkFlash,
+    page: &mut PageBuf,
     len: u32,
 ) -> bool {
     let mut crc_hasher = pdb_protocol::Crc32::new();
@@ -496,10 +497,7 @@ fn stream_and_verify(
     let mut bytes_remaining = len as usize;
     let mut page_index: u32 = 0;
     while bytes_remaining > 0 {
-        let chunk = bytes_remaining.min(256);
-        // SAFETY: the one user of `PAGE_BUF` (see its `Sync` impl); the
-        // borrow ends with this iteration.
-        let page = unsafe { &mut *PAGE_BUF.0.get() };
+        let chunk = bytes_remaining.min(page.len());
         for b in page[..chunk].iter_mut() {
             match transport.read_byte() {
                 Ok(byte) => *b = byte,
@@ -575,17 +573,6 @@ impl<T: InstallTransport> InstallTransport for PrefixedTransport<'_, T> {
 mod tests {
     use super::*;
     use alloc::vec::Vec;
-
-    /// `PAGE_BUF` is a process-wide static — deliberately, so a 256-byte
-    /// staging buffer does not sit on the debug bridge's stack. On device the
-    /// single-core install path is its only writer; in a test binary the
-    /// harness runs tests on parallel threads, so they take this lock. The
-    /// alternative, making the buffer a local, would change what runs on the
-    /// device to suit the tests.
-    fn lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        LOCK.lock().unwrap_or_else(|e| e.into_inner())
-    }
 
     /// The single-app placement rule over a region nothing is installed in,
     /// which is what every test below starts from: one run at sector 0, the
@@ -814,7 +801,6 @@ mod tests {
         max: usize,
         fail_page: Option<u32>,
     ) -> Run {
-        let _g = lock();
         let events = std::rc::Rc::new(core::cell::RefCell::new(Vec::new()));
         let mut t = MockTransport {
             log: Log(events.clone()),
@@ -836,7 +822,15 @@ mod tests {
         let mut d = TestDirectory { region_sectors: 0 };
         d.rescan(&f);
         let reset = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            run_install(&mut t, &mut c, &mut f, &mut d, FW, papk_len);
+            run_install(
+                &mut t,
+                &mut c,
+                &mut f,
+                &mut d,
+                &mut [0u8; 256],
+                FW,
+                papk_len,
+            );
         }))
         .is_err();
         Run {

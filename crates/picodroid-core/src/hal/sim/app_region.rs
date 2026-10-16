@@ -242,7 +242,13 @@ fn install_bytes(region: &mut MemRegion, bytes: &[u8]) -> Result<(), String> {
     // neither may the simulated arena be charged for one.
     let _host = crate::host::heap_bypass();
     let mut t = MemTransport::for_papk(bytes);
-    if install(&mut t, &mut NoCoordinator, region, bytes.len() as u32) {
+    if install(
+        &mut t,
+        &mut NoCoordinator,
+        region,
+        &mut [0u8; 256],
+        bytes.len() as u32,
+    ) {
         Ok(())
     } else {
         Err(describe(t.error))

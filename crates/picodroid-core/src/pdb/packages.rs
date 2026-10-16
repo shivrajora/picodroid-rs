@@ -164,6 +164,7 @@ mod tests {
             &mut t,
             &mut NoCoordinator,
             region,
+            &mut [0u8; 256],
             bytes.len() as u32
         ));
     }

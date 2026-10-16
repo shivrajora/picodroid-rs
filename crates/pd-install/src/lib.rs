@@ -46,7 +46,7 @@ pub mod transport;
 
 pub use directory::{run_sectors, PackageDirectory, Plan, PlanError};
 pub use orchestrator::{
-    install, run_install, run_uninstall, uninstall, CoreCoordinator, PapkFlash,
+    install, run_install, run_uninstall, uninstall, CoreCoordinator, PageBuf, PapkFlash,
 };
 pub use region::{PapkRegion, PapkRegionFlash, PAGES_PER_SECTOR};
 pub use transport::{InstallError, InstallTransport, ReadError};

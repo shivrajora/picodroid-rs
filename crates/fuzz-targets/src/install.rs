@@ -91,6 +91,7 @@ pub fn install(data: &[u8]) {
             &mut NoCoordinator,
             region,
             &mut directory,
+            &mut [0u8; 256],
             fw,
             papk.len() as u32,
         );

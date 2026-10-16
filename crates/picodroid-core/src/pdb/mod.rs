@@ -176,6 +176,9 @@ pub fn run_pdb_task(
     mut flash: impl PapkFlash,
 ) -> ! {
     transport.init();
+    // The install's flash-page staging buffer. This task owns it, so an
+    // install borrows it for the call and no two installs can share it.
+    let mut page: crate::install::PageBuf = [0u8; 256];
 
     loop {
         if !wait_for_magic(&mut transport) {
@@ -190,7 +193,13 @@ pub fn run_pdb_task(
             CMD_PING => handle_ping(&mut transport, &flash, len),
             CMD_INSTALL => {
                 let mut framed = framing::Framed(&mut transport);
-                crate::install::run_install(&mut framed, &mut coordinator, &mut flash, len);
+                crate::install::run_install(
+                    &mut framed,
+                    &mut coordinator,
+                    &mut flash,
+                    &mut page,
+                    len,
+                );
             }
             CMD_SYSMON => sysmon::handle(&mut transport, &mut sysmon_source, len),
             CMD_INPUT => input::handle(&mut transport, len),

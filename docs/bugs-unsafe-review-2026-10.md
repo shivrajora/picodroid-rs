@@ -1,6 +1,6 @@
 # Bug backlog: soundness findings from the unsafe review — 2026-10-15
 
-**Status: open, except UR-1 to UR-8 (fixed 2026-10-15).** Every item is a memory-safety or concurrency defect found
+**Status: closed. UR-1 to UR-15 fixed 2026-10-15.** Every item is a memory-safety or concurrency defect found
 while reading unsafe code during the two unsafe-reduction rounds:
 [designs/unsafe-reduction-2026-09.md](designs/unsafe-reduction-2026-09.md) §6 and
 [designs/unsafe-reduction-2026-10.md](designs/unsafe-reduction-2026-10.md) §6.
@@ -32,7 +32,7 @@ table is in severity order.
 | [UR-12](#ur-12) | low (sim) — **fixed** | `crates/heap4/src/lib.rs` | `Heap4::free` is safe and public; a misaligned or mid-block offset corrupts the free list |
 | [UR-13](#ur-13) | low (sim) — **fixed** | `hal/sim/net.rs` | A reader and a sender on one socket hold two `&mut SimSocket` |
 | [UR-14](#ur-14) | low — **fixed** | `crates/jvm/src/parity.rs` | `slowest_native` can pair one name's pointer with another's length |
-| [UR-15](#ur-15) | low | `crates/pd-install/src/orchestrator.rs` | `install` is safe and public over a static page buffer; it is sound only with one caller |
+| [UR-15](#ur-15) | low — **fixed** | `crates/pd-install/src/orchestrator.rs` | `install` is safe and public over a static page buffer; it is sound only with one caller |
 
 "Severity" estimates how bad it would be if it fired and how reachable it is today. It is not a
 measured rate.
@@ -417,6 +417,13 @@ Parity-metrics builds only.
   alias it.
 - **Fix:** take the buffer as a `&mut [u8; 256]` argument (the pdb task owns one), or make
   `install` `unsafe` with the one-caller contract stated.
+- **Fixed 2026-10-15** (the argument). `install`, `run_install` and `stream_and_verify` take
+  `page: &mut PageBuf` (`[u8; 256]`, exported from `pd-install`); `PAGE_BUF`, its `UnsafeCell` and
+  its `Sync` impl are gone, and so is the mutex the tests took to share it. Core's `run_pdb_task`
+  keeps the one real buffer on its stack (256 of the task's 8 KB) and lends it to each install; the
+  core wrappers, the simulator's app region, the package tests and the install fuzz target pass
+  their own. Two installs can no longer alias a buffer because there is no buffer to alias.
+  `pd-install` unit tests pass; sim-smoked.
 
 ## Not bugs, recorded for context
 
