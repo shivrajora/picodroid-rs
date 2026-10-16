@@ -27,7 +27,7 @@ table is in severity order.
 | [UR-7](#ur-7) | medium — **fixed** | `platforms/rp/src/main.rs` | The FreeRTOS malloc-failed and stack-overflow hooks are called from C but are not `extern "C"` |
 | [UR-8](#ur-8) | medium — **fixed** | `platforms/rp/src/hal/rp/periph.rs` | NVIC priority is written a byte at a time; ARMv6-M allows word access only |
 | [UR-9](#ur-9) | low — **fixed** | `platforms/rp/src/hal/rp/entropy.rs` | `picodroid_port_entropy_bytes` is a safe C entry point that writes through a raw pointer |
-| [UR-10](#ur-10) | low | `spi/mod.rs`, `i2c/mod.rs`, `pdb/pending.rs` | Bus init is check-then-store; `JVM_TASK` is protected from the pdb task by timing only |
+| [UR-10](#ur-10) | low — **fixed** | `spi/mod.rs`, `i2c/mod.rs`, `pdb/pending.rs` | Bus init is check-then-store; `JVM_TASK` is protected from the pdb task by timing only |
 | [UR-11](#ur-11) | low | `graphics/lvgl/widgets/keyboard.rs` | An app reload forgets the system keyboard without deleting it, so each reload leaks one |
 | [UR-12](#ur-12) | low (sim) | `crates/heap4/src/lib.rs` | `Heap4::free` is safe and public; a misaligned or mid-block offset corrupts the free list |
 | [UR-13](#ur-13) | low (sim) | `hal/sim/net.rs` | A reader and a sender on one socket hold two `&mut SimSocket` |
@@ -246,6 +246,19 @@ back.**
 - **Fix:** do every bus init in boot before the scheduler starts, which turns the "one initialiser"
   assumption into structure. Or guard init with a `critical_section` (one per bus, boot only, so
   it's not hot).
+- **Fixed 2026-10-15.** Bus init cannot all move before the scheduler (`PeripheralManager.openSpi`
+  and a Java `I2cDevice` initialise a bus from a task), so the claim became structure instead:
+  `hal/rp/init_gate.rs` gives each bus an `InitGate`, a three-state atomic whose `claim` is one load
+  and one store under `cortex_m::interrupt::free` (every bus initialiser runs on core 0, the
+  section `periph::enable_irq` uses). Exactly one caller gets `Claim::Ours` and runs the init; one
+  that arrives during it gets `Claim::Busy` and waits on an RTOS delay for `finish`; a later one
+  gets `Claim::Done`. `is_initialised` and the check-then-store are gone from both buses, and the
+  cells' SAFETY comments rest on the gate, not on the callers not overlapping.
+  `JVM_TASK` and `PDB_TASK` are now set by `boot_tasks` with the handle `spawn` returns, before
+  `start_scheduler`, not by each task as its first statement: no task has run, so no reader can
+  exist. Each setter asserts `scheduler_state() == NotStarted` (a plain `assert!`, since
+  `debug_assertions` is off in firmware), so the contract is checked, not described. Build-checked
+  on every clippy leg and sim-smoked; not run on a board.
 
 ## Framework (picodroid-core)
 

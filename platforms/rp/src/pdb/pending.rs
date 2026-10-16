@@ -53,31 +53,42 @@ static CHILD_TASKS: SectionCell<Vec<freertos_rust::Task>> = unsafe { SectionCell
 /// The jvm task, for the pdb task and the JVM's children to wake.
 static JVM_TASK: SetOnce<SharedTask> = SetOnce::new();
 
-/// Store the jvm_task handle so pdb_task and child tasks can wake it.
-/// Must be called once at the start of the jvm_task closure.
+/// Store the jvm task's handle so the pdb task and JVM children can wake
+/// it. `boot_tasks` calls this once, with the handle `spawn` returned,
+/// before the scheduler starts; a call after that is a bug and panics.
 pub fn set_jvm_task(task: freertos_rust::Task) {
-    // SAFETY: called once, as the jvm task's first statement. Its readers
-    // are `notify_jvm`'s callers: a JVM child (none exists until this task
-    // runs Java) and the pdb task, which outranks this one on core 0 and so
-    // runs first at scheduler start — it can only read the cell if a
-    // complete stop or install command arrives over USB in the few
-    // instructions between this task becoming ready and this store, which
-    // enumeration alone rules out. That window is timing, not construction;
-    // it is unchanged from the hand-written cell this replaced.
+    assert_scheduler_not_started("set_jvm_task");
+    // SAFETY: the scheduler has not started (checked above), so no task
+    // has run: the cell's readers — `notify_jvm`'s callers, the pdb task
+    // and the JVM's children — cannot be reading it, and the cell is empty.
     unsafe { JVM_TASK.set(SharedTask(task)) };
 }
 
 /// The pdb task, for the jvm task to wake once core 0 is parked.
 static PDB_TASK: SetOnce<SharedTask> = SetOnce::new();
 
-/// Store the pdb_task handle so jvm_task can wake it once core 0 is parked.
-/// Must be called once at the start of the pdb task.
+/// Store the pdb task's handle so the jvm task can wake it once core 0 is
+/// parked. `boot_tasks` calls this once, with the handle `spawn` returned,
+/// before the scheduler starts; a call after that is a bug and panics.
 pub fn set_pdb_task(task: freertos_rust::Task) {
-    // SAFETY: called once, as the pdb task's first statement. Its only
-    // reader, `notify_pdb`, runs on the jvm task after the pdb task asked
-    // it to park — and the pdb task, higher priority on the same core, has
-    // run this store before the jvm task runs at all.
+    assert_scheduler_not_started("set_pdb_task");
+    // SAFETY: the scheduler has not started (checked above), so no task
+    // has run: the cell's one reader, `notify_pdb` on the jvm task, cannot
+    // be reading it, and the cell is empty.
     unsafe { PDB_TASK.set(SharedTask(task)) };
+}
+
+/// The two stores above are sound because nothing can read the cells yet,
+/// and "yet" is the scheduler not having started: tasks exist but none has
+/// run. Not a debug assertion — those are off in device firmware.
+fn assert_scheduler_not_started(what: &str) {
+    assert!(
+        matches!(
+            freertos_rust::FreeRtosUtils::scheduler_state(),
+            freertos_rust::FreeRtosSchedulerState::NotStarted
+        ),
+        "{what} after the scheduler started"
+    );
 }
 
 /// Wake pdb_task: `CORE0_PARKED` has just been set. The waiter re-checks the

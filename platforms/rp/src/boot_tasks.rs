@@ -99,17 +99,17 @@ pub fn start_tasks(boot_apk: Option<&'static [u8]>) -> ! {
     // core 0 and core 1 is unreliable for flow-control counters shared
     // between the USB ISR and the PDB task.  Keeping both on core 0
     // avoids the issue entirely.
-    task_affinity::spawn(
+    let pdb_task = task_affinity::spawn(
         "pdb",
         crate::boot_budget::PDB_STACK_WORDS,
         task_priority::PRIORITY_RT_1,
         task_affinity::CORE0,
-        move |_| {
-            crate::pdb::pending::set_pdb_task(Task::current().unwrap());
-            crate::pdb::run_pdb_task()
-        },
+        move |_| crate::pdb::run_pdb_task(),
     )
     .unwrap();
+    // Published before the scheduler starts, so the jvm task can never
+    // look for the handle before it is there.
+    crate::pdb::pending::set_pdb_task(pdb_task);
 
     // The network link task (Pico 2 W only): core's `run_link_task` drives
     // this family's cyw43 link driver — driver init, MAC, IP stack start,
@@ -159,14 +159,12 @@ pub fn start_tasks(boot_apk: Option<&'static [u8]>) -> ! {
     // because each interrupt pushes an extended exception frame (~100 bytes)
     // when the FPU has been used (configENABLE_FPU=1). Size lives in
     // boot_budget so the sim pre-charges the identical amount (M4).
-    task_affinity::spawn(
+    let jvm_task = task_affinity::spawn(
         "jvm",
         crate::boot_budget::JVM_STACK_WORDS,
         task_priority::PRIORITY_JVM_NORM,
         task_affinity::CORE0,
         move |_| {
-            // Store our handle so pdb_task and child tasks can notify us.
-            crate::pdb::pending::set_jvm_task(Task::current().unwrap());
             // The RP2040's 160 KB arena takes the half-size resolution
             // tables (`pico_jvm::resolve_cache`); everything else the default.
             #[cfg(feature = "chip-rp2040")]
@@ -264,6 +262,11 @@ pub fn start_tasks(boot_apk: Option<&'static [u8]>) -> ! {
         },
     )
     .unwrap();
+    // Published before the scheduler starts, so neither the pdb task nor a
+    // JVM child can look for the handle before it is there (the pdb task
+    // outranks the jvm task and runs first; the old in-task store relied on
+    // no stop or install command arriving in that window).
+    crate::pdb::pending::set_jvm_task(jvm_task);
 
     FreeRtosUtils::start_scheduler()
 }

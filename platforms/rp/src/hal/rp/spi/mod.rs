@@ -6,6 +6,8 @@ use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use freertos_rust::{Duration, InterruptContext, Semaphore};
 use picodroid_core::util::set_once::SetOnce;
 
+use super::init_gate::{Claim, InitGate};
+
 use xfer::{
     clock_divisors, may_queue_tx, stores_rx, transfer_finished, SpiOp, SpiXferState,
     SMALL_XFER_THRESHOLD, SPI_FIFO_DEPTH, SPI_XFER_POLL_MS, SPI_XFER_TIMEOUT_MS,
@@ -447,13 +449,17 @@ macro_rules! finish_isr_xfer {
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
-/// True once `init(spi_id)` has run. Used to make `init` idempotent so display
-/// init and `PeripheralManager.openSpi` can each request the same bus without
-/// re-allocating semaphores.
-fn is_initialised(spi_id: u8) -> bool {
+// One initialiser per bus (`init_gate`): display init and
+// `PeripheralManager.openSpi` can each request the same bus, and only the
+// first to arrive programs it and fills the cells; a second arrival waits
+// for it or returns.
+static SPI0_INIT: InitGate = InitGate::new();
+static SPI1_INIT: InitGate = InitGate::new();
+
+fn init_gate(spi_id: u8) -> &'static InitGate {
     match spi_id {
-        0 => SPI0_LOCK.get().is_some(),
-        _ => SPI1_LOCK.get().is_some(),
+        0 => &SPI0_INIT,
+        _ => &SPI1_INIT,
     }
 }
 
@@ -473,8 +479,11 @@ pub fn init_with_pins(
     mosi_override: Option<u8>,
     miso_override: Option<u8>,
 ) {
-    if is_initialised(spi_id) {
-        return;
+    let gate = init_gate(spi_id);
+    match gate.claim() {
+        Claim::Ours => {}
+        Claim::Busy => return gate.wait_done(),
+        Claim::Done => return,
     }
 
     #[cfg(feature = "chip-rp2350")]
@@ -534,16 +543,15 @@ pub fn init_with_pins(
     let lock = Semaphore::new_binary().expect("spi lock sem alloc");
     lock.give();
 
-    // SAFETY: the cells are empty (`is_initialised` returned above
-    // otherwise), and nothing reads them yet: this bus's interrupt is
-    // unmasked below, its DMA completion (`DMA_IRQ_0`, possibly live for the
-    // other bus) only reads this bus's cell once a transfer started by
-    // `write_raw_start` on this bus finishes, and every task path reaches
-    // the cells through `spi_lock`, which panics on an empty cell rather
-    // than racing it — so the caller's own first transfer comes after this.
-    // Two tasks initialising the same bus at once would race here; bus
-    // init runs from board bring-up and from `PeripheralManager.openSpi`,
-    // which do not overlap (the check-then-store has always assumed so).
+    // SAFETY: the cells are empty and this task is the bus's only
+    // initialiser (the gate gave it `Claim::Ours`; every other caller waits
+    // for `finish` or has returned), and nothing reads them yet: this bus's
+    // interrupt is unmasked below, its DMA completion (`DMA_IRQ_0`, possibly
+    // live for the other bus) only reads this bus's cell once a transfer
+    // started by `write_raw_start` on this bus finishes, and every task path
+    // reaches the cells through `spi_lock`, which panics on an empty cell
+    // rather than racing it — so the caller's own first transfer comes after
+    // this.
     match spi_id {
         // SAFETY: the argument above, for bus 0's cells.
         0 => unsafe {
@@ -571,6 +579,7 @@ pub fn init_with_pins(
 
     // Initialise DMA (idempotent — safe to call for each SPI peripheral)
     super::dma::init();
+    gate.finish();
 }
 
 pub fn reconfigure(spi_id: u8, freq_hz: u32, mode: u32) {

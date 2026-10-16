@@ -33,6 +33,8 @@ pub mod timing;
 use freertos_rust::{Duration, InterruptContext, Semaphore};
 use picodroid_core::util::set_once::SetOnce;
 
+use super::init_gate::{Claim, InitGate};
+
 use timing::{
     fs_spklen, ic_con_for_speed, scl_counts, sda_tx_hold_count, FIFO_DEPTH, IC_DATA_CMD_READ,
     IC_DATA_CMD_STOP, INTR_RX_FULL, INTR_STOP_DET, INTR_TX_ABRT, INTR_TX_EMPTY, MAX_XFER_LEN,
@@ -172,10 +174,16 @@ fn reconfigure(i2c_id: u8, speed_hz: u32) {
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
-fn is_initialised(i2c_id: u8) -> bool {
+// One initialiser per bus (`init_gate`): the first caller to arrive
+// programs the bus and fills the cells; a second arrival waits for it or
+// returns.
+static I2C0_INIT: InitGate = InitGate::new();
+static I2C1_INIT: InitGate = InitGate::new();
+
+fn init_gate(i2c_id: u8) -> &'static InitGate {
     match i2c_id {
-        0 => I2C0_LOCK.get().is_some(),
-        _ => I2C1_LOCK.get().is_some(),
+        0 => &I2C0_INIT,
+        _ => &I2C1_INIT,
     }
 }
 
@@ -197,8 +205,11 @@ pub fn init(i2c_id: u8) {
 /// call for a bus decides its pads, and a later call with different ones is
 /// ignored rather than re-routing a bus that already has traffic on it.
 pub fn init_with_pins(i2c_id: u8, sda: Option<u8>, scl: Option<u8>) {
-    if is_initialised(i2c_id) {
-        return;
+    let gate = init_gate(i2c_id);
+    match gate.claim() {
+        Claim::Ours => {}
+        Claim::Busy => return gate.wait_done(),
+        Claim::Done => return,
     }
 
     let p = crate::hal::chip::periph::steal();
@@ -264,14 +275,12 @@ pub fn init_with_pins(i2c_id: u8, sda: Option<u8>, scl: Option<u8>) {
     lock.give();
     // Per-bus ISR-to-task wake (binary semaphore released → none pending).
     let wake = Semaphore::new_binary().expect("i2c wake sem alloc");
-    // SAFETY: the cells are empty (`is_initialised` returned above
-    // otherwise), and nothing reads them yet: the bus interrupt that reads
-    // the wake cell is unmasked below, and the transfer paths reach both
-    // through `i2c_lock`, which panics on an empty cell — a caller's first
-    // transfer comes after this returns. Concurrent init of one bus would
-    // race; the sensor sampler is spawned before the scheduler so its init
-    // cannot meet a Java `I2cDevice`'s (boot_tasks.rs), and the
-    // check-then-store has always assumed one initialiser per bus.
+    // SAFETY: the cells are empty and this task is the bus's only
+    // initialiser (the gate gave it `Claim::Ours`; every other caller waits
+    // for `finish` or has returned), and nothing reads them yet: the bus
+    // interrupt that reads the wake cell is unmasked below, and the transfer
+    // paths reach both through `i2c_lock`, which panics on an empty cell — a
+    // caller's first transfer comes after this returns.
     match i2c_id {
         // SAFETY: the argument above, for bus 0's cells.
         0 => unsafe {
@@ -300,6 +309,7 @@ pub fn init_with_pins(i2c_id: u8, sda: Option<u8>, scl: Option<u8>) {
         0 => setup_irq!(&p.I2C0, pac::Interrupt::I2C0_IRQ),
         _ => setup_irq!(&p.I2C1, pac::Interrupt::I2C1_IRQ),
     }
+    gate.finish();
 }
 
 pub fn set_speed(i2c_id: u8, hz: u32) {

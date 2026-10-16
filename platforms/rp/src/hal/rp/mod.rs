@@ -15,6 +15,7 @@ pub mod dma;
 pub mod flash;
 pub mod gpio;
 pub mod i2c;
+pub mod init_gate;
 pub mod input_pin;
 pub mod output_pin;
 pub mod pdb_usb;
