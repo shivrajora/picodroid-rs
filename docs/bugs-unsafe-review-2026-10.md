@@ -1,6 +1,6 @@
 # Bug backlog: soundness findings from the unsafe review — 2026-10-15
 
-**Status: open, except UR-1, UR-2 and UR-3 (fixed 2026-10-15).** Every item is a memory-safety or concurrency defect found
+**Status: open, except UR-1 to UR-4 (fixed 2026-10-15).** Every item is a memory-safety or concurrency defect found
 while reading unsafe code during the two unsafe-reduction rounds:
 [designs/unsafe-reduction-2026-09.md](designs/unsafe-reduction-2026-09.md) §6 and
 [designs/unsafe-reduction-2026-10.md](designs/unsafe-reduction-2026-10.md) §6.
@@ -21,7 +21,7 @@ table is in severity order.
 | [UR-1](#ur-1) | high — **fixed** | `platforms/rp/src/hal/rp/pio_spi.rs` | A cyw43 transfer whose DMA abort times out returns while the RX channel may still be armed on the caller's buffer |
 | [UR-2](#ur-2) | high — **fixed** | `platforms/rp/src/hal/rp/spi/mod.rs` | `transfer_raw` with `rx` shorter than `tx` overruns `rx` in the interrupt handler |
 | [UR-3](#ur-3) | medium — **fixed** | `graphics/lvgl/view_ops.rs` | `addView` into the view's own subtree makes an LVGL parent cycle |
-| [UR-4](#ur-4) | medium | `graphics/lvgl/window.rs`, `widgets/keyboard.rs` | `window::sync` deletes the old window with a raw delete, so the keyboard's bound textarea can dangle |
+| [UR-4](#ur-4) | medium — **fixed** | `graphics/lvgl/window.rs`, `widgets/keyboard.rs` | `window::sync` deletes the old window with a raw delete, so the keyboard's bound textarea can dangle |
 | [UR-5](#ur-5) | medium | `platforms/rp` `spi_state`, `display()`, `touch()`; `boot.rs` `shared_heap` | Safe functions return `&'static mut`, so two calls alias |
 | [UR-6](#ur-6) | medium | `platforms/rp/src/hal/rp/pdb_usb/mod.rs` | `ep1_in_pid` is written by the task and by `USBCTRL_IRQ` with interrupts unmasked |
 | [UR-7](#ur-7) | medium | `platforms/rp/src/main.rs` | The FreeRTOS malloc-failed and stack-overflow hooks are called from C but are not `extern "C"` |
@@ -238,6 +238,15 @@ back.**
   and `animations::cancel_subtree(old)`, or route the delete through the same helper `view_ops::delete`
   uses. A `LV_EVENT_DELETE` hook on the bound textarea that clears `bound_ta` would cover every
   path at once.
+- **Fixed 2026-10-15** (the helper). `window::sync` deletes the old window through
+  `view_ops::delete_obj`, the path every other framework delete takes, so `unbind_if_deleting`
+  clears `bound_ta` and hides the keyboard, and `animations::cancel_subtree` retires the subtree's
+  slots, before LVGL frees the tree. The `bound_ta()` SAFETY comment no longer carries the
+  exception. On today's one caller, the app reload in `boot.rs`, the keyboard state is reset
+  before `set_design(None)` runs, so the invariant used to hold by call order; it now holds by
+  structure. Not reproduced; build-checked and sim-smoked only. The bare `lv_obj_delete` calls
+  left in `toast.rs`, `snackbar.rs` and `alert_dialog.rs` are on framework widgets no EditText can
+  be bound inside, and were not changed.
 
 ### UR-11
 

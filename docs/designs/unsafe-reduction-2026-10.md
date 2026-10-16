@@ -215,7 +215,7 @@ The backlog, with failure scenarios and fix options for these and for round 1's 
 | Simulator `net.rs`, `deref_socket` | A reader blocked in `recv` and a sender on the same socket hold two `&mut SimSocket`. |
 | `pd-install`, `install` / `PAGE_BUF` | A safe public function on a static buffer. It is sound only because the debug-bridge task is its one caller. |
 | `graphics/lvgl/view_ops.rs:190`, `addView` | `lv_obj_set_parent` has no cycle check, so Java can make a parent cycle. The call stays `unsafe`, with an OPEN note. Fixed 2026-10-15 as UR-3 in [../bugs-unsafe-review-2026-10.md](../bugs-unsafe-review-2026-10.md): an ancestor walk refuses the parent with `Reparent::Cycle`. |
-| `graphics/lvgl/window.rs:170` | `window::sync` deletes the old compat window with a raw `lv_obj_delete`, bypassing keyboard unbind and animation cancel. A textarea bound inside it could leave `bound_ta` dangling. |
+| `graphics/lvgl/window.rs:170` | `window::sync` deletes the old compat window with a raw `lv_obj_delete`, bypassing keyboard unbind and animation cancel. A textarea bound inside it could leave `bound_ta` dangling. Fixed 2026-10-15 as UR-4 in [../bugs-unsafe-review-2026-10.md](../bugs-unsafe-review-2026-10.md): the delete goes through `view_ops::delete_obj`. |
 | `graphics/lvgl/widgets/keyboard.rs` | The keyboard reset leaks the system keyboard object. |
 | NVIC IPR byte writes, `ep1_in_pid` | Still open from round 1. `periph::enable_irq`'s doc now names the IPR one. |
 

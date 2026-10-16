@@ -163,11 +163,15 @@ pub fn sync() {
     // about to go (its children, the previous app's views, go with it).
     super::lifecycle::set_content_parent(scr, false);
     if let Some(old) = STATE.container.replace(None) {
+        // Through the framework's delete path, not a bare `lv_obj_delete`:
+        // it unbinds the system keyboard from a field inside the old window
+        // and cancels the subtree's animations first, so neither keeps a
+        // pointer into the freed tree (UR-4).
         // SAFETY: the old window object is out of `container`, and no handle
         // names it any more (the content parent is the screen again). Its
         // children, the previous app's views, are released by their delete
         // hooks as LVGL frees them.
-        unsafe { lv_obj_delete(old) };
+        unsafe { super::view_ops::delete_obj(old) };
     }
     if windowed {
         if let Some(c) = lv_obj_create(scr) {

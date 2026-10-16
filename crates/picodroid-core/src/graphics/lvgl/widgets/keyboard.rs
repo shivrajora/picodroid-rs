@@ -189,10 +189,9 @@ fn bound_ta() -> Option<Obj> {
     // SAFETY: `bound_ta` names a live textarea or is null: it is set from
     // the live field `show_system_for` binds, and cleared by
     // `unbind_if_deleting`, which the framework's delete paths
-    // (`view_ops::delete_obj`, `remove_all_children`) run before LVGL frees
-    // the field. (`window::sync` deletes the old compat window directly;
-    // a field bound inside it at that moment is not covered — see the
-    // report that came with this change.)
+    // (`view_ops::delete_obj`, which `window::sync` uses for the old compat
+    // window too, and `remove_all_children`) run before LVGL frees the
+    // field.
     unsafe { Obj::from_raw(STATE.bound_ta.get()) }
 }
 
