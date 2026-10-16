@@ -1,6 +1,6 @@
 # Bug backlog: soundness findings from the unsafe review — 2026-10-15
 
-**Status: open, except UR-1 to UR-4 (fixed 2026-10-15).** Every item is a memory-safety or concurrency defect found
+**Status: open, except UR-1 to UR-5 (fixed 2026-10-15).** Every item is a memory-safety or concurrency defect found
 while reading unsafe code during the two unsafe-reduction rounds:
 [designs/unsafe-reduction-2026-09.md](designs/unsafe-reduction-2026-09.md) §6 and
 [designs/unsafe-reduction-2026-10.md](designs/unsafe-reduction-2026-10.md) §6.
@@ -22,7 +22,7 @@ table is in severity order.
 | [UR-2](#ur-2) | high — **fixed** | `platforms/rp/src/hal/rp/spi/mod.rs` | `transfer_raw` with `rx` shorter than `tx` overruns `rx` in the interrupt handler |
 | [UR-3](#ur-3) | medium — **fixed** | `graphics/lvgl/view_ops.rs` | `addView` into the view's own subtree makes an LVGL parent cycle |
 | [UR-4](#ur-4) | medium — **fixed** | `graphics/lvgl/window.rs`, `widgets/keyboard.rs` | `window::sync` deletes the old window with a raw delete, so the keyboard's bound textarea can dangle |
-| [UR-5](#ur-5) | medium | `platforms/rp` `spi_state`, `display()`, `touch()`; `boot.rs` `shared_heap` | Safe functions return `&'static mut`, so two calls alias |
+| [UR-5](#ur-5) | medium — **fixed** | `platforms/rp` `spi_state`, `display()`, `touch()`; `boot.rs` `shared_heap` | Safe functions return `&'static mut`, so two calls alias |
 | [UR-6](#ur-6) | medium | `platforms/rp/src/hal/rp/pdb_usb/mod.rs` | `ep1_in_pid` is written by the task and by `USBCTRL_IRQ` with interrupts unmasked |
 | [UR-7](#ur-7) | medium | `platforms/rp/src/main.rs` | The FreeRTOS malloc-failed and stack-overflow hooks are called from C but are not `extern "C"` |
 | [UR-8](#ur-8) | medium | `platforms/rp/src/hal/rp/periph.rs` | NVIC priority is written a byte at a time; ARMv6-M allows word access only |
@@ -113,6 +113,30 @@ back.**
   borrow (`with_display(|d| …)`).
 - Round 2 converted service_lifecycle, alarms, the media driver and `hw_scroll`. These are what's
   left.
+- **Fixed 2026-10-15.** No safe function returns `&'static mut` any more; each site got the shape
+  its sharing called for.
+  - `spi_state` returns `&'static SpiXferState`. The record is atomics throughout (`AtomicPtr`,
+    `AtomicUsize`, an `AtomicU8` for the kind), reached through `&` from the task and the handler
+    alike, so the waiter's look at the counters while the handler runs is a relaxed load, not a
+    second `&mut`. The handler reads the description into locals on entry and stores the counters
+    back at each exit; `start_isr_xfer!` puts a release fence between the task's stores and the
+    unmask. `XferCell` and its `unsafe impl Sync` are gone. Relaxed loads and stores are the same
+    `ldr`/`str` the integer fields compiled to.
+  - `display()` and `touch()` became `with_display(|d| …)` and `with_touch(|t| …)` over a
+    `SetOnce<Mutex<_>>` (a FreeRTOS mutex, `freertos_rust::Mutex`): a borrow lasts one closure and
+    a second caller waits. The doc's concrete case, a raw touch read on the UI task while a GT911
+    sampler runs, now serialises. Neither closure re-enters its module (`yield_display_bus` runs
+    before the take). Uncontended, one take and one give per call; the flush's three calls per band
+    sit beside a 1.4 ms DMA write.
+  - `shared_heap(&mut Held) -> &mut SharedJvmHeap`: the heap is borrowed from the run-lock guard,
+    for as long as the guard is borrowed, so no code reaches it without holding the lock and no
+    task holds two borrows at once (the shape of `SectionCell::get`). The three callers
+    (`run_app`, the background worker, `Thread.start`) acquire first and borrow second. What the
+    type still does not say is that the interpreter gives the lock up around blocking waits while
+    the borrow is live; that is the run lock's documented contract, unchanged here.
+  - Build-checked on every clippy leg, unit-tested (`xfer::begin` and the kind's `u8` round trip),
+    sim-smoked; not run on a board. The unsafe baseline fell by 5 blocks, 1 impl and 2 `static mut`
+    in `platforms/rp`.
 
 ### UR-6
 

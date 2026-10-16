@@ -16,6 +16,7 @@ use pico_jvm::{Jvm, SharedJvmHeap};
 
 use crate::framework_classes::{framework_section, FRAMEWORK_CLASS_COUNT};
 use crate::host;
+use crate::jvm_run_lock::Held;
 
 /// Re-exported at the path it has always had. The constant itself now lives
 /// in [`crate::framework_map`], which is compiled unconditionally — this
@@ -40,25 +41,30 @@ mod prereserve_config {
 // the frame registry in `GcState` (see pico_jvm::gc).
 
 struct SharedHeapCell(core::cell::UnsafeCell<SharedJvmHeap>);
-// SAFETY: upheld by the single-JVM-task invariant above, which is part of
-// the RTOS contract every platform implements.
+// SAFETY: `shared_heap` is the only way in, and it hands the value out
+// against an exclusive borrow of a run-lock guard: one task holds the lock
+// at a time, and a holder gives it up only around a blocking wait, during
+// which it does not touch the heap (`pd_rtos::run_lock`).
 unsafe impl Sync for SharedHeapCell {}
 
 static SHARED_HEAP: SharedHeapCell =
     SharedHeapCell(core::cell::UnsafeCell::new(SharedJvmHeap::new()));
 
-/// The process-wide shared JVM heap.
+/// The process-wide shared JVM heap, for as long as `run` is borrowed.
 ///
-/// # Safety
-/// Call only from JVM task context, never an ISR. Allocation inside
-/// ObjectHeap/ArrayHeap is short enough that no task switch can land
-/// mid-alloc at a cooperative yield point (sleep / UART read).
-pub fn shared_heap() -> &'static mut SharedJvmHeap {
-    // Two calls give two `&mut` to one heap (docs/designs/
-    // unsafe-reduction-2026-09.md §6); what keeps them from overlapping is
-    // that one JVM task runs at a time and none keeps the reference past a
-    // yield point.
-    // SAFETY: the single-JVM-task invariant above.
+/// The heap has no lock of its own; the JVM run lock is its lock, and the
+/// borrow says so: a task reaches the heap only with a [`Held`] in hand,
+/// and cannot take a second borrow while the first is live. It used to be
+/// a bare `&'static mut` that any code could take twice
+/// (bugs-unsafe-review-2026-10.md, UR-5). Nested holds exist — only the
+/// outermost `Held` releases — so a native that runs under a task's outer
+/// hold takes its heap from its `NativeContext`, never from here with a
+/// `Held` of its own. Never call from an ISR.
+pub fn shared_heap(run: &mut Held) -> &mut SharedJvmHeap {
+    let _ = run;
+    // SAFETY: the exclusive borrow of `run` makes this the only reference
+    // handed out under this hold, and the run lock keeps other tasks off
+    // the heap while it lasts (the `Sync` argument above).
     unsafe { &mut *SHARED_HEAP.0.get() }
 }
 
@@ -133,7 +139,7 @@ pub fn run_app(apk_data: &'static [u8]) {
     // This task interprets Java from here until the app is gone: it holds the
     // run lock throughout, giving it up only inside blocking waits
     // (`crate::jvm_run_lock`).
-    let _run = crate::jvm_run_lock::Held::acquire();
+    let mut run = Held::acquire();
 
     // Register GC root providers before the first class load — hence before
     // any GC can run. Objects held only by native code (Views in listener
@@ -149,8 +155,8 @@ pub fn run_app(apk_data: &'static [u8]) {
     // Clear the previous app's heap state, then claim the board-tuned
     // steady-state storage while the heap is young and contiguous (PEM-3
     // pre-reservation; zeros are no-ops).
-    shared_heap().reset();
-    shared_heap().prereserve(
+    shared_heap(&mut run).reset();
+    shared_heap(&mut run).prereserve(
         prereserve_config::PRERESERVE_OBJ_CHUNKS,
         prereserve_config::PRERESERVE_FIELDS_VALUES,
         prereserve_config::PRERESERVE_ARR_CHUNKS,
@@ -245,7 +251,7 @@ pub fn run_app(apk_data: &'static [u8]) {
         let wall = nanos / 1_000_000 + crate::os::system_clock::wall_offset_ms();
         pico_jvm::native::random::mix_seed_entropy(nanos as u32 ^ (wall as u32).rotate_left(7));
     }
-    let heap = shared_heap();
+    let heap = shared_heap(&mut run);
     heap.class_objects.resolve.configure(resolve_cache_sizes());
     // A new app run: the class data behind every native's name is about to
     // change address, so long-lived handlers (the background workers) drop

@@ -3,6 +3,8 @@
 //!
 //! No `rp-pico`/`rp235x-hal`/FreeRTOS deps — host-compilable and unit-testable.
 
+use core::sync::atomic::{AtomicPtr, AtomicU8, AtomicUsize, Ordering};
+
 pub const SPI_FIFO_DEPTH: usize = 8;
 pub const SMALL_XFER_THRESHOLD: usize = 8;
 
@@ -23,38 +25,127 @@ pub const SPI_XFER_TIMEOUT_MS: u32 = 5_000;
 /// which never touches the byte counters, so the kind is what tells the
 /// waiter which account of "finished" to believe (see [`transfer_finished`]).
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[repr(u8)]
 pub enum SpiOp {
-    Idle,
-    FullDuplex,
-    DmaWrite,
+    Idle = 0,
+    FullDuplex = 1,
+    DmaWrite = 2,
 }
 
+impl SpiOp {
+    /// The kind an `AtomicU8` holds (see [`SpiXferState`]).
+    fn from_u8(v: u8) -> Self {
+        match v {
+            1 => SpiOp::FullDuplex,
+            2 => SpiOp::DmaWrite,
+            _ => SpiOp::Idle,
+        }
+    }
+}
+
+/// A transfer's state, shared by the task that runs the transfer and the
+/// bus's interrupt handler.
+///
+/// Every field is an atomic, so the record is reached through `&` from both
+/// sides and no `&mut` to it ever exists (bugs-unsafe-review-2026-10.md,
+/// UR-5). The two contexts still take turns, by the controller's interrupt
+/// mask: the task describes a transfer with [`begin`](Self::begin) while
+/// `SSPIMSC` is 0, `start_isr_xfer!` unmasks, the handler alone advances
+/// the counters until it masks again at completion, and the task reads
+/// them back afterwards. The one overlap — the waiter's look at the
+/// counters after a poll timeout, while the handler may still run — is a
+/// relaxed load of a value the handler stores whole: it can be stale but
+/// never torn, and it is not a data race. Relaxed loads and stores compile
+/// to the plain `ldr`/`str` the fields had as integers.
 pub struct SpiXferState {
-    pub op: SpiOp,
-    pub tx_ptr: *const u8,
-    pub rx_ptr: *mut u8,
+    op: AtomicU8,
+    tx_ptr: AtomicPtr<u8>,
+    rx_ptr: AtomicPtr<u8>,
     /// Bytes to clock: the TX length. Every byte received is counted
     /// against it; only the first `rx_len` are stored.
-    pub len: usize,
+    len: AtomicUsize,
     /// How many bytes `rx_ptr` has room for. `rx_len <= len` for every
     /// transfer `transfer_raw` starts; a byte at or past it is discarded
     /// (see [`stores_rx`]).
-    pub rx_len: usize,
-    pub tx_idx: usize,
-    pub rx_idx: usize,
+    rx_len: AtomicUsize,
+    tx_idx: AtomicUsize,
+    rx_idx: AtomicUsize,
 }
 
 impl SpiXferState {
     pub const fn new() -> Self {
         Self {
-            op: SpiOp::Idle,
-            tx_ptr: core::ptr::null(),
-            rx_ptr: core::ptr::null_mut(),
-            len: 0,
-            rx_len: 0,
-            tx_idx: 0,
-            rx_idx: 0,
+            op: AtomicU8::new(SpiOp::Idle as u8),
+            tx_ptr: AtomicPtr::new(core::ptr::null_mut()),
+            rx_ptr: AtomicPtr::new(core::ptr::null_mut()),
+            len: AtomicUsize::new(0),
+            rx_len: AtomicUsize::new(0),
+            tx_idx: AtomicUsize::new(0),
+            rx_idx: AtomicUsize::new(0),
         }
+    }
+
+    /// Describe the transfer about to start: `len` bytes from `tx`, the
+    /// first `rx_len` replies into `rx`, both counters at zero. The task's
+    /// half, called with the bus lock held and the controller's interrupts
+    /// masked, so the handler cannot be reading. The unmask that hands the
+    /// state to the handler is a volatile register write, which orders
+    /// nothing against relaxed stores; `start_isr_xfer!` puts a release
+    /// fence between the two.
+    pub fn begin(&self, op: SpiOp, tx: *const u8, rx: *mut u8, len: usize, rx_len: usize) {
+        self.op.store(op as u8, Ordering::Relaxed);
+        self.tx_ptr.store(tx.cast_mut(), Ordering::Relaxed);
+        self.rx_ptr.store(rx, Ordering::Relaxed);
+        self.len.store(len, Ordering::Relaxed);
+        self.rx_len.store(rx_len, Ordering::Relaxed);
+        self.tx_idx.store(0, Ordering::Relaxed);
+        self.rx_idx.store(0, Ordering::Relaxed);
+    }
+
+    pub fn op(&self) -> SpiOp {
+        SpiOp::from_u8(self.op.load(Ordering::Relaxed))
+    }
+
+    /// Set the kind: `Idle` from the handler at completion, and from the
+    /// task once the wait is over (the DMA path has no handler of its own).
+    pub fn set_op(&self, op: SpiOp) {
+        self.op.store(op as u8, Ordering::Relaxed);
+    }
+
+    pub fn tx_ptr(&self) -> *const u8 {
+        self.tx_ptr.load(Ordering::Relaxed).cast_const()
+    }
+
+    pub fn rx_ptr(&self) -> *mut u8 {
+        self.rx_ptr.load(Ordering::Relaxed)
+    }
+
+    pub fn len(&self) -> usize {
+        self.len.load(Ordering::Relaxed)
+    }
+
+    pub fn rx_len(&self) -> usize {
+        self.rx_len.load(Ordering::Relaxed)
+    }
+
+    pub fn tx_idx(&self) -> usize {
+        self.tx_idx.load(Ordering::Relaxed)
+    }
+
+    pub fn rx_idx(&self) -> usize {
+        self.rx_idx.load(Ordering::Relaxed)
+    }
+
+    /// Publish the handler's (or the FIFO seed's) progress.
+    pub fn set_progress(&self, tx_idx: usize, rx_idx: usize) {
+        self.tx_idx.store(tx_idx, Ordering::Relaxed);
+        self.rx_idx.store(rx_idx, Ordering::Relaxed);
+    }
+}
+
+impl Default for SpiXferState {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -345,18 +436,50 @@ mod tests {
     #[test]
     fn new_state_is_idle() {
         let s = SpiXferState::new();
-        assert!(s.op == SpiOp::Idle);
-        assert_eq!(s.len, 0);
-        assert_eq!(s.rx_len, 0);
-        assert_eq!(s.tx_idx, 0);
-        assert_eq!(s.rx_idx, 0);
+        assert!(s.op() == SpiOp::Idle);
+        assert_eq!(s.len(), 0);
+        assert_eq!(s.rx_len(), 0);
+        assert_eq!(s.tx_idx(), 0);
+        assert_eq!(s.rx_idx(), 0);
     }
 
     #[test]
     fn new_state_has_null_pointers() {
         let s = SpiXferState::new();
-        assert!(s.tx_ptr.is_null());
-        assert!(s.rx_ptr.is_null());
+        assert!(s.tx_ptr().is_null());
+        assert!(s.rx_ptr().is_null());
+    }
+
+    #[test]
+    fn begin_describes_the_transfer_and_zeroes_the_counters() {
+        let s = SpiXferState::new();
+        s.set_progress(5, 3);
+        let tx = [1u8, 2, 3, 4];
+        let mut rx = [0u8; 2];
+        s.begin(
+            SpiOp::FullDuplex,
+            tx.as_ptr(),
+            rx.as_mut_ptr(),
+            tx.len(),
+            rx.len(),
+        );
+        assert!(s.op() == SpiOp::FullDuplex);
+        assert_eq!(s.tx_ptr(), tx.as_ptr());
+        assert_eq!(s.rx_ptr(), rx.as_mut_ptr());
+        assert_eq!(s.len(), 4);
+        assert_eq!(s.rx_len(), 2);
+        assert_eq!(s.tx_idx(), 0);
+        assert_eq!(s.rx_idx(), 0);
+        s.set_op(SpiOp::Idle);
+        assert!(s.op() == SpiOp::Idle);
+    }
+
+    #[test]
+    fn spi_op_round_trips_through_u8() {
+        for op in [SpiOp::Idle, SpiOp::FullDuplex, SpiOp::DmaWrite] {
+            assert!(SpiOp::from_u8(op as u8) == op);
+        }
+        assert!(SpiOp::from_u8(0xFF) == SpiOp::Idle);
     }
 
     // ── SpiOp equality ───────────────────────────────────────────────────

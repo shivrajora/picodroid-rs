@@ -127,7 +127,8 @@ Found while surveying. Each is a behaviour change to fix, so none is fixed here.
 Round 2 ([unsafe-reduction-2026-10.md](unsafe-reduction-2026-10.md)) closed the last row (the typed
 LVGL `Obj`, so a stale handle is now a no-op) and the `SLOTS` row. It also closed the `&'static mut`
 row for service_lifecycle, alarms, the media driver and `hw_scroll`; `shared_heap` and the
-`platforms/rp` driver accessors are still open. The other rows are still open.
+`platforms/rp` driver accessors followed on 2026-10-15 as UR-5 in
+[../bugs-unsafe-review-2026-10.md](../bugs-unsafe-review-2026-10.md). The other rows are still open.
 
 ### 6.1 The seam declarations are not checked against their definitions
 

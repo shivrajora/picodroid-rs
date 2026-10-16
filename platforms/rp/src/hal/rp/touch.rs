@@ -17,8 +17,9 @@ mod inner {
     use crate::hal::output_pin::RpOutputPin;
     #[cfg(touch_xpt2046)]
     use crate::hal::spi_bus::RpSpiBus;
-    use core::ptr::addr_of_mut;
+    use freertos_rust::{Duration, Mutex};
     use picodroid_core::hal::touch_override::{OverrideSample, TouchOverride};
+    use picodroid_core::util::set_once::SetOnce;
 
     // Scripted touch (PDB `CMD_INPUT` tap/swipe): while engaged, `read_point`
     // reports the scripted point instead of the panel, so an injected tap or
@@ -202,28 +203,33 @@ mod inner {
 
     // ── Shared facade ───────────────────────────────────────────────────────
 
-    /// The controller driver. Written once by `init` at board bring-up;
-    /// afterwards driven by one task — the touch sampler where the panel has
-    /// a bus of its own (GT911), the UI task's input read where it shares
-    /// the display's (XPT2046), and calibration only on the latter.
-    static mut TOUCH: Option<Touch> = None;
+    /// The controller driver. Stored once by `init` at board bring-up;
+    /// reached afterwards through [`with_touch`], one caller at a time.
+    /// Today one task drives it — the touch sampler where the panel has a
+    /// bus of its own (GT911), the UI task's input read where it shares
+    /// the display's (XPT2046), and calibration only on the latter — so
+    /// the mutex is never contended; it is what makes a second reader
+    /// (a raw read on the UI task while a GT911 sampler runs) wait instead
+    /// of alias (bugs-unsafe-review-2026-10.md, UR-5).
+    static TOUCH: SetOnce<Mutex<Touch>> = SetOnce::new();
 
     pub fn init() {
-        let touch = build_touch();
+        let touch = Mutex::new(build_touch()).expect("touch mutex");
         // SAFETY: board bring-up, before the sampler or LVGL's input read
-        // exists; nothing else reads the static.
-        unsafe {
-            addr_of_mut!(TOUCH).write(Some(touch));
-        }
+        // exists; nothing else reads the cell.
+        unsafe { TOUCH.set(touch) };
     }
 
-    fn touch() -> &'static mut Touch {
-        // SAFETY: one task drives the controller (see `TOUCH`) and each call
-        // drops the reference before it returns. A GT911 board's UI task
-        // reading the raw point while its sampler runs would break this;
-        // calibration, the raw read's only caller, runs on XPT2046 panels.
-        // The `&'static mut` signature is round 1's §6 aliasing finding.
-        unsafe { (*addr_of_mut!(TOUCH)).as_mut().unwrap() }
+    /// The driver, for the duration of `f`. Blocks while another caller
+    /// has it. Not re-entrant: `f` must not reach this module again (no
+    /// controller method does; `yield_display_bus` runs before the take).
+    fn with_touch<R>(f: impl FnOnce(&mut Touch) -> R) -> R {
+        let mut t = TOUCH
+            .get()
+            .expect("touch not initialised")
+            .lock(Duration::infinite())
+            .expect("touch mutex take");
+        f(&mut t)
     }
 
     /// On a shared bus the panel's chip select is still low while a band
@@ -244,7 +250,7 @@ mod inner {
         match OVERRIDE.sample() {
             OverrideSample::Inactive => {
                 yield_display_bus();
-                touch().read_point()
+                with_touch(|t| t.read_point())
             }
             OverrideSample::Pressed(x, y) => Some((x, y)),
             OverrideSample::Lifted(..) => None,
@@ -253,12 +259,12 @@ mod inner {
 
     pub fn read_raw_unfiltered() -> (u16, u16) {
         yield_display_bus();
-        touch().read_raw_unfiltered()
+        with_touch(|t| t.read_raw_unfiltered())
     }
 
     #[cfg(touch_xpt2046)]
     pub fn set_calibration(cal_x_min: u16, cal_x_max: u16, cal_y_min: u16, cal_y_max: u16) {
-        touch().set_calibration(cal_x_min, cal_x_max, cal_y_min, cal_y_max);
+        with_touch(|t| t.set_calibration(cal_x_min, cal_x_max, cal_y_min, cal_y_max));
     }
 
     /// No-op on a capacitive panel: the GT911 reports finished pixel

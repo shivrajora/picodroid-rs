@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 pub mod xfer;
 
-use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 
 use freertos_rust::{Duration, InterruptContext, Semaphore};
@@ -29,21 +28,11 @@ use super::clock::PCLK_HZ;
 // ── Per-peripheral statics ───────────────────────────────────────────────────
 
 /// A transfer's state, shared by the task that runs the transfer and the
-/// bus's interrupt handler.
-struct XferCell(UnsafeCell<SpiXferState>);
-// SAFETY: the two contexts that reach a bus's state take turns, by the
-// controller's interrupt mask: the task writes it (holding the bus lock)
-// while SSPIMSC is 0, `start_isr_xfer!` unmasks, the handler alone advances
-// it until it masks again at completion, and the task reads it back
-// afterwards. The one overlap is the waiter's look at the counters after a
-// poll timeout, while the handler may still run: word-sized reads of
-// fields the handler writes whole, which can be stale but not torn. (It
-// still means two `&mut` to one value exist at once — the aliasing
-// finding round 1 recorded for `&'static mut` accessors; see `spi_state`.)
-unsafe impl Sync for XferCell {}
-
-static SPI0_STATE: XferCell = XferCell(UnsafeCell::new(SpiXferState::new()));
-static SPI1_STATE: XferCell = XferCell(UnsafeCell::new(SpiXferState::new()));
+/// bus's interrupt handler. Atomics throughout, reached through `&` from
+/// both sides; the turn-taking that keeps the two apart is described on
+/// the type (`xfer::SpiXferState`).
+static SPI0_STATE: SpiXferState = SpiXferState::new();
+static SPI1_STATE: SpiXferState = SpiXferState::new();
 
 /// Given by the completion interrupts (`SPIx_IRQ` here, `DMA_IRQ_0` in
 /// `dma.rs`), taken by the transfer's task. Stored by `init_with_pins`.
@@ -113,20 +102,10 @@ fn collect_own_write(spi_id: u8) {
 }
 
 /// The bus's transfer state, for the task that holds the bus lock.
-///
-/// Returns `&'static mut` from a shared static, as round 1's §6 finding
-/// describes: two calls give two live `&mut`, and the interrupt handler
-/// makes its own. Every caller uses the reference for a few field accesses
-/// and drops it, and `XferCell`'s turn-taking keeps the accesses apart;
-/// the signature is what is left to fix.
-fn spi_state(id: u8) -> &'static mut SpiXferState {
-    // SAFETY: the cells are statics, so the pointer is valid for 'static;
-    // exclusivity is by turn-taking (see `XferCell`), not by the type.
-    unsafe {
-        &mut *match id {
-            0 => SPI0_STATE.0.get(),
-            _ => SPI1_STATE.0.get(),
-        }
+fn spi_state(id: u8) -> &'static SpiXferState {
+    match id {
+        0 => &SPI0_STATE,
+        _ => &SPI1_STATE,
     }
 }
 
@@ -150,10 +129,18 @@ fn spi_lock(id: u8) -> &'static Semaphore {
 
 macro_rules! spi_isr_body {
     ($spi:expr, $state_static:expr, $done_static:expr) => {{
-        // SAFETY: the handler runs only while the transfer has the bus's
-        // interrupts unmasked, which is the handler's turn with the state
-        // (see `XferCell`).
-        let state = unsafe { &mut *$state_static.0.get() };
+        // The handler runs only while the transfer has the bus's interrupts
+        // unmasked, which is its turn with the state (`xfer::SpiXferState`):
+        // the description is read once here, and the counters go back at
+        // each exit below.
+        let state: &SpiXferState = &$state_static;
+        let op = state.op();
+        let len = state.len();
+        let rx_len = state.rx_len();
+        let tx_ptr = state.tx_ptr();
+        let rx_ptr = state.rx_ptr();
+        let mut tx_idx = state.tx_idx();
+        let mut rx_idx = state.rx_idx();
         let mut ctx = InterruptContext::new();
 
         // 0. Count an overrun before anything clears it: steps 2 and 5 write
@@ -166,25 +153,26 @@ macro_rules! spi_isr_body {
         }
 
         // 1. Drain RX FIFO first (prevents overrun)
-        while $spi.sspsr().read().rne().bit_is_set() && state.rx_idx < state.len {
+        while $spi.sspsr().read().rne().bit_is_set() && rx_idx < len {
             let byte = $spi.sspdr().read().data().bits() as u8;
-            if stores_rx(state.op, state.rx_idx, state.rx_len) {
+            if stores_rx(op, rx_idx, rx_len) {
                 // SAFETY: `rx_ptr` is `transfer_raw`'s `rx`, which outlives
                 // the transfer (the task waits for it), and `rx_len` is that
                 // slice's length, so `rx_idx < rx_len` keeps the write in
                 // bounds. An `rx` shorter than `tx` has its tail discarded
                 // here (UR-2).
-                unsafe { *state.rx_ptr.add(state.rx_idx) = byte };
+                unsafe { *rx_ptr.add(rx_idx) = byte };
             }
-            state.rx_idx += 1;
+            rx_idx += 1;
         }
 
         // 2. Check completion
-        if state.rx_idx >= state.len {
+        if rx_idx >= len {
             $spi.sspimsc().write(|w| w);
             $spi.sspicr() // clear RORIC + RTIC
                 .write(|w| w.roric().clear_bit_by_one().rtic().clear_bit_by_one());
-            state.op = SpiOp::Idle;
+            state.set_progress(tx_idx, rx_idx);
+            state.set_op(SpiOp::Idle);
             if let Some(sem) = $done_static.get() {
                 sem.give_from_isr(&mut ctx);
             }
@@ -195,21 +183,20 @@ macro_rules! spi_isr_body {
         //    FIFO is as deep as the TX FIFO, so more than SPI_FIFO_DEPTH bytes
         //    queued and not yet read back is an overrun waiting for one slow
         //    interrupt (xfer::may_queue_tx).
-        while may_queue_tx(state.tx_idx, state.rx_idx, state.len)
-            && $spi.sspsr().read().tnf().bit_is_set()
-        {
+        while may_queue_tx(tx_idx, rx_idx, len) && $spi.sspsr().read().tnf().bit_is_set() {
             // SAFETY: `tx_ptr` is the transfer's `tx`, alive until it ends,
             // and `may_queue_tx` holds `tx_idx < len`, its length.
-            let byte = unsafe { *state.tx_ptr.add(state.tx_idx) };
+            let byte = unsafe { *tx_ptr.add(tx_idx) };
             $spi.sspdr().write(|w| {
                 // SAFETY: one data byte (the note on raw writes at the top).
                 unsafe { w.data().bits(byte as u16) }
             });
-            state.tx_idx += 1;
+            tx_idx += 1;
         }
+        state.set_progress(tx_idx, rx_idx);
 
         // 4. All TX queued — disable TXIM, keep RTIM to catch final RX bytes
-        if state.tx_idx >= state.len {
+        if tx_idx >= len {
             $spi.sspimsc()
                 .write(|w| w.rtim().set_bit().rorim().set_bit());
         }
@@ -319,19 +306,19 @@ macro_rules! poll_transfer_raw {
 // ── ISR-driven transfer helpers ──────────────────────────────────────────────
 
 macro_rules! start_isr_xfer {
-    ($spi:expr, $state:expr) => {{
+    ($spi:expr, $state:expr, $tx:expr) => {{
         // Seed TX FIFO (up to FIFO depth)
-        let seed = $state.len.min(SPI_FIFO_DEPTH);
-        for i in 0..seed {
-            // SAFETY: `tx_ptr` is the transfer's `tx`, just stored with its
-            // length in `len`, and `i < seed <= len`.
-            let byte = unsafe { *$state.tx_ptr.add(i) };
+        let seed = $tx.len().min(SPI_FIFO_DEPTH);
+        for &byte in &$tx[..seed] {
             $spi.sspdr().write(|w| {
                 // SAFETY: one data byte (the note on raw writes at the top).
                 unsafe { w.data().bits(byte as u16) }
             });
         }
-        $state.tx_idx = seed;
+        $state.set_progress(seed, 0);
+        // The state is the handler's from the unmask on: order its
+        // description (relaxed stores) before that volatile write.
+        core::sync::atomic::fence(Ordering::Release);
         // Clear stale interrupts, enable TXIM + RTIM + RORIM
         $spi.sspicr() // clear RORIC + RTIC
             .write(|w| w.roric().clear_bit_by_one().rtic().clear_bit_by_one());
@@ -377,9 +364,9 @@ macro_rules! finish_isr_xfer {
             let st = spi_state($spi_id);
             let sr = $spi.sspsr().read();
             if transfer_finished(
-                st.op,
-                st.tx_idx,
-                st.len,
+                st.op(),
+                st.tx_idx(),
+                st.len(),
                 super::dma::busy($spi_id),
                 sr.tfe().bit_is_set(),
                 sr.bsy().bit_is_set(),
@@ -400,13 +387,13 @@ macro_rules! finish_isr_xfer {
                 let first = !SHORT_READ_REPORTED.load(Ordering::Relaxed);
                 SHORT_READ_REPORTED.store(true, Ordering::Relaxed);
                 if first {
-                    if st.op == SpiOp::DmaWrite {
+                    if st.op() == SpiOp::DmaWrite {
                         defmt::warn!(
                             "spi{}: DMA write of {} bytes retired without its \
                              completion interrupt; completing it from the \
                              controller's state (further occurrences are silent)",
                             $spi_id,
-                            st.len
+                            st.len()
                         );
                     } else {
                         defmt::warn!(
@@ -414,8 +401,8 @@ macro_rules! finish_isr_xfer {
                              ({} RX overruns so far); completing it from the \
                              controller's state (further occurrences are silent)",
                             $spi_id,
-                            st.rx_idx,
-                            st.len,
+                            st.rx_idx(),
+                            st.len(),
                             RX_OVERRUNS.load(Ordering::Relaxed)
                         );
                     }
@@ -431,9 +418,9 @@ macro_rules! finish_isr_xfer {
                     "spi{}: transfer stalled {} ms (len={} tx={} rx={})",
                     $spi_id,
                     waited_ms,
-                    st.len,
-                    st.tx_idx,
-                    st.rx_idx
+                    st.len(),
+                    st.tx_idx(),
+                    st.rx_idx()
                 );
                 break false;
             }
@@ -452,7 +439,7 @@ macro_rules! finish_isr_xfer {
         }
         // The ISR sets Idle itself; the DMA path has no ISR of its own, and
         // the next waiter must not read this transfer's kind as its own.
-        spi_state($spi_id).op = SpiOp::Idle;
+        spi_state($spi_id).set_op(SpiOp::Idle);
         // spin-ok: one byte-time drain after the interrupt-signalled completion
         while $spi.sspsr().read().bsy().bit_is_set() {}
     }};
@@ -640,14 +627,13 @@ pub fn write_raw_start(spi_id: u8, data: &[u8]) {
     // Record the kind (and clear the ISR path's counters) so the wait in
     // `write_raw_finish` judges this write by the DMA channels, not by
     // whatever full-duplex transfer the ISR ran last.
-    let state = spi_state(spi_id);
-    state.op = SpiOp::DmaWrite;
-    state.tx_ptr = data.as_ptr();
-    state.rx_ptr = core::ptr::null_mut();
-    state.len = data.len();
-    state.rx_len = 0;
-    state.tx_idx = 0;
-    state.rx_idx = 0;
+    spi_state(spi_id).begin(
+        SpiOp::DmaWrite,
+        data.as_ptr(),
+        core::ptr::null_mut(),
+        data.len(),
+        0,
+    );
 
     super::dma::start_write(spi_id, data);
     write_owner(spi_id).store(picodroid_core::rtos::task_current(), Ordering::Relaxed);
@@ -705,21 +691,21 @@ pub fn transfer_raw(spi_id: u8, tx: &[u8], rx: &mut [u8]) {
     }
 
     let state = spi_state(spi_id);
-    state.op = SpiOp::FullDuplex;
-    state.tx_ptr = tx.as_ptr();
-    state.rx_ptr = rx.as_mut_ptr();
-    state.len = tx.len();
-    state.rx_len = rx.len();
-    state.tx_idx = 0;
-    state.rx_idx = 0;
+    state.begin(
+        SpiOp::FullDuplex,
+        tx.as_ptr(),
+        rx.as_mut_ptr(),
+        tx.len(),
+        rx.len(),
+    );
 
     match spi_id {
         0 => {
-            start_isr_xfer!(&p.SPI0, state);
+            start_isr_xfer!(&p.SPI0, state, tx);
             finish_isr_xfer!(&p.SPI0, spi_id);
         }
         _ => {
-            start_isr_xfer!(&p.SPI1, state);
+            start_isr_xfer!(&p.SPI1, state, tx);
             finish_isr_xfer!(&p.SPI1, spi_id);
         }
     }

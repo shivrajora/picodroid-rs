@@ -193,7 +193,7 @@ copy-in/copy-out `Core0` structs are a small codegen change.
 | The pdb USB counters as atomics | LLVM would reorder them inside `USBCTRL_IRQ`. |
 | `vTaskSuspendAll` / `xTaskResumeAll` as `safe fn` | See §2. |
 | Crate-wide `unsafe_op_in_unsafe_fn` | It would *add* a block to the body of each of the 115 `unsafe fn`. That is worth doing with the edition-2024 move, not here. |
-| The cross-core seqlocks (`hal/wifi.rs`, `event_ring`, `sched_diag`'s print copy), `boot.rs` `shared_heap` / `shared_jvm` / `publish_jvm`, `packages::dir()`, the native handler's GC roots | Documented, not restructured. |
+| The cross-core seqlocks (`hal/wifi.rs`, `event_ring`, `sched_diag`'s print copy), `boot.rs` `shared_heap` / `shared_jvm` / `publish_jvm`, `packages::dir()`, the native handler's GC roots | Documented, not restructured. (`shared_heap` has since been tied to the run-lock guard: UR-5, 2026-10-15.) |
 
 ## 6. Findings
 
@@ -207,7 +207,7 @@ The backlog, with failure scenarios and fix options for these and for round 1's 
 |---|---|
 | `platforms/rp/src/hal/rp/pio_spi.rs`, abort | If `abort_dma`'s spin times out, `cyw43_spi_transfer` returns −1 while the RX channel may still be writing into the caller's buffer. This is the most serious one. |
 | `platforms/rp/src/hal/rp/spi/mod.rs`, `transfer_raw` | An `rx` shorter than `tx` overruns in the interrupt handler (round-1 §6, still open; the SAFETY comment says so). |
-| `spi_state`, `display()`, `touch()` in `platforms/rp` | A safe function returning `&'static mut`. A GT911 board's raw touch read on the UI task while the sampler runs would alias. Today only XPT2046 calibration calls it. |
+| `spi_state`, `display()`, `touch()` in `platforms/rp` | A safe function returning `&'static mut`. A GT911 board's raw touch read on the UI task while the sampler runs would alias. Today only XPT2046 calibration calls it. Fixed 2026-10-15 as UR-5 in [../bugs-unsafe-review-2026-10.md](../bugs-unsafe-review-2026-10.md): an all-atomic transfer state behind `&`, the two drivers behind a mutex with closure-scoped access, and `shared_heap` borrowed from the run-lock guard. |
 | SPI and I2C bus init | Two tasks initialising the same bus at once race the check-then-store. `JVM_TASK` is protected from the pdb task only by timing. |
 | `picodroid_port_entropy_bytes` | A safe C entry point that dereferences a raw pointer. |
 | `heap4::Heap4::free` | A safe public function. A misaligned or mid-block offset corrupts the free list. |
