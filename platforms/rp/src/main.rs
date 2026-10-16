@@ -235,7 +235,7 @@ unsafe fn HardFault(ef: &ExceptionFrame) -> ! {
 #[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
 #[allow(non_snake_case)]
 #[no_mangle]
-fn vApplicationMallocFailedHook() {
+extern "C" fn vApplicationMallocFailedHook() {
     // Intentionally a no-op: pvPortMalloc returns NULL after this hook,
     // allowing Rust's try_reserve_exact to return Err and trigger GC.
     // Non-try allocations still abort via Rust's handle_alloc_error.
@@ -272,7 +272,10 @@ extern "C" fn vApplicationPassiveIdleHook() {
 #[cfg(all(not(any(test, feature = "sim")), feature = "family-rp"))]
 #[allow(non_snake_case)]
 #[no_mangle]
-fn vApplicationStackOverflowHook(_pxTask: FreeRtosTaskHandle, _pcTaskName: FreeRtosCharPtr) {
+extern "C" fn vApplicationStackOverflowHook(
+    _pxTask: FreeRtosTaskHandle,
+    _pcTaskName: FreeRtosCharPtr,
+) {
     asm::bkpt();
     #[allow(clippy::empty_loop)]
     loop {}

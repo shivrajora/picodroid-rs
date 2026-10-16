@@ -1,6 +1,6 @@
 # Bug backlog: soundness findings from the unsafe review — 2026-10-15
 
-**Status: open, except UR-1 to UR-6 (fixed 2026-10-15).** Every item is a memory-safety or concurrency defect found
+**Status: open, except UR-1 to UR-7 (fixed 2026-10-15).** Every item is a memory-safety or concurrency defect found
 while reading unsafe code during the two unsafe-reduction rounds:
 [designs/unsafe-reduction-2026-09.md](designs/unsafe-reduction-2026-09.md) §6 and
 [designs/unsafe-reduction-2026-10.md](designs/unsafe-reduction-2026-10.md) §6.
@@ -24,7 +24,7 @@ table is in severity order.
 | [UR-4](#ur-4) | medium — **fixed** | `graphics/lvgl/window.rs`, `widgets/keyboard.rs` | `window::sync` deletes the old window with a raw delete, so the keyboard's bound textarea can dangle |
 | [UR-5](#ur-5) | medium — **fixed** | `platforms/rp` `spi_state`, `display()`, `touch()`; `boot.rs` `shared_heap` | Safe functions return `&'static mut`, so two calls alias |
 | [UR-6](#ur-6) | medium — **fixed** | `platforms/rp/src/hal/rp/pdb_usb/mod.rs` | `ep1_in_pid` is written by the task and by `USBCTRL_IRQ` with interrupts unmasked |
-| [UR-7](#ur-7) | medium | `platforms/rp/src/main.rs` | The FreeRTOS malloc-failed and stack-overflow hooks are called from C but are not `extern "C"` |
+| [UR-7](#ur-7) | medium — **fixed** | `platforms/rp/src/main.rs` | The FreeRTOS malloc-failed and stack-overflow hooks are called from C but are not `extern "C"` |
 | [UR-8](#ur-8) | medium | `platforms/rp/src/hal/rp/periph.rs` | NVIC priority is written a byte at a time; ARMv6-M allows word access only |
 | [UR-9](#ur-9) | low | `platforms/rp/src/hal/rp/entropy.rs` | `picodroid_port_entropy_bytes` is a safe C entry point that writes through a raw pointer |
 | [UR-10](#ur-10) | low | `spi/mod.rs`, `i2c/mod.rs`, `pdb/pending.rs` | Bus init is check-then-store; `JVM_TASK` is protected from the pdb task by timing only |
@@ -177,6 +177,12 @@ back.**
 - **Fix:** add `extern "C"` to both. That is a one-word change. Confirm in the disassembly that the
   argument registers are as expected.
 - First recorded in round-1 §6.
+- **Fixed 2026-10-15.** Both hooks are `extern "C"` now, the same shape as the idle hooks beside
+  them. The kernel's declarations (`portable.h`, `task.h`) are unchanged, so the symbols link as
+  before; the stack-overflow hook's two arguments now arrive in `r0`/`r1` by contract, not by the
+  Rust ABI happening to agree. The bodies are untouched: the malloc hook stays a no-op and the
+  overflow hook still breakpoints and parks. Build-checked on every clippy leg and sim-smoked; not
+  run on a board.
 
 ### UR-8
 
