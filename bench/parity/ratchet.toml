@@ -26,7 +26,7 @@ text = 1024820
 bss = 246976
 
 [testbench_rp2350]
-flash_bytes = 1492772
+flash_bytes = 1484964
 ram_bytes = 403076
-text = 1498032
+text = 1490224
 bss = 403072

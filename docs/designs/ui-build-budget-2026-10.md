@@ -178,6 +178,17 @@ framework (breaks the `onViewCreated` contract that the tree exists).
 
 ## 7. Verification
 
+- Sim rows, all PASS on the final tree: layoutdemo (10), fragmentdemo (4), pagerdemo (2),
+  resdemo (10), claudeusage (6), settings (2), launcher (6), picoclock (4) — `sim-run.sh --app X`.
+  The migrated apps' loops end with `ui budget: N builds (0 over budget …); M handlers (0 slow,
+  0 frames lost …)`.
+- Device, `testbench_rp2350` on the W slot, `hil-run.sh --app helloworld --mode no-shrink`: 14
+  PASS, 1 SKIP; the `launch`, `launch-soak` and `settings-uninstall` rows walk the launcher
+  (`ready: 2 apps`) and Settings → Apps → uninstall with no `screen build`, `slow handler` or
+  `jank` line; the launcher's loop summary reads `1 builds (0 over budget, max 53 ms)` — the
+  whole launcher screen, release image, no counters.
+- Device, `pico_display2_w` firmware on the same board, release + `parity-metrics`, layoutdemo:
+  the 45-view round 275 ms → 104 ms, 6,108 → 2,313 µs per inflated view (§5).
 - Stage 1: `PICODROID_BUILD_BUDGET_MS=2 PICODROID_SLOW_HANDLER_MS=1 ./scripts/sim.sh --app
   layoutdemo` prints `screen build: activity start [layoutdemo/LayoutDemoActivity] took 3 ms,
   28 views (0 frames skipped; budget 2 ms)` at boot and one `slow handler` line a second after
