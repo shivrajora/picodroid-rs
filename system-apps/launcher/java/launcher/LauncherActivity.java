@@ -3,17 +3,14 @@ package launcher;
 
 import java.util.List;
 import picodroid.app.Activity;
-import picodroid.concurrent.Executors;
 import picodroid.content.Intent;
 import picodroid.content.pm.ApplicationInfo;
 import picodroid.content.pm.PackageInfo;
 import picodroid.content.pm.PackageManager;
 import picodroid.graphics.Color;
 import picodroid.graphics.drawable.Drawable;
-import picodroid.graphics.drawable.GradientDrawable;
-import picodroid.text.TextUtils;
+import picodroid.launcher.R;
 import picodroid.util.Log;
-import picodroid.view.Gravity;
 import picodroid.view.View;
 import picodroid.widget.ImageView;
 import picodroid.widget.LinearLayout;
@@ -31,20 +28,15 @@ import picodroid.os.Bundle;
  * tap row 0 at a known point; more rows than the screen holds scroll — by drag on a touch panel,
  * and with the focus on a keypad.
  *
- * <p>The rows are built one per UI tick, not all inside {@code onCreate}: a row is about 20 ms of
- * LVGL work on the device, and a whole list at once would hold the tick for that long times the
- * number of apps. "ready" is logged once the last row is in.
+ * <p>The rows are inflated from {@code res/layout/row.xml} inside {@code onCreate}, as an Android
+ * launcher builds its list; the main loop allows a screen build a slow first frame
+ * (docs/designs/ui-build-budget-2026-10.md). "ready" is logged once the last row is in.
  */
 public class LauncherActivity extends Activity {
   private static final String TAG = "Launcher";
 
   /** Row height in pixels: the bench taps the middle of row 0 at (120, 20). */
   private static final int ROW_HEIGHT = 40;
-
-  private static final int ICON_SIZE = 32;
-
-  /** Tile color behind the first letter of an app that has no icon. */
-  private static final int TILE_COLOR = 0xFF1F8A8A;
 
   private LinearLayout root;
 
@@ -55,8 +47,6 @@ public class LauncherActivity extends Activity {
   private PackageInfo[] order;
 
   private String[] labels;
-  private int next;
-  private boolean stopped;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -79,14 +69,28 @@ public class LauncherActivity extends Activity {
     scroller.setPadding(0, 0, 0, 0);
     scroller.addView(root);
     setContentView(scroller);
-    Executors.mainExecutor().execute(() -> list());
+    list();
+    PackageManager pm = getPackageManager();
+    for (int i = 0; i < rows.length; i++) {
+      rows[i] = makeRow(pm, order[i], labels[i]);
+      root.addView(rows[i]);
+    }
+    int n = rows.length;
+    if (n == 0) {
+      TextView empty = new TextView();
+      empty.setText("No apps installed. Use pdb install.");
+      empty.setTextColor(Color.WHITE);
+      root.addView(empty);
+    } else {
+      rows[0].requestFocus();
+    }
+    int contentHeight = (n == 0 ? 1 : n) * ROW_HEIGHT;
+    root.setSize(width, contentHeight > height ? contentHeight : height);
+    Log.i(TAG, "ready: " + n + " apps");
   }
 
   /** The packages in display order: installed apps by label, then the other system apps. */
   private void list() {
-    if (stopped) {
-      return;
-    }
     PackageManager pm = getPackageManager();
     String self = getPackageName();
     List<PackageInfo> installed = pm.getInstalledPackages(0);
@@ -109,36 +113,6 @@ public class LauncherActivity extends Activity {
       }
     }
     rows = new View[n];
-    next = 0;
-    Executors.mainExecutor().execute(() -> addRow());
-  }
-
-  /** One row per tick; once the last is in, the list is ready. */
-  private void addRow() {
-    if (stopped) {
-      return;
-    }
-    int width = getDisplay().getWidth();
-    if (next < rows.length) {
-      rows[next] = makeRow(getPackageManager(), order[next], labels[next], width);
-      root.addView(rows[next]);
-      next++;
-      Executors.mainExecutor().execute(() -> addRow());
-      return;
-    }
-    int n = rows.length;
-    if (n == 0) {
-      TextView empty = new TextView();
-      empty.setText("No apps installed. Use pdb install.");
-      empty.setTextColor(Color.WHITE);
-      root.addView(empty);
-    } else {
-      rows[0].requestFocus();
-    }
-    int height = getDisplay().getHeight();
-    int contentHeight = (n == 0 ? 1 : n) * ROW_HEIGHT;
-    root.setSize(width, contentHeight > height ? contentHeight : height);
-    Log.i(TAG, "ready: " + n + " apps");
   }
 
   /**
@@ -167,45 +141,23 @@ public class LauncherActivity extends Activity {
     return out;
   }
 
-  private View makeRow(PackageManager pm, PackageInfo info, String label, int width) {
+  /**
+   * A row: the app's icon (or its first letter on a tile) and its label, from {@code row.xml} or
+   * {@code row_tile.xml}; the label is cut with an ellipsis rather than wrapped over the next row.
+   */
+  private View makeRow(PackageManager pm, PackageInfo info, String label) {
     final String pkg = info.packageName;
-
-    LinearLayout row = new LinearLayout();
-    row.setOrientation(LinearLayout.HORIZONTAL);
-    // Icon and label centred on the row's height; a LinearLayout's children sit at the top
-    // otherwise, as on Android.
-    row.setGravity(Gravity.CENTER_VERTICAL);
-    row.setSize(width, ROW_HEIGHT);
-    row.setPadding(8, 4, 8, 4);
-    row.setSpacing(8);
-
     Drawable icon = pm.getApplicationIcon(info.applicationInfo);
+    View row = getLayoutInflater().inflate(icon != null ? R.layout.row : R.layout.row_tile, null);
     if (icon != null) {
-      ImageView image = new ImageView();
-      image.setSize(ICON_SIZE, ICON_SIZE);
-      image.setScaleType(ImageView.SCALE_FIT_CENTER);
+      ImageView image = row.findViewById(R.id.icon);
       image.setImageDrawable(icon);
-      row.addView(image);
     } else {
-      TextView tile = new TextView();
-      tile.setSize(ICON_SIZE, ICON_SIZE);
+      TextView tile = row.findViewById(R.id.tile);
       tile.setText(label.length() > 0 ? label.substring(0, 1) : "?");
-      tile.setTextColor(Color.WHITE);
-      tile.setPadding(10, 6, 0, 0);
-      tile.setBackground(new GradientDrawable().setColor(TILE_COLOR).setCornerRadius(6));
-      row.addView(tile);
     }
-
-    TextView text = new TextView();
+    TextView text = row.findViewById(R.id.label);
     text.setText(label);
-    text.setTextColor(Color.WHITE);
-    // One line per row: a label longer than what the icon leaves is cut with an ellipsis, not
-    // wrapped over the next row.
-    text.setSingleLine();
-    text.setEllipsize(TextUtils.TruncateAt.END);
-    row.addView(text, new LinearLayout.LayoutParams(0, View.WRAP_CONTENT, 1f));
-
-    row.setFocusable(true);
     row.setOnClickListener(
         v -> {
           Log.i(TAG, "launch " + pkg);
@@ -217,11 +169,5 @@ public class LauncherActivity extends Activity {
   @Override
   public void onBackPressed() {
     // Home: there is nothing to go back to.
-  }
-
-  @Override
-  public void onDestroy() {
-    stopped = true;
-    super.onDestroy();
   }
 }

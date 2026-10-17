@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A launcher row for an app without an icon: its first letter on a tile stands in. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="40dp"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:padding="4dp"
+    android:paddingLeft="8dp"
+    android:paddingRight="8dp"
+    android:focusable="true">
+
+    <TextView
+        android:id="@+id/tile"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:paddingLeft="10dp"
+        android:paddingTop="6dp"
+        android:background="@drawable/tile"
+        android:textColor="#FFFFFFFF" />
+
+    <TextView
+        android:id="@+id/label"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginLeft="8dp"
+        android:singleLine="true"
+        android:ellipsize="end"
+        android:textColor="#FFFFFFFF" />
+</LinearLayout>
