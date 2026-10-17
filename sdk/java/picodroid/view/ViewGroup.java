@@ -52,6 +52,32 @@ public abstract class ViewGroup extends View implements ViewParent {
       // parent's list must let go of it, or that entry keeps the subtree alive.
       previous.detachChild(child);
     }
+    link(child);
+  }
+
+  /**
+   * The inflater's add for a child its native path made: the widget is already under this group's
+   * and laid out as {@code params} say, so only the Java side joins. No parent to leave, nothing to
+   * check: the child is new.
+   */
+  final void attachInflated(View child, LayoutParams params) {
+    child.layoutParams = params;
+    child.mSized = true;
+    // link(), spelled out: this runs once per inflated view, and a call is not free here.
+    if (mChildren == null) {
+      mChildren = new View[4];
+    } else if (mChildCount == mChildren.length) {
+      View[] bigger = new View[mChildren.length * 2];
+      System.arraycopy(mChildren, 0, bigger, 0, mChildCount);
+      mChildren = bigger;
+    }
+    mChildren[mChildCount++] = child;
+    child.mParent = this;
+    onViewAdded(child);
+  }
+
+  /** Puts {@code child} in the child list, as the last one, and says so. */
+  private void link(View child) {
     if (mChildren == null) {
       mChildren = new View[4];
     } else if (mChildCount == mChildren.length) {

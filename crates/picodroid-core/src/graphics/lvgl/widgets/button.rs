@@ -130,7 +130,13 @@ lv_event_cb! {
 /// `LV_EVENT_CLICKED` trampoline is attached lazily by [`register_click_listener`]
 /// on the first `View.setOnClickListener` call.
 pub(in crate::graphics) fn create(text: &str) -> i32 {
-    let Some(btn) = lifecycle::screen_ptr().and_then(|o| lv_button_create(o)) else {
+    lifecycle::screen_ptr().map_or(0, |screen| create_under(screen, text))
+}
+
+/// [`create`], under `parent` instead of the screen (the inflater's path).
+#[inline(never)]
+pub(in crate::graphics) fn create_under(parent: Obj, text: &str) -> i32 {
+    let Some(btn) = lv_button_create(parent) else {
         return 0;
     };
     if let Some(label) = lv_label_create(btn) {

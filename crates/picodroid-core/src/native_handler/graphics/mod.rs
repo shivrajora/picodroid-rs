@@ -157,6 +157,7 @@ fn dispatch_with<B: GraphicsBackend>(
     let class_hit = match key.class {
         ch::picodroid_graphics_Display => be.dispatch_display(key.method, ctx),
         ch::picodroid_debug_DisplayDebug => be.dispatch_display_debug(key.method, ctx),
+        ch::picodroid_view_LayoutInflater => be.dispatch_layout_inflater(key.method, ctx),
         ch::picodroid_widget_TextView => be.dispatch_text_view(key.method, ctx),
         ch::picodroid_widget_Button => be.dispatch_button(key.method, ctx),
         ch::picodroid_widget_LinearLayout => be.dispatch_linear_layout(key.method, ctx),

@@ -15,4 +15,9 @@ public class Space extends View {
   public Space(Context context) {
     super(context);
   }
+
+  /** For the inflater's native path, which makes the widget itself ({@link InflaterSupport}). */
+  protected Space(int nativeHandle) {
+    super(nativeHandle);
+  }
 }

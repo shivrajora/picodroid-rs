@@ -11,6 +11,17 @@
 //! [`with_one_refresh`] does the same for the sequences this crate writes.
 
 use crate::lvgl_ffi::*;
+use core::sync::atomic::{AtomicU8, AtomicUsize, Ordering::Relaxed};
+
+/// How many [`with_one_refresh`] batches are open, and the object the
+/// outermost one is on. The outermost batch owns the refresh: a batch
+/// inside it on the same object (the inflater's node batch around
+/// `set_padding`'s) must neither switch the automatic refresh back on
+/// early nor refresh on its own; one on another object refreshes that
+/// object itself, since the outer refresh will not reach it. Touched by
+/// the UI task only, so plain loads and stores count.
+static DEPTH: AtomicU8 = AtomicU8::new(0);
+static OUTER: AtomicUsize = AtomicUsize::new(0);
 
 /// Run `f`'s style sets on `obj` with LVGL's automatic refresh off, then
 /// refresh `obj` once as a set of `prop` would have.
@@ -25,16 +36,31 @@ use crate::lvgl_ffi::*;
 /// `f` must not create an object (`lv_obj_class_init_obj` switches the
 /// refresh back on, and the sets after it refresh one by one again — still
 /// correct, no longer batched) and must not set styles on another object
-/// (those would go unrefreshed).
+/// (those would go unrefreshed). Batches nest: an inner one on the same
+/// object folds into the outer one's single refresh.
 #[inline]
 pub(in crate::graphics) fn with_one_refresh<R>(
     obj: Obj,
     prop: lv_style_prop_t,
     f: impl FnOnce() -> R,
 ) -> R {
-    lv_obj_enable_style_refresh(false);
+    let depth = DEPTH.load(Relaxed);
+    DEPTH.store(depth + 1, Relaxed);
+    if depth == 0 {
+        OUTER.store(obj.addr(), Relaxed);
+        lv_obj_enable_style_refresh(false);
+    }
     let r = f();
-    lv_obj_enable_style_refresh(true);
-    lv_obj_refresh_style(obj, LV_PART_MAIN, prop);
+    DEPTH.store(depth, Relaxed);
+    if depth == 0 {
+        lv_obj_enable_style_refresh(true);
+        lv_obj_refresh_style(obj, LV_PART_MAIN, prop);
+    } else if OUTER.load(Relaxed) != obj.addr() {
+        // Nested on another object: the refresh is a no-op while the
+        // automatic one is off, so switch it on for this object alone.
+        lv_obj_enable_style_refresh(true);
+        lv_obj_refresh_style(obj, LV_PART_MAIN, prop);
+        lv_obj_enable_style_refresh(false);
+    }
     r
 }

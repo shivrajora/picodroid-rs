@@ -40,6 +40,14 @@ pub trait GraphicsBackend {
     /// View-level fallthrough.
     fn dispatch_view_group(&mut self, method: u32, ctx: &mut NativeContext<'_>) -> DispatchResult;
 
+    /// `picodroid/view/LayoutInflater`'s one graphics native, the node
+    /// inflate; its word reads stay with the resource module.
+    fn dispatch_layout_inflater(
+        &mut self,
+        method: u32,
+        ctx: &mut NativeContext<'_>,
+    ) -> DispatchResult;
+
     fn dispatch_text_view(&mut self, method: u32, ctx: &mut NativeContext<'_>) -> DispatchResult;
     fn dispatch_button(&mut self, method: u32, ctx: &mut NativeContext<'_>) -> DispatchResult;
     fn dispatch_linear_layout(

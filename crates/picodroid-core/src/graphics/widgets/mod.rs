@@ -17,6 +17,7 @@ mod drawable;
 mod edit_text;
 mod frame_layout;
 mod image_view;
+mod inflate;
 mod keyboard;
 mod linear_layout;
 mod list_view;
@@ -93,6 +94,7 @@ pub use image_view::{
     image_view_native_create, image_view_set_resource, image_view_set_scale,
     image_view_set_scale_type, image_view_set_src, image_view_set_tint,
 };
+pub use inflate::layout_inflater_inflate_node;
 pub use keyboard::{
     drain_editor_action, drain_ready_queue as drain_keyboard_ready_queue, lookup_keyboard_obj,
 };

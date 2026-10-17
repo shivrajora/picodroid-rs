@@ -38,6 +38,11 @@ public class ImageView extends View {
     super(nativeCreate());
   }
 
+  /** For the inflater's native path, which makes the widget itself ({@link InflaterSupport}). */
+  protected ImageView(int nativeHandle) {
+    super(nativeHandle);
+  }
+
   private static native int nativeCreate();
 
   /**

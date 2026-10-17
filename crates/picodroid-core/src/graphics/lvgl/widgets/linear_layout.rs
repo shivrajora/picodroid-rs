@@ -8,7 +8,14 @@ use super::super::lifecycle;
 use super::super::style_batch;
 
 pub(in crate::graphics) fn create() -> i32 {
-    let Some(o) = lifecycle::screen_ptr().and_then(|o| lv_obj_create(o)) else {
+    lifecycle::screen_ptr().map_or(0, create_under)
+}
+
+/// [`create`], under `parent` instead of the screen: the inflater makes a
+/// node where it belongs, so no re-parenting follows.
+#[inline(never)]
+pub(in crate::graphics) fn create_under(parent: Obj) -> i32 {
+    let Some(o) = lv_obj_create(parent) else {
         return 0;
     };
     {

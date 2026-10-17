@@ -20,6 +20,12 @@ public class LinearLayout extends ViewGroup {
     this.orientation = VERTICAL;
   }
 
+  /** For the inflater's native path, which makes the widget itself ({@link InflaterSupport}). */
+  protected LinearLayout(int nativeHandle) {
+    super(nativeHandle);
+    this.orientation = VERTICAL;
+  }
+
   private static native int nativeCreate();
 
   public native void setOrientation(int orientation);

@@ -2440,6 +2440,31 @@ mod tests {
             "stale CLASS_ label"
         );
 
+        // InflaterSupport.adopt spells the codes of the classes the native
+        // path makes the same way: each of its labels must agree.
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../sdk/java/picodroid/widget/InflaterSupport.java");
+        let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let mut adopted = 0;
+        for line in text.lines() {
+            let Some((case, name)) = line.trim().split_once(": // ") else {
+                continue;
+            };
+            let Some(code) = case
+                .strip_prefix("case ")
+                .and_then(|n| n.parse::<i64>().ok())
+            else {
+                continue;
+            };
+            assert_eq!(
+                inflater.get(name.trim()),
+                Some(&code),
+                "InflaterSupport {name} disagrees with LayoutInflater"
+            );
+            adopted += 1;
+        }
+        assert!(adopted >= 8, "InflaterSupport.adopt labels its cases");
+
         // Resources.applyTheme spells the theme attribute codes the same way.
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../sdk/java/picodroid/content/res/Resources.java");

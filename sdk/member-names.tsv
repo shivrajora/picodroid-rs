@@ -211,6 +211,7 @@ F	MATCH_PARENT
 F	MAX
 F	MAX_BLOB
 F	MAX_CALLBACKS
+F	MAX_DEFERRED
 F	MAX_ENTRIES
 F	MAX_EXTRAS
 F	MAX_KEY_LEN
@@ -302,6 +303,11 @@ F	ORIENTATION_PORTRAIT
 F	ORIENTATION_UNDEFINED
 F	ORIENTATION_VERTICAL
 F	PACKET_BYTES
+F	PARENT_CUSTOM
+F	PARENT_FRAME
+F	PARENT_LINEAR
+F	PARENT_NONE
+F	PARENT_OTHER
 F	PARITY_EVEN
 F	PARITY_NONE
 F	PARITY_ODD
@@ -678,7 +684,10 @@ F	mContentView
 F	mContext
 F	mCurState
 F	mCurrentItem
+F	mCustom
 F	mData
+F	mDeferred
+F	mDeferredCount
 F	mDepth
 F	mDestroyed
 F	mDiskGeneration
@@ -689,6 +698,7 @@ F	mDrawPending
 F	mDrawTask
 F	mExecuting
 F	mFactory
+F	mFast
 F	mFieldId
 F	mFlags
 F	mFragment
@@ -699,6 +709,7 @@ F	mFragments
 F	mFrags
 F	mGravity
 F	mGroup
+F	mHeight
 F	mHost
 F	mInts
 F	mIsPop
@@ -707,12 +718,17 @@ F	mKeys
 F	mLastTag
 F	mLastVersion
 F	mLayout
+F	mLayoutGravity
 F	mLifecycle
 F	mLifecycleState
 F	mLimit
 F	mLineMode
 F	mLiveData
 F	mManager
+F	mMarginBottom
+F	mMarginLeft
+F	mMarginRight
+F	mMarginTop
 F	mMaxState
 F	mMaxWidth
 F	mMemoryGeneration
@@ -725,6 +741,7 @@ F	mObserver
 F	mObservers
 F	mOffscreenPageLimit
 F	mOpen
+F	mOpenKind
 F	mOpenLeft
 F	mOps
 F	mOptionsMenu
@@ -769,8 +786,10 @@ F	mVersion
 F	mView
 F	mViewLifecycle
 F	mViewModelStore
+F	mWeight
 F	mWho
 F	mWidgetListener
+F	mWidth
 F	mWriteLock
 F	main
 F	mark
@@ -985,6 +1004,7 @@ M	addTo
 M	addToBackStack
 M	addTransportType
 M	addView
+M	adopt
 M	adopt0
 M	afterTextChanged
 M	again
@@ -996,6 +1016,7 @@ M	appendField
 M	appendHeader
 M	appendTo
 M	apply
+M	applyDeferred
 M	applyDimension
 M	applyLayoutSize
 M	applyLineMode
@@ -1014,9 +1035,11 @@ M	atTime
 M	atan2
 M	attach
 M	attachFragment
+M	attachInflated
 M	available
 M	await
 M	awaitTermination
+M	background
 M	backgroundExecutor
 M	beforeTextChanged
 M	begin
@@ -1646,6 +1669,7 @@ M	joinItems
 M	keyList
 M	keySet
 M	keys
+M	kindOf
 M	lambda$dataSetChanged$6
 M	lambda$fireEvent$0
 M	lambda$new$0
@@ -1664,6 +1688,7 @@ M	lazySet
 M	length
 M	lengthOfMonth
 M	lengthOfYear
+M	link
 M	linkChanged
 M	list
 M	listFiles
@@ -1766,6 +1791,7 @@ M	nativeHeaderField
 M	nativeHeaderFieldAt
 M	nativeIconHandle
 M	nativeIndexOf
+M	nativeInflateNode
 M	nativeInit
 M	nativeIntValue
 M	nativeIsFocused
@@ -2029,6 +2055,7 @@ M	onViewAdded
 M	onViewCreated
 M	onViewStateRestored
 M	one
+M	oneLegacy
 M	op
 M	open
 M	openAdcPin
@@ -2050,6 +2077,7 @@ M	optJSONObject
 M	optLong
 M	optString
 M	pad
+M	params
 M	parse
 M	parseUnsignedInt
 M	path
@@ -2076,6 +2104,7 @@ M	performStart
 M	performStop
 M	performTrackingTouch
 M	performedLongPress
+M	plain
 M	plus
 M	plusDays
 M	plusHours

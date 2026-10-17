@@ -84,13 +84,53 @@ that.
 Nothing in `scripts/` or `hil-tests.conf` grepped for the old line; the docs that used it as an
 acceptance criterion now read "no `screen build`, `slow handler` or `jank` line".
 
-## 4. The inflate fast path (stage 2)
+## 4. The inflate fast path (stage 2, built)
 
-One native per inflated framework view: `LayoutInflater.nativeInflateNode` reads the node's
-words in Rust, creates the LVGL object under its final parent, applies every attribute under
-one style refresh and writes the Java wrapper's cached fields by slot; Java adopts the handle
-through the `(int nativeHandle)` constructors and joins the child list without a native.
-Custom views keep the Java path. Design and numbers: to come with the stage.
+`LayoutInflater.nativeInflateNode(View v, int layout, int pos, int parentHandle, int
+parentKind, int[] deferred)`: one native per framework view. Java reads the node's header
+(one `nativeWord`), adopts a wrapper with no widget yet (`picodroid.widget.InflaterSupport`,
+over the `(int nativeHandle)` constructors), and hands it to the runtime, which
+
+- reads the node's words itself (`graphics/inflate_scan.rs`, pure and host-tested: the
+  header, then the `(attr, value)` pairs sorted into what LVGL applies, what the
+  `LayoutParams` needs, and what goes back to Java);
+- creates the widget **under its final parent** (`create_under` on each widget shim; the
+  old path created every widget on the screen and `addView` re-parented it), and applies
+  every attribute it has a setter for under **one style refresh** (`style_batch.rs`, now
+  re-entrant so the padding and margin batches nest), through the same `view_ops` and
+  widget shims the setters call: padding, size, weight / margins / frame gravity as
+  `ViewGroup.addView` would by the parent's kind, background colour, visibility, enabled,
+  focusable, alpha, keep-screen-on, min and max sizes, text, colour, size, font padding,
+  line mode, gravity, orientation;
+- writes the wrapper's handle and the fields its getters and dedupes read (`View.id`,
+  `visibility`, `enabled`, `focusable`, `keepScreenOn`, `minWidth`, `minHeight`, `alpha`;
+  `TextView.mText` (interned before anything is made, since an allocation that fails inside a
+  native runs the native again), `mTextColor`, `mTextSize`, `mGravity`, `mMaxWidth`, the
+  packed `mLineMode`) by field slot (`graphics/fields.rs`, checked against the class files by
+  `native_field_tables_tests`), and the inflater's read position, child count and
+  `layout_*` words;
+- hands back, in `deferred`, the pairs it has no setter for — a `<shape>` background (Java
+  builds the `GradientDrawable` so `getBackground()` returns it), `ImageView`'s source and
+  tint, the bars' and pickers' values — for Java's unchanged `apply`.
+
+Java then builds the `LayoutParams` object from the words and joins the child without a
+native (`ViewGroup.attachInflated`). The classes on this path: `LinearLayout`, `FrameLayout`,
+`ScrollView`, `TextView`, `Button`, `ImageView`, `RadioGroup`, `View`, `Space`. The rest
+(the compound buttons, whose constructors reach their widget; the bars, pickers, `EditText`,
+`Spinner`, `ListView`, `ViewPager2`), a class of the app's own, a plain `View` with a
+`wrap_content` side (Java measures it), a node with more than eight pairs to hand back, a
+freed parent and a full widget pool all take the old path, unchanged (`oneLegacy`). A child
+of a group of the app's own is made under it but joined through `addView`, so an override
+runs. `AsyncLayoutInflater`'s slices use the same `one()`.
+
+Flash: the attribute switch moved from Java bytecode to Rust; the Java switch stays for the
+classes above. Zero new `unsafe` blocks (every LVGL call goes through an existing wrapper).
+
+Per inflated view in the simulator (`parity-metrics`, the §5 benchmark): natives 27.8 → 4.2
+(two of the four are `Object.<init>`, which the interpreter counts as a native: one for the
+wrapper, one for its `LayoutParams` — a pack-time lever of its own), bytecodes 804 → 250,
+invokes 77 → 17. What is left is the Java object model: two objects with their constructor
+chains and field initialisers, and the child-list bookkeeping.
 
 ## 5. Benchmark and numbers
 

@@ -10,16 +10,63 @@
 pub mod view {
     /// `lv_obj_t*` cast to `i32` (declared in `View.java`).
     pub const NATIVE_HANDLE: usize = 0;
-    // View.java declares the parent back-pointer, the listener, layout-params,
-    // cached-getter, background (`mBackground`, `mBackgroundTint`) and drawing
-    // (`mCanvas`, `mDrawPending`, `mDrawTask`) fields after `nativeHandle`
-    // (20 instance fields in all, and each static takes a slot too); a
-    // subclass's own fields — e.g.
-    // `CompoundButton.onCheckedChangeListener`, `LinearLayout.orientation` —
-    // follow them. `TextView` and `Button` declare none, so inserting TextView
-    // into Button's chain moved nothing. None of those are named in this file:
-    // they are read and written from Java only, so no Rust code ever needs
-    // their index.
+    // View.java declares the parent back-pointer, the listeners and the
+    // layout params after `nativeHandle` (slots 1-8), then the fields the
+    // getters read, which the inflater's native path writes for a view it
+    // made (24 instance fields in all); a subclass's own fields — e.g.
+    // `CompoundButton.onCheckedChangeListener` — follow them. Fields not
+    // named here are read and written from Java only.
+    /// `boolean focusable`.
+    pub const FOCUSABLE: usize = 10;
+    /// `boolean keepScreenOn`.
+    pub const KEEP_SCREEN_ON: usize = 11;
+    pub const MIN_WIDTH: usize = 12;
+    pub const MIN_HEIGHT: usize = 13;
+    /// `int visibility`.
+    pub const VISIBILITY: usize = 14;
+    /// `boolean enabled`.
+    pub const ENABLED: usize = 15;
+    /// `float alpha`.
+    pub const ALPHA: usize = 16;
+    /// `int id`.
+    pub const ID: usize = 17;
+}
+
+/// `picodroid.widget.TextView`'s own fields, after `View`'s 24: the cached
+/// values its getters and dedupes read, written by the inflater's native
+/// path for a label it made.
+pub mod text_view {
+    /// `int mLineMode`: the packed ellipsize kind, single-line flag,
+    /// max-lines count and two flags (`inflate_scan::pack_line_mode`).
+    pub const LINE_MODE: usize = 24;
+    pub const MAX_WIDTH: usize = 25;
+    /// `float mTextSize`.
+    pub const TEXT_SIZE: usize = 26;
+    /// `String mText`.
+    pub const TEXT: usize = 27;
+    pub const TEXT_COLOR: usize = 28;
+    pub const GRAVITY: usize = 29;
+}
+
+/// `picodroid.view.LayoutInflater`: the read position and child count its
+/// `one` keeps, and the `LayoutParams` words and hand-back count the native
+/// path leaves for it, in declaration order after `mContext` and `mFactory`.
+pub mod layout_inflater {
+    /// `int mPos`.
+    pub const POS: usize = 3;
+    /// `int mChildCount`.
+    pub const CHILD_COUNT: usize = 4;
+    pub const WIDTH: usize = 11;
+    pub const HEIGHT: usize = 12;
+    /// `float mWeight`.
+    pub const WEIGHT: usize = 13;
+    pub const LAYOUT_GRAVITY: usize = 14;
+    pub const MARGIN_LEFT: usize = 15;
+    pub const MARGIN_TOP: usize = 16;
+    pub const MARGIN_RIGHT: usize = 17;
+    pub const MARGIN_BOTTOM: usize = 18;
+    /// `int mDeferredCount`: pairs written to `mDeferred`.
+    pub const DEFERRED_COUNT: usize = 19;
 }
 
 pub mod display {

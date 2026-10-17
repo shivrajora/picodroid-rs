@@ -373,6 +373,7 @@ picodroid/widget/FragmentStateAdapter
 picodroid/widget/FrameLayout
 picodroid/widget/FrameLayout$LayoutParams
 picodroid/widget/ImageView
+picodroid/widget/InflaterSupport
 picodroid/widget/Keyboard
 picodroid/widget/Keyboard$OnReadyListener
 picodroid/widget/LinearLayout

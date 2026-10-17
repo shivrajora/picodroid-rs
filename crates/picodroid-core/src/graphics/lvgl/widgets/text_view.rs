@@ -9,7 +9,13 @@ use super::super::lifecycle;
 
 /// Create an `lv_label` on the active screen and register its handle.
 pub(in crate::graphics) fn create() -> i32 {
-    match lifecycle::screen_ptr().and_then(|o| lv_label_create(o)) {
+    lifecycle::screen_ptr().map_or(0, create_under)
+}
+
+/// [`create`], under `parent` instead of the screen (the inflater's path).
+#[inline(never)]
+pub(in crate::graphics) fn create_under(parent: Obj) -> i32 {
+    match lv_label_create(parent) {
         Some(label) => handle_table::register(label),
         None => 0,
     }

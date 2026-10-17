@@ -48,8 +48,11 @@ public class View {
   OnFocusChangeListener onFocusChangeListener;
   ViewGroup.LayoutParams layoutParams;
 
-  /** Set by {@link #setSize}; read by {@code Activity.setContentView} to size an unsized root. */
-  private boolean mSized;
+  /**
+   * Set by {@link #setSize} (and the inflater, for a child its native path sized); read by {@code
+   * Activity.setContentView} to size an unsized root.
+   */
+  boolean mSized;
 
   boolean focusable = false; // Android default for a plain View / ViewGroup.
   boolean keepScreenOn = false;
@@ -108,6 +111,17 @@ public class View {
   }
 
   private static native int nativeCreateView();
+
+  /**
+   * A plain view for the inflater's native path, which makes the widget and fills in {@link
+   * #nativeHandle} itself: the canvas {@link #View(Context)} gives, but no first {@link #onDraw}
+   * posted, since a plain view draws nothing until something asks it to.
+   */
+  static View plain() {
+    View v = new View(0);
+    v.mCanvas = new Canvas();
+    return v;
+  }
 
   /**
    * Draws this view. Mirrors {@code android.view.View#onDraw(Canvas)}: runs on the main thread

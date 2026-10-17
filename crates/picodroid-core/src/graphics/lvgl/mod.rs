@@ -55,6 +55,7 @@ pub mod menu_button {
 #[cfg(hw_vscroll)]
 pub mod hw_scroll;
 pub mod hw_scroll_math;
+pub mod inflate;
 pub mod lifecycle;
 pub mod style_batch;
 pub mod view_ops;

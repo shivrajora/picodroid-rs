@@ -28,5 +28,13 @@ public class Button extends TextView {
     this("");
   }
 
+  /**
+   * For the inflater's native path, which makes the button itself ({@link InflaterSupport}) and
+   * writes its text and focusability, as the constructor above would.
+   */
+  protected Button(int nativeHandle) {
+    super(nativeHandle);
+  }
+
   private static native int nativeCreate(String text);
 }

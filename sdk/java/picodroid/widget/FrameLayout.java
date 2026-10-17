@@ -14,6 +14,11 @@ public class FrameLayout extends ViewGroup {
     super(nativeCreate());
   }
 
+  /** For the inflater's native path, which makes the widget itself ({@link InflaterSupport}). */
+  protected FrameLayout(int nativeHandle) {
+    super(nativeHandle);
+  }
+
   private static native int nativeCreate();
 
   /**

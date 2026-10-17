@@ -656,6 +656,12 @@ pub const CORE_HANDLED: &[Row] = &[
 
 /// `graphics/mod.rs` routing + `graphics/lvgl_backend.rs` dispatch_* arms.
 pub const GRAPHICS_HANDLED: &[Row] = &[
+    // picodroid/view/LayoutInflater: the node inflate (lvgl/inflate.rs)
+    (
+        "picodroid/view/LayoutInflater",
+        "nativeInflateNode",
+        "(Lpicodroid/view/View;IIII[I)Z",
+    ),
     // picodroid/app/AlertDialog
     ("picodroid/app/AlertDialog", "nativeCreate", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I"),
     ("picodroid/app/AlertDialog", "nativeCreateWithList", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;II)I"),

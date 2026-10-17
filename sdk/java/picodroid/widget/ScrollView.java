@@ -14,5 +14,10 @@ public class ScrollView extends ViewGroup {
     super(nativeCreate());
   }
 
+  /** For the inflater's native path, which makes the widget itself ({@link InflaterSupport}). */
+  protected ScrollView(int nativeHandle) {
+    super(nativeHandle);
+  }
+
   private static native int nativeCreate();
 }

@@ -159,6 +159,17 @@ impl GraphicsBackend for LvglBackend {
         }
     }
 
+    fn dispatch_layout_inflater(
+        &mut self,
+        method: u32,
+        ctx: &mut NativeContext<'_>,
+    ) -> DispatchResult {
+        match method {
+            mh::nativeInflateNode => Some(widgets::layout_inflater_inflate_node(ctx)),
+            _ => None,
+        }
+    }
+
     fn dispatch_linear_layout(
         &mut self,
         method: u32,

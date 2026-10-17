@@ -14,7 +14,13 @@ const JAVA_SCALE_TILE: i32 = 3;
 const JAVA_SCALE_CENTER: i32 = 4;
 
 pub(in crate::graphics) fn create() -> i32 {
-    match lifecycle::screen_ptr().and_then(|o| lv_image_create(o)) {
+    lifecycle::screen_ptr().map_or(0, create_under)
+}
+
+/// [`create`], under `parent` instead of the screen (the inflater's path).
+#[inline(never)]
+pub(in crate::graphics) fn create_under(parent: Obj) -> i32 {
+    match lv_image_create(parent) {
         Some(img) => handle_table::register(img),
         None => 0,
     }

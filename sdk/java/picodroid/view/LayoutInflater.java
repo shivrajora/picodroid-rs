@@ -16,6 +16,7 @@ import picodroid.widget.CompoundButton;
 import picodroid.widget.EditText;
 import picodroid.widget.FrameLayout;
 import picodroid.widget.ImageView;
+import picodroid.widget.InflaterSupport;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.ListView;
 import picodroid.widget.ProgressBar;
@@ -87,11 +88,46 @@ public class LayoutInflater {
   private View mRoot;
   private int mRootVisibility;
 
+  // What nativeInflateNode leaves for one() after making a node: its layout_* words, for the
+  // LayoutParams, and how many (attribute, value) pairs it handed back in mDeferred for apply().
+  // Written from the runtime by field slot (graphics/fields.rs): append only.
+  private int mWidth;
+  private int mHeight;
+  private float mWeight;
+  private int mLayoutGravity;
+  private int mMarginLeft;
+  private int mMarginTop;
+  private int mMarginRight;
+  private int mMarginBottom;
+  private int mDeferredCount;
+  private int[] mDeferred;
+
+  /**
+   * How one() made its last view: through the native path, so its widget is already under its
+   * parent's and sized; and whether it is a class of the app's own, whose addView must be the one
+   * to run for its children.
+   */
+  private boolean mFast;
+
+  private boolean mCustom;
+
+  /** The (attribute, value) pairs nativeInflateNode may hand back per node, at most. */
+  private static final int MAX_DEFERRED = 8;
+
+  /** The kinds of parent nativeInflateNode lays a child out for (lvgl/inflate.rs ParentKind). */
+  private static final int PARENT_NONE = 0;
+
+  private static final int PARENT_LINEAR = 1;
+  private static final int PARENT_FRAME = 2;
+  private static final int PARENT_OTHER = 3;
+  private static final int PARENT_CUSTOM = 4;
+
   private LayoutInflater(Context context) {
     mContext = context;
     if (context instanceof Factory) {
       mFactory = (Factory) context; // an Activity makes its own custom views, as on Android
     }
+    mDeferred = new int[2 * MAX_DEFERRED];
   }
 
   /** Mirrors Android: the inflater for {@code context}. */
@@ -135,9 +171,9 @@ public class LayoutInflater {
   public View inflate(int resource, ViewGroup root, boolean attachToRoot) {
     mLayout = resource;
     mPos = 0;
-    View view = node(root);
-    if (root != null && attachToRoot) {
-      root.addView(view, view.getLayoutParams());
+    boolean attach = root != null && attachToRoot;
+    View view = node(root, attach ? PARENT_CUSTOM : PARENT_NONE);
+    if (attach) {
       return root;
     }
     if (root == null) {
@@ -170,8 +206,12 @@ public class LayoutInflater {
     if (mOpen == null) {
       mOpen = new ViewGroup[8];
       mOpenLeft = new int[8];
+      mOpenKind = new int[8];
     }
   }
+
+  /** The parent kind of each open group, beside {@link #mOpen}. */
+  private int[] mOpenKind;
 
   /**
    * Builds views until the tree is whole or {@code SystemClock.elapsedRealtime()} reaches {@code
@@ -179,29 +219,41 @@ public class LayoutInflater {
    */
   boolean resume(long deadlineMs) {
     do {
-      View v = one(mDepth == 0 ? mRootParent : mOpen[mDepth - 1]);
+      boolean top = mDepth == 0;
+      ViewGroup parent = top ? mRootParent : mOpen[mDepth - 1];
+      int kind = top ? PARENT_NONE : mOpenKind[mDepth - 1];
+      View v = one(parent, kind);
       int children = mChildCount;
-      if (mDepth == 0) {
+      boolean custom = mCustom;
+      if (top) {
         mRoot = v;
         // The tree is built where every new view is, on the screen, over several frames: keep
         // it out of sight until it is whole and its owner has put it where it belongs.
         mRootVisibility = v.getVisibility();
         v.setVisibility(View.INVISIBLE);
+      } else if (mFast && kind != PARENT_CUSTOM) {
+        parent.attachInflated(v, v.layoutParams); // see node()
+        mOpenLeft[mDepth - 1]--;
       } else {
-        mOpen[mDepth - 1].addView(v, v.getLayoutParams());
+        parent.addView(v, v.getLayoutParams());
         mOpenLeft[mDepth - 1]--;
       }
       if (children > 0) {
         if (mDepth == mOpen.length) {
           ViewGroup[] open = new ViewGroup[mDepth * 2];
           int[] left = new int[mDepth * 2];
+          int[] kinds = new int[mDepth * 2];
           System.arraycopy(mOpen, 0, open, 0, mDepth);
           System.arraycopy(mOpenLeft, 0, left, 0, mDepth);
+          System.arraycopy(mOpenKind, 0, kinds, 0, mDepth);
           mOpen = open;
           mOpenLeft = left;
+          mOpenKind = kinds;
         }
-        mOpen[mDepth] = (ViewGroup) v; // the compiler only nests under ViewGroup classes
+        ViewGroup group = (ViewGroup) v; // the compiler only nests under ViewGroup classes
+        mOpen[mDepth] = group;
         mOpenLeft[mDepth] = children;
+        mOpenKind[mDepth] = kindOf(group, custom);
         mDepth++;
       }
       while (mDepth > 0 && mOpenLeft[mDepth - 1] == 0) {
@@ -241,30 +293,176 @@ public class LayoutInflater {
 
   private static native int nativeWord(int layout, int index);
 
+  /**
+   * Makes the framework view at the read position in one call: the runtime reads the node's words,
+   * creates {@code v}'s widget under {@code parentHandle}'s (the screen for 0), applies every
+   * attribute it has a setter for under one style refresh, lays it out as {@code parentKind}'s
+   * {@code addView} would, and writes {@code v}'s handle and cached fields, {@link #mPos}, {@link
+   * #mChildCount} and the layout_* fields. The attributes it leaves to {@link #apply} land in
+   * {@code deferred}, {@link #mDeferredCount} pairs. Returns false, with nothing made and the
+   * position untouched, for a node that takes the Java path (a class it does not cover, a plain
+   * View to measure, more attributes to hand back than fit, a full widget pool).
+   */
+  private native boolean nativeInflateNode(
+      View v, int layout, int pos, int parentHandle, int parentKind, int[] deferred);
+
   private int next() {
     return nativeWord(mLayout, mPos++);
   }
 
-  /** Inflates the node at the read position and everything under it. */
-  private View node(ViewGroup parent) {
-    View v = one(parent);
+  /**
+   * Inflates the node at the read position and everything under it; with a {@code kind} other than
+   * {@link #PARENT_NONE}, joins it to {@code parent}, which it was made under or is moved under.
+   */
+  private View node(ViewGroup parent, int kind) {
+    View v = one(parent, kind);
     int children = mChildCount;
+    boolean custom = mCustom;
+    // A view the native path made is already under the parent's widget and laid out, so only
+    // the Java side joins; one from the Java path, or under a group of the app's own, goes
+    // through addView, so an override of it runs. With PARENT_NONE the caller places it.
+    if (kind == PARENT_NONE) {
+      // Not joined here.
+    } else if (mFast && kind != PARENT_CUSTOM) {
+      parent.attachInflated(v, v.layoutParams);
+    } else {
+      parent.addView(v, v.getLayoutParams());
+    }
     if (children > 0) {
       // The compiler only nests under the ViewGroup classes create() knows.
       ViewGroup group = (ViewGroup) v;
+      int childKind = kindOf(group, custom);
       for (int i = 0; i < children; i++) {
-        View child = node(group);
-        group.addView(child, child.getLayoutParams());
+        node(group, childKind);
       }
     }
     return v;
   }
 
+  /** How {@code group} lays its children out, for nativeInflateNode. */
+  private static int kindOf(ViewGroup group, boolean custom) {
+    if (custom) {
+      return PARENT_CUSTOM;
+    }
+    if (group instanceof LinearLayout) {
+      return PARENT_LINEAR;
+    }
+    if (group instanceof FrameLayout) {
+      return PARENT_FRAME;
+    }
+    return PARENT_OTHER;
+  }
+
   /**
    * Makes the one view at the read position, its LayoutParams made for {@code parent}, and leaves
-   * the number of children that follow it in {@link #mChildCount}.
+   * the number of children that follow it in {@link #mChildCount}: through the native path for the
+   * framework classes it covers, else through {@link #oneLegacy}. {@code kind} says how the native
+   * path should lay the view out for its parent, {@link #PARENT_NONE} for a view that is not joined
+   * to one.
    */
-  private View one(ViewGroup parent) {
+  private View one(ViewGroup parent, int kind) {
+    int cls = nativeWord(mLayout, mPos) & 0xFF;
+    View v = cls == 20 ? View.plain() : InflaterSupport.adopt(cls);
+    // A parent whose widget was freed has handle 0, which would read as "the screen" to the
+    // native path: the Java path's addView throws for it instead.
+    int parentHandle = kind == PARENT_NONE ? 0 : parent.nativeHandle;
+    if (v != null
+        && (kind == PARENT_NONE || parentHandle != 0)
+        && nativeInflateNode(v, mLayout, mPos, parentHandle, kind, mDeferred)) {
+      mFast = true;
+      mCustom = false;
+      v.layoutParams =
+          params(
+              parent,
+              mWidth,
+              mHeight,
+              mWeight,
+              mLayoutGravity,
+              mMarginLeft,
+              mMarginTop,
+              mMarginRight,
+              mMarginBottom);
+      if (mDeferredCount != 0) {
+        applyDeferred(v);
+      }
+      return v;
+    }
+    return oneLegacy(parent);
+  }
+
+  /** The attributes {@link #nativeInflateNode} handed back: a {@code <shape>}, and the rest. */
+  private void applyDeferred(View v) {
+    int n = mDeferredCount;
+    boolean filled = false;
+    int fill = 0;
+    int radius = 0;
+    int strokeWidth = 0;
+    int strokeColor = 0;
+    for (int i = 0; i < n; i++) {
+      int attr = mDeferred[2 * i];
+      int value = mDeferred[2 * i + 1];
+      if (attr == 10) { // the background word of a <shape>
+        fill = value;
+        filled = true;
+      } else if (attr == 48) { // its radius
+        radius = value;
+      } else if (attr == 49) { // its stroke width
+        strokeWidth = value;
+      } else if (attr == 50) { // its stroke colour
+        strokeColor = value;
+      } else {
+        apply(v, attr, value);
+      }
+    }
+    background(v, filled, fill, radius, strokeWidth, strokeColor);
+  }
+
+  /** The LayoutParams {@code parent} wants, from a node's layout_* words. */
+  private static ViewGroup.MarginLayoutParams params(
+      ViewGroup parent,
+      int width,
+      int height,
+      float weight,
+      int layoutGravity,
+      int marginLeft,
+      int marginTop,
+      int marginRight,
+      int marginBottom) {
+    ViewGroup.MarginLayoutParams lp;
+    if (parent instanceof LinearLayout) {
+      LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(width, height, weight);
+      llp.gravity = layoutGravity;
+      lp = llp;
+    } else if (parent instanceof FrameLayout) {
+      lp = new FrameLayout.LayoutParams(width, height, layoutGravity);
+    } else {
+      lp = new ViewGroup.MarginLayoutParams(width, height);
+    }
+    if ((marginLeft | marginTop | marginRight | marginBottom) != 0) {
+      lp.setMargins(marginLeft, marginTop, marginRight, marginBottom);
+    }
+    return lp;
+  }
+
+  /** A node's background: a {@code <shape>} the compiler flattened, or a colour, or nothing. */
+  private static void background(
+      View v, boolean filled, int fill, int radius, int strokeWidth, int strokeColor) {
+    if (radius != 0 || strokeWidth != 0) {
+      GradientDrawable shape = new GradientDrawable().setColor(fill).setCornerRadius(radius);
+      if (strokeWidth != 0) {
+        shape.setStroke(strokeWidth, strokeColor);
+      }
+      v.setBackground(shape);
+    } else if (filled) {
+      v.setBackgroundColor(fill);
+    }
+  }
+
+  /**
+   * {@link #one} through the Java setters: a view class of the app's own, made by the {@link
+   * Factory} or by reflection, or a framework class the native path does not cover.
+   */
+  private View oneLegacy(ViewGroup parent) {
     int header = next();
     int attrs = (header >> 8) & 0xFF;
     mChildCount = header >>> 16;
@@ -279,6 +477,8 @@ public class LayoutInflater {
     } else {
       v = create(cls);
     }
+    mFast = false;
+    mCustom = cls == 19;
 
     int width = ViewGroup.LayoutParams.WRAP_CONTENT;
     int height = ViewGroup.LayoutParams.WRAP_CONTENT;
@@ -364,16 +564,7 @@ public class LayoutInflater {
     if (padded) {
       v.setPadding(padLeft, padTop, padRight, padBottom);
     }
-    if (radius != 0 || strokeWidth != 0) {
-      // A <shape> drawable: the compiler flattened it into these words.
-      GradientDrawable shape = new GradientDrawable().setColor(fill).setCornerRadius(radius);
-      if (strokeWidth != 0) {
-        shape.setStroke(strokeWidth, strokeColor);
-      }
-      v.setBackground(shape);
-    } else if (filled) {
-      v.setBackgroundColor(fill);
-    }
+    background(v, filled, fill, radius, strokeWidth, strokeColor);
 
     // A bar has no content to wrap: LVGL would size it to zero. wrap_content keeps the size the
     // widget was created with instead — its intrinsic size, as Android's ProgressBar has one.
@@ -386,20 +577,17 @@ public class LayoutInflater {
       }
     }
 
-    ViewGroup.MarginLayoutParams lp;
-    if (parent instanceof LinearLayout) {
-      LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(width, height, weight);
-      llp.gravity = layoutGravity;
-      lp = llp;
-    } else if (parent instanceof FrameLayout) {
-      lp = new FrameLayout.LayoutParams(width, height, layoutGravity);
-    } else {
-      lp = new ViewGroup.MarginLayoutParams(width, height);
-    }
-    if ((marginLeft | marginTop | marginRight | marginBottom) != 0) {
-      lp.setMargins(marginLeft, marginTop, marginRight, marginBottom);
-    }
-    v.setLayoutParams(lp);
+    v.setLayoutParams(
+        params(
+            parent,
+            width,
+            height,
+            weight,
+            layoutGravity,
+            marginLeft,
+            marginTop,
+            marginRight,
+            marginBottom));
     return v;
   }
 

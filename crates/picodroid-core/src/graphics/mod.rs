@@ -31,6 +31,9 @@ pub mod assets;
 pub mod display;
 #[cfg(not(test))]
 pub mod fields;
+// The layout-node reader of the inflater's native path: pure, with host
+// tests of its own, so it compiles under test like `gfx` and `lvgl`.
+pub mod inflate_scan;
 #[cfg(not(test))]
 pub mod view;
 #[cfg(not(test))]

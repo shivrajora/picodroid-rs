@@ -30,6 +30,11 @@ public class RadioGroup extends LinearLayout {
     super();
   }
 
+  /** For the inflater's native path, which makes the widget itself ({@link InflaterSupport}). */
+  protected RadioGroup(int nativeHandle) {
+    super(nativeHandle);
+  }
+
   /**
    * Every {@code addView} overload funnels through here, so a button added with layout params (what
    * the inflater and LinearLayout callers do) is tracked like one added bare.

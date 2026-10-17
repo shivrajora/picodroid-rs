@@ -44,6 +44,102 @@ fn slot_expectations() -> Vec<(&'static str, &'static str, usize)> {
             "nativeHandle",
             g::view::NATIVE_HANDLE,
         ),
+        (c::picodroid_view_View, "focusable", g::view::FOCUSABLE),
+        (
+            c::picodroid_view_View,
+            "keepScreenOn",
+            g::view::KEEP_SCREEN_ON,
+        ),
+        (c::picodroid_view_View, "minWidth", g::view::MIN_WIDTH),
+        (c::picodroid_view_View, "minHeight", g::view::MIN_HEIGHT),
+        (c::picodroid_view_View, "visibility", g::view::VISIBILITY),
+        (c::picodroid_view_View, "enabled", g::view::ENABLED),
+        (c::picodroid_view_View, "alpha", g::view::ALPHA),
+        (c::picodroid_view_View, "id", g::view::ID),
+        (
+            c::picodroid_widget_TextView,
+            "mLineMode",
+            g::text_view::LINE_MODE,
+        ),
+        (
+            c::picodroid_widget_TextView,
+            "mMaxWidth",
+            g::text_view::MAX_WIDTH,
+        ),
+        (
+            c::picodroid_widget_TextView,
+            "mTextSize",
+            g::text_view::TEXT_SIZE,
+        ),
+        (c::picodroid_widget_TextView, "mText", g::text_view::TEXT),
+        (
+            c::picodroid_widget_TextView,
+            "mTextColor",
+            g::text_view::TEXT_COLOR,
+        ),
+        (
+            c::picodroid_widget_TextView,
+            "mGravity",
+            g::text_view::GRAVITY,
+        ),
+        // A Button is a TextView whose own fields come after, so the slots
+        // hold for it too (the inflater writes them through the Button).
+        (c::picodroid_widget_Button, "mText", g::text_view::TEXT),
+        (
+            c::picodroid_view_LayoutInflater,
+            "mPos",
+            g::layout_inflater::POS,
+        ),
+        (
+            c::picodroid_view_LayoutInflater,
+            "mChildCount",
+            g::layout_inflater::CHILD_COUNT,
+        ),
+        (
+            c::picodroid_view_LayoutInflater,
+            "mWidth",
+            g::layout_inflater::WIDTH,
+        ),
+        (
+            c::picodroid_view_LayoutInflater,
+            "mHeight",
+            g::layout_inflater::HEIGHT,
+        ),
+        (
+            c::picodroid_view_LayoutInflater,
+            "mWeight",
+            g::layout_inflater::WEIGHT,
+        ),
+        (
+            c::picodroid_view_LayoutInflater,
+            "mLayoutGravity",
+            g::layout_inflater::LAYOUT_GRAVITY,
+        ),
+        (
+            c::picodroid_view_LayoutInflater,
+            "mMarginLeft",
+            g::layout_inflater::MARGIN_LEFT,
+        ),
+        (
+            c::picodroid_view_LayoutInflater,
+            "mMarginTop",
+            g::layout_inflater::MARGIN_TOP,
+        ),
+        (
+            c::picodroid_view_LayoutInflater,
+            "mMarginRight",
+            g::layout_inflater::MARGIN_RIGHT,
+        ),
+        (
+            c::picodroid_view_LayoutInflater,
+            "mMarginBottom",
+            g::layout_inflater::MARGIN_BOTTOM,
+        ),
+        (
+            c::picodroid_view_LayoutInflater,
+            "mDeferredCount",
+            g::layout_inflater::DEFERRED_COUNT,
+        ),
         (c::picodroid_graphics_Display, "width", g::display::WIDTH),
         (c::picodroid_graphics_Display, "height", g::display::HEIGHT),
         (

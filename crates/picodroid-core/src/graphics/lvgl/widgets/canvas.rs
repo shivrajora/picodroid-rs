@@ -224,7 +224,14 @@ pub(crate) fn text_align(ordinal: i32) -> i32 {
 /// object with a display list. A plain Android `View` takes no touches until it
 /// gets a listener, which sets CLICKABLE again (`view::register_click_listener`).
 pub(in crate::graphics) fn create() -> i32 {
-    let Some(o) = lifecycle::screen_ptr().and_then(|o| lv_obj_create(o)) else {
+    lifecycle::screen_ptr().map_or(0, create_under)
+}
+
+/// [`create`], under `parent` instead of the screen: the inflater makes a
+/// node where it belongs, so no re-parenting follows.
+#[inline(never)]
+pub(in crate::graphics) fn create_under(parent: Obj) -> i32 {
+    let Some(o) = lv_obj_create(parent) else {
         return 0;
     };
     super::frame_layout::make_flat(o);

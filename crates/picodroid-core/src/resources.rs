@@ -144,6 +144,11 @@ pub fn boolean(id: i32) -> Option<bool> {
 }
 
 /// Word `index` of layout `id`; `None` for a bad id or past the end.
+/// The word stream of layout `id`, for a reader of more than one word.
+pub fn layout(id: i32) -> Option<papk_format::res::Layout<'static>> {
+    resolved(|r| r.layout(id as u32))
+}
+
 pub fn layout_word(id: i32, index: i32) -> Option<i32> {
     let index = usize::try_from(index).ok()?;
     resolved(|r| r.layout(id as u32))?
