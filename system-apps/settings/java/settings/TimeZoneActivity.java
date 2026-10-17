@@ -18,7 +18,7 @@ import picodroid.widget.ListView;
  * (picoclock-roadmap R4), so a zone is an offset, never a region, and daylight saving is the user
  * moving it twice a year. The pick is logged as {@code time zone <id>}.
  *
- * <p>A {@link ListView} under the header rather than a {@link Column} of rows: 38 rows each with a
+ * <p>A {@link ListView} under the header rather than a column of {@link Screens} rows: 38 rows each with a
  * click listener of their own would overrun the framework's click-listener table (32), and a list
  * is the Android shape for a pick anyway.
  */
@@ -40,8 +40,8 @@ public class TimeZoneActivity extends Activity {
     for (int i = 0; i < OFFSETS.length; i++) {
       labels[i] = OFFSETS[i] == current ? id(OFFSETS[i]) + "  (current)" : id(OFFSETS[i]);
     }
-    LinearLayout root = Screens.column(this);
-    root.addView(Screens.header(this, "Time zone", v -> finish()));
+    LinearLayout root = Screens.column();
+    Screens.header(this, root, "Time zone", v -> finish());
     ListView list = new ListView(this);
     list.setSize(getDisplay().getWidth(), getDisplay().getHeight() - Screens.ROW_HEIGHT);
     list.setAdapter(new ArrayAdapter<String>(this, labels));

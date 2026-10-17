@@ -11,20 +11,20 @@ import picodroid.content.pm.PackageManager;
 import picodroid.os.StatFs;
 import picodroid.util.Log;
 import picodroid.view.View;
+import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
 import picodroid.os.Bundle;
 
 /**
  * Storage: the volume, then every package's app and data bytes. The header row goes back.
  *
- * <p>The rows land one per tick with their numbers pending. The numbers come from a pool worker —
- * a package's data walk blocks that worker, not the tick — and are posted back one row at a time,
- * so every row is touched on the UI thread only.
+ * <p>The rows go up with their numbers pending. The numbers come from a pool worker — a package's
+ * data walk blocks that worker, not the tick — and are posted back one row at a time, so every row
+ * is touched on the UI thread only.
  */
 public class StorageActivity extends Activity {
   private static final String PENDING = "  app -- / data -- KB";
 
-  private Column column;
   private StorageStatsManager stats;
   private String[] pkgs;
   private String[] labels;
@@ -39,11 +39,22 @@ public class StorageActivity extends Activity {
     super.onCreate(savedInstanceState);
     alive = true;
     stats = (StorageStatsManager) getSystemService(STORAGE_STATS_SERVICE);
-    column = new Column(this, "< Storage", v -> finish());
-    column.fill(() -> listPackages(), i -> row(i), () -> fetch());
+    LinearLayout column = Screens.screen(this, "< Storage", v -> finish());
+    listPackages();
+    StatFs fs = new StatFs("/");
+    long total = fs.getTotalBytes();
+    long free = fs.getFreeBytes();
+    Screens.info(
+        this, column, "Volume  " + Screens.kb(total - free) + " / " + Screens.kb(total) + " KB used");
+    for (int p = 0; p < pkgs.length; p++) {
+      View row = Screens.info(this, column, labels[p], PENDING);
+      tails[p] = Screens.tailOf(row);
+    }
+    Screens.size(this, column, 2 + pkgs.length);
+    fetch();
   }
 
-  /** The packages and their labels, one query each, on the tick before the first row. */
+  /** The packages and their labels, one query each. */
   private void listPackages() {
     PackageManager pm = getPackageManager();
     List<PackageInfo> all = pm.getInstalledPackages(0);
@@ -58,23 +69,6 @@ public class StorageActivity extends Activity {
       pkgs[i] = info.packageName;
       labels[i] = pm.getApplicationLabel(info.applicationInfo).toString();
     }
-  }
-
-  /** Row 0 is the volume; then one row per package, its numbers pending. */
-  private View row(int i) {
-    if (i == 0) {
-      StatFs fs = new StatFs("/");
-      long total = fs.getTotalBytes();
-      long free = fs.getFreeBytes();
-      return Screens.info(
-          this, "Volume  " + Screens.kb(total - free) + " / " + Screens.kb(total) + " KB used");
-    }
-    int p = i - 1;
-    if (p >= pkgs.length) {
-      return null;
-    }
-    tails[p] = Screens.tail(this, PENDING);
-    return Screens.info(this, labels[p], tails[p]);
   }
 
   /** The numbers, off the UI thread: the data walks block a pool worker, not the tick. */
@@ -113,7 +107,6 @@ public class StorageActivity extends Activity {
   @Override
   public void onDestroy() {
     alive = false;
-    column.stop();
     super.onDestroy();
   }
 }

@@ -7,6 +7,7 @@ import picodroid.os.Bundle;
 import picodroid.provider.Settings;
 import picodroid.util.Log;
 import picodroid.view.View;
+import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
 
 /**
@@ -24,25 +25,18 @@ public class DisplayActivity extends Activity {
     "15 seconds", "30 seconds", "1 minute", "2 minutes", "5 minutes", "Never"
   };
 
-  private Column column;
   private View timeoutRow;
   private TextView timeoutTail;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    column = new Column(this, "Display", v -> finish());
-    column.fill(null, i -> row(i), () -> timeoutRow.requestFocus());
-  }
-
-  private View row(int i) {
-    if (i != 0) {
-      return null;
-    }
-    timeoutTail = Screens.tail(this, label(currentMs()));
-    timeoutRow = Screens.info(this, "Screen timeout", timeoutTail);
+    LinearLayout column = Screens.screen(this, "Display", v -> finish());
+    timeoutRow = Screens.info(this, column, "Screen timeout", label(currentMs()));
+    timeoutTail = Screens.tailOf(timeoutRow);
     timeoutRow.setOnClickListener(v -> pick());
-    return timeoutRow;
+    Screens.size(this, column, 2);
+    timeoutRow.requestFocus();
   }
 
   private int currentMs() {
@@ -72,11 +66,5 @@ public class DisplayActivity extends Activity {
               timeoutTail.setText(label(ms));
             })
         .show();
-  }
-
-  @Override
-  public void onDestroy() {
-    column.stop();
-    super.onDestroy();
   }
 }

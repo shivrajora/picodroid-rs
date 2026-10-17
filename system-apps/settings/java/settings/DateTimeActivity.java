@@ -8,6 +8,7 @@ import picodroid.os.Bundle;
 import picodroid.provider.Settings;
 import picodroid.util.Log;
 import picodroid.view.View;
+import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
 
 /**
@@ -26,7 +27,6 @@ public class DateTimeActivity extends Activity {
   /** Epoch ms of 2001-01-01: below it the clock has not been anchored this boot. */
   private static final long SET_THRESHOLD_MS = 978_307_200_000L;
 
-  private Column column;
   private final View[] rows = new View[3];
   private TextView autoTail;
   private TextView zoneTail;
@@ -36,29 +36,17 @@ public class DateTimeActivity extends Activity {
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    column = new Column(this, "Date & time", v -> finish());
-    column.fill(null, i -> row(i), () -> ready());
-  }
-
-  private View row(int i) {
-    switch (i) {
-      case 0:
-        autoTail = Screens.tail(this, autoOn() ? "On" : "Off");
-        rows[0] = Screens.info(this, "Automatic date & time", autoTail);
-        rows[0].setOnClickListener(v -> toggleAuto());
-        return rows[0];
-      case 1:
-        zoneTail = Screens.tail(this, TimeZone.getDefault().getID());
-        rows[1] = Screens.info(this, "Time zone", zoneTail);
-        rows[1].setOnClickListener(v -> startActivity(new Intent(TimeZoneActivity.class)));
-        return rows[1];
-      case 2:
-        timeTail = Screens.tail(this, timeNow());
-        rows[2] = Screens.info(this, "Time", timeTail);
-        return rows[2];
-      default:
-        return null;
-    }
+    LinearLayout column = Screens.screen(this, "Date & time", v -> finish());
+    rows[0] = Screens.info(this, column, "Automatic date & time", autoOn() ? "On" : "Off");
+    autoTail = Screens.tailOf(rows[0]);
+    rows[0].setOnClickListener(v -> toggleAuto());
+    rows[1] = Screens.info(this, column, "Time zone", TimeZone.getDefault().getID());
+    zoneTail = Screens.tailOf(rows[1]);
+    rows[1].setOnClickListener(v -> startActivity(new Intent(TimeZoneActivity.class)));
+    rows[2] = Screens.info(this, column, "Time", timeNow());
+    timeTail = Screens.tailOf(rows[2]);
+    Screens.size(this, column, 4);
+    ready();
   }
 
   private void ready() {
@@ -99,11 +87,5 @@ public class DateTimeActivity extends Activity {
     long hh = Math.floorMod(minutes / 60, 24L);
     long mm = Math.floorMod(minutes, 60L);
     return (hh < 10 ? "0" : "") + hh + (mm < 10 ? ":0" : ":") + mm;
-  }
-
-  @Override
-  public void onDestroy() {
-    column.stop();
-    super.onDestroy();
   }
 }

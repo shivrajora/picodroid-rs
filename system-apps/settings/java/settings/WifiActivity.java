@@ -19,6 +19,7 @@ import picodroid.net.wifi.WifiManager;
 import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.view.View;
+import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
 
 /**
@@ -42,7 +43,6 @@ public class WifiActivity extends Activity {
   private static final String TAG = SettingsActivity.TAG;
   private static final long POLL_MS = 500;
 
-  private Column column;
   private WifiManager wm;
   /** Held so the rows stay reachable while their click listeners are live. */
   private View[] rows;
@@ -73,51 +73,32 @@ public class WifiActivity extends Activity {
     render();
   }
 
-  /** The screen from scratch: a new column, then the rows one per tick. */
+  /** The screen from scratch: a new column and its rows, then the "wifi N networks" line. */
   private void render() {
-    if (column != null) {
-      column.stop();
-    }
-    column = new Column(this, "< Wi-Fi", v -> finish());
-    column.fill(() -> prepare(), i -> row(i), () -> done());
-  }
-
-  private void prepare() {
+    LinearLayout column = Screens.screen(this, "< Wi-Fi", v -> finish());
     results = wm.getScanResults();
     saved = wm.getConfiguredNetworks();
     rows = new View[3 + results.size()];
-  }
-
-  private View row(int i) {
-    switch (i) {
-      case 0:
-        statusTail = Screens.tail(this, statusText());
-        rows[0] = Screens.info(this, "Status", statusTail);
-        return rows[0];
-      case 1:
-        if (saved.isEmpty()) {
-          rows[1] = Screens.info(this, "No saved network");
-        } else {
-          final WifiConfiguration c = saved.get(0);
-          final String ssid = unquote(c.SSID);
-          String source = c.status == WifiConfiguration.Status.CURRENT ? "Build" : "Saved";
-          rows[1] = Screens.row(this, ssid, source, v -> savedDialog(c, ssid));
-        }
-        return rows[1];
-      case 2:
-        rows[2] = Screens.row(this, scanning ? "Scanning..." : "Scan for networks", v -> scan());
-        return rows[2];
-      default:
-        int n = i - 3;
-        if (n >= results.size()) {
-          return null;
-        }
-        final ScanResult r = results.get(n);
-        rows[i] = Screens.row(this, r.SSID, signal(r), v -> pick(r));
-        // One line per network for the log: the bench finds its row by it.
-        Log.i(TAG, "wifi net " + n + " " + r.SSID + " " + r.level + (r.isSecured() ? " *" : " open"));
-        return rows[i];
+    rows[0] = Screens.info(this, column, "Status", statusText());
+    statusTail = Screens.tailOf(rows[0]);
+    if (saved.isEmpty()) {
+      rows[1] = Screens.info(this, column, "No saved network");
+    } else {
+      final WifiConfiguration c = saved.get(0);
+      final String ssid = unquote(c.SSID);
+      String source = c.status == WifiConfiguration.Status.CURRENT ? "Build" : "Saved";
+      rows[1] = Screens.row(this, column, ssid, source, v -> savedDialog(c, ssid));
     }
+    rows[2] =
+        Screens.row(this, column, scanning ? "Scanning..." : "Scan for networks", v -> scan());
+    for (int n = 0; n < results.size(); n++) {
+      final ScanResult r = results.get(n);
+      rows[3 + n] = Screens.row(this, column, r.SSID, signal(r), v -> pick(r));
+      // One line per network for the log: the bench finds its row by it.
+      Log.i(TAG, "wifi net " + n + " " + r.SSID + " " + r.level + (r.isSecured() ? " *" : " open"));
+    }
+    Screens.size(this, column, rows.length + 1);
+    done();
   }
 
   /** The rows are in: focus Scan, say how many networks — the harness keys on this line. */
@@ -264,7 +245,6 @@ public class WifiActivity extends Activity {
   public void onDestroy() {
     wm.unregisterScanResultsCallback(onScan);
     poller.shutdown();
-    column.stop();
     super.onDestroy();
   }
 }

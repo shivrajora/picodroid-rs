@@ -2,10 +2,8 @@
 package settings;
 
 import picodroid.app.Activity;
-import picodroid.graphics.Color;
 import picodroid.graphics.drawable.GradientDrawable;
-import picodroid.text.TextUtils;
-import picodroid.view.Gravity;
+import picodroid.settings.R;
 import picodroid.view.View;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.ScrollView;
@@ -19,8 +17,10 @@ import picodroid.widget.TextView;
  * takes the keypad's select, and every row is focusable so a column longer than the screen can be
  * walked — and scrolled — with the buttons.
  *
- * <p>A screen builds its rows through {@link Column}, one per UI tick, never all of them inside
- * {@code onCreate}: on the device a row is about 20 ms of LVGL work.
+ * <p>A screen is built inside {@code onCreate}, as on Android: {@link #screen} puts the header up
+ * and sets the content view, the rows are inflated from {@code res/layout/row.xml} into the column
+ * one call each, and {@link #size} fits the column to them. The main loop allows a screen build a
+ * slow first frame (docs/designs/ui-build-budget-2026-10.md).
  */
 final class Screens {
   /** Row height in pixels, header included. */
@@ -28,13 +28,29 @@ final class Screens {
 
   private static final int HEADER_COLOR = 0xFF1F8A8A;
 
-  /** Side padding of a row, each side. */
-  private static final int PAD_X = 8;
-
   private Screens() {}
 
+  /**
+   * A screen: the header row in a fresh column inside a full-screen ScrollView, set as {@code a}'s
+   * content view. The rows follow through {@link #row} and {@link #info}; {@link #size} once they
+   * are in.
+   */
+  static LinearLayout screen(Activity a, String title, View.OnClickListener onTitle) {
+    LinearLayout column = column();
+    header(a, column, title, onTitle);
+    a.setContentView(scrollable(a, column, 1));
+    return column;
+  }
+
+  /** The header row, appended to {@code column}: the title on a tinted band; a tap or select runs {@code onClick}. */
+  static View header(Activity a, LinearLayout column, String title, View.OnClickListener onClick) {
+    View header = build(a, column, title, null, onClick);
+    header.setBackground(new GradientDrawable().setColor(HEADER_COLOR).setCornerRadius(0));
+    return header;
+  }
+
   /** A vertical column with no padding, so rows start at y = 0; sized by {@link #size}. */
-  static LinearLayout column(Activity a) {
+  static LinearLayout column() {
     LinearLayout root = new LinearLayout();
     root.setOrientation(LinearLayout.VERTICAL);
     root.setPadding(0, 0, 0, 0);
@@ -64,71 +80,46 @@ final class Screens {
     column.setSize(width, content > height ? content : height);
   }
 
-  /** The header row: the screen's title on a tinted band; a tap or select runs {@code onClick}. */
-  static View header(Activity a, String title, View.OnClickListener onClick) {
-    View row = build(a, title, null, onClick);
-    row.setBackground(new GradientDrawable().setColor(HEADER_COLOR).setCornerRadius(0));
-    return row;
-  }
-
-  /** A focusable row that runs {@code onClick} on a tap or the keypad's select. */
-  static View row(Activity a, String label, View.OnClickListener onClick) {
-    return build(a, label, null, onClick);
+  /** A focusable row, appended to {@code column}, that runs {@code onClick} on a tap or select. */
+  static View row(Activity a, LinearLayout column, String label, View.OnClickListener onClick) {
+    return build(a, column, label, null, onClick);
   }
 
   /** {@link #row} with a {@code suffix} that always shows; the label is cut instead. */
-  static View row(Activity a, String label, String suffix, View.OnClickListener onClick) {
-    return build(a, label, tail(a, suffix), onClick);
+  static View row(
+      Activity a, LinearLayout column, String label, String suffix, View.OnClickListener onClick) {
+    return build(a, column, label, suffix, onClick);
   }
 
   /** A row of information: focusable, so the keypad can walk (and scroll) past it, but inert. */
-  static View info(Activity a, String s) {
-    return build(a, s, null, null);
+  static View info(Activity a, LinearLayout column, String s) {
+    return build(a, column, s, null, null);
   }
 
   /** {@link #info} with a {@code suffix} that always shows; the label is cut instead. */
-  static View info(Activity a, String label, String suffix) {
-    return build(a, label, tail(a, suffix), null);
+  static View info(Activity a, LinearLayout column, String label, String suffix) {
+    return build(a, column, label, suffix, null);
   }
 
-  /** {@link #info} whose suffix is {@code tail}, kept by the screen to fill in later. */
-  static View info(Activity a, String label, TextView tail) {
-    return build(a, label, tail, null);
-  }
-
-  /** A row's suffix: one line of text that always shows, the label being cut instead. */
-  static TextView tail(Activity a, String s) {
-    TextView t = new TextView();
-    t.setText(s);
-    t.setTextColor(Color.WHITE);
-    return t;
+  /** The suffix of a row made with one, for a screen that fills it in later. */
+  static TextView tailOf(View row) {
+    return row.findViewById(R.id.tail);
   }
 
   /**
-   * A row: {@code label} on one line, cut with an ellipsis when it does not fit, then {@code tail}
-   * (a version, the storage numbers), which always shows. Focusable; {@code tail} and {@code
-   * onClick} may be null. The row is a horizontal layout, so the label takes what the tail leaves
-   * and both sit centred on the row's height.
+   * A row, inflated into {@code column} as its last child: {@code label} on one line, cut with an
+   * ellipsis when it does not fit, then {@code suffix} (a version, the storage numbers), which
+   * always shows. Focusable; {@code suffix} and {@code onClick} may be null.
    */
-  private static View build(Activity a, String label, TextView tail, View.OnClickListener onClick) {
-    LinearLayout row = new LinearLayout();
-    row.setOrientation(LinearLayout.HORIZONTAL);
-    // Label and tail centred on the row's height: Android's LinearLayout puts a row's
-    // children at the top unless told otherwise, and so does this one.
-    row.setGravity(Gravity.CENTER_VERTICAL);
-    row.setSize(a.getDisplay().getWidth(), ROW_HEIGHT);
-    row.setPadding(PAD_X, 0, PAD_X, 0);
-    row.setSpacing(0);
-    TextView text = new TextView();
+  private static View build(
+      Activity a, LinearLayout column, String label, String suffix, View.OnClickListener onClick) {
+    a.getLayoutInflater().inflate(suffix == null ? R.layout.row : R.layout.row_tail, column, true);
+    View row = column.getChildAt(column.getChildCount() - 1);
+    TextView text = row.findViewById(R.id.label);
     text.setText(label);
-    text.setTextColor(Color.WHITE);
-    text.setSingleLine();
-    text.setEllipsize(TextUtils.TruncateAt.END);
-    row.addView(text, new LinearLayout.LayoutParams(0, View.WRAP_CONTENT, 1f));
-    if (tail != null) {
-      row.addView(tail);
+    if (suffix != null) {
+      tailOf(row).setText(suffix);
     }
-    row.setFocusable(true);
     if (onClick != null) {
       row.setOnClickListener(onClick);
     }

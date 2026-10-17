@@ -10,6 +10,7 @@ import picodroid.content.pm.PackageInfo;
 import picodroid.content.pm.PackageManager;
 import picodroid.util.Log;
 import picodroid.view.View;
+import picodroid.widget.LinearLayout;
 import picodroid.os.Bundle;
 
 /**
@@ -20,7 +21,6 @@ import picodroid.os.Bundle;
  * pinned.
  */
 public class AppsActivity extends Activity {
-  private Column column;
   /** Held so the rows stay reachable while their click listeners are live. */
   private View[] rows;
   /** The installed apps in label order, and their labels, fetched once. */
@@ -33,13 +33,21 @@ public class AppsActivity extends Activity {
     render();
   }
 
-  /** The screen from scratch: a new column, then the rows one per tick. */
+  /** The screen from scratch: a new column, the rows, and the "apps N" line. */
   private void render() {
-    if (column != null) {
-      column.stop();
+    LinearLayout column = Screens.screen(this, "< Apps", v -> finish());
+    list();
+    if (apps.length == 0) {
+      Screens.info(this, column, "No apps installed");
     }
-    column = new Column(this, "< Apps", v -> finish());
-    column.fill(() -> list(), i -> row(i), () -> done());
+    for (int i = 0; i < apps.length; i++) {
+      final String pkg = apps[i].packageName;
+      final String label = labels[i];
+      rows[i] =
+          Screens.row(this, column, label, "  v" + apps[i].versionName, v -> confirm(pkg, label));
+    }
+    Screens.size(this, column, 1 + Math.max(1, apps.length));
+    done();
   }
 
   /**
@@ -81,20 +89,6 @@ public class AppsActivity extends Activity {
     }
   }
 
-  /** One row per app; "No apps installed" when there is none. */
-  private View row(int i) {
-    if (apps.length == 0) {
-      return i == 0 ? Screens.info(this, "No apps installed") : null;
-    }
-    if (i >= apps.length) {
-      return null;
-    }
-    final String pkg = apps[i].packageName;
-    final String label = labels[i];
-    rows[i] = Screens.row(this, label, "  v" + apps[i].versionName, v -> confirm(pkg, label));
-    return rows[i];
-  }
-
   /** The rows are in: focus the first, and say how many — the harness keys on this line. */
   private void done() {
     if (apps.length > 0) {
@@ -123,11 +117,5 @@ public class AppsActivity extends Activity {
     }
     // Rebuild once the dialog has closed, not from inside its click.
     Executors.mainExecutor().execute(() -> render());
-  }
-
-  @Override
-  public void onDestroy() {
-    column.stop();
-    super.onDestroy();
   }
 }

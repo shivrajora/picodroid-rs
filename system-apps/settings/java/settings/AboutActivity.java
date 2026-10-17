@@ -6,7 +6,7 @@ import picodroid.os.Build;
 import picodroid.os.Runtime;
 import picodroid.os.StatFs;
 import picodroid.util.Log;
-import picodroid.view.View;
+import picodroid.widget.LinearLayout;
 import picodroid.os.Bundle;
 
 /**
@@ -14,44 +14,23 @@ import picodroid.os.Bundle;
  * row goes back.
  */
 public class AboutActivity extends Activity {
-  private Column column;
-
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    column = new Column(this, "< About", v -> finish());
-    column.fill(
-        null,
-        i -> row(i),
-        () -> Log.i(SettingsActivity.TAG, "about " + Build.BOARD + " " + Build.VERSION.RELEASE));
-  }
-
-  private View row(int i) {
-    switch (i) {
-      case 0:
-        return Screens.info(this, "Board  " + Build.BOARD);
-      case 1:
-        return Screens.info(this, "MCU  " + Build.HARDWARE);
-      case 2:
-        return Screens.info(this, "Release  " + Build.VERSION.RELEASE);
-      case 3:
-        return Screens.info(this, "Serial  " + Build.getSerial());
-      case 4:
-        StatFs fs = new StatFs("/");
-        long total = fs.getTotalBytes();
-        long free = fs.getFreeBytes();
-        return Screens.info(
-            this, "Storage  " + Screens.kb(total - free) + " / " + Screens.kb(total) + " KB used");
-      case 5:
-        return Screens.info(this, "Heap  " + Screens.kb(Runtime.usedMemory()) + " KB used");
-      default:
-        return null;
-    }
-  }
-
-  @Override
-  public void onDestroy() {
-    column.stop();
-    super.onDestroy();
+    LinearLayout column = Screens.screen(this, "< About", v -> finish());
+    Screens.info(this, column, "Board  " + Build.BOARD);
+    Screens.info(this, column, "MCU  " + Build.HARDWARE);
+    Screens.info(this, column, "Release  " + Build.VERSION.RELEASE);
+    Screens.info(this, column, "Serial  " + Build.getSerial());
+    StatFs fs = new StatFs("/");
+    long total = fs.getTotalBytes();
+    long free = fs.getFreeBytes();
+    Screens.info(
+        this,
+        column,
+        "Storage  " + Screens.kb(total - free) + " / " + Screens.kb(total) + " KB used");
+    Screens.info(this, column, "Heap  " + Screens.kb(Runtime.usedMemory()) + " KB used");
+    Screens.size(this, column, 7);
+    Log.i(SettingsActivity.TAG, "about " + Build.BOARD + " " + Build.VERSION.RELEASE);
   }
 }

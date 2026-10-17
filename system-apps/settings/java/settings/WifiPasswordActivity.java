@@ -39,8 +39,8 @@ public class WifiPasswordActivity extends Activity {
     }
     int width = getDisplay().getWidth();
 
-    LinearLayout root = Screens.column(this);
-    root.addView(Screens.header(this, "< " + ssid, v -> finish()));
+    LinearLayout root = Screens.column();
+    Screens.header(this, root, "< " + ssid, v -> finish());
 
     // The field's row is not focusable itself: the field is, and takes
     // the keypad's select (ENTER opens the keyboard).
