@@ -57,10 +57,14 @@ grep -vE "$allow" "$leaks" > "$tmp/candidates.txt" || true
 
 # Names no committed map covers: in sdk/class-names.tsv but in no
 # `from =` row. The maps are append-only supersets, so the union over the
-# directory is the newest map's class set.
+# directory is the newest map's class set. Class rows only (a `/` in the
+# name): the candidates are package paths, and a member name tested as a
+# substring of one is noise — `get` is inside "widget" and `port` inside
+# "Support", which is how `picodroid/widget/InflaterSupport`, added after
+# the v0.37.0 cut, read as a leak (CI 2026-10-17).
 SDK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../sdk" && pwd)"
 grep -h '^from *= *"' "$SDK_DIR"/shrink-maps/*.toml \
-  | sed -E 's/^from *= *"([^"]+)".*/\1/' | sort -u > "$tmp/mapped.txt"
+  | sed -E 's/^from *= *"([^"]+)".*/\1/' | grep '/' | sort -u > "$tmp/mapped.txt"
 grep -vE '^(#|$)' "$SDK_DIR/class-names.tsv" | cut -f1 | sort -u \
   | comm -23 - "$tmp/mapped.txt" > "$tmp/unmapped.txt"
 

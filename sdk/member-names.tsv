@@ -1670,7 +1670,7 @@ M	keyList
 M	keySet
 M	keys
 M	kindOf
-M	lambda$dataSetChanged$6
+M	lambda$dataSetChanged$4
 M	lambda$fireEvent$0
 M	lambda$new$0
 M	lambda$openOptionsMenu$0
@@ -1678,10 +1678,8 @@ M	lambda$openOptionsMenu$1
 M	lambda$registerNetworkCallback$0
 M	lambda$startSwap$1
 M	lambda$static$0
-M	lambda$swapBind$3
-M	lambda$swapPromote$4
-M	lambda$swapPromote$5
-M	lambda$swapUnbind$2
+M	lambda$swap$2
+M	lambda$swap$3
 M	lambda$track$0
 M	layout
 M	lazySet
@@ -2472,9 +2470,7 @@ M	string
 M	submit
 M	subtractExact
 M	subtractFrom
-M	swapBind
-M	swapPromote
-M	swapUnbind
+M	swap
 M	syncActive
 M	syncAlpha
 M	systemDefault
