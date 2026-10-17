@@ -9,6 +9,7 @@
     <string name="title">Layout demo</string>
     <string name="count">%d of %s</string>
     <string name="long_line">A line far longer than forty pixels of panel</string>
+    <string name="bench">Model usage this week</string>
 
     <!-- The theme: the framework's widgets take these, and ?attr/ in a layout reads them. -->
     <style name="AppTheme">
@@ -26,6 +27,25 @@
         <item name="android:layout_height">wrap_content</item>
         <item name="android:singleLine">true</item>
         <item name="android:textColor">?android:attr/textColorSecondary</item>
+    </style>
+
+    <!-- The inflate benchmark's label and box (bench.xml): the attributes a page's views carry. -->
+    <style name="Bench">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">2dp</item>
+        <item name="android:paddingLeft">6dp</item>
+        <item name="android:singleLine">true</item>
+        <item name="android:textColor">?android:attr/textColorPrimary</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="BenchBox">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">12dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:layout_marginRight">4dp</item>
+        <item name="android:background">@color/accent</item>
     </style>
 
     <!-- Inherits Caption by its name, as on Android. -->

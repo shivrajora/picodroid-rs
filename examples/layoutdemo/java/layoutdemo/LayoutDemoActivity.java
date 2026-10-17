@@ -11,6 +11,7 @@ import picodroid.content.res.Configuration;
 import picodroid.graphics.Theme;
 import picodroid.graphics.drawable.GradientDrawable;
 import picodroid.os.Bundle;
+import picodroid.os.SystemClock;
 import picodroid.util.AttributeSet;
 import picodroid.util.DisplayMetrics;
 import picodroid.util.Log;
@@ -122,6 +123,8 @@ public class LayoutDemoActivity extends Activity {
               view.setTranslationY(90f);
               checkStage("async", view);
               report();
+              // The verdict is out; the benchmark gets a main-loop turn of its own.
+              getMainExecutor().execute(() -> benchInflate());
             });
     returned[0] = true;
   }
@@ -343,6 +346,63 @@ public class LayoutDemoActivity extends Activity {
     boolean[] both =
         KeyCharacterMap.deviceHasKeys(new int[] {KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_BUTTON_A});
     check("keys: deviceHasKeys", both.length == 2 && both[0] && !both[1]);
+  }
+
+  /** How many times {@link #benchInflate} inflates the benchmark layout. */
+  private static final int BENCH_ROUNDS = 3;
+
+  /** The benchmark's running totals: views counted and microseconds inflating. */
+  private int benchViews;
+
+  private long benchUs;
+
+  /**
+   * What a view costs to inflate: {@code R.layout.bench} (forty-five nodes, the attributes a page's
+   * views carry) inflated {@link #BENCH_ROUNDS} times, each round on a main-loop turn of its own so
+   * the runtime's span report (bytecodes, natives) covers exactly one inflation; the tree is
+   * counted and closed on the turn after, before the next round, so one tree is alive at a time.
+   * The line logged at the end is the figure docs/designs/ui-build-budget-2026-10.md tracks.
+   */
+  private void benchInflate() {
+    benchViews = 0;
+    benchUs = 0;
+    benchRound(0);
+  }
+
+  private void benchRound(int round) {
+    long start = SystemClock.elapsedRealtimeNanos();
+    final View tree = getLayoutInflater().inflate(R.layout.bench, null);
+    benchUs += (SystemClock.elapsedRealtimeNanos() - start) / 1000L;
+    getMainExecutor()
+        .execute(
+            () -> {
+              benchViews += countViews(tree);
+              tree.close();
+              if (round + 1 < BENCH_ROUNDS) {
+                getMainExecutor().execute(() -> benchRound(round + 1));
+              } else {
+                Log.i(
+                    TAG,
+                    "inflate bench: "
+                        + benchViews
+                        + " views, "
+                        + benchUs
+                        + " us, "
+                        + (benchUs / benchViews)
+                        + " us/view");
+              }
+            });
+  }
+
+  private static int countViews(View v) {
+    int n = 1;
+    if (v instanceof ViewGroup) {
+      ViewGroup g = (ViewGroup) v;
+      for (int i = 0; i < g.getChildCount(); i++) {
+        n += countViews(g.getChildAt(i));
+      }
+    }
+    return n;
   }
 
   private void check(String what, boolean ok) {
