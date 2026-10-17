@@ -332,8 +332,7 @@ public class MainActivity extends Activity {
 
   /**
    * A new state: the status screen comes or goes, and the chrome repaints. The pages observe the
-   * same state and repaint on a tick of their own, after this one: the chrome costs the RP2350 some
-   * 20 ms, and a page's repaint on top would overrun the budget.
+   * same state and repaint in their own observer calls.
    */
   private void onState(UsageUiState newState) {
     state = newState;

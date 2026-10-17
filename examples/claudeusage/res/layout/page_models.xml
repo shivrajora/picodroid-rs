@@ -2,7 +2,8 @@
 <!-- Per-model weekly caps, where the plan has them, and which models the week's tokens went to. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="?android:attr/colorBackground">
 
     <FrameLayout
         style="@style/Card"

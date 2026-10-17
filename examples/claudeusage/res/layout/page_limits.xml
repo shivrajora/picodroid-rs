@@ -2,7 +2,8 @@
 <!-- The home screen: the 5-hour session and the weekly cap, as two ring gauges side by side. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="?android:attr/colorBackground">
 
     <include
         layout="@layout/limit_card"

@@ -2,7 +2,8 @@
 <!-- How fast the session is filling, when it would run out, and the last hour's trend. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="?android:attr/colorBackground">
 
     <FrameLayout
         style="@style/Card"

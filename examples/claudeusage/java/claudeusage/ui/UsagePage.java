@@ -4,12 +4,10 @@ package claudeusage.ui;
 import claudeusage.R;
 import claudeusage.data.UsageService;
 import picodroid.app.Fragment;
-import picodroid.concurrent.Executor;
 import picodroid.content.Context;
 import picodroid.lifecycle.ViewModelProvider;
 import picodroid.os.Bundle;
 import picodroid.util.Log;
-import picodroid.view.AsyncLayoutInflater;
 import picodroid.view.LayoutInflater;
 import picodroid.view.View;
 import picodroid.view.ViewGroup;
@@ -18,12 +16,10 @@ import picodroid.view.ViewGroup;
  * One screen's content, between the header and the footer: a {@link Fragment}, either a page of the
  * {@code ViewPager2} or the status screen laid over it.
  *
- * <p>A page is a layout of twenty to forty views, and each view costs the RP2350 milliseconds: a
- * whole screen inflated in one UI tick would stall input and trip the slow-handler watchdog. So
- * {@link #onCreateView} returns an empty, transparent host at once, and {@link #onViewCreated}
- * hands the page's own layout to an {@link AsyncLayoutInflater}, which builds it over the following
- * ticks. Its callback binds the views; the first paint follows, once there is data, and ends in the
- * fade-in.
+ * <p>A page is a layout of twenty to forty views, inflated whole in {@link #onCreateView}, as a
+ * Fragment on Android inflates its layout; {@link #onViewCreated} binds the views, and the first
+ * paint follows, once there is data, and ends in the fade-in. The main loop allows a screen build a
+ * slow first frame (docs/designs/ui-build-budget-2026-10.md), and a page is well inside it.
  *
  * <p>What it paints is the Activity's {@link UsageViewModel} state, which each page observes for as
  * long as its view lives. A page knows nothing else of its host.
@@ -34,7 +30,6 @@ abstract class UsagePage extends Fragment {
   protected Context ctx;
   protected Palette palette;
 
-  private Executor main;
   private UsageViewModel model;
   private boolean bound;
   private boolean painted;
@@ -43,7 +38,7 @@ abstract class UsagePage extends Fragment {
   /** The header title's string resource. */
   abstract int titleRes();
 
-  /** The page's layout, inflated into the host. */
+  /** The page's layout. */
   abstract int layoutRes();
 
   /** Finds the views {@link #update} writes to, in the inflated {@link #layoutRes}. */
@@ -61,7 +56,6 @@ abstract class UsagePage extends Fragment {
   public void onAttach(Context context) {
     super.onAttach(context);
     ctx = context;
-    main = context.getMainExecutor();
     palette = Palette.of(getResources());
   }
 
@@ -74,19 +68,21 @@ abstract class UsagePage extends Fragment {
   @Override
   public View onCreateView(
       LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
-    return inflater.inflate(R.layout.page_host, container, false);
+    return inflater.inflate(layoutRes(), container, false);
   }
 
+  /** The views are there: bind them, observe the state, and paint when there is data. */
   @Override
   public void onViewCreated(View view, Bundle savedInstanceState) {
     super.onViewCreated(view, savedInstanceState);
-    bound = false;
     painted = false;
     awaitingData = false;
+    view.setAlpha(0f); // out of sight until the first paint, then the fade-in
+    onBind(view);
+    bound = true;
+    Log.i(TAG, "built " + getString(titleRes()));
     model.state().observe(getViewLifecycleOwner(), this::onState);
-    final ViewGroup host = (ViewGroup) view;
-    new AsyncLayoutInflater(ctx)
-        .inflate(layoutRes(), host, (page, resid, parent) -> onInflated(host, page));
+    firstPaint(view);
   }
 
   @Override
@@ -100,19 +96,6 @@ abstract class UsagePage extends Fragment {
   private boolean gone(View host) {
     // Detached with the Activity when that is destroyed, so isAdded() covers a dead host too.
     return !isAdded() || getView() != host;
-  }
-
-  /** The page's layout is whole: into the host with it, unless the page was turned meanwhile. */
-  private void onInflated(ViewGroup host, View page) {
-    if (gone(host)) {
-      page.close(); // never added anywhere: picodroid frees a view's widget only when told
-      return;
-    }
-    host.addView(page);
-    onBind(page);
-    bound = true;
-    Log.i(TAG, "built " + getString(titleRes()));
-    firstPaint(host);
   }
 
   /** The state this page can paint now, or null: a data page has nothing to paint before data. */
@@ -139,9 +122,8 @@ abstract class UsagePage extends Fragment {
 
   /**
    * The observer: something on screen changed. A painted page repaints in the call, beside the
-   * chrome: measured together on the RP2350 they stay inside the tick budget. The first paint of a
-   * page built before the data came does not: its call sites are cold, and with the chrome's
-   * repaint it overran the budget by a sixth, so that one takes the next tick.
+   * chrome, as an Android observer would; a page built before the data came takes its first paint
+   * here.
    */
   private void onState(UsageUiState state) {
     View host = getView();
@@ -155,7 +137,7 @@ abstract class UsagePage extends Fragment {
       }
     } else if (awaitingData) {
       awaitingData = false;
-      main.execute(() -> firstPaint(host));
+      firstPaint(host);
     }
   }
 }

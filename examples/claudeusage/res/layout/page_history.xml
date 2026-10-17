@@ -2,7 +2,8 @@
 <!-- Today's totals and a week of daily token counts, from the PC's local transcripts. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="?android:attr/colorBackground">
 
     <!-- Three figures over their captions; the first caption is the widest, so the columns are not equal. -->
     <FrameLayout
