@@ -20,8 +20,10 @@ import picodroid.os.SystemClock;
  *
  * <p>Android inflates on a worker thread. Views are made on the main thread here, so the work is
  * cut into slices instead: each tick of the main loop builds views for a few milliseconds and
- * leaves the rest to the next tick, which keeps input and animation alive while a screen of thirty
- * views is built on a board where each one costs milliseconds. The callback runs on a tick of its
+ * leaves the rest to the next tick, which keeps input and animation alive. A plain {@code inflate}
+ * is the shape for a screen — the inflater makes a framework view in one native call and the main
+ * loop allows a screen build a slow first frame (docs/designs/ui-build-budget-2026-10.md) — so this
+ * is the escape hatch for a layout that overruns that budget. The callback runs on a tick of its
  * own once the tree is whole. As on Android the view is not added to {@code parent}, which is only
  * there to make the root's {@code LayoutParams}; until the callback the tree is kept hidden.
  *

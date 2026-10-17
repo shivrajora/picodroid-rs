@@ -1,6 +1,7 @@
 # The UI build budget: `setContentView` is synchronous again
 
-**Status: stage 1 (the policy) built 2026-10-17; stages 2–6 in progress — see §6.**
+**Status: built 2026-10-17 — the policy (§3), the inflate fast path (§4), the app migrations and
+the one-tick pager turn (§6); verification in §7.**
 
 ## 1. The finding
 
@@ -141,28 +142,34 @@ line gives the bytecodes and natives.
 
 | Measure | Before (2026-10-17) | After stage 2 |
 |---|---|---|
-| Bytecodes per inflated view (sim) | 804 (36,168 / 45) | |
-| Natives per inflated view (sim) | 27.8 (1,253 / 45) | |
-| Invokes per inflated view (sim) | 77 (3,462 / 45) | |
-| µs per inflated view, sim host | 72–113 | |
-| µs per inflated view, `pico_display2_w` | to measure | |
+| Bytecodes per inflated view | 804 (36,168 / 45) | 250 (11,245 / 45) |
+| Natives per inflated view | 27.8 (1,253 / 45) | 4.2 (190 / 45; two are `Object.<init>`) |
+| Invokes per inflated view | 77 (3,462 / 45) | 17 (753 / 45) |
+| µs per inflated view, sim host | 72–113 | 58–92 |
+| µs per inflated view, RP2350 (`pico_display2_w` firmware, release, `parity-metrics`) | 6,108 | 2,313 |
+| One 45-view round on the RP2350 | 275 ms: natives 100 ms / 1,253 calls, invokes 145 ms / 3,461, fields 20 ms, other 33 ms | 104 ms (under the build budget, so no counters line) |
+| layoutdemo's `activity start` on the RP2350 (28 views, the checks, a 67 ms `Log.i`) | 426 ms | 325 ms |
+
+The counters build itself costs about a microsecond per opcode (two clock reads), so the
+device figures are for comparison with each other, not with a plain release image.
 
 Screen builds as the new policy sees them (`activity start` spans): to be filled per app as the
 migrations (§6) land.
 
-## 6. What changes in the apps (stages 4–5)
+## 6. What changed in the apps (stages 4–5, built)
 
-Each of these built its screen one row per tick against the old line; each becomes a plain
-synchronous build, with its rows in XML row layouts so the fast path reaches them:
+Each of these built its screen one row per tick against the old line; each is a plain
+synchronous build now, with its rows in XML row layouts so the fast path reaches them:
 
-| Site | Was | Becomes |
+| Site | Was | Is |
 |---|---|---|
-| Settings (`Column.java`, seven screens) | header first, `addNext` reposting one row per tick | rows inflated from `res/layout/row.xml` in `onCreate`; `Column` deleted |
-| Launcher | inline `addRow` chain | a loop in `onCreate` over an inflated row |
-| picoclock `AlarmListActivity` | `generation` counter, one card per tick | `fill()` synchronous from `onResume` |
-| picoclock `SegmentClock` | three segments per tick | built in the constructor |
-| claudeusage `UsagePage` | `AsyncLayoutInflater` on an empty host | `Fragment(int layoutId)` |
-| `ViewPager2` | three-tick page turn | one tick |
+| Settings (`Column.java`, seven screens) | header first, `addNext` reposting one row per tick, `stop()` in every `onDestroy` | `Screens.screen` puts the header up and sets the content view; the rows are inflated from `res/layout/row.xml` / `row_tail.xml` into the column (`Screens.row` / `info`, `tailOf` for a suffix a screen fills in later) inside `onCreate`, then `Screens.size`; `Column` deleted. The Storage worker stays. |
+| Launcher | inline `addRow` chain with a `stopped` flag | a loop in `onCreate` over `res/layout/row.xml` (icon) or `row_tile.xml` (letter tile) |
+| picoclock `AlarmListActivity` | `generation` counter, one card per tick | `fill()` inflates `alarm_card.xml` / `new_alarm_card.xml` per card, from `onResume` |
+| picoclock `SegmentClock` | three segments per tick, `complete` and `stopped` flags | built in the constructor |
+| claudeusage `UsagePage` | `AsyncLayoutInflater` on an empty `page_host`, a stale-callback check, one deferred first paint | `onCreateView` inflates the page's layout; `onViewCreated` binds, observes and paints; `page_host.xml` deleted, the page roots carry its background |
+| `ViewPager2` | three-tick page turn (unbind, bind, promote) | one posted tick: one build span |
+| `LiveData` | "an observer with much to repaint should post the repaint" | delivery is synchronous and the observer repaints in the call, as on Android |
 
 `AsyncLayoutInflater` stays, documented as the escape hatch for a layout that overruns the
 build budget. Rejected: pre-inflating the neighbour page for `setOffscreenPageLimit(1)` (RAM

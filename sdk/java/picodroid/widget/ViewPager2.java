@@ -26,16 +26,16 @@ import picodroid.view.ViewGroup;
  *
  * <p>An embedded panel has no room for the page beside the current one, so this pager keeps exactly
  * one page alive: a turn removes the outgoing fragment (its state kept as a Bundle, its widgets
- * freed) and creates the incoming one, over three main-thread ticks so no single tick carries the
- * whole turn. There is no scroller either: {@code smoothScroll} is a fade of the incoming page, the
- * scroll state goes {@link #SCROLL_STATE_SETTLING} then {@link #SCROLL_STATE_IDLE}, {@link
- * #SCROLL_STATE_DRAGGING} is never reported, and {@link OnPageChangeCallback#onPageScrolled} is
- * called once per turn with a zero offset. {@link #setOffscreenPageLimit} is accepted and logged;
- * {@link #OFFSCREEN_PAGE_LIMIT_DEFAULT} is the only behaviour. A swipe across the page turns it
- * when {@link #setUserInputEnabled user input} is on; on a board with keys, call {@link
- * #setCurrentItem} from {@code onKeyDown}. The page index and the pages' saved states are yours to
- * keep: {@link #saveState} into the Activity's Bundle and {@link #restoreState} in {@code
- * onCreate}, before {@link #setAdapter}.
+ * freed) and creates the incoming one, on one posted main-thread tick. There is no scroller either:
+ * {@code smoothScroll} is a fade of the incoming page, the scroll state goes {@link
+ * #SCROLL_STATE_SETTLING} then {@link #SCROLL_STATE_IDLE}, {@link #SCROLL_STATE_DRAGGING} is never
+ * reported, and {@link OnPageChangeCallback#onPageScrolled} is called once per turn with a zero
+ * offset. {@link #setOffscreenPageLimit} is accepted and logged; {@link
+ * #OFFSCREEN_PAGE_LIMIT_DEFAULT} is the only behaviour. A swipe across the page turns it when
+ * {@link #setUserInputEnabled user input} is on; on a board with keys, call {@link #setCurrentItem}
+ * from {@code onKeyDown}. The page index and the pages' saved states are yours to keep: {@link
+ * #saveState} into the Activity's Bundle and {@link #restoreState} in {@code onCreate}, before
+ * {@link #setAdapter}.
  *
  * <p>Not here: page transformers, fake drags, item decorations, {@code AttributeSet} constructors,
  * {@code android:orientation} in XML.
@@ -259,38 +259,39 @@ public class ViewPager2 extends FrameLayout {
     dataSetChanged();
   }
 
-  // ── The swap, one step per main-thread tick ─────────────────────────────
+  // ── The swap, on one main-thread tick ────────────────────────────────────
 
   private static void post(Runnable r) {
     Executors.mainExecutor().execute(r);
   }
 
+  /**
+   * A turn is posted, never run in place: a {@code setAdapter} inside {@code onCreate} must bind
+   * its first page once the Activity is STARTED, and a swipe's turn must not run inside the
+   * gesture's own dispatch.
+   */
   private void startSwap(boolean smooth) {
     mSwapping = true;
     mSmooth = smooth;
     if (smooth) {
       setScrollState(SCROLL_STATE_SETTLING);
     }
-    post(() -> swapUnbind());
+    post(() -> swap());
   }
 
-  /** Tick 1: free the outgoing page, so its widgets are gone before the new page's exist. */
-  private void swapUnbind() {
+  /**
+   * The turn: free the outgoing page, so its widgets are gone before the incoming page's exist;
+   * create the incoming one at STARTED and put its view in place; resume it, tell the callbacks,
+   * fade it in if asked. One build span for the main loop, which allows it a slow first frame
+   * (docs/designs/ui-build-budget-2026-10.md); until 2026-10-17 it was three ticks.
+   */
+  private void swap() {
     if (!mSwapping || mAdapter == null || mAdapter.isStateSaved()) {
       mSwapping = false;
       return;
     }
     if (mBoundItem >= 0 && mBoundItem != mCurrentItem) {
       unbind();
-    }
-    post(() -> swapBind());
-  }
-
-  /** Tick 2: create the incoming page at STARTED and put its view in place. */
-  private void swapBind() {
-    if (!mSwapping || mAdapter == null || mAdapter.isStateSaved()) {
-      mSwapping = false;
-      return;
     }
     if (mBoundItem < 0) {
       int count = mAdapter.getItemCount();
@@ -317,17 +318,8 @@ public class ViewPager2 extends FrameLayout {
       mBoundItem = mCurrentItem;
       mBoundView = page;
     }
-    post(() -> swapPromote());
-  }
-
-  /** Tick 3: resume the page, tell the callbacks, fade it in if asked. */
-  private void swapPromote() {
-    if (!mSwapping || mAdapter == null || mAdapter.isStateSaved()) {
-      mSwapping = false;
-      return;
-    }
     if (mBoundItem != mCurrentItem) {
-      post(() -> swapUnbind()); // retargeted while binding: go round again
+      post(() -> swap()); // retargeted from inside the page's own creation: go round again
       return;
     }
     mAdapter.onPrimaryPage();

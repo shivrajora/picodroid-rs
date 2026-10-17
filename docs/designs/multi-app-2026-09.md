@@ -1221,6 +1221,15 @@ the asset table per launcher row (memoising the asset bytes in the entry
 would take ~24 B more each); `rename` is not charged to the quota;
 `intern_dyn` copies a string per string native.
 
+### A5, amended 2026-10-17 — the rows are back inside `onCreate`
+
+The "rows land one per UI tick" mechanism above (`settings/Column.java`, the launcher's
+`addRow` chain) is retired. The main loop now judges a screen build by a 250 ms budget rather
+than the 50 ms line, and the inflater makes a framework view in one native call under its
+parent, so both apps inflate their rows from `res/layout/row.xml` inside `onCreate`, as an
+Android app does. The Storage worker and the per-entry manifest memo stay. The policy, the
+inflate path and the numbers are in `ui-build-budget-2026-10.md`.
+
 ### A6 (2026-09-16) — §6's deferred list, a week on
 
 - **Sim install of the running package** is possible now, through the front

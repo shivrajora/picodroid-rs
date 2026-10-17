@@ -17,8 +17,10 @@ import picodroid.concurrent.Executors;
  * }</pre>
  *
  * <p>{@code setValue} delivers synchronously, inside the call, to every active observer, as on
- * Android. On a slow board that is one main-thread tick doing every observer's work: an observer
- * with much to repaint should post the repaint to the next tick.
+ * Android, and an observer repaints its screen inside the call. The main loop counts a handler of
+ * 50 ms or more toward jank and reports sustained jank, not one slow delivery
+ * (docs/designs/ui-build-budget-2026-10.md): only an observer whose every delivery is that long,
+ * delivered often, has a reason to post its repaint.
  *
  * <p>Everything but {@link #postValue} is main-thread only (not checked). Not provided: {@code
  * Transformations}, {@code MediatorLiveData}.

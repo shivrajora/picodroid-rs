@@ -276,8 +276,10 @@ These are choices, not tasks. Each changes more than this app.
   and `state -> …`. Keep those log lines. FR-10 in `docs/fragments-follow-ups.md` (a bridge-backed
   row that turns real pages) is still open and would cover most of the above every night.
 - Layout changes (A2, E2): pixel A/B against a replayed bridge payload.
-- Anything touching the tick budget (C1, D, E): `pico_display2_w` on the bench, no `slow handler`
-  lines across page turns, a sync and a minute tick.
+- Anything touching the tick budget (C1, D, E): `pico_display2_w` on the bench, no `screen build`,
+  `slow handler` or `jank` line across page turns, a sync and a minute tick
+  (docs/designs/ui-build-budget-2026-10.md; the 50 ms `slow handler` line this section was written
+  against is gone).
 - SDK additions cost flash: measure with `parity-bench.sh --size-only` and note it in the commit.
   The size ratchet is at 0 % growth and the +15 KB from `picodroid.lifecycle` is not yet accepted
   (FR-12), so the nightly `size-ratchet` lane is already red until that is done.

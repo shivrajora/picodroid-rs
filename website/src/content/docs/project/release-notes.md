@@ -30,6 +30,16 @@ sustained jank (`jank: K frames lost to N slow handlers in the last second`). Th
 `onCreate`, never timed before, are now. An app's loop logs its totals when it ends
 (`ui budget: …`).
 
+With it, the inflater makes a framework view in one native call: the runtime reads the layout
+node, creates the widget under its final parent, applies every attribute under one style
+refresh and writes the Java wrapper's cached fields, where it used to take a native per word of
+the layout, one per setter and a re-parent. An inflated view went from ~800 bytecodes and 28
+natives to ~250 and 4 (the design doc has the device figures). `AsyncLayoutInflater` stays, as
+the escape hatch for a layout that overruns the budget. The settings app, the launcher,
+`picoclock` and `claudeusage` now build their screens inside `onCreate` (their rows inflated from
+`res/layout/*.xml`), as an Android app does; the row-per-tick `Runnable` chains, generation
+counters and `AsyncLayoutInflater` hosts they carried are gone.
+
 **Every device has a serial number (2026-10-14)**
 
 Written up in [device-serial-2026-10.md](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/device-serial-2026-10.md).

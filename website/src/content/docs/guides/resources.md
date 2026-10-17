@@ -241,10 +241,14 @@ one `EXACTLY`; a view with two fixed (or `match_parent`) dimensions is not asked
 framework's own widgets are sized by the renderer, which knows their content. Drawing views need a
 board with `Canvas`, which is every RP2350 board.
 
-### Inflating without stalling the UI
+### Inflating a large layout
 
-On a board where every view costs milliseconds, a screen of thirty views inflated in one go is one
-long main-thread tick. `picodroid.view.AsyncLayoutInflater` (androidx's class) spreads it out:
+`setContentView(R.layout.x)`, `Fragment(int layoutId)` and `inflater.inflate(...)` are the shape,
+as on Android: the inflater makes each framework view in one native call, under its final parent,
+with every attribute applied in one go, and the main loop allows a screen build a slow first frame
+of up to 250 ms ([UI build budget](/get-started/simulator/#ui-build-budget)) — a page of forty
+views is well inside it on an RP2350. For a layout that genuinely overruns the budget,
+`picodroid.view.AsyncLayoutInflater` (androidx's class) spreads the work out:
 
 ```java
 new AsyncLayoutInflater(context)
@@ -261,8 +265,8 @@ supplies the root's `LayoutParams`. An `OutOfMemoryError` part-way drops what wa
 again on a later tick. A callback that finds its screen gone (a fragment whose view was destroyed
 meanwhile) should call `view.close()`, because picodroid frees a view's widget when it is removed
 and this one was never added.
-[`examples/claudeusage`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/claudeusage)
-builds each of its pages this way.
+[`examples/layoutdemo`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/layoutdemo)
+checks it end to end.
 
 A Fragment needs no element of its own: give a `FrameLayout` an id and hand it to the
 transaction, `getSupportFragmentManager().beginTransaction().replace(R.id.container, fragment)`,

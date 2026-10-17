@@ -364,7 +364,9 @@ the padding by the border width to cancel it. The second is a few lines in
   is the current tree; any difference is a regression unless intended.
 - Anything touching the tick budget: `pico_display2_w` on the bench with
   `PICODROID_EXTRA_FEATURES=parity-metrics`, keys through `pdb input keyevent 20|19|23|4` on the
-  board's tty (`fleet.sh tty pico_enviro_mon_w`), no `slow handler` lines.
+  board's tty (`fleet.sh tty pico_enviro_mon_w`), no `screen build`, `slow handler` or `jank`
+  line (docs/designs/ui-build-budget-2026-10.md; before 2026-10-17 the criterion was no `slow
+  handler` line at 50 ms).
 - F2 and F4 touch the packer: `cargo test -p papk-pack -p papk-format`, then every example APK
   builds (`./gradlew assemblePapk`), then `examples/layoutdemo` on an RP2350 board prints
   `=== ALL PASSED ===`.
