@@ -5,11 +5,12 @@ import javax.inject.Inject;
 import picoclock.Alarm;
 import picoclock.AlarmStore;
 import picoclock.ClockApp;
-import picodroid.concurrent.Executors;
+import picoclock.R;
 import picodroid.content.Intent;
-import picodroid.graphics.drawable.GradientDrawable;
 import picodroid.os.Bundle;
 import picodroid.util.Log;
+import picodroid.view.LayoutInflater;
+import picodroid.view.View;
 import picodroid.widget.FrameLayout;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.ScrollView;
@@ -20,22 +21,17 @@ import picodroid.widget.TextView;
  * Every alarm, one card each: its time, what it repeats on, and a switch that arms it without
  * opening anything. Tapping the card itself opens the editor; the last card adds a new alarm.
  *
- * <p>The cards are added one per UI tick rather than all inside {@code onCreate}. Each is four LVGL
- * objects, about 25 ms of work on this chip, so a full list of eight built in one go would hold the
- * UI thread for a fifth of a second and trip the slow-handler watchdog — the same reason the
- * launcher and the settings app build their rows this way.
+ * <p>The cards are inflated from {@code res/layout/alarm_card.xml}, all of them in {@link
+ * #onResume}, as an Android list would be built; the main loop allows a screen build a slow first
+ * frame (docs/designs/ui-build-budget-2026-10.md).
  */
 public class AlarmListActivity extends BaseActivity {
   private static final String TAG = ClockApp.TAG;
 
+  /** A card's height and the gap above it: what {@code alarm_card.xml}'s band is tall. */
   private static final int ROW_HEIGHT = 72;
+
   private static final int ROW_GAP = 8;
-
-  /** Width of the card's tappable area; the switch takes the rest. */
-  private static final int TAP_AREA_WIDTH = 240;
-
-  private static final int SWITCH_WIDTH = 52;
-  private static final int SWITCH_HEIGHT = 28;
 
   @Inject AlarmStore store;
 
@@ -43,16 +39,6 @@ public class AlarmListActivity extends BaseActivity {
 
   /** The alarm ids on screen, in row order; held so their listeners stay reachable. */
   private int[] shown = new int[0];
-
-  private boolean stopped;
-
-  /**
-   * Bumped by every {@link #fill}. The chain that adds the cards carries the value it started with
-   * and stops as soon as it no longer matches, so a rebuild cannot interleave with the chain it
-   * replaced — which is what put two "New alarm" cards on the screen when {@code onCreate} and
-   * {@code onResume} each started one.
-   */
-  private int generation;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -74,8 +60,7 @@ public class AlarmListActivity extends BaseActivity {
 
     setContentView(root);
     // The rows are filled in from onResume, which runs once on the way in and
-    // again on every return from the editor. Doing it here as well would be
-    // a second chain racing the first.
+    // again on every return from the editor.
   }
 
   @Override
@@ -92,85 +77,47 @@ public class AlarmListActivity extends BaseActivity {
     super.onPause();
   }
 
-  @Override
-  public void onDestroy() {
-    stopped = true;
-    super.onDestroy();
-  }
-
   // ── Rows ───────────────────────────────────────────────────────────────────
 
+  /**
+   * The list from scratch: one card per alarm, inflated from {@code alarm_card.xml}, then the "new
+   * alarm" card.
+   */
   private void fill() {
-    generation++;
     rows.removeAllViews();
     Alarm[] live = store.live();
     shown = new int[live.length];
     for (int i = 0; i < live.length; i++) {
       shown[i] = live[i].id;
     }
-    // +1 for the "new alarm" card; the column is sized for it up front so the
-    // ScrollView does not resize under the finger as rows land.
+    // +1 for the "new alarm" card.
     rows.setSize(Ui.WIDTH, height(shown.length + 1));
     Log.i(TAG, "alarms: " + shown.length);
-    final int mine = generation;
-    Executors.mainExecutor().execute(() -> addNext(0, mine));
-  }
-
-  private void addNext(int i, int mine) {
-    if (stopped || mine != generation) {
-      return;
+    LayoutInflater inflater = getLayoutInflater();
+    for (Alarm alarm : live) {
+      alarmCard(inflater, alarm);
     }
-    if (i < shown.length) {
-      alarmCard(store.get(shown[i]));
-    } else if (i == shown.length) {
-      newAlarmCard();
-    } else {
-      return;
-    }
-    Executors.mainExecutor().execute(() -> addNext(i + 1, mine));
+    newAlarmCard(inflater);
   }
 
-  /**
-   * Appends an empty card to the column and returns it for the caller to fill. The column's child
-   * is a full-width band; the card is inset within it, which is what puts the gap between cards
-   * without a spacing rule that the ScrollView would have to know about.
-   */
-  private FrameLayout addCard() {
-    FrameLayout band = Ui.group(0, 0, Ui.WIDTH, ROW_HEIGHT + ROW_GAP);
-
-    FrameLayout card = new FrameLayout();
-    card.setSize(Ui.WIDTH - 2 * Ui.MARGIN, ROW_HEIGHT);
-    card.setPosition(Ui.MARGIN, ROW_GAP);
-    card.setPadding(0, 0, 0, 0);
-    card.setBackground(new GradientDrawable().setColor(Ui.SURFACE).setCornerRadius(10));
-    band.addView(card);
-    rows.addView(band);
-    return card;
+  /** Inflates {@code layout} into the column as its last band and returns the band. */
+  private View addCard(LayoutInflater inflater, int layout) {
+    inflater.inflate(layout, rows, true);
+    return rows.getChildAt(rows.getChildCount() - 1);
   }
 
-  private void alarmCard(Alarm alarm) {
-    FrameLayout card = addCard();
+  private void alarmCard(LayoutInflater inflater, Alarm alarm) {
+    View band = addCard(inflater, R.layout.alarm_card);
+    band.findViewById(R.id.hit).setOnClickListener(v -> edit(alarm.id));
 
-    FrameLayout hit = new FrameLayout();
-    hit.setSize(TAP_AREA_WIDTH, ROW_HEIGHT);
-    hit.setPosition(0, 0);
-    hit.setPadding(0, 0, 0, 0);
-    hit.setBackground(new GradientDrawable().setColor(Ui.SURFACE).setCornerRadius(10));
-    hit.setOnClickListener(v -> edit(alarm.id));
-    card.addView(hit);
+    TextView time = band.findViewById(R.id.time);
+    time.setText(alarm.time());
+    time.setTextColor(alarm.enabled ? Ui.TEXT : Ui.MUTED);
 
-    TextView time = Ui.label(alarm.time(), Ui.MARGIN, 12, alarm.enabled ? Ui.TEXT : Ui.MUTED);
-    hit.addView(time);
+    TextView sub = band.findViewById(R.id.sub);
+    sub.setText(alarm.repeatText() + (alarm.label.isEmpty() ? "" : "  " + alarm.label));
 
-    String detail = alarm.repeatText() + (alarm.label.isEmpty() ? "" : "  " + alarm.label);
-    TextView sub = Ui.label(detail, Ui.MARGIN, 42, Ui.MUTED);
-    sub.setSize(TAP_AREA_WIDTH - 2 * Ui.MARGIN, 20);
-    hit.addView(sub);
-
-    Switch armed = new Switch();
-    armed.setSize(SWITCH_WIDTH, SWITCH_HEIGHT);
-    armed.setPosition(
-        Ui.WIDTH - 2 * Ui.MARGIN - SWITCH_WIDTH - Ui.MARGIN, (ROW_HEIGHT - SWITCH_HEIGHT) / 2);
+    Switch armed = band.findViewById(R.id.armed);
     armed.setChecked(alarm.enabled);
     armed.setOnCheckedChangeListener(
         (button, checked) -> {
@@ -181,14 +128,11 @@ public class AlarmListActivity extends BaseActivity {
           }
           Log.i(TAG, "alarm " + alarm.id + " " + alarm.time() + (checked ? " on" : " off"));
         });
-    card.addView(armed);
   }
 
-  private void newAlarmCard() {
-    FrameLayout card = addCard();
-    card.setBackground(new GradientDrawable().setColor(Ui.SURFACE_HIGH).setCornerRadius(10));
-    card.addView(Ui.label("+  New alarm", Ui.MARGIN, ROW_HEIGHT / 2 - 10, Ui.ACCENT));
-    card.setOnClickListener(v -> newAlarm());
+  private void newAlarmCard(LayoutInflater inflater) {
+    View band = addCard(inflater, R.layout.new_alarm_card);
+    band.findViewById(R.id.card).setOnClickListener(v -> newAlarm());
   }
 
   private void newAlarm() {

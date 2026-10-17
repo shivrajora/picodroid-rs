@@ -104,7 +104,6 @@ public class ClockActivity extends BaseActivity {
 
   @Override
   public void onDestroy() {
-    face.stop();
     super.onDestroy();
   }
 

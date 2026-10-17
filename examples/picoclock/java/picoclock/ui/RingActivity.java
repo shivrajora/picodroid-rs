@@ -143,7 +143,6 @@ public class RingActivity extends BaseActivity {
 
   @Override
   public void onDestroy() {
-    face.stop();
     super.onDestroy();
   }
 

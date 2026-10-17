@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The palette Ui.java carries, for the layouts; the two must agree. -->
+<resources>
+    <color name="background">#FF0B0F14</color>
+    <color name="surface">#FF18242E</color>
+    <color name="surface_high">#FF243645</color>
+    <color name="accent">#FF35D6C8</color>
+    <color name="text">#FFE8EEF2</color>
+    <color name="muted">#FF7E93A3</color>
+
+    <!-- One line of body text, cut with an ellipsis when it does not fit (Ui.label). -->
+    <style name="Line">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:singleLine">true</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+</resources>

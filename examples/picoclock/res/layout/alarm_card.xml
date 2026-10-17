@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  One alarm: its time, what it repeats on, and a switch that arms it. The band is a full-width
+  row of the list; the card is inset in it, which is what puts the gap between cards. The tappable
+  area is the card's left part (the hit box); the switch takes the rest. AlarmListActivity sets the
+  texts, the time's colour and the switch.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="320dp"
+    android:layout_height="80dp"
+    android:background="@color/background">
+
+    <FrameLayout
+        android:id="@+id/card"
+        android:layout_width="296dp"
+        android:layout_height="72dp"
+        android:layout_marginLeft="12dp"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/card">
+
+        <FrameLayout
+            android:id="@+id/hit"
+            android:layout_width="240dp"
+            android:layout_height="72dp"
+            android:background="@drawable/card">
+
+            <TextView
+                android:id="@+id/time"
+                style="@style/Line"
+                android:layout_marginLeft="12dp"
+                android:layout_marginTop="12dp" />
+
+            <TextView
+                android:id="@+id/sub"
+                style="@style/Line"
+                android:layout_width="216dp"
+                android:layout_height="20dp"
+                android:layout_marginLeft="12dp"
+                android:layout_marginTop="42dp"
+                android:textColor="@color/muted" />
+        </FrameLayout>
+
+        <Switch
+            android:id="@+id/armed"
+            android:layout_width="52dp"
+            android:layout_height="28dp"
+            android:layout_marginLeft="232dp"
+            android:layout_marginTop="22dp" />
+    </FrameLayout>
+</FrameLayout>

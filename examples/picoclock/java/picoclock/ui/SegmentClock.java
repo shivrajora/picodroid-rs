@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoclock.ui;
 
-import picodroid.concurrent.Executors;
 import picodroid.graphics.drawable.GradientDrawable;
 import picodroid.view.ViewGroup;
 import picodroid.widget.FrameLayout;
@@ -14,10 +13,8 @@ import picodroid.widget.FrameLayout;
  * the cheaper way to run one: a redraw is a handful of colour changes on the segments that actually
  * differed, where re-setting a label re-lays-out and re-rasterises the whole string every second.
  *
- * <p>Construction is spread over several UI ticks. Each view costs the RP2350 something like 7 ms
- * of LVGL work, so building all thirty inside {@code onCreate} would hold the tick for a fifth of a
- * second and trip the slow-handler watchdog; {@link #SEGMENTS_PER_TICK} at a time keeps every tick
- * well inside its budget and the whole face lands within half a second of the screen appearing.
+ * <p>The face is built whole, in the constructor, inside the screen's {@code onCreate}: the main
+ * loop allows a screen build a slow first frame (docs/designs/ui-build-budget-2026-10.md).
  */
 final class SegmentClock {
   /** Digit cell. Four of these plus a colon fill the panel's width with a margin to spare. */
@@ -37,9 +34,6 @@ final class SegmentClock {
   private static final int COLON_GAP = 9;
 
   private static final int DOT = 11;
-
-  /** Segments added per UI tick while the face is being built. */
-  private static final int SEGMENTS_PER_TICK = 3;
 
   /**
    * Which of the seven segments each digit lights, bit 0 = A (top) through bit 6 = G (middle), in
@@ -65,14 +59,6 @@ final class SegmentClock {
 
   private final FrameLayout face;
 
-  /** The last time drawn, so a rebuild-in-progress face catches up when it finishes. */
-  private int hour = -1;
-
-  private int minute = -1;
-  private boolean colonLit = true;
-  private boolean complete;
-  private boolean stopped;
-
   /** Total width of the face, for centring it. */
   static int width() {
     return DIGITS * DIGIT_WIDTH + 2 * DIGIT_GAP + COLON_WIDTH + 2 * COLON_GAP;
@@ -82,29 +68,20 @@ final class SegmentClock {
     return DIGIT_HEIGHT;
   }
 
-  /**
-   * Puts an unlit face into {@code parent} at {@code (x, y)} and fills its segments in over the
-   * following ticks. {@link #show} may be called at any point, before or during the build.
-   */
+  /** Puts an unlit face into {@code parent} at {@code (x, y)}. */
   SegmentClock(ViewGroup parent, int x, int y) {
     face = Ui.group(x, y, width(), height());
     parent.addView(face);
-    Executors.mainExecutor().execute(() -> build(0));
-  }
-
-  /** Stop the build chain — the screen is going away. */
-  void stop() {
-    stopped = true;
+    for (int i = 0; i < segments.length; i++) {
+      addSegment(i);
+    }
+    for (int i = 0; i < colonDots.length; i++) {
+      addColonDot(i);
+    }
   }
 
   /** Paint {@code hour:minute}, with the colon shown or hidden. Cheap to call every second. */
   void show(int h, int m, boolean colon) {
-    hour = h;
-    minute = m;
-    colonLit = colon;
-    if (!complete) {
-      return; // the build will paint what exists so far as it goes
-    }
     paintDigit(0, h / 10);
     paintDigit(1, h % 10);
     paintDigit(2, m / 10);
@@ -113,30 +90,6 @@ final class SegmentClock {
   }
 
   // ── Construction ───────────────────────────────────────────────────────────
-
-  private void build(int next) {
-    if (stopped) {
-      return;
-    }
-    int total = segments.length + colonDots.length;
-    int limit = next + SEGMENTS_PER_TICK;
-    final int end = limit > total ? total : limit;
-    for (int i = next; i < end; i++) {
-      if (i < segments.length) {
-        addSegment(i);
-      } else {
-        addColonDot(i - segments.length);
-      }
-    }
-    if (end < total) {
-      Executors.mainExecutor().execute(() -> build(end));
-      return;
-    }
-    complete = true;
-    if (hour >= 0) {
-      show(hour, minute, colonLit);
-    }
-  }
 
   private void addSegment(int i) {
     int digit = i / SEGMENTS_PER_DIGIT;
@@ -148,11 +101,6 @@ final class SegmentClock {
     seg.setBackground(new GradientDrawable().setColor(Ui.SEGMENT_OFF).setCornerRadius(3));
     face.addView(seg);
     segments[i] = seg;
-    // Paint it now if the time is already known, so the face fills in reading
-    // correctly rather than lighting up all at once at the end.
-    if (hour >= 0) {
-      paintSegment(i, (DIGIT_SEGMENTS[digitValue(digit)] & (1 << (i % SEGMENTS_PER_DIGIT))) != 0);
-    }
   }
 
   private void addColonDot(int i) {
@@ -193,19 +141,6 @@ final class SegmentClock {
                 .setColor(on ? Ui.SEGMENT_ON : Ui.SEGMENT_OFF)
                 .setCornerRadius(DOT / 2));
       }
-    }
-  }
-
-  private int digitValue(int digit) {
-    switch (digit) {
-      case 0:
-        return hour / 10;
-      case 1:
-        return hour % 10;
-      case 2:
-        return minute / 10;
-      default:
-        return minute % 10;
     }
   }
 

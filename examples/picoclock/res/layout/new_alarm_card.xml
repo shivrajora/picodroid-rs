@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The last card of the list: a tap adds an alarm. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="320dp"
+    android:layout_height="80dp"
+    android:background="@color/background">
+
+    <FrameLayout
+        android:id="@+id/card"
+        android:layout_width="296dp"
+        android:layout_height="72dp"
+        android:layout_marginLeft="12dp"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/card_high">
+
+        <TextView
+            style="@style/Line"
+            android:layout_marginLeft="12dp"
+            android:layout_marginTop="26dp"
+            android:text="+  New alarm"
+            android:textColor="@color/accent" />
+    </FrameLayout>
+</FrameLayout>
