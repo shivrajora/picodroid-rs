@@ -115,6 +115,15 @@ BUCKET_RUST=0
 BUCKET_JVM=0
 BUCKET_MD=0
 BUCKET_SCRIPTS=0
+# The SDK's declared surface: sdk/java and the generated name tables it
+# feeds. Its stage runs three tests, so it is not folded into `jvm`, which
+# an example-app edit also selects.
+BUCKET_SDK=0
+# A class added to the SDK since the last shrink-map cut. CI's shrunk-image
+# gate is the one place that sees it before a release, and it is --full
+# here, so this promotes that stage into the fast tier for the one commit
+# that adds the class (2026-10-17: picodroid/widget/InflaterSupport).
+BUCKET_NEWCLASS=0
 
 classify_changes() {
   local f any=0
@@ -140,13 +149,40 @@ classify_changes() {
     case "$f" in
       scripts/*) BUCKET_SCRIPTS=1 ;;
     esac
+    case "$f" in
+      sdk/java/*|sdk/*.tsv|sdk/keep.toml) BUCKET_SDK=1 ;;
+    esac
   done < <(changed_files)
+  if [[ $BUCKET_SDK -eq 1 ]] && sdk_class_added; then
+    BUCKET_NEWCLASS=1
+  fi
 
   # Nothing detected (clean tree, manual run) means we have no evidence about
   # what is safe to skip, so assume everything is in play.
   if [[ $any -eq 0 ]]; then
     BUCKET_RUST=1; BUCKET_JVM=1; BUCKET_MD=1
   fi
+}
+
+# Whether the change adds a class to sdk/class-names.tsv (a line gained) or a
+# source file under sdk/java. Both are judged on what is being committed, like
+# changed_files; the testing hook's file list counts the table itself.
+sdk_class_added() {
+  if [[ -n "${PICODROID_PRECOMMIT_FILES:-}" ]]; then
+    grep -qx 'sdk/class-names.tsv' <<< "$PICODROID_PRECOMMIT_FILES"
+    return
+  fi
+  local range=()
+  if [[ -n "$SINCE_REF" ]]; then
+    range=("$SINCE_REF")
+  elif [[ -n "${GIT_INDEX_FILE:-}" ]]; then
+    range=(--cached)
+  else
+    range=(HEAD)
+  fi
+  git -C "$REPO_ROOT" diff "${range[@]}" --diff-filter=A --name-only -- 'sdk/java/*' \
+    | grep -q . && return 0
+  git -C "$REPO_ROOT" diff "${range[@]}" -U0 -- sdk/class-names.tsv | grep -q '^+[^+]'
 }
 
 classify_changes
@@ -175,7 +211,7 @@ STAGES=(
   "hil_conf|guards|fast|scripts|hil-tests.conf against the source tree"
   "device_lock|guards|fast|scripts|device-lock state machine (test-device-lock.sh)"
   "lint_toolchain|guards|fast|rust|clippy toolchain matches CI's RUST_TOOLCHAIN"
-  "apk|guards|fast|rust|helloworld APK (shared by every cargo lane)"
+  "apk|guards|fast|rust,sdk|helloworld APK (shared by every cargo lane)"
 
   "fmt_java|jvm|fast|jvm|Java formatting"
   "fmt_kotlin|jvm|fast|jvm|Kotlin formatting"
@@ -193,6 +229,10 @@ STAGES=(
   # nowhere before CI's Testing job. A signature change with a stale test
   # caller red-lit main twice that way (2026-10-16, UR-15).
   "test_build|host|fast|rust|test binaries compile (test.sh, --no-run)"
+  # CI's Testing job runs these; the hook only compiled them, and a Java
+  # edit after the last gen-api-contract.sh (javac numbers its lambdas by
+  # position) red-lit main that way (2026-10-17).
+  "api_contract|host|fast|sdk|SDK name tables current (gen-api-contract.sh)"
   "clippy_sim_memdiag|host|full|rust|clippy (sim + mem-diag)"
   "clippy_sim_scheddiag|host|full|rust|clippy (sim + sched-diag)"
   # The libFuzzer shims build only on nightly; nothing else compiles them
@@ -237,10 +277,15 @@ bucket_selected() {
       jvm)     [[ $BUCKET_JVM     -eq 1 ]] && return 0 ;;
       md)      [[ $BUCKET_MD      -eq 1 ]] && return 0 ;;
       scripts) [[ $BUCKET_SCRIPTS -eq 1 ]] && return 0 ;;
+      sdk)     [[ $BUCKET_SDK     -eq 1 ]] && return 0 ;;
     esac
   done
   return 1
 }
+
+# Full-tier stages the fast tier runs anyway for this change.
+declare -A PROMOTED=()
+[[ $BUCKET_NEWCLASS -eq 1 ]] && PROMOTED[shrink_image]=1 && PROMOTED[apk]=1
 
 # lane -> space-separated selected stage names
 declare -A LANE_STAGES=()
@@ -249,8 +294,12 @@ SELECTED_COUNT=0
 
 for row in "${STAGES[@]}"; do
   IFS='|' read -r s_name s_lane s_tier s_buckets s_label <<< "$row"
-  [[ "$s_tier" == full && "$TIER" != full ]] && continue
-  bucket_selected "$s_buckets" || continue
+  if [[ "$s_tier" == full && "$TIER" != full && -z "${PROMOTED[$s_name]:-}" ]]; then
+    continue
+  fi
+  if [[ -z "${PROMOTED[$s_name]:-}" ]]; then
+    bucket_selected "$s_buckets" || continue
+  fi
   LANE_STAGES[$s_lane]="${LANE_STAGES[$s_lane]:-} $s_name"
   STAGE_LABEL[$s_name]="$s_label"
   SELECTED_COUNT=$((SELECTED_COUNT + 1))
@@ -525,6 +574,22 @@ stage_test_build() {
   fi
 }
 
+# The three currency tests behind scripts/gen-api-contract.sh, on the test
+# binary stage_test_build compiles (same profile, features and APK, so a
+# rust change shares the build; a Java-only change compiles it here).
+stage_api_contract() {
+  if ! env CARGO_PROFILE_TEST_CODEGEN_UNITS=16 CARGO_PROFILE_TEST_INCREMENTAL=true \
+         CARGO_PROFILE_TEST_OPT_LEVEL=2 PICODROID_APK_PATH="$APK_PATH" \
+       cargo test --workspace --jobs "$JOBS" --target "$HOST_TARGET" \
+         --features pico-jvm/line-numbers,picodroid-core/line-numbers,picodroid/line-numbers \
+         -- api_contract_is_current class_names_are_current member_names_are_current; then
+    echo ""
+    echo "ERROR: a committed SDK name table (sdk/*.tsv) is stale against sdk/java."
+    echo "       Run ./scripts/gen-api-contract.sh and stage the result."
+    return 1
+  fi
+}
+
 stage_clippy_host_tools() {
   # shellcheck disable=SC2086
   if ! cargo $LINT_PLUS clippy -p pdb -p papk-pack -p papk-info -p class-shrink \
@@ -757,6 +822,8 @@ if [[ "$TIER" == fast ]]; then
   [[ $BUCKET_JVM  -eq 1 ]] && scope+=" java/kotlin"
   [[ $BUCKET_MD   -eq 1 ]] && scope+=" markdown"
   [[ $BUCKET_SCRIPTS -eq 1 ]] && scope+=" scripts"
+  [[ $BUCKET_SDK -eq 1 ]] && scope+=" sdk"
+  [[ $BUCKET_NEWCLASS -eq 1 ]] && scope+=" (new SDK class: the --shrink image check runs)"
   echo "    changed:${scope:- (nothing relevant)}    --full adds the release-cut legs"
 fi
 echo "    $SELECTED_COUNT stage(s)"
