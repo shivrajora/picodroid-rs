@@ -14,6 +14,22 @@ dispatched by hash instead of string compare; line-number tables are out of ever
 image; and two bug-scan rounds landed about ninety one-bug fixes across the JVM, the widgets,
 the `java.*` shim and the packer.
 
+**The UI tick budget is the framework's concern, not the app's (2026-10-17)**
+
+Written up in [ui-build-budget-2026-10.md](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/ui-build-budget-2026-10.md).
+The main loop now judges a Java span the way Android does. A screen build — an Activity's
+`onCreate` → `onResume`, its resume after a child finished, `Application.onCreate`, a Service
+callback, or any handler that made eight or more views — may hold the 16 ms tick for a slow
+first frame, and is reported (`screen build: … took N ms, V views`) only past 250 ms. A
+steady-state handler (a widget event, a posted Runnable, a network or alarm callback) is
+counted at 50 ms and reported on its own only at 250 ms; what is reported instead is
+sustained jank (`jank: K frames lost to N slow handlers in the last second`). The old
+`slow handler` line at 50 ms, which made apps build their screens one row per tick, is gone;
+`PICODROID_SLOW_HANDLER_MS` (set it to get the old per-handler line) and the new
+`PICODROID_BUILD_BUDGET_MS` tune the simulator. The first Activity's and the Application's
+`onCreate`, never timed before, are now. An app's loop logs its totals when it ends
+(`ui budget: …`).
+
 **Every device has a serial number (2026-10-14)**
 
 Written up in [device-serial-2026-10.md](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/device-serial-2026-10.md).

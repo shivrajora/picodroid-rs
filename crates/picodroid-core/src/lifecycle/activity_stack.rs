@@ -137,7 +137,7 @@ pub(super) fn handle_push_op(
     // New top gets its own keypad focus group before onCreate, isolating its
     // focus from the parent's (which is parked with its focus intact).
     crate::graphics::lvgl::events::push_activity_group();
-    if start_activity_instance(jvm, new_ref, None, None, heap, handler).is_break() {
+    if start_activity_instance(jvm, new_class, new_ref, None, None, heap, handler).is_break() {
         return LifecycleControl::Break;
     }
     // New top is now fully resumed — stop the previous one. Order matches
@@ -186,7 +186,10 @@ pub(super) fn handle_pop_op(
     // Snapshot the finishing Activity's result BEFORE the pop (it lives on the
     // entry being removed). Delivered to the uncovered caller below.
     let pending_result = handler.top_activity_result();
-    if destroy_top_instance(jvm, top_ref, false, heap, handler).is_break() {
+    let span = span_start();
+    let destroyed = destroy_top_instance(jvm, top_ref, false, heap, handler);
+    end_span("activity finish", top_class, SpanKind::Steady, span);
+    if destroyed.is_break() {
         return LifecycleControl::Break;
     }
     pop_and_resume_parent(jvm, pending_result, heap, handler)
@@ -307,7 +310,7 @@ pub(super) fn pop_and_resume_parent(
     if handler.top_activity_destroyed() {
         return recreate_uncovered(jvm, result, heap, handler);
     }
-    if let Some((new_top_ref, _)) = handler.current_activity() {
+    if let Some((new_top_ref, new_top_class)) = handler.current_activity() {
         restore_top_view(handler);
         // Result delivery (AOSP order): deliverResults precedes
         // performResume→performRestart, so onActivityResult lands AFTER
@@ -318,7 +321,10 @@ pub(super) fn pop_and_resume_parent(
             }
         }
         // Android's stopped->foreground edge: onRestart precedes onStart when
-        // returning after a child Activity finished above this one.
+        // returning after a child Activity finished above this one. An
+        // Activity that rebuilds its screen in onResume does it in this
+        // `activity resume` build span.
+        let span = span_start();
         for site in [
             dispatch_sites::ACTIVITY_ON_RESTART,
             dispatch_sites::ACTIVITY_ON_START,
@@ -328,6 +334,7 @@ pub(super) fn pop_and_resume_parent(
                 return LifecycleControl::Break;
             }
         }
+        end_span("activity resume", new_top_class, SpanKind::Build, span);
     }
     // Mirror of the push-side re-baseline: the pop released a screen's worth
     // of native allocations, another legitimate step the sentinel must not
@@ -372,7 +379,7 @@ pub(super) fn recreate_uncovered(
     // entry's old one emptied when its tree was deleted.
     crate::graphics::lvgl::events::pop_activity_group();
     crate::graphics::lvgl::events::push_activity_group();
-    let control = start_activity_instance(jvm, new_ref, saved, result, heap, handler);
+    let control = start_activity_instance(jvm, class, new_ref, saved, result, heap, handler);
     handler.set_top_saved_state(None);
     handler.set_delivery_intent(None);
     #[cfg(feature = "mem-diag")]
@@ -569,7 +576,7 @@ pub(super) fn handle_recreate_op(
     // when its tree was deleted.
     crate::graphics::lvgl::events::pop_activity_group();
     crate::graphics::lvgl::events::push_activity_group();
-    let control = start_activity_instance(jvm, new_ref, saved, None, heap, handler);
+    let control = start_activity_instance(jvm, top_class, new_ref, saved, None, heap, handler);
     handler.set_top_saved_state(None);
     #[cfg(feature = "mem-diag")]
     crate::mem_diag::note_activity_transition();
@@ -590,7 +597,11 @@ pub(super) fn process_pending_op(
 
     match op {
         PendingOp::Service(s) => {
-            crate::service_lifecycle::process_pending_service_op(jvm, s, heap, handler)
+            let span = span_start();
+            let control =
+                crate::service_lifecycle::process_pending_service_op(jvm, s, heap, handler);
+            end_span("service op", "", SpanKind::Build, span);
+            control
         }
         PendingOp::Activity(PendingActivityOp::Push {
             class_name,

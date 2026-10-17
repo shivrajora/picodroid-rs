@@ -75,15 +75,22 @@ Two caveats. The kernel is **single-core**, where the chip is dual-core, so cros
 
 See `docs/designs/freertos-host-sim.md` for the design.
 
-## Slow-handler watchdog
+## UI build budget
 
-The main loop warns when a single handler — widget-event dispatch, a posted Runnable, or the pending-op drain (a big `onCreate`) — overruns the threshold and stalls the UI tick. The default is 50 ms; set `PICODROID_SLOW_HANDLER_MS` to tune it (`0` disables) without a rebuild:
+The main loop is single-threaded, so every Java callback it runs holds the 16 ms UI tick for as long as it takes. The rule it applies is Android's: a screen build may take a slow first frame, and the framework objects only to sustained jank or to a handler that is plainly stuck. Three lines, all on device too:
+
+- **`screen build: activity start [com.example.Main] took 320 ms, 31 views (20 frames skipped; budget 250 ms)`** — a build span (an Activity's `onCreate` → `onResume`, its resume after a child finished, `Application.onCreate`, a Service callback, or any handler that made eight or more views, such as a Fragment commit or a page bind) held the tick for 250 ms or more.
+- **`slow handler: Runnable took 260 ms (16 frames skipped) — stalls the UI tick`** — a single steady-state handler (a widget event, a posted Runnable, a network or alarm callback) ran for 250 ms or more.
+- **`jank: 17 frames lost to 6 slow handlers in the last second (each >= 50 ms)`** — steady-state handlers of 50 ms or more cost fifteen or more frames within one second. A single 50 ms handler is counted, not logged.
+
+Two knobs, without a rebuild. `PICODROID_SLOW_HANDLER_MS` sets the steady-state line (`0` turns counting and the jank line off) and, when set at all, also prints every handler over it on its own line, StrictMode-style; `PICODROID_BUILD_BUDGET_MS` sets the build budget (`0` turns its line off). `PICODROID_TRACE_SPANS=1` prints every span with its view count:
 
 ```bash
 PICODROID_SLOW_HANDLER_MS=20 ./scripts/sim.sh --app myapp
+PICODROID_TRACE_SPANS=1 ./scripts/sim.sh --app myapp
 ```
 
-It ships on device too, where the threshold is the compile-time default.
+The simulator's figures are ten times the device's or better, so read them as shapes (one build span per screen, no chain of Runnables), not budgets. An app's loop prints its totals when it ends (`ui budget: 3 builds (0 over budget, max 61 ms); …`). The design and the numbers behind the thresholds are in `docs/designs/ui-build-budget-2026-10.md`.
 
 ## Filtering logs
 

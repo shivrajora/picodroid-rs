@@ -148,7 +148,7 @@ G-graphics, X-cross-cutting).
 |---|---|---|---|---|---|---|
 | DBG-01 | defmt/RTT (`Tag: msg`) vs stdout `[Tag] msg`; level ladder vs level-agnostic println | IS | Test patterns already normalize across both (`hil-tests.conf` categories) | — | V | — |
 | DBG-02 | Crash shape: panic-probe/HardFault/bkpt vs std unwind/SIGSEGV; `check_no_crash` greps both vocabularies | IS | — | — | V | — |
-| DBG-03 | Sim-only env knobs (HEADLESS, PERFECT_TOUCH, TAP_DEBUG, CTRL_FIFO, SANITIZER, SLOW_HANDLER_MS, SIM_FS*) have no device counterpart | IS | Knobs only relax/instrument the sim; SANITIZER should be *on* in parity lanes (X3) | — | V | — |
+| DBG-03 | Sim-only env knobs (HEADLESS, PERFECT_TOUCH, TAP_DEBUG, CTRL_FIFO, SANITIZER, SLOW_HANDLER_MS, BUILD_BUDGET_MS, SIM_FS*) have no device counterpart | IS | Knobs only relax/instrument the sim; SANITIZER should be *on* in parity lanes (X3) | — | V | — |
 
 ### Performance measurement (PERF)
 
@@ -769,8 +769,9 @@ Deliberate divergences surfaced by the bug bash (docs/bugbash-2026-08-30.md), ke
 
 ## Span report (`parity-metrics`, 2026-09-23)
 
-With the feature on, the main loop's slow-handler warning (`lifecycle/mod.rs::warn_if_slow`)
-is not rate-limited and prints, per span: the UI task's FreeRTOS run-time counter delta
+With the feature on, the main loop's budget lines (`lifecycle/budget.rs::end_span`: every
+`screen build`, and every steady span of 50 ms or more, StrictMode-style) are not rate-limited
+and each is followed by a `counters:` line: the UI task's FreeRTOS run-time counter delta
 (`cpu`, device only), time inside native calls and their count, time resolving method/field
 sites, time in class-initialised probes, invoke / field / `new` / other opcode time, frame
 allocation time, bytecodes, cold resolutions, cache declines, first-time class-file parses and

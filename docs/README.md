@@ -42,6 +42,7 @@ behind a decision, or a measurement, or a list of what is still broken, it goes 
 | Flash or RAM budget, the shrinker | [designs/flash-budget-2026-09.md](designs/flash-budget-2026-09.md), [designs/unconditional-shrink-2026-09.md](designs/unconditional-shrink-2026-09.md), [designs/value-slot-8b.md](designs/value-slot-8b.md) |
 | Packages, install, the launcher | [designs/multi-app-2026-09.md](designs/multi-app-2026-09.md), [designs/app-store-roadmap-2026-09.md](designs/app-store-roadmap-2026-09.md), [designs/alarm-manager-2026-09.md](designs/alarm-manager-2026-09.md) |
 | The Java API surface | [designs/android-parity-roadmap-2026-08.md](designs/android-parity-roadmap-2026-08.md), [designs/fragments-2026-09.md](designs/fragments-2026-09.md), [fragments-follow-ups.md](fragments-follow-ups.md) |
+| A screen that builds slowly, the UI tick | [designs/ui-build-budget-2026-10.md](designs/ui-build-budget-2026-10.md) |
 | Kotlin | [designs/kotlin-roadmap-2026-08.md](designs/kotlin-roadmap-2026-08.md), [designs/kotlin-shim-inventory.md](designs/kotlin-shim-inventory.md) |
 | The simulator | [designs/freertos-host-sim.md](designs/freertos-host-sim.md) (amendments first), [designs/sim-pdb-endpoint-2026-09.md](designs/sim-pdb-endpoint-2026-09.md), [parity-audit.md](parity-audit.md) |
 | `pdb`, the debug bridge | [designs/pdb-schema-as-code.md](designs/pdb-schema-as-code.md), [designs/sim-pdb-endpoint-2026-09.md](designs/sim-pdb-endpoint-2026-09.md) |

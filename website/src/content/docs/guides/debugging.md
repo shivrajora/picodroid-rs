@@ -60,7 +60,7 @@ The host simulator lets you run apps on your development machine without hardwar
 
 For display apps, the simulator opens a graphical window (via minifb) that renders the LVGL widget tree with mouse-as-touch input. On a board with buttons the host keyboard presses them: the Up and Down arrows are PREV and NEXT, Enter is ENTER, Backspace is BACK, and `1`–`4` are the first to fourth declared button. Close the window or press Escape to exit.
 
-The simulator models the board's memory, not the host's: the heap is capped at the board's FreeRTOS arena and the LVGL pool is sized from its `lv_mem_kb`, so an app that runs out on the device runs out here. Two checks are on by default — the handle sanitizer, which stops the run with a backtrace when a freed widget is used (`--no-sanitize-handles` turns it off), and the [slow-handler watchdog](/get-started/simulator/#slow-handler-watchdog), which prints `slow handler: … took N ms` when one handler stalls the UI tick for 50 ms or more (on a device too).
+The simulator models the board's memory, not the host's: the heap is capped at the board's FreeRTOS arena and the LVGL pool is sized from its `lv_mem_kb`, so an app that runs out on the device runs out here. Two checks are on by default — the handle sanitizer, which stops the run with a backtrace when a freed widget is used (`--no-sanitize-handles` turns it off), and the [UI build budget](/get-started/simulator/#ui-build-budget), which prints `screen build: … took N ms` when a screen build holds the UI tick for 250 ms or more, and `jank: …` when steady-state handlers of 50 ms or more cost fifteen frames in a second (on a device too).
 
 Three environment switches change what the simulator boots into, without a rebuild:
 

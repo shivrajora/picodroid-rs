@@ -56,6 +56,7 @@ mod imp {
     /// as the one-release escape hatch from the generational table.
     #[inline(always)]
     pub fn register(obj: Obj) -> i32 {
+        super::note_registered();
         obj.addr() as u32 as i32
     }
 
@@ -212,6 +213,7 @@ mod imp {
         t.free_head.set(LINKS.next[idx].get());
         t.objs[idx].set(Some(obj));
         t.live.set(t.live.get() + 1);
+        super::note_registered();
         let handle = encode(LINKS.gens[idx].get(), idx);
         if install_hook {
             install_delete_hook(obj, handle);
@@ -644,5 +646,19 @@ mod imp {
 }
 
 pub use imp::{get, is_live, register, register_pinned, reset};
+
+/// Registrations since boot, wrapping: the main loop's build budget reads
+/// it before and after a span to learn how many widgets the span made.
+/// Registration happens on the JVM tasks only, so a load-and-store counts.
+static REGISTERED: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+fn note_registered() {
+    use core::sync::atomic::Ordering::Relaxed;
+    REGISTERED.store(REGISTERED.load(Relaxed).wrapping_add(1), Relaxed);
+}
+
+pub(crate) fn registered_count() -> u32 {
+    REGISTERED.load(core::sync::atomic::Ordering::Relaxed)
+}
 #[cfg(feature = "sim")]
 pub use imp::{is_registered, report_close_under_java_parent};

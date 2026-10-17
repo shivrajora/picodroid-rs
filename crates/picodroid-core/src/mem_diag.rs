@@ -31,7 +31,8 @@ use crate::util::local::Core0;
 
 /// Default monitor window when `PICODROID_MEMDIAG_WINDOW_MS` is unset (and
 /// the device value, which has no env). Keep >= 500 ms: the sampler shares
-/// the UI tick with the 50 ms slow-handler budget.
+/// the UI tick with the 50 ms steady-state handler budget (a screen build
+/// may hold a tick for 250 ms; `lifecycle/budget.rs`).
 const DEFAULT_WINDOW_MS: u32 = 1000;
 /// LVGL tick period the window cadence is derived from
 /// (`crate::executors::tick_source::TICK_PERIOD_MS`).
