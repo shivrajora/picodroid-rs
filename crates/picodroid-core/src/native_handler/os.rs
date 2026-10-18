@@ -74,6 +74,16 @@ pub fn dispatch(
         (ch::picodroid_os_PowerManager, mh::isInteractive) => Some(Ok(Some(Value::Int(
             i32::from(crate::power::is_interactive()),
         )))),
+        // Broadcasts (broadcasts.rs): which system actions some registered
+        // receiver wants, so the tick raises nothing nobody listens for.
+        (ch::picodroid_content_BroadcastReceiver, mh::nativeSetInterest) => {
+            let mask = match ctx.args.first() {
+                Some(Value::Int(v)) => *v as u32,
+                _ => 0,
+            };
+            crate::broadcasts::set_interest(mask);
+            Some(Ok(None))
+        }
         // Which keys this board has (app-portability K2): a button mapped to
         // the code, or BACK / HOME as the board synthesises them.
         (ch::picodroid_view_KeyCharacterMap, mh::nativeDeviceHasKey) => {

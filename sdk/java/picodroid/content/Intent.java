@@ -4,18 +4,20 @@ package picodroid.content;
 import picodroid.os.Bundle;
 
 /**
- * Description of an operation to be performed: launch an Activity, start or bind a Service. An
- * Intent identifies the target component by class and optionally carries extras (a {@link Bundle})
- * that the recipient reads back.
+ * Description of an operation to be performed: launch an Activity, start or bind a Service, or
+ * broadcast to {@link BroadcastReceiver}s. An Intent identifies the target component by class, or
+ * names an action, and optionally carries extras (a {@link Bundle}) that the recipient reads back.
  *
- * <p>Picodroid supports only explicit Intents: a {@code Class<?>} target in this app, or on a
- * multi-app board a package name ({@link #setPackage}) that launches another installed app.
- * Implicit Intents (action / category / data resolution against a manifest) are out of scope.
+ * <p>Picodroid supports explicit Intents — a {@code Class<?>} target in this app, or on a multi-app
+ * board a package name ({@link #setPackage}) that launches another installed app — and, for
+ * broadcasts only, an action ({@link #setAction}) matched against registered {@link IntentFilter}s.
+ * Resolving an action against a manifest to start an Activity or Service is out of scope.
  *
  * <pre>{@code
  * startActivity(new Intent(this, DetailActivity.class));
  * startService(new Intent(this, SyncService.class).putExtra("interval", 60));
  * startActivity(getPackageManager().getLaunchIntentForPackage("com.example.weather"));
+ * sendBroadcast(new Intent("com.example.REFRESH").putExtra("why", "tap"));
  * }</pre>
  */
 public final class Intent {
@@ -30,14 +32,65 @@ public final class Intent {
   private Bundle extras;
 
   /**
-   * Package to launch instead of a class in this app (multi-app boards). Declared last: the
-   * framework reads it by field slot, after the fields above.
+   * Package to launch instead of a class in this app (multi-app boards). The framework reads it by
+   * field slot, after the fields above: keep it third.
    */
   private String packageName;
 
-  /** An Intent with no target yet; see {@link #setPackage}. */
+  /** The broadcast action ({@link #setAction}); null for a component Intent. Slot 3. */
+  private String action;
+
+  /** Android's action for the Activity a launcher starts; what a manifest's intent-filter names. */
+  public static final String ACTION_MAIN = "android.intent.action.MAIN";
+
+  /** Broadcast at every minute change, to registered receivers only. No extras. */
+  public static final String ACTION_TIME_TICK = "android.intent.action.TIME_TICK";
+
+  /**
+   * Broadcast when the wall clock was set: by Settings, by an app's {@code
+   * SystemClock.setCurrentTimeMillis}, or by the platform's time service when the network moved the
+   * clock by two seconds or more. Android's constant value is {@code TIME_SET}.
+   */
+  public static final String ACTION_TIME_CHANGED = "android.intent.action.TIME_SET";
+
+  /**
+   * Broadcast when the platform zone changed (Settings → Date &amp; time, or {@code
+   * AlarmManager.setTimeZone}). Carries {@link #EXTRA_TIMEZONE}.
+   */
+  public static final String ACTION_TIMEZONE_CHANGED = "android.intent.action.TIMEZONE_CHANGED";
+
+  /**
+   * The new zone's id ({@code "UTC"} or {@code "GMT+05:30"}) in {@link #ACTION_TIMEZONE_CHANGED}.
+   */
+  public static final String EXTRA_TIMEZONE = "time-zone";
+
+  /**
+   * Broadcast when the panel lit: a key, a touch, {@code setTurnScreenOn}, {@code KEYCODE_WAKEUP}.
+   */
+  public static final String ACTION_SCREEN_ON = "android.intent.action.SCREEN_ON";
+
+  /**
+   * Broadcast when the panel went dark: the screen timeout, {@code KEYCODE_SLEEP} or {@code POWER}.
+   */
+  public static final String ACTION_SCREEN_OFF = "android.intent.action.SCREEN_OFF";
+
+  /**
+   * Delivered once per boot to a receiver the manifest declares for it ({@code <receiver>} with
+   * this action), before the boot app starts; never to a receiver registered at run time, which by
+   * then is after boot. Multi-app boards.
+   */
+  public static final String ACTION_BOOT_COMPLETED = "android.intent.action.BOOT_COMPLETED";
+
+  /** An Intent with no target yet; see {@link #setPackage}, {@link #setAction}. */
   public Intent() {
     this.targetClassName = null;
+  }
+
+  /**
+   * Mirrors {@code android.content.Intent#Intent(String)}: a broadcast Intent for {@code action}.
+   */
+  public Intent(String action) {
+    this.action = action;
   }
 
   public Intent(Class<?> targetClass) {
@@ -85,6 +138,21 @@ public final class Intent {
   /** The package this Intent launches, or {@code null} for a class in this app. */
   public String getPackage() {
     return packageName;
+  }
+
+  /**
+   * The action a broadcast of this Intent is matched on ({@link Context#sendBroadcast}, {@code
+   * PendingIntent.getBroadcast}). Mirrors {@code android.content.Intent#setAction}; a {@code
+   * startActivity} or {@code startService} ignores it.
+   */
+  public Intent setAction(String action) {
+    this.action = action;
+    return this;
+  }
+
+  /** The action, or {@code null} for an Intent that names a component only. */
+  public String getAction() {
+    return action;
   }
 
   public Intent putExtra(String key, int value) {

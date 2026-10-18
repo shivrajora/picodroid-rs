@@ -194,6 +194,7 @@ picodroid/concurrent/Thread$UncaughtExceptionHandler
 picodroid/concurrent/ThreadPoolExecutor
 picodroid/concurrent/TimeUnit
 picodroid/content/ActivityNotFoundException
+picodroid/content/BroadcastReceiver
 picodroid/content/ComponentName
 picodroid/content/ContentResolver
 picodroid/content/Context
@@ -202,6 +203,7 @@ picodroid/content/DialogInterface$OnClickListener
 picodroid/content/DialogInterface$OnDismissListener
 picodroid/content/DialogInterface$OnMultiChoiceClickListener
 picodroid/content/Intent
+picodroid/content/IntentFilter
 picodroid/content/ServiceConnection
 picodroid/content/SharedPreferences
 picodroid/content/SharedPreferences$Editor

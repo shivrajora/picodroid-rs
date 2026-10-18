@@ -289,6 +289,9 @@ public class Activity extends Context
       mFragments.dispatchDestroy();
     }
     onDestroy();
+    // After onDestroy, where an app's own unregisterReceiver belongs: what is still registered
+    // now is a leak, dropped with Android's warning (LoadedApk.removeContextRegistrations).
+    unregisterLeakedReceivers();
     if (mViewModelStore != null) {
       mViewModelStore.clear();
     }

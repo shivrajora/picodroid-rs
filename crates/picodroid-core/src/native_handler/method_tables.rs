@@ -366,6 +366,12 @@ pub const OS_HANDLED: &[Row] = &[
     ),
     // picodroid/os/Build
     ("picodroid/os/PowerManager", "isInteractive", "()Z"),
+    // picodroid/content/BroadcastReceiver (broadcasts.rs)
+    (
+        "picodroid/content/BroadcastReceiver",
+        "nativeSetInterest",
+        "(I)V",
+    ),
     (
         "picodroid/view/KeyCharacterMap",
         "nativeDeviceHasKey",

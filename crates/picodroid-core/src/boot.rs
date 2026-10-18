@@ -200,6 +200,9 @@ pub fn run_app(apk_data: &'static [u8]) {
     crate::input_inject::reset_soft_keys();
     crate::graphics::lvgl::keep_on::reset();
     crate::power::reset_holds();
+    // The previous app's receivers went with its heap; the interest they
+    // declared must not make the loop upcall into this app's empty registry.
+    crate::broadcasts::reset();
     // The previous app's compat window, if it had one; this app's is set
     // once its manifest has been read below.
     crate::graphics::lvgl::window::set_design(None);

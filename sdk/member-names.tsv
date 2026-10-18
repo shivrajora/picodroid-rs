@@ -12,9 +12,16 @@
 # the JVM's builtin arms and the lifecycle upcalls match names through.
 F	$SwitchMap$java$time$temporal$ChronoUnit
 F	$VALUES
+F	ACTION_BOOT_COMPLETED
 F	ACTION_DOWN
 F	ACTION_LONG_PRESS
+F	ACTION_MAIN
 F	ACTION_MOVE
+F	ACTION_SCREEN_OFF
+F	ACTION_SCREEN_ON
+F	ACTION_TIMEZONE_CHANGED
+F	ACTION_TIME_CHANGED
+F	ACTION_TIME_TICK
 F	ACTION_UP
 F	ALARM_SERVICE
 F	ANTI_ALIAS_FLAG
@@ -25,6 +32,16 @@ F	AT_MOST
 F	AUGUST
 F	AUTO_TIME
 F	BIND_AUTO_CREATE
+F	BIT_BOOT_COMPLETED
+F	BIT_CONNECTIVITY
+F	BIT_NETWORK_STATE
+F	BIT_SCAN_RESULTS
+F	BIT_SCREEN_OFF
+F	BIT_SCREEN_ON
+F	BIT_SUPPLICANT_STATE
+F	BIT_TIMEZONE_CHANGED
+F	BIT_TIME_CHANGED
+F	BIT_TIME_TICK
 F	BLACK
 F	BLUE
 F	BOARD
@@ -86,6 +103,7 @@ F	ERROR_AUTHENTICATING
 F	ERROR_GENERIC
 F	ERROR_NETWORK_NOT_FOUND
 F	EXACTLY
+F	EXTRA_TIMEZONE
 F	FADE_MS
 F	FEATURE_ETHERNET
 F	FEATURE_TOUCHSCREEN
@@ -194,6 +212,7 @@ F	K_LONG
 F	K_NULL
 F	K_OBJECT
 F	K_STRING
+F	LEAK
 F	LEFT
 F	LEFT_RIGHT
 F	LENGTH_INDEFINITE
@@ -209,6 +228,7 @@ F	MARCH
 F	MARQUEE
 F	MATCH_PARENT
 F	MAX
+F	MAX_ACTIONS
 F	MAX_BLOB
 F	MAX_CALLBACKS
 F	MAX_DEFERRED
@@ -221,6 +241,7 @@ F	MAX_LINES_SHIFT
 F	MAX_LIST_ITEMS
 F	MAX_LONG_PRESSES
 F	MAX_PRIORITY
+F	MAX_RECEIVERS
 F	MAX_REQUEST_HEADERS
 F	MAX_SECONDS
 F	MAX_SEQUENCE_LENGTH
@@ -322,6 +343,8 @@ F	PROPERTY_TRANSLATION_X
 F	PROPERTY_TRANSLATION_Y
 F	PROPERTY_X
 F	PROPERTY_Y
+F	RECEIVER_EXPORTED
+F	RECEIVER_NOT_EXPORTED
 F	RED
 F	RELATIVE_HORIZONTAL_GRAVITY_MASK
 F	RELATIVE_LAYOUT_DIRECTION
@@ -523,6 +546,7 @@ F	ZERO
 F	accuracy
 F	action
 F	actionListener
+F	actions
 F	active
 F	activeCapabilities
 F	activeLongPresses
@@ -880,12 +904,18 @@ F	rotationTo
 F	roundTripTime
 F	rssi
 F	rules
+F	sCount
+F	sFilters
 F	sHeight
 F	sInstance
 F	sInstances
+F	sInterest
 F	sMainExecutor
 F	sManifestThemeApplied
+F	sOwners
 F	sQueuedWork
+F	sReceivers
+F	sReceiversRegistered
 F	sShowing
 F	sShowingCount
 F	sUnwritten
@@ -987,9 +1017,11 @@ M	access$700
 M	access$802
 M	access$902
 M	accumulate
+M	actionOf
 M	activeCountChanged
 M	activeStateChanged
 M	add
+M	addAction
 M	addAll
 M	addAndGet
 M	addCapability
@@ -1050,6 +1082,7 @@ M	between
 M	bindService
 M	bindView
 M	bit
+M	bitOf
 M	boundItemId
 M	box
 M	bufferLength
@@ -1150,6 +1183,7 @@ M	containsKey
 M	convert
 M	copyOf
 M	cos
+M	countActions
 M	countDown
 M	crc32
 M	create
@@ -1175,6 +1209,8 @@ M	decrementAndGet
 M	delay0
 M	delete
 M	deleteFile
+M	deliver
+M	deliverExplicit
 M	deliverInitial
 M	deliverPosted
 M	descent
@@ -1276,6 +1312,7 @@ M	fireReady
 M	fireRefresh
 M	fireStep
 M	fireSwipe
+M	fireSystem
 M	fireTextChanged
 M	fireTimeChanged
 M	fireTouch
@@ -1566,6 +1603,7 @@ M	gmtId
 M	grow
 M	handleUpEvent
 M	has
+M	hasAction
 M	hasActiveObservers
 M	hasCapability
 M	hasExtra
@@ -1594,6 +1632,7 @@ M	initStream
 M	insert
 M	instantiate
 M	intValue
+M	interestLocked
 M	interrupt
 M	interrupted
 M	invalidEndTag
@@ -1679,6 +1718,7 @@ M	lambda$new$0
 M	lambda$openOptionsMenu$0
 M	lambda$openOptionsMenu$1
 M	lambda$registerNetworkCallback$0
+M	lambda$sendBroadcast$0
 M	lambda$startSwap$1
 M	lambda$static$0
 M	lambda$swap$2
@@ -1710,6 +1750,7 @@ M	malformedVarint
 M	mark
 M	markSupported
 M	markUnwritten
+M	matchAction
 M	matches
 M	max
 M	maxLength
@@ -1890,6 +1931,7 @@ M	nativeSetIncludeFontPadding
 M	nativeSetIndicatorColor
 M	nativeSetIndicatorDirection
 M	nativeSetInt
+M	nativeSetInterest
 M	nativeSetKeepScreenOn
 M	nativeSetLineMode
 M	nativeSetLong
@@ -2028,6 +2070,7 @@ M	onPrimaryPage
 M	onProgressChanged
 M	onReady
 M	onRebind
+M	onReceive
 M	onRefresh
 M	onRestart
 M	onRestoreInstanceState
@@ -2132,6 +2175,7 @@ M	prepareOptionsMenu
 M	print
 M	println
 M	prolepticMonth
+M	publishInterest
 M	pushAngles
 M	pushLimit
 M	put
@@ -2192,12 +2236,14 @@ M	reconnect
 M	recreate
 M	recv
 M	refreshFromAdapter
+M	register
 M	registerDefaultNetworkCallback
 M	registerListener
 M	registerNativeItemClick
 M	registerNativeItemSelected
 M	registerNetworkCallback
 M	registerOnPageChangeCallback
+M	registerReceiver
 M	registerScanResultsCallback
 M	release
 M	remove
@@ -2205,6 +2251,7 @@ M	removeAllViews
 M	removeCapability
 M	removeFragment
 M	removeItem
+M	removeLocked
 M	removeNetwork
 M	removeObserver
 M	removeObservers
@@ -2258,6 +2305,7 @@ M	scheduleWithFixedDelay
 M	scheduleWrite
 M	secondsUntil
 M	send
+M	sendBroadcast
 M	serializedSize
 M	set
 M	setARGB
@@ -2477,6 +2525,7 @@ M	subtractFrom
 M	swap
 M	syncActive
 M	syncAlpha
+M	systemBits
 M	systemDefault
 M	takeState
 M	tan
@@ -2524,9 +2573,13 @@ M	unbindService
 M	uncaughtException
 M	uninstall
 M	unquote
+M	unregister
+M	unregisterLeakedReceivers
 M	unregisterListener
 M	unregisterNetworkCallback
 M	unregisterOnPageChangeCallback
+M	unregisterOwned
+M	unregisterReceiver
 M	unregisterScanResultsCallback
 M	until
 M	update

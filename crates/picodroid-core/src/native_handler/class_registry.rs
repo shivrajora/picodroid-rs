@@ -31,6 +31,7 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
     c::picodroid_os_Runtime,
     c::picodroid_os_Build,
     c::picodroid_os_PowerManager,
+    c::picodroid_content_BroadcastReceiver,
     c::picodroid_view_KeyCharacterMap,
     c::picodroid_provider_Settings_System,
     c::picodroid_provider_Settings_Global,
@@ -154,8 +155,23 @@ pub const API_HINTS: &[(&str, &str, &str)] = &[
     ),
     (
         c::picodroid_content_Context,
-        "registerReceiver",
-        "no BroadcastReceiver — use a bound Service or a direct callback",
+        "sendOrderedBroadcast",
+        "no ordered broadcasts — sendBroadcast, and have receivers not depend on order",
+    ),
+    (
+        c::picodroid_content_Context,
+        "sendStickyBroadcast",
+        "no sticky broadcasts — sendBroadcast, and keep the last value where receivers can read it",
+    ),
+    (
+        c::picodroid_content_BroadcastReceiver,
+        "goAsync",
+        "no goAsync — do the slow part on a picodroid.concurrent.Thread",
+    ),
+    (
+        c::picodroid_content_BroadcastReceiver,
+        "abortBroadcast",
+        "no ordered broadcasts, so nothing to abort",
     ),
 ];
 
@@ -243,8 +259,9 @@ mod tests {
     /// Runs under both shrink modes (scripts/test.sh): loaded names are
     /// The `Intent` field slots the native `startActivity` reads by index
     /// (`graphics/fields.rs::intent`): `targetClassName` is slot 0 and
-    /// `packageName` slot 2, last, after the extras `Bundle`. Declaration
-    /// order is slot order, so `Intent.java` must keep both where they are.
+    /// `packageName` slot 2, after the extras `Bundle`; the broadcast
+    /// `action` follows at slot 3. Declaration order is slot order (instance
+    /// fields only), so `Intent.java` must keep them where they are.
     #[test]
     fn intent_field_slots_match_fields_rs() {
         use crate::shrink_names::{c, m};
@@ -262,11 +279,12 @@ mod tests {
             .collect();
         assert_eq!(
             names.len(),
-            3,
-            "Intent declares three instance fields: {names:?}"
+            4,
+            "Intent declares four instance fields: {names:?}"
         );
         assert_eq!(names[0], m::targetClassName, "{names:?}");
         assert_eq!(names[2], m::packageName, "{names:?}");
+        assert_eq!(names[3], m::action, "{names:?}");
     }
 
     /// un-shrunk before the registry lookup, exactly like the runtime path.

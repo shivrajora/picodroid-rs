@@ -64,6 +64,16 @@ public class Context {
   public static final String POWER_SERVICE = "power";
 
   /**
+   * Flag for {@link #registerReceiver(BroadcastReceiver, IntentFilter, int)}: other apps may send
+   * to this receiver. Android's value; accepted and without effect here, where one app runs and a
+   * broadcast never crosses apps.
+   */
+  public static final int RECEIVER_EXPORTED = 0x2;
+
+  /** Flag for {@link #registerReceiver(BroadcastReceiver, IntentFilter, int)}: this app only. */
+  public static final int RECEIVER_NOT_EXPORTED = 0x4;
+
+  /**
    * File-creation mode for {@link #getSharedPreferences} and {@link #openFileOutput}: accessible
    * only to this app, which on Picodroid every file is — the storage sandbox keeps each app inside
    * its own directory.
@@ -315,4 +325,78 @@ public class Context {
 
   /** Drop a connection previously established via {@link #bindService}. */
   public final native void unbindService(ServiceConnection conn);
+
+  /**
+   * Set once any receiver has been registered this run, so an Activity's destroy touches the
+   * registry only when there is one. Written by {@code BroadcastReceiver}, read by {@link
+   * #unregisterLeakedReceivers}.
+   */
+  static boolean sReceiversRegistered;
+
+  /**
+   * Hear broadcasts whose action {@code filter} names, through {@code receiver.onReceive} on the
+   * main thread, until {@link #unregisterReceiver}. Mirrors {@code
+   * android.content.Context#registerReceiver(BroadcastReceiver, IntentFilter)}: the system actions
+   * are {@link Intent#ACTION_TIME_TICK} and the others on {@link Intent}, {@code WifiManager}'s and
+   * {@code ConnectivityManager}'s; an app's own actions come from {@link #sendBroadcast}. Register
+   * from any thread.
+   *
+   * @return {@code null}: there are no sticky broadcasts to hand back
+   * @throws IllegalArgumentException if {@code filter} is null or {@code receiver} is already
+   *     registered
+   * @throws IllegalStateException if {@link BroadcastReceiver#MAX_RECEIVERS} are registered
+   */
+  public Intent registerReceiver(BroadcastReceiver receiver, IntentFilter filter) {
+    return BroadcastReceiver.register(this, receiver, filter);
+  }
+
+  /**
+   * The form Android requires from API 34: {@code flags} is {@link #RECEIVER_EXPORTED} or {@link
+   * #RECEIVER_NOT_EXPORTED}, accepted for source compatibility and without effect.
+   */
+  public Intent registerReceiver(BroadcastReceiver receiver, IntentFilter filter, int flags) {
+    return registerReceiver(receiver, filter);
+  }
+
+  /**
+   * Stop delivering to {@code receiver}. Nothing is delivered after this returns; a receiver may
+   * unregister itself from inside {@code onReceive}.
+   *
+   * @throws IllegalArgumentException if {@code receiver} is null or not registered, as Android
+   */
+  public void unregisterReceiver(BroadcastReceiver receiver) {
+    BroadcastReceiver.unregister(receiver);
+  }
+
+  /**
+   * Deliver {@code intent} to this app's receivers: the ones registered for its action, or, for an
+   * Intent that names a receiver class ({@code new Intent(this, MyReceiver.class)}), a new instance
+   * of that class. Asynchronous, as on Android: the receivers run on the main thread after this
+   * call returns, in a turn of their own. An Intent with neither an action nor a class reaches
+   * nobody. One app runs at a time, so a broadcast never leaves the app ({@link #setPackage} is
+   * refused), and the permission form {@code sendBroadcast(Intent, String)} is not here.
+   *
+   * @throws IllegalArgumentException if {@code intent} is null or targets another package
+   */
+  public void sendBroadcast(Intent intent) {
+    if (intent == null) {
+      throw new IllegalArgumentException("null Intent");
+    }
+    if (intent.getPackage() != null) {
+      throw new IllegalArgumentException("a broadcast cannot target another package");
+    }
+    final Context context = this;
+    Executors.mainExecutor().execute(() -> BroadcastReceiver.send(context, intent));
+  }
+
+  /**
+   * The framework's half of an Activity's destroy: receivers this Context registered and never
+   * unregistered are dropped, with Android's "has leaked IntentReceiver" warning. {@code
+   * Activity.performDestroy} calls it after {@code onDestroy} returned.
+   */
+  protected final void unregisterLeakedReceivers() {
+    if (sReceiversRegistered) {
+      BroadcastReceiver.unregisterOwned(this);
+    }
+  }
 }

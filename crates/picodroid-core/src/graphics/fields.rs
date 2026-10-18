@@ -147,7 +147,8 @@ pub mod snackbar {
 
 /// `picodroid.content.Intent` is **not** a View — slot numbering starts from
 /// its own first declared field. The extras `Bundle` sits between the two named
-/// here; `Intent.java` declares `packageName` last for that reason.
+/// here, and the broadcast `action` (slot 3, read from Java only) follows
+/// `packageName`; `Intent.java` keeps that order for this reason.
 pub mod intent {
     /// `targetClassName`: the class a same-app launch pushes.
     pub const TARGET_CLASS_NAME: usize = 0;

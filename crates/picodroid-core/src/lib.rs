@@ -94,6 +94,7 @@ pub mod net_budget;
 pub mod notification;
 // `cfg(not(test))` for the same reason it carried that gate in the binary
 // crate: these reach the JVM natives and the HAL, not pure logic.
+pub mod broadcasts;
 #[cfg(not(test))]
 pub mod os;
 pub mod pd_log;
