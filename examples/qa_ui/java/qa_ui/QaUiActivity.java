@@ -1424,7 +1424,7 @@ public class QaUiActivity extends Activity {
     }
     check("34 long-click listeners after GC", consumed == MANY && manyLongs[0] == MANY);
     Log.i(TAG, "treeRooted: long clicks done, gcs " + Runtime.gcCount());
-    clickBatch(0);
+    clickBatches();
 
     loner = new Button(this, "loner");
     loner.setOnClickListener(v -> lonerClicks[0]++);
@@ -1468,17 +1468,50 @@ public class QaUiActivity extends Activity {
   }
 
   /**
-   * Eight clicks, then the rest a few ticks later: the native click ring holds 16 and the frame
-   * drains it, but the main executor runs every Runnable it holds in one tick, so a batch posted
-   * through it would land on top of the last one.
+   * Eight clicks a tick, from one pacing thread: the native click ring holds 16 and the frame
+   * drains it, the main executor runs every Runnable it holds in one tick (so batches posted
+   * through it would land on top of each other), and a {@link #later} per batch is a thread per
+   * batch, whose stacks the device reclaims too slowly for four in a row ({@code Thread.start}
+   * failed in the shrink HIL pass).
    */
+  private void clickBatches() {
+    Thread t =
+        new Thread(
+            () -> {
+              for (int from = 0; from < MANY; from += 8) {
+                final int start = from;
+                Executors.mainExecutor().execute(() -> clickBatch(start));
+                SystemClock.sleep(60);
+              }
+            },
+            "qa-ui-clicks");
+    t.start();
+  }
+
   private void clickBatch(int from) {
     for (int i = from; i < from + 8 && i < MANY; i++) {
       many.getChildAt(i).performClick();
     }
-    if (from + 8 < MANY) {
-      later(60, () -> clickBatch(from + 8));
-    }
+  }
+
+  /**
+   * Phase 4 once the snackbar's timeout (LENGTH_SHORT, 2 s from its show in phase 3) has been
+   * reported, or 4 s have passed: one waiting thread, not a {@link #later} per poll.
+   */
+  private void afterSnackbar(Runnable r) {
+    Thread t =
+        new Thread(
+            () -> {
+              int polls = 0;
+              while (churnSnack.isShown() && polls < 40) {
+                SystemClock.sleep(100);
+                polls++;
+              }
+              snackPolls = polls;
+              Executors.mainExecutor().execute(r);
+            },
+            "qa-ui-timer");
+    t.start();
   }
 
   // ---- canvas -------------------------------------------------------------------------------
@@ -1648,16 +1681,10 @@ public class QaUiActivity extends Activity {
     check("cancelled animation end action not fired", endFired[0] < 100);
     check("dialog item click delivered", dialogItem[0] == 1);
     Log.i(TAG, "dialogItem=" + dialogItem[0] + " dialogButton=" + dialogButton[0]);
-    later(300, () -> phase4());
+    afterSnackbar(() -> phase4());
   }
 
   void phase4() {
-    // LENGTH_SHORT is 2 s from its show in phase 2: wait for the timeout to be reported.
-    if (churnSnack.isShown() && snackPolls < 10) {
-      snackPolls++;
-      later(300, () -> phase4());
-      return;
-    }
     Log.i(TAG, "phase4 (snackbar polls: " + snackPolls + ")");
     check("snackbar timeout reported", !churnSnack.isShown());
     boolean all = true;
