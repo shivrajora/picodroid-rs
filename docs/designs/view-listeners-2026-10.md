@@ -151,9 +151,12 @@ the throw and the native rooting together.
 - Sim lanes for every app edited (§6), and the GC-stress pass (`sim-run.sh --app gc-stress`),
   which is what caught the slot-0 encoding bug: `callbacktest` lost its `SWITCH` token there
   and in every release build, never in a dev build.
-- HIL: `callbacktest` and `dialogdemo` on `testbench_rp2040`, `calculator` on `pico_touch_kit`
-  (both shrink modes, all green). The `qa_ui` row needs a plain `rp2350` slot, which another
-  session held on the day; it is still to be run on hardware.
+- HIL: `qa_ui` on `testbench_rp2350` (247 checks, both shrink modes), `callbacktest` and
+  `dialogdemo` on `testbench_rp2040`, `calculator` on `pico_touch_kit` (both modes, all green).
+  The first shrink-mode `qa_ui` run on the board failed in the test itself: a `later()` per
+  click batch and per snackbar poll is a thread per call, and the device reclaims finished
+  thread stacks too slowly for four in a row (`Thread.start` failed after three attempts). The
+  batches and the wait are each paced from one thread now.
 
 ## 8. Follow-ups
 
