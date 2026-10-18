@@ -3,16 +3,23 @@ title: "Release notes"
 description: "User-facing changes for Picodroid v0.4.0 onward."
 ---
 
-This page covers everything that landed in releases v0.4.0 through v0.37.0, and what is on `main` since. Earlier history is in `git log v0.1.0...v0.3.0`.
+This page covers everything that landed in releases v0.4.0 through v0.38.0, and what is on `main` since. Earlier history is in `git log v0.1.0...v0.3.0`.
 
-## Unreleased — on `main` since v0.37.0
+## Unreleased — on `main` since v0.38.0
 
-Not tagged yet. Every device now has a serial number, which `pdb` and `Build.getSerial()` use
-the way `adb` and Android do; the class section keeps each string constant once (PAPK v3),
-which takes a fifth off a packed app and up to 112 KB off a firmware image; natives are
-dispatched by hash instead of string compare; line-number tables are out of every firmware
-image; and two bug-scan rounds landed about ninety one-bug fixes across the JVM, the widgets,
-the `java.*` shim and the packer.
+Nothing yet.
+
+## v0.38.0 — 2026-10-18
+
+The Android-runtime release. Apps get Android's broadcast model — `BroadcastReceiver`,
+`IntentFilter`, `sendBroadcast`, the system time, screen and network actions and manifest
+`<receiver>`s that wake an app which is not running. A view keeps its listener for as long as it
+is reachable, with no per-kind caps, and the main loop judges a screen build by Android's
+budget, so apps build their screens in `onCreate`. Every device has a serial number for `pdb`
+and `Build.getSerial()`. Underneath, the class section keeps each string constant once (PAPK
+v3), which takes a fifth off a packed app and up to 112 KB off a firmware image; natives are
+dispatched by hash; line-number tables are out of every firmware image; and two bug-scan rounds
+landed about ninety one-bug fixes across the JVM, the widgets, the `java.*` shim and the packer.
 
 **Broadcasts (2026-10-18)**
 
@@ -301,6 +308,16 @@ The ones an app can notice:
   touchless board before building, and no longer recompiles `picodroid-core` for every row;
   bench boards are named by serial in `fleet.conf` and the fleet scripts read it from sysfs.
 - `qa_life` watches its Activity chain from one thread instead of a timer per step.
+
+**Map v0.38.0 (2026-10-18)**
+
+- Map v0.38.0, cut for the release, gives the classes added since v0.37.0 their names (+5
+  classes, 403 → 408: `BroadcastReceiver`, `IntentFilter`, `InflaterSupport`,
+  `NoClassDefFoundError` and `java.lang.Deprecated`). It also names the 138 members added
+  since (2571 → 2709): the broadcast surface (`registerReceiver` / `unregisterReceiver` /
+  `sendBroadcast` / `onReceive`, the `ACTION_*` and `EXTRA_*` constants), `getSerial`,
+  `Snackbar.isShown`, the one-native inflater and `DatePicker`'s Android API. The member floor
+  stays at v0.17.0. `Build.VERSION.RELEASE` reads `0.38.0`.
 
 ## v0.37.0 — 2026-10-10
 
