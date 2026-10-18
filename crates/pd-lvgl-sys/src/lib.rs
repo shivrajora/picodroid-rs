@@ -512,6 +512,10 @@ pub const LV_OBJ_FLAG_GESTURE_BUBBLE: u32 = 1 << 15;
 /// LVGL's first free user flag. Marks a view that was clickable before
 /// `View.INVISIBLE` took that away, so `VISIBLE` can give it back.
 pub const LV_OBJ_FLAG_USER_1: u32 = 1 << 27;
+/// LVGL's second free user flag. Marks a `NumberPicker`'s box, a plain
+/// `lv_obj` the keypad's edit-mode filter could not otherwise tell from a
+/// layout (`widgets::number_picker::is_number_picker`).
+pub const LV_OBJ_FLAG_USER_2: u32 = 1 << 28;
 
 // Object states (from lv_obj_style.h; renumbered in v9.5.0, unchanged in v9.6.0).
 // The state bits were renumbered in v9.5.0 to leave room for LV_STATE_ALT
@@ -1121,6 +1125,9 @@ unsafe extern "C" {
     /// by the keyboard outside-press hook to decide if a tap landed on the
     /// keyboard or one of its keys.
     pub safe fn lv_obj_get_parent(obj: Obj) -> Option<Obj>;
+    /// `obj`'s position among its parent's children, or `-1` for a screen.
+    /// A clicked ListView row reports its item position with it.
+    pub safe fn lv_obj_get_index(obj: Obj) -> i32;
     /// Reorder `obj` among its siblings; `-1` is the last (topmost) slot.
     /// Refuses an out-of-range index and a parentless object.
     pub safe fn lv_obj_move_to_index(obj: Obj, index: i32);
@@ -2368,6 +2375,7 @@ mod tests {
             (LV_OBJ_FLAG_GESTURE_BUBBLE, "LV_OBJ_FLAG_GESTURE_BUBBLE"),
             (LV_OBJ_FLAG_FLOATING, "LV_OBJ_FLAG_FLOATING"),
             (LV_OBJ_FLAG_USER_1, "LV_OBJ_FLAG_USER_1"),
+            (LV_OBJ_FLAG_USER_2, "LV_OBJ_FLAG_USER_2"),
         ] {
             let header_val = lookup_assigned_value(body, name)
                 .unwrap_or_else(|| panic!("{name} not found/parsable in vendored lv_obj.h"));

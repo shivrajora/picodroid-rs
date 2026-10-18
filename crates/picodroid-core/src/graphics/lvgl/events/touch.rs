@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! The view touch-listener registry and its event queue, the
-//! click-suppression flags (a consumed `onTouch` or long-press swallows the
-//! click), and the single-slot screen press hook.
+//! The view touch event queue, the click-suppression flags (a consumed
+//! `onTouch` or long-press swallows the click), and the single-slot screen
+//! press hook.
 
 use super::*;
 use crate::util::local::Core0;
@@ -9,31 +9,22 @@ use crate::util::local_ring::LocalRing;
 use crate::util::local_set::LocalSet;
 use core::cell::Cell;
 
-// ── View touch-listener registry ────────────────────────────────────────────
+// ── View touch events ───────────────────────────────────────────────────────
 //
-// Mirrors the key-listener pattern above: a small (handle, obj_ref) map,
-// plus a ring buffer fed by LVGL trampolines on PRESSED / PRESSING /
-// RELEASED / LONG_PRESSED. The framework loop drains the queue, allocates
-// a Java MotionEvent, and invokes `View.fireTouch` on the matching object.
+// A ring buffer fed by LVGL trampolines on PRESSED / PRESSING / RELEASED /
+// LONG_PRESSED, each record naming its view by handle. The framework loop
+// drains the queue, allocates a Java MotionEvent, and invokes
+// `View.fireTouch` on the view the handle table binds to the handle.
 //
 // PRESSING is coalesced down to actual movement (see LAST_PRESSING_*
 // snapshot below) so a held finger doesn't flood the queue at the indev
 // refresh rate.
 //
-// Each registered View flips on `LV_OBJ_FLAG_CLICKABLE` so the active
+// Each listening View flips on `LV_OBJ_FLAG_CLICKABLE` so the active
 // touch indev actually routes hit-tested events here. This is harmless
 // for widgets that are already clickable (Button, Switch, etc.) and is
 // what makes touch listeners work on otherwise-passive widgets like
 // TextView and LinearLayout.
-
-pub(super) const MAX_TOUCH_LISTENERS: usize = 32;
-
-lv_event_cb! {
-    pub(super) fn touch_map_delete_cb(e) {
-        let obj = e.target().addr();
-        TOUCH.view_map.remove(obj)
-    }
-}
 
 /// Action codes — must match the constants on `picodroid.view.MotionEvent`.
 pub(super) const ACTION_DOWN: i32 = 0;
@@ -43,7 +34,8 @@ pub(super) const ACTION_LONG_PRESS: i32 = 3;
 
 #[derive(Copy, Clone)]
 pub struct TouchRecord {
-    pub view_handle: usize,
+    /// The touched widget's `nativeHandle`.
+    pub view: i32,
     pub action: i32,
     /// Screen-absolute touch point (LVGL `lv_indev_get_point`).
     pub x: i32,
@@ -58,7 +50,7 @@ pub struct TouchRecord {
 }
 
 pub(super) const EMPTY_TOUCH: TouchRecord = TouchRecord {
-    view_handle: 0,
+    view: 0,
     action: 0,
     x: 0,
     y: 0,
@@ -75,7 +67,6 @@ pub(super) const TOUCH_QUEUE_SIZE: usize = 64;
 pub(super) const MAX_SUPPRESS: usize = 32;
 
 pub(super) struct Touch {
-    pub(super) view_map: PtrMap<MAX_TOUCH_LISTENERS>,
     queue: LocalRing<TouchRecord, TOUCH_QUEUE_SIZE>,
     // Producer-local "last MOVE we pushed" snapshot used to coalesce LVGL
     // PRESSING events that report the same coordinates as the previous
@@ -85,11 +76,11 @@ pub(super) struct Touch {
     // (matching every other touch path). A view of 0 is the "nothing yet"
     // sentinel: no record names a null view, so the first PRESSING after
     // each fresh press always pushes. (All-zero, so the state sits in .bss.)
-    last_pressing_view: Cell<usize>,
+    last_pressing_view: Cell<i32>,
     last_pressing_x: Cell<i32>,
     last_pressing_y: Cell<i32>,
     /// The click-suppression flags (below).
-    click_suppress: LocalSet<usize, MAX_SUPPRESS>,
+    click_suppress: LocalSet<i32, MAX_SUPPRESS>,
     /// The pointer press hook (below).
     pointer_press_hook: Cell<lv_event_cb_t>,
 }
@@ -98,7 +89,6 @@ pub(super) struct Touch {
 // timer handler, and read and drained by natives: all core-0 JVM tasks.
 pub(super) static TOUCH: Core0<Touch> = unsafe {
     Core0::new(Touch {
-        view_map: PtrMap::new(),
         queue: LocalRing::new(EMPTY_TOUCH),
         last_pressing_view: Cell::new(0),
         last_pressing_x: Cell::new(0),
@@ -121,6 +111,10 @@ pub(super) fn push_touch(record: TouchRecord) {
 
 pub(super) fn touch_event_record(e: &ObjEvent<'_>, action: i32) -> Option<TouchRecord> {
     let target = e.target();
+    let view = super::super::handle_table::handle_of(target);
+    if view == 0 {
+        return None;
+    }
     let indev = e.indev()?;
     let mut p = lv_point_t { x: 0, y: 0 };
     lv_indev_get_point(indev, &mut p);
@@ -134,7 +128,7 @@ pub(super) fn touch_event_record(e: &ObjEvent<'_>, action: i32) -> Option<TouchR
     };
     lv_obj_get_coords(target, &mut coords);
     Some(TouchRecord {
-        view_handle: target.addr(),
+        view,
         action,
         x: p.x,
         y: p.y,
@@ -179,13 +173,13 @@ lv_event_cb! {
 lv_event_cb! {
     pub(super) fn touch_pressing_cb(e) {
         if let Some(rec) = touch_event_record(&e, ACTION_MOVE) {
-            if TOUCH.last_pressing_view.get() == rec.view_handle
+            if TOUCH.last_pressing_view.get() == rec.view
                 && TOUCH.last_pressing_x.get() == rec.x
                 && TOUCH.last_pressing_y.get() == rec.y
             {
                 return;
             }
-            TOUCH.last_pressing_view.set(rec.view_handle);
+            TOUCH.last_pressing_view.set(rec.view);
             TOUCH.last_pressing_x.set(rec.x);
             TOUCH.last_pressing_y.set(rec.y);
             push_touch(rec);
@@ -193,41 +187,32 @@ lv_event_cb! {
     }
 }
 
-/// Record a Java `View` object as the touch-listener target for the given
-/// `nativeHandle` id, and register the LVGL press/pressing/release/long-press
-/// callbacks on the underlying object. Idempotent: re-registration just
-/// updates the obj_ref slot (no duplicate LVGL callbacks — LVGL tolerates
-/// duplicates but we'd waste slot table space).
-pub fn register_view_touch_listener(id: i32, obj_ref: u16) {
+/// `View.setOnTouchListener`'s widget half: register the LVGL press /
+/// pressing / release / long-press callbacks on `id`'s widget. Idempotent
+/// (a listener set twice attaches each trampoline once) and a no-op for a
+/// released view. The Java receiver is the handle table's binding.
+pub fn attach_touch(id: i32) {
     let Some(raw_obj) = super::super::handle_table::get(id) else {
         return;
     };
-
-    {
-        match TOUCH.view_map.upsert(raw_obj.addr(), obj_ref) {
-            // Already registered with LVGL — the obj_ref was refreshed.
-            Upsert::Updated => return,
-            Upsert::Full => {
-                warn_full("view-touch");
-                return;
-            }
-            Upsert::Inserted => {}
-        }
-
-        // Make the widget clickable so the touch indev hit-tests it. This
-        // is a no-op for widgets that are already clickable (Button,
-        // Switch, etc.) and is what makes touch work on label-based
-        // widgets like TextView.
-        lv_obj_add_flag(raw_obj, LV_OBJ_FLAG_CLICKABLE);
-
-        // Register the four event callbacks. LVGL allows multiple
-        // descriptors on the same (obj, code) pair so existing
-        // click-handling on Buttons isn't disturbed.
-        add_event_cb(raw_obj, touch_press_cb, LV_EVENT_PRESSED);
-        add_event_cb(raw_obj, touch_release_cb, LV_EVENT_RELEASED);
-        add_event_cb(raw_obj, touch_long_press_cb, LV_EVENT_LONG_PRESSED);
-        add_event_cb(raw_obj, touch_pressing_cb, LV_EVENT_PRESSING);
-        add_event_cb(raw_obj, touch_map_delete_cb, LV_EVENT_DELETE);
+    // Make the widget clickable so the touch indev hit-tests it. This is
+    // a no-op for widgets that are already clickable (Button, Switch,
+    // etc.) and is what makes touch work on label-based widgets like
+    // TextView.
+    lv_obj_add_flag(raw_obj, LV_OBJ_FLAG_CLICKABLE);
+    // LVGL allows multiple descriptors on the same (obj, code) pair, so
+    // existing click-handling on Buttons isn't disturbed.
+    for (cb, code) in [
+        (
+            touch_press_cb as unsafe extern "C" fn(*mut lv_event_t),
+            LV_EVENT_PRESSED,
+        ),
+        (touch_release_cb, LV_EVENT_RELEASED),
+        (touch_long_press_cb, LV_EVENT_LONG_PRESSED),
+        (touch_pressing_cb, LV_EVENT_PRESSING),
+    ] {
+        lv_obj_remove_event_cb(raw_obj, Some(cb));
+        add_event_cb(raw_obj, cb, code);
     }
 }
 
@@ -236,13 +221,7 @@ pub fn drain_touch_event() -> Option<TouchRecord> {
     TOUCH.queue.pop()
 }
 
-/// Look up the Java `View` object reference for a registered LVGL widget.
-pub fn lookup_touch_view_obj(handle: usize) -> Option<u16> {
-    TOUCH.view_map.lookup(handle)
-}
-
 pub fn reset_view_touch_listener_state() {
-    TOUCH.view_map.reset();
     TOUCH.queue.clear();
     TOUCH.click_suppress.clear();
     reset_pressing_coalesce();
@@ -251,25 +230,25 @@ pub fn reset_view_touch_listener_state() {
 // ── Click-suppression flags (Android: consumed onTouch / consumed long-press
 //    suppress the synthetic click) ───────────────────────────────────────────
 //
-// Per-widget handle (raw lv_obj_t*) flags — no Java refs, so no GC rooting.
-// Set when onTouch or onLongClick returns true; cleared on ACTION_DOWN (start
-// of a fresh gesture) and consumed (check-and-clear) by the click dispatcher.
+// Per-widget (handle) flags — no Java refs, so no GC rooting. Set when
+// onTouch or onLongClick returns true; cleared on ACTION_DOWN (start of a
+// fresh gesture) and consumed (check-and-clear) by the click dispatcher.
 
 /// Mark `handle`'s next synthetic click as suppressed (onTouch / long-press
 /// consumed the gesture). A full registry drops the mark.
-pub fn set_click_suppressed(handle: usize) {
+pub fn set_click_suppressed(handle: i32) {
     TOUCH.click_suppress.insert(handle);
 }
 
 /// Clear `handle`'s suppress flag — called on ACTION_DOWN to start each
 /// gesture clean.
-pub fn clear_click_suppressed(handle: usize) {
+pub fn clear_click_suppressed(handle: i32) {
     TOUCH.click_suppress.remove(handle);
 }
 
 /// Check-and-clear: returns whether the next click for `handle` should be
 /// suppressed, consuming the flag. Called by the click dispatcher.
-pub fn take_click_suppressed(handle: usize) -> bool {
+pub fn take_click_suppressed(handle: i32) -> bool {
     TOUCH.click_suppress.remove(handle)
 }
 

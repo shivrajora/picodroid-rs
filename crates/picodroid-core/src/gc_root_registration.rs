@@ -14,7 +14,7 @@
 /// Rises by exactly the amount the platform crate's `EXPECTED_PROVIDERS`
 /// falls whenever modules move. If only one of the two changes in a commit,
 /// a provider was dropped.
-pub const EXPECTED_PROVIDERS: usize = 21;
+pub const EXPECTED_PROVIDERS: usize = 11;
 
 /// Register every root provider owned by this crate.
 ///
@@ -42,7 +42,7 @@ pub fn register_all() {
         return;
     }
     REGISTERED.store(true, Ordering::Relaxed);
-    use crate::graphics::lvgl::{animations, events, widgets};
+    use crate::graphics::lvgl::{animations, widgets};
 
     // The Display singleton is cached by `getInstance`, so after the first
     // call nothing on the Java side references it. Left unrooted it is swept
@@ -51,31 +51,15 @@ pub fn register_all() {
     // slot.
     register(crate::graphics::display::visit_gc_roots);
 
-    // A View (or AlertDialog) referenced only by a native listener map —
-    // key/touch/swipe/click/dialog — and not by any Java field would
-    // otherwise be swept, after which dispatch resolves a live lv_obj to a
-    // dead ref and input silently dies (the keypad appears to "lose focus"
-    // a few seconds in, post-GC).
-    register_object_refs(events::visit_view_listener_roots);
-    register_object_refs(widgets::button::visit_click_listener_roots);
-    register_object_refs(widgets::button::visit_long_click_listener_roots);
-    register_object_refs(widgets::list_view::visit_item_click_listener_roots);
+    // A View is NOT rooted by having a listener: the listener is a field of
+    // the view and the view lives while Java reaches it, through its
+    // parent's child list or a field, as on Android. The handle table's
+    // binding of a widget to its view is dropped by `prune_dead_java` when
+    // a collection frees the view (docs/designs/view-listeners-2026-10.md).
+    // What remain rooted here are objects nothing in Java holds while the
+    // framework still owes them a callback.
     register_object_refs(widgets::alert_dialog::visit_dialog_obj_roots);
-
-    // Compound buttons and EditText: same hazard. One of these kept alive
-    // only by its listener map (a local in onCreate, never stored in a
-    // field) is swept on the first GC, its slot reused, and the next
-    // Activity's onCreate hits a dead ref → NoSuchMethod.
-    register_object_refs(widgets::switch::visit_checked_change_listener_roots);
-    register_object_refs(widgets::check_box::visit_checked_change_listener_roots);
-    register_object_refs(widgets::radio_button::visit_checked_change_listener_roots);
-    register_object_refs(widgets::toggle_button::visit_checked_change_listener_roots);
-    register_object_refs(widgets::edit_text::visit_editor_action_listener_roots);
-    register_object_refs(widgets::edit_text::visit_text_changed_listener_roots);
-
-    // NumberPicker registers every instance, not just listener holders: the
-    // obj_ref is the fireStep dispatch target.
-    register_object_refs(widgets::number_picker::visit_picker_roots);
+    register_object_refs(widgets::snackbar::visit_snackbar_dismiss_roots);
 
     // Animation end-actions hold the Runnable to fire on completion;
     // nothing on the Java side references it for the animation's duration.

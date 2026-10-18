@@ -19,10 +19,9 @@ public class CounterActivity extends Activity {
 
   private int count = 0;
 
-  // Field-held views: the label so the click handler can update it, the button so the GC sees the
-  // listener-bearing view rooted through this Activity.
+  // countLabel is a field because the click handler updates it; the button is a local — the
+  // tree keeps it and its listener alive, as on Android.
   private TextView countLabel;
-  private Button incrementButton;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -45,7 +44,7 @@ public class CounterActivity extends Activity {
     countLabel.setTextColor(Color.CYAN);
     root.addView(countLabel);
 
-    incrementButton = new Button("Increment");
+    Button incrementButton = new Button("Increment");
     incrementButton.setSize(200, 40);
     incrementButton.setOnClickListener(
         v -> {

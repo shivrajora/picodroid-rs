@@ -44,8 +44,9 @@ public class WifiActivity extends Activity {
   private static final long POLL_MS = 500;
 
   private WifiManager wm;
-  /** Held so the rows stay reachable while their click listeners are live. */
-  private View[] rows;
+  /** The Scan row: takes the focus once the list is in. */
+  private View scanRow;
+
   private TextView statusTail;
   private List<ScanResult> results;
   private List<WifiConfiguration> saved;
@@ -78,32 +79,30 @@ public class WifiActivity extends Activity {
     LinearLayout column = Screens.screen(this, "< Wi-Fi", v -> finish());
     results = wm.getScanResults();
     saved = wm.getConfiguredNetworks();
-    rows = new View[3 + results.size()];
-    rows[0] = Screens.info(this, column, "Status", statusText());
-    statusTail = Screens.tailOf(rows[0]);
+    statusTail = Screens.tailOf(Screens.info(this, column, "Status", statusText()));
     if (saved.isEmpty()) {
-      rows[1] = Screens.info(this, column, "No saved network");
+      Screens.info(this, column, "No saved network");
     } else {
       final WifiConfiguration c = saved.get(0);
       final String ssid = unquote(c.SSID);
       String source = c.status == WifiConfiguration.Status.CURRENT ? "Build" : "Saved";
-      rows[1] = Screens.row(this, column, ssid, source, v -> savedDialog(c, ssid));
+      Screens.row(this, column, ssid, source, v -> savedDialog(c, ssid));
     }
-    rows[2] =
+    scanRow =
         Screens.row(this, column, scanning ? "Scanning..." : "Scan for networks", v -> scan());
     for (int n = 0; n < results.size(); n++) {
       final ScanResult r = results.get(n);
-      rows[3 + n] = Screens.row(this, column, r.SSID, signal(r), v -> pick(r));
+      Screens.row(this, column, r.SSID, signal(r), v -> pick(r));
       // One line per network for the log: the bench finds its row by it.
       Log.i(TAG, "wifi net " + n + " " + r.SSID + " " + r.level + (r.isSecured() ? " *" : " open"));
     }
-    Screens.size(this, column, rows.length + 1);
+    Screens.size(this, column, 4 + results.size());
     done();
   }
 
   /** The rows are in: focus Scan, say how many networks — the harness keys on this line. */
   private void done() {
-    rows[2].requestFocus();
+    scanRow.requestFocus();
     Log.i(TAG, "wifi " + results.size() + " networks");
   }
 

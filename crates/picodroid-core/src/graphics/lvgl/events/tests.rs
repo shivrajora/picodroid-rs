@@ -80,3 +80,25 @@ fn key_event_queue_wraps_around() {
         assert!(drain_key_event().is_none());
     }
 }
+
+/// The click-suppression flags are keyed by widget handle: a consumed
+/// `onTouch` or long press marks the handle, the click dispatcher takes the
+/// mark once, and a fresh gesture's ACTION_DOWN clears a stale one.
+#[test]
+fn click_suppression_is_keyed_by_handle_and_taken_once() {
+    reset_view_touch_listener_state();
+    assert!(!take_click_suppressed(0x1_0007));
+    set_click_suppressed(0x1_0007);
+    assert!(
+        !take_click_suppressed(0x1_0008),
+        "another handle is untouched"
+    );
+    assert!(take_click_suppressed(0x1_0007));
+    assert!(!take_click_suppressed(0x1_0007), "taken once");
+    set_click_suppressed(0x1_0007);
+    clear_click_suppressed(0x1_0007);
+    assert!(
+        !take_click_suppressed(0x1_0007),
+        "a fresh gesture clears it"
+    );
+}

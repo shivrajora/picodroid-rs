@@ -14,9 +14,6 @@
 use crate::hal;
 use crate::lvgl_ffi::*;
 
-use super::listener_map::{warn_full, PtrMap, Upsert};
-use crate::util::local::Core0;
-
 // Board-specific button table generated from `[[button]]` in board.toml.
 // Entries: (pin, LV_KEY_*, android_keycode). Empty on boards without buttons.
 mod button_generated {
@@ -83,65 +80,15 @@ pub fn reset_held_keys() {
     keypad::reset_held();
 }
 
-/// Return the Java `View` object reference for LVGL's currently focused
-/// widget, if one is registered as a key listener via
-/// [`register_view_key_listener`].
-pub fn focused_view_obj() -> Option<u16> {
+/// The keypad-focused widget's handle and the Java `View` bound to it
+/// (`handle_table::bind`, which every listener registration makes), if
+/// any. No key trampoline exists — the shared keypad indev feeds the key
+/// queue — so whether that view wants keys is its `onKeyListener` field's
+/// business: `lifecycle::input` reads it before firing `fireKey`.
+pub fn focused_bound_view() -> Option<(i32, u16)> {
     let focused = lv_group_get_default().and_then(|o| lv_group_get_focused(o))?;
-    lookup_view_obj(focused.addr())
-}
-
-// ── View key-listener registry (raw lv_obj_t* → Java View ObjectRef) ────────
-
-const MAX_KEY_LISTENERS: usize = 32;
-// SAFETY: a listener registry, reached only from JVM tasks.
-static VIEW_KEY_MAP: Core0<PtrMap<MAX_KEY_LISTENERS>> = unsafe { Core0::new(PtrMap::new()) };
-
-lv_event_cb! {
-    fn key_map_delete_cb(e) {
-        let obj = e.target().addr();
-        VIEW_KEY_MAP.remove(obj)
-    }
-}
-
-/// Record a Java `View` object as the key-listener target for the given
-/// `nativeHandle` id. The registry keys on the raw `lv_obj_t*` from the
-/// handle table because LVGL's focus group also exposes raw pointers.
-/// No key trampoline exists (the shared keypad indev feeds this map), but
-/// first registration still attaches the `LV_EVENT_DELETE` unregistration
-/// hook so a destroyed view's entry doesn't pin its Java graph.
-pub fn register_view_key_listener(id: i32, obj_ref: u16) {
-    let Some(raw_obj) = super::handle_table::get(id) else {
-        return; // deleted/stale view: never hand LVGL a null, never map key 0
-    };
-    match VIEW_KEY_MAP.upsert(raw_obj.addr(), obj_ref) {
-        Upsert::Updated => {}
-        Upsert::Full => warn_full("view-key"),
-        Upsert::Inserted => add_event_cb(raw_obj, key_map_delete_cb, LV_EVENT_DELETE),
-    }
-}
-
-fn lookup_view_obj(handle: usize) -> Option<u16> {
-    VIEW_KEY_MAP.lookup(handle)
-}
-
-pub fn reset_view_key_listener_state() {
-    VIEW_KEY_MAP.reset()
-}
-
-/// Visit the Java `View` object ref of every view registered for a key, touch,
-/// or swipe callback so the GC keeps it alive. Such a View is referenced only
-/// by these native maps (raw `lv_obj_t*` -> Java obj_ref), not the Java heap,
-/// unless the app also keeps a field for it — so a focused/registered content
-/// root the app didn't field would otherwise be swept by the first GC, after
-/// which dispatch resolves the live `lv_obj` to a dead/reused ref and input
-/// silently drops (the keypad appears to "lose focus" a few seconds in).
-/// Called from `PicodroidNativeHandler::gc_visit_roots`.
-pub fn visit_view_listener_roots(visit: &mut dyn FnMut(u16)) {
-    VIEW_KEY_MAP.visit(visit);
-    TOUCH.view_map.visit(visit);
-    SWIPE.view_map.visit(visit);
-    FOCUS.view_map.visit(visit);
+    let handle = super::handle_table::handle_of(focused);
+    Some((handle, super::handle_table::bound_java(handle)?))
 }
 
 /// Initialize the LVGL keypad indev, focus group, and hardware button GPIO

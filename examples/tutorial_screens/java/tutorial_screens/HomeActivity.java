@@ -18,11 +18,6 @@ import picodroid.widget.TextView;
 public class HomeActivity extends Activity {
   private static final String TAG = "HomeActivity";
 
-  // Views with listeners are held as fields so the GC always sees them rooted through this
-  // Activity, not only through the native listener registry — best practice for callback views.
-  private Button counterButton;
-  private Button aboutButton;
-
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
@@ -39,12 +34,14 @@ public class HomeActivity extends Activity {
     title.setTextColor(Color.WHITE);
     root.addView(title);
 
-    counterButton = new Button("Counter");
+    // Views are locals, as on Android: the content view keeps them, listeners included, for as
+    // long as this Activity lives. A view becomes a field only when later code needs it.
+    Button counterButton = new Button("Counter");
     counterButton.setSize(200, 40);
     counterButton.setOnClickListener(v -> startActivity(new Intent(CounterActivity.class)));
     root.addView(counterButton);
 
-    aboutButton = new Button("About");
+    Button aboutButton = new Button("About");
     aboutButton.setSize(200, 40);
     aboutButton.setOnClickListener(v -> startActivity(new Intent(AboutActivity.class)));
     root.addView(aboutButton);

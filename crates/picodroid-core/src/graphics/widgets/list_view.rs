@@ -12,14 +12,14 @@ use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
 use super::super::lvgl::widgets::list_view as lvgl_list_view;
-use super::super::view::register_listener_with;
 use super::super::view::{extract_handle_at, extract_native_handle, extract_string_at};
+use super::super::view::{register_listener_with, NO_ATTACH};
 
 pub use lvgl_list_view::reset_list_view_state;
 // `visit_item_click_listener_roots` is reached directly via the lvgl path in
 // `gc_visit_roots` (mirroring `button::visit_click_listener_roots`), so it is
 // not re-exported here.
-pub use lvgl_list_view::{drain_item_click_queue, lookup_item_click};
+pub use lvgl_list_view::drain_item_click_queue;
 
 pub fn list_view_native_create() -> Result<Option<Value>, JvmError> {
     Ok(Some(Value::Int(lvgl_list_view::create())))
@@ -40,7 +40,7 @@ pub fn list_view_register_item_click_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    register_listener_with(args, objects, lvgl_list_view::register_item_click_listener)
+    register_listener_with(args, objects, NO_ATTACH)
 }
 
 /// `ListView.nativeStyleRow(View row)`: the row is already a child of the

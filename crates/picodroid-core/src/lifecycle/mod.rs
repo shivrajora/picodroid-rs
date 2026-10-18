@@ -940,6 +940,7 @@ fn dispatch_widget_events(
     dispatch_alert_dialog_clicks(jvm, heap, handler);
     dispatch_alert_dialog_item_clicks(jvm, heap, handler);
     dispatch_snackbar_action_clicks(jvm, heap, handler);
+    dispatch_snackbar_dismissals(jvm, heap, handler);
     dispatch_date_picker_changes(jvm, heap, handler);
     dispatch_time_picker_changes(jvm, heap, handler);
     dispatch_swipe_events(jvm, heap, handler);

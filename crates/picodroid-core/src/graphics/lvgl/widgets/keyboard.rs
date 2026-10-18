@@ -15,9 +15,10 @@
 //!   the OK key, a tap outside the keyboard, or `EditText.hideKeyboard()`.
 //!   Slides up from the screen edge on show; hide is instant.
 //!
-//! The system keyboard tracks the currently-bound EditText's Java
-//! ObjectRef so the OK key can dispatch `EditText.fireEditorAction`
-//! through [`drain_editor_action`] without a per-instance Java listener.
+//! The OK key names the field the system keyboard types into by handle,
+//! so `lifecycle::dispatch_editor_actions` reaches its Java `EditText`
+//! through the handle table's binding and calls `fireEditorAction` there,
+//! without a per-instance Java listener.
 
 use crate::lvgl_ffi::*;
 
@@ -25,7 +26,6 @@ use super::super::animations;
 use super::super::events;
 use super::super::handle_table;
 use super::super::lifecycle;
-use super::super::listener_map::PtrMap;
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
 use core::cell::Cell;
@@ -34,19 +34,12 @@ use core::cell::Cell;
 
 const READY_QUEUE_SIZE: usize = 16;
 
-const MAX_KEYBOARDS: usize = 4;
-
-lv_event_cb! {
-    fn map_delete_cb(e) {
-        let obj = e.target().addr();
-        STATE.handle_map.remove(obj)
-    }
-}
-
 lv_event_cb! {
     fn keyboard_ready_cb(e) {
-        let obj = e.target();
-        STATE.ready_queue.push(obj.addr());
+        let handle = handle_table::handle_of(e.target());
+        if handle != 0 {
+            STATE.ready_queue.push(handle);
+        }
     }
 }
 
@@ -82,23 +75,20 @@ fn system_keyboard_offscreen_y() -> i32 {
 /// next show.
 #[derive(Copy, Clone)]
 pub struct EditorActionRecord {
-    pub edit_text_ref: u16,
+    /// The field's handle; its Java `EditText` is the handle table's binding.
+    pub edit_text: i32,
     pub action_id: i32,
 }
 
 struct State {
-    /// READY events of the per-instance keyboards.
-    ready_queue: LocalRing<usize, READY_QUEUE_SIZE>,
-    handle_map: PtrMap<MAX_KEYBOARDS>,
+    /// READY events of the per-instance keyboards, each the keyboard's handle.
+    ready_queue: LocalRing<i32, READY_QUEUE_SIZE>,
     /// The system keyboard, `None` until the first show. Kept as an `Obj`
     /// across natives because nothing deletes it: it lives on the top
     /// layer, which nothing cleans, and a reset only forgets it.
     system: Cell<Option<Obj>>,
     system_handle: Cell<i32>,
     visible: Cell<bool>,
-    /// Java `ObjectRef` of the EditText that triggered the most recent show.
-    /// Read by [`drain_editor_action`] after the OK key fires.
-    bound_et: Cell<u16>,
     /// Raw `lv_textarea` the keyboard is currently bound to (mirrors LVGL's
     /// internal `kb->ta`). The keyboard outlives any one Activity (it is
     /// parented to the screen, not the content view), so when that
@@ -122,11 +112,9 @@ struct State {
 static STATE: Core0<State> = unsafe {
     Core0::new(State {
         ready_queue: LocalRing::new(0),
-        handle_map: PtrMap::new(),
         system: Cell::new(None),
         system_handle: Cell::new(0),
         visible: Cell::new(false),
-        bound_et: Cell::new(0),
         bound_ta: Cell::new(core::ptr::null_mut()),
         focus_pending: Cell::new(false),
         // Set by every show before `focus_pending` can be read.
@@ -143,9 +131,10 @@ lv_event_cb! {
         // returns, so we hide first and the dispatch site re-shows if needed.
         // For v1 we always hide; suppressing dismiss is a follow-up if any
         // app actually requires it.
-        if STATE.bound_et.get() != 0 {
+        let edit_text = bound_ta().map_or(0, handle_table::handle_of);
+        if edit_text != 0 {
             STATE.pending_editor_action.set(Some(EditorActionRecord {
-                edit_text_ref: STATE.bound_et.get(),
+                edit_text,
                 action_id: 6, // EditorInfo.IME_ACTION_DONE
             }));
         }
@@ -224,8 +213,7 @@ fn ensure_system_keyboard() -> Option<Obj> {
     Some(kb)
 }
 
-/// Show the system keyboard, binding it to `ta` and recording the Java
-/// EditText `obj_ref` for later editor-action dispatch. Lazy-creates the
+/// Show the system keyboard, binding it to `ta`. Lazy-creates the
 /// keyboard on the first call. Slides up from the screen edge on a
 /// hidden→visible transition; a re-show while already visible re-runs
 /// the slide for visual feedback. Called from the EditText auto-show
@@ -233,7 +221,7 @@ fn ensure_system_keyboard() -> Option<Obj> {
 /// `pub(in crate::graphics)` rather than `pub`: `ta` must be an EditText's
 /// `lv_textarea`, and nothing outside this tree should be able to hand
 /// one in.
-pub(in crate::graphics) fn show_system_for(ta: Obj, et_obj_ref: u16) {
+pub(in crate::graphics) fn show_system_for(ta: Obj) {
     let Some(kb) = ensure_system_keyboard() else {
         return;
     };
@@ -256,7 +244,6 @@ pub(in crate::graphics) fn show_system_for(ta: Obj, et_obj_ref: u16) {
     // SAFETY: `kb` is an `lv_keyboard` (above).
     unsafe { lv_keyboard_set_mode(kb, mode) };
     STATE.first_key.set(if numeric { 0 } else { 1 });
-    STATE.bound_et.set(et_obj_ref);
     // Visibility flag must be cleared *before* starting the y-anim,
     // otherwise the first frame paints at the off-screen y position
     // while still HIDDEN — fine — and then becomes visible mid-slide
@@ -313,7 +300,6 @@ pub fn hide_system() -> bool {
     STATE.visible.set(false);
     super::super::soft_nav::set_hidden(false);
     super::super::menu_button::set_hidden(false);
-    STATE.bound_et.set(0);
     STATE.focus_pending.set(false);
     events::detach_pointer_press_hook();
     // The field it was typing into takes the keypad focus back. The
@@ -449,31 +435,13 @@ pub(in crate::graphics) fn set_mode(kb_id: i32, mode: lv_keyboard_mode_t) {
     unsafe { lv_keyboard_set_mode(kb, mode) };
 }
 
-/// Register a Java `Keyboard` object as the READY-listener target for
-/// the given instance. Mirrors the Button pattern.
-pub(in crate::graphics) fn register_ready_listener(id: i32, obj_ref: u16) {
-    super::compound::register_listener_with_delete_hook(
-        &STATE.handle_map,
-        id,
-        obj_ref,
-        map_delete_cb,
-        "keyboard-ready",
-    );
-}
-
-/// Drain one READY event (raw `lv_obj_t*` value) from the per-instance
+/// Drain one READY event (the keyboard's handle) from the per-instance
 /// queue. Returns `None` when empty.
-pub fn drain_ready_queue() -> Option<usize> {
+pub fn drain_ready_queue() -> Option<i32> {
     STATE.ready_queue.pop()
 }
 
-/// Look up the Java `Keyboard` object index for a per-instance widget.
-pub fn lookup_keyboard_obj(handle: usize) -> Option<u16> {
-    STATE.handle_map.lookup(handle)
-}
-
 pub fn reset_keyboard_state() {
-    STATE.handle_map.reset();
     STATE.ready_queue.clear();
     // The system keyboard lives on the overlay layer, which no reload step
     // tears down (`handle_table::reset` forgets handles, it deletes no
@@ -489,7 +457,6 @@ pub fn reset_keyboard_state() {
     }
     STATE.system_handle.set(0);
     STATE.visible.set(false);
-    STATE.bound_et.set(0);
     STATE.bound_ta.set(core::ptr::null_mut());
     STATE.focus_pending.set(false);
     STATE.pending_editor_action.set(None);

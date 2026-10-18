@@ -6,11 +6,11 @@ use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
 use super::super::lvgl::widgets::radio_button as lvgl_radio_button;
-use super::super::view::register_listener_with;
 use super::super::view::{extract_native_handle, extract_string_at};
+use super::super::view::{register_listener_with, NO_ATTACH};
 
+pub use lvgl_radio_button::drain_rb_checked_change_queue;
 pub use lvgl_radio_button::reset_radio_button_state;
-pub use lvgl_radio_button::{drain_rb_checked_change_queue, lookup_rb_checked_change_obj};
 
 pub fn radio_button_native_create() -> Result<Option<Value>, JvmError> {
     Ok(Some(Value::Int(lvgl_radio_button::create())))
@@ -65,5 +65,5 @@ pub fn radio_button_register_checked_change_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    register_listener_with(args, objects, lvgl_radio_button::register_listener)
+    register_listener_with(args, objects, NO_ATTACH)
 }

@@ -3,7 +3,7 @@
 # each stage starting only once the previous one has exited, so no two of them
 # ever share the CPU, the net-test ports (7000/8000/8443) or the boards.
 #
-#   ./scripts/nightly.sh                 # the 1 AM cron: pull, then all three stages
+#   ./scripts/nightly.sh                 # the 3 AM cron: pull, then all three stages
 #   ./scripts/nightly.sh --skip fuzz     # leave a stage out (repeatable: fuzz|sim|hil)
 #   ./scripts/nightly.sh --no-pull       # run the tree as it is
 #

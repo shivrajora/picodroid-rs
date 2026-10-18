@@ -27,6 +27,7 @@ public class DateTimeActivity extends Activity {
   /** Epoch ms of 2001-01-01: below it the clock has not been anchored this boot. */
   private static final long SET_THRESHOLD_MS = 978_307_200_000L;
 
+  /** The three rows, in order: their tails are filled in later and row 0 takes the focus. */
   private final View[] rows = new View[3];
   private TextView autoTail;
   private TextView zoneTail;

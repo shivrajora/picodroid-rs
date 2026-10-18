@@ -6,11 +6,11 @@ use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
 use super::super::lvgl::widgets::check_box as lvgl_check_box;
-use super::super::view::register_listener_with;
 use super::super::view::{extract_native_handle, extract_string_at};
+use super::super::view::{register_listener_with, NO_ATTACH};
 
+pub use lvgl_check_box::drain_cb_checked_change_queue;
 pub use lvgl_check_box::reset_check_box_state;
-pub use lvgl_check_box::{drain_cb_checked_change_queue, lookup_cb_checked_change_obj};
 
 pub fn check_box_native_create() -> Result<Option<Value>, JvmError> {
     Ok(Some(Value::Int(lvgl_check_box::create())))
@@ -65,5 +65,5 @@ pub fn check_box_register_checked_change_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    register_listener_with(args, objects, lvgl_check_box::register_listener)
+    register_listener_with(args, objects, NO_ATTACH)
 }

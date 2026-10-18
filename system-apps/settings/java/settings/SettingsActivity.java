@@ -5,7 +5,6 @@ import picodroid.app.Activity;
 import picodroid.content.Intent;
 import picodroid.content.pm.PackageManager;
 import picodroid.util.Log;
-import picodroid.view.View;
 import picodroid.widget.LinearLayout;
 import picodroid.os.Bundle;
 
@@ -23,8 +22,6 @@ public class SettingsActivity extends Activity {
   static final String TAG = "Settings";
 
   private LinearLayout column;
-  /** Held so the rows stay reachable while their click listeners are live. */
-  private final View[] rows = new View[6];
   /** The screens, in row order: the Wi-Fi row is left out on a board with no link. */
   private String[] labels;
   private Class<?>[] screens;
@@ -59,7 +56,7 @@ public class SettingsActivity extends Activity {
     column = Screens.screen(this, "Settings", v -> finish());
     for (int i = 0; i < labels.length; i++) {
       final Class<?> screen = screens[i];
-      rows[i] = Screens.row(this, column, labels[i], v -> startActivity(new Intent(screen)));
+      Screens.row(this, column, labels[i], v -> startActivity(new Intent(screen)));
     }
     Screens.size(this, column, 1 + labels.length);
     ready();
@@ -67,7 +64,8 @@ public class SettingsActivity extends Activity {
 
   /** The rows are in: focus the first, and say so — the harness keys on this line. */
   private void ready() {
-    rows[0].requestFocus();
+    column.getChildAt(1).requestFocus(); // child 0 is the header
+
     built = true;
     Log.i(TAG, "ready");
   }

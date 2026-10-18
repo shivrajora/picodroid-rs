@@ -6,11 +6,11 @@ use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
 use super::super::lvgl::widgets::toggle_button as lvgl_toggle_button;
-use super::super::view::register_listener_with;
 use super::super::view::{extract_native_handle, extract_string_at};
+use super::super::view::{register_listener_with, NO_ATTACH};
 
+pub use lvgl_toggle_button::drain_checked_change_queue;
 pub use lvgl_toggle_button::reset_toggle_button_state;
-pub use lvgl_toggle_button::{drain_checked_change_queue, lookup_checked_change_obj};
 
 pub fn toggle_button_native_create() -> Result<Option<Value>, JvmError> {
     Ok(Some(Value::Int(lvgl_toggle_button::create())))
@@ -96,5 +96,5 @@ pub fn toggle_button_register_checked_change_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    register_listener_with(args, objects, lvgl_toggle_button::register_listener)
+    register_listener_with(args, objects, NO_ATTACH)
 }

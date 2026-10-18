@@ -51,7 +51,8 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
   /**
    * Register a listener for item clicks. Mirrors {@code
    * android.widget.AdapterView#setOnItemClickListener}. Subclasses that support D-pad/tap item
-   * activation override {@link #registerNativeItemClick()} to wire the underlying widget.
+   * activation override {@link #registerNativeItemClick()} to wire the underlying widget. The
+   * lifetime rule is {@link View#setOnClickListener}'s: the listener lives with this view.
    */
   public void setOnItemClickListener(OnItemClickListener listener) {
     this.onItemClickListener = listener;

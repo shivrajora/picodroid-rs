@@ -52,23 +52,36 @@ pub fn extract_handle_at(
 }
 
 /// The body of every `set*Listener` native: `this` (args[0]) is both the
-/// Java object the registry roots and the view whose handle names the
-/// widget; `register` files the pair. One out-of-line copy for the ~19
-/// registration natives, which each carried the argument and handle reads.
+/// Java object the widget's events go to and the view whose handle names
+/// the widget. The handle table binds the pair (`handle_table::bind`), then
+/// `attach` wires the kind's LVGL trampoline — or [`NO_ATTACH`] for a kind
+/// whose widget already emits (the compound buttons' VALUE_CHANGED, the
+/// keypad's keys). One out-of-line copy for the ~19 registration natives,
+/// which each carried the argument and handle reads.
+///
+/// The listener itself is a Java field on the view, and the view is kept
+/// alive by whatever Java reaches it through (its parent's child list, a
+/// field): the binding is not a GC root, so there is no table to fill and
+/// no cap (docs/designs/view-listeners-2026-10.md).
 #[inline(never)]
 pub fn register_listener_with(
     args: &[Value],
     objects: &ObjectHeap,
-    register: fn(i32, u16),
+    attach: fn(i32),
 ) -> Result<Option<Value>, JvmError> {
     let obj_ref = match args.first() {
         Some(Value::ObjectRef(idx)) => *idx,
         _ => return Err(JvmError::InvalidReference),
     };
     let id = extract_native_handle(args, objects)?;
-    register(id, obj_ref);
+    super::lvgl::handle_table::bind(id, obj_ref);
+    attach(id);
     Ok(None)
 }
+
+/// [`register_listener_with`]'s `attach` for a kind that needs no LVGL
+/// trampoline of its own.
+pub const NO_ATTACH: fn(i32) = |_| {};
 
 /// Extract a Java `String` argument as a Rust `&str`. Returned reference
 /// is valid for the lifetime of `strings`. A `null` reads as `""`: Android's
@@ -315,17 +328,18 @@ pub fn close(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmE
 }
 
 // ---------------------------------------------------------------------------
-// Key-listener Java bindings — registry lives in `lvgl::events`.
+// Listener Java bindings — the trampolines live in `lvgl::events` and
+// `lvgl::widgets::button`.
 // ---------------------------------------------------------------------------
 
-/// `View.nativeRegisterKeyListener()` — records this View as a key-listener
-/// candidate so the framework event loop can dispatch `fireKey()` when this
-/// widget is LVGL-focused.
+/// `View.nativeRegisterKeyListener()` — binds this View to its widget so the
+/// framework event loop can dispatch `fireKey()` when the widget is
+/// LVGL-focused. No trampoline: the shared keypad indev feeds the key queue.
 pub fn register_key_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    register_listener_with(args, objects, lvgl_events::register_view_key_listener)
+    register_listener_with(args, objects, NO_ATTACH)
 }
 
 /// `View.nativeSetFocusable(boolean)` — add this view to (or remove it from)
@@ -347,19 +361,19 @@ pub fn request_focus(args: &[Value], objects: &ObjectHeap) -> Result<Option<Valu
     Ok(Some(Value::Int(if focused { 1 } else { 0 })))
 }
 
-/// `View.nativeRegisterTouchListener()` — records this View as a
-/// touch-listener target and wires the LVGL press/release/long-press
+/// `View.nativeRegisterTouchListener()` — binds this View as the
+/// touch-event receiver and wires the LVGL press/release/long-press
 /// callbacks. Side effect: flips on `LV_OBJ_FLAG_CLICKABLE` so passive
 /// widgets (TextView, layouts) actually receive hit-tested events.
 pub fn register_touch_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    register_listener_with(args, objects, lvgl_events::register_view_touch_listener)
+    register_listener_with(args, objects, lvgl_events::attach_touch)
 }
 
-/// `View.nativeRegisterSwipeListener()` — records this View as a
-/// swipe-gesture target and registers the LVGL `LV_EVENT_GESTURE` callback
+/// `View.nativeRegisterSwipeListener()` — binds this View as the
+/// swipe-gesture receiver and registers the LVGL `LV_EVENT_GESTURE` callback
 /// on the underlying object. Note: the widget itself doesn't need to be
 /// clickable for gestures to fire (LVGL routes gestures via the indev,
 /// not the hit-test path), so we don't touch the CLICKABLE flag here.
@@ -367,46 +381,27 @@ pub fn register_swipe_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    register_listener_with(args, objects, lvgl_events::register_view_swipe_listener)
+    register_listener_with(args, objects, lvgl_events::attach_swipe)
 }
 
-/// `View.nativeRegisterClickListener()` — records this View as a
-/// click-listener target. On first registration for a given widget, sets
-/// the LVGL CLICKABLE flag and attaches the click-event trampoline so any
-/// view (not just Button) becomes clickable.
+/// `View.nativeRegisterClickListener()` — binds this View as the click
+/// receiver, sets the LVGL CLICKABLE flag and attaches the click-event
+/// trampoline so any view (not just Button) becomes clickable. Any number
+/// of views may have one: the binding lives in the widget's own slot.
 pub fn register_click_listener(
     args: &[Value],
-    strings: &mut StringTable,
-    objects: &mut ObjectHeap,
+    objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    let obj_ref = match args.first() {
-        Some(Value::ObjectRef(idx)) => *idx,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    let id = extract_native_handle(args, objects)?;
-    if !lvgl_button::register_click_listener(id, obj_ref) {
-        // The table is fixed-size (RAM); a registration it cannot hold used
-        // to be a warning and a view that never clicked (QA 2026-09-13).
-        let idx = objects
-            .alloc(c::java_lang_IllegalStateException)
-            .ok_or(JvmError::StackOverflow)?;
-        if let Some(m) = strings.intern_dyn(
-            b"setOnClickListener: the click-listener table is full; close or drop views that no longer need a listener",
-        ) {
-            let _ = objects.register_exception_message(idx, m);
-        }
-        return Err(JvmError::Exception(idx));
-    }
-    Ok(None)
+    register_listener_with(args, objects, lvgl_button::attach_click)
 }
 
-/// `View.nativeRegisterLongClickListener()` — instance method; records `this`
-/// as the long-click target and wires the LVGL long-press trampoline.
+/// `View.nativeRegisterLongClickListener()` — instance method; binds `this`
+/// as the long-click receiver and wires the LVGL long-press trampoline.
 pub fn register_long_click_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    register_listener_with(args, objects, lvgl_button::register_long_click_listener)
+    register_listener_with(args, objects, lvgl_button::attach_long_click)
 }
 
 /// `View.performLongClickNative()` — synthesize an LVGL long-press for
@@ -426,18 +421,14 @@ pub fn is_focused(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>,
     Ok(Some(Value::Int(if focused { 1 } else { 0 })))
 }
 
-/// `View.nativeRegisterFocusChangeListener()` — records this View as a
-/// focus-change target and attaches the LVGL FOCUSED/DEFOCUSED callbacks so the
-/// framework loop can dispatch `View.fireFocusChange(boolean)`.
+/// `View.nativeRegisterFocusChangeListener()` — binds this View as the
+/// focus-change receiver and attaches the LVGL FOCUSED/DEFOCUSED callbacks so
+/// the framework loop can dispatch `View.fireFocusChange(boolean)`.
 pub fn register_focus_change_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    register_listener_with(
-        args,
-        objects,
-        lvgl_events::register_view_focus_change_listener,
-    )
+    register_listener_with(args, objects, lvgl_events::attach_focus_change)
 }
 
 /// `View.performClick()` — synthesize a click event on this view.
@@ -478,22 +469,17 @@ pub fn set_frame_gravity(args: &[Value], objects: &ObjectHeap) -> Result<Option<
     Ok(None)
 }
 
-/// Reset the key-listener registry between app runs.
-pub fn reset_key_listener_state() {
-    lvgl_events::reset_view_key_listener_state();
-}
-
-/// Reset the touch-listener registry between app runs.
+/// Reset the touch-event queue between app runs.
 pub fn reset_touch_listener_state() {
     lvgl_events::reset_view_touch_listener_state();
 }
 
-/// Reset the swipe-listener registry between app runs.
+/// Reset the swipe-event queue between app runs.
 pub fn reset_swipe_listener_state() {
     lvgl_events::reset_view_swipe_listener_state();
 }
 
-/// Reset the focus-change-listener registry between app runs.
+/// Reset the focus-change-event queue between app runs.
 pub fn reset_focus_change_listener_state() {
     lvgl_events::reset_view_focus_listener_state();
 }

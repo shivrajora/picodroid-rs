@@ -5,14 +5,15 @@ use crate::lvgl_ffi::*;
 
 use super::super::handle_table;
 use super::super::lifecycle;
-use super::super::listener_map::PtrMap;
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
 
 const QUEUE_SIZE: usize = 16;
 struct State {
-    queue: LocalRing<usize, QUEUE_SIZE>,
-    handle_map: PtrMap<MAX_LISTENERS>,
+    /// Checked-change events, each the widget's handle; the drain resolves
+    /// the Java object through the handle table's binding, so a widget
+    /// nobody set a listener on resolves to nothing.
+    queue: LocalRing<i32, QUEUE_SIZE>,
 }
 
 // SAFETY: filled by LVGL callbacks and by natives, drained by the framework
@@ -20,23 +21,15 @@ struct State {
 static STATE: Core0<State> = unsafe {
     Core0::new(State {
         queue: LocalRing::new(0),
-        handle_map: PtrMap::new(),
     })
 };
 
-const MAX_LISTENERS: usize = 32;
-
-lv_event_cb! {
-    fn map_delete_cb(e) {
-        let obj = e.target().addr();
-        STATE.handle_map.remove(obj)
-    }
-}
-
 lv_event_cb! {
     fn value_changed_cb(e) {
-        let obj = e.target();
-        STATE.queue.push(obj.addr());
+        let handle = handle_table::handle_of(e.target());
+        if handle != 0 {
+            STATE.queue.push(handle);
+        }
     }
 }
 
@@ -45,7 +38,6 @@ pub(in crate::graphics) fn create() -> i32 {
         return 0;
     };
     add_event_cb(s, value_changed_cb, LV_EVENT_VALUE_CHANGED);
-    add_event_cb(s, map_delete_cb, LV_EVENT_DELETE);
     handle_table::register(s)
 }
 
@@ -65,30 +57,10 @@ pub(in crate::graphics) fn perform_checked_change(id: i32) {
     super::compound::perform_checked_change(id);
 }
 
-pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
-    super::compound::register_listener(&STATE.handle_map, id, obj_ref, "switch-checked");
-}
-
-pub fn drain_sw_checked_change_queue() -> Option<usize> {
+pub fn drain_sw_checked_change_queue() -> Option<i32> {
     STATE.queue.pop()
 }
 
-pub fn lookup_sw_checked_change_obj(handle: usize) -> Option<u16> {
-    STATE.handle_map.lookup(handle)
-}
-
 pub fn reset_switch_state() {
-    STATE.handle_map.reset();
     STATE.queue.clear();
-}
-
-/// Visit the Java `Switch` object ref of every switch registered for a
-/// checked-change listener so the GC keeps it alive. A `Switch` referenced only
-/// by this native map — e.g. a local in an Activity's `onCreate` that the app
-/// never stored in a field, and that `addView` keeps alive only natively — would
-/// otherwise be swept on the first GC; its `u16` slot is then reused by a later
-/// allocation and the next Activity's dispatch resolves a dead ref →
-/// `NoSuchMethod`. See `widgets::button::visit_click_listener_roots`.
-pub fn visit_checked_change_listener_roots(visit: &mut dyn FnMut(u16)) {
-    STATE.handle_map.visit(visit)
 }

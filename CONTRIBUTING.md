@@ -70,8 +70,7 @@ the changed files implicate. A `scripts/` change adds the `hil-tests.conf`
 drift check and the device-lock test.
 
 **`--full`** runs the legs neither CI nor the nightlies cover: the
-`legacy-handle-cast` clippy leg, the opt-in `mem-diag` / `sched-diag`
-firmware builds, `pico_enviro_mon_w` clippy, the shrunk-image name check and
+opt-in `mem-diag` / `sched-diag` firmware builds, `pico_enviro_mon_w` clippy, the shrunk-image name check and
 the binary-size ratchet on both boards. A few minutes; run it before cutting a
 release.
 
@@ -82,7 +81,7 @@ API contract, both formatters, and a sim smoke in four parallel shards covering
 all three langsuites; its Building job also links one WiFi board in debug
 (`pico_display2_w`), the largest image of the fleet, and its Linting job runs on
 Java 21. `ci_light.yml` runs the same source guards, the markdown lint and
-the docs-site link check, docs-only commits included. The 1 AM `scripts/nightly.sh` runs the fuzzers, then `sim-run.sh` over the whole
+the docs-site link check, docs-only commits included. The 3 AM `scripts/nightly.sh` runs the fuzzers, then `sim-run.sh` over the whole
 `hil-tests.conf` matrix in both shrink modes — the `qa_*` apps, the diagnostics
 soaks and the binary-size ratchet — then `hil-fleet.sh` over it on
 every bench board. CI takes about 20 minutes; after a push, `gh run list --limit 3`

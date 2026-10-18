@@ -73,7 +73,7 @@ PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo clippy -p picodroid -
 PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo clippy -p picodroid --target "$(rustc -vV | awk '/^host:/ { print $2 }')" --no-default-features --features sim,board-testbench-rp2350,line-numbers -- --deny=warnings
 ```
 
-The local pre-commit hook does not run clippy (only the source guards and formatters); GitHub CI runs these legs for every board on every push, and `./scripts/pre-commit --full` adds the `pico_enviro_mon_w` and `legacy-handle-cast` legs:
+The local pre-commit hook does not run clippy (only the source guards and formatters); GitHub CI runs these legs for every board on every push, and `./scripts/pre-commit --full` adds the `pico_enviro_mon_w` leg:
 
 ```bash
 ./scripts/pre-commit --full

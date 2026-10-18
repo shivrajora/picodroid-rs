@@ -71,11 +71,9 @@ impl GraphicsBackend for LvglBackend {
             mh::nativeSetFlexGrow => Some(view::set_flex_grow(ctx.args, ctx.objects)),
             mh::nativeSetMargins => Some(view::set_margins(ctx.args, ctx.objects)),
             mh::nativeSetFrameGravity => Some(view::set_frame_gravity(ctx.args, ctx.objects)),
-            mh::nativeRegisterClickListener => Some(view::register_click_listener(
-                ctx.args,
-                ctx.strings,
-                ctx.objects,
-            )),
+            mh::nativeRegisterClickListener => {
+                Some(view::register_click_listener(ctx.args, ctx.objects))
+            }
             mh::nativeRegisterLongClickListener => {
                 Some(view::register_long_click_listener(ctx.args, ctx.objects))
             }

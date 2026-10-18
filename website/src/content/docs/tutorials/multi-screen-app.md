@@ -70,11 +70,6 @@ each button pushes another Activity:
 public class HomeActivity extends Activity {
   private static final String TAG = "HomeActivity";
 
-  // Views with listeners are held as fields so the GC always sees them rooted through this
-  // Activity, not only through the native listener registry — best practice for callback views.
-  private Button counterButton;
-  private Button aboutButton;
-
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
@@ -91,12 +86,14 @@ public class HomeActivity extends Activity {
     title.setTextColor(Color.WHITE);
     root.addView(title);
 
-    counterButton = new Button("Counter");
+    // Views are locals, as on Android: the content view keeps them, listeners included, for as
+    // long as this Activity lives. A view becomes a field only when later code needs it.
+    Button counterButton = new Button("Counter");
     counterButton.setSize(200, 40);
     counterButton.setOnClickListener(v -> startActivity(new Intent(CounterActivity.class)));
     root.addView(counterButton);
 
-    aboutButton = new Button("About");
+    Button aboutButton = new Button("About");
     aboutButton.setSize(200, 40);
     aboutButton.setOnClickListener(v -> startActivity(new Intent(AboutActivity.class)));
     root.addView(aboutButton);
@@ -107,10 +104,10 @@ public class HomeActivity extends Activity {
 
 Two things here matter on embedded:
 
-- **Field-held listener buttons.** `counterButton` and `aboutButton` are instance fields, not locals.
-  A View that only the native listener registry references can be swept by the garbage collector,
-  killing its callback mid-session. Holding it in a field roots it through the Activity. See
-  [embedded gotchas](/guides/embedded-gotchas/) for the full pattern.
+- **Views are locals, as on Android.** `counterButton` and `aboutButton` are locals in `onCreate`:
+  the content view keeps them, listeners included, for as long as this Activity lives. A view
+  becomes a field only when later code needs it. See [embedded gotchas](/guides/embedded-gotchas/)
+  for the one case that differs from Android (a view never added to a parent).
 
 - **`setContentView(root)` is mandatory.** Until you call it the Activity has no visible tree. It
   delegates to the `Display`, replacing whatever the previous screen showed.
@@ -144,10 +141,9 @@ public class CounterActivity extends Activity {
 
   private int count = 0;
 
-  // Field-held views: the label so the click handler can update it, the button so the GC sees the
-  // listener-bearing view rooted through this Activity.
+  // countLabel is a field because the click handler updates it; the button is a local — the
+  // tree keeps it and its listener alive, as on Android.
   private TextView countLabel;
-  private Button incrementButton;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -170,7 +166,7 @@ public class CounterActivity extends Activity {
     countLabel.setTextColor(Color.CYAN);
     root.addView(countLabel);
 
-    incrementButton = new Button("Increment");
+    Button incrementButton = new Button("Increment");
     incrementButton.setSize(200, 40);
     incrementButton.setOnClickListener(
         v -> {
@@ -200,9 +196,6 @@ About is a static screen that adds an explicit Back button. Its click handler ca
 public class AboutActivity extends Activity {
   private static final String TAG = "AboutActivity";
 
-  // Field-held so the GC roots the listener-bearing button through this Activity.
-  private Button backButton;
-
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
@@ -224,7 +217,8 @@ public class AboutActivity extends Activity {
     body.setTextColor(Color.WHITE);
     root.addView(body);
 
-    backButton = new Button("Back");
+    // A local, as on Android: the content view keeps the button and its listener alive.
+    Button backButton = new Button("Back");
     backButton.setSize(200, 40);
     backButton.setOnClickListener(v -> finish());
     root.addView(backButton);

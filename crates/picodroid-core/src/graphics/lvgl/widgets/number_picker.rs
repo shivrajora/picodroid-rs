@@ -13,28 +13,23 @@ use core::ffi::c_char;
 
 use super::super::handle_table;
 use super::super::lifecycle;
-use super::super::listener_map::PtrMap;
 use super::super::style_batch;
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
 
-const MAX_PICKERS: usize = 16;
 struct State {
-    /// (container raw ptr, Java obj_ref). Registered from the `NumberPicker`
-    /// constructor via `nativeRegisterPicker`, so — unlike the listener maps —
-    /// every live picker has an entry: `is_number_picker` drives the keypad
-    /// edit-mode filter, and the obj_ref is the `fireStep` dispatch target.
-    /// Entries are removed by the LV_EVENT_DELETE trampoline, so a recycled
-    /// `lv_obj_t*` from a later Activity can't be misidentified as a picker.
-    picker_map: PtrMap<MAX_PICKERS>,
-    step_queue: LocalRing<(usize, i32), STEP_QUEUE_SIZE>,
+    /// `(picker handle, +1/-1)`: the steps the keypad edit mode asked for.
+    /// The `NumberPicker` constructor binds every instance to its box
+    /// (`nativeRegisterPicker`), so the drain finds its `fireStep` target
+    /// through the handle table; the box itself carries
+    /// `LV_OBJ_FLAG_USER_2` for the edit-mode filter to recognise it.
+    step_queue: LocalRing<(i32, i32), STEP_QUEUE_SIZE>,
 }
 
 // SAFETY: filled by LVGL callbacks and by natives, drained by the framework
 // loop, all on core-0 JVM tasks.
 static STATE: Core0<State> = unsafe {
     Core0::new(State {
-        picker_map: PtrMap::new(),
         step_queue: LocalRing::new((0, 0)),
     })
 };
@@ -55,9 +50,7 @@ lv_event_cb! {
 
 lv_event_cb! {
     fn picker_delete_cb(e) {
-        let obj = e.target().addr();
-        STATE.picker_map.remove(obj);
-        super::super::events::notify_picker_gone(obj);
+        super::super::events::notify_picker_gone(e.target().addr());
     }
 }
 
@@ -70,6 +63,9 @@ pub(in crate::graphics) fn create() -> i32 {
         // A value box never scrolls and never draws scrollbars.
         lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_scrollbar_mode(o, LV_SCROLLBAR_MODE_OFF);
+        // What tells the keypad's edit-mode filter a picker from any other
+        // plain box (`is_number_picker`).
+        lv_obj_add_flag(o, LV_OBJ_FLAG_USER_2);
         // The style sets below under one refresh (style_batch.rs); the label
         // is created after them because a create switches the refresh back on.
         style_batch::with_one_refresh(o, LV_STYLE_PAD_TOP, || {
@@ -149,44 +145,24 @@ pub(in crate::graphics) fn set_text(id: i32, text: &str) {
     unsafe { lv_label_set_text(label, buf.as_ptr() as *const c_char) };
 }
 
-/// `NumberPicker.nativeRegisterPicker` backing: record the Java object as the
-/// `fireStep` dispatch target and mark the lv_obj as a picker for the keypad
-/// edit-mode filter. Idempotent: re-registration refreshes the obj_ref.
-pub(in crate::graphics) fn register_picker(id: i32, obj_ref: u16) {
-    super::compound::register_listener(&STATE.picker_map, id, obj_ref, "number-picker");
+/// Whether `obj` is a NumberPicker's box. Consulted by the keypad edit-mode
+/// filter on every ENTER press.
+pub fn is_number_picker(obj: Obj) -> bool {
+    lv_obj_has_flag(obj, LV_OBJ_FLAG_USER_2)
 }
 
-/// Whether the widget at `raw_ptr` is a registered NumberPicker. Consulted by
-/// the keypad edit-mode filter on every ENTER press.
-pub fn is_number_picker(raw_ptr: usize) -> bool {
-    STATE.picker_map.lookup(raw_ptr).is_some()
+/// Queue one edit-mode step (+1/-1) for the picker behind `handle`; drained
+/// by `lifecycle::dispatch_number_picker_steps` into `NumberPicker.fireStep`.
+pub fn push_step(handle: i32, direction: i32) {
+    if handle != 0 {
+        STATE.step_queue.push((handle, direction));
+    }
 }
 
-/// Queue one edit-mode step (+1/-1) for the picker at `raw_ptr`; drained by
-/// `lifecycle::dispatch_number_picker_steps` into `NumberPicker.fireStep`.
-pub fn push_step(raw_ptr: usize, direction: i32) {
-    STATE.step_queue.push((raw_ptr, direction));
-}
-
-pub fn drain_step_queue() -> Option<(usize, i32)> {
+pub fn drain_step_queue() -> Option<(i32, i32)> {
     STATE.step_queue.pop()
 }
 
-pub fn lookup_picker_obj(handle: usize) -> Option<u16> {
-    STATE.picker_map.lookup(handle)
-}
-
 pub fn reset_number_picker_state() {
-    STATE.picker_map.reset();
     STATE.step_queue.clear();
-}
-
-/// Visit the Java `NumberPicker` object ref of every registered picker so the
-/// GC keeps it alive. A picker referenced only by this native map (a local in
-/// an Activity's `onCreate`, kept alive only natively by `addView`) would
-/// otherwise be swept on the first GC, its slot reused, and a later
-/// `fireStep` dispatch resolves a dead ref → `NoSuchMethod`. See
-/// `widgets::button::visit_click_listener_roots`.
-pub fn visit_picker_roots(visit: &mut dyn FnMut(u16)) {
-    STATE.picker_map.visit(visit)
 }

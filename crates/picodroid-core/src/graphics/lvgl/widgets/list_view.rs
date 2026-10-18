@@ -6,21 +6,18 @@
 //! so on a hardware-button board the per-Activity keypad group can traverse
 //! the rows (PREV/NEXT move the focus highlight) and ENTER activates the
 //! focused row. Each row carries an `LV_EVENT_CLICKED` trampoline that
-//! enqueues the row pointer; the main loop drains it and fires
-//! `ListView.fireItemClick(position)` on the Java `ListView` registered for
-//! the row's parent list.
+//! enqueues `(list handle, row position)`; the main loop drains it and fires
+//! `ListView.fireItemClick(position)` on the Java `ListView` the handle
+//! table binds to the list (`ListView.setOnItemClickListener`).
 //!
-//! This mirrors the click pathway in `widgets/button.rs` and the listener
-//! map in `widgets/spinner.rs`. Only the *list* is mapped to a Java object
-//! (one entry per `ListView`); the row's position is recovered at click time
-//! by scanning the list's children, so there is no per-row table to size or
-//! invalidate (`lv_obj_get_index` is not bound, hence the linear scan).
+//! Rows need no handle of their own (a text row is not a Java object): the
+//! trampoline walks one step up to the list and reads the row's index among
+//! its siblings at click time, which is also the position Android reports.
 
 use crate::lvgl_ffi::*;
 
 use super::super::handle_table;
 use super::super::lifecycle;
-use super::super::listener_map::PtrMap;
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
 
@@ -29,36 +26,20 @@ use crate::util::local_ring::LocalRing;
 /// theme's focus styling is too subtle to rely on for no-touch navigation.
 const FOCUS_HIGHLIGHT_RGB: u32 = 0x0026_A69A;
 
-// ── Item-click event queue (raw row `lv_obj_t*` pointers) ───────────────────
+// ── Item-click event queue: `(list handle, row position)` ───────────────────
 
 const ITEM_CLICK_QUEUE_SIZE: usize = 16;
 struct State {
-    item_click_queue: LocalRing<usize, ITEM_CLICK_QUEUE_SIZE>,
-    listener_map: PtrMap<MAX_LIST_LISTENERS>,
+    item_click_queue: LocalRing<(i32, i32), ITEM_CLICK_QUEUE_SIZE>,
 }
 
 // SAFETY: filled by LVGL callbacks and by natives, drained by the framework
 // loop, all on core-0 JVM tasks.
 static STATE: Core0<State> = unsafe {
     Core0::new(State {
-        item_click_queue: LocalRing::new(0),
-        listener_map: PtrMap::new(),
+        item_click_queue: LocalRing::new((0, 0)),
     })
 };
-
-// ── ListView handle → Java object mapping (one entry per ListView) ──────────
-
-const MAX_LIST_LISTENERS: usize = 16;
-
-// Keyed by the LIST object; its rows' trampolines die with the rows, and this
-// delete callback (attached at first registration) drops the map entry when
-// the list itself is deleted.
-lv_event_cb! {
-    fn list_map_delete_cb(e) {
-        let obj = e.target().addr();
-        STATE.listener_map.remove(obj)
-    }
-}
 
 lv_event_cb! {
     fn row_click_cb(e) {
@@ -66,7 +47,16 @@ lv_event_cb! {
         // adapter's row may be a layout whose child bubbles the click up
         // (LV_OBJ_FLAG_EVENT_BUBBLE); the original target would then be the
         // child, which is no child of the list and would never resolve.
-        STATE.item_click_queue.push(e.current_target().addr());
+        let row = e.current_target();
+        let Some(list) = lv_obj_get_parent(row) else {
+            return;
+        };
+        let list_handle = handle_table::handle_of(list);
+        if list_handle != 0 {
+            STATE
+                .item_click_queue
+                .push((list_handle, lv_obj_get_index(row)));
+        }
     }
 }
 
@@ -144,68 +134,11 @@ pub(in crate::graphics) fn add_item(id: i32, text: &str) {
     }
 }
 
-/// `ListView.setOnItemClickListener` backing: register a Java `ListView` object
-/// as the item-click target for the list handle. Mirrors
-/// `spinner::register_listener` — update-in-place if already registered.
-pub(in crate::graphics) fn register_item_click_listener(id: i32, obj_ref: u16) {
-    // A deleted/stale list: never hand LVGL a null, never map key 0.
-    super::compound::register_listener_with_delete_hook(
-        &STATE.listener_map,
-        id,
-        obj_ref,
-        list_map_delete_cb,
-        "list-item-click",
-    );
-}
-
-/// Drain one item-click event (raw row `lv_obj_t*`) from the queue.
-pub fn drain_item_click_queue() -> Option<usize> {
+/// Drain one item click: `(list handle, row position)`.
+pub fn drain_item_click_queue() -> Option<(i32, i32)> {
     STATE.item_click_queue.pop()
 }
 
-/// Resolve a clicked row pointer to `(Java ListView object ref, item position)`.
-/// Returns `None` if the row's parent list has no registered item-click
-/// listener, or the row is no longer a child of its list. The position is the
-/// row's index among the list's children, recovered by scan.
-pub fn lookup_item_click(row: usize) -> Option<(u16, i32)> {
-    // The queued row pointer is never dereferenced: an earlier click in the
-    // same drain may have rebuilt the list (removeAllViews / a
-    // notifyDataSetChanged-style repopulate) or finished the Activity, and
-    // this queue has no LV_EVENT_DELETE purge. Instead, walk the children of
-    // every list that still has a listener (those pointers are kept live by
-    // list_map_delete_cb) and match the row by address — a freed row is
-    // simply not found.
-    let mut hit = None;
-    STATE.listener_map.for_each(&mut |list, obj_ref| {
-        if hit.is_some() {
-            return;
-        }
-        // SAFETY: a list is in the map from its first registration until
-        // `list_map_delete_cb`, which LVGL runs before it frees the object.
-        let Some(list) = (unsafe { Obj::from_raw(list as *mut lv_obj_t) }) else {
-            return;
-        };
-        let n = lv_obj_get_child_count(list) as i32;
-        for i in 0..n {
-            if lv_obj_get_child(list, i).map(Obj::addr) == Some(row) {
-                hit = Some((obj_ref, i));
-                return;
-            }
-        }
-    });
-    hit
-}
-
 pub fn reset_list_view_state() {
-    STATE.listener_map.reset();
     STATE.item_click_queue.clear();
-}
-
-/// Visit the Java `ListView` object ref of every list registered for an
-/// item-click listener so the GC keeps it alive — a `ListView` referenced only
-/// by this native map (the app kept no field for it) would otherwise be swept,
-/// after which its item-clicks silently stop dispatching. See
-/// `widgets::button::visit_click_listener_roots`.
-pub fn visit_item_click_listener_roots(visit: &mut dyn FnMut(u16)) {
-    STATE.listener_map.visit(visit)
 }

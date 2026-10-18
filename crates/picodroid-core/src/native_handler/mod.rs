@@ -703,7 +703,7 @@ impl PicodroidNativeHandler {
                 Some(Ok(None))
             }
             (_, mh::nativeFocusTakesLongPress) => Some(Ok(Some(Value::Int(i32::from(
-                crate::graphics::lvgl::focused_view_takes_long_press(),
+                crate::graphics::lvgl::focused_view_takes_long_press(ctx.objects),
             ))))),
             (_, mh::nativeSetTurnScreenOn) => {
                 // args[0] = this, args[1] = boolean. An Activity that must
@@ -894,13 +894,16 @@ impl NativeMethodHandler for PicodroidNativeHandler {
         crate::monitor_store::prune_dead(live);
     }
 
-    /// The JSON node pool binds each `JSONObject`/`JSONArray` wrapper by its
-    /// heap slot; drop the bindings the sweep freed and reclaim what no
+    /// Native state keyed by heap slots: the widget handle table binds each
+    /// widget to the Java object its events go to (`handle_table::bind`),
+    /// and the JSON node pool binds each `JSONObject`/`JSONArray` wrapper to
+    /// its node. Drop the bindings the sweep freed, and reclaim the nodes no
     /// wrapper reaches any more (json::pool module docs).
     fn native_state_prune(&mut self, live: &dyn Fn(MonitorKey) -> bool) {
+        crate::graphics::lvgl::handle_table::prune_dead_java(&|slot| {
+            live(MonitorKey::Object(slot))
+        });
         #[cfg(has_json)]
         crate::json::pool::with_pool(|p| p.prune(&|slot| live(MonitorKey::Object(slot))));
-        #[cfg(not(has_json))]
-        let _ = live;
     }
 }

@@ -6,11 +6,11 @@ use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
 use super::super::lvgl::widgets::edit_text as lvgl_edit_text;
-use super::super::view::register_listener_with;
 use super::super::view::{extract_native_handle, extract_string_at};
+use super::super::view::{register_listener_with, NO_ATTACH};
 
+pub use lvgl_edit_text::drain_text_changed_queue;
 pub use lvgl_edit_text::reset_edit_text_state;
-pub use lvgl_edit_text::{drain_text_changed_queue, lookup_text_watch_obj};
 
 pub fn edit_text_native_create() -> Result<Option<Value>, JvmError> {
     Ok(Some(Value::Int(lvgl_edit_text::create())))
@@ -102,20 +102,12 @@ pub fn edit_text_register_text_changed_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    register_listener_with(
-        args,
-        objects,
-        lvgl_edit_text::register_text_changed_listener,
-    )
+    register_listener_with(args, objects, lvgl_edit_text::attach_text_watcher)
 }
 
 pub fn edit_text_register_editor_action_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    register_listener_with(
-        args,
-        objects,
-        lvgl_edit_text::register_editor_action_listener,
-    )
+    register_listener_with(args, objects, NO_ATTACH)
 }

@@ -9,10 +9,10 @@ use pico_jvm::types::{JvmError, Value};
 
 use super::super::lvgl::widgets::swipe_refresh_layout as lvgl_swipe_refresh;
 use super::super::view::extract_native_handle;
-use super::super::view::register_listener_with;
+use super::super::view::{register_listener_with, NO_ATTACH};
 
+pub use lvgl_swipe_refresh::drain_refresh_queue;
 pub use lvgl_swipe_refresh::reset_swipe_refresh_state;
-pub use lvgl_swipe_refresh::{drain_refresh_queue, lookup_refresh_obj};
 
 pub fn swipe_refresh_native_create() -> Result<Option<Value>, JvmError> {
     Ok(Some(Value::Int(lvgl_swipe_refresh::create())))
@@ -35,5 +35,5 @@ pub fn swipe_refresh_register_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    register_listener_with(args, objects, lvgl_swipe_refresh::register_listener)
+    register_listener_with(args, objects, NO_ATTACH)
 }

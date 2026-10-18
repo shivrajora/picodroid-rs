@@ -1,26 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! The view focus-change listener registry and its event queue.
+//! The view focus-change event queue.
 
 use super::*;
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
 
-// ── View focus-change listener registry ─────────────────────────────────────
+// ── View focus-change events ────────────────────────────────────────────────
 //
-// Backs `android.view.View.OnFocusChangeListener`. Mirrors the swipe pattern:
-// a `(handle, obj_ref)` map keyed by raw `lv_obj_t*` plus a ring buffer of
+// Backs `android.view.View.OnFocusChangeListener`. A ring buffer of
 // `(handle, has_focus)` records fed by `LV_EVENT_FOCUSED`/`LV_EVENT_DEFOCUSED`
 // trampolines. The framework loop drains the queue and invokes
-// `View.fireFocusChange(boolean)` on the matching object. A view only emits
-// these once it is a member of the active Activity's keypad focus group
-// (setFocusable/requestFocus or an adapter row), which is exactly when Android
-// would deliver focus callbacks.
-
-pub(super) const MAX_FOCUS_LISTENERS: usize = 32;
+// `View.fireFocusChange(boolean)` on the view the handle table binds to the
+// handle. A view only emits these once it is a member of the active
+// Activity's keypad focus group (setFocusable/requestFocus or an adapter
+// row), which is exactly when Android would deliver focus callbacks.
 
 #[derive(Copy, Clone)]
 pub struct FocusRecord {
-    pub view_handle: usize,
+    /// The widget's `nativeHandle`.
+    pub view: i32,
     pub has_focus: bool,
 }
 
@@ -28,7 +26,6 @@ pub(super) const FOCUS_QUEUE_SIZE: usize = 16;
 
 pub(super) struct Focus {
     queue: LocalRing<FocusRecord, FOCUS_QUEUE_SIZE>,
-    pub(super) view_map: PtrMap<MAX_FOCUS_LISTENERS>,
 }
 
 // SAFETY: filled by LVGL's focus callbacks and by natives, drained by the
@@ -36,38 +33,29 @@ pub(super) struct Focus {
 pub(super) static FOCUS: Core0<Focus> = unsafe {
     Core0::new(Focus {
         queue: LocalRing::new(FocusRecord {
-            view_handle: 0,
+            view: 0,
             has_focus: false,
         }),
-        view_map: PtrMap::new(),
     })
 };
 
-lv_event_cb! {
-    pub(super) fn focus_map_delete_cb(e) {
-        let obj = e.target().addr();
-        FOCUS.view_map.remove(obj)
+pub(super) fn push_focus_event(obj: Obj, has_focus: bool) {
+    let view = super::super::handle_table::handle_of(obj);
+    if view == 0 {
+        return;
     }
-}
-
-pub(super) fn push_focus_event(handle: usize, has_focus: bool) {
-    FOCUS.queue.push(FocusRecord {
-        view_handle: handle,
-        has_focus,
-    });
+    FOCUS.queue.push(FocusRecord { view, has_focus });
 }
 
 lv_event_cb! {
     pub(super) fn view_focused_cb(e) {
-        let obj = e.target().addr();
-        push_focus_event(obj, true);
+        push_focus_event(e.target(), true);
     }
 }
 
 lv_event_cb! {
     pub(super) fn view_defocused_cb(e) {
-        let obj = e.target().addr();
-        push_focus_event(obj, false);
+        push_focus_event(e.target(), false);
     }
 }
 
@@ -82,35 +70,23 @@ pub fn view_is_focused(id: i32) -> bool {
     lv_group_get_default().and_then(|o| lv_group_get_focused(o)) == Some(raw)
 }
 
-/// `View.setOnFocusChangeListener` backing: record the Java `View` as the
-/// focus-change target and attach the LVGL FOCUSED/DEFOCUSED trampolines.
-/// Idempotent — re-registration just refreshes the obj_ref slot.
-pub fn register_view_focus_change_listener(id: i32, obj_ref: u16) {
+/// `View.setOnFocusChangeListener`'s widget half: attach the LVGL
+/// FOCUSED/DEFOCUSED trampolines to `id`'s widget. Idempotent, and a no-op
+/// for a released view.
+pub fn attach_focus_change(id: i32) {
     let Some(raw_obj) = super::super::handle_table::get(id) else {
         return;
     };
-    match FOCUS.view_map.upsert(raw_obj.addr(), obj_ref) {
-        Upsert::Updated => return,
-        Upsert::Full => {
-            warn_full("view-focus");
-            return;
-        }
-        Upsert::Inserted => {}
-    }
+    lv_obj_remove_event_cb(raw_obj, Some(view_focused_cb));
     add_event_cb(raw_obj, view_focused_cb, LV_EVENT_FOCUSED);
+    lv_obj_remove_event_cb(raw_obj, Some(view_defocused_cb));
     add_event_cb(raw_obj, view_defocused_cb, LV_EVENT_DEFOCUSED);
-    add_event_cb(raw_obj, focus_map_delete_cb, LV_EVENT_DELETE);
 }
 
 pub fn drain_focus_change_event() -> Option<FocusRecord> {
     FOCUS.queue.pop()
 }
 
-pub fn lookup_focus_view_obj(handle: usize) -> Option<u16> {
-    FOCUS.view_map.lookup(handle)
-}
-
 pub fn reset_view_focus_listener_state() {
-    FOCUS.view_map.reset();
     FOCUS.queue.clear();
 }

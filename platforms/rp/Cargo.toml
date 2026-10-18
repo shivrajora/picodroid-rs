@@ -73,14 +73,6 @@ family-rp = ["picodroid-core/family-rp"]
 # Capability cfgs (has_display / has_touch / has_network / network_<type> /
 # network_link_<kind>) are emitted
 # by build.rs from board.toml — not Cargo features. See build.rs::emit_network_config.
-# Escape hatch for the generational handle table (audit P1-9), which every
-# board now compiles: brings back the zero-cost-cast nativeHandle path, whose
-# handles dangle after a widget delete (parity-audit HAL-05). The table became
-# the default on 2026-09-15 once the qa_ui rows and the picoenvmon nav + PDB
-# reload soak passed with it on; this feature keeps the cast buildable for one
-# release, then goes away with the cast. 64-bit builds ignore it — the sim has
-# always run the table.
-legacy-handle-cast = ["picodroid-core/legacy-handle-cast"]
 # Prove the PSRAM at boot: a full write-and-verify sweep of the part through
 # both XIP aliases, with write and read bandwidth, logged by hal/rp/psram.rs.
 # Seconds of boot time, so never a default: flash with

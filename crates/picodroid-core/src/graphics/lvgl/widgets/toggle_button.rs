@@ -10,7 +10,6 @@ use core::ffi::c_char;
 
 use super::super::handle_table;
 use super::super::lifecycle;
-use super::super::listener_map::{warn_full, PtrMap};
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
 use core::cell::Cell;
@@ -40,14 +39,12 @@ const EMPTY_ENTRY: Entry = Entry::empty();
 
 const QUEUE_SIZE: usize = 16;
 
-const MAX_LISTENERS: usize = 32;
-
 struct State {
     /// The label texts, `entries[..entry_count]`.
     entries: [Cell<Entry>; MAX_TOGGLE_BUTTONS],
     entry_count: Cell<usize>,
-    queue: LocalRing<usize, QUEUE_SIZE>,
-    handle_map: PtrMap<MAX_LISTENERS>,
+    /// Checked-change events, each the widget's handle.
+    queue: LocalRing<i32, QUEUE_SIZE>,
 }
 
 // SAFETY: filled by natives and LVGL callbacks, drained by natives, all on
@@ -57,17 +54,14 @@ static STATE: Core0<State> = unsafe {
         entries: [const { Cell::new(EMPTY_ENTRY) }; MAX_TOGGLE_BUTTONS],
         entry_count: Cell::new(0),
         queue: LocalRing::new(0),
-        handle_map: PtrMap::new(),
     })
 };
 
 lv_event_cb! {
-    /// Remove the dying widget from both per-widget tables: the listener map and
-    /// the `entries` label side-table (a stale `raw_ptr` there would relabel a
-    /// recycled address).
-    fn map_delete_cb(e) {
+    /// Remove the dying widget from the `entries` label side-table (a stale
+    /// `raw_ptr` there would relabel a recycled address).
+    fn entries_delete_cb(e) {
         let obj = e.target().addr();
-        STATE.handle_map.remove(obj);
         let entries = &STATE.entries;
         let mut i = 0;
         while i < STATE.entry_count.get() {
@@ -113,7 +107,7 @@ fn update_label(obj: Obj) {
 fn register_entry(raw_ptr: usize, text_on: &[u8], text_off: &[u8]) {
     let count = STATE.entry_count.get();
     if count >= MAX_TOGGLE_BUTTONS {
-        warn_full("toggle-button-entries");
+        crate::pd_warn!("ToggleButton: the label table is full, a button keeps its first text");
         return;
     }
     let cell = &STATE.entries[count];
@@ -133,7 +127,10 @@ lv_event_cb! {
     fn value_changed_cb(e) {
         let obj = e.target();
         update_label(obj);
-        STATE.queue.push(obj.addr());
+        let handle = handle_table::handle_of(obj);
+        if handle != 0 {
+            STATE.queue.push(handle);
+        }
     }
 }
 
@@ -154,7 +151,7 @@ fn create_internal(text_on: &[u8], text_off: &[u8]) -> i32 {
         lv_obj_center(label);
     }
     add_event_cb(btn, value_changed_cb, LV_EVENT_VALUE_CHANGED);
-    add_event_cb(btn, map_delete_cb, LV_EVENT_DELETE);
+    add_event_cb(btn, entries_delete_cb, LV_EVENT_DELETE);
     register_entry(btn.addr(), text_on, text_off);
     handle_table::register(btn)
 }
@@ -221,16 +218,8 @@ pub(in crate::graphics) fn set_text_off(id: i32, text: &str) {
     }
 }
 
-pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
-    super::compound::register_listener(&STATE.handle_map, id, obj_ref, "toggle-checked");
-}
-
-pub fn drain_checked_change_queue() -> Option<usize> {
+pub fn drain_checked_change_queue() -> Option<i32> {
     STATE.queue.pop()
-}
-
-pub fn lookup_checked_change_obj(handle: usize) -> Option<u16> {
-    STATE.handle_map.lookup(handle)
 }
 
 pub fn reset_toggle_button_state() {
@@ -238,16 +227,5 @@ pub fn reset_toggle_button_state() {
     for entry in &STATE.entries {
         entry.set(EMPTY_ENTRY);
     }
-    STATE.handle_map.reset();
     STATE.queue.clear();
-}
-
-/// Visit the Java `ToggleButton` object ref of every toggle button registered
-/// for a checked-change listener so the GC keeps it alive. A `ToggleButton`
-/// referenced only by this native map (no Java field; `addView` keeps it alive
-/// only natively) would otherwise be swept on the first GC, its slot reused, and
-/// a later dispatch resolves a dead ref → `NoSuchMethod`. See
-/// `widgets::button::visit_click_listener_roots`.
-pub fn visit_checked_change_listener_roots(visit: &mut dyn FnMut(u16)) {
-    STATE.handle_map.visit(visit)
 }

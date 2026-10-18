@@ -118,7 +118,7 @@ pub(super) fn dispatch_touch_events(
     heap: &mut SharedJvmHeap,
     handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::graphics::lvgl::events;
+    use crate::graphics::lvgl::{events, handle_table};
     use pico_jvm::types::Value;
 
     // MotionEvent.ACTION_DOWN value (see MotionEvent.java).
@@ -127,10 +127,10 @@ pub(super) fn dispatch_touch_events(
     while let Some(rec) = events::drain_touch_event() {
         // ACTION_DOWN starts a fresh gesture — clear any stale suppress flag.
         if rec.action == ACTION_DOWN {
-            events::clear_click_suppressed(rec.view_handle);
+            events::clear_click_suppressed(rec.view);
         }
 
-        let view_ref = match events::lookup_touch_view_obj(rec.view_handle) {
+        let view_ref = match handle_table::bound_java(rec.view) {
             Some(r) => r,
             None => continue,
         };
@@ -205,7 +205,7 @@ pub(super) fn dispatch_touch_events(
         // DOWN-reset above re-arms it each fresh gesture.
         let consumed = matches!(ret, Ok(Some(Value::Int(v))) if v != 0);
         if consumed {
-            events::set_click_suppressed(rec.view_handle);
+            events::set_click_suppressed(rec.view);
         }
     }
 }
@@ -490,8 +490,18 @@ fn deliver_key(
         Some(o) => o,
         None => return,
     };
-    let (mut consumed, had_focus) = match events::focused_view_obj() {
-        Some(view_ref) => (
+    // Only a focused view with an `OnKeyListener` is offered the key: the
+    // field is one slot read, where an upcall to `fireKey` for a `false`
+    // would run on every edge and every 50 ms auto-repeat of a held key.
+    let listening = events::focused_bound_view().filter(|&(_, view_ref)| {
+        matches!(
+            heap.objects
+                .get_field(view_ref, crate::graphics::fields::view::ON_KEY_LISTENER),
+            Some(Value::ObjectRef(_))
+        )
+    });
+    let (mut consumed, had_focus) = match listening {
+        Some((_, view_ref)) => (
             fire_key_site(
                 jvm,
                 dispatch_sites::VIEW_KEY,
@@ -545,7 +555,7 @@ pub(super) fn dispatch_keyboard_ready(
     use crate::graphics::widgets;
 
     while let Some(handle) = widgets::drain_keyboard_ready_queue() {
-        if let Some(obj_ref) = widgets::lookup_keyboard_obj(handle) {
+        if let Some(obj_ref) = crate::graphics::lvgl::handle_table::bound_java(handle) {
             let _ = jvm.invoke_instance(
                 dispatch_class(dispatch_sites::KEYBOARD_READY),
                 dispatch_method(dispatch_sites::KEYBOARD_READY),
@@ -560,9 +570,10 @@ pub(super) fn dispatch_keyboard_ready(
 // ── EditText editor-action dispatch ────────────────────────────────────────
 
 /// Drain the system keyboard's pending editor-action and invoke
-/// `EditText.fireEditorAction(int)` on the bound Java object. Set by
-/// the system keyboard's OK callback in
-/// [`crate::graphics::lvgl::widgets::keyboard`].
+/// `EditText.fireEditorAction(int)` on the Java `EditText` bound to the
+/// field the keyboard typed into. Set by the system keyboard's OK callback
+/// in [`crate::graphics::lvgl::widgets::keyboard`]; a field whose Java
+/// object nothing bound — no listener of any kind — gets no call.
 #[cfg(not(test))]
 pub(super) fn dispatch_editor_actions(
     jvm: &mut Jvm,
@@ -573,10 +584,14 @@ pub(super) fn dispatch_editor_actions(
     use pico_jvm::types::Value;
 
     if let Some(rec) = widgets::drain_editor_action() {
+        let Some(edit_text_ref) = crate::graphics::lvgl::handle_table::bound_java(rec.edit_text)
+        else {
+            return;
+        };
         let _ = jvm.invoke_instance_with_args(
             dispatch_class(dispatch_sites::EDIT_TEXT_EDITOR_ACTION),
             dispatch_method(dispatch_sites::EDIT_TEXT_EDITOR_ACTION),
-            rec.edit_text_ref,
+            edit_text_ref,
             &[Value::Int(rec.action_id)],
             heap,
             handler,

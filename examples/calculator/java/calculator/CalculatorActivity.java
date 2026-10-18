@@ -71,9 +71,6 @@ public class CalculatorActivity extends Activity {
 
   private final CalculatorEngine engine = new CalculatorEngine();
 
-  /** Held for the lifetime of the Activity so the keys outlive {@code onCreate}. */
-  private View[] keys;
-
   private TextView expressionView;
   private TextView resultView;
   private Button clearKey;
@@ -97,12 +94,6 @@ public class CalculatorActivity extends Activity {
 
     root.addView(buildPanel(contentWidth, panelHeight));
 
-    int total = 0;
-    for (String[] row : KEYS) {
-      total += row.length;
-    }
-    keys = new View[total];
-    int next = 0;
     for (String[] row : KEYS) {
       LinearLayout line = new LinearLayout();
       line.setOrientation(LinearLayout.HORIZONTAL);
@@ -114,7 +105,6 @@ public class CalculatorActivity extends Activity {
         int w = label.equals(WIDE_KEY) ? 2 * keyWidth + GAP : keyWidth;
         Button key = buildKey(label, w, keyHeight);
         line.addView(key);
-        keys[next++] = key;
       }
       root.addView(line);
     }

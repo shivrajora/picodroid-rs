@@ -26,12 +26,21 @@
 //! **Every target runs this table.** 32-bit devices joined the 64-bit sim on
 //! 2026-09-15, once `qa_ui` passed on both RP2350 boards in both shrink modes
 //! and the picoenvmon nav + PDB-reload soak ran clean with it on (cost:
-//! +2.4-3.0 KB flash, ~1 KB of `.bss`). The legacy zero-cost cast
+//! +2.4-3.0 KB flash, ~1 KB of `.bss`). The zero-cost cast it replaced
 //! (`ptr as u32 as i32`, no invalidation — the dangle documented as
-//! HAL-05/S1) survives one release behind the opt-out `legacy-handle-cast`
-//! feature as an escape hatch, and goes away with it. The sim's
-//! `PICODROID_HANDLE_SANITIZER` (default-on in `scripts/sim.sh`) turns any
-//! stale lookup into a loud abort with a backtrace.
+//! HAL-05/S1) stayed one release behind the `legacy-handle-cast` feature and
+//! was deleted with it on 2026-10-17. The sim's `PICODROID_HANDLE_SANITIZER`
+//! (default-on in `scripts/sim.sh`) turns any stale lookup into a loud abort
+//! with a backtrace.
+//!
+//! The table also carries each widget's **Java binding** (`java_ref`): the
+//! `View` — or `AlertDialog`, `Snackbar` — a listener registration named as
+//! the object to call back, so an LVGL event resolves to its Java receiver
+//! through the slot ([`handle_of`], then [`bound_java`]), with no per-kind
+//! listener map and no cap
+//! (docs/designs/view-listeners-2026-10.md). A binding is not a GC root: the
+//! Java tree owns a view, as on Android, and [`prune_dead_java`] drops the
+//! bindings of objects a collection freed.
 
 use crate::lvgl_ffi::Obj;
 
@@ -45,52 +54,8 @@ use crate::lvgl_ffi::Obj;
 // `LV_EVENT_DELETE` hook `register` installs clears the slot before LVGL
 // frees the object, so what [`get`] returns names an object not deleted.
 
-// ── Legacy 32-bit cast (no invalidation) — the `legacy-handle-cast` hatch ───
+// ── Generation-tagged table: every target ───────────────────────────────────
 
-#[cfg(all(target_pointer_width = "32", feature = "legacy-handle-cast"))]
-mod imp {
-    use super::Obj;
-
-    /// Store a pointer as a Java `nativeHandle`: bit-preserving cast.
-    /// A deleted handle *dangles* (see module note) — this arm exists only
-    /// as the one-release escape hatch from the generational table.
-    #[inline(always)]
-    pub fn register(obj: Obj) -> i32 {
-        super::note_registered();
-        obj.addr() as u32 as i32
-    }
-
-    /// Same cast as [`register`] — the screen is not tracked separately.
-    #[inline(always)]
-    pub fn register_pinned(obj: Obj) -> i32 {
-        register(obj)
-    }
-
-    /// Recover the object from a Java `nativeHandle`: bit-preserving cast.
-    #[inline(always)]
-    pub fn get(id: i32) -> Option<Obj> {
-        // SAFETY: none that this arm can give. The handle is the pointer, so
-        // a live handle names a live object, and a deleted one dangles: the
-        // HAL-05 use-after-free the generational table exists to close, which
-        // building with `legacy-handle-cast` opts back into.
-        unsafe { Obj::from_raw(id as u32 as *mut crate::lvgl_ffi::lv_obj_t) }
-    }
-
-    /// Without a table there is nothing to consult: every non-null cast
-    /// is taken to be live (a deleted handle dangles, see the module note).
-    #[inline(always)]
-    pub fn is_live(id: i32) -> bool {
-        id != 0
-    }
-
-    /// No-op — there is no table to clear.
-    #[inline(always)]
-    pub fn reset() {}
-}
-
-// ── Generation-tagged table: every target, unless `legacy-handle-cast` ──────
-
-#[cfg(any(not(target_pointer_width = "32"), not(feature = "legacy-handle-cast")))]
 mod imp {
     use super::Obj;
     use crate::util::local::Core0;
@@ -130,6 +95,17 @@ mod imp {
         live: Cell<u16>,
         /// Handle of the pinned slot (the screen), 0 = none. Survives [`reset`].
         pinned: Cell<i32>,
+        /// The Java object bound to each slot's widget, stored as
+        /// `obj_ref + 1` so that 0 means none — heap slot 0 is an ordinary
+        /// object, and a view that lands there must bind like any other.
+        /// The object is the `View` whose listener registration named it as
+        /// the receiver of the widget's events ([`bind`]). Cleared with the
+        /// slot, and by [`prune_dead_java`] when a collection frees the
+        /// object. Not a GC root: the Java tree owns a view.
+        ///
+        /// Not in `objs`'s cell: the pair would double the slot's width
+        /// (`Option<Obj>` padding) for a word read on events only.
+        java_ref: [Cell<u16>; SLOTS],
     }
 
     struct Links {
@@ -147,6 +123,7 @@ mod imp {
             free_head: Cell::new(0),
             live: Cell::new(0),
             pinned: Cell::new(0),
+            java_ref: [const { Cell::new(0) }; SLOTS],
         })
     };
 
@@ -219,6 +196,104 @@ mod imp {
             install_delete_hook(obj, handle);
         }
         handle
+    }
+
+    /// Name `obj_ref` as the Java object behind `id`'s widget: what an event
+    /// on the widget is dispatched to. A stale or null id is a quiet no-op
+    /// (a listener set on a released view has nothing to receive).
+    pub fn bind(id: i32, obj_ref: u16) {
+        // `u16::MAX` cannot be stored: no heap on these boards has that many
+        // slots, and the sim's arena is far smaller too.
+        let Some(stored) = obj_ref.checked_add(1) else {
+            debug_assert!(false, "obj_ref {obj_ref} has no binding encoding");
+            return;
+        };
+        if is_live(id) {
+            TABLE.java_ref[(id as usize) & (SLOTS - 1)].set(stored);
+        }
+    }
+
+    /// The Java object bound to `id`'s widget, if the widget is still live
+    /// and something was bound. Quiet on a stale id: an event queued for a
+    /// widget deleted before the drain (a click that finished its Activity)
+    /// is the normal case, not a use-after-delete.
+    pub fn bound_java(id: i32) -> Option<u16> {
+        if !is_live(id) {
+            return None;
+        }
+        match TABLE.java_ref[(id as usize) & (SLOTS - 1)].get() {
+            0 => None,
+            stored => Some(stored - 1),
+        }
+    }
+
+    /// The handle of a registered object; 0 for one nobody registered (a
+    /// Button's label child, the top layer) or whose slot has been freed.
+    /// The way an LVGL trampoline names its target to the queue it feeds: a
+    /// handle, never a raw pointer the drain would have to trust.
+    ///
+    /// A scan of the slots. The object's own `user_data` would be one read,
+    /// but the drawing view's canvas keeps its state there (`pd_canvas.c`),
+    /// and a scan of 256 pointers (1024 on the host) costs a trampoline a
+    /// microsecond.
+    #[inline(never)]
+    pub fn handle_of(obj: Obj) -> i32 {
+        let t = &*TABLE;
+        match t.objs.iter().position(|slot| slot.get() == Some(obj)) {
+            Some(idx) => encode(LINKS.gens[idx].get(), idx),
+            None => 0,
+        }
+    }
+
+    /// Drop every binding whose Java object a collection just freed; `live`
+    /// answers for an `obj_ref`. Called from the handler's
+    /// `native_state_prune`, before any allocation can reuse a freed slot,
+    /// on whichever JVM task collected — so nothing here may call LVGL.
+    ///
+    /// A dead binding on a slot whose widget is still alive is the bug the
+    /// per-kind listener maps used to hide by rooting the view: a view with
+    /// a listener that no Java field or parent reaches, collected while its
+    /// widget stays on the screen it was created under. The sim says so, and
+    /// stops under the handle sanitizer.
+    pub fn prune_dead_java(live: &dyn Fn(u16) -> bool) {
+        let t = &*TABLE;
+        for idx in 0..SLOTS {
+            let stored = t.java_ref[idx].get();
+            if stored == 0 || live(stored - 1) {
+                continue;
+            }
+            t.java_ref[idx].set(0);
+            #[cfg(any(test, feature = "sim"))]
+            if t.objs[idx].get().is_some() {
+                report_collected_bound_view(encode(LINKS.gens[idx].get(), idx));
+            }
+        }
+    }
+
+    /// A collection freed the Java object bound to a widget that is still
+    /// alive (see [`prune_dead_java`]). The diagnosis first, on its own, as
+    /// [`report_close_under_java_parent`] does; then the sanitizer's stop.
+    #[cfg(any(test, feature = "sim"))]
+    #[cold]
+    #[inline(never)]
+    fn report_collected_bound_view(handle: i32) {
+        eprintln!(
+            "[sim] a View with a listener was collected while its widget is still alive \
+             (nativeHandle {handle}): add it to a parent (addView), keep a field, or close() it"
+        );
+        if !sanitizer::enabled() {
+            return;
+        }
+        #[cfg(feature = "sim")]
+        let _bypass = crate::host::heap_bypass();
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        panic!(
+            "handle-sanitizer: the View bound to nativeHandle {handle} was collected while its \
+             widget is still alive. On Android a view nothing reaches is gone with its window; \
+             here its widget stays on the screen it was created under, with no Java object to \
+             take its events. Add the view to a parent (addView), keep a field, or close() it.\n\
+             offending collection:\n{backtrace}"
+        );
     }
 
     /// Whether `id` still names a live widget. Unlike [`get`], a stale
@@ -322,6 +397,7 @@ mod imp {
             if t.objs[i].replace(None).is_some() {
                 LINKS.gens[i].set(next_gen(LINKS.gens[i].get()));
             }
+            t.java_ref[i].set(0);
             LINKS.next[i].set(t.free_head.get());
             t.free_head.set(i as u16);
         }
@@ -339,6 +415,7 @@ mod imp {
         let t = &*TABLE;
         if encode(LINKS.gens[idx].get(), idx) == handle && t.objs[idx].get() == Some(obj) {
             t.objs[idx].set(None);
+            t.java_ref[idx].set(0);
             LINKS.gens[idx].set(next_gen(LINKS.gens[idx].get()));
             LINKS.next[idx].set(t.free_head.get());
             t.free_head.set(idx as u16);
@@ -392,8 +469,7 @@ mod imp {
         let backtrace = std::backtrace::Backtrace::force_capture();
         panic!(
             "handle-sanitizer: nativeHandle {id} is stale (its slot's generation is now \
-             {gen_now}) — the view was deleted or the table was reset. On the legacy 32-bit \
-             hardware path this exact access dangles into freed LVGL memory. Fix the owner to \
+             {gen_now}) — the view was deleted or the table was reset. Fix the owner to \
              cancel/deregister the handle on delete.\noffending call site:\n{backtrace}"
         );
     }
@@ -496,6 +572,141 @@ mod imp {
             assert!(!is_registered(fake(8)));
             invalidate_if_current(h, fake(7));
             assert!(!is_registered(fake(7)));
+        }
+
+        #[test]
+        fn bind_then_bound_java_roundtrip() {
+            let _g = setup();
+            let h = register(fake(1));
+            assert_eq!(bound_java(h), None, "nothing bound yet");
+            bind(h, 42);
+            assert_eq!(bound_java(h), Some(42));
+            bind(h, 43); // a re-registration replaces
+            assert_eq!(bound_java(h), Some(43));
+        }
+
+        /// Heap slot 0 is an ordinary object. The Switch of `callbacktest`
+        /// landed there under the GC-stress lane, and with 0 as the "unbound"
+        /// word its checked-change never dispatched (2026-10-17).
+        #[test]
+        fn obj_ref_zero_binds_like_any_other() {
+            let _g = setup();
+            let h = register(fake(1));
+            bind(h, 0);
+            assert_eq!(bound_java(h), Some(0));
+            prune_dead_java(&|r| r == 0);
+            assert_eq!(bound_java(h), Some(0), "live at slot 0 stays bound");
+            prune_dead_java(&|_| false);
+            assert_eq!(bound_java(h), None, "dead at slot 0 is pruned");
+        }
+
+        #[test]
+        fn bind_on_stale_or_null_is_a_quiet_noop() {
+            let _g = setup();
+            sanitizer::force(true);
+            bind(0, 7);
+            bind(-1, 7);
+            assert_eq!(bound_java(0), None);
+            let h = register(fake(2));
+            invalidate_if_current(h, fake(2));
+            bind(h, 7); // released: nothing to receive, no sanitizer stop
+            assert_eq!(bound_java(h), None);
+        }
+
+        #[test]
+        fn invalidate_and_reset_clear_bindings() {
+            let _g = setup();
+            let a = register(fake(3));
+            bind(a, 5);
+            assert_eq!(
+                TABLE.java_ref[a as usize & (SLOTS - 1)].get(),
+                6,
+                "stored as obj_ref + 1"
+            );
+            invalidate_if_current(a, fake(3));
+            assert_eq!(TABLE.java_ref[a as usize & (SLOTS - 1)].get(), 0);
+            let b = register(fake(4));
+            bind(b, 6);
+            reset();
+            assert!(TABLE.java_ref.iter().all(|r| r.get() == 0));
+        }
+
+        #[test]
+        fn slot_reuse_does_not_inherit_binding() {
+            let _g = setup();
+            let a = register(fake(5));
+            bind(a, 9);
+            invalidate_if_current(a, fake(5));
+            let b = register(fake(6));
+            assert_eq!(a as usize & (SLOTS - 1), b as usize & (SLOTS - 1));
+            assert_eq!(bound_java(b), None, "ABA: the new occupant starts unbound");
+            assert_eq!(bound_java(a), None, "the old handle is stale");
+        }
+
+        #[test]
+        fn handle_of_names_a_registered_object_by_its_current_handle() {
+            let _g = setup();
+            assert_eq!(handle_of(fake(7)), 0, "nothing registered yet");
+            let h = register(fake(7));
+            assert_eq!(handle_of(fake(7)), h);
+            assert_eq!(handle_of(fake(8)), 0, "another object");
+            invalidate_if_current(h, fake(7));
+            assert_eq!(handle_of(fake(7)), 0, "freed with its slot");
+            let again = register(fake(7)); // same slot, next generation
+            assert_ne!(again, h);
+            assert_eq!(
+                handle_of(fake(7)),
+                again,
+                "the current generation, not the old"
+            );
+        }
+
+        #[test]
+        fn prune_zeroes_dead_bindings_and_keeps_live() {
+            let _g = setup();
+            let a = register(fake(10));
+            let b = register(fake(11));
+            bind(a, 20);
+            bind(b, 21);
+            // `a`'s widget was deleted with its tree before the collection.
+            invalidate_if_current(a, fake(10));
+            prune_dead_java(&|r| r == 21);
+            assert_eq!(bound_java(b), Some(21), "a live object keeps its binding");
+            assert_eq!(bound_java(a), None);
+        }
+
+        #[test]
+        fn prune_is_silent_for_a_dead_binding_on_a_freed_slot() {
+            let _g = setup();
+            sanitizer::force(true);
+            let a = register(fake(12));
+            bind(a, 30);
+            invalidate_if_current(a, fake(12));
+            // The slot is free, so nothing is bound any more: no report.
+            prune_dead_java(&|_| false);
+        }
+
+        #[test]
+        fn prune_warns_without_the_sanitizer_and_keeps_going() {
+            let _g = setup();
+            let a = register(fake(13));
+            let b = register(fake(14));
+            bind(a, 40);
+            bind(b, 41);
+            prune_dead_java(&|r| r == 41);
+            assert_eq!(bound_java(a), None, "the dead binding is dropped");
+            assert_eq!(bound_java(b), Some(41));
+            assert_eq!(get(a), Some(fake(13)), "the widget itself is left alone");
+        }
+
+        #[test]
+        #[should_panic(expected = "handle-sanitizer")]
+        fn prune_stops_under_the_sanitizer_for_a_live_widget_with_a_dead_binding() {
+            let _g = setup();
+            let a = register(fake(15));
+            bind(a, 50);
+            sanitizer::force(true);
+            prune_dead_java(&|_| false);
         }
 
         #[test]
@@ -645,7 +856,9 @@ mod imp {
     }
 }
 
-pub use imp::{get, is_live, register, register_pinned, reset};
+pub use imp::{
+    bind, bound_java, get, handle_of, is_live, prune_dead_java, register, register_pinned, reset,
+};
 
 /// Registrations since boot, wrapping: the main loop's build budget reads
 /// it before and after a span to learn how many widgets the span made.

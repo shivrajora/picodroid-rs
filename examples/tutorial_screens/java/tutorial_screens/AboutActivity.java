@@ -16,9 +16,6 @@ import picodroid.widget.TextView;
 public class AboutActivity extends Activity {
   private static final String TAG = "AboutActivity";
 
-  // Field-held so the GC roots the listener-bearing button through this Activity.
-  private Button backButton;
-
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
@@ -40,7 +37,8 @@ public class AboutActivity extends Activity {
     body.setTextColor(Color.WHITE);
     root.addView(body);
 
-    backButton = new Button("Back");
+    // A local, as on Android: the content view keeps the button and its listener alive.
+    Button backButton = new Button("Back");
     backButton.setSize(200, 40);
     backButton.setOnClickListener(v -> finish());
     root.addView(backButton);

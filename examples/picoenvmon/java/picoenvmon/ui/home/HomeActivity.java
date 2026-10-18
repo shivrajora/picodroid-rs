@@ -32,10 +32,6 @@ public class HomeActivity extends NavActivity {
     LiveActivity.class, HistoryActivity.class, NetworkActivity.class, SettingsActivity.class
   };
 
-  // Held as a field so the GC roots the menu ListView via this Activity, in addition to the native
-  // item-click listener map — defense-in-depth against the unfielded-callback-view sweep.
-  private ListView menu;
-
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
@@ -57,7 +53,7 @@ public class HomeActivity extends NavActivity {
     title.setTextColor(Theme.colorPrimary);
     root.addView(title);
 
-    menu = new ListView();
+    ListView menu = new ListView();
     menu.setAdapter(new ArrayAdapter<String>(LABELS));
     // Android-faithful 4-arg item-click: A/B move the row highlight, X (ENTER) activates the
     // focused

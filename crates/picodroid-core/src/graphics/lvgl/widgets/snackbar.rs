@@ -13,9 +13,12 @@
 //! `widgets::toast` (`LvglGfx::tick`). `LENGTH_INDEFINITE` skips arming —
 //! such snackbars only dismiss on explicit `dismiss()` or action tap.
 //!
-//! Action clicks feed a ring buffer keyed by the bar's root handle; the
-//! framework loop drains it and calls `Snackbar.fireActionClick()` on the
-//! matching Java object.
+//! Action clicks feed a ring buffer of bar handles; the framework loop
+//! drains it and calls `Snackbar.fireActionClick()` on the Java object the
+//! handle table binds to the bar (`Snackbar.show` binds it). A timeout
+//! queues that object for `Snackbar.fireDismiss()` the same way, so the
+//! Java side — which holds a shown snackbar as Android's `SnackbarManager`
+//! does — lets go of a bar this module already deleted.
 
 use crate::lvgl_ffi::*;
 use crate::util::local::Core0;
@@ -37,8 +40,8 @@ const MAX_SNACKBARS: usize = 4;
 
 #[derive(Copy, Clone)]
 struct SnackbarSlot {
-    /// Raw `lv_obj_t*` of the bar root.
-    handle: usize,
+    /// The bar's `nativeHandle`.
+    bar: i32,
     duration_ms: u32,
     /// Absolute deadline in [`ELAPSED_MS`] units; only meaningful when
     /// `armed`. Zero before `show()` or for indefinite snackbars.
@@ -50,18 +53,17 @@ struct SnackbarSlot {
 }
 
 const EMPTY_SLOT: SnackbarSlot = SnackbarSlot {
-    handle: 0,
+    bar: 0,
     duration_ms: 0,
     expire_at_ms: 0,
     armed: false,
     indefinite: false,
 };
 
-// ── Action-click event queue (ring buffer) ──────────────────────────────────
+// ── Action-click event queue (ring buffer of bar handles) ───────────────────
 //
-// Mirror of `widgets::alert_dialog::dialog_button_click_cb` — the ring stores
-// the *snackbar* root handle so `lookup_snackbar_obj` can find the Java
-// `Snackbar` from a single click record.
+// Mirror of `widgets::alert_dialog::dialog_button_click_cb` — the ring
+// stores the *snackbar's* handle, whose binding is the Java `Snackbar`.
 
 const CLICK_QUEUE_SIZE: usize = 8;
 
@@ -73,14 +75,13 @@ const MAX_ACTIONS: usize = MAX_SNACKBARS;
 struct ActionEntry {
     /// Raw `lv_obj_t*` of the action button.
     button_handle: usize,
-    /// Raw `lv_obj_t*` of the parent snackbar bar — used to resolve the
-    /// Java object on click.
-    bar_handle: usize,
+    /// The parent bar's handle — what a click on the button names.
+    bar: i32,
 }
 
 const EMPTY_ACTION: ActionEntry = ActionEntry {
     button_handle: 0,
-    bar_handle: 0,
+    bar: 0,
 };
 
 struct State {
@@ -89,10 +90,11 @@ struct State {
     /// Same model as `widgets::toast` — drift-free with the LVGL animation
     /// loop and independent of hardware time so the sim builds match.
     elapsed_ms: Cell<u64>,
-    click_queue: LocalRing<usize, CLICK_QUEUE_SIZE>,
+    click_queue: LocalRing<i32, CLICK_QUEUE_SIZE>,
     action_map: [Cell<ActionEntry>; MAX_ACTIONS],
-    /// Snackbar → Java object mapping (the action-click dispatch target).
-    obj_map: [Cell<(usize, u16)>; MAX_SNACKBARS],
+    /// The Java objects of bars a timeout deleted, for `fireDismiss`; GC
+    /// roots until the drain (`visit_snackbar_dismiss_roots`).
+    dismiss_queue: LocalRing<u16, MAX_SNACKBARS>,
 }
 
 // SAFETY: filled by natives and the frame tick, read by LVGL's click
@@ -103,7 +105,7 @@ static STATE: Core0<State> = unsafe {
         elapsed_ms: Cell::new(0),
         click_queue: LocalRing::new(0),
         action_map: [const { Cell::new(EMPTY_ACTION) }; MAX_ACTIONS],
-        obj_map: [const { Cell::new((0, 0)) }; MAX_SNACKBARS],
+        dismiss_queue: LocalRing::new(0),
     })
 };
 
@@ -112,16 +114,16 @@ static STATE: Core0<State> = unsafe {
 lv_event_cb! {
     fn action_click_cb(e) {
         let btn = e.target().addr();
-        let bar_handle = STATE
+        let bar = STATE
             .action_map
             .iter()
             .map(Cell::get)
             .find(|entry| entry.button_handle == btn)
-            .map_or(0, |entry| entry.bar_handle);
-        if bar_handle == 0 {
+            .map_or(0, |entry| entry.bar);
+        if bar == 0 {
             return;
         }
-        STATE.click_queue.push(bar_handle);
+        STATE.click_queue.push(bar);
     }
 }
 
@@ -140,11 +142,18 @@ fn bar_box(w: i32) -> (i32, i32, i32) {
 /// Build a hidden snackbar bar with `text`. The bar parks at the bottom-
 /// center of the window, on the overlay layer (see `lifecycle::overlay_layer`),
 /// and stays hidden until [`show`] is called. Returns the Java-side
-/// `nativeHandle`.
+/// `nativeHandle`, or 0 when the handle table is full (nothing is left
+/// behind: a bar nothing can name is a bar nothing can dismiss).
 pub(in crate::graphics) fn create(text: &str, duration: i32) -> i32 {
     let Some(bar) = lifecycle::overlay_layer().and_then(|o| lv_obj_create(o)) else {
         return 0;
     };
+    let id = handle_table::register(bar);
+    if id == 0 {
+        // SAFETY: just made, nothing names it, and not used after.
+        unsafe { lv_obj_delete(bar) };
+        return 0;
+    }
     let (win_w, _) = lifecycle::window_size();
     let (width, x, bottom_gap) = bar_box(win_w);
 
@@ -197,8 +206,8 @@ pub(in crate::graphics) fn create(text: &str, duration: i32) -> i32 {
     }
 
     let indefinite = duration == DURATION_INDEFINITE;
-    register_pending(bar.addr(), duration_to_ms(duration), indefinite);
-    handle_table::register(bar)
+    register_pending(id, duration_to_ms(duration), indefinite);
+    id
 }
 
 /// Attach (or replace) the action lozenge with `label`. Idempotent: a second
@@ -208,12 +217,11 @@ pub(in crate::graphics) fn set_action(id: i32, label_text: &str) {
     let Some(bar) = handle_table::get(id) else {
         return;
     };
-    let bar_ptr = bar.addr();
 
     // Drop any prior action button for this bar before adding a new one.
     // This keeps `set_action` safely idempotent even though the Java side
     // currently calls it at most once.
-    remove_action_for(bar_ptr);
+    remove_action_for(id);
 
     let Some(btn) = lv_button_create(bar) else {
         return;
@@ -228,7 +236,7 @@ pub(in crate::graphics) fn set_action(id: i32, label_text: &str) {
         lv_obj_center(lbl);
     }
     add_event_cb(btn, action_click_cb, LV_EVENT_CLICKED);
-    register_action(btn.addr(), bar_ptr);
+    register_action(btn.addr(), id);
 }
 
 /// Reveal the snackbar and arm its auto-dismiss timer (no-op for
@@ -238,35 +246,31 @@ pub(in crate::graphics) fn show(id: i32) {
         return;
     };
     lv_obj_remove_flag(bar, LV_OBJ_FLAG_HIDDEN);
-    arm(bar.addr());
+    arm(id);
 }
 
 /// Hide and delete the snackbar immediately. Detaches all bookkeeping
-/// (slot, action map, obj map) before deletion so the LVGL tree teardown
-/// can't dangle a click record into a freed handle.
+/// (slot, action map) before deletion so the LVGL tree teardown can't
+/// dangle a click record into a freed handle. A bar a timeout already
+/// took down is a stale handle: nothing left to do, quietly.
 pub(in crate::graphics) fn dismiss(id: i32) {
+    if !handle_table::is_live(id) {
+        return;
+    }
     let Some(bar) = handle_table::get(id) else {
         return;
     };
-    unregister(bar.addr());
+    unregister(id);
     // SAFETY: `bar` is not used after, its bookkeeping is gone, and the
     // handle goes stale through its delete hook.
     unsafe { super::super::view_ops::delete_obj(bar) };
 }
 
-/// Record a Java `Snackbar` ObjectRef as the action-click target for `id`.
+/// Name the Java `Snackbar` as the receiver of `id`'s action click and
+/// timeout: `Snackbar.show` does this. While shown, the Java side holds the
+/// snackbar; the binding itself keeps nothing alive.
 pub(in crate::graphics) fn register_action_click_listener(id: i32, obj_ref: u16) {
-    let Some(bar) = handle_table::get(id) else {
-        return;
-    };
-    let bar_ptr = bar.addr();
-    for entry in &STATE.obj_map {
-        let (bar, _) = entry.get();
-        if bar == bar_ptr || bar == 0 {
-            entry.set((bar_ptr, obj_ref));
-            return;
-        }
-    }
+    handle_table::bind(id, obj_ref);
 }
 
 /// Per-frame tick — advances the elapsed clock and dismisses any snackbars
@@ -277,41 +281,49 @@ pub fn tick(ms: u32) {
     let now = elapsed.get();
     for slot in &STATE.slots {
         let s = slot.get();
-        if !s.armed || s.handle == 0 || s.indefinite {
+        if !s.armed || s.bar == 0 || s.indefinite {
             continue;
         }
         if now >= s.expire_at_ms {
-            let bar_ptr = s.handle;
+            let id = s.bar;
             slot.set(EMPTY_SLOT);
-            // Detach action map + obj map for this bar before deletion
-            // — same rationale as `dismiss`.
-            detach_action_for(bar_ptr);
-            detach_obj_for(bar_ptr);
-            // SAFETY: a slot holds a bar from `create` until `dismiss` or
-            // this tick takes it out, and nothing else deletes a bar: it
-            // lives on the top layer, which nothing cleans. Its bookkeeping
-            // is gone, and the handle goes stale through its delete hook.
-            if let Some(bar) = unsafe { Obj::from_raw(bar_ptr as *mut lv_obj_t) } {
-                // SAFETY: as above; no other copy of `bar` is used after.
+            // Detach the action map for this bar before deletion — same
+            // rationale as `dismiss`.
+            detach_action_for(id);
+            // The Java side hears of it next tick; its ref is a root until
+            // then. Taken before the delete, which ends the binding.
+            if let Some(obj_ref) = handle_table::bound_java(id) {
+                if !STATE.dismiss_queue.push(obj_ref) {
+                    crate::pd_warn!("Snackbar: dismiss queue full, a bar stays held");
+                }
+            }
+            // A slot holds a bar from `create` until `dismiss` or this tick
+            // takes it out, and nothing else deletes a bar: it lives on the
+            // top layer, which nothing cleans. So the handle is live here.
+            if let Some(bar) = handle_table::get(id) {
+                // SAFETY: its bookkeeping is gone, the handle goes stale
+                // through its delete hook, and `bar` is not used after.
                 unsafe { super::super::view_ops::delete_obj(bar) };
             }
         }
     }
 }
 
-/// Drain one queued action click (raw bar `lv_obj_t*` value).
-pub fn drain_click_queue() -> Option<usize> {
+/// Drain one queued action click (the bar's handle).
+pub fn drain_click_queue() -> Option<i32> {
     STATE.click_queue.pop()
 }
 
-/// Look up the Java `Snackbar` ObjectRef for a bar's raw pointer.
-pub fn lookup_snackbar_obj(handle: usize) -> Option<u16> {
-    STATE
-        .obj_map
-        .iter()
-        .map(Cell::get)
-        .find(|&(bar, _)| bar == handle)
-        .map(|(_, obj_ref)| obj_ref)
+/// Drain one timed-out snackbar: the Java object to call `fireDismiss` on.
+pub fn drain_dismiss_queue() -> Option<u16> {
+    STATE.dismiss_queue.pop()
+}
+
+/// Visit the Java `Snackbar` object ref of every bar a timeout deleted and
+/// has yet to tell: the bar that bound it is gone, and the queue is what
+/// reaches it until `fireDismiss` runs.
+pub fn visit_snackbar_dismiss_roots(visit: &mut dyn FnMut(u16)) {
+    STATE.dismiss_queue.for_each(visit);
 }
 
 pub fn reset_snackbar_state() {
@@ -321,10 +333,8 @@ pub fn reset_snackbar_state() {
     for entry in &STATE.action_map {
         entry.set(EMPTY_ACTION);
     }
-    for entry in &STATE.obj_map {
-        entry.set((0, 0));
-    }
     STATE.click_queue.clear();
+    STATE.dismiss_queue.clear();
     STATE.elapsed_ms.set(0);
 }
 
@@ -339,10 +349,10 @@ fn duration_to_ms(duration: i32) -> u32 {
     }
 }
 
-fn register_pending(bar_ptr: usize, duration_ms: u32, indefinite: bool) {
-    if let Some(slot) = STATE.slots.iter().find(|s| s.get().handle == 0) {
+fn register_pending(bar: i32, duration_ms: u32, indefinite: bool) {
+    if let Some(slot) = STATE.slots.iter().find(|s| s.get().bar == 0) {
         slot.set(SnackbarSlot {
-            handle: bar_ptr,
+            bar,
             duration_ms,
             expire_at_ms: 0,
             armed: false,
@@ -353,12 +363,12 @@ fn register_pending(bar_ptr: usize, duration_ms: u32, indefinite: bool) {
     // Slot table full: caller's snackbar still renders but won't auto-
     // dismiss until something frees a slot. Matches Toast's overflow
     // semantics; not worth a panic on an MCU.
-    let _ = (bar_ptr, duration_ms, indefinite);
+    let _ = (bar, duration_ms, indefinite);
 }
 
-fn arm(bar_ptr: usize) {
+fn arm(bar: i32) {
     let now = STATE.elapsed_ms.get();
-    if let Some(slot) = STATE.slots.iter().find(|s| s.get().handle == bar_ptr) {
+    if let Some(slot) = STATE.slots.iter().find(|s| s.get().bar == bar) {
         let mut s = slot.get();
         if !s.indefinite {
             s.expire_at_ms = now + s.duration_ms as u64;
@@ -368,19 +378,16 @@ fn arm(bar_ptr: usize) {
     }
 }
 
-fn register_action(button_handle: usize, bar_handle: usize) {
+fn register_action(button_handle: usize, bar: i32) {
     if let Some(slot) = STATE.action_map.iter().find(|s| s.get().button_handle == 0) {
-        slot.set(ActionEntry {
-            button_handle,
-            bar_handle,
-        });
+        slot.set(ActionEntry { button_handle, bar });
     }
 }
 
-fn remove_action_for(bar_ptr: usize) {
+fn remove_action_for(bar: i32) {
     for slot in &STATE.action_map {
         let entry = slot.get();
-        if entry.bar_handle == bar_ptr {
+        if entry.bar == bar {
             slot.set(EMPTY_ACTION);
             // SAFETY: an action button is in the map from `set_action` until
             // its bar's bookkeeping goes (`unregister`, the tick) — before
@@ -394,28 +401,19 @@ fn remove_action_for(bar_ptr: usize) {
     }
 }
 
-fn detach_action_for(bar_ptr: usize) {
+fn detach_action_for(bar: i32) {
     for slot in &STATE.action_map {
-        if slot.get().bar_handle == bar_ptr {
+        if slot.get().bar == bar {
             slot.set(EMPTY_ACTION);
         }
     }
 }
 
-fn detach_obj_for(bar_ptr: usize) {
-    for entry in &STATE.obj_map {
-        if entry.get().0 == bar_ptr {
-            entry.set((0, 0));
-        }
-    }
-}
-
-fn unregister(bar_ptr: usize) {
+fn unregister(bar: i32) {
     for slot in &STATE.slots {
-        if slot.get().handle == bar_ptr {
+        if slot.get().bar == bar {
             slot.set(EMPTY_SLOT);
         }
     }
-    detach_action_for(bar_ptr);
-    detach_obj_for(bar_ptr);
+    detach_action_for(bar);
 }

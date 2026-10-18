@@ -6,11 +6,11 @@ use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
 use super::super::lvgl::widgets::spinner as lvgl_spinner;
-use super::super::view::register_listener_with;
 use super::super::view::{extract_native_handle, extract_string_at};
+use super::super::view::{register_listener_with, NO_ATTACH};
 
+pub use lvgl_spinner::drain_spinner_change_queue;
 pub use lvgl_spinner::reset_spinner_state;
-pub use lvgl_spinner::{drain_spinner_change_queue, lookup_spinner_obj};
 
 pub fn spinner_native_create() -> Result<Option<Value>, JvmError> {
     Ok(Some(Value::Int(lvgl_spinner::create())))
@@ -48,5 +48,5 @@ pub fn spinner_register_item_selected_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    register_listener_with(args, objects, lvgl_spinner::register_listener)
+    register_listener_with(args, objects, NO_ATTACH)
 }

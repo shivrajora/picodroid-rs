@@ -196,22 +196,23 @@ public class TutorialServiceApp extends Application {
 
 ```java
 public class LogViewerActivity extends Activity implements ServiceConnection {
+  // list and statusLine are fields because Refresh rewrites them; the button is a local — the
+  // tree keeps it and its listener alive, as on Android.
   private ListView list;
   private TextView statusLine;
-  private Button refreshButton;
 
   private UptimeLogService service;
   private final long[] samples = new long[UptimeLogService.CAPACITY];
 ```
 
-Hold the listener-bearing views in fields, and bind at the end of `onCreate`. `bindService` is **two-argument** — `(Intent, ServiceConnection)` — with no flags and no `BIND_AUTO_CREATE`:
+Views are held the Android way — a field only for what later code rewrites — and the bind comes at the end of `onCreate`. `bindService` is **two-argument** — `(Intent, ServiceConnection)` — with no flags and no `BIND_AUTO_CREATE`:
 
 ```java
   list = new ListView();
   list.setSize(200, 130);
   root.addView(list);
 
-  refreshButton = new Button("Refresh");
+  Button refreshButton = new Button("Refresh");
   refreshButton.setSize(200, 36);
   refreshButton.setOnClickListener(v -> refresh());
   root.addView(refreshButton);

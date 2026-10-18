@@ -6,11 +6,11 @@ use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
 use super::super::lvgl::widgets::number_picker as lvgl_number_picker;
-use super::super::view::register_listener_with;
 use super::super::view::{extract_native_handle, extract_string_at};
+use super::super::view::{register_listener_with, NO_ATTACH};
 
+pub use lvgl_number_picker::drain_step_queue as drain_np_step_queue;
 pub use lvgl_number_picker::reset_number_picker_state;
-pub use lvgl_number_picker::{drain_step_queue as drain_np_step_queue, lookup_picker_obj};
 
 /// `NumberPicker.nativeCreate()`
 pub fn number_picker_native_create() -> Result<Option<Value>, JvmError> {
@@ -34,5 +34,5 @@ pub fn number_picker_register_picker(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    register_listener_with(args, objects, lvgl_number_picker::register_picker)
+    register_listener_with(args, objects, NO_ATTACH)
 }

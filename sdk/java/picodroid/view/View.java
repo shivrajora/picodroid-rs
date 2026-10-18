@@ -402,8 +402,15 @@ public class View {
   }
 
   /**
-   * Register a click listener. Setting a non-null listener flips this View's LVGL CLICKABLE flag so
-   * touches generate {@code LV_EVENT_CLICKED}. Pass {@code null} to clear.
+   * Mirrors {@code android.view.View#setOnClickListener}: this view keeps {@code listener} and runs
+   * it on a tap, or on SELECT when it has the keypad focus. A non-null listener makes the view
+   * clickable (and, on a keypad board, focusable, as Android's {@code focusable="auto"} does).
+   *
+   * <p>As on Android the listener lives with the view: a view that Java reaches — through its
+   * parent chain from the Activity's content view, or from a field — keeps its listener for as long
+   * as it is reachable, however many views have one. There is no registry to fill and nothing to
+   * hold in a field for the listener's sake. A view nothing reaches is collected, listener and all;
+   * the simulator reports one whose widget was still on screen. Pass {@code null} to clear.
    */
   public void setOnClickListener(OnClickListener listener) {
     this.onClickListener = listener;
@@ -418,15 +425,21 @@ public class View {
   }
 
   /**
-   * Register a long-click listener. Like {@link #setOnClickListener}, attaching one flips this
-   * View's LVGL CLICKABLE flag so a held press generates {@code LV_EVENT_LONG_PRESSED}. Pass {@code
-   * null} to clear (the native registration is idempotent).
+   * Mirrors {@code android.view.View#setOnLongClickListener}. Like {@link #setOnClickListener},
+   * attaching one makes this view clickable so a held press reaches it. The lifetime rule is {@link
+   * #setOnClickListener}'s; pass {@code null} to clear.
    */
   public void setOnLongClickListener(OnLongClickListener listener) {
     this.onLongClickListener = listener;
     nativeRegisterLongClickListener();
   }
 
+  /**
+   * Mirrors {@code android.view.View#setOnKeyListener}: {@code listener} sees the hardware keys
+   * while this view has the keypad focus, so the view must be {@link #setFocusable focusable} to
+   * ever receive one. The lifetime rule is {@link #setOnClickListener}'s; pass {@code null} to
+   * clear.
+   */
   public void setOnKeyListener(OnKeyListener listener) {
     this.onKeyListener = listener;
     nativeRegisterKeyListener();
@@ -544,7 +557,8 @@ public class View {
   /**
    * Register a focus-change listener. Mirrors {@code android.view.View#setOnFocusChangeListener}.
    * The view must also be {@link #setFocusable(boolean) focusable} (or an adapter row) to ever
-   * receive focus and fire this callback.
+   * receive focus and fire this callback. The lifetime rule is {@link #setOnClickListener}'s; pass
+   * {@code null} to clear.
    */
   public void setOnFocusChangeListener(OnFocusChangeListener listener) {
     this.onFocusChangeListener = listener;
@@ -613,9 +627,10 @@ public class View {
   private native void nativeSetBackgroundTint(int argb);
 
   /**
-   * Register a touch listener. The framework also flips this View's LVGL CLICKABLE flag so the
-   * underlying touch indev routes Press/Release events here. Pass {@code null} to clear (the
-   * CLICKABLE flag stays on — clearing it on a button widget would break click behavior).
+   * Mirrors {@code android.view.View#setOnTouchListener}. The framework also makes this view
+   * clickable so the touch panel routes press, move and release events here. The lifetime rule is
+   * {@link #setOnClickListener}'s. Pass {@code null} to clear (the view stays clickable — taking
+   * that away from a button would break its click).
    */
   public void setOnTouchListener(OnTouchListener listener) {
     this.onTouchListener = listener;
@@ -628,7 +643,8 @@ public class View {
    * LVGL's {@code lv_dir_t} bits — {@code SWIPE_UP=4} corresponds to a {@code LV_DIR_TOP} gesture
    * (finger moved upward). The listener hears swipes that start on this view or on any descendant
    * without a listener of its own; a scrollable ancestor that can scroll in the swipe's direction
-   * takes the drag as a scroll first.
+   * takes the drag as a scroll first. The lifetime rule is {@link #setOnClickListener}'s; pass
+   * {@code null} to clear.
    */
   public void setOnSwipeListener(OnSwipeListener listener) {
     this.onSwipeListener = listener;

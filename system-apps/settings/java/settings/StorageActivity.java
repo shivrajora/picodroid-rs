@@ -28,7 +28,7 @@ public class StorageActivity extends Activity {
   private StorageStatsManager stats;
   private String[] pkgs;
   private String[] labels;
-  /** Each package row's numbers, held so the rows stay reachable until they are filled in. */
+  /** Each package row's numbers, filled in one row at a time as the stats arrive. */
   private TextView[] tails;
   private long[] appBytes;
   private long[] dataBytes;

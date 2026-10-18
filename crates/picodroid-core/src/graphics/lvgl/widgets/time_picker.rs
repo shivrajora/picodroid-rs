@@ -7,8 +7,8 @@
 //! current display mode (24-hour vs 12-hour) are tracked in a small static
 //! slot table keyed by the container pointer.
 //!
-//! Either roller emitting `LV_EVENT_VALUE_CHANGED` queues the *container*
-//! pointer for dispatch, so a single `fireTimeChanged` callback covers
+//! Either roller emitting `LV_EVENT_VALUE_CHANGED` queues the *container's*
+//! handle for dispatch, so a single `fireTimeChanged` callback covers
 //! all three axes. Programmatic adjustments (e.g. during `set_is_24hour`'s
 //! preserve-time round-trip) set a per-slot `suppress` flag so the
 //! trampoline silently drops events while the round-trip is in flight.
@@ -18,7 +18,6 @@ use core::ffi::c_char;
 
 use super::super::handle_table;
 use super::super::lifecycle;
-use super::super::listener_map::{warn_full, PtrMap};
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
 use core::cell::Cell;
@@ -68,13 +67,9 @@ const EMPTY_SLOT: PickerSlot = PickerSlot {
     suppress: false,
 };
 
-// ── Change-event ring buffer ────────────────────────────────────────────────
+// ── Change-event ring buffer (container handles) ────────────────────────────
 
 const QUEUE_SIZE: usize = 8;
-
-// ── Container → Java object map ─────────────────────────────────────────────
-
-const MAX_LISTENERS: usize = 4;
 
 // ── Roller → container map (so the trampoline can resolve the parent) ──────
 //
@@ -84,8 +79,7 @@ const MAX_ROLLERS: usize = MAX_PICKERS * 3;
 
 struct State {
     slots: [Cell<PickerSlot>; MAX_PICKERS],
-    queue: LocalRing<usize, QUEUE_SIZE>,
-    handle_map: PtrMap<MAX_LISTENERS>,
+    queue: LocalRing<i32, QUEUE_SIZE>,
     roller_map: [Cell<(usize, usize)>; MAX_ROLLERS],
 }
 
@@ -95,17 +89,9 @@ static STATE: Core0<State> = unsafe {
     Core0::new(State {
         slots: [const { Cell::new(EMPTY_SLOT) }; MAX_PICKERS],
         queue: LocalRing::new(0),
-        handle_map: PtrMap::new(),
         roller_map: [const { Cell::new((0, 0)) }; MAX_ROLLERS],
     })
 };
-
-lv_event_cb! {
-    fn map_delete_cb(e) {
-        let obj = e.target().addr();
-        STATE.handle_map.remove(obj)
-    }
-}
 
 lv_event_cb! {
     /// Release a picker's `SLOTS` entry and its three `ROLLER_MAP` entries when the
@@ -131,7 +117,6 @@ lv_event_cb! {
                 entry.set((0, 0));
             }
         }
-        STATE.handle_map.remove(container);
     }
 }
 
@@ -157,7 +142,11 @@ lv_event_cb! {
         {
             return;
         }
-        STATE.queue.push(container);
+        // The roller is a direct child of its container (`add_roller`).
+        let handle = lv_obj_get_parent(e.target()).map_or(0, handle_table::handle_of);
+        if handle != 0 {
+            STATE.queue.push(handle);
+        }
     }
 }
 
@@ -344,22 +333,8 @@ pub(in crate::graphics) fn is_24hour(id: i32) -> bool {
         .unwrap_or(true)
 }
 
-pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
-    super::compound::register_listener_with_delete_hook(
-        &STATE.handle_map,
-        id,
-        obj_ref,
-        map_delete_cb,
-        "time-picker",
-    );
-}
-
-pub fn drain_time_picker_queue() -> Option<usize> {
+pub fn drain_time_picker_queue() -> Option<i32> {
     STATE.queue.pop()
-}
-
-pub fn lookup_time_picker_obj(handle: usize) -> Option<u16> {
-    STATE.handle_map.lookup(handle)
 }
 
 pub fn reset_time_picker_state() {
@@ -369,7 +344,6 @@ pub fn reset_time_picker_state() {
     for entry in &STATE.roller_map {
         entry.set((0, 0));
     }
-    STATE.handle_map.reset();
     STATE.queue.clear();
 }
 
@@ -388,7 +362,7 @@ fn register_picker(container: usize, hour: usize, minute: usize, am_pm: usize) {
         // A picker with no slot is inert: set_time does nothing and the
         // getters answer zero. Say so rather than hand back a widget that
         // quietly ignores every call made on it.
-        None => warn_full("time-picker slots"),
+        None => crate::pd_warn!("TimePicker: the slot table is full, this picker is inert"),
     }
     for &r in &[hour, minute, am_pm] {
         if let Some(entry) = STATE.roller_map.iter().find(|e| e.get().0 == 0) {

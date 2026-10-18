@@ -47,7 +47,7 @@ pub(super) fn park_top_view(handler: &mut crate::native_handler::PicodroidNative
     // belongs to the Activity being covered, so dismissing all is correct —
     // the mirror of handle_pop_op's finish cleanup. See
     // project_picoenvmon_alertdialog_leak.
-    while crate::graphics::widgets::dismiss_topmost_dialog() {}
+    while crate::graphics::widgets::cancel_topmost_dialog() {}
 }
 
 /// Inverse of [`park_top_view`]: restore the top Activity's saved view
@@ -271,7 +271,7 @@ pub(super) fn destroy_top_instance(
     // deleted above, so it would otherwise outlive the Activity and leak onto
     // the one beneath as an input-absorbing modal — Android dismisses an
     // Activity's dialogs on destroy ("leaked window" prevention).
-    while crate::graphics::widgets::dismiss_topmost_dialog() {}
+    while crate::graphics::widgets::cancel_topmost_dialog() {}
     // Auto-unbind any Service connections this Activity owned — mirrors
     // Android's behaviour for an Activity destroyed while holding bindings.
     // Runs after the Activity's own onDestroy so the Activity can still call

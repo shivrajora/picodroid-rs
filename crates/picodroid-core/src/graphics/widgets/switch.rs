@@ -6,10 +6,10 @@ use pico_jvm::types::{JvmError, Value};
 
 use super::super::lvgl::widgets::switch as lvgl_switch;
 use super::super::view::extract_native_handle;
-use super::super::view::register_listener_with;
+use super::super::view::{register_listener_with, NO_ATTACH};
 
+pub use lvgl_switch::drain_sw_checked_change_queue;
 pub use lvgl_switch::reset_switch_state;
-pub use lvgl_switch::{drain_sw_checked_change_queue, lookup_sw_checked_change_obj};
 
 pub fn switch_native_create() -> Result<Option<Value>, JvmError> {
     Ok(Some(Value::Int(lvgl_switch::create())))
@@ -53,5 +53,5 @@ pub fn switch_register_checked_change_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    register_listener_with(args, objects, lvgl_switch::register_listener)
+    register_listener_with(args, objects, NO_ATTACH)
 }

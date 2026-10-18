@@ -1565,7 +1565,7 @@ new AlertDialog.Builder()
     .show();
 ```
 
-A button click runs its listener (if any) and then dismisses the dialog. The button constants are Android's: `DialogInterface.BUTTON_POSITIVE` (-1), `BUTTON_NEGATIVE` (-2), `BUTTON_NEUTRAL` (-3). BACK dismisses the topmost showing dialog. Call `dialog.dismiss()` (or `cancel()`) to close programmatically; a second `dismiss()` is a no-op, as on Android. Unlike Android, dismissing **frees the dialog's widgets**, so a dismissed dialog cannot be shown again — `show()` throws `IllegalStateException`; build a new one. See [`examples/dialogdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/dialogdemo).
+A button click runs its listener (if any) and then dismisses the dialog. The button constants are Android's: `DialogInterface.BUTTON_POSITIVE` (-1), `BUTTON_NEGATIVE` (-2), `BUTTON_NEUTRAL` (-3). BACK dismisses the topmost showing dialog. A shown dialog is held by the framework until it is dismissed, so `new AlertDialog.Builder(this)....show()` is a complete statement; keep the returned dialog only to dismiss it yourself. Call `dialog.dismiss()` (or `cancel()`) to close programmatically; a second `dismiss()` is a no-op, as on Android. Unlike Android, dismissing **frees the dialog's widgets**, so a dismissed dialog cannot be shown again — `show()` throws `IllegalStateException`; build a new one. See [`examples/dialogdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/dialogdemo).
 
 ### `picodroid.widget.Keyboard`
 
@@ -1632,7 +1632,7 @@ Snackbar.make(rootView, "Item deleted", Snackbar.LENGTH_LONG)
 | `Snackbar.LENGTH_LONG` | 1 | ~3.5 s |
 | `Snackbar.LENGTH_INDEFINITE` | -1 | until manually dismissed |
 
-If the user taps the action lozenge, the listener runs and the Snackbar dismisses immediately; the `View` passed to `onClick` is `null`, since the lozenge is not a `View`. Otherwise the Snackbar fades out after `duration`. `dismiss()` closes it from code, which is how a `LENGTH_INDEFINITE` one without an action goes away. Every Snackbar sits at the bottom of the screen, whichever `parent` is passed.
+If the user taps the action lozenge, the listener runs and the Snackbar dismisses immediately; the `View` passed to `onClick` is `null`, since the lozenge is not a `View`. Otherwise the Snackbar fades out after `duration`. `dismiss()` closes it from code, which is how a `LENGTH_INDEFINITE` one without an action goes away; `isShown()` is true from `show()` until the bar went away, however it went. A shown Snackbar is held by the framework until then, so `Snackbar.make(v, "Saved", LENGTH_SHORT).setAction("Undo", l).show()` needs no field. Every Snackbar sits at the bottom of the screen, whichever `parent` is passed.
 
 See [`examples/snackbardemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/snackbardemo).
 

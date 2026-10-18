@@ -10,7 +10,6 @@ use crate::lvgl_ffi::*;
 
 use super::super::handle_table;
 use super::super::lifecycle;
-use super::super::listener_map::{warn_full, PtrMap, Upsert};
 use super::keyboard;
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
@@ -27,9 +26,8 @@ const MAX_AUTOSHOW_OPTOUTS: usize = 16;
 struct State {
     autoshow_disabled: LocalSet<usize, MAX_AUTOSHOW_OPTOUTS>,
     numeric_fields: LocalSet<usize, MAX_NUMERIC_FIELDS>,
-    editor_action_map: PtrMap<MAX_EDITOR_ACTION_LISTENERS>,
-    text_watch_map: PtrMap<MAX_TEXT_WATCHERS>,
-    text_queue: LocalRing<usize, TEXT_QUEUE_SIZE>,
+    /// Text changes, each the textarea's handle, one entry per field.
+    text_queue: LocalRing<i32, TEXT_QUEUE_SIZE>,
 }
 
 // SAFETY: filled by natives and LVGL's textarea callbacks, drained by the
@@ -38,8 +36,6 @@ static STATE: Core0<State> = unsafe {
     Core0::new(State {
         autoshow_disabled: LocalSet::new(0),
         numeric_fields: LocalSet::new(0),
-        editor_action_map: PtrMap::new(),
-        text_watch_map: PtrMap::new(),
         text_queue: LocalRing::new(0),
     })
 };
@@ -75,85 +71,57 @@ pub(in crate::graphics) fn set_numeric(id: i32, numeric: bool) {
     }
 }
 
-// ── EditorActionListener registry (raw lv_obj_t* → Java EditText obj_ref) ───
+// ── Editor actions ──────────────────────────────────────────────────────────
 //
-// Populated by [`register_editor_action_listener`], called from
-// `EditText.setOnEditorActionListener`. EditTexts without a listener have
-// no entry; their auto-show calls pass `obj_ref = 0`, and the system
-// keyboard's OK callback will skip editor-action dispatch.
+// `EditText.setOnEditorActionListener` only binds the field to its Java
+// object (the handle table's binding); the system keyboard's OK callback
+// resolves the field it types into through that binding and queues
+// `fireEditorAction`, which the Java side answers `false` when no listener
+// is set. A field nothing ever bound gets no dispatch.
 
-const MAX_EDITOR_ACTION_LISTENERS: usize = 16;
-
-fn lookup_editor_action_obj(raw_ptr: usize) -> u16 {
-    STATE.editor_action_map.lookup(raw_ptr).unwrap_or(0)
-}
-
-pub(in crate::graphics) fn register_editor_action_listener(id: i32, obj_ref: u16) {
-    let Some(o) = handle_table::get(id) else {
-        return;
-    };
-    if let Upsert::Full = STATE.editor_action_map.upsert(o.addr(), obj_ref) {
-        warn_full("editor-action");
-    }
-}
-
-// ── TextWatcher registry (raw lv_obj_t* → Java EditText obj_ref) + queue ────
+// ── TextWatcher queue ───────────────────────────────────────────────────────
 //
-// Populated by [`register_text_changed_listener`], called from
-// `EditText.addTextChangedListener`. The LV_EVENT_VALUE_CHANGED callback is
-// installed lazily on first registration so unwatched fields never enqueue.
-
-const MAX_TEXT_WATCHERS: usize = 16;
+// The LV_EVENT_VALUE_CHANGED callback is attached by [`attach_text_watcher`]
+// (`EditText.addTextChangedListener`), so unwatched fields never enqueue.
 
 const TEXT_QUEUE_SIZE: usize = 16;
 
 lv_event_cb! {
     fn textarea_value_changed_cb(e) {
-        let ta = e.target();
+        let handle = handle_table::handle_of(e.target());
+        if handle == 0 {
+            return;
+        }
         // Coalesce: the Java side re-reads the final text at dispatch time,
         // so collapsing a burst of per-keystroke events into one queue entry
         // is lossless and keeps fast typing from overflowing the ring.
-        if STATE.text_queue.any(|queued| queued == ta.addr()) {
+        if STATE.text_queue.any(|queued| queued == handle) {
             return;
         }
-        STATE.text_queue.push(ta.addr());
+        STATE.text_queue.push(handle);
     }
 }
 
-pub(in crate::graphics) fn register_text_changed_listener(id: i32, obj_ref: u16) {
+/// `EditText.addTextChangedListener`'s widget half: route the field's
+/// `LV_EVENT_VALUE_CHANGED` to the text queue. Idempotent, and a no-op for
+/// a released view.
+pub(in crate::graphics) fn attach_text_watcher(id: i32) {
     let Some(o) = handle_table::get(id) else {
         return;
     };
-    match STATE.text_watch_map.upsert(o.addr(), obj_ref) {
-        // Event cb already installed.
-        Upsert::Updated => {}
-        Upsert::Full => warn_full("text-watcher"),
-        Upsert::Inserted => add_event_cb(o, textarea_value_changed_cb, LV_EVENT_VALUE_CHANGED),
-    }
+    lv_obj_remove_event_cb(o, Some(textarea_value_changed_cb));
+    add_event_cb(o, textarea_value_changed_cb, LV_EVENT_VALUE_CHANGED);
 }
 
-pub fn drain_text_changed_queue() -> Option<usize> {
+pub fn drain_text_changed_queue() -> Option<i32> {
     STATE.text_queue.pop()
 }
 
-pub fn lookup_text_watch_obj(handle: usize) -> Option<u16> {
-    STATE.text_watch_map.lookup(handle)
-}
-
-/// GC roots for the TextWatcher map — same contract as
-/// [`visit_editor_action_listener_roots`].
-pub fn visit_text_changed_listener_roots(visit: &mut dyn FnMut(u16)) {
-    STATE.text_watch_map.visit(visit)
-}
-
 lv_event_cb! {
-    /// Purge the dying textarea from every per-widget registry in this module:
-    /// the two listener maps plus the raw-ptr opt-out/numeric lists (a stale ptr
-    /// there would apply this field's flags to a recycled address).
+    /// Purge the dying textarea from the raw-ptr opt-out/numeric lists (a
+    /// stale ptr there would apply this field's flags to a recycled address).
     fn edit_text_delete_cb(e) {
         let obj = e.target().addr();
-        STATE.editor_action_map.remove(obj);
-        STATE.text_watch_map.remove(obj);
         STATE.autoshow_disabled.remove(obj);
         STATE.numeric_fields.remove(obj);
     }
@@ -166,8 +134,7 @@ lv_event_cb! {
         if is_autoshow_disabled(ta.addr()) {
             return;
         }
-        let obj_ref = lookup_editor_action_obj(ta.addr());
-        keyboard::show_system_for(ta, obj_ref);
+        keyboard::show_system_for(ta);
     }
 }
 
@@ -221,20 +188,8 @@ pub(in crate::graphics) fn set_autoshow(id: i32, enabled: bool) {
 
 pub fn reset_edit_text_state() {
     STATE.autoshow_disabled.clear();
-    STATE.editor_action_map.reset();
     STATE.numeric_fields.clear();
-    STATE.text_watch_map.reset();
     STATE.text_queue.clear();
-}
-
-/// Visit the Java `EditText` object ref of every textarea registered for an
-/// editor-action listener so the GC keeps it alive. An `EditText` referenced
-/// only by this native map (no Java field; `addView` keeps it alive only
-/// natively) would otherwise be swept on the first GC, its slot reused, and a
-/// later dispatch resolves a dead ref → `NoSuchMethod`. See
-/// `widgets::button::visit_click_listener_roots`.
-pub fn visit_editor_action_listener_roots(visit: &mut dyn FnMut(u16)) {
-    STATE.editor_action_map.visit(visit)
 }
 
 /// Mask the field's text (`InputType.TYPE_TEXT_VARIATION_PASSWORD`): LVGL

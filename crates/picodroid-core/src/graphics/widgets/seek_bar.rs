@@ -6,10 +6,10 @@ use pico_jvm::types::{JvmError, Value};
 
 use super::super::lvgl::widgets::seek_bar as lvgl_seek_bar;
 use super::super::view::extract_native_handle;
-use super::super::view::register_listener_with;
+use super::super::view::{register_listener_with, NO_ATTACH};
 
 pub use lvgl_seek_bar::reset_seek_bar_state;
-pub use lvgl_seek_bar::{drain_seek_change_queue, drain_seek_tracking_queue, lookup_seek_bar_obj};
+pub use lvgl_seek_bar::{drain_seek_change_queue, drain_seek_tracking_queue};
 
 pub fn seek_bar_native_create() -> Result<Option<Value>, JvmError> {
     Ok(Some(Value::Int(lvgl_seek_bar::create())))
@@ -76,5 +76,5 @@ pub fn seek_bar_register_change_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    register_listener_with(args, objects, lvgl_seek_bar::register_listener)
+    register_listener_with(args, objects, NO_ATTACH)
 }

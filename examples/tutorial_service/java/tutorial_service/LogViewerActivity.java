@@ -28,10 +28,10 @@ import picodroid.widget.TextView;
 public class LogViewerActivity extends Activity implements ServiceConnection {
   private static final String TAG = "LogViewerActivity";
 
-  // Field-held so the GC roots these listener-bearing views through this Activity.
+  // list and statusLine are fields because Refresh rewrites them; the button is a local — the
+  // tree keeps it and its listener alive, as on Android.
   private ListView list;
   private TextView statusLine;
-  private Button refreshButton;
 
   // The bound Service handle, captured in onServiceConnected. null until connected and after
   // disconnect; Refresh guards on it.
@@ -65,7 +65,7 @@ public class LogViewerActivity extends Activity implements ServiceConnection {
     list.setSize(200, 130);
     root.addView(list);
 
-    refreshButton = new Button("Refresh");
+    Button refreshButton = new Button("Refresh");
     refreshButton.setSize(200, 36);
     refreshButton.setOnClickListener(v -> refresh());
     root.addView(refreshButton);

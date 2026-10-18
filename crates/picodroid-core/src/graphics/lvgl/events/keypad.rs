@@ -204,7 +204,7 @@ pub(super) fn focused_obj_for_edit_mode() -> (Option<Obj>, Option<EditKind>) {
 /// edit mode (`widget_remap`).
 #[cfg(has_buttons)]
 fn edit_kind_of(focused: Obj) -> Option<EditKind> {
-    if super::super::widgets::number_picker::is_number_picker(focused.addr()) {
+    if super::super::widgets::number_picker::is_number_picker(focused) {
         return Some(EditKind::Step);
     }
     let class = lv_obj_get_class(focused);
@@ -450,8 +450,11 @@ pub(super) unsafe extern "C" fn keypad_read_cb(
         }
 
         push_key_event_raw(event.pin, event.rising, event.t_us, decision.forward_java);
-        if let Some((obj, direction)) = decision.step {
-            super::super::widgets::number_picker::push_step(obj, direction);
+        if let Some((_, direction)) = decision.step {
+            // The step names the focused widget (`focused_addr`), which is
+            // `focused` itself: queue it by handle.
+            let handle = focused.map_or(0, super::super::handle_table::handle_of);
+            super::super::widgets::number_picker::push_step(handle, direction);
         }
         if let Some(k) = decision.lvgl_key {
             d.key = k;

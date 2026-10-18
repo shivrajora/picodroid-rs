@@ -58,14 +58,13 @@ protected void onCreate(Bundle savedInstanceState) {
 
 Why: `setContentView(root)` is the only call that parents your tree to the LVGL screen and makes it visible. Skip it and the Activity renders the bare default screen — there is no assertion or panic, just a blank display.
 
-## Hold a Java field to any View that has a listener
+## A view in the tree keeps its listener
 
-Symptom: input works for a few seconds, then the keypad silently "loses focus," or a fresh screen throws `NoSuchMethod`.
+Symptom (historical): input worked for a few seconds, then the keypad silently "lost focus," or a fresh screen threw `NoSuchMethod`.
 
-The framework roots listener-bound Views (key, touch, swipe, click, dialog, switch, checkbox, editor-action) as GC roots, so this does not crash on its own. But holding a Java field is the cleanest, most Android-idiomatic guard, and it removes any reliance on the native rooting — treat it as defense-in-depth.
+A listener lives with its view, as on Android: a view that Java reaches — through its parent chain from the Activity's content view, or from a field — keeps its listener for as long as it is reachable, however many views have one. There is no registry to fill and nothing to hold in a field for the listener's sake. Write the Android shape:
 
 ```java
-// FRAGILE: the only reference to this ListView lives in a native listener map.
 @Override
 protected void onCreate(Bundle savedInstanceState) {
   super.onCreate(savedInstanceState);
@@ -76,21 +75,11 @@ protected void onCreate(Bundle savedInstanceState) {
 }
 ```
 
-```java
-// BEST PRACTICE: keep a field so this Activity roots it too.
-private ListView menu;
+A view becomes a field only when later code needs it — a label the click handler updates, a row that takes the focus once the screen is built. A shown `AlertDialog` or `Snackbar` is held by the framework until it is dismissed, so `Snackbar.make(v, "Saved", LENGTH_SHORT).setAction("Undo", l).show()` needs no field either.
 
-@Override
-protected void onCreate(Bundle savedInstanceState) {
-  super.onCreate(savedInstanceState);
-  menu = new ListView();
-  menu.setOnItemClickListener((parent, view, position, id) ->
-      startActivity(new Intent(DESTINATIONS[position])));
-  setContentView(menu);
-}
-```
+What does differ from Android: a view that is never added to a parent still has a widget, created under the screen. If nothing in Java reaches such a view it is collected, and the simulator says so (`a View with a listener was collected while its widget is still alive`; under the handle sanitizer, which `sim.sh` turns on, it stops). Add the view to a parent, keep a field, or `close()` it.
 
-Why: the GC is non-moving mark-sweep with slot reuse. A View reachable only through a Rust-side listener map (and not a Java field) was historically swept on the first GC; its heap slot was reused by another object, and a later dispatch resolved a live widget to a dead reference. The picoenvmon home hub keeps its menu `ListView` as a field redundantly for exactly this reason.
+Why the old advice existed: before 2026-10 the native side kept fixed-size per-kind tables of listener-bearing views, capped at 32 (the 33rd `setOnClickListener` threw `IllegalStateException`), and before 2026-07 those tables did not root the views, so a view held only by one was swept on the first GC. The tables are gone; the tree owns the views (`docs/designs/view-listeners-2026-10.md`).
 
 ## No Handler, Looper, postDelayed, or Timer
 

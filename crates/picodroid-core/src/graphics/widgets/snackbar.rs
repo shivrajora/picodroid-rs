@@ -14,7 +14,10 @@ use super::super::lvgl::widgets::snackbar as lvgl_snackbar;
 use super::super::view::extract_string_at;
 
 pub use lvgl_snackbar::reset_snackbar_state;
-pub use lvgl_snackbar::{drain_click_queue as drain_snackbar_click_queue, lookup_snackbar_obj};
+pub use lvgl_snackbar::{
+    drain_click_queue as drain_snackbar_click_queue,
+    drain_dismiss_queue as drain_snackbar_dismiss_queue,
+};
 
 #[inline]
 fn arg_int(args: &[Value], i: usize) -> Result<i32, JvmError> {

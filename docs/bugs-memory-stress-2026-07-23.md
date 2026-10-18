@@ -139,7 +139,9 @@ framework-level unit is wanted.
 
 > **Status (2026-07-24): fixed in `3cdab95`** (shared `PtrMap` + per-widget `LV_EVENT_DELETE`
 > unregistration across all rooted maps, loud overflow; `b59d833` extends the treatment to the
-> unrooted handle maps). On-device: hub post-GC floor constant at 6971 B across 6 Live + 6
+> unrooted handle maps). **Superseded 2026-10-17:** the per-kind maps are gone — the handle table
+> binds each widget to its Java object, the tree owns the views
+> (docs/designs/view-listeners-2026-10.md). On-device: hub post-GC floor constant at 6971 B across 6 Live + 6
 > Settings cycles (no ratchet), clicks alive on visit 41 of a Settings hammer.
 
 ### Symptom (measured)

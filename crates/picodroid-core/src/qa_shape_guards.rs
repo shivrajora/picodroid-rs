@@ -116,23 +116,6 @@ mod tests {
         }
     }
 
-    // J-fix b105d077: a click-listener registration the fixed-size table
-    // cannot hold is an IllegalStateException the app can read. It used to be
-    // a line in the log and a view that never clicked.
-    #[test]
-    fn a_refused_click_listener_registration_throws() {
-        let body = function_body(&src("graphics/view.rs"), "register_click_listener");
-        assert!(
-            body.contains("lvgl_button::register_click_listener("),
-            "register_click_listener must consult the backend's answer"
-        );
-        assert!(
-            body.contains("java_lang_IllegalStateException"),
-            "a click-listener table that cannot hold the registration must \
-             throw, not log and carry on (QA 2026-09-13)"
-        );
-    }
-
     // J-fix b7ec1abd: a View native whose receiver was released by
     // `removeView` is refused before any native call. The bench boards cast
     // `lv_obj_t*` to a 32-bit handle with no table to say the widget was

@@ -5,14 +5,13 @@ use crate::lvgl_ffi::*;
 
 use super::super::handle_table;
 use super::super::lifecycle;
-use super::super::listener_map::PtrMap;
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
 
 const QUEUE_SIZE: usize = 16;
 struct State {
-    queue: LocalRing<usize, QUEUE_SIZE>,
-    handle_map: PtrMap<MAX_LISTENERS>,
+    /// Selection changes, each the dropdown's handle.
+    queue: LocalRing<i32, QUEUE_SIZE>,
 }
 
 // SAFETY: filled by LVGL callbacks and by natives, drained by the framework
@@ -20,23 +19,15 @@ struct State {
 static STATE: Core0<State> = unsafe {
     Core0::new(State {
         queue: LocalRing::new(0),
-        handle_map: PtrMap::new(),
     })
 };
 
-const MAX_LISTENERS: usize = 32;
-
-lv_event_cb! {
-    fn map_delete_cb(e) {
-        let obj = e.target().addr();
-        STATE.handle_map.remove(obj)
-    }
-}
-
 lv_event_cb! {
     fn value_changed_cb(e) {
-        let obj = e.target();
-        STATE.queue.push(obj.addr());
+        let handle = handle_table::handle_of(e.target());
+        if handle != 0 {
+            STATE.queue.push(handle);
+        }
     }
 }
 
@@ -84,25 +75,10 @@ pub(in crate::graphics) fn perform_item_selected(id: i32) {
     }
 }
 
-pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
-    super::compound::register_listener_with_delete_hook(
-        &STATE.handle_map,
-        id,
-        obj_ref,
-        map_delete_cb,
-        "spinner",
-    );
-}
-
-pub fn drain_spinner_change_queue() -> Option<usize> {
+pub fn drain_spinner_change_queue() -> Option<i32> {
     STATE.queue.pop()
 }
 
-pub fn lookup_spinner_obj(handle: usize) -> Option<u16> {
-    STATE.handle_map.lookup(handle)
-}
-
 pub fn reset_spinner_state() {
-    STATE.handle_map.reset();
     STATE.queue.clear();
 }

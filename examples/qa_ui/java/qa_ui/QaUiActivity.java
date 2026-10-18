@@ -52,9 +52,11 @@ import picodroid.widget.ToggleButton;
  * QA 2026-09-13: the view tree and widget state machine, driven without a finger — child order
  * after add/remove, visibility and enabled state, text round trips, listener replacement, compound
  * buttons and radio groups, seek/progress clamping, adapters, layout params and transform getters,
- * focus hand-off, then (after layout) sizes, animation end actions, dialogs, toasts, snackbars and
- * a view churn under GC. Synthetic events ({@code performClick} and friends) are delivered on a
- * later frame, so the phases verify what the previous phase fired.
+ * focus hand-off, then (after layout) sizes, animation end actions, dialogs, toasts, snackbars, a
+ * view churn under GC, and listeners that outlive a GC with nothing but the tree — or the
+ * framework's own hold on a shown dialog or snackbar — keeping their views. Synthetic events
+ * ({@code performClick} and friends) are delivered on a later frame, so the phases verify what the
+ * previous phase fired.
  */
 public class QaUiActivity extends Activity {
   private static final String TAG = "QaUi";
@@ -102,7 +104,33 @@ public class QaUiActivity extends Activity {
   private final int[] dialogButton = new int[] {-99};
   private Button churnTarget;
   private final int[] churnClicks = new int[1];
-  private Button[] rooted;
+
+  /** The 12 churn buttons' only Java path: a container, not an array of them. */
+  private LinearLayout churnBox;
+
+  // Tree-rooted listeners (`treeRooted`): the 34 labels' only Java path is `many`. Labels, and
+  // 34 of them, not buttons or more: the old per-kind tables held 32, and every widget past that
+  // is LVGL pool the earlier sections have mostly spent (33 buttons fit; a full pool is a silent
+  // spin in lv_malloc).
+  private static final int MANY = 34;
+  private LinearLayout many;
+  private final int[] manyHits = new int[MANY];
+  private final int[] manyLongs = new int[1];
+  private final int[] manyFocus = new int[1];
+  private boolean manyFocusExpected;
+
+  /** Never added to any tree: the caller's reference is what keeps it, as on Android. */
+  private Button loner;
+
+  private final int[] lonerClicks = new int[1];
+
+  /** Added, then removed: released, so a native on it is refused. */
+  private Button gone;
+
+  private AlertDialog churnDialog;
+  private final int[] churnDialogItem = new int[] {-1};
+  private Snackbar churnSnack;
+  private int snackPolls;
 
   // Deferred-event bookkeeping: fired in one phase, verified in the next.
   private Button clickButton;
@@ -1158,6 +1186,14 @@ public class QaUiActivity extends Activity {
     later(600, () -> phase3());
   }
 
+  /** Enough allocation to force collections (3000 × 256 B against the sim's arena). */
+  private void garbage() {
+    for (int i = 0; i < 3000; i++) {
+      byte[] bytes = new byte[256];
+      bytes[0] = 1;
+    }
+  }
+
   /** What phase 1 fired synthetically has been delivered by now. */
   void deferredEvents() {
     check("performClick delivered twice", clicksFirst[0] == 2);
@@ -1315,12 +1351,12 @@ public class QaUiActivity extends Activity {
             + " -> "
             + Runtime.gcCount());
     check("root child count after churn", root.getChildCount() == baseline);
-    rooted = new Button[12];
+    churnBox = new LinearLayout(this);
+    root.addView(churnBox);
     for (int i = 0; i < 12; i++) {
       Button b = new Button(this, "b" + i);
       b.setOnClickListener(v -> churnClicks[0]++);
-      root.addView(b);
-      rooted[i] = b;
+      churnBox.addView(b); // no Java reference kept: the tree is the only path
     }
     for (int i = 0; i < 3000; i++) {
       String junk = "garbage-" + i;
@@ -1332,14 +1368,117 @@ public class QaUiActivity extends Activity {
     }
     Log.i(TAG, "after garbage: gcs " + Runtime.gcCount());
     for (int i = 0; i < 12; i++) {
-      rooted[i].performClick();
+      churnBox.getChildAt(i).performClick();
     }
     churnTarget = new Button(this, "target");
     root.addView(churnTarget);
     churnTarget.setOnClickListener(v -> churnClicks[0] += 1000);
     check(
         "children tracked through churn",
-        root.getChildAt(baseline) == rooted[0] && root.getChildAt(baseline + 12) == churnTarget);
+        root.getChildAt(baseline) == churnBox
+            && churnBox.getChildCount() == 12
+            && root.getChildAt(baseline + 1) == churnTarget);
+  }
+
+  /**
+   * Listeners are kept by the view tree alone, with no cap: 34 labels, each with a click and a
+   * long-click listener (the old per-kind tables held 32), a few with a key and a focus-change
+   * listener too, held by nothing but their container; a view held only by a field (never added to
+   * a tree); a removed view; a dialog and a snackbar held only by the framework. All of it across a
+   * forced collection. Touch listeners are four LVGL callbacks each and are covered by
+   * callbacktest.
+   */
+  void treeRooted() {
+    many = new LinearLayout(this);
+    many.setOrientation(LinearLayout.VERTICAL);
+    root.addView(many);
+    for (int i = 0; i < MANY; i++) {
+      final int n = i;
+      TextView b = new TextView(this);
+      b.setText("m" + i);
+      b.setOnClickListener(v -> manyHits[n]++);
+      b.setOnLongClickListener(
+          v -> {
+            manyLongs[0]++;
+            return true;
+          });
+      if (i < 4) {
+        // Two more kinds through the same binding; their LVGL callbacks cost pool, so a few.
+        b.setOnKeyListener((v, e) -> false);
+        b.setOnFocusChangeListener((v, hasFocus) -> manyFocus[0]++);
+      }
+      many.addView(b); // no Java reference kept
+    }
+    check("34 listeners of each kind registered", many.getChildCount() == MANY);
+    Log.i(TAG, "treeRooted: " + MANY + " buttons made");
+    View focused = many.getChildAt(1);
+    focused.setFocusable(true);
+    manyFocusExpected = focused.requestFocus();
+    garbage();
+    // Long clicks run synchronously (pure Java): assert them now.
+    int consumed = 0;
+    for (int i = 0; i < MANY; i++) {
+      if (many.getChildAt(i).performLongClick()) {
+        consumed++;
+      }
+    }
+    check("34 long-click listeners after GC", consumed == MANY && manyLongs[0] == MANY);
+    Log.i(TAG, "treeRooted: long clicks done, gcs " + Runtime.gcCount());
+    clickBatch(0);
+
+    loner = new Button(this, "loner");
+    loner.setOnClickListener(v -> lonerClicks[0]++);
+    gone = new Button(this, "gone");
+    root.addView(gone);
+    gone.setOnClickListener(v -> churnClicks[0] += 100000);
+    root.removeView(gone); // freed: picodroid's documented divergence from Android
+    garbage();
+    loner.performClick();
+    boolean refused = false;
+    try {
+      gone.performClick();
+    } catch (IllegalStateException e) {
+      refused = true;
+    }
+    check("performClick on a removed view is refused, not a crash", refused);
+    Log.i(TAG, "treeRooted: loner and gone done");
+
+    // A shown dialog is held by the framework; the pick is delivered on a later frame, when
+    // the local below is long gone and only that hold reaches the dialog.
+    churnDialog =
+        new AlertDialog.Builder(this)
+            .setTitle("churned")
+            .setItems(new String[] {"x", "y"}, (d, which) -> churnDialogItem[0] = which)
+            .show();
+    garbage();
+    Log.i(TAG, "treeRooted: dialog shown");
+    churnDialog.performItemClick(1);
+    // Shown and dropped: the framework holds it until this Activity finishes.
+    new AlertDialog.Builder(this)
+        .setTitle("unheld")
+        .setMessage("m")
+        .setPositiveButton("ok", null)
+        .show();
+    garbage();
+    churnSnack = Snackbar.make(root, "churn", Snackbar.LENGTH_SHORT).setAction("undo", v -> {});
+    churnSnack.show();
+    garbage();
+    check("snackbar shown", churnSnack.isShown());
+    Log.i(TAG, "treeRooted: done");
+  }
+
+  /**
+   * Eight clicks, then the rest a few ticks later: the native click ring holds 16 and the frame
+   * drains it, but the main executor runs every Runnable it holds in one tick, so a batch posted
+   * through it would land on top of the last one.
+   */
+  private void clickBatch(int from) {
+    for (int i = from; i < from + 8 && i < MANY; i++) {
+      many.getChildAt(i).performClick();
+    }
+    if (from + 8 < MANY) {
+      later(60, () -> clickBatch(from + 8));
+    }
   }
 
   // ---- canvas -------------------------------------------------------------------------------
@@ -1484,15 +1623,12 @@ public class QaUiActivity extends Activity {
       return;
     }
     Log.i(TAG, "phase3 (animation polls: " + animationPolls + ")");
-    check("listeners survive GC (rooted by the tree)", churnClicks[0] == 12);
-    for (int i = 0; i < 12; i++) {
-      root.removeView(rooted[i]);
-      rooted[i] = null;
-    }
-    for (int i = 0; i < 3000; i++) {
-      byte[] bytes = new byte[256];
-      bytes[0] = 1;
-    }
+    check("12 listeners survive GC (tree-rooted)", churnClicks[0] == 12);
+    churnBox.removeAllViews();
+    // After the churn buttons are freed: the fixture needs the LVGL pool they held, and a full
+    // pool is a silent spin in lv_malloc. Its deferred checks are phase 4's.
+    section("treeRooted", () -> treeRooted());
+    garbage();
     churnTarget.performClick();
     check("replaced click listener delivered once", clicksSecond[0] == 1 && clicksFirst[0] == 2);
     clickButton.setOnClickListener(null);
@@ -1516,7 +1652,35 @@ public class QaUiActivity extends Activity {
   }
 
   void phase4() {
-    Log.i(TAG, "phase4");
+    // LENGTH_SHORT is 2 s from its show in phase 2: wait for the timeout to be reported.
+    if (churnSnack.isShown() && snackPolls < 10) {
+      snackPolls++;
+      later(300, () -> phase4());
+      return;
+    }
+    Log.i(TAG, "phase4 (snackbar polls: " + snackPolls + ")");
+    check("snackbar timeout reported", !churnSnack.isShown());
+    boolean all = true;
+    for (int i = 0; i < MANY; i++) {
+      all = all && manyHits[i] == 1;
+    }
+    check("34 click listeners survive GC, tree-rooted, each once", all);
+    if (manyFocusExpected) {
+      check("focus-change listener past the old cap", manyFocus[0] >= 1);
+    } else {
+      Log.i(TAG, "requestFocus declined (touch board): focus-change check skipped");
+    }
+    many.removeAllViews();
+    check("unattached view held by a field still fires", lonerClicks[0] == 1);
+    check(
+        "churned dialog item delivered, dialog gone",
+        churnDialogItem[0] == 1 && !churnDialog.isShowing());
+    int manySum = 0;
+    for (int i = 0; i < MANY; i++) {
+      manySum += manyHits[i];
+    }
+    check("removed buttons stay silent", manySum == MANY);
+    check("removed view's listener never ran", churnClicks[0] < 100000);
     check("listener on survivor after peers removed", churnClicks[0] == 1012);
     check("null listener silent", clicksSecond[0] == 1);
     check("canvas: two invalidates, one more onDraw", drawn.draws == 2);

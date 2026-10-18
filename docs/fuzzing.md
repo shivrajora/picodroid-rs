@@ -76,12 +76,12 @@ ASAN_OPTIONS=detect_leaks=0 gdb -batch -ex 'break alloc::alloc::handle_alloc_err
 
 ## Nightly
 
-The bench machine runs the whole set at 01:00, as the first stage of
+The bench machine runs the whole set at 03:00, as the first stage of
 `scripts/nightly.sh` (fuzz, then the sim matrix, then the HIL fleet, each
 starting when the previous one exits):
 
 ```text
-0 1 * * * cd /home/shiv/projects/picodroid-rs && mkdir -p build/nightly && ./scripts/nightly.sh >> build/nightly/cron.log 2>&1
+0 3 * * * cd /home/shiv/projects/picodroid-rs && mkdir -p build/nightly && ./scripts/nightly.sh >> build/nightly/cron.log 2>&1
 ```
 
 `nightly.sh` pulls main once and runs `fuzz.sh --nightly --no-pull` under a

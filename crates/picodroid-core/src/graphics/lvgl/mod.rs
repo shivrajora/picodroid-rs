@@ -67,7 +67,6 @@ pub mod handle_table;
 pub mod key_debounce;
 pub mod key_filter;
 pub mod key_repeat;
-pub mod listener_map;
 
 /// Idempotency guard for [`LvglGfx::init`]. LVGL itself doesn't tolerate
 /// `lv_init()` twice; this flag latches on the first successful call so
@@ -265,11 +264,13 @@ pub fn is_initialized() -> bool {
 /// — then a held SELECT is its long click, not the options menu's opener
 /// (`Activity.nativeFocusTakesLongPress`, app-portability K9).
 #[cfg(not(test))]
-pub fn focused_view_takes_long_press() -> bool {
-    use crate::lvgl_ffi::{lv_group_get_default, lv_group_get_focused};
-    lv_group_get_default()
-        .and_then(|o| lv_group_get_focused(o))
-        .is_some_and(|focused| widgets::button::lookup_long_click_obj(focused.addr()).is_some())
+pub fn focused_view_takes_long_press(objects: &pico_jvm::object_heap::ObjectHeap) -> bool {
+    events::focused_bound_view().is_some_and(|(_, view_ref)| {
+        matches!(
+            objects.get_field(view_ref, super::fields::view::ON_LONG_CLICK_LISTENER),
+            Some(pico_jvm::types::Value::ObjectRef(_))
+        )
+    })
 }
 
 /// The LVGL pool's `(free, total)` bytes. UI task only, like every LVGL call.

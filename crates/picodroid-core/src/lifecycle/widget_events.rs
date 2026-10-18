@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! The per-frame widget-event fan-out: one `dispatch_*` per listener kind,
-//! each draining its queue in `graphics::lvgl::events` and firing the
-//! matching `DISPATCH_SITES` row on the view's Java listener.
+//! each draining its queue of widget handles and firing the matching
+//! `DISPATCH_SITES` row on the Java object the handle table binds to the
+//! handle (`handle_table::bound_java`). A handle whose widget was deleted
+//! since the event was queued — a click that finished its Activity — or
+//! whose Java object nothing bound resolves to nothing, and the event is
+//! dropped.
 
 use super::*;
 
@@ -14,7 +18,7 @@ pub(super) fn dispatch_clicks(
     heap: &mut SharedJvmHeap,
     handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::graphics::lvgl::events;
+    use crate::graphics::lvgl::{events, handle_table};
     use crate::graphics::widgets;
 
     while let Some(handle) = widgets::drain_click_queue() {
@@ -23,7 +27,7 @@ pub(super) fn dispatch_clicks(
         if events::take_click_suppressed(handle) {
             continue;
         }
-        if let Some(obj_ref) = widgets::lookup_button_obj(handle) {
+        if let Some(obj_ref) = handle_table::bound_java(handle) {
             // fireClick() is a package-private method on View that invokes
             // onClickListener.onClick(this); any view subclass with a
             // listener attached resolves it via field inheritance.
@@ -70,12 +74,11 @@ pub(super) fn dispatch_long_clicks(
     heap: &mut SharedJvmHeap,
     handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
+    use crate::graphics::lvgl::{events, handle_table};
     use crate::graphics::widgets;
 
-    use crate::graphics::lvgl::events;
-
     while let Some(handle) = widgets::drain_long_click_queue() {
-        if let Some(obj_ref) = widgets::lookup_long_click_obj(handle) {
+        if let Some(obj_ref) = handle_table::bound_java(handle) {
             // A consumed long click (fireLongClick returns true) suppresses
             // the subsequent click — LVGL fires CLICKED after LONG_PRESSED,
             // so this matches Android. An unhandled long press still clicks.
@@ -107,7 +110,7 @@ pub(super) fn dispatch_checked_changes(
     use crate::graphics::widgets;
 
     while let Some(handle) = widgets::drain_checked_change_queue() {
-        if let Some(obj_ref) = widgets::lookup_checked_change_obj(handle) {
+        if let Some(obj_ref) = crate::graphics::lvgl::handle_table::bound_java(handle) {
             let _ = jvm.invoke_instance(
                 dispatch_class(dispatch_sites::TOGGLE_BUTTON),
                 dispatch_method(dispatch_sites::TOGGLE_BUTTON),
@@ -132,7 +135,7 @@ pub(super) fn dispatch_switch_checked_changes(
     use crate::graphics::widgets;
 
     while let Some(handle) = widgets::drain_sw_checked_change_queue() {
-        if let Some(obj_ref) = widgets::lookup_sw_checked_change_obj(handle) {
+        if let Some(obj_ref) = crate::graphics::lvgl::handle_table::bound_java(handle) {
             let _ = jvm.invoke_instance(
                 dispatch_class(dispatch_sites::SWITCH),
                 dispatch_method(dispatch_sites::SWITCH),
@@ -160,7 +163,7 @@ pub(super) fn dispatch_number_picker_steps(
     use pico_jvm::types::Value;
 
     while let Some((handle, direction)) = widgets::drain_np_step_queue() {
-        if let Some(obj_ref) = widgets::lookup_picker_obj(handle) {
+        if let Some(obj_ref) = crate::graphics::lvgl::handle_table::bound_java(handle) {
             let _ = jvm.invoke_instance_with_args(
                 dispatch_class(dispatch_sites::NUMBER_PICKER_STEP),
                 dispatch_method(dispatch_sites::NUMBER_PICKER_STEP),
@@ -186,7 +189,7 @@ pub(super) fn dispatch_checkbox_changes(
     use crate::graphics::widgets;
 
     while let Some(handle) = widgets::drain_cb_checked_change_queue() {
-        if let Some(obj_ref) = widgets::lookup_cb_checked_change_obj(handle) {
+        if let Some(obj_ref) = crate::graphics::lvgl::handle_table::bound_java(handle) {
             let _ = jvm.invoke_instance(
                 dispatch_class(dispatch_sites::CHECKBOX),
                 dispatch_method(dispatch_sites::CHECKBOX),
@@ -209,7 +212,7 @@ pub(super) fn dispatch_radio_button_changes(
     use crate::graphics::widgets;
 
     while let Some(handle) = widgets::drain_rb_checked_change_queue() {
-        if let Some(obj_ref) = widgets::lookup_rb_checked_change_obj(handle) {
+        if let Some(obj_ref) = crate::graphics::lvgl::handle_table::bound_java(handle) {
             let _ = jvm.invoke_instance(
                 dispatch_class(dispatch_sites::RADIO_BUTTON),
                 dispatch_method(dispatch_sites::RADIO_BUTTON),
@@ -234,7 +237,7 @@ pub(super) fn dispatch_spinner_changes(
     use crate::graphics::widgets;
 
     while let Some(handle) = widgets::drain_spinner_change_queue() {
-        if let Some(obj_ref) = widgets::lookup_spinner_obj(handle) {
+        if let Some(obj_ref) = crate::graphics::lvgl::handle_table::bound_java(handle) {
             let _ = jvm.invoke_instance(
                 dispatch_class(dispatch_sites::SPINNER),
                 dispatch_method(dispatch_sites::SPINNER),
@@ -261,8 +264,8 @@ pub(super) fn dispatch_alert_dialog_clicks(
     use crate::graphics::widgets;
     use pico_jvm::types::Value;
 
-    while let Some((dialog_handle, which)) = widgets::drain_dialog_click_queue() {
-        if let Some(obj_ref) = widgets::lookup_dialog_obj(dialog_handle) {
+    while let Some((dialog, which)) = widgets::drain_dialog_click_queue() {
+        if let Some(obj_ref) = crate::graphics::lvgl::handle_table::bound_java(dialog) {
             let _ = jvm.invoke_instance_with_args(
                 dispatch_class(dispatch_sites::ALERT_DIALOG),
                 dispatch_method(dispatch_sites::ALERT_DIALOG),
@@ -277,7 +280,7 @@ pub(super) fn dispatch_alert_dialog_clicks(
 
 /// Drain list-dialog item clicks and invoke `fireItemClick(position, checked)`
 /// on each matching AlertDialog (plain items dismiss in Java; choice lists do
-/// not). The dialog's Java object is already rooted via DIALOG_OBJ_MAP.
+/// not). The dialog's Java object is held by `AlertDialog`'s showing list.
 #[cfg(not(test))]
 pub(super) fn dispatch_alert_dialog_item_clicks(
     jvm: &mut Jvm,
@@ -287,8 +290,8 @@ pub(super) fn dispatch_alert_dialog_item_clicks(
     use crate::graphics::widgets;
     use pico_jvm::types::Value;
 
-    while let Some((dialog_handle, position, checked)) = widgets::drain_dialog_item_click_queue() {
-        if let Some(obj_ref) = widgets::lookup_dialog_obj(dialog_handle) {
+    while let Some((dialog, position, checked)) = widgets::drain_dialog_item_click_queue() {
+        if let Some(obj_ref) = crate::graphics::lvgl::handle_table::bound_java(dialog) {
             let _ = jvm.invoke_instance_with_args(
                 dispatch_class(dispatch_sites::ALERT_DIALOG_ITEM),
                 dispatch_method(dispatch_sites::ALERT_DIALOG_ITEM),
@@ -302,9 +305,10 @@ pub(super) fn dispatch_alert_dialog_item_clicks(
 }
 
 /// Drain the dialogs the framework dismissed itself — BACK, in
-/// `input::route_key` — and invoke `fireDismiss()` on each, which runs the
-/// Java `OnDismissListener` and turns `isShowing()` false. The object ref is
-/// rooted by the queue until here (`visit_dialog_obj_roots`).
+/// `input::route_key`; an Activity's teardown or covering — and invoke
+/// `fireDismiss()` on each, which runs the Java `OnDismissListener`, turns
+/// `isShowing()` false and lets the Java side's showing list go of it. The
+/// object ref is rooted by the queue until here (`visit_dialog_obj_roots`).
 #[cfg(not(test))]
 pub(super) fn dispatch_alert_dialog_dismissals(
     jvm: &mut Jvm,
@@ -336,7 +340,7 @@ pub(super) fn dispatch_snackbar_action_clicks(
     use crate::graphics::widgets;
 
     while let Some(handle) = widgets::drain_snackbar_click_queue() {
-        if let Some(obj_ref) = widgets::lookup_snackbar_obj(handle) {
+        if let Some(obj_ref) = crate::graphics::lvgl::handle_table::bound_java(handle) {
             let _ = jvm.invoke_instance(
                 dispatch_class(dispatch_sites::SNACKBAR),
                 dispatch_method(dispatch_sites::SNACKBAR),
@@ -345,6 +349,29 @@ pub(super) fn dispatch_snackbar_action_clicks(
                 handler,
             );
         }
+    }
+}
+
+/// Drain the snackbars whose timeout the frame tick dismissed and invoke
+/// `fireDismiss()` on each, so the Java side's showing list lets go of a
+/// bar that is already gone. The object ref is rooted by the queue until
+/// here (`visit_snackbar_dismiss_roots`).
+#[cfg(not(test))]
+pub(super) fn dispatch_snackbar_dismissals(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
+) {
+    use crate::graphics::widgets;
+
+    while let Some(obj_ref) = widgets::drain_snackbar_dismiss_queue() {
+        let _ = jvm.invoke_instance(
+            dispatch_class(dispatch_sites::SNACKBAR_DISMISS),
+            dispatch_method(dispatch_sites::SNACKBAR_DISMISS),
+            obj_ref,
+            heap,
+            handler,
+        );
     }
 }
 
@@ -358,7 +385,7 @@ pub(super) fn dispatch_date_picker_changes(
     use crate::graphics::widgets;
 
     while let Some(handle) = widgets::drain_date_picker_queue() {
-        if let Some(obj_ref) = widgets::lookup_date_picker_obj(handle) {
+        if let Some(obj_ref) = crate::graphics::lvgl::handle_table::bound_java(handle) {
             let _ = jvm.invoke_instance(
                 dispatch_class(dispatch_sites::DATE_PICKER),
                 dispatch_method(dispatch_sites::DATE_PICKER),
@@ -380,7 +407,7 @@ pub(super) fn dispatch_swipe_refresh(
     use crate::graphics::widgets;
 
     while let Some(handle) = widgets::drain_refresh_queue() {
-        if let Some(obj_ref) = widgets::lookup_refresh_obj(handle) {
+        if let Some(obj_ref) = crate::graphics::lvgl::handle_table::bound_java(handle) {
             let _ = jvm.invoke_instance(
                 dispatch_class(dispatch_sites::SWIPE_REFRESH),
                 dispatch_method(dispatch_sites::SWIPE_REFRESH),
@@ -401,11 +428,11 @@ pub(super) fn dispatch_swipe_events(
     heap: &mut SharedJvmHeap,
     handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::graphics::lvgl::events;
+    use crate::graphics::lvgl::{events, handle_table};
     use pico_jvm::types::Value;
 
     while let Some(rec) = events::drain_swipe_event() {
-        if let Some(obj_ref) = events::lookup_swipe_view_obj(rec.view_handle) {
+        if let Some(obj_ref) = handle_table::bound_java(rec.view) {
             let _ = jvm.invoke_instance_with_args(
                 dispatch_class(dispatch_sites::VIEW_SWIPE),
                 dispatch_method(dispatch_sites::VIEW_SWIPE),
@@ -419,9 +446,9 @@ pub(super) fn dispatch_swipe_events(
 }
 
 /// Drain ListView item-click events and invoke `ListView.fireItemClick(int
-/// position)` on the registered listener for each event. A row activated by
-/// ENTER (keypad) or a touch tap fires `LV_EVENT_CLICKED`; the Java side
-/// resolves the row View / item id from the adapter and calls the
+/// position)` on the Java `ListView` bound to each event's list. A row
+/// activated by ENTER (keypad) or a touch tap fires `LV_EVENT_CLICKED`; the
+/// Java side resolves the row View / item id from the adapter and calls the
 /// `AdapterView.OnItemClickListener`.
 #[cfg(not(test))]
 pub(super) fn dispatch_list_view_item_clicks(
@@ -432,8 +459,8 @@ pub(super) fn dispatch_list_view_item_clicks(
     use crate::graphics::widgets;
     use pico_jvm::types::Value;
 
-    while let Some(row) = widgets::drain_item_click_queue() {
-        if let Some((obj_ref, position)) = widgets::lookup_item_click(row) {
+    while let Some((list, position)) = widgets::drain_item_click_queue() {
+        if let Some(obj_ref) = crate::graphics::lvgl::handle_table::bound_java(list) {
             let _ = jvm.invoke_instance_with_args(
                 dispatch_class(dispatch_sites::LIST_VIEW_ITEM_CLICK),
                 dispatch_method(dispatch_sites::LIST_VIEW_ITEM_CLICK),
@@ -455,11 +482,11 @@ pub(super) fn dispatch_view_focus_changes(
     heap: &mut SharedJvmHeap,
     handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
-    use crate::graphics::lvgl::events;
+    use crate::graphics::lvgl::{events, handle_table};
     use pico_jvm::types::Value;
 
     while let Some(rec) = events::drain_focus_change_event() {
-        if let Some(obj_ref) = events::lookup_focus_view_obj(rec.view_handle) {
+        if let Some(obj_ref) = handle_table::bound_java(rec.view) {
             let _ = jvm.invoke_instance_with_args(
                 dispatch_class(dispatch_sites::VIEW_FOCUS_CHANGE),
                 dispatch_method(dispatch_sites::VIEW_FOCUS_CHANGE),
@@ -482,7 +509,7 @@ pub(super) fn dispatch_time_picker_changes(
     use crate::graphics::widgets;
 
     while let Some(handle) = widgets::drain_time_picker_queue() {
-        if let Some(obj_ref) = widgets::lookup_time_picker_obj(handle) {
+        if let Some(obj_ref) = crate::graphics::lvgl::handle_table::bound_java(handle) {
             let _ = jvm.invoke_instance(
                 dispatch_class(dispatch_sites::TIME_PICKER),
                 dispatch_method(dispatch_sites::TIME_PICKER),
@@ -507,7 +534,7 @@ pub(super) fn dispatch_seek_bar_changes(
     use crate::graphics::widgets;
 
     while let Some(handle) = widgets::drain_seek_change_queue() {
-        if let Some(obj_ref) = widgets::lookup_seek_bar_obj(handle) {
+        if let Some(obj_ref) = crate::graphics::lvgl::handle_table::bound_java(handle) {
             let _ = jvm.invoke_instance(
                 dispatch_class(dispatch_sites::SEEK_BAR),
                 dispatch_method(dispatch_sites::SEEK_BAR),
@@ -531,7 +558,7 @@ pub(super) fn dispatch_edit_text_changes(
     use crate::graphics::widgets;
 
     while let Some(handle) = widgets::drain_text_changed_queue() {
-        if let Some(obj_ref) = widgets::lookup_text_watch_obj(handle) {
+        if let Some(obj_ref) = crate::graphics::lvgl::handle_table::bound_java(handle) {
             let _ = jvm.invoke_instance(
                 dispatch_class(dispatch_sites::EDIT_TEXT_TEXT_CHANGED),
                 dispatch_method(dispatch_sites::EDIT_TEXT_TEXT_CHANGED),
@@ -555,7 +582,7 @@ pub(super) fn dispatch_seek_bar_tracking(
     use pico_jvm::types::Value;
 
     while let Some((handle, started)) = widgets::drain_seek_tracking_queue() {
-        if let Some(obj_ref) = widgets::lookup_seek_bar_obj(handle) {
+        if let Some(obj_ref) = crate::graphics::lvgl::handle_table::bound_java(handle) {
             let _ = jvm.invoke_instance_with_args(
                 dispatch_class(dispatch_sites::SEEK_BAR_TRACKING),
                 dispatch_method(dispatch_sites::SEEK_BAR_TRACKING),

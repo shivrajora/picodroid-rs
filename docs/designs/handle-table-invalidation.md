@@ -3,8 +3,8 @@
 **Status: landed, on every target.** Step 1 `a1063ed6` (the `view_ops` null-guard sweep),
 step 2 `3d441fb2` (the generation-tagged table, unit tests, and the staged pre-commit legs),
 step 3 2026-09-15 (the default flip — see the execution log). The 32-bit raw-pointer cast is
-gone from every build; it survives one release behind the opt-out `legacy-handle-cast`
-feature, and goes away with it.
+gone from every build; it survived one release behind the opt-out `legacy-handle-cast`
+feature and was deleted with it on 2026-10-17 (three releases later, v0.35–v0.37).
 
 > Produced 2026-07-25 by the audit fix session's design panel (4 parallel
 > design agents, each adversarially critiqued against source; the critique's
@@ -152,7 +152,7 @@ Yes — and staging is mandatory given S1 + no HIL in-session:
 1. **Commit 1 (no flag):** `view_ops` null-guard sweep — pure hardening, fixes a live sim bug.
 2. **Commit 2 (no flag needed for sim):** unified table **replaces the 64-bit implementation outright** — the sim suite + default-on sanitizer + new unit tests immediately validate the shared logic. The device keeps the cast: `#[cfg]` selects cast unless cargo feature `handle-table-32` (platforms/rp, default off) is set. Includes the `reregister_screen()` plumbing (harmless in cast mode).
 3. **Soak:** nightly sim-run green; one `hil-run --app picoenvmon` with `handle-table-32` on, plus PDB reload test.
-4. **Commit 3:** make the table the default for every target; keep the cast path one release as the escape hatch; then delete it and the feature. *Done 2026-09-15 — cargo features are additive, so "default" is spelled as the opt-out `legacy-handle-cast` rather than by adding `handle-table-32` to `default = [...]`, which firmware builds (`--no-default-features --features board-X`) would have ignored.*
+4. **Commit 3:** make the table the default for every target; keep the cast path one release as the escape hatch; then delete it and the feature. *Done 2026-09-15 — cargo features are additive, so "default" is spelled as the opt-out `legacy-handle-cast` rather than by adding `handle-table-32` to `default = [...]`, which firmware builds (`--no-default-features --features board-X`) would have ignored. The cast and the feature were deleted 2026-10-17, with the Java-binding work in docs/designs/view-listeners-2026-10.md.*
 
 ## 9. Alternative considered — validity bitset keyed by ptr — REJECTED
 

@@ -36,11 +36,6 @@ class HomeActivity : NavActivity() {
             SettingsActivity::class.java,
         )
 
-    // Held as a field so the GC roots the menu ListView via this Activity, in addition to the
-    // native
-    // item-click listener map — defense-in-depth against the unfielded-callback-view sweep.
-    private var menu: ListView? = null
-
     override fun onCreate(savedInstanceState: Bundle?) {
 
         super.onCreate(savedInstanceState)
@@ -75,7 +70,6 @@ class HomeActivity : NavActivity() {
             list,
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f),
         )
-        menu = list
 
         installHintBar(root, "A:Up  B:Down  X:Open  Y:Exit")
 

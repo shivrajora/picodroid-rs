@@ -5,17 +5,16 @@ use crate::lvgl_ffi::*;
 
 use super::super::handle_table;
 use super::super::lifecycle;
-use super::super::listener_map::PtrMap;
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
 
 const QUEUE_SIZE: usize = 16;
 struct State {
-    queue: LocalRing<usize, QUEUE_SIZE>,
+    /// Value changes, each the slider's handle.
+    queue: LocalRing<i32, QUEUE_SIZE>,
     /// Press/release edges for onStartTrackingTouch/onStopTrackingTouch —
-    /// `(slider ptr, started)` where `started` is true on LV_EVENT_PRESSED.
-    track_queue: LocalRing<(usize, bool), QUEUE_SIZE>,
-    handle_map: PtrMap<MAX_LISTENERS>,
+    /// `(slider handle, started)` where `started` is true on LV_EVENT_PRESSED.
+    track_queue: LocalRing<(i32, bool), QUEUE_SIZE>,
 }
 
 // SAFETY: filled by LVGL's slider callbacks and by natives, drained by the
@@ -24,42 +23,35 @@ static STATE: Core0<State> = unsafe {
     Core0::new(State {
         queue: LocalRing::new(0),
         track_queue: LocalRing::new((0, false)),
-        handle_map: PtrMap::new(),
     })
 };
 
-const MAX_LISTENERS: usize = 32;
-
-lv_event_cb! {
-    fn map_delete_cb(e) {
-        let obj = e.target().addr();
-        STATE.handle_map.remove(obj)
-    }
-}
-
 lv_event_cb! {
     fn value_changed_cb(e) {
-        let obj = e.target();
-        STATE.queue.push(obj.addr());
+        let handle = handle_table::handle_of(e.target());
+        if handle != 0 {
+            STATE.queue.push(handle);
+        }
     }
 }
 
 lv_event_cb! {
     fn pressed_cb(e) {
-        let obj = e.target();
-        enqueue_track(obj.addr(), true);
+        enqueue_track(e.target(), true);
     }
 }
 
 lv_event_cb! {
     fn released_cb(e) {
-        let obj = e.target();
-        enqueue_track(obj.addr(), false);
+        enqueue_track(e.target(), false);
     }
 }
 
-fn enqueue_track(handle: usize, started: bool) {
-    STATE.track_queue.push((handle, started));
+fn enqueue_track(obj: Obj, started: bool) {
+    let handle = handle_table::handle_of(obj);
+    if handle != 0 {
+        STATE.track_queue.push((handle, started));
+    }
 }
 
 fn create_internal(max: i32) -> i32 {
@@ -147,30 +139,15 @@ pub(in crate::graphics) fn perform_tracking_touch(id: i32) {
     send_event(obj, Notice::Released);
 }
 
-pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
-    super::compound::register_listener_with_delete_hook(
-        &STATE.handle_map,
-        id,
-        obj_ref,
-        map_delete_cb,
-        "seek-bar",
-    );
-}
-
-pub fn drain_seek_change_queue() -> Option<usize> {
+pub fn drain_seek_change_queue() -> Option<i32> {
     STATE.queue.pop()
 }
 
-pub fn drain_seek_tracking_queue() -> Option<(usize, bool)> {
+pub fn drain_seek_tracking_queue() -> Option<(i32, bool)> {
     STATE.track_queue.pop()
 }
 
-pub fn lookup_seek_bar_obj(handle: usize) -> Option<u16> {
-    STATE.handle_map.lookup(handle)
-}
-
 pub fn reset_seek_bar_state() {
-    STATE.handle_map.reset();
     STATE.queue.clear();
     STATE.track_queue.clear();
 }

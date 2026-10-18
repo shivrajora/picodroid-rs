@@ -11,9 +11,7 @@ use super::super::lvgl::widgets::button as lvgl_button;
 use super::super::view::extract_string_at;
 
 pub use lvgl_button::reset_button_state;
-pub use lvgl_button::{
-    drain_click_queue, drain_long_click_queue, lookup_button_obj, lookup_long_click_obj,
-};
+pub use lvgl_button::{drain_click_queue, drain_long_click_queue};
 
 /// `Button.nativeCreate(String text)`
 pub fn button_native_create(

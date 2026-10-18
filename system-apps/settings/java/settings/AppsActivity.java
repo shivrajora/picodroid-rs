@@ -9,7 +9,6 @@ import picodroid.content.pm.ApplicationInfo;
 import picodroid.content.pm.PackageInfo;
 import picodroid.content.pm.PackageManager;
 import picodroid.util.Log;
-import picodroid.view.View;
 import picodroid.widget.LinearLayout;
 import picodroid.os.Bundle;
 
@@ -21,8 +20,6 @@ import picodroid.os.Bundle;
  * pinned.
  */
 public class AppsActivity extends Activity {
-  /** Held so the rows stay reachable while their click listeners are live. */
-  private View[] rows;
   /** The installed apps in label order, and their labels, fetched once. */
   private PackageInfo[] apps;
   private String[] labels;
@@ -43,11 +40,10 @@ public class AppsActivity extends Activity {
     for (int i = 0; i < apps.length; i++) {
       final String pkg = apps[i].packageName;
       final String label = labels[i];
-      rows[i] =
-          Screens.row(this, column, label, "  v" + apps[i].versionName, v -> confirm(pkg, label));
+      Screens.row(this, column, label, "  v" + apps[i].versionName, v -> confirm(pkg, label));
     }
     Screens.size(this, column, 1 + Math.max(1, apps.length));
-    done();
+    done(column);
   }
 
   /**
@@ -82,7 +78,6 @@ public class AppsActivity extends Activity {
     }
     apps = new PackageInfo[n];
     labels = new String[n];
-    rows = new View[n];
     for (int i = 0; i < n; i++) {
       apps[i] = sorted[i];
       labels[i] = sortedLabels[i];
@@ -90,10 +85,8 @@ public class AppsActivity extends Activity {
   }
 
   /** The rows are in: focus the first, and say how many — the harness keys on this line. */
-  private void done() {
-    if (apps.length > 0) {
-      rows[0].requestFocus();
-    }
+  private void done(LinearLayout column) {
+    column.getChildAt(1).requestFocus(); // child 0 is the header; an info row is focusable too
     Log.i(SettingsActivity.TAG, "apps " + apps.length);
   }
 

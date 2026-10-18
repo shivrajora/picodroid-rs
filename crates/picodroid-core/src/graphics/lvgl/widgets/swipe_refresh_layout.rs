@@ -15,7 +15,6 @@ use crate::lvgl_ffi::*;
 
 use super::super::handle_table;
 use super::super::lifecycle;
-use super::super::listener_map::PtrMap;
 use crate::util::local::Core0;
 use crate::util::local_ring::LocalRing;
 use core::cell::Cell;
@@ -41,12 +40,10 @@ const EMPTY: Slot = Slot {
 
 const QUEUE_SIZE: usize = 8;
 
-const MAX_LISTENERS: usize = MAX_LAYOUTS;
-
 struct State {
     slots: [Cell<Slot>; MAX_LAYOUTS],
-    queue: LocalRing<usize, QUEUE_SIZE>,
-    handle_map: PtrMap<MAX_LISTENERS>,
+    /// Refresh requests, each the container's handle.
+    queue: LocalRing<i32, QUEUE_SIZE>,
 }
 
 // SAFETY: filled by natives and LVGL's gesture callback, drained by natives,
@@ -55,24 +52,15 @@ static STATE: Core0<State> = unsafe {
     Core0::new(State {
         slots: [const { Cell::new(EMPTY) }; MAX_LAYOUTS],
         queue: LocalRing::new(0),
-        handle_map: PtrMap::new(),
     })
 };
 
 lv_event_cb! {
-    fn map_delete_cb(e) {
-        let obj = e.target().addr();
-        STATE.handle_map.remove(obj)
-    }
-}
-
-lv_event_cb! {
     fn gesture_cb(e) {
-        let container = e.target().addr();
         let Some(indev) = lv_indev_active() else {
             return;
         };
-        pull_down(container, lv_indev_get_gesture_dir(indev));
+        pull_down(e.target(), lv_indev_get_gesture_dir(indev));
     }
 }
 
@@ -94,13 +82,13 @@ lv_event_cb! {
 /// Start a refresh on `container` for a pull-down. Only pull-down
 /// (LV_DIR_BOTTOM, finger moving downward) counts, and not while a refresh
 /// is already showing. Returns whether the gesture was taken.
-fn pull_down(container: usize, dir: lv_dir_t) -> bool {
+fn pull_down(container: Obj, dir: lv_dir_t) -> bool {
     if dir & LV_DIR_BOTTOM == 0 {
         return false;
     }
     for (i, slot) in STATE.slots.iter().enumerate() {
         let s = slot.get();
-        if s.container == container {
+        if s.container == container.addr() {
             if s.refreshing {
                 return false;
             }
@@ -111,7 +99,10 @@ fn pull_down(container: usize, dir: lv_dir_t) -> bool {
             if let Some(spinner) = spinner_of(i) {
                 lv_obj_remove_flag(spinner, LV_OBJ_FLAG_HIDDEN);
             }
-            STATE.queue.push(container);
+            let handle = handle_table::handle_of(container);
+            if handle != 0 {
+                STATE.queue.push(handle);
+            }
             return true;
         }
     }
@@ -126,7 +117,7 @@ pub(in crate::graphics) fn intercept(obj: Obj, dir: lv_dir_t) -> bool {
     let mut o = lv_obj_get_parent(obj);
     while let Some(p) = o {
         if STATE.slots.iter().any(|s| s.get().container == p.addr()) {
-            return pull_down(p.addr(), dir);
+            return pull_down(p, dir);
         }
         o = lv_obj_get_parent(p);
     }
@@ -207,29 +198,14 @@ pub(in crate::graphics) fn set_refreshing(id: i32, refreshing: bool) {
     }
 }
 
-pub(in crate::graphics) fn register_listener(id: i32, obj_ref: u16) {
-    super::compound::register_listener_with_delete_hook(
-        &STATE.handle_map,
-        id,
-        obj_ref,
-        map_delete_cb,
-        "swipe-refresh",
-    );
-}
-
-pub fn drain_refresh_queue() -> Option<usize> {
+pub fn drain_refresh_queue() -> Option<i32> {
     STATE.queue.pop()
-}
-
-pub fn lookup_refresh_obj(handle: usize) -> Option<u16> {
-    STATE.handle_map.lookup(handle)
 }
 
 pub fn reset_swipe_refresh_state() {
     for slot in &STATE.slots {
         slot.set(EMPTY);
     }
-    STATE.handle_map.reset();
     STATE.queue.clear();
 }
 

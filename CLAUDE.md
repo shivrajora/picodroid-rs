@@ -36,13 +36,13 @@ Confirm `[HelloWorld] Hello, World!` appears. Docs, example-app and script-only 
 
 Must end with `==> All checks passed.` It runs the shadow-twin and cfg-hygiene guards, `apply_jvm_env`, and whichever of `cargo fmt`, Java/Kotlin formatting and markdown lint the changed files implicate. A Rust change adds CI's eight clippy legs on CI's pinned toolchain (`RUST_TOOLCHAIN` in `ci_checks.yml`; ~30 s warm) and compiles `test.sh`'s test binaries without running them (clippy never sees `#[cfg(test)]` code). A `scripts/` change adds the `hil-tests.conf` drift check and the device-lock test. An `sdk/` change adds the three name-table currency tests (what `gen-api-contract.sh` regenerates: run it after the *last* Java edit, since javac numbers its lambdas by position), and a change that adds an SDK class also runs the `--shrink` image check CI's Building job runs.
 
-Do not wait for anything longer locally; commit and push only when asked. GitHub CI (~20 min) runs clippy for every board, both boards in debug and release, the tests in both shrink modes, every example APK, the same source guards and the sim smoke; the 1 AM `scripts/nightly.sh` cron runs three stages back to back, each starting when the previous one exits: `fuzz.sh --nightly` fuzzes every untrusted-input parser (docs/fuzzing.md), then `sim-run.sh` runs the whole `hil-tests.conf` matrix in both shrink modes (the `qa_*` apps, the diagnostics soaks, a GC-stress pass, the binary-size ratchet), then `hil-fleet.sh` runs it on hardware (roughly 01:00–02:00, 02:00–03:35, 03:35–07:20); a fixed finding's input goes into `fuzz/regress/`, which `test.sh` replays. After a push, `gh run list --limit 3` shows CI; nightly results arrive by email and under `build/sim/results/`, `build/hil/results/` and `build/fuzz/results/`.
+Do not wait for anything longer locally; commit and push only when asked. GitHub CI (~20 min) runs clippy for every board, both boards in debug and release, the tests in both shrink modes, every example APK, the same source guards and the sim smoke; the 3 AM `scripts/nightly.sh` cron runs three stages back to back, each starting when the previous one exits: `fuzz.sh --nightly` fuzzes every untrusted-input parser (docs/fuzzing.md), then `sim-run.sh` runs the whole `hil-tests.conf` matrix in both shrink modes (the `qa_*` apps, the diagnostics soaks, a GC-stress pass, the binary-size ratchet), then `hil-fleet.sh` runs it on hardware (roughly 03:00–04:00, 04:00–05:35, 05:35–09:20); a fixed finding's input goes into `fuzz/regress/`, which `test.sh` replays. After a push, `gh run list --limit 3` shows CI; nightly results arrive by email and under `build/sim/results/`, `build/hil/results/` and `build/fuzz/results/`.
 
 ```bash
 ./scripts/pre-commit --full   # before cutting a release
 ```
 
-`--full` is the release-cut gate and covers only the legs nothing else runs: the `legacy-handle-cast` clippy leg, the opt-in `mem-diag` / `sched-diag` firmware builds, the shrunk-image name check and the size ratchet on both boards. A few minutes.
+`--full` is the release-cut gate and covers only the legs nothing else runs: the opt-in `mem-diag` / `sched-diag` firmware builds, the shrunk-image name check and the size ratchet on both boards. A few minutes.
 
 `--list` prints the stages a run would execute; `--serial` runs the lanes one at
 a time and streams to stdout, which is what to use when a parallel run fails and
@@ -63,7 +63,7 @@ The bench is described by `~/.config/picodroid/fleet.conf` (format in `scripts/f
 ./scripts/fleet.sh discover                         # probes and boards on USB, with their positions
 ```
 
-Never `pkill -f probe-rs` (it kills any shell whose command line mentions it); `release` kills only the probe-rs on your board's probe. Overnight soaks launched with `setsid nohup` need a lease that outlives the session: `PICODROID_DEVICE_OWNER=soak ./scripts/device-lock.sh acquire --board X --pin` before the flash, `release` at teardown. The nightly `hil-fleet.sh` (from about 03:35) runs every board at once; each runner waits up to an hour for its board, then records a SKIP. `PICODROID_DEVICE_LOCK=0` bypasses the check (emergencies only).
+Never `pkill -f probe-rs` (it kills any shell whose command line mentions it); `release` kills only the probe-rs on your board's probe. Overnight soaks launched with `setsid nohup` need a lease that outlives the session: `PICODROID_DEVICE_OWNER=soak ./scripts/device-lock.sh acquire --board X --pin` before the flash, `release` at teardown. The nightly `hil-fleet.sh` (from about 05:35) runs every board at once; each runner waits up to an hour for its board, then records a SKIP. `PICODROID_DEVICE_LOCK=0` bypasses the check (emergencies only).
 
 > **When debugging:** Skip these checks during intermediate debugging steps. Only run them once you are confident the bug is fixed.
 >

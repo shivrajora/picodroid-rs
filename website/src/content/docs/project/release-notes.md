@@ -14,6 +14,23 @@ dispatched by hash instead of string compare; line-number tables are out of ever
 image; and two bug-scan rounds landed about ninety one-bug fixes across the JVM, the widgets,
 the `java.*` shim and the packer.
 
+**A view keeps its listener, as on Android (2026-10-17)**
+
+Written up in [view-listeners-2026-10.md](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/view-listeners-2026-10.md).
+A listener lives with its view: a view that Java reaches — through its parent chain from the
+Activity's content view, or from a field — keeps its listener for as long as it is reachable,
+however many views have one. The fixed-size native listener tables are gone, and with them the
+cap of 32 per kind, the `IllegalStateException` on the 33rd `setOnClickListener`, and the
+silently dropped registrations of the other kinds. The handle table now binds each widget to
+its Java object; a collection drops the bindings of views nothing reaches, and the simulator
+reports a view collected while its widget is still on screen (under the handle sanitizer it
+stops). A shown `AlertDialog` or `Snackbar` is held by the framework until it is dismissed, as
+Android's window manager would — which also fixes an unfielded `Snackbar` action being swept —
+and `Snackbar.isShown()` is new. Settings, the launcher, the calculator, picoenvmon and the
+tutorials no longer hold view arrays "so the rows stay reachable"; the tutorials now teach the
+Android shape. `removeView` still frees the widget. The `legacy-handle-cast` escape hatch,
+promised for one release after 2026-09-15, is deleted.
+
 **The UI tick budget is the framework's concern, not the app's (2026-10-17)**
 
 Written up in [ui-build-budget-2026-10.md](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/ui-build-budget-2026-10.md).

@@ -193,7 +193,7 @@ The first is an Android idiom picodroid does not have, with its replacement (`ru
 
 **What it usually means.** The JVM heap is a non-moving mark-sweep collector with slot reuse; class and method tables are append-only and never collected. So `NoSuchMethod` at runtime almost always means a *still-referenced* object was swept (a missing GC root), its heap slot was reused by a later allocation, and a subsequent method dispatch hit the wrong class's vtable.
 
-The canonical case: the `Display` singleton (returned by `Display.getInstance()`) was swept, its slot reused by a `SensorEvent`, and the next `Activity.setContentView` resolved `setContentView` on a `SensorEvent` — which has no such method. The same failure mode applies to any object held only by Rust-side native state (listener maps, cached singletons) and never by a Java field.
+The canonical case: the `Display` singleton (returned by `Display.getInstance()`) was swept, its slot reused by a `SensorEvent`, and the next `Activity.setContentView` resolved `setContentView` on a `SensorEvent` — which has no such method. The same failure mode applies to any object held only by Rust-side native state (a cached singleton, a queue of pending callbacks) and never by a Java field.
 
 **How to recognise it (timeline).**
 
@@ -208,9 +208,9 @@ The canonical case: the `Display` singleton (returned by `Display.getInstance()`
 
 - In isolation each screen works fine — the failure is cumulative, not screen-specific.
 
-There is a **silent variant**: a listener kept alive only by its native map (a `Switch`, `CheckBox`, `ToggleButton`, or `EditText` created as a local in `onCreate` and never stored in a Java field) is swept on the first GC. The widget still moves visually, but `onCheckedChanged` (or the editor-action callback) dispatches onto a wrong-class object and the error is swallowed — no log, the listener just stops firing.
+A view with a listener is not in this class: the listener is a field of the view, and the view lives while Java reaches it through its parent chain or a field, as on Android. A listener-bearing view that nothing reaches is collected, and the simulator reports it (`a View with a listener was collected while its widget is still alive`) rather than letting a later event dispatch onto a reused slot. See [Embedded gotchas](/guides/embedded-gotchas/).
 
-**Prevention.** Keep a Java field reference to anything whose callback must keep firing. The framework now roots Views, dialogs, compound-button and editor listeners, the `Display` singleton, sensors, and bound-service refs through its GC walk, but the cheapest defence in your own app is to never let a listener-bearing widget be reachable only from a local. See the GC-lifetime rules in [Embedded gotchas](/guides/embedded-gotchas/).
+**Prevention.** The framework roots the `Display` singleton, sensors, bound-service refs, queued Runnables and callbacks in flight through its GC walk. In your own app, keep a field to an object whose callback must keep firing when nothing else in Java references it — a `SensorEventListener` object you register and drop, say.
 
 **Diagnosing a new instance.** This class of bug is found by *runtime tracing*, not static reading: trace the receiver class and method at the failure (`recv_class=... method=...`) and confirm the receiver is the wrong type for the method being called. If so, the object needs a GC root.
 
@@ -272,7 +272,7 @@ It returns `false` when the listener or sensor argument is not a valid object, w
 
 **A lifecycle/service op was refused.** Activity and Service transitions go through an internal pending-op queue with a fixed depth per frame (`[jvm] pending_op_queue` in `board.toml`, default 8). When that queue is full, the call that would enqueue one more (`startActivity`, `finish`, `startService`, `stopService`, …) throws `IllegalStateException` (`too many pending Activity/Service transitions in one frame`). If a transition is missing, look for that exception in the log; raise the knob or spread the calls over frames. (The separate `MainExecutor`/`BackgroundExecutor` queues still drop a Runnable with a `queue full, dropped` warning — that is a different queue.)
 
-**The listener was GC-swept.** A View, dialog, compound-button, or `EditText` listener whose only owner is a native map gets collected on the first GC and stops firing a few seconds in, with no error. This is the silent variant of the [NoSuchMethod playbook](#nosuchmethod--input-dies-after-a-while) — keep a Java field reference to the widget. See [Embedded gotchas](/guides/embedded-gotchas/).
+**The view was collected.** A view with a listener that nothing in Java reaches — never added to a parent, never kept in a field — is collected, and its widget stays on the screen it was created under with nothing to take its events. The simulator prints `a View with a listener was collected while its widget is still alive (nativeHandle N)` and, under the handle sanitizer, stops with a backtrace of the collection. Add the view to a parent, keep a field, or `close()` it. See [Embedded gotchas](/guides/embedded-gotchas/).
 
 **A swipe listener.** A swipe goes to the nearest view with an `OnSwipeListener`, starting from the view under the finger; a child with a listener of its own keeps the swipe, and a pull-down inside a `SwipeRefreshLayout` goes to the layout first. Rehearse one with `input swipe` (below).
 

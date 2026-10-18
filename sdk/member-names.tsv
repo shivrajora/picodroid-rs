@@ -886,6 +886,8 @@ F	sInstances
 F	sMainExecutor
 F	sManifestThemeApplied
 F	sQueuedWork
+F	sShowing
+F	sShowingCount
 F	sUnwritten
 F	sWidth
 F	scaleXTo
@@ -976,7 +978,6 @@ M	access$076
 M	access$100
 M	access$1002
 M	access$1102
-M	access$1200
 M	access$200
 M	access$302
 M	access$402
@@ -999,6 +1000,7 @@ M	addNetwork
 M	addObserver
 M	addOnBackStackChangedListener
 M	addRequestProperty
+M	addShowing
 M	addTextChangedListener
 M	addTo
 M	addToBackStack
@@ -1650,6 +1652,7 @@ M	isResumed
 M	isSavable
 M	isSecured
 M	isShowing
+M	isShown
 M	isShutdown
 M	isSized
 M	isStateSaved
@@ -2206,6 +2209,7 @@ M	removeNetwork
 M	removeObserver
 M	removeObservers
 M	removeOnBackStackChangedListener
+M	removeShowing
 M	removeStateAt
 M	removeTextChangedListener
 M	removeTransportType

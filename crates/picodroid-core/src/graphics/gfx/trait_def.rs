@@ -12,8 +12,8 @@
 //! push/pull event model on this trait (`EventKind`, `EventPayload`,
 //! `add_event_listener`, `poll_event`); the LVGL backend never implemented
 //! it, and the path that shipped instead is the `lv_event_t` trampoline in
-//! `lvgl/events.rs` writing into the per-handle tables in
-//! `lvgl/listener_map.rs`. The unbuilt surface was deleted rather than left
+//! `lvgl/events` queueing widget handles that `lvgl/handle_table.rs` binds
+//! to their Java objects. The unbuilt surface was deleted rather than left
 //! compiling — see the dead-code audit for the reasoning.
 
 use super::handle::Handle;

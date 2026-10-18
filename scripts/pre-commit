@@ -10,8 +10,7 @@
 #                                 legs, on CI's pinned toolchain. Seconds
 #                                 without Rust, a minute or two warm with it.
 #   ./scripts/pre-commit --full   the legs neither CI nor the nightlies run:
-#                                 the legacy-handle-cast hatch and opt-in
-#                                 mem-diag / sched-diag firmware, the
+#                                 the opt-in mem-diag / sched-diag firmware, the
 #                                 shrunk-image name check and the binary-size
 #                                 ratchet. Minutes; run it before a release.
 #
@@ -240,7 +239,6 @@ STAGES=(
   "fuzz_build|host|full|rust|fuzz targets build (cargo-fuzz, nightly)"
 
   "clippy_rp2040|arm6|fast|rust|clippy (testbench_rp2040)"
-  "clippy_rp2040_legacy_cast|arm6|full|rust|clippy (testbench_rp2040 + legacy-handle-cast)"
   "size_rp2040|arm6|full|rust,jvm|size lane (rp2040)"
 
   # Order is load-bearing. pico_enviro_mon_w is the only board whose
@@ -533,14 +531,6 @@ stage_clippy_rp2350w()   { clippy_board testbench_rp2350w; }
 stage_clippy_enviro()    { clippy_board pico_enviro_mon; }
 stage_clippy_touch_kit() { clippy_board pico_touch_kit; }
 stage_clippy_enviro_w()  { clippy_board pico_enviro_mon_w; }
-
-# The generational handle table (audit P1-9) became the default for every
-# board on 2026-09-15, so every clippy/build leg here already compiles and
-# links it. What nothing else compiles now is the arm it replaced: the raw
-# pointer cast, kept one release behind `legacy-handle-cast` as the escape
-# hatch. One leg on the tighter of the two widths keeps the hatch from
-# rotting; drop this stage when the cast and its feature go.
-stage_clippy_rp2040_legacy_cast() { clippy_board testbench_rp2040 legacy-handle-cast; }
 
 # clippy on the host target. MANIFEST_DIR/PACKAGE/CARGO_PLUS come from a
 # resolve_board call, which also fixes the JVM tunables the sim is linted with.

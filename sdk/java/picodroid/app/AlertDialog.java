@@ -4,6 +4,14 @@ package picodroid.app;
 import picodroid.content.Context;
 import picodroid.content.DialogInterface;
 
+/**
+ * A modal dialog with a title, a message or a list, and up to three buttons, built with {@link
+ * Builder} as on Android. A shown dialog is held by the framework until it goes away — what
+ * Android's window manager does for a dialog's window — so {@code new
+ * AlertDialog.Builder(this)....show()} is a complete statement and the app keeps a reference only
+ * when it wants to dismiss the dialog itself. Unlike Android, picodroid frees a dialog's widgets on
+ * dismiss, so a dismissed dialog cannot be shown again.
+ */
 public class AlertDialog implements DialogInterface {
   // Match Android values verbatim so apps porting in idioms like
   // `which == DialogInterface.BUTTON_POSITIVE` keep working.
@@ -42,18 +50,64 @@ public class AlertDialog implements DialogInterface {
   private DialogInterface.OnMultiChoiceClickListener multiChoiceListener;
   private boolean[] checkedItems;
 
+  /**
+   * The dialogs showing right now, oldest first: what Android's window manager holds for a shown
+   * dialog's window. A dialog is held from {@link #show} until it goes away, by {@link #dismiss}, a
+   * button, a pick in a plain item list, BACK, or its Activity finishing or being covered, so the
+   * app need not keep it anywhere. A static is a GC root; the array grows by doubling (the
+   * framework shows a handful at most).
+   */
+  private static AlertDialog[] sShowing = new AlertDialog[4];
+
+  private static int sShowingCount;
+
   private AlertDialog(int nativeHandle) {
     this.nativeHandle = nativeHandle;
   }
 
+  /**
+   * Shows the dialog and hands it to the framework, which holds it until it is dismissed and
+   * delivers its clicks to it. Mirrors {@code Dialog#show}.
+   */
   public void show() {
     if (nativeHandle == 0) {
       throw new IllegalStateException(
           "AlertDialog.show: this dialog was dismissed; picodroid frees a dismissed dialog, create"
               + " a new one");
     }
+    // Name this object as the receiver of the dialog's clicks and of the dismissals the framework
+    // makes itself. Only a shown dialog is bound: one built and never shown is garbage like any
+    // other object.
+    nativeRegisterButtonClickListener();
     nativeShow(nativeHandle);
     showing = true;
+    addShowing(this);
+  }
+
+  private static void addShowing(AlertDialog d) {
+    for (int i = 0; i < sShowingCount; i++) {
+      if (sShowing[i] == d) {
+        return;
+      }
+    }
+    if (sShowingCount == sShowing.length) {
+      AlertDialog[] bigger = new AlertDialog[sShowing.length * 2];
+      System.arraycopy(sShowing, 0, bigger, 0, sShowingCount);
+      sShowing = bigger;
+    }
+    sShowing[sShowingCount++] = d;
+  }
+
+  private static void removeShowing(AlertDialog d) {
+    for (int i = 0; i < sShowingCount; i++) {
+      if (sShowing[i] == d) {
+        for (int j = i; j < sShowingCount - 1; j++) {
+          sShowing[j] = sShowing[j + 1];
+        }
+        sShowing[--sShowingCount] = null;
+        return;
+      }
+    }
   }
 
   /** Mirrors {@code Dialog#isShowing}: true from {@link #show} until the dialog is dismissed. */
@@ -86,9 +140,10 @@ public class AlertDialog implements DialogInterface {
   }
 
   /**
-   * Invoked from the native event loop after the framework dismissed the dialog itself: BACK tears
-   * the widgets down natively before Java hears of it, so the handle is dead by now and only the
-   * Java side is left to close.
+   * Invoked from the native event loop after the framework dismissed the dialog itself: BACK, an
+   * Activity finishing or being covered, or a ninth dialog shown at once tears the widgets down
+   * natively before Java hears of it, so the handle is dead by now and only the Java side is left
+   * to close — and to let go of the dialog.
    */
   void fireDismiss() {
     if (nativeHandle == 0) {
@@ -99,6 +154,7 @@ public class AlertDialog implements DialogInterface {
   }
 
   private void dismissed() {
+    removeShowing(this);
     showing = false;
     if (dismissListener != null) {
       dismissListener.onDismiss(this);
@@ -377,10 +433,13 @@ public class AlertDialog implements DialogInterface {
       d.negativeListener = negativeListener;
       d.neutralListener = neutralListener;
       d.dismissListener = dismissListener;
-      d.nativeRegisterButtonClickListener();
       return d;
     }
 
+    /**
+     * Creates and shows the dialog. The framework holds a shown dialog until it is dismissed, so
+     * keeping the returned dialog is optional.
+     */
     public AlertDialog show() {
       AlertDialog d = create();
       d.show();

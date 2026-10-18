@@ -10,12 +10,28 @@
 pub mod view {
     /// `lv_obj_t*` cast to `i32` (declared in `View.java`).
     pub const NATIVE_HANDLE: usize = 0;
-    // View.java declares the parent back-pointer, the listeners and the
-    // layout params after `nativeHandle` (slots 1-8), then the fields the
-    // getters read, which the inflater's native path writes for a view it
-    // made (24 instance fields in all); a subclass's own fields — e.g.
+    // View.java declares the parent back-pointer (slot 1), the listeners
+    // (2-7) and the layout params (8) after `nativeHandle`, then the fields
+    // the getters read, which the inflater's native path writes for a view
+    // it made (24 instance fields in all); a subclass's own fields — e.g.
     // `CompoundButton.onCheckedChangeListener` — follow them. Fields not
     // named here are read and written from Java only.
+    //
+    // The listener fields are read, never written, natively: the key router
+    // and the long-press query ask whether the focused view has one before
+    // paying for an upcall that would return false.
+    /// `OnKeyListener onKeyListener`.
+    pub const ON_KEY_LISTENER: usize = 2;
+    /// `OnTouchListener onTouchListener`.
+    pub const ON_TOUCH_LISTENER: usize = 3;
+    /// `OnSwipeListener onSwipeListener`.
+    pub const ON_SWIPE_LISTENER: usize = 4;
+    /// `OnClickListener onClickListener`.
+    pub const ON_CLICK_LISTENER: usize = 5;
+    /// `OnLongClickListener onLongClickListener`.
+    pub const ON_LONG_CLICK_LISTENER: usize = 6;
+    /// `OnFocusChangeListener onFocusChangeListener`.
+    pub const ON_FOCUS_CHANGE_LISTENER: usize = 7;
     /// `boolean focusable`.
     pub const FOCUSABLE: usize = 10;
     /// `boolean keepScreenOn`.

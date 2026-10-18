@@ -123,6 +123,9 @@ pub const SERVICE_CONNECTED: usize = WIFI_EVENT + 1;
 /// A dialog the framework dismissed itself (BACK): `AlertDialog.fireDismiss()`
 /// runs the Java `OnDismissListener` for widgets already torn down natively.
 pub const ALERT_DIALOG_DISMISS: usize = WIFI_EVENT + 2;
+/// A snackbar's timeout took it down: `Snackbar.fireDismiss()` lets the Java
+/// side's showing list go of a bar the frame tick already deleted.
+pub const SNACKBAR_DISMISS: usize = WIFI_EVENT + 3;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -180,6 +183,7 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     (c::picodroid_net_wifi_WifiManager, m::fireEvent),
     (c::picodroid_content_Context, m::dispatchServiceConnected),
     (c::picodroid_app_AlertDialog, m::fireDismiss),
+    (c::picodroid_widget_Snackbar, m::fireDismiss),
 ];
 
 #[cfg(test)]

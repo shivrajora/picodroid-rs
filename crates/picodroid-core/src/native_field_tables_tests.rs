@@ -44,6 +44,36 @@ fn slot_expectations() -> Vec<(&'static str, &'static str, usize)> {
             "nativeHandle",
             g::view::NATIVE_HANDLE,
         ),
+        (
+            c::picodroid_view_View,
+            "onKeyListener",
+            g::view::ON_KEY_LISTENER,
+        ),
+        (
+            c::picodroid_view_View,
+            "onTouchListener",
+            g::view::ON_TOUCH_LISTENER,
+        ),
+        (
+            c::picodroid_view_View,
+            "onSwipeListener",
+            g::view::ON_SWIPE_LISTENER,
+        ),
+        (
+            c::picodroid_view_View,
+            "onClickListener",
+            g::view::ON_CLICK_LISTENER,
+        ),
+        (
+            c::picodroid_view_View,
+            "onLongClickListener",
+            g::view::ON_LONG_CLICK_LISTENER,
+        ),
+        (
+            c::picodroid_view_View,
+            "onFocusChangeListener",
+            g::view::ON_FOCUS_CHANGE_LISTENER,
+        ),
         (c::picodroid_view_View, "focusable", g::view::FOCUSABLE),
         (
             c::picodroid_view_View,

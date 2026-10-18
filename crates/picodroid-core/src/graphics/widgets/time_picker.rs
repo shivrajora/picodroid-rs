@@ -6,10 +6,10 @@ use pico_jvm::types::{JvmError, Value};
 
 use super::super::lvgl::widgets::time_picker as lvgl_time_picker;
 use super::super::view::extract_native_handle;
-use super::super::view::register_listener_with;
+use super::super::view::{register_listener_with, NO_ATTACH};
 
+pub use lvgl_time_picker::drain_time_picker_queue;
 pub use lvgl_time_picker::reset_time_picker_state;
-pub use lvgl_time_picker::{drain_time_picker_queue, lookup_time_picker_obj};
 
 #[inline]
 fn arg_int(args: &[Value], i: usize) -> Result<i32, JvmError> {
@@ -54,7 +54,7 @@ pub fn time_picker_register_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    register_listener_with(args, objects, lvgl_time_picker::register_listener)
+    register_listener_with(args, objects, NO_ATTACH)
 }
 
 pub fn time_picker_set_is_24hour(

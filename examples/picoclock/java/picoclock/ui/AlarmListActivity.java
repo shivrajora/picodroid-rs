@@ -37,9 +37,6 @@ public class AlarmListActivity extends BaseActivity {
 
   private LinearLayout rows;
 
-  /** The alarm ids on screen, in row order; held so their listeners stay reachable. */
-  private int[] shown = new int[0];
-
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
@@ -86,13 +83,9 @@ public class AlarmListActivity extends BaseActivity {
   private void fill() {
     rows.removeAllViews();
     Alarm[] live = store.live();
-    shown = new int[live.length];
-    for (int i = 0; i < live.length; i++) {
-      shown[i] = live[i].id;
-    }
     // +1 for the "new alarm" card.
-    rows.setSize(Ui.WIDTH, height(shown.length + 1));
-    Log.i(TAG, "alarms: " + shown.length);
+    rows.setSize(Ui.WIDTH, height(live.length + 1));
+    Log.i(TAG, "alarms: " + live.length);
     LayoutInflater inflater = getLayoutInflater();
     for (Alarm alarm : live) {
       alarmCard(inflater, alarm);

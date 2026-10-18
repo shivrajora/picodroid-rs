@@ -192,7 +192,6 @@ pub fn run_app(apk_data: &'static [u8]) {
     crate::graphics::widgets::reset_edit_text_state();
     crate::graphics::widgets::reset_list_view_state();
     crate::graphics::widgets::reset_number_picker_state();
-    crate::graphics::view::reset_key_listener_state();
     crate::graphics::view::reset_touch_listener_state();
     crate::graphics::view::reset_swipe_listener_state();
     crate::graphics::view::reset_focus_change_listener_state();

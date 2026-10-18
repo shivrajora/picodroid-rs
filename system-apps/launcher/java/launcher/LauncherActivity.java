@@ -40,7 +40,7 @@ public class LauncherActivity extends Activity {
 
   private LinearLayout root;
 
-  /** Held here so the rows stay reachable while their click listeners are live. */
+  /** The rows in display order; row 0 takes the focus once they are in. */
   private View[] rows;
 
   /** The packages in display order, and their labels, fetched once. */

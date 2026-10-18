@@ -19,10 +19,6 @@ import picodroid.widget.TextView;
 public class HomeActivity extends Activity {
   private static final String TAG = "HomeActivity";
 
-  // Views with listeners are held as fields so the GC always sees them rooted through this
-  // Activity, not only through the native listener registry — best practice for callback views.
-  private Button viewLogButton;
-
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
@@ -44,7 +40,8 @@ public class HomeActivity extends Activity {
     body.setTextColor(Color.WHITE);
     root.addView(body);
 
-    viewLogButton = new Button("View Log");
+    // A local, as on Android: the content view keeps the button and its listener alive.
+    Button viewLogButton = new Button("View Log");
     viewLogButton.setSize(200, 40);
     viewLogButton.setOnClickListener(v -> startActivity(new Intent(LogViewerActivity.class)));
     root.addView(viewLogButton);

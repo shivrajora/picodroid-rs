@@ -5,11 +5,11 @@ use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
 use super::super::lvgl::widgets::keyboard as lvgl_keyboard;
-use super::super::view::register_listener_with;
 use super::super::view::{extract_handle_at, extract_native_handle};
+use super::super::view::{register_listener_with, NO_ATTACH};
 
 pub use lvgl_keyboard::reset_keyboard_state;
-pub use lvgl_keyboard::{drain_editor_action, drain_ready_queue, lookup_keyboard_obj};
+pub use lvgl_keyboard::{drain_editor_action, drain_ready_queue};
 
 #[inline]
 fn arg_int(args: &[Value], i: usize) -> Result<i32, JvmError> {
@@ -50,5 +50,5 @@ pub fn keyboard_register_ready_listener(
     args: &[Value],
     objects: &ObjectHeap,
 ) -> Result<Option<Value>, JvmError> {
-    register_listener_with(args, objects, lvgl_keyboard::register_ready_listener)
+    register_listener_with(args, objects, NO_ATTACH)
 }
