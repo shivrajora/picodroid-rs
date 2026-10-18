@@ -69,25 +69,31 @@ grep -vE '^(#|$)' "$SDK_DIR/class-names.tsv" | cut -f1 | sort -u \
   | comm -23 - "$tmp/mapped.txt" > "$tmp/unmapped.txt"
 
 # `strings` runs adjacent literals together, so a candidate is the name
-# with whatever followed it in flash. It is tolerated when it is an unmapped
-# name followed by nothing that spells another package path; any candidate
-# containing a mapped name is a leak.
+# with whatever followed it in flash. A candidate is classified by the
+# longest known name (mapped or not) it starts with: it is tolerated when
+# that name is unmapped and nothing after it spells another package path.
+# Longest, not any: a mapped name can be a prefix of an unmapped one —
+# `picodroid/content/Intent` of `picodroid/content/IntentFilter`, added
+# after the v0.37.0 cut, which a substring test read as a leak (CI
+# 2026-10-18). Anything else is a leak.
+sed 's/$/\tm/' "$tmp/mapped.txt" > "$tmp/known.txt"
+sed 's/$/\tu/' "$tmp/unmapped.txt" >> "$tmp/known.txt"
 : > "$tmp/real.txt"
 : > "$tmp/pending.txt"
 while IFS= read -r cand; do
   [[ -n "$cand" ]] || continue
   bare="${cand#L}"
   bare="${bare%;}"
+  best=
+  best_kind=
+  while IFS=$'\t' read -r k kind; do
+    [[ -n "$k" && "$bare" == "$k"* && ${#k} -gt ${#best} ]] || continue
+    best=$k
+    best_kind=$kind
+  done < "$tmp/known.txt"
   tolerated=
-  if ! grep -qF -f "$tmp/mapped.txt" <<< "$bare"; then
-    while IFS= read -r u; do
-      [[ -n "$u" && "$bare" == "$u"* ]] || continue
-      rest="${bare#"$u"}"
-      if ! grep -qE '(java|javax|picodroid)/' <<< "$rest"; then
-        tolerated=$u
-        break
-      fi
-    done < "$tmp/unmapped.txt"
+  if [[ "$best_kind" == u ]] && ! grep -qE '(java|javax|picodroid)/' <<< "${bare#"$best"}"; then
+    tolerated=$best
   fi
   if [[ -n "$tolerated" ]]; then
     echo "$tolerated" >> "$tmp/pending.txt"
