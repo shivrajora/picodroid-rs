@@ -4,7 +4,10 @@ package connectivity;
 import picodroid.app.Activity;
 import picodroid.concurrent.Executors;
 import picodroid.concurrent.Thread;
+import picodroid.content.BroadcastReceiver;
 import picodroid.content.Context;
+import picodroid.content.Intent;
+import picodroid.content.IntentFilter;
 import picodroid.net.ConnectivityManager;
 import picodroid.net.Network;
 import picodroid.net.NetworkCapabilities;
@@ -22,7 +25,10 @@ import picodroid.widget.TextView;
  * <p>Also the sim test for it (the {@code connectivity} row of {@code hil-tests.conf}): the app
  * registers, expects the link that is up at boot to be announced once its {@code onCreate} has
  * returned, then waits for the row's {@code test.ctrl} to take the simulated link down and up again
- * and checks {@code onLost} and a second {@code onAvailable} with a new {@code Network}.
+ * and checks {@code onLost} and a second {@code onAvailable} with a new {@code Network}. The same
+ * two edges must also arrive as the broadcasts Android sends beside the callback: {@code
+ * ConnectivityManager.CONNECTIVITY_ACTION} with {@code EXTRA_NO_CONNECTIVITY}, and {@code
+ * WifiManager.NETWORK_STATE_CHANGED_ACTION}, to a registered {@code BroadcastReceiver}.
  * Register-twice and unregister-unknown must throw as on Android; a request for a transport the
  * board lacks must never fire. Run by hand on a board with a network: {@code ./scripts/sim.sh --app
  * connectivity --board testbench_rp2350w}, then {@code net down} / {@code net up} on the control
@@ -41,6 +47,31 @@ public class Connectivity extends Activity {
   private boolean inRegister;
   private boolean done;
   private int failures;
+  private int broadcastsDown;
+  private int broadcastsUp;
+  private int networkStateBroadcasts;
+
+  /** Android's broadcast form of the same edge, beside the callback. */
+  private final BroadcastReceiver receiver =
+      new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+          if (ConnectivityManager.CONNECTIVITY_ACTION.equals(intent.getAction())) {
+            boolean down = intent.getBooleanExtra(ConnectivityManager.EXTRA_NO_CONNECTIVITY, false);
+            check(
+                down != NetworkInfo.isConnected(), "EXTRA_NO_CONNECTIVITY disagrees with the link");
+            if (down) {
+              broadcastsDown++;
+              Log.i(TAG, "broadcast down " + broadcastsDown);
+            } else {
+              broadcastsUp++;
+              Log.i(TAG, "broadcast up " + broadcastsUp);
+            }
+          } else {
+            networkStateBroadcasts++;
+          }
+        }
+      };
 
   /** Registered against a transport this board does not have: must stay silent. */
   private final ConnectivityManager.NetworkCallback never =
@@ -66,7 +97,8 @@ public class Connectivity extends Activity {
           } else {
             check(!network.equals(lastNetwork), "the returning link reused the lost Network");
             Log.i(TAG, "handle " + network.getNetworkHandle());
-            finishRun();
+            // The broadcasts of the same frame land after the callbacks: judge them a turn later.
+            Executors.mainExecutor().execute(() -> finishRun());
           }
           lastNetwork = network;
           show("online " + network);
@@ -141,6 +173,9 @@ public class Connectivity extends Activity {
     inRegister = true;
     cm.registerDefaultNetworkCallback(callback);
     inRegister = false;
+    IntentFilter filter = new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION);
+    filter.addAction(picodroid.net.wifi.WifiManager.NETWORK_STATE_CHANGED_ACTION);
+    registerReceiver(receiver, filter);
     try {
       cm.registerDefaultNetworkCallback(callback);
       fail("registering twice did not throw");
@@ -176,6 +211,10 @@ public class Connectivity extends Activity {
       return;
     }
     done = true;
+    check(broadcastsDown == 1, "CONNECTIVITY_ACTION for the drop: " + broadcastsDown);
+    check(broadcastsUp == 1, "CONNECTIVITY_ACTION for the return: " + broadcastsUp);
+    check(networkStateBroadcasts == 2, "NETWORK_STATE_CHANGED twice: " + networkStateBroadcasts);
+    unregisterReceiver(receiver);
     cm.unregisterNetworkCallback(callback);
     cm.unregisterNetworkCallback(never);
     Log.i(TAG, failures == 0 ? "=== ALL PASSED ===" : "=== FAILED: " + failures + " ===");

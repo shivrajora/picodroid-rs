@@ -450,3 +450,13 @@ Landed as pure Java in `picodroid.app` (`Fragment`, `FragmentManager`, `Fragment
 class **S**, RP2350 boards only (`testbench_rp2040` excludes the six classes; `Activity` resolves
 the manager lazily). Design, deviations and measurements:
 [`fragments-2026-09.md`](fragments-2026-09.md).
+
+## Amendment 2026-10-18 — broadcasts landed
+
+Outside the T-table, from the gap analysis's "no system broadcasts": `picodroid.content.
+BroadcastReceiver` and `IntentFilter`, `Context.registerReceiver` / `unregisterReceiver` /
+`sendBroadcast` / `startActivity`, `Intent.setAction` and the `ACTION_*` strings, the system
+actions `TIME_TICK`, `TIME_SET`, `TIMEZONE_CHANGED`, `SCREEN_ON` / `OFF`, the Wi-Fi and
+connectivity actions, and `PendingIntent.getBroadcast`. One bitmask upcall per frame; the
+registry is Java's. Design, caps and what is deliberately not here (ordered and sticky broadcasts,
+`goAsync`): [`broadcasts-2026-10.md`](broadcasts-2026-10.md).

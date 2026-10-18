@@ -209,7 +209,10 @@ fn sync_once() -> Result<(), ()> {
         Ok((epoch_ms, rtt_ms)) => {
             let before = crate::os::system_clock::wall_offset_ms();
             let elapsed_before = now_ms() as i64;
-            crate::os::system_clock::anchor_wall_clock(epoch_ms);
+            crate::os::system_clock::anchor_wall_clock(
+                epoch_ms,
+                crate::os::system_clock::Anchor::Sync,
+            );
             let step_ms = if before == 0 {
                 0
             } else {

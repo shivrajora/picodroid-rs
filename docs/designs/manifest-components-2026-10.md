@@ -138,3 +138,8 @@ are unchanged.
   for the API contract.
 - 2026-10-09: the XSD models the bare `name` / `theme` attributes only; it declares no namespace
   for the `android:` prefix. The build accepts both spellings.
+- 2026-10-18: `<receiver>` is the subject of [broadcasts-2026-10.md](broadcasts-2026-10.md) stage 6
+  (a manifest receiver for `BOOT_COMPLETED`, `TIME_SET` and `TIMEZONE_CHANGED`, delivered to a
+  package that is not running by a headless run of it); until that stage lands, "Not read:
+  `<receiver>`" above stands. Receivers registered at run time (`Context.registerReceiver`) and
+  explicit `PendingIntent.getBroadcast` targets need no manifest entry.

@@ -5,8 +5,8 @@ import picodroid.content.Intent;
 import picodroid.os.SystemClock;
 
 /**
- * Schedules an Activity to start at a time, mirroring {@code android.app.AlarmManager}: obtain it
- * with {@code getSystemService(Context.ALARM_SERVICE)}.
+ * Schedules an Activity to start, or a broadcast to be delivered, at a time, mirroring {@code
+ * android.app.AlarmManager}: obtain it with {@code getSystemService(Context.ALARM_SERVICE)}.
  *
  * <p>What it is for is outliving your own app. The framework keeps the alarm outside every app's
  * heap, so it still fires after the user has gone to the launcher or into another app, and the app
@@ -20,8 +20,8 @@ import picodroid.os.SystemClock;
  * }</pre>
  *
  * <p>Alarms live in RAM and are lost at a reset, as the wall clock itself is on a board with no
- * battery-backed clock. An app re-registers what it still wants on its next start, the way an
- * Android app re-registers after {@code BOOT_COMPLETED}.
+ * battery-backed clock. An app re-registers what it still wants on its next start, or in a manifest
+ * receiver for {@code Intent.ACTION_BOOT_COMPLETED}, the way an Android app does.
  *
  * <p>The clock and the zone are set here too, as on Android: {@link #setTime} and {@link
  * #setTimeZone}. Settings → Date &amp; time is their caller; the platform time service keeps the
@@ -79,11 +79,12 @@ public final class AlarmManager {
             type,
             triggerAtMillis,
             operation.requestCode,
-            operation.targetClassName,
+            operation.target,
             operation.key0,
             operation.value0,
             operation.key1,
-            operation.value1);
+            operation.value1,
+            operation.kind);
     if (result == 1) {
       throw new IllegalStateException("Maximum limit of concurrent alarms reached");
     }
@@ -98,7 +99,7 @@ public final class AlarmManager {
    */
   public void cancel(PendingIntent operation) {
     if (operation != null) {
-      nativeCancel(operation.requestCode, operation.targetClassName);
+      nativeCancel(operation.requestCode, operation.target, operation.kind);
     }
   }
 
@@ -131,9 +132,10 @@ public final class AlarmManager {
   }
 
   /**
-   * Deliver a fired alarm: the framework calls this on the UI thread, in the app that set it and
-   * once it is running again. Rebuilding the Intent here rather than natively keeps one code path
-   * for starting an Activity — the same {@code startActivity} every app calls.
+   * Deliver a fired Activity alarm: the framework calls this on the UI thread, in the app that set
+   * it and once it is running again. Rebuilding the Intent here rather than natively keeps one code
+   * path for starting an Activity — the same {@code startActivity} every app calls. A broadcast
+   * alarm is handed to {@code BroadcastReceiver.fireAlarm} instead.
    */
   static void fireAlarm(String className, String key0, int value0, String key1, int value1) {
     Intent intent = new Intent().setClassName(null, className);
@@ -149,20 +151,24 @@ public final class AlarmManager {
   /** Pushes the Activity, exactly as {@code Activity.startActivity} does. */
   private native void startActivity(Intent intent);
 
-  /** 0 when the alarm is set, 1 when the framework has no room, 2 when it refused a name. */
+  /**
+   * 0 when the alarm is set, 1 when the framework has no room, 2 when it refused a name. {@code
+   * kind} is the PendingIntent's: an Activity class, a receiver class, or an action.
+   */
   private static native int nativeSet(
       int type,
       long triggerAtMillis,
       int requestCode,
-      String className,
+      String target,
       String key0,
       int value0,
       String key1,
-      int value1);
+      int value1,
+      int kind);
 
   /** Parse and store the platform zone; false for an id that is not a fixed offset in range. */
   private static native boolean nativeSetTimeZone(String timeZone);
 
   /** Whether an alarm was armed under this identity and has now been removed. */
-  private static native boolean nativeCancel(int requestCode, String className);
+  private static native boolean nativeCancel(int requestCode, String target, int kind);
 }

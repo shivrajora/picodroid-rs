@@ -34,6 +34,16 @@ import picodroid.concurrent.Executors;
  * directly. A link that drops and returns within one frame (16 ms) is not reported.
  */
 public class ConnectivityManager {
+  /**
+   * Broadcast when the link came up with an address or dropped, with {@link
+   * #EXTRA_NO_CONNECTIVITY}. Android deprecated it for {@link NetworkCallback}, which is here too;
+   * kept because ported code registers for it. Android's value.
+   */
+  public static final String CONNECTIVITY_ACTION = "android.net.conn.CONNECTIVITY_CHANGE";
+
+  /** {@link #CONNECTIVITY_ACTION}'s {@code boolean} extra: true when the link is down. */
+  public static final String EXTRA_NO_CONNECTIVITY = "noConnectivity";
+
   /** No network on this board ({@link NetworkInfo#getType()} on a board without one). */
   public static final int TYPE_NONE = -1;
 

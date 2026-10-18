@@ -292,12 +292,12 @@ pub const OS_HANDLED: &[Row] = &[
     (
         "picodroid/app/AlarmManager",
         "nativeSet",
-        "(IJILjava/lang/String;Ljava/lang/String;ILjava/lang/String;I)I",
+        "(IJILjava/lang/String;Ljava/lang/String;ILjava/lang/String;II)I",
     ),
     (
         "picodroid/app/AlarmManager",
         "nativeCancel",
-        "(ILjava/lang/String;)Z",
+        "(ILjava/lang/String;I)Z",
     ),
     // picodroid/app/usage/StorageStatsManager
     (
@@ -621,6 +621,13 @@ pub const CORE_HANDLED: &[Row] = &[
     // picodroid/app/Application
     (
         "picodroid/app/Application",
+        "startActivity",
+        "(Lpicodroid/content/Intent;)V",
+    ),
+    // picodroid/content/Context — Android's home for it; a BroadcastReceiver's
+    // Context, a Service or the Application start an Activity through it.
+    (
+        "picodroid/content/Context",
         "startActivity",
         "(Lpicodroid/content/Intent;)V",
     ),

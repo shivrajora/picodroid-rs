@@ -115,3 +115,10 @@ lost link is reported to the IP stack (`FreeRTOS_NetworkDown`), so `Connectivity
 `onLost` then `onAvailable`. The chip's async events are logged on every build
 (`cyw43: [ms] ASYNC(flags,NAME,status,reason,itf)`), which is what the diagnosis needed. Write-up:
 [completed/networking-followups-2026-08.md](../completed/networking-followups-2026-08.md) NET-12.
+- 2026-10-18: "No broadcast" above is retired by [broadcasts-2026-10.md](broadcasts-2026-10.md)
+  stage 3. The join's outcome is now also Android's broadcasts — `WifiManager.
+  SUPPLICANT_STATE_CHANGED_ACTION` with `EXTRA_NEW_STATE` and, after a rejected join,
+  `EXTRA_SUPPLICANT_ERROR`; `NETWORK_STATE_CHANGED_ACTION` and `ConnectivityManager.
+  CONNECTIVITY_ACTION` for the link; `SCAN_RESULTS_AVAILABLE_ACTION` — and the Settings screen
+  registers a receiver for the first two instead of polling twice a second. `getLastError()` stays
+  for code that reads rather than listens.

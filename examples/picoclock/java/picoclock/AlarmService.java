@@ -8,8 +8,10 @@ import picodroid.app.PendingIntent;
 import picodroid.app.Service;
 import picodroid.concurrent.Executors;
 import picodroid.concurrent.Thread;
+import picodroid.content.BroadcastReceiver;
 import picodroid.content.Context;
 import picodroid.content.Intent;
+import picodroid.content.IntentFilter;
 import picodroid.os.IBinder;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
@@ -160,11 +162,27 @@ public class AlarmService extends Service {
         }
       };
 
+  /**
+   * The clock or the zone moved under the schedule: every armed instant was computed against the
+   * old ones. Android's alarm clock listens for the same two actions.
+   */
+  private final BroadcastReceiver onClockChange =
+      new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+          Log.i(TAG, "replanning: " + intent.getAction());
+          reload();
+        }
+      };
+
   @Override
   public void onCreate() {
     binder.service = this;
     alarms = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
     buzzer = new Buzzer();
+    IntentFilter clock = new IntentFilter(Intent.ACTION_TIME_CHANGED);
+    clock.addAction(Intent.ACTION_TIMEZONE_CHANGED);
+    registerReceiver(onClockChange, clock);
     reload();
     running = true;
     ticker = new Thread(this::tickLoop);
@@ -200,6 +218,7 @@ public class AlarmService extends Service {
   public void onDestroy() {
     running = false;
     listener = null;
+    unregisterReceiver(onClockChange);
     // The ticker silences and releases the buzzer as it exits. Waiting for it
     // is what keeps this thread off those pins; the alternative is a teardown
     // mid-ring that leaves the sounder on with nothing left to turn it off.
@@ -293,17 +312,18 @@ public class AlarmService extends Service {
   }
 
   /**
-   * The operation for alarm {@code id}. Two of these are equal when their ids are, which is what
-   * lets {@link #plan} replace and cancel by id; the due time rides along as an extra so {@link
-   * #ring} can tell a fire it should honour from one the clock jumped over.
+   * The operation for alarm {@code id}: a broadcast to {@link AlarmReceiver}, Android's idiom,
+   * which brings the ring screen up. Two of these are equal when their ids are, which is what lets
+   * {@link #plan} replace and cancel by id; the due time rides along as an extra so {@link #ring}
+   * can tell a fire it should honour from one the clock jumped over.
    */
   private PendingIntent operation(int id, long atUtcMs) {
     Intent intent =
-        new Intent(picoclock.ui.RingActivity.class)
+        new Intent(this, AlarmReceiver.class)
             .putExtra(picoclock.ui.RingActivity.EXTRA_ALARM_ID, id)
             .putExtra(
                 picoclock.ui.RingActivity.EXTRA_DUE_MINUTE, AlarmSchedule.epochMinute(atUtcMs));
-    return PendingIntent.getActivity(
+    return PendingIntent.getBroadcast(
         this, id, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
   }
 

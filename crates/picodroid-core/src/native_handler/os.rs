@@ -174,10 +174,11 @@ pub fn dispatch(
         }
         #[cfg(has_multi_app)]
         (ch::picodroid_app_AlarmManager, mh::nativeCancel) => {
-            let removed = match (crate::packages::running(), string_arg(ctx, 1)) {
-                (Some(owner), Some(class)) => {
+            let target = crate::alarms::Target::from_kind(int_arg(ctx.args, 2));
+            let removed = match (crate::packages::running(), string_arg(ctx, 1), target) {
+                (Some(owner), Some(class), Some(target)) => {
                     let request_code = int_arg(ctx.args, 0);
-                    let removed = crate::alarms::cancel(owner, class, request_code);
+                    let removed = crate::alarms::cancel(owner, class, request_code, target);
                     if removed {
                         crate::pd_info!("[alarm] cancel {} {}#{}", owner, class, request_code);
                     }
@@ -333,6 +334,10 @@ fn alarm_set(ctx: &mut NativeContext<'_>) -> i32 {
     let Some(class) = string_arg(ctx, 3) else {
         return 2;
     };
+    // The PendingIntent's kind rides last, so the indices above stayed put.
+    let Some(target) = crate::alarms::Target::from_kind(int_arg(ctx.args, 8)) else {
+        return 2;
+    };
 
     // Keys 4 and 6, values 5 and 7; a null key means no extra there.
     let mut extras: [(&str, i32); crate::alarms::MAX_EXTRAS] = [("", 0); crate::alarms::MAX_EXTRAS];
@@ -344,15 +349,24 @@ fn alarm_set(ctx: &mut NativeContext<'_>) -> i32 {
         }
     }
 
-    match crate::alarms::set(owner, class, request_code, clock, trigger_ms, &extras[..n]) {
+    match crate::alarms::set(
+        owner,
+        class,
+        request_code,
+        clock,
+        trigger_ms,
+        &extras[..n],
+        target,
+    ) {
         Ok(replaced) => {
             crate::pd_info!(
-                "[alarm] {} {} {}#{} at {}",
+                "[alarm] {} {} {}#{} at {}{}",
                 if replaced { "replace" } else { "set" },
                 owner,
                 class,
                 request_code,
-                trigger_ms
+                trigger_ms,
+                target.log_suffix()
             );
             0
         }

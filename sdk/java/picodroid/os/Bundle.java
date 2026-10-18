@@ -11,8 +11,9 @@ import java.util.Set;
  *
  * <p>A typed getter whose key is absent, or holds a value of another type, returns the default (
  * {@code 0}, {@code false}, {@code null}, or the one passed in) rather than throwing — Android's
- * rule. Entries keep insertion order. There is no {@code Parcelable}/{@code Serializable}: values
- * are the primitives, String, their arrays, and nested Bundles.
+ * rule. Entries keep insertion order. There is no {@code Parcelable}/{@code Serializable}
+ * interface: values are the primitives, String, their arrays, nested Bundles, and — through {@link
+ * #putParcelable} — any object the framework hands a receiver, such as a {@code SupplicantState}.
  *
  * <pre>{@code
  * Bundle b = new Bundle();
@@ -192,6 +193,22 @@ public final class Bundle {
   public Bundle getBundle(String key) {
     Object o = get(key);
     return o instanceof Bundle ? (Bundle) o : null;
+  }
+
+  /**
+   * Mirrors {@code android.os.Bundle#putParcelable}. There is no {@code Parcelable} interface here,
+   * nothing being parcelled: the object itself is stored, as every value in a Bundle is.
+   */
+  public void putParcelable(String key, Object value) {
+    put(key, value);
+  }
+
+  /**
+   * Mirrors {@code android.os.Bundle#getParcelable}: the object stored under {@code key}, or null.
+   */
+  @SuppressWarnings("unchecked")
+  public <T> T getParcelable(String key) {
+    return (T) get(key);
   }
 
   public int[] getIntArray(String key) {

@@ -88,6 +88,37 @@ impl Clock {
     }
 }
 
+/// What a `PendingIntent` does when it fires (`PendingIntent.KIND_*`): start
+/// an Activity, hand a new instance of a receiver class the Intent, or
+/// dispatch an action to the receivers registered for it. Part of an alarm's
+/// identity, so `getActivity(rc, X)` and `getBroadcast(rc, X)` are two alarms.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Target {
+    Activity,
+    Receiver,
+    Action,
+}
+
+impl Target {
+    pub fn from_kind(kind: i32) -> Option<Target> {
+        match kind {
+            0 => Some(Target::Activity),
+            1 => Some(Target::Receiver),
+            2 => Some(Target::Action),
+            _ => None,
+        }
+    }
+
+    /// What the `[alarm]` log lines append for a broadcast target.
+    pub fn log_suffix(self) -> &'static str {
+        match self {
+            Target::Activity => "",
+            Target::Receiver => " (receiver)",
+            Target::Action => " (action)",
+        }
+    }
+}
+
 /// Both clocks, read once per poll so every entry is judged against the same
 /// instant.
 #[derive(Clone, Copy, Debug)]
@@ -158,6 +189,7 @@ struct Entry {
     extras: [Extra; MAX_EXTRAS],
     n_extras: u8,
     state: State,
+    target: Target,
 }
 
 impl Entry {
@@ -165,8 +197,9 @@ impl Entry {
         core::str::from_utf8(&self.class[..self.class_len as usize]).unwrap_or("")
     }
 
-    fn owns(&self, owner: &str, class: &str, request_code: i32) -> bool {
+    fn owns(&self, owner: &str, class: &str, request_code: i32, target: Target) -> bool {
         self.request_code == request_code
+            && self.target == target
             && self.owner.get() == Some(owner)
             && self.class() == class
     }
@@ -195,10 +228,13 @@ pub struct Fire {
     /// How far past its trigger the alarm is being delivered.
     pub late_ms: i64,
     pub request_code: i32,
+    /// What fires: an Activity, a receiver class, or an action.
+    pub target: Target,
 }
 
 impl Fire {
-    /// The Activity to start, in JVM internal form.
+    /// The Activity or receiver class to start, in JVM internal form, or
+    /// the action to dispatch (`target` says which).
     pub fn class(&self) -> &str {
         core::str::from_utf8(&self.class[..self.class_len as usize]).unwrap_or("")
     }
@@ -331,6 +367,7 @@ pub fn set(
     clock: Clock,
     trigger_ms: i64,
     extras: &[(&str, i32)],
+    target: Target,
 ) -> Result<bool, SetError> {
     if class.len() > CLASS_MAX || extras.len() > MAX_EXTRAS {
         return Err(SetError::TooLong);
@@ -349,6 +386,7 @@ pub fn set(
         extras: [Extra::EMPTY; MAX_EXTRAS],
         n_extras: extras.len() as u8,
         state: State::Armed,
+        target,
     };
     entry.owner.set(Some(owner));
     entry.class[..class.len()].copy_from_slice(class.as_bytes());
@@ -361,7 +399,7 @@ pub fn set(
 
     if let Some(i) = table.iter().position(|slot| {
         slot.as_ref()
-            .is_some_and(|e| e.state == State::Armed && e.owns(owner, class, request_code))
+            .is_some_and(|e| e.state == State::Armed && e.owns(owner, class, request_code, target))
     }) {
         table[i] = Some(entry);
         refresh_horizon(horizon, table);
@@ -389,12 +427,12 @@ pub fn set(
 /// Disarm the alarm with this identity. `false` when none was armed — either
 /// nothing matched, or the alarm has already triggered and is on its way to
 /// the app, which Android does not let a cancel recall either.
-pub fn cancel(owner: &str, class: &str, request_code: i32) -> bool {
+pub fn cancel(owner: &str, class: &str, request_code: i32, target: Target) -> bool {
     let mut atomic = AtomicSection::enter();
     let Alarms { table, horizon } = ALARMS.get(&mut atomic);
     match table.iter().position(|slot| {
         slot.as_ref()
-            .is_some_and(|e| e.state == State::Armed && e.owns(owner, class, request_code))
+            .is_some_and(|e| e.state == State::Armed && e.owns(owner, class, request_code, target))
     }) {
         Some(i) => {
             table[i] = None;
@@ -555,6 +593,37 @@ fn decide(
     }
 }
 
+/// The earliest due alarm owned by `running`, removed and handed over; no
+/// wake for anyone else. For an app that is about to leave without ever
+/// reaching a tick — an Application that pushed no Activity — where a
+/// `Wake` would only cost another package's alarm an attempt.
+pub fn take_due_for(now: Now, running: &str) -> Option<Fire> {
+    let mut atomic = AtomicSection::enter();
+    let Alarms { table, horizon } = ALARMS.get(&mut atomic);
+    let mut best: Option<usize> = None;
+    for (i, slot) in table.iter().enumerate() {
+        let Some(e) = slot else { continue };
+        let mine = e.owner.get() == Some(running);
+        let due = match e.state {
+            State::Firing { .. } => true,
+            State::Armed => e.is_due(now),
+        };
+        if !mine || !due {
+            continue;
+        }
+        let earlier = best.map_or(true, |b| {
+            e.trigger_ms < table[b].as_ref().map_or(i64::MAX, |o| o.trigger_ms)
+        });
+        if earlier {
+            best = Some(i);
+        }
+    }
+    let i = best?;
+    let entry = table[i].take()?;
+    refresh_horizon(horizon, table);
+    Some(fire_from(entry, now))
+}
+
 /// A row, as the delivery side needs it.
 fn fire_from(e: Entry, now: Now) -> Fire {
     Fire {
@@ -565,6 +634,7 @@ fn fire_from(e: Entry, now: Now) -> Fire {
         n_extras: e.n_extras,
         late_ms: e.now_on_my_clock(now) - e.trigger_ms,
         request_code: e.request_code,
+        target: e.target,
     }
 }
 
@@ -638,6 +708,7 @@ mod tests {
             Clock::Rtc,
             1_000,
             &[("alarm", 7), ("due", 16)],
+            Target::Activity,
         )
         .unwrap();
         assert!(poll_as(999, Some(APP), 1).is_none(), "not due yet");
@@ -655,20 +726,37 @@ mod tests {
     #[test]
     fn set_replaces_by_identity_and_keeps_others() {
         let _g = guard();
-        assert_eq!(set(APP, RING, 0, Clock::Rtc, 1_000, &[]), Ok(false));
         assert_eq!(
-            set(APP, RING, 0, Clock::Rtc, 5_000, &[]),
+            set(APP, RING, 0, Clock::Rtc, 1_000, &[], Target::Activity),
+            Ok(false)
+        );
+        assert_eq!(
+            set(APP, RING, 0, Clock::Rtc, 5_000, &[], Target::Activity),
             Ok(true),
             "same identity replaces"
         );
         assert_eq!(len(), 1);
         // A different request code, class or owner is a different alarm.
-        assert_eq!(set(APP, RING, 1, Clock::Rtc, 1_000, &[]), Ok(false));
         assert_eq!(
-            set(APP, "clock/Other", 0, Clock::Rtc, 1_000, &[]),
+            set(APP, RING, 1, Clock::Rtc, 1_000, &[], Target::Activity),
             Ok(false)
         );
-        assert_eq!(set(OTHER, RING, 0, Clock::Rtc, 1_000, &[]), Ok(false));
+        assert_eq!(
+            set(
+                APP,
+                "clock/Other",
+                0,
+                Clock::Rtc,
+                1_000,
+                &[],
+                Target::Activity
+            ),
+            Ok(false)
+        );
+        assert_eq!(
+            set(OTHER, RING, 0, Clock::Rtc, 1_000, &[], Target::Activity),
+            Ok(false)
+        );
         assert_eq!(len(), 4);
         // The replaced one kept its new time: nothing is due at 1_000 for it.
         let f = fired(poll_as(1_000, Some(APP), 1));
@@ -678,21 +766,24 @@ mod tests {
     #[test]
     fn cancel_removes_only_its_own_identity() {
         let _g = guard();
-        set(APP, RING, 0, Clock::Rtc, 1_000, &[]).unwrap();
-        set(APP, RING, 1, Clock::Rtc, 1_000, &[]).unwrap();
-        assert!(cancel(APP, RING, 0));
+        set(APP, RING, 0, Clock::Rtc, 1_000, &[], Target::Activity).unwrap();
+        set(APP, RING, 1, Clock::Rtc, 1_000, &[], Target::Activity).unwrap();
+        assert!(cancel(APP, RING, 0, Target::Activity));
         assert_eq!(len(), 1);
-        assert!(!cancel(APP, RING, 0), "already gone");
-        assert!(!cancel(OTHER, RING, 1), "another app cannot cancel it");
+        assert!(!cancel(APP, RING, 0, Target::Activity), "already gone");
+        assert!(
+            !cancel(OTHER, RING, 1, Target::Activity),
+            "another app cannot cancel it"
+        );
         assert_eq!(len(), 1);
     }
 
     #[test]
     fn earliest_trigger_fires_first_one_per_poll() {
         let _g = guard();
-        set(APP, RING, 0, Clock::Rtc, 3_000, &[]).unwrap();
-        set(APP, RING, 1, Clock::Rtc, 1_000, &[]).unwrap();
-        set(APP, RING, 2, Clock::Rtc, 2_000, &[]).unwrap();
+        set(APP, RING, 0, Clock::Rtc, 3_000, &[], Target::Activity).unwrap();
+        set(APP, RING, 1, Clock::Rtc, 1_000, &[], Target::Activity).unwrap();
+        set(APP, RING, 2, Clock::Rtc, 2_000, &[], Target::Activity).unwrap();
         assert_eq!(fired(poll_as(9_000, Some(APP), 1)).request_code, 1);
         assert_eq!(fired(poll_as(9_000, Some(APP), 1)).request_code, 2);
         assert_eq!(fired(poll_as(9_000, Some(APP), 1)).request_code, 0);
@@ -702,7 +793,7 @@ mod tests {
     #[test]
     fn late_delivery_reports_how_late() {
         let _g = guard();
-        set(APP, RING, 0, Clock::Rtc, 1_000, &[]).unwrap();
+        set(APP, RING, 0, Clock::Rtc, 1_000, &[], Target::Activity).unwrap();
         assert_eq!(fired(poll_as(61_000, Some(APP), 1)).late_ms, 60_000);
     }
 
@@ -721,8 +812,8 @@ mod tests {
     #[test]
     fn due_tracks_the_earliest_armed_trigger_per_clock() {
         let _g = guard();
-        set(APP, RING, 0, Clock::Elapsed, 5_000, &[]).unwrap();
-        set(APP, RING, 1, Clock::Elapsed, 1_000, &[]).unwrap();
+        set(APP, RING, 0, Clock::Elapsed, 5_000, &[], Target::Activity).unwrap();
+        set(APP, RING, 1, Clock::Elapsed, 1_000, &[], Target::Activity).unwrap();
         assert!(!due(999, no_wall), "not before the earliest");
         assert!(due(1_000, no_wall), "at the earliest");
         assert!(due(4_000, no_wall), "and any time after it");
@@ -731,7 +822,7 @@ mod tests {
         // `Now` builds it. Here the elapsed clock reads 500 — short of every
         // elapsed trigger above — and the offset stands in for a clock set
         // to some epoch.
-        set(OTHER, RING, 0, Clock::Rtc, 60_000, &[]).unwrap();
+        set(OTHER, RING, 0, Clock::Rtc, 60_000, &[], Target::Activity).unwrap();
         assert!(
             !due(500, || 59_499),
             "the RTC trigger is judged on the wall clock"
@@ -752,7 +843,16 @@ mod tests {
     fn an_rtc_alarm_comes_due_with_the_wall_clock_unset() {
         let _g = guard();
         let armed_at = 1_032;
-        set(APP, RING, 0, Clock::Rtc, armed_at + 2_000, &[]).unwrap();
+        set(
+            APP,
+            RING,
+            0,
+            Clock::Rtc,
+            armed_at + 2_000,
+            &[],
+            Target::Activity,
+        )
+        .unwrap();
         assert!(!due(armed_at, || 0));
         assert!(!due(armed_at + 1_999, || 0));
         assert!(due(armed_at + 2_000, || 0), "due at the trigger");
@@ -762,16 +862,16 @@ mod tests {
     #[test]
     fn due_follows_every_writer() {
         let _g = guard();
-        set(APP, RING, 0, Clock::Elapsed, 1_000, &[]).unwrap();
+        set(APP, RING, 0, Clock::Elapsed, 1_000, &[], Target::Activity).unwrap();
         assert!(due(1_000, no_wall));
-        assert!(cancel(APP, RING, 0));
+        assert!(cancel(APP, RING, 0, Target::Activity));
         assert!(!due(1_000, no_wall), "cancel empties the horizon");
 
-        set(APP, RING, 0, Clock::Elapsed, 1_000, &[]).unwrap();
-        set(APP, RING, 0, Clock::Elapsed, 3_000, &[]).unwrap();
+        set(APP, RING, 0, Clock::Elapsed, 1_000, &[], Target::Activity).unwrap();
+        set(APP, RING, 0, Clock::Elapsed, 3_000, &[], Target::Activity).unwrap();
         assert!(!due(2_000, no_wall), "a replacing set moves it");
 
-        set(OTHER, RING, 0, Clock::Rtc, 500, &[]).unwrap();
+        set(OTHER, RING, 0, Clock::Rtc, 500, &[], Target::Activity).unwrap();
         assert_eq!(drop_package(OTHER), 1);
         assert!(!due(2_000, no_wall), "drop_package forgets the RTC row too");
 
@@ -785,7 +885,7 @@ mod tests {
     #[test]
     fn a_firing_row_keeps_every_tick_looking() {
         let _g = guard();
-        set(OTHER, RING, 0, Clock::Elapsed, 1_000, &[]).unwrap();
+        set(OTHER, RING, 0, Clock::Elapsed, 1_000, &[], Target::Activity).unwrap();
         assert_eq!(woke(poll_as(1_000, Some(APP), 1)), OTHER);
         // The wake is in flight; its delivery waits on a run, not a clock.
         assert!(due(0, no_wall));
@@ -798,19 +898,25 @@ mod tests {
     fn table_and_per_package_caps() {
         let _g = guard();
         for rc in 0..PER_PACKAGE as i32 {
-            assert_eq!(set(APP, RING, rc, Clock::Rtc, 1_000, &[]), Ok(false));
+            assert_eq!(
+                set(APP, RING, rc, Clock::Rtc, 1_000, &[], Target::Activity),
+                Ok(false)
+            );
         }
         assert_eq!(
-            set(APP, RING, 99, Clock::Rtc, 1_000, &[]),
+            set(APP, RING, 99, Clock::Rtc, 1_000, &[], Target::Activity),
             Err(SetError::PackageFull),
             "one app cannot take the whole table"
         );
         // Another app still fits: CAPACITY - PER_PACKAGE rows are left.
         for rc in 0..(CAPACITY - PER_PACKAGE) as i32 {
-            assert_eq!(set(OTHER, RING, rc, Clock::Rtc, 1_000, &[]), Ok(false));
+            assert_eq!(
+                set(OTHER, RING, rc, Clock::Rtc, 1_000, &[], Target::Activity),
+                Ok(false)
+            );
         }
         assert_eq!(
-            set(OTHER, RING, 99, Clock::Rtc, 1_000, &[]),
+            set(OTHER, RING, 99, Clock::Rtc, 1_000, &[], Target::Activity),
             Err(SetError::Full)
         );
         assert_eq!(len(), CAPACITY);
@@ -821,16 +927,32 @@ mod tests {
         let _g = guard();
         let long_class = "a".repeat(CLASS_MAX + 1);
         assert_eq!(
-            set(APP, &long_class, 0, Clock::Rtc, 0, &[]),
+            set(APP, &long_class, 0, Clock::Rtc, 0, &[], Target::Activity),
             Err(SetError::TooLong)
         );
         let long_key = "k".repeat(KEY_MAX + 1);
         assert_eq!(
-            set(APP, RING, 0, Clock::Rtc, 0, &[(&long_key, 1)]),
+            set(
+                APP,
+                RING,
+                0,
+                Clock::Rtc,
+                0,
+                &[(&long_key, 1)],
+                Target::Activity
+            ),
             Err(SetError::TooLong)
         );
         assert_eq!(
-            set(APP, RING, 0, Clock::Rtc, 0, &[("a", 1), ("b", 2), ("c", 3)]),
+            set(
+                APP,
+                RING,
+                0,
+                Clock::Rtc,
+                0,
+                &[("a", 1), ("b", 2), ("c", 3)],
+                Target::Activity
+            ),
             Err(SetError::TooLong)
         );
         assert_eq!(len(), 0);
@@ -839,8 +961,8 @@ mod tests {
     #[test]
     fn a_wall_clock_jump_forward_brings_rtc_alarms_due_and_leaves_elapsed() {
         let _g = guard();
-        set(APP, RING, 0, Clock::Rtc, 100_000, &[]).unwrap();
-        set(APP, RING, 1, Clock::Elapsed, 100_000, &[]).unwrap();
+        set(APP, RING, 0, Clock::Rtc, 100_000, &[], Target::Activity).unwrap();
+        set(APP, RING, 1, Clock::Elapsed, 100_000, &[], Target::Activity).unwrap();
         // The user sets the clock: wall jumps, elapsed does not.
         let jumped = Now {
             wall_ms: 500_000,
@@ -853,7 +975,7 @@ mod tests {
             "the elapsed alarm is not"
         );
         // Backwards, nothing fires.
-        set(APP, RING, 2, Clock::Rtc, 600_000, &[]).unwrap();
+        set(APP, RING, 2, Clock::Rtc, 600_000, &[], Target::Activity).unwrap();
         let back = Now {
             wall_ms: 10_000,
             elapsed_ms: 6_000,
@@ -864,7 +986,16 @@ mod tests {
     #[test]
     fn another_apps_alarm_wakes_its_owner_then_fires() {
         let _g = guard();
-        set(APP, RING, 0, Clock::Rtc, 1_000, &[("alarm", 4)]).unwrap();
+        set(
+            APP,
+            RING,
+            0,
+            Clock::Rtc,
+            1_000,
+            &[("alarm", 4)],
+            Target::Activity,
+        )
+        .unwrap();
         // The launcher is up; the alarm asks for its own app.
         assert_eq!(woke(poll_as(1_000, Some("launcher"), 1)), APP);
         // Still in that run: the launch is in flight, so no second request.
@@ -879,17 +1010,34 @@ mod tests {
     #[test]
     fn a_firing_alarm_ignores_set_and_cancel() {
         let _g = guard();
-        set(APP, RING, 0, Clock::Rtc, 1_000, &[("alarm", 1)]).unwrap();
+        set(
+            APP,
+            RING,
+            0,
+            Clock::Rtc,
+            1_000,
+            &[("alarm", 1)],
+            Target::Activity,
+        )
+        .unwrap();
         assert_eq!(woke(poll_as(1_000, Some("launcher"), 1)), APP);
         // The relaunched app re-arms the same identity from its own store and
         // then cancels it; neither may recall the delivery in flight.
         assert_eq!(
-            set(APP, RING, 0, Clock::Rtc, 90_000, &[("alarm", 1)]),
+            set(
+                APP,
+                RING,
+                0,
+                Clock::Rtc,
+                90_000,
+                &[("alarm", 1)],
+                Target::Activity
+            ),
             Ok(false),
             "a fresh row, not a replacement"
         );
         assert!(
-            cancel(APP, RING, 0),
+            cancel(APP, RING, 0, Target::Activity),
             "the cancel removes the fresh armed row, not the delivery"
         );
         let f = fired(poll_as(1_100, Some(APP), 2));
@@ -900,7 +1048,7 @@ mod tests {
     #[test]
     fn an_owner_that_never_delivers_is_given_up_on() {
         let _g = guard();
-        set(APP, RING, 0, Clock::Rtc, 1_000, &[]).unwrap();
+        set(APP, RING, 0, Clock::Rtc, 1_000, &[], Target::Activity).unwrap();
         assert_eq!(woke(poll_as(1_000, Some("launcher"), 1)), APP);
         // The app ran and exited without ever polling: a new run, still not it.
         assert_eq!(woke(poll_as(1_100, Some("launcher"), 2)), APP);
@@ -912,7 +1060,7 @@ mod tests {
     #[test]
     fn an_app_on_its_way_out_keeps_its_alarm_armed() {
         let _g = guard();
-        set(APP, RING, 0, Clock::Rtc, 1_000, &[]).unwrap();
+        set(APP, RING, 0, Clock::Rtc, 1_000, &[], Target::Activity).unwrap();
         assert!(
             poll(now(1_000), Some(APP), 1, &always_installed, true).is_none(),
             "a queued launch means this stack is about to go"
@@ -928,7 +1076,7 @@ mod tests {
         // Back in the launcher the user taps an app (a launch is queued):
         // the re-wake must wait, or it overwrites the pending package.
         let _g = guard();
-        set(OTHER, RING, 0, Clock::Rtc, 1_000, &[]).unwrap();
+        set(OTHER, RING, 0, Clock::Rtc, 1_000, &[], Target::Activity).unwrap();
         assert_eq!(woke(poll_as(1_000, Some("launcher"), 1)), OTHER);
         assert!(
             poll(now(1_100), Some("launcher"), 2, &always_installed, true).is_none(),
@@ -941,8 +1089,8 @@ mod tests {
     #[test]
     fn an_uninstalled_owners_alarms_are_forgotten() {
         let _g = guard();
-        set(APP, RING, 0, Clock::Rtc, 1_000, &[]).unwrap();
-        set(OTHER, RING, 0, Clock::Rtc, 1_000, &[]).unwrap();
+        set(APP, RING, 0, Clock::Rtc, 1_000, &[], Target::Activity).unwrap();
+        set(OTHER, RING, 0, Clock::Rtc, 1_000, &[], Target::Activity).unwrap();
         let only_other = |p: &str| p == OTHER;
         let f = fired(poll(now(1_000), Some(OTHER), 1, &only_other, false));
         assert_eq!(f.package(), OTHER);
@@ -952,12 +1100,65 @@ mod tests {
     #[test]
     fn drop_package_forgets_one_app() {
         let _g = guard();
-        set(APP, RING, 0, Clock::Rtc, 1_000, &[]).unwrap();
-        set(APP, RING, 1, Clock::Rtc, 1_000, &[]).unwrap();
-        set(OTHER, RING, 0, Clock::Rtc, 1_000, &[]).unwrap();
+        set(APP, RING, 0, Clock::Rtc, 1_000, &[], Target::Activity).unwrap();
+        set(APP, RING, 1, Clock::Rtc, 1_000, &[], Target::Activity).unwrap();
+        set(OTHER, RING, 0, Clock::Rtc, 1_000, &[], Target::Activity).unwrap();
         assert_eq!(drop_package(APP), 2);
         assert_eq!(len(), 1);
         assert_eq!(drop_package("nobody"), 0);
+    }
+
+    #[test]
+    fn the_target_kind_is_part_of_the_identity() {
+        let _g = guard();
+        assert_eq!(
+            set(APP, RING, 0, Clock::Rtc, 1_000, &[], Target::Activity),
+            Ok(false)
+        );
+        assert_eq!(
+            set(APP, RING, 0, Clock::Rtc, 2_000, &[], Target::Receiver),
+            Ok(false),
+            "a broadcast to the same class is another alarm"
+        );
+        assert_eq!(
+            set(APP, RING, 0, Clock::Rtc, 3_000, &[], Target::Action),
+            Ok(false)
+        );
+        assert_eq!(len(), 3);
+        assert!(cancel(APP, RING, 0, Target::Action));
+        assert_eq!(len(), 2, "the cancel named one kind");
+        let first = fired(poll_as(9_000, Some(APP), 1));
+        assert_eq!(first.target, Target::Activity);
+        let second = fired(poll_as(9_000, Some(APP), 1));
+        assert_eq!(second.target, Target::Receiver);
+        assert_eq!(second.class(), RING);
+    }
+
+    #[test]
+    fn take_due_for_serves_the_running_app_and_wakes_nobody() {
+        let _g = guard();
+        set(
+            APP,
+            RING,
+            0,
+            Clock::Rtc,
+            1_000,
+            &[("alarm", 1)],
+            Target::Action,
+        )
+        .unwrap();
+        set(APP, RING, 1, Clock::Rtc, 500, &[], Target::Receiver).unwrap();
+        set(OTHER, RING, 0, Clock::Rtc, 100, &[], Target::Activity).unwrap();
+        assert!(take_due_for(now(499), APP).is_none(), "not due yet");
+        let f = take_due_for(now(1_000), APP).expect("the earliest due of APP");
+        assert_eq!((f.request_code, f.target), (1, Target::Receiver));
+        let f = take_due_for(now(1_000), APP).expect("then the next");
+        assert_eq!((f.request_code, f.target), (0, Target::Action));
+        assert_eq!(f.extra(0), Some(("alarm", 1)));
+        assert!(take_due_for(now(1_000), APP).is_none());
+        assert_eq!(len(), 1, "OTHER's alarm is untouched, still armed");
+        let w = woke(poll_as(1_000, Some(APP), 1));
+        assert_eq!(w, OTHER);
     }
 
     #[test]

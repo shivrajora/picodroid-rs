@@ -109,22 +109,44 @@ pub fn set_current_time_millis(args: &[Value]) -> Result<Option<Value>, JvmError
         Some(Value::Long(n)) => *n,
         _ => return Err(JvmError::InvalidReference),
     };
-    anchor_wall_clock(millis);
+    anchor_wall_clock(millis, Anchor::Set);
     Ok(Some(Value::Int(1)))
+}
+
+/// Who is anchoring, which decides whether apps hear `ACTION_TIME_CHANGED`
+/// (`broadcasts`): Android broadcasts every `setCurrentTimeMillis`, and its
+/// network time service only calls that when the clock is off by more than
+/// a threshold.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Anchor {
+    /// A user or an app set the clock: always a broadcast.
+    Set,
+    /// The time service re-anchored: a broadcast only when the clock moved
+    /// by [`crate::broadcasts::TIME_SET_STEP_MS`] or more.
+    Sync,
 }
 
 /// Anchor the wall clock so that `System.currentTimeMillis()` reads
 /// `millis` now. Callers: the platform time task (`time_service::task`),
 /// `SystemClock.setCurrentTimeMillis` from Java, and the simulator's boot
 /// (`PICODROID_SIM_WALL_CLOCK`), which runs before any task exists.
-pub fn anchor_wall_clock(millis: i64) {
+pub fn anchor_wall_clock(millis: i64, anchor: Anchor) {
     let elapsed_ms = platform::elapsed_realtime_nanos() / 1_000_000;
     let offset = (millis - elapsed_ms) as u64;
-    // Nothing below blocks, which is the section's one rule.
+    // Nothing below blocks, which is the section's one rule. The old offset
+    // is read inside it too, so the step is measured against the anchor
+    // this write replaces and the generation bump cannot interleave with
+    // another writer's.
     let _atomic = AtomicSection::enter();
+    let before =
+        ((WALL_HI.load(Ordering::Relaxed) as u64) << 32) | WALL_LO.load(Ordering::Relaxed) as u64;
     let seq = WALL_SEQ.load(Ordering::Relaxed);
     WALL_SEQ.store(seq.wrapping_add(1), Ordering::Release); // odd: write begins
     WALL_HI.store((offset >> 32) as u32, Ordering::Release);
     WALL_LO.store(offset as u32, Ordering::Release);
     WALL_SEQ.store(seq.wrapping_add(2), Ordering::Release); // even: write done
+    let moved_ms = (offset as i64).wrapping_sub(before as i64).saturating_abs();
+    if anchor == Anchor::Set || moved_ms >= crate::broadcasts::TIME_SET_STEP_MS {
+        crate::broadcasts::note_time_set();
+    }
 }

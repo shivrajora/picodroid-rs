@@ -9,5 +9,6 @@ public class Application extends Context {
     // Subclass overrides this
   }
 
+  @Override
   public native void startActivity(Intent intent);
 }

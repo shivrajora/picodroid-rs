@@ -15,6 +15,7 @@ use pico_jvm::{Jvm, SharedJvmHeap};
 use crate::dispatch_sites::{self, DISPATCH_SITES};
 
 mod activity_stack;
+mod broadcast_events;
 // Alarm delivery exists only where several apps can be installed.
 #[cfg(has_multi_app)]
 mod alarm_events;
@@ -90,6 +91,7 @@ fn service_display_power() -> bool {
                 DozeCause::SleepKey => crate::pd_info!("display: doze #{} (sleep key)", n),
                 DozeCause::PowerKey => crate::pd_info!("display: doze #{} (power key)", n),
             }
+            crate::broadcasts::note_screen(false);
             true
         }
         Transition::Wake(cause) => {
@@ -100,6 +102,7 @@ fn service_display_power() -> bool {
                 WakeCause::Touch => crate::pd_info!("display: wake #{} (touch)", n),
                 WakeCause::Request => crate::pd_info!("display: wake #{} (request)", n),
             }
+            crate::broadcasts::note_screen(true);
             false
         }
     }
@@ -276,6 +279,11 @@ pub(crate) fn run_application(
                 break;
             }
         }
+        // An alarm due to this app lands now rather than never: there is
+        // no tick to deliver it, and a cold wake for a receiver-only app
+        // would otherwise burn its attempts (alarm_events).
+        #[cfg(has_multi_app)]
+        deliver_due_alarms_headless(jvm, heap, handler);
         crate::service_lifecycle::destroy_all(jvm, heap, handler);
     }
 }
@@ -474,6 +482,9 @@ pub(crate) fn run_activity(
     // started is read on demand (`WifiManager.getConnectionInfo`).
     #[cfg(network_link_wifi)]
     let mut wifi_generation_seen: u32 = net_events::wifi_generation();
+    // The broadcast sources' generations, from now: a clock anchored or a
+    // zone stored before this app came up is not replayed to its receivers.
+    let mut broadcast_seen = broadcast_events::Seen::now();
 
     loop {
         if handler.interrupted() {
@@ -566,6 +577,16 @@ pub(crate) fn run_activity(
                     let span = span_start();
                     net_events::dispatch_wifi_events(jvm, heap, handler, &mut wifi_generation_seen);
                     end_span("wifi callback", "", SpanKind::Steady, span);
+                }
+
+                // The system broadcasts due this frame — the screen edges
+                // above, a clock or zone set, the minute — folded into one
+                // `fireSystem` call when some receiver wants them
+                // (docs/designs/broadcasts-2026-10.md §3.3).
+                {
+                    let span = span_start();
+                    broadcast_events::dispatch_broadcasts(jvm, heap, handler, &mut broadcast_seen);
+                    end_span("broadcast dispatch", "", SpanKind::Steady, span);
                 }
 
                 // Memory monitor window cadence — after widget dispatch so

@@ -46,7 +46,7 @@ sendBroadcast(new Intent("picoclock.ALARM_EDITED"));
 | Android | Here | Notes |
 |---|---|---|
 | `BroadcastReceiver.onReceive(Context, Intent)` | same | main thread, between frames, like every callback; `context` is the Context the receiver was registered through |
-| `IntentFilter(String)`, `IntentFilter(IntentFilter)`, `addAction`, `hasAction`, `matchAction`, `countActions`, `getAction(int)` | same | at most 4 actions per filter; no data, type or category matching |
+| `IntentFilter(String)`, `IntentFilter(IntentFilter)`, `addAction`, `hasAction`, `matchAction`, `countActions`, `getAction(int)` | same | at most 8 actions per filter; no data, type or category matching |
 | `Context.registerReceiver(r, f)` / `(r, f, flags)` | same; returns `null` | no sticky broadcasts; `RECEIVER_EXPORTED` / `RECEIVER_NOT_EXPORTED` accepted and without effect; at most 8 receivers per app; a second registration of the same receiver throws `IllegalArgumentException`, as on Android |
 | `Context.unregisterReceiver(r)` | same | `IllegalArgumentException` if not registered; an Activity destroyed with a receiver still registered has it unregistered for it, with Android's "has leaked IntentReceiver" warning |
 | `Context.sendBroadcast(Intent)` | same | asynchronous (one main-thread turn later); in-app only, `setPackage` is refused; an Intent naming a receiver class is delivered to a new instance of it, an action to the registered receivers; a receiver that throws is logged and the round goes on |
@@ -181,7 +181,7 @@ Each stage ships on its own with its own ratchet accept. Status is kept here.
 | Thing | Cap | Precedent |
 |---|---|---|
 | receivers registered per app | 8 (`IllegalStateException` beyond) | `ConnectivityManager.MAX_CALLBACKS` |
-| actions per `IntentFilter` | 4 | `WifiManager`'s callback table |
+| actions per `IntentFilter` | 8 | the five time-and-screen actions in one filter is ordinary Android code |
 | system actions | bits of a `u32`; ten used | — |
 | upcalls per frame | 1, carrying the mask | alarms, sensors |
 | broadcast alarms | share the 12 rows / 8 per package | `alarms.rs` |

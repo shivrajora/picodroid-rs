@@ -5,11 +5,10 @@ import java.util.List;
 import picodroid.app.Activity;
 import picodroid.app.AlertDialog;
 import picodroid.concurrent.Executors;
-import picodroid.concurrent.ScheduledExecutorService;
-import picodroid.concurrent.ScheduledFuture;
-import picodroid.concurrent.TimeUnit;
+import picodroid.content.BroadcastReceiver;
 import picodroid.content.Context;
 import picodroid.content.Intent;
+import picodroid.content.IntentFilter;
 import picodroid.net.NetworkInfo;
 import picodroid.net.wifi.ScanResult;
 import picodroid.net.wifi.SupplicantState;
@@ -29,11 +28,12 @@ import picodroid.widget.TextView;
  * {@link WifiPasswordActivity}. The saved network's row opens a dialog: Connect, Forget, Cancel —
  * Forget is refused for a network compiled into the firmware, which the row marks "Build".
  *
- * <p>The join's outcome is read, not pushed (picodroid has no broadcasts): while the screen shows,
- * a main-thread {@link ScheduledExecutorService} re-reads {@link WifiManager#getConnectionInfo}
- * twice a second and updates the status row — Connecting, Obtaining IP address, Connected, Wrong
- * password, Not found. Every change is logged as {@code wifi status …}; a completed join as {@code
- * wifi connected <ssid>}, which the bench keys on. Scan completion is pushed through a {@link
+ * <p>The join's outcome arrives as Android's broadcasts: while the screen is resumed a {@link
+ * BroadcastReceiver} for {@link WifiManager#SUPPLICANT_STATE_CHANGED_ACTION} and {@link
+ * WifiManager#NETWORK_STATE_CHANGED_ACTION} re-reads {@link WifiManager#getConnectionInfo} and
+ * updates the status row — Connecting, Obtaining IP address, Connected, Wrong password, Not found.
+ * Every change is logged as {@code wifi status …}; a completed join as {@code wifi connected
+ * <ssid>}, which the bench keys on. Scan completion is pushed through a {@link
  * WifiManager.ScanResultsCallback} and rebuilds the rows.
  *
  * <p>Row 0 is the header, 1 the status, 2 the saved network (or "No saved network"), 3 Scan, and
@@ -41,7 +41,6 @@ import picodroid.widget.TextView;
  */
 public class WifiActivity extends Activity {
   private static final String TAG = SettingsActivity.TAG;
-  private static final long POLL_MS = 500;
 
   private WifiManager wm;
   /** The Scan row: takes the focus once the list is in. */
@@ -53,8 +52,14 @@ public class WifiActivity extends Activity {
   private boolean scanning;
   private String lastStatus = "";
 
-  private final ScheduledExecutorService poller = Executors.mainScheduledExecutor();
-  private ScheduledFuture<?> poll;
+  /** The join's progress: the station's state and the link, each a broadcast. */
+  private final BroadcastReceiver onState =
+      new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+          refreshStatus();
+        }
+      };
 
   private final WifiManager.ScanResultsCallback onScan =
       new WifiManager.ScanResultsCallback() {
@@ -226,24 +231,22 @@ public class WifiActivity extends Activity {
   @Override
   public void onResume() {
     super.onResume();
+    IntentFilter filter = new IntentFilter(WifiManager.SUPPLICANT_STATE_CHANGED_ACTION);
+    filter.addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION);
+    registerReceiver(onState, filter);
     lastStatus = "";
     refreshStatus();
-    poll = poller.scheduleWithFixedDelay(() -> refreshStatus(), POLL_MS, POLL_MS, TimeUnit.MILLISECONDS);
   }
 
   @Override
   public void onPause() {
-    if (poll != null) {
-      poll.cancel(false);
-      poll = null;
-    }
+    unregisterReceiver(onState);
     super.onPause();
   }
 
   @Override
   public void onDestroy() {
     wm.unregisterScanResultsCallback(onScan);
-    poller.shutdown();
     super.onDestroy();
   }
 }

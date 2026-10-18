@@ -14,7 +14,10 @@ import picodroid.concurrent.Executors;
 import picodroid.concurrent.ScheduledExecutorService;
 import picodroid.concurrent.ScheduledFuture;
 import picodroid.concurrent.TimeUnit;
+import picodroid.content.BroadcastReceiver;
+import picodroid.content.Context;
 import picodroid.content.Intent;
+import picodroid.content.IntentFilter;
 import picodroid.content.res.Resources;
 import picodroid.lifecycle.ViewModelProvider;
 import picodroid.os.Bundle;
@@ -177,16 +180,34 @@ public class MainActivity extends Activity {
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
+  /**
+   * The clock moved on: Android's {@code ACTION_TIME_TICK} every minute, and the clock or zone
+   * being set. The model re-derives what the screens show; the Activity owns the registration
+   * because a receiver's life is a screen's, not a model's.
+   */
+  private final BroadcastReceiver clockReceiver =
+      new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+          model.clockChanged();
+        }
+      };
+
   @Override
   public void onStart() {
     super.onStart();
     started = true;
+    IntentFilter filter = new IntentFilter(Intent.ACTION_TIME_TICK);
+    filter.addAction(Intent.ACTION_TIME_CHANGED);
+    filter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
+    registerReceiver(clockReceiver, filter);
     restartAuto();
   }
 
   @Override
   public void onStop() {
     started = false;
+    unregisterReceiver(clockReceiver);
     restartAuto();
     super.onStop();
   }

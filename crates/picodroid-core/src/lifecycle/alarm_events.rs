@@ -60,31 +60,87 @@ pub(super) fn dispatch_alarms(
                 Err(_) => crate::pd_warn!("[alarm] wake {} failed: not installed", package),
             }
         }
-        Some(Action::Fire(fire)) => {
-            let Some(args) = fire_args(&fire, heap, handler) else {
-                crate::pd_error!("[alarm] fire dropped: no room to intern its strings");
-                return;
-            };
-            match jvm.invoke_static_with_args(
-                dispatch_class(dispatch_sites::ALARM_FIRE),
-                dispatch_method(dispatch_sites::ALARM_FIRE),
-                &args,
-                heap,
-                handler,
-            ) {
-                Ok(()) => crate::pd_info!(
-                    "[alarm] fire {} {}#{} late {} ms",
-                    fire.package(),
-                    fire.class(),
-                    fire.request_code,
-                    fire.late_ms
-                ),
-                Err(JvmError::Interrupted) => {}
-                Err(e) => {
-                    log_error!("[alarm] fire failed: {}", e);
-                }
-            }
+        Some(Action::Fire(fire)) => fire_now(jvm, heap, handler, &fire),
+    }
+}
+
+/// Hand one fired alarm to Java: an Activity alarm to `AlarmManager.fireAlarm`,
+/// a broadcast one to `BroadcastReceiver.fireAlarm`, which takes the receiver
+/// class and the action as two arguments, one of them null.
+#[cfg(all(not(test), has_multi_app))]
+fn fire_now(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
+    fire: &crate::alarms::Fire,
+) {
+    use crate::alarms::Target;
+
+    let Some(args) = fire_args(fire, heap, handler) else {
+        crate::pd_error!("[alarm] fire dropped: no room to intern its strings");
+        return;
+    };
+    let [name, k0, v0, k1, v1] = args;
+    let (site, args): (usize, &[Value]) = match fire.target {
+        Target::Activity => (dispatch_sites::ALARM_FIRE, &[name, k0, v0, k1, v1]),
+        Target::Receiver => (
+            dispatch_sites::ALARM_BROADCAST,
+            &[name, Value::Null, k0, v0, k1, v1],
+        ),
+        Target::Action => (
+            dispatch_sites::ALARM_BROADCAST,
+            &[Value::Null, name, k0, v0, k1, v1],
+        ),
+    };
+    match jvm.invoke_static_with_args(
+        dispatch_class(site),
+        dispatch_method(site),
+        args,
+        heap,
+        handler,
+    ) {
+        Ok(()) => crate::pd_info!(
+            "[alarm] fire {} {}#{} late {} ms{}",
+            fire.package(),
+            fire.class(),
+            fire.request_code,
+            fire.late_ms,
+            fire.target.log_suffix()
+        ),
+        Err(JvmError::Interrupted) => {}
+        Err(e) => {
+            crate::monitor_store::release_all_held_by_current();
+            log_error!("[alarm] fire failed: {}", e);
         }
+    }
+}
+
+/// Deliver every alarm due to the running app before it leaves without an
+/// Activity (`run_application`'s headless path): there is no tick to come
+/// back for them, and a cold wake for a receiver-only app would otherwise
+/// run it twice for nothing and drop the alarm. Other packages' alarms are
+/// left for the next poll; nobody is woken from here.
+#[cfg(all(not(test), has_multi_app))]
+pub(super) fn deliver_due_alarms_headless(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
+) {
+    use crate::alarms::Now;
+
+    let Some(running) = crate::packages::running() else {
+        return;
+    };
+    for _ in 0..crate::alarms::CAPACITY {
+        let elapsed_ms = crate::hal::system_clock::elapsed_realtime_nanos() / 1_000_000;
+        let now = Now {
+            elapsed_ms,
+            wall_ms: elapsed_ms + crate::os::system_clock::wall_offset_ms(),
+        };
+        let Some(fire) = crate::alarms::take_due_for(now, running) else {
+            break;
+        };
+        fire_now(jvm, heap, handler, &fire);
     }
 }
 

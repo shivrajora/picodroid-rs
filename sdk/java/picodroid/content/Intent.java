@@ -215,6 +215,14 @@ public final class Intent {
     return extras == null ? null : extras.getBundle(key);
   }
 
+  /**
+   * Mirrors {@code android.content.Intent#getParcelableExtra}: an object extra, such as the {@code
+   * SupplicantState} under {@code WifiManager.EXTRA_NEW_STATE}, or null.
+   */
+  public <T> T getParcelableExtra(String key) {
+    return extras == null ? null : extras.getParcelable(key);
+  }
+
   public boolean hasExtra(String key) {
     return extras != null && extras.containsKey(key);
   }

@@ -201,9 +201,13 @@ pub fn set_zone_offset_minutes(minutes: i32) -> bool {
         return false;
     }
     let mut r = current();
+    let changed = r.offset_minutes != minutes;
     r.offset_minutes = minutes;
     OFFSET_MINUTES.store(minutes, Ordering::Relaxed);
     let stored = save_stored(&r);
+    if changed {
+        crate::broadcasts::note_zone_changed();
+    }
     crate::pd_info!(
         "time: zone UTC{}{:02}:{:02}{}",
         if minutes < 0 { "-" } else { "+" },

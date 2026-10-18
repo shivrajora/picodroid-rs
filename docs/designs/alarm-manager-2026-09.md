@@ -156,3 +156,17 @@ those, since only it shows what the feature is for.
   receives one, which is what picoclock does.
 - **`PendingIntent.getBroadcast` / `getService`.** There are no broadcasts, and
   a Service cannot be started from outside its own app.
+
+## Amendments
+
+- 2026-10-18: `PendingIntent.getBroadcast` landed
+  ([broadcasts-2026-10.md](broadcasts-2026-10.md) stage 4). An alarm row carries a target kind —
+  Activity, receiver class, or action — that is part of its identity; a broadcast alarm is handed to
+  `BroadcastReceiver.fireAlarm` (a second dispatch row, `ALARM_BROADCAST`), which instantiates the
+  receiver class or dispatches the action to the registered receivers. An Activity-less app that is
+  about to leave now delivers the alarms due to it first (`alarms::take_due_for`), so a cold wake for
+  a receiver-only app lands instead of burning its two attempts. picoclock arms
+  `getBroadcast(AlarmReceiver)` and re-plans on `ACTION_TIME_CHANGED` / `ACTION_TIMEZONE_CHANGED`.
+  `getService` is still not here. The "no hardware wake" bullet above is stale in one respect: the
+  loop keeps ticking while the panel dozes (`tick_source::pause` has no callers), so a dozing board
+  still polls; what stops is rendering and input.

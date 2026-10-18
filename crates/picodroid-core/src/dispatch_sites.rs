@@ -126,6 +126,17 @@ pub const ALERT_DIALOG_DISMISS: usize = WIFI_EVENT + 2;
 /// A snackbar's timeout took it down: `Snackbar.fireDismiss()` lets the Java
 /// side's showing list go of a bar the frame tick already deleted.
 pub const SNACKBAR_DISMISS: usize = WIFI_EVENT + 3;
+/// The system broadcasts due this frame, as one bitmask:
+/// `BroadcastReceiver.fireSystem(int mask)` builds the Intents and fans them
+/// out to the registered receivers (lifecycle::broadcast_events;
+/// docs/designs/broadcasts-2026-10.md).
+pub const BROADCAST: usize = WIFI_EVENT + 4;
+/// A broadcast alarm fired (`PendingIntent.getBroadcast`):
+/// `BroadcastReceiver.fireAlarm(receiverClass, action, k0, v0, k1, v1)`
+/// instantiates the receiver class or dispatches the action. Multi-app only,
+/// like `ALARM_FIRE`, and last for the same reason.
+#[cfg(has_multi_app)]
+pub const ALARM_BROADCAST: usize = WIFI_EVENT + 5;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -184,6 +195,9 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     (c::picodroid_content_Context, m::dispatchServiceConnected),
     (c::picodroid_app_AlertDialog, m::fireDismiss),
     (c::picodroid_widget_Snackbar, m::fireDismiss),
+    (c::picodroid_content_BroadcastReceiver, m::fireSystem),
+    #[cfg(has_multi_app)]
+    (c::picodroid_content_BroadcastReceiver, m::fireAlarm),
 ];
 
 #[cfg(test)]

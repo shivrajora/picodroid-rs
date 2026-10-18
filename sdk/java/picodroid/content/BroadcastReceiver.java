@@ -2,6 +2,10 @@
 package picodroid.content;
 
 import java.util.TimeZone;
+import picodroid.net.ConnectivityManager;
+import picodroid.net.NetworkInfo;
+import picodroid.net.wifi.WifiManager;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 
 /**
@@ -249,6 +253,43 @@ public abstract class BroadcastReceiver {
     }
   }
 
+  // ── A broadcast alarm (AlarmManager, PendingIntent.getBroadcast) ───────────────────────────
+
+  /**
+   * The framework calls this on the main thread when a broadcast alarm fires, in the app that set
+   * it and once it is running again: {@code receiverClass} is the class the PendingIntent named, or
+   * null for an action-only one, and the two extras ride along as the alarm store keeps them. The
+   * Context a receiver sees is a plain one — the app's, not an Activity's — as Android's receiver
+   * context is.
+   */
+  static void fireAlarm(
+      String receiverClass, String action, String key0, int value0, String key1, int value1) {
+    Intent intent = receiverClass != null ? new Intent().setClassName(null, receiverClass) : null;
+    if (intent == null) {
+      intent = new Intent(action);
+    }
+    if (key0 != null) {
+      intent.putExtra(key0, value0);
+    }
+    if (key1 != null) {
+      intent.putExtra(key1, value1);
+    }
+    if (receiverClass != null) {
+      deliverExplicit(new Context(), intent);
+      return;
+    }
+    boolean heard = false;
+    synchronized (BroadcastReceiver.class) {
+      for (int i = 0; i < sCount; i++) {
+        heard |= sFilters[i].matchAction(action);
+      }
+    }
+    if (!heard) {
+      Log.w(TAG, "alarm broadcast " + action + ": no receiver registered for it");
+    }
+    dispatch(intent);
+  }
+
   // ── The system actions (the framework's event loop) ────────────────────────────────────────
 
   /**
@@ -265,11 +306,38 @@ public abstract class BroadcastReceiver {
       if (action == null) {
         continue;
       }
-      Intent intent = new Intent(action);
-      if (bit == BIT_TIMEZONE_CHANGED) {
-        intent.putExtra(Intent.EXTRA_TIMEZONE, TimeZone.getDefault().getID());
-      }
-      dispatch(intent);
+      dispatch(withExtras(bit, new Intent(action)));
+    }
+  }
+
+  /**
+   * The extras Android attaches to a system action. The network classes are touched only inside
+   * their own branches: a board without a network never raises those bits, and may not ship the
+   * classes.
+   */
+  private static Intent withExtras(int bit, Intent intent) {
+    switch (bit) {
+      case BIT_TIMEZONE_CHANGED:
+        return intent.putExtra(Intent.EXTRA_TIMEZONE, TimeZone.getDefault().getID());
+      case BIT_SUPPLICANT_STATE:
+        {
+          WifiManager wm = WifiManager.getInstance();
+          Bundle extras = new Bundle();
+          extras.putParcelable(
+              WifiManager.EXTRA_NEW_STATE, wm.getConnectionInfo().getSupplicantState());
+          int error = wm.getLastError();
+          if (error != 0) {
+            extras.putInt(WifiManager.EXTRA_SUPPLICANT_ERROR, error);
+          }
+          return intent.putExtras(extras);
+        }
+      case BIT_SCAN_RESULTS:
+        return intent.putExtra(WifiManager.EXTRA_RESULTS_UPDATED, true);
+      case BIT_CONNECTIVITY:
+        return intent.putExtra(
+            ConnectivityManager.EXTRA_NO_CONNECTIVITY, !NetworkInfo.isConnected());
+      default:
+        return intent;
     }
   }
 
@@ -288,6 +356,14 @@ public abstract class BroadcastReceiver {
         return Intent.ACTION_SCREEN_ON;
       case BIT_BOOT_COMPLETED:
         return Intent.ACTION_BOOT_COMPLETED;
+      case BIT_SUPPLICANT_STATE:
+        return WifiManager.SUPPLICANT_STATE_CHANGED_ACTION;
+      case BIT_NETWORK_STATE:
+        return WifiManager.NETWORK_STATE_CHANGED_ACTION;
+      case BIT_SCAN_RESULTS:
+        return WifiManager.SCAN_RESULTS_AVAILABLE_ACTION;
+      case BIT_CONNECTIVITY:
+        return ConnectivityManager.CONNECTIVITY_ACTION;
       default:
         return null;
     }
@@ -312,6 +388,18 @@ public abstract class BroadcastReceiver {
     }
     if (Intent.ACTION_BOOT_COMPLETED.equals(action)) {
       return BIT_BOOT_COMPLETED;
+    }
+    if (WifiManager.SUPPLICANT_STATE_CHANGED_ACTION.equals(action)) {
+      return BIT_SUPPLICANT_STATE;
+    }
+    if (WifiManager.NETWORK_STATE_CHANGED_ACTION.equals(action)) {
+      return BIT_NETWORK_STATE;
+    }
+    if (WifiManager.SCAN_RESULTS_AVAILABLE_ACTION.equals(action)) {
+      return BIT_SCAN_RESULTS;
+    }
+    if (ConnectivityManager.CONNECTIVITY_ACTION.equals(action)) {
+      return BIT_CONNECTIVITY;
     }
     return 0;
   }

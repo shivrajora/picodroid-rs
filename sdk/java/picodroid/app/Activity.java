@@ -584,6 +584,7 @@ public class Activity extends Context
    * new top fully resumes). The framework instantiates the target via its no-arg constructor; the
    * Intent (extras included) is retained and available to the target via {@link #getIntent()}.
    */
+  @Override
   public native void startActivity(Intent intent);
 
   /**

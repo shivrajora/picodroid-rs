@@ -262,11 +262,8 @@ public class SetTimeActivity extends BaseActivity {
       Log.w(TAG, "the platform refused the clock set");
       return;
     }
-    // Every armed alarm was scheduled against the old clock; none of those
-    // instants means anything now.
-    if (alarms != null) {
-      alarms.reload();
-    }
+    // Every armed alarm was scheduled against the old clock; the service hears
+    // the clock set as ACTION_TIME_CHANGED and re-plans.
     Log.i(
         TAG,
         "clock set to "

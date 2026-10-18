@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package qa_bcast;
 
+import java.util.TimeZone;
 import picodroid.app.Activity;
+import picodroid.app.AlarmManager;
+import picodroid.app.PendingIntent;
 import picodroid.concurrent.Executors;
 import picodroid.concurrent.Thread;
 import picodroid.content.BroadcastReceiver;
@@ -9,6 +12,8 @@ import picodroid.content.Context;
 import picodroid.content.Intent;
 import picodroid.content.IntentFilter;
 import picodroid.os.Bundle;
+import picodroid.os.SystemClock;
+import picodroid.provider.Settings;
 import picodroid.util.Log;
 
 /**
@@ -96,6 +101,24 @@ public class ActA extends Activity {
 
   private Thread mainThread;
 
+  // The system actions: each arrival is a trace token, so order and counts can be checked.
+  private String zoneExtra = null;
+  private String zoneBefore = null;
+  private int timeoutBefore = 0;
+
+  private final BroadcastReceiver system =
+      new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+          String action = intent.getAction();
+          String name = action.substring(action.lastIndexOf('.') + 1);
+          if (Intent.ACTION_TIMEZONE_CHANGED.equals(action)) {
+            zoneExtra = intent.getStringExtra(Intent.EXTRA_TIMEZONE);
+          }
+          T.log("sys." + name);
+        }
+      };
+
   Thread getMainThread() {
     return mainThread;
   }
@@ -145,11 +168,12 @@ public class ActA extends Activity {
     T.check("matchAction null is false", !f.matchAction(null));
     IntentFilter copy = new IntentFilter(f);
     T.check("copy constructor", copy.countActions() == 2 && copy.hasAction(ACTION_A));
-    f.addAction("x.3");
-    f.addAction("x.4");
+    for (int i = f.countActions(); i < IntentFilter.MAX_ACTIONS; i++) {
+      f.addAction("x." + i);
+    }
     boolean capped = false;
     try {
-      f.addAction("x.5");
+      f.addAction("x.one-too-many");
     } catch (IllegalStateException e) {
       capped = true;
     }
@@ -285,6 +309,122 @@ public class ActA extends Activity {
   private void stepCheckUnregistered() {
     T.check("nothing after unregister", aCount == 1);
     registerReceiver(receiverA, new IntentFilter(ACTION_A));
+    stepSystemClock();
+  }
+
+  // ── The system actions ─────────────────────────────────────────────────────────────────────
+
+  /** Set the clock to half a second before a minute edge: TIME_CHANGED now, TIME_TICK soon. */
+  private void stepSystemClock() {
+    IntentFilter f = new IntentFilter(Intent.ACTION_TIME_TICK);
+    f.addAction(Intent.ACTION_TIME_CHANGED);
+    f.addAction(Intent.ACTION_TIMEZONE_CHANGED);
+    f.addAction(Intent.ACTION_SCREEN_OFF);
+    f.addAction(Intent.ACTION_SCREEN_ON);
+    registerReceiver(system, f);
+    long now = System.currentTimeMillis();
+    long target = (now / 60_000L + 1) * 60_000L - 500;
+    T.check("setCurrentTimeMillis accepted", SystemClock.setCurrentTimeMillis(target));
+    T.later(1500, this::stepSystemZone);
+  }
+
+  private void stepSystemZone() {
+    T.check("TIME_CHANGED once", T.count("sys.TIME_SET") == 1);
+    T.check("TIME_TICK at the minute edge", T.count("sys.TIME_TICK") == 1);
+    T.check("TIME_CHANGED before TIME_TICK", T.before("sys.TIME_SET", 1, "sys.TIME_TICK", 1));
+    AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+    zoneBefore = TimeZone.getDefault().getID();
+    String pick = "GMT+05:30".equals(zoneBefore) ? "GMT+01:00" : "GMT+05:30";
+    am.setTimeZone(pick);
+    T.later(600, () -> stepSystemScreen(am, pick));
+  }
+
+  private void stepSystemScreen(AlarmManager am, String pick) {
+    T.check("TIMEZONE_CHANGED once", T.count("sys.TIMEZONE_CHANGED") == 1);
+    T.check("TIMEZONE_CHANGED carries the zone", pick.equals(zoneExtra));
+    am.setTimeZone(zoneBefore);
+    // A screen timeout shorter than the idle so far dozes the panel at the next tick.
+    timeoutBefore =
+        Settings.System.getInt(getContentResolver(), Settings.System.SCREEN_OFF_TIMEOUT, 60000);
+    Settings.System.putInt(getContentResolver(), Settings.System.SCREEN_OFF_TIMEOUT, 1500);
+    T.later(2500, this::stepSystemWake);
+  }
+
+  private void stepSystemWake() {
+    T.check("SCREEN_OFF once", T.count("sys.SCREEN_OFF") == 1);
+    T.check("no SCREEN_ON yet", T.count("sys.SCREEN_ON") == 0);
+    setTurnScreenOn(true);
+    T.later(800, this::stepSystemDone);
+  }
+
+  private void stepSystemDone() {
+    T.check("SCREEN_ON once", T.count("sys.SCREEN_ON") == 1);
+    T.check("zone restored after the test", T.count("sys.TIMEZONE_CHANGED") == 2);
+    Settings.System.putInt(getContentResolver(), Settings.System.SCREEN_OFF_TIMEOUT, timeoutBefore);
+    unregisterReceiver(system);
+    stepAlarms();
+  }
+
+  // ── PendingIntent.getBroadcast ─────────────────────────────────────────────────────────────
+
+  private static final String ACTION_ALARM = "qa_bcast.ALARM";
+  private int alarmActionExtra = -1;
+
+  private final BroadcastReceiver alarmReceiver =
+      new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+          alarmActionExtra = intent.getIntExtra("n", -1);
+          T.log("Alarm.onReceive");
+        }
+      };
+
+  /** Two broadcast alarms a second out: one for a registered action, one for a receiver class. */
+  private void stepAlarms() {
+    AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+    boolean refused = false;
+    try {
+      PendingIntent.getBroadcast(this, 0, new Intent(), 0);
+    } catch (IllegalArgumentException e) {
+      refused = true;
+    }
+    T.check("getBroadcast needs a class or an action", refused);
+    PendingIntent byAction =
+        PendingIntent.getBroadcast(
+            this, 1, new Intent(ACTION_ALARM).putExtra("n", 9), PendingIntent.FLAG_IMMUTABLE);
+    PendingIntent byClass =
+        PendingIntent.getBroadcast(
+            this,
+            1,
+            new Intent(this, ExplicitReceiver.class).putExtra("v", 77),
+            PendingIntent.FLAG_IMMUTABLE);
+    PendingIntent asActivity =
+        PendingIntent.getActivity(this, 1, new Intent(ActB.class), PendingIntent.FLAG_IMMUTABLE);
+    T.check(
+        "kinds keep operations apart", !byAction.equals(byClass) && !byClass.equals(asActivity));
+    T.check(
+        "same kind and code are equal",
+        byClass.equals(
+            PendingIntent.getBroadcast(this, 1, new Intent(this, ExplicitReceiver.class), 0)));
+    registerReceiver(alarmReceiver, new IntentFilter(ACTION_ALARM));
+    long at = SystemClock.elapsedRealtime() + 1000;
+    am.setExact(AlarmManager.ELAPSED_REALTIME, at, byAction);
+    am.setExact(AlarmManager.ELAPSED_REALTIME, at, byClass);
+    // A third, cancelled before it fires: the cancel must name the kind.
+    PendingIntent cancelled =
+        PendingIntent.getBroadcast(this, 2, new Intent(ACTION_ALARM), PendingIntent.FLAG_IMMUTABLE);
+    am.setExact(AlarmManager.ELAPSED_REALTIME, at, cancelled);
+    cancelled.cancel();
+    T.later(2500, this::stepAlarmsCheck);
+  }
+
+  private void stepAlarmsCheck() {
+    T.check("action alarm reached the registered receiver", T.count("Alarm.onReceive") == 1);
+    T.check("action alarm kept its extra", alarmActionExtra == 9);
+    T.check("class alarm instantiated the receiver", ExplicitReceiver.received == 2);
+    T.check("class alarm kept its extra", ExplicitReceiver.lastValue == 77);
+    T.check("alarm receiver got a plain Context", !ExplicitReceiver.contextWasActivity);
+    unregisterReceiver(alarmReceiver);
     // The leak excursion: ActB registers and finishes without unregistering.
     startActivity(new Intent(ActB.class));
   }

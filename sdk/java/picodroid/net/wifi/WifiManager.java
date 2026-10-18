@@ -37,11 +37,14 @@ import picodroid.net.NetworkInfo;
  *       allowedKeyManagement}: the join uses the security the last scan reported for that SSID —
  *       open, WPA2, WPA3 or mixed — and, for a network never scanned, WPA2/WPA3 with a password and
  *       open without one.
- *   <li><b>No broadcasts.</b> picodroid has no {@code BroadcastReceiver}, so the join's outcome is
- *       read, not pushed: {@link WifiInfo#getSupplicantState()} and {@link #getLastError()} ({@link
- *       #ERROR_AUTHENTICATING} is Android's value for the {@code EXTRA_SUPPLICANT_ERROR} extra).
- *       The link coming up with an address still arrives through {@code ConnectivityManager}. Scan
- *       completion is pushed, through {@link #registerScanResultsCallback} (Android 11).
+ *   <li><b>The join's outcome is broadcast</b>, as on Android: {@link
+ *       #SUPPLICANT_STATE_CHANGED_ACTION} with {@link #EXTRA_NEW_STATE} (a {@link SupplicantState})
+ *       and, after a rejected join, {@link #EXTRA_SUPPLICANT_ERROR}; {@link
+ *       #NETWORK_STATE_CHANGED_ACTION} when the link comes up with an address or drops; {@link
+ *       #SCAN_RESULTS_AVAILABLE_ACTION} when a scan finished. Register a {@code BroadcastReceiver}
+ *       for them, or read the state: {@link WifiInfo#getSupplicantState()} and {@link
+ *       #getLastError()}. The link is also a {@code ConnectivityManager} network, and scan
+ *       completion also reaches {@link #registerScanResultsCallback} (Android 11).
  *   <li><b>WiFi is always on</b> where it exists: {@link #setWifiEnabled} is accepted and ignored,
  *       and {@link #isWifiEnabled} says whether this board has a WiFi link at all.
  * </ul>
@@ -50,6 +53,38 @@ import picodroid.net.NetworkInfo;
  * frames, so an app with no Activity does not receive them.
  */
 public class WifiManager {
+  /**
+   * Broadcast when the station's state changed: a join started, completed or failed. Carries {@link
+   * #EXTRA_NEW_STATE}, and {@link #EXTRA_SUPPLICANT_ERROR} after a rejected join. Android's value.
+   */
+  public static final String SUPPLICANT_STATE_CHANGED_ACTION =
+      "android.net.wifi.supplicant.STATE_CHANGE";
+
+  /**
+   * Broadcast when the link came up with an address or dropped. Android attaches a {@code
+   * NetworkInfo}; here read {@link picodroid.net.NetworkInfo#isConnected()}.
+   */
+  public static final String NETWORK_STATE_CHANGED_ACTION = "android.net.wifi.STATE_CHANGE";
+
+  /** Broadcast when a scan finished; {@link #getScanResults} has the list. Android's value. */
+  public static final String SCAN_RESULTS_AVAILABLE_ACTION = "android.net.wifi.SCAN_RESULTS";
+
+  /**
+   * {@link #SUPPLICANT_STATE_CHANGED_ACTION}'s {@link SupplicantState}: {@code
+   * intent.getParcelableExtra(WifiManager.EXTRA_NEW_STATE)}.
+   */
+  public static final String EXTRA_NEW_STATE = "newState";
+
+  /**
+   * {@link #SUPPLICANT_STATE_CHANGED_ACTION}'s {@code int} extra after a failed join: {@link
+   * #ERROR_AUTHENTICATING}, {@link #ERROR_NETWORK_NOT_FOUND} or {@link #ERROR_GENERIC}; absent
+   * otherwise, as on Android.
+   */
+  public static final String EXTRA_SUPPLICANT_ERROR = "supplicantError";
+
+  /** {@link #SCAN_RESULTS_AVAILABLE_ACTION}'s {@code boolean} extra: always true here. */
+  public static final String EXTRA_RESULTS_UPDATED = "resultsUpdated";
+
   /** {@link #getWifiState}: this board has no WiFi. */
   public static final int WIFI_STATE_DISABLED = 1;
 

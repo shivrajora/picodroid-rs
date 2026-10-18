@@ -21,9 +21,11 @@ import picodroid.os.SystemClock;
  * buttons' requests go back through it.
  *
  * <p>The UI's timing lives here too. Part of what is shown moves with the clock and not with the
- * data: the header's time, the countdowns, numbers going stale. While somebody is observing, a
- * once-a-second task on the main thread looks at the clock and publishes a new state only when one
- * would be painted differently, which on the data screens is once a minute.
+ * data: the header's time, the countdowns, numbers going stale. The minute comes from the
+ * framework — the Activity hears {@code Intent.ACTION_TIME_TICK} (and a clock or zone set) and
+ * calls {@link #clockChanged} — so the data screens cost nothing between minutes. Only the status
+ * screen's countdown, which moves every second, runs a once-a-second task, and only while it is
+ * the one being painted.
  */
 public final class UsageViewModel extends ViewModel {
   private static final int TICK_MS = 1000;
@@ -46,6 +48,11 @@ public final class UsageViewModel extends ViewModel {
     repository.rediscover();
   }
 
+  /** The minute changed, or the clock or zone was set: re-derive what the screens show. */
+  void clockChanged() {
+    state.onTick();
+  }
+
   @Override
   protected void onCleared() {
     scheduler.shutdownNow();
@@ -57,24 +64,35 @@ public final class UsageViewModel extends ViewModel {
 
     private ScheduledFuture<?> ticking;
 
+    private boolean active;
+
     @Override
     protected void onActive() {
+      active = true;
       repository.data().observeForever(observer);
-      ticking =
-          scheduler.scheduleAtFixedRate(this::onTick, TICK_MS, TICK_MS, TimeUnit.MILLISECONDS);
+      onTick();
     }
 
     @Override
     protected void onInactive() {
+      active = false;
       repository.data().removeObserver(observer);
-      if (ticking != null) {
+      setCounting(false);
+    }
+
+    void onTick() {
+      derive(repository.data().getValue());
+    }
+
+    /** The once-a-second task, kept only while the status screen's countdown is showing. */
+    private void setCounting(boolean on) {
+      if (on && active && ticking == null) {
+        ticking =
+            scheduler.scheduleAtFixedRate(this::onTick, TICK_MS, TICK_MS, TimeUnit.MILLISECONDS);
+      } else if (!on && ticking != null) {
         ticking.cancel(false);
         ticking = null;
       }
-    }
-
-    private void onTick() {
-      derive(repository.data().getValue());
     }
 
     private void derive(UsageData data) {
@@ -91,6 +109,7 @@ public final class UsageViewModel extends ViewModel {
       // publish a state a second that they paint the same.
       boolean counting = snapshot == null || !snapshot.hasLimits();
       int retrySeconds = counting ? data.secondsToNextAttempt(elapsed) : 0;
+      setCounting(counting);
 
       UsageUiState shown = getValue();
       if (shown != null

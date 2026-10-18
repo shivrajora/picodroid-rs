@@ -83,7 +83,10 @@ pub fn main(model: &'static BootBudgetModel) {
     // from boot until an app anchors it, and the simulator keeps that shape.
     if std::env::var("PICODROID_SIM_WALL_CLOCK").is_ok_and(|v| v == "1") {
         if let Ok(now) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-            crate::os::system_clock::anchor_wall_clock(now.as_millis() as i64);
+            crate::os::system_clock::anchor_wall_clock(
+                now.as_millis() as i64,
+                crate::os::system_clock::Anchor::Set,
+            );
         }
     }
 

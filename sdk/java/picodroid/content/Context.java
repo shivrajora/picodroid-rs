@@ -273,6 +273,14 @@ public class Context {
   }
 
   /**
+   * Start an Activity, mirroring {@code android.content.Context#startActivity}: from a {@code
+   * BroadcastReceiver}'s Context, a Service or the Application as well as an Activity. The new
+   * Activity is pushed above whatever is showing once the current callback returns; a {@link
+   * Intent#setPackage} target launches that app instead (multi-app boards).
+   */
+  public native void startActivity(Intent intent);
+
+  /**
    * Start a Service. Calls {@code onCreate} on first launch, then {@code onStartCommand} for every
    * call (including repeats). The framework owns instantiation; the target Service must have a
    * public no-arg constructor.

@@ -16,7 +16,7 @@ package picodroid.content;
  */
 public final class IntentFilter {
   /** The most actions one filter names. */
-  public static final int MAX_ACTIONS = 4;
+  public static final int MAX_ACTIONS = 8;
 
   private final String[] actions = new String[MAX_ACTIONS];
   private int count;
