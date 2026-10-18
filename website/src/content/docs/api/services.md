@@ -212,11 +212,15 @@ is checked when the `PendingIntent` is built, which is where the mistake is.
 
 ### `picodroid.app.PendingIntent`
 
-`getActivity(Context context, int requestCode, Intent intent, int flags)` is the only
-factory: there are no broadcasts to point one at, and a Service cannot be started from
-outside its own app.
+Two factories: `getActivity(Context, int requestCode, Intent, int flags)` starts the
+Intent's Activity when the alarm fires, and `getBroadcast(Context, int requestCode, Intent,
+int flags)` delivers it as a broadcast — to a new instance of the receiver class the Intent
+names (`new Intent(this, AlarmReceiver.class)`, Android's alarm-clock idiom), or to the
+receivers registered for its action. When a broadcast alarm fires while the app is not
+running, the app is started first, so a receiver registered in `Application.onCreate` hears
+an action. There is no `getService`: a receiver starts a Service as easily.
 
-Two operations are **equal** when their request code and target Activity match; the extras
+Two operations are **equal** when their kind, request code and target match; the extras
 are not part of the identity, exactly as on Android. Equal operations replace one another on
 `setExact` and match on `cancel`, so a request code per alarm is how an app keeps several
 apart:
@@ -314,6 +318,59 @@ A binding belongs to the Activity that made it and is released when that Activit
 | `Context.WIFI_SERVICE` | [`WifiManager`](/api/networking/#wifi) |
 
 `Context` also carries `getPackageManager()` and `getPackageName()` ([system](/api/system/#picodroidcontentpmpackagemanager)), `getResources()` / `getString(int)` / `getColor(int)`, `getSharedPreferences(String, int)` and the private-file methods ([storage](/api/storage/#context--private-files)).
+
+### Broadcasts: `BroadcastReceiver`, `IntentFilter`, `registerReceiver`, `sendBroadcast`
+
+Android's broadcast model, in the app: register a `BroadcastReceiver` with an `IntentFilter`
+of the actions it wants and it hears them in `onReceive(Context, Intent)` on the main thread,
+between frames, until `unregisterReceiver`. Register in `onResume` / `onStart` and unregister
+in the matching callback, as on Android; an Activity destroyed with a receiver still
+registered has it unregistered for it, with Android's "has leaked IntentReceiver" warning.
+
+```java
+private final BroadcastReceiver tick = new BroadcastReceiver() {
+  @Override public void onReceive(Context context, Intent intent) {
+    if (Intent.ACTION_TIME_TICK.equals(intent.getAction())) { showTime(); }
+  }
+};
+
+@Override public void onResume() {
+  super.onResume();
+  IntentFilter filter = new IntentFilter(Intent.ACTION_TIME_TICK);
+  filter.addAction(Intent.ACTION_TIME_CHANGED);
+  filter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
+  registerReceiver(tick, filter);        // or (tick, filter, Context.RECEIVER_NOT_EXPORTED)
+}
+
+@Override public void onPause() {
+  unregisterReceiver(tick);
+  super.onPause();
+}
+```
+
+The system actions, with Android's string values: `Intent.ACTION_TIME_TICK` at every minute
+change (registered receivers only, as on Android); `ACTION_TIME_CHANGED` when the clock was
+set — by Settings, by an app, or by the platform's time service when the network moved it by
+two seconds or more; `ACTION_TIMEZONE_CHANGED` with `EXTRA_TIMEZONE`; `ACTION_SCREEN_OFF` /
+`ACTION_SCREEN_ON` as the panel dozes and wakes. On a network board, `WifiManager`'s
+`SUPPLICANT_STATE_CHANGED_ACTION` (`EXTRA_NEW_STATE`, a `SupplicantState` via
+`getParcelableExtra`; `EXTRA_SUPPLICANT_ERROR` after a rejected join),
+`NETWORK_STATE_CHANGED_ACTION` and `SCAN_RESULTS_AVAILABLE_ACTION`, and `ConnectivityManager`'s
+`CONNECTIVITY_ACTION` with `EXTRA_NO_CONNECTIVITY`. Several arriving in one frame are delivered
+in that order, a clock set before the tick that follows it.
+
+`sendBroadcast(Intent)` is an app's own broadcast: asynchronous (the receivers run one
+main-thread turn later), to the receivers registered for the Intent's action, or to a new
+instance of the receiver class it names. One app runs at a time, so a broadcast never leaves
+the app, `setPackage` is refused, and `RECEIVER_EXPORTED` changes nothing.
+
+**Limits and omissions.** At most 8 receivers registered per app and 8 actions per filter
+(`IllegalStateException` beyond). A receiver that throws is logged and the round goes on —
+Android would crash the app. Not here: ordered and sticky broadcasts (`sendOrderedBroadcast`,
+`abortBroadcast`, `setResult*`, `isInitialStickyBroadcast`), `goAsync` (do slow work on a
+`picodroid.concurrent.Thread`), `peekService`, data/type/category matching. Manifest
+receivers exist for the boot-time actions only — see [the manifest](/reference/manifest/) —
+and for explicit targets. `LocalBroadcastManager` is not needed: every broadcast is local.
 
 ### Starting another app
 

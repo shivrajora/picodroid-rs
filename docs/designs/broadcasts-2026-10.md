@@ -1,7 +1,7 @@
 # Broadcasts: `BroadcastReceiver`, `IntentFilter`, `registerReceiver`, `PendingIntent.getBroadcast`
 
-**Status: in progress 2026-10-18.** §4 says which stages have landed; amendments at the bottom
-record where execution diverged.
+**Status: built 2026-10-18**, stages 0–7 (§4). Amendments at the bottom record where execution
+diverged.
 
 ## 0. Why
 
@@ -54,7 +54,7 @@ sendBroadcast(new Intent("picoclock.ALARM_EDITED"));
 | `Intent.ACTION_TIME_TICK`, `ACTION_TIME_CHANGED` (`"android.intent.action.TIME_SET"`), `ACTION_TIMEZONE_CHANGED` + `EXTRA_TIMEZONE`, `ACTION_SCREEN_ON` / `OFF`, `ACTION_BOOT_COMPLETED`, `ACTION_MAIN` | same string values | Android's literal action strings, which the manifest packer already matched (`android.intent.action.MAIN`) |
 | `WifiManager.SUPPLICANT_STATE_CHANGED_ACTION` (+ `EXTRA_NEW_STATE`, `EXTRA_SUPPLICANT_ERROR`), `NETWORK_STATE_CHANGED_ACTION`, `SCAN_RESULTS_AVAILABLE_ACTION`; `ConnectivityManager.CONNECTIVITY_ACTION` | same | network boards; `WifiManager.getLastError()` stays, no longer the only way to the join's verdict |
 | `PendingIntent.getBroadcast(ctx, code, intent, flags)` | same | an explicit receiver class or an action; two `int` extras, as `getActivity`; multi-app boards |
-| manifest `<receiver>` with `BOOT_COMPLETED` | see §4 stage 6 | one app runs at a time, so a delivery to another package is a headless run of it |
+| manifest `<receiver>` for `BOOT_COMPLETED`, `TIME_SET`, `TIMEZONE_CHANGED` | same (§3.5) | one app runs at a time, so a delivery to a package that is not running is a headless run of it, between apps; the other actions are registered-only, as `TIME_TICK` and the screen actions are on Android |
 | ordered and sticky broadcasts, `sendOrderedBroadcast`, `abortBroadcast`, `goAsync`, `LocalBroadcastManager`, `WIFI_STATE_CHANGED_ACTION`, `BATTERY_*` | not here | no source, or no need; the API hints name the alternative |
 
 ## 3. How it works
@@ -138,6 +138,32 @@ used to drain its ops and exit without ever polling alarms, so a cold wake for s
 burned both of its `MAX_WAKE_ATTEMPTS`. It now polls once, in a bounded loop, and delivers every
 `Fire` for the running package before tearing down.
 
+### 3.5 Manifest receivers: a headless run between apps
+
+A `<receiver>` may declare the three boot-time actions (the Gradle parser refuses the rest with
+the registered-only alternative named). The packer writes them as the `receivers` manifest key
+(`class|action…`, comma-separated) and checks each class extends `BroadcastReceiver`; the
+directory keeps the raw value per `Entry` and parses it only when asked.
+
+Delivery to a package that is not running means running it. The table in `broadcasts.rs`
+(`MANIFEST`, eight rows of package + action bits) is filled lazily on the JVM task: once at
+boot with every package that declares `BOOT_COMPLETED`, and on every clock-set or zone
+generation the table has not seen with the packages that declare that action, the running one
+excepted (it hears the action through its registered receivers). The directory asks the table
+first: `boot_image()` returns the first pending package's image and parks the real boot app as
+the pending launch; `next_image()` returns the next pending package before the pending launch
+and the launcher. `run_application` asks whether this run is such a delivery
+(`manifest_current`), calls `BroadcastReceiver.fireManifest(class, bits)` per declared class
+after `Application.onCreate` — a new instance, one Intent per action, a plain Context — and
+stays headless: an Activity the app pushes is dropped with a log line, the service ops drain,
+the alarms due to it are delivered, and the run ends, so the app the user was in, or the boot
+app, is what comes back. While the launcher shows, the tick's broadcast dispatch sees a delivery
+waiting for another package and leaves the launcher for it (a `Launch` op with no pending
+package), the chain runs, and the launcher returns. Any other foreground app keeps the
+foreground; the delivery waits for its exit. The sim's `boot` lane runs the whole circle:
+`bootdemo`'s receiver hears `BOOT_COMPLETED` before the launcher is up, arms a broadcast alarm,
+and is woken four seconds later to deliver it to `PingReceiver`, which starts its Activity.
+
 ## 4. Stages
 
 Each stage ships on its own with its own ratchet accept. Status is kept here.
@@ -145,13 +171,13 @@ Each stage ships on its own with its own ratchet accept. Status is kept here.
 | # | Stage | Status |
 |---|---|---|
 | 0 | This doc, index row, amendments in the docs it supersedes | 2026-10-18 |
-| 1 | Java core: `BroadcastReceiver`, `IntentFilter`, `Intent.action` + constants, `Context.registerReceiver` / `unregisterReceiver` / `sendBroadcast`, the leak reap, the API hints, `examples/qa_bcast` | in progress |
-| 2 | System actions from the loop: `broadcast_events.rs`, the `BROADCAST` row, screen, tick, time, zone | open |
-| 3 | Network actions: supplicant, network state, scan, connectivity; Settings' Wi-Fi screen on receivers | open |
-| 4 | `PendingIntent.getBroadcast`: the alarm kind, `fireAlarm` by kind, the headless poll | open |
-| 5 | The consumers: `claudeusage` on `TIME_TICK`, `picoclock` on `getBroadcast` + `TIME_CHANGED` / `TIMEZONE_CHANGED` | open |
-| 6 | Manifest `<receiver>` and `BOOT_COMPLETED`: XSD, Gradle, `papk-pack`, `papk-format`, the boot chain | open |
-| 7 | Website, compatibility matrix, release notes; closed items moved | open |
+| 1 | Java core: `BroadcastReceiver`, `IntentFilter`, `Intent.action` + constants, `Context.registerReceiver` / `unregisterReceiver` / `sendBroadcast`, the leak reap, the API hints, `examples/qa_bcast` | built 2026-10-18 (`e0147dee`): `qa_bcast` 40 checks in the sim |
+| 2 | System actions from the loop: `broadcast_events.rs`, the `BROADCAST` row, screen, tick, time, zone | built 2026-10-18 (`8ffacd23`): `qa_bcast` hears `TIME_SET` then `TIME_TICK` within a second of a clock set to :59.5, `TIMEZONE_CHANGED` with the id, `SCREEN_OFF` from a 1.5 s timeout and `SCREEN_ON` from `setTurnScreenOn`; the filter cap went to 8 when the five-action filter hit 4 |
+| 3 | Network actions: supplicant, network state, scan, connectivity; Settings' Wi-Fi screen on receivers | built 2026-10-18 (`8ffacd23`): `connectivity` row on `testbench_rp2350w` asserts `broadcast down 1` / `broadcast up 1` beside the callback; `settings-wifi` lanes unchanged (touch and keys) |
+| 4 | `PendingIntent.getBroadcast`: the alarm kind, `fireAlarm` by kind, the headless poll | built 2026-10-18 (`8ffacd23`): `qa_bcast` arms an action alarm and a receiver-class alarm a second out and a cancelled third; `alarms.rs` tests for the kind and `take_due_for`; `Context.startActivity` came with it |
+| 5 | The consumers: `claudeusage` on `TIME_TICK`, `picoclock` on `getBroadcast` + `TIME_CHANGED` / `TIMEZONE_CHANGED`, Settings' Wi-Fi screen | built 2026-10-18 (`8ffacd23`): the `claudeusage` (6) and `picoclock` (4) sim rows; the once-a-second task survives only under the status screen's countdown |
+| 6 | Manifest `<receiver>` for `BOOT_COMPLETED`, `TIME_SET`, `TIMEZONE_CHANGED`: XSD, Gradle, `papk-pack`, `papk-format`, the directory, the headless run, the `boot` sim lane, `examples/bootdemo`, picoclock's `BootReceiver` | built 2026-10-18: `boot` lane green in both shrink modes (`[broadcast] manifest 0x20 -> bootdemo` before `Launcher: ready`, then `[alarm] wake bootdemo` and `ping n=7`) |
+| 7 | Website, compatibility matrix, release notes; the amended docs | built 2026-10-18 |
 
 ### Where each stage lands
 
@@ -222,8 +248,12 @@ After every stage: `./scripts/sim.sh --app helloworld` prints `[HelloWorld] Hell
   refused rather than silently dropped.
 - **`WIFI_STATE_CHANGED_ACTION`.** There is no Wi-Fi enable/disable; `getWifiState` answers
   whether the board has a radio.
-- **Manifest receivers beyond the boot-time ones** (stage 6). `TIME_TICK` and the screen actions
-  are registered-only on Android as well.
+- **Manifest receivers beyond the boot-time ones.** `TIME_TICK` and the screen actions are
+  registered-only on Android as well; the Wi-Fi actions are manifest-receivable there but have
+  no use case here that survives a headless run (the app that cares is the one showing).
+- **A manifest delivery that interrupts a foreground app.** Only the launcher makes way; any
+  other app keeps the foreground and the delivery waits for its exit. Android would run the
+  receiver in the background process; here there is one process.
 
 ## 8. Docs this amends
 
@@ -233,3 +263,14 @@ After every stage: `./scripts/sim.sh --app helloworld` prints `[HelloWorld] Hell
 dated amendment as the stage that changes it lands.
 
 ## 9. Amendments
+
+- 2026-10-18: the `IntentFilter` cap was 4 in the plan and is 8 as built — `qa_bcast`'s own
+  filter for the five time-and-screen actions was the first to hit 4.
+- 2026-10-18: `Context.startActivity` was not in the plan; a receiver that brings a screen up
+  (`picoclock.AlarmReceiver`) needed it, and Android has it there. `Activity` and `Application`
+  now override it (Error Prone's `MissingOverride`).
+- 2026-10-18: manifest receivers took the recommendation: `TIME_SET` and `TIMEZONE_CHANGED`
+  beside `BOOT_COMPLETED`, since on a network board the clock is anchored seconds after boot and
+  a `BOOT_COMPLETED` receiver alone could re-arm nothing. The mechanism is the directory's, not
+  the supervisors': `boot_image()` / `next_image()` consult the pending table, so neither boot
+  loop changed.

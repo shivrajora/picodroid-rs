@@ -89,6 +89,10 @@ struct Args {
     activities: Vec<String>,
     /// `--service <class>`, repeatable: as `activities`, for `Service`.
     services: Vec<String>,
+    /// `--receiver <class|action…>`, repeatable: a declared `<receiver>` with
+    /// the actions its intent-filter names, written comma-joined as
+    /// `receivers`; the class is checked to be a packed `BroadcastReceiver`.
+    receivers: Vec<String>,
     /// `--theme <style>`: the `<style>` the manifest names as the app's
     /// theme; `?attr/` resolves against it and its `R.style` id is written
     /// as `theme`. Without it the style called `AppTheme` serves `?attr/`
@@ -126,6 +130,7 @@ struct RepackManifest {
     requires_features: Vec<String>,
     activities: Vec<String>,
     services: Vec<String>,
+    receivers: Vec<String>,
     theme_id: Option<u32>,
 }
 
@@ -144,6 +149,7 @@ const WELL_KNOWN_KEYS: &[&[u8]] = &[
     keys::REQUIRES_FEATURES,
     keys::ACTIVITIES,
     keys::SERVICES,
+    keys::RECEIVERS,
     keys::THEME,
 ];
 
@@ -222,7 +228,7 @@ fn load_repack_source(bytes: &[u8]) -> Result<(RepackSource, RepackManifest), St
             // The declared components and theme are well-known too: copied
             // as extras they were written twice when the flags named them
             // as well, and the input's values came first.
-            k if k == keys::ACTIVITIES || k == keys::SERVICES => {
+            k if k == keys::ACTIVITIES || k == keys::SERVICES || k == keys::RECEIVERS => {
                 let list = value
                     .split(',')
                     .filter(|f| !f.is_empty())
@@ -230,8 +236,10 @@ fn load_repack_source(bytes: &[u8]) -> Result<(RepackSource, RepackManifest), St
                     .collect();
                 if k == keys::ACTIVITIES {
                     manifest.activities = list;
-                } else {
+                } else if k == keys::SERVICES {
                     manifest.services = list;
+                } else {
+                    manifest.receivers = list;
                 }
                 continue;
             }
@@ -289,6 +297,7 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
     let mut requires_features: Vec<String> = Vec::new();
     let mut activities: Vec<String> = Vec::new();
     let mut services: Vec<String> = Vec::new();
+    let mut receivers: Vec<String> = Vec::new();
     let mut theme: Option<String> = None;
     let mut repack: Option<PathBuf> = None;
     let mut pad_asset: Option<usize> = None;
@@ -359,6 +368,19 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
                     ));
                 }
                 requires_features.push(name.clone());
+            }
+            "--receiver" => {
+                i += 1;
+                let spec = args
+                    .get(i)
+                    .ok_or_else(|| "--receiver requires a value".to_string())?;
+                let class = spec.split('|').next().unwrap_or("");
+                if class.is_empty() || class.contains(',') || class.contains('.') {
+                    return Err(format!(
+                        "--receiver takes a class in slash form followed by |-separated actions, got '{spec}'"
+                    ));
+                }
+                receivers.push(spec.clone());
             }
             "--activity-decl" | "--service" => {
                 let flag = args[i].clone();
@@ -485,6 +507,9 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
         if services.is_empty() {
             services = m.services;
         }
+        if receivers.is_empty() {
+            receivers = m.receivers;
+        }
         // A `--theme` names a style the input's resources would have to hold;
         // without it the input's resolved theme id carries over.
         if theme.is_none() {
@@ -530,6 +555,7 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
             resources: Vec::new(),
             activities,
             services,
+            receivers,
             theme,
             theme_id: repack_theme_id,
         },
@@ -574,6 +600,15 @@ fn shrink_entry_point(args: &mut Args) -> Result<(), String> {
             *name = shrunk_class(name, Some(map))?;
         }
     }
+    for spec in args.receivers.iter_mut() {
+        let (class, actions) = spec.split_once('|').unwrap_or((spec.as_str(), ""));
+        let mapped = shrunk_class(class, Some(map))?;
+        *spec = if actions.is_empty() {
+            mapped
+        } else {
+            format!("{mapped}|{actions}")
+        };
+    }
     Ok(())
 }
 
@@ -593,19 +628,32 @@ fn validate_components(args: &Args, classes: &[(String, Vec<u8>)]) -> Result<(),
     let object = shrunk_class("java/lang/Object", map)?;
     let is_framework =
         |c: &str| c == object || c.starts_with("java/") || (map.is_some() && c.starts_with("b/"));
+    let receiver_classes: Vec<String> = args
+        .receivers
+        .iter()
+        .map(|spec| spec.split('|').next().unwrap_or("").to_string())
+        .collect();
     let bases = [
         (
             "activity",
             &args.activities,
             shrunk_class("picodroid/app/Activity", map)?,
+            "picodroid.app.Activity",
         ),
         (
             "service",
             &args.services,
             shrunk_class("picodroid/app/Service", map)?,
+            "picodroid.app.Service",
+        ),
+        (
+            "receiver",
+            &receiver_classes,
+            shrunk_class("picodroid/content/BroadcastReceiver", map)?,
+            "picodroid.content.BroadcastReceiver",
         ),
     ];
-    for (tag, declared, base) in bases {
+    for (tag, declared, base, base_name) in bases {
         for name in declared.iter() {
             let Some((_, bytes)) = classes.iter().find(|(n, _)| n == name) else {
                 return Err(format!(
@@ -630,9 +678,8 @@ fn validate_components(args: &Args, classes: &[(String, Vec<u8>)]) -> Result<(),
                         // here as a miss, everything else is unknown to us.
                         if is_framework(&c) {
                             return Err(format!(
-                                "manifest <{tag} android:name=\"{}\"> does not extend picodroid.app.{}",
-                                name.replace('/', "."),
-                                if tag == "activity" { "Activity" } else { "Service" }
+                                "manifest <{tag} android:name=\"{}\"> does not extend {base_name}",
+                                name.replace('/', ".")
                             ));
                         }
                         break;
@@ -1106,6 +1153,7 @@ fn build_papk(
     // short-form manifest writes none of them.
     let activities = args.activities.join(",");
     let services = args.services.join(",");
+    let receivers = args.receivers.join(",");
     let theme_id = args.theme_id.map(|id| id.to_string());
     let key = |k: &'static [u8]| std::str::from_utf8(k).expect("manifest keys are ASCII");
     let mut builder = PapkBuilder::new(ManifestSpec {
@@ -1127,6 +1175,9 @@ fn build_papk(
     }
     if !services.is_empty() {
         builder.manifest_entry(key(papk_format::keys::SERVICES), &services);
+    }
+    if !receivers.is_empty() {
+        builder.manifest_entry(key(papk_format::keys::RECEIVERS), &receivers);
     }
     if let Some(id) = &theme_id {
         builder.manifest_entry(key(papk_format::keys::THEME), id);
@@ -1404,6 +1455,7 @@ mod pack_integration {
             resources: Vec::new(),
             activities: Vec::new(),
             services: Vec::new(),
+            receivers: Vec::new(),
             theme: None,
             theme_id: None,
         };
@@ -1459,6 +1511,7 @@ mod pack_integration {
             resources: Vec::new(),
             activities: Vec::new(),
             services: Vec::new(),
+            receivers: Vec::new(),
             theme: None,
             theme_id: None,
         }
@@ -1718,12 +1771,18 @@ mod pack_integration {
             "a/Main".into(),
             "--service".into(),
             "a/Svc".into(),
+            "--receiver".into(),
+            "a/Boot|android.intent.action.BOOT_COMPLETED".into(),
             "--theme".into(),
             "Dark".into(),
         ])
         .unwrap();
         assert_eq!(args.activities, vec!["a/Main".to_string()]);
         assert_eq!(args.services, vec!["a/Svc".to_string()]);
+        assert_eq!(
+            args.receivers,
+            vec!["a/Boot|android.intent.action.BOOT_COMPLETED".to_string()]
+        );
         assert_eq!(args.theme.as_deref(), Some("Dark"));
         assert_eq!(args.design_size, Some((240, 240)));
         assert_eq!(
@@ -1763,6 +1822,7 @@ mod pack_integration {
         original.icon = Some("logo.png".into());
         original.activities = vec!["fixture/Main".into()];
         original.services = vec!["fixture/Svc".into()];
+        original.receivers = vec!["fixture/Boot|android.intent.action.BOOT_COMPLETED".into()];
         original.theme_id = Some(0x7f0a_0000);
         let extras = vec![("x-note".to_string(), "kept".to_string())];
         let assets = [square("logo.png", 8)];
@@ -1783,6 +1843,10 @@ mod pack_integration {
         assert_eq!(manifest.icon.as_deref(), Some("logo.png"));
         assert_eq!(manifest.activities, vec!["fixture/Main".to_string()]);
         assert_eq!(manifest.services, vec!["fixture/Svc".to_string()]);
+        assert_eq!(
+            manifest.receivers,
+            vec!["fixture/Boot|android.intent.action.BOOT_COMPLETED".to_string()]
+        );
         assert_eq!(manifest.theme_id, Some(0x7f0a_0000));
 
         // A repack that only renames the package changes nothing else.
@@ -1798,6 +1862,10 @@ mod pack_integration {
         for (key, want) in [
             (keys::ACTIVITIES, "fixture/Main"),
             (keys::SERVICES, "fixture/Svc"),
+            (
+                keys::RECEIVERS,
+                "fixture/Boot|android.intent.action.BOOT_COMPLETED",
+            ),
             (keys::THEME, "2131361792"),
         ] {
             let values: Vec<&[u8]> = parsed
@@ -1835,9 +1903,12 @@ mod pack_integration {
             parsed.manifest_section().unwrap().1.len(),
             before.manifest_section().unwrap().1.len() + 1
         );
+        // The sections are padded to their alignment, so the one byte the
+        // rename adds may land in padding (0) or carry a word (up to 4); a
+        // duplicated manifest entry would add far more.
         let grew = again.len() - bytes.len();
         assert!(
-            (1..=4).contains(&grew),
+            grew <= 4,
             "a one-byte package rename grew the file by {grew} bytes"
         );
     }

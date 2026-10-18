@@ -50,6 +50,11 @@
     <xs:choice minOccurs="0" maxOccurs="unbounded">
       <xs:element name="activity" type="ActivityType"/>
       <xs:element name="service" type="ComponentType"/>
+      <!-- A BroadcastReceiver the framework starts for the boot-time actions its
+           intent-filter names (BOOT_COMPLETED, TIME_SET, TIMEZONE_CHANGED), or
+           that an explicit broadcast Intent reaches; the other actions are heard
+           by receivers registered at run time only. -->
+      <xs:element name="receiver" type="ActivityType"/>
       <!-- Read and ignored: nothing enforces a permission on this platform. -->
       <xs:element name="uses-permission" type="ComponentType"/>
     </xs:choice>

@@ -45,11 +45,16 @@ abstract class ManifestComponentsTask : DefaultTask() {
     @get:Input
     abstract val manifestServices: ListProperty<String>
 
+    /** Declared `<receiver android:name>` specs (`class|action…`), slash form. */
+    @get:Input
+    abstract val manifestReceivers: ListProperty<String>
+
     @TaskAction
     fun run() {
         val declaredActivities = manifestActivities.get().toSet()
         val declaredServices = manifestServices.get().toSet()
-        if (declaredActivities.isEmpty() && declaredServices.isEmpty()) {
+        val declaredReceivers = manifestReceivers.get().map { it.substringBefore('|') }.toSet()
+        if (declaredActivities.isEmpty() && declaredServices.isEmpty() && declaredReceivers.isEmpty()) {
             return
         }
         val root = classesDir.get().asFile
@@ -111,6 +116,9 @@ abstract class ManifestComponentsTask : DefaultTask() {
                 missing += "<service android:name=\"${cls.replace('/', '.')}\"/>  (started from $from)"
             } else if (declaredActivities.isNotEmpty() && extendsBase(cls, "picodroid/app/Activity") && cls !in declaredActivities) {
                 missing += "<activity android:name=\"${cls.replace('/', '.')}\"/>  (started from $from)"
+            } else if (extendsBase(cls, "picodroid/content/BroadcastReceiver") && cls !in declaredReceivers) {
+                // An explicit broadcast Intent reaches a manifest receiver on Android.
+                missing += "<receiver android:name=\"${cls.replace('/', '.')}\"/>  (sent to from $from)"
             }
         }
         if (missing.isNotEmpty()) {

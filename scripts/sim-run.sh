@@ -818,6 +818,87 @@ run_alarm_smoke() {
   fi
 }
 
+# The boot lane (docs/designs/broadcasts-2026-10.md stage 6): the launcher
+# is the boot app and bootdemo declares a BOOT_COMPLETED receiver, so the
+# framework runs bootdemo headless first — its receiver arms a broadcast
+# alarm — then the launcher comes up, and four seconds later the alarm
+# wakes bootdemo, this time with its Activity, to deliver the ping.
+run_boot_smoke() {
+  local mode="$1"
+  local app=bootdemo lane=boot
+  local tag="${lane}[${mode}]"
+  local log_file="$RUN_LOG_DIR/${lane}.${mode}.log"
+  local build_log="$RUN_LOG_DIR/${lane}.${mode}.build.log"
+  local patterns="[[]broadcast[]] manifest 0x20 -> bootdemo;BootDemo[]:] boot completed;BootDemo[]:] ping armed;Launcher[]:] ready;[[]alarm[]] wake bootdemo;[[]alarm[]] fire bootdemo;BootDemo[]:] ping n=7;BootDemo[]:] shown after the ping"
+
+  TOTAL=$((TOTAL + 1))
+  sim_log "--- [$TOTAL] $tag (manifest BOOT_COMPLETED, 60s) ---"
+
+  local apk_path="$REPO_ROOT/build/apks/sim-run/${mode}/${app}.papk"
+  local launcher_path="$REPO_ROOT/build/apks/sim-run/${mode}/launcher.papk"
+  local -a apk_args=(--app "$app" -o "$apk_path" --board testbench_rp2350)
+  local -a launcher_args=(--app launcher -o "$launcher_path" --board testbench_rp2350)
+  if [[ "$mode" == "shrink" ]]; then
+    apk_args+=(--shrink)
+    launcher_args+=(--shrink)
+  fi
+  if ! bash "$SCRIPT_DIR/build-apk.sh" "${apk_args[@]}" > "$build_log" 2>&1 \
+     || ! bash "$SCRIPT_DIR/build-apk.sh" "${launcher_args[@]}" >> "$build_log" 2>&1; then
+    sim_log "  BUILD FAILED (APK)"
+    echo "ERROR $tag (apk build failed)" >> "$RESULTS_FILE"
+    ERROR=$((ERROR + 1))
+    return
+  fi
+
+  local -a cargo_env=(PICODROID_APK_PATH="sim-runtime")
+  [[ "$mode" == "shrink" ]] && cargo_env+=(PICODROID_SHRINK=1)
+  if ! env "${cargo_env[@]}" cargo build \
+    ${SIM_PROFILE_ARGS[@]+"${SIM_PROFILE_ARGS[@]}"} \
+    --target "$HOST_TARGET" \
+    --no-default-features \
+    --features "sim,board-testbench-rp2350,line-numbers" >> "$build_log" 2>&1; then
+    sim_log "  BUILD FAILED (sim)"
+    echo "ERROR $tag (sim build failed)" >> "$RESULTS_FILE"
+    ERROR=$((ERROR + 1))
+    return
+  fi
+
+  local bin="$SIM_TARGET_DIR/$HOST_TARGET/$SIM_PROFILE_DIR/picodroid"
+  # Boot the launcher; the chain runs before it, the alarm after.
+  PICODROID_APK_PATH="$apk_path" \
+    PICODROID_SYSTEM_APKS="$launcher_path" \
+    PICODROID_BOOT=launcher \
+    PICODROID_SIM_HEADLESS=1 \
+    PICODROID_SIM_NTP_SERVER=off \
+    PICODROID_HANDLE_SANITIZER="${PICODROID_HANDLE_SANITIZER:-1}" \
+    PICODROID_PARITY_STRICT="${PICODROID_PARITY_STRICT:-1}" \
+    timeout 60 "$bin" > "$log_file" 2>&1 < /dev/null &
+  local pid=$!
+
+  local i
+  for i in $(seq 1 40); do
+    [[ "$(grep -c -- "shown after the ping" "$log_file")" -ge 1 ]] && break
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 1
+  done
+  sleep 1
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+
+  if check_patterns "$log_file" "$patterns" > /dev/null 2>&1 \
+     && check_no_crash "$log_file" > /dev/null 2>&1; then
+    sim_log "  PASS"
+    echo "PASS $tag" >> "$RESULTS_FILE"
+    PASS=$((PASS + 1))
+  else
+    sim_log "  FAIL"
+    tail -8 "$log_file" 2>/dev/null | while IFS= read -r line; do sim_log "    $line"; done || true
+    check_patterns "$log_file" "$patterns" 2>&1 | while IFS= read -r line; do sim_log "  $line"; done || true
+    echo "FAIL $tag" >> "$RESULTS_FILE"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
 # The settings lane (multi-app M3): the launcher with helloworld and the
 # settings app installed, driven over the control FIFO through About,
 # Storage and Apps, where helloworld is uninstalled through the dialog and
@@ -1475,6 +1556,10 @@ for MODE in "${MODES[@]}"; do
     run_launcher_smoke "$MODE"
     run_launcher_smoke "$MODE" pico_enviro_mon keys
     run_launcher_smoke "$MODE" pico_touch_kit touch
+  fi
+  # The boot lane (broadcasts stage 6); `--app boot` reaches only this.
+  if [[ -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "boot" ]]; then
+    run_boot_smoke "$MODE"
   fi
   # The settings lane (multi-app M3); `--app settings` reaches only this.
   if [[ -z "$SPECIFIC_APP" || "$SPECIFIC_APP" == "settings" ]]; then

@@ -96,6 +96,9 @@ pub struct Entry {
     version_code: u32,
     label: Option<&'static str>,
     icon: Option<&'static str>,
+    /// The `receivers` manifest value as written: `class|action…` specs,
+    /// comma-separated. Parsed on the rare occasions it is asked about.
+    receivers: Option<&'static str>,
 }
 
 impl Entry {
@@ -125,7 +128,24 @@ impl Entry {
             version_code: papk.version_code().unwrap_or(1),
             label: papk.label(),
             icon: papk.icon(),
+            receivers: papk.receivers(),
         })
+    }
+
+    /// The manifest receivers declared for `action`, as classes in JVM form
+    /// (docs/designs/broadcasts-2026-10.md stage 6).
+    pub fn receivers_for<'a>(&'a self, action: &'a str) -> impl Iterator<Item = &'static str> + 'a {
+        self.receivers
+            .unwrap_or("")
+            .split(',')
+            .filter(move |spec| spec.split('|').skip(1).any(|a| a == action))
+            .filter_map(|spec| spec.split('|').next())
+            .filter(|class| !class.is_empty())
+    }
+
+    /// Whether the manifest declares any receiver for `action`.
+    pub fn has_receiver_for(&self, action: &str) -> bool {
+        self.receivers_for(action).next().is_some()
     }
 
     pub fn package(&self) -> &'static str {
@@ -697,9 +717,21 @@ pub fn select_boot(override_: Option<&str>, board: Option<&str>) -> Option<&'sta
 }
 
 /// The image to boot: [`select_boot`] with the build-time override and the
-/// board's `boot_package`.
+/// board's `boot_package`. On a multi-app board the packages that declare a
+/// `BOOT_COMPLETED` receiver run first, one headless run each, and the boot
+/// app is left as the pending launch for [`next_image`] to hand out after
+/// them (docs/designs/broadcasts-2026-10.md stage 6).
 pub fn boot_image() -> Option<&'static [u8]> {
-    select_boot(boot_override(), BOOT_PACKAGE).map(|e| e.image)
+    let boot = select_boot(boot_override(), BOOT_PACKAGE)?;
+    #[cfg(has_multi_app)]
+    {
+        crate::broadcasts::manifest_refresh();
+        if let Some(first) = crate::broadcasts::manifest_take_next() {
+            dir().pending.set(Some(boot.package()));
+            return Some(first.image);
+        }
+    }
+    Some(boot.image)
 }
 
 /// `flash.sh --boot`: a build-time constant on a device. The simulator reads
@@ -819,6 +851,14 @@ pub fn request_home() -> bool {
 /// and the device waits for an install instead of looping.
 #[cfg(has_multi_app)]
 pub fn next_image() -> Option<&'static [u8]> {
+    // A manifest broadcast waiting for a package that is not running is
+    // delivered now, between apps: a headless run of that package. The
+    // pending launch, if any, keeps until the chain is done.
+    crate::broadcasts::manifest_refresh();
+    if let Some(e) = crate::broadcasts::manifest_take_next() {
+        dir().launcher_exits = 0;
+        return Some(e.image);
+    }
     let d = dir();
     let pending = d.pending;
     d.pending = Name::EMPTY;

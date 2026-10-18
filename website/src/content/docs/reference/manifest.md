@@ -178,9 +178,20 @@ The shape an Android manifest has, with what this platform reads of it
   a permission (WiFi, the network and the LEDs are open to every app); the
   element is accepted so an Android manifest's lines do not break the build, and
   it grants nothing.
-- Not read: `<meta-data>`, `<receiver>`, `<provider>`, anything in an
-  `<intent-filter>` but the `MAIN` action. An unknown child of `<application>`
-  fails the build naming what is supported. The bare spellings `name=` and
+- **`<receiver>`** declares a `BroadcastReceiver` the framework starts: for
+  the actions its `<intent-filter>` names — `BOOT_COMPLETED`, `TIME_SET` and
+  `TIMEZONE_CHANGED` are the ones a manifest receiver may declare; the other
+  system actions reach registered receivers only, and the build says so — and
+  for an explicit broadcast Intent or `PendingIntent.getBroadcast` that names
+  the class. One app runs at a time, so a delivery to an app that is not
+  running is a headless run of it: `Application.onCreate`, then `onReceive`
+  with a plain Context, no Activity (one it starts is dropped with a log
+  line); it happens at boot before the boot app, when an app hands over to the
+  launcher, or by interrupting the launcher. The class must extend
+  `picodroid.content.BroadcastReceiver`.
+- Not read: `<meta-data>`, `<provider>`, anything in an `<intent-filter>` but
+  the `MAIN` action and a receiver's actions. An unknown child of
+  `<application>` fails the build naming what is supported. The bare spellings `name=` and
   `theme=` are accepted beside the `android:` ones.
 
 A short-form manifest (`activity=` / `application=` / `main-class=` alone)

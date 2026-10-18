@@ -208,6 +208,17 @@ pub(crate) fn run_application(
         }
     }
 
+    // A manifest broadcast this run was started for (BOOT_COMPLETED, or a
+    // clock or zone set while the app was not running): the receivers hear
+    // it now, after Application.onCreate as on Android, and the run stays
+    // headless — an Activity it pushes is dropped, since the app the user
+    // was in, or the boot app, is what comes back.
+    #[cfg(has_multi_app)]
+    let headless = crate::packages::running()
+        .is_some_and(|p| broadcast_events::deliver_manifest_broadcasts(jvm, heap, handler, p));
+    #[cfg(not(has_multi_app))]
+    let headless = false;
+
     // Drain any service ops queued during onCreate (start/bind/foreground)
     // and look for the first Activity push to drive. Service-only apps
     // never push an Activity — drained ops still run, then we tear down
@@ -222,6 +233,12 @@ pub(crate) fn run_application(
         handler.take_next_pending_op()
     } {
         match op {
+            PendingOp::Activity(PendingActivityOp::Push { class_name, .. }) if headless => {
+                crate::pd_warn!(
+                    "[broadcast] {} ignored in a manifest-receiver run: no Activity is shown",
+                    class_name
+                );
+            }
             PendingOp::Activity(PendingActivityOp::Push {
                 class_name,
                 intent_ref,

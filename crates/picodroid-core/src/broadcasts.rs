@@ -114,6 +114,169 @@ pub fn take_pending() -> u32 {
     pending
 }
 
+// ── Manifest receivers (multi-app boards) ────────────────────────────────────
+//
+// A `<receiver>` for `BOOT_COMPLETED`, `TIME_SET` or `TIMEZONE_CHANGED` is
+// delivered to a package that is not running by running it: the supervisor
+// asks the directory what runs next, the directory asks here first, and the
+// headless run (`lifecycle::run_application`) hands the receiver class the
+// Intent and leaves without an Activity. One app runs at a time, so the
+// deliveries wait for a moment nobody is in the foreground — boot, before
+// the boot app; an app handing over to the launcher; or the launcher itself,
+// which the tick interrupts for them. The running package hears the same
+// action through its registered receivers and is never marked.
+
+/// Manifest deliveries waiting at once, across every package.
+#[cfg(has_multi_app)]
+pub const MANIFEST_PENDING: usize = 8;
+
+#[cfg(has_multi_app)]
+struct Manifest {
+    pending: [Option<(crate::packages::Name, u32)>; MANIFEST_PENDING],
+    /// The package whose headless run is delivering, and what.
+    current: Option<(crate::packages::Name, u32)>,
+    booted: bool,
+    time_set_seen: u32,
+    zone_seen: u32,
+}
+
+// SAFETY: every entry point runs on the JVM task (the directory's reader,
+// the tick, the supervisor between apps) inside an `AtomicSection`.
+#[cfg(has_multi_app)]
+static MANIFEST: crate::util::section_cell::SectionCell<Manifest> = unsafe {
+    crate::util::section_cell::SectionCell::new(Manifest {
+        pending: [None; MANIFEST_PENDING],
+        current: None,
+        booted: false,
+        time_set_seen: 0,
+        zone_seen: 0,
+    })
+};
+
+/// The actions a manifest receiver may declare, as bits.
+#[cfg(has_multi_app)]
+pub const MANIFEST_ACTIONS: u32 = BOOT_COMPLETED | TIME_CHANGED | TIMEZONE_CHANGED;
+
+/// The Android action string for a manifest bit.
+#[cfg(has_multi_app)]
+pub fn manifest_action(bit: u32) -> &'static str {
+    match bit {
+        BOOT_COMPLETED => "android.intent.action.BOOT_COMPLETED",
+        TIME_CHANGED => "android.intent.action.TIME_SET",
+        TIMEZONE_CHANGED => "android.intent.action.TIMEZONE_CHANGED",
+        _ => "",
+    }
+}
+
+/// Mark every installed package with a receiver for `bit`, the running one
+/// excepted. Caller holds the section.
+#[cfg(has_multi_app)]
+fn mark_all(m: &mut Manifest, bit: u32) {
+    let action = manifest_action(bit);
+    let running = crate::packages::running();
+    for e in crate::packages::entries() {
+        if Some(e.package()) == running || !e.has_receiver_for(action) {
+            continue;
+        }
+        if let Some(slot) = m.pending.iter_mut().find(|s| {
+            s.as_ref()
+                .is_some_and(|(n, _)| n.get() == Some(e.package()))
+        }) {
+            if let Some((_, bits)) = slot {
+                *bits |= bit;
+            }
+            continue;
+        }
+        match m.pending.iter_mut().find(|s| s.is_none()) {
+            Some(slot) => {
+                let mut name = crate::packages::Name::EMPTY;
+                name.set(Some(e.package()));
+                *slot = Some((name, bit));
+            }
+            None => crate::pd_warn!(
+                "[broadcast] manifest {} for {} dropped: table full",
+                action,
+                e.package()
+            ),
+        }
+    }
+}
+
+/// Bring the table up to date: the boot-time marks once, then a mark for
+/// every clock set or zone change since the last look. JVM task; cheap when
+/// nothing moved (three loads).
+#[cfg(has_multi_app)]
+pub fn manifest_refresh() {
+    let mut atomic = pico_jvm::atomic_section::AtomicSection::enter();
+    let m = MANIFEST.get(&mut atomic);
+    if !m.booted {
+        m.booted = true;
+        m.time_set_seen = TIME_SETS.generation();
+        m.zone_seen = ZONE_CHANGES.generation();
+        mark_all(m, BOOT_COMPLETED);
+        return;
+    }
+    let time_set = TIME_SETS.generation();
+    if time_set != m.time_set_seen {
+        m.time_set_seen = time_set;
+        mark_all(m, TIME_CHANGED);
+    }
+    let zone = ZONE_CHANGES.generation();
+    if zone != m.zone_seen {
+        m.zone_seen = zone;
+        mark_all(m, TIMEZONE_CHANGED);
+    }
+}
+
+/// Whether a delivery waits for some package other than `running`.
+#[cfg(has_multi_app)]
+pub fn manifest_pending_for_other(running: Option<&str>) -> bool {
+    let mut atomic = pico_jvm::atomic_section::AtomicSection::enter();
+    MANIFEST
+        .get(&mut atomic)
+        .pending
+        .iter()
+        .flatten()
+        .any(|(n, _)| n.get() != running)
+}
+
+/// The next package to run headless for its deliveries, taken off the
+/// table and recorded as current; `None` when nothing waits (an entry whose
+/// package is gone is dropped).
+#[cfg(has_multi_app)]
+pub fn manifest_take_next() -> Option<&'static crate::packages::Entry> {
+    let mut atomic = pico_jvm::atomic_section::AtomicSection::enter();
+    let m = MANIFEST.get(&mut atomic);
+    for slot in m.pending.iter_mut() {
+        let Some((name, bits)) = slot.take() else {
+            continue;
+        };
+        match name.get().and_then(crate::packages::find) {
+            Some(e) => {
+                m.current = Some((name, bits));
+                return Some(e);
+            }
+            None => crate::pd_warn!("[broadcast] manifest delivery dropped: package gone"),
+        }
+    }
+    None
+}
+
+/// What this run of `package` is to deliver, if it is a manifest run; asked
+/// once by `run_application`, which then runs headless.
+#[cfg(has_multi_app)]
+pub fn manifest_current(package: &str) -> Option<u32> {
+    let mut atomic = pico_jvm::atomic_section::AtomicSection::enter();
+    let m = MANIFEST.get(&mut atomic);
+    match m.current.take() {
+        Some((name, bits)) if name.get() == Some(package) => Some(bits),
+        other => {
+            m.current = other;
+            None
+        }
+    }
+}
+
 /// The wall-clock minute `wall_ms` is in. `TIME_TICK` fires when this
 /// changes between two ticks; floor division keeps a clock before the epoch
 /// (unset, counting from boot) on the same rule.

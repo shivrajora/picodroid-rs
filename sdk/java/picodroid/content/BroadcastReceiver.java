@@ -290,6 +290,28 @@ public abstract class BroadcastReceiver {
     dispatch(intent);
   }
 
+  // ── A manifest receiver (multi-app boards) ────────────────────────────────────────────────
+
+  /**
+   * The framework calls this in a headless run of the app for a receiver the manifest declares: a
+   * new instance of {@code receiverClass} hears one Intent per action in {@code mask} ({@code
+   * ACTION_BOOT_COMPLETED}, {@code ACTION_TIME_CHANGED}, {@code ACTION_TIMEZONE_CHANGED}), with a
+   * plain Context, as Android starts a manifest receiver.
+   */
+  static void fireManifest(String receiverClass, int mask) {
+    for (int bit = 1; bit != 0 && bit <= mask; bit <<= 1) {
+      if ((mask & bit) == 0) {
+        continue;
+      }
+      String action = actionOf(bit);
+      if (action == null) {
+        continue;
+      }
+      Intent intent = withExtras(bit, new Intent(action)).setClassName(null, receiverClass);
+      deliverExplicit(new Context(), intent);
+    }
+  }
+
   // ── The system actions (the framework's event loop) ────────────────────────────────────────
 
   /**

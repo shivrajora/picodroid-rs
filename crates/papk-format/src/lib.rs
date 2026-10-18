@@ -203,6 +203,12 @@ pub mod keys {
     pub const ACTIVITIES: &[u8] = b"activities";
     /// The `<service android:name>` classes, comma-separated, slash form.
     pub const SERVICES: &[u8] = b"services";
+    /// The `<receiver android:name>` classes, comma-separated, slash form,
+    /// each followed by `|`-separated actions its intent-filter names
+    /// (`pkg/Boot|android.intent.action.BOOT_COMPLETED`). The framework
+    /// delivers those actions to the package by a headless run of it
+    /// (docs/designs/broadcasts-2026-10.md stage 6). Absent: no receivers.
+    pub const RECEIVERS: &[u8] = b"receivers";
     /// `<application android:theme>` as the `R.style` id of that style,
     /// decimal text; the framework applies it before the first Activity's
     /// `onCreate`. Absent: no manifest theme (an app may still `setTheme`).
@@ -774,6 +780,12 @@ impl<'a> Papk<'a> {
     /// for a short-form manifest.
     pub fn services(&self) -> Option<&'a str> {
         self.manifest_value(keys::SERVICES)
+    }
+
+    /// The declared `<receiver>` specs, comma-separated `class|action…`;
+    /// `None` when the manifest declares none.
+    pub fn receivers(&self) -> Option<&'a str> {
+        self.manifest_value(keys::RECEIVERS)
     }
 
     /// The manifest theme's `R.style` id, or `None` when the manifest names

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest package="bootdemo" version="1.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:noNamespaceSchemaLocation="../../sdk/PicodroidManifest.xsd">
+    <!-- Android's shape: the Application, the entry Activity by its MAIN filter, a
+         receiver for BOOT_COMPLETED (and the two time actions a manifest receiver may
+         declare), and a receiver reached by an explicit Intent only. -->
+    <application application="bootdemo/BootDemoApp" label="Boot demo">
+        <activity name=".MainActivity">
+            <intent-filter>
+                <action name="android.intent.action.MAIN"/>
+            </intent-filter>
+        </activity>
+        <receiver name=".BootReceiver">
+            <intent-filter>
+                <action name="android.intent.action.BOOT_COMPLETED"/>
+                <action name="android.intent.action.TIME_SET"/>
+                <action name="android.intent.action.TIMEZONE_CHANGED"/>
+            </intent-filter>
+        </receiver>
+        <receiver name=".PingReceiver"/>
+        <uses-permission name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    </application>
+</manifest>

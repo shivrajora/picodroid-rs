@@ -137,6 +137,11 @@ pub const BROADCAST: usize = WIFI_EVENT + 4;
 /// like `ALARM_FIRE`, and last for the same reason.
 #[cfg(has_multi_app)]
 pub const ALARM_BROADCAST: usize = WIFI_EVENT + 5;
+/// A manifest receiver's turn, in a headless run of its package:
+/// `BroadcastReceiver.fireManifest(receiverClass, mask)` instantiates the
+/// class and hands it one Intent per action bit. Multi-app only.
+#[cfg(has_multi_app)]
+pub const MANIFEST_BROADCAST: usize = WIFI_EVENT + 6;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -198,6 +203,8 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     (c::picodroid_content_BroadcastReceiver, m::fireSystem),
     #[cfg(has_multi_app)]
     (c::picodroid_content_BroadcastReceiver, m::fireAlarm),
+    #[cfg(has_multi_app)]
+    (c::picodroid_content_BroadcastReceiver, m::fireManifest),
 ];
 
 #[cfg(test)]

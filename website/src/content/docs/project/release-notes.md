@@ -14,6 +14,25 @@ dispatched by hash instead of string compare; line-number tables are out of ever
 image; and two bug-scan rounds landed about ninety one-bug fixes across the JVM, the widgets,
 the `java.*` shim and the packer.
 
+**Broadcasts (2026-10-18)**
+
+Written up in [broadcasts-2026-10.md](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/broadcasts-2026-10.md).
+Android's broadcast model: `picodroid.content.BroadcastReceiver` and `IntentFilter`,
+`Context.registerReceiver` / `unregisterReceiver` / `sendBroadcast`, `Intent.setAction` and
+the `ACTION_*` strings with Android's values. The system actions are `ACTION_TIME_TICK` at
+every minute (what `claudeusage` polled the clock once a second for), `ACTION_TIME_CHANGED`
+and `ACTION_TIMEZONE_CHANGED` (what `picoclock` now re-plans its alarms on),
+`ACTION_SCREEN_ON` / `OFF`, and on a network board the Wi-Fi and connectivity actions (what
+Settings' Wi-Fi screen polled twice a second for). `PendingIntent.getBroadcast` arms an alarm
+that delivers to a receiver class or an action; `Context.startActivity` exists on every
+Context, as on Android. The registry is Java's and the loop makes at most one call per frame,
+only while some filter names a system action, so an app that registers nothing pays nothing.
+A manifest `<receiver>` for `BOOT_COMPLETED`, `TIME_SET` or `TIMEZONE_CHANGED` is delivered to
+an app that is not running by a headless run of it — at boot before the boot app, between apps,
+or by interrupting the launcher — which is how `picoclock` re-arms its alarms after a power cut
+once the network has set the clock. Not here: ordered and sticky broadcasts, `goAsync`.
+`examples/qa_bcast` covers the rules and `examples/bootdemo` the boot circle.
+
 **A view keeps its listener, as on Android (2026-10-17)**
 
 Written up in [view-listeners-2026-10.md](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/view-listeners-2026-10.md).

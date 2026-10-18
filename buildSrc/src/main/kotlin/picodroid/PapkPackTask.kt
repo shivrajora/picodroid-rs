@@ -74,6 +74,10 @@ abstract class PapkPackTask : DefaultTask() {
     @get:Input
     abstract val manifestServices: ListProperty<String>
 
+    /** Declared `<receiver>` specs, `class|action…` (`receivers` manifest key). */
+    @get:Input
+    abstract val manifestReceivers: ListProperty<String>
+
     /** `<application android:theme>`: the `<style>` the packer resolves `?attr/` against and writes as `theme`. */
     @get:Input
     @get:Optional
@@ -160,6 +164,7 @@ abstract class PapkPackTask : DefaultTask() {
         requiresFeatures.get().forEach { args += listOf("--requires-feature", it) }
         manifestActivities.get().forEach { args += listOf("--activity-decl", it) }
         manifestServices.get().forEach { args += listOf("--service", it) }
+        manifestReceivers.get().forEach { args += listOf("--receiver", it) }
         theme.orNull?.let { args += listOf("--theme", it) }
         assetsDir.orNull?.let { args += listOf("--assets-dir", it.asFile.absolutePath) }
         resDir.orNull?.let { args += listOf("--res-dir", it.asFile.absolutePath) }

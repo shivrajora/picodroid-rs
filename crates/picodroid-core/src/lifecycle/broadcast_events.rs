@@ -89,6 +89,96 @@ impl Seen {
     }
 }
 
+/// Deliver the manifest broadcasts this run of `package` was started for,
+/// if any: one `BroadcastReceiver.fireManifest(class, bits)` per declared
+/// receiver class that names one of them. `true` when this is such a run,
+/// which `run_application` then keeps headless.
+#[cfg(has_multi_app)]
+pub(super) fn deliver_manifest_broadcasts(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
+    package: &str,
+) -> bool {
+    let Some(bits) = broadcasts::manifest_current(package) else {
+        return false;
+    };
+    let Some(entry) = crate::packages::find(package) else {
+        return true;
+    };
+    // One call per receiver class, carrying the bits it declared.
+    let mut done: [Option<&'static str>; 8] = [None; 8];
+    let mut n = 0;
+    for bit in [
+        broadcasts::BOOT_COMPLETED,
+        broadcasts::TIME_CHANGED,
+        broadcasts::TIMEZONE_CHANGED,
+    ] {
+        if bits & bit == 0 {
+            continue;
+        }
+        for class in entry.receivers_for(broadcasts::manifest_action(bit)) {
+            if done[..n].contains(&Some(class)) {
+                continue;
+            }
+            if n < done.len() {
+                done[n] = Some(class);
+                n += 1;
+            }
+            let mut mask = 0;
+            for b in [
+                broadcasts::BOOT_COMPLETED,
+                broadcasts::TIME_CHANGED,
+                broadcasts::TIMEZONE_CHANGED,
+            ] {
+                if bits & b != 0
+                    && entry
+                        .receivers_for(broadcasts::manifest_action(b))
+                        .any(|c| c == class)
+                {
+                    mask |= b;
+                }
+            }
+            let Some(name) = intern_or_collect(class, heap, handler) else {
+                crate::pd_error!("[broadcast] manifest delivery dropped: no room for its string");
+                continue;
+            };
+            match jvm.invoke_static_with_args(
+                dispatch_class(dispatch_sites::MANIFEST_BROADCAST),
+                dispatch_method(dispatch_sites::MANIFEST_BROADCAST),
+                &[Value::Reference(name), Value::Int(mask as i32)],
+                heap,
+                handler,
+            ) {
+                Ok(()) => {
+                    crate::pd_info!("[broadcast] manifest 0x{:x} -> {} {}", mask, package, class)
+                }
+                Err(JvmError::Interrupted) => return true,
+                Err(e) => {
+                    crate::monitor_store::release_all_held_by_current();
+                    log_error!("[broadcast] fireManifest error: {}", e);
+                }
+            }
+        }
+    }
+    true
+}
+
+/// Intern `text`, with one emergency collection when the string table is
+/// full, as the alarm delivery does.
+#[cfg(has_multi_app)]
+fn intern_or_collect(
+    text: &str,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
+) -> Option<u16> {
+    if let Some(idx) = heap.strings.intern_dyn(text.as_bytes()) {
+        return Some(idx);
+    }
+    heap.collect_now(handler);
+    heap.strings.intern_dyn(text.as_bytes())
+}
+
 /// Fold this frame's edges and, when a registered filter wants any of them,
 /// hand them to `BroadcastReceiver.fireSystem` as one mask.
 pub(super) fn dispatch_broadcasts(
@@ -124,13 +214,35 @@ pub(super) fn dispatch_broadcasts(
         seen.minute = None;
     }
 
+    // A manifest delivery waiting for another package: the launcher is
+    // the one app whose teardown costs nothing, so it makes way; the chain
+    // runs between apps and the launcher comes back after it. Any other
+    // app keeps the foreground; the delivery waits for its exit.
+    #[cfg(has_multi_app)]
+    {
+        broadcasts::manifest_refresh();
+        let running = crate::packages::running();
+        let launcher = crate::packages::launcher().map(|l| l.package());
+        if running.is_some()
+            && running == launcher
+            && !handler.has_pending_launch()
+            && broadcasts::manifest_pending_for_other(running)
+        {
+            crate::pd_info!("[broadcast] manifest delivery: leaving the launcher");
+            handler.enqueue_op(crate::native_handler::PendingOp::Activity(
+                crate::native_handler::PendingActivityOp::Launch,
+            ));
+        }
+    }
+
     let mask = fired & interest;
     if mask == 0 {
         return;
     }
     // A queued cross-package launch means this stack is about to be torn
     // down (the alarm poll's rule): an onReceive that started an Activity
-    // would push into it.
+    // would push into it. Single-app boards never launch across packages.
+    #[cfg(has_multi_app)]
     if handler.has_pending_launch() {
         return;
     }

@@ -21,11 +21,11 @@ import picodroid.os.SystemClock;
  * buttons' requests go back through it.
  *
  * <p>The UI's timing lives here too. Part of what is shown moves with the clock and not with the
- * data: the header's time, the countdowns, numbers going stale. The minute comes from the
- * framework — the Activity hears {@code Intent.ACTION_TIME_TICK} (and a clock or zone set) and
- * calls {@link #clockChanged} — so the data screens cost nothing between minutes. Only the status
- * screen's countdown, which moves every second, runs a once-a-second task, and only while it is
- * the one being painted.
+ * data: the header's time, the countdowns, numbers going stale. The minute comes from the framework
+ * — the Activity hears {@code Intent.ACTION_TIME_TICK} (and a clock or zone set) and calls {@link
+ * #clockChanged} — so the data screens cost nothing between minutes. Only the status screen's
+ * countdown, which moves every second, runs a once-a-second task, and only while it is the one
+ * being painted.
  */
 public final class UsageViewModel extends ViewModel {
   private static final int TICK_MS = 1000;

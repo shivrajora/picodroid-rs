@@ -1320,6 +1320,7 @@ M	fireItemSelected
 M	fireKey
 M	fireLinkChange
 M	fireLongClick
+M	fireManifest
 M	fireProgressChanged
 M	fireReady
 M	fireRefresh

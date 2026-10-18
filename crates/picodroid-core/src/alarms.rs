@@ -611,9 +611,8 @@ pub fn take_due_for(now: Now, running: &str) -> Option<Fire> {
         if !mine || !due {
             continue;
         }
-        let earlier = best.map_or(true, |b| {
-            e.trigger_ms < table[b].as_ref().map_or(i64::MAX, |o| o.trigger_ms)
-        });
+        let earlier = best
+            .is_none_or(|b| e.trigger_ms < table[b].as_ref().map_or(i64::MAX, |o| o.trigger_ms));
         if earlier {
             best = Some(i);
         }

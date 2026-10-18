@@ -66,6 +66,13 @@ data class PicodroidManifest(
     /** The `<service android:name>` classes, slash form, document order. */
     val services: List<String> = emptyList(),
     /**
+     * The `<receiver android:name>` classes, slash form, each followed by the actions its
+     * `<intent-filter>` names (`pkg/Boot|android.intent.action.BOOT_COMPLETED`), document
+     * order. Only the boot-time actions may be declared: the runtime delivers them to a
+     * package that is not running by a headless run of it (broadcasts-2026-10.md stage 6).
+     */
+    val receivers: List<String> = emptyList(),
+    /**
      * `<application android:theme="@style/Name">`: the `<style>` in `res/values` that is the
      * app's theme — what `?attr/…` reads at build time and what the framework applies before
      * the first Activity's `onCreate`. Null: the style called `AppTheme`, when there is one.
@@ -74,6 +81,13 @@ data class PicodroidManifest(
 ) {
     companion object {
         private const val ACTION_MAIN = "android.intent.action.MAIN"
+
+        /** The actions a `<receiver>` may declare; the rest are registered-only here. */
+        private val MANIFEST_RECEIVER_ACTIONS = listOf(
+            "android.intent.action.BOOT_COMPLETED",
+            "android.intent.action.TIME_SET",
+            "android.intent.action.TIMEZONE_CHANGED",
+        )
 
         fun parse(file: File): PicodroidManifest {
             if (!file.isFile) {
@@ -126,6 +140,7 @@ data class PicodroidManifest(
 
             val activities = ArrayList<String>()
             val services = ArrayList<String>()
+            val receivers = ArrayList<String>()
             var launcher: String? = null
             val children = app.childNodes
             for (i in 0 until children.length) {
@@ -164,9 +179,31 @@ data class PicodroidManifest(
                         }
                         services += cls
                     }
+                    "receiver" -> {
+                        val cls = componentClass(el, "receiver")
+                        if (receivers.any { it.substringBefore('|') == cls }) {
+                            throw GradleException("${file.name}: <receiver> '${cls}' is declared twice")
+                        }
+                        val actions = ArrayList<String>()
+                        val filters = el.getElementsByTagName("intent-filter")
+                        for (f in 0 until filters.length) {
+                            val names = (filters.item(f) as Element).getElementsByTagName("action")
+                            for (a in 0 until names.length) {
+                                val action = (names.item(a) as Element).androidAttr("name")
+                                    ?: throw GradleException("${file.name}: <receiver> <action> missing 'android:name'")
+                                if (action !in MANIFEST_RECEIVER_ACTIONS) {
+                                    throw GradleException(
+                                        "${file.name}: <receiver> '${cls}' declares '$action', which only a receiver registered at run time (Context.registerReceiver) hears here; a manifest receiver may declare ${MANIFEST_RECEIVER_ACTIONS.joinToString(", ")}"
+                                    )
+                                }
+                                if (action !in actions) actions += action
+                            }
+                        }
+                        receivers += (listOf(cls) + actions).joinToString("|")
+                    }
                     "uses-permission" -> {} // declared, never enforced (reference/manifest.md)
                     else -> throw GradleException(
-                        "${file.name}: <application> does not take <${el.tagName}> (supported: <activity>, <service>, <uses-permission>)"
+                        "${file.name}: <application> does not take <${el.tagName}> (supported: <activity>, <service>, <receiver>, <uses-permission>)"
                     )
                 }
             }
@@ -248,6 +285,7 @@ data class PicodroidManifest(
                 requiredFeatures = requiredFeatures,
                 activities = activities,
                 services = services,
+                receivers = receivers,
                 theme = theme,
             )
         }

@@ -431,6 +431,7 @@ class PicodroidPapkPlugin : Plugin<Project> {
             classesDir.set(rawClassesInput)
             manifestActivities.set(manifest.activities)
             manifestServices.set(manifest.services)
+            manifestReceivers.set(manifest.receivers)
         }
         target.tasks.named("check") { dependsOn(verifyManifest) }
 
@@ -453,6 +454,7 @@ class PicodroidPapkPlugin : Plugin<Project> {
             manifest.application?.let { application.set(it) }
             manifestActivities.set(manifest.activities)
             manifestServices.set(manifest.services)
+            manifestReceivers.set(manifest.receivers)
             manifest.theme?.let { theme.set(it) }
             if (appAssetsDir.isDirectory) {
                 assetsDir.set(appAssetsDir)
