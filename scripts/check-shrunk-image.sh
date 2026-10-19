@@ -84,20 +84,35 @@ while IFS= read -r cand; do
   [[ -n "$cand" ]] || continue
   bare="${cand#L}"
   bare="${bare%;}"
-  best=
-  best_kind=
-  while IFS=$'\t' read -r k kind; do
-    [[ -n "$k" && "$bare" == "$k"* && ${#k} -gt ${#best} ]] || continue
-    best=$k
-    best_kind=$kind
-  done < "$tmp/known.txt"
+  # `strings` runs adjacent literals together, so a candidate may be several
+  # names back to back: strip every known name at its head in turn. A mapped
+  # name at the head is a leak (the image should spell its short form); an
+  # unmapped one is pending; what is left after the last known name is a
+  # leak only if it still holds a Java path.
+  rest="$bare"
   tolerated=
-  if [[ "$best_kind" == u ]] && ! grep -qE '(java|javax|picodroid)/' <<< "${bare#"$best"}"; then
-    tolerated=$best
-  fi
-  if [[ -n "$tolerated" ]]; then
-    echo "$tolerated" >> "$tmp/pending.txt"
-  else
+  leak=
+  while [[ -n "$rest" ]]; do
+    best=
+    best_kind=
+    while IFS=$'\t' read -r k kind; do
+      [[ -n "$k" && "$rest" == "$k"* && ${#k} -gt ${#best} ]] || continue
+      best=$k
+      best_kind=$kind
+    done < "$tmp/known.txt"
+    if [[ -z "$best" ]]; then
+      grep -qE '(java|javax|picodroid)/' <<< "$rest" && leak=1
+      break
+    fi
+    if [[ "$best_kind" == m ]]; then
+      leak=1
+      break
+    fi
+    echo "$best" >> "$tmp/pending.txt"
+    tolerated=1
+    rest="${rest#"$best"}"
+  done
+  if [[ -n "$leak" || -z "$tolerated" ]]; then
     echo "$cand" >> "$tmp/real.txt"
   fi
 done < "$tmp/candidates.txt"
