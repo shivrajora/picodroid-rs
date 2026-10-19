@@ -23,6 +23,7 @@ import picodroid.view.LayoutInflater;
 import picodroid.view.View;
 import picodroid.view.ViewGroup;
 import picodroid.widget.FrameLayout;
+import picodroid.widget.GridLayout;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
 
@@ -83,6 +84,7 @@ public class LayoutDemoActivity extends Activity {
             && ((ViewGroup.MarginLayoutParams) lp).rightMargin == 9);
 
     checkVocabulary();
+    checkGrid();
     checkConfiguration();
 
     FrameLayout stages = findViewById(R.id.stages);
@@ -163,6 +165,119 @@ public class LayoutDemoActivity extends Activity {
 
     View atStart = findViewById(R.id.at_start);
     check("a column's child sits at the start of the cross axis", atStart.getLeft() == 0);
+  }
+
+  /**
+   * A GridLayout, inflated and then built in code to the same shape: placement wraps at the column
+   * count, a span, a weighted track that takes the free width, a cell aligned right, a cell named
+   * outright.
+   */
+  private void checkGrid() {
+    GridLayout grid = findViewById(R.id.grid);
+    checkGridGeometry(
+        "grid xml",
+        grid,
+        findViewById(R.id.g00),
+        findViewById(R.id.g01),
+        findViewById(R.id.g02),
+        findViewById(R.id.g10),
+        findViewById(R.id.g12),
+        findViewById(R.id.g22),
+        findViewById(R.id.g31));
+    ViewGroup.LayoutParams lp = findViewById(R.id.g10).getLayoutParams();
+    check(
+        "grid xml: GridLayout.LayoutParams with the span",
+        lp instanceof GridLayout.LayoutParams
+            && ((GridLayout.LayoutParams) lp).columnSpec.getSize() == 2
+            && ((GridLayout.LayoutParams) lp).columnSpec.getStart() == 0
+            && ((GridLayout.LayoutParams) lp).rowSpec.getStart() == 1);
+    boolean threw = false;
+    try {
+      grid.setColumnCount(4);
+    } catch (IllegalStateException e) {
+      threw = true;
+    }
+    check("grid: setColumnCount after a child throws", threw);
+
+    // The same grid from code, under the inflated one.
+    GridLayout coded = new GridLayout(this);
+    coded.setColumnCount(3);
+    View[] boxes = new View[7];
+    for (int i = 0; i < boxes.length; i++) {
+      boxes[i] = new FrameLayout(this);
+      boxes[i].setBackgroundColor(getColor(R.color.accent));
+    }
+    GridLayout.LayoutParams plain =
+        box(GridLayout.spec(GridLayout.UNDEFINED), GridLayout.spec(GridLayout.UNDEFINED));
+    coded.addView(boxes[0], plain);
+    coded.addView(
+        boxes[1],
+        box(GridLayout.spec(GridLayout.UNDEFINED), GridLayout.spec(GridLayout.UNDEFINED)));
+    coded.addView(
+        boxes[2],
+        box(GridLayout.spec(GridLayout.UNDEFINED), GridLayout.spec(GridLayout.UNDEFINED)));
+    coded.addView(
+        boxes[3],
+        box(GridLayout.spec(GridLayout.UNDEFINED), GridLayout.spec(GridLayout.UNDEFINED, 2)));
+    coded.addView(
+        boxes[4],
+        box(
+            GridLayout.spec(GridLayout.UNDEFINED),
+            GridLayout.spec(GridLayout.UNDEFINED, 1, GridLayout.FILL, 1f)));
+    coded.addView(boxes[5], box(GridLayout.spec(2), GridLayout.spec(2, GridLayout.RIGHT)));
+    coded.addView(boxes[6], box(GridLayout.spec(3), GridLayout.spec(1)));
+    LinearLayout root = findViewById(R.id.root);
+    int at = 0;
+    while (root.getChildAt(at) != grid) {
+      at++;
+    }
+    root.addView(
+        coded,
+        at + 1,
+        new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+    checkGridGeometry(
+        "grid code", coded, boxes[0], boxes[1], boxes[2], boxes[3], boxes[4], boxes[5], boxes[6]);
+    check("grid code: getRowCount counts the rows in use", coded.getRowCount() == 4);
+    // Checked; out of the way. The stages below need the column's full height on a 240 px
+    // panel for their `fit ok`, and GONE gives the room back (removeView frees the coded one).
+    grid.setVisibility(View.GONE);
+    root.removeView(coded);
+  }
+
+  private static GridLayout.LayoutParams box(GridLayout.Spec row, GridLayout.Spec column) {
+    GridLayout.LayoutParams lp = new GridLayout.LayoutParams(row, column);
+    lp.width = 10;
+    lp.height = 10;
+    return lp;
+  }
+
+  private void checkGridGeometry(
+      String how,
+      GridLayout grid,
+      View g00,
+      View g01,
+      View g02,
+      View g10,
+      View g12,
+      View g22,
+      View g31) {
+    int w = grid.getWidth();
+    check(how + ": the grid takes the row's width", w > 30 && grid.getHeight() == 40);
+    check(
+        how + ": placement runs along the row",
+        g00.getLeft() == 0 && g01.getLeft() == 10 && g02.getLeft() == 20 && g02.getTop() == 0);
+    check(how + ": ...and wraps at the column count", g10.getLeft() == 0 && g10.getTop() == 10);
+    check(
+        how + ": a span keeps the child's own size at the start",
+        g10.getWidth() == 10 && g12.getLeft() == 20);
+    check(
+        how + ": a weighted track takes the free width, fill stretches the cell",
+        g12.getWidth() == w - 20 && g12.getTop() == 10);
+    check(
+        how + ": a cell named outright, aligned right",
+        g22.getLeft() == w - 10 && g22.getTop() == 20 && g22.getWidth() == 10);
+    check(how + ": a cell named outright", g31.getLeft() == 10 && g31.getTop() == 30);
   }
 
   private void checkStage(String how, View stage) {
