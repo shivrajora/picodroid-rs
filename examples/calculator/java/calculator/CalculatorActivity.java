@@ -150,33 +150,28 @@ public class CalculatorActivity extends Activity {
 
     expressionView = new TextView();
     expressionView.setTextColor(Theme.colorTextSecondary);
-    expressionView.setSingleLine();
-    expressionView.setEllipsize(TextUtils.TruncateAt.END);
-    panel.addView(rightAligned(expressionView, contentWidth - 2 * GAP));
+    panel.addView(expressionView, rightAligned(expressionView, contentWidth - 2 * GAP));
 
     resultView = new TextView();
     resultView.setTextColor(Theme.colorText);
-    resultView.setSingleLine();
-    resultView.setEllipsize(TextUtils.TruncateAt.END);
-    panel.addView(rightAligned(resultView, contentWidth - 2 * GAP));
+    panel.addView(resultView, rightAligned(resultView, contentWidth - 2 * GAP));
 
     return panel;
   }
 
   /**
-   * A full-width row holding one label at its right edge. {@link LinearLayout#setGravity} aligns
-   * along the layout's own axis, so right alignment is a horizontal row ending in the label rather
-   * than a property of the label itself.
+   * One line at the column's right edge: the label's own {@code layout_gravity}, as on Android,
+   * capped at the panel's width so a long expression ellipsizes rather than widening it.
    */
-  private static LinearLayout rightAligned(TextView text, int width) {
-    LinearLayout row = new LinearLayout();
-    row.setOrientation(LinearLayout.HORIZONTAL);
-    row.setSize(width, View.WRAP_CONTENT);
-    row.setPadding(0, 0, 0, 0);
-    row.setGravity(Gravity.RIGHT);
-    flatten(row, Color.TRANSPARENT);
-    row.addView(text);
-    return row;
+  private static LinearLayout.LayoutParams rightAligned(TextView text, int width) {
+    text.setSingleLine();
+    text.setEllipsize(TextUtils.TruncateAt.END);
+    text.setMaxWidth(width);
+    LinearLayout.LayoutParams lp =
+        new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+    lp.gravity = Gravity.RIGHT;
+    return lp;
   }
 
   /**

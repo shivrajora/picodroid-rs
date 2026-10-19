@@ -1,6 +1,6 @@
 # Layouts: GridLayout, RelativeLayout and per-child gravity in LinearLayout
 
-**Status: design settled 2026-10-18; series 1 (GridLayout) and 2 (RelativeLayout) built 2026-10-19; series 3 (LinearLayout) in progress. §4 says what has landed.**
+**Status: built 2026-10-19 — series 1 (GridLayout), 2 (RelativeLayout) and 3 (LinearLayout on the solver); §4 lists the commits, §5 the verification.**
 
 ## 1. The finding
 
@@ -129,8 +129,17 @@ Series 2, RelativeLayout (built 2026-10-19):
    the usage figures. (The `check-shrunk-image.sh` gate learned to strip two pending class
    names that `strings` runs together on the way.)
 
-Series 3, LinearLayout: the solver, per-child gravity and Android weights; layoutdemo
-checks; the `FrameLayout` wrappers in the apps.
+Series 3, LinearLayout (built 2026-10-19):
+
+1. `graphics: LinearLayout on a registered layout, with per-child gravity and Android weights`
+   — the pure solver and its thirteen host tests; weights in thousandths (`nativeSetWeight`),
+   `nativeSetLayoutGravity`; the packer's warning gone. LVGL's flex stays for the snackbar,
+   the time picker and the alert dialog. One finding on the way: Android's `LinearLayout`
+   places a `fill` gravity at the start too (only `match_parent` stretches), so the
+   "divergence" the old docs recorded was Android's own behaviour.
+2. `layoutdemo: per-child gravity and weights in a LinearLayout`.
+3. `calculator: the display lines by layout_gravity` — the one `LinearLayout` row the apps had
+   built to right-align a label.
 
 ## 5. Verification
 
@@ -138,6 +147,12 @@ Per commit: `./scripts/pre-commit` and `./scripts/sim.sh --app helloworld`. Per 
 `layoutdemo` on the four geometries (`=== ALL PASSED ===`, `[layout] fit ok`), the
 `calculator`, `picoclock`, `claudeusage` and `picoenvmon` rows of `scripts/hil-tests.conf`,
 the size ratchet on both testbench boards, and for series 3 the screenshot comparison.
+
+Series 3's gate was a pixel A/B in the simulator: calculator, dialogdemo, launcher, layoutdemo,
+menudemo, picoenvmon, resdemo and settings on `testbench_rp2350` and `pico_enviro_mon`, and
+picoclock, its set-time page, its alarm list and claudeusage on the touch kit, captured before
+and after the switch from flex. Every capture is byte-identical but for the clock and the usage
+figures, which move with time.
 
 Sizes (release, rustc 1.98.1, `parity-bench.sh --size-only`):
 

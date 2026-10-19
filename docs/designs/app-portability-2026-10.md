@@ -113,6 +113,8 @@ write-once idea for input. LVGL itself offers keypad and encoder input devices a
   `LinearLayout` cross-axis default to Android's START. No ConstraintLayout, RelativeLayout or
   GridLayout. Per-child cross-axis `layout_gravity` inside a `LinearLayout` stays unsupported
   (LVGL flex has no align-self; the packer warns; wrap the child in a `FrameLayout`).
+  *Amended 2026-10-19: `GridLayout`, `RelativeLayout` and per-child `layout_gravity` are built,
+  see [layouts-2026-10.md](layouts-2026-10.md); ConstraintLayout stays out.*
 - **D5 Compat window.** An app whose manifest declares a design size runs at exactly that logical
   size: `lv_display_set_resolution` plus `lv_display_set_offset`, which LVGL already has. On a
   larger panel it is centred with cleared bars; on a smaller one it pans; it is never refused.
@@ -316,10 +318,11 @@ trailer. Font ladders and the LVGL pool are untouched.
 
 ## 7. Not doing
 
-ConstraintLayout, RelativeLayout, GridLayout (`LV_USE_GRID`); API-visible density, fractional or
+ConstraintLayout (RelativeLayout, GridLayout and per-child cross-axis `layout_gravity` in a
+`LinearLayout` were "not doing" here until 2026-10-19; [layouts-2026-10.md](layouts-2026-10.md)
+built them without an LVGL fork); API-visible density, fractional or
 down-scaling, density-specific drawables; runtime rotation or `onConfigurationChanged`; round
-screens; locale and night qualifiers; a status bar or insets; per-child cross-axis `layout_gravity`
-in a `LinearLayout` (no LVGL fork); layout-affecting touch targets; installer-side variant
+screens; locale and night qualifiers; a status bar or insets; layout-affecting touch targets; installer-side variant
 stripping; a run-time resolution override in the sim (the board matrix covers it); key synthesis
 for boards with fewer than four buttons (specified in K1, built with such a board); BOOTSEL as a
 button; tickless idle and dormant.
