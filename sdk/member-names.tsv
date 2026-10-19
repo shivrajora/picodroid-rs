@@ -342,6 +342,7 @@ F	ORIENTATION_VERTICAL
 F	PACKET_BYTES
 F	PARENT_CUSTOM
 F	PARENT_FRAME
+F	PARENT_GRID
 F	PARENT_LINEAR
 F	PARENT_NONE
 F	PARENT_OTHER
@@ -724,7 +725,10 @@ F	mCanvas
 F	mChildCount
 F	mChildren
 F	mClass
+F	mColumn
 F	mColumnCount
+F	mColumnSpan
+F	mColumnWeight
 F	mColumnsUsed
 F	mCommitted
 F	mContainer
@@ -758,6 +762,7 @@ F	mFragmentManager
 F	mFragments
 F	mFrags
 F	mGravity
+F	mGridAttrs
 F	mGroup
 F	mHeight
 F	mHost
@@ -814,7 +819,10 @@ F	mResource
 F	mRoot
 F	mRootParent
 F	mRootVisibility
+F	mRow
 F	mRowCount
+F	mRowSpan
+F	mRowWeight
 F	mRows
 F	mRowsUsed
 F	mSavedFragmentState

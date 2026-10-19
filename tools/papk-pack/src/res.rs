@@ -885,6 +885,15 @@ impl LayoutCompiler<'_> {
             "layout_width" => one(a::LAYOUT_WIDTH, self.size(text, from)?),
             "layout_height" => one(a::LAYOUT_HEIGHT, self.size(text, from)?),
             "layout_weight" => one(a::LAYOUT_WEIGHT, self.float(text, from)?),
+            // A GridLayout child's cell, and the grid's counts.
+            "layout_column" => one(a::LAYOUT_COLUMN, v.word(TYPE_INTEGER, text, from)?),
+            "layout_row" => one(a::LAYOUT_ROW, v.word(TYPE_INTEGER, text, from)?),
+            "layout_columnSpan" => one(a::LAYOUT_COLUMN_SPAN, v.word(TYPE_INTEGER, text, from)?),
+            "layout_rowSpan" => one(a::LAYOUT_ROW_SPAN, v.word(TYPE_INTEGER, text, from)?),
+            "layout_columnWeight" => one(a::LAYOUT_COLUMN_WEIGHT, self.float(text, from)?),
+            "layout_rowWeight" => one(a::LAYOUT_ROW_WEIGHT, self.float(text, from)?),
+            "columnCount" => one(a::COLUMN_COUNT, v.word(TYPE_INTEGER, text, from)?),
+            "rowCount" => one(a::ROW_COUNT, v.word(TYPE_INTEGER, text, from)?),
             "layout_gravity" => one(a::LAYOUT_GRAVITY, parse_flags(GRAVITY, text, from)?),
             "layout_margin" => {
                 let m = self.pixels(text, from)?;
@@ -1188,6 +1197,7 @@ impl LayoutCompiler<'_> {
                 | layout::class::FRAME_LAYOUT
                 | layout::class::SCROLL_VIEW
                 | layout::class::RADIO_GROUP
+                | layout::class::GRID_LAYOUT
         );
         if !is_group && !el.children.is_empty() {
             return Err(format!(
@@ -2220,6 +2230,35 @@ mod tests {
             a::LAYOUT_HEIGHT, 20,
             node_header(k::TEXT_VIEW, 1, 0),
             a::ID, id("name"),
+        ];
+        assert_eq!(words_of(&c, "m"), expected);
+    }
+
+    #[test]
+    fn a_grid_layout_and_its_cells_compile_to_their_words() {
+        use layout::{attr as a, class as k, node_header};
+        let dir = tree(&[(
+            "layout/m.xml",
+            r#"<GridLayout columnCount="3" orientation="vertical">
+                 <TextView layout_column="1" layout_row="2" layout_columnSpan="2"
+                           layout_rowSpan="1" layout_columnWeight="1.5" layout_rowWeight="0.5"
+                           layout_gravity="fill"/>
+               </GridLayout>"#,
+        )]);
+        let c = compile(&dir).unwrap();
+        #[rustfmt::skip]
+        let expected = vec![
+            node_header(k::GRID_LAYOUT, 2, 1),
+            a::COLUMN_COUNT, 3,
+            a::ORIENTATION, 1,
+            node_header(k::TEXT_VIEW, 7, 0),
+            a::LAYOUT_COLUMN, 1,
+            a::LAYOUT_ROW, 2,
+            a::LAYOUT_COLUMN_SPAN, 2,
+            a::LAYOUT_ROW_SPAN, 1,
+            a::LAYOUT_COLUMN_WEIGHT, 1.5f32.to_bits(),
+            a::LAYOUT_ROW_WEIGHT, 0.5f32.to_bits(),
+            a::LAYOUT_GRAVITY, 0x77,
         ];
         assert_eq!(words_of(&c, "m"), expected);
     }

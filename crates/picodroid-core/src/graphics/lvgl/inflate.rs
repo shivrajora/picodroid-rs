@@ -35,6 +35,9 @@ pub(in crate::graphics) enum ParentKind {
     /// A group class of the app's own: made under it, but Java's
     /// `addView` applies the params so an override of it runs.
     Custom,
+    /// A `GridLayout`: made under it, and `GridLayout.addView` places it in
+    /// its cell from the params Java builds out of the deferred words.
+    Grid,
 }
 
 impl ParentKind {
@@ -44,6 +47,7 @@ impl ParentKind {
             2 => Self::Frame,
             3 => Self::Other,
             4 => Self::Custom,
+            5 => Self::Grid,
             _ => Self::None,
         }
     }
@@ -80,6 +84,7 @@ pub(in crate::graphics) fn make(node: &Node, parent: Obj, kind: ParentKind, text
     let handle = match node.cls {
         class::LINEAR_LAYOUT | class::RADIO_GROUP => widgets::linear_layout::create_under(parent),
         class::FRAME_LAYOUT => widgets::frame_layout::create_under(parent),
+        class::GRID_LAYOUT => widgets::grid_layout::create_under(parent),
         class::SCROLL_VIEW => widgets::scroll_view::create_under(parent),
         class::TEXT_VIEW => widgets::text_view::create_under(parent),
         class::BUTTON => widgets::button::create_under(parent, text),
@@ -161,7 +166,10 @@ pub(in crate::graphics) fn make(node: &Node, parent: Obj, kind: ParentKind, text
 
 /// The `LayoutParams` half of `ViewGroup.addView`, by the parent's kind.
 fn apply_layout(h: Handle, node: &Node, kind: ParentKind) {
-    if matches!(kind, ParentKind::None | ParentKind::Custom) {
+    if matches!(
+        kind,
+        ParentKind::None | ParentKind::Custom | ParentKind::Grid
+    ) {
         return;
     }
     view_ops::set_size(h, node.width, node.height);

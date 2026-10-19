@@ -15,6 +15,7 @@ import picodroid.widget.CircularProgressIndicator;
 import picodroid.widget.CompoundButton;
 import picodroid.widget.EditText;
 import picodroid.widget.FrameLayout;
+import picodroid.widget.GridLayout;
 import picodroid.widget.ImageView;
 import picodroid.widget.InflaterSupport;
 import picodroid.widget.LinearLayout;
@@ -111,6 +112,16 @@ public class LayoutInflater {
 
   private boolean mCustom;
 
+  // A GridLayout child's cell, from its layout_column/row/…Span/…Weight words, for params();
+  // mGridAttrs says the node carried any. Reset once the params are built.
+  private int mColumn = GridLayout.UNDEFINED;
+  private int mRow = GridLayout.UNDEFINED;
+  private int mColumnSpan = 1;
+  private int mRowSpan = 1;
+  private float mColumnWeight;
+  private float mRowWeight;
+  private boolean mGridAttrs;
+
   /** The (attribute, value) pairs nativeInflateNode may hand back per node, at most. */
   private static final int MAX_DEFERRED = 8;
 
@@ -121,6 +132,7 @@ public class LayoutInflater {
   private static final int PARENT_FRAME = 2;
   private static final int PARENT_OTHER = 3;
   private static final int PARENT_CUSTOM = 4;
+  private static final int PARENT_GRID = 5;
 
   private LayoutInflater(Context context) {
     mContext = context;
@@ -231,7 +243,7 @@ public class LayoutInflater {
         // it out of sight until it is whole and its owner has put it where it belongs.
         mRootVisibility = v.getVisibility();
         v.setVisibility(View.INVISIBLE);
-      } else if (mFast && kind != PARENT_CUSTOM) {
+      } else if (mFast && kind != PARENT_CUSTOM && kind != PARENT_GRID) {
         parent.attachInflated(v, v.layoutParams); // see node()
         mOpenLeft[mDepth - 1]--;
       } else {
@@ -319,11 +331,12 @@ public class LayoutInflater {
     int children = mChildCount;
     boolean custom = mCustom;
     // A view the native path made is already under the parent's widget and laid out, so only
-    // the Java side joins; one from the Java path, or under a group of the app's own, goes
-    // through addView, so an override of it runs. With PARENT_NONE the caller places it.
+    // the Java side joins; one from the Java path, under a group of the app's own, or under a
+    // GridLayout (which places it in its cell) goes through addView, so an override of it runs.
+    // With PARENT_NONE the caller places it.
     if (kind == PARENT_NONE) {
       // Not joined here.
-    } else if (mFast && kind != PARENT_CUSTOM) {
+    } else if (mFast && kind != PARENT_CUSTOM && kind != PARENT_GRID) {
       parent.attachInflated(v, v.layoutParams);
     } else {
       parent.addView(v, v.getLayoutParams());
@@ -350,6 +363,9 @@ public class LayoutInflater {
     if (group instanceof FrameLayout) {
       return PARENT_FRAME;
     }
+    if (group instanceof GridLayout) {
+      return PARENT_GRID;
+    }
     return PARENT_OTHER;
   }
 
@@ -371,6 +387,10 @@ public class LayoutInflater {
         && nativeInflateNode(v, mLayout, mPos, parentHandle, kind, mDeferred)) {
       mFast = true;
       mCustom = false;
+      // The deferred words first: a grid child's cell is among them, and params() reads it.
+      if (mDeferredCount != 0) {
+        applyDeferred(v);
+      }
       v.layoutParams =
           params(
               parent,
@@ -382,9 +402,6 @@ public class LayoutInflater {
               mMarginTop,
               mMarginRight,
               mMarginBottom);
-      if (mDeferredCount != 0) {
-        applyDeferred(v);
-      }
       return v;
     }
     return oneLegacy(parent);
@@ -418,7 +435,7 @@ public class LayoutInflater {
   }
 
   /** The LayoutParams {@code parent} wants, from a node's layout_* words. */
-  private static ViewGroup.MarginLayoutParams params(
+  private ViewGroup.MarginLayoutParams params(
       ViewGroup parent,
       int width,
       int height,
@@ -435,8 +452,28 @@ public class LayoutInflater {
       lp = llp;
     } else if (parent instanceof FrameLayout) {
       lp = new FrameLayout.LayoutParams(width, height, layoutGravity);
+    } else if (parent instanceof GridLayout) {
+      GridLayout.LayoutParams glp =
+          new GridLayout.LayoutParams(
+              GridLayout.spec(mRow, mRowSpan, (GridLayout.Alignment) null, mRowWeight),
+              GridLayout.spec(mColumn, mColumnSpan, (GridLayout.Alignment) null, mColumnWeight));
+      glp.width = width;
+      glp.height = height;
+      if (layoutGravity != 0) {
+        glp.setGravity(layoutGravity);
+      }
+      lp = glp;
     } else {
       lp = new ViewGroup.MarginLayoutParams(width, height);
+    }
+    if (mGridAttrs) {
+      mColumn = GridLayout.UNDEFINED;
+      mRow = GridLayout.UNDEFINED;
+      mColumnSpan = 1;
+      mRowSpan = 1;
+      mColumnWeight = 0;
+      mRowWeight = 0;
+      mGridAttrs = false;
     }
     if ((marginLeft | marginTop | marginRight | marginBottom) != 0) {
       lp.setMargins(marginLeft, marginTop, marginRight, marginBottom);
@@ -667,6 +704,8 @@ public class LayoutInflater {
         return new View(mContext);
       case 21: // CLASS_SPACE
         return new picodroid.widget.Space(mContext);
+      case 22: // CLASS_GRID_LAYOUT
+        return new GridLayout(mContext);
       default:
         // A layout compiled for a newer framework than this one.
         throw new InflateException("unknown view class code " + cls);
@@ -722,6 +761,8 @@ public class LayoutInflater {
       case 21: // ATTR_ORIENTATION
         if (v instanceof LinearLayout) {
           ((LinearLayout) v).setOrientation(value);
+        } else if (v instanceof GridLayout) {
+          ((GridLayout) v).setOrientation(value);
         }
         break;
       case 22: // ATTR_GRAVITY
@@ -857,6 +898,40 @@ public class LayoutInflater {
       case 55: // ATTR_MAX_WIDTH
         if (v instanceof TextView) {
           ((TextView) v).setMaxWidth(value);
+        }
+        break;
+      case 56: // ATTR_LAYOUT_COLUMN
+        mColumn = value;
+        mGridAttrs = true;
+        break;
+      case 57: // ATTR_LAYOUT_ROW
+        mRow = value;
+        mGridAttrs = true;
+        break;
+      case 58: // ATTR_LAYOUT_COLUMN_SPAN
+        mColumnSpan = value;
+        mGridAttrs = true;
+        break;
+      case 59: // ATTR_LAYOUT_ROW_SPAN
+        mRowSpan = value;
+        mGridAttrs = true;
+        break;
+      case 60: // ATTR_LAYOUT_COLUMN_WEIGHT
+        mColumnWeight = Float.intBitsToFloat(value);
+        mGridAttrs = true;
+        break;
+      case 61: // ATTR_LAYOUT_ROW_WEIGHT
+        mRowWeight = Float.intBitsToFloat(value);
+        mGridAttrs = true;
+        break;
+      case 62: // ATTR_COLUMN_COUNT
+        if (v instanceof GridLayout) {
+          ((GridLayout) v).setColumnCount(value);
+        }
+        break;
+      case 63: // ATTR_ROW_COUNT
+        if (v instanceof GridLayout) {
+          ((GridLayout) v).setRowCount(value);
         }
         break;
       default:

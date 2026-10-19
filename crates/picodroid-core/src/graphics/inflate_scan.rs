@@ -34,6 +34,7 @@ pub fn is_fast_class(cls: u8) -> bool {
             | class::RADIO_GROUP
             | class::VIEW
             | class::SPACE
+            | class::GRID_LAYOUT
     )
 }
 
@@ -175,6 +176,8 @@ pub fn scan(word: impl Fn(usize) -> Option<u32>, pos: usize) -> Result<Node, Tru
             attr::MAX_WIDTH if text => node.max_width = Some(v),
             attr::GRAVITY if text || is_linear_class(node.cls) => node.gravity = Some(v),
             attr::ORIENTATION if is_linear_class(node.cls) => node.orientation = Some(v),
+            // A grid's orientation is Java's to apply, with its counts.
+            attr::ORIENTATION if node.cls == class::GRID_LAYOUT => node.defer(a, v),
             attr::TEXT
             | attr::TEXT_COLOR
             | attr::TEXT_SIZE
@@ -382,6 +385,45 @@ mod tests {
         assert_eq!(n.text, None);
         assert_eq!(n.orientation, Some(0));
         assert_eq!(n.deferred_count, 0);
+    }
+
+    #[test]
+    fn a_grid_defers_its_orientation_and_a_cell_its_six_words() {
+        let ws = [
+            header(class::GRID_LAYOUT, 2, 1),
+            attr::COLUMN_COUNT,
+            3,
+            attr::ORIENTATION,
+            1,
+            header(class::TEXT_VIEW, 6, 0),
+            attr::LAYOUT_COLUMN,
+            1,
+            attr::LAYOUT_ROW,
+            2,
+            attr::LAYOUT_COLUMN_SPAN,
+            2,
+            attr::LAYOUT_ROW_SPAN,
+            1,
+            attr::LAYOUT_COLUMN_WEIGHT,
+            1.0f32.to_bits(),
+            attr::LAYOUT_ROW_WEIGHT,
+            0,
+        ];
+        let grid = scan(words(&ws), 0).unwrap();
+        assert!(is_fast_class(grid.cls));
+        assert_eq!(grid.orientation, None);
+        assert_eq!(
+            &grid.deferred[..grid.deferred_count],
+            &[
+                (attr::COLUMN_COUNT as i32, 3),
+                (attr::ORIENTATION as i32, 1)
+            ]
+        );
+        let cell = scan(words(&ws), grid.next_pos).unwrap();
+        assert_eq!(cell.deferred_count, 6);
+        assert!(!cell.too_many_deferred);
+        assert_eq!(cell.deferred[0], (attr::LAYOUT_COLUMN as i32, 1));
+        assert_eq!(cell.deferred[5], (attr::LAYOUT_ROW_WEIGHT as i32, 0));
     }
 
     #[test]

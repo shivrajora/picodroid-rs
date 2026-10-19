@@ -483,6 +483,8 @@ pub mod layout {
         /// `android.widget.Space`: an invisible view that takes room, weighted
         /// in a `LinearLayout` to push its neighbours apart.
         pub const SPACE: u8 = 21;
+        /// `android.widget.GridLayout`: cells in rows and columns.
+        pub const GRID_LAYOUT: u8 = 22;
 
         /// `(XML element name, code)`.
         pub const ALL: &[(&str, u8)] = &[
@@ -506,6 +508,7 @@ pub mod layout {
             ("ViewPager2", VIEW_PAGER2),
             ("View", VIEW),
             ("Space", SPACE),
+            ("GridLayout", GRID_LAYOUT),
         ];
     }
 
@@ -603,6 +606,18 @@ pub mod layout {
         pub const MIN_WIDTH: u32 = 53;
         pub const MIN_HEIGHT: u32 = 54;
         pub const MAX_WIDTH: u32 = 55;
+        /// A `GridLayout` child's cell: track index (`layout_column`,
+        /// `layout_row`), span (`layout_columnSpan`, `layout_rowSpan`) and
+        /// f32-bit weight (`layout_columnWeight`, `layout_rowWeight`).
+        pub const LAYOUT_COLUMN: u32 = 56;
+        pub const LAYOUT_ROW: u32 = 57;
+        pub const LAYOUT_COLUMN_SPAN: u32 = 58;
+        pub const LAYOUT_ROW_SPAN: u32 = 59;
+        pub const LAYOUT_COLUMN_WEIGHT: u32 = 60;
+        pub const LAYOUT_ROW_WEIGHT: u32 = 61;
+        /// A `GridLayout`'s `columnCount` / `rowCount`.
+        pub const COLUMN_COUNT: u32 = 62;
+        pub const ROW_COUNT: u32 = 63;
 
         /// `(constant name in LayoutInflater.java, code)`.
         pub const ALL: &[(&str, u32)] = &[
@@ -661,6 +676,14 @@ pub mod layout {
             ("MIN_WIDTH", MIN_WIDTH),
             ("MIN_HEIGHT", MIN_HEIGHT),
             ("MAX_WIDTH", MAX_WIDTH),
+            ("LAYOUT_COLUMN", LAYOUT_COLUMN),
+            ("LAYOUT_ROW", LAYOUT_ROW),
+            ("LAYOUT_COLUMN_SPAN", LAYOUT_COLUMN_SPAN),
+            ("LAYOUT_ROW_SPAN", LAYOUT_ROW_SPAN),
+            ("LAYOUT_COLUMN_WEIGHT", LAYOUT_COLUMN_WEIGHT),
+            ("LAYOUT_ROW_WEIGHT", LAYOUT_ROW_WEIGHT),
+            ("COLUMN_COUNT", COLUMN_COUNT),
+            ("ROW_COUNT", ROW_COUNT),
         ];
     }
 

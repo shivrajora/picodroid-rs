@@ -36,6 +36,8 @@ public final class InflaterSupport {
         return new RadioGroup(0);
       case 21: // CLASS_SPACE
         return new Space(0);
+      case 22: // CLASS_GRID_LAYOUT
+        return new GridLayout(0);
       default:
         return null;
     }
