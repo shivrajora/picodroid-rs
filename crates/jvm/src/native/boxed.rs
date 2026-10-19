@@ -243,6 +243,27 @@ fn char_static(method: u32, c: i32) -> Option<Value> {
     }))
 }
 
+/// `isNaN` / `isInfinite` / `isFinite` for `Float` and `Double`, in the
+/// static form (`args[0]` is the primitive) and the instance form
+/// (`args[0]` is the box); a `Float` box stores a `Value::Float`.
+fn float_predicate(
+    method: u32,
+    ctx: &NativeContext<'_>,
+) -> Option<Result<Option<Value>, JvmError>> {
+    let test: fn(f64) -> bool = match method {
+        mh::isNaN => f64::is_nan,
+        mh::isInfinite => f64::is_infinite,
+        mh::isFinite => f64::is_finite,
+        _ => return None,
+    };
+    let v = match unboxed(ctx, 0) {
+        Value::Float(f) => f as f64,
+        Value::Double(d) => d,
+        _ => return Some(Err(JvmError::InvalidReference)),
+    };
+    Some(Ok(Some(Value::Int(test(v) as i32))))
+}
+
 /// `valueOf(String)` shares a method name with the boxing `valueOf(primitive)`;
 /// the descriptor's first parameter tells them apart.
 fn is_string_arg(ctx: &NativeContext<'_>) -> bool {
@@ -313,6 +334,9 @@ pub(crate) fn dispatch_float(
     if method == mh::parseFloat {
         return Some(parse_f64(ctx).map(|v| Some(Value::Float(v as f32))));
     }
+    if let Some(r) = float_predicate(method, ctx) {
+        return Some(r);
+    }
     if method == mh::intBitsToFloat {
         return Some(match ctx.args.first() {
             Some(Value::Int(bits)) => Ok(Some(Value::Float(f32::from_bits(*bits as u32)))),
@@ -336,6 +360,9 @@ pub(crate) fn dispatch_double(
     }
     if method == mh::parseDouble {
         return Some(parse_f64(ctx).map(|v| Some(Value::Double(v))));
+    }
+    if let Some(r) = float_predicate(method, ctx) {
+        return Some(r);
     }
     if method == mh::valueOf && is_string_arg(ctx) {
         return Some(

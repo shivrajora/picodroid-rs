@@ -423,6 +423,27 @@ const STRING_BUILDER_METHODS: &[BuiltinMethodRow] = &[
             d::D__StringBuilder,
         ],
     ),
+    // `insert(int, X)` takes the same argument kinds as `append`; a non-null
+    // Object / CharSequence is stringified by the interpreter first.
+    (
+        m::insert,
+        &[
+            d::I_String__StringBuilder,
+            d::I_CharSequence__StringBuilder,
+            d::I_Object__StringBuilder,
+            d::I_C__StringBuilder,
+            d::I_Z__StringBuilder,
+            d::I_I__StringBuilder,
+            d::I_J__StringBuilder,
+            d::I_F__StringBuilder,
+            d::I_D__StringBuilder,
+        ],
+    ),
+    (m::setLength, &["(I)V"]),
+    (m::deleteCharAt, &[d::I__StringBuilder]),
+    (m::delete, &[d::I_I__StringBuilder]),
+    (m::setCharAt, &["(IC)V"]),
+    (m::reverse, &[d::__StringBuilder]),
     (m::length, &[]),
     (m::charAt, &[]),
     (m::toString, &[]),
@@ -480,7 +501,7 @@ const STRING_METHODS: &[BuiltinMethodRow] = &[
 /// overloads of `parseX` / `toString` / `valueOf` are not served (the
 /// radix argument is ignored), hence the exact lists.
 macro_rules! numeric_box_methods {
-    ($box_from_prim:expr, $box_from_string:expr, $parse:expr, $parse_desc:expr, $prim_to_string:expr) => {
+    ($box_from_prim:expr, $box_from_string:expr, $parse:expr, $parse_desc:expr, $prim_to_string:expr $(, $extra:expr)*) => {
         &[
             ("<init>", &[]),
             (m::valueOf, &[$box_from_prim, $box_from_string]),
@@ -496,6 +517,7 @@ macro_rules! numeric_box_methods {
             (m::hashCode, &[]),
             (m::compareTo, &[]),
             (m::compare, &[]),
+            $($extra,)*
         ]
     };
 }
@@ -519,7 +541,11 @@ const DOUBLE_METHODS: &[BuiltinMethodRow] = numeric_box_methods!(
     d::String__Double,
     m::parseDouble,
     d::String__D,
-    d::D__String
+    d::D__String,
+    // The float predicates, static (`isNaN(D)`) and instance (`isNaN()`).
+    (m::isNaN, &["(D)Z", "()Z"]),
+    (m::isInfinite, &["(D)Z", "()Z"]),
+    (m::isFinite, &["(D)Z"])
 );
 const BYTE_METHODS: &[BuiltinMethodRow] = numeric_box_methods!(
     d::B__Byte,
@@ -552,6 +578,9 @@ const FLOAT_METHODS: &[BuiltinMethodRow] = &[
     (m::compare, &[]),
     (m::floatToIntBits, &[]),
     (m::intBitsToFloat, &[]),
+    (m::isNaN, &["(F)Z", "()Z"]),
+    (m::isInfinite, &["(F)Z", "()Z"]),
+    (m::isFinite, &["(F)Z"]),
 ];
 
 const BOOLEAN_METHODS: &[BuiltinMethodRow] = &[

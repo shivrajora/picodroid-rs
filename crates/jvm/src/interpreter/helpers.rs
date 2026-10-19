@@ -112,6 +112,9 @@ pub(super) fn site_flags(class: &str, name: &str, desc: &str) -> u8 {
         (c::java_lang_StringBuilder, m::append) => {
             desc == d::Object__StringBuilder || desc == d::CharSequence__StringBuilder
         }
+        (c::java_lang_StringBuilder, m::insert) => {
+            desc == d::I_Object__StringBuilder || desc == d::I_CharSequence__StringBuilder
+        }
         (c::java_lang_String, m::valueOf) => desc == d::Object__String,
         _ => false,
     };

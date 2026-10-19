@@ -132,8 +132,6 @@ pub const CONTRACT_HINTS: &[(&str, &str, &str)] = &[
         "equals",
         "compare the elements in a loop",
     ),
-    ("java/lang/Float", "isNaN", "a NaN is the only value that is != itself"),
-    ("java/lang/Double", "isNaN", "a NaN is the only value that is != itself"),
     (
         "java/io/FileReader",
         "",

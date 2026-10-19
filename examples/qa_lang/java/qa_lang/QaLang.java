@@ -334,6 +334,22 @@ public class QaLang extends Application {
     check("Double.compare(0.0, -0.0) > 0", Double.compare(dbl(0.0), dbl(-0.0)) > 0);
     check("Double.compare(NaN, NaN) == 0", Double.compare(nan, nan) == 0);
     check("Double.compare(NaN, Inf) > 0", Double.compare(nan, Double.POSITIVE_INFINITY) > 0);
+    check("Double.isNaN static", Double.isNaN(nan) && !Double.isNaN(dbl(1.5)));
+    check(
+        "Double.isInfinite static",
+        Double.isInfinite(dbl(5.0) / dbl(0)) && !Double.isInfinite(nan) && !Double.isInfinite(1.5));
+    check("Double.isFinite", Double.isFinite(dbl(-0.0)) && !Double.isFinite(nan));
+    Double boxedNan = Double.valueOf(nan);
+    check("Double.isNaN instance", boxedNan.isNaN() && !boxedNan.isInfinite());
+    check(
+        "Double.MAX_VALUE/MIN_VALUE",
+        Double.MAX_VALUE > 1.0e308 && Double.MIN_VALUE > 0 && Double.MIN_VALUE < 1.0e-300);
+    float fnan = (float) nan;
+    check("Float.isNaN", Float.isNaN(fnan) && Float.valueOf(fnan).isNaN() && !Float.isNaN(1f));
+    check(
+        "Float.isInfinite",
+        Float.isInfinite(Float.POSITIVE_INFINITY) && Float.valueOf(1f).isInfinite() == false);
+    check("Float.MAX_VALUE", Float.MAX_VALUE > 3.0e38f && Float.isFinite(Float.MAX_VALUE));
     check("0.1 + 0.2 != 0.3", dbl(0.1) + dbl(0.2) != 0.3);
     check("0.1 + 0.2 == 0.30000000000000004", dbl(0.1) + dbl(0.2) == 0.30000000000000004);
     check("1e308 * 10 == Inf", dbl(1e308) * dbl(10) == Double.POSITIVE_INFINITY);

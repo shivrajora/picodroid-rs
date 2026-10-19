@@ -90,6 +90,81 @@ impl ObjectHeap {
         self.sb_bufs.get(idx as usize)?.as_ref()?.get(pos).copied()
     }
 
+    /// Insert `bytes` at byte offset `pos` of the buffer at `idx`:
+    /// `Ok(false)` when `pos` is past the end (Java's
+    /// `StringIndexOutOfBoundsException`), [`Exhausted`] when the buffer
+    /// cannot grow; nothing is changed either way.
+    pub fn sb_insert_bytes(
+        &mut self,
+        idx: u16,
+        pos: usize,
+        bytes: &[u8],
+    ) -> Result<bool, Exhausted> {
+        let Some(Some(buf)) = self.sb_bufs.get_mut(idx as usize) else {
+            return Ok(true);
+        };
+        if pos > buf.len() {
+            return Ok(false);
+        }
+        reserve_fallible(buf, bytes.len())?;
+        let tail: Vec<u8> = buf.split_off(pos);
+        buf.extend_from_slice(bytes);
+        buf.extend_from_slice(&tail);
+        Ok(true)
+    }
+
+    /// `setLength`: truncate the buffer at `idx` to `len` bytes, or pad it
+    /// with NUL bytes up to `len`, as Java does.
+    pub fn sb_set_len(&mut self, idx: u16, len: usize) -> Result<(), Exhausted> {
+        if let Some(Some(buf)) = self.sb_bufs.get_mut(idx as usize) {
+            if len > buf.len() {
+                reserve_fallible(buf, len - buf.len())?;
+            }
+            buf.resize(len, 0);
+        }
+        Ok(())
+    }
+
+    /// `delete(start, end)`: remove bytes `start..min(end, len)`; `false`
+    /// when `start` is past the end or past `end` (Java's bounds error),
+    /// nothing removed then.
+    pub fn sb_delete(&mut self, idx: u16, start: usize, end: usize) -> bool {
+        let Some(Some(buf)) = self.sb_bufs.get_mut(idx as usize) else {
+            return true;
+        };
+        let end = end.min(buf.len());
+        if start > end {
+            return false;
+        }
+        buf.drain(start..end);
+        true
+    }
+
+    /// `setCharAt`: overwrite the byte at `pos`; `false` when out of bounds.
+    pub fn sb_set_byte(&mut self, idx: u16, pos: usize, b: u8) -> bool {
+        match self
+            .sb_bufs
+            .get_mut(idx as usize)
+            .and_then(|s| s.as_mut())
+            .and_then(|buf| buf.get_mut(pos))
+        {
+            Some(slot) => {
+                *slot = b;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// `reverse`: the bytes in reverse order (a multi-byte character comes
+    /// out byte-reversed, as a surrogate pair would on Android without the
+    /// pair fix-up; the string model is bytes).
+    pub fn sb_reverse(&mut self, idx: u16) {
+        if let Some(Some(buf)) = self.sb_bufs.get_mut(idx as usize) {
+            buf.reverse();
+        }
+    }
+
     /// Contents of the buffer at `idx` as a byte slice.
     pub fn sb_contents_slice(&self, idx: u16) -> &[u8] {
         self.sb_bufs

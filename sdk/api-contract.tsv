@@ -273,6 +273,11 @@ java/lang/Double	equals
 java/lang/Double	floatValue	
 java/lang/Double	hashCode	
 java/lang/Double	intValue	
+java/lang/Double	isFinite	(D)Z
+java/lang/Double	isInfinite	()Z
+java/lang/Double	isInfinite	(D)Z
+java/lang/Double	isNaN	()Z
+java/lang/Double	isNaN	(D)Z
 java/lang/Double	longValue	
 java/lang/Double	parseDouble	(Ljava/lang/String;)D
 java/lang/Double	shortValue	
@@ -309,6 +314,11 @@ java/lang/Float	floatValue
 java/lang/Float	hashCode	
 java/lang/Float	intBitsToFloat	
 java/lang/Float	intValue	
+java/lang/Float	isFinite	(F)Z
+java/lang/Float	isInfinite	()Z
+java/lang/Float	isInfinite	(F)Z
+java/lang/Float	isNaN	()Z
+java/lang/Float	isNaN	(F)Z
 java/lang/Float	longValue	
 java/lang/Float	parseFloat	(Ljava/lang/String;)F
 java/lang/Float	shortValue	
@@ -512,7 +522,21 @@ java/lang/StringBuilder	append	(Ljava/lang/Object;)Ljava/lang/StringBuilder;
 java/lang/StringBuilder	append	(Ljava/lang/String;)Ljava/lang/StringBuilder;
 java/lang/StringBuilder	append	(Z)Ljava/lang/StringBuilder;
 java/lang/StringBuilder	charAt	
+java/lang/StringBuilder	delete	(II)Ljava/lang/StringBuilder;
+java/lang/StringBuilder	deleteCharAt	(I)Ljava/lang/StringBuilder;
+java/lang/StringBuilder	insert	(IC)Ljava/lang/StringBuilder;
+java/lang/StringBuilder	insert	(ID)Ljava/lang/StringBuilder;
+java/lang/StringBuilder	insert	(IF)Ljava/lang/StringBuilder;
+java/lang/StringBuilder	insert	(II)Ljava/lang/StringBuilder;
+java/lang/StringBuilder	insert	(IJ)Ljava/lang/StringBuilder;
+java/lang/StringBuilder	insert	(ILjava/lang/CharSequence;)Ljava/lang/StringBuilder;
+java/lang/StringBuilder	insert	(ILjava/lang/Object;)Ljava/lang/StringBuilder;
+java/lang/StringBuilder	insert	(ILjava/lang/String;)Ljava/lang/StringBuilder;
+java/lang/StringBuilder	insert	(IZ)Ljava/lang/StringBuilder;
 java/lang/StringBuilder	length	
+java/lang/StringBuilder	reverse	()Ljava/lang/StringBuilder;
+java/lang/StringBuilder	setCharAt	(IC)V
+java/lang/StringBuilder	setLength	(I)V
 java/lang/StringBuilder	toString	
 java/lang/StringIndexOutOfBoundsException
 java/lang/System
@@ -1405,7 +1429,5 @@ javax/net/ssl/SSLPeerUnverifiedException
 @hint	java/lang/Math	random	use java.util.Random
 @hint	java/util/Arrays	asList	build an ArrayList and add() the elements
 @hint	java/util/Arrays	equals	compare the elements in a loop
-@hint	java/lang/Float	isNaN	a NaN is the only value that is != itself
-@hint	java/lang/Double	isNaN	a NaN is the only value that is != itself
 @hint	java/io/FileReader		no FileReader — wrap picodroid.io.FileInputStream in an InputStreamReader
 @hint	java/io/FileWriter		no FileWriter — wrap picodroid.io.FileOutputStream in an OutputStreamWriter

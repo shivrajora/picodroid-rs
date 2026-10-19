@@ -114,6 +114,106 @@ pub(crate) fn dispatch(
                 Some(Err(JvmError::InvalidReference))
             }
         }
+        mh::insert => {
+            let Some(Value::Int(at)) = ctx.args.get(1) else {
+                return Some(Err(JvmError::InvalidReference));
+            };
+            let Ok(at) = usize::try_from(*at) else {
+                return Some(Err(super::throw_named(
+                    ctx,
+                    c::java_lang_StringIndexOutOfBoundsException,
+                )));
+            };
+            // The value's bytes, as `append` would write them.
+            let (mut cb, mut ib, mut lb, mut fb) = ([0u8; 3], [0u8; 12], [0u8; 21], [0u8; 32]);
+            let bytes: &[u8] = match ctx.args.get(2) {
+                Some(Value::Reference(idx)) => ctx.strings.resolve(*idx).unwrap_or("").as_bytes(),
+                Some(Value::Int(n)) => {
+                    let desc = ctx.descriptor;
+                    if desc.starts_with("(IC)") {
+                        super::string::char_bytes(*n, &mut cb)
+                    } else if desc.starts_with("(IZ)") {
+                        if *n != 0 {
+                            b"true"
+                        } else {
+                            b"false"
+                        }
+                    } else {
+                        crate::object_heap::int_to_decimal_buf(*n, &mut ib)
+                    }
+                }
+                Some(Value::Long(n)) => crate::object_heap::long_to_decimal_buf(*n, &mut lb),
+                Some(Value::Float(f)) => crate::object_heap::float_to_str_buf(*f, &mut fb),
+                Some(Value::Double(d)) => crate::object_heap::double_to_str_buf(*d, &mut fb),
+                Some(Value::Null) => b"null",
+                _ => b"",
+            };
+            match ctx.objects.sb_insert_bytes(buf, at, bytes) {
+                Ok(true) => Some(Ok(ctx.args.first().copied().map(Some).unwrap_or(None))),
+                Ok(false) => Some(Err(super::throw_named(
+                    ctx,
+                    c::java_lang_StringIndexOutOfBoundsException,
+                ))),
+                Err(_) => Some(Err(super::throw_named(ctx, c::java_lang_OutOfMemoryError))),
+            }
+        }
+        mh::setLength => {
+            let Some(Value::Int(len)) = ctx.args.get(1) else {
+                return Some(Err(JvmError::InvalidReference));
+            };
+            let Ok(len) = usize::try_from(*len) else {
+                return Some(Err(super::throw_named(
+                    ctx,
+                    c::java_lang_StringIndexOutOfBoundsException,
+                )));
+            };
+            if ctx.objects.sb_set_len(buf, len).is_err() {
+                return Some(Err(super::throw_named(ctx, c::java_lang_OutOfMemoryError)));
+            }
+            Some(Ok(None))
+        }
+        mh::deleteCharAt | mh::delete => {
+            let (start, end) = match (ctx.args.get(1), ctx.args.get(2)) {
+                (Some(Value::Int(i)), None) => (*i, i.wrapping_add(1)),
+                (Some(Value::Int(s)), Some(Value::Int(e))) => (*s, *e),
+                _ => return Some(Err(JvmError::InvalidReference)),
+            };
+            // deleteCharAt(len) is an error where delete(len, len) is not:
+            // only the two-argument form clamps `end` to the length.
+            let in_range = start >= 0
+                && end >= start
+                && (method == mh::delete || (start as usize) < ctx.objects.sb_len(buf))
+                && ctx.objects.sb_delete(buf, start as usize, end as usize);
+            if in_range {
+                Some(Ok(ctx.args.first().copied().map(Some).unwrap_or(None)))
+            } else {
+                Some(Err(super::throw_named(
+                    ctx,
+                    c::java_lang_StringIndexOutOfBoundsException,
+                )))
+            }
+        }
+        mh::setCharAt => {
+            let (Some(Value::Int(i)), Some(Value::Int(ch))) = (ctx.args.get(1), ctx.args.get(2))
+            else {
+                return Some(Err(JvmError::InvalidReference));
+            };
+            // One byte per char in the byte string model; a code point above
+            // 0x7F is stored as its low byte, as `charAt` reads bytes.
+            let ok = usize::try_from(*i).is_ok_and(|i| ctx.objects.sb_set_byte(buf, i, *ch as u8));
+            if ok {
+                Some(Ok(None))
+            } else {
+                Some(Err(super::throw_named(
+                    ctx,
+                    c::java_lang_StringIndexOutOfBoundsException,
+                )))
+            }
+        }
+        mh::reverse => {
+            ctx.objects.sb_reverse(buf);
+            Some(Ok(ctx.args.first().copied().map(Some).unwrap_or(None)))
+        }
         mh::toString => {
             // Non-destructive, as on Android: the builder keeps its contents
             // and can be appended to (or stringified again) afterwards.

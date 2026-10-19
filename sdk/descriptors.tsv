@@ -151,3 +151,13 @@ __V	()V
 String__Class	(Ljava/lang/String;)Ljava/lang/Class;
 Context_AttributeSet__V	(Lpicodroid/content/Context;Lpicodroid/util/AttributeSet;)V
 Class_Context_AttributeSet__View	(Ljava/lang/Class;Lpicodroid/content/Context;Lpicodroid/util/AttributeSet;)Lpicodroid/view/View;
+I_String__StringBuilder	(ILjava/lang/String;)Ljava/lang/StringBuilder;
+I_CharSequence__StringBuilder	(ILjava/lang/CharSequence;)Ljava/lang/StringBuilder;
+I_Object__StringBuilder	(ILjava/lang/Object;)Ljava/lang/StringBuilder;
+I_C__StringBuilder	(IC)Ljava/lang/StringBuilder;
+I_Z__StringBuilder	(IZ)Ljava/lang/StringBuilder;
+I_I__StringBuilder	(II)Ljava/lang/StringBuilder;
+I_J__StringBuilder	(IJ)Ljava/lang/StringBuilder;
+I_F__StringBuilder	(IF)Ljava/lang/StringBuilder;
+I_D__StringBuilder	(ID)Ljava/lang/StringBuilder;
+__StringBuilder	()Ljava/lang/StringBuilder;

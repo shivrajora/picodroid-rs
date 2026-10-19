@@ -950,6 +950,44 @@ public class QaColl extends Application {
       oob = true;
     }
     check("charAt OOB throws", oob);
+    StringBuilder ed = new StringBuilder("hello");
+    ed.insert(0, "big ").insert(3, ',').insert(ed.length(), 42).insert(0, (Object) null);
+    checkEq("insert string/char/int/null", "nullbig, hello42", ed.toString());
+    ed.insert(4, true).insert(4, 2.5).insert(4, 7L);
+    checkEq("insert bool/double/long", "null72.5truebig, hello42", ed.toString());
+    StringBuilder sl = new StringBuilder("hello");
+    sl.setLength(2);
+    checkEq("setLength shrinks", "he", sl.toString());
+    sl.setLength(4);
+    check("setLength pads with NUL", sl.length() == 4 && sl.charAt(3) == '\0');
+    sl.setLength(0);
+    check("setLength(0) empties", sl.length() == 0 && sl.toString().equals(""));
+    StringBuilder dl = new StringBuilder("abcdef");
+    dl.deleteCharAt(1).delete(3, 99);
+    checkEq("deleteCharAt + delete clamps end", "acd", dl.toString());
+    dl.delete(3, 3);
+    checkEq("delete(len, len) no-op", "acd", dl.toString());
+    boolean dlOob = false;
+    try {
+      dl.deleteCharAt(3);
+    } catch (StringIndexOutOfBoundsException ex) {
+      dlOob = true;
+    }
+    check("deleteCharAt(len) throws", dlOob);
+    boolean insOob = false;
+    try {
+      dl.insert(4, "x");
+    } catch (StringIndexOutOfBoundsException ex) {
+      insOob = true;
+    }
+    check("insert past end throws", insOob && dl.toString().equals("acd"));
+    dl.setCharAt(1, 'X');
+    checkEq("setCharAt", "aXd", dl.toString());
+    check("reverse returns this", dl.reverse() == dl);
+    checkEq("reverse", "dXa", dl.toString());
+    StringBuilder chained = new StringBuilder();
+    chained.append("abc").reverse().insert(0, '[').append(']');
+    checkEq("edit chain", "[cba]", chained.toString());
   }
 
   // ---- wrapper parsing / printing -----------------------------------------------------------

@@ -174,6 +174,34 @@ impl SbCtx {
             .expect("StringBuilder method not handled")
     }
 
+    /// A call with any number of arguments after `this`.
+    fn call_args(
+        &mut self,
+        method: &str,
+        desc: &str,
+        extra: &[Value],
+    ) -> Result<Option<Value>, JvmError> {
+        let mut args: alloc::vec::Vec<Value> = alloc::vec![Value::ObjectRef(self.this)];
+        args.extend_from_slice(extra);
+        let mut ctx = NativeContext {
+            classes: Classes::linear(&[]),
+            descriptor: desc,
+            args: &args,
+            strings: &mut self.strings,
+            objects: &mut self.objects,
+            arrays: &mut self.arrays,
+            upcall: None,
+        };
+        BuiltinHandler
+            .dispatch(c::java_lang_StringBuilder, method, &mut ctx)
+            .expect("StringBuilder method not handled")
+    }
+
+    /// Interns `s` and hands back its reference, for String arguments.
+    fn str_arg(&mut self, s: &str) -> Value {
+        Value::Reference(self.strings.intern_dyn(s.as_bytes()).unwrap())
+    }
+
     fn to_string(&mut self) -> String {
         let result = self.call(m::toString, d::__String, None).unwrap().unwrap();
         if let Value::Reference(idx) = result {

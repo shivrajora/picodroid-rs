@@ -406,6 +406,10 @@ impl<'a, H: NativeMethodHandler> Executor<'a, H> {
             (c::java_lang_StringBuilder, m::append) => {
                 desc_str == d::Object__StringBuilder || desc_str == d::CharSequence__StringBuilder
             }
+            (c::java_lang_StringBuilder, m::insert) => {
+                desc_str == d::I_Object__StringBuilder
+                    || desc_str == d::I_CharSequence__StringBuilder
+            }
             (c::java_lang_String, m::valueOf) => desc_str == d::Object__String,
             _ => false,
         };

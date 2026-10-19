@@ -170,3 +170,142 @@ fn sb_append_char_above_0x7f_is_utf8() {
     .unwrap();
     assert_eq!(ctx.to_string(), "23°C");
 }
+
+// ── editing: insert / setLength / delete / deleteCharAt / setCharAt / reverse ──
+
+#[test]
+fn sb_insert_string_char_int_and_null() {
+    let mut ctx = SbCtx::new();
+    ctx.call("<init>", "()V", None).unwrap();
+    let hello = ctx.str_arg("hello");
+    ctx.call(m::append, d::String__StringBuilder, Some(hello))
+        .unwrap();
+    let big = ctx.str_arg("big ");
+    ctx.call_args(m::insert, d::I_String__StringBuilder, &[Value::Int(0), big])
+        .unwrap();
+    assert_eq!(ctx.to_string(), "big hello");
+    ctx.call_args(
+        m::insert,
+        d::I_C__StringBuilder,
+        &[Value::Int(3), Value::Int(',' as i32)],
+    )
+    .unwrap();
+    assert_eq!(ctx.to_string(), "big, hello");
+    ctx.call_args(
+        m::insert,
+        d::I_I__StringBuilder,
+        &[Value::Int(10), Value::Int(42)],
+    )
+    .unwrap();
+    assert_eq!(ctx.to_string(), "big, hello42");
+    ctx.call_args(
+        m::insert,
+        d::I_Object__StringBuilder,
+        &[Value::Int(0), Value::Null],
+    )
+    .unwrap();
+    assert_eq!(ctx.to_string(), "nullbig, hello42");
+    ctx.call_args(
+        m::insert,
+        d::I_Z__StringBuilder,
+        &[Value::Int(4), Value::Int(1)],
+    )
+    .unwrap();
+    assert_eq!(ctx.to_string(), "nulltruebig, hello42");
+}
+
+#[test]
+fn sb_insert_past_end_throws() {
+    let mut ctx = SbCtx::new();
+    ctx.call("<init>", "()V", None).unwrap();
+    let x = ctx.str_arg("x");
+    let r = ctx.call_args(m::insert, d::I_String__StringBuilder, &[Value::Int(1), x]);
+    assert!(r.is_err(), "insert past the end must throw");
+    assert_eq!(ctx.to_string(), "");
+}
+
+#[test]
+fn sb_set_length_truncates_and_pads() {
+    let mut ctx = SbCtx::new();
+    ctx.call("<init>", "()V", None).unwrap();
+    let s = ctx.str_arg("hello");
+    ctx.call(m::append, d::String__StringBuilder, Some(s))
+        .unwrap();
+    ctx.call(m::setLength, "(I)V", Some(Value::Int(2))).unwrap();
+    assert_eq!(ctx.to_string(), "he");
+    ctx.call(m::setLength, "(I)V", Some(Value::Int(4))).unwrap();
+    assert_eq!(ctx.to_string(), "he\0\0");
+    ctx.call(m::setLength, "(I)V", Some(Value::Int(0))).unwrap();
+    assert_eq!(ctx.to_string(), "");
+    assert!(ctx
+        .call(m::setLength, "(I)V", Some(Value::Int(-1)))
+        .is_err());
+}
+
+#[test]
+fn sb_delete_and_delete_char_at() {
+    let mut ctx = SbCtx::new();
+    ctx.call("<init>", "()V", None).unwrap();
+    let s = ctx.str_arg("abcdef");
+    ctx.call(m::append, d::String__StringBuilder, Some(s))
+        .unwrap();
+    ctx.call(m::deleteCharAt, d::I__StringBuilder, Some(Value::Int(1)))
+        .unwrap();
+    assert_eq!(ctx.to_string(), "acdef");
+    // delete clamps `end` to the length, as Java does.
+    ctx.call_args(
+        m::delete,
+        d::I_I__StringBuilder,
+        &[Value::Int(3), Value::Int(99)],
+    )
+    .unwrap();
+    assert_eq!(ctx.to_string(), "acd");
+    // delete(len, len) is a no-op; deleteCharAt(len) is an error.
+    ctx.call_args(
+        m::delete,
+        d::I_I__StringBuilder,
+        &[Value::Int(3), Value::Int(3)],
+    )
+    .unwrap();
+    assert!(ctx
+        .call(m::deleteCharAt, d::I__StringBuilder, Some(Value::Int(3)))
+        .is_err());
+    assert!(ctx
+        .call_args(
+            m::delete,
+            d::I_I__StringBuilder,
+            &[Value::Int(2), Value::Int(1)]
+        )
+        .is_err());
+    assert_eq!(ctx.to_string(), "acd");
+}
+
+#[test]
+fn sb_set_char_at_and_reverse() {
+    let mut ctx = SbCtx::new();
+    ctx.call("<init>", "()V", None).unwrap();
+    let s = ctx.str_arg("abc");
+    ctx.call(m::append, d::String__StringBuilder, Some(s))
+        .unwrap();
+    ctx.call_args(
+        m::setCharAt,
+        "(IC)V",
+        &[Value::Int(1), Value::Int('X' as i32)],
+    )
+    .unwrap();
+    assert_eq!(ctx.to_string(), "aXc");
+    assert!(ctx
+        .call_args(
+            m::setCharAt,
+            "(IC)V",
+            &[Value::Int(3), Value::Int('X' as i32)]
+        )
+        .is_err());
+    let back = ctx.call(m::reverse, d::__StringBuilder, None).unwrap();
+    assert_eq!(
+        back,
+        Some(Value::ObjectRef(ctx.this)),
+        "reverse returns this"
+    );
+    assert_eq!(ctx.to_string(), "cXa");
+}

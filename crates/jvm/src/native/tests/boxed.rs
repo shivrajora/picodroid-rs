@@ -665,3 +665,112 @@ fn string_constructors_parse_like_parse_x() {
         }
     }
 }
+
+#[test]
+fn double_and_float_predicates_static_and_instance() {
+    let mut objects = ObjectHeap::new();
+    let nan = f64::NAN;
+    let cases: &[(&str, &str, &str, Value, i32)] = &[
+        (c::java_lang_Double, m::isNaN, "(D)Z", Value::Double(nan), 1),
+        (c::java_lang_Double, m::isNaN, "(D)Z", Value::Double(1.5), 0),
+        (
+            c::java_lang_Double,
+            m::isInfinite,
+            "(D)Z",
+            Value::Double(f64::INFINITY),
+            1,
+        ),
+        (
+            c::java_lang_Double,
+            m::isInfinite,
+            "(D)Z",
+            Value::Double(nan),
+            0,
+        ),
+        (
+            c::java_lang_Double,
+            m::isFinite,
+            "(D)Z",
+            Value::Double(f64::NEG_INFINITY),
+            0,
+        ),
+        (
+            c::java_lang_Double,
+            m::isFinite,
+            "(D)Z",
+            Value::Double(-0.0),
+            1,
+        ),
+        (
+            c::java_lang_Float,
+            m::isNaN,
+            "(F)Z",
+            Value::Float(f32::NAN),
+            1,
+        ),
+        (
+            c::java_lang_Float,
+            m::isInfinite,
+            "(F)Z",
+            Value::Float(f32::INFINITY),
+            1,
+        ),
+        (
+            c::java_lang_Float,
+            m::isFinite,
+            "(F)Z",
+            Value::Float(2.0),
+            1,
+        ),
+    ];
+    for (class, method, desc, arg, want) in cases {
+        assert_eq!(
+            dispatch_boxed(class, method, desc, &[*arg], &mut objects),
+            Ok(Some(Value::Int(*want))),
+            "{class}.{method}{desc} on {arg:?}"
+        );
+    }
+    // The instance form reads the box.
+    let boxed = dispatch_boxed(
+        c::java_lang_Double,
+        m::valueOf,
+        d::D__Double,
+        &[Value::Double(nan)],
+        &mut objects,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        dispatch_boxed(c::java_lang_Double, m::isNaN, "()Z", &[boxed], &mut objects),
+        Ok(Some(Value::Int(1)))
+    );
+    assert_eq!(
+        dispatch_boxed(
+            c::java_lang_Double,
+            m::isInfinite,
+            "()Z",
+            &[boxed],
+            &mut objects
+        ),
+        Ok(Some(Value::Int(0)))
+    );
+    let fboxed = dispatch_boxed(
+        c::java_lang_Float,
+        m::valueOf,
+        d::F__Float,
+        &[Value::Float(f32::INFINITY)],
+        &mut objects,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        dispatch_boxed(
+            c::java_lang_Float,
+            m::isInfinite,
+            "()Z",
+            &[fboxed],
+            &mut objects
+        ),
+        Ok(Some(Value::Int(1)))
+    );
+}
