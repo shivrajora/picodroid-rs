@@ -1265,6 +1265,7 @@ unsafe extern "C" {
     /// what the focused widget is (events/keypad.rs).
     pub safe fn lv_obj_get_class(obj: Obj) -> *const lv_obj_class_t;
     pub static lv_label_class: lv_obj_class_t;
+    pub static lv_textarea_class: lv_obj_class_t;
     pub static lv_bar_class: lv_obj_class_t;
     pub static lv_spinner_class: lv_obj_class_t;
     pub static lv_slider_class: lv_obj_class_t;

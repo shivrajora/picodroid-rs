@@ -2,7 +2,6 @@
 package picodroid.widget;
 
 import picodroid.content.Context;
-import picodroid.view.View;
 
 /**
  * Single-line text input. Tapping pops up the system soft keyboard by default; opt-out via {@link
@@ -12,8 +11,13 @@ import picodroid.view.View;
  * #setOnEditorActionListener} to react to the keyboard's OK / Enter key. The listener fires only
  * for the implicit system keyboard; explicit {@code Keyboard} instances use {@link
  * Keyboard#setOnReadyListener} instead.
+ *
+ * <p>A {@link TextView}, as on Android: {@code setTextSize}, {@code setTextColor}, {@code
+ * setGravity} and {@code setSingleLine} reach the field (its text area, which draws the text and
+ * the cursor in the face and colour set); {@code setEllipsize} and {@code setMaxLines} are label
+ * concerns and do nothing on a field.
  */
-public class EditText extends View {
+public class EditText extends TextView {
 
   private OnEditorActionListener editorActionListener;
   private picodroid.text.TextWatcher[] watchers;
@@ -33,8 +37,16 @@ public class EditText extends View {
 
   private static native int nativeCreate();
 
+  /**
+   * Mirrors Android: the field's text. Its own native, not {@link TextView#setText}'s: the textarea
+   * keeps the cursor and the typed text, and a programmatic set after typing must land even when it
+   * equals what the label layer last saw.
+   */
+  @Override
   public native void setText(String text);
 
+  /** Mirrors Android's {@code getText()}, narrowed to {@link String}: what the field holds now. */
+  @Override
   public native String getText();
 
   public native void setHint(String hint);

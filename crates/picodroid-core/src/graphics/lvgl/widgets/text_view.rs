@@ -22,8 +22,13 @@ pub(in crate::graphics) fn create_under(parent: Obj) -> i32 {
 }
 
 /// Set the label's text: the object's own for a bare label, the child label's
-/// for a `Button` (see [`label_of`]).
+/// for a `Button` (see [`label_of`]); an `EditText`'s text area keeps its
+/// cursor and typed text, so it takes the textarea call.
 pub(in crate::graphics) fn set_text(id: i32, text: &str) {
+    if textarea_of(id).is_some() {
+        super::edit_text::set_text(id, text);
+        return;
+    }
     let Some(label) = label_of(id) else {
         return; // stale handle — mutating a destroyed View is a no-op
     };
@@ -72,6 +77,16 @@ fn label_of(id: i32) -> Option<Obj> {
     super::super::is_class(label, &raw const lv_label_class).then_some(label)
 }
 
+/// The text area behind an `EditText` handle (`EditText extends TextView`, so TextView's natives
+/// land here with one): `None` for a label, a button or a stale handle. Its child 0 is a label
+/// too, which `label_of` would answer — but the cursor and placeholder measure with the
+/// textarea's own font and alignment (`lv_textarea.c`), so those styles go on the textarea, and
+/// the text and line mode through its own API.
+fn textarea_of(id: i32) -> Option<Obj> {
+    let obj = handle_table::get(id)?;
+    super::super::is_class(obj, &raw const lv_textarea_class).then_some(obj)
+}
+
 /// The bytes of a NUL-terminated C string, without the terminator.
 ///
 /// # Safety
@@ -88,6 +103,12 @@ pub(in crate::graphics) unsafe fn cstr_bytes<'a>(p: *const c_char) -> &'a [u8] {
 /// line that fits the box, and `max_height` clamps content-sized and explicit heights alike, so
 /// the cap is what makes "one line" hold.
 pub(in crate::graphics) fn set_line_mode(id: i32, kind: i32, max_lines: i32, single: bool) {
+    if let Some(ta) = textarea_of(id) {
+        // A field has no ellipsis or line cap, only Android's single-line mode.
+        // SAFETY: `textarea_of` answers only an `lv_textarea`.
+        unsafe { lv_textarea_set_one_line(ta, single) };
+        return;
+    }
     let Some(label) = label_of(id) else {
         return;
     };
@@ -160,7 +181,9 @@ fn line_height_of(label: Obj) -> i32 {
 /// `LV_STYLE_TEXT_FONT` carries LVGL's layout-update flag: the label, and a content-sized button
 /// around it, re-lay out on the next frame by themselves.
 pub(in crate::graphics) fn set_text_size(id: i32, px: f32) {
-    let Some(label) = label_of(id) else {
+    // On a text area the font goes on the area itself: its label inherits it, and the cursor and
+    // placeholder measure with the area's font.
+    let Some(target) = textarea_of(id).or_else(|| label_of(id)) else {
         return;
     };
     let font = face_for_px(px);
@@ -168,7 +191,7 @@ pub(in crate::graphics) fn set_text_size(id: i32, px: f32) {
         return;
     }
     // SAFETY: `font` is one of `pd_font_table`'s compiled faces, static.
-    unsafe { lv_obj_set_style_text_font(label, font, 0) };
+    unsafe { lv_obj_set_style_text_font(target, font, 0) };
 }
 
 /// The compiled face nearest `px` (`text_size::nearest` over `pd_fonts.c`'s table), or null for
@@ -216,10 +239,11 @@ pub(in crate::graphics) fn face_index_for_px(px: f32) -> Option<usize> {
 /// receiver lands here too (`label_of`): its label is content-sized and centred by the button, so
 /// the call is honoured but changes nothing, as on Android where a Button is centred anyway.
 pub(in crate::graphics) fn set_gravity(id: i32, gravity: i32) {
-    let Some(label) = label_of(id) else {
+    // A text area aligns its text, placeholder and cursor by its own style (`lv_textarea_set_align`).
+    let Some(target) = textarea_of(id).or_else(|| label_of(id)) else {
         return;
     };
-    lv_obj_set_style_text_align(label, super::gravity::text_align(gravity), 0);
+    lv_obj_set_style_text_align(target, super::gravity::text_align(gravity), 0);
 }
 
 /// `TextView.nativeGetLineHeight`: one line of the face in use, in pixels; 0 for a stale handle.
@@ -249,6 +273,9 @@ pub(in crate::graphics) fn set_text_color(id: i32, argb: u32) {
 /// a size change. On the label itself (`label_of`), where the line cap reads the pads.
 pub(in crate::graphics) fn set_include_font_padding(id: i32, include: bool) {
     const BOTTOM_LEADING_PX: i32 = 1;
+    if textarea_of(id).is_some() {
+        return; // a field's padding is the text area's own tuning (`edit_text::create`)
+    }
     let Some(label) = label_of(id) else {
         return;
     };

@@ -116,6 +116,13 @@ fn slot_expectations() -> Vec<(&'static str, &'static str, usize)> {
         // A Button is a TextView whose own fields come after, so the slots
         // hold for it too (the inflater writes them through the Button).
         (c::picodroid_widget_Button, "mText", g::text_view::TEXT),
+        // So is an EditText (a text area), since 2026-10-19.
+        (c::picodroid_widget_EditText, "mText", g::text_view::TEXT),
+        (
+            c::picodroid_widget_EditText,
+            "mLineMode",
+            g::text_view::LINE_MODE,
+        ),
         (
             c::picodroid_view_LayoutInflater,
             "mPos",

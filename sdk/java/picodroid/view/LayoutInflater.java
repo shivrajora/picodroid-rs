@@ -1049,12 +1049,10 @@ public class LayoutInflater {
     return mContext.getResources().getString(id);
   }
 
-  /** setText has no common declaring class: EditText and the compound buttons are not TextViews. */
+  /** setText has no common declaring class: the compound buttons are not TextViews. */
   private static void setText(View v, String text) {
     if (v instanceof TextView) {
       ((TextView) v).setText(text);
-    } else if (v instanceof EditText) {
-      ((EditText) v).setText(text);
     } else if (v instanceof CheckBox) {
       ((CheckBox) v).setText(text);
     } else if (v instanceof RadioButton) {

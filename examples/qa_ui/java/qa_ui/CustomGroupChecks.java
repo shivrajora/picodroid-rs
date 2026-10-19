@@ -141,6 +141,27 @@ final class CustomGroupChecks {
     touch.dispatchTouchEvent(MotionEvent.obtain(0, 7, MotionEvent.ACTION_DOWN, 1, 1, 0));
     QaUiActivity.check("a declining listener falls through to onTouchEvent", touch.downs == 2);
 
+    // EditText is a TextView: the label setters reach the field and getText round-trips.
+    picodroid.widget.EditText field = new picodroid.widget.EditText(ctx);
+    root.addView(field);
+    TextView asText = field;
+    asText.setText("typed");
+    field.setTextSize(20);
+    field.setTextColor(0xFF112233);
+    field.setGravity(picodroid.view.Gravity.CENTER_HORIZONTAL);
+    field.setSingleLine(true);
+    field.setIncludeFontPadding(false);
+    QaUiActivity.check(
+        "EditText is a TextView",
+        field instanceof TextView
+            && "typed".equals(field.getText())
+            && "typed".equals(asText.getText().toString())
+            && field.getTextSize() == 20f
+            && field.getContext() == ctx);
+    field.setText("retyped");
+    QaUiActivity.check(
+        "EditText.setText after a set lands", "retyped".equals(asText.getText().toString()));
+
     // removeViewAt on a framework layout.
     LinearLayout scratch = new LinearLayout(ctx);
     TextView a = new TextView(ctx);
