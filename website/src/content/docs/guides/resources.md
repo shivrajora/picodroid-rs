@@ -114,7 +114,7 @@ cycles are a build error. An id of the wrong type, or one that does not exist, t
 - `<T extends View> T findViewById(int)` on `Activity` and on any `View`, depth first.
   `@+id/name` declares `R.id.name`.
 
-**Elements:** `LinearLayout`, `FrameLayout`, `GridLayout`, `ScrollView`, `RadioGroup`, `View`, `Space`,
+**Elements:** `LinearLayout`, `FrameLayout`, `GridLayout`, `RelativeLayout`, `ScrollView`, `RadioGroup`, `View`, `Space`,
 `TextView`, `Button`, `ImageView`, `EditText`, `CheckBox`, `Switch`, `ToggleButton`,
 `RadioButton`, `ProgressBar`, `CircularProgressIndicator`, `SeekBar`, `Spinner`, `ListView`,
 `ViewPager2`. Each may also be written fully qualified (`<picodroid.widget.ViewPager2>`), the way
@@ -282,6 +282,7 @@ RP2350 boards.
 |---|---|
 | Any view | `id`, `style`, `layout_width`, `layout_height` (`match_parent`, `wrap_content`, a dimension), `layout_weight`, `layout_gravity` (applied in a `FrameLayout` or a `GridLayout`), `layout_margin` and its per-side forms, `padding`, `paddingLeft/Top/Right/Bottom`, `paddingStart/End`, `paddingHorizontal/Vertical`, `background` (a colour, `#AARRGGBB` with the alpha honoured; `@android:color/transparent`, `black`, `white`; or a `@drawable/` [shape](#drawables)), `visibility`, `enabled`, `focusable`, `alpha` |
 | `LinearLayout`, `RadioGroup` | `orientation`, `gravity` (where the children go) |
+| `RelativeLayout` | on each child `layout_alignParentLeft/Top/Right/Bottom` (`Start`/`End` read as `Left`/`Right`), `layout_centerInParent`, `layout_centerHorizontal`, `layout_centerVertical`, `layout_above`, `layout_below`, `layout_toLeftOf`, `layout_toRightOf` (`toStartOf`/`toEndOf`), `layout_alignLeft/Top/Right/Bottom` (`alignStart`/`alignEnd`), each naming a sibling by `@id/`, and `layout_alignWithParentIfMissing`. `layout_alignBaseline` is dropped with a warning. See [`RelativeLayout`](../api/ui.md#picodroidwidgetrelativelayout). |
 | `GridLayout` | `columnCount`, `rowCount`, `orientation`; on each child `layout_column`, `layout_row`, `layout_columnSpan`, `layout_rowSpan`, `layout_columnWeight`, `layout_rowWeight` and `layout_gravity` (the cell alignment: `fill`, `center`, an edge, or their `_horizontal` / `_vertical` halves). A child that names no cell takes the next free one. See [`GridLayout`](../api/ui.md#picodroidwidgetgridlayout). |
 | `TextView`, `Button` | `text`, `textColor`, `textSize` (a dimension, `sp` = `px`; snaps to the board's nearest compiled face), `gravity` (where the text sits in a view wider than it: `left`/`start`, `center_horizontal`/`center`, `right`/`end`; the vertical half is recorded, not drawn), `singleLine`, `maxLines`, `ellipsize`, `includeFontPadding` |
 | `EditText` | `text`, `hint`, `inputType` (`text`, `number`, `phone`, `datetime`, `textUri`, `textEmailAddress`, `textPassword`, `numberSigned`, `numberDecimal`) |

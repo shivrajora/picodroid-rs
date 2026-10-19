@@ -170,6 +170,51 @@ fn slot_expectations() -> Vec<(&'static str, &'static str, usize)> {
             "mDeferredCount",
             g::layout_inflater::DEFERRED_COUNT,
         ),
+        (
+            c::picodroid_view_LayoutInflater,
+            "mRelativeFlags",
+            g::layout_inflater::RELATIVE_FLAGS,
+        ),
+        (
+            c::picodroid_view_LayoutInflater,
+            "mAnchor0",
+            g::layout_inflater::ANCHOR0 + 0,
+        ),
+        (
+            c::picodroid_view_LayoutInflater,
+            "mAnchor1",
+            g::layout_inflater::ANCHOR0 + 1,
+        ),
+        (
+            c::picodroid_view_LayoutInflater,
+            "mAnchor2",
+            g::layout_inflater::ANCHOR0 + 2,
+        ),
+        (
+            c::picodroid_view_LayoutInflater,
+            "mAnchor3",
+            g::layout_inflater::ANCHOR0 + 3,
+        ),
+        (
+            c::picodroid_view_LayoutInflater,
+            "mAnchor4",
+            g::layout_inflater::ANCHOR0 + 4,
+        ),
+        (
+            c::picodroid_view_LayoutInflater,
+            "mAnchor5",
+            g::layout_inflater::ANCHOR0 + 5,
+        ),
+        (
+            c::picodroid_view_LayoutInflater,
+            "mAnchor6",
+            g::layout_inflater::ANCHOR0 + 6,
+        ),
+        (
+            c::picodroid_view_LayoutInflater,
+            "mAnchor7",
+            g::layout_inflater::ANCHOR0 + 7,
+        ),
         (c::picodroid_graphics_Display, "width", g::display::WIDTH),
         (c::picodroid_graphics_Display, "height", g::display::HEIGHT),
         (

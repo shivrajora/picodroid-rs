@@ -485,6 +485,8 @@ pub mod layout {
         pub const SPACE: u8 = 21;
         /// `android.widget.GridLayout`: cells in rows and columns.
         pub const GRID_LAYOUT: u8 = 22;
+        /// `android.widget.RelativeLayout`: children placed by rules.
+        pub const RELATIVE_LAYOUT: u8 = 23;
 
         /// `(XML element name, code)`.
         pub const ALL: &[(&str, u8)] = &[
@@ -509,6 +511,7 @@ pub mod layout {
             ("View", VIEW),
             ("Space", SPACE),
             ("GridLayout", GRID_LAYOUT),
+            ("RelativeLayout", RELATIVE_LAYOUT),
         ];
     }
 
@@ -618,6 +621,21 @@ pub mod layout {
         /// A `GridLayout`'s `columnCount` / `rowCount`.
         pub const COLUMN_COUNT: u32 = 62;
         pub const ROW_COUNT: u32 = 63;
+        /// A `RelativeLayout` child's boolean rules, one word: bit 0
+        /// `alignParentLeft`, 1 `alignParentTop`, 2 `alignParentRight`, 3
+        /// `alignParentBottom`, 4 `centerInParent`, 5 `centerHorizontal`, 6
+        /// `centerVertical`, 7 `alignWithParentIfMissing` (`start`/`end`
+        /// fold into `left`/`right`).
+        pub const LAYOUT_RELATIVE_FLAGS: u32 = 64;
+        /// A `RelativeLayout` child's sibling rules: the `R.id` each names.
+        pub const LAYOUT_ABOVE: u32 = 65;
+        pub const LAYOUT_BELOW: u32 = 66;
+        pub const LAYOUT_TO_LEFT_OF: u32 = 67;
+        pub const LAYOUT_TO_RIGHT_OF: u32 = 68;
+        pub const LAYOUT_ALIGN_LEFT: u32 = 69;
+        pub const LAYOUT_ALIGN_TOP: u32 = 70;
+        pub const LAYOUT_ALIGN_RIGHT: u32 = 71;
+        pub const LAYOUT_ALIGN_BOTTOM: u32 = 72;
 
         /// `(constant name in LayoutInflater.java, code)`.
         pub const ALL: &[(&str, u32)] = &[
@@ -684,6 +702,15 @@ pub mod layout {
             ("LAYOUT_ROW_WEIGHT", LAYOUT_ROW_WEIGHT),
             ("COLUMN_COUNT", COLUMN_COUNT),
             ("ROW_COUNT", ROW_COUNT),
+            ("LAYOUT_RELATIVE_FLAGS", LAYOUT_RELATIVE_FLAGS),
+            ("LAYOUT_ABOVE", LAYOUT_ABOVE),
+            ("LAYOUT_BELOW", LAYOUT_BELOW),
+            ("LAYOUT_TO_LEFT_OF", LAYOUT_TO_LEFT_OF),
+            ("LAYOUT_TO_RIGHT_OF", LAYOUT_TO_RIGHT_OF),
+            ("LAYOUT_ALIGN_LEFT", LAYOUT_ALIGN_LEFT),
+            ("LAYOUT_ALIGN_TOP", LAYOUT_ALIGN_TOP),
+            ("LAYOUT_ALIGN_RIGHT", LAYOUT_ALIGN_RIGHT),
+            ("LAYOUT_ALIGN_BOTTOM", LAYOUT_ALIGN_BOTTOM),
         ];
     }
 

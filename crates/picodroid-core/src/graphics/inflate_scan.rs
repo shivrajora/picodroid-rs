@@ -35,6 +35,7 @@ pub fn is_fast_class(cls: u8) -> bool {
             | class::VIEW
             | class::SPACE
             | class::GRID_LAYOUT
+            | class::RELATIVE_LAYOUT
     )
 }
 
@@ -70,6 +71,11 @@ pub struct Node {
     pub weight_bits: i32,
     pub layout_gravity: i32,
     pub margin: [i32; 4],
+    /// A `RelativeLayout` child's rules: the boolean verbs as one word and
+    /// the id each sibling verb names (`lvgl/layouts/relative.rs` order),
+    /// 0 for none.
+    pub relative_flags: i32,
+    pub anchors: [i32; 8],
     // View.
     pub padding: Option<[i32; 4]>,
     /// A plain colour background. A `<shape>` (radius or stroke present) is
@@ -153,6 +159,15 @@ pub fn scan(word: impl Fn(usize) -> Option<u32>, pos: usize) -> Result<Node, Tru
             attr::LAYOUT_MARGIN_TOP => node.margin[1] = v,
             attr::LAYOUT_MARGIN_RIGHT => node.margin[2] = v,
             attr::LAYOUT_MARGIN_BOTTOM => node.margin[3] = v,
+            attr::LAYOUT_RELATIVE_FLAGS => node.relative_flags = v,
+            attr::LAYOUT_ABOVE => node.anchors[0] = v,
+            attr::LAYOUT_BELOW => node.anchors[1] = v,
+            attr::LAYOUT_TO_LEFT_OF => node.anchors[2] = v,
+            attr::LAYOUT_TO_RIGHT_OF => node.anchors[3] = v,
+            attr::LAYOUT_ALIGN_LEFT => node.anchors[4] = v,
+            attr::LAYOUT_ALIGN_TOP => node.anchors[5] = v,
+            attr::LAYOUT_ALIGN_RIGHT => node.anchors[6] = v,
+            attr::LAYOUT_ALIGN_BOTTOM => node.anchors[7] = v,
             attr::BACKGROUND => background = Some(v),
             attr::BACKGROUND_RADIUS => shape[0] = Some(v),
             attr::BACKGROUND_STROKE_WIDTH => shape[1] = Some(v),
@@ -424,6 +439,29 @@ mod tests {
         assert!(!cell.too_many_deferred);
         assert_eq!(cell.deferred[0], (attr::LAYOUT_COLUMN as i32, 1));
         assert_eq!(cell.deferred[5], (attr::LAYOUT_ROW_WEIGHT as i32, 0));
+    }
+
+    #[test]
+    fn a_relative_child_carries_its_flags_and_anchors_without_deferring() {
+        let ws = [
+            header(class::TEXT_VIEW, 4, 0),
+            attr::ID,
+            0x7f08_0002,
+            attr::LAYOUT_RELATIVE_FLAGS,
+            0b0100_0100,
+            attr::LAYOUT_TO_RIGHT_OF,
+            0x7f08_0001,
+            attr::LAYOUT_ALIGN_BOTTOM,
+            0x7f08_0003,
+        ];
+        let n = scan(words(&ws), 0).unwrap();
+        assert!(is_fast_class(class::RELATIVE_LAYOUT));
+        assert_eq!(n.id, Some(0x7f08_0002));
+        assert_eq!(n.relative_flags, 0b0100_0100);
+        assert_eq!(n.anchors[3], 0x7f08_0001);
+        assert_eq!(n.anchors[7], 0x7f08_0003);
+        assert_eq!(n.anchors[0], 0);
+        assert_eq!(n.deferred_count, 0);
     }
 
     #[test]

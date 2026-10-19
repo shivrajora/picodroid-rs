@@ -379,6 +379,7 @@ F	PARENT_GRID
 F	PARENT_LINEAR
 F	PARENT_NONE
 F	PARENT_OTHER
+F	PARENT_RELATIVE
 F	PARITY_EVEN
 F	PARITY_NONE
 F	PARITY_ODD
@@ -396,6 +397,8 @@ F	PROPERTY_Y
 F	RECEIVER_EXPORTED
 F	RECEIVER_NOT_EXPORTED
 F	RED
+F	RELATIVE_ANCHOR_VERBS
+F	RELATIVE_FLAG_VERBS
 F	RELATIVE_HORIZONTAL_GRAVITY_MASK
 F	RELATIVE_LAYOUT_DIRECTION
 F	RELEASE
@@ -748,6 +751,14 @@ F	mActiveCount
 F	mAdapter
 F	mAddToBackStack
 F	mAdded
+F	mAnchor0
+F	mAnchor1
+F	mAnchor2
+F	mAnchor3
+F	mAnchor4
+F	mAnchor5
+F	mAnchor6
+F	mAnchor7
 F	mAnchors
 F	mArguments
 F	mBackStack
@@ -854,6 +865,7 @@ F	mPendingData
 F	mPopFlags
 F	mPos
 F	mPostValueRunnable
+F	mRelativeFlags
 F	mResource
 F	mRoot
 F	mRootParent
@@ -2347,6 +2359,7 @@ M	registerNetworkCallback
 M	registerOnPageChangeCallback
 M	registerReceiver
 M	registerScanResultsCallback
+M	relativeParams
 M	release
 M	remove
 M	removeAllViews

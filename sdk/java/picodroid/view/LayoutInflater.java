@@ -23,6 +23,7 @@ import picodroid.widget.ListView;
 import picodroid.widget.ProgressBar;
 import picodroid.widget.RadioButton;
 import picodroid.widget.RadioGroup;
+import picodroid.widget.RelativeLayout;
 import picodroid.widget.ScrollView;
 import picodroid.widget.SeekBar;
 import picodroid.widget.Spinner;
@@ -133,6 +134,7 @@ public class LayoutInflater {
   private static final int PARENT_OTHER = 3;
   private static final int PARENT_CUSTOM = 4;
   private static final int PARENT_GRID = 5;
+  private static final int PARENT_RELATIVE = 6;
 
   private LayoutInflater(Context context) {
     mContext = context;
@@ -224,6 +226,19 @@ public class LayoutInflater {
 
   /** The parent kind of each open group, beside {@link #mOpen}. */
   private int[] mOpenKind;
+
+  // A RelativeLayout child's rules, for params(): the boolean verbs as one word and the id each
+  // sibling verb names, by the runtime's slots. Written from the runtime by field slot
+  // (graphics/fields.rs) for a child of a RelativeLayout: append only, after every other field.
+  private int mRelativeFlags;
+  private int mAnchor0;
+  private int mAnchor1;
+  private int mAnchor2;
+  private int mAnchor3;
+  private int mAnchor4;
+  private int mAnchor5;
+  private int mAnchor6;
+  private int mAnchor7;
 
   /**
    * Builds views until the tree is whole or {@code SystemClock.elapsedRealtime()} reaches {@code
@@ -366,6 +381,9 @@ public class LayoutInflater {
     if (group instanceof GridLayout) {
       return PARENT_GRID;
     }
+    if (group instanceof RelativeLayout) {
+      return PARENT_RELATIVE;
+    }
     return PARENT_OTHER;
   }
 
@@ -463,6 +481,8 @@ public class LayoutInflater {
         glp.setGravity(layoutGravity);
       }
       lp = glp;
+    } else if (parent instanceof RelativeLayout) {
+      lp = relativeParams(width, height);
     } else {
       lp = new ViewGroup.MarginLayoutParams(width, height);
     }
@@ -478,6 +498,59 @@ public class LayoutInflater {
     if ((marginLeft | marginTop | marginRight | marginBottom) != 0) {
       lp.setMargins(marginLeft, marginTop, marginRight, marginBottom);
     }
+    return lp;
+  }
+
+  /** The boolean verbs by their bit in the rules word (papk_format's LAYOUT_RELATIVE_FLAGS). */
+  private static final int[] RELATIVE_FLAG_VERBS = {
+    RelativeLayout.ALIGN_PARENT_LEFT,
+    RelativeLayout.ALIGN_PARENT_TOP,
+    RelativeLayout.ALIGN_PARENT_RIGHT,
+    RelativeLayout.ALIGN_PARENT_BOTTOM,
+    RelativeLayout.CENTER_IN_PARENT,
+    RelativeLayout.CENTER_HORIZONTAL,
+    RelativeLayout.CENTER_VERTICAL,
+  };
+
+  /** The sibling verbs by their anchor slot (the runtime's order). */
+  private static final int[] RELATIVE_ANCHOR_VERBS = {
+    RelativeLayout.ABOVE,
+    RelativeLayout.BELOW,
+    RelativeLayout.LEFT_OF,
+    RelativeLayout.RIGHT_OF,
+    RelativeLayout.ALIGN_LEFT,
+    RelativeLayout.ALIGN_TOP,
+    RelativeLayout.ALIGN_RIGHT,
+    RelativeLayout.ALIGN_BOTTOM,
+  };
+
+  /** The RelativeLayout.LayoutParams a node's rule words say, and the words cleared. */
+  private RelativeLayout.LayoutParams relativeParams(int width, int height) {
+    RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(width, height);
+    int flags = mRelativeFlags;
+    for (int bit = 0; bit < RELATIVE_FLAG_VERBS.length; bit++) {
+      if ((flags & (1 << bit)) != 0) {
+        lp.addRule(RELATIVE_FLAG_VERBS[bit]);
+      }
+    }
+    lp.alignWithParent = (flags & (1 << 7)) != 0;
+    int[] anchors = {
+      mAnchor0, mAnchor1, mAnchor2, mAnchor3, mAnchor4, mAnchor5, mAnchor6, mAnchor7
+    };
+    for (int slot = 0; slot < anchors.length; slot++) {
+      if (anchors[slot] != 0) {
+        lp.addRule(RELATIVE_ANCHOR_VERBS[slot], anchors[slot]);
+      }
+    }
+    mRelativeFlags = 0;
+    mAnchor0 = 0;
+    mAnchor1 = 0;
+    mAnchor2 = 0;
+    mAnchor3 = 0;
+    mAnchor4 = 0;
+    mAnchor5 = 0;
+    mAnchor6 = 0;
+    mAnchor7 = 0;
     return lp;
   }
 
@@ -593,6 +666,33 @@ public class LayoutInflater {
         case 50: // ATTR_BACKGROUND_STROKE_COLOR
           strokeColor = value;
           break;
+        case 64: // ATTR_LAYOUT_RELATIVE_FLAGS
+          mRelativeFlags = value;
+          break;
+        case 65: // ATTR_LAYOUT_ABOVE
+          mAnchor0 = value;
+          break;
+        case 66: // ATTR_LAYOUT_BELOW
+          mAnchor1 = value;
+          break;
+        case 67: // ATTR_LAYOUT_TO_LEFT_OF
+          mAnchor2 = value;
+          break;
+        case 68: // ATTR_LAYOUT_TO_RIGHT_OF
+          mAnchor3 = value;
+          break;
+        case 69: // ATTR_LAYOUT_ALIGN_LEFT
+          mAnchor4 = value;
+          break;
+        case 70: // ATTR_LAYOUT_ALIGN_TOP
+          mAnchor5 = value;
+          break;
+        case 71: // ATTR_LAYOUT_ALIGN_RIGHT
+          mAnchor6 = value;
+          break;
+        case 72: // ATTR_LAYOUT_ALIGN_BOTTOM
+          mAnchor7 = value;
+          break;
         default:
           apply(v, attr, value);
           break;
@@ -706,6 +806,8 @@ public class LayoutInflater {
         return new picodroid.widget.Space(mContext);
       case 22: // CLASS_GRID_LAYOUT
         return new GridLayout(mContext);
+      case 23: // CLASS_RELATIVE_LAYOUT
+        return new RelativeLayout(mContext);
       default:
         // A layout compiled for a newer framework than this one.
         throw new InflateException("unknown view class code " + cls);

@@ -83,6 +83,11 @@ pub mod layout_inflater {
     pub const MARGIN_BOTTOM: usize = 18;
     /// `int mDeferredCount`: pairs written to `mDeferred`.
     pub const DEFERRED_COUNT: usize = 19;
+    /// `int mRelativeFlags` and `int mAnchor0..7`: a `RelativeLayout`
+    /// child's rules, written only for one (declared after the inflater's
+    /// other fields, so the slots follow them).
+    pub const RELATIVE_FLAGS: usize = 31;
+    pub const ANCHOR0: usize = 32;
 }
 
 pub mod display {

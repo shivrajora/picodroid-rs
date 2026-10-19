@@ -736,6 +736,34 @@ fn parse_shape(path: &Path, values: &Values) -> Result<Shape, String> {
 const MATCH_PARENT: i32 = -1;
 const WRAP_CONTENT: i32 = -2;
 
+/// The RelativeLayout rules a child may carry, for the warning on one
+/// outside a RelativeLayout.
+const RELATIVE_ATTRS: &[&str] = &[
+    "layout_alignParentLeft",
+    "layout_alignParentStart",
+    "layout_alignParentTop",
+    "layout_alignParentRight",
+    "layout_alignParentEnd",
+    "layout_alignParentBottom",
+    "layout_centerInParent",
+    "layout_centerHorizontal",
+    "layout_centerVertical",
+    "layout_alignWithParentIfMissing",
+    "layout_above",
+    "layout_below",
+    "layout_toLeftOf",
+    "layout_toStartOf",
+    "layout_toRightOf",
+    "layout_toEndOf",
+    "layout_alignLeft",
+    "layout_alignStart",
+    "layout_alignTop",
+    "layout_alignRight",
+    "layout_alignEnd",
+    "layout_alignBottom",
+    "layout_alignBaseline",
+];
+
 /// `picodroid.view.Gravity`; a papk-pack test holds these to the Java file.
 pub(crate) const GRAVITY: &[(&str, u32)] = &[
     ("top", 0x30),
@@ -857,6 +885,30 @@ impl LayoutCompiler<'_> {
         }
     }
 
+    /// An `@id/name` or `@+id/name` reference as its `R.id` value.
+    fn id_ref(&self, text: &str, from: &str) -> Result<u32, String> {
+        let (ty, id) =
+            parse_ref(text.trim()).ok_or_else(|| format!("{from}: '{text}' is not @+id/name"))?;
+        if ty != "id" {
+            return Err(format!("{from}: '{text}' is not an @id reference"));
+        }
+        let index = self
+            .ids
+            .get(&id)
+            .ok_or_else(|| format!("{from}: @id/{id} is not defined"))?;
+        Ok(fmt::res_id(TYPE_ID, *index))
+    }
+
+    /// One boolean RelativeLayout rule: its bit when true, nothing when false.
+    fn relative_flag(&self, bit: u32, text: &str, from: &str) -> Result<Vec<(u32, u32)>, String> {
+        let on = self.values.word(TYPE_BOOL, text, from)? != 0;
+        Ok(if on {
+            vec![(layout::attr::LAYOUT_RELATIVE_FLAGS, bit)]
+        } else {
+            Vec::new()
+        })
+    }
+
     fn float(&self, text: &str, from: &str) -> Result<u32, String> {
         text.trim()
             .parse::<f32>()
@@ -870,17 +922,44 @@ impl LayoutCompiler<'_> {
         let v = self.values;
         let one = |code: u32, value: u32| Ok(vec![(code, value)]);
         match name {
-            "id" => {
-                let (ty, id) = parse_ref(text.trim())
-                    .ok_or_else(|| format!("{from}: '{text}' is not @+id/name"))?;
-                if ty != "id" {
-                    return Err(format!("{from}: '{text}' is not an @id reference"));
-                }
-                let index = self
-                    .ids
-                    .get(&id)
-                    .ok_or_else(|| format!("{from}: @id/{id} is not defined"))?;
-                one(a::ID, fmt::res_id(TYPE_ID, *index))
+            "id" => one(a::ID, self.id_ref(text, from)?),
+            // A RelativeLayout child's rules: the booleans as bits of one
+            // word (node() folds them), the sibling verbs as the id each
+            // names. start/end are left/right (left-to-right only).
+            "layout_alignParentLeft" | "layout_alignParentStart" => {
+                self.relative_flag(1 << 0, text, from)
+            }
+            "layout_alignParentTop" => self.relative_flag(1 << 1, text, from),
+            "layout_alignParentRight" | "layout_alignParentEnd" => {
+                self.relative_flag(1 << 2, text, from)
+            }
+            "layout_alignParentBottom" => self.relative_flag(1 << 3, text, from),
+            "layout_centerInParent" => self.relative_flag(1 << 4, text, from),
+            "layout_centerHorizontal" => self.relative_flag(1 << 5, text, from),
+            "layout_centerVertical" => self.relative_flag(1 << 6, text, from),
+            "layout_alignWithParentIfMissing" => self.relative_flag(1 << 7, text, from),
+            "layout_above" => one(a::LAYOUT_ABOVE, self.id_ref(text, from)?),
+            "layout_below" => one(a::LAYOUT_BELOW, self.id_ref(text, from)?),
+            "layout_toLeftOf" | "layout_toStartOf" => {
+                one(a::LAYOUT_TO_LEFT_OF, self.id_ref(text, from)?)
+            }
+            "layout_toRightOf" | "layout_toEndOf" => {
+                one(a::LAYOUT_TO_RIGHT_OF, self.id_ref(text, from)?)
+            }
+            "layout_alignLeft" | "layout_alignStart" => {
+                one(a::LAYOUT_ALIGN_LEFT, self.id_ref(text, from)?)
+            }
+            "layout_alignTop" => one(a::LAYOUT_ALIGN_TOP, self.id_ref(text, from)?),
+            "layout_alignRight" | "layout_alignEnd" => {
+                one(a::LAYOUT_ALIGN_RIGHT, self.id_ref(text, from)?)
+            }
+            "layout_alignBottom" => one(a::LAYOUT_ALIGN_BOTTOM, self.id_ref(text, from)?),
+            "layout_alignBaseline" => {
+                self.warnings.push(format!(
+                    "{from}: android:layout_alignBaseline is not supported (no baselines); \
+                     dropped"
+                ));
+                Ok(Vec::new())
             }
             "layout_width" => one(a::LAYOUT_WIDTH, self.size(text, from)?),
             "layout_height" => one(a::LAYOUT_HEIGHT, self.size(text, from)?),
@@ -1177,6 +1256,15 @@ impl LayoutCompiler<'_> {
             let from = format!("{file}: <{}> {name}=\"{text}\"", el.name);
             words.extend(self.attr(&name, &text, &from)?);
         }
+        // The boolean RelativeLayout rules fold into one word.
+        let flags = words
+            .iter()
+            .filter(|(code, _)| *code == layout::attr::LAYOUT_RELATIVE_FLAGS)
+            .fold(0, |acc, (_, bit)| acc | bit);
+        if flags != 0 {
+            words.retain(|(code, _)| *code != layout::attr::LAYOUT_RELATIVE_FLAGS);
+            words.push((layout::attr::LAYOUT_RELATIVE_FLAGS, flags));
+        }
         // Android reads `min`/`max` before `progress` whatever the XML order;
         // the inflater applies words in stream order, so put the range first.
         words.sort_by_key(|(code, _)| !matches!(*code, layout::attr::MIN | layout::attr::MAX));
@@ -1198,6 +1286,7 @@ impl LayoutCompiler<'_> {
                 | layout::class::SCROLL_VIEW
                 | layout::class::RADIO_GROUP
                 | layout::class::GRID_LAYOUT
+                | layout::class::RELATIVE_LAYOUT
         );
         if !is_group && !el.children.is_empty() {
             return Err(format!(
@@ -1213,6 +1302,17 @@ impl LayoutCompiler<'_> {
             out.push(value);
         }
         for child in &el.children {
+            // A rule outside a RelativeLayout does nothing on Android either;
+            // say so rather than let a pasted layout lose its placement.
+            if class != layout::class::RELATIVE_LAYOUT {
+                if let Some(rule) = RELATIVE_ATTRS.iter().find(|n| child.attr(n).is_some()) {
+                    self.warnings.push(format!(
+                        "{file}: <{}> ignores android:{rule} on a child of <{}>: rules apply \
+                         inside a RelativeLayout only",
+                        child.name, el.name
+                    ));
+                }
+            }
             // LVGL's flex layout has no per-item cross-axis alignment, so a
             // LinearLayout child's layout_gravity is carried in its
             // LayoutParams but never applied (LinearLayout.setGravity's note).
@@ -2232,6 +2332,51 @@ mod tests {
             a::ID, id("name"),
         ];
         assert_eq!(words_of(&c, "m"), expected);
+    }
+
+    #[test]
+    fn a_relative_layout_folds_its_booleans_and_names_its_siblings() {
+        use layout::{attr as a, class as k, node_header};
+        let dir = tree(&[(
+            "layout/m.xml",
+            r#"<RelativeLayout>
+                 <TextView id="@+id/a" layout_alignParentLeft="true" layout_centerVertical="true"
+                           layout_alignParentTop="false"/>
+                 <TextView layout_toRightOf="@id/a" layout_alignParentEnd="true"
+                           layout_alignWithParentIfMissing="true" layout_below="@id/a"/>
+               </RelativeLayout>"#,
+        )]);
+        let c = compile(&dir).unwrap();
+        let a_id = id_of(&c, TYPE_ID, "a");
+        #[rustfmt::skip]
+        let expected = vec![
+            node_header(k::RELATIVE_LAYOUT, 0, 2),
+            node_header(k::TEXT_VIEW, 2, 0),
+            a::ID, a_id,
+            a::LAYOUT_RELATIVE_FLAGS, 1 | (1 << 6),
+            node_header(k::TEXT_VIEW, 3, 0),
+            a::LAYOUT_TO_RIGHT_OF, a_id,
+            a::LAYOUT_BELOW, a_id,
+            a::LAYOUT_RELATIVE_FLAGS, (1 << 2) | (1 << 7),
+        ];
+        assert_eq!(words_of(&c, "m"), expected);
+        assert!(c.warnings.is_empty(), "{:?}", c.warnings);
+    }
+
+    #[test]
+    fn a_rule_outside_a_relative_layout_warns() {
+        let dir = tree(&[(
+            "layout/m.xml",
+            r#"<FrameLayout><TextView layout_centerInParent="true"/></FrameLayout>"#,
+        )]);
+        let c = compile(&dir).unwrap();
+        assert!(
+            c.warnings
+                .iter()
+                .any(|w| w.contains("layout_centerInParent") && w.contains("RelativeLayout")),
+            "{:?}",
+            c.warnings
+        );
     }
 
     #[test]

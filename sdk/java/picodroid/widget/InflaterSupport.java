@@ -38,6 +38,8 @@ public final class InflaterSupport {
         return new Space(0);
       case 22: // CLASS_GRID_LAYOUT
         return new GridLayout(0);
+      case 23: // CLASS_RELATIVE_LAYOUT
+        return new RelativeLayout(0);
       default:
         return null;
     }

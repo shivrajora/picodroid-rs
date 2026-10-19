@@ -193,6 +193,12 @@ pub fn layout_inflater_inflate_node(
     set_i(objects, li::MARGIN_RIGHT, node.margin[2]);
     set_i(objects, li::MARGIN_BOTTOM, node.margin[3]);
     set_i(objects, li::DEFERRED_COUNT, node.deferred_count as i32);
+    if kind == lvgl_inflate::ParentKind::Relative {
+        set_i(objects, li::RELATIVE_FLAGS, node.relative_flags);
+        for (k, &anchor) in node.anchors.iter().enumerate() {
+            set_i(objects, li::ANCHOR0 + k, anchor);
+        }
+    }
     for (i, (attr, value)) in node.deferred[..node.deferred_count].iter().enumerate() {
         ctx.arrays.store(deferred, 2 * i, *attr);
         ctx.arrays.store(deferred, 2 * i + 1, *value);

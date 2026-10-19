@@ -87,6 +87,7 @@ public class LayoutDemoActivity extends Activity {
     checkVocabulary();
     checkGrid();
     checkRelativeCode();
+    checkRelativeXml();
     checkConfiguration();
 
     FrameLayout stages = findViewById(R.id.stages);
@@ -277,19 +278,7 @@ public class LayoutDemoActivity extends Activity {
     View stretch = relBox(rel, 1006, stretchLp);
     LinearLayout root = findViewById(R.id.root);
     root.addView(rel, new LinearLayout.LayoutParams(200, 60));
-
-    check("relative code: alignParentLeft", back.getLeft() == 0 && back.getTop() == 0);
-    check(
-        "relative code: toRightOf + centerVertical",
-        caption.getLeft() == 48 && caption.getTop() == (60 - 16) / 2);
-    check(
-        "relative code: alignParentRight|Bottom in by the margins",
-        corner.getLeft() == 200 - 10 - 4 && corner.getTop() == 60 - 10 - 6);
-    check("relative code: centerInParent", centre.getLeft() == 90 && centre.getTop() == 25);
-    check("relative code: below + alignLeft", under.getLeft() == 48 && under.getTop() == 22 + 16);
-    check(
-        "relative code: match_parent between two siblings",
-        stretch.getLeft() == 48 && stretch.getWidth() == 186 - 48 && stretch.getTop() == 52);
+    checkRelative("relative code", back, caption, corner, centre, under, stretch);
     ViewGroup.LayoutParams lp = stretch.getLayoutParams();
     check(
         "relative code: getRules",
@@ -304,6 +293,48 @@ public class LayoutDemoActivity extends Activity {
     rel.removeView(corner);
     corner = relBox(rel, 1003, cornerLp);
     check("relative code: a rule changed", corner.getLeft() == 0 && corner.getTop() == 44);
+    root.removeView(rel);
+  }
+
+  /** The geometry both RelativeLayouts must show (200x60). */
+  private void checkRelative(
+      String how, View back, View caption, View corner, View centre, View under, View stretch) {
+    check(how + ": alignParentLeft", back.getLeft() == 0 && back.getTop() == 0);
+    check(
+        how + ": toRightOf + centerVertical",
+        caption.getLeft() == 48 && caption.getTop() == (60 - 16) / 2);
+    check(
+        how + ": alignParentRight|Bottom in by the margins",
+        corner.getLeft() == 200 - 10 - 4 && corner.getTop() == 60 - 10 - 6);
+    check(how + ": centerInParent", centre.getLeft() == 90 && centre.getTop() == 25);
+    check(how + ": below + alignLeft", under.getLeft() == 48 && under.getTop() == 22 + 16);
+    check(
+        how + ": match_parent between two siblings",
+        stretch.getLeft() == 48 && stretch.getWidth() == 186 - 48 && stretch.getTop() == 52);
+  }
+
+  /** The same layout from XML, through the inflater's native path. */
+  private void checkRelativeXml() {
+    LinearLayout root = findViewById(R.id.root);
+    View rel = getLayoutInflater().inflate(R.layout.relative, root, false);
+    check("relative xml: a RelativeLayout", rel instanceof RelativeLayout);
+    root.addView(rel, new LinearLayout.LayoutParams(200, 60));
+    checkRelative(
+        "relative xml",
+        rel.findViewById(R.id.rel_back),
+        rel.findViewById(R.id.rel_caption),
+        rel.findViewById(R.id.rel_corner),
+        rel.findViewById(R.id.rel_centre),
+        rel.findViewById(R.id.rel_under),
+        rel.findViewById(R.id.rel_stretch));
+    ViewGroup.LayoutParams lp = rel.findViewById(R.id.rel_stretch).getLayoutParams();
+    check(
+        "relative xml: RelativeLayout.LayoutParams with the rules",
+        lp instanceof RelativeLayout.LayoutParams
+            && ((RelativeLayout.LayoutParams) lp).getRule(RelativeLayout.RIGHT_OF) == R.id.rel_back
+            && ((RelativeLayout.LayoutParams) lp).getRule(RelativeLayout.LEFT_OF) == R.id.rel_corner
+            && ((RelativeLayout.LayoutParams) lp).getRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+                == RelativeLayout.TRUE);
     root.removeView(rel);
   }
 
