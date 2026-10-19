@@ -237,6 +237,27 @@ pub const LV_FLEX_ALIGN_START: lv_flex_align_t = 0;
 pub const LV_FLEX_ALIGN_END: lv_flex_align_t = 1;
 pub const LV_FLEX_ALIGN_CENTER: lv_flex_align_t = 2;
 
+/// Grid cell alignment (lv_grid.h `lv_grid_align_t`). STRETCH sizes the item
+/// to its cell, which is what Android's `GridLayout.FILL` means. Guarded by
+/// `lv_grid_constants_match_vendored_header`.
+pub type lv_grid_align_t = u32;
+pub const LV_GRID_ALIGN_START: lv_grid_align_t = 0;
+pub const LV_GRID_ALIGN_CENTER: lv_grid_align_t = 1;
+pub const LV_GRID_ALIGN_END: lv_grid_align_t = 2;
+pub const LV_GRID_ALIGN_STRETCH: lv_grid_align_t = 3;
+
+/// A grid track sized to its content: `LV_GRID_CONTENT = LV_COORD_MAX - 101`
+/// (lv_grid.h). Guarded with the FR macro below.
+pub const LV_GRID_CONTENT: i32 = LV_COORD_MAX - 101;
+/// Terminates a grid template array: `LV_GRID_TEMPLATE_LAST = LV_COORD_MAX`.
+pub const LV_GRID_TEMPLATE_LAST: i32 = LV_COORD_MAX;
+/// A track taking `x` shares of the free space: `LV_GRID_FR(x) =
+/// LV_COORD_MAX - 100 + x`. `x` must be `1..=99`: `LV_GRID_FR(100)` is
+/// `LV_GRID_TEMPLATE_LAST` and would end the template early.
+pub const fn lv_grid_fr(x: i32) -> i32 {
+    LV_COORD_MAX - 100 + x
+}
+
 /// Linear-gradient direction. Values verified against
 /// third_party/lvgl/include/lvgl/core/lv_style.h. v1 GradientDrawable only exposes
 /// NONE / VER / HOR — LINEAR (arbitrary angle) and RADIAL are deferred.
@@ -1175,6 +1196,25 @@ unsafe extern "C" {
         track_cross_place: lv_flex_align_t,
     );
 
+    // Grid layout (LV_USE_GRID). A cell set on a child marks the parent's
+    // layout dirty; a template set on the parent switches it to the grid
+    // layout and re-lays it out, even when the same arrays are passed again.
+    pub safe fn lv_obj_set_grid_cell(
+        obj: Obj,
+        column_align: lv_grid_align_t,
+        col_pos: i32,
+        col_span: i32,
+        row_align: lv_grid_align_t,
+        row_pos: i32,
+        row_span: i32,
+    );
+    /// # Safety
+    /// LVGL keeps the two pointers (it does not copy the arrays): each must
+    /// point at an `i32` array that ends in `LV_GRID_TEMPLATE_LAST` and
+    /// outlives `obj`, or is replaced by another such array before the
+    /// memory is reused.
+    pub fn lv_obj_set_grid_dsc_array(obj: Obj, col_dsc: *const i32, row_dsc: *const i32);
+
     // Label widget
     pub safe fn lv_label_create(parent: Obj) -> Option<Obj>;
     /// # Safety
@@ -1994,6 +2034,8 @@ mod tests {
         include_str!("../../../third_party/lvgl/include/lvgl/core/lv_area.h");
     const LV_FLEX_HEADER: &str =
         include_str!("../../../third_party/lvgl/include/lvgl/layouts/lv_flex.h");
+    const LV_GRID_HEADER: &str =
+        include_str!("../../../third_party/lvgl/include/lvgl/layouts/lv_grid.h");
     const LV_BTNMATRIX_HEADER: &str =
         include_str!("../../../third_party/lvgl/include/lvgl/widgets/lv_buttonmatrix.h");
     const LV_IMAGE_HEADER: &str =
@@ -2575,6 +2617,52 @@ mod tests {
         // header — unguardable by the deliberately-minimal evaluator. Its
         // Rust value (0x01) is protected indirectly: ROW is guarded, and a
         // COLUMN repack upstream would be a flex redesign, not a drift.
+    }
+
+    #[test]
+    fn lv_grid_constants_match_vendored_header() {
+        let align =
+            enum_body(LV_GRID_HEADER, "} lv_grid_align_t").expect("lv_grid_align_t not found");
+        for (rust_const, name) in [
+            (LV_GRID_ALIGN_START, "LV_GRID_ALIGN_START"),
+            (LV_GRID_ALIGN_CENTER, "LV_GRID_ALIGN_CENTER"),
+            (LV_GRID_ALIGN_END, "LV_GRID_ALIGN_END"),
+            (LV_GRID_ALIGN_STRETCH, "LV_GRID_ALIGN_STRETCH"),
+        ] {
+            let header_val = lookup_ordinal(align, "LV_GRID_ALIGN_", name)
+                .unwrap_or_else(|| panic!("{name} not found in vendored lv_grid.h"));
+            assert_eq!(
+                rust_const, header_val,
+                "{name}: Rust FFI drifted from vendored lv_grid.h — \
+                 GridLayout cell alignment routes through these."
+            );
+        }
+        // The track-size macros are arithmetic on LV_COORD_MAX; pin their text.
+        let define = |name: &str| -> String {
+            let needle = format!("#define {name}");
+            let line = LV_GRID_HEADER
+                .lines()
+                .find(|l| l.starts_with(&needle))
+                .unwrap_or_else(|| panic!("{name} not defined in vendored lv_grid.h"));
+            line[needle.len()..].split_whitespace().collect::<String>()
+        };
+        assert_eq!(
+            define("LV_GRID_FR(x)"),
+            "(LV_COORD_MAX-100+x)",
+            "LV_GRID_FR drifted"
+        );
+        assert_eq!(
+            define("LV_GRID_CONTENT"),
+            "(LV_COORD_MAX-101)",
+            "LV_GRID_CONTENT drifted"
+        );
+        assert_eq!(
+            define("LV_GRID_TEMPLATE_LAST"),
+            "(LV_COORD_MAX)",
+            "LV_GRID_TEMPLATE_LAST drifted"
+        );
+        assert_eq!(lv_grid_fr(1), LV_COORD_MAX - 99);
+        assert_eq!(lv_grid_fr(99), LV_GRID_TEMPLATE_LAST - 1);
     }
 
     #[test]

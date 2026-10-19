@@ -369,7 +369,7 @@
  * LAYOUTS
  *==================*/
 #define LV_USE_FLEX 1
-#define LV_USE_GRID 0
+#define LV_USE_GRID 1
 
 /*==================
  * 3RD PARTY LIBS
