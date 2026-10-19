@@ -10,7 +10,9 @@ import picodroid.text.TextUtils;
 import picodroid.util.Log;
 import picodroid.view.Gravity;
 import picodroid.view.View;
+import picodroid.view.ViewGroup;
 import picodroid.widget.Button;
+import picodroid.widget.GridLayout;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
 
@@ -20,9 +22,9 @@ import picodroid.widget.TextView;
  * the two display lines.
  *
  * <p>The layout is the one every pocket calculator uses, four columns by five rows, with the result
- * right-aligned above it. Nothing here is 320x480 specific: every box is derived from {@link
- * picodroid.graphics.Display#getWidth()} and {@code getHeight()}, so the same app fills a 320x240
- * testbench or a 240x240 Enviro screen, with smaller keys.
+ * right-aligned above it: a {@link GridLayout} of equal tracks under the display panel, {@code 0}
+ * spanning two columns. Nothing here is 320x480 specific: the grid takes whatever the panel leaves,
+ * so the same app fills a 320x240 testbench or a 240x240 Enviro screen, with smaller keys.
  *
  * <p>Touch is the only input. The keys are deliberately not focusable: the board's two hardware
  * buttons are BACK and HOME, not a d-pad, so a focus ring would sit on a key that nothing can move.
@@ -41,7 +43,6 @@ public class CalculatorActivity extends Activity {
   private static final int PAD = 6;
 
   private static final int COLUMNS = 4;
-  private static final int ROWS = 5;
 
   /**
    * The keypad, in reading order. A label is both what the key shows and what {@link #onKey} acts
@@ -81,9 +82,7 @@ public class CalculatorActivity extends Activity {
     int width = getDisplay().getWidth();
     int height = getDisplay().getHeight();
     int contentWidth = width - 2 * PAD;
-    int keyWidth = (contentWidth - (COLUMNS - 1) * GAP) / COLUMNS;
     int panelHeight = panelHeight(height);
-    int keyHeight = (height - 2 * PAD - panelHeight - ROWS * GAP) / ROWS;
 
     LinearLayout root = new LinearLayout();
     root.setOrientation(LinearLayout.VERTICAL);
@@ -94,24 +93,35 @@ public class CalculatorActivity extends Activity {
 
     root.addView(buildPanel(contentWidth, panelHeight));
 
+    // The keypad: every column and row weighted alike, so the keys share the room below the
+    // panel equally; each key fills its cell.
+    GridLayout keys = new GridLayout();
+    keys.setColumnCount(COLUMNS);
+    keys.setSpacing(GAP);
+    Button sample = null;
     for (String[] row : KEYS) {
-      LinearLayout line = new LinearLayout();
-      line.setOrientation(LinearLayout.HORIZONTAL);
-      line.setSize(contentWidth, keyHeight);
-      line.setPadding(0, 0, 0, 0);
-      line.setSpacing(GAP);
-      flatten(line, Color.TRANSPARENT);
       for (String label : row) {
-        int w = label.equals(WIDE_KEY) ? 2 * keyWidth + GAP : keyWidth;
-        Button key = buildKey(label, w, keyHeight);
-        line.addView(key);
+        Button key = buildKey(label);
+        int span = label.equals(WIDE_KEY) ? 2 : 1;
+        GridLayout.LayoutParams cell =
+            new GridLayout.LayoutParams(
+                GridLayout.spec(GridLayout.UNDEFINED, 1f),
+                GridLayout.spec(GridLayout.UNDEFINED, span, GridLayout.FILL, 1f));
+        cell.width = ViewGroup.LayoutParams.MATCH_PARENT;
+        cell.height = ViewGroup.LayoutParams.MATCH_PARENT;
+        keys.addView(key, cell);
+        if (sample == null && span == 1) {
+          sample = key;
+        }
       }
-      root.addView(line);
     }
+    root.addView(keys, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
     setContentView(root);
     render();
-    Log.i(TAG, "ready: " + width + "x" + height + " keys " + keyWidth + "x" + keyHeight);
+    Log.i(
+        TAG,
+        "ready: " + width + "x" + height + " keys " + sample.getWidth() + "x" + sample.getHeight());
   }
 
   /**
@@ -179,9 +189,8 @@ public class CalculatorActivity extends Activity {
     new GradientDrawable().setColor(argb).setCornerRadius(0).setStroke(0, argb).applyTo(v);
   }
 
-  private Button buildKey(String label, int width, int height) {
+  private Button buildKey(String label) {
     Button key = new Button(label);
-    key.setSize(width, height);
     key.setTextColor(isOperator(label) ? Theme.colorOnPrimary : Theme.colorText);
     new GradientDrawable().setColor(keyColor(label)).setCornerRadius(8).applyTo(key);
     key.setOnClickListener(v -> onKey(label));
