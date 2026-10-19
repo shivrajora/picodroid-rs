@@ -161,3 +161,6 @@ I_J__StringBuilder	(IJ)Ljava/lang/StringBuilder;
 I_F__StringBuilder	(IF)Ljava/lang/StringBuilder;
 I_D__StringBuilder	(ID)Ljava/lang/StringBuilder;
 __StringBuilder	()Ljava/lang/StringBuilder;
+Object__V	(Ljava/lang/Object;)V
+Object_Object__V	(Ljava/lang/Object;Ljava/lang/Object;)V
+Object_Object__Z	(Ljava/lang/Object;Ljava/lang/Object;)Z

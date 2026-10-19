@@ -848,6 +848,16 @@ pub const BUILTIN_INTERFACES: &[(&str, &[&str])] = &[
     // readers and writers) is an `AutoCloseable` for instanceof and
     // try-with-resources.
     (c::java_io_Closeable, &[c::java_lang_AutoCloseable]),
+    // `UnaryOperator<T> extends Function<T, T>`, `BinaryOperator<T> extends
+    // BiFunction<T, T, T>`: the lambda's SAM resolves through the edge.
+    (
+        c::java_util_function_UnaryOperator,
+        &[c::java_util_function_Function],
+    ),
+    (
+        c::java_util_function_BinaryOperator,
+        &[c::java_util_function_BiFunction],
+    ),
     (
         c::java_util_ArrayList,
         &[

@@ -8,6 +8,22 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Objects;
+import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
+import java.util.function.BiPredicate;
+import java.util.function.BinaryOperator;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.IntBinaryOperator;
+import java.util.function.IntConsumer;
+import java.util.function.IntFunction;
+import java.util.function.IntPredicate;
+import java.util.function.IntSupplier;
+import java.util.function.IntUnaryOperator;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
+import java.util.function.ToIntFunction;
+import java.util.function.UnaryOperator;
 import picodroid.app.Application;
 import picodroid.util.Log;
 
@@ -56,6 +72,7 @@ public class QaOop extends Application {
     section("dispatch", () -> dispatch());
     section("innerClasses", () -> innerClasses());
     section("lambdas", () -> lambdas());
+    section("functional", () -> functional());
     section("enums", () -> enums());
     section("staticInit", () -> staticInit());
     section("generics", () -> generics());
@@ -470,6 +487,60 @@ public class QaOop extends Application {
     check("lambda not instanceof Runnable", !(asObj instanceof Runnable));
     Fn<Integer, Integer> same = dbl;
     check("lambda identity kept", same == dbl);
+  }
+
+  // ---- java.util.function: the SAM set, as lambdas and method refs ----------------------------
+
+  void functional() {
+    Function<String, Integer> len = String::length;
+    check("Function.apply", len.apply("abcd") == 4);
+    BiFunction<Integer, Integer, Integer> add = (a, b) -> a + b;
+    check("BiFunction.apply", add.apply(2, 3) == 5);
+    int[] box = {0};
+    Consumer<Integer> put = v -> box[0] = v;
+    put.accept(9);
+    check("Consumer.accept", box[0] == 9);
+    BiConsumer<Integer, Integer> put2 = (a, b) -> box[0] = a * b;
+    put2.accept(3, 4);
+    check("BiConsumer.accept", box[0] == 12);
+    Supplier<String> sup = () -> "s";
+    check("Supplier.get", sup.get().equals("s"));
+    Predicate<String> empty = String::isEmpty;
+    check("Predicate.test", empty.test("") && !empty.test("x"));
+    BiPredicate<String, String> eq = String::equals;
+    check("BiPredicate.test", eq.test("a", "a") && !eq.test("a", "b"));
+    UnaryOperator<Integer> neg = x -> -x;
+    BinaryOperator<Integer> mul = (a, b) -> a * b;
+    check("UnaryOperator/BinaryOperator.apply", neg.apply(4) == -4 && mul.apply(6, 7) == 42);
+    Function<Integer, Integer> asFn = neg;
+    Object negObj = neg;
+    check("UnaryOperator is a Function", asFn.apply(1) == -1 && negObj instanceof Function);
+    BiFunction<Integer, Integer, Integer> asBi = mul;
+    check("BinaryOperator is a BiFunction", asBi.apply(2, 2) == 4);
+    IntFunction<String> is = Integer::toString;
+    check("IntFunction.apply", is.apply(5).equals("5"));
+    IntPredicate even = i -> (i & 1) == 0;
+    check("IntPredicate.test", even.test(4) && !even.test(3));
+    IntConsumer ic = i -> box[0] = i;
+    ic.accept(5);
+    check("IntConsumer.accept", box[0] == 5);
+    IntSupplier isup = () -> 77;
+    check("IntSupplier.getAsInt", isup.getAsInt() == 77);
+    ToIntFunction<String> tlen = String::length;
+    check("ToIntFunction.applyAsInt", tlen.applyAsInt("xyz") == 3);
+    IntUnaryOperator twice = i -> i * 2;
+    check("IntUnaryOperator.applyAsInt", twice.applyAsInt(21) == 42);
+    IntBinaryOperator sub = (a, b) -> a - b;
+    check("IntBinaryOperator.applyAsInt", sub.applyAsInt(10, 3) == 7);
+    ArrayList<Function<Integer, Integer>> chain = new ArrayList<>();
+    chain.add(x -> x + 1);
+    chain.add(x -> x * 10);
+    int v = 1;
+    for (Function<Integer, Integer> f : chain) {
+      v = f.apply(v);
+    }
+    check("functions in a list", v == 20);
+    check("lambda not instanceof Predicate", !(negObj instanceof Predicate));
   }
 
   @SuppressWarnings("unchecked")

@@ -1253,6 +1253,38 @@ java/util/concurrent/CancellationException
 java/util/concurrent/ExecutionException
 java/util/concurrent/RejectedExecutionException
 java/util/concurrent/TimeoutException
+java/util/function/BiConsumer
+java/util/function/BiConsumer	accept	(Ljava/lang/Object;Ljava/lang/Object;)V
+java/util/function/BiFunction
+java/util/function/BiFunction	apply	(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+java/util/function/BiPredicate
+java/util/function/BiPredicate	test	(Ljava/lang/Object;Ljava/lang/Object;)Z
+java/util/function/BinaryOperator
+java/util/function/BinaryOperator	apply	(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+java/util/function/Consumer
+java/util/function/Consumer	accept	(Ljava/lang/Object;)V
+java/util/function/Function
+java/util/function/Function	apply	(Ljava/lang/Object;)Ljava/lang/Object;
+java/util/function/IntBinaryOperator
+java/util/function/IntBinaryOperator	applyAsInt	(II)I
+java/util/function/IntConsumer
+java/util/function/IntConsumer	accept	(I)V
+java/util/function/IntFunction
+java/util/function/IntFunction	apply	(I)Ljava/lang/Object;
+java/util/function/IntPredicate
+java/util/function/IntPredicate	test	(I)Z
+java/util/function/IntSupplier
+java/util/function/IntSupplier	getAsInt	()I
+java/util/function/IntUnaryOperator
+java/util/function/IntUnaryOperator	applyAsInt	(I)I
+java/util/function/Predicate
+java/util/function/Predicate	test	(Ljava/lang/Object;)Z
+java/util/function/Supplier
+java/util/function/Supplier	get	()Ljava/lang/Object;
+java/util/function/ToIntFunction
+java/util/function/ToIntFunction	applyAsInt	(Ljava/lang/Object;)I
+java/util/function/UnaryOperator
+java/util/function/UnaryOperator	apply	(Ljava/lang/Object;)Ljava/lang/Object;
 java/util/zip/CRC32
 java/util/zip/CRC32	<init>	()V
 java/util/zip/CRC32	crc	I
@@ -1400,6 +1432,8 @@ javax/net/ssl/SSLPeerUnverifiedException
 @implements	java/util/List	java/util/Collection
 @implements	java/util/Set	java/lang/Iterable
 @implements	java/util/Set	java/util/Collection
+@implements	java/util/function/BinaryOperator	java/util/function/BiFunction
+@implements	java/util/function/UnaryOperator	java/util/function/Function
 @implements	java/util/zip/CRC32	java/util/zip/Checksum
 #
 # ── Name-only classes ──
@@ -1425,7 +1459,6 @@ javax/net/ssl/SSLPeerUnverifiedException
 @hint	java/lang/String	replaceFirst	no regex engine — String.replace(CharSequence, CharSequence) is literal
 @hint	java/lang/Thread*		use picodroid.concurrent.Thread (same API shape) — java.lang.Thread is not a builtin
 @hint	java/util/concurrent/*		use picodroid.concurrent.* (ExecutorService, Future, atomics, CountDownLatch, TimeUnit)
-@hint	java/util/function/*		no java.util.function — use Runnable, Comparator, or your own single-method interface
 @hint	java/lang/Math	random	use java.util.Random
 @hint	java/util/Arrays	asList	build an ArrayList and add() the elements
 @hint	java/util/Arrays	equals	compare the elements in a loop

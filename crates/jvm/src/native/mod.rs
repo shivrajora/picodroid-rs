@@ -139,6 +139,25 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
     c::java_lang_Comparable,
     c::java_util_zip_Checksum,
     c::java_util_Comparator,
+    // The java.util.function SAM set apps target with lambdas and method
+    // refs; name-only rows (no class file, no dispatcher), so the default
+    // methods (`andThen`, `negate`, …) do not exist.
+    c::java_util_function_Function,
+    c::java_util_function_BiFunction,
+    c::java_util_function_Consumer,
+    c::java_util_function_BiConsumer,
+    c::java_util_function_Supplier,
+    c::java_util_function_Predicate,
+    c::java_util_function_BiPredicate,
+    c::java_util_function_UnaryOperator,
+    c::java_util_function_BinaryOperator,
+    c::java_util_function_IntFunction,
+    c::java_util_function_IntPredicate,
+    c::java_util_function_IntConsumer,
+    c::java_util_function_IntSupplier,
+    c::java_util_function_ToIntFunction,
+    c::java_util_function_IntUnaryOperator,
+    c::java_util_function_IntBinaryOperator,
     c::java_lang_Cloneable,
     // A legal lambda SAM (`AutoCloseable c = () -> ...`): without a row the
     // proxy's interface canonicalises to "unknown" and `instanceof` fails.
@@ -742,6 +761,65 @@ pub const BUILTIN_INTERFACE_METHODS: &[(&str, &[BuiltinMethodRow])] = &[
         ],
     ),
     (c::java_lang_Iterable, &[(m::iterator, &[d::__Iterator])]),
+    // java.util.function: one abstract method each. `UnaryOperator` and
+    // `BinaryOperator` inherit theirs through `BUILTIN_INTERFACES` edges at
+    // run time; the compile-time contract wants the row on the owner, as
+    // `Closeable.close` has beside `AutoCloseable.close`.
+    (
+        c::java_util_function_Function,
+        &[(m::apply, &[d::Object__Object])],
+    ),
+    (
+        c::java_util_function_BiFunction,
+        &[(m::apply, &[d::Object_Object__Object])],
+    ),
+    (
+        c::java_util_function_Consumer,
+        &[(m::accept, &[d::Object__V])],
+    ),
+    (
+        c::java_util_function_BiConsumer,
+        &[(m::accept, &[d::Object_Object__V])],
+    ),
+    (c::java_util_function_Supplier, &[(m::get, &[d::__Object])]),
+    (
+        c::java_util_function_Predicate,
+        &[(m::test, &[d::Object__Z])],
+    ),
+    (
+        c::java_util_function_BiPredicate,
+        &[(m::test, &[d::Object_Object__Z])],
+    ),
+    (
+        c::java_util_function_UnaryOperator,
+        &[(m::apply, &[d::Object__Object])],
+    ),
+    (
+        c::java_util_function_BinaryOperator,
+        &[(m::apply, &[d::Object_Object__Object])],
+    ),
+    (
+        c::java_util_function_IntFunction,
+        &[(m::apply, &[d::I__Object])],
+    ),
+    (c::java_util_function_IntPredicate, &[(m::test, &["(I)Z"])]),
+    (c::java_util_function_IntConsumer, &[(m::accept, &["(I)V"])]),
+    (
+        c::java_util_function_IntSupplier,
+        &[(m::getAsInt, &["()I"])],
+    ),
+    (
+        c::java_util_function_ToIntFunction,
+        &[(m::applyAsInt, &[d::Object__I])],
+    ),
+    (
+        c::java_util_function_IntUnaryOperator,
+        &[(m::applyAsInt, &["(I)I"])],
+    ),
+    (
+        c::java_util_function_IntBinaryOperator,
+        &[(m::applyAsInt, &["(II)I"])],
+    ),
 ];
 
 /// Table consulted by [`BuiltinHandler::dispatch`]. Single source of truth:

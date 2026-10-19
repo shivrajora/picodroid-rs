@@ -116,11 +116,6 @@ pub const CONTRACT_HINTS: &[(&str, &str, &str)] = &[
         "",
         "use picodroid.concurrent.* (ExecutorService, Future, atomics, CountDownLatch, TimeUnit)",
     ),
-    (
-        "java/util/function/*",
-        "",
-        "no java.util.function — use Runnable, Comparator, or your own single-method interface",
-    ),
     ("java/lang/Math", "random", "use java.util.Random"),
     (
         "java/util/Arrays",
