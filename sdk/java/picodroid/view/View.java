@@ -1030,6 +1030,12 @@ public class View {
   native void nativeSetFrameGravity(int gravity, int dx, int dy);
 
   /**
+   * This view's id and rules in a {@code RelativeLayout}: the verb flags and the id each sibling
+   * verb names, by the runtime's slots ({@code RelativeLayout.LayoutParams}); null for no anchors.
+   */
+  native void nativeSetRelativeRules(int id, int flags, int[] anchors);
+
+  /**
    * Synthesize a click event. Equivalent to {@code android.view.View#performClick()} — invokes the
    * registered {@link OnClickListener} without requiring a real touch. Useful for scripted UI
    * flows, accessibility, and headless end-to-end tests.

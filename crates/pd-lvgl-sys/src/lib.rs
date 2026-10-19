@@ -577,6 +577,8 @@ pub const LV_OBJ_FLAG_CHECKABLE: u32 = 1 << 3;
 pub const LV_OBJ_FLAG_SCROLLABLE: u32 = 1 << 4;
 /// Neither scrolled with the parent nor laid out by it: the `[layout]`
 /// check leaves such a child out, as LVGL's own scroll extent does.
+/// Not positioned by the parent's layout.
+pub const LV_OBJ_FLAG_IGNORE_LAYOUT: u32 = 1 << 17;
 pub const LV_OBJ_FLAG_FLOATING: u32 = 1 << 18;
 /// Scroll the object into view when it takes focus (a focused row in a
 /// list taller than the screen, as Android's ScrollView does).
@@ -1594,6 +1596,7 @@ unsafe extern "C" {
     // ListView rows (widgets/list_view.rs): stretch an adapter's row view to
     // the list's width and give it the list button's padding and separator.
     pub safe fn lv_obj_set_width(obj: Obj, w: i32);
+    pub safe fn lv_obj_set_height(obj: Obj, h: i32);
     pub safe fn lv_obj_set_style_pad_all(obj: Obj, value: i32, selector: lv_style_selector_t);
     pub safe fn lv_obj_set_style_border_side(
         obj: Obj,
@@ -2626,6 +2629,7 @@ mod tests {
             (LV_OBJ_FLAG_CHECKABLE, "LV_OBJ_FLAG_CHECKABLE"),
             (LV_OBJ_FLAG_SCROLLABLE, "LV_OBJ_FLAG_SCROLLABLE"),
             (LV_OBJ_FLAG_GESTURE_BUBBLE, "LV_OBJ_FLAG_GESTURE_BUBBLE"),
+            (LV_OBJ_FLAG_IGNORE_LAYOUT, "LV_OBJ_FLAG_IGNORE_LAYOUT"),
             (LV_OBJ_FLAG_FLOATING, "LV_OBJ_FLAG_FLOATING"),
             (LV_OBJ_FLAG_USER_1, "LV_OBJ_FLAG_USER_1"),
             (LV_OBJ_FLAG_USER_2, "LV_OBJ_FLAG_USER_2"),

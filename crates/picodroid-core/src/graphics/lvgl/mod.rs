@@ -56,6 +56,7 @@ pub mod menu_button {
 pub mod hw_scroll;
 pub mod hw_scroll_math;
 pub mod inflate;
+pub mod layouts;
 pub mod lifecycle;
 pub mod style_batch;
 pub mod view_ops;
@@ -212,6 +213,10 @@ impl Gfx for LvglGfx {
 
     fn set_frame_gravity(&mut self, h: Handle, gravity: i32, dx: i32, dy: i32) {
         view_ops::set_frame_gravity(h, gravity, dx, dy);
+    }
+
+    fn set_relative_rules(&mut self, h: Handle, id: i32, flags: i32, anchors: [i32; 8]) {
+        view_ops::set_relative_rules(h, id, flags, anchors);
     }
 
     fn frame(&mut self, h: Handle) -> (i32, i32, i32, i32) {

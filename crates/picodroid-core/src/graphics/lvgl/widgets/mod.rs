@@ -26,6 +26,7 @@ pub mod list_view;
 pub mod number_picker;
 pub mod progress_bar;
 pub mod radio_button;
+pub mod relative_layout;
 pub mod scroll_view;
 pub mod seek_bar;
 pub mod snackbar;

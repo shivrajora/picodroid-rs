@@ -84,6 +84,11 @@ pub trait GraphicsBackend {
     fn dispatch_frame_layout(&mut self, method: u32, ctx: &mut NativeContext<'_>)
         -> DispatchResult;
     fn dispatch_grid_layout(&mut self, method: u32, ctx: &mut NativeContext<'_>) -> DispatchResult;
+    fn dispatch_relative_layout(
+        &mut self,
+        method: u32,
+        ctx: &mut NativeContext<'_>,
+    ) -> DispatchResult;
     fn dispatch_spinner(&mut self, method: u32, ctx: &mut NativeContext<'_>) -> DispatchResult;
     fn dispatch_date_picker(&mut self, method: u32, ctx: &mut NativeContext<'_>) -> DispatchResult;
     fn dispatch_time_picker(&mut self, method: u32, ctx: &mut NativeContext<'_>) -> DispatchResult;

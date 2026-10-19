@@ -102,6 +102,7 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
     c::picodroid_widget_ScrollView,
     c::picodroid_widget_FrameLayout,
     c::picodroid_widget_GridLayout,
+    c::picodroid_widget_RelativeLayout,
     c::picodroid_widget_Spinner,
     c::picodroid_widget_DatePicker,
     c::picodroid_widget_TimePicker,

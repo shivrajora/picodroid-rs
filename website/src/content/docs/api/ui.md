@@ -1515,6 +1515,56 @@ Divergences from Android: a child's cell is fixed when it is added (`removeView`
 in; weights keep one decimal and cap at 9.9, the largest weight on a track wins; at most 16 columns,
 16 rows and 6 grids alive at once (a seventh throws); `BASELINE` reads as `TOP`.
 
+### `picodroid.widget.RelativeLayout`
+
+A layout whose children are placed by rules, the shape of `android.widget.RelativeLayout`: against
+the parent's edges or centre, or against a sibling's edges, named by its id. A child constrained
+on both edges of an axis is stretched between them (as Android's `EXACTLY` measure does); one
+with no rule on an axis sits at the start of it, by its margins. The rules are solved in
+dependency order, so a rule may name a sibling added later. Flat by default, like
+`LinearLayout`.
+
+```java
+import picodroid.widget.RelativeLayout;
+
+RelativeLayout header = new RelativeLayout(this);
+Button back = new Button("<");
+back.setId(R.id.back);
+RelativeLayout.LayoutParams backLp = new RelativeLayout.LayoutParams(48, 30);
+backLp.addRule(RelativeLayout.ALIGN_PARENT_LEFT);
+header.addView(back, backLp);
+
+TextView caption = new TextView();
+RelativeLayout.LayoutParams captionLp =
+    new RelativeLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                                    ViewGroup.LayoutParams.WRAP_CONTENT);
+captionLp.addRule(RelativeLayout.RIGHT_OF, R.id.back);
+captionLp.addRule(RelativeLayout.CENTER_VERTICAL);
+header.addView(caption, captionLp);
+```
+
+| Method | Description |
+|--------|-------------|
+| `setGravity(int)`, `setHorizontalGravity`, `setVerticalGravity`, `getGravity()` | Where the children go as a group when their rules leave room: their bounding box is placed where the `Gravity` bits say. |
+
+`RelativeLayout.LayoutParams(width, height)` carries the rules, set with `addRule(verb)` for a
+boolean verb (`ALIGN_PARENT_LEFT`, `ALIGN_PARENT_TOP`, `ALIGN_PARENT_RIGHT`,
+`ALIGN_PARENT_BOTTOM`, `CENTER_IN_PARENT`, `CENTER_HORIZONTAL`, `CENTER_VERTICAL`) and
+`addRule(verb, id)` for a sibling verb (`ABOVE`, `BELOW`, `LEFT_OF`, `RIGHT_OF`, `ALIGN_LEFT`,
+`ALIGN_TOP`, `ALIGN_RIGHT`, `ALIGN_BOTTOM`); `removeRule`, `getRule` and `getRules()` (Android's
+`int[22]`) read them back; `alignWithParent` makes a sibling rule whose sibling is missing act as
+the parent-edge rule. The rules and the child's id are read when the child is added: set the id
+and the rules first. Margins keep that much clear of the edge or sibling a rule names.
+
+In a layout file these are `android:layout_alignParentLeft`, `android:layout_centerInParent`,
+`android:layout_below="@id/x"`, `android:layout_toRightOf="@id/x"`, `android:layout_alignLeft`,
+… on the children of a `<RelativeLayout>`.
+
+Divergences from Android: `ALIGN_BASELINE` is accepted and ignored; `START`/`END` rules are
+`LEFT`/`RIGHT`; a GONE sibling is a missing one; a circular dependency places the children in
+the cycle as unanchored (Android throws); at most 20 children are placed by rules; a stretched
+child keeps its width if the rule that stretched it is later removed.
+
 ### `picodroid.widget.ViewPager2`
 
 Pages of [fragments](#picodroidappfragment), one on screen at a time, the shape of `androidx.viewpager2.widget.ViewPager2` with a `FragmentStateAdapter` (both in `picodroid.widget`). It goes in a layout as `<ViewPager2 android:id="@+id/pager" …/>` or is built with `new ViewPager2(context)`:

@@ -25,6 +25,7 @@ import picodroid.view.ViewGroup;
 import picodroid.widget.FrameLayout;
 import picodroid.widget.GridLayout;
 import picodroid.widget.LinearLayout;
+import picodroid.widget.RelativeLayout;
 import picodroid.widget.TextView;
 
 /**
@@ -85,6 +86,7 @@ public class LayoutDemoActivity extends Activity {
 
     checkVocabulary();
     checkGrid();
+    checkRelativeCode();
     checkConfiguration();
 
     FrameLayout stages = findViewById(R.id.stages);
@@ -243,6 +245,84 @@ public class LayoutDemoActivity extends Activity {
     // panel for their `fit ok`, and GONE gives the room back (removeView frees the coded one).
     grid.setVisibility(View.GONE);
     root.removeView(coded);
+  }
+
+  /**
+   * A RelativeLayout built in code, 200x60: the picoclock header (a caption right of the back
+   * button, centred on it), a corner pinned by margins, a child centred in the parent, one below
+   * and left-aligned with the caption, and a match_parent child stretched between two siblings.
+   */
+  private void checkRelativeCode() {
+    RelativeLayout rel = new RelativeLayout(this);
+    View back = relBox(rel, 1001, 48, 30, RelativeLayout.ALIGN_PARENT_LEFT, 0);
+    RelativeLayout.LayoutParams captionLp = new RelativeLayout.LayoutParams(60, 16);
+    captionLp.addRule(RelativeLayout.RIGHT_OF, 1001);
+    captionLp.addRule(RelativeLayout.CENTER_VERTICAL);
+    View caption = relBox(rel, 1002, captionLp);
+    RelativeLayout.LayoutParams cornerLp = new RelativeLayout.LayoutParams(10, 10);
+    cornerLp.addRule(RelativeLayout.ALIGN_PARENT_RIGHT);
+    cornerLp.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM);
+    cornerLp.setMargins(0, 0, 4, 6);
+    View corner = relBox(rel, 1003, cornerLp);
+    View centre = relBox(rel, 1004, 20, 10, RelativeLayout.CENTER_IN_PARENT, 0);
+    RelativeLayout.LayoutParams underLp = new RelativeLayout.LayoutParams(10, 10);
+    underLp.addRule(RelativeLayout.BELOW, 1002);
+    underLp.addRule(RelativeLayout.ALIGN_LEFT, 1002);
+    View under = relBox(rel, 1005, underLp);
+    RelativeLayout.LayoutParams stretchLp =
+        new RelativeLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 8);
+    stretchLp.addRule(RelativeLayout.RIGHT_OF, 1001);
+    stretchLp.addRule(RelativeLayout.LEFT_OF, 1003);
+    stretchLp.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM);
+    View stretch = relBox(rel, 1006, stretchLp);
+    LinearLayout root = findViewById(R.id.root);
+    root.addView(rel, new LinearLayout.LayoutParams(200, 60));
+
+    check("relative code: alignParentLeft", back.getLeft() == 0 && back.getTop() == 0);
+    check(
+        "relative code: toRightOf + centerVertical",
+        caption.getLeft() == 48 && caption.getTop() == (60 - 16) / 2);
+    check(
+        "relative code: alignParentRight|Bottom in by the margins",
+        corner.getLeft() == 200 - 10 - 4 && corner.getTop() == 60 - 10 - 6);
+    check("relative code: centerInParent", centre.getLeft() == 90 && centre.getTop() == 25);
+    check("relative code: below + alignLeft", under.getLeft() == 48 && under.getTop() == 22 + 16);
+    check(
+        "relative code: match_parent between two siblings",
+        stretch.getLeft() == 48 && stretch.getWidth() == 186 - 48 && stretch.getTop() == 52);
+    ViewGroup.LayoutParams lp = stretch.getLayoutParams();
+    check(
+        "relative code: getRules",
+        lp instanceof RelativeLayout.LayoutParams
+            && ((RelativeLayout.LayoutParams) lp).getRule(RelativeLayout.RIGHT_OF) == 1001
+            && ((RelativeLayout.LayoutParams) lp).getRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+                == RelativeLayout.TRUE
+            && ((RelativeLayout.LayoutParams) lp).getRules().length == 22);
+    // A late rule: the layout follows.
+    cornerLp.removeRule(RelativeLayout.ALIGN_PARENT_RIGHT);
+    cornerLp.addRule(RelativeLayout.ALIGN_PARENT_LEFT);
+    rel.removeView(corner);
+    corner = relBox(rel, 1003, cornerLp);
+    check("relative code: a rule changed", corner.getLeft() == 0 && corner.getTop() == 44);
+    root.removeView(rel);
+  }
+
+  private View relBox(RelativeLayout rel, int id, int w, int h, int verb, int subject) {
+    RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(w, h);
+    if (subject != 0) {
+      lp.addRule(verb, subject);
+    } else {
+      lp.addRule(verb);
+    }
+    return relBox(rel, id, lp);
+  }
+
+  private View relBox(RelativeLayout rel, int id, RelativeLayout.LayoutParams lp) {
+    View v = new FrameLayout(this);
+    v.setId(id);
+    v.setBackgroundColor(getColor(R.color.accent));
+    rel.addView(v, lp);
+    return v;
   }
 
   private static GridLayout.LayoutParams box(GridLayout.Spec row, GridLayout.Spec column) {

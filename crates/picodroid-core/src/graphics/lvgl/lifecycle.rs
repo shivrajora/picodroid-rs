@@ -108,6 +108,9 @@ pub(in crate::graphics) fn init(width: u16, height: u16) {
         #[cfg(lv_mem_in_psram)]
         picodroid_lv_draw_buf_use_sram();
     }
+    // The layouts and style properties of picodroid's own, before any
+    // object exists to be put on them.
+    super::layouts::register();
 
     // SAFETY: `lv_init` has run.
     let Some(disp) = (unsafe { lv_display_create(width as i32, height as i32) }) else {

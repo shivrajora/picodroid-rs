@@ -12,6 +12,7 @@
 # the JVM's builtin arms and the lifecycle upcalls match names through.
 F	$SwitchMap$java$time$temporal$ChronoUnit
 F	$VALUES
+F	ABOVE
 F	ACTION_BOOT_COMPLETED
 F	ACTION_DOWN
 F	ACTION_LONG_PRESS
@@ -24,11 +25,23 @@ F	ACTION_TIME_CHANGED
 F	ACTION_TIME_TICK
 F	ACTION_UP
 F	ALARM_SERVICE
+F	ALIGN_BASELINE
+F	ALIGN_BOTTOM
 F	ALIGN_CENTER
 F	ALIGN_END
 F	ALIGN_FILL
+F	ALIGN_LEFT
+F	ALIGN_PARENT_BOTTOM
+F	ALIGN_PARENT_END
+F	ALIGN_PARENT_LEFT
+F	ALIGN_PARENT_RIGHT
+F	ALIGN_PARENT_START
+F	ALIGN_PARENT_TOP
+F	ALIGN_RIGHT
 F	ALIGN_START
+F	ALIGN_TOP
 F	ALIGN_UNDEFINED
+F	ANCHORS
 F	ANTI_ALIAS_FLAG
 F	APRIL
 F	ASSOCIATING
@@ -36,7 +49,16 @@ F	ATTACHED
 F	AT_MOST
 F	AUGUST
 F	AUTO_TIME
+F	A_ABOVE
+F	A_ALIGN_BOTTOM
+F	A_ALIGN_LEFT
+F	A_ALIGN_RIGHT
+F	A_ALIGN_TOP
+F	A_BELOW
+F	A_TO_LEFT_OF
+F	A_TO_RIGHT_OF
 F	BASELINE
+F	BELOW
 F	BIND_AUTO_CREATE
 F	BIT_BOOT_COMPLETED
 F	BIT_CONNECTIVITY
@@ -61,6 +83,7 @@ F	BUTTON_POSITIVE
 F	CANCELLED
 F	CENTER
 F	CENTER_HORIZONTAL
+F	CENTER_IN_PARENT
 F	CENTER_VERTICAL
 F	CENTURIES
 F	CHUNK
@@ -103,6 +126,7 @@ F	ELAPSED_REALTIME_WAKEUP
 F	ELLIPSIZE_MASK
 F	ENABLED
 F	END
+F	END_OF
 F	ENUMS
 F	EPOCH
 F	ERAS
@@ -146,8 +170,16 @@ F	FOREVER
 F	FRAGMENTS_TAG
 F	FRIDAY
 F	F_ADDED
+F	F_CENTER_HORIZONTAL
+F	F_CENTER_IN_PARENT
+F	F_CENTER_VERTICAL
 F	F_DETACHED
 F	F_HIDDEN
+F	F_IF_MISSING
+F	F_PARENT_BOTTOM
+F	F_PARENT_LEFT
+F	F_PARENT_RIGHT
+F	F_PARENT_TOP
 F	F_REMOVING
 F	GONE
 F	GREEN
@@ -228,6 +260,7 @@ F	K_OBJECT
 F	K_STRING
 F	LEAK
 F	LEFT
+F	LEFT_OF
 F	LEFT_RIGHT
 F	LENGTH_INDEFINITE
 F	LENGTH_LONG
@@ -372,6 +405,7 @@ F	RESULT_OK
 F	RESUMED
 F	RETRIES
 F	RIGHT
+F	RIGHT_OF
 F	ROUND
 F	RTC
 F	RTC_WAKEUP
@@ -422,6 +456,7 @@ F	STARTED
 F	START_FLAG_REDELIVERY
 F	START_FLAG_RETRY
 F	START_NOT_STICKY
+F	START_OF
 F	START_REDELIVER_INTENT
 F	START_STICKY
 F	START_VERSION
@@ -498,6 +533,7 @@ F	TRANSPORT_CELLULAR
 F	TRANSPORT_ETHERNET
 F	TRANSPORT_VPN
 F	TRANSPORT_WIFI
+F	TRUE
 F	TUESDAY
 F	TYPE_ACCELEROMETER
 F	TYPE_ALL
@@ -540,6 +576,7 @@ F	UNKNOWN_RSSI
 F	UNKNOWN_SSID
 F	UNSPECIFIED
 F	UTC
+F	VERB_COUNT
 F	VERSION
 F	VERTICAL
 F	VERTICAL_GRAVITY_MASK
@@ -573,6 +610,7 @@ F	activeCapabilities
 F	activeLongPresses
 F	adapter
 F	address
+F	alignWithParent
 F	alignment
 F	alive
 F	alpha
@@ -710,6 +748,7 @@ F	mActiveCount
 F	mAdapter
 F	mAddToBackStack
 F	mAdded
+F	mAnchors
 F	mArguments
 F	mBackStack
 F	mBackStackChangeListeners
@@ -1074,6 +1113,7 @@ M	addNetwork
 M	addObserver
 M	addOnBackStackChangedListener
 M	addRequestProperty
+M	addRule
 M	addShowing
 M	addTextChangedListener
 M	addTo
@@ -1367,6 +1407,8 @@ M	fireTrackingTouch
 M	firstDayOfYear
 M	firstMonthOfQuarter
 M	fits
+M	flagOf
+M	flags
 M	flattenToString
 M	floor
 M	floorDiv
@@ -1590,6 +1632,7 @@ M	getRotation
 M	getRoundTripTime
 M	getRowCount
 M	getRssi
+M	getRule
 M	getRules
 M	getSSID
 M	getScaleX
@@ -2002,6 +2045,7 @@ M	nativeSetOptionsMenuAvailable
 M	nativeSetProgress
 M	nativeSetProperty
 M	nativeSetRange
+M	nativeSetRelativeRules
 M	nativeSetSize
 M	nativeSetString
 M	nativeSetText
@@ -2314,6 +2358,7 @@ M	removeNetwork
 M	removeObserver
 M	removeObservers
 M	removeOnBackStackChangedListener
+M	removeRule
 M	removeShowing
 M	removeStateAt
 M	removeTextChangedListener
@@ -2416,6 +2461,7 @@ M	setGradient
 M	setGravity
 M	setHardwareFlowControl
 M	setHint
+M	setHorizontalGravity
 M	setId
 M	setImageDrawable
 M	setImageResource
@@ -2487,6 +2533,7 @@ M	setPwmDutyCycle
 M	setPwmFrequencyHz
 M	setReadTimeout
 M	setRefreshing
+M	setRelativeRules
 M	setReorderingAllowed
 M	setRequestMethod
 M	setRequestProperty
@@ -2538,6 +2585,7 @@ M	setTurnScreenOn
 M	setUncaughtExceptionHandler
 M	setUserInputEnabled
 M	setValue
+M	setVerticalGravity
 M	setViewLifecycleState
 M	setVisibility
 M	setVisible
@@ -2558,6 +2606,7 @@ M	skipMessage
 M	sleep
 M	sleep0
 M	slot
+M	slotOf
 M	sort
 M	spaceLeft
 M	spec

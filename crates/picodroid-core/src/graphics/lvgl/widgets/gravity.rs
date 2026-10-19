@@ -79,6 +79,33 @@ pub(crate) fn text_align(gravity: i32) -> lv_text_align_t {
     }
 }
 
+/// One axis of a gravity, as the layout solvers (`graphics/lvgl/layouts`) read it: `FILL` (both
+/// pulls) is its own place there, since a solver can stretch a child.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AxisPlace {
+    Unset,
+    Start,
+    Center,
+    End,
+    Fill,
+}
+
+pub(crate) fn axis_place(gravity: i32, vertical: bool) -> AxisPlace {
+    let field = if vertical {
+        (gravity >> VERTICAL_SHIFT) & AXIS_MASK
+    } else {
+        gravity & AXIS_MASK
+    };
+    let (before, after) = (field & AXIS_PULL_BEFORE != 0, field & AXIS_PULL_AFTER != 0);
+    match (before, after) {
+        (true, true) => AxisPlace::Fill,
+        (true, false) => AxisPlace::Start,
+        (false, true) => AxisPlace::End,
+        (false, false) if field & AXIS_SPECIFIED != 0 => AxisPlace::Center,
+        (false, false) => AxisPlace::Unset,
+    }
+}
+
 /// Where a `FrameLayout` child's `layout_gravity` puts it, as the `lv_align_t` its position is
 /// then an offset from. Each axis reads as it does for a `TextView`: the start unless the gravity
 /// pulls to the end or names the centre, which is Android's default of `TOP | START` for a

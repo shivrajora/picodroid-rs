@@ -65,6 +65,15 @@ fn translate_dim(v: i32) -> i32 {
 pub(in crate::graphics) fn set_size(h: Handle, w: i32, height: i32) {
     let Some(o) = obj(h) else { return };
     lv_obj_set_size(o, translate_dim(w), translate_dim(height));
+    // The layouts of picodroid's own stretch a child by writing its width,
+    // so `match_parent` is kept where that write cannot lose it.
+    super::layouts::set_size_intent(o, w == -1, height == -1);
+}
+
+/// A `RelativeLayout` child's id and rules (`layouts::set_relative_rules`).
+pub(in crate::graphics) fn set_relative_rules(h: Handle, id: i32, flags: i32, anchors: [i32; 8]) {
+    let Some(o) = obj(h) else { return };
+    super::layouts::set_relative_rules(o, id, flags, &anchors);
 }
 
 pub(in crate::graphics) fn set_bg_color(h: Handle, argb: u32) {

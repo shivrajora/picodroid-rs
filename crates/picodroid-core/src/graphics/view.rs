@@ -461,6 +461,25 @@ pub fn set_margins(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>
     Ok(None)
 }
 
+/// `View.nativeSetRelativeRules(int id, int flags, int[] anchors)`: a `RelativeLayout` child's
+/// rules, the anchors by runtime slot (`relative.rs` `A_*`), null for none.
+pub fn set_relative_rules(
+    args: &[Value],
+    arrays: &pico_jvm::array_heap::ArrayHeap,
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let (view_id, flags) = (arg_int(args, 1)?, arg_int(args, 2)?);
+    let mut anchors = [0i32; 8];
+    if let Some(Value::ArrayRef(a)) = args.get(3) {
+        for (k, slot) in anchors.iter_mut().enumerate() {
+            *slot = arrays.load(*a, k).unwrap_or(0);
+        }
+    }
+    with_gfx(|g| g.set_relative_rules(Handle::from_java(id), view_id, flags, anchors));
+    Ok(None)
+}
+
 /// `View.nativeSetFrameGravity(int gravity, int dx, int dy)`
 pub fn set_frame_gravity(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
     let id = extract_native_handle(args, objects)?;

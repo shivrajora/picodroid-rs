@@ -151,6 +151,10 @@ pub trait Gfx {
     /// bits) names, offset by (`dx`, `dy`) pixels.
     fn set_frame_gravity(&mut self, h: Handle, gravity: i32, dx: i32, dy: i32);
 
+    /// A `RelativeLayout` child's id and rules: the verb flags and the id
+    /// each sibling verb names (`graphics/lvgl/layouts/relative.rs`).
+    fn set_relative_rules(&mut self, h: Handle, id: i32, flags: i32, anchors: [i32; 8]);
+
     /// Laid-out geometry (x, y, width, height) in parent-relative pixels,
     /// after forcing any pending layout pass. Backs View.getWidth/getHeight/
     /// getLeft/getTop.

@@ -100,6 +100,15 @@ public abstract class ViewGroup extends View implements ViewParent {
   private native void nativeAddView(View child);
 
   /**
+   * A {@code RelativeLayout} child's id and rules, for {@link picodroid.widget.RelativeLayout}:
+   * {@link View}'s layout natives are package-private, and a subclass in another package reaches
+   * this one instead.
+   */
+  protected static void setRelativeRules(View child, int id, int flags, int[] anchors) {
+    child.nativeSetRelativeRules(id, flags, anchors);
+  }
+
+  /**
    * Adds {@code child} at {@code index} among this group's children, as on Android; {@code -1} (or
    * any index past the end) appends. The child's own {@link LayoutParams}, if any, apply.
    */

@@ -71,6 +71,9 @@ impl GraphicsBackend for LvglBackend {
             mh::nativeSetFlexGrow => Some(view::set_flex_grow(ctx.args, ctx.objects)),
             mh::nativeSetMargins => Some(view::set_margins(ctx.args, ctx.objects)),
             mh::nativeSetFrameGravity => Some(view::set_frame_gravity(ctx.args, ctx.objects)),
+            mh::nativeSetRelativeRules => {
+                Some(view::set_relative_rules(ctx.args, ctx.arrays, ctx.objects))
+            }
             mh::nativeRegisterClickListener => {
                 Some(view::register_click_listener(ctx.args, ctx.objects))
             }
@@ -448,6 +451,20 @@ impl GraphicsBackend for LvglBackend {
             mh::nativeCreate => Some(widgets::grid_layout_native_create()),
             mh::nativePlace => Some(widgets::grid_layout_place(ctx.args, ctx.objects)),
             mh::setSpacing => Some(widgets::grid_layout_set_spacing(ctx.args, ctx.objects)),
+            _ => None,
+        }
+    }
+
+    fn dispatch_relative_layout(
+        &mut self,
+        method: u32,
+        ctx: &mut NativeContext<'_>,
+    ) -> DispatchResult {
+        match method {
+            mh::nativeCreate => Some(widgets::relative_layout_native_create()),
+            mh::nativeSetGravity => {
+                Some(widgets::relative_layout_set_gravity(ctx.args, ctx.objects))
+            }
             _ => None,
         }
     }

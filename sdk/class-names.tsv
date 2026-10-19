@@ -392,6 +392,8 @@ picodroid/widget/ProgressBar
 picodroid/widget/RadioButton
 picodroid/widget/RadioGroup
 picodroid/widget/RadioGroup$OnCheckedChangeListener
+picodroid/widget/RelativeLayout
+picodroid/widget/RelativeLayout$LayoutParams
 picodroid/widget/ScrollView
 picodroid/widget/SeekBar
 picodroid/widget/SeekBar$OnSeekBarChangeListener

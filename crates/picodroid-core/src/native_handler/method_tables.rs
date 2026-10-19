@@ -740,6 +740,7 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/view/View", "nativeSetFlexGrow", "(I)V"),
     ("picodroid/view/View", "nativeSetFrameGravity", "(III)V"),
     ("picodroid/view/View", "nativeSetMargins", "(IIII)V"),
+    ("picodroid/view/View", "nativeSetRelativeRules", "(II[I)V"),
     ("picodroid/view/View", "nativeSetFocusable", "(Z)V"),
     ("picodroid/view/View", "nativeSetProperty", "(IF)V"),
     ("picodroid/view/View", "nativeSetVisibility", "(I)V"),
@@ -808,6 +809,9 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
         "(Lpicodroid/view/View;IIIIIIII)Z",
     ),
     ("picodroid/widget/GridLayout", "setSpacing", "(I)V"),
+    // picodroid/widget/RelativeLayout
+    ("picodroid/widget/RelativeLayout", "nativeCreate", "()I"),
+    ("picodroid/widget/RelativeLayout", "nativeSetGravity", "(I)V"),
     // picodroid/widget/ImageView
     ("picodroid/widget/ImageView", "nativeCreate", "()I"),
     ("picodroid/widget/ImageView", "setImageResource", "(I)V"),

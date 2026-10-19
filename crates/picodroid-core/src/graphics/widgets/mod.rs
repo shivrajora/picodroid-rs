@@ -25,6 +25,7 @@ mod list_view;
 mod number_picker;
 mod progress_bar;
 mod radio_button;
+mod relative_layout;
 mod scroll_view;
 mod seek_bar;
 mod snackbar;
@@ -124,6 +125,7 @@ pub use radio_button::{
     radio_button_register_checked_change_listener, radio_button_set_checked, radio_button_set_text,
     reset_radio_button_state,
 };
+pub use relative_layout::{relative_layout_native_create, relative_layout_set_gravity};
 pub use scroll_view::scroll_view_native_create;
 pub use seek_bar::{drain_seek_change_queue, drain_seek_tracking_queue};
 pub use seek_bar::{
