@@ -1015,10 +1015,15 @@ public class View {
   }
 
   /**
-   * Apply a flex-grow weight to this view inside its {@link LinearLayout} parent. Visible to
-   * picodroid.widget for {@link ViewGroup#addView(View, ViewGroup.LayoutParams)}'s weight handling.
+   * This view's {@link LinearLayout} weight, in thousandths: its share of the space left along the
+   * layout's axis. Set by {@link ViewGroup#addView(View, ViewGroup.LayoutParams)}.
    */
-  native void nativeSetFlexGrow(int weight);
+  native void nativeSetWeight(int milli);
+
+  /**
+   * This view's {@code layout_gravity} in a {@link LinearLayout}: where it sits across the axis.
+   */
+  native void nativeSetLayoutGravity(int gravity);
 
   /** Space to keep clear around this view in a {@code LinearLayout}, in pixels. */
   native void nativeSetMargins(int left, int top, int right, int bottom);

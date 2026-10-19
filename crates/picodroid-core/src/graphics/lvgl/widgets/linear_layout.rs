@@ -1,9 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! LVGL impl of `LinearLayout` (LVGL `lv_obj` with flex flow).
+//! LVGL impl of `LinearLayout`: an `lv_obj` on the layout
+//! `graphics/lvgl/layouts` registered for it, whose solver follows Android's
+//! `LinearLayout` (weights on the space left over, per-child `layout_gravity`
+//! across the axis). Until 2026-10-19 it was LVGL's flex, which has one
+//! cross-axis placement per container and a `u8` grow factor.
+//!
+//! The orientation is kept as the `LV_STYLE_FLEX_FLOW` value (a style slot
+//! LVGL reads only on its flex), the gap as the pad row and column, the
+//! gravity in this crate's property.
 
 use crate::lvgl_ffi::*;
 
 use super::super::handle_table;
+use super::super::layouts;
 use super::super::lifecycle;
 use super::super::style_batch;
 
@@ -18,30 +27,19 @@ pub(in crate::graphics) fn create_under(parent: Obj) -> i32 {
     let Some(o) = lv_obj_create(parent) else {
         return 0;
     };
-    {
-        // Android LinearLayout never scrolls — use ScrollView for that. Clearing
-        // SCROLLABLE also kills the stray scrollbars LVGL would otherwise draw
-        // when content brushes the inner edge.
-        lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
-        // Flat first — no theme border, fill, corners or padding, as on Android
-        // (`frame_layout::make_flat`) — since the strip removes local styles
-        // too, and the flex flow is one. The strip and the two flex sets share
-        // one refresh (style_batch.rs); the six padding writes the strip
-        // replaced were most of this native's 1.7 ms on the RP2350.
-        style_batch::with_one_refresh(o, LV_STYLE_PAD_TOP, || {
-            super::frame_layout::make_flat(o);
-            lv_obj_set_flex_flow(o, LV_FLEX_FLOW_COLUMN);
-            // Android's default gravity, `START | TOP`: children at the
-            // start of both axes (gravity.rs::flex_align says the same for
-            // an axis a later `setGravity` leaves out).
-            lv_obj_set_flex_align(
-                o,
-                LV_FLEX_ALIGN_START,
-                LV_FLEX_ALIGN_START,
-                LV_FLEX_ALIGN_START,
-            );
-        });
-    }
+    // Android LinearLayout never scrolls — use ScrollView for that. Clearing
+    // SCROLLABLE also kills the stray scrollbars LVGL would otherwise draw
+    // when content brushes the inner edge.
+    lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+    // Flat first — no theme border, fill, corners or padding, as on Android
+    // (`frame_layout::make_flat`) — since the strip removes local styles
+    // too. The strip, the flow and the layout share one refresh
+    // (style_batch.rs).
+    style_batch::with_one_refresh(o, LV_STYLE_PAD_TOP, || {
+        super::frame_layout::make_flat(o);
+        set_style_num(o, LV_STYLE_FLEX_FLOW, LV_FLEX_FLOW_COLUMN as i32);
+        lv_obj_set_layout(o, layouts::linear_layout_id());
+    });
     handle_table::register(o)
 }
 
@@ -53,7 +51,7 @@ pub(in crate::graphics) fn set_orientation(id: i32, orientation: i32) {
         LV_FLEX_FLOW_COLUMN
     };
     if let Some(o) = handle_table::get(id) {
-        lv_obj_set_flex_flow(o, flow);
+        set_style_num(o, LV_STYLE_FLEX_FLOW, flow as i32);
     }
 }
 
@@ -67,24 +65,12 @@ pub(in crate::graphics) fn set_spacing(id: i32, spacing: i32) {
     lv_obj_set_style_pad_column(o, spacing, 0);
 }
 
-/// Place the children from an Android gravity bitmask.
-///
-/// Which of Android's two axes is this layout's main one follows the flow
-/// `setOrientation` wrote, which LVGL keeps as a style property — so `RIGHT`
-/// aligns a row's children at its right edge and centres a column's children
-/// horizontally, exactly as `android.widget.LinearLayout.setGravity` does.
-/// `gravity::flex_align` holds the decoding, and its divergences, in one
-/// tested place.
+/// Place the children from an Android gravity bitmask: the solver reads the
+/// bits of the main axis for the run and of the cross axis for each child
+/// without a `layout_gravity` of its own, exactly as
+/// `android.widget.LinearLayout.setGravity` does.
 pub(in crate::graphics) fn set_gravity(id: i32, gravity: i32) {
-    let Some(obj) = handle_table::get(id) else {
-        return; // stale handle — mutating a destroyed View is a no-op
-    };
-    let v = lv_obj_get_style_prop(obj, LV_PART_MAIN, LV_STYLE_FLEX_FLOW);
-    // SAFETY: the flex flow is a numeric property, which LVGL returns in
-    // `num`.
-    let flow = unsafe { v.num } as u32;
-    // Only ROW and COLUMN are ever set, and COLUMN is the low bit of every
-    // column flow LVGL defines.
-    let (main, cross) = super::gravity::flex_align(gravity, flow & LV_FLEX_FLOW_COLUMN != 0);
-    lv_obj_set_flex_align(obj, main, cross, cross);
+    if let Some(o) = handle_table::get(id) {
+        layouts::set_gravity_prop(o, gravity);
+    }
 }

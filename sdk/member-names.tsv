@@ -2033,7 +2033,6 @@ M	nativeSetDouble
 M	nativeSetDuration
 M	nativeSetEnabled
 M	nativeSetEndAction
-M	nativeSetFlexGrow
 M	nativeSetFocusable
 M	nativeSetFrameGravity
 M	nativeSetGravity
@@ -2044,6 +2043,7 @@ M	nativeSetIndicatorDirection
 M	nativeSetInt
 M	nativeSetInterest
 M	nativeSetKeepScreenOn
+M	nativeSetLayoutGravity
 M	nativeSetLineMode
 M	nativeSetLong
 M	nativeSetMargins
@@ -2071,6 +2071,7 @@ M	nativeSetTrackCornerRadius
 M	nativeSetTrackThickness
 M	nativeSetTurnScreenOn
 M	nativeSetVisibility
+M	nativeSetWeight
 M	nativeShow
 M	nativeSkipField
 M	nativeStart

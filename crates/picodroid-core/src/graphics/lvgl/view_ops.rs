@@ -364,14 +364,14 @@ pub(in crate::graphics) fn set_frame_gravity(h: Handle, gravity: i32, dx: i32, d
     lv_obj_align(o, super::widgets::gravity::frame_align(gravity), dx, dy);
 }
 
-pub(in crate::graphics) fn set_flex_grow(h: Handle, weight: i32) {
-    let w = if weight < 0 {
-        0
-    } else if weight > 255 {
-        255
-    } else {
-        weight as u8
-    };
+/// A `LinearLayout` child's weight, in thousandths (`layouts::set_weight_prop`).
+pub(in crate::graphics) fn set_weight(h: Handle, milli: i32) {
     let Some(o) = obj(h) else { return };
-    lv_obj_set_flex_grow(o, w);
+    super::layouts::set_weight_prop(o, milli);
+}
+
+/// A `LinearLayout` child's `layout_gravity` (`layouts::set_child_gravity_prop`).
+pub(in crate::graphics) fn set_layout_gravity(h: Handle, gravity: i32) {
+    let Some(o) = obj(h) else { return };
+    super::layouts::set_child_gravity_prop(o, gravity);
 }

@@ -129,8 +129,8 @@ edges, `android:minWidth` / `android:minHeight` floor a `wrap_content` view, `an
 caps a label so a long line wraps or ellipsizes instead of pushing the row off the panel, and
 `android:visibility="invisible"` keeps a view's room while it is hidden (`gone` gives it up).
 `android:keepScreenOn="true"` on a root holds the display on while that screen shows.
-`android:layout_gravity` on a `LinearLayout` child is not applied (the compiler warns): wrap that
-child in a `FrameLayout`, or set the parent's `android:gravity`. A root that is still larger than
+`android:layout_gravity` on a `LinearLayout` child places it across the row or column (a row reads
+the vertical bits, a column the horizontal ones). A root that is still larger than
 the panel is not clipped: the screen pans to it (a drag on a touch board, the focus on a four-key
 one), which keeps the app usable and is the sign to fix the layout. The simulator and a debug build
 say which it was after each `setContentView` — `[layout] fit ok 320x240 in 320x240`, or
@@ -280,7 +280,7 @@ RP2350 boards.
 
 | Group | Attributes |
 |---|---|
-| Any view | `id`, `style`, `layout_width`, `layout_height` (`match_parent`, `wrap_content`, a dimension), `layout_weight`, `layout_gravity` (applied in a `FrameLayout` or a `GridLayout`), `layout_margin` and its per-side forms, `padding`, `paddingLeft/Top/Right/Bottom`, `paddingStart/End`, `paddingHorizontal/Vertical`, `background` (a colour, `#AARRGGBB` with the alpha honoured; `@android:color/transparent`, `black`, `white`; or a `@drawable/` [shape](#drawables)), `visibility`, `enabled`, `focusable`, `alpha` |
+| Any view | `id`, `style`, `layout_width`, `layout_height` (`match_parent`, `wrap_content`, a dimension), `layout_weight`, `layout_gravity` (in a `LinearLayout`: across the row or column; in a `FrameLayout`: the corner, edge or centre; in a `GridLayout`: the cell alignment), `layout_margin` and its per-side forms, `padding`, `paddingLeft/Top/Right/Bottom`, `paddingStart/End`, `paddingHorizontal/Vertical`, `background` (a colour, `#AARRGGBB` with the alpha honoured; `@android:color/transparent`, `black`, `white`; or a `@drawable/` [shape](#drawables)), `visibility`, `enabled`, `focusable`, `alpha` |
 | `LinearLayout`, `RadioGroup` | `orientation`, `gravity` (where the children go) |
 | `RelativeLayout` | on each child `layout_alignParentLeft/Top/Right/Bottom` (`Start`/`End` read as `Left`/`Right`), `layout_centerInParent`, `layout_centerHorizontal`, `layout_centerVertical`, `layout_above`, `layout_below`, `layout_toLeftOf`, `layout_toRightOf` (`toStartOf`/`toEndOf`), `layout_alignLeft/Top/Right/Bottom` (`alignStart`/`alignEnd`), each naming a sibling by `@id/`, and `layout_alignWithParentIfMissing`. `layout_alignBaseline` is dropped with a warning. See [`RelativeLayout`](../api/ui.md#picodroidwidgetrelativelayout). |
 | `GridLayout` | `columnCount`, `rowCount`, `orientation`; on each child `layout_column`, `layout_row`, `layout_columnSpan`, `layout_rowSpan`, `layout_columnWeight`, `layout_rowWeight` and `layout_gravity` (the cell alignment: `fill`, `center`, an edge, or their `_horizontal` / `_vertical` halves). A child that names no cell takes the next free one. See [`GridLayout`](../api/ui.md#picodroidwidgetgridlayout). |

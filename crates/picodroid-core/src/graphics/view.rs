@@ -438,13 +438,20 @@ pub fn perform_click(args: &[Value], objects: &ObjectHeap) -> Result<Option<Valu
     Ok(None)
 }
 
-/// `View.nativeSetFlexGrow(int weight)` — apply a flex-grow factor to this view inside its
-/// LinearLayout parent. Called by `ViewGroup.addView(child, LinearLayout.LayoutParams)` when the
-/// params carry a non-zero weight.
-pub fn set_flex_grow(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+/// `View.nativeSetWeight(int milli)`: this view's `LinearLayout` weight, in thousandths. Called
+/// by `ViewGroup.addView(child, LinearLayout.LayoutParams)` when the params carry a weight.
+pub fn set_weight(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
     let id = extract_native_handle(args, objects)?;
-    let weight = arg_int(args, 1)?;
-    with_gfx(|g| g.set_flex_grow(Handle::from_java(id), weight));
+    let milli = arg_int(args, 1)?;
+    with_gfx(|g| g.set_weight(Handle::from_java(id), milli));
+    Ok(None)
+}
+
+/// `View.nativeSetLayoutGravity(int gravity)`: this view's `layout_gravity` in its `LinearLayout`.
+pub fn set_layout_gravity(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    let id = extract_native_handle(args, objects)?;
+    let gravity = arg_int(args, 1)?;
+    with_gfx(|g| g.set_layout_gravity(Handle::from_java(id), gravity));
     Ok(None)
 }
 

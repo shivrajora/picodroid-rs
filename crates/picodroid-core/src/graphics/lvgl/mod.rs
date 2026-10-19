@@ -195,8 +195,12 @@ impl Gfx for LvglGfx {
         view_ops::move_to_index(h, index);
     }
 
-    fn set_flex_grow(&mut self, h: Handle, weight: i32) {
-        view_ops::set_flex_grow(h, weight);
+    fn set_weight(&mut self, h: Handle, milli: i32) {
+        view_ops::set_weight(h, milli);
+    }
+
+    fn set_layout_gravity(&mut self, h: Handle, gravity: i32) {
+        view_ops::set_layout_gravity(h, gravity);
     }
 
     fn set_margins(&mut self, h: Handle, left: i32, top: i32, right: i32, bottom: i32) {

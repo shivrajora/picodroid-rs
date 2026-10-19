@@ -1313,21 +1313,6 @@ impl LayoutCompiler<'_> {
                     ));
                 }
             }
-            // LVGL's flex layout has no per-item cross-axis alignment, so a
-            // LinearLayout child's layout_gravity is carried in its
-            // LayoutParams but never applied (LinearLayout.setGravity's note).
-            if matches!(
-                class,
-                layout::class::LINEAR_LAYOUT | layout::class::RADIO_GROUP
-            ) && child.attr("layout_gravity").is_some()
-            {
-                self.warnings.push(format!(
-                    "{file}: <{}> ignores android:layout_gravity on a child of <{}> (no per-child \
-                     cross-axis alignment); wrap the child in a FrameLayout and give that the \
-                     gravity, or set the parent's android:gravity",
-                    child.name, el.name
-                ));
-            }
             self.node(child, file, out, depth)?;
         }
         Ok(())

@@ -15,6 +15,7 @@
 //! The size intent is kept apart from the style width because a solver
 //! that stretches a child overwrites that width with pixels.
 
+pub mod linear;
 pub mod place;
 pub mod relative;
 
@@ -23,6 +24,7 @@ use core::cell::Cell;
 use crate::lvgl_ffi::*;
 use crate::util::local::Core0;
 
+use linear::{Linear, LinearKid};
 use place::{gravity_axis, Kid, Rect};
 use relative::{Anchor, Rules, Span, ANCHORS, MAX_KIDS};
 
@@ -38,7 +40,13 @@ const INTENT_MATCH_H: i32 = 2;
 #[derive(Clone, Copy)]
 struct Props {
     size_intent: lv_style_prop_t,
+    /// A container's gravity (`setGravity`).
     gravity: lv_style_prop_t,
+    /// A `LinearLayout` child's `layout_gravity`, apart from the gravity it
+    /// may carry as a container itself.
+    child_gravity: lv_style_prop_t,
+    /// A `LinearLayout` child's weight, in thousandths.
+    weight: lv_style_prop_t,
     view_id: lv_style_prop_t,
     rel_flags: lv_style_prop_t,
     anchors: [lv_style_prop_t; ANCHORS],
@@ -47,6 +55,8 @@ struct Props {
 const NO_PROPS: Props = Props {
     size_intent: LV_STYLE_PROP_INV,
     gravity: LV_STYLE_PROP_INV,
+    child_gravity: LV_STYLE_PROP_INV,
+    weight: LV_STYLE_PROP_INV,
     view_id: LV_STYLE_PROP_INV,
     rel_flags: LV_STYLE_PROP_INV,
     anchors: [LV_STYLE_PROP_INV; ANCHORS],
@@ -54,9 +64,10 @@ const NO_PROPS: Props = Props {
 
 struct State {
     props: Cell<Props>,
-    /// The layout id LVGL gave `RelativeLayout`; 0 (`LV_LAYOUT_NONE`) until
-    /// `register` runs.
+    /// The layout ids LVGL gave `RelativeLayout` and `LinearLayout`; 0
+    /// (`LV_LAYOUT_NONE`) until `register` runs.
     relative: Cell<u32>,
+    linear: Cell<u32>,
     /// Said once per process: a RelativeLayout with circular rules, or
     /// with more children than `MAX_KIDS`.
     warned_cycle: Cell<bool>,
@@ -69,6 +80,7 @@ static STATE: Core0<State> = unsafe {
     Core0::new(State {
         props: Cell::new(NO_PROPS),
         relative: Cell::new(LV_LAYOUT_NONE),
+        linear: Cell::new(LV_LAYOUT_NONE),
         warned_cycle: Cell::new(false),
         warned_many: Cell::new(false),
     })
@@ -87,6 +99,8 @@ pub(in crate::graphics) fn register() {
         // out by itself.
         size_intent: lv_style_register_prop(0),
         gravity: lv_style_register_prop(relayout),
+        child_gravity: lv_style_register_prop(relayout),
+        weight: lv_style_register_prop(relayout),
         view_id: lv_style_register_prop(relayout),
         rel_flags: lv_style_register_prop(relayout),
         anchors,
@@ -95,11 +109,19 @@ pub(in crate::graphics) fn register() {
         relative_update_cb,
         Some(relative_min_size_cb),
     ));
+    STATE
+        .linear
+        .set(layout_create(linear_update_cb, Some(linear_min_size_cb)));
 }
 
 /// The layout a `RelativeLayout` is put on.
 pub(in crate::graphics) fn relative_layout_id() -> u32 {
     STATE.relative.get()
+}
+
+/// The layout a `LinearLayout` is put on.
+pub(in crate::graphics) fn linear_layout_id() -> u32 {
+    STATE.linear.get()
 }
 
 fn set_or_clear(o: Obj, prop: lv_style_prop_t, value: i32) {
@@ -119,10 +141,20 @@ pub(in crate::graphics) fn set_size_intent(o: Obj, match_w: bool, match_h: bool)
     set_or_clear(o, STATE.props.get().size_intent, bits);
 }
 
-/// An Android gravity on `o`: a container's (`RelativeLayout.setGravity`,
-/// `LinearLayout.setGravity`) or a `LinearLayout` child's `layout_gravity`.
+/// A container's gravity (`RelativeLayout.setGravity`, `LinearLayout.setGravity`),
+/// Android's bits.
 pub(in crate::graphics) fn set_gravity_prop(o: Obj, gravity: i32) {
     set_or_clear(o, STATE.props.get().gravity, gravity);
+}
+
+/// A `LinearLayout` child's `layout_gravity`, Android's bits.
+pub(in crate::graphics) fn set_child_gravity_prop(o: Obj, gravity: i32) {
+    set_or_clear(o, STATE.props.get().child_gravity, gravity);
+}
+
+/// A `LinearLayout` child's weight, in thousandths.
+pub(in crate::graphics) fn set_weight_prop(o: Obj, milli: i32) {
+    set_or_clear(o, STATE.props.get().weight, milli.max(0));
 }
 
 /// A `RelativeLayout` child's id and rules: the verb flags (`relative::F_*`)
@@ -311,6 +343,115 @@ lv_min_size_cb! {
         }
         let mut out = [Rect::default(); MAX_KIDS];
         let solved = relative_solve(cont, span, &g, &mut out);
+        let pads = if width {
+            style_num(cont, LV_STYLE_PAD_LEFT) + style_num(cont, LV_STYLE_PAD_RIGHT)
+        } else {
+            style_num(cont, LV_STYLE_PAD_TOP) + style_num(cont, LV_STYLE_PAD_BOTTOM)
+        };
+        Some(if width { solved.w } else { solved.h } + pads)
+    }
+}
+
+// ── LinearLayout ────────────────────────────────────────────────────────────
+
+/// A `LinearLayout`'s orientation, gap and gravity, from the style
+/// properties its setters write: the flow in `LV_STYLE_FLEX_FLOW` (as a
+/// value only; the object is not on LVGL's flex), the gap in the pad row or
+/// column as LVGL's flex reads it, the gravity in this crate's property.
+fn linear_of(cont: Obj) -> Linear {
+    let horizontal = style_num(cont, LV_STYLE_FLEX_FLOW) as u32 & LV_FLEX_FLOW_COLUMN == 0;
+    Linear {
+        horizontal,
+        gap: style_num(
+            cont,
+            if horizontal {
+                LV_STYLE_PAD_COLUMN
+            } else {
+                LV_STYLE_PAD_ROW
+            },
+        ),
+        gravity: local_style_num(cont, STATE.props.get().gravity).unwrap_or(0),
+    }
+}
+
+struct LinearGathered {
+    n: usize,
+    objs: [Option<Obj>; linear::MAX_KIDS],
+    kids: [LinearKid; linear::MAX_KIDS],
+}
+
+fn gather_linear(cont: Obj) -> LinearGathered {
+    let p = STATE.props.get();
+    let n = (lv_obj_get_child_count(cont) as usize).min(linear::MAX_KIDS);
+    let mut g = LinearGathered {
+        n,
+        objs: [None; linear::MAX_KIDS],
+        kids: [LinearKid::default(); linear::MAX_KIDS],
+    };
+    for i in 0..n {
+        let Some(child) = lv_obj_get_child(cont, i as i32) else {
+            continue;
+        };
+        g.objs[i] = Some(child);
+        g.kids[i] = LinearKid {
+            kid: kid_of(child),
+            weight: local_style_num(child, p.weight).unwrap_or(0),
+            gravity: local_style_num(child, p.child_gravity).unwrap_or(0),
+        };
+    }
+    g
+}
+
+fn apply_linear(g: &LinearGathered, out: &[Rect]) {
+    for (i, &r) in out.iter().enumerate().take(g.n) {
+        let Some(o) = g.objs[i] else {
+            continue;
+        };
+        let k = &g.kids[i].kid;
+        if k.gone {
+            continue;
+        }
+        if r.w != k.w || r.h != k.h {
+            if r.w != k.w {
+                lv_obj_set_width(o, r.w);
+            }
+            if r.h != k.h {
+                lv_obj_set_height(o, r.h);
+            }
+            lv_obj_refr_size(o);
+        }
+        lv_obj_move_to(o, r.x, r.y);
+    }
+}
+
+lv_layout_cb! {
+    /// Lay a `LinearLayout` out: LVGL calls this whenever the container is
+    /// dirty.
+    fn linear_update_cb(cont) {
+        let g = gather_linear(cont);
+        let span = span_of(cont);
+        let mut out = [Rect::default(); linear::MAX_KIDS];
+        linear::solve(span, linear_of(cont), &g.kids[..g.n], &mut out[..g.n]);
+        apply_linear(&g, &out);
+        if span.w.is_none() || span.h.is_none() {
+            lv_obj_refr_size(cont);
+        }
+    }
+}
+
+lv_min_size_cb! {
+    /// How big a content-sized `LinearLayout` is on one axis: the children's
+    /// extent plus the padding.
+    fn linear_min_size_cb(cont, width) -> Option<i32> {
+        let g = gather_linear(cont);
+        let mut span = span_of(cont);
+        if width {
+            span.w = None;
+        } else {
+            span.h = None;
+        }
+        let mut out = [Rect::default(); linear::MAX_KIDS];
+        let solved = linear::solve(span, linear_of(cont), &g.kids[..g.n], &mut out[..g.n]);
         let pads = if width {
             style_num(cont, LV_STYLE_PAD_LEFT) + style_num(cont, LV_STYLE_PAD_RIGHT)
         } else {

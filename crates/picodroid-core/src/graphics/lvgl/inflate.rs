@@ -180,9 +180,12 @@ fn apply_layout(h: Handle, node: &Node, kind: ParentKind) {
     let margined = node.margin.iter().any(|m| *m != 0);
     match kind {
         ParentKind::Linear => {
-            let grow = scan::flex_grow(node.weight_bits);
-            if grow > 0 {
-                view_ops::set_flex_grow(h, grow);
+            let milli = scan::milli_weight(node.weight_bits);
+            if milli > 0 {
+                view_ops::set_weight(h, milli);
+            }
+            if node.layout_gravity != 0 {
+                view_ops::set_layout_gravity(h, node.layout_gravity);
             }
             if margined {
                 let [l, t, r, b] = node.margin;

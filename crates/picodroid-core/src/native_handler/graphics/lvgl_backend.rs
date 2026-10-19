@@ -68,7 +68,8 @@ impl GraphicsBackend for LvglBackend {
             mh::nativeGetProperty => Some(view::get_property(ctx.args, ctx.objects)),
             mh::nativeClose => Some(view::close(ctx.args, ctx.objects)),
             mh::performClick => Some(view::perform_click(ctx.args, ctx.objects)),
-            mh::nativeSetFlexGrow => Some(view::set_flex_grow(ctx.args, ctx.objects)),
+            mh::nativeSetWeight => Some(view::set_weight(ctx.args, ctx.objects)),
+            mh::nativeSetLayoutGravity => Some(view::set_layout_gravity(ctx.args, ctx.objects)),
             mh::nativeSetMargins => Some(view::set_margins(ctx.args, ctx.objects)),
             mh::nativeSetFrameGravity => Some(view::set_frame_gravity(ctx.args, ctx.objects)),
             mh::nativeSetRelativeRules => {

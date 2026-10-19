@@ -953,7 +953,7 @@ layout.addView(button);
 |--------|-------------|
 | `setOrientation(int)` | `HORIZONTAL` or `VERTICAL` (the default). |
 | `setSpacing(int px)` | Gap between adjacent children; 0 by default. A picodroid addition. |
-| `setGravity(int)` | Where the children go, in `picodroid.view.Gravity` constants, which may name both axes (`Gravity.BOTTOM` or-ed with `Gravity.RIGHT`). Call it after `setOrientation`. An axis the gravity does not name falls back to the start, as on Android (`START \| TOP`: a column's children sit at the left, a row's at the top). One divergence: `FILL` places at the start instead of stretching the child. |
+| `setGravity(int)` | Where the children go, in `picodroid.view.Gravity` constants, which may name both axes (`Gravity.BOTTOM` or-ed with `Gravity.RIGHT`). Call it after `setOrientation`. An axis the gravity does not name falls back to the start, as on Android (`START \| TOP`: a column's children sit at the left, a row's at the top). `FILL` places at the start, as Android's `LinearLayout` does: only `match_parent` stretches a child. |
 
 `LinearLayout.LayoutParams(width, height, weight)` gives a child a share of the space left over, as on Android:
 
@@ -961,7 +961,9 @@ layout.addView(button);
 row.addView(label, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 ```
 
-Weights are relative, with one decimal of precision (`1.5f` against `1f` is 15 : 10), and cap at 25.5. The per-child `LayoutParams.gravity` field (`android:layout_gravity` on a `LinearLayout` child) is stored but not applied: LVGL's flex layout has no per-item cross-axis alignment, and the layout compiler warns. To place one child differently, wrap it in a `FrameLayout` and give that the gravity. A `Space` with a weight is the Android way to push children apart ([below](#picodroidwidgetspace)).
+A weight shares what is left of the row (or the column) after the other children and the gaps, as Android does: `0dp` with a weight is a pure share, `wrap_content` with a weight keeps its content and adds its share, and when the children overflow the weighted ones give the overflow back. Weights keep three decimals (`1.5f` against `1f` is 3 : 2). The per-child `LayoutParams.gravity` field (`android:layout_gravity` on a `LinearLayout` child) places that child across the row or column: a horizontal layout reads its vertical bits (`top`, `center_vertical`, `bottom`), a vertical one its horizontal bits, as on Android; a child without one follows the container's gravity. A `Space` with a weight is the Android way to push children apart ([below](#picodroidwidgetspace)).
+
+The layout is a solver of picodroid's own registered with LVGL (`docs/designs/layouts-2026-10.md`), not LVGL's flex; integer arithmetic follows Android's `measureHorizontal`/`layoutHorizontal` to the pixel.
 
 `picodroid.view.Gravity` has Android's constants and values: `NO_GRAVITY`, `TOP`, `BOTTOM`, `LEFT`, `RIGHT`, `START`, `END`, `CENTER_VERTICAL`, `CENTER_HORIZONTAL`, `CENTER`, `FILL_VERTICAL`, `FILL_HORIZONTAL`, `FILL`, and the masks.
 

@@ -133,10 +133,12 @@ pub trait Gfx {
     /// no-op.
     fn move_to_index(&mut self, h: Handle, index: i32);
 
-    /// Apply a flex-grow factor to `h`. Used by
-    /// {@code LinearLayout.LayoutParams.weight} so weighted children expand
-    /// to fill remaining space along the layout's main axis.
-    fn set_flex_grow(&mut self, h: Handle, weight: i32);
+    /// `LinearLayout.LayoutParams.weight` on `h`, in thousandths: its share
+    /// of the space left along the layout's main axis.
+    fn set_weight(&mut self, h: Handle, milli: i32);
+    /// `LinearLayout.LayoutParams.gravity` on `h`: where it sits across the
+    /// layout's axis (Android's bits).
+    fn set_layout_gravity(&mut self, h: Handle, gravity: i32);
 
     /// `MarginLayoutParams` on a `LinearLayout` child: the space kept clear
     /// around it, in pixels.

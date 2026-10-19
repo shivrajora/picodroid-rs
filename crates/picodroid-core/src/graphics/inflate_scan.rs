@@ -306,14 +306,13 @@ pub fn frame_offset(gravity: i32, margin: [i32; 4]) -> (i32, i32) {
     (dx, dy)
 }
 
-/// `LinearLayout.LayoutParams.weight` as the flex-grow `ViewGroup.addView`
-/// sets: ten times the weight, at least one, so fractional ratios survive
-/// the integer; 0 for no weight.
-pub fn flex_grow(weight_bits: i32) -> i32 {
+/// `LinearLayout.LayoutParams.weight` as `ViewGroup.addView` sends it: in
+/// thousandths, at least one for any positive weight; 0 for no weight.
+pub fn milli_weight(weight_bits: i32) -> i32 {
     let weight = f32::from_bits(weight_bits as u32);
     if weight > 0.0 {
         // `Math.round`: the floor of x + 0.5, which `as` is for a positive x.
-        ((weight * 10.0 + 0.5) as i32).max(1)
+        ((weight * 1000.0 + 0.5) as i32).max(1)
     } else {
         0
     }
@@ -522,9 +521,9 @@ mod tests {
     }
 
     #[test]
-    fn flex_grow_scales_weights_by_ten() {
-        assert_eq!(flex_grow(0), 0);
-        assert_eq!(flex_grow(1.5f32.to_bits() as i32), 15);
-        assert_eq!(flex_grow(0.01f32.to_bits() as i32), 1);
+    fn milli_weight_keeps_three_decimals() {
+        assert_eq!(milli_weight(0), 0);
+        assert_eq!(milli_weight(1.5f32.to_bits() as i32), 1500);
+        assert_eq!(milli_weight(0.0001f32.to_bits() as i32), 1);
     }
 }

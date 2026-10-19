@@ -177,7 +177,8 @@ public abstract class ViewGroup extends View implements ViewParent {
   /**
    * Add {@code child} with explicit layout parameters. Records the params on the child via {@link
    * View#setLayoutParams}, applies width/height via {@link View#setSize}, and threads any
-   * subclass-specific fields ({@code LinearLayout.LayoutParams.weight}) into the LVGL flex layout.
+   * subclass-specific fields ({@code LinearLayout.LayoutParams.weight} and {@code gravity}) into
+   * the layout.
    */
   public void addView(View child, LayoutParams params) {
     if (params != null) {
@@ -189,10 +190,11 @@ public abstract class ViewGroup extends View implements ViewParent {
       picodroid.widget.LinearLayout.LayoutParams lp =
           (picodroid.widget.LinearLayout.LayoutParams) params;
       if (lp.weight > 0) {
-        // Weights are relative, so a fixed x10 scale preserves fractional
-        // ratios (1.5f : 1f -> 15 : 10) that a plain int cast would destroy.
-        // LVGL's flex-grow is u8, capping effective weights at 25.5.
-        child.nativeSetFlexGrow(Math.max(1, Math.round(lp.weight * 10)));
+        // Thousandths: fractional ratios survive the integer (1.5f : 1f -> 1500 : 1000).
+        child.nativeSetWeight(Math.max(1, Math.round(lp.weight * 1000)));
+      }
+      if (lp.gravity != 0) {
+        child.nativeSetLayoutGravity(lp.gravity);
       }
     }
     if (params instanceof picodroid.widget.FrameLayout.LayoutParams) {
