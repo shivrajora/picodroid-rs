@@ -91,7 +91,9 @@ impl GraphicsBackend for LvglBackend {
             mh::nativeRegisterFocusChangeListener => {
                 Some(view::register_focus_change_listener(ctx.args, ctx.objects))
             }
-            mh::nativeRegisterTouchListener => {
+            // `setOnTouchListener` and the drawing View's constructor: the same binding and
+            // LVGL press / move / release trampolines, with or without a listener object.
+            mh::nativeRegisterTouchListener | mh::nativeEnableTouch => {
                 Some(view::register_touch_listener(ctx.args, ctx.objects))
             }
             mh::nativeRegisterSwipeListener => {
@@ -116,6 +118,8 @@ impl GraphicsBackend for LvglBackend {
             mh::nativeRemoveAllViews => Some(view_group::remove_all_views(ctx.args, ctx.objects)),
             mh::nativeMoveChildTo => Some(view_group::move_child_to(ctx.args, ctx.objects)),
             mh::nativeGetChildCount => Some(view_group::get_child_count(ctx.args, ctx.objects)),
+            mh::nativeCreateGroup => Some(view_group::create_group()),
+            mh::nativeWatchSize => Some(view_group::watch_size(ctx.args, ctx.objects)),
             _ => None,
         }
     }

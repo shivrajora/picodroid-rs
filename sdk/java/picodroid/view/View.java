@@ -91,11 +91,27 @@ public class View {
   /** The queued task that runs {@link #onDraw}; made on the first {@link #invalidate}. */
   private Runnable mDrawTask;
 
+  /**
+   * The {@link Context} this view was made with, or null for one made without ({@code new
+   * TextView()}): {@link #getContext} then asks the parent chain. Slot 24, after every field above;
+   * the inflater stamps it on the views its native path makes.
+   */
+  Context mContext;
+
   /** The main thread's executor, shared by every view that draws. */
   private static Executor sMainExecutor;
 
   protected View(int nativeHandle) {
     this.nativeHandle = nativeHandle;
+  }
+
+  /**
+   * For a subclass whose widget is made natively: the handle and the {@link Context} it was made
+   * with, which {@link #getContext} answers.
+   */
+  protected View(Context context, int nativeHandle) {
+    this.nativeHandle = nativeHandle;
+    mContext = context;
   }
 
   /**
@@ -105,12 +121,56 @@ public class View {
    * after construction.
    */
   public View(Context context) {
-    this(nativeCreateView());
+    this(context, nativeCreateView());
     mCanvas = new Canvas();
+    // A view that draws itself hears the finger too, as every Android View does: `onTouchEvent`
+    // needs no listener to be reached. Only here — the handle is live and this is not the
+    // inflater's `plain()`.
+    nativeEnableTouch();
     scheduleDraw();
   }
 
   private static native int nativeCreateView();
+
+  /** Routes press, move and release on this widget to {@link #dispatchTouchEvent}. */
+  private native void nativeEnableTouch();
+
+  /**
+   * Mirrors {@code android.view.View#getContext()}: the Context this view was made with. A view
+   * made without one ({@code new TextView()}) answers its parent's, so a view in an Activity's tree
+   * always has one; detached and made without, it answers null.
+   */
+  public Context getContext() {
+    for (View v = this; v != null; v = v.mParent) {
+      if (v.mContext != null) {
+        return v.mContext;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Mirrors {@code android.view.View#post(Runnable)}: runs {@code action} on the main thread, on a
+   * later frame. The same queue as {@code Executors.mainExecutor()}; there is no {@code
+   * postDelayed} (use {@code Executors.mainScheduledExecutor()} for a delay).
+   */
+  public boolean post(Runnable action) {
+    if (action == null) {
+      return false;
+    }
+    mainExecutor().execute(action);
+    return true;
+  }
+
+  /** The main thread's executor, looked up once for every view. */
+  static Executor mainExecutor() {
+    Executor main = sMainExecutor;
+    if (main == null) {
+      main = Executors.mainExecutor();
+      sMainExecutor = main;
+    }
+    return main;
+  }
 
   /**
    * A plain view for the inflater's native path, which makes the widget and fills in {@link
@@ -156,12 +216,7 @@ public class View {
     if (mDrawTask == null) {
       mDrawTask = new DrawTask(this);
     }
-    Executor main = sMainExecutor;
-    if (main == null) {
-      main = Executors.mainExecutor();
-      sMainExecutor = main;
-    }
-    main.execute(mDrawTask);
+    mainExecutor().execute(mDrawTask);
   }
 
   /** Runs {@link #onDraw} into this view's recording, then has the view repainted. */
@@ -268,6 +323,15 @@ public class View {
    */
   public final void measure(int widthMeasureSpec, int heightMeasureSpec) {
     MeasureSpec.sWidth = -1;
+    if (mCanvas == null && !layoutsItself()) {
+      // A framework widget's content is the renderer's to know: size it as the spec says
+      // (wrap_content where the spec leaves it free) and report what it settled on, within the
+      // spec. The widget keeps that size until a layout() places it.
+      setSize(sizeForSpec(widthMeasureSpec), sizeForSpec(heightMeasureSpec));
+      setMeasuredDimension(
+          resolveSize(getWidth(), widthMeasureSpec), resolveSize(getHeight(), heightMeasureSpec));
+      return;
+    }
     onMeasure(widthMeasureSpec, heightMeasureSpec);
     if (MeasureSpec.sWidth < 0) {
       throw new IllegalStateException(
@@ -330,7 +394,7 @@ public class View {
    * wants to be for a {@code wrap_content} dimension, every other size goes to the renderer.
    */
   final void applyLayoutSize(int width, int height) {
-    if (mCanvas != null && (width == WRAP_CONTENT || height == WRAP_CONTENT)) {
+    if ((mCanvas != null || layoutsItself()) && (width == WRAP_CONTENT || height == WRAP_CONTENT)) {
       measure(measureSpecFor(width), measureSpecFor(height));
       if (width != WRAP_CONTENT || height != WRAP_CONTENT) {
         // The measured value stands for the wrapped dimension; the other is the layout's.
@@ -340,6 +404,50 @@ public class View {
       }
     } else {
       setSize(width, height);
+    }
+  }
+
+  /** The size a framework widget is given to measure against: exact, or free to wrap. */
+  private static int sizeForSpec(int measureSpec) {
+    return MeasureSpec.getMode(measureSpec) == MeasureSpec.EXACTLY
+        ? MeasureSpec.getSize(measureSpec)
+        : WRAP_CONTENT;
+  }
+
+  /** Whether this is a {@link ViewGroup} that lays its children out in Java ({@code onLayout}). */
+  boolean layoutsItself() {
+    return false;
+  }
+
+  /**
+   * Mirrors {@code android.view.View#layout(int, int, int, int)}: places this view at {@code (l,
+   * t)} in its parent and sizes it {@code (r - l) x (b - t)}, then, for a ViewGroup that lays
+   * itself out, runs its {@code onLayout}. What a custom ViewGroup's {@code onLayout} calls on each
+   * child. The position holds in a parent that lays its children out itself (a custom ViewGroup, a
+   * FrameLayout without gravity); a LinearLayout or RelativeLayout places its children and keeps
+   * only the size.
+   */
+  public void layout(int l, int t, int r, int b) {
+    setPosition(l, t);
+    setSize(r - l, b - t);
+    afterLayout();
+  }
+
+  /** After {@link #layout} sized this view; a custom ViewGroup lays its children out here. */
+  void afterLayout() {}
+
+  /**
+   * Mirrors {@code android.view.View#requestLayout()}: asks the nearest ancestor that lays itself
+   * out in Java (a {@link ViewGroup} made with {@code ViewGroup(Context)}, this view included) to
+   * run its {@code onLayout} again, on the main thread before the next frame. The framework's own
+   * layouts re-place their children themselves, so under those alone this does nothing.
+   */
+  public void requestLayout() {
+    for (View v = this; v != null; v = v.mParent) {
+      if (v.layoutsItself()) {
+        ((ViewGroup) v).scheduleLayout();
+        return;
+      }
     }
   }
 
@@ -694,9 +802,28 @@ public class View {
   }
 
   boolean fireTouch(MotionEvent event) {
-    if (onTouchListener != null) {
-      return onTouchListener.onTouch(this, event);
+    return dispatchTouchEvent(event);
+  }
+
+  /**
+   * Mirrors {@code android.view.View#dispatchTouchEvent}: the {@link OnTouchListener} first, then
+   * {@link #onTouchEvent} if it did not consume the event. What the touch panel calls; a test calls
+   * it with a {@link MotionEvent#obtain made} event.
+   */
+  public boolean dispatchTouchEvent(MotionEvent event) {
+    OnTouchListener listener = onTouchListener;
+    if (listener != null && listener.onTouch(this, event)) {
+      return true;
     }
+    return onTouchEvent(event);
+  }
+
+  /**
+   * Mirrors {@code android.view.View#onTouchEvent}: a press, move or release on this view, for a
+   * subclass to override; reached on a view that draws itself ({@link #View(Context)}) or has a
+   * touch listener. Return true to consume the gesture, which also keeps the click from firing.
+   */
+  public boolean onTouchEvent(MotionEvent event) {
     return false;
   }
 
@@ -820,6 +947,16 @@ public class View {
    * translation. Mirrors Android.
    */
   public native int getTop();
+
+  /** Mirrors Android: {@link #getLeft} plus {@link #getWidth}. */
+  public int getRight() {
+    return getLeft() + getWidth();
+  }
+
+  /** Mirrors Android: {@link #getTop} plus {@link #getHeight}. */
+  public int getBottom() {
+    return getTop() + getHeight();
+  }
 
   /** Laid-out width in pixels. Mirrors {@code android.view.View#getWidth()}. */
   public native int getWidth();

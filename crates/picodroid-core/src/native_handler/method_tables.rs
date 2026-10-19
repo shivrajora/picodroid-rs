@@ -731,6 +731,7 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/view/View", "nativeRegisterLongClickListener", "()V"),
     ("picodroid/view/View", "nativeRegisterSwipeListener", "()V"),
     ("picodroid/view/View", "nativeRegisterTouchListener", "()V"),
+    ("picodroid/view/View", "nativeEnableTouch", "()V"),
     ("picodroid/view/View", "nativeRequestFocus", "()Z"),
     ("picodroid/view/View", "nativeSetAlpha", "(F)V"),
     ("picodroid/view/View", "nativeSetEnabled", "(Z)V"),
@@ -754,6 +755,8 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/view/View", "nativeSetSize", "(II)V"),
     // picodroid/view/ViewGroup
     ("picodroid/view/ViewGroup", "nativeGetChildCount", "()I"),
+    ("picodroid/view/ViewGroup", "nativeCreateGroup", "()I"),
+    ("picodroid/view/ViewGroup", "nativeWatchSize", "()V"),
     ("picodroid/view/ViewGroup", "nativeAddView", "(Lpicodroid/view/View;)V"),
     (
         "picodroid/view/ViewGroup",

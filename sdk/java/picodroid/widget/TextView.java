@@ -65,7 +65,7 @@ public class TextView extends View {
   }
 
   public TextView(Context ctx) {
-    super(nativeCreate());
+    super(ctx, nativeCreate());
   }
 
   /**
@@ -74,6 +74,11 @@ public class TextView extends View {
    */
   protected TextView(int nativeHandle) {
     super(nativeHandle);
+  }
+
+  /** {@link #TextView(int)} with the {@link Context} the subclass was made with. */
+  protected TextView(Context ctx, int nativeHandle) {
+    super(ctx, nativeHandle);
   }
 
   private static native int nativeCreate();

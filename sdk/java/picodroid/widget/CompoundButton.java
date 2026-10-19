@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.widget;
 
+import picodroid.content.Context;
 import picodroid.view.View;
 
 /**
@@ -20,7 +21,11 @@ public abstract class CompoundButton extends View {
   OnCheckedChangeListener mWidgetListener;
 
   protected CompoundButton(int nativeHandle) {
-    super(nativeHandle);
+    this(null, nativeHandle);
+  }
+
+  protected CompoundButton(Context ctx, int nativeHandle) {
+    super(ctx, nativeHandle);
     // Focusable by default, as on Android (see Button).
     setFocusable(true);
   }

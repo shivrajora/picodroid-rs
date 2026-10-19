@@ -27,7 +27,7 @@ public class ListView extends AdapterView<Adapter> {
   }
 
   public ListView(Context ctx) {
-    super(nativeCreate());
+    super(ctx, nativeCreate());
   }
 
   private static native int nativeCreate();

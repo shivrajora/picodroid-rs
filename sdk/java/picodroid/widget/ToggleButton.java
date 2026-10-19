@@ -13,11 +13,11 @@ public class ToggleButton extends CompoundButton {
   }
 
   public ToggleButton(Context ctx) {
-    super(nativeCreate());
+    super(ctx, nativeCreate());
   }
 
   public ToggleButton(Context ctx, String textOn, String textOff) {
-    super(nativeCreateWithText(textOn, textOff));
+    super(ctx, nativeCreateWithText(textOn, textOff));
   }
 
   private static native int nativeCreate();

@@ -10,7 +10,7 @@ public class Spinner extends AdapterView<Adapter> {
   }
 
   public Spinner(Context ctx) {
-    super(nativeCreate());
+    super(ctx, nativeCreate());
     setFocusable(true);
   }
 

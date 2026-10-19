@@ -438,6 +438,8 @@ view.animate().alpha(1f).setDuration(200).start();       // see ViewPropertyAnim
 view.setOnClickListener(v -> doThing());   // View.OnClickListener (fires on tap or D-pad center)
 view.setOnTouchListener(listener);  // per-View touch dispatch
 ViewParent p = view.getParent();     // the ViewGroup it was added to, or null
+Context c = view.getContext();       // the Context it was made with (or its parent's)
+view.post(() -> label.setText(s));   // run on the main thread, on a later frame
 view.close();                        // free the widget; a parented view leaves its parent first
 ```
 
@@ -470,7 +472,11 @@ The rest of the `View` surface, all mirroring `android.view.View`:
 | `setPadding(int left, int top, int right, int bottom)` | Inner padding in pixels. |
 | `setMinimumWidth(int)` / `setMinimumHeight(int)` / `getMinimumWidth()` / `getMinimumHeight()` | A floor under the laid-out size, as on Android: a `wrap_content` or weighted view never comes out smaller. `android:minWidth` / `android:minHeight` in a layout file. |
 | `setKeepScreenOn(boolean)` / `getKeepScreenOn()` | Hold the display on while this view lives ([display idle sleep](/reference/limits/#display-idle-sleep)). `android:keepScreenOn` in a layout file. |
-| `getLeft()` / `getTop()` / `getWidth()` / `getHeight()` | Laid-out position relative to the parent (excluding translation) and size, in pixels. |
+| `getContext()` | The `Context` the view was made with. A view made with a no-arg constructor (`new TextView()`) answers its parent's once added, so a view in an Activity's tree always has one; detached and made without, it answers `null`. |
+| `post(Runnable)` | Run on the main thread, on a later frame — the same queue as `Executors.mainExecutor()`. There is no `postDelayed`: use `Executors.mainScheduledExecutor()` for a delay. |
+| `getLeft()` / `getTop()` / `getRight()` / `getBottom()` / `getWidth()` / `getHeight()` | Laid-out position relative to the parent (excluding translation) and size, in pixels. |
+| `layout(l, t, r, b)` / `requestLayout()` | Place and size this view in its parent (what a custom `ViewGroup`'s `onLayout` calls on each child), and ask the nearest custom `ViewGroup` ancestor to run `onLayout` again; see [custom layouts](#custom-layouts-viewgroupcontext-and-onlayout). |
+| `onTouchEvent(MotionEvent)` / `dispatchTouchEvent(MotionEvent)` | Override `onTouchEvent` in a subclass to take the finger without a listener: a view made with `View(Context)` hears press, move and release from construction, as on Android (a framework widget needs a `setOnTouchListener` to be routed). `dispatchTouchEvent` runs the `OnTouchListener` first, then `onTouchEvent`; call it with a `MotionEvent.obtain(...)` event for a scripted touch. Returning `true` consumes the gesture and suppresses the click. |
 | `getX()` / `getY()` | `getLeft() + getTranslationX()` and `getTop() + getTranslationY()`, as `float`. |
 | `setId(int)` / `getId()` / `findViewById(int)` | The view's identifier (a layout's `android:id` sets it) and a depth-first search of this view and its descendants; `null` when nothing matches. |
 | `setTag(Object)` / `getTag()` | An arbitrary object kept with the view. |
@@ -630,6 +636,48 @@ view.setLayoutParams(new ViewGroup.LayoutParams(
 `setLayoutParams` set), as on Android; a child with none keeps the size and position it was given
 directly.
 
+`removeViewAt(int)` and `indexOfChild(View)` complete the child-list API (`-1` for a view that is not
+a child; an index past the end is a no-op), as on Android.
+
+### Custom layouts: `ViewGroup(Context)` and `onLayout`
+
+A ViewGroup subclass that places its own children is written as on Android: construct it with
+`super(context)`, override `onLayout(changed, l, t, r, b)` and call `child.layout(...)` for each
+child, measuring them first with `measureChildren` / `measureChild` (`getChildMeasureSpec` is there
+too). `onLayout` runs on the main thread after the group is added to, resized or asked to by
+`requestLayout()`; `l, t, r, b` are the group's frame in its parent, and a child's coordinates are
+relative to the group. Override `onMeasure` as well for a `wrap_content` group.
+
+```java
+public class FlowLayout extends ViewGroup {
+  public FlowLayout(Context context) { super(context); }
+
+  @Override
+  protected void onLayout(boolean changed, int l, int t, int r, int b) {
+    int width = r - l;
+    measureChildren(MeasureSpec.makeMeasureSpec(width, MeasureSpec.AT_MOST),
+                    MeasureSpec.makeMeasureSpec(b - t, MeasureSpec.AT_MOST));
+    int x = 0, y = 0, rowHeight = 0;
+    for (int i = 0; i < getChildCount(); i++) {
+      View child = getChildAt(i);
+      int w = child.getMeasuredWidth(), h = child.getMeasuredHeight();
+      if (x > 0 && x + w > width) { x = 0; y += rowHeight; rowHeight = 0; }
+      child.layout(x, y, x + w, y + h);
+      x += w;
+      rowHeight = Math.max(rowHeight, h);
+    }
+  }
+}
+```
+
+What differs from Android: the group is 0 by 0 until a size or layout params give it one (like a
+`FrameLayout`); a framework widget measured by `measureChild` reports its content size, and keeps
+whatever size `layout()` last gave it until the next `onLayout` (a `TextView` whose text grows does
+not re-lay out the group by itself: call `requestLayout()`); `layout()` on a child of a
+`LinearLayout` or `RelativeLayout` sets the size but the parent keeps the position. A custom view
+inside the group is hit-tested for touch itself, so the group's own `OnTouchListener` does not see
+taps over it.
+
 `ViewGroup.MarginLayoutParams` adds `leftMargin`, `topMargin`, `rightMargin`, `bottomMargin` and
 `setMargins(l, t, r, b)`; `LinearLayout.LayoutParams` and `FrameLayout.LayoutParams` extend it. A
 `LinearLayout` keeps the margins clear around the child; a `FrameLayout` places the child by them
@@ -660,7 +708,7 @@ if (event != null) {
 | `MotionEvent.ACTION_MOVE` | 2 |
 | `MotionEvent.ACTION_LONG_PRESS` | 3 (picodroid extension; LVGL long-press) |
 
-In an `OnTouchListener`, `getX()` / `getY()` are relative to the receiving view's top-left corner and `getRawX()` / `getRawY()` are screen-absolute, as on Android. All four return `int`, not `float`.
+In an `OnTouchListener`, `getX()` / `getY()` are relative to the receiving view's top-left corner and `getRawX()` / `getRawY()` are screen-absolute, as on Android. All four return `int`, not `float`. `MotionEvent.obtain(downTime, eventTime, action, x, y, metaState)` makes one by hand, for `dispatchTouchEvent` in a test.
 
 ## `picodroid.view.OnTouchListener` and `GestureDetector`
 

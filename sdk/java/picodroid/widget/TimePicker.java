@@ -20,7 +20,7 @@ public class TimePicker extends View {
   }
 
   public TimePicker(Context ctx) {
-    super(nativeCreate());
+    super(ctx, nativeCreate());
   }
 
   /** Set the underlying time. {@code hour} is always 0..23 regardless of display mode. */

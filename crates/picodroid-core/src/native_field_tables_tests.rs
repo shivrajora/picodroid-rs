@@ -112,6 +112,7 @@ fn slot_expectations() -> Vec<(&'static str, &'static str, usize)> {
             "mGravity",
             g::text_view::GRAVITY,
         ),
+        (c::picodroid_view_View, "mContext", g::view::CONTEXT),
         // A Button is a TextView whose own fields come after, so the slots
         // hold for it too (the inflater writes them through the Button).
         (c::picodroid_widget_Button, "mText", g::text_view::TEXT),

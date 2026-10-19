@@ -27,7 +27,7 @@ public class RadioGroup extends LinearLayout {
   }
 
   public RadioGroup(Context ctx) {
-    super();
+    super(ctx);
   }
 
   /** For the inflater's native path, which makes the widget itself ({@link InflaterSupport}). */

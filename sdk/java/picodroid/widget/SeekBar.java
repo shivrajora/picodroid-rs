@@ -18,7 +18,7 @@ public class SeekBar extends View {
   }
 
   public SeekBar(Context ctx) {
-    super(nativeCreate());
+    super(ctx, nativeCreate());
     setFocusable(true);
   }
 

@@ -26,12 +26,13 @@ use button_generated::BUTTONS;
 mod focus;
 mod groups;
 mod keypad;
+mod layout;
 mod swipe;
 mod touch;
 
 // One flat `events::*` surface, as when this was a single file: callers in
 // `lifecycle`, `graphics::view` and the widgets name no child module.
-pub use self::{focus::*, groups::*, keypad::*, swipe::*, touch::*};
+pub use self::{focus::*, groups::*, keypad::*, layout::*, swipe::*, touch::*};
 
 #[cfg(test)]
 mod tests;

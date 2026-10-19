@@ -59,7 +59,7 @@ import picodroid.widget.ToggleButton;
  * previous phase fired.
  */
 public class QaUiActivity extends Activity {
-  private static final String TAG = "QaUi";
+  static final String TAG = "QaUi";
 
   static int passed = 0;
   static int failed = 0;
@@ -89,6 +89,10 @@ public class QaUiActivity extends Activity {
   }
 
   private LinearLayout root;
+
+  /** The custom-ViewGroup, getContext, post and onTouchEvent checks, in their own class. */
+  private final CustomGroupChecks groups = new CustomGroupChecks(this);
+
   private final TextView[] rows = new TextView[5];
   private TextView sized;
   // Text-size fixtures: set in phase 1, measured after layout in phase 2.
@@ -169,6 +173,7 @@ public class QaUiActivity extends Activity {
     section("paramsTransforms", () -> paramsTransforms());
     section("focus", () -> focus());
     section("canvas", () -> canvas());
+    section("customGroup", () -> groups.customGroup(root));
     setContentView(root);
     later(300, () -> phase2());
   }
@@ -198,10 +203,15 @@ public class QaUiActivity extends Activity {
     check(
         "configuration floor",
         c.smallestScreenWidthDp >= 240 && c.densityDpi == DisplayMetrics.DENSITY_DEFAULT);
+    // A view that draws itself is bound to its widget from construction: a probe is closed, not
+    // dropped (the simulator reports a bound view the GC took while its widget lived on).
+    View probe = new View(this);
+    boolean touchMode = probe.isInTouchMode();
+    probe.close();
     check(
         "configuration input profile",
         c.touchscreen != Configuration.TOUCHSCREEN_UNDEFINED
-            && (c.navigation == Configuration.NAVIGATION_DPAD) == !new View(this).isInTouchMode()
+            && (c.navigation == Configuration.NAVIGATION_DPAD) == !touchMode
             && c.keyboard == Configuration.KEYBOARD_NOKEYS);
     check("BACK on every board", KeyCharacterMap.deviceHasKey(KeyEvent.KEYCODE_BACK));
     Log.i(TAG, "config " + c);
@@ -1177,6 +1187,7 @@ public class QaUiActivity extends Activity {
     // Before churn: the overflow fixture holds a full display list in LVGL's pool until it is
     // checked and removed here.
     section("canvasDrawn", () -> canvasDrawn());
+    section("customGroupLaidOut", () -> groups.customGroupLaidOut());
     section("deferredEvents", () -> deferredEvents());
     section("sizes", () -> sizes());
     section("animation", () -> animation());
@@ -1657,6 +1668,7 @@ public class QaUiActivity extends Activity {
     }
     Log.i(TAG, "phase3 (animation polls: " + animationPolls + ")");
     check("12 listeners survive GC (tree-rooted)", churnClicks[0] == 12);
+    section("customGroupResized", () -> groups.customGroupResized(root));
     churnBox.removeAllViews();
     // After the churn buttons are freed: the fixture needs the LVGL pool they held, and a full
     // pool is a silent spin in lv_malloc. Its deferred checks are phase 4's.

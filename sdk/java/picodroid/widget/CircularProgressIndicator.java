@@ -47,11 +47,11 @@ public class CircularProgressIndicator extends ProgressBar {
 
   /** A 48 px ring in the theme's primary colour over an outline-coloured track, at 0. */
   public CircularProgressIndicator() {
-    super(nativeCreate(Theme.colorPrimary, Theme.colorOutline));
+    this(null);
   }
 
   public CircularProgressIndicator(Context ctx) {
-    this();
+    super(ctx, nativeCreate(Theme.colorPrimary, Theme.colorOutline));
   }
 
   private static native int nativeCreate(int indicatorArgb, int trackArgb);

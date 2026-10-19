@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.widget;
 
+import picodroid.content.Context;
 import picodroid.view.View;
 import picodroid.view.ViewGroup;
 
@@ -21,6 +22,10 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
 
   protected AdapterView(int nativeHandle) {
     super(nativeHandle);
+  }
+
+  protected AdapterView(Context ctx, int nativeHandle) {
+    super(ctx, nativeHandle);
   }
 
   /**

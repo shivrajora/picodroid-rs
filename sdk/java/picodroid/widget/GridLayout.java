@@ -70,7 +70,7 @@ public class GridLayout extends ViewGroup {
   }
 
   public GridLayout(Context ctx) {
-    super(nativeCreate());
+    super(ctx, nativeCreate());
   }
 
   /** For the inflater's native path, which makes the widget itself ({@link InflaterSupport}). */

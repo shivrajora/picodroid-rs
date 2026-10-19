@@ -397,6 +397,9 @@ public class LayoutInflater {
   private View one(ViewGroup parent, int kind) {
     int cls = nativeWord(mLayout, mPos) & 0xFF;
     View v = cls == 20 ? View.plain() : InflaterSupport.adopt(cls);
+    if (v != null) {
+      v.mContext = mContext;
+    }
     // A parent whose widget was freed has handle 0, which would read as "the screen" to the
     // native path: the Java path's addView throws for it instead.
     int parentHandle = kind == PARENT_NONE ? 0 : parent.nativeHandle;

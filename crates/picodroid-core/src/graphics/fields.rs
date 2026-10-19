@@ -13,7 +13,7 @@ pub mod view {
     // View.java declares the parent back-pointer (slot 1), the listeners
     // (2-7) and the layout params (8) after `nativeHandle`, then the fields
     // the getters read, which the inflater's native path writes for a view
-    // it made (24 instance fields in all); a subclass's own fields — e.g.
+    // it made, then `mContext` (25 instance fields in all); a subclass's own fields — e.g.
     // `CompoundButton.onCheckedChangeListener` — follow them. Fields not
     // named here are read and written from Java only.
     //
@@ -46,22 +46,25 @@ pub mod view {
     pub const ALPHA: usize = 16;
     /// `int id`.
     pub const ID: usize = 17;
+    /// `Context mContext`: the last View field (slot 24, after `mDrawTask`), what
+    /// `getContext()` answers; written by the inflater's native path.
+    pub const CONTEXT: usize = 24;
 }
 
-/// `picodroid.widget.TextView`'s own fields, after `View`'s 24: the cached
+/// `picodroid.widget.TextView`'s own fields, after `View`'s 25: the cached
 /// values its getters and dedupes read, written by the inflater's native
 /// path for a label it made.
 pub mod text_view {
     /// `int mLineMode`: the packed ellipsize kind, single-line flag,
     /// max-lines count and two flags (`inflate_scan::pack_line_mode`).
-    pub const LINE_MODE: usize = 24;
-    pub const MAX_WIDTH: usize = 25;
+    pub const LINE_MODE: usize = 25;
+    pub const MAX_WIDTH: usize = 26;
     /// `float mTextSize`.
-    pub const TEXT_SIZE: usize = 26;
+    pub const TEXT_SIZE: usize = 27;
     /// `String mText`.
-    pub const TEXT: usize = 27;
-    pub const TEXT_COLOR: usize = 28;
-    pub const GRAVITY: usize = 29;
+    pub const TEXT: usize = 28;
+    pub const TEXT_COLOR: usize = 29;
+    pub const GRAVITY: usize = 30;
 }
 
 /// `picodroid.view.LayoutInflater`: the read position and child count its

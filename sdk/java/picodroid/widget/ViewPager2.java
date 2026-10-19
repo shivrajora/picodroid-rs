@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.widget;
 
-import picodroid.concurrent.Executors;
 import picodroid.content.Context;
 import picodroid.os.Bundle;
 import picodroid.util.Log;
@@ -259,11 +258,7 @@ public class ViewPager2 extends FrameLayout {
     dataSetChanged();
   }
 
-  // ── The swap, on one main-thread tick ────────────────────────────────────
-
-  private static void post(Runnable r) {
-    Executors.mainExecutor().execute(r);
-  }
+  // ── The swap, on one main-thread tick (View.post) ────────────────────────
 
   /**
    * A turn is posted, never run in place: a {@code setAdapter} inside {@code onCreate} must bind

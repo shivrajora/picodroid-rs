@@ -35,7 +35,7 @@ public class NumberPicker extends View {
   }
 
   public NumberPicker(Context ctx) {
-    super(nativeCreate());
+    super(ctx, nativeCreate());
     nativeRegisterPicker();
     updateLabel();
   }

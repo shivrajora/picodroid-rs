@@ -38,7 +38,7 @@ public class Keyboard extends View {
   }
 
   public Keyboard(Context ctx) {
-    super(nativeCreate());
+    super(ctx, nativeCreate());
   }
 
   /** Bind this keyboard to type into the given {@link EditText}. */

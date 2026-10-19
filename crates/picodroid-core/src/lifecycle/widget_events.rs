@@ -42,6 +42,29 @@ pub(super) fn dispatch_clicks(
     }
 }
 
+/// Drain the layout-request queue and invoke `ViewGroup.fireLayout()` on each
+/// custom group whose widget changed size since the last frame.
+#[cfg(not(test))]
+pub(super) fn dispatch_layout_requests(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
+) {
+    use crate::graphics::lvgl::{events, handle_table};
+
+    while let Some(handle) = events::drain_layout_request() {
+        if let Some(obj_ref) = handle_table::bound_java(handle) {
+            let _ = jvm.invoke_instance(
+                dispatch_class(dispatch_sites::VIEW_GROUP_LAYOUT),
+                dispatch_method(dispatch_sites::VIEW_GROUP_LAYOUT),
+                obj_ref,
+                heap,
+                handler,
+            );
+        }
+    }
+}
+
 /// Drain completed animation end-actions (withEndAction Runnables) and run
 /// each through the Executors bytecode bridge — lambda proxies only resolve
 /// via that static dispatch, never a direct Runnable.run invoke.

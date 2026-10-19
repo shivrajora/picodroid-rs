@@ -373,6 +373,7 @@ picodroid/view/View$OnLongClickListener
 picodroid/view/ViewConfiguration
 picodroid/view/ViewGroup
 picodroid/view/ViewGroup$LayoutParams
+picodroid/view/ViewGroup$LayoutTask
 picodroid/view/ViewGroup$MarginLayoutParams
 picodroid/view/ViewParent
 picodroid/view/ViewPropertyAnimator

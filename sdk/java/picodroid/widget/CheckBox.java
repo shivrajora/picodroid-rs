@@ -9,7 +9,7 @@ public class CheckBox extends CompoundButton {
   }
 
   public CheckBox(Context ctx) {
-    super(nativeCreate());
+    super(ctx, nativeCreate());
   }
 
   private static native int nativeCreate();

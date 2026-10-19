@@ -21,7 +21,7 @@ public class SwipeRefreshLayout extends ViewGroup {
   }
 
   public SwipeRefreshLayout(Context ctx) {
-    super(nativeCreate());
+    super(ctx, nativeCreate());
   }
 
   public native void setRefreshing(boolean refreshing);

@@ -498,6 +498,7 @@ pub fn set_frame_gravity(args: &[Value], objects: &ObjectHeap) -> Result<Option<
 /// Reset the touch-event queue between app runs.
 pub fn reset_touch_listener_state() {
     lvgl_events::reset_view_touch_listener_state();
+    lvgl_events::reset_layout_requests();
 }
 
 /// Reset the swipe-event queue between app runs.

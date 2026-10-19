@@ -18,12 +18,12 @@ public class DatePicker extends View {
   private int dayOfMonth = 1;
 
   public DatePicker() {
-    super(nativeCreate());
-    nativeSetDate(year, month + 1, dayOfMonth);
+    this(null);
   }
 
   public DatePicker(Context ctx) {
-    this();
+    super(ctx, nativeCreate());
+    nativeSetDate(year, month + 1, dayOfMonth);
   }
 
   /**

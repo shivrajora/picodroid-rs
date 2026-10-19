@@ -987,6 +987,7 @@ fn dispatch_widget_events(
     dispatch_keyboard_ready(jvm, heap, handler);
     dispatch_editor_actions(jvm, heap, handler);
     dispatch_animation_end_actions(jvm, heap, handler);
+    dispatch_layout_requests(jvm, heap, handler);
     dispatch_key_events(jvm, heap, handler);
     // After the keys: BACK is what dismisses a dialog natively, and its
     // Java object is told in the same tick.

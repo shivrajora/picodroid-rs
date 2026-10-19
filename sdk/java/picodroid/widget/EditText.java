@@ -20,15 +20,15 @@ public class EditText extends View {
   private int watcherCount;
 
   public EditText() {
-    super(nativeCreate());
+    this(null);
+  }
+
+  public EditText(Context ctx) {
+    super(ctx, nativeCreate());
     // Focusable by default, as on Android: `requestFocus()` works without a
     // `setFocusable(true)` first, and on a keypad board the field takes the
     // focus ring's select (ENTER opens the keyboard).
     setFocusable(true);
-  }
-
-  public EditText(Context ctx) {
-    this();
   }
 
   private static native int nativeCreate();

@@ -147,11 +147,6 @@ pub const API_HINTS: &[(&str, &str, &str)] = &[
     ),
     (
         c::picodroid_view_View,
-        "post",
-        "use Executors.mainExecutor().execute(Runnable)",
-    ),
-    (
-        c::picodroid_view_View,
         "postDelayed",
         "no Handler — use ViewPropertyAnimator timers or Executors.mainExecutor()",
     ),

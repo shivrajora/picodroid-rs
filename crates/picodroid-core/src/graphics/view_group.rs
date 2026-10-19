@@ -58,6 +58,22 @@ pub fn add_view(
     Ok(None)
 }
 
+/// `ViewGroup.nativeCreateGroup()`: the container behind `ViewGroup(Context)`,
+/// a group that lays its children out in Java. A FrameLayout's widget is
+/// exactly that — flat, unscrolled and without a layout of its own, so
+/// `lv_obj_set_pos` places a child where Java's `layout()` says.
+pub fn create_group() -> Result<Option<Value>, JvmError> {
+    Ok(Some(Value::Int(
+        super::lvgl::widgets::frame_layout::create(),
+    )))
+}
+
+/// `ViewGroup.nativeWatchSize()`: bind the group and queue a layout request
+/// whenever its widget's size changes (`ViewGroup.fireLayout`).
+pub fn watch_size(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
+    super::view::register_listener_with(args, objects, super::lvgl::events::attach_size_changed)
+}
+
 /// `ViewGroup.nativeMoveChildTo(View child, int index)`: `addView(child, index)`
 /// has attached the child last; this slides it to `index` in the widget's
 /// child order, which is what layout and a `ListView` click resolve by.

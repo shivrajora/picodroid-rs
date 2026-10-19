@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.view;
 
+import picodroid.content.Context;
+
 /**
  * Mirrors {@code android.view.ViewGroup}. Common parent for layout containers — owns the {@code
  * addView} / {@code removeView} / {@code getChildAt} family that every layout uses, plus the nested
@@ -13,6 +15,170 @@ package picodroid.view;
 public abstract class ViewGroup extends View implements ViewParent {
   protected ViewGroup(int nativeHandle) {
     super(nativeHandle);
+  }
+
+  /** A framework layout's handle and the {@link Context} it was made with. */
+  protected ViewGroup(Context context, int nativeHandle) {
+    super(context, nativeHandle);
+  }
+
+  /**
+   * Mirrors {@code android.view.ViewGroup(Context)}: a group that lays its children out itself.
+   * Subclass it and override {@link #onLayout} (and {@link #onMeasure} for a {@code wrap_content}
+   * size), as on Android: the children are placed by {@link View#layout} inside {@code onLayout},
+   * which runs on the main thread after the group is added to, resized or asked to by {@link
+   * #requestLayout}. The group is 0 by 0 until a size or layout params give it one.
+   */
+  public ViewGroup(Context context) {
+    super(context, nativeCreateGroup());
+    mCustomGroup = true;
+    nativeWatchSize();
+  }
+
+  /** A plain, borderless, unscrolled container with no layout of its own. */
+  private static native int nativeCreateGroup();
+
+  /** Has the renderer call {@link #fireLayout} whenever this group's size changes. */
+  private native void nativeWatchSize();
+
+  /**
+   * Set by {@link #ViewGroup(Context)}: this group places its children through {@link #onLayout}.
+   */
+  boolean mCustomGroup;
+
+  /** An {@link #onLayout} is queued on the main thread and has not run yet. */
+  private boolean mLayoutPending;
+
+  /** The queued task that runs {@link #onLayout}; made on the first request. */
+  private Runnable mLayoutTask;
+
+  /** The frame {@link #onLayout} last ran with, for its {@code changed} flag. */
+  private int mLastLeft;
+
+  private int mLastTop;
+  private int mLastWidth = -1;
+  private int mLastHeight = -1;
+
+  /**
+   * Mirrors {@code android.view.ViewGroup#onLayout}: place the children with {@link View#layout},
+   * within {@code (left, top)}-{@code (right, bottom)}, this group's frame in its parent. Called
+   * for a group made with {@link #ViewGroup(Context)}; the framework's layouts place their children
+   * natively and never call it. The default does nothing.
+   */
+  protected void onLayout(boolean changed, int left, int top, int right, int bottom) {}
+
+  @Override
+  boolean layoutsItself() {
+    return mCustomGroup;
+  }
+
+  /** Queues one {@link #onLayout} on the main thread; several requests before it runs cost one. */
+  void scheduleLayout() {
+    if (mLayoutPending || isReleased()) {
+      return;
+    }
+    mLayoutPending = true;
+    if (mLayoutTask == null) {
+      mLayoutTask = new LayoutTask(this);
+    }
+    mainExecutor().execute(mLayoutTask);
+  }
+
+  /** Reads this group's frame and runs {@link #onLayout} with it. */
+  final void performLayout() {
+    mLayoutPending = false;
+    if (isReleased()) {
+      return;
+    }
+    int l = getLeft();
+    int t = getTop();
+    int w = getWidth();
+    int h = getHeight();
+    boolean changed = l != mLastLeft || t != mLastTop || w != mLastWidth || h != mLastHeight;
+    mLastLeft = l;
+    mLastTop = t;
+    mLastWidth = w;
+    mLastHeight = h;
+    onLayout(changed, l, t, l + w, t + h);
+  }
+
+  @Override
+  void afterLayout() {
+    if (mCustomGroup) {
+      performLayout();
+    }
+  }
+
+  /** From the renderer: this group's size changed, so its children need placing again. */
+  void fireLayout() {
+    if (mCustomGroup) {
+      scheduleLayout();
+    }
+  }
+
+  /** The main-thread task behind {@link #requestLayout}; one per custom group, reused. */
+  private static final class LayoutTask implements Runnable {
+    private final ViewGroup group;
+
+    LayoutTask(ViewGroup group) {
+      this.group = group;
+    }
+
+    @Override
+    public void run() {
+      group.performLayout();
+    }
+  }
+
+  /**
+   * Mirrors {@code android.view.ViewGroup#measureChildren}: measures every child that is not {@link
+   * #GONE} with {@link #measureChild}.
+   */
+  protected void measureChildren(int widthMeasureSpec, int heightMeasureSpec) {
+    for (int i = 0; i < mChildCount; i++) {
+      View child = mChildren[i];
+      if (child.getVisibility() != GONE) {
+        measureChild(child, widthMeasureSpec, heightMeasureSpec);
+      }
+    }
+  }
+
+  /**
+   * Mirrors {@code android.view.ViewGroup#measureChild}: measures {@code child} with the specs its
+   * {@link LayoutParams} ask for within this group's; a child without params wraps its content.
+   */
+  protected void measureChild(View child, int parentWidthMeasureSpec, int parentHeightMeasureSpec) {
+    LayoutParams lp = child.getLayoutParams();
+    int width = lp == null ? LayoutParams.WRAP_CONTENT : lp.width;
+    int height = lp == null ? LayoutParams.WRAP_CONTENT : lp.height;
+    child.measure(
+        getChildMeasureSpec(parentWidthMeasureSpec, 0, width),
+        getChildMeasureSpec(parentHeightMeasureSpec, 0, height));
+  }
+
+  /**
+   * Mirrors {@code android.view.ViewGroup#getChildMeasureSpec}: the spec a child with layout
+   * dimension {@code childDimension} gets from a parent measured with {@code spec}, less {@code
+   * padding}.
+   */
+  public static int getChildMeasureSpec(int spec, int padding, int childDimension) {
+    int specMode = MeasureSpec.getMode(spec);
+    int size = Math.max(0, MeasureSpec.getSize(spec) - padding);
+    int resultSize = 0;
+    int resultMode = MeasureSpec.UNSPECIFIED;
+    if (childDimension >= 0) {
+      resultSize = childDimension;
+      resultMode = MeasureSpec.EXACTLY;
+    } else if (specMode == MeasureSpec.EXACTLY || specMode == MeasureSpec.AT_MOST) {
+      if (childDimension == LayoutParams.MATCH_PARENT) {
+        resultSize = size;
+        resultMode = specMode == MeasureSpec.EXACTLY ? MeasureSpec.EXACTLY : MeasureSpec.AT_MOST;
+      } else {
+        resultSize = size;
+        resultMode = MeasureSpec.AT_MOST;
+      }
+    }
+    return MeasureSpec.makeMeasureSpec(resultSize, resultMode);
   }
 
   /** Add {@code child} to this layout, reusing whatever {@link View.LayoutParams} the child has. */
@@ -88,6 +254,9 @@ public abstract class ViewGroup extends View implements ViewParent {
     mChildren[mChildCount++] = child;
     child.mParent = this;
     onViewAdded(child);
+    if (mCustomGroup) {
+      scheduleLayout();
+    }
   }
 
   /**
@@ -239,8 +408,26 @@ public abstract class ViewGroup extends View implements ViewParent {
     if (child != null && detachChild(child)) {
       nativeRemoveView(child);
       child.release();
+      if (mCustomGroup) {
+        scheduleLayout();
+      }
     }
     // Not a child (or already released): a no-op, as on Android.
+  }
+
+  /** Mirrors Android: removes the child at {@code index}; out of range is a no-op. */
+  public void removeViewAt(int index) {
+    removeView(getChildAt(index));
+  }
+
+  /** Mirrors Android: the index of {@code child} among this group's children, or -1. */
+  public int indexOfChild(View child) {
+    for (int i = 0; i < mChildCount; i++) {
+      if (mChildren[i] == child) {
+        return i;
+      }
+    }
+    return -1;
   }
 
   private native void nativeRemoveView(View child);

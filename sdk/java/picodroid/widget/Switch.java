@@ -9,7 +9,7 @@ public class Switch extends CompoundButton {
   }
 
   public Switch(Context ctx) {
-    super(nativeCreate());
+    super(ctx, nativeCreate());
   }
 
   private static native int nativeCreate();

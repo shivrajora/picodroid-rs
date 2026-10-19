@@ -36,7 +36,7 @@ public class ProgressBar extends View {
   }
 
   public ProgressBar(Context ctx) {
-    super(nativeCreate());
+    super(ctx, nativeCreate());
   }
 
   /**
@@ -60,6 +60,10 @@ public class ProgressBar extends View {
    */
   protected ProgressBar(int nativeHandle) {
     super(nativeHandle);
+  }
+
+  protected ProgressBar(Context ctx, int nativeHandle) {
+    super(ctx, nativeHandle);
   }
 
   private static native int nativeCreate();

@@ -16,7 +16,7 @@ public class LinearLayout extends ViewGroup {
   }
 
   public LinearLayout(Context ctx) {
-    super(nativeCreate());
+    super(ctx, nativeCreate());
     this.orientation = VERTICAL;
   }
 

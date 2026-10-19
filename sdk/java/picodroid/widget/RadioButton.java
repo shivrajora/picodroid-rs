@@ -14,7 +14,7 @@ public class RadioButton extends CompoundButton {
   }
 
   public RadioButton(Context ctx) {
-    super(nativeCreate());
+    super(ctx, nativeCreate());
   }
 
   private static native int nativeCreate();

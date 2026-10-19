@@ -36,6 +36,19 @@ public class MotionEvent {
     this.eventTime = eventTime;
   }
 
+  /**
+   * Mirrors {@code android.view.MotionEvent#obtain(long, long, int, float, float, int)}: an event
+   * made by hand, for a test or a synthetic gesture. {@code x} / {@code y} serve as the raw
+   * coordinates too; {@code downTime} and {@code metaState} are accepted and dropped.
+   */
+  public static MotionEvent obtain(
+      long downTime, long eventTime, int action, float x, float y, int metaState) {
+    MotionEvent e = new MotionEvent(action, (int) x, (int) y, eventTime);
+    e.rawX = e.x;
+    e.rawY = e.y;
+    return e;
+  }
+
   public int getAction() {
     return action;
   }

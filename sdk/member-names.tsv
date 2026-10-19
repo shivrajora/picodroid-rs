@@ -704,6 +704,7 @@ F	gradientEnd
 F	gradientOrientation
 F	gradientStart
 F	gravity
+F	group
 F	groupId
 F	handle
 F	handler
@@ -796,6 +797,7 @@ F	mContext
 F	mCurState
 F	mCurrentItem
 F	mCustom
+F	mCustomGroup
 F	mData
 F	mDeferred
 F	mDeferredCount
@@ -827,10 +829,16 @@ F	mInts
 F	mIsPop
 F	mKeyDispatchState
 F	mKeys
+F	mLastHeight
+F	mLastLeft
 F	mLastTag
+F	mLastTop
 F	mLastVersion
+F	mLastWidth
 F	mLayout
 F	mLayoutGravity
+F	mLayoutPending
+F	mLayoutTask
 F	mLifecycle
 F	mLifecycleState
 F	mLimit
@@ -1147,6 +1155,7 @@ M	addTransportType
 M	addView
 M	adopt
 M	adopt0
+M	afterLayout
 M	afterTextChanged
 M	again
 M	alignCode
@@ -1347,6 +1356,7 @@ M	dispatchServiceConnected
 M	dispatchStart
 M	dispatchStateChange
 M	dispatchStop
+M	dispatchTouchEvent
 M	dispatchingValue
 M	dividedBy
 M	doAddOp
@@ -1418,6 +1428,7 @@ M	fireFocusChange
 M	fireItemClick
 M	fireItemSelected
 M	fireKey
+M	fireLayout
 M	fireLinkChange
 M	fireLongClick
 M	fireManifest
@@ -1479,6 +1490,7 @@ M	getBlockCountLong
 M	getBlockSizeLong
 M	getBoolean
 M	getBooleanExtra
+M	getBottom
 M	getBroadcast
 M	getBundle
 M	getBundleExtra
@@ -1490,6 +1502,7 @@ M	getCacheBytes
 M	getCheckedRadioButtonId
 M	getChildAt
 M	getChildCount
+M	getChildMeasureSpec
 M	getCipherSuite
 M	getClassName
 M	getColor
@@ -1655,6 +1668,7 @@ M	getResolution
 M	getResources
 M	getResponseCode
 M	getResponseMessage
+M	getRight
 M	getRotation
 M	getRoundTripTime
 M	getRowCount
@@ -1752,6 +1766,7 @@ M	incrementAndGet
 M	incrementProgressBy
 M	indeterminate
 M	indexOf
+M	indexOfChild
 M	inflate
 M	inflateRow
 M	infoAt
@@ -1855,6 +1870,7 @@ M	lambda$swap$2
 M	lambda$swap$3
 M	lambda$track$0
 M	layout
+M	layoutsItself
 M	lazySet
 M	length
 M	lengthOfMonth
@@ -1886,6 +1902,8 @@ M	matches
 M	max
 M	maxLength
 M	measure
+M	measureChild
+M	measureChildren
 M	measureSpecFor
 M	measureText
 M	merge
@@ -1931,6 +1949,7 @@ M	nativeConnect
 M	nativeContentLength
 M	nativeCount
 M	nativeCreate
+M	nativeCreateGroup
 M	nativeCreateIndeterminate
 M	nativeCreateView
 M	nativeCreateWithList
@@ -1948,6 +1967,7 @@ M	nativeDrawColor
 M	nativeDrawLine
 M	nativeDrawRect
 M	nativeDrawText
+M	nativeEnableTouch
 M	nativeEndDraw
 M	nativeFocusTakesLongPress
 M	nativeForget
@@ -2106,6 +2126,7 @@ M	nativeTotalBytes
 M	nativeUninstall
 M	nativeVersionCode
 M	nativeVersionName
+M	nativeWatchSize
 M	nativeWord
 M	nativeWriteDouble
 M	nativeWriteFixed32
@@ -2130,6 +2151,7 @@ M	now
 M	numberToString
 M	observe
 M	observeForever
+M	obtain
 M	of
 M	ofDays
 M	ofEpochDay
@@ -2186,6 +2208,7 @@ M	onKeyDown
 M	onKeyLongPress
 M	onKeyMultiple
 M	onKeyUp
+M	onLayout
 M	onLongClick
 M	onLongPress
 M	onLosing
@@ -2225,6 +2248,7 @@ M	onSwipe
 M	onTextChanged
 M	onTimeChanged
 M	onTouch
+M	onTouchEvent
 M	onUnavailable
 M	onUnbind
 M	onUnbindPage
@@ -2270,6 +2294,7 @@ M	performDraw
 M	performItemClick
 M	performItemSelected
 M	performKeyEvent
+M	performLayout
 M	performLongClick
 M	performLongClickNative
 M	performPause
@@ -2401,11 +2426,13 @@ M	removeStateAt
 M	removeTextChangedListener
 M	removeTransportType
 M	removeView
+M	removeViewAt
 M	renameTo
 M	replace
 M	report
 M	reportBackStackChanged
 M	requestFocus
+M	requestLayout
 M	requestNetwork
 M	requestTime
 M	requireActivity
@@ -2441,6 +2468,7 @@ M	schedule
 M	schedule0
 M	scheduleAtFixedRate
 M	scheduleDraw
+M	scheduleLayout
 M	scheduleWithFixedDelay
 M	scheduleWrite
 M	secondsUntil
@@ -2635,6 +2663,7 @@ M	shutdown
 M	shutdownNow
 M	sin
 M	size
+M	sizeForSpec
 M	sizeLimitExceeded
 M	sizeUnparented
 M	skip

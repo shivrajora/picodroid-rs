@@ -12,7 +12,11 @@ import picodroid.content.Context;
  */
 public class Button extends TextView {
   public Button(String text) {
-    super(nativeCreate(text));
+    this(null, text);
+  }
+
+  public Button(Context ctx, String text) {
+    super(ctx, nativeCreate(text));
     mText = text == null ? "" : text;
     // Focusable by default, as on Android: a stop for the keys without a `setFocusable(true)`
     // of its own, and `requestFocus()` works. LVGL walks a button either way; this is what
@@ -20,12 +24,8 @@ public class Button extends TextView {
     setFocusable(true);
   }
 
-  public Button(Context ctx, String text) {
-    this(text);
-  }
-
   public Button(Context ctx) {
-    this("");
+    this(ctx, "");
   }
 
   /**

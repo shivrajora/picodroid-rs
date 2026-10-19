@@ -79,7 +79,7 @@ public class RelativeLayout extends ViewGroup {
   }
 
   public RelativeLayout(Context ctx) {
-    super(nativeCreate());
+    super(ctx, nativeCreate());
   }
 
   /** For the inflater's native path, which makes the widget itself ({@link InflaterSupport}). */

@@ -142,6 +142,14 @@ pub const ALARM_BROADCAST: usize = WIFI_EVENT + 5;
 /// class and hands it one Intent per action bit. Multi-app only.
 #[cfg(has_multi_app)]
 pub const MANIFEST_BROADCAST: usize = WIFI_EVENT + 6;
+/// A custom ViewGroup's widget changed size: `ViewGroup.fireLayout()` queues
+/// its Java `onLayout` (lifecycle::widget_events::dispatch_layout_requests).
+/// Present on every board, after the two multi-app rows.
+pub const VIEW_GROUP_LAYOUT: usize = if cfg!(has_multi_app) {
+    WIFI_EVENT + 7
+} else {
+    WIFI_EVENT + 5
+};
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -205,6 +213,7 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     (c::picodroid_content_BroadcastReceiver, m::fireAlarm),
     #[cfg(has_multi_app)]
     (c::picodroid_content_BroadcastReceiver, m::fireManifest),
+    (c::picodroid_view_ViewGroup, m::fireLayout),
 ];
 
 #[cfg(test)]
