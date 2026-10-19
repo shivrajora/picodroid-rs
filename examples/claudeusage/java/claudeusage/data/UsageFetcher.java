@@ -7,9 +7,9 @@ import claudeusage.proto.Today;
 import claudeusage.proto.UsageReply;
 import claudeusage.proto.Window;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.ConnectException;
 import java.net.SocketTimeoutException;
-import picodroid.net.HttpInputStream;
 import picodroid.net.HttpURLConnection;
 import picodroid.net.URL;
 import picodroid.protobuf.InvalidProtocolBufferException;
@@ -59,7 +59,7 @@ public final class UsageFetcher {
         Log.i(TAG, "fetch: HTTP " + code);
         return LinkState.BAD_DATA;
       }
-      HttpInputStream in = conn.getInputStream();
+      InputStream in = conn.getInputStream();
       int total = 0;
       while (total < BUF.length) {
         int n = in.read(BUF, total, BUF.length - total);

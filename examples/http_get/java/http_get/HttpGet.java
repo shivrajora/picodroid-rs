@@ -2,9 +2,9 @@
 package http_get;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import picodroid.app.Application;
-import picodroid.net.HttpInputStream;
-import picodroid.net.HttpOutputStream;
 import picodroid.net.HttpURLConnection;
 import picodroid.net.NetworkInfo;
 import picodroid.net.URL;
@@ -64,7 +64,7 @@ public class HttpGet extends Application {
       int code = c.getResponseCode();
       Log.i(TAG, "  status=" + code + " content-length=" + c.getContentLength());
 
-      HttpInputStream in = c.getInputStream();
+      InputStream in = c.getInputStream();
       byte[] buf = new byte[128];
       int total = 0;
       int n;
@@ -91,7 +91,7 @@ public class HttpGet extends Application {
       c.setFixedLengthStreamingMode(body.length);
       c.connect();
 
-      HttpOutputStream out = c.getOutputStream();
+      OutputStream out = c.getOutputStream();
       out.write(body);
 
       int code = c.getResponseCode();

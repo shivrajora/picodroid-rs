@@ -2,9 +2,9 @@
 package https_get;
 
 import java.io.IOException;
+import java.io.InputStream;
 import javax.net.ssl.SSLHandshakeException;
 import picodroid.app.Application;
-import picodroid.net.HttpInputStream;
 import picodroid.net.HttpURLConnection;
 import picodroid.net.NetworkInfo;
 import picodroid.net.URL;
@@ -72,7 +72,7 @@ public class HttpsGet extends Application {
       long handshake = SystemClock.elapsedRealtime() - t0;
       int code = c.getResponseCode();
       Log.i(TAG, "  status=" + code + " handshake=" + handshake + "ms");
-      HttpInputStream in = c.getInputStream();
+      InputStream in = c.getInputStream();
       byte[] buf = new byte[256];
       int total = 0;
       int n;

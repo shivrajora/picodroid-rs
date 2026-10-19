@@ -206,7 +206,7 @@ c.setReadTimeout(10000);      // so does each blocking read of the response
 c.connect();
 ```
 
-Both are in milliseconds and both default to 0, which waits forever, so set them. The read timeout bounds `getResponseCode()` and every `HttpInputStream.read`; it is applied to the socket at connect time, so set it before `connect()`. A negative value throws `IllegalArgumentException`. `getConnectTimeout()` and `getReadTimeout()` read them back.
+Both are in milliseconds and both default to 0, which waits forever, so set them. The read timeout bounds `getResponseCode()` and every read of its input stream; it is applied to the socket at connect time, so set it before `connect()`. A negative value throws `IllegalArgumentException`. `getConnectTimeout()` and `getReadTimeout()` read them back.
 
 ### Request headers
 
@@ -245,7 +245,7 @@ When a header repeats, `getHeaderField(String)` returns the last value; the inde
 ### GET
 
 ```java
-import picodroid.net.HttpInputStream;
+import java.io.InputStream;
 import picodroid.net.HttpURLConnection;
 import picodroid.net.URL;
 
@@ -253,7 +253,7 @@ HttpURLConnection c = new URL("http://example.com/api/time").openConnection();
 try {
     c.connect();
     if (c.getResponseCode() == 200) {
-        HttpInputStream in = c.getInputStream();
+        InputStream in = c.getInputStream();
         byte[] buf = new byte[256];
         int n;
         while ((n = in.read(buf)) > 0) {
@@ -277,7 +277,6 @@ try (HttpURLConnection c = new URL("http://example.com/").openConnection()) {
 ### POST
 
 ```java
-import picodroid.net.HttpOutputStream;
 import picodroid.net.HttpURLConnection;
 import picodroid.net.URL;
 
@@ -414,7 +413,7 @@ Network failures throw the `java.net` exception types Android apps expect, with 
 | No memory or entropy for the TLS session | `javax.net.ssl.SSLException` | `out of memory for the TLS session…`, `no hardware entropy for the handshake` |
 | Anything else | `java.io.IOException` | `<op> failed (err N)` |
 
-`Socket.recv` and `HttpInputStream.read` return `-1` **only** at orderly end-of-stream — timeouts and transport errors always throw, so a stalled-but-alive server never reads as a clean EOF. The hierarchy matches real Java: `ConnectException` and `BindException` extend `SocketException`; `SocketTimeoutException` extends `InterruptedIOException`, *not* `SocketException`; `SSLHandshakeException` and `SSLPeerUnverifiedException` extend `SSLException`, an `IOException`.
+`Socket.recv` and the HTTP input stream's `read` return `-1` **only** at orderly end-of-stream — timeouts and transport errors always throw, so a stalled-but-alive server never reads as a clean EOF. The hierarchy matches real Java: `ConnectException` and `BindException` extend `SocketException`; `SocketTimeoutException` extends `InterruptedIOException`, *not* `SocketException`; `SSLHandshakeException` and `SSLPeerUnverifiedException` extend `SSLException`, an `IOException`.
 
 ```java
 import java.io.IOException;

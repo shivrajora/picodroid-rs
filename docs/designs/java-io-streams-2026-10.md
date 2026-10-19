@@ -63,9 +63,10 @@ while ((n = in.read(buf)) != -1) bytes.write(buf, 0, n);
   `(class, method name)`, not the descriptor, so an abstract `read()` left unimplemented on
   `FileInputStream` would resolve to the native `read([BII)` arm and misread its arguments.
 - **`getInputStream()` returns `java.io.InputStream`.** The JDK descriptor, so a Java method
-  that takes a `Socket` compiles against the host JDK and runs here. `HttpURLConnection` keeps
-  returning `HttpInputStream` (already compiled into apps' PAPKs); it *is* an `InputStream`, so the
-  Android wrapping idiom works unchanged.
+  that takes a `Socket` compiles against the host JDK and runs here. `HttpURLConnection` kept
+  returning `HttpInputStream` at first (already compiled into apps' PAPKs); since 2026-10-19 its
+  `getInputStream()` / `getErrorStream()` / `getOutputStream()` declare the `java.io` types too,
+  and the six in-repo callers that named the concrete type were rebuilt with it.
 - **Socket streams are fresh wrappers per call.** `ServerSocket.accept` allocates a `Socket`
   with the default field count (`objects.alloc`), so a cached-stream field on `Socket` would read
   as `null` there. Wrappers are two-field objects; sharing the socket through them is cheap.

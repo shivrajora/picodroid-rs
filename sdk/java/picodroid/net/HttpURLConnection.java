@@ -2,6 +2,8 @@
 package picodroid.net;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 
 /**
  * HTTP/1.1 client connection, Android-style.
@@ -21,7 +23,7 @@ import java.io.IOException;
  * c.connect();
  * if (c.getResponseCode() == HttpURLConnection.HTTP_OK) {
  *   String type = c.getHeaderField("Content-Type");
- *   HttpInputStream in = c.getInputStream();
+ *   InputStream in = c.getInputStream();
  *   byte[] buf = new byte[256];
  *   int n;
  *   while ((n = in.read(buf)) > 0) { ... }
@@ -293,7 +295,7 @@ public class HttpURLConnection implements AutoCloseable {
             url.getProtocol().equals("https"));
   }
 
-  public HttpOutputStream getOutputStream() throws IOException {
+  public OutputStream getOutputStream() throws IOException {
     if (handle == -1) {
       connect();
     }
@@ -322,7 +324,7 @@ public class HttpURLConnection implements AutoCloseable {
     return nativeContentLength(handle);
   }
 
-  public HttpInputStream getInputStream() throws IOException {
+  public InputStream getInputStream() throws IOException {
     if (handle == -1) {
       connect();
     }
@@ -338,7 +340,7 @@ public class HttpURLConnection implements AutoCloseable {
    *
    * @throws IOException if connecting or reading the response head fails
    */
-  public HttpInputStream getErrorStream() throws IOException {
+  public InputStream getErrorStream() throws IOException {
     if (handle == -1) {
       return null;
     }

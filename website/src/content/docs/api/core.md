@@ -467,8 +467,8 @@ The `java.io` stream hierarchy, as pure-Java classes on every board: `InputStrea
 `OutputStream` (abstract), `ByteArrayInputStream` / `ByteArrayOutputStream`, `Reader` and
 `Writer` (abstract), `InputStreamReader`, `BufferedReader` with `readLine()`,
 `OutputStreamWriter` and `PrintWriter`. `picodroid.io.FileInputStream` / `FileOutputStream`,
-`picodroid.net.HttpInputStream` / `HttpOutputStream` and `Socket.getInputStream()` /
-`getOutputStream()` are `java.io` streams, so the Android idioms work as written:
+`HttpURLConnection.getInputStream()` / `getOutputStream()` and `Socket.getInputStream()` /
+`getOutputStream()` return `java.io` streams, so the Android idioms work as written:
 
 ```java
 import java.io.BufferedReader;

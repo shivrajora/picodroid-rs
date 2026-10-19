@@ -2,10 +2,10 @@
 package picoenvmon.net;
 
 import java.io.IOException;
+import java.io.InputStream;
 import javax.net.ssl.SSLHandshakeException;
 import picodroid.json.JSONException;
 import picodroid.json.JSONObject;
-import picodroid.net.HttpInputStream;
 import picodroid.net.HttpURLConnection;
 import picodroid.net.URL;
 import picodroid.util.Log;
@@ -82,7 +82,7 @@ public final class WeatherFetcher {
         return null;
       }
       byte[] buf = new byte[MAX_REPLY_BYTES];
-      HttpInputStream in = conn.getInputStream();
+      InputStream in = conn.getInputStream();
       int total = 0;
       while (total < buf.length) {
         int n = in.read(buf, total, buf.length - total);

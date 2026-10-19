@@ -2,6 +2,8 @@
 package askclaude;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import javax.net.ssl.SSLHandshakeException;
 import picodroid.app.Activity;
 import picodroid.concurrent.Executors;
@@ -14,8 +16,6 @@ import picodroid.hardware.SensorManager;
 import picodroid.json.JSONArray;
 import picodroid.json.JSONException;
 import picodroid.json.JSONObject;
-import picodroid.net.HttpInputStream;
-import picodroid.net.HttpOutputStream;
 import picodroid.net.HttpURLConnection;
 import picodroid.net.URL;
 import picodroid.os.Bundle;
@@ -214,7 +214,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         c.setRequestProperty("content-type", "application/json");
         long t0 = SystemClock.elapsedRealtime();
         c.connect();
-        HttpOutputStream out = c.getOutputStream();
+        OutputStream out = c.getOutputStream();
         out.write(bytes);
         int code = c.getResponseCode();
         String json = readAll(code < 400 ? c.getInputStream() : c.getErrorStream());
@@ -266,7 +266,7 @@ public class MainActivity extends Activity implements SensorEventListener {
             });
   }
 
-  private static String readAll(HttpInputStream in) throws IOException {
+  private static String readAll(InputStream in) throws IOException {
     if (in == null) {
       return "";
     }
