@@ -800,6 +800,14 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/widget/EditText", "setText", "(Ljava/lang/String;)V"),
     // picodroid/widget/FrameLayout
     ("picodroid/widget/FrameLayout", "nativeCreate", "()I"),
+    // picodroid/widget/GridLayout
+    ("picodroid/widget/GridLayout", "nativeCreate", "()I"),
+    (
+        "picodroid/widget/GridLayout",
+        "nativePlace",
+        "(Lpicodroid/view/View;IIIIIIII)Z",
+    ),
+    ("picodroid/widget/GridLayout", "setSpacing", "(I)V"),
     // picodroid/widget/ImageView
     ("picodroid/widget/ImageView", "nativeCreate", "()I"),
     ("picodroid/widget/ImageView", "setImageResource", "(I)V"),

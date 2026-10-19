@@ -1462,6 +1462,59 @@ gravity, `leftMargin` and `topMargin` are the child's position. A child added wi
 positioned with `setPosition`. In a layout file these are `android:layout_gravity` and
 `android:layout_margin*`.
 
+### `picodroid.widget.GridLayout`
+
+A grid of cells, the shape of `android.widget.GridLayout`, on LVGL's grid layout. Children go
+into the next free cell row by row (`HORIZONTAL`, the default) or column by column (`VERTICAL`)
+unless their `LayoutParams` name a cell; a child may span columns or rows; a track with a
+weighted child takes that share of the free space. Flat by default, like `LinearLayout`.
+
+```java
+import picodroid.widget.GridLayout;
+import static picodroid.widget.GridLayout.spec;
+
+GridLayout keys = new GridLayout();
+keys.setColumnCount(4);
+keys.setSpacing(4);
+for (String label : LABELS) {
+  Button b = new Button();
+  b.setText(label);
+  // Every track weighted 1, the cell stretched: a 4-wide keypad of equal keys.
+  keys.addView(b, new GridLayout.LayoutParams(spec(GridLayout.UNDEFINED, 1f),
+                                              spec(GridLayout.UNDEFINED, 1f)));
+}
+// "0" takes two columns.
+keys.addView(zero, new GridLayout.LayoutParams(
+    spec(GridLayout.UNDEFINED, 1f), spec(GridLayout.UNDEFINED, 2, GridLayout.FILL, 1f)));
+```
+
+| Method | Description |
+|--------|-------------|
+| `setColumnCount(int)` / `getColumnCount()` | Columns before placement wraps. Call it before the first child; afterwards it throws `IllegalStateException`. Without one, children that name no cell all land in cell (0, 0), as on Android. |
+| `setRowCount(int)` / `getRowCount()` | The same for rows under `VERTICAL`. |
+| `setOrientation(int)` | `HORIZONTAL` fills a row first; `VERTICAL` a column. Before the first child. |
+| `setSpacing(int px)` | Gap between adjacent columns and rows; 0 by default. A picodroid addition, as `LinearLayout.setSpacing` is; margins work too. |
+
+`GridLayout.LayoutParams(Spec rowSpec, Spec columnSpec)` carries one `Spec` per axis, made by
+`GridLayout.spec(start, size, alignment, weight)` and its shorter forms (`spec(start)`,
+`spec(start, size)`, `spec(start, alignment)`, `spec(start, weight)`, …). `start` is a track index
+or `GridLayout.UNDEFINED` for the next free one; `size` is the span; `alignment` is one of
+`TOP`, `BOTTOM`, `LEFT`, `RIGHT`, `START`, `END`, `CENTER`, `FILL` (the child sits in its cell
+there; `FILL` stretches it); `weight` gives the track a share of the free space. A child whose
+width or height is `match_parent` is stretched on that axis; otherwise it keeps its own size.
+`LayoutParams.setGravity(int)` sets both alignments from a `Gravity` mask, which is what
+`android:layout_gravity` on a grid child does. Margins keep that much of the cell clear.
+
+In a layout file: `<GridLayout android:columnCount="4">` with `android:layout_column`,
+`android:layout_row`, `android:layout_columnSpan`, `android:layout_rowSpan`,
+`android:layout_columnWeight`, `android:layout_rowWeight` and `android:layout_gravity` on the
+children.
+
+Divergences from Android: a child's cell is fixed when it is added (`removeView` leaves a hole;
+`addView(child, index)` does not reflow); the count and orientation setters throw once a child is
+in; weights keep one decimal and cap at 9.9, the largest weight on a track wins; at most 16 columns,
+16 rows and 6 grids alive at once (a seventh throws); `BASELINE` reads as `TOP`.
+
 ### `picodroid.widget.ViewPager2`
 
 Pages of [fragments](#picodroidappfragment), one on screen at a time, the shape of `androidx.viewpager2.widget.ViewPager2` with a `FragmentStateAdapter` (both in `picodroid.widget`). It goes in a layout as `<ViewPager2 android:id="@+id/pager" …/>` or is built with `new ViewPager2(context)`:

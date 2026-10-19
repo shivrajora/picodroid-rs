@@ -443,6 +443,15 @@ impl GraphicsBackend for LvglBackend {
         }
     }
 
+    fn dispatch_grid_layout(&mut self, method: u32, ctx: &mut NativeContext<'_>) -> DispatchResult {
+        match method {
+            mh::nativeCreate => Some(widgets::grid_layout_native_create()),
+            mh::nativePlace => Some(widgets::grid_layout_place(ctx.args, ctx.objects)),
+            mh::setSpacing => Some(widgets::grid_layout_set_spacing(ctx.args, ctx.objects)),
+            _ => None,
+        }
+    }
+
     fn dispatch_date_picker(&mut self, method: u32, ctx: &mut NativeContext<'_>) -> DispatchResult {
         match method {
             mh::nativeCreate => Some(widgets::date_picker_native_create()),

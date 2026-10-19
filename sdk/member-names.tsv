@@ -24,6 +24,11 @@ F	ACTION_TIME_CHANGED
 F	ACTION_TIME_TICK
 F	ACTION_UP
 F	ALARM_SERVICE
+F	ALIGN_CENTER
+F	ALIGN_END
+F	ALIGN_FILL
+F	ALIGN_START
+F	ALIGN_UNDEFINED
 F	ANTI_ALIAS_FLAG
 F	APRIL
 F	ASSOCIATING
@@ -31,6 +36,7 @@ F	ATTACHED
 F	AT_MOST
 F	AUGUST
 F	AUTO_TIME
+F	BASELINE
 F	BIND_AUTO_CREATE
 F	BIT_BOOT_COMPLETED
 F	BIT_CONNECTIVITY
@@ -526,6 +532,8 @@ F	T_INT
 F	T_LONG
 F	T_REMOVED
 F	T_STRING
+F	UNDEFINED
+F	UNDEFINED_ALIGNMENT
 F	UNKNOWN
 F	UNKNOWN_RSSI
 F	UNKNOWN_SSID
@@ -564,6 +572,7 @@ F	activeCapabilities
 F	activeLongPresses
 F	adapter
 F	address
+F	alignment
 F	alive
 F	alpha
 F	alphaTo
@@ -593,6 +602,7 @@ F	checkedMask
 F	chunk
 F	chunkLen
 F	clearRequested
+F	code
 F	color
 F	colorBackground
 F	colorOnPrimary
@@ -601,6 +611,7 @@ F	colorPrimary
 F	colorSurface
 F	colorText
 F	colorTextSecondary
+F	columnSpec
 F	connectTimeout
 F	count
 F	crc
@@ -713,6 +724,8 @@ F	mCanvas
 F	mChildCount
 F	mChildren
 F	mClass
+F	mColumnCount
+F	mColumnsUsed
 F	mCommitted
 F	mContainer
 F	mContainerId
@@ -761,15 +774,18 @@ F	mLifecycleState
 F	mLimit
 F	mLineMode
 F	mLiveData
+F	mMajor
 F	mManager
 F	mMarginBottom
 F	mMarginLeft
 F	mMarginRight
 F	mMarginTop
+F	mMaxSizes
 F	mMaxState
 F	mMaxWidth
 F	mMemoryGeneration
 F	mMetrics
+F	mMinor
 F	mModels
 F	mName
 F	mNextBackStackIndex
@@ -800,6 +816,7 @@ F	mRootParent
 F	mRootVisibility
 F	mRowCount
 F	mRows
+F	mRowsUsed
 F	mSavedFragmentState
 F	mScrollState
 F	mSized
@@ -915,6 +932,7 @@ F	result
 F	rightMargin
 F	rotationTo
 F	roundTripTime
+F	rowSpec
 F	rssi
 F	rules
 F	sCount
@@ -944,12 +962,15 @@ F	seconds
 F	sensor
 F	showing
 F	shutdown
+F	size
 F	skipLf
 F	smallestScreenWidthDp
 F	socket
 F	spiId
 F	ssid
+F	start
 F	startAngle
+F	startDefined
 F	startDelayMs
 F	started
 F	state
@@ -1055,6 +1076,8 @@ M	adopt
 M	adopt0
 M	afterTextChanged
 M	again
+M	alignCode
+M	alignment
 M	alpha
 M	animate
 M	app
@@ -1075,6 +1098,7 @@ M	argb
 M	arm
 M	arraycopy
 M	ascent
+M	at
 M	atDate
 M	atDay
 M	atStartOfDay
@@ -1124,6 +1148,7 @@ M	checkLastTagWas
 M	checkMinute
 M	checkName
 M	checkNano
+M	checkNoChildren
 M	checkNoSpaceLeft
 M	checkNotAncestor
 M	checkNotReleased
@@ -1333,6 +1358,7 @@ M	fireTouch
 M	fireTrackingTouch
 M	firstDayOfYear
 M	firstMonthOfQuarter
+M	fits
 M	flattenToString
 M	floor
 M	floorDiv
@@ -1342,6 +1368,7 @@ M	flushPending
 M	forName
 M	forget
 M	format
+M	fr
 M	frequencyOf
 M	from
 M	gcCount
@@ -1390,6 +1417,7 @@ M	getCipherSuite
 M	getClassName
 M	getColor
 M	getColorForState
+M	getColumnCount
 M	getConfiguration
 M	getConfiguredNetworks
 M	getConnectTimeout
@@ -1552,6 +1580,7 @@ M	getResponseCode
 M	getResponseMessage
 M	getRotation
 M	getRoundTripTime
+M	getRowCount
 M	getRssi
 M	getRules
 M	getSSID
@@ -1566,6 +1595,7 @@ M	getSerial
 M	getSerializedSize
 M	getSharedPreferences
 M	getSize
+M	getStart
 M	getStartAngle
 M	getStartDelay
 M	getStep
@@ -1610,6 +1640,7 @@ M	getView
 M	getViewLifecycleOwner
 M	getViewModelStore
 M	getVisibility
+M	getWeight
 M	getWidth
 M	getWifiState
 M	getX
@@ -1869,6 +1900,7 @@ M	nativeNewView
 M	nativePackageName
 M	nativeParse
 M	nativePerformItemClick
+M	nativePlace
 M	nativePoolNodes
 M	nativePutBool
 M	nativePutDouble
@@ -2164,6 +2196,7 @@ M	performStart
 M	performStop
 M	performTrackingTouch
 M	performedLongPress
+M	place
 M	plain
 M	plus
 M	plusDays
@@ -2342,6 +2375,7 @@ M	setCheckedId
 M	setCheckedSilently
 M	setClassName
 M	setColor
+M	setColumnCount
 M	setConnectTimeout
 M	setContentText
 M	setContentTitle
@@ -2450,6 +2484,7 @@ M	setRequestMethod
 M	setRequestProperty
 M	setResult
 M	setRotation
+M	setRowCount
 M	setScale
 M	setScaleType
 M	setScaleX
@@ -2517,6 +2552,7 @@ M	sleep0
 M	slot
 M	sort
 M	spaceLeft
+M	spec
 M	sqrt
 M	start
 M	start0

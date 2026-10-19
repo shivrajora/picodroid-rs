@@ -45,6 +45,7 @@ fn is_view(class: u32) -> bool {
             | ch::picodroid_widget_RadioGroup
             | ch::picodroid_widget_ScrollView
             | ch::picodroid_widget_FrameLayout
+            | ch::picodroid_widget_GridLayout
             | ch::picodroid_widget_Spinner
             | ch::picodroid_widget_DatePicker
             | ch::picodroid_widget_TimePicker
@@ -65,6 +66,7 @@ fn is_view_group(class: u32) -> bool {
             | ch::picodroid_widget_AdapterView
             | ch::picodroid_widget_LinearLayout
             | ch::picodroid_widget_FrameLayout
+            | ch::picodroid_widget_GridLayout
             | ch::picodroid_widget_ScrollView
             | ch::picodroid_widget_SwipeRefreshLayout
             | ch::picodroid_widget_Spinner
@@ -175,6 +177,7 @@ fn dispatch_with<B: GraphicsBackend>(
         ch::picodroid_widget_ImageView => be.dispatch_image_view(key.method, ctx),
         ch::picodroid_widget_ScrollView => be.dispatch_scroll_view(key.method, ctx),
         ch::picodroid_widget_FrameLayout => be.dispatch_frame_layout(key.method, ctx),
+        ch::picodroid_widget_GridLayout => be.dispatch_grid_layout(key.method, ctx),
         ch::picodroid_widget_Spinner => be.dispatch_spinner(key.method, ctx),
         ch::picodroid_widget_DatePicker => be.dispatch_date_picker(key.method, ctx),
         ch::picodroid_widget_TimePicker => be.dispatch_time_picker(key.method, ctx),

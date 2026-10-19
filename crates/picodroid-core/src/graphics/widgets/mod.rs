@@ -16,6 +16,7 @@ mod date_picker;
 mod drawable;
 mod edit_text;
 mod frame_layout;
+mod grid_layout;
 mod image_view;
 mod inflate;
 mod keyboard;
@@ -88,6 +89,7 @@ pub use edit_text::{
     edit_text_set_show_keyboard_on_touch, edit_text_set_text, reset_edit_text_state,
 };
 pub use frame_layout::frame_layout_native_create;
+pub use grid_layout::{grid_layout_native_create, grid_layout_place, grid_layout_set_spacing};
 pub use image_view::{
     image_view_native_create, image_view_set_resource, image_view_set_scale,
     image_view_set_scale_type, image_view_set_src, image_view_set_tint,

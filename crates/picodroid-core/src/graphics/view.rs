@@ -122,7 +122,7 @@ pub fn extract_string_non_null_at<'s>(
 }
 
 #[inline]
-fn arg_int(args: &[Value], i: usize) -> Result<i32, JvmError> {
+pub(in crate::graphics) fn arg_int(args: &[Value], i: usize) -> Result<i32, JvmError> {
     match args.get(i) {
         Some(Value::Int(v)) => Ok(*v),
         _ => Err(JvmError::InvalidReference),
