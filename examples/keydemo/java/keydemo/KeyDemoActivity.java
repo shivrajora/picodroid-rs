@@ -81,11 +81,11 @@ public class KeyDemoActivity extends Activity implements OnKeyListener {
   }
 
   @Override
-  public boolean onKey(View v, KeyEvent event) {
-    if (event.getKeyCode() != KeyEvent.KEYCODE_DPAD_CENTER) {
+  public boolean onKey(View v, int keyCode, KeyEvent event) {
+    if (keyCode != KeyEvent.KEYCODE_DPAD_CENTER) {
       return false; // not ours: falls through to the Activity
     }
-    show("view " + name(event.getAction()) + " keyCode=" + event.getKeyCode());
+    show("view " + name(event.getAction()) + " keyCode=" + keyCode);
     return true;
   }
 

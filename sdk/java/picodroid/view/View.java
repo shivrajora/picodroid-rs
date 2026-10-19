@@ -688,7 +688,7 @@ public class View {
 
   boolean fireKey(KeyEvent event) {
     if (onKeyListener != null) {
-      return onKeyListener.onKey(this, event);
+      return onKeyListener.onKey(this, event.getKeyCode(), event);
     }
     return false;
   }

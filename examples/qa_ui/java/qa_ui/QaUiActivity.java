@@ -1404,7 +1404,7 @@ public class QaUiActivity extends Activity {
           });
       if (i < 4) {
         // Two more kinds through the same binding; their LVGL callbacks cost pool, so a few.
-        b.setOnKeyListener((v, e) -> false);
+        b.setOnKeyListener((v, k, e) -> false);
         b.setOnFocusChangeListener((v, hasFocus) -> manyFocus[0]++);
       }
       many.addView(b); // no Java reference kept

@@ -799,9 +799,9 @@ import picodroid.widget.Button;
 
 Button focus = new Button("Focus me");
 focus.setOnKeyListener(new OnKeyListener() {
-    public boolean onKey(View v, KeyEvent event) {
+    public boolean onKey(View v, int keyCode, KeyEvent event) {
         if (event.getAction() == KeyEvent.ACTION_DOWN
-                && event.getKeyCode() == KeyEvent.KEYCODE_DPAD_CENTER) {
+                && keyCode == KeyEvent.KEYCODE_DPAD_CENTER) {
             // handled
             return true;
         }
