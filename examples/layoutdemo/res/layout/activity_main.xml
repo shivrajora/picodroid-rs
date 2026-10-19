@@ -174,6 +174,85 @@
             android:background="@color/accent" />
     </GridLayout>
 
+    <!-- Per-child layout_gravity in a LinearLayout: a row reads the vertical bits, a column
+         the horizontal ones; a weighted Space between; a match_parent child within its margins. -->
+    <LinearLayout
+        android:id="@+id/gravity_row"
+        android:layout_width="match_parent"
+        android:layout_height="30dp"
+        android:orientation="horizontal">
+
+        <FrameLayout
+            android:id="@+id/gr_top"
+            android:layout_width="10dp"
+            android:layout_height="20dp"
+            android:background="@color/accent" />
+
+        <FrameLayout
+            android:id="@+id/gr_centre"
+            android:layout_width="10dp"
+            android:layout_height="10dp"
+            android:layout_gravity="center_vertical"
+            android:background="@color/accent" />
+
+        <FrameLayout
+            android:id="@+id/gr_bottom"
+            android:layout_width="10dp"
+            android:layout_height="10dp"
+            android:layout_gravity="bottom"
+            android:background="@color/accent" />
+
+        <FrameLayout
+            android:id="@+id/gr_right"
+            android:layout_width="10dp"
+            android:layout_height="10dp"
+            android:layout_gravity="right"
+            android:background="@color/accent" />
+
+        <Space
+            android:id="@+id/gr_fill"
+            android:layout_width="0dp"
+            android:layout_height="10dp"
+            android:layout_weight="1" />
+
+        <FrameLayout
+            android:id="@+id/gr_end"
+            android:layout_width="10dp"
+            android:layout_height="10dp"
+            android:layout_gravity="bottom"
+            android:layout_marginBottom="3dp"
+            android:background="@color/accent" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/gravity_column"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <FrameLayout
+            android:id="@+id/gc_right"
+            android:layout_width="10dp"
+            android:layout_height="10dp"
+            android:layout_gravity="right"
+            android:background="@color/accent" />
+
+        <FrameLayout
+            android:id="@+id/gc_centre"
+            android:layout_width="20dp"
+            android:layout_height="10dp"
+            android:layout_gravity="center_horizontal"
+            android:background="@color/accent" />
+
+        <FrameLayout
+            android:id="@+id/gc_fill"
+            android:layout_width="match_parent"
+            android:layout_height="10dp"
+            android:layout_marginLeft="8dp"
+            android:layout_marginRight="4dp"
+            android:background="@color/accent" />
+    </LinearLayout>
+
     <FrameLayout
         android:id="@+id/stages"
         android:layout_width="match_parent"

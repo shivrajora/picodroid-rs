@@ -88,6 +88,7 @@ public class LayoutDemoActivity extends Activity {
     checkGrid();
     checkRelativeCode();
     checkRelativeXml();
+    checkLinearGravity();
     checkConfiguration();
 
     FrameLayout stages = findViewById(R.id.stages);
@@ -294,6 +295,77 @@ public class LayoutDemoActivity extends Activity {
     corner = relBox(rel, 1003, cornerLp);
     check("relative code: a rule changed", corner.getLeft() == 0 && corner.getTop() == 44);
     root.removeView(rel);
+  }
+
+  /**
+   * Per-child layout_gravity in a LinearLayout and Android's weights, from XML and from code: a row
+   * places each child across its height by the child's own vertical bits (horizontal bits are
+   * ignored), a column by the horizontal ones; a weighted Space takes the rest; match_parent fills
+   * within its margins; a weight shares what is left sequentially; GONE gives its room up.
+   */
+  private void checkLinearGravity() {
+    LinearLayout row = findViewById(R.id.gravity_row);
+    int w = row.getWidth();
+    View top = findViewById(R.id.gr_top);
+    View centre = findViewById(R.id.gr_centre);
+    View bottom = findViewById(R.id.gr_bottom);
+    View right = findViewById(R.id.gr_right);
+    View fill = findViewById(R.id.gr_fill);
+    View end = findViewById(R.id.gr_end);
+    check("linear gravity: a child without one sits at the top", top.getTop() == 0);
+    check("linear gravity: center_vertical", centre.getTop() == 10 && centre.getLeft() == 10);
+    check("linear gravity: bottom", bottom.getTop() == 20 && bottom.getLeft() == 20);
+    check(
+        "linear gravity: a row ignores the horizontal bits",
+        right.getTop() == 0 && right.getLeft() == 30);
+    check("linear gravity: the weighted Space takes the rest", fill.getWidth() == w - 50);
+    check(
+        "linear gravity: bottom in by the margin, at the end",
+        end.getLeft() == w - 10 && end.getTop() == 17);
+    centre.setVisibility(View.GONE);
+    check("linear gravity: GONE gives its room up", bottom.getLeft() == 10);
+    centre.setVisibility(View.VISIBLE);
+    check("linear gravity: VISIBLE takes it back", bottom.getLeft() == 20);
+
+    LinearLayout column = findViewById(R.id.gravity_column);
+    View cRight = findViewById(R.id.gc_right);
+    View cCentre = findViewById(R.id.gc_centre);
+    View cFill = findViewById(R.id.gc_fill);
+    check("linear gravity: right in a column", cRight.getLeft() == w - 10);
+    check("linear gravity: center_horizontal in a column", cCentre.getLeft() == (w - 20) / 2);
+    check(
+        "linear gravity: match_parent within its margins",
+        cFill.getLeft() == 8 && cFill.getWidth() == w - 12);
+    check("linear gravity: wrap_content column", column.getHeight() == 30);
+
+    // Weights from code, in a 100 px row: 1.5 : 1, and content plus a share.
+    LinearLayout coded = new LinearLayout(this);
+    coded.setOrientation(LinearLayout.HORIZONTAL);
+    View a = new FrameLayout(this);
+    View b = new FrameLayout(this);
+    coded.addView(a, new LinearLayout.LayoutParams(0, 10, 1.5f));
+    coded.addView(b, new LinearLayout.LayoutParams(0, 10, 1f));
+    LinearLayout root = findViewById(R.id.root);
+    root.addView(coded, new LinearLayout.LayoutParams(100, 10));
+    check("linear weight: 1.5 : 1 of 100", a.getWidth() == 60 && b.getWidth() == 40);
+    coded.removeView(a);
+    coded.removeView(b);
+    View fixed = new FrameLayout(this);
+    View grown = new FrameLayout(this);
+    LinearLayout.LayoutParams grownLp = new LinearLayout.LayoutParams(20, 10, 1f);
+    grownLp.gravity = Gravity.CENTER_VERTICAL;
+    coded.addView(fixed, new LinearLayout.LayoutParams(40, 10));
+    coded.addView(grown, grownLp);
+    check(
+        "linear weight: a measured size plus its share",
+        grown.getLeft() == 40 && grown.getWidth() == 60);
+    check(
+        "linear gravity: LayoutParams.gravity from code",
+        ((LinearLayout.LayoutParams) grown.getLayoutParams()).gravity == Gravity.CENTER_VERTICAL);
+    root.removeView(coded);
+    // Checked; out of the way, as the grids were.
+    row.setVisibility(View.GONE);
+    column.setVisibility(View.GONE);
   }
 
   /** The geometry both RelativeLayouts must show (200x60). */
