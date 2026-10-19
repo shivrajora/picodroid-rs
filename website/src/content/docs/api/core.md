@@ -98,8 +98,19 @@ sb.append(obj);       // append Object — its toString(), or "null"
 int  len = sb.length();    // current content length
 char ch  = (char) sb.charAt(2);  // byte at position 2
 
+sb.insert(0, "[");        // insert at a byte offset: String, char, int, long, float, double, boolean, Object
+sb.setLength(3);          // truncate, or pad with NUL bytes
+sb.delete(1, 3);          // remove [start, end); end is clamped to the length
+sb.deleteCharAt(0);       // remove one byte
+sb.setCharAt(0, 'X');     // overwrite one byte
+sb.reverse();             // reverse the bytes
+
 String s = sb.toString();  // intern result as a String
 ```
+
+The editing methods index bytes, as `charAt` does (the string model is bytes): a multi-byte
+character is one `append(char)` and several positions. An index past the end throws
+`StringIndexOutOfBoundsException`, as in Java.
 
 > Every `StringBuilder` owns its buffer, so builders interleave freely and `sb.append(sb)` appends a copy of the current content; a buffer the heap cannot grow throws `OutOfMemoryError` from `append`.
 
@@ -581,8 +592,9 @@ boolean dg = Character.isDigit('7');         // isLetter, toUpperCase, toLowerCa
 ```
 
 The numeric wrappers convert through `byteValue()`, `shortValue()`, `intValue()`, `longValue()`,
-`floatValue()` and `doubleValue()` as Java does. `Float.isNaN` / `Double.isNaN` / `isInfinite` are
-not served: test `f != f` for NaN.
+`floatValue()` and `doubleValue()` as Java does. `Float` and `Double` answer `isNaN`, `isInfinite`
+and `isFinite`, as statics and on a box; the compile-time constants (`MAX_VALUE`, `MIN_VALUE`,
+`NaN`, `POSITIVE_INFINITY`, …) are inlined by javac and need nothing from the runtime.
 
 `Float.floatToIntBits(f)` and `Float.intBitsToFloat(i)` round-trip the IEEE-754 bit pattern — for a
 bit-exact `equals`/`hashCode`, or to keep a float in an `int` slot.
@@ -676,8 +688,14 @@ Fn<String, Integer>  length  = String::length;      // unbound, on a built-in cl
 Factory<Counter>     counter = Counter::new;        // constructor
 ```
 
-There is no `java.util.function` package (`Function`, `Supplier`, `Predicate`, …): declare the
-single-method interface you need. See
+The `java.util.function` SAM set is served by name: `Function`, `BiFunction`, `Consumer`,
+`BiConsumer`, `Supplier`, `Predicate`, `BiPredicate`, `UnaryOperator`, `BinaryOperator`,
+`IntFunction`, `IntPredicate`, `IntConsumer`, `IntSupplier`, `ToIntFunction`, `IntUnaryOperator`
+and `IntBinaryOperator` — each as a lambda, a method reference or a class of your own
+implementing it, with `instanceof` seeing an operator as its base `Function` / `BiFunction`.
+Their default methods (`andThen`, `compose`, `negate`, `identity`) do not exist, and no collection
+method takes one yet (`forEach`, `removeIf`, `computeIfAbsent`). Any other single-method
+interface of your own works the same way. See
 [`examples/lambdademo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/lambdademo).
 
 ---

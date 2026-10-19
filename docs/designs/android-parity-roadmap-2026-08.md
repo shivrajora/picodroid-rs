@@ -460,3 +460,18 @@ actions `TIME_TICK`, `TIME_SET`, `TIMEZONE_CHANGED`, `SCREEN_ON` / `OFF`, the Wi
 connectivity actions, and `PendingIntent.getBroadcast`. One bitmask upcall per frame; the
 registry is Java's. Design, caps and what is deliberately not here (ordered and sticky broadcasts,
 `goAsync`): [`broadcasts-2026-10.md`](broadcasts-2026-10.md).
+
+## Amendment 2026-10-19 — everyday members landed
+
+From the gap review's list of small members every port tripped on
+([`everyday-members-2026-10.md`](everyday-members-2026-10.md)): T1.3's `View.getContext()`,
+`ViewGroup.removeViewAt` / `indexOfChild`; T2.7's `EditText extends TextView`; and, outside the
+T-table, `View.post`, `onTouchEvent` / `dispatchTouchEvent` / `MotionEvent.obtain`, custom
+ViewGroups (`ViewGroup(Context)`, `onLayout`, `requestLayout`, `View.layout`, `measureChild`),
+`OnKeyListener.onKey(View, int, KeyEvent)`, `Lifecycle.State` / `Event` enums with
+`DefaultLifecycleObserver` / `LifecycleEventObserver`, `MediatorLiveData` and
+`Transformations.map` / `switchMap`, `Double` / `Float.isNaN` / `isInfinite` / `isFinite`,
+`StringBuilder.insert` / `setLength` / `delete` / `deleteCharAt` / `setCharAt` / `reverse`, the
+`java.util.function` SAM set as name-only rows, and `HttpURLConnection`'s streams declared as
+`java.io` types. The rejection of `Handler` / `postDelayed` stands; `View.post` is the main
+executor's queue.

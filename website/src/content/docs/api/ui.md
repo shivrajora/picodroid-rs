@@ -1404,8 +1404,12 @@ String value = input.getText();
 input.setShowKeyboardOnTouch(false);   // disable system keyboard for this field
 ```
 
-`getText()` returns a `String`. An `EditText` is focusable by default, as on Android, so on a
-keypad board it takes the focus ring's select and ENTER opens the keyboard.
+`getText()` returns a `String`. An `EditText` is a `TextView`, as on Android: `setTextSize`,
+`setTextColor`, `setGravity` and `setSingleLine` reach the field (its text, cursor and hint take
+the face and colour); `setEllipsize` and `setMaxLines` are label concerns and do nothing on one.
+In a layout file `android:textSize`, `textColor`, `gravity` and `singleLine` apply to an
+`<EditText>`. It is focusable by default, as on Android, so on a keypad board it takes the focus
+ring's select and ENTER opens the keyboard.
 
 `addTextChangedListener(TextWatcher)` / `removeTextChangedListener(TextWatcher)` take a
 `picodroid.text.TextWatcher`. Its three callbacks take `String` rather than `CharSequence` /
