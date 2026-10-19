@@ -8,8 +8,8 @@ import picodroid.concurrent.Executors;
  * A value holder that tells its observers when the value changes, and only while they are on
  * screen; mirrors {@code androidx.lifecycle.LiveData}. An observer registered with {@link
  * #observe(LifecycleOwner, Observer)} is active while its owner is at least {@link
- * Lifecycle#STARTED}: it gets the current value when it becomes active (if it has not seen it),
- * every {@link #setValue} while it stays active, and is removed by itself when the owner is
+ * Lifecycle.State#STARTED}: it gets the current value when it becomes active (if it has not seen
+ * it), every {@link #setValue} while it stays active, and is removed by itself when the owner is
  * destroyed.
  *
  * <pre>{@code
@@ -62,7 +62,7 @@ public abstract class LiveData<T> {
    */
   public void observe(LifecycleOwner owner, Observer<? super T> observer) {
     Lifecycle lifecycle = owner.getLifecycle();
-    if (lifecycle.getCurrentState() == Lifecycle.DESTROYED) {
+    if (lifecycle.getCurrentState() == Lifecycle.State.DESTROYED) {
       return;
     }
     ObserverWrapper existing = find(observer);
@@ -75,8 +75,8 @@ public abstract class LiveData<T> {
     }
     ObserverWrapper wrapper = new ObserverWrapper(this, observer, lifecycle);
     mObservers.add(wrapper);
+    // The registry replays the events up to its current state, which activates the wrapper.
     lifecycle.addObserver(wrapper);
-    wrapper.onStateChanged(lifecycle.getCurrentState());
   }
 
   /** Adds {@code observer}, always active, until {@link #removeObserver}. */
@@ -234,7 +234,7 @@ public abstract class LiveData<T> {
       return;
     }
     Lifecycle lifecycle = wrapper.mLifecycle;
-    if (lifecycle != null && lifecycle.getCurrentState() < Lifecycle.STARTED) {
+    if (lifecycle != null && !lifecycle.getCurrentState().isAtLeast(Lifecycle.State.STARTED)) {
       wrapper.activeStateChanged(false);
       return;
     }
@@ -246,7 +246,7 @@ public abstract class LiveData<T> {
   }
 
   /** One observer of one LiveData, with the lifecycle it is bound to (null: forever). */
-  static final class ObserverWrapper {
+  static final class ObserverWrapper implements LifecycleEventObserver {
     private final LiveData<?> mLiveData;
     final Observer<Object> mObserver;
     final Lifecycle mLifecycle;
@@ -261,12 +261,14 @@ public abstract class LiveData<T> {
     }
 
     /** From {@link Lifecycle#setCurrentState}: the owner moved. */
-    void onStateChanged(int state) {
-      if (state == Lifecycle.DESTROYED) {
+    @Override
+    public void onStateChanged(LifecycleOwner source, Lifecycle.Event event) {
+      Lifecycle.State state = mLifecycle.getCurrentState();
+      if (state == Lifecycle.State.DESTROYED) {
         mLiveData.remove(this);
         return;
       }
-      activeStateChanged(state >= Lifecycle.STARTED);
+      activeStateChanged(state.isAtLeast(Lifecycle.State.STARTED));
     }
 
     void activeStateChanged(boolean active) {

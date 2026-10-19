@@ -90,7 +90,7 @@ public class Activity extends Context
    */
   private Lifecycle mLifecycle;
 
-  private int mLifecycleState = Lifecycle.INITIALIZED;
+  private Lifecycle.State mLifecycleState = Lifecycle.State.INITIALIZED;
 
   /** This Activity's ViewModels, created on the first {@link #getViewModelStore}. */
   private ViewModelStore mViewModelStore;
@@ -104,13 +104,13 @@ public class Activity extends Context
   @Override
   public Lifecycle getLifecycle() {
     if (mLifecycle == null) {
-      mLifecycle = new Lifecycle();
+      mLifecycle = new Lifecycle(this);
       mLifecycle.setCurrentState(mLifecycleState);
     }
     return mLifecycle;
   }
 
-  private void setLifecycleState(int state) {
+  private void setLifecycleState(Lifecycle.State state) {
     mLifecycleState = state;
     if (mLifecycle != null) {
       mLifecycle.setCurrentState(state);
@@ -220,7 +220,7 @@ public class Activity extends Context
     if (mFragments != null) {
       mFragments.dispatchCreate(); // idempotent; covers an override that skipped super.onCreate
     }
-    setLifecycleState(Lifecycle.CREATED);
+    setLifecycleState(Lifecycle.State.CREATED);
   }
 
   final void performSaveInstanceState(Bundle outState) {
@@ -243,7 +243,7 @@ public class Activity extends Context
       mFragments.dispatchStart();
     }
     onStart();
-    setLifecycleState(Lifecycle.STARTED);
+    setLifecycleState(Lifecycle.State.STARTED);
   }
 
   final void performResume() {
@@ -256,7 +256,7 @@ public class Activity extends Context
     if (mFragments != null) {
       mFragments.dispatchResume();
     }
-    setLifecycleState(Lifecycle.RESUMED);
+    setLifecycleState(Lifecycle.State.RESUMED);
   }
 
   final void performRestart() {
@@ -264,7 +264,7 @@ public class Activity extends Context
   }
 
   final void performPause() {
-    setLifecycleState(Lifecycle.STARTED);
+    setLifecycleState(Lifecycle.State.STARTED);
     mFragmentHostState = Fragment.STARTED;
     if (mFragments != null) {
       mFragments.dispatchPause();
@@ -273,7 +273,7 @@ public class Activity extends Context
   }
 
   final void performStop() {
-    setLifecycleState(Lifecycle.CREATED);
+    setLifecycleState(Lifecycle.State.CREATED);
     mFragmentHostState = Fragment.VIEW_CREATED;
     if (mFragments != null) {
       mFragments.dispatchStop();
@@ -283,7 +283,7 @@ public class Activity extends Context
   }
 
   final void performDestroy() {
-    setLifecycleState(Lifecycle.DESTROYED);
+    setLifecycleState(Lifecycle.State.DESTROYED);
     mFragmentHostState = Fragment.INITIALIZING;
     if (mFragments != null) {
       mFragments.dispatchDestroy();

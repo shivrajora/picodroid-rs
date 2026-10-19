@@ -7,7 +7,9 @@ import picodroid.app.FragmentFactory;
 import picodroid.app.FragmentManager;
 import picodroid.app.FragmentTransaction;
 import picodroid.content.Intent;
+import picodroid.lifecycle.DefaultLifecycleObserver;
 import picodroid.lifecycle.Lifecycle;
+import picodroid.lifecycle.LifecycleEventObserver;
 import picodroid.lifecycle.LifecycleOwner;
 import picodroid.lifecycle.MutableLiveData;
 import picodroid.lifecycle.Observer;
@@ -291,7 +293,7 @@ public class MainActivity extends Activity {
     LifecycleOwner view = detail.getViewLifecycleOwner();
     T.check(
         "view lifecycle resumed with its fragment",
-        view.getLifecycle().getCurrentState() == Lifecycle.RESUMED
+        view.getLifecycle().getCurrentState() == Lifecycle.State.RESUMED
             && detail.getViewLifecycleOwner() == view);
     live.observe(view, observer);
     live.observe(view, observer);
@@ -306,30 +308,101 @@ public class MainActivity extends Activity {
     fm.beginTransaction().detach(detail).commitNow();
     T.check(
         "the view going takes its observers",
-        view.getLifecycle().getCurrentState() == Lifecycle.DESTROYED && !live.hasObservers());
+        view.getLifecycle().getCurrentState() == Lifecycle.State.DESTROYED && !live.hasObservers());
     live.setValue("b");
     T.check("nothing delivered to a destroyed view", seen.toString().equals("a;"));
     T.check("no view, no view lifecycle", throwsState(() -> detail.getViewLifecycleOwner()));
     fm.beginTransaction().attach(detail).commitNow();
     T.check("a new view has a new lifecycle", detail.getViewLifecycleOwner() != view);
 
-    // An owner that stops and starts, driven by hand.
+    // An owner that stops and starts, driven by hand, with the observer kinds Android has.
     Lifecycle own = new Lifecycle();
-    own.setCurrentState(Lifecycle.CREATED);
+    StringBuilder calls = new StringBuilder();
+    own.addObserver(
+        new DefaultLifecycleObserver() {
+          @Override
+          public void onCreate(LifecycleOwner owner) {
+            calls.append(owner == own ? "c" : "?");
+          }
+
+          @Override
+          public void onStart(LifecycleOwner owner) {
+            calls.append('S');
+          }
+
+          @Override
+          public void onStop(LifecycleOwner owner) {
+            calls.append('s');
+          }
+
+          @Override
+          public void onDestroy(LifecycleOwner owner) {
+            calls.append('D');
+          }
+        });
+    StringBuilder events = new StringBuilder();
+    LifecycleEventObserver eventObserver =
+        (source, event) -> events.append(event.name()).append(' ');
+    own.addObserver(eventObserver);
+    T.check("nothing replayed to an observer of an INITIALIZED owner", events.length() == 0);
+    own.setCurrentState(Lifecycle.State.CREATED);
+    T.check(
+        "ON_CREATE reaches both observer kinds",
+        calls.toString().equals("c") && events.toString().equals("ON_CREATE "));
+    StringBuilder lateObs = new StringBuilder();
+    own.addObserver(
+        new DefaultLifecycleObserver() {
+          @Override
+          public void onCreate(LifecycleOwner owner) {
+            lateObs.append('c');
+          }
+
+          @Override
+          public void onResume(LifecycleOwner owner) {
+            lateObs.append('R');
+          }
+        });
+    T.check("a late observer is brought up to the current state", lateObs.toString().equals("c"));
+    T.check(
+        "Event.getTargetState / State.isAtLeast",
+        Lifecycle.Event.ON_START.getTargetState() == Lifecycle.State.STARTED
+            && Lifecycle.Event.ON_STOP.getTargetState() == Lifecycle.State.CREATED
+            && Lifecycle.State.RESUMED.isAtLeast(Lifecycle.State.STARTED)
+            && !Lifecycle.State.CREATED.isAtLeast(Lifecycle.State.STARTED)
+            && Lifecycle.Event.downFrom(Lifecycle.State.RESUMED) == Lifecycle.Event.ON_PAUSE
+            && Lifecycle.Event.upFrom(Lifecycle.State.RESUMED) == null);
     StringBuilder held = new StringBuilder();
     live.observe(own, v -> held.append(v));
     live.setValue("c");
     T.check("a stopped owner hears nothing", held.length() == 0 && !live.hasActiveObservers());
-    own.setCurrentState(Lifecycle.STARTED);
+    own.setCurrentState(Lifecycle.State.STARTED);
     T.check("started: the value it missed", held.toString().equals("c"));
     live.setValue("d");
-    own.setCurrentState(Lifecycle.CREATED);
+    own.setCurrentState(Lifecycle.State.CREATED);
     live.setValue("e");
     live.setValue("f");
-    own.setCurrentState(Lifecycle.RESUMED);
+    own.setCurrentState(Lifecycle.State.RESUMED);
     T.check("only the last of the values missed", held.toString().equals("cdf"));
-    own.setCurrentState(Lifecycle.DESTROYED);
+    own.removeObserver(eventObserver);
+    own.setCurrentState(Lifecycle.State.DESTROYED);
     T.check("a destroyed owner is forgotten", !live.hasObservers());
+    T.check(
+        "every step was dispatched in order",
+        calls.toString().equals("cSsSsD")
+            && lateObs.toString().equals("cR")
+            && events.toString().equals("ON_CREATE ON_START ON_STOP ON_START ON_RESUME "));
+    own.addObserver(eventObserver);
+    T.check(
+        "a destroyed Lifecycle replays nothing and stays destroyed",
+        events.toString().equals("ON_CREATE ON_START ON_STOP ON_START ON_RESUME ")
+            && own.getCurrentState() == Lifecycle.State.DESTROYED);
+    Lifecycle fresh = new Lifecycle();
+    fresh.addObserver(eventObserver);
+    fresh.handleLifecycleEvent(Lifecycle.Event.ON_RESUME);
+    fresh.setCurrentState(Lifecycle.State.DESTROYED);
+    T.check(
+        "handleLifecycleEvent walks the intermediate states",
+        events.toString().endsWith("ON_CREATE ON_START ON_RESUME ON_PAUSE ON_STOP ON_DESTROY "));
     live.observe(own, v -> held.append(v));
     T.check("and cannot observe again", !live.hasObservers());
 
@@ -357,7 +430,7 @@ public class MainActivity extends Activity {
     // The host's own lifecycle, and its ViewModels.
     firstLifecycle = getLifecycle();
     firstModel = model;
-    T.check("the Activity is resumed", firstLifecycle.getCurrentState() == Lifecycle.RESUMED);
+    T.check("the Activity is resumed", firstLifecycle.getCurrentState() == Lifecycle.State.RESUMED);
     T.check(
         "one ViewModel per owner and class",
         new ViewModelProvider(this).get(DemoViewModel.class) == model && modelsMade == 1);
@@ -526,7 +599,7 @@ public class MainActivity extends Activity {
             && T.before("Detail12.onDestroyView", 1, "H1.onDestroy", 1));
     T.check(
         "the first host's lifecycle ended and its ViewModels were cleared",
-        firstLifecycle.getCurrentState() == Lifecycle.DESTROYED && modelsCleared == 2);
+        firstLifecycle.getCurrentState() == Lifecycle.State.DESTROYED && modelsCleared == 2);
     T.check(
         "a re-created host starts with a new ViewModel",
         new ViewModelProvider(this).get(DemoViewModel.class) != firstModel && modelsMade == 3);

@@ -238,20 +238,21 @@ public class Fragment {
       mViewLifecycle = new Lifecycle();
       // INITIALIZED inside onViewCreated: the manager reports the view created after it returns.
       if (mState >= STARTED) {
-        mViewLifecycle.setCurrentState(mState >= RESUMED ? Lifecycle.RESUMED : Lifecycle.STARTED);
+        mViewLifecycle.setCurrentState(
+            mState >= RESUMED ? Lifecycle.State.RESUMED : Lifecycle.State.STARTED);
       } else if (mState == VIEW_CREATED) {
-        mViewLifecycle.setCurrentState(Lifecycle.CREATED);
+        mViewLifecycle.setCurrentState(Lifecycle.State.CREATED);
       }
     }
     return mViewLifecycle;
   }
 
   /** From the manager: the view's lifecycle moved. Costs nothing until someone asked for it. */
-  void setViewLifecycleState(int state) {
+  void setViewLifecycleState(Lifecycle.State state) {
     Lifecycle lifecycle = mViewLifecycle;
     if (lifecycle != null) {
       lifecycle.setCurrentState(state);
-      if (state == Lifecycle.DESTROYED) {
+      if (state == Lifecycle.State.DESTROYED) {
         mViewLifecycle = null;
       }
     }

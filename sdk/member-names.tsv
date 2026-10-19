@@ -359,6 +359,13 @@ F	NULL
 F	OCTOBER
 F	OFFSCREEN_PAGE_LIMIT_DEFAULT
 F	ONE_SHOT
+F	ON_ANY
+F	ON_CREATE
+F	ON_DESTROY
+F	ON_PAUSE
+F	ON_RESUME
+F	ON_START
+F	ON_STOP
 F	OP_ADD
 F	OP_ATTACH
 F	OP_DETACH
@@ -856,6 +863,7 @@ F	mOptionsMenu
 F	mOptionsMenuCreated
 F	mOptionsMenuDialog
 F	mOrientation
+F	mOwner
 F	mPackage
 F	mPager
 F	mParent
@@ -1339,6 +1347,8 @@ M	dividedBy
 M	doAddOp
 M	done
 M	doubleToString
+M	downFrom
+M	downTo
 M	drawArc
 M	drawCircle
 M	drawColor
@@ -1678,6 +1688,7 @@ M	getTag
 M	getTagFieldNumber
 M	getTagWireType
 M	getTargetClassName
+M	getTargetState
 M	getText
 M	getTextAlign
 M	getTextSize
@@ -1711,6 +1722,7 @@ M	getY
 M	getYear
 M	gmtId
 M	grow
+M	handleLifecycleEvent
 M	handleUpEvent
 M	has
 M	hasAction
@@ -1758,6 +1770,7 @@ M	isAlive
 M	isAntiAlias
 M	isArray
 M	isAtEnd
+M	isAtLeast
 M	isBefore
 M	isCanceled
 M	isCancelled
@@ -2637,6 +2650,9 @@ M	startTone
 M	startToneSequence
 M	startTracking
 M	status
+M	step
+M	stepDown
+M	stepUp
 M	stopForeground
 M	stopSelf
 M	stopSelfResult
@@ -2653,6 +2669,7 @@ M	systemBits
 M	systemDefault
 M	takeState
 M	tan
+M	tell
 M	time
 M	tmpPath
 M	toBoolean
@@ -2706,6 +2723,8 @@ M	unregisterOwned
 M	unregisterReceiver
 M	unregisterScanResultsCallback
 M	until
+M	upFrom
+M	upTo
 M	update
 M	updateBytes
 M	updateDate

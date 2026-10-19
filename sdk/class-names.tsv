@@ -259,8 +259,13 @@ picodroid/json/JSONArray
 picodroid/json/JSONException
 picodroid/json/JSONObject
 picodroid/json/JSONObject$1
+picodroid/lifecycle/DefaultLifecycleObserver
 picodroid/lifecycle/HasDefaultViewModelProviderFactory
 picodroid/lifecycle/Lifecycle
+picodroid/lifecycle/Lifecycle$Event
+picodroid/lifecycle/Lifecycle$State
+picodroid/lifecycle/LifecycleEventObserver
+picodroid/lifecycle/LifecycleObserver
 picodroid/lifecycle/LifecycleOwner
 picodroid/lifecycle/LiveData
 picodroid/lifecycle/LiveData$ObserverWrapper
