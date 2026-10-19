@@ -8,10 +8,13 @@ import picoclock.ClockApp;
 import picodroid.os.Bundle;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
+import picodroid.view.Gravity;
 import picodroid.view.View;
+import picodroid.view.ViewGroup;
 import picodroid.widget.Button;
 import picodroid.widget.DatePicker;
 import picodroid.widget.FrameLayout;
+import picodroid.widget.RelativeLayout;
 import picodroid.widget.ScrollView;
 import picodroid.widget.TextView;
 import picodroid.widget.TimePicker;
@@ -163,23 +166,51 @@ public class SetTimeActivity extends BaseActivity {
 
   // ── Steppers ───────────────────────────────────────────────────────────────
 
-  /** A "- value +" row at {@code y}; returns the label between the buttons. */
+  /** The ids of a stepper's buttons, which the value's rules name. */
+  private static final int ID_MINUS = 1;
+
+  private static final int ID_PLUS = 2;
+
+  /**
+   * A "- value +" row at {@code y}; returns the label between the buttons. A RelativeLayout: the
+   * buttons at the row's edges, the value stretched between them and centred on their height.
+   */
   private TextView stepper(
       FrameLayout page, int y, String value, View.OnClickListener down, View.OnClickListener up) {
-    Button minus = Ui.button("-", Ui.MARGIN, y, STEP_BUTTON, Ui.SURFACE_HIGH);
-    minus.setSize(STEP_BUTTON, STEP_HEIGHT);
+    RelativeLayout row = new RelativeLayout();
+    row.setSize(Ui.WIDTH, STEP_HEIGHT);
+    row.setPosition(0, y);
+    row.setBackground(Ui.invisible());
+
+    Button minus = Ui.button("-", 0, 0, STEP_BUTTON, Ui.SURFACE_HIGH);
+    minus.setId(ID_MINUS);
     minus.setOnClickListener(down);
-    page.addView(minus);
+    RelativeLayout.LayoutParams minusLp = new RelativeLayout.LayoutParams(STEP_BUTTON, STEP_HEIGHT);
+    minusLp.addRule(RelativeLayout.ALIGN_PARENT_LEFT);
+    minusLp.setMargins(Ui.MARGIN, 0, 0, 0);
+    row.addView(minus, minusLp);
 
-    Button plus =
-        Ui.button("+", Ui.WIDTH - Ui.MARGIN - STEP_BUTTON, y, STEP_BUTTON, Ui.SURFACE_HIGH);
-    plus.setSize(STEP_BUTTON, STEP_HEIGHT);
+    Button plus = Ui.button("+", 0, 0, STEP_BUTTON, Ui.SURFACE_HIGH);
+    plus.setId(ID_PLUS);
     plus.setOnClickListener(up);
-    page.addView(plus);
+    RelativeLayout.LayoutParams plusLp = new RelativeLayout.LayoutParams(STEP_BUTTON, STEP_HEIGHT);
+    plusLp.addRule(RelativeLayout.ALIGN_PARENT_RIGHT);
+    plusLp.setMargins(0, 0, Ui.MARGIN, 0);
+    row.addView(plus, plusLp);
 
-    int gapX = Ui.MARGIN + STEP_BUTTON + Ui.GAP;
-    int gapWidth = Ui.WIDTH - 2 * gapX;
-    return Ui.centred(page, value, gapX, y + (STEP_HEIGHT - Ui.LINE_HEIGHT) / 2, gapWidth, Ui.TEXT);
+    TextView label = Ui.label(value, 0, 0, Ui.TEXT);
+    label.setGravity(Gravity.CENTER_HORIZONTAL);
+    RelativeLayout.LayoutParams labelLp =
+        new RelativeLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+    labelLp.addRule(RelativeLayout.RIGHT_OF, ID_MINUS);
+    labelLp.addRule(RelativeLayout.LEFT_OF, ID_PLUS);
+    labelLp.addRule(RelativeLayout.CENTER_VERTICAL);
+    labelLp.setMargins(Ui.GAP, 0, Ui.GAP, 0);
+    row.addView(label, labelLp);
+
+    page.addView(row);
+    return label;
   }
 
   private void stepYear(int direction) {

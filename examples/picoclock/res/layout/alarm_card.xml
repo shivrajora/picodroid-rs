@@ -2,15 +2,15 @@
 <!--
   One alarm: its time, what it repeats on, and a switch that arms it. The band is a full-width
   row of the list; the card is inset in it, which is what puts the gap between cards. The tappable
-  area is the card's left part (the hit box); the switch takes the rest. AlarmListActivity sets the
-  texts, the time's colour and the switch.
+  area is the card's left part (the hit box); the switch sits at the card's right edge, centred on
+  its height. AlarmListActivity sets the texts, the time's colour and the switch.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="320dp"
     android:layout_height="80dp"
     android:background="@color/background">
 
-    <FrameLayout
+    <RelativeLayout
         android:id="@+id/card"
         android:layout_width="296dp"
         android:layout_height="72dp"
@@ -44,7 +44,8 @@
             android:id="@+id/armed"
             android:layout_width="52dp"
             android:layout_height="28dp"
-            android:layout_marginLeft="232dp"
-            android:layout_marginTop="22dp" />
-    </FrameLayout>
+            android:layout_alignParentRight="true"
+            android:layout_centerVertical="true"
+            android:layout_marginRight="12dp" />
+    </RelativeLayout>
 </FrameLayout>

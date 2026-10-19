@@ -11,6 +11,7 @@ import picodroid.view.ViewGroup;
 import picodroid.widget.Button;
 import picodroid.widget.FrameLayout;
 import picodroid.widget.LinearLayout;
+import picodroid.widget.RelativeLayout;
 import picodroid.widget.TextView;
 
 /**
@@ -106,34 +107,47 @@ public final class Ui {
     return root;
   }
 
+  /** The id of the header's back chevron, which the caption's rule names. */
+  private static final int ID_BACK = 1;
+
   /**
    * The header band: a title, and a back chevron when {@code onBack} is given. The chevron is a
-   * tappable target of its own, since the carrier's BACK button is reachable only by feel.
+   * tappable target of its own, since the carrier's BACK button is reachable only by feel. A
+   * RelativeLayout places the title: right of the chevron and centred on the band's height.
    */
   public static View header(Activity a, String title, View.OnClickListener onBack) {
-    FrameLayout bar = new FrameLayout();
+    RelativeLayout bar = new RelativeLayout();
     bar.setSize(WIDTH, HEADER_HEIGHT);
     bar.setPosition(0, 0);
-    bar.setPadding(0, 0, 0, 0);
     bar.setBackgroundColor(SURFACE);
+
+    if (onBack != null) {
+      Button back = new Button("<");
+      back.setId(ID_BACK);
+      back.setTextColor(ACCENT);
+      back.setBackground(new GradientDrawable().setColor(SURFACE).setCornerRadius(0));
+      back.setOnClickListener(onBack);
+      RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(48, HEADER_HEIGHT);
+      lp.addRule(RelativeLayout.ALIGN_PARENT_LEFT);
+      bar.addView(back, lp);
+    }
 
     TextView caption = new TextView();
     caption.setText(title);
     caption.setTextColor(TEXT);
     caption.setSingleLine();
     caption.setEllipsize(TextUtils.TruncateAt.END);
-    caption.setPosition(onBack == null ? MARGIN : 56, 14);
-    bar.addView(caption);
-
+    RelativeLayout.LayoutParams lp =
+        new RelativeLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+    lp.addRule(RelativeLayout.CENTER_VERTICAL);
     if (onBack != null) {
-      Button back = new Button("<");
-      back.setSize(48, HEADER_HEIGHT);
-      back.setPosition(0, 0);
-      back.setTextColor(ACCENT);
-      back.setBackground(new GradientDrawable().setColor(SURFACE).setCornerRadius(0));
-      back.setOnClickListener(onBack);
-      bar.addView(back);
+      lp.addRule(RelativeLayout.RIGHT_OF, ID_BACK);
+      lp.setMargins(GAP, 0, 0, 0);
+    } else {
+      lp.setMargins(MARGIN, 0, 0, 0);
     }
+    bar.addView(caption, lp);
     return bar;
   }
 

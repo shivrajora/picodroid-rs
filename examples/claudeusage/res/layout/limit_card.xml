@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   One usage window: a ring gauge with the reset countdown inside it, the big percentage in the
-  ring's open bottom, and a pace line under that. Geometry is pixel art for the 320x240 panel:
-  the ring's rounded caps end 4 px above the top of the big number's digits.
+  ring's open bottom, and a pace line under that. The lines are centred by rule; the ring and
+  the big number's top are pixel art for the 320x240 panel: the ring's rounded caps end 4 px
+  above the top of the digits.
 -->
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="@dimen/limit_card_width"
     android:layout_height="186dp"
     android:background="@drawable/card">
@@ -29,7 +30,7 @@
         android:id="@+id/resets_label"
         style="@style/Line.Boxed"
         android:layout_width="84dp"
-        android:layout_marginLeft="33dp"
+        android:layout_centerHorizontal="true"
         android:layout_marginTop="57dp"
         android:gravity="center_horizontal"
         android:textColor="@color/faint" />
@@ -38,7 +39,7 @@
         android:id="@+id/countdown"
         style="@style/Line.Boxed"
         android:layout_width="84dp"
-        android:layout_marginLeft="33dp"
+        android:layout_centerHorizontal="true"
         android:layout_marginTop="77dp"
         android:gravity="center_horizontal"
         android:textColor="@color/muted" />
@@ -47,7 +48,7 @@
         android:id="@+id/detail"
         style="@style/Line.Boxed"
         android:layout_width="142dp"
-        android:layout_marginLeft="4dp"
+        android:layout_centerHorizontal="true"
         android:layout_marginTop="165dp"
         android:gravity="center_horizontal"
         android:textColor="@color/faint" />
@@ -64,4 +65,4 @@
             android:id="@+id/number"
             style="@style/Line.Display" />
     </LinearLayout>
-</FrameLayout>
+</RelativeLayout>

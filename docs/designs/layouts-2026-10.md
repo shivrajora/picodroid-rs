@@ -1,6 +1,6 @@
 # Layouts: GridLayout, RelativeLayout and per-child gravity in LinearLayout
 
-**Status: design settled 2026-10-18; series 1 (GridLayout) in progress. §4 says what has landed.**
+**Status: design settled 2026-10-18; series 1 (GridLayout) and 2 (RelativeLayout) built 2026-10-19; series 3 (LinearLayout) in progress. §4 says what has landed.**
 
 ## 1. The finding
 
@@ -102,18 +102,32 @@ What was true when the work started, verified in source:
 
 ## 4. What lands, per commit
 
-Series 1, GridLayout:
+Series 1, GridLayout (built 2026-10-19):
 
 1. `lvgl: enable LV_USE_GRID and bind the grid API` — this doc, the bindings, the header
    drift test, the size measurement below.
 2. `graphics: GridLayout container and cell placement natives`.
 3. `inflater: <GridLayout> in XML layouts`.
 4. `layoutdemo: a GridLayout section`.
-5. `calculator: the keypad as a GridLayout`.
-6. `picoenvmon: Live tiles as a GridLayout`.
+5. `calculator: the keypad as a GridLayout` (320×480: 74×66 keys, as the arithmetic gave).
+6. `picoenvmon: Live tiles as a two-column GridLayout` (Java and Kotlin; the page's 3 px
+   overflow on the 240 px Enviro panel predates it).
 
-Series 2, RelativeLayout: the custom-layout bindings; the container, the solver and the
-rules natives; the XML attributes; picoclock, `alarm_card.xml`, claudeusage.
+Series 2, RelativeLayout (built 2026-10-19):
+
+1. `pd-lvgl-sys: bind LVGL custom layouts and custom style properties`.
+2. `graphics: RelativeLayout as a registered LVGL layout` — the pure solver and its fifteen
+   host tests, the properties, the Java class; layoutdemo builds one in code.
+3. `inflate: <RelativeLayout> and its layout_* rules` — nine words, the native inflate path,
+   `RelativeLayout.LayoutParams` answering `getRule`; layoutdemo inflates the same layout.
+4. `examples: RelativeLayout where the apps faked it` — picoclock's header (caption
+   `toRightOf` the chevron, `centerVertical`) and steppers (buttons at the edges, the value
+   stretched between), `alarm_card.xml`'s switch (`alignParentRight`, `centerVertical`),
+   claudeusage's `page_limits.xml` (the weekly card `toRightOf` the session's) and
+   `limit_card.xml` (lines `centerHorizontal`; the ring and the big number's top stay pixel
+   art). Before/after captures in the simulator are the same pixels but for the clock and
+   the usage figures. (The `check-shrunk-image.sh` gate learned to strip two pending class
+   names that `strings` runs together on the way.)
 
 Series 3, LinearLayout: the solver, per-child gravity and Android weights; layoutdemo
 checks; the `FrameLayout` wrappers in the apps.
