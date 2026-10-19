@@ -12,6 +12,8 @@ import picodroid.os.Bundle;
 import picodroid.os.IBinder;
 import picodroid.util.Log;
 import picodroid.view.View;
+import picodroid.widget.FrameLayout;
+import picodroid.widget.GridLayout;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.Switch;
 import picodroid.widget.TextView;
@@ -44,7 +46,7 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
   private boolean serviceRunning;
   private Switch loggerSwitch;
 
-  private final LinearLayout[] tileRoots = new LinearLayout[NUM_TILES];
+  private final View[] tileRoots = new LinearLayout[NUM_TILES];
   private final TextView[] tileValues = new TextView[NUM_TILES];
 
   @Override
@@ -65,11 +67,21 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
     GradientDrawable tileBg = new GradientDrawable();
     tileBg.setColor(Theme.colorSurface).setCornerRadius(6).setStroke(1, Theme.colorOutline);
 
-    buildTile(root, IDX_TEMP, "Temp", tileBg);
-    buildTile(root, IDX_HUM, "Humidity", tileBg);
-    buildTile(root, IDX_PRESS, "Pressure", tileBg);
-    buildTile(root, IDX_IAQ, "Air quality", tileBg);
-    buildTile(root, IDX_LIGHT, "Light", tileBg);
+    // The five tiles as one two-column grid: the label column is as wide as its widest label,
+    // the value column takes the rest, and the columns line up across the tiles without a
+    // fixed width anywhere.
+    GridLayout tiles = new GridLayout();
+    tiles.setColumnCount(2);
+    tiles.setSpacing(4);
+    buildTile(tiles, IDX_TEMP, "Temp", tileBg);
+    buildTile(tiles, IDX_HUM, "Humidity", tileBg);
+    buildTile(tiles, IDX_PRESS, "Pressure", tileBg);
+    buildTile(tiles, IDX_IAQ, "Air quality", tileBg);
+    buildTile(tiles, IDX_LIGHT, "Light", tileBg);
+    root.addView(
+        tiles,
+        new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
     // Focusable Logger toggle (the old Home X=toggle-logger action). It is the only group-def
     // widget
@@ -160,32 +172,40 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
     Log.i(EnvApp.TAG, "Logger " + (on ? "started" : "stopped"));
   }
 
-  private void buildTile(LinearLayout parent, int idx, String label, GradientDrawable bg) {
-    LinearLayout tile = new LinearLayout();
-    tile.setOrientation(LinearLayout.HORIZONTAL);
-    tile.setSize(LinearLayout.LayoutParams.MATCH_PARENT, 26);
-    tile.setPadding(8, 4, 8, 4);
-    tile.setBackground(bg);
+  /**
+   * One row of the grid: the card spans both columns behind a label in the first and a value in the
+   * second, each centred on the row. Cells may overlap, as on Android; the card is added first so
+   * it draws under the text.
+   */
+  private void buildTile(GridLayout grid, int idx, String label, GradientDrawable bg) {
+    FrameLayout card = new FrameLayout();
+    card.setBackground(bg);
+    GridLayout.LayoutParams cardCell =
+        new GridLayout.LayoutParams(GridLayout.spec(idx), GridLayout.spec(0, 2, GridLayout.FILL));
+    cardCell.height = 26;
+    grid.addView(card, cardCell);
 
-    // Fixed widths keep the label/value columns aligned across tiles; WRAP_CONTENT
-    // heights let the tile's flex cross-axis centering actually center the glyphs
-    // (a fixed-height label draws its text top-aligned inside its own box).
     TextView labelView = new TextView();
     labelView.setText(label);
     labelView.setTextColor(Theme.colorTextSecondary);
-    labelView.setSize(96, View.WRAP_CONTENT);
-    tile.addView(labelView);
+    GridLayout.LayoutParams labelCell =
+        new GridLayout.LayoutParams(
+            GridLayout.spec(idx, GridLayout.CENTER), GridLayout.spec(0, GridLayout.LEFT));
+    labelCell.setMargins(8, 0, 0, 0);
+    grid.addView(labelView, labelCell);
 
     TextView valueView = new TextView();
     // ASCII "--" placeholder: the bundled LVGL Montserrat subset has no em-dash
     // (U+2014) glyph, so "—" renders as a missing-glyph box.
     valueView.setText("--");
     valueView.setTextColor(Theme.colorText);
-    valueView.setSize(112, View.WRAP_CONTENT);
-    tile.addView(valueView);
+    GridLayout.LayoutParams valueCell =
+        new GridLayout.LayoutParams(
+            GridLayout.spec(idx, GridLayout.CENTER), GridLayout.spec(1, GridLayout.LEFT, 1f));
+    valueCell.setMargins(8, 0, 8, 0);
+    grid.addView(valueView, valueCell);
 
-    parent.addView(tile);
-    tileRoots[idx] = tile;
+    tileRoots[idx] = card;
     tileValues[idx] = valueView;
   }
 
@@ -216,7 +236,7 @@ public class LiveActivity extends NavActivity implements ServiceConnection, Smoo
     }
   }
 
-  private void flashOnBreach(LinearLayout tile, boolean breached) {
+  private void flashOnBreach(View tile, boolean breached) {
     if (!breached) {
       return;
     }

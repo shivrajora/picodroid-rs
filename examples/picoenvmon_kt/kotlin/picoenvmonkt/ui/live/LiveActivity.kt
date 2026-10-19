@@ -12,6 +12,8 @@ import picodroid.os.Bundle
 import picodroid.os.IBinder
 import picodroid.util.Log
 import picodroid.view.View
+import picodroid.widget.FrameLayout
+import picodroid.widget.GridLayout
 import picodroid.widget.LinearLayout
 import picodroid.widget.Switch
 import picodroid.widget.TextView
@@ -43,7 +45,7 @@ class LiveActivity : NavActivity(), ServiceConnection, SmoothedSensorListener {
     private var serviceRunning = false
     private var loggerSwitch: Switch? = null
 
-    private val tileRoots = arrayOfNulls<LinearLayout>(READING_COUNT)
+    private val tileRoots = arrayOfNulls<View>(READING_COUNT)
     private val tileValues = arrayOfNulls<TextView>(READING_COUNT)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -64,11 +66,24 @@ class LiveActivity : NavActivity(), ServiceConnection, SmoothedSensorListener {
         val tileBg = GradientDrawable()
         tileBg.setColor(Theme.colorSurface).setCornerRadius(6).setStroke(1, Theme.colorOutline)
 
-        buildTile(root, IDX_TEMPERATURE, "Temp", tileBg)
-        buildTile(root, IDX_HUMIDITY, "Humidity", tileBg)
-        buildTile(root, IDX_PRESSURE, "Pressure", tileBg)
-        buildTile(root, IDX_GAS, "Air quality", tileBg)
-        buildTile(root, IDX_LIGHT, "Light", tileBg)
+        // The five tiles as one two-column grid: the label column is as wide as its widest
+        // label, the value column takes the rest, and the columns line up across the tiles
+        // without a fixed width anywhere.
+        val tiles = GridLayout()
+        tiles.setColumnCount(2)
+        tiles.setSpacing(4)
+        buildTile(tiles, IDX_TEMPERATURE, "Temp", tileBg)
+        buildTile(tiles, IDX_HUMIDITY, "Humidity", tileBg)
+        buildTile(tiles, IDX_PRESSURE, "Pressure", tileBg)
+        buildTile(tiles, IDX_GAS, "Air quality", tileBg)
+        buildTile(tiles, IDX_LIGHT, "Light", tileBg)
+        root.addView(
+            tiles,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ),
+        )
 
         // Focusable Logger toggle (the old Home X=toggle-logger action). It is the only group-def
         // widget on the screen, so it auto-focuses; X toggles it.
@@ -157,32 +172,44 @@ class LiveActivity : NavActivity(), ServiceConnection, SmoothedSensorListener {
         Log.i(TAG, "Logger ${if (on) "started" else "stopped"}")
     }
 
-    private fun buildTile(parent: LinearLayout, idx: Int, label: String, bg: GradientDrawable) {
-        val tile = LinearLayout()
-        tile.setOrientation(LinearLayout.HORIZONTAL)
-        tile.setSize(LinearLayout.LayoutParams.MATCH_PARENT, 26)
-        tile.setPadding(8, 4, 8, 4)
-        tile.setBackground(bg)
+    /**
+     * One row of the grid: the card spans both columns behind a label in the first and a value in
+     * the second, each centred on the row. Cells may overlap, as on Android; the card is added
+     * first so it draws under the text.
+     */
+    private fun buildTile(grid: GridLayout, idx: Int, label: String, bg: GradientDrawable) {
+        val card = FrameLayout()
+        card.setBackground(bg)
+        val cardCell =
+            GridLayout.LayoutParams(GridLayout.spec(idx), GridLayout.spec(0, 2, GridLayout.FILL))
+        cardCell.height = 26
+        grid.addView(card, cardCell)
 
-        // Fixed widths keep the label/value columns aligned across tiles; WRAP_CONTENT
-        // heights let the tile's flex cross-axis centering actually center the glyphs
-        // (a fixed-height label draws its text top-aligned inside its own box).
         val labelView = TextView()
         labelView.setText(label)
         labelView.setTextColor(Theme.colorTextSecondary)
-        labelView.setSize(96, View.WRAP_CONTENT)
-        tile.addView(labelView)
+        val labelCell =
+            GridLayout.LayoutParams(
+                GridLayout.spec(idx, GridLayout.CENTER),
+                GridLayout.spec(0, GridLayout.LEFT),
+            )
+        labelCell.setMargins(8, 0, 0, 0)
+        grid.addView(labelView, labelCell)
 
         val valueView = TextView()
         // ASCII "--" placeholder: the bundled LVGL Montserrat subset has no em-dash
         // (U+2014) glyph, so "—" renders as a missing-glyph box.
         valueView.setText("--")
         valueView.setTextColor(Theme.colorText)
-        valueView.setSize(112, View.WRAP_CONTENT)
-        tile.addView(valueView)
+        val valueCell =
+            GridLayout.LayoutParams(
+                GridLayout.spec(idx, GridLayout.CENTER),
+                GridLayout.spec(1, GridLayout.LEFT, 1f),
+            )
+        valueCell.setMargins(8, 0, 8, 0)
+        grid.addView(valueView, valueCell)
 
-        parent.addView(tile)
-        tileRoots[idx] = tile
+        tileRoots[idx] = card
         tileValues[idx] = valueView
     }
 
@@ -207,7 +234,7 @@ class LiveActivity : NavActivity(), ServiceConnection, SmoothedSensorListener {
         }
     }
 
-    private fun flashOnBreach(tile: LinearLayout?, breached: Boolean) {
+    private fun flashOnBreach(tile: View?, breached: Boolean) {
         if (!breached || tile == null) {
             return
         }
