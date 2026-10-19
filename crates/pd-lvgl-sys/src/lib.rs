@@ -237,6 +237,29 @@ pub const LV_FLEX_ALIGN_START: lv_flex_align_t = 0;
 pub const LV_FLEX_ALIGN_END: lv_flex_align_t = 1;
 pub const LV_FLEX_ALIGN_CENTER: lv_flex_align_t = 2;
 
+/// The layout an object's `LV_STYLE_LAYOUT` names (`lv_layout_t`,
+/// lv_layout.h): none, LVGL's flex, LVGL's grid, then the ids
+/// [`lv_layout_create`] hands out in order. Guarded by
+/// `lv_layout_constants_match_vendored_header`.
+pub type lv_layout_t = u32;
+pub const LV_LAYOUT_NONE: lv_layout_t = 0;
+pub const LV_LAYOUT_FLEX: lv_layout_t = 1;
+pub const LV_LAYOUT_GRID: lv_layout_t = 2;
+
+/// A custom layout's callbacks (`lv_layout_callbacks_t`). LVGL calls
+/// `layout_update_cb` from `lv_obj_update_layout` for a container on that
+/// layout whose layout is dirty, with the container; `get_min_size_cb` when
+/// a content-sized container asks how big its content is on one axis
+/// (`width` says which), and the answer goes in `req_size`; `false` leaves
+/// LVGL to walk the children's coordinates instead.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct lv_layout_callbacks_t {
+    pub layout_update_cb: Option<unsafe extern "C" fn(*mut lv_obj_t, *mut c_void)>,
+    pub get_min_size_cb:
+        Option<unsafe extern "C" fn(*mut lv_obj_t, *mut i32, bool, *mut c_void) -> bool>,
+}
+
 /// Grid cell alignment (lv_grid.h `lv_grid_align_t`). STRETCH sizes the item
 /// to its cell, which is what Android's `GridLayout.FILL` means. Guarded by
 /// `lv_grid_constants_match_vendored_header`.
@@ -401,6 +424,38 @@ pub const LV_STYLE_FLEX_FLOW: lv_style_prop_t = 160;
 /// Removed per part by `ProgressBar` when an instance tint is cleared.
 pub const LV_STYLE_BG_OPA: lv_style_prop_t = 72;
 pub const LV_STYLE_BG_COLOR: lv_style_prop_t = 73;
+// Read back by picodroid-core's layout solvers (graphics/lvgl/layouts): a
+// child's margins and the container's gaps, padding, orientation and
+// gravity, all of which LVGL keeps as style properties.
+pub const LV_STYLE_WIDTH: lv_style_prop_t = 1;
+pub const LV_STYLE_HEIGHT: lv_style_prop_t = 2;
+pub const LV_STYLE_PAD_LEFT: lv_style_prop_t = 26;
+pub const LV_STYLE_PAD_RIGHT: lv_style_prop_t = 27;
+pub const LV_STYLE_PAD_ROW: lv_style_prop_t = 29;
+pub const LV_STYLE_PAD_COLUMN: lv_style_prop_t = 30;
+pub const LV_STYLE_MARGIN_TOP: lv_style_prop_t = 32;
+pub const LV_STYLE_MARGIN_BOTTOM: lv_style_prop_t = 33;
+pub const LV_STYLE_MARGIN_LEFT: lv_style_prop_t = 34;
+pub const LV_STYLE_MARGIN_RIGHT: lv_style_prop_t = 35;
+pub const LV_STYLE_LAYOUT: lv_style_prop_t = 132;
+pub const LV_STYLE_FLEX_MAIN_PLACE: lv_style_prop_t = 161;
+pub const LV_STYLE_FLEX_CROSS_PLACE: lv_style_prop_t = 162;
+pub const LV_STYLE_FLEX_GROW: lv_style_prop_t = 164;
+
+/// What [`lv_obj_get_local_style_prop`] answers (`lv_style_res_t`, a short
+/// enum). Guarded by `lv_style_res_constants_match_vendored_header`.
+pub type lv_style_res_t = u8;
+pub const LV_STYLE_RES_NOT_FOUND: lv_style_res_t = 0;
+pub const LV_STYLE_RES_FOUND: lv_style_res_t = 1;
+
+/// Behaviour flags of a style property, for [`lv_style_register_prop`]
+/// (`LV_STYLE_PROP_FLAG_*`, lv_style.h). A write to a property carrying
+/// `LAYOUT_UPDATE` re-lays the object out, `PARENT_LAYOUT_UPDATE` its parent.
+pub const LV_STYLE_PROP_FLAG_LAYOUT_UPDATE: u8 = 1 << 2;
+pub const LV_STYLE_PROP_FLAG_PARENT_LAYOUT_UPDATE: u8 = 1 << 3;
+/// The id [`lv_style_register_prop`] returns when LVGL has no property id
+/// left (`LV_STYLE_PROP_INV`).
+pub const LV_STYLE_PROP_INV: lv_style_prop_t = 0;
 /// `transform_scale_*` value meaning "unscaled" (`lv_style.h` `LV_SCALE_NONE`).
 pub const LV_SCALE_NONE: i32 = 256;
 /// `lv_draw_rect.h`: special radius value meaning "fully rounded" — the
@@ -832,6 +887,57 @@ macro_rules! lv_event_cb {
     };
 }
 
+/// A custom layout's update callback: `fn name(cont)` with `cont: Obj`, the
+/// container LVGL is laying out. Registered through [`layout_create`].
+#[macro_export]
+macro_rules! lv_layout_cb {
+    ($(#[$attr:meta])* $vis:vis fn $name:ident($cont:ident) $body:block) => {
+        $(#[$attr])*
+        $vis unsafe extern "C" fn $name(raw: *mut $crate::lv_obj_t, _user_data: *mut ::core::ffi::c_void) {
+            // SAFETY: LVGL calls a layout's update callback from
+            // `lv_layout_apply`, with the container it is laying out, which
+            // is live for the call.
+            let Some($cont) = (unsafe { $crate::Obj::from_raw(raw) }) else {
+                return;
+            };
+            $body
+        }
+    };
+}
+
+/// A custom layout's minimum-size callback: `fn name(cont, width) ->
+/// Option<i32>` with `cont: Obj` and `width: bool` (the axis asked for);
+/// `Some(size)` answers LVGL, `None` lets it walk the children instead.
+#[macro_export]
+macro_rules! lv_min_size_cb {
+    ($(#[$attr:meta])* $vis:vis fn $name:ident($cont:ident, $width:ident) -> Option<i32> $body:block) => {
+        $(#[$attr])*
+        $vis unsafe extern "C" fn $name(
+            raw: *mut $crate::lv_obj_t,
+            req_size: *mut i32,
+            $width: bool,
+            _user_data: *mut ::core::ffi::c_void,
+        ) -> bool {
+            // SAFETY: LVGL calls a layout's min-size callback from
+            // `lv_layout_get_min_size`, with the container it is sizing,
+            // which is live for the call.
+            let Some($cont) = (unsafe { $crate::Obj::from_raw(raw) }) else {
+                return false;
+            };
+            let answer: Option<i32> = $body;
+            match answer {
+                Some(size) => {
+                    // SAFETY: `req_size` is the out-parameter LVGL passed
+                    // for this call, valid to write once.
+                    unsafe { *req_size = size };
+                    true
+                }
+                None => false,
+            }
+        }
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Extern "C" function declarations
 // ---------------------------------------------------------------------------
@@ -1214,6 +1320,53 @@ unsafe extern "C" {
     /// outlives `obj`, or is replaced by another such array before the
     /// memory is reused.
     pub fn lv_obj_set_grid_dsc_array(obj: Obj, col_dsc: *const i32, row_dsc: *const i32);
+
+    // Custom layouts (lv_layout.h): picodroid-core's RelativeLayout and
+    // LinearLayout are layouts LVGL calls back into, as it calls its flex.
+    /// # Safety
+    /// The callbacks run whenever LVGL lays out an object put on this layout
+    /// (`lv_obj_set_layout`), with that object; `user_data` is handed back
+    /// to them untouched, so it must stay valid for as long as the layout is
+    /// used, which is the process's life (layouts are never removed).
+    pub fn lv_layout_create(callbacks: lv_layout_callbacks_t, user_data: *mut c_void) -> u32;
+    /// Put `obj` on a layout: `LV_LAYOUT_NONE`, LVGL's own, or an id from
+    /// `lv_layout_create`.
+    pub safe fn lv_obj_set_layout(obj: Obj, layout: u32);
+    /// Place `obj` at (`x`, `y`) in its parent's content area, with no style
+    /// written: what a layout callback does for each child.
+    pub safe fn lv_obj_move_to(obj: Obj, x: i32, y: i32);
+    /// Recompute `obj`'s size from its style; `true` when it changed. A
+    /// layout callback calls it on a content-sized container once the
+    /// children are placed, as LVGL's flex does.
+    pub safe fn lv_obj_refr_size(obj: Obj) -> bool;
+    pub safe fn lv_obj_get_content_width(obj: Obj) -> i32;
+    pub safe fn lv_obj_get_content_height(obj: Obj) -> i32;
+    pub safe fn lv_obj_mark_layout_as_dirty(obj: Obj);
+
+    // Custom style properties (lv_style.h): a property id of this crate's
+    // own, carried per object as a local style value.
+    /// A new property id with `flag` (`LV_STYLE_PROP_FLAG_*`), or
+    /// `LV_STYLE_PROP_INV` when the ids are used up.
+    pub safe fn lv_style_register_prop(flag: u8) -> lv_style_prop_t;
+    /// # Safety
+    /// `value` is read as the property's type: a number for a numeric or
+    /// custom property, a pointer that must outlive the object for a
+    /// pointer-valued one. `set_style_num` is the numeric form.
+    pub fn lv_obj_set_local_style_prop(
+        obj: Obj,
+        prop: lv_style_prop_t,
+        value: lv_style_value_t,
+        selector: lv_style_selector_t,
+    );
+    /// # Safety
+    /// `value` must point at writable storage for one `lv_style_value_t`;
+    /// it is written only when the answer is `LV_STYLE_RES_FOUND`.
+    pub fn lv_obj_get_local_style_prop(
+        obj: Obj,
+        prop: lv_style_prop_t,
+        value: *mut lv_style_value_t,
+        selector: lv_style_selector_t,
+    ) -> lv_style_res_t;
 
     // Label widget
     pub safe fn lv_label_create(parent: Obj) -> Option<Obj>;
@@ -1842,6 +1995,48 @@ pub fn send_event(obj: Obj, notice: Notice) -> u32 {
     unsafe { lv_obj_send_event(obj, code, core::ptr::null_mut()) }
 }
 
+/// [`lv_layout_create`] with a null `user_data`: the callbacks are given
+/// nothing but the container.
+#[cfg(not(test))]
+#[inline(always)]
+pub fn layout_create(
+    update: unsafe extern "C" fn(*mut lv_obj_t, *mut c_void),
+    min_size: Option<unsafe extern "C" fn(*mut lv_obj_t, *mut i32, bool, *mut c_void) -> bool>,
+) -> u32 {
+    let callbacks = lv_layout_callbacks_t {
+        layout_update_cb: Some(update),
+        get_min_size_cb: min_size,
+    };
+    // SAFETY: a null `user_data`, which the callbacks never read.
+    unsafe { lv_layout_create(callbacks, core::ptr::null_mut()) }
+}
+
+/// [`lv_obj_set_local_style_prop`] with a number, on the main part: for a
+/// numeric built-in property or one of this crate's own.
+#[cfg(not(test))]
+#[inline(always)]
+pub fn set_style_num(obj: Obj, prop: lv_style_prop_t, num: i32) {
+    // SAFETY: a numeric value for a property read as a number.
+    unsafe { lv_obj_set_local_style_prop(obj, prop, lv_style_value_t { num }, 0) };
+}
+
+/// The number `obj`'s own (local) style holds for `prop` on the main part,
+/// `None` when it holds none.
+#[cfg(not(test))]
+#[inline(always)]
+pub fn local_style_num(obj: Obj, prop: lv_style_prop_t) -> Option<i32> {
+    let mut value = lv_style_value_t { num: 0 };
+    // SAFETY: `value` is a local LVGL may write one `lv_style_value_t` into.
+    let res = unsafe { lv_obj_get_local_style_prop(obj, prop, &mut value, 0) };
+    if res == LV_STYLE_RES_FOUND {
+        // SAFETY: the property was written as a number (`set_style_num`, or
+        // a numeric built-in), which LVGL stores in `num`.
+        Some(unsafe { value.num })
+    } else {
+        None
+    }
+}
+
 /// [`lv_obj_remove_style`] for every style bound to `selector`.
 #[cfg(not(test))]
 #[inline(always)]
@@ -2034,6 +2229,8 @@ mod tests {
         include_str!("../../../third_party/lvgl/include/lvgl/core/lv_area.h");
     const LV_FLEX_HEADER: &str =
         include_str!("../../../third_party/lvgl/include/lvgl/layouts/lv_flex.h");
+    const LV_LAYOUT_HEADER: &str =
+        include_str!("../../../third_party/lvgl/include/lvgl/layouts/lv_layout.h");
     const LV_GRID_HEADER: &str =
         include_str!("../../../third_party/lvgl/include/lvgl/layouts/lv_grid.h");
     const LV_BTNMATRIX_HEADER: &str =
@@ -2211,6 +2408,20 @@ mod tests {
             (LV_STYLE_FLEX_FLOW, "LV_STYLE_FLEX_FLOW"),
             (LV_STYLE_BG_OPA, "LV_STYLE_BG_OPA"),
             (LV_STYLE_BG_COLOR, "LV_STYLE_BG_COLOR"),
+            (LV_STYLE_WIDTH, "LV_STYLE_WIDTH"),
+            (LV_STYLE_HEIGHT, "LV_STYLE_HEIGHT"),
+            (LV_STYLE_PAD_LEFT, "LV_STYLE_PAD_LEFT"),
+            (LV_STYLE_PAD_RIGHT, "LV_STYLE_PAD_RIGHT"),
+            (LV_STYLE_PAD_ROW, "LV_STYLE_PAD_ROW"),
+            (LV_STYLE_PAD_COLUMN, "LV_STYLE_PAD_COLUMN"),
+            (LV_STYLE_MARGIN_TOP, "LV_STYLE_MARGIN_TOP"),
+            (LV_STYLE_MARGIN_BOTTOM, "LV_STYLE_MARGIN_BOTTOM"),
+            (LV_STYLE_MARGIN_LEFT, "LV_STYLE_MARGIN_LEFT"),
+            (LV_STYLE_MARGIN_RIGHT, "LV_STYLE_MARGIN_RIGHT"),
+            (LV_STYLE_LAYOUT, "LV_STYLE_LAYOUT"),
+            (LV_STYLE_FLEX_MAIN_PLACE, "LV_STYLE_FLEX_MAIN_PLACE"),
+            (LV_STYLE_FLEX_CROSS_PLACE, "LV_STYLE_FLEX_CROSS_PLACE"),
+            (LV_STYLE_FLEX_GROW, "LV_STYLE_FLEX_GROW"),
         ] {
             let header_val = lookup_ordinal(body, "LV_STYLE_", name)
                 .unwrap_or_else(|| panic!("{name} not found in vendored lv_style.h"));
@@ -2617,6 +2828,77 @@ mod tests {
         // header — unguardable by the deliberately-minimal evaluator. Its
         // Rust value (0x01) is protected indirectly: ROW is guarded, and a
         // COLUMN repack upstream would be a flex redesign, not a drift.
+    }
+
+    #[test]
+    fn lv_style_res_and_prop_flags_match_vendored_header() {
+        let body =
+            enum_body(LV_STYLE_HEADER, "} lv_style_res_t").expect("lv_style_res_t not found");
+        for (rust_const, name) in [
+            (LV_STYLE_RES_NOT_FOUND, "LV_STYLE_RES_NOT_FOUND"),
+            (LV_STYLE_RES_FOUND, "LV_STYLE_RES_FOUND"),
+        ] {
+            let header_val = lookup_ordinal(body, "LV_STYLE_RES_", name)
+                .unwrap_or_else(|| panic!("{name} not found in vendored lv_style.h"));
+            assert_eq!(u32::from(rust_const), header_val, "{name} drifted");
+        }
+        for (rust_const, name) in [
+            (
+                LV_STYLE_PROP_FLAG_LAYOUT_UPDATE,
+                "LV_STYLE_PROP_FLAG_LAYOUT_UPDATE",
+            ),
+            (
+                LV_STYLE_PROP_FLAG_PARENT_LAYOUT_UPDATE,
+                "LV_STYLE_PROP_FLAG_PARENT_LAYOUT_UPDATE",
+            ),
+        ] {
+            assert_eq!(
+                lookup_define(LV_STYLE_HEADER, name),
+                Some(u32::from(rust_const)),
+                "{name} drifted — a custom layout property would stop re-laying its parent"
+            );
+        }
+        assert_eq!(
+            lookup_ordinal(style_prop_body(), "LV_STYLE_", "LV_STYLE_PROP_INV"),
+            Some(u32::from(LV_STYLE_PROP_INV)),
+            "LV_STYLE_PROP_INV drifted"
+        );
+    }
+
+    #[test]
+    fn lv_layout_constants_match_vendored_header() {
+        let body = enum_body(LV_LAYOUT_HEADER, "} lv_layout_t").expect("lv_layout_t not found");
+        for (rust_const, name) in [
+            (LV_LAYOUT_NONE, "LV_LAYOUT_NONE"),
+            (LV_LAYOUT_FLEX, "LV_LAYOUT_FLEX"),
+            (LV_LAYOUT_GRID, "LV_LAYOUT_GRID"),
+        ] {
+            let header_val = lookup_ordinal(body, "LV_LAYOUT_", name)
+                .unwrap_or_else(|| panic!("{name} not found in vendored lv_layout.h"));
+            assert_eq!(
+                rust_const, header_val,
+                "{name}: Rust FFI drifted from vendored lv_layout.h — the custom layouts \
+                 take the ids after these."
+            );
+        }
+        // Both built-in layouts are compiled in (lv_conf.h), so the first
+        // custom id is 3: the one past GRID, where the header's enum ends.
+        assert!(
+            body.trim_end().ends_with("LV_LAYOUT_LAST"),
+            "lv_layout_t grew past GRID"
+        );
+        assert!(
+            LV_LAYOUT_HEADER.contains(
+                "uint32_t lv_layout_create(lv_layout_callbacks_t callbacks, void * user_data);"
+            ),
+            "lv_layout_create's signature drifted"
+        );
+        assert!(
+            LV_LAYOUT_HEADER.contains(
+                "typedef bool (*lv_layout_get_min_size_cb_t)(lv_obj_t *, int32_t * req_size, bool width, void * user_data);"
+            ),
+            "lv_layout_get_min_size_cb_t drifted"
+        );
     }
 
     #[test]
