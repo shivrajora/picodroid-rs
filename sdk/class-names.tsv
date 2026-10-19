@@ -269,8 +269,12 @@ picodroid/lifecycle/LifecycleObserver
 picodroid/lifecycle/LifecycleOwner
 picodroid/lifecycle/LiveData
 picodroid/lifecycle/LiveData$ObserverWrapper
+picodroid/lifecycle/MediatorLiveData
+picodroid/lifecycle/MediatorLiveData$Source
 picodroid/lifecycle/MutableLiveData
 picodroid/lifecycle/Observer
+picodroid/lifecycle/Transformations
+picodroid/lifecycle/Transformations$1
 picodroid/lifecycle/ViewModel
 picodroid/lifecycle/ViewModelProvider
 picodroid/lifecycle/ViewModelProvider$Factory

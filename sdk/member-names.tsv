@@ -888,6 +888,8 @@ F	mSavedFragmentState
 F	mScrollState
 F	mSized
 F	mSmooth
+F	mSource
+F	mSources
 F	mStart
 F	mState
 F	mStateCount
@@ -1074,6 +1076,8 @@ F	type
 F	types
 F	uartId
 F	url
+F	val$result
+F	val$switchMapFunction
 F	vals
 F	value
 F	value0
@@ -1135,6 +1139,7 @@ M	addOnBackStackChangedListener
 M	addRequestProperty
 M	addRule
 M	addShowing
+M	addSource
 M	addTextChangedListener
 M	addTo
 M	addToBackStack
@@ -1710,6 +1715,7 @@ M	getUncaughtExceptionHandler
 M	getUnits
 M	getValue
 M	getVendor
+M	getVersion
 M	getView
 M	getViewLifecycleOwner
 M	getViewModelStore
@@ -1837,6 +1843,7 @@ M	keys
 M	kindOf
 M	lambda$dataSetChanged$4
 M	lambda$fireEvent$0
+M	lambda$map$0
 M	lambda$new$0
 M	lambda$openOptionsMenu$0
 M	lambda$openOptionsMenu$1
@@ -1870,6 +1877,7 @@ M	makeMeasureSpec
 M	makeTag
 M	makeText
 M	malformedVarint
+M	map
 M	mark
 M	markSupported
 M	markUnwritten
@@ -2276,6 +2284,7 @@ M	performTrackingTouch
 M	performedLongPress
 M	place
 M	plain
+M	plug
 M	plus
 M	plusDays
 M	plusHours
@@ -2387,6 +2396,7 @@ M	removeObservers
 M	removeOnBackStackChangedListener
 M	removeRule
 M	removeShowing
+M	removeSource
 M	removeStateAt
 M	removeTextChangedListener
 M	removeTransportType
@@ -2663,6 +2673,7 @@ M	submit
 M	subtractExact
 M	subtractFrom
 M	swap
+M	switchMap
 M	syncActive
 M	syncAlpha
 M	systemBits
@@ -2713,6 +2724,7 @@ M	unbind
 M	unbindService
 M	uncaughtException
 M	uninstall
+M	unplug
 M	unquote
 M	unregister
 M	unregisterLeakedReceivers

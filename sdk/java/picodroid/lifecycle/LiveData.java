@@ -22,8 +22,8 @@ import picodroid.concurrent.Executors;
  * (docs/designs/ui-build-budget-2026-10.md): only an observer whose every delivery is that long,
  * delivered often, has a reason to post its repaint.
  *
- * <p>Everything but {@link #postValue} is main-thread only (not checked). Not provided: {@code
- * Transformations}, {@code MediatorLiveData}.
+ * <p>Everything but {@link #postValue} is main-thread only (not checked). Derived values: {@link
+ * Transformations#map}, {@link Transformations#switchMap}, {@link MediatorLiveData}.
  */
 public abstract class LiveData<T> {
   static final int START_VERSION = -1;
@@ -117,6 +117,11 @@ public abstract class LiveData<T> {
   public T getValue() {
     Object data = mData;
     return data != NOT_SET ? (T) data : null;
+  }
+
+  /** The number of values set so far, for {@link MediatorLiveData}'s once-per-value sources. */
+  int getVersion() {
+    return mVersion;
   }
 
   public boolean hasObservers() {

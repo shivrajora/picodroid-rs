@@ -10,7 +10,7 @@ import picodroid.concurrent.ScheduledExecutorService;
 import picodroid.concurrent.ScheduledFuture;
 import picodroid.concurrent.TimeUnit;
 import picodroid.lifecycle.LiveData;
-import picodroid.lifecycle.Observer;
+import picodroid.lifecycle.MediatorLiveData;
 import picodroid.lifecycle.ViewModel;
 import picodroid.os.SystemClock;
 
@@ -58,25 +58,31 @@ public final class UsageViewModel extends ViewModel {
     scheduler.shutdownNow();
   }
 
-  /** The published state: fed by the repository and the clock for as long as it is observed. */
-  private final class State extends LiveData<UsageUiState> {
-    private final Observer<UsageData> observer = this::derive;
-
+  /**
+   * The published state: a {@link MediatorLiveData} over the repository's data, re-derived by the
+   * clock for as long as it is observed. The mediator plugs the source in while there is an
+   * observer and unplugs it after, as Android's does.
+   */
+  private final class State extends MediatorLiveData<UsageUiState> {
     private ScheduledFuture<?> ticking;
 
     private boolean active;
 
+    State() {
+      addSource(repository.data(), this::derive);
+    }
+
     @Override
     protected void onActive() {
       active = true;
-      repository.data().observeForever(observer);
+      super.onActive();
       onTick();
     }
 
     @Override
     protected void onInactive() {
       active = false;
-      repository.data().removeObserver(observer);
+      super.onInactive();
       setCounting(false);
     }
 

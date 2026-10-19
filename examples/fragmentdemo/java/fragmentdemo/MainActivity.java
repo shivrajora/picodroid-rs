@@ -11,8 +11,11 @@ import picodroid.lifecycle.DefaultLifecycleObserver;
 import picodroid.lifecycle.Lifecycle;
 import picodroid.lifecycle.LifecycleEventObserver;
 import picodroid.lifecycle.LifecycleOwner;
+import picodroid.lifecycle.LiveData;
+import picodroid.lifecycle.MediatorLiveData;
 import picodroid.lifecycle.MutableLiveData;
 import picodroid.lifecycle.Observer;
+import picodroid.lifecycle.Transformations;
 import picodroid.lifecycle.ViewModel;
 import picodroid.lifecycle.ViewModelProvider;
 import picodroid.os.Bundle;
@@ -425,6 +428,53 @@ public class MainActivity extends Activity {
         forever.toString().equals("y") && "y".equals(posted) && other.hasObservers());
     other.postValue("p1");
     other.postValue("p2");
+    // Derived LiveData: Transformations.map, a MediatorLiveData over two sources, switchMap.
+    MutableLiveData<Integer> count = new MutableLiveData<>(2);
+    LiveData<String> label = Transformations.map(count, n -> "n=" + n);
+    T.check("map is idle until observed", label.getValue() == null && !count.hasObservers());
+    StringBuilder mapped = new StringBuilder();
+    Observer<String> mapObserver = v -> mapped.append(v).append(' ');
+    label.observeForever(mapObserver);
+    count.setValue(3);
+    T.check("map follows its source", mapped.toString().equals("n=2 n=3 ") && count.hasObservers());
+    label.removeObserver(mapObserver);
+    T.check("an unobserved map lets go of its source", !count.hasObservers());
+    MediatorLiveData<String> both = new MediatorLiveData<>();
+    MutableLiveData<String> first = new MutableLiveData<>("a0");
+    MutableLiveData<String> second = new MutableLiveData<>();
+    both.addSource(first, v -> both.setValue("A:" + v));
+    both.addSource(second, v -> both.setValue("B:" + v));
+    StringBuilder merged = new StringBuilder();
+    Observer<String> mergedObserver = v -> merged.append(v).append(' ');
+    both.observeForever(mergedObserver);
+    second.setValue("b1");
+    first.setValue("a1");
+    T.check("a mediator merges its sources", merged.toString().equals("A:a0 B:b1 A:a1 "));
+    both.removeSource(first);
+    first.setValue("a2");
+    T.check("a removed source is silent", merged.toString().equals("A:a0 B:b1 A:a1 "));
+    both.removeObserver(mergedObserver);
+    second.setValue("b2");
+    T.check(
+        "an inactive mediator unplugs its sources",
+        !second.hasObservers() && merged.toString().equals("A:a0 B:b1 A:a1 "));
+    both.observeForever(mergedObserver);
+    T.check(
+        "a reactivated mediator catches up once", merged.toString().equals("A:a0 B:b1 A:a1 B:b2 "));
+    both.removeObserver(mergedObserver);
+    MutableLiveData<Boolean> pick = new MutableLiveData<>(true);
+    MutableLiveData<String> left = new MutableLiveData<>("L");
+    MutableLiveData<String> right = new MutableLiveData<>("R");
+    LiveData<String> chosen = Transformations.switchMap(pick, p -> p ? left : right);
+    StringBuilder switched = new StringBuilder();
+    chosen.observeForever(v -> switched.append(v));
+    pick.setValue(false);
+    right.setValue("R2");
+    left.setValue("L2");
+    T.check(
+        "switchMap follows the chosen source",
+        switched.toString().equals("LRR2") && !left.hasObservers() && right.hasObservers());
+
     T.check("postValue waits for the main thread", "y".equals(posted));
 
     // The host's own lifecycle, and its ViewModels.
