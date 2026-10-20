@@ -42,6 +42,7 @@ mod directory;
 pub mod mem_region;
 mod orchestrator;
 pub mod region;
+pub mod scan;
 pub mod transport;
 
 pub use directory::{run_sectors, PackageDirectory, Plan, PlanError};
@@ -49,4 +50,5 @@ pub use orchestrator::{
     install, run_install, run_uninstall, uninstall, CoreCoordinator, PageBuf, PapkFlash,
 };
 pub use region::{PapkRegion, PapkRegionFlash, PAGES_PER_SECTOR};
+pub use scan::{scan_region, Found, RegionScan};
 pub use transport::{InstallError, InstallTransport, ReadError};

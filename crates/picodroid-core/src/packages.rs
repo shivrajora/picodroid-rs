@@ -39,9 +39,8 @@
 
 use core::cell::UnsafeCell;
 
-use papk_format::flash_image::{
-    is_committed, is_verified, parse_header, FLAG_BOOT_DEFAULT, META_SIZE, VERIFIED_READ_LEN,
-};
+use papk_format::flash_image::{FLAG_BOOT_DEFAULT, META_SIZE};
+
 use papk_format::Papk;
 
 use crate::board_cfg::flash::BOOT_PACKAGE;
@@ -293,78 +292,62 @@ pub unsafe fn rescan(base: *const u8, len: usize) {
     }
     d.stale = [None; STALE_MAX];
 
-    let sectors = len / SECTOR;
-    let mut s = 0usize;
-    while s < sectors {
-        // SAFETY: `base` maps `len` readable bytes (the caller's contract) and
-        // `s` stays inside them.
-        let sector_ptr = unsafe { base.add(s * SECTOR) };
-        // SAFETY: the sector's first `VERIFIED_READ_LEN` bytes, inside it and
-        // so inside the mapping, which no write changes during the scan.
-        let header = unsafe { core::slice::from_raw_parts(sector_ptr, VERIFIED_READ_LEN) };
-        let max_len = (sectors - s - 1) * SECTOR;
-        let Some(meta) = parse_header(header, max_len) else {
-            s += 1;
-            continue;
-        };
-        let span = run_sectors(meta.len as usize) as usize;
-        if !is_committed(header) {
-            // An install or relocation that never finished: not an app, not
-            // free space either until `cleanup` erases it.
-            note_stale(d, s as u32, span as u32);
-            s += span;
-            continue;
-        }
-        // `parse_header` bounded `meta.len` by `max_len`, the sectors after
-        // this one.
-        // SAFETY: so the image lies inside the mapping, which stays readable
-        // for the program's life (the caller's contract).
-        let image =
-            unsafe { core::slice::from_raw_parts(sector_ptr.add(META_SIZE), meta.len as usize) };
-        // A run with its receipt was deep-checked by an earlier scan (or
-        // by the build script that baked it): only its bounds are read.
-        // One without is checked in full, here, before anything trusts it.
-        let verified = is_verified(header);
-        let valid = if verified {
-            papk_format::validate_embedded(image).is_ok()
-        } else {
-            papk_format::validate_structure(image).is_ok()
-        };
-        if valid && !class_hashes_disjoint(image) {
-            // A receipt does not vouch for this: the framework set it is
-            // checked against is the firmware's, which a reflash changes.
-            crate::pd_warn!(
-                "[packages] run at sector {}: {} skipped: a class name hashes like a framework class",
-                s as u32,
-                Papk::parse(image)
-                    .ok()
-                    .and_then(|p| p.package_name())
-                    .unwrap_or("?")
-            );
-            s += span;
-            continue;
-        }
-        let entry = if valid {
-            Entry::new(
+    // SAFETY: `base` maps `len` readable bytes for the life of the program
+    // (the caller's contract), which no write changes during the scan; the
+    // entries keep slices into it.
+    let region: &'static [u8] = unsafe { core::slice::from_raw_parts(base, len) };
+    // The walk itself is `pd_install::scan_region`, pure over the slice;
+    // what is the firmware's is the class-hash check it cannot know and
+    // what each finding does to the directory.
+    for found in pd_install::scan_region(region, class_hashes_disjoint) {
+        match found {
+            pd_install::Found::Stale {
+                first_sector,
+                sectors,
+            } => {
+                // An install or relocation that never finished: not an app,
+                // not free space either until `cleanup` erases it.
+                note_stale(d, first_sector, sectors);
+            }
+            pd_install::Found::Collides {
+                first_sector,
                 image,
-                s as u16,
-                span as u16,
-                meta.flags,
-                meta.seq,
-                Kind::App,
+                ..
+            } => {
+                // A receipt does not vouch for this: the framework set it is
+                // checked against is the firmware's, which a reflash changes.
+                crate::pd_warn!(
+                    "[packages] run at sector {}: {} skipped: a class name hashes like a framework class",
+                    first_sector,
+                    Papk::parse(image)
+                        .ok()
+                        .and_then(|p| p.package_name())
+                        .unwrap_or("?")
+                );
+            }
+            pd_install::Found::App {
+                first_sector,
+                sectors,
+                meta,
+                image,
                 verified,
-            )
-        } else {
-            None
-        };
-        let Some(entry) = entry else {
-            // A header over garbage: step past the header only, so a real
-            // run that happens to start inside the claimed span is still found.
-            s += 1;
-            continue;
-        };
-        insert(d, entry);
-        s += span;
+            } => {
+                // The walk read the manifest once to know it names a
+                // package; `Entry::new` reads it again for the fields.
+                if let Some(entry) = Entry::new(
+                    image,
+                    first_sector as u16,
+                    sectors as u16,
+                    meta.flags,
+                    meta.seq,
+                    Kind::App,
+                    verified,
+                ) {
+                    insert(d, entry);
+                }
+            }
+            pd_install::Found::Garbage { .. } => {}
+        }
     }
     // What the scan cost, deep link-table validation included.
     #[cfg(feature = "parity-metrics")]

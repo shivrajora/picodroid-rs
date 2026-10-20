@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[package]
+name = "pd-protobuf"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "micropb's stream traits over pico-jvm's array heap, and the one-value cursor operations behind picodroid.protobuf's CodedInputStream / CodedOutputStream natives. no_std, no unsafe; host-tested and fuzzed."
+readme = "README.md"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+# Protobuf wire codec: no_std, no alloc, only num-traits. Pinned exactly
+# because Cargo.lock is gitignored.
+micropb = { version = "=0.6.0", default-features = false, features = ["encode", "decode", "enable-64bit"] }
+# The Java `byte[]` the streams read and write lives in the JVM's array heap.
+pico-jvm = { path = "../jvm" }

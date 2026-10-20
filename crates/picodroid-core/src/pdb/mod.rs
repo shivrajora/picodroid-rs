@@ -1,302 +1,118 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! The device half of PDBP — the picodroid debug bridge.
+//! The device half of PDBP — the picodroid debug bridge — bound to this
+//! firmware.
 //!
-//! Everything here is protocol: resync on a frame magic, dispatch a command
-//! byte, verify a CRC, answer. The bytes themselves come from
-//! [`PdbTransport`], which is the only family-specific part — a USB CDC pipe
-//! on this hardware, something else on the next.
-//!
-//! # Why this is shared
-//!
-//! The alternative is each family reimplementing a wire protocol whose host
-//! side it does not control. `tools/pdb` speaks exactly one dialect; a family
-//! that framed a sysmon response differently would not fail loudly, it would
-//! print garbage task names. The constants already live in `pdb-protocol` so
-//! both ends agree on them; this module is the other half of that argument.
-//!
-//! # Why generics rather than `__pd_*` shims
-//!
-//! One caller — the family's debug-bridge task — and no shared statics
-//! needing family types. A generic parameter adds no link surface, needs no
-//! cfg-gating on boards that ship no bridge at all, and monomorphises in the
-//! family crate where that single caller already is. It also makes the whole
-//! thing testable, which the `__pd_*` seam would not: see [`sysmon`]'s
-//! golden-bytes test, which pins the layout `tools/pdb` parses.
+//! The protocol loop is the `pd-pdb` crate (resync, dispatch, CRC, the
+//! answers), generic over the byte pipe, the installer's flash and parking
+//! seams, the task-statistics source and a [`pd_pdb::PdbDevice`]. This
+//! module is that device: the board name, the serial, the framework-map
+//! version, input injection ([`input`]), the package list and uninstall
+//! targets ([`packages`]), all on [`crate::install::CoreDirectory`], which
+//! is already the installer's view of [`crate::packages`]. The public items
+//! a family or the simulator names keep their paths here.
 
-pub mod framing;
 pub mod input;
 #[cfg(has_multi_app)]
 pub mod packages;
-pub mod sysmon;
 pub mod usb_cdc;
 
-pub use framing::send_response;
-pub use sysmon::{SysmonSample, SysmonSource, TaskSample, MAX_TASKS};
+pub use pd_pdb::{send_response, PdbTransport, SysmonSample, SysmonSource, TaskSample, MAX_TASKS};
 
-use pdb_protocol::{
-    crc32_frame, greeting, CMD_INPUT, CMD_INSTALL, CMD_PING, CMD_SYSMON, FRAME_MAGIC,
-    STATUS_CRC_FAIL, STATUS_ERR, STATUS_OK, STATUS_TOO_LARGE,
-};
+use pd_pdb::{PdbDevice, UninstallRefusal};
+use pdb_protocol::input::InputEvent;
 
-use crate::install::{CoreCoordinator, PapkFlash};
+use crate::install::{CoreCoordinator, CoreDirectory, PapkFlash};
 
-/// A byte pipe to the host, framed by this module.
-///
-/// Exactly the surface `hal/contract.rs` used to assert by hand for
-/// `pdb_usb`, now a trait — so a signature that drifts fails to compile at
-/// the impl rather than at a type-ascription block someone has to remember to
-/// update.
-pub trait PdbTransport {
-    /// Bring the transport up. Called once, before the command loop.
-    fn init(&mut self);
+impl PdbDevice for CoreDirectory {
+    const MULTI_APP: bool = cfg!(has_multi_app);
+    const FRAMEWORK_MAP_VERSION: &'static str = crate::framework_map::FRAMEWORK_MAP_VERSION;
 
-    /// Block until a byte arrives.
-    fn read_byte(&mut self) -> u8;
-
-    /// Read a byte, or `None` if none arrives within the transport's timeout.
-    ///
-    /// Used only while streaming an install. A family whose tick source stops
-    /// during flash writes — this is real, see the RP2350 — must busy-wait on
-    /// hardware here rather than block on an RTOS primitive that will never
-    /// be serviced. That belongs inside the impl; the caller only needs to
-    /// know a read can time out.
-    fn read_byte_timeout(&mut self) -> Option<u8>;
-
-    fn write_bytes(&mut self, data: &[u8]);
-
-    /// Block until everything written has actually left the device. Called
-    /// before a reset, where anything still buffered is lost.
-    fn drain_tx(&mut self);
-
-    /// Read a little-endian `u32`. The default reads four bytes; transports
-    /// with a bulk path may override.
-    fn read_u32_le(&mut self) -> u32 {
-        let b0 = self.read_byte() as u32;
-        let b1 = self.read_byte() as u32;
-        let b2 = self.read_byte() as u32;
-        let b3 = self.read_byte() as u32;
-        b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
+    fn board(&self) -> &str {
+        crate::board_cfg::build_info::BOARD
     }
-}
 
-/// Bytes of garbage tolerated while hunting for a frame start before giving
-/// up and re-entering the loop. Bounded so a wedged or noisy line cannot spin
-/// forever inside one call.
-const RESYNC_LIMIT: usize = 65536;
+    fn serial(&self, out: &mut [u8; pdb_protocol::greeting::SERIAL_MAX]) -> usize {
+        let serial = crate::identity::serial();
+        let bytes = serial.as_bytes();
+        out[..bytes.len()].copy_from_slice(bytes);
+        bytes.len()
+    }
 
-/// Block until the frame magic is seen. `false` if [`RESYNC_LIMIT`] bytes
-/// went by without one.
-fn wait_for_magic(transport: &mut impl PdbTransport) -> bool {
-    let mut matched = 0usize;
-    for _ in 0..RESYNC_LIMIT {
-        let b = transport.read_byte();
-        if b == FRAME_MAGIC[matched] {
-            matched += 1;
-            if matched == FRAME_MAGIC.len() {
-                return true;
+    fn inject(&mut self, event: InputEvent) -> (u8, &'static [u8]) {
+        input::inject(event)
+    }
+
+    /// Device-only: the snapshot is published by the on-device monitor
+    /// (`mem_diag::published_snapshot` is gated the same way); the
+    /// simulator's bridge serves the plain sample.
+    fn mem_diag(&self) -> Option<pdb_protocol::sysmon::MemDiag> {
+        #[cfg(all(feature = "mem-diag", not(feature = "sim")))]
+        {
+            let (live, floor, alloc_total, largest_free) = crate::mem_diag::published_snapshot();
+            Some(pdb_protocol::sysmon::MemDiag {
+                live,
+                floor,
+                alloc_total,
+                largest_free,
+            })
+        }
+        #[cfg(not(all(feature = "mem-diag", not(feature = "sim"))))]
+        None
+    }
+
+    fn write_list(&self, out: &mut dyn core::fmt::Write) {
+        #[cfg(has_multi_app)]
+        packages::render_list(out);
+        #[cfg(not(has_multi_app))]
+        let _ = out;
+    }
+
+    fn uninstall_target(&self, package: &str) -> Result<(u32, u32), UninstallRefusal> {
+        #[cfg(has_multi_app)]
+        {
+            use crate::packages::Kind;
+            match crate::packages::find(package) {
+                None => Err(UninstallRefusal::NotInstalled),
+                Some(e) if e.kind == Kind::System => Err(UninstallRefusal::System),
+                Some(e) => Ok((e.first_sector as u32, e.sectors as u32)),
             }
-        } else {
-            // A mismatch may itself be the start of the real magic.
-            matched = usize::from(b == FRAME_MAGIC[0]);
+        }
+        #[cfg(not(has_multi_app))]
+        {
+            let _ = package;
+            Err(UninstallRefusal::NotInstalled)
         }
     }
-    false
-}
 
-/// Answer `STATUS_TOO_LARGE` to a request whose `len` exceeds what its verb
-/// can carry, without reading the payload. `true` if refused.
-///
-/// The unread payload and CRC are then garbage to [`wait_for_magic`], which
-/// skips them on the way to the next frame; draining `len` bytes instead
-/// would block for as many bytes as a hostile `u32` names.
-fn refuse_oversized(transport: &mut impl PdbTransport, cmd: u8, len: u32) -> bool {
-    match pdb_protocol::max_request_payload(cmd) {
-        Some(max) if len > max => {
-            send_response(transport, STATUS_TOO_LARGE, b"payload too large");
-            true
-        }
-        _ => false,
+    /// The package's data goes with its run (D10).
+    fn package_removed(&mut self, package: &str) {
+        #[cfg(has_multi_app)]
+        crate::storage::wipe_package(package);
+        #[cfg(not(has_multi_app))]
+        let _ = package;
     }
-}
-
-fn handle_ping(transport: &mut impl PdbTransport, flash: &impl PapkFlash, len: u32) {
-    // A framed command with an empty payload: consume the trailing CRC so the
-    // stream stays aligned whether or not it matches.
-    let wire_crc = transport.read_u32_le();
-    if wire_crc != crc32_frame(CMD_PING, len, &[]) {
-        send_response(transport, STATUS_CRC_FAIL, b"");
-        return;
-    }
-    // The greeting layout is `pdb_protocol::greeting`'s; this build supplies
-    // the facts only it knows — region capacity, framework-map-version, the
-    // board it was built for, this device's serial and, on a multi-app
-    // board, the state of the package directory.
-    let board = crate::board_cfg::build_info::BOARD.as_bytes();
-    let serial = crate::identity::serial();
-    let mut buf = [0u8; greeting::GREETING_MAX];
-    #[cfg(has_multi_app)]
-    let total = {
-        let (largest, free) = crate::packages::free_space();
-        let sector = crate::packages::SECTOR as u32;
-        let apps = greeting::AppsInfo {
-            max: flash.max_installed_apps() as u8,
-            installed: crate::packages::installed_count() as u8,
-            largest_free: largest * sector,
-            total_free: free * sector,
-        };
-        greeting::encode_with_apps(
-            flash.max_data_size() as u32,
-            crate::framework_map::FRAMEWORK_MAP_VERSION.as_bytes(),
-            board,
-            serial.as_bytes(),
-            &apps,
-            &mut buf,
-        )
-    };
-    #[cfg(not(has_multi_app))]
-    let total = greeting::encode(
-        flash.max_data_size() as u32,
-        crate::framework_map::FRAMEWORK_MAP_VERSION.as_bytes(),
-        board,
-        serial.as_bytes(),
-        &mut buf,
-    );
-    send_response(transport, STATUS_OK, &buf[..total]);
 }
 
 /// Run the debug bridge. Never returns.
 ///
-/// The family supplies the four things this cannot know: how bytes reach the
-/// host, how to park the JVM core for a flash write, where task statistics
-/// come from, and what the PAPK slot is.
+/// The family supplies the four things this firmware cannot know: how bytes
+/// reach the host, how to park the JVM core for a flash write, where task
+/// statistics come from, and what the PAPK slot is.
 pub fn run_pdb_task(
-    mut transport: impl PdbTransport,
-    mut coordinator: impl CoreCoordinator,
-    mut sysmon_source: impl SysmonSource,
-    mut flash: impl PapkFlash,
+    transport: impl PdbTransport,
+    coordinator: impl CoreCoordinator,
+    sysmon_source: impl SysmonSource,
+    flash: impl PapkFlash,
 ) -> ! {
-    transport.init();
-    // The install's flash-page staging buffer. This task owns it, so an
-    // install borrows it for the call and no two installs can share it.
-    let mut page: crate::install::PageBuf = [0u8; 256];
-
-    loop {
-        if !wait_for_magic(&mut transport) {
-            continue;
-        }
-        let cmd = transport.read_byte();
-        let len = transport.read_u32_le();
-        if refuse_oversized(&mut transport, cmd, len) {
-            continue;
-        }
-        match cmd {
-            CMD_PING => handle_ping(&mut transport, &flash, len),
-            CMD_INSTALL => {
-                let mut framed = framing::Framed(&mut transport);
-                crate::install::run_install(
-                    &mut framed,
-                    &mut coordinator,
-                    &mut flash,
-                    &mut page,
-                    len,
-                );
-            }
-            CMD_SYSMON => sysmon::handle(&mut transport, &mut sysmon_source, len),
-            CMD_INPUT => input::handle(&mut transport, len),
-            #[cfg(has_multi_app)]
-            pdb_protocol::CMD_LIST => packages::handle_list(&mut transport, len),
-            #[cfg(has_multi_app)]
-            pdb_protocol::CMD_UNINSTALL => {
-                packages::handle_uninstall(&mut transport, &mut coordinator, &mut flash, len)
-            }
-            _ => send_response(&mut transport, STATUS_ERR, b"unknown cmd"),
-        }
-    }
+    pd_pdb::run_pdb_task(transport, coordinator, sysmon_source, flash, CoreDirectory)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Records what was written, and replays a scripted read stream.
-    pub(super) struct MockPipe {
-        pub rx: alloc::vec::Vec<u8>,
-        pub pos: usize,
-        pub tx: alloc::vec::Vec<u8>,
-    }
-
-    impl MockPipe {
-        pub fn new(rx: alloc::vec::Vec<u8>) -> Self {
-            Self {
-                rx,
-                pos: 0,
-                tx: alloc::vec::Vec::new(),
-            }
-        }
-    }
-
-    impl PdbTransport for MockPipe {
-        fn init(&mut self) {}
-        fn read_byte(&mut self) -> u8 {
-            let b = self.rx.get(self.pos).copied().unwrap_or(0);
-            self.pos += 1;
-            b
-        }
-        fn read_byte_timeout(&mut self) -> Option<u8> {
-            self.rx.get(self.pos).copied().inspect(|_| self.pos += 1)
-        }
-        fn write_bytes(&mut self, data: &[u8]) {
-            self.tx.extend_from_slice(data)
-        }
-        fn drain_tx(&mut self) {}
-    }
-
-    #[test]
-    fn magic_is_found_after_leading_garbage() {
-        let mut rx = alloc::vec![b'x', b'P', b'D', 0xFF];
-        rx.extend_from_slice(FRAME_MAGIC);
-        let mut p = MockPipe::new(rx);
-        assert!(wait_for_magic(&mut p));
-    }
-
-    /// A partial magic that restarts mid-way must still resync — `PDBPDBP`
-    /// contains a false start, and a matcher that reset to zero on mismatch
-    /// rather than reconsidering the current byte would miss it.
-    #[test]
-    fn magic_resyncs_on_a_false_start() {
-        let mut p = MockPipe::new(alloc::vec![b'P', b'D', b'P', b'D', b'B', b'P']);
-        assert!(wait_for_magic(&mut p));
-    }
-
-    #[test]
-    fn giving_up_is_bounded_rather_than_infinite() {
-        let mut p = MockPipe::new(alloc::vec![0u8; 8]);
-        // Reads past the end yield zeros forever; the loop must still stop.
-        assert!(!wait_for_magic(&mut p));
-    }
-
-    /// A `len` its verb cannot carry is answered before a byte of payload is
-    /// read: draining `u32::MAX` bytes would park the bridge indefinitely.
-    #[test]
-    fn an_oversized_len_is_refused_unread() {
-        let mut p = MockPipe::new(alloc::vec::Vec::new());
-        assert!(refuse_oversized(&mut p, CMD_INPUT, u32::MAX));
-        assert_eq!(p.pos, 0, "nothing read");
-        assert_eq!(&p.tx[..4], FRAME_MAGIC);
-        assert_eq!(p.tx[4], STATUS_TOO_LARGE);
-
-        let mut p = MockPipe::new(alloc::vec::Vec::new());
-        assert!(refuse_oversized(&mut p, CMD_PING, 1));
-        let max_input = pdb_protocol::input::MAX_INPUT_PAYLOAD as u32;
-        for (cmd, len) in [(CMD_PING, 0), (CMD_SYSMON, 0), (CMD_INPUT, max_input)] {
-            let mut p = MockPipe::new(alloc::vec::Vec::new());
-            assert!(!refuse_oversized(&mut p, cmd, len), "cmd {cmd} len {len}");
-            assert!(p.tx.is_empty());
-        }
-        // The install header's `len` is the PAPK size, bounded elsewhere.
-        let mut p = MockPipe::new(alloc::vec::Vec::new());
-        assert!(!refuse_oversized(&mut p, CMD_INSTALL, u32::MAX));
-    }
+    use pd_pdb::vec_pipe::VecPipe;
+    use pd_pdb::{serve_one, BridgeState, Served};
+    use pdb_protocol::{crc32_frame, greeting, CMD_PING, FRAME_MAGIC, STATUS_OK};
 
     struct MockFlash;
     /// What the mock maps: two erased sectors.
@@ -328,17 +144,43 @@ mod tests {
         }
     }
 
+    struct NoSysmon;
+    impl SysmonSource for NoSysmon {
+        fn sample(&mut self, _out: &mut SysmonSample) -> bool {
+            false
+        }
+    }
+
     /// The greeting bytes themselves are pinned in `pdb_protocol::greeting`;
-    /// what this build must still prove is the wiring — that `handle_ping`
-    /// answers with *this* firmware's framework-map-version, the flash
-    /// slot's real capacity and the published serial, in a frame the
-    /// host-side parser accepts.
+    /// what this build must still prove is the wiring — that a PING through
+    /// the shared loop answers with *this* firmware's framework-map-version,
+    /// the flash slot's real capacity and the published serial, in a frame
+    /// the host-side parser accepts.
     #[test]
     fn greeting_layout_is_stable() {
+        let _g = crate::packages::test_support::lock();
         crate::identity::init();
-        let crc = crc32_frame(CMD_PING, 0, &[]);
-        let mut pipe = MockPipe::new(crc.to_le_bytes().to_vec());
-        handle_ping(&mut pipe, &MockFlash, 0);
+        let mut rx = FRAME_MAGIC.to_vec();
+        rx.push(CMD_PING);
+        rx.extend_from_slice(&0u32.to_le_bytes());
+        rx.extend_from_slice(&crc32_frame(CMD_PING, 0, &[]).to_le_bytes());
+        let mut pipe = VecPipe::new(rx);
+        let mut flash = MockFlash;
+        let served = serve_one(
+            &mut pipe,
+            &mut crate::install::mem_region::NoCoordinator,
+            &mut NoSysmon,
+            &mut flash,
+            &mut CoreDirectory,
+            &mut BridgeState::new(),
+        );
+        assert_eq!(
+            served,
+            Served::Answered {
+                cmd: CMD_PING,
+                reset: false
+            }
+        );
 
         assert_eq!(&pipe.tx[..4], FRAME_MAGIC);
         assert_eq!(pipe.tx[4], STATUS_OK);
@@ -356,5 +198,6 @@ mod tests {
         assert_eq!(g.serial, crate::identity::serial().as_str());
         assert_eq!(g.serial, "TEST0123456789AB");
         assert!(!g.is_legacy());
+        assert_eq!(g.apps.is_some(), cfg!(has_multi_app));
     }
 }

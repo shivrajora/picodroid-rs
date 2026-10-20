@@ -1,0 +1,14 @@
+# libFuzzer dictionary for the protobuf target (scripts/fuzz.sh passes it).
+# Tags: field 1..5 with wire types 0, 1, 2, 5, 3
+"\x08"
+"\x11"
+"\x1a"
+"\x25"
+"\x2b"
+# Varints: 300, a ten-byte -1, an eleven-byte overlong one
+"\xac\x02"
+"\xff\xff\xff\xff\xff\xff\xff\xff\xff\x01"
+"\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80"
+"\x80\x80\x80\x80\x10"
+# A length-delimited field claiming more than there is
+"\x1a\xff\x7f"

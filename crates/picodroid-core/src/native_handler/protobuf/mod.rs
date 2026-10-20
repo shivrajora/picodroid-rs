@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! `CodedInputStream` / `CodedOutputStream` natives: the byte-at-a-time half
-//! of `picodroid.protobuf`, over micropb's codec and the array-heap adapter
-//! in `heap_io`.
+//! `CodedInputStream` / `CodedOutputStream` natives: the JVM glue over the
+//! `pd-protobuf` crate, which holds micropb's codec over the array heap and
+//! the one-value cursor operations (`read_at`, `write_at`).
 //!
 //! Every arm is one value on one stream: it reads the stream's `mBuf`,
-//! `mPos` and `mLimit` slots, decodes or encodes with a `PbDecoder` /
-//! `PbEncoder` built over that slice, and stores the new position back.
-//! Nothing here holds a JVM reference past the call, allocates, or touches
-//! the array beyond `[mPos, mLimit)`. The Java side owns everything else:
-//! zigzag, limits, slicing strings and byte arrays, sizes.
+//! `mPos` and `mLimit` slots, asks `pd_protobuf` to decode or encode at
+//! that cursor, and stores the new position back. Nothing here holds a JVM
+//! reference past the call, allocates, or touches the array beyond
+//! `[mPos, mLimit)`. The Java side owns everything else: zigzag, limits,
+//! slicing strings and byte arrays, sizes.
 //!
 //! Errors: a read that runs off the limit or meets a malformed varint throws
 //! `InvalidProtocolBufferException` (the class declares no instance fields,
@@ -18,15 +18,12 @@
 use crate::shrink_names::{c, ch, mh};
 use pico_jvm::NativeKey;
 
-mod heap_io;
-
-use micropb::{DecodeError, PbDecoder, PbEncoder};
+use pd_protobuf::{read_at, write_at, DecodeError, HeapIoError, ReadOp, WriteOp};
 use pico_jvm::{
     types::{JvmError, Value},
     NativeContext,
 };
 
-use self::heap_io::{HeapIoError, HeapReader, HeapWriter};
 use super::throw_exception;
 
 pub mod fields;
@@ -40,23 +37,21 @@ pub fn dispatch(
 ) -> Option<Result<Option<Value>, JvmError>> {
     if key.class == ch::picodroid_protobuf_CodedInputStream {
         let r = match key.method {
-            mh::nativeReadTag => read(ctx, |d| {
-                d.decode_tag().map(|t| Value::Int(t.varint() as i32))
-            }),
-            mh::nativeReadVarint32 => {
-                read(ctx, |d| d.decode_varint32().map(|v| Value::Int(v as i32)))
-            }
-            mh::nativeReadVarint64 => {
-                read(ctx, |d| d.decode_varint64().map(|v| Value::Long(v as i64)))
-            }
-            mh::nativeReadFixed32 => {
-                read(ctx, |d| d.decode_fixed32().map(|v| Value::Int(v as i32)))
-            }
-            mh::nativeReadFixed64 => {
-                read(ctx, |d| d.decode_fixed64().map(|v| Value::Long(v as i64)))
-            }
-            mh::nativeReadDouble => read(ctx, |d| d.decode_double().map(Value::Double)),
-            mh::nativeSkipField => skip_field(ctx),
+            mh::nativeReadTag => read(ctx, ReadOp::Tag),
+            mh::nativeReadVarint32 => read(ctx, ReadOp::Varint32),
+            mh::nativeReadVarint64 => read(ctx, ReadOp::Varint64),
+            mh::nativeReadFixed32 => read(ctx, ReadOp::Fixed32),
+            mh::nativeReadFixed64 => read(ctx, ReadOp::Fixed64),
+            mh::nativeReadDouble => read(ctx, ReadOp::Double),
+            mh::nativeSkipField => match as_int(ctx.args.get(1)) {
+                Ok(tag) => read(
+                    ctx,
+                    ReadOp::Skip {
+                        wire_type: (tag & 0x7) as u8,
+                    },
+                ),
+                Err(e) => Err(e),
+            },
             _ => return None,
         };
         return Some(r);
@@ -64,23 +59,23 @@ pub fn dispatch(
     if key.class == ch::picodroid_protobuf_CodedOutputStream {
         let r = match key.method {
             mh::nativeWriteVarint32 => match as_int(ctx.args.get(1)) {
-                Ok(v) => write(ctx, v as u32 as u64, |e, v| e.encode_varint32(v as u32)),
+                Ok(v) => write(ctx, v as u32 as u64, WriteOp::Varint32),
                 Err(e) => Err(e),
             },
             mh::nativeWriteVarint64 => match as_long(ctx.args.get(1)) {
-                Ok(v) => write(ctx, v as u64, |e, v| e.encode_varint64(v)),
+                Ok(v) => write(ctx, v as u64, WriteOp::Varint64),
                 Err(e) => Err(e),
             },
             mh::nativeWriteFixed32 => match as_int(ctx.args.get(1)) {
-                Ok(v) => write(ctx, v as u32 as u64, |e, v| e.encode_fixed32(v as u32)),
+                Ok(v) => write(ctx, v as u32 as u64, WriteOp::Fixed32),
                 Err(e) => Err(e),
             },
             mh::nativeWriteFixed64 => match as_long(ctx.args.get(1)) {
-                Ok(v) => write(ctx, v as u64, |e, v| e.encode_fixed64(v)),
+                Ok(v) => write(ctx, v as u64, WriteOp::Fixed64),
                 Err(e) => Err(e),
             },
             mh::nativeWriteDouble => match as_double(ctx.args.get(1)) {
-                Ok(v) => write(ctx, v.to_bits(), |e, v| e.encode_double(f64::from_bits(v))),
+                Ok(v) => write(ctx, v.to_bits(), WriteOp::Double),
                 Err(e) => Err(e),
             },
             _ => return None,
@@ -139,60 +134,28 @@ fn store_pos(
         .ok_or(JvmError::InvalidReference)
 }
 
-type ReadResult<T> = Result<T, DecodeError<HeapIoError>>;
-
-/// Decode one value at the cursor with `f`; on success the cursor moves past
-/// it, on failure it stays and `InvalidProtocolBufferException` is thrown.
-/// `f` is a `fn` pointer rather than a generic closure so that one copy of
-/// the cursor and error handling serves every decoder.
-fn read(
-    ctx: &mut NativeContext<'_>,
-    f: fn(&mut PbDecoder<HeapReader<'_>>) -> ReadResult<Value>,
-) -> Result<Option<Value>, JvmError> {
+/// Decode one value at the cursor; on success the cursor moves past it, on
+/// failure it stays and `InvalidProtocolBufferException` is thrown. One
+/// copy of the cursor and error handling serves every decoder: the op is
+/// data, matched inside `read_at`.
+fn read(ctx: &mut NativeContext<'_>, op: ReadOp) -> Result<Option<Value>, JvmError> {
     let (this, buf, pos, limit) = cursor(ctx, INPUT)?;
-    let mut dec = PbDecoder::new(HeapReader::new(ctx.arrays, buf, pos, limit));
-    let r = f(&mut dec);
-    let end = dec.into_reader().position();
-    match r {
-        Ok(v) => {
+    match read_at(ctx.arrays, buf, pos, limit, op) {
+        Ok((v, end)) => {
             store_pos(ctx, this, INPUT, end)?;
-            Ok(Some(v))
+            Ok(v)
         }
         Err(e) => Err(decode_error(ctx, e)),
     }
 }
 
-/// `nativeSkipField(self, tag)`: step over one value of the tag's wire
-/// type. Groups are refused, as everywhere else in this package.
-fn skip_field(ctx: &mut NativeContext<'_>) -> Result<Option<Value>, JvmError> {
-    let tag = as_int(ctx.args.get(1))?;
-    let wire_type = (tag & 0x7) as u8;
-    let (this, buf, pos, limit) = cursor(ctx, INPUT)?;
-    let mut dec = PbDecoder::new(HeapReader::new(ctx.arrays, buf, pos, limit));
-    let r = dec.skip_wire_value(wire_type);
-    let end = dec.into_reader().position();
-    match r {
-        Ok(()) => {
-            store_pos(ctx, this, INPUT, end)?;
-            Ok(None)
-        }
-        Err(e) => Err(decode_error(ctx, e)),
-    }
-}
-
-/// Encode `v` at the cursor with `f`; the cursor moves past whatever was
-/// written, and the answer says whether all of it fit. `v` carries the value
-/// as raw bits (a `double` as `to_bits`) so that `f` can be a `fn` pointer:
-/// one copy of the cursor handling for every encoder, as for [`read`].
-fn write(
-    ctx: &mut NativeContext<'_>,
-    v: u64,
-    f: fn(&mut PbEncoder<HeapWriter<'_>>, u64) -> Result<(), HeapIoError>,
-) -> Result<Option<Value>, JvmError> {
+/// Encode `v` at the cursor; the cursor moves past whatever was written,
+/// and the answer says whether all of it fit. `v` carries the value as raw
+/// bits (a `double` as `to_bits`), as for [`read`]: one copy of the cursor
+/// handling for every encoder.
+fn write(ctx: &mut NativeContext<'_>, v: u64, op: WriteOp) -> Result<Option<Value>, JvmError> {
     let (this, buf, pos, limit) = cursor(ctx, OUTPUT)?;
-    let mut enc = PbEncoder::new(HeapWriter::new(ctx.arrays, buf, pos, limit));
-    let r = f(&mut enc, v);
-    let end = enc.into_writer().position();
+    let (end, r) = write_at(ctx.arrays, buf, pos, limit, v, op);
     store_pos(ctx, this, OUTPUT, end)?;
     match r {
         Ok(()) => Ok(Some(Value::Int(ST_OK))),

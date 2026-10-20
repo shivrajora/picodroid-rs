@@ -85,8 +85,22 @@ doc = false
 bench = false
 
 [[bin]]
+name = "pdb_stream"
+path = "fuzz_targets/pdb_stream.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "install"
 path = "fuzz_targets/install.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rescan"
+path = "fuzz_targets/rescan.rs"
 test = false
 doc = false
 bench = false
@@ -101,6 +115,13 @@ bench = false
 [[bin]]
 name = "http_chunked"
 path = "fuzz_targets/http_chunked.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "http_conn"
+path = "fuzz_targets/http_conn.rs"
 test = false
 doc = false
 bench = false
@@ -129,6 +150,55 @@ bench = false
 [[bin]]
 name = "records"
 path = "fuzz_targets/records.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "json_ops"
+path = "fuzz_targets/json_ops.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tls_verify"
+path = "fuzz_targets/tls_verify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sntp"
+path = "fuzz_targets/sntp.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sysfmt"
+path = "fuzz_targets/sysfmt.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sandbox"
+path = "fuzz_targets/sandbox.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "layout_node"
+path = "fuzz_targets/layout_node.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "protobuf"
+path = "fuzz_targets/protobuf.rs"
 test = false
 doc = false
 bench = false

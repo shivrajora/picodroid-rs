@@ -22,16 +22,20 @@ use super::fields;
 use super::helpers::{
     throw_io_exception, throw_named_exception, throw_net_exception, throw_socket_closed, NetOpCtx,
 };
+use super::http_head::conn::{RxBuffer, RxError, IO_CHUNK, RX_BUF_SIZE};
 use super::http_head::{
-    find_header_end, header_lines_of, header_matches, header_name, header_value, parse_head_bytes,
-    reason_phrase, status_line_of, write_bytes, write_usize,
+    header_lines_of, header_matches, header_name, header_value, reason_phrase, status_line_of,
+    write_bytes, write_usize,
 };
 use super::http_table;
 use crate::shrink_names::c;
 
-const RX_BUF_SIZE: usize = 1024;
 const TX_BUF_SIZE: usize = 512;
-const IO_CHUNK: usize = 256;
+
+/// The receive side at the device's shape (`http_head::conn`): the head
+/// parse, the stash and the chunked refill live there, where the host
+/// tests and fuzzes them; this file turns its errors into exceptions.
+type Rx = RxBuffer<RX_BUF_SIZE, IO_CHUNK>;
 
 /// What an `HttpConn` reads and writes: the HAL socket, or on a `has_tls`
 /// board a TLS session over it. One shape for the request and response
@@ -73,50 +77,75 @@ impl Transport {
 /// `handle` field via [`http_table`].
 struct HttpConn {
     transport: Transport,
-    headers_parsed: bool,
-    status_code: i32,
-    content_length: i64, // -1 if absent
-    body_remaining: i64, // i64::MAX if Content-Length unknown (read-til-EOF)
-    /// `Transfer-Encoding: chunked`: body reads run through `chunk` and the
-    /// wire framing (size lines, CRLFs, trailers) never reaches the app.
-    /// Without this the read-til-EOF fallback handed hex size lines and the
-    /// 0\r\n\r\n terminator to the caller as body bytes (bugbash F7).
-    chunked: bool,
-    chunk: crate::net::http_head::ChunkDecoder,
-    /// Bytes the header parser read past `\r\n\r\n` — handed to the first
-    /// body reads before any new `tcp_recv`.
-    rx_buf: [u8; RX_BUF_SIZE],
-    rx_head: u16,
-    rx_tail: u16,
-    /// Length of the response head (through the `\r\n\r\n`) once parsed.
-    /// Body reads never write back into `rx_buf[..head_len]` — they drain
-    /// from `rx_head` and then read straight into the caller's array — so
-    /// the head stays intact and the header accessors re-scan it in place
-    /// instead of allocating a parsed table.
-    head_len: u16,
+    /// The response: head, stash, chunk decoder, body countdown. The head
+    /// stays in the buffer for the header accessors, which re-scan it in
+    /// place instead of allocating a parsed table.
+    rx: Rx,
 }
 
 impl HttpConn {
     fn new(transport: Transport) -> Self {
         Self {
             transport,
-            headers_parsed: false,
-            status_code: -1,
-            content_length: -1,
-            body_remaining: i64::MAX,
-            chunked: false,
-            chunk: crate::net::http_head::ChunkDecoder::new(),
-            rx_buf: [0; RX_BUF_SIZE],
-            rx_head: 0,
-            rx_tail: 0,
-            head_len: 0,
+            rx: Rx::new(),
         }
     }
 
     /// The retained response head, empty until it has been parsed.
     fn head(&self) -> &[u8] {
-        &self.rx_buf[..self.head_len as usize]
+        self.rx.head()
     }
+}
+
+/// An [`RxError`] as the exception the connection always threw for it.
+fn rx_error(
+    objects: &mut ObjectHeap,
+    strings: &mut StringTable,
+    rx: &Rx,
+    e: RxError<NetError>,
+) -> JvmError {
+    match e {
+        RxError::Transport(e) => throw_net_exception(objects, strings, e, NetOpCtx::Recv),
+        RxError::HeadTooLarge => throw_io_exception(objects, strings, "response headers too large"),
+        RxError::UnexpectedEof => throw_named_exception(
+            objects,
+            strings,
+            c::java_net_ProtocolException,
+            "unexpected end of stream",
+        ),
+        RxError::BadStatusLine => {
+            let line = status_line_of(rx.head());
+            let msg = format!("unexpected status line: {}", String::from_utf8_lossy(line));
+            throw_named_exception(objects, strings, c::java_net_ProtocolException, &msg)
+        }
+        RxError::BadChunk => throw_named_exception(
+            objects,
+            strings,
+            c::java_net_ProtocolException,
+            "malformed chunked framing",
+        ),
+        RxError::EofInChunk => throw_named_exception(
+            objects,
+            strings,
+            c::java_net_ProtocolException,
+            "unexpected end of stream inside chunked body",
+        ),
+    }
+}
+
+/// Read the response head off the socket if it has not been read.
+///
+/// Malformed *server* data (truncated head, unparseable status line) is a
+/// `java/net/ProtocolException`, not a JVM fault; transport failures map
+/// through the usual `Recv` taxonomy (`SocketTimeoutException` on expiry).
+fn read_head(
+    conn: &mut HttpConn,
+    objects: &mut ObjectHeap,
+    strings: &mut StringTable,
+) -> Result<(), JvmError> {
+    let HttpConn { transport, rx } = conn;
+    rx.read_head(|buf| transport.recv(buf))
+        .map_err(|e| rx_error(objects, strings, rx, e))
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -401,10 +430,8 @@ pub fn native_read_response_code(
         Some(c) => c,
         None => return Err(throw_socket_closed(objects, strings)),
     };
-    if !conn.headers_parsed {
-        parse_response_head(conn, objects, strings)?;
-    }
-    Ok(Some(Value::Int(conn.status_code)))
+    read_head(conn, objects, strings)?;
+    Ok(Some(Value::Int(conn.rx.status_code())))
 }
 
 // ── HttpURLConnection.nativeContentLength (static) ───────────────────────────
@@ -420,10 +447,11 @@ pub fn native_content_length(
         None => return Err(throw_socket_closed(objects, strings)),
     };
     // content_length is stored as i64; Java return type is int, so clamp.
-    let len = if conn.content_length < 0 || conn.content_length > i32::MAX as i64 {
+    let content_length = conn.rx.content_length();
+    let len = if content_length < 0 || content_length > i32::MAX as i64 {
         -1
     } else {
-        conn.content_length as i32
+        content_length as i32
     };
     Ok(Some(Value::Int(len)))
 }
@@ -450,7 +478,7 @@ fn conn_with_head(
         Some(c) => c,
         None => return Err(throw_socket_closed(objects, strings)),
     };
-    if !conn.headers_parsed {
+    if !conn.rx.head_parsed() {
         return Ok(None);
     }
     Ok(Some(conn))
@@ -613,224 +641,30 @@ pub fn native_input_read(
         Some(c) => c,
         None => return Err(throw_socket_closed(objects, strings)),
     };
-    if !conn.headers_parsed {
-        parse_response_head(conn, objects, strings)?;
-    }
-    if conn.body_remaining == 0 {
-        return Ok(Some(Value::Int(-1)));
-    }
-    if conn.chunked {
-        return chunked_read(conn, objects, strings, arrays, arr_idx, off, len);
-    }
-
-    // 1) Drain any bytes the header parser over-read.
-    let stashed = (conn.rx_tail - conn.rx_head) as usize;
-    if stashed > 0 {
-        let take = core::cmp::min(stashed, len);
-        let take = core::cmp::min(take, conn.body_remaining as usize);
-        for i in 0..take {
-            let b = conn.rx_buf[conn.rx_head as usize + i];
-            arrays
-                .store(arr_idx, off + i, b as i8 as i32)
-                .ok_or(JvmError::InvalidReference)?;
-        }
-        conn.rx_head += take as u16;
-        if conn.body_remaining != i64::MAX {
-            conn.body_remaining -= take as i64;
-        }
-        return Ok(Some(Value::Int(take as i32)));
-    }
-
-    // 2) Fresh tcp_recv straight into a stack buffer, then mirror to the
-    //    JVM array.  Cap by body_remaining if Content-Length is known.
+    // One read into a stack buffer, then mirror it to the JVM array: the
+    // stash, or one `recv` of at most IO_CHUNK, through the chunk decoder on
+    // a chunked response. `Ok(0)` is the end of the body: orderly EOF on
+    // every platform (the device HAL remaps FreeRTOS's inverted encoding),
+    // so `-1` here really means end-of-stream, and a stalled-but-alive
+    // server throws `SocketTimeoutException` instead of reading as EOF.
     let mut buf = [0u8; IO_CHUNK];
     let want = core::cmp::min(len, IO_CHUNK);
-    let want = if conn.body_remaining == i64::MAX {
-        want
-    } else {
-        core::cmp::min(want, conn.body_remaining as usize)
-    };
-    match conn.transport.recv(&mut buf[..want]) {
-        // `Ok(0)` is orderly EOF on every platform (the device HAL remaps
-        // FreeRTOS's inverted encoding) — so `-1` here really means
-        // end-of-stream, and a stalled-but-alive server now throws
-        // `SocketTimeoutException` instead of reading as a clean EOF.
-        Ok(0) => {
-            conn.body_remaining = 0;
-            Ok(Some(Value::Int(-1)))
-        }
+    let HttpConn { transport, rx } = conn;
+    match rx.read_body(&mut buf[..want], |b| transport.recv(b)) {
+        Ok(0) => Ok(Some(Value::Int(-1))),
         Ok(n) => {
             for (i, &b) in buf.iter().enumerate().take(n) {
                 arrays
                     .store(arr_idx, off + i, b as i8 as i32)
                     .ok_or(JvmError::InvalidReference)?;
             }
-            if conn.body_remaining != i64::MAX {
-                conn.body_remaining -= n as i64;
-            }
             Ok(Some(Value::Int(n as i32)))
         }
-        Err(e) => Err(throw_net_exception(objects, strings, e, NetOpCtx::Recv)),
-    }
-}
-
-/// Body read for a `Transfer-Encoding: chunked` response: run every wire
-/// byte (stashed head-overrun first, then fresh `tcp_recv`) through the
-/// connection's [`ChunkDecoder`], storing only payload bytes. Returns as
-/// soon as at least one payload byte landed, `-1` at the terminal chunk.
-fn chunked_read(
-    conn: &mut HttpConn,
-    objects: &mut ObjectHeap,
-    strings: &mut StringTable,
-    arrays: &mut ArrayHeap,
-    arr_idx: u16,
-    off: usize,
-    len: usize,
-) -> Result<Option<Value>, JvmError> {
-    use crate::net::http_head::ChunkEvent;
-
-    let mut produced = 0usize;
-    loop {
-        // Drain what the buffer holds through the decoder.
-        while produced < len && conn.rx_head < conn.rx_tail {
-            let b = conn.rx_buf[conn.rx_head as usize];
-            conn.rx_head += 1;
-            match conn.chunk.push(b) {
-                ChunkEvent::Byte(x) => {
-                    arrays
-                        .store(arr_idx, off + produced, x as i8 as i32)
-                        .ok_or(JvmError::InvalidReference)?;
-                    produced += 1;
-                }
-                ChunkEvent::None => {}
-                ChunkEvent::Done => {
-                    conn.body_remaining = 0;
-                    return Ok(Some(Value::Int(if produced > 0 {
-                        produced as i32
-                    } else {
-                        -1
-                    })));
-                }
-                ChunkEvent::Bad => {
-                    return Err(throw_named_exception(
-                        objects,
-                        strings,
-                        c::java_net_ProtocolException,
-                        "malformed chunked framing",
-                    ));
-                }
-            }
-        }
-        if produced > 0 {
-            return Ok(Some(Value::Int(produced as i32)));
-        }
-        // Buffer empty and nothing produced yet: pull more wire bytes. The
-        // head is parsed, so the whole rx_buf can be recycled.
-        conn.rx_head = conn.head_len;
-        conn.rx_tail = conn.head_len;
-        let start = conn.rx_head as usize;
-        let n = conn
-            .transport
-            .recv(&mut conn.rx_buf[start..])
-            .map_err(|e| throw_net_exception(objects, strings, e, NetOpCtx::Recv))?;
-        if n == 0 {
-            return Err(throw_named_exception(
-                objects,
-                strings,
-                c::java_net_ProtocolException,
-                "unexpected end of stream inside chunked body",
-            ));
-        }
-        conn.rx_tail += n as u16;
+        Err(e) => Err(rx_error(objects, strings, rx, e)),
     }
 }
 
 // ── plumbing ─────────────────────────────────────────────────────────────────
-
-/// Read from the socket until `\r\n\r\n`, then parse the status line and
-/// any `Content-Length` header.  Any bytes past the header terminator are
-/// left in `conn.rx_buf[rx_head..rx_tail]` for subsequent body reads.
-///
-/// Malformed *server* data (truncated head, unparseable status line) is a
-/// `java/net/ProtocolException`, not a JVM fault; transport failures map
-/// through the usual `Recv` taxonomy (`SocketTimeoutException` on expiry).
-fn parse_response_head(
-    conn: &mut HttpConn,
-    objects: &mut ObjectHeap,
-    strings: &mut StringTable,
-) -> Result<(), JvmError> {
-    let mut scan_from = 0usize;
-    loop {
-        if conn.rx_tail as usize >= RX_BUF_SIZE {
-            return Err(throw_io_exception(
-                objects,
-                strings,
-                "response headers too large",
-            ));
-        }
-        let space = &mut conn.rx_buf[conn.rx_tail as usize..];
-        let n = conn
-            .transport
-            .recv(space)
-            .map_err(|e| throw_net_exception(objects, strings, e, NetOpCtx::Recv))?;
-        if n == 0 {
-            return Err(throw_named_exception(
-                objects,
-                strings,
-                c::java_net_ProtocolException,
-                "unexpected end of stream",
-            ));
-        }
-        conn.rx_tail += n as u16;
-
-        // Scan for CRLFCRLF; keep at most the last 3 bytes of prior scan
-        // as context for the boundary.
-        let start = scan_from.saturating_sub(3);
-        let end = conn.rx_tail as usize;
-        if let Some(body_off) = find_header_end(&conn.rx_buf[..end], start) {
-            let head = &conn.rx_buf[..body_off];
-            let (status, content_length) = match parse_head_bytes(head) {
-                Ok(v) => v,
-                Err(_) => {
-                    let line = status_line_of(head);
-                    let msg = format!("unexpected status line: {}", String::from_utf8_lossy(line));
-                    return Err(throw_named_exception(
-                        objects,
-                        strings,
-                        c::java_net_ProtocolException,
-                        &msg,
-                    ));
-                }
-            };
-            conn.status_code = status;
-            conn.chunked = crate::net::http_head::is_chunked(head);
-            // A chunked body refills into `rx_buf[head_len..]` for the whole
-            // response (the head stays for the header accessors), so a head
-            // that leaves less than one chunk of window would make every
-            // refill a zero-length read — "unexpected end of stream inside
-            // chunked body" on a well-formed response. Refuse it as a head
-            // too large, the same answer a head over the buffer gets.
-            if conn.chunked && body_off > RX_BUF_SIZE - IO_CHUNK {
-                return Err(throw_io_exception(
-                    objects,
-                    strings,
-                    "response headers too large",
-                ));
-            }
-            // A chunked response has no usable Content-Length (RFC 9112
-            // forbids combining them; the framing wins).
-            conn.content_length = if conn.chunked { -1 } else { content_length };
-            if !conn.chunked && content_length >= 0 {
-                conn.body_remaining = content_length;
-            }
-            conn.rx_head = body_off as u16;
-            conn.head_len = body_off as u16;
-            conn.headers_parsed = true;
-            return Ok(());
-        }
-        scan_from = end;
-    }
-}
 
 fn send_all(transport: &mut Transport, mut buf: &[u8]) -> Result<(), NetError> {
     while !buf.is_empty() {

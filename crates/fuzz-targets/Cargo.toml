@@ -18,6 +18,9 @@ class-link = { path = "../class-link", features = ["build"] }
 compat = { path = "../compat" }
 http-head = { path = "../http-head" }
 papk-format = { path = "../papk-format", features = ["write"] }
+pd-codec = { path = "../pd-codec" }
+pd-pdb = { path = "../pd-pdb", features = ["vec-pipe"] }
+pd-protobuf = { path = "../pd-protobuf" }
 pd-install = { path = "../pd-install", features = ["mem-region"] }
 pd-json = { path = "../pd-json" }
 pd-tls = { path = "../pd-tls" }

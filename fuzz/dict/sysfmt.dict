@@ -1,0 +1,12 @@
+# libFuzzer dictionary for the sysfmt target (scripts/fuzz.sh passes it).
+"PDWF"
+"PDWF\x01"
+"UTC"
+"GMT"
+"UT"
+"Z"
+"+05:30"
+"-0330"
+"Europe/London"
+"emulator-"
+"\xff\xff\xff\xff\xff\xff\xff\xff"

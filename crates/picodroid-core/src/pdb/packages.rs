@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! `CMD_LIST` and `CMD_UNINSTALL` — the package directory over the bridge
-//! (docs/designs/multi-app-2026-09.md D8). Multi-app boards only; a
-//! single-app board answers `unknown cmd`.
+//! `CMD_LIST`'s rows — the package directory over the bridge
+//! (docs/designs/multi-app-2026-09.md D8). Multi-app boards only; the frame
+//! handling (`pd_pdb::packages`) answers `unknown cmd` elsewhere.
 //!
 //! The list is text, one tab-separated row per installed app, one per
 //! system app, a `free` footer and a `running` line, so `tools/pdb` renders
@@ -9,39 +9,15 @@
 //! a serial capture. Rows only ever get added (multi-app M2 added the
 //! system rows and the running line), so an older host still parses it.
 
-use core::fmt::Write as _;
+use core::fmt::Write;
 
-use pdb_protocol::{
-    crc32_frame, CMD_LIST, CMD_UNINSTALL, MAX_PACKAGE_NAME, STATUS_CRC_FAIL, STATUS_ERR,
-    STATUS_NOT_FOUND, STATUS_OK,
-};
-
-use super::framing::{send_response, Framed, TextBuf};
-use super::PdbTransport;
-use crate::install::{uninstall, CoreCoordinator, PapkFlash};
 use crate::packages::{self, Kind, SECTOR};
 
-/// Room for eight rows of a long package name and label, the system rows,
-/// the footer and the running line.
-const LIST_BUF: usize = 1280;
-
-/// Handle `CMD_LIST`: rows `sector<TAB>package<TAB>version-code<TAB>version
-/// <TAB>size<TAB>flags<TAB>label`, in sector order, then the system apps
-/// with `system` in the sector column, then
-/// `free<TAB>largest<TAB>total<TAB>installed<TAB>max` (bytes and counts),
-/// then `running<TAB>package` when an app is running.
-pub fn handle_list(transport: &mut impl PdbTransport, len: u32) {
-    let wire_crc = transport.read_u32_le();
-    if wire_crc != crc32_frame(CMD_LIST, len, &[]) {
-        send_response(transport, STATUS_CRC_FAIL, b"");
-        return;
-    }
-    let mut text = TextBuf::<LIST_BUF>::new();
-    render_list(&mut text);
-    send_response(transport, STATUS_OK, text.as_bytes());
-}
-
-fn render_list(text: &mut TextBuf<LIST_BUF>) {
+/// Rows `sector<TAB>package<TAB>version-code<TAB>version<TAB>size<TAB>flags
+/// <TAB>label`, in sector order, then the system apps with `system` in the
+/// sector column, then `free<TAB>largest<TAB>total<TAB>installed<TAB>max`
+/// (bytes and counts), then `running<TAB>package` when an app is running.
+pub fn render_list(text: &mut dyn Write) {
     // Sector order without allocating: repeatedly take the lowest sector
     // above the last one printed. A few dozen entries at the very most.
     let mut last: Option<u32> = None;
@@ -88,58 +64,15 @@ fn render_list(text: &mut TextBuf<LIST_BUF>) {
     }
 }
 
-/// Handle `CMD_UNINSTALL`: payload is the package name. Parks the JVM,
-/// erases the whole run, and resets — the same choreography as an install.
-pub fn handle_uninstall(
-    transport: &mut impl PdbTransport,
-    coordinator: &mut impl CoreCoordinator,
-    flash: &mut impl PapkFlash,
-    len: u32,
-) {
-    // The payload + trailing CRC. `run_pdb_task` refused any `len` above
-    // MAX_PACKAGE_NAME before calling here; the `min` keeps this function
-    // safe on its own.
-    let mut name = [0u8; MAX_PACKAGE_NAME];
-    let n = (len as usize).min(MAX_PACKAGE_NAME);
-    for b in name.iter_mut().take(n) {
-        *b = transport.read_byte();
-    }
-    let wire_crc = transport.read_u32_le();
-    if wire_crc != crc32_frame(CMD_UNINSTALL, len, &name[..n]) {
-        send_response(transport, STATUS_CRC_FAIL, b"");
-        return;
-    }
-    let Ok(package) = core::str::from_utf8(&name[..n]) else {
-        send_response(transport, STATUS_ERR, b"package name is not UTF-8");
-        return;
-    };
-    let (first, sectors) = match packages::find(package) {
-        None => {
-            send_response(transport, STATUS_NOT_FOUND, b"not installed");
-            return;
-        }
-        Some(e) if e.kind == Kind::System => {
-            send_response(transport, STATUS_ERR, b"system package");
-            return;
-        }
-        Some(e) => (e.first_sector as u32, e.sectors as u32),
-    };
-    let mut framed = Framed(transport);
-    if uninstall(&mut framed, coordinator, flash, first, sectors) {
-        // The package's data goes with it (D10); then the reset
-        // `run_uninstall` would have made.
-        crate::storage::wipe_package(package);
-        flash.trigger_reset();
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::install::install;
     use crate::install::mem_region::{MemRegion, MemTransport, NoCoordinator};
-    use crate::pdb::tests::MockPipe;
+    use crate::install::{install, CoreDirectory};
     use papk_format::{EntryPoint, ManifestSpec, PapkBuilder};
+    use pd_pdb::packages::{handle_list, handle_uninstall};
+    use pd_pdb::vec_pipe::VecPipe;
+    use pdb_protocol::{crc32_frame, CMD_LIST, CMD_UNINSTALL, STATUS_NOT_FOUND, STATUS_OK};
 
     fn papk(package: &str, label: Option<&str>) -> Vec<u8> {
         let mut b = PapkBuilder::new(ManifestSpec {
@@ -193,8 +126,8 @@ mod tests {
         crate::packages::register_system(&[launcher]);
         crate::packages::set_running(Some("picodroid.launcher"));
 
-        let mut pipe = MockPipe::new(frame(CMD_LIST, b""));
-        handle_list(&mut pipe, 0);
+        let mut pipe = VecPipe::new(frame(CMD_LIST, b""));
+        handle_list(&mut pipe, &CoreDirectory, 0);
         let (status, text) = payload_of(&pipe.tx);
         assert_eq!(status, STATUS_OK);
         let lines: Vec<&str> = text.lines().collect();
@@ -224,15 +157,6 @@ mod tests {
     }
 
     #[test]
-    fn a_bad_crc_on_list_is_refused() {
-        let _g = crate::packages::test_support::lock();
-        crate::packages::reset_for_test();
-        let mut pipe = MockPipe::new(vec![0, 0, 0, 0]);
-        handle_list(&mut pipe, 0);
-        assert_eq!(pipe.tx[4], STATUS_CRC_FAIL);
-    }
-
-    #[test]
     fn uninstall_of_an_unknown_package_is_not_found() {
         let _g = crate::packages::test_support::lock();
         crate::packages::reset_for_test();
@@ -240,24 +164,25 @@ mod tests {
         crate::packages::rescan_region(&region);
         let mut region = region;
         let name = b"com.nope";
-        let mut pipe = MockPipe::new(frame(CMD_UNINSTALL, name));
-        handle_uninstall(
+        let mut pipe = VecPipe::new(frame(CMD_UNINSTALL, name));
+        let reset = handle_uninstall(
             &mut pipe,
             &mut NoCoordinator,
             &mut region,
+            &mut CoreDirectory,
             name.len() as u32,
         );
+        assert!(!reset);
         let (status, text) = payload_of(&pipe.tx);
         assert_eq!(status, STATUS_NOT_FOUND);
         assert_eq!(text, "not installed");
         assert!(region.ops.is_empty());
     }
 
-    /// The real handler ends in a reset; the mock region panics instead of
-    /// resetting, which is the signal that the run was erased and success
-    /// reported first.
+    /// The real loop ends in a reset; here the handler reports that it is
+    /// due, after the run was erased and success reported.
     #[test]
-    fn uninstall_erases_the_run_reports_ok_then_resets() {
+    fn uninstall_erases_the_run_reports_ok_then_asks_for_a_reset() {
         let _g = crate::packages::test_support::lock();
         crate::packages::reset_for_test();
         let mut region = MemRegion::new(8, 8);
@@ -267,16 +192,14 @@ mod tests {
         region.ops.clear();
 
         let name = b"com.a";
-        let mut pipe = MockPipe::new(frame(CMD_UNINSTALL, name));
-        let reset = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            handle_uninstall(
-                &mut pipe,
-                &mut NoCoordinator,
-                &mut region,
-                name.len() as u32,
-            );
-        }))
-        .is_err();
+        let mut pipe = VecPipe::new(frame(CMD_UNINSTALL, name));
+        let reset = handle_uninstall(
+            &mut pipe,
+            &mut NoCoordinator,
+            &mut region,
+            &mut CoreDirectory,
+            name.len() as u32,
+        );
         assert!(reset, "no reset after uninstall");
         assert_eq!(pipe.tx[4], STATUS_OK);
         assert_eq!(

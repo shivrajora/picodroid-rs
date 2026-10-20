@@ -3,8 +3,11 @@
 Coverage-guided fuzzing of every parser that takes untrusted bytes: the
 PAPK container and its install path, the class section and the class
 linker, the interpreter on checked bytecode, the pdb payloads, the HTTP
-head and chunked body, JSON, and the TLS handshake. The design and the
-reasons behind it are in
+head and chunked body, JSON (the parser and the `JSONObject` edits), the
+TLS handshake and the certificate-chain verifier, and the small decoders
+of `pd-codec` (the SNTP reply, the `/system/*` store records, the storage
+sandbox's path map, the compiled-layout node). `./scripts/fuzz.sh --list`
+is the current list. The design and the reasons behind it are in
 [designs/fuzzing-2026-10.md](designs/fuzzing-2026-10.md).
 
 Audience: developers and AI agents. Every command below is copy-pasteable.
@@ -104,8 +107,9 @@ On Sundays the run gives 15 of its minutes to two chores:
 
 - `cargo fuzz cmin` keeps each corpus to the inputs that still add coverage.
 - A Miri pass replays the regression inputs of the targets that reach
-  `unsafe` in `class-link` and the JVM heaps
-  (`PICODROID_FUZZ_REPLAY=class_section,link_class,bytecode_check,papk,interp`).
+  `unsafe`: the class-link tables and the JVM heaps, the installer's
+  region mapping, the sandbox's `from_utf8_unchecked`
+  (`PICODROID_FUZZ_REPLAY=class_section,link_class,bytecode_check,papk,interp,install,rescan,pdb_stream,protobuf,sandbox`).
   Miri checks those casts in a way ASan cannot.
 
 GitHub's weekly `rust_nightly.yml` also builds every target and gives each
@@ -131,6 +135,13 @@ one a minute, so `fuzz/` does not rot unseen.
 ## What is not fuzzed
 
 The C code is not fuzzed: FreeRTOS+TCP's DNS and DHCP, and the cyw43
-driver. Nor are pack-time inputs, the device pdb byte stream, or LittleFS
-metadata. [designs/fuzzing-2026-10.md](designs/fuzzing-2026-10.md) §6 says
-why for each.
+driver. Nor are pack-time inputs or LittleFS metadata.
+[designs/fuzzing-2026-10.md](designs/fuzzing-2026-10.md) §6 says why for
+each.
+
+A parser that lives in `picodroid-core` cannot be fuzzed where it is:
+`fuzz-targets` depends on leaf crates only, and core brings the LVGL C
+build with it. Move the pure part into a leaf crate (`pd-codec` holds the
+small ones; `pd-install`, `http-head`, `pd-protobuf` and `pd-pdb` took the
+larger seams) and re-export it from core under its old path, so no call
+site changes.

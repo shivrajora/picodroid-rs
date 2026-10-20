@@ -11,6 +11,8 @@
 
 extern crate alloc;
 
+pub mod conn;
+
 /// Offset of the first byte *after* the `\r\n\r\n` that ends a message head,
 /// searching from `from`.
 pub fn find_header_end(buf: &[u8], from: usize) -> Option<usize> {

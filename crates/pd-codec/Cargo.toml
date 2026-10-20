@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[package]
+name = "pd-codec"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "The pure decoders picodroid-core trusts, without the platform behind them: the SNTP packet, the /system/{wifi,time,serial} store records, the app storage path map and the compiled-layout node reader. no_std, no statics; host-tested and fuzzed."
+readme = "README.md"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+# The IEEE CRC-32 the Wi-Fi store record carries, and the serial field's
+# cap; dependency-free and no_std.
+pdb-protocol = { path = "../pdb-protocol" }
+# The compiled layout's attribute and class codes (`res::layout`).
+papk-format = { path = "../papk-format" }

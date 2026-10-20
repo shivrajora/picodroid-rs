@@ -1,0 +1,12 @@
+# libFuzzer dictionary for the rescan target (scripts/fuzz.sh passes it).
+# Boot-meta magics (little-endian on the wire): header, commit, verified
+"1BDP"
+"CBDP"
+"VBDP"
+"PAPK"
+"MANI"
+"CLSS"
+"package-name"
+"\x00\x10\x00\x00"
+"\x00\x20\x00\x00"
+"\xff\xff\xff\xff"

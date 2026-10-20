@@ -1,32 +1,29 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! CMD_INPUT handler — inject synthetic button / touch input from the host.
+//! CMD_INPUT's device half — inject synthetic button / touch input from
+//! the host, the picodroid analog of `adb shell input tap|swipe|keyevent`.
 //!
-//! The picodroid analog of `adb shell input tap|swipe|keyevent`. The host sends
-//! a compact verb; this handler turns it into HAL-level input — a GPIO edge
-//! via [`crate::hal::gpio::inject`], or a touch sample via the `hal::touch`
+//! The frame is read and the payload decoded in `pd_pdb::input`; this
+//! module turns the decoded event into HAL-level input — a GPIO edge via
+//! [`crate::hal::gpio::inject`], or a touch sample via the `hal::touch`
 //! override — so the *whole* on-device pipeline runs exactly as it does for
-//! real input:
-//! EditMode filter, phantom-release filter, LVGL keypad indev + focus nav,
-//! `pin_to_keycode`, BACK routing, and touch hit-test / gesture / `MotionEvent`
-//! dispatch. Faithful to Android's `InputManager.injectInputEvent(…,
-//! WAIT_FOR_FINISH)`: the device builds the event, injection is privileged
-//! (reachable only over PDB), and the handler blocks until the gesture is
-//! delivered before replying.
+//! real input: EditMode filter, phantom-release filter, LVGL keypad indev +
+//! focus nav, `pin_to_keycode`, BACK routing, and touch hit-test / gesture /
+//! `MotionEvent` dispatch. Faithful to Android's
+//! `InputManager.injectInputEvent(…, WAIT_FOR_FINISH)`: the device builds
+//! the event, injection is privileged (reachable only over PDB), and the
+//! handler blocks until the gesture is delivered before replying.
 //!
-//! The payload bytes are `pdb_protocol::input`'s; what this module owns is
-//! everything a wire format cannot know — keycode→pin resolution, coordinate
-//! clamping, and whether this board has a touch panel at all.
+//! What this module owns is everything a wire format cannot know —
+//! keycode→pin resolution, coordinate clamping, and whether this board has
+//! a touch panel at all.
 
-use pdb_protocol::input::{InputError, InputEvent, MAX_INPUT_PAYLOAD};
-use pdb_protocol::{
-    crc32_frame, CMD_INPUT, INPUT_KEY, INPUT_SWIPE, INPUT_TAP, KEY_META_DOWN, KEY_META_LONG_PRESS,
-    KEY_META_UP, STATUS_CRC_FAIL, STATUS_ERR, STATUS_OK,
-};
+use pdb_protocol::input::InputEvent;
+#[cfg(not(has_touch))]
+use pdb_protocol::STATUS_ERR;
+use pdb_protocol::{KEY_META_DOWN, KEY_META_LONG_PRESS, KEY_META_UP, STATUS_OK};
 
 use crate::board_cfg::buttons::keycode_to_pin;
 use crate::input_inject;
-
-use super::{send_response, PdbTransport};
 
 /// Injects through the HAL facade, which is the right route on hardware.
 /// (The simulator's front-end uses its own sink — see
@@ -51,39 +48,20 @@ impl input_inject::InputSink for HalSink {
     }
 }
 
-pub fn handle(transport: &mut impl PdbTransport, len: u32) {
-    // The payload + trailing CRC. `run_pdb_task` refused any `len` above
-    // MAX_INPUT_PAYLOAD before calling here; the `min` keeps this function
-    // safe on its own.
-    let mut payload = [0u8; MAX_INPUT_PAYLOAD];
-    let n = (len as usize).min(MAX_INPUT_PAYLOAD);
-    for b in payload.iter_mut().take(n) {
-        *b = transport.read_byte();
-    }
-    let wire_crc = transport.read_u32_le();
-
-    if wire_crc != crc32_frame(CMD_INPUT, len, &payload[..n]) {
-        send_response(transport, STATUS_CRC_FAIL, b"");
-        return;
-    }
-
-    let (status, msg): (u8, &[u8]) = match InputEvent::decode(&payload[..n]) {
-        Ok(InputEvent::Key { keycode, meta }) => inject_key(keycode, meta),
-        Ok(InputEvent::Tap { x, y }) => inject_tap(x, y),
-        Ok(InputEvent::Swipe {
+/// Inject one decoded event; the status and message the frame is answered
+/// with.
+pub fn inject(event: InputEvent) -> (u8, &'static [u8]) {
+    match event {
+        InputEvent::Key { keycode, meta } => inject_key(keycode, meta),
+        InputEvent::Tap { x, y } => inject_tap(x, y),
+        InputEvent::Swipe {
             x1,
             y1,
             x2,
             y2,
             duration_ms,
-        }) => inject_swipe(x1, y1, x2, y2, duration_ms),
-        Err(InputError::Empty) => (STATUS_ERR, b"empty input"),
-        Err(InputError::Short(INPUT_KEY)) => (STATUS_ERR, b"key: short payload"),
-        Err(InputError::Short(INPUT_TAP)) => (STATUS_ERR, b"tap: short payload"),
-        Err(InputError::Short(INPUT_SWIPE)) => (STATUS_ERR, b"swipe: short payload"),
-        Err(_) => (STATUS_ERR, b"bad input subtype"),
-    };
-    send_response(transport, status, msg);
+        } => inject_swipe(x1, y1, x2, y2, duration_ms),
+    }
 }
 
 // ── Key injection ────────────────────────────────────────────────────────────
@@ -156,74 +134,19 @@ fn inject_swipe(_x1: i32, _y1: i32, _x2: i32, _y2: i32, _duration_ms: u32) -> (u
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pdb::tests::MockPipe;
-    use alloc::vec::Vec;
 
-    /// A complete host-side CMD_INPUT frame body (payload + CRC), as
-    /// `tools/pdb` would put it on the wire after the magic/cmd/len header
-    /// the dispatch loop consumes before calling `handle`.
-    fn frame_body(payload: &[u8]) -> Vec<u8> {
-        let mut rx = Vec::from(payload);
-        rx.extend_from_slice(&crc32_frame(CMD_INPUT, payload.len() as u32, payload).to_le_bytes());
-        rx
-    }
-
-    fn response_of(payload: &[u8]) -> (u8, Vec<u8>) {
-        let mut p = MockPipe::new(frame_body(payload));
-        handle(&mut p, payload.len() as u32);
-        let n = u32::from_le_bytes(p.tx[5..9].try_into().unwrap()) as usize;
-        (p.tx[4], p.tx[9..9 + n].to_vec())
-    }
-
+    /// A keyevent for a keycode no board pin carries reaches this module's
+    /// own policy answer — the soft-key queue (app-portability K8),
+    /// accepted like Android's `input keyevent` accepts any code.
     #[test]
-    fn a_bad_crc_is_rejected_before_decoding() {
-        let mut rx = Vec::from(&[INPUT_KEY, 4, 0, 0, 0, 0][..]);
-        rx.extend_from_slice(&0xDEAD_BEEFu32.to_le_bytes());
-        let mut p = MockPipe::new(rx);
-        handle(&mut p, 6);
-        assert_eq!(p.tx[4], STATUS_CRC_FAIL);
-    }
-
-    /// Host-encoded malformed payloads come back with the exact per-verb
-    /// messages — the decode errors carry their subtype so the wording
-    /// stays what it was when the parser lived here.
-    #[test]
-    fn decode_failures_answer_with_the_verbs_own_message() {
+    fn an_unmapped_keycode_goes_to_the_soft_key_queue() {
         assert_eq!(
-            response_of(&[]),
-            (STATUS_ERR, Vec::from(&b"empty input"[..]))
+            inject(InputEvent::Key {
+                keycode: 999,
+                meta: pdb_protocol::KEY_META_DOWN_UP,
+            }),
+            (STATUS_OK, &b""[..])
         );
-        assert_eq!(
-            response_of(&[INPUT_KEY, 1]),
-            (STATUS_ERR, Vec::from(&b"key: short payload"[..]))
-        );
-        assert_eq!(
-            response_of(&[INPUT_TAP, 1, 2, 3, 4]),
-            (STATUS_ERR, Vec::from(&b"tap: short payload"[..]))
-        );
-        assert_eq!(
-            response_of(&[INPUT_SWIPE]),
-            (STATUS_ERR, Vec::from(&b"swipe: short payload"[..]))
-        );
-        assert_eq!(
-            response_of(&[0x7F]),
-            (STATUS_ERR, Vec::from(&b"bad input subtype"[..]))
-        );
-    }
-
-    /// A shared-encoder keyevent for a keycode no board pin carries reaches
-    /// the handler's own policy answer — the soft-key queue (app-portability
-    /// K8), accepted like Android's `input keyevent` accepts any code — so
-    /// the wire round trip works end to end.
-    #[test]
-    fn an_unmapped_keycode_is_the_handlers_answer_not_the_decoders() {
-        let mut buf = [0u8; MAX_INPUT_PAYLOAD];
-        let n = InputEvent::Key {
-            keycode: 999,
-            meta: pdb_protocol::KEY_META_DOWN_UP,
-        }
-        .encode(&mut buf);
-        assert_eq!(response_of(&buf[..n]), (STATUS_OK, Vec::new()));
         assert!(input_inject::soft_key_pending());
         input_inject::reset_soft_keys();
     }

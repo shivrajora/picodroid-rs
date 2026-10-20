@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! PDBP response framing, and the adapter that lets the install path speak it.
 
-#[cfg(has_multi_app)]
 use core::fmt::Write as _;
+use core::marker::PhantomData;
 
+use pd_install::{InstallError, InstallTransport, ReadError};
 use pdb_protocol::{
     FRAME_MAGIC, STATUS_CRC_FAIL, STATUS_ERR, STATUS_INCOMPAT, STATUS_NO_ROOM, STATUS_OK,
     STATUS_READY, STATUS_TOO_LARGE,
 };
 
-use super::PdbTransport;
-use crate::install::{InstallError, InstallTransport, ReadError};
+use crate::{PdbDevice, PdbTransport};
 
 /// Largest payload that fits the single-write path. Bigger ones are split,
 /// which is correct but costs a second transfer, so the buffer is sized for
@@ -22,6 +22,11 @@ const FRAME_BUF: usize = 9 + 512;
 /// No CRC on responses: they travel over the same error-checked pipe as the
 /// request, and the host has no way to ask for a retransmit — a mismatch
 /// would leave it no better off than a short read.
+///
+/// One copy per transport: every verb answers through it, and inlined into
+/// the loop its 521-byte frame buffer and copy would be repeated at each of
+/// the dozen call sites (measured +1.3 KB on the RP2040).
+#[inline(never)]
 pub fn send_response(transport: &mut impl PdbTransport, status: u8, payload: &[u8]) {
     let len = payload.len() as u32;
     let mut buf = [0u8; FRAME_BUF];
@@ -45,22 +50,38 @@ pub fn send_response(transport: &mut impl PdbTransport, status: u8, payload: &[u
 /// The install orchestrator is deliberately transport-agnostic — it could be
 /// driven over BLE, OTA or an SD card — so it speaks in reads and outcomes
 /// rather than PDBP status bytes. This is where the two meet, and it is the
-/// only place that knows an install error has a wire representation.
-pub struct Framed<'a, T: PdbTransport>(pub &'a mut T);
+/// only place that knows an install error has a wire representation. `D`
+/// says whether this is a multi-app firmware: only there is the "no room"
+/// refusal spelled out with its numbers, because the formatted line is the
+/// one place that would pull `core::fmt` into an image that otherwise logs
+/// via defmt.
+pub struct Framed<'a, T: PdbTransport, D: PdbDevice> {
+    transport: &'a mut T,
+    device: PhantomData<D>,
+}
 
-impl<T: PdbTransport> InstallTransport for Framed<'_, T> {
+impl<'a, T: PdbTransport, D: PdbDevice> Framed<'a, T, D> {
+    pub fn new(transport: &'a mut T) -> Self {
+        Self {
+            transport,
+            device: PhantomData,
+        }
+    }
+}
+
+impl<T: PdbTransport, D: PdbDevice> InstallTransport for Framed<'_, T, D> {
     fn read_byte(&mut self) -> Result<u8, ReadError> {
-        self.0.read_byte_timeout().ok_or(ReadError::Timeout)
+        self.transport.read_byte_timeout().ok_or(ReadError::Timeout)
     }
 
     fn report_ready(&mut self) {
-        send_response(self.0, STATUS_READY, b"");
+        send_response(self.transport, STATUS_READY, b"");
     }
 
     fn report_success(&mut self) {
-        send_response(self.0, STATUS_OK, b"");
+        send_response(self.transport, STATUS_OK, b"");
         // The reset follows immediately; anything still buffered dies with it.
-        self.0.drain_tx();
+        self.transport.drain_tx();
     }
 
     fn report_error(&mut self, error: InstallError) {
@@ -79,12 +100,6 @@ impl<T: PdbTransport> InstallTransport for Framed<'_, T> {
                 b"requires a feature this board lacks (uses-feature)",
             ),
             InstallError::InvalidPapk => (STATUS_ERR, b"not a structurally valid PAPK"),
-            // A single-app firmware never produces this (its plan always
-            // replaces), and the formatted line is the one place that would
-            // pull `core::fmt` into an image that otherwise logs via defmt.
-            #[cfg(not(has_multi_app))]
-            InstallError::NoRoom { .. } => (STATUS_NO_ROOM, b"no room"),
-            #[cfg(has_multi_app)]
             InstallError::NoRoom {
                 need,
                 largest_free,
@@ -92,28 +107,33 @@ impl<T: PdbTransport> InstallTransport for Framed<'_, T> {
                 installed,
                 max,
             } => {
-                // Sectors are 4 KB; the host shows the numbers as they are.
-                let mut text = TextBuf::<96>::new();
-                let _ = write!(
-                    text,
-                    "no room: need {} KB, largest free {} KB, total free {} KB, apps {}/{}",
-                    need * 4,
-                    largest_free * 4,
-                    total_free * 4,
-                    installed,
-                    max
-                );
-                send_response(self.0, STATUS_NO_ROOM, text.as_bytes());
-                return;
+                // A single-app firmware never produces this (its plan always
+                // replaces), so it keeps the bare words and the formatter
+                // out of its image.
+                if D::MULTI_APP {
+                    // Sectors are 4 KB; the host shows the numbers as they are.
+                    let mut text = TextBuf::<96>::new();
+                    let _ = write!(
+                        text,
+                        "no room: need {} KB, largest free {} KB, total free {} KB, apps {}/{}",
+                        need * 4,
+                        largest_free * 4,
+                        total_free * 4,
+                        installed,
+                        max
+                    );
+                    send_response(self.transport, STATUS_NO_ROOM, text.as_bytes());
+                    return;
+                }
+                (STATUS_NO_ROOM, b"no room")
             }
         };
-        send_response(self.0, status, msg);
+        send_response(self.transport, status, msg);
     }
 }
 
 /// A fixed-capacity `fmt::Write` sink for one response line; a line past
 /// the capacity is cut, never a panic.
-#[cfg_attr(not(has_multi_app), allow(dead_code))]
 pub struct TextBuf<const N: usize> {
     buf: [u8; N],
     len: usize,
@@ -151,11 +171,12 @@ impl<const N: usize> core::fmt::Write for TextBuf<N> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pdb::tests::MockPipe;
+    use crate::test_device::Stub;
+    use crate::vec_pipe::VecPipe;
     use alloc::vec::Vec;
 
     fn framed_bytes(status: u8, payload: &[u8]) -> Vec<u8> {
-        let mut p = MockPipe::new(Vec::new());
+        let mut p = VecPipe::new(Vec::new());
         send_response(&mut p, status, payload);
         p.tx
     }
@@ -193,34 +214,42 @@ mod tests {
     /// call for different user action.
     #[test]
     fn install_errors_map_to_their_wire_statuses() {
+        let no_room = InstallError::NoRoom {
+            need: 3,
+            largest_free: 2,
+            total_free: 5,
+            installed: 4,
+            max: 8,
+        };
         for (err, want) in [
             (InstallError::TooLarge, STATUS_TOO_LARGE),
             (InstallError::CrcMismatch, STATUS_CRC_FAIL),
             (InstallError::Incompat, STATUS_INCOMPAT),
             (InstallError::ParkTimeout, STATUS_ERR),
-            (
-                InstallError::NoRoom {
-                    need: 3,
-                    largest_free: 2,
-                    total_free: 5,
-                    installed: 4,
-                    max: 8,
-                },
-                STATUS_NO_ROOM,
-            ),
+            (no_room, STATUS_NO_ROOM),
             (InstallError::SystemPackage, STATUS_ERR),
         ] {
-            let mut p = MockPipe::new(Vec::new());
-            Framed(&mut p).report_error(err);
+            let mut p = VecPipe::new(Vec::new());
+            Framed::<_, Stub<true>>::new(&mut p).report_error(err);
             assert_eq!(p.tx[4], want);
         }
+        // Multi-app spells the numbers out; single-app keeps the bare words.
+        let mut p = VecPipe::new(Vec::new());
+        Framed::<_, Stub<true>>::new(&mut p).report_error(no_room);
+        assert!(p
+            .tx
+            .ends_with(b"no room: need 12 KB, largest free 8 KB, total free 20 KB, apps 4/8"));
+        let mut p = VecPipe::new(Vec::new());
+        Framed::<_, Stub<false>>::new(&mut p).report_error(no_room);
+        assert!(p.tx.ends_with(b"no room"));
+        assert_eq!(p.tx.len(), 9 + 7);
     }
 
     #[test]
     fn a_timed_out_read_surfaces_as_a_timeout() {
-        let mut p = MockPipe::new(Vec::new()); // nothing to read
+        let mut p = VecPipe::new(Vec::new()); // nothing to read
         assert!(matches!(
-            Framed(&mut p).read_byte(),
+            Framed::<_, Stub<true>>::new(&mut p).read_byte(),
             Err(ReadError::Timeout)
         ));
     }

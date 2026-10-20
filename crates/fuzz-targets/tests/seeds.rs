@@ -17,7 +17,9 @@ use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 
 use class_link::build::{minimal_class, simple_class};
+use papk_format::res::layout;
 use papk_format::{AlignedBuf, AssetSpec, EntryPoint, ManifestSpec, Papk, PapkBuilder};
+use pd_codec::{sandbox, sntp, time, wifi};
 use pdb_protocol::greeting::{self, AppsInfo, GREETING_MAX};
 use pdb_protocol::input::{InputEvent, MAX_INPUT_PAYLOAD};
 use pdb_protocol::sysmon::{self, SysmonSample, RESPONSE_MAX};
@@ -246,6 +248,235 @@ fn write_seeds() {
         b"\x01\x02\x00\x03\x00\x07\x00the quick brown fox",
     );
 
+    // ── pdb stream: [config][frames…] ────────────────────────────────────
+    let framed = |cmd: u8, payload: &[u8]| -> Vec<u8> {
+        let mut v = pdb_protocol::FRAME_MAGIC.to_vec();
+        v.push(cmd);
+        v.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        v.extend_from_slice(payload);
+        v.extend_from_slice(
+            &pdb_protocol::crc32_frame(cmd, payload.len() as u32, payload).to_le_bytes(),
+        );
+        v
+    };
+    let multi = 0b011u8; // sysmon available, multi-app
+    put(
+        "pdb_stream",
+        "ping",
+        &[&[multi][..], &framed(pdb_protocol::CMD_PING, b"")].concat(),
+    );
+    put(
+        "pdb_stream",
+        "sysmon-twice",
+        &[
+            &[multi][..],
+            &framed(pdb_protocol::CMD_SYSMON, b""),
+            &framed(pdb_protocol::CMD_SYSMON, b""),
+        ]
+        .concat(),
+    );
+    put(
+        "pdb_stream",
+        "list",
+        &[&[multi | 4][..], &framed(pdb_protocol::CMD_LIST, b"")].concat(),
+    );
+    put(
+        "pdb_stream",
+        "list-single-app",
+        &[&[0u8][..], &framed(pdb_protocol::CMD_LIST, b"")].concat(),
+    );
+    for (name, e) in [
+        (
+            "input-key",
+            InputEvent::Key {
+                keycode: 4,
+                meta: 0,
+            },
+        ),
+        ("input-tap", InputEvent::Tap { x: 160, y: 120 }),
+    ] {
+        let mut out = [0u8; MAX_INPUT_PAYLOAD];
+        let n = e.encode(&mut out);
+        put(
+            "pdb_stream",
+            name,
+            &[&[multi][..], &framed(pdb_protocol::CMD_INPUT, &out[..n])].concat(),
+        );
+    }
+    put(
+        "pdb_stream",
+        "uninstall-com-a",
+        &[
+            &[multi | 4][..],
+            &framed(pdb_protocol::CMD_UNINSTALL, b"com.a"),
+            &framed(pdb_protocol::CMD_LIST, b""),
+        ]
+        .concat(),
+    );
+    put(
+        "pdb_stream",
+        "garbage-then-ping",
+        &[
+            &[multi][..],
+            b"xPD\xff",
+            &framed(pdb_protocol::CMD_PING, b""),
+        ]
+        .concat(),
+    );
+    put(
+        "pdb_stream",
+        "false-start",
+        &[&[multi][..], b"PD", &framed(pdb_protocol::CMD_PING, b"")].concat(),
+    );
+    put("pdb_stream", "zeros", &[multi, 0, 0, 0, 0, 0, 0, 0, 0]);
+    let mut oversized = pdb_protocol::FRAME_MAGIC.to_vec();
+    oversized.push(pdb_protocol::CMD_INPUT);
+    oversized.extend_from_slice(&u32::MAX.to_le_bytes());
+    put(
+        "pdb_stream",
+        "oversized-then-ping",
+        &[
+            &[multi][..],
+            &oversized,
+            &framed(pdb_protocol::CMD_PING, b""),
+        ]
+        .concat(),
+    );
+    let mut bad_crc = framed(pdb_protocol::CMD_PING, b"");
+    let n = bad_crc.len();
+    bad_crc[n - 1] ^= 0xFF;
+    put(
+        "pdb_stream",
+        "bad-crc-ping",
+        &[&[multi][..], &bad_crc].concat(),
+    );
+    // An install: header, then the PAPK with its CRC as `MemTransport`
+    // frames it, then a PING.
+    let mut inst = pdb_protocol::FRAME_MAGIC.to_vec();
+    inst.push(pdb_protocol::CMD_INSTALL);
+    inst.extend_from_slice(&(built.len() as u32).to_le_bytes());
+    inst.extend_from_slice(&built);
+    inst.extend_from_slice(
+        &pdb_protocol::crc32_frame(pdb_protocol::CMD_INSTALL, built.len() as u32, &built)
+            .to_le_bytes(),
+    );
+    inst.extend_from_slice(&framed(pdb_protocol::CMD_PING, b""));
+    put(
+        "pdb_stream",
+        "install-built",
+        &[&[multi][..], &inst].concat(),
+    );
+
+    // ── rescan: [tail choice][mode][ops…] ────────────────────────────────
+    // Ops: 0 bake (sector, image, len variant, flags, seq u32, bits),
+    // 1 erase, 2 scribble, 3 header only, 4 copy sector, 5 flip a bit.
+    put(
+        "rescan",
+        "two-runs",
+        &[
+            0, 1, //
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, // com.a at 0, committed + verified
+            0, 3, 0, 1, 1, 0, 1, 0, 0, 0, 1, // com.b (two sectors) at 3, committed
+        ],
+    );
+    put("rescan", "stale", &[0, 1, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    put(
+        "rescan",
+        "duplicate",
+        &[
+            0, 1, //
+            0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, // com.a at 0, seq 1
+            0, 4, 0, 0, 0, 0, 2, 0, 0, 0, 1, // com.a at 4, seq 2
+        ],
+    );
+    put(
+        "rescan",
+        "collide",
+        &[1, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 1],
+    );
+    put("rescan", "raw-erased", &[0, 0, 0xFF, 0xFF, 0xFF, 0xFF]);
+    let mut raw = vec![0u8, 0];
+    raw.extend_from_slice(&papk_format::flash_image::build_meta_pages(
+        minimal.len() as u32,
+        0,
+        1,
+    ));
+    raw.extend_from_slice(&[0xFF; 4096 - 512]);
+    raw.extend_from_slice(&minimal);
+    put("rescan", "raw-header", &raw);
+
+    // ── HTTP connection: [flags][u16 n][sizes][u16 m][sizes][wire] ───────
+    let conn = |flags: u8, socket: &[u8], app: &[u8], wire: &[u8]| -> Vec<u8> {
+        let mut v = vec![flags];
+        v.extend_from_slice(&(socket.len() as u16).to_le_bytes());
+        v.extend_from_slice(socket);
+        v.extend_from_slice(&(app.len() as u16).to_le_bytes());
+        v.extend_from_slice(app);
+        v.extend_from_slice(wire);
+        v
+    };
+    put(
+        "http_conn",
+        "python-length",
+        &conn(
+            1,
+            &[7, 64],
+            &[128],
+            b"HTTP/1.0 200 OK\r\nServer: SimpleHTTP/0.6 Python/3.12\r\nDate: Sun, 19 Oct 2026 20:00:00 GMT\r\nContent-type: text/plain\r\nContent-Length: 13\r\nLast-Modified: Sun, 19 Oct 2026 19:00:00 GMT\r\n\r\nHello, World!",
+        ),
+    );
+    put(
+        "http_conn",
+        "chunked-trailers",
+        &conn(
+            0,
+            &[2, 15],
+            &[0, 3],
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nWiki\r\n5;ext=1\r\npedia\r\n0\r\nX-Trailer: v\r\n\r\n",
+        ),
+    );
+    put(
+        "http_conn",
+        "no-length-eof",
+        &conn(
+            1,
+            &[],
+            &[],
+            b"HTTP/1.0 200 OK\r\n\r\nread until the server closes",
+        ),
+    );
+    put(
+        "http_conn",
+        "204",
+        &conn(0, &[], &[], b"HTTP/1.1 204 No Content\r\n\r\n"),
+    );
+    let mut big = Vec::from(&b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n"[..]);
+    while big.len() < 70 {
+        big.extend_from_slice(b"X-Pad: aaaaaaaaaaaa\r\n");
+    }
+    big.extend_from_slice(b"\r\n3\r\nabc\r\n0\r\n\r\n");
+    put("http_conn", "big-head-chunked", &conn(0, &[31], &[7], &big));
+    put(
+        "http_conn",
+        "truncated",
+        &conn(
+            0,
+            &[],
+            &[],
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nWi",
+        ),
+    );
+    put(
+        "http_conn",
+        "socket-fails",
+        &conn(
+            3,
+            &[1, 5],
+            &[3],
+            b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello",
+        ),
+    );
+
     // ── JSON ──────────────────────────────────────────────────────────────
     put(
         "json",
@@ -259,12 +490,263 @@ fn write_seeds() {
     );
     put("json", "array", b"\x01[1,[2,[3,[4]]],{\"k\":\"v\"}]");
 
+    // ── JSON ops: a document, then a script of put/remove/set/prune ───────
+    // Each op byte picks the call (`json_ops`'s `% 11`); a node pick is a
+    // garbage flag byte (1 = a live node) and a `u16` index into the live
+    // set; a key or string is a `u16` length and the bytes.
+    let doc = br#"{"a":[1,2],"b":{"c":"d"}}"#;
+    let mut ops: Vec<u8> = (doc.len() as u16).to_le_bytes().to_vec();
+    ops.extend_from_slice(doc);
+    ops.extend_from_slice(&[0, 6]); // alloc {}
+    ops.extend_from_slice(&[0, 7]); // alloc []
+    ops.extend_from_slice(&[2, 1, 0, 0, 1, 7, 0, 1, 0, b'x']); // root.put("x", new {})
+    ops.extend_from_slice(&[5, 1, 8, 0, 1, 1, 0, 0]); // new [].append(a[1])
+    ops.extend_from_slice(&[8, 3, 1, 8, 0]); // bind slot 3 -> new []
+    ops.extend_from_slice(&[2, 1, 7, 0, 1, 0, 0, 1, 0, b'r']); // {}.put("r", root): Cycle
+    ops.extend_from_slice(&[4, 1, 0, 0, 1, 0, b'a']); // root.remove("a")
+    ops.extend_from_slice(&[9, 0xFF]); // prune, every slot alive
+    ops.extend_from_slice(&[9, 0x08]); // prune, only slot 3 alive
+    put("json_ops", "script", &ops);
+    put(
+        "json_ops",
+        "empty",
+        &[
+            0, 0, 0, 7, 5, 1, 0, 0, 1, 0, 0, 1, 9, 0, 0, 7, 1, 0, 0, 3, 0, 10, 5,
+        ],
+    );
+
     // ── TLS ───────────────────────────────────────────────────────────────
     for entry in std::fs::read_dir(root().join("crates/pd-tls/roots")).unwrap() {
         let path = entry.unwrap().path();
         let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
-        put("der", &stem, &std::fs::read(&path).unwrap());
+        let der = std::fs::read(&path).unwrap();
+        put("der", &stem, &der);
+        // A root sent as its own one-entry chain: anchored at itself, so
+        // the inner verifier runs its signature and date checks.
+        put(
+            "tls_verify",
+            &format!("root-{stem}"),
+            &tls_verify_seed(1_760_000_000, "example.com", &[&der]),
+        );
     }
+    // A real chain, leaf first, ending in a cross-signed copy of the root
+    // (crates/fuzz-targets/tests/fixtures/chain-*/N.der; refetch with
+    // `openssl s_client -showcerts` and `openssl x509 -outform DER`). The
+    // clock is the capture time, inside the leaf's validity, so this seed
+    // is the one accepted chain in the corpus.
+    let chain_dir = root().join("crates/fuzz-targets/tests/fixtures/chain-api.anthropic.com");
+    let chain: Vec<Vec<u8>> = (0..3)
+        .map(|i| std::fs::read(chain_dir.join(format!("{i}.der"))).unwrap())
+        .collect();
+    let refs: Vec<&[u8]> = chain.iter().map(Vec::as_slice).collect();
+    put(
+        "tls_verify",
+        "anthropic-ok",
+        &tls_verify_seed(1_792_473_544, "api.anthropic.com", &refs),
+    );
+    put(
+        "tls_verify",
+        "anthropic-wrong-host",
+        &tls_verify_seed(1_792_473_544, "example.com", &refs),
+    );
+    put(
+        "tls_verify",
+        "anthropic-expired",
+        &tls_verify_seed(1_700_000_000, "api.anthropic.com", &refs),
+    );
+    put(
+        "tls_verify",
+        "anthropic-no-clock",
+        &tls_verify_seed(0, "api.anthropic.com", &refs),
+    );
+    put(
+        "tls_verify",
+        "anthropic-leaf-only",
+        &tls_verify_seed(1_792_473_544, "api.anthropic.com", &refs[..1]),
+    );
+    put(
+        "tls_verify",
+        "garbage-entry",
+        &tls_verify_seed(
+            1_792_473_544,
+            "api.anthropic.com",
+            &[&[0x30, 0x00], refs[1]],
+        ),
+    );
+    put(
+        "tls_verify",
+        "ip-host",
+        &tls_verify_seed(1_792_473_544, "127.0.0.1", &refs),
+    );
+
+    // ── pd-codec: SNTP, the /system/* records, the sandbox, a layout ──────
+    let nonce: u64 = 0x0102_0304_0506_0708;
+    let mut good = vec![0u8; sntp::PACKET_LEN];
+    good[0] = 0x24; // LI 0, version 4, mode 4
+    good[1] = 2;
+    good[24..32].copy_from_slice(&nonce.to_be_bytes());
+    good[40..44].copy_from_slice(&(1_791_540_000u32 + 2_208_988_800u32).to_be_bytes());
+    good[44..48].copy_from_slice(&(1u32 << 31).to_be_bytes());
+    let mut seed = nonce.to_le_bytes().to_vec();
+    seed.extend_from_slice(&100u16.to_le_bytes());
+    put("sntp", "reply", &[&seed[..], &good].concat());
+    put(
+        "sntp",
+        "request",
+        &[&seed[..], &sntp::request(nonce)].concat(),
+    );
+    put("sntp", "short", &[&seed[..], &good[..20]].concat());
+
+    let c =
+        wifi::Credentials::new(b"Home Net", b"correct horse", wifi::Security::Wpa2Wpa3).unwrap();
+    let mut out = [0u8; wifi::ENCODED_MAX];
+    let n = wifi::encode(&c, &mut out);
+    put("sysfmt", "wifi-record", &[&[0u8][..], &out[..n]].concat());
+    put(
+        "sysfmt",
+        "wifi-build",
+        b"\x01\x08\x00Home Net\x0d\x00correct horse\x05\x03\x00\x02",
+    );
+    let r = time::Record {
+        offset_minutes: 330,
+        auto_time: false,
+    };
+    put("sysfmt", "time-record", &[&[2u8][..], &r.encode()].concat());
+    put("sysfmt", "zone-id", b"\x03GMT+05:30");
+    put("sysfmt", "zone-bare", b"\x03-0330");
+    put(
+        "sysfmt",
+        "serial-id",
+        b"\x04\x00\x08\x00\xe6\x63\x38\x61\xa3\x7b\x90\x38",
+    );
+    put("sysfmt", "serial-ascii", b"\x04\x01emulator-4242");
+
+    put("sandbox", "nested", b"\x01\x05\x00com.a/prefs/../x");
+    put("sandbox", "dots", b"\x01\x05\x00com.a//./a/./b/...");
+    put("sandbox", "no-package", b"\x00\x00\x00/prefs/../x");
+    let long = format!("/{}", "a".repeat(sandbox::APP_PATH_MAX));
+    put(
+        "sandbox",
+        "too-long",
+        &[b"\x01\x01\x00a", long.as_bytes()].concat(),
+    );
+
+    let node = |cls: u8, attrs: &[(u32, u32)], children: u32| -> Vec<u8> {
+        let mut v = (cls as u32 | ((attrs.len() as u32) << 8) | (children << 16))
+            .to_le_bytes()
+            .to_vec();
+        for (a, x) in attrs {
+            v.extend_from_slice(&a.to_le_bytes());
+            v.extend_from_slice(&x.to_le_bytes());
+        }
+        v
+    };
+    let mut layout = node(
+        layout::class::FRAME_LAYOUT,
+        &[
+            (layout::attr::LAYOUT_WIDTH, -1i32 as u32),
+            (layout::attr::LAYOUT_HEIGHT, -1i32 as u32),
+            (layout::attr::BACKGROUND, 0xFF20_2020),
+        ],
+        2,
+    );
+    layout.extend(node(
+        layout::class::TEXT_VIEW,
+        &[
+            (layout::attr::TEXT, 0x7f03_0001),
+            (layout::attr::TEXT_COLOR, 0xFF11_2233),
+            (layout::attr::SINGLE_LINE, 1),
+            (layout::attr::LAYOUT_GRAVITY, 0x55),
+            (layout::attr::LAYOUT_MARGIN_RIGHT, 8),
+            (layout::attr::LAYOUT_MARGIN_BOTTOM, 4),
+            (layout::attr::PADDING_LEFT, 6),
+        ],
+        0,
+    ));
+    layout.extend(node(
+        layout::class::BUTTON,
+        &[
+            (layout::attr::TEXT, 0x7f03_0002),
+            (layout::attr::LAYOUT_WEIGHT, 1.5f32.to_bits()),
+            (layout::attr::BACKGROUND_RADIUS, 4),
+        ],
+        0,
+    ));
+    put("layout_node", "frame-with-two", &layout);
+
+    // ── protobuf: [n_ops][u16 len][bytes][ops…] ──────────────────────────
+    let pb = |ops: &[u8], bytes: &[u8]| -> Vec<u8> {
+        let mut v = vec![ops.len() as u8];
+        v.extend_from_slice(&(bytes.len() as u16).to_le_bytes());
+        v.extend_from_slice(bytes);
+        v.extend_from_slice(ops);
+        v
+    };
+    // varint 300, varint 0x7F, then a read off the end.
+    put("protobuf", "varint", &pb(&[1, 1, 1], &[0xAC, 0x02, 0x7F]));
+    // A ten-byte -1 as int64, then the same bytes as int32 from the start.
+    put(
+        "protobuf",
+        "negative",
+        &pb(
+            &[2, 9, 0, 1],
+            &[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01],
+        ),
+    );
+    // Tag, skip, tag, skip… over every wire type, then a varint.
+    put(
+        "protobuf",
+        "skip-all-wire-types",
+        &pb(
+            &[0, 6, 0, 0, 6, 1, 0, 6, 2, 0, 6, 5, 0, 1],
+            &[
+                0x08, 0x80, 0x80, 0x80, 0x80, 0x80, 0x20, 0x11, 7, 0, 0, 0, 0, 0, 0, 0, 0x1A, 3, 0,
+                0, 0, 0x25, 0xAB, 0, 0, 0, 0x28, 0x4D,
+            ],
+        ),
+    );
+    // pushLimit(1), read inside it, a read that hits the limit, popLimit.
+    put(
+        "protobuf",
+        "limits",
+        &pb(&[7, 1, 0, 1, 0, 8, 0, 1], &[0x08, 0x01, 0x10, 0x02]),
+    );
+    // Write round trips: varint 300, int -1, a double, a fixed32.
+    put(
+        "protobuf",
+        "roundtrip",
+        &pb(
+            &[
+                11, 0, 0x2C, 1, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, //
+                11, 1, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 12, 0, 0, 0, //
+                11, 4, 0, 0, 0, 0, 0, 0, 0xF8, 0x3F, 8, 0, 0, 0, //
+                11, 2, 0xEF, 0xBE, 0xAD, 0xDE, 0, 0, 0, 0, 4, 0, 0, 0,
+            ],
+            &[],
+        ),
+    );
+    put(
+        "layout_node",
+        "truncated",
+        &node(layout::class::TEXT_VIEW, &[(layout::attr::TEXT, 1)], 0)[..8],
+    );
+}
+
+/// The `tls_verify` input layout: `u64` clock, `u16`-prefixed host, an
+/// entry count, `u16`-prefixed DER entries with the last one taking the
+/// rest.
+fn tls_verify_seed(clock: u64, host: &str, ders: &[&[u8]]) -> Vec<u8> {
+    let mut v = clock.to_le_bytes().to_vec();
+    v.extend_from_slice(&(host.len() as u16).to_le_bytes());
+    v.extend_from_slice(host.as_bytes());
+    v.push(ders.len() as u8);
+    for (i, d) in ders.iter().enumerate() {
+        if i + 1 < ders.len() {
+            v.extend_from_slice(&(d.len() as u16).to_le_bytes());
+        }
+        v.extend_from_slice(d);
+    }
+    v
 }
 
 /// A `std::net::TcpStream` that keeps everything it reads.

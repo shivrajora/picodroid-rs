@@ -1,0 +1,9 @@
+# libFuzzer dictionary for the sandbox target (scripts/fuzz.sh passes it).
+"/data/"
+".."
+"/../"
+"/./"
+"//"
+"..."
+"com.a"
+"/prefs/"

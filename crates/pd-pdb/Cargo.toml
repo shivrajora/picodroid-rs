@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[package]
+name = "pd-pdb"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "The device half of PDBP, the picodroid debug bridge: frame resync, command dispatch, CRC checks and the answers, generic over the byte pipe, the installer's flash and core parking, the task-statistics source and the firmware facts (PdbDevice). no_std, no unsafe; host-tested and fuzzed."
+readme = "README.md"
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+# `vec_pipe`: a scripted byte pipe (reads from a Vec, records writes) for
+# host tests and the fuzz harness. Needs std.
+vec-pipe = []
+
+[dependencies]
+pdb-protocol = { path = "../pdb-protocol" }
+pd-install   = { path = "../pd-install" }
+# The app region's sector size, which the greeting's free-space figures
+# are counted in.
+papk-format  = { path = "../papk-format" }
+
+[dev-dependencies]
+# The tests drive the loop over an in-memory NOR region.
+pd-install   = { path = "../pd-install", features = ["mem-region"] }

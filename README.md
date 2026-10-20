@@ -144,10 +144,13 @@ picodroid-rs/
 │   ├── pdb-protocol/   # PDB wire format shared by firmware, simulator, and the pdb CLI
 │   ├── compat/         # PAPK ↔ firmware framework-map-version compatibility check
 │   ├── pd-rtos/        # The kernel seam: the Rtos trait and the JVM run lock
+│   ├── pd-codec/       # Pure decoders core trusts (SNTP, /system stores, sandbox paths, layout nodes); fuzzed
 │   ├── pd-install/     # Streaming, CRC-checked installer into a NOR flash region
 │   ├── pd-lvgl-sys/    # no_std LVGL 9.6 bindings plus the C build (lvgl/lv_conf.h)
 │   ├── pd-drivers/     # embedded-hal drivers: ST7789/ST7796, XPT2046/GT911, BME688/LTR559
 │   ├── pd-json/        # Bounded no_std JSON tree behind picodroid.json
+│   ├── pd-pdb/         # The debug bridge's command loop (PDBP device half), generic over the firmware
+│   ├── pd-protobuf/    # micropb over the JVM array heap, behind picodroid.protobuf
 │   ├── pd-tls/         # TLS 1.3 client pieces behind has_tls
 │   ├── http-head/      # no_std HTTP/1.1 head parser and chunked decoder
 │   ├── heap4/          # FreeRTOS heap_4 port, for host-side heap parity

@@ -232,11 +232,12 @@ this section wins.
   `http_chunked`, `json`, `der`, `tls_server` and `records`. `records` is
   what §2 called `small_records`: compat, the boot-meta sector, and a bare
   `ResTable`.
-- **`pdb_stream` and the `picodroid-core` decoders are not built.** The
-  decoders are `sntp::parse_reply` and `wifi::decode`. Both need
-  `picodroid-core` as a dependency, which means the `sim` feature and the C
-  build behind it. The oversized-`len` refusal is pinned by a unit test
-  instead (`an_oversized_len_is_refused_unread`). This is still open.
+- **`pdb_stream` and the `picodroid-core` decoders were not built in the
+  first pass.** The decoders are `sntp::parse_reply` and `wifi::decode`.
+  Both needed `picodroid-core` as a dependency, which means the `sim`
+  feature and the C build behind it. The oversized-`len` refusal was pinned
+  by a unit test instead (`an_oversized_len_is_refused_unread`). The
+  2026-10-19 round below closed both.
 - **The cron runs at 01:00, and the budget is 45 minutes, not 150.** The sim
   nightly starts at **02:00** (c2b4f111), not at 03:00 as this design
   assumed. `fuzz.sh --nightly` splits 45 minutes by weight; on
@@ -321,6 +322,106 @@ this section wins.
     in the run loop.
   - The pointer now rides in the `Executor`, and the change costs +208 B on
     rp2350 and +12 B on rp2040.
+- **2026-10-19: the next ring out — eleven more targets, 26 in all.** What
+  the first pass left unfuzzed fell into three groups; each got its own
+  kind of fix.
+  - *Leaf-crate code the targets did not reach.* `tls_verify` drives
+    `PdVerifier::verify_certificate` over a Certificate message the harness
+    builds entry by entry (`embedded_tls::handshake` is private, so the
+    message cannot come from wire bytes), with a clock the input sets. This
+    is the first code that reads a hostile server's certificate: DER
+    walking, CN/SAN/IP extraction and the dates, all before any signature.
+    The oracle is the verifier's own anchor reader (`anchors::select` over
+    `der_lite::cert_names`): `failure()` must agree with it, and `Ok` only
+    ever follows an anchored chain. The corpus's one accepted input is
+    api.anthropic.com's chain, captured 2026-10-19 and committed under
+    `crates/fuzz-targets/tests/fixtures/` with the capture time as the
+    clock, so the seed stays accepted. `json_ops` drives the `Pool`
+    mutation API (`object_put`, `array_set`, the removes, `bind`, `prune`,
+    `free_node`, `clear`) against a shadow of the live set and an
+    independent traversal: no node reaches itself, the count and payload
+    equal what the nodes add up to, a refused link leaves the tree
+    unchanged, and `prune` frees exactly the unreachable.
+  - *Pure decoders stranded inside `picodroid-core`.* `fuzz-targets`
+    cannot depend on core (the LVGL C build, and the `network_link_wifi` /
+    `has_network` / `has_multi_app` gates), so the small ones moved to a
+    new leaf crate, `pd-codec`, and core re-exports them under their old
+    paths: `sntp` (the reply decoder), `time` (the `/system/time` record
+    and the zone ids), `wifi` (the `/system/wifi` record; its CRC is now
+    `pdb_protocol::Crc32`, byte-identical to the JVM's `crc32_update`, and
+    a golden-bytes test pins the on-flash encoding), `serial` (the value
+    type; core's `identity::serial()` now rebuilds the published copy
+    through the validating constructor), `sandbox` (the path map; core
+    keeps `ensure_package_dir`) and `inflate_scan` (the compiled-layout
+    node reader). Four targets: `sntp`, `sysfmt`, `sandbox`, `layout_node`.
+    The Wi-Fi scan table stayed in core: driver-sourced, behind a seqlock,
+    not an untrusted-byte decoder.
+  - *Stateful subsystems that needed a seam.* The protobuf natives'
+    micropb adapter moved to `pd-protobuf` (`read_at` / `write_at` over an
+    op enum replace the seven `fn`-pointer closures; core's
+    `native_handler/protobuf` is the slot glue), target `protobuf`. The
+    HTTP connection's receive buffer became `http_head::conn::RxBuffer<N,
+    CHUNK>` (the head search, the stash, the chunked refill, the
+    `N - CHUNK` guard), driven through a `recv` closure, target `http_conn`
+    plus host unit tests for what `cfg(not(test))` had never run. The
+    boot-time app-region walk became `pd_install::scan_region`, an iterator
+    of `Found::{App, Stale, Collides, Garbage}` that core's `rescan` feeds
+    into its directory (two `from_raw_parts` became one), target `rescan`.
+    The device pdb loop became the `pd-pdb` crate: `serve_one` handles one
+    frame and reports `reset: true` instead of resetting, so a host can
+    watch the frame that would have rebooted the device; the firmware facts
+    arrive through `PdbDevice` (board, serial, framework-map version,
+    input injection, the list rows, uninstall targets), implemented in core
+    on `CoreDirectory`; the two multi-app verbs are behind
+    `PdbDevice::MULTI_APP`, a constant, so a single-app image folds them as
+    the `cfg` did; the sysmon `static mut PREV` became `BridgeState`.
+    Target `pdb_stream`: every frame answered once with a known status or
+    skipped, a bounded number of bytes read per frame, a reset only after a
+    committed install or uninstall, and a clean PING answered whatever
+    came before.
+  - **Findings of this round.**
+    1. `layout_node` → `frame_offset` (`inflate_scan.rs`) negated and
+       subtracted PAPK-sourced margins unchecked: a margin of `i32::MIN`
+       panicked the debug build (`overflow-checks`) and wrapped on device.
+       Now `wrapping_neg` / `wrapping_sub` — Android computes these in Java
+       `int`s, which wrap, and the release firmware already did, so the
+       codegen is unchanged. Reproducer `finding-frame-offset-overflow`
+       (planted back into a scratch build, the target found it in 7 s).
+    2. Harness-model corrections the fuzzer forced, each a documented
+       behaviour rather than a bug: a non-finite double never reaches the
+       JSON pool (`JSONObject.checkDouble` throws, as Android's does); a
+       zero protobuf tag comes back as `0` and `CodedInputStream.readTag`
+       is what throws; micropb and javalite both keep the low 32 bits of
+       a too-wide `varint32` (length or value), pinned by a `pd-protobuf`
+       test; an SNTP transmit time of exactly the Unix epoch reads as the
+       zero timestamp; after a bad status line the receive buffer keeps
+       reading if asked again, as it always did.
+    3. `http_conn` → a chunked body whose framing broke after some payload
+       lost that payload: `chunked_read` returned the `ProtocolException`
+       at once, bytes already decoded into the caller's array or not. The
+       buffer now hands those bytes out and fails the *next* read
+       (`RxBuffer::bad_chunk`), so nothing decoded before the malformation
+       is dropped; the exception's class and message are unchanged.
+  - **Flash.** Measured against main 791716b1 in the same worktree with the
+    same lockfile: −812 B on testbench_rp2040 and −2,672 B on
+    testbench_rp2350 (ratchet baseline advanced: 1,084,672 and 1,559,804).
+    Two levers got it there. The first draft re-validated the published
+    serial on every read (`Serial::from_bytes` inlined into the USB string
+    descriptor, +1.0 KB); `Serial::from_published` trusts the copy `publish`
+    made instead. And `send_response`, inlined into the one monomorphized
+    bridge loop at a dozen call sites with its 521-byte frame buffer, cost
+    +1.3 KB on the RP2040 until `#[inline(never)]`. The protobuf op enum is
+    −108 B against the `fn`-pointer closures; the moved decoders are
+    byte-for-byte the same code under a different crate name, and the
+    region walk as an iterator is +204 B on the RP2040, −280 B on the RP2350.
+  - **Decisions surfaced, not taken.** A `Content-Length` body that ends
+    early is a clean `-1` today, not a `ProtocolException`; the `http_conn`
+    oracle pins the current behaviour. `BridgeState` puts the previous
+    sysmon sample (~700 B) on the pdb task's 8 KB stack where `PREV` was
+    `.bss`; if the high-water mark is tight, hold it in a static in core's
+    wrapper. The nightly budget stays at 45 minutes over a total weight of
+    41 (a weight-1 target gets about 66 s a night); raise it if such a
+    target's log shows coverage still growing at the end of its slot.
 - **Open — Miri under Stacked Borrows rejects `Link::from_raw`.** This is
   not fixed; it is a decision for the maintainer.
   - **What happens.** `ClassFile` keeps a pointer it takes as

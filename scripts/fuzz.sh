@@ -56,13 +56,23 @@ TARGETS=(
   "bytecode_check|1|address"
   "interp|3|address|noleaks"
   "pdb_decode|1|none"
+  "pdb_stream|2|address"
   "install|2|address"
+  "rescan|2|address"
   "http_head|1|none"
   "http_chunked|1|none"
+  "http_conn|2|none"
   "json|2|none"
+  "json_ops|1|none"
   "der|1|none"
   "tls_server|3|address"
+  "tls_verify|2|address"
   "records|1|none"
+  "sntp|1|none"
+  "sysfmt|1|none"
+  "sandbox|1|address"
+  "layout_node|1|none"
+  "protobuf|2|address"
 )
 
 MODE=""
@@ -332,7 +342,7 @@ if [[ "$SUNDAY" == true ]]; then
   # targets leak on purpose, as `load_class` and flash do). Tree
   # Borrows: under Stacked Borrows `Link::from_raw` reaches the pool through
   # a pointer taken from the table slice (docs/designs/fuzzing-2026-10.md §8).
-  if (cd "$REPO_ROOT" && PICODROID_FUZZ_REPLAY=class_section,link_class,bytecode_check,papk,interp \
+  if (cd "$REPO_ROOT" && PICODROID_FUZZ_REPLAY=class_section,link_class,bytecode_check,papk,interp,install,rescan,pdb_stream,protobuf,sandbox \
       MIRIFLAGS="${MIRIFLAGS:-} -Zmiri-disable-isolation -Zmiri-tree-borrows -Zmiri-ignore-leaks" \
       cargo +nightly miri test -p fuzz-targets --test replay) > "$RUN_LOG_DIR/fuzz-miri.log" 2>&1; then
     echo "PASS fuzz-miri" >> "$RESULTS_FILE"

@@ -20,13 +20,18 @@
 
 pub mod budget;
 pub mod class;
+pub mod codec;
 pub mod http;
 pub mod install;
 pub mod interp;
 pub mod json;
 pub mod papk;
 pub mod pdb;
+pub mod pdb_stream;
+pub mod protobuf;
 pub mod records;
+pub mod rescan;
+pub mod stubs;
 pub mod tls;
 
 /// A target: any bytes in, a panic on a finding.
@@ -43,13 +48,23 @@ pub const TARGETS: &[(&str, Target)] = &[
     ("bytecode_check", class::bytecode_check),
     ("interp", interp::interp),
     ("pdb_decode", pdb::pdb_decode),
+    ("pdb_stream", pdb_stream::pdb_stream),
     ("install", install::install),
+    ("rescan", rescan::rescan),
     ("http_head", http::http_head),
     ("http_chunked", http::http_chunked),
+    ("http_conn", http::http_conn),
     ("json", json::json),
+    ("json_ops", json::json_ops),
     ("der", tls::der),
     ("tls_server", tls::tls_server),
+    ("tls_verify", tls::tls_verify),
     ("records", records::records),
+    ("sntp", codec::sntp),
+    ("sysfmt", codec::sysfmt),
+    ("sandbox", codec::sandbox),
+    ("layout_node", codec::layout_node),
+    ("protobuf", protobuf::protobuf),
 ];
 
 /// A cursor that turns fuzz bytes into structured choices, for the targets
@@ -85,6 +100,10 @@ impl<'a> Bytes<'a> {
 
     pub fn u32(&mut self) -> u32 {
         u32::from_le_bytes([self.u8(), self.u8(), self.u8(), self.u8()])
+    }
+
+    pub fn u64(&mut self) -> u64 {
+        (self.u32() as u64) | ((self.u32() as u64) << 32)
     }
 
     /// A number in `0..n` (`0` when `n` is 0).

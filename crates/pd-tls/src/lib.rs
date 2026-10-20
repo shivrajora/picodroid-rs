@@ -22,5 +22,10 @@ pub mod verifier;
 
 pub use embedded_io;
 pub use embedded_tls::{NoClock, TlsClock, TlsError};
+// The verifier's own vocabulary, so a host harness (fuzz-targets) can hand
+// `PdVerifier` a Certificate message without depending on embedded-tls.
+pub use embedded_tls::{
+    Aes128GcmSha256, CertificateEntryRef, CertificateRef, TlsCipherSuite, TlsVerifier,
+};
 pub use session::{OpenError, TlsSession, READ_RECORD_BYTES, WRITE_RECORD_BYTES};
-pub use verifier::Failure;
+pub use verifier::{Failure, PdVerifier};

@@ -291,16 +291,21 @@ pub fn text_gravity(gravity: i32) -> i32 {
 /// names, as `ViewGroup.addView` computes it from the margins: moved in by
 /// the margin on the side the gravity pulls toward, and by the difference
 /// of the two when centred. `margin` is `[left, top, right, bottom]`.
+///
+/// The margins are words of a sideloaded PAPK, so the arithmetic wraps the
+/// way Java's `int` does in `addView`: a margin of `Integer.MIN_VALUE` is
+/// an absurd layout, not a panic (the `layout_node` fuzz target found the
+/// debug build's overflow check here).
 pub fn frame_offset(gravity: i32, margin: [i32; 4]) -> (i32, i32) {
     let [left, top, right, bottom] = margin;
     let dx = match gravity & GRAVITY_HORIZONTAL_MASK {
-        GRAVITY_RIGHT => -right,
-        GRAVITY_CENTER_HORIZONTAL => left - right,
+        GRAVITY_RIGHT => right.wrapping_neg(),
+        GRAVITY_CENTER_HORIZONTAL => left.wrapping_sub(right),
         _ => left,
     };
     let dy = match gravity & GRAVITY_VERTICAL_MASK {
-        GRAVITY_BOTTOM => -bottom,
-        GRAVITY_CENTER_VERTICAL => top - bottom,
+        GRAVITY_BOTTOM => bottom.wrapping_neg(),
+        GRAVITY_CENTER_VERTICAL => top.wrapping_sub(bottom),
         _ => top,
     };
     (dx, dy)
@@ -517,6 +522,21 @@ mod tests {
                 [5, 1, 2, 7]
             ),
             (3, -6)
+        );
+    }
+
+    #[test]
+    fn frame_offsets_wrap_like_java_ints() {
+        assert_eq!(
+            frame_offset(GRAVITY_RIGHT | GRAVITY_BOTTOM, [0, 0, i32::MIN, i32::MIN]),
+            (i32::MIN, i32::MIN)
+        );
+        assert_eq!(
+            frame_offset(
+                GRAVITY_CENTER_HORIZONTAL | GRAVITY_CENTER_VERTICAL,
+                [i32::MAX, i32::MIN, -1, 1]
+            ),
+            (i32::MIN, i32::MAX)
         );
     }
 

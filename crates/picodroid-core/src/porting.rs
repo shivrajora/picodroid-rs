@@ -188,8 +188,11 @@ mod tests {
         "hal/traits.rs",
         "../../pd-rtos/src/lib.rs",
         "host.rs",
-        "pdb/mod.rs",
-        "pdb/sysmon.rs",
+        // The bridge's transport and statistics seams live in `pd-pdb`;
+        // its `PdbDevice` (device.rs) is the firmware's to implement, not a
+        // family's, so that file is not scanned.
+        "../../pd-pdb/src/lib.rs",
+        "../../pd-pdb/src/sysmon.rs",
         "../../pd-install/src/orchestrator.rs",
         "../../pd-install/src/transport.rs",
         "../../pd-install/src/region.rs",

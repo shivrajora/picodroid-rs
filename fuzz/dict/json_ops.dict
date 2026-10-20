@@ -1,0 +1,12 @@
+# libFuzzer dictionary for the json_ops target (scripts/fuzz.sh passes it).
+"{}"
+"[]"
+"{\"a\":1}"
+"[1,2,3]"
+"{\"k\":{\"k\":{\"k\":[]}}}"
+"null"
+"true"
+"\"\""
+"\\u0000"
+"1e308"
+"-9223372036854775808"
