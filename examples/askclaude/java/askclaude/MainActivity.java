@@ -7,7 +7,6 @@ import java.io.OutputStream;
 import javax.net.ssl.SSLHandshakeException;
 import picodroid.app.Activity;
 import picodroid.concurrent.Executors;
-import picodroid.concurrent.Thread;
 import picodroid.graphics.Color;
 import picodroid.hardware.Sensor;
 import picodroid.hardware.SensorEvent;

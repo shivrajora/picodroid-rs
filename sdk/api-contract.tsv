@@ -543,6 +543,58 @@ java/lang/System
 java/lang/System	arraycopy	
 java/lang/System	arraycopy	(Ljava/lang/Object;ILjava/lang/Object;II)V
 java/lang/System	currentTimeMillis	()J
+java/lang/Thread
+java/lang/Thread	<init>	()V
+java/lang/Thread	<init>	(Ljava/lang/Runnable;)V
+java/lang/Thread	<init>	(Ljava/lang/Runnable;Ljava/lang/String;)V
+java/lang/Thread	<init>	(Ljava/lang/String;)V
+java/lang/Thread	MAX_PRIORITY	I
+java/lang/Thread	MIN_PRIORITY	I
+java/lang/Thread	NORM_PRIORITY	I
+java/lang/Thread	adopt0	()V
+java/lang/Thread	current0	()Ljava/lang/Thread;
+java/lang/Thread	currentKind0	()I
+java/lang/Thread	currentThread	()Ljava/lang/Thread;
+java/lang/Thread	daemon	Z
+java/lang/Thread	defaultHandler	Ljava/lang/Thread$UncaughtExceptionHandler;
+java/lang/Thread	exit0	()V
+java/lang/Thread	getDefaultUncaughtExceptionHandler	()Ljava/lang/Thread$UncaughtExceptionHandler;
+java/lang/Thread	getId	()J
+java/lang/Thread	getName	()Ljava/lang/String;
+java/lang/Thread	getPriority	()I
+java/lang/Thread	getUncaughtExceptionHandler	()Ljava/lang/Thread$UncaughtExceptionHandler;
+java/lang/Thread	handler	Ljava/lang/Thread$UncaughtExceptionHandler;
+java/lang/Thread	id	J
+java/lang/Thread	interrupt	()V
+java/lang/Thread	interrupted	()Z
+java/lang/Thread	isAlive	()Z
+java/lang/Thread	isDaemon	()Z
+java/lang/Thread	isInterrupted	()Z
+java/lang/Thread	join	()V
+java/lang/Thread	join	(J)V
+java/lang/Thread	join0	(J)V
+java/lang/Thread	name	Ljava/lang/String;
+java/lang/Thread	nextId	J
+java/lang/Thread	priority	I
+java/lang/Thread	run	()V
+java/lang/Thread	runWrapper	(Ljava/lang/Thread;)V
+java/lang/Thread	setDaemon	(Z)V
+java/lang/Thread	setDefaultUncaughtExceptionHandler	(Ljava/lang/Thread$UncaughtExceptionHandler;)V
+java/lang/Thread	setName	(Ljava/lang/String;)V
+java/lang/Thread	setPriority	(I)V
+java/lang/Thread	setUncaughtExceptionHandler	(Ljava/lang/Thread$UncaughtExceptionHandler;)V
+java/lang/Thread	sleep	(J)V
+java/lang/Thread	sleep	(JI)V
+java/lang/Thread	sleep0	(J)V
+java/lang/Thread	start	()V
+java/lang/Thread	start0	()Z
+java/lang/Thread	started	Z
+java/lang/Thread	target	Ljava/lang/Runnable;
+java/lang/Thread	toString	()Ljava/lang/String;
+java/lang/Thread	yield	()V
+java/lang/Thread	yield0	()V
+java/lang/Thread$UncaughtExceptionHandler
+java/lang/Thread$UncaughtExceptionHandler	uncaughtException	(Ljava/lang/Thread;Ljava/lang/Throwable;)V
 java/lang/Throwable
 java/lang/Throwable	<init>	
 java/lang/Throwable	addSuppressed	
@@ -1396,6 +1448,7 @@ javax/net/ssl/SSLPeerUnverifiedException
 @implements	java/lang/String	java/lang/Comparable
 @implements	java/lang/StringBuilder	java/lang/Appendable
 @implements	java/lang/StringBuilder	java/lang/CharSequence
+@implements	java/lang/Thread	java/lang/Runnable
 @implements	java/time/Duration	java/lang/Comparable
 @implements	java/time/Duration	java/time/temporal/TemporalAmount
 @implements	java/time/Instant	java/lang/Comparable
@@ -1457,7 +1510,9 @@ javax/net/ssl/SSLPeerUnverifiedException
 @hint	java/lang/String	matches	no regex engine — use startsWith / endsWith / contains / indexOf (split() takes a literal separator)
 @hint	java/lang/String	replaceAll	no regex engine — String.replace(CharSequence, CharSequence) is literal
 @hint	java/lang/String	replaceFirst	no regex engine — String.replace(CharSequence, CharSequence) is literal
-@hint	java/lang/Thread*		use picodroid.concurrent.Thread (same API shape) — java.lang.Thread is not a builtin
+@hint	java/lang/Thread	getStackTrace	no per-thread stack traces — Throwable.printStackTrace() prints the current one
+@hint	java/lang/Thread	getState	no thread states — use isAlive()
+@hint	java/lang/Thread	holdsLock	not available — structure the code so the lock is known
 @hint	java/util/concurrent/*		use picodroid.concurrent.* (ExecutorService, Future, atomics, CountDownLatch, TimeUnit)
 @hint	java/lang/Math	random	use java.util.Random
 @hint	java/util/Arrays	asList	build an ArrayList and add() the elements

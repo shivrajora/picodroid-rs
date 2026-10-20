@@ -107,9 +107,19 @@ pub const CONTRACT_HINTS: &[(&str, &str, &str)] = &[
         "no regex engine — String.replace(CharSequence, CharSequence) is literal",
     ),
     (
-        "java/lang/Thread*",
-        "",
-        "use picodroid.concurrent.Thread (same API shape) — java.lang.Thread is not a builtin",
+        "java/lang/Thread",
+        "getStackTrace",
+        "no per-thread stack traces — Throwable.printStackTrace() prints the current one",
+    ),
+    (
+        "java/lang/Thread",
+        "getState",
+        "no thread states — use isAlive()",
+    ),
+    (
+        "java/lang/Thread",
+        "holdsLock",
+        "not available — structure the code so the lock is known",
     ),
     (
         "java/util/concurrent/*",

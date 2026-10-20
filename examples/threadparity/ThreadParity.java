@@ -2,15 +2,14 @@
 package threadparity;
 
 import picodroid.app.Application;
-import picodroid.concurrent.Thread;
 import picodroid.util.Log;
 
 /**
- * End-to-end checks of {@code java.lang.Thread} semantics on {@code picodroid.concurrent.Thread}:
- * synchronized methods under real contention, join and timed join, interrupting a sleeper, start()
- * twice, a subclass overriding run(), wait/notify producer-consumer, timed wait, wait outside
- * synchronized, the uncaught-exception handler, the interrupt flag, and a start/join churn. Logs
- * one PASS/FAIL line per check and {@code === PASSED ===} when all hold.
+ * End-to-end checks of {@code java.lang.Thread} semantics on pico-jvm: synchronized methods under
+ * real contention, join and timed join, interrupting a sleeper, start() twice, a subclass
+ * overriding run(), wait/notify producer-consumer, timed wait, wait outside synchronized, the
+ * uncaught-exception handler, the interrupt flag, and a start/join churn. Logs one PASS/FAIL line
+ * per check and {@code === PASSED ===} when all hold.
  */
 public class ThreadParity extends Application {
   private static final String TAG = "ThreadParity";

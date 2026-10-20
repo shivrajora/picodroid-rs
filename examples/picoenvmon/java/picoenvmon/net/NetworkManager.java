@@ -4,7 +4,6 @@ package picoenvmon.net;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import picodroid.concurrent.Executors;
-import picodroid.concurrent.Thread;
 import picodroid.content.pm.PackageManager;
 import picodroid.net.InetAddress;
 import picodroid.net.NetworkInfo;

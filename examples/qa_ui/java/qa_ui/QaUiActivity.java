@@ -6,7 +6,6 @@ import picodroid.app.AlertDialog;
 import picodroid.app.Notification;
 import picodroid.app.NotificationManager;
 import picodroid.concurrent.Executors;
-import picodroid.concurrent.Thread;
 import picodroid.content.Context;
 import picodroid.content.res.ColorStateList;
 import picodroid.content.res.Configuration;

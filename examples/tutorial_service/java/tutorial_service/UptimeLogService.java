@@ -3,7 +3,6 @@ package tutorial_service;
 
 import picodroid.app.Notification;
 import picodroid.app.Service;
-import picodroid.concurrent.Thread;
 import picodroid.content.Intent;
 import picodroid.os.Binder;
 import picodroid.os.IBinder;
@@ -82,7 +81,7 @@ public class UptimeLogService extends Service {
       startForeground(NOTIFICATION_ID, n);
 
       // Sampling is blocking work (it sleeps between samples), so it MUST run off the main thread.
-      // picodroid.concurrent.Thread is the supported way to do that; SystemClock.sleep is the only
+      // a Thread is the supported way to do that; SystemClock.sleep is the only
       // blocking sleep in the SDK and is safe to call here because we are not on the main thread.
       new Thread(this::sampleLoop).start();
       Log.i(TAG, "foreground started, sampler running");

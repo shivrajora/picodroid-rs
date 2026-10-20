@@ -102,7 +102,7 @@ public int onStartCommand(Intent intent, int flags, int startId) {
 Three things to understand here:
 
 - **`startForeground(id, Notification)`** promotes the service to foreground state and shows a persistent top-of-screen banner. Call it from `onStartCommand` (after the service is registered), never from a constructor.
-- **`new Thread(this::sampleLoop).start()`** — a service runs on the main thread, and the main thread must never block. Sampling sleeps between samples, so it has to run off-thread. This is `picodroid.concurrent.Thread` — there is no `java.lang.Thread` here, so import it. It has the `java.lang.Thread` API (`start`, `join`, `interrupt`, `Thread.sleep`, names, an uncaught-exception handler); see [Thread](/api/system/#picodroidconcurrentthread).
+- **`new Thread(this::sampleLoop).start()`** — a service runs on the main thread, and the main thread must never block. Sampling sleeps between samples, so it has to run off-thread. This is the ordinary `java.lang.Thread` (`start`, `join`, `interrupt`, `Thread.sleep`, names, an uncaught-exception handler) on a FreeRTOS task; see [Thread](/api/system/#javalangthread).
 - **`return START_STICKY`** is for source-level Android compatibility only. On picodroid the OS never kills a running service, so the return value is **ignored**. Returning it keeps the code recognisable to Android developers; don't read meaning into it at runtime.
 
 The loop runs on the background thread. `SystemClock.sleep(int)` is the sleep that cannot be interrupted and throws nothing, as on Android (`Thread.sleep` is the interruptible one) — safe here precisely because we are *not* on the main thread:

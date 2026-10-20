@@ -254,7 +254,7 @@ thread**: nesting, early return, exception unwind, lambdas, loops. Nothing there
 noticed that `ACC_SYNCHRONIZED` methods took no monitor at all until WP2 — the Java side caught
 it only because `threadparity` increments a shared counter from two threads and checks the total.
 
-Wanted: a Kotlin counterpart that spawns `picodroid.concurrent.Thread` from Kotlin, contends a
+Wanted: a Kotlin counterpart that spawns `Thread` from Kotlin, contends a
 `@Synchronized` method and a `synchronized(this)` block hard enough that a missing monitor loses
 increments, and exercises `wait`/`notify` through Kotlin's `(this as Object).wait()` idiom (Kotlin
 has no `Object` supertype syntax, which is itself worth pinning as conformance). Note that

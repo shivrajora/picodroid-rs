@@ -7,7 +7,6 @@ import picodroid.app.Notification;
 import picodroid.app.PendingIntent;
 import picodroid.app.Service;
 import picodroid.concurrent.Executors;
-import picodroid.concurrent.Thread;
 import picodroid.content.BroadcastReceiver;
 import picodroid.content.Context;
 import picodroid.content.Intent;

@@ -7,7 +7,6 @@ import javax.net.ssl.SSLHandshakeException;
 import picodroid.app.Activity;
 import picodroid.concurrent.Executors;
 import picodroid.concurrent.ScheduledExecutorService;
-import picodroid.concurrent.Thread;
 import picodroid.concurrent.TimeUnit;
 import picodroid.graphics.Color;
 import picodroid.graphics.drawable.GradientDrawable;

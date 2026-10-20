@@ -18,7 +18,6 @@ import picodroid.concurrent.Executors;
 import picodroid.concurrent.Future;
 import picodroid.concurrent.ScheduledExecutorService;
 import picodroid.concurrent.ScheduledFuture;
-import picodroid.concurrent.Thread;
 import picodroid.concurrent.TimeUnit;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;

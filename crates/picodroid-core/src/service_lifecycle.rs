@@ -10,7 +10,7 @@
 //!     onUnbind / onDestroy callback sequencing.
 //!
 //! Services run on the main thread between frames; long-running work belongs
-//! on a [`picodroid.concurrent.Thread`]. There is no system-killing on an
+//! on a `java.lang.Thread`. There is no system-killing on an
 //! MCU — `START_STICKY` is therefore vacuously true and `onStartCommand`'s
 //! return value is ignored.
 //!

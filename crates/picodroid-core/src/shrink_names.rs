@@ -43,10 +43,7 @@ mod tests {
         assert_eq!(m::toString, pico_jvm::names::m::toString);
         assert_eq!(m::onCreate, pico_jvm::names::m::onCreate);
         assert_eq!(d::String__V, pico_jvm::names::d::String__V);
-        assert_eq!(
-            c::picodroid_concurrent_Thread,
-            pico_jvm::names::c::picodroid_concurrent_Thread
-        );
+        assert_eq!(c::java_lang_Thread, pico_jvm::names::c::java_lang_Thread);
         assert_eq!(
             c::java_lang_NullPointerException,
             pico_jvm::names::c::java_lang_NullPointerException

@@ -122,6 +122,14 @@ absence shows in every app that is more than one Activity. Order: the natives an
 
 ## F3. Package names: `picodroid.concurrent` / `picodroid.net` versus the JDK's
 
+> Thread only, 2026-10-19: `picodroid.concurrent.Thread` moved to `java.lang.Thread`
+> (`sdk/java/java/lang/Thread.java`), the one renamed class with no import line to fix —
+> `java.lang` is auto-imported, so `new Thread(r).start()` in any ported snippet failed the
+> contract check and nothing in the source pointed at why. It is served like `java.lang.Math`:
+> compiled from the SDK tree, listed in `api-contract.tsv`, natives keyed on the new name; the
+> old shrink-map rows stay (append-only) and the new name gets its `b/` entry at the next cut.
+> `Executors`, `TimeUnit`, `URL` and the rest keep their `picodroid.*` names: option 1 below.
+
 **Today.** `Executors`, `TimeUnit`, `ScheduledThreadPoolExecutor`, `Future`, `URL`, `InetAddress`,
 `DatagramSocket` and friends live under `picodroid.concurrent` and `picodroid.net` (tracker rows 29,
 37). `java.time`, `java.util` and `java.util.zip` classes ship under their real names, so nothing

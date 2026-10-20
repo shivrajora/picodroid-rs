@@ -197,7 +197,7 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     (c::picodroid_view_View, m::fireLongClick),
     (c::picodroid_app_Activity, m::performActivityResult),
     (c::picodroid_app_Service, m::onRebind),
-    (c::picodroid_concurrent_Thread, m::runWrapper),
+    (c::java_lang_Thread, m::runWrapper),
     (c::picodroid_app_Activity, m::performSaveInstanceState),
     (c::picodroid_app_Activity, m::performRestoreInstanceState),
     (c::picodroid_app_Activity, m::performKeyEvent),

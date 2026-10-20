@@ -46,8 +46,8 @@ import picodroid.util.Log;
  *
  * <p>Not here: ordered and sticky broadcasts ({@code sendOrderedBroadcast}, {@code abortBroadcast},
  * {@code setResult*}, {@code getResultCode}, {@code isInitialStickyBroadcast}), {@code goAsync} (do
- * blocking work on a {@link picodroid.concurrent.Thread}), {@code peekService}, and
- * manifest-declared receivers other than {@code BOOT_COMPLETED}.
+ * blocking work on a {@link Thread}), {@code peekService}, and manifest-declared receivers other
+ * than {@code BOOT_COMPLETED}.
  *
  * <p>Limits: at most {@link #MAX_RECEIVERS} receivers registered at once per app, and a filter of
  * at most {@link IntentFilter#MAX_ACTIONS} actions. Registering the same receiver twice throws, as

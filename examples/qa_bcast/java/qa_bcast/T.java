@@ -2,7 +2,6 @@
 package qa_bcast;
 
 import picodroid.concurrent.Executors;
-import picodroid.concurrent.Thread;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Native dispatch for `picodroid.concurrent.Thread` and for
+//! Native dispatch for `java.lang.Thread` and for
 //! `Object.wait`/`notify`/`notifyAll`.
 //!
 //! The registry behind every arm is [`crate::threads`]; monitor ownership
@@ -266,7 +266,7 @@ pub fn dispatch(
         }
     }
 
-    if key.class != ch::picodroid_concurrent_Thread {
+    if key.class != ch::java_lang_Thread {
         return None;
     }
     Some(match key.method {

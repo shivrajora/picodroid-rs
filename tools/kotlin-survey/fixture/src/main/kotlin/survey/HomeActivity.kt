@@ -4,7 +4,6 @@ package survey
 import picodroid.app.Activity
 import picodroid.app.AlertDialog
 import picodroid.concurrent.Executors
-import picodroid.concurrent.Thread
 import picodroid.content.ComponentName
 import picodroid.content.Context
 import picodroid.content.Intent

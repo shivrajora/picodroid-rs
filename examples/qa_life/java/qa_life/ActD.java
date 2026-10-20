@@ -3,7 +3,6 @@ package qa_life;
 
 import picodroid.app.Activity;
 import picodroid.concurrent.Executors;
-import picodroid.concurrent.Thread;
 import picodroid.content.Intent;
 import picodroid.os.Bundle;
 import picodroid.os.SystemClock;

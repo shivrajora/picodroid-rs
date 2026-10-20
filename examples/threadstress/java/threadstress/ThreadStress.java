@@ -3,7 +3,6 @@ package threadstress;
 
 import java.util.ArrayList;
 import picodroid.app.Application;
-import picodroid.concurrent.Thread;
 import picodroid.os.Runtime;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;

@@ -75,6 +75,8 @@ java/lang/String
 java/lang/StringBuilder
 java/lang/StringIndexOutOfBoundsException
 java/lang/System
+java/lang/Thread
+java/lang/Thread$UncaughtExceptionHandler
 java/lang/Throwable
 java/lang/UnsupportedOperationException
 java/lang/invoke/LambdaMetafactory
@@ -205,8 +207,6 @@ picodroid/concurrent/ScheduledFuture
 picodroid/concurrent/ScheduledFutureTask
 picodroid/concurrent/ScheduledThreadPoolExecutor
 picodroid/concurrent/ScheduledThreadPoolExecutor$Task
-picodroid/concurrent/Thread
-picodroid/concurrent/Thread$UncaughtExceptionHandler
 picodroid/concurrent/ThreadPoolExecutor
 picodroid/concurrent/TimeUnit
 picodroid/content/ActivityNotFoundException

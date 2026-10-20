@@ -2,7 +2,6 @@
 package threaddemo;
 
 import picodroid.app.Application;
-import picodroid.concurrent.Thread;
 import picodroid.util.Log;
 
 public class ThreadDemo extends Application {

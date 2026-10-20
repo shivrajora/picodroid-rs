@@ -13,7 +13,6 @@ import picodroid.concurrent.CountDownLatch;
 import picodroid.concurrent.ExecutorService;
 import picodroid.concurrent.Executors;
 import picodroid.concurrent.Future;
-import picodroid.concurrent.Thread;
 import picodroid.concurrent.TimeUnit;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;

@@ -646,7 +646,7 @@ pub const BUILTIN_SUPER: &[(&str, &str)] = &[
     (c::java_lang_Exception, c::java_lang_Throwable),
     (c::java_lang_Error, c::java_lang_Throwable),
     (c::java_lang_RuntimeException, c::java_lang_Exception),
-    // Thread primitives (picodroid.concurrent.Thread, Object.wait/notify).
+    // Thread primitives (java.lang.Thread, Object.wait/notify).
     (c::java_lang_InterruptedException, c::java_lang_Exception),
     (
         c::java_lang_IllegalThreadStateException,

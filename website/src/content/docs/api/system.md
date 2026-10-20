@@ -150,13 +150,11 @@ installer.uninstall("com.example.weather");   // returns when the app and its da
 
 The package directory keeps each entry's name, label, version and icon name as it scanned them, so every query above is a few native calls and no manifest is parsed on the way; `getApplicationIcon` still looks the icon up in the package's asset table. Building the rows that show the result is the expensive part on a device — see the [launcher guide](/guides/launcher/#costs).
 
-## `picodroid.concurrent.Thread`
+## `java.lang.Thread`
 
-The `java.lang.Thread` API on a FreeRTOS task. Import it — there is no `java.lang.Thread` here.
+The `java.lang.Thread` API on a FreeRTOS task, under its real name: no import, as on Android. (Until v0.39 the class was `picodroid.concurrent.Thread`; delete that import line.) Not available: `getStackTrace`, `getState`/`Thread.State`, `holdsLock`, thread groups and context class loaders — the build's `verifyApiContract` names each one.
 
 ```java
-import picodroid.concurrent.Thread;
-
 Thread t = new Thread(new MyRunnable(), "worker");
 t.start();            // spawns a FreeRTOS task that calls MyRunnable.run()
 t.join();             // or join(ms); InterruptedException if this thread is interrupted
@@ -213,7 +211,6 @@ See [`examples/syncdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/
 ### Complete Runnable example
 
 ```java
-import picodroid.concurrent.Thread;
 import picodroid.util.Log;
 import picodroid.os.SystemClock;
 

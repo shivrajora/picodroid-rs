@@ -318,7 +318,7 @@ for the Kotlin-specific subset, divergences, and idioms.
 | Switch statements | `switch`/`case` on integer and other supported types |
 | Static fields | `static` field declarations and access via `getstatic`/`putstatic` |
 | Null checks | Null reference detection (`ifnull`/`ifnonnull`) |
-| Threading | `new Thread(runnable).start()` — spawns a FreeRTOS task per thread, pinned to core 0; stack reclaimed when `run()` returns; `setPriority(1–10)` is recorded but advisory — every Java thread runs at one JVM tier (see [Thread](/api/system/#picodroidconcurrentthread)) |
+| Threading | `new Thread(runnable).start()` — spawns a FreeRTOS task per thread, pinned to core 0; stack reclaimed when `run()` returns; `setPriority(1–10)` is recorded but advisory — every Java thread runs at one JVM tier (see [Thread](/api/system/#javalangthread)) |
 | Lambdas | `() -> expr`, `(x) -> expr` — non-capturing and capturing lambdas, method references (`Class::method`, `String::length`, `Integer::valueOf`, `Foo::new`), callbacks; compiled via `invokedynamic` |
 | Anonymous classes | `new Interface() { ... }` — anonymous inner classes implementing interfaces, with local variable capture |
 | Static initializers | `static { ... }` blocks, `static` field initializers, cross-class `<clinit>` chaining; each class initializer runs exactly once on first use |

@@ -3,7 +3,6 @@ package postloop;
 
 import picodroid.app.Activity;
 import picodroid.concurrent.Executors;
-import picodroid.concurrent.Thread;
 import picodroid.content.Context;
 import picodroid.os.Bundle;
 import picodroid.os.SystemClock;

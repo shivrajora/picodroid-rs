@@ -42,7 +42,7 @@ The last column says what round 1 did: **closed**, **kept** (with the reason), o
 
 | # | Deviation | Tag | Round 1 |
 |---|---|---|---|
-| 29 | `picodroid.concurrent.Thread` instead of `java.lang.Thread`. | SDK-shape | kept: owner decision F3. |
+| 29 | `picodroid.concurrent.Thread` instead of `java.lang.Thread`. | SDK-shape | closed 2026-10-19: the SDK class is `java.lang.Thread`; F3's other packages stay deferred. |
 | 34 | Pre-allocated `Runnable` with `@SuppressWarnings("UnnecessaryLambda")`. | App choice | kept, smaller: `UsagePage.repaint`, posted once per published state. The post is the tick budget (the chrome's repaint and a page's must not share a tick), not Android idiom; it goes when a combined repaint is measured under budget on the board (E6). |
 | 35 | App sets the wall clock from the bridge, and keeps the zone offset in `TimeFormat`. | SDK-forced (no platform time service) | open: owner decision F5. |
 

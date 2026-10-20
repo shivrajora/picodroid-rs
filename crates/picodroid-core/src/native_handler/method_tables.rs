@@ -474,23 +474,19 @@ pub const CONCURRENT_HANDLED: &[Row] = &[
 /// `PLATFORM_BUILTIN_METHODS` below instead, which feeds the generated
 /// compile-time contract.
 pub const THREADS_HANDLED: &[Row] = &[
-    // picodroid/concurrent/Thread
-    ("picodroid/concurrent/Thread", "adopt0", "()V"),
-    (
-        "picodroid/concurrent/Thread",
-        "current0",
-        "()Lpicodroid/concurrent/Thread;",
-    ),
-    ("picodroid/concurrent/Thread", "currentKind0", "()I"),
-    ("picodroid/concurrent/Thread", "exit0", "()V"),
-    ("picodroid/concurrent/Thread", "interrupt", "()V"),
-    ("picodroid/concurrent/Thread", "interrupted", "()Z"),
-    ("picodroid/concurrent/Thread", "isAlive", "()Z"),
-    ("picodroid/concurrent/Thread", "isInterrupted", "()Z"),
-    ("picodroid/concurrent/Thread", "join0", "(J)V"),
-    ("picodroid/concurrent/Thread", "sleep0", "(J)V"),
-    ("picodroid/concurrent/Thread", "start0", "()Z"),
-    ("picodroid/concurrent/Thread", "yield0", "()V"),
+    // java/lang/Thread
+    ("java/lang/Thread", "adopt0", "()V"),
+    ("java/lang/Thread", "current0", "()Ljava/lang/Thread;"),
+    ("java/lang/Thread", "currentKind0", "()I"),
+    ("java/lang/Thread", "exit0", "()V"),
+    ("java/lang/Thread", "interrupt", "()V"),
+    ("java/lang/Thread", "interrupted", "()Z"),
+    ("java/lang/Thread", "isAlive", "()Z"),
+    ("java/lang/Thread", "isInterrupted", "()Z"),
+    ("java/lang/Thread", "join0", "(J)V"),
+    ("java/lang/Thread", "sleep0", "(J)V"),
+    ("java/lang/Thread", "start0", "()Z"),
+    ("java/lang/Thread", "yield0", "()V"),
 ];
 
 /// Methods of classfile-less `java/**` builtins that the *platform* handler

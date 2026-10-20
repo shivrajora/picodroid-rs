@@ -7,7 +7,7 @@ Picodroid mirrors the Android `Service` shape closely enough that an Android dev
 
 ## `picodroid.app.Service`
 
-A long-running background component with a lifecycle independent of any `Activity`. It extends `Context`, as on Android, so `getSystemService`, `getSharedPreferences`, `startService` and `bindService` are available on `this`. Its callbacks run on the main thread, as on Android: hand blocking work to a [`Thread`](/api/system/#picodroidconcurrentthread) or an [executor](/api/system/#picodroidconcurrentexecutors). The framework instantiates it, so it needs a public no-arg constructor. Subclass it in your app:
+A long-running background component with a lifecycle independent of any `Activity`. It extends `Context`, as on Android, so `getSystemService`, `getSharedPreferences`, `startService` and `bindService` are available on `this`. Its callbacks run on the main thread, as on Android: hand blocking work to a [`Thread`](/api/system/#javalangthread) or an [executor](/api/system/#picodroidconcurrentexecutors). The framework instantiates it, so it needs a public no-arg constructor. Subclass it in your app:
 
 ```java
 package myapp;
@@ -368,7 +368,7 @@ the app, `setPackage` is refused, and `RECEIVER_EXPORTED` changes nothing.
 (`IllegalStateException` beyond). A receiver that throws is logged and the round goes on —
 Android would crash the app. Not here: ordered and sticky broadcasts (`sendOrderedBroadcast`,
 `abortBroadcast`, `setResult*`, `isInitialStickyBroadcast`), `goAsync` (do slow work on a
-`picodroid.concurrent.Thread`), `peekService`, data/type/category matching. Manifest
+`Thread`), `peekService`, data/type/category matching. Manifest
 receivers exist for the boot-time actions only — see [the manifest](/reference/manifest/) —
 and for explicit targets. `LocalBroadcastManager` is not needed: every broadcast is local.
 

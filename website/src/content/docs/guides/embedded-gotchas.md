@@ -83,14 +83,13 @@ Why the old advice existed: before 2026-10 the native side kept fixed-size per-k
 
 ## No Handler, Looper, postDelayed, or Timer
 
-Symptom: `Handler`, `Looper`, `postDelayed`, `java.lang.Thread` and `Timer` do not exist. `picodroid.concurrent.Thread` is the thread class (import it), with the `java.lang.Thread` API: `sleep`, `join`, `interrupt`, `currentThread`, a `Runnable` target or an overridden `run()`, and `Object.wait`/`notify`.
+Symptom: `Handler`, `Looper`, `postDelayed` and `Timer` do not exist. `java.lang.Thread` does, with the usual API: `sleep`, `join`, `interrupt`, `currentThread`, a `Runnable` target or an overridden `run()`, and `Object.wait`/`notify`.
 
 For background work, spawn a `Thread` and block on it — never on the main thread.
 
 ```java
-// WRONG: none of these exist on Picodroid.
+// WRONG: there is no Handler on Picodroid.
 new Handler().postDelayed(this::sample, 1000);
-java.lang.Thread.sleep(1000);
 ```
 
 ```java

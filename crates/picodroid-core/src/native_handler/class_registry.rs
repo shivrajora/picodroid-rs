@@ -48,7 +48,7 @@ pub const PICODROID_NATIVE_CLASSES: &[&str] = &[
     c::picodroid_protobuf_CodedOutputStream,
     // AudioManager declares no natives — it is constants only.
     c::picodroid_media_ToneGenerator,
-    c::picodroid_concurrent_Thread,
+    c::java_lang_Thread,
     c::picodroid_concurrent_Executor,
     c::picodroid_concurrent_Executors,
     c::picodroid_concurrent_MainExecutor,
@@ -163,7 +163,7 @@ pub const API_HINTS: &[(&str, &str, &str)] = &[
     (
         c::picodroid_content_BroadcastReceiver,
         "goAsync",
-        "no goAsync — do the slow part on a picodroid.concurrent.Thread",
+        "no goAsync — do the slow part on a Thread",
     ),
     (
         c::picodroid_content_BroadcastReceiver,

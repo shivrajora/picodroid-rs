@@ -8,7 +8,7 @@ import picodroid.os.IBinder;
 /**
  * Background component analogous to {@code android.app.Service}. A Service has a lifecycle
  * independent of any Activity and runs on the main thread by default — spawn a {@link
- * picodroid.concurrent.Thread} for blocking work.
+ * java.lang.Thread} for blocking work.
  *
  * <h2>Started services</h2>
  *

@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
-package picodroid.concurrent;
+package java.lang;
 
 import picodroid.util.Log;
 
 /**
- * A thread of execution, mirroring {@code java.lang.Thread}.
+ * A thread of execution: the {@code java.lang.Thread} API on an RTOS task. Served under its real
+ * name, so {@code new Thread(r).start()} needs no import, as on Android.
  *
  * <p>{@link #start()} runs {@link #run()} on a fresh RTOS task sharing the JVM heap. Either pass a
  * {@link Runnable} or subclass and override {@code run()}. {@link #sleep(long)}, {@link #join()},
@@ -219,6 +220,8 @@ public class Thread implements Runnable {
    * route anything that escapes to the uncaught-exception handler, and always tell the registry we
    * are done so {@link #join()} returns and {@link #isAlive()} turns false.
    */
+  // Error Prone's DoNotCall knows java.lang.Thread.run() by name; here the call IS the thread.
+  @SuppressWarnings("DoNotCall")
   static void runWrapper(Thread t) {
     try {
       t.run();

@@ -47,7 +47,7 @@ version:
 | Scope functions, `lazy`, `Pair`, destructuring | |
 | Ranges & progressions | `for` over ranges is intrinsified (free) |
 | Collections, maps, sets, arrays, sorting, strings, math | via the shim over the JVM's builtin `ArrayList`/`HashMap`/`HashSet` |
-| `synchronized {}` blocks, `picodroid.concurrent.Thread` | `@Synchronized` *methods* are not synchronized — the flag is ignored |
+| `synchronized {}` blocks, `Thread` | `@Synchronized` *methods* are not synchronized — the flag is ignored |
 
 Not supported — each fails **loudly** (a build-time contract error or a
 runtime `NoSuchMethod`), never silently:
@@ -60,8 +60,6 @@ runtime `NoSuchMethod`), never silently:
 - `String.toByteArray()` and `String(bytes, off, len)` — they inline to
   `Charset` overloads the JVM does not serve. Cast through the platform type
   instead: `(s as java.lang.String).bytes` (plain `getBytes()`).
-- `java.lang.Thread` — Kotlin default-imports `java.lang.*`; import
-  `picodroid.concurrent.Thread` explicitly.
 - A handful of stdlib members that walk unsupported JDK surface:
   `list.last {}` / `indexOfLast` / `findLast` (need `listIterator`),
   `map += otherMap` (`putAll`), `contentEquals` (`Arrays.equals`),

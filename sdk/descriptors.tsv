@@ -16,7 +16,7 @@ __Comparator	()Ljava/util/Comparator;
 __Iterator	()Ljava/util/Iterator;
 __Set	()Ljava/util/Set;
 __Executor	()Lpicodroid/concurrent/Executor;
-__Thread	()Lpicodroid/concurrent/Thread;
+__Thread	()Ljava/lang/Thread;
 __Intent	()Lpicodroid/content/Intent;
 __Display	()Lpicodroid/graphics/Display;
 __Socket	()Lpicodroid/net/Socket;

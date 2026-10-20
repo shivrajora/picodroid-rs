@@ -3,7 +3,6 @@ package mainhog;
 
 import picodroid.app.Activity;
 import picodroid.concurrent.Executors;
-import picodroid.concurrent.Thread;
 import picodroid.os.Bundle;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;

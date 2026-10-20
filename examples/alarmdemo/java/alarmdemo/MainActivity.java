@@ -3,7 +3,6 @@ package alarmdemo;
 
 import picodroid.app.Activity;
 import picodroid.concurrent.Executors;
-import picodroid.concurrent.Thread;
 import picodroid.content.Intent;
 import picodroid.content.pm.PackageManager;
 import picodroid.os.Bundle;

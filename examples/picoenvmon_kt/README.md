@@ -43,8 +43,6 @@ told not to, so:
 - **No `trim()`, `x in intArray`, `indexOf`, `contentEquals`** — each is a
   `kotlin/collections` or `kotlin/text` shim call on a hot path; the loops are
   written out.
-- `import picodroid.concurrent.Thread` — Kotlin default-imports `java.lang.*`,
-  and `java.lang.Thread` does not exist on pico-jvm.
 - `?.` over `!!` (a branch instead of an `Intrinsics.checkNotNull` call);
   `when` over `Sensor.TYPE_*` (Java `static final int`s inline to a
   `lookupswitch`, no `$WhenMappings`); `Foo::class.java` for `Intent`.

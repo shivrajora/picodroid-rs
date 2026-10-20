@@ -7,7 +7,6 @@ import picodroid.app.Service;
 import picodroid.concurrent.Executor;
 import picodroid.concurrent.Executors;
 import picodroid.concurrent.ScheduledExecutorService;
-import picodroid.concurrent.Thread;
 import picodroid.concurrent.TimeUnit;
 import picodroid.content.Context;
 import picodroid.content.Intent;

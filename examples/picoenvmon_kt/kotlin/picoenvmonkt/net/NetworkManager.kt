@@ -4,7 +4,6 @@ package picoenvmonkt.net
 import javax.inject.Inject
 import javax.inject.Singleton
 import picodroid.concurrent.Executors
-import picodroid.concurrent.Thread
 import picodroid.content.pm.PackageManager
 import picodroid.net.InetAddress
 import picodroid.net.NetworkInfo
@@ -52,9 +51,7 @@ private const val HOUSEKEEPING_STALL_MS = 180_000L
  * server on ONE background thread (each Java thread costs a 16 KB task stack on device). NTP sync
  * and the weather refresh are posted to the framework's shared background pool
  * (`Executors.backgroundExecutor()`) so a slow fetch never delays a page: the serve loop's 1 s
- * accept timeout doubles as the housekeeping tick, and the tick only schedules. The thread is
- * `picodroid.concurrent.Thread` — Kotlin default-imports `java.lang.*`, and `java.lang.Thread` does
- * not exist on pico-jvm.
+ * accept timeout doubles as the housekeeping tick, and the tick only schedules.
  *
  * Fidelity note: Android would host this in a Service. An app-scoped manager is deliberate here —
  * the network stack should outlive Activity churn without a second foreground notification, and the
