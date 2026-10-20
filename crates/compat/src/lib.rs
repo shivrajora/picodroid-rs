@@ -43,6 +43,14 @@
 
 #![no_std]
 #![forbid(unsafe_code)]
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::todo,
+    clippy::unimplemented
+)]
 
 /// Reasons a PAPK ↔ firmware compatibility check can fail.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

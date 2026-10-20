@@ -204,6 +204,9 @@ STAGES=(
   "twins|guards|fast|always|shadow twins across platforms/ and picodroid-core"
   "cfg_gates|guards|fast|always|sim/family-rp cfg-gate hygiene"
   "unsafe_ratchet|guards|fast|always|unsafe Rust against scripts/unsafe-baseline.conf"
+  "panic_ratchet|guards|fast|always|panic sites in firmware against scripts/panic-baseline.conf"
+  "layers|guards|fast|always|crate dependency direction against scripts/layers.conf"
+  "scorecard|guards|fast|always|docs/scorecard.md current (scripts/scorecard.py --check)"
   "jvm_env|guards|fast|always|apply_jvm_env propagation"
   # CI runs the drift check on every push (ci_checks.yml `linting`); locally
   # it matters when the conf itself, under scripts/, changed.
@@ -224,6 +227,10 @@ STAGES=(
   # caught at commit time instead of twenty minutes after the push.
   "clippy_sim|host|fast|rust|clippy (sim)"
   "clippy_host_tools|host|fast|rust|clippy (host tools)"
+  # The leaf crates no board leg lints (-p picodroid lints only picodroid):
+  # these carry #![deny(clippy::unwrap_used, ...)], and this is the leg that
+  # enforces it.
+  "clippy_leaf|host|fast|rust|clippy (leaf crates, never-panic denies)"
   # The clippy legs lint library code only; #[cfg(test)] code compiles
   # nowhere before CI's Testing job. A signature change with a stale test
   # caller red-lit main twice that way (2026-10-16, UR-15).
@@ -381,6 +388,9 @@ fi
 stage_twins()     { bash "$SCRIPT_DIR/check-source-guards.sh" --twins; }
 stage_cfg_gates() { bash "$SCRIPT_DIR/check-source-guards.sh" --cfg-gates; }
 stage_unsafe_ratchet() { bash "$SCRIPT_DIR/check-source-guards.sh" --unsafe; }
+stage_panic_ratchet()  { bash "$SCRIPT_DIR/check-source-guards.sh" --panics; }
+stage_layers()         { bash "$SCRIPT_DIR/check-source-guards.sh" --layers; }
+stage_scorecard()      { python3 "$SCRIPT_DIR/scorecard.py" --check; }
 
 stage_hil_conf() {
   if ! bash "$SCRIPT_DIR/check-hil-conf.sh"; then
@@ -593,6 +603,20 @@ stage_clippy_host_tools() {
          --jobs "$JOBS" --target "$HOST_TARGET" -- --deny=warnings; then
     echo ""
     echo "ERROR: Clippy check failed (host tools). Fix the warnings above."
+    return 1
+  fi
+}
+
+# The never-panic crates (CLAUDE.md golden rules; scripts/panic-baseline.conf
+# names the ones still on their way to zero). Same list as ci_checks.yml.
+stage_clippy_leaf() {
+  # shellcheck disable=SC2086
+  if ! cargo $LINT_PLUS clippy -p compat -p heap4 -p http-head -p pd-codec -p pd-drivers \
+         -p pd-json -p pd-lvgl-sys -p pd-pdb -p pd-protobuf -p pd-rtos \
+         --jobs "$JOBS" --target "$HOST_TARGET" -- --deny=warnings; then
+    echo ""
+    echo "ERROR: Clippy check failed (leaf crates). A new unwrap/expect/panic in a"
+    echo "       crate that denies them: return the error instead (CLAUDE.md)."
     return 1
   fi
 }

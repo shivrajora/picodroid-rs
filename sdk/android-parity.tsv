@@ -1,0 +1,268 @@
+# sdk/android-parity.tsv -- the android.* surface picodroid.* mirrors, one row per
+# class (or per member, when a class is tracked member by member).
+#
+# Columns: android <TAB> picodroid <TAB> status <TAB> note   (the note is optional)
+#   android    the Android (or androidx / Material / java) class, dotted; a member
+#              row appends `#member`
+#   picodroid  the SDK source under sdk/java/ that serves it (`picodroid/view/View`),
+#              or `-` when nothing does
+#   status     live          the API surface and semantics port unchanged
+#              partial       present; a subset, or a documented behaviour difference
+#              missing       absent, and in scope: an entry for docs/gaps.md
+#              out-of-scope  absent on purpose (hardware, a decision); not counted
+#              addition      a picodroid class with no Android counterpart; not counted
+#   note       why, briefly; the compatibility matrix carries the detail
+#
+# scripts/scorecard.py reads this file: it fails when a live or partial row names
+# a source file that does not exist, and when a missing row names one that does;
+# it lists SDK classes that have no row here. Parity per package is
+# (live + partial / 2) / (live + partial + missing). The floor below only goes up;
+# raise it in the commit that earns the rise.
+# parity_floor: 54.0
+#
+# Seeded 2026-10-20 from website/src/content/docs/reference/compatibility-matrix.md
+# and the sdk/java/picodroid tree at 1f571977.
+android.app.Activity	picodroid/app/Activity	live	lifecycle, results, options menu, fragments, ViewModel owner; no action bar
+android.app.Application	picodroid/app/Application	live	onCreate entry point
+android.app.Service	picodroid/app/Service	partial	started + bound; no IntentService
+android.app.AlertDialog	picodroid/app/AlertDialog	partial	buttons, items, choices; String labels; no setView / setIcon
+android.app.Notification	picodroid/app/Notification	partial	post / cancel; no channels, styles, actions
+android.app.NotificationManager	picodroid/app/NotificationManager	partial	post / cancel
+android.app.AlarmManager	picodroid/app/AlarmManager	partial	set / setExact / cancel, setTime / setTimeZone; no setRepeating, setWindow
+android.app.PendingIntent	picodroid/app/PendingIntent	partial	getActivity, getBroadcast; two int extras; no getService
+android.app.Dialog	-	missing	only AlertDialog; no plain Dialog subclassing
+android.app.ProgressDialog	-	out-of-scope	deprecated on Android
+android.app.LoaderManager	-	out-of-scope	deprecated on Android; Thread + main executor
+android.app.usage.StorageStatsManager	picodroid/app/usage/StorageStatsManager	partial	free / total bytes
+android.app.usage.StorageStats	picodroid/app/usage/StorageStats	partial
+androidx.fragment.app.Fragment	picodroid/app/Fragment	partial	callbacks in Android's order; views freed on onDestroyView; no child managers
+androidx.fragment.app.FragmentManager	picodroid/app/FragmentManager	partial	add / replace / remove / back stack; no animations
+androidx.fragment.app.FragmentTransaction	picodroid/app/FragmentTransaction	partial	commit, commitNow, addToBackStack
+androidx.fragment.app.FragmentFactory	picodroid/app/FragmentFactory	partial	instantiate(String); no ClassLoader
+androidx.lifecycle.ViewModel	picodroid/lifecycle/ViewModel	partial	onCleared; no SavedStateHandle, viewModelScope
+androidx.lifecycle.ViewModelProvider	picodroid/lifecycle/ViewModelProvider	partial	get(Class), get(key, Class), Factory; NewInstanceFactory by name
+androidx.lifecycle.ViewModelStore	picodroid/lifecycle/ViewModelStore	live
+androidx.lifecycle.ViewModelStoreOwner	picodroid/lifecycle/ViewModelStoreOwner	live	Activity only
+androidx.lifecycle.HasDefaultViewModelProviderFactory	picodroid/lifecycle/HasDefaultViewModelProviderFactory	live
+androidx.lifecycle.LiveData	picodroid/lifecycle/LiveData	partial	observe, observeForever, setValue, postValue
+androidx.lifecycle.MutableLiveData	picodroid/lifecycle/MutableLiveData	live
+androidx.lifecycle.MediatorLiveData	picodroid/lifecycle/MediatorLiveData	live	addSource / removeSource
+androidx.lifecycle.Transformations	picodroid/lifecycle/Transformations	partial	map, switchMap
+androidx.lifecycle.Observer	picodroid/lifecycle/Observer	live
+androidx.lifecycle.Lifecycle	picodroid/lifecycle/Lifecycle	partial	State and Event enums; is its own LifecycleRegistry
+androidx.lifecycle.LifecycleOwner	picodroid/lifecycle/LifecycleOwner	partial	Activity and Fragment.getViewLifecycleOwner(); a Fragment is not one
+androidx.lifecycle.LifecycleObserver	picodroid/lifecycle/LifecycleObserver	live
+androidx.lifecycle.DefaultLifecycleObserver	picodroid/lifecycle/DefaultLifecycleObserver	live
+androidx.lifecycle.LifecycleEventObserver	picodroid/lifecycle/LifecycleEventObserver	live
+android.view.View	picodroid/view/View	partial	geometry, listeners, animate, onDraw, onMeasure, post, onTouchEvent; additions setPosition / setSize / close
+android.view.ViewGroup	picodroid/view/ViewGroup	partial	addView / removeView / getChildAt, onLayout for subclasses; removeView frees the widget; no onInterceptTouchEvent
+android.view.ViewParent	picodroid/view/ViewParent	partial
+android.view.ViewPropertyAnimator	picodroid/view/ViewPropertyAnimator	partial	alpha, translation, rotation, scale, duration, interpolator, withEndAction
+android.view.MotionEvent	picodroid/view/MotionEvent	partial	int coordinates; single touch; ACTION_LONG_PRESS addition
+android.view.GestureDetector	picodroid/view/GestureDetector	partial	onSingleTap / onLongPress / onFling with different signatures; no onScroll
+android.view.KeyEvent	picodroid/view/KeyEvent	partial	D-pad, BACK, HOME, A/B/X/Y constants, tracking, repeat; no meta state or characters
+android.view.KeyCharacterMap	picodroid/view/KeyCharacterMap	partial	deviceHasKey(s) only
+android.view.Menu	picodroid/view/Menu	partial	options menu as a list; no icons, sub-menus, MenuInflater
+android.view.MenuItem	picodroid/view/MenuItem	partial	id, title, enabled, visible, click listener
+android.view.ViewConfiguration	picodroid/view/ViewConfiguration	partial	three timeouts; no touch slop
+android.view.LayoutInflater	picodroid/view/LayoutInflater	partial	compiled layouts; Factory for custom views; no <merge>, Factory2
+androidx.asynclayoutinflater.view.AsyncLayoutInflater	picodroid/view/AsyncLayoutInflater	partial	main-thread slices
+android.view.Gravity	picodroid/view/Gravity	live
+android.view.View.OnKeyListener	picodroid/view/OnKeyListener	live	top-level interface in picodroid.view
+android.view.View.OnTouchListener	picodroid/view/OnTouchListener	live	top-level interface in picodroid.view
+android.view.InflateException	picodroid/view/InflateException	live
+android.view.inputmethod.EditorInfo	picodroid/view/inputmethod/EditorInfo	partial	IME_ACTION_DONE only
+android.view.animation.Interpolator	picodroid/view/animation/Interpolator	live
+android.view.animation.LinearInterpolator	picodroid/view/animation/LinearInterpolator	live
+android.view.animation.AccelerateInterpolator	picodroid/view/animation/AccelerateInterpolator	live
+android.view.animation.DecelerateInterpolator	picodroid/view/animation/DecelerateInterpolator	live
+android.view.animation.AccelerateDecelerateInterpolator	picodroid/view/animation/AccelerateDecelerateInterpolator	live
+android.view.animation.Animation	-	missing	view animations; ViewPropertyAnimator covers the common cases
+android.animation.ValueAnimator	-	missing	no property animation framework beyond animate()
+android.animation.ObjectAnimator	-	missing
+android.view.SurfaceView	-	out-of-scope	no pixel buffers
+android.view.WindowManager	-	out-of-scope	one window per app
+android.view.Window	-	missing	no window flags, no title bar control
+android.view.accessibility.AccessibilityEvent	-	out-of-scope
+android.widget.TextView	picodroid/widget/TextView	partial	String text; sizes snap to compiled faces; vertical gravity not drawn
+android.widget.Button	picodroid/widget/Button	live
+android.widget.EditText	picodroid/widget/EditText	partial	single-line; getText() is String; only afterTextChanged fires
+android.text.TextWatcher	picodroid/text/TextWatcher	partial	String arguments; only afterTextChanged
+android.text.InputType	picodroid/text/InputType	partial	class picks the keyboard; password masks
+android.text.TextUtils	picodroid/text/TextUtils	partial
+android.widget.LinearLayout	picodroid/widget/LinearLayout	partial	orientation, gravity, weights, margins; no weightSum, dividers
+android.widget.FrameLayout	picodroid/widget/FrameLayout	live
+android.widget.RelativeLayout	picodroid/widget/RelativeLayout	partial	the layout_* rules as a registered LVGL layout
+android.widget.GridLayout	picodroid/widget/GridLayout	partial	rows, columns, spans on LVGL's grid
+android.widget.ScrollView	picodroid/widget/ScrollView	live
+android.widget.ImageView	picodroid/widget/ImageView	partial	int scale types; setImageSource addition
+android.widget.Switch	picodroid/widget/Switch	live
+android.widget.CheckBox	picodroid/widget/CheckBox	partial	no toggle()
+android.widget.ToggleButton	picodroid/widget/ToggleButton	partial	no on / off text
+android.widget.RadioButton	picodroid/widget/RadioButton	partial	no toggle()
+android.widget.RadioGroup	picodroid/widget/RadioGroup	partial	check, clearCheck, listener
+android.widget.CompoundButton	picodroid/widget/CompoundButton	partial	setChecked does not fire the listener
+android.widget.TextView.OnEditorActionListener	picodroid/widget/OnEditorActionListener	partial	top-level interface taking the EditText
+android.widget.ProgressBar	picodroid/widget/ProgressBar	partial	indeterminate is creation-time only
+android.widget.SeekBar	picodroid/widget/SeekBar	partial	not a ProgressBar subclass
+android.widget.Toast	picodroid/widget/Toast	partial	no setGravity, setView
+android.widget.Spinner	picodroid/widget/Spinner	partial	toString() rows; setItems addition
+android.widget.NumberPicker	picodroid/widget/NumberPicker	partial	stepped box, not a wheel
+android.widget.DatePicker	picodroid/widget/DatePicker	partial	calendar; no min / max, spinner mode
+android.widget.TimePicker	picodroid/widget/TimePicker	partial	rollers; setTime in place of setHour / setMinute
+android.widget.ListView	picodroid/widget/ListView	partial	every row a live widget; no recycling
+android.widget.AdapterView	picodroid/widget/AdapterView	partial	item listeners get a null view
+android.widget.Adapter	picodroid/widget/Adapter	partial
+android.widget.BaseAdapter	picodroid/widget/BaseAdapter	partial
+android.widget.ArrayAdapter	picodroid/widget/ArrayAdapter	partial
+android.widget.Space	picodroid/widget/Space	live
+android.widget.TableLayout	-	missing	GridLayout is the nearest
+android.widget.TextClock	-	missing	decision F7 deferred; ACTION_TIME_TICK receivers instead
+android.widget.Chronometer	-	missing
+android.widget.VideoView	-	out-of-scope	no video
+android.widget.WebView	-	out-of-scope	no browser engine
+androidx.recyclerview.widget.RecyclerView	-	missing	ListView builds every row; no scrap pool
+androidx.constraintlayout.widget.ConstraintLayout	-	missing	RelativeLayout is the nearest
+androidx.swiperefreshlayout.widget.SwipeRefreshLayout	picodroid/widget/SwipeRefreshLayout	partial	listener, setRefreshing
+androidx.viewpager2.widget.ViewPager2	picodroid/widget/ViewPager2	partial	one page alive at a time; fade instead of a scroller
+androidx.viewpager2.adapter.FragmentStateAdapter	picodroid/widget/FragmentStateAdapter	partial
+com.google.android.material.snackbar.Snackbar	picodroid/widget/Snackbar	partial	bottom only; action with a null view
+com.google.android.material.progressindicator.CircularProgressIndicator	picodroid/widget/CircularProgressIndicator	partial	determinate only
+android.inputmethodservice.Keyboard	picodroid/widget/Keyboard	partial	the system keyboard, driven by four keys or touch
+android.util.Log	picodroid/util/Log	live	defmt on device
+android.util.TypedValue	picodroid/util/TypedValue	partial	COMPLEX_UNIT_* and applyDimension
+android.util.DisplayMetrics	picodroid/util/DisplayMetrics	partial	one density
+android.util.AttributeSet	picodroid/util/AttributeSet	partial	always empty for custom views
+android.graphics.Color	picodroid/graphics/Color	live
+android.graphics.Canvas	picodroid/graphics/Canvas	partial	recorded display list; no Path, Bitmap, save / restore, clipping
+android.graphics.Paint	picodroid/graphics/Paint	partial	colour, style, stroke, text size and align; no shaders, typefaces
+android.graphics.drawable.Drawable	picodroid/graphics/drawable/Drawable	partial	what setBackground accepts; no draw(Canvas)
+android.graphics.drawable.BitmapDrawable	picodroid/graphics/drawable/BitmapDrawable	partial	the launcher icon type
+android.graphics.drawable.GradientDrawable	picodroid/graphics/drawable/GradientDrawable	partial	rectangle only; setGradient addition
+android.graphics.Bitmap	-	out-of-scope	no pixel buffers: a full-screen bitmap is 150 KB of RAM
+android.graphics.Path	-	missing
+android.graphics.Rect	-	missing
+android.graphics.RectF	-	missing
+android.graphics.Matrix	-	missing
+android.graphics.Typeface	-	missing	one bitmap face family; setTextSize snaps to compiled sizes
+android.content.Context	picodroid/content/Context	partial	services, resources, files, prefs, components, receivers
+android.content.Intent	picodroid/content/Intent	partial	explicit + broadcast; typed extras; no implicit resolution, Parcelable
+android.content.IntentFilter	picodroid/content/IntentFilter	partial	actions only, at most 8
+android.content.BroadcastReceiver	picodroid/content/BroadcastReceiver	partial	system actions, sendBroadcast, alarms; no ordered or sticky
+android.content.ComponentName	picodroid/content/ComponentName	live
+android.content.ServiceConnection	picodroid/content/ServiceConnection	live
+android.content.SharedPreferences	picodroid/content/SharedPreferences	partial	no string sets, no change listener
+android.content.DialogInterface	picodroid/content/DialogInterface	partial
+android.content.ActivityNotFoundException	picodroid/content/ActivityNotFoundException	live
+android.content.ContentResolver	picodroid/content/ContentResolver	partial
+android.content.ContentProvider	-	out-of-scope	no cross-app data model
+android.content.ClipboardManager	-	missing
+android.content.pm.PackageManager	picodroid/content/pm/PackageManager	partial	features, installed packages, labels, icons, installer
+android.content.pm.PackageInfo	picodroid/content/pm/PackageInfo	partial
+android.content.pm.ApplicationInfo	picodroid/content/pm/ApplicationInfo	partial
+android.content.pm.PackageInstaller	picodroid/content/pm/PackageInstaller	partial
+android.content.res.Resources	picodroid/content/res/Resources	partial	strings, colours, dimensions, integers, booleans; no drawables, arrays, plurals
+android.content.res.Configuration	picodroid/content/res/Configuration	partial	a snapshot; no onConfigurationChanged
+android.content.res.ColorStateList	picodroid/content/res/ColorStateList	partial	one colour
+android.content.res.Resources.Theme	picodroid/graphics/Theme	partial	android:theme from the manifest
+android.net.ConnectivityManager	picodroid/net/ConnectivityManager	partial
+android.net.ConnectivityManager.NetworkCallback	-	partial	nested in ConnectivityManager
+android.net.Network	picodroid/net/Network	partial
+android.net.NetworkCapabilities	picodroid/net/NetworkCapabilities	partial
+android.net.NetworkRequest	picodroid/net/NetworkRequest	partial
+android.net.NetworkInfo	picodroid/net/NetworkInfo	partial
+android.net.SntpClient	picodroid/net/SntpClient	live
+android.net.wifi.WifiManager	picodroid/net/wifi/WifiManager	partial	scan, join, saved network
+android.net.wifi.ScanResult	picodroid/net/wifi/ScanResult	partial
+android.net.wifi.WifiInfo	picodroid/net/wifi/WifiInfo	partial
+android.net.wifi.WifiConfiguration	picodroid/net/wifi/WifiConfiguration	partial
+android.net.wifi.SupplicantState	picodroid/net/wifi/SupplicantState	partial
+java.net.URL	picodroid/net/URL	partial
+java.net.HttpURLConnection	picodroid/net/HttpURLConnection	partial	java.io stream types
+javax.net.ssl.HttpsURLConnection	picodroid/net/ssl/HttpsURLConnection	partial	TLS 1.3 on RP2350 WiFi boards
+java.net.Socket	picodroid/net/Socket	partial	picodroid.net, not java.net
+java.net.ServerSocket	picodroid/net/ServerSocket	partial	picodroid.net, not java.net
+java.net.DatagramSocket	picodroid/net/DatagramSocket	partial
+java.net.DatagramPacket	picodroid/net/DatagramPacket	partial
+java.net.InetAddress	picodroid/net/InetAddress	partial
+android.os.SystemClock	picodroid/os/SystemClock	partial
+android.os.Bundle	picodroid/os/Bundle	partial
+android.os.Build	picodroid/os/Build	partial	VERSION.RELEASE, getSerial
+android.os.PowerManager	picodroid/os/PowerManager	partial
+android.os.StatFs	picodroid/os/StatFs	partial
+android.os.Binder	picodroid/os/Binder	partial	LocalBinder base
+android.os.IBinder	picodroid/os/IBinder	partial
+android.os.Handler	-	out-of-scope	executor-only decision (2026-08-30): Executors.mainExecutor(), mainScheduledExecutor()
+android.os.Looper	-	out-of-scope	executor-only decision
+android.os.Message	-	out-of-scope	executor-only decision
+android.os.AsyncTask	-	out-of-scope	deprecated on Android
+android.os.Vibrator	-	missing
+android.os.Parcelable	-	out-of-scope	no IPC; typed extras instead
+android.provider.Settings	picodroid/provider/Settings	partial	System and Global subsets
+android.hardware.Sensor	picodroid/hardware/Sensor	partial
+android.hardware.SensorManager	picodroid/hardware/SensorManager	partial
+android.hardware.SensorEvent	picodroid/hardware/SensorEvent	partial
+android.hardware.SensorEventListener	picodroid/hardware/SensorEventListener	live
+android.hardware.camera2.CameraManager	-	out-of-scope	no camera
+android.location.LocationManager	-	out-of-scope	no GNSS
+android.bluetooth.BluetoothAdapter	-	out-of-scope
+android.media.ToneGenerator	picodroid/media/ToneGenerator	partial
+android.media.AudioManager	picodroid/media/AudioManager	partial
+android.media.MediaPlayer	-	out-of-scope	no audio decoding
+android.media.SoundPool	-	out-of-scope
+com.google.android.things.pio.PeripheralManager	picodroid/pio/PeripheralManager	partial	Android Things' API; refuses board-owned pads
+com.google.android.things.pio.Gpio	picodroid/pio/Gpio	partial
+com.google.android.things.pio.Pwm	picodroid/pio/Pwm	partial
+com.google.android.things.pio.I2cDevice	picodroid/pio/I2cDevice	partial
+com.google.android.things.pio.SpiDevice	picodroid/pio/SpiDevice	partial
+com.google.android.things.pio.UartDevice	picodroid/pio/UartDevice	partial
+android.hardware.Adc	picodroid/pio/Adc	partial	no Android counterpart; Android Things never shipped one
+java.lang.Thread	-	live	served by pico-jvm as java.lang.Thread
+java.util.concurrent.Executor	picodroid/concurrent/Executor	live
+java.util.concurrent.Executors	picodroid/concurrent/Executors	partial	mainExecutor, backgroundExecutor, mainScheduledExecutor, newFixedThreadPool
+java.util.concurrent.ExecutorService	picodroid/concurrent/ExecutorService	partial
+java.util.concurrent.ScheduledExecutorService	picodroid/concurrent/ScheduledExecutorService	partial	16 ms resolution, 16 shared slots
+java.util.concurrent.Future	picodroid/concurrent/Future	partial
+java.util.concurrent.Callable	picodroid/concurrent/Callable	live
+java.util.concurrent.TimeUnit	picodroid/concurrent/TimeUnit	partial
+java.util.concurrent.CountDownLatch	picodroid/concurrent/CountDownLatch	live
+java.util.concurrent.atomic.AtomicInteger	picodroid/concurrent/AtomicInteger	partial
+java.util.concurrent.atomic.AtomicLong	picodroid/concurrent/AtomicLong	partial
+java.util.concurrent.atomic.AtomicBoolean	picodroid/concurrent/AtomicBoolean	partial
+java.util.concurrent.atomic.AtomicReference	picodroid/concurrent/AtomicReference	partial
+java.util.concurrent.ConcurrentHashMap	-	missing
+java.util.concurrent.locks.ReentrantLock	-	missing	synchronized works
+java.util.Timer	-	out-of-scope	executor-only decision; mainScheduledExecutor
+java.io.File	picodroid/io/File	partial	the app's private directory
+java.io.FileInputStream	picodroid/io/FileInputStream	partial
+java.io.FileOutputStream	picodroid/io/FileOutputStream	partial
+org.json.JSONObject	picodroid/json/JSONObject	partial
+org.json.JSONArray	picodroid/json/JSONArray	partial
+org.json.JSONException	picodroid/json/JSONException	live
+com.google.protobuf.CodedInputStream	picodroid/protobuf/CodedInputStream	partial	javalite shape
+com.google.protobuf.CodedOutputStream	picodroid/protobuf/CodedOutputStream	partial
+com.google.protobuf.MessageLite	picodroid/protobuf/MessageLite	partial
+com.google.protobuf.WireFormat	picodroid/protobuf/WireFormat	partial
+com.google.protobuf.InvalidProtocolBufferException	picodroid/protobuf/InvalidProtocolBufferException	live
+javax.inject.Inject	-	partial	resolved at build time (picodroid.di)
+android.view.Display	picodroid/graphics/Display	partial	getMetrics
+java.lang.Runtime	picodroid/os/Runtime	partial	freeMemory / totalMemory / gc
+java.util.concurrent.FutureTask	picodroid/concurrent/FutureTask	partial	
+java.util.concurrent.ScheduledFuture	picodroid/concurrent/ScheduledFuture	partial	
+java.util.concurrent.ScheduledThreadPoolExecutor	picodroid/concurrent/ScheduledThreadPoolExecutor	partial	
+java.util.concurrent.ThreadPoolExecutor	picodroid/concurrent/ThreadPoolExecutor	partial	
+picodroid.app.OptionsMenu	picodroid/app/OptionsMenu	addition	the options-menu presenter; Android keeps this inside Activity
+picodroid.concurrent.BackgroundExecutor	picodroid/concurrent/BackgroundExecutor	addition	Executors.backgroundExecutor()
+picodroid.concurrent.MainExecutor	picodroid/concurrent/MainExecutor	addition	Executors.mainExecutor(); the Looper replacement
+picodroid.concurrent.MainScheduledExecutor	picodroid/concurrent/MainScheduledExecutor	addition	Executors.mainScheduledExecutor(); the postDelayed replacement
+picodroid.concurrent.ScheduledFutureTask	picodroid/concurrent/ScheduledFutureTask	addition	private in the JDK
+picodroid.debug.DisplayDebug	picodroid/debug/DisplayDebug	addition	showFps
+picodroid.di.ApplicationComponent	picodroid/di/ApplicationComponent	addition	JSR-330 resolved at build time
+picodroid.di.ActivitySingletonComponent	picodroid/di/ActivitySingletonComponent	addition	
+picodroid.di.Lazy	picodroid/di/Lazy	addition	
+picodroid.net.HttpInputStream	picodroid/net/HttpInputStream	addition	the stream type HttpURLConnection returns as java.io
+picodroid.net.HttpOutputStream	picodroid/net/HttpOutputStream	addition	
+picodroid.net.SocketInputStream	picodroid/net/SocketInputStream	addition	
+picodroid.net.SocketOutputStream	picodroid/net/SocketOutputStream	addition	
+picodroid.view.OnSwipeListener	picodroid/view/OnSwipeListener	addition	View.setOnSwipeListener
+picodroid.widget.InflaterSupport	picodroid/widget/InflaterSupport	addition	inflater plumbing

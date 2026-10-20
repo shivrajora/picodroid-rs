@@ -14,6 +14,14 @@
 //! out of range or CRC-dirty is `None`, and the caller keeps its default.
 
 #![cfg_attr(not(test), no_std)]
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::todo,
+    clippy::unimplemented
+)]
 // `sandbox::resolve` has the crate's one unsafe block.
 #![deny(clippy::undocumented_unsafe_blocks)]
 

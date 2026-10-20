@@ -28,6 +28,14 @@
 
 #![cfg_attr(not(test), no_std)]
 #![deny(clippy::undocumented_unsafe_blocks)]
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::todo,
+    clippy::unimplemented
+)]
 
 extern crate alloc;
 

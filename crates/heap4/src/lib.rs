@@ -27,6 +27,14 @@
 
 #![cfg_attr(not(test), no_std)]
 #![deny(clippy::undocumented_unsafe_blocks)]
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::todo,
+    clippy::unimplemented
+)]
 
 /// `xHeapStructSize` on the 32-bit device: `sizeof(BlockLink_t)` (8) already
 /// 8-aligned.

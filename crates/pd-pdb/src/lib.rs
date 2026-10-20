@@ -35,6 +35,14 @@
 
 #![cfg_attr(not(any(test, feature = "vec-pipe")), no_std)]
 #![forbid(unsafe_code)]
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::todo,
+    clippy::unimplemented
+)]
 
 extern crate alloc;
 

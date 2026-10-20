@@ -9,6 +9,9 @@
 #   ./scripts/check-source-guards.sh --cfg-gates      # cfg-gate hygiene only
 #   ./scripts/check-source-guards.sh --unsafe         # unsafe ratchet only
 #   ./scripts/check-source-guards.sh --unsafe-accept  # rewrite its baseline
+#   ./scripts/check-source-guards.sh --panics         # panic ratchet only
+#   ./scripts/check-source-guards.sh --panics-accept  # rewrite its baseline
+#   ./scripts/check-source-guards.sh --layers         # crate layering only
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -190,17 +193,119 @@ check_unsafe() {
   return 1
 }
 
+PANIC_BASELINE="$REPO_ROOT/scripts/panic-baseline.conf"
+
+# One line per firmware crate: `<crate dir> <unwrap> <expect> <panic>
+# <unreachable> <todo> <unimplemented>`. Text counts over non-test,
+# non-comment code, string literals blanked: a file is read up to its first
+# `#[cfg(test)]` / `#[test]`, `tests/` directories, `build.rs` and
+# `test_*.rs` / `*_test(s).rs` files are skipped. Host-side crates
+# (build_support, test_support, fuzz-targets, tools/) are not counted: a
+# panic there fails a build or a test, not a board. The crates at zero carry
+# `#![deny(clippy::unwrap_used, ...)]` as well (clippy.toml allows them in
+# tests); the ratchet is for the crates still on their way down.
+panic_counts() {
+  local dir
+  for dir in "$REPO_ROOT"/crates/*/ "$REPO_ROOT"/platforms/*/; do
+    [[ -f "$dir/Cargo.toml" ]] || continue
+    dir="${dir%/}"
+    case "${dir#"$REPO_ROOT"/}" in
+      crates/fuzz-targets|crates/test_support|crates/build_support) continue ;;
+    esac
+    find "$dir" -name target -prune -o -name '*.rs' -print0 \
+      | grep -zv '/tests/' | grep -zv '/build\.rs$' \
+      | grep -zvE '/(test_[^/]*|[^/]*_tests?)\.rs$' | sort -z \
+      | xargs -0 awk -v crate="${dir#"$REPO_ROOT"/}" '
+          FNR == 1 { cut = 0 }
+          cut { next }
+          /^[[:space:]]*#\[cfg\(test\)\]/ || /^[[:space:]]*#\[cfg\(any\(test/ || /^[[:space:]]*#\[test\]/ { cut = 1; next }
+          {
+            line = $0
+            if (line ~ /^[[:space:]]*\/\//) next
+            gsub(/"([^"\\]|\\.)*"/, "\"\"", line)
+            u += gsub(/\.unwrap\(\)/, "&", line)
+            e += gsub(/\.expect\(/, "&", line)
+            p += gsub(/(^|[^_a-zA-Z])panic!/, "&", line)
+            r += gsub(/(^|[^_a-zA-Z])unreachable!/, "&", line)
+            t += gsub(/(^|[^_a-zA-Z])todo!/, "&", line)
+            i += gsub(/(^|[^_a-zA-Z])unimplemented!/, "&", line)
+          }
+          END { printf "%s %d %d %d %d %d %d\n", crate, u, e, p, r, t, i }'
+  done
+}
+
+check_panics() {
+  # Firmware never panics on purpose: a panic on a board is a reset with the
+  # app's state gone. The count only goes down, the way the unsafe ratchet
+  # works: a rise fails, and so does a fall the baseline has not recorded.
+  local current
+  current=$(panic_counts)
+  if [[ "${1:-}" == "accept" ]]; then
+    {
+      echo "# Per-crate counts of panic sites in non-test firmware code; scripts/check-source-guards.sh --panics."
+      echo "# crate unwrap expect panic unreachable todo unimplemented"
+      echo "$current"
+    } > "$PANIC_BASELINE"
+    echo "wrote ${PANIC_BASELINE#"$REPO_ROOT"/}"
+    return 0
+  fi
+  [[ -f "$PANIC_BASELINE" ]] || { echo "ERROR: $PANIC_BASELINE is missing"; return 1; }
+  local report
+  report=$(awk -v names="unwrap expect panic unreachable todo unimplemented" '
+      BEGIN { split(names, name, " ") }
+      NR == FNR { if ($0 !~ /^#/ && NF == 7) { base[$1] = $0 }; next }
+      {
+        seen[$1] = 1
+        if (!($1 in base)) { printf "new   %s: not in the baseline\n", $1; next }
+        split(base[$1], was, " ")
+        for (i = 2; i <= 7; i++) {
+          if ($i > was[i]) printf "rise  %s: %s %d -> %d\n", $1, name[i - 1], was[i], $i
+          if ($i < was[i]) printf "fall  %s: %s %d -> %d\n", $1, name[i - 1], was[i], $i
+        }
+      }
+      END { for (k in base) if (!(k in seen)) printf "gone  %s: still in the baseline\n", k }
+    ' "$PANIC_BASELINE" <(echo "$current"))
+  [[ -z "$report" ]] && return 0
+  echo ""
+  echo "$report" | sort | sed 's/^/         /'
+  echo ""
+  if echo "$report" | grep -q '^rise'; then
+    echo "ERROR: more panic sites than scripts/panic-baseline.conf allows."
+    echo "       Firmware returns an error it can act on; it does not panic"
+    echo "       (CLAUDE.md, golden rules). Return the crate's error type and"
+    echo "       propagate with ?, or unwrap_or* a fallback that is truly"
+    echo "       correct. A provably infallible site may stay, with a comment"
+    echo "       saying why, and the baseline raised in the same commit:"
+    echo "       ./scripts/check-source-guards.sh --panics-accept"
+  else
+    echo "ERROR: scripts/panic-baseline.conf is behind the tree. Lower it in"
+    echo "       the same commit: ./scripts/check-source-guards.sh --panics-accept"
+  fi
+  return 1
+}
+
+check_layers() {
+  # A crate depends only on lower layers (scripts/layers.conf; the map is in
+  # CLAUDE.md). cargo metadata --no-deps reads the manifests and nothing else.
+  python3 "$REPO_ROOT/scripts/check-layers.py"
+}
+
 case "${1:-}" in
   --twins)         check_twins ;;
   --cfg-gates)     check_cfg_gates ;;
   --unsafe)        check_unsafe ;;
   --unsafe-accept) check_unsafe accept ;;
+  --panics)        check_panics ;;
+  --panics-accept) check_panics accept ;;
+  --layers)        check_layers ;;
   "")
     rc=0
     check_twins || rc=1
     check_cfg_gates || rc=1
     check_unsafe || rc=1
+    check_panics || rc=1
+    check_layers || rc=1
     exit "$rc"
     ;;
-  *) echo "Usage: $(basename "$0") [--twins|--cfg-gates|--unsafe|--unsafe-accept]" >&2; exit 2 ;;
+  *) echo "Usage: $(basename "$0") [--twins|--cfg-gates|--unsafe|--unsafe-accept|--panics|--panics-accept|--layers]" >&2; exit 2 ;;
 esac

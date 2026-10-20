@@ -16,6 +16,14 @@
 #![cfg_attr(not(test), no_std)]
 #![allow(non_camel_case_types)]
 #![deny(clippy::undocumented_unsafe_blocks)]
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::todo,
+    clippy::unimplemented
+)]
 
 use core::ffi::c_void;
 // `c_char` and `CStr` are only referenced by the real LVGL `extern "C"` block

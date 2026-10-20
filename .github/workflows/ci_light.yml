@@ -43,11 +43,13 @@ jobs:
           cache-dependency-path: scripts/lint-md/package-lock.json
       # The text-only invariants the local pre-commit hook enforces, run here
       # too so a bypassed hook (--no-verify, a merge) still meets them: no
-      # shadow twin under both src trees and no not(feature = "family-rp")
-      # cfg gate (scripts/check-source-guards.sh), the [jvm] board.toml
-      # parser, markdown lint, and the device-lock state machine every bench
-      # script depends on.
+      # shadow twin under both src trees, no not(feature = "family-rp")
+      # cfg gate, the unsafe and panic ratchets and the crate layering
+      # (scripts/check-source-guards.sh), the generated scorecard
+      # (scripts/scorecard.py --check), the [jvm] board.toml parser, markdown
+      # lint, and the device-lock state machine every bench script depends on.
       - run: bash scripts/check-source-guards.sh
+      - run: python3 scripts/scorecard.py --check
       - run: bash scripts/test-jvm-env.sh
       - run: npm ci
         working-directory: scripts/lint-md

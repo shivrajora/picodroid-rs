@@ -231,6 +231,10 @@ jobs:
       - run: PICODROID_APK_PATH=$(pwd)/build/apks/helloworld.papk cargo clippy -p picodroid --target "$(rustc -vV | awk '/^host:/ { print $2 }')" --no-default-features --features sim,board-testbench-rp2350,line-numbers -- --deny=warnings
       # Host tools (previously unlinted anywhere; a real bug hid in papk-info)
       - run: cargo clippy -p pdb -p papk-pack -p papk-info -p class-shrink -p picodroid-build-support -p fuzz-targets --all-targets --all-features --target "$(rustc -vV | awk '/^host:/ { print $2 }')" -- --deny=warnings
+      # The leaf crates that deny unwrap/expect/panic (CLAUDE.md golden rules);
+      # the -p picodroid legs above lint picodroid alone. Same list as
+      # scripts/pre-commit stage_clippy_leaf.
+      - run: cargo clippy -p compat -p heap4 -p http-head -p pd-codec -p pd-drivers -p pd-json -p pd-lvgl-sys -p pd-pdb -p pd-protobuf -p pd-rtos --target "$(rustc -vV | awk '/^host:/ { print $2 }')" -- --deny=warnings
   # DISABLED 2026-08-29. The job works -- it links (flip-link) and pins its
   # toolchain -- but it cannot pass while Cargo.lock is gitignored: CI
   # re-resolves every dependency on each run, so the firmware moves 3-4 KB
