@@ -670,6 +670,9 @@ public class FlowLayout extends ViewGroup {
 }
 ```
 
+[`examples/layoutdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/layoutdemo)
+carries this `FlowLayout`, with an `onMeasure` for a `wrap_content` group, and checks where its rows land.
+
 What differs from Android: the group is 0 by 0 until a size or layout params give it one (like a
 `FrameLayout`); a framework widget measured by `measureChild` reports its content size, and keeps
 whatever size `layout()` last gave it until the next `onLayout` (a `TextView` whose text grows does

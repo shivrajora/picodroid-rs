@@ -90,6 +90,7 @@ public class LayoutDemoActivity extends Activity {
     checkRelativeXml();
     checkLinearGravity();
     checkConfiguration();
+    buildFlow();
 
     FrameLayout stages = findViewById(R.id.stages);
     LayoutInflater inflater = getLayoutInflater();
@@ -128,6 +129,7 @@ public class LayoutDemoActivity extends Activity {
               parent.addView(view);
               view.setTranslationY(90f);
               checkStage("async", view);
+              checkFlow();
               report();
               // The verdict is out; the benchmark gets a main-loop turn of its own.
               getMainExecutor().execute(() -> benchInflate());
@@ -701,6 +703,57 @@ public class LayoutDemoActivity extends Activity {
       }
     }
     return n;
+  }
+
+  // ── A custom ViewGroup: FlowLayout, written as on Android ──────────────────────────────────
+
+  private FlowLayout flow;
+  private final TextView[] flowItems = new TextView[5];
+
+  /**
+   * Five labels in a 100 px wide FlowLayout, in the free corner of the stages frame: they wrap into
+   * rows, and onLayout runs on a later main-loop turn.
+   */
+  private void buildFlow() {
+    FrameLayout stages = findViewById(R.id.stages);
+    flow = new FlowLayout(this);
+    for (int i = 0; i < flowItems.length; i++) {
+      TextView item = new TextView(); // no Context of its own: getContext() asks the parent
+      item.setText("item" + i);
+      flowItems[i] = item;
+      flow.addView(
+          item,
+          new ViewGroup.LayoutParams(
+              ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+    }
+    stages.addView(flow, new FrameLayout.LayoutParams(100, 48, Gravity.RIGHT | Gravity.TOP));
+    check("flow: onLayout waits for the main loop", flow.layouts == 0);
+    check("flow: getContext through the parent", flowItems[0].getContext() == this);
+  }
+
+  /** After a few main-loop turns: the rows are laid out where onLayout put them. */
+  private void checkFlow() {
+    Log.i(
+        TAG,
+        "flow: "
+            + flow.layouts
+            + " layouts, "
+            + flow.rows
+            + " rows, item1 at "
+            + flowItems[1].getLeft()
+            + ","
+            + flowItems[1].getTop()
+            + ", item4 at "
+            + flowItems[4].getLeft()
+            + ","
+            + flowItems[4].getTop());
+    check("flow: onLayout ran", flow.layouts >= 1);
+    check(
+        "flow: children abut on the first row",
+        flowItems[0].getLeft() == 0
+            && flowItems[1].getLeft() == flowItems[0].getWidth()
+            && flowItems[1].getTop() == 0);
+    check("flow: the rows wrapped", flow.rows > 1 && flowItems[4].getTop() > 0);
   }
 
   private void check(String what, boolean ok) {
