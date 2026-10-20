@@ -191,6 +191,18 @@ fn resolve_active_map_version(pkg_version: &str, shrink_maps_dir: &Path) -> Stri
 /// excludes its inner classes (`Foo$Builder` goes with `Foo`). The emitted
 /// `FRAMEWORK_EXCLUDED_CLASSES` names what was dropped so a miss can say so
 /// instead of surfacing as a bare NoClassDefFound.
+/// SDK classes that exist only so `sdk/java` compiles and are never
+/// embedded on any board. A `java/**` interface nested in an SDK class
+/// (`Thread.UncaughtExceptionHandler`) cannot be deleted the way a top-level
+/// one can — the outer class's source needs the name — yet apps compile
+/// against the JDK's copy (`javac --release 8` resolves `java.*` from
+/// `ct.sym`) and the runtime serves it as a name-only builtin
+/// (`BUILTIN_CLASS_NAMES` + `BUILTIN_INTERFACE_METHODS` rows in
+/// `jvm/src/native/mod.rs`), so the class file would be pure flash.
+/// `no_bodiless_java_framework_classes` (picodroid-core) is the guard that
+/// sends a name here. Original (unshrunk) JVM internal names.
+const COMPILE_ONLY_CLASSES: &[&str] = &["java/lang/Thread$UncaughtExceptionHandler"];
+
 pub fn embed_framework_classes(out: &Path, root: &Path, excludes: &[String]) {
     // The empty/full cutover is keyed on PICODROID_APK_PATH (only embedded
     // builds set it). Without this directive, a `cargo build` without the
@@ -329,6 +341,7 @@ pub fn embed_framework_classes(out: &Path, root: &Path, excludes: &[String]) {
     // name differs, which is what a half-applied shrink would look like.
     let mut named: Vec<(String, Vec<u8>)> = Vec::new();
     let mut dropped: Vec<String> = Vec::new();
+    let mut compile_only_seen = 0usize;
     for f in &class_files {
         if let Some(name) = excluded_class_name(f, &embed_dir, excludes, &unshrink) {
             dropped.push(name);
@@ -339,9 +352,25 @@ pub fn embed_framework_classes(out: &Path, root: &Path, excludes: &[String]) {
             .with_extension("")
             .to_string_lossy()
             .replace(std::path::MAIN_SEPARATOR, "/");
+        // Compile-only classes are not "excluded on this board": they are
+        // served as builtins everywhere, so they stay out of `dropped` and
+        // of the NoClassDefFound hint it feeds.
+        let original = unshrink.get(&name).map(String::as_str).unwrap_or(&name);
+        if COMPILE_ONLY_CLASSES.contains(&original) {
+            compile_only_seen += 1;
+            continue;
+        }
         let bytes = fs::read(f).unwrap_or_else(|e| panic!("cannot read {}: {e}", f.display()));
         named.push((name, bytes));
     }
+    // A compile-only name javac no longer produces is a stale row: the
+    // builtin rows it stands for would then be serving a class nobody has.
+    assert_eq!(
+        compile_only_seen,
+        COMPILE_ONLY_CLASSES.len(),
+        "COMPILE_ONLY_CLASSES names a class compileJava did not produce — check \
+         the spelling against sdk/java: {COMPILE_ONLY_CLASSES:?}"
+    );
 
     // Name an exclude that matched nothing: a typo would otherwise look like
     // a working opt-out while the class still ships.

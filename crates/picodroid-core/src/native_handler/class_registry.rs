@@ -389,7 +389,10 @@ mod tests {
              name as a lambda SAM, an instanceof/checkcast target, or a \
              superinterface edge, add a BUILTIN_CLASS_NAMES row \
              (jvm/src/native/mod.rs) or a BUILTIN_INTERFACES row \
-             (jvm/src/interpreter/helpers.rs) instead.",
+             (jvm/src/interpreter/helpers.rs) instead. A nested interface \
+             the outer SDK class needs to compile stays in the .java file \
+             and goes in COMPILE_ONLY_CLASSES (build_support/papk.rs), which \
+             keeps its class file out of the embed.",
             bodiless.len(),
             bodiless
         );

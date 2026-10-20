@@ -23,7 +23,13 @@ public class Thread implements Runnable {
   public static final int NORM_PRIORITY = 5;
   public static final int MAX_PRIORITY = 10;
 
-  /** Handler for an exception that escaped a thread's {@link #run()}. */
+  /**
+   * Handler for an exception that escaped a thread's {@link #run()}.
+   *
+   * <p>Declared only so this file compiles: apps resolve the name from the JDK, and the runtime
+   * serves it as a name-only builtin (jvm/src/native/mod.rs), so the class file is never embedded
+   * ({@code COMPILE_ONLY_CLASSES} in build_support/papk.rs).
+   */
   public interface UncaughtExceptionHandler {
     void uncaughtException(Thread t, Throwable e);
   }

@@ -159,6 +159,11 @@ pub const BUILTIN_CLASS_NAMES: &[&str] = &[
     c::java_util_function_IntUnaryOperator,
     c::java_util_function_IntBinaryOperator,
     c::java_lang_Cloneable,
+    // `Thread.UncaughtExceptionHandler`: a lambda SAM apps hand to
+    // `setDefaultUncaughtExceptionHandler`. Nested in the SDK's own
+    // `java/lang/Thread.java`, so javac must see a declaration, but the class
+    // file is never embedded (`COMPILE_ONLY_CLASSES`, build_support/papk.rs).
+    c::java_lang_Thread_UncaughtExceptionHandler,
     // A legal lambda SAM (`AutoCloseable c = () -> ...`): without a row the
     // proxy's interface canonicalises to "unknown" and `instanceof` fails.
     c::java_lang_AutoCloseable,
@@ -761,6 +766,10 @@ pub const BUILTIN_INTERFACE_METHODS: &[(&str, &[BuiltinMethodRow])] = &[
         ],
     ),
     (c::java_lang_Iterable, &[(m::iterator, &[d::__Iterator])]),
+    (
+        c::java_lang_Thread_UncaughtExceptionHandler,
+        &[(m::uncaughtException, &[d::Thread_Throwable__V])],
+    ),
     // java.util.function: one abstract method each. `UnaryOperator` and
     // `BinaryOperator` inherit theirs through `BUILTIN_INTERFACES` edges at
     // run time; the compile-time contract wants the row on the owner, as

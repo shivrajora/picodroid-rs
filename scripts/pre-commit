@@ -231,7 +231,7 @@ STAGES=(
   # CI's Testing job runs these; the hook only compiled them, and a Java
   # edit after the last gen-api-contract.sh (javac numbers its lambdas by
   # position) red-lit main that way (2026-10-17).
-  "api_contract|host|fast|sdk|SDK name tables current (gen-api-contract.sh)"
+  "api_contract|host|fast|rust,sdk|SDK name tables current + embedded-class guards"
   "clippy_sim_memdiag|host|full|rust|clippy (sim + mem-diag)"
   "clippy_sim_scheddiag|host|full|rust|clippy (sim + sched-diag)"
   # The libFuzzer shims build only on nightly; nothing else compiles them
@@ -564,18 +564,24 @@ stage_test_build() {
   fi
 }
 
-# The three currency tests behind scripts/gen-api-contract.sh, on the test
-# binary stage_test_build compiles (same profile, features and APK, so a
-# rust change shares the build; a Java-only change compiles it here).
+# The three currency tests behind scripts/gen-api-contract.sh plus the
+# embedded-framework guards (native_class_registry_tests: every native class
+# registered, no body-less java/** class file, …), on the test binary
+# stage_test_build compiles (same profile, features and APK, so a rust change
+# shares the build; a Java-only change compiles it here). These are the
+# tests that read the embedded SDK, which clippy and `cargo test --no-run`
+# never execute — a Java edit that only they reject used to reach CI.
 stage_api_contract() {
   if ! env CARGO_PROFILE_TEST_CODEGEN_UNITS=16 CARGO_PROFILE_TEST_INCREMENTAL=true \
          CARGO_PROFILE_TEST_OPT_LEVEL=2 PICODROID_APK_PATH="$APK_PATH" \
        cargo test --workspace --jobs "$JOBS" --target "$HOST_TARGET" \
          --features pico-jvm/line-numbers,picodroid-core/line-numbers,picodroid/line-numbers \
-         -- api_contract_is_current class_names_are_current member_names_are_current; then
+         -- api_contract_is_current class_names_are_current member_names_are_current \
+            native_class_registry_tests::; then
     echo ""
-    echo "ERROR: a committed SDK name table (sdk/*.tsv) is stale against sdk/java."
-    echo "       Run ./scripts/gen-api-contract.sh and stage the result."
+    echo "ERROR: a committed SDK name table (sdk/*.tsv) is stale against sdk/java,"
+    echo "       or an embedded-class guard failed (see the assertion above)."
+    echo "       For a stale table run ./scripts/gen-api-contract.sh and stage the result."
     return 1
   fi
 }

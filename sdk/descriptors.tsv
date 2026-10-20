@@ -164,3 +164,4 @@ __StringBuilder	()Ljava/lang/StringBuilder;
 Object__V	(Ljava/lang/Object;)V
 Object_Object__V	(Ljava/lang/Object;Ljava/lang/Object;)V
 Object_Object__Z	(Ljava/lang/Object;Ljava/lang/Object;)Z
+Thread_Throwable__V	(Ljava/lang/Thread;Ljava/lang/Throwable;)V
