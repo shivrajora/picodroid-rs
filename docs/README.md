@@ -12,7 +12,8 @@ and a doc dated 2026-07 describes 2026-07. Read the status line before you trust
 |---|---|---|
 | [`docs/`](.) (here) | contributors, agents | designs, audits, roadmaps, bug records. Dated, append-only, superseded rather than rewritten. |
 | [`website/src/content/docs/`](../website/src/content/docs/) | app developers | the published manual at <https://shivrajora.github.io/picodroid-rs/> — API reference, guides, porting guide, known issues. Kept current; edits go through the site build. |
-| repo root | everyone | [`README.md`](../README.md) (what Picodroid is), [`ARCHITECTURE.md`](../ARCHITECTURE.md) (how the runtime fits together), [`CONTRIBUTING.md`](../CONTRIBUTING.md) (how to work on it), [`CLAUDE.md`](../CLAUDE.md) (the rules every session must follow). |
+| repo root | everyone | [`README.md`](../README.md) (what Picodroid is), [`ARCHITECTURE.md`](../ARCHITECTURE.md) (how the runtime fits together), [`CONTRIBUTING.md`](../CONTRIBUTING.md) (how to work on it), [`CLAUDE.md`](../CLAUDE.md) (the orientation guide every session reads first; `AGENTS.md` is the same file). |
+| [`.claude/rules/`](../.claude/rules/), the nested `CLAUDE.md` files | agents, contributors | the conventions by area (Rust, the Java SDK, testing, the bench) and each area's local rules and test command. Loaded automatically by the agent harness; short, evergreen, no dated content. |
 
 If a fact belongs in an app developer's hands, it goes on the website. If it is the reasoning
 behind a decision, or a measurement, or a list of what is still broken, it goes here.
@@ -49,7 +50,7 @@ behind a decision, or a measurement, or a list of what is still broken, it goes 
 | Kotlin | [designs/kotlin-roadmap-2026-08.md](designs/kotlin-roadmap-2026-08.md), [designs/kotlin-shim-inventory.md](designs/kotlin-shim-inventory.md) |
 | The simulator | [designs/freertos-host-sim.md](designs/freertos-host-sim.md) (amendments first), [designs/sim-pdb-endpoint-2026-09.md](designs/sim-pdb-endpoint-2026-09.md), [parity-audit.md](parity-audit.md) |
 | `pdb`, the debug bridge | [designs/pdb-schema-as-code.md](designs/pdb-schema-as-code.md), [designs/sim-pdb-endpoint-2026-09.md](designs/sim-pdb-endpoint-2026-09.md) |
-| Proposing new work | [quality-roadmap.md](quality-roadmap.md) and [code-health-audit-2026-07.md](code-health-audit-2026-07.md) §9 — it may already be listed, with the tradeoff written down |
+| Picking or proposing work | [gaps.md](gaps.md) (the ranked list), [scorecard.md](scorecard.md) (the measured numbers), then [quality-roadmap.md](quality-roadmap.md) and [code-health-audit-2026-07.md](code-health-audit-2026-07.md) §9 — it may already be listed, with the tradeoff written down |
 
 ## Live documents
 
@@ -57,6 +58,10 @@ Updated as work lands. These do not go stale by design; if one has, fix it.
 
 | Doc | What it is |
 |---|---|
+| [gaps.md](gaps.md) | **The one ranked work list.** Every known shortfall, one entry each, with an estimate in agent-hours and a **Human** marker; the follow-up files below are its evidence. Take the highest-ranked entry nobody is working on. |
+| [scorecard.md](scorecard.md) | **Generated** by `scripts/scorecard.py` from the ratchets, the name tables, `hil-tests.conf` and `sdk/android-parity.tsv`: Android parity, flash, panics, unsafe, coverage, the test matrix, last night's verdicts. `--check` runs in pre-commit and CI; never hand-edit. |
+| [devlog.md](devlog.md) | What each session landed and left open, newest first. The pick-up point after an abrupt end; routine handovers go here. |
+| [decisions.md](decisions.md) | Dated rationale for the non-obvious choices (executor-only concurrency, no `android.*` alias, the thin hook, the 0 % ratchet, …), so they are not re-litigated. |
 | [parity-audit.md](parity-audit.md) | The simulator ↔ MCU divergence register. The rule it enforces: **every** divergence is a simulator bug, host-only headroom included. The most-linked doc in the repo — source comments cite its finding ids. |
 | [quality-roadmap.md](quality-roadmap.md) | The standing backlog of deferred quality work, by theme (regression automation, test coverage, memory footprint, long-term stability). Each entry carries the tradeoff to weigh before starting. Where a "not now" goes so it is not lost. |
 | [designs/android-parity-roadmap-2026-08.md](designs/android-parity-roadmap-2026-08.md) | The standing tracker for growing `picodroid.*` toward `android.*`. T-item table with open and partial rows (done rows in [completed/](completed/android-parity-roadmap-2026-08.md)); also records what is explicitly **not** being done. |
@@ -73,6 +78,7 @@ starting.
 
 | Doc | Status | Left to do |
 |---|---|---|
+| [designs/agent-driving-2026-10.md](designs/agent-driving-2026-10.md) | not started (roadmap only, decision 2026-10-20) | `pdb dump-ui` (the live view tree as text, sim and device), a `dump-ui` control verb and `expect-ui` in `test.ctrl`, one "launch, drive, capture" page; why a device screenshot is deferred. Gap G2. |
 | [designs/broadcasts-2026-10.md](designs/broadcasts-2026-10.md) | built 2026-10-18, stages 0–7 (§4) | Android-style broadcasts: `BroadcastReceiver`, `IntentFilter`, `Context.registerReceiver` / `sendBroadcast`, the system actions (`TIME_TICK`, `TIME_CHANGED`, `TIMEZONE_CHANGED`, `SCREEN_ON` / `OFF`, Wi-Fi and connectivity) as one bitmask upcall per frame, `PendingIntent.getBroadcast` on the alarm table, manifest `<receiver>` for `BOOT_COMPLETED`; the three apps that polled instead. |
 | [designs/layouts-2026-10.md](designs/layouts-2026-10.md) | built 2026-10-19, series 1–3 (§4) | `GridLayout` on LVGL's grid, `RelativeLayout` and `LinearLayout` as registered LVGL layouts with pure Rust solvers (per-child `layout_gravity`, Android weights, `fill`), per-child layout state in custom LVGL style properties; the calculator, picoclock, claudeusage and picoenvmon off pixel arithmetic. |
 | [designs/everyday-members-2026-10.md](designs/everyday-members-2026-10.md) | built 2026-10-19, stages 1–9 (§3) | The everyday members every port tripped on: `View.getContext` / `post` / `onTouchEvent`, custom `ViewGroup(Context)` with `onLayout` / `requestLayout` / `layout`, `Double.isNaN` and `StringBuilder.insert` and friends, the `java.util.function` SAMs, `onKey` with its keyCode, `Lifecycle.State` / `Event` with `DefaultLifecycleObserver`, `MediatorLiveData` / `Transformations`, `java.io` return types on `HttpURLConnection`, `EditText extends TextView`. |
@@ -199,7 +205,9 @@ Closed. History, evidence and repro recipes — useful when a similar symptom re
 ## Adding a doc
 
 - Put designs and roadmaps in [`designs/`](designs/); audits, QA rounds, bug records and
-  handovers at the top level of `docs/`.
+  handovers at the top level of `docs/`. A routine session note is an entry in
+  [`devlog.md`](devlog.md), not a new file; a non-obvious choice is an entry in
+  [`decisions.md`](decisions.md); a shortfall is a row in [`gaps.md`](gaps.md).
 - Date the filename when the content is a snapshot (`bugs-…-2026-09-09.md`,
   `scroll-performance-2026-09.md`). Leave it undated only for something genuinely standing.
 - Give it a **status line directly under the title** and keep that line current. It is the

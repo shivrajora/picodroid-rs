@@ -1,0 +1,13 @@
+# platforms/rp (the picodroid firmware crate)
+
+The RP2040 / RP2350 family (L5): boards under `boards/*/board.toml`, MCU tomls under `mcus/rp/`, the HAL, `main.rs`, the FreeRTOS glue. Family-neutral code does not belong here; move it to `crates/picodroid-core` (never copy: the shadow-twin guard).
+
+- **Build / flash / clippy:** `./scripts/build.sh --board X --app Y [--release]`, `./scripts/flash.sh --board X --app Y` (takes the board lease; never exits), clippy for every board through `./scripts/pre-commit` (CI's eight legs on the pinned toolchain). Bare `cargo clippy` fails: virtual workspace, no default target.
+- **Panic sites are ratcheted** here too (34 on 2026-10-20). A fault on device is a reset; `[fault] HardFault pc=…` from `main.rs` needs `probe-rs run --no-catch-hardfault` to print.
+- **Profiles:** `build-lib.sh` overrides `debug-assertions` and `overflow-checks` off for both device profiles; `cfg(debug_assertions)` is never true on device. The RP2040's release image links LTO and has 896 KB; `pico_display2_w` debug is the largest image (check it for size-sensitive changes, `app_region_kb` was cut to 1024 on 2026-10-11).
+- **Kernel calls** go through `pd_rtos` (trait + `__pd_rtos_*` extern + facade + `set_rtos!`), implemented in `glue.rs`; the seam guard fails on a direct FreeRTOS symbol in shared code. `task_affinity.rs` pins which task runs on which core; `spin_guard.rs` ledgers every busy-wait (`spin_until!`, `spin-ok:` / `spin-todo:` markers with a pinned count).
+- **Pads a board owns** are refused to apps by `PeripheralManager`; `blinky` moved off GP16 for that reason. Bank-1 GPIO (≥ 32) is unsupported in the GPIO/SPI code paths (`1u32 << pin`).
+- **Reset mask differs per chip:** `PSM.WDSEL` on the RP2350 is "everything but ROSC/XOSC" = `0x01ff_fff3`; the RP2040 shape resets the oscillators instead of the cores.
+- **WiFi (cyw43 on core 1):** credentials are baked at build time from `PICODROID_WIFI_SSID` / `_PASS` (`strings` cannot see them; cargo's fingerprint can); a handshake timeout files as BADAUTH and a self-join is never counted (NET-12). The join supervisor and the port collapse are documented in `docs/networking-followups-2026-08.md`.
+- **Boards:** `testbench_rp2350` has no buttons (soft-nav BACK bottom-left on touch boards); `pico_enviro_mon` has A/B/X/Y; the touch kit has a latching power button (never power-cycle it unattended). Text sizes per board: `text_sizes` in the MCU toml.
+- Designs: `docs/designs/porting-seam-2026-09.md` (`picodroid_core::porting` is the checklist), `sram-hotpath-2026-09.md` (what earns SRAM), `flash-budget-2026-09.md`, `cyw43-pio-transport.md`.

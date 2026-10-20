@@ -63,11 +63,14 @@ It runs in two tiers, both of which fan their stages out across parallel lanes:
 ./scripts/pre-commit --full   # the release-cut gate
 ```
 
-**`--fast`** takes seconds and builds nothing: the source-tree guards that
+**`--fast`** takes seconds without Rust: the source-tree guards that
 exist nowhere else (shadow twins across `platforms/rp/src` and
-`crates/picodroid-core/src`, `family-rp` cfg-gate hygiene, `apply_jvm_env`)
-plus whichever of `cargo fmt`, the Java and Kotlin formatters and markdown lint
-the changed files implicate. A `scripts/` change adds the `hil-tests.conf`
+`crates/picodroid-core/src`, `family-rp` cfg-gate hygiene, the unsafe and
+panic ratchets, crate layering against `scripts/layers.conf`, the generated
+`docs/scorecard.md`, `apply_jvm_env`) plus whichever of `cargo fmt`, the Java
+and Kotlin formatters and markdown lint the changed files implicate; a Rust
+change adds CI's clippy legs, including the leaf crates that deny
+`unwrap` / `expect` / `panic!`. A `scripts/` change adds the `hil-tests.conf`
 drift check and the device-lock test.
 
 **`--full`** runs the legs neither CI nor the nightlies cover: the
