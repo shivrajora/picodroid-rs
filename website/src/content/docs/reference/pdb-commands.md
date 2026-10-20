@@ -51,8 +51,8 @@ Columns are padded to line up whatever the lengths, and an offline row has `-` w
 ```text
 List of devices attached
 SERIAL            STATE   BOARD             SPACE AVAILABLE  PORT                                 RELEASE  USB
-1C05163AC1ACB0AA  device  pico_touch_kit            9720 KB  /dev/ttyACM3                         0.38.0   1-8.3.4
-emulator-2696762  device  testbench_rp2350          1528 KB  /tmp/picodroid-sim/pdb-2696762.sock  0.38.0   -
+1C05163AC1ACB0AA  device  pico_touch_kit            9720 KB  /dev/ttyACM3                         0.39.0   1-8.3.4
+emulator-2696762  device  testbench_rp2350          1528 KB  /tmp/picodroid-sim/pdb-2696762.sock  0.39.0   -
 ```
 
 A board on firmware older than `picodroid/2.4` is listed by its port in place of a serial. Only ports with picodroid's USB vendor and product ID are opened: a debug probe's UART is never written to.

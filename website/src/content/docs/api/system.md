@@ -77,7 +77,7 @@ What the firmware was built for, as `android.os.Build` reports it:
 ```java
 Build.BOARD            // the board.toml name, e.g. "testbench_rp2350"
 Build.HARDWARE         // the MCU, e.g. "rp2350"
-Build.VERSION.RELEASE  // the firmware release, e.g. "0.38.0"
+Build.VERSION.RELEASE  // the firmware release, e.g. "0.39.0"
 Build.getSerial()      // this device's serial, e.g. "E6633861A37B9038"; Build.UNKNOWN if it has none
 ```
 

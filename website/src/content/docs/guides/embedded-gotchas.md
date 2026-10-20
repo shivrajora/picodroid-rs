@@ -269,7 +269,7 @@ On every board, after the screen timeout (`idle_timeout_ms`, 60 s by default; Se
 
 ```java
 // WRONG: assuming the first post-sleep press triggers your handler.
-button.setOnKeyListener((v, event) -> { advance(); return true; });
+button.setOnKeyListener((v, keyCode, event) -> { advance(); return true; });
 ```
 
 ```java

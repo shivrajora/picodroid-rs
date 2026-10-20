@@ -3,11 +3,91 @@ title: "Release notes"
 description: "User-facing changes for Picodroid v0.4.0 onward."
 ---
 
-This page covers everything that landed in releases v0.4.0 through v0.38.0, and what is on `main` since. Earlier history is in `git log v0.1.0...v0.3.0`.
+This page covers everything that landed in releases v0.4.0 through v0.39.0, and what is on `main` since. Earlier history is in `git log v0.1.0...v0.3.0`.
 
-## Unreleased — on `main` since v0.38.0
+## Unreleased — on `main` since v0.39.0
 
 Nothing yet.
+
+## v0.39.0 — 2026-10-19
+
+The layouts release. Android's `GridLayout` and `RelativeLayout` arrive, and `LinearLayout`
+honours a child's own `layout_gravity` and shares space by Android's weight arithmetic, so the
+apps that placed views in pixels now say what they mean. A view knows its `Context`, gets
+`onTouchEvent` and `post`, and a custom `ViewGroup` can lay out its children in `onLayout`. The
+small idioms every port trips on are in: `Double.isNaN`, `StringBuilder` editing,
+`java.util.function`, `onKey` with its key code, `Lifecycle.State` as an enum with observers,
+`MediatorLiveData` and `Transformations`, `java.io` stream types on `HttpURLConnection` and
+`EditText extends TextView`. Three of them change a signature: see *Breaking changes* below.
+
+**GridLayout, RelativeLayout and per-child gravity (2026-10-19)**
+
+Written up in [layouts-2026-10.md](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/layouts-2026-10.md).
+
+- `GridLayout` is LVGL's grid: `columnCount` / `rowCount`, row-major (or column-major)
+  placement of children that name no cell, `GridLayout.spec(start, size, alignment, weight)`
+  per axis, `layout_gravity` as the cell alignment and `layout_columnWeight` /
+  `layout_rowWeight` sharing a track's free space. `<GridLayout>` inflates from XML.
+  Divergences: a cell is fixed when its child is added (`removeView` does not free it,
+  `addView(child, index)` does not reflow), `setColumnCount` / `setRowCount` /
+  `setOrientation` after the first child throw `IllegalStateException`, 16 tracks per axis and
+  6 live grids, `BASELINE` reads as `TOP`.
+- `RelativeLayout` with Android's rules — `alignParent*`, `centerInParent` /
+  `centerHorizontal` / `centerVertical`, `above` / `below` / `toLeftOf` / `toRightOf` /
+  `align*` against a sibling — resolved in dependency order, a child stretched between two
+  edges, and a two-pass `wrap_content`. `<RelativeLayout>` and its `layout_*` attributes
+  inflate from XML; `LayoutParams.addRule` / `removeRule` / `getRule` work in code.
+- `LinearLayout` is laid out by the same kind of solver: a child's `layout_gravity` places it
+  on the cross axis (the packer's warning that it was ignored is gone), and `weight` shares the
+  *remaining* space as on Android, with no 25.5 cap and no rounding to tenths. As on Android,
+  `fill` gravity places a child at the start; only `match_parent` stretches.
+- The calculator's keypad and picoenvmon's Live tiles are `GridLayout`s; picoclock's header and
+  steppers, its alarm card and claudeusage's limits page use `RelativeLayout` where they
+  computed positions; `layoutdemo` covers all three.
+
+**Everyday members (2026-10-19)**
+
+Written up in [everyday-members-2026-10.md](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/everyday-members-2026-10.md).
+
+- `View.getContext()` returns the `Context` the view was made with (or its parent's), and
+  `View.post(Runnable)` runs on the main thread. A view made with `View(Context)` is hit-tested
+  from construction: override `onTouchEvent` (`dispatchTouchEvent` and `MotionEvent.obtain`
+  are there too), no `OnTouchListener` needed.
+- Custom `ViewGroup`s: `ViewGroup(Context)` makes a group whose `onLayout` runs after
+  `addView` / `removeView`, after a size change and on `requestLayout()`, placing children with
+  `View.layout(l, t, r, b)`; `measureChild` / `measureChildren` / `getChildMeasureSpec`,
+  `getRight` / `getBottom`, `removeViewAt` and `indexOfChild` are new.
+- `Double` / `Float.isNaN`, `isInfinite` and `isFinite`; `StringBuilder.insert`, `setLength`,
+  `delete`, `deleteCharAt`, `setCharAt` and `reverse`.
+- `java.util.function`: `Function`, `BiFunction`, `Consumer`, `BiConsumer`, `Supplier`,
+  `Predicate`, `BiPredicate`, `UnaryOperator`, `BinaryOperator` and the `Int*` /
+  `ToIntFunction` kinds, as lambda targets (their default methods — `andThen`, `negate`, … —
+  are not served).
+- `picodroid.lifecycle`: `Lifecycle.State` and `Lifecycle.Event` enums, `LifecycleObserver`,
+  `DefaultLifecycleObserver` and `LifecycleEventObserver`; `addObserver` replays the events up
+  to the current state and a state change walks every intermediate event, as
+  `LifecycleRegistry` does. `MediatorLiveData` and `Transformations.map` / `switchMap`, with
+  Android's once-per-version delivery.
+- `EditText` extends `TextView`, so `setTextSize`, `setTextColor`, `setGravity` and
+  `setSingleLine` (and their XML attributes) work on a field.
+
+**Breaking changes**
+
+- `OnKeyListener.onKey` is `onKey(View v, int keyCode, KeyEvent event)`, as on Android. A
+  two-argument lambda `(v, event) -> …` no longer compiles; add the `keyCode` parameter.
+- `Lifecycle.getCurrentState()` returns a `Lifecycle.State`; the `int` state constants are
+  gone. Compare with `==` or `isAtLeast(State.STARTED)`.
+- `HttpURLConnection.getInputStream()` / `getErrorStream()` return `java.io.InputStream` and
+  `getOutputStream()` returns `java.io.OutputStream`. Code that declared the concrete stream
+  type must use the `java.io` one.
+
+**Map v0.39.0 (2026-10-19)**
+
+- Map v0.39.0, cut for the release, gives the classes added since v0.38.0 their names (+32
+  classes, 408 → 440: the sixteen `java.util.function` interfaces, the lifecycle enums,
+  observers, `MediatorLiveData` and `Transformations`, `GridLayout` and `RelativeLayout` with
+  their `LayoutParams`). It also names the 169 members added since (2709 → 2878). The member
+  floor stays at v0.17.0. `Build.VERSION.RELEASE` reads `0.39.0`.
 
 ## v0.38.0 — 2026-10-18
 
