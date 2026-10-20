@@ -149,7 +149,16 @@ seed_lockfile() {
   [[ -f "$FUZZ_DIR/Cargo.lock" || ! -f "$REPO_ROOT/Cargo.lock" ]] || cp "$REPO_ROOT/Cargo.lock" "$FUZZ_DIR/Cargo.lock"
 }
 
-fuzz_cmd() { (cd "$REPO_ROOT" && cargo +nightly fuzz "$@"); }
+# Always name the target triple: cargo-fuzz defaults it to the triple it was
+# itself compiled for, and the prebuilt binary GitHub installs (taiki-e/
+# install-action) is a static musl build, so without this the CI build asked
+# for x86_64-unknown-linux-musl ("sanitizer is incompatible with statically
+# linked libc", "can't find crate for `core`").
+host_triple() { rustc +nightly -vV | sed -n 's/^host: //p'; }
+fuzz_cmd() {
+  local sub="$1"; shift
+  (cd "$REPO_ROOT" && cargo +nightly fuzz "$sub" --target "$(host_triple)" "$@")
+}
 
 build_target() {
   local name="$1" san
