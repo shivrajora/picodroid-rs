@@ -340,6 +340,16 @@ impl GraphicsBackend for LvglBackend {
                 widgets::list_view_register_item_click_listener(ctx.args, ctx.objects),
             ),
             mh::nativeStyleRow => Some(widgets::list_view_style_row(ctx.args, ctx.objects)),
+            mh::nativeWatchViewport => {
+                Some(widgets::list_view_watch_viewport(ctx.args, ctx.objects))
+            }
+            mh::nativeScrollY => Some(widgets::list_view_scroll_y(ctx.args, ctx.objects)),
+            mh::nativeScrollTo => Some(widgets::list_view_scroll_to(ctx.args, ctx.objects)),
+            mh::nativeSetSpacers => Some(widgets::list_view_set_spacers(ctx.args, ctx.objects)),
+            mh::nativeRecycleRow => Some(widgets::list_view_recycle_row(ctx.args, ctx.objects)),
+            mh::nativeSyncFocusOrder => {
+                Some(widgets::list_view_sync_focus_order(ctx.args, ctx.objects))
+            }
             _ => None,
         }
     }

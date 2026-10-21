@@ -156,30 +156,29 @@ panel.requestFocus();
 
 Why: focusability is independent of `setOnKeyListener`, exactly as in Android. `requestFocus()` returns `false` without effect if the view is not focusable. ListView rows are focusable automatically (rendered as focusable list buttons), so adapter rows do not need this. A screen with nothing to focus (a dashboard, a clock face) needs no invisible focus-catcher: a key no focused view consumed reaches the foreground Activity's `onKeyDown` / `onKeyLongPress` / `onKeyUp`. Full input model: [button navigation](/guides/button-navigation/).
 
-## Cap data-driven lists, and expect rebuilds to reset D-pad focus
+## Put a long list in a `ListView`, and notify rather than rebuild
 
-Symptom: a long focusable list stalls the renderer on a small-pool board; rebuilding a `ListView` snaps keypad focus back to the top row.
+Symptom: a screen of sixty focusable rows stalls the renderer on a small-pool board; a list rebuilt on a timer snaps keypad focus back to the top row.
 
-On a board with a small LVGL memory pool (e.g. the 48 KB pool on `pico_enviro_mon`), keep focusable list rows short — the picoenvmon History screen caps at ~12. Each focusable row consumes render-pool memory; too many starve the LVGL draw tasks.
+A `ListView` recycles, as Android's does: it keeps alive only the rows that fit its height plus one beyond each edge, and hands a row that scrolls out back to `getView` as `convertView` for the row scrolling in. Give it the whole data set; the LVGL pool pays for a screenful whatever the count.
 
 ```java
-// WRONG: dump the full 60-sample ring into focusable rows on a 48 KB-pool board.
-for (Reading r : ring) {            // 60 rows
+// WRONG: one widget per sample, built by hand in a ScrollView — 60 live rows on a 48 KB pool.
+for (Reading r : ring) {
+  column.addView(makeRow(r));
+}
+```
+
+```java
+// RIGHT: the ListView keeps a window of rows and re-binds them as it scrolls.
+for (Reading r : ring) {            // 60 items, about a dozen rows alive
   adapter.add(r.toString());
 }
 list.setAdapter(adapter);
+list.setSelection(adapter.getCount() - 1);   // open on the newest
 ```
 
-```java
-// RIGHT: cap the window; e.g. show the most recent 12.
-int start = Math.max(0, ring.size() - MAX_ROWS);   // MAX_ROWS = 12
-for (int i = start; i < ring.size(); i++) {
-  adapter.add(ring.get(i).toString());
-}
-list.setAdapter(adapter);
-```
-
-Why: this is an empirical, per-board limit driven by `lv_mem_kb`, not an API-enforced constant. Separately, `ListView.refreshFromAdapter()` removes and re-adds every row, so any live rebuild resets the highlighted row to position 0 — avoid rebuilding a focused list on a timer. See [the row-count limit](/reference/limits/) and [button navigation](/guides/button-navigation/).
+Why: a `ScrollView` of rows is as many widgets as rows; a `ListView`'s cost is its window. For a live list, mutate the adapter and call `notifyDataSetChanged()`: it re-binds the live rows in place and keeps the scroll position and the focused row. `setAdapter` starts from fresh rows and scrolls to the top, so a rebuild on a timer does reset the highlight. Rows share the first row's height (a divergence from Android). See [the limits](/reference/limits/) and [button navigation](/guides/button-navigation/).
 
 ## Stick to ASCII in rendered UI text
 

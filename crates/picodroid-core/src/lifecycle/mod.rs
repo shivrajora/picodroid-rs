@@ -986,6 +986,7 @@ fn dispatch_widget_events(
     dispatch_radio_button_changes(jvm, heap, handler);
     dispatch_spinner_changes(jvm, heap, handler);
     dispatch_list_view_item_clicks(jvm, heap, handler);
+    dispatch_list_view_scrolls(jvm, heap, handler);
     dispatch_alert_dialog_clicks(jvm, heap, handler);
     dispatch_alert_dialog_item_clicks(jvm, heap, handler);
     dispatch_snackbar_action_clicks(jvm, heap, handler);

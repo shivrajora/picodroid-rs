@@ -166,7 +166,7 @@ Verify: the three build-breaking guard tests pass in both shrink lanes; root-sca
 
 The device a user actually holds. Multi-Activity touch app, 320x240, modeled on `examples/displaydemo` + `examples/keyboarddemo`:
 
-- **ChatActivity** (home): append-only message list as LinearLayout-in-ScrollView (avoids the ~12-focusable-row ListView cap and `refreshFromAdapter()` focus resets on live lists), sender shortnames from the node DB, HH:MM timestamps, ack check-marks from `onDeliveryStatus`, compose bar = EditText + auto-popup Keyboard (mind keyboard overlay vs list height — give compose its own screen if cramped).
+- **ChatActivity** (home): append-only message list as LinearLayout-in-ScrollView (written when ListView had a ~12-focusable-row cap and reset focus on refresh; since 2026-10-20 a ListView recycles and a notify keeps the focus, so a ListView is the better fit — `designs/listview-recycling-2026-10.md`), sender shortnames from the node DB, HH:MM timestamps, ack check-marks from `onDeliveryStatus`, compose bar = EditText + auto-popup Keyboard (mind keyboard overlay vs list height — give compose its own screen if cramped).
 - **NodesActivity**: ListView of nodes (name/hops/SNR/last-heard), tap -> AlertDialog detail with "Send DM" (want_ack). Refresh on resume/user action, never on a timer while focused.
 - Message history in an app-scoped singleton thread (picoenvmon NetworkManager precedent — deliberately not a Service), ring of ~30 messages copied out of the recycled event. NTP via one background `picodroid.concurrent.Thread` for wall-clock. Hold every callback-bearing View in Java fields.
 - Ship checklist: `website/src/content/docs/examples.md` row (+ tutorial page and `astro.config.mjs` sidebar entry if we write one), README mention.

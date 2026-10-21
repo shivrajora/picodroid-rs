@@ -55,6 +55,9 @@ pub mod menu_button {
 #[cfg(hw_vscroll)]
 pub mod hw_scroll;
 pub mod hw_scroll_math;
+// The row order of a recycling `ListView` in its keypad group; pure, so
+// host-testable.
+pub mod focus_order;
 pub mod inflate;
 pub mod layouts;
 pub mod lifecycle;

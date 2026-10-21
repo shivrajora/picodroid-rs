@@ -4,6 +4,7 @@ package picodroid.widget;
 import picodroid.content.Context;
 import picodroid.view.View;
 import picodroid.view.ViewGroup;
+import picodroid.view.ViewParent;
 
 /**
  * Mirrors {@code android.widget.AdapterView}. Common parent for adapter-backed widgets such as
@@ -12,6 +13,9 @@ import picodroid.view.ViewGroup;
  * BaseAdapter.notifyDataSetChanged()} fires.
  */
 public abstract class AdapterView<T extends Adapter> extends ViewGroup {
+  /** Mirrors {@code android.widget.AdapterView#INVALID_POSITION}: no row. */
+  public static final int INVALID_POSITION = -1;
+
   protected T adapter;
 
   /** Package-private so adapter-backed subclasses ({@link ListView}) can fire it. */
@@ -106,6 +110,46 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
 
   public T getAdapter() {
     return adapter;
+  }
+
+  /** Mirrors {@code android.widget.AdapterView#getCount()}: the bound adapter's count, or 0. */
+  public int getCount() {
+    return adapter == null ? 0 : adapter.getCount();
+  }
+
+  /**
+   * Mirrors {@code android.widget.AdapterView#getFirstVisiblePosition()}: the adapter position of
+   * the first row on screen. A widget that shows every item at once reports 0; {@link ListView}
+   * reads its scroll offset.
+   */
+  public int getFirstVisiblePosition() {
+    return 0;
+  }
+
+  /**
+   * Mirrors {@code android.widget.AdapterView#getLastVisiblePosition()}: the adapter position of
+   * the last row on screen, or {@link #INVALID_POSITION} when the adapter is empty.
+   */
+  public int getLastVisiblePosition() {
+    return getCount() - 1;
+  }
+
+  /**
+   * Mirrors {@code android.widget.AdapterView#getPositionForView}: the adapter position of the row
+   * that is {@code view} or contains it, or {@link #INVALID_POSITION}. Here a child index is a
+   * position; {@link ListView} adds the position of its first live row.
+   */
+  public int getPositionForView(View view) {
+    View row = view;
+    while (row != null && row.getParent() != this) {
+      ViewParent up = row.getParent();
+      row = up instanceof View ? (View) up : null;
+    }
+    if (row == null) {
+      return INVALID_POSITION;
+    }
+    int index = indexOfChild(row);
+    return index < 0 ? INVALID_POSITION : index;
   }
 
   /**

@@ -221,6 +221,7 @@ F	INTERP_ACCELERATE
 F	INTERP_ACCEL_DECEL
 F	INTERP_DECELERATE
 F	INTERP_LINEAR
+F	INVALID_POSITION
 F	INVISIBLE
 F	ISO_LOCAL_DATE
 F	ISO_LOCAL_DATE_TIME
@@ -311,6 +312,7 @@ F	MINUTES_PER_DAY
 F	MINUTES_PER_HOUR
 F	MIN_PRIORITY
 F	MIN_VALUE
+F	MIN_WINDOW
 F	MODE_0
 F	MODE_1
 F	MODE_2
@@ -380,6 +382,7 @@ F	ORIENTATION_LANDSCAPE
 F	ORIENTATION_PORTRAIT
 F	ORIENTATION_UNDEFINED
 F	ORIENTATION_VERTICAL
+F	OVERSCAN
 F	PACKET_BYTES
 F	PARENT_CUSTOM
 F	PARENT_FRAME
@@ -821,6 +824,7 @@ F	mExecuting
 F	mFactory
 F	mFast
 F	mFieldId
+F	mFirst
 F	mFlags
 F	mFragment
 F	mFragmentHostState
@@ -886,6 +890,7 @@ F	mParent
 F	mPending
 F	mPendingAdapterState
 F	mPendingData
+F	mPitch
 F	mPopFlags
 F	mPos
 F	mPostValueRunnable
@@ -898,7 +903,6 @@ F	mRow
 F	mRowCount
 F	mRowSpan
 F	mRowWeight
-F	mRows
 F	mRowsUsed
 F	mSavedFragmentState
 F	mScrollState
@@ -925,6 +929,7 @@ F	mVersion
 F	mView
 F	mViewLifecycle
 F	mViewModelStore
+F	mWatching
 F	mWeight
 F	mWho
 F	mWidgetListener
@@ -1204,6 +1209,7 @@ M	atan2
 M	attach
 M	attachFragment
 M	attachInflated
+M	attachViewToParent
 M	available
 M	await
 M	awaitTermination
@@ -1214,6 +1220,7 @@ M	begin
 M	beginTransaction
 M	between
 M	bindService
+M	bindSlot
 M	bindView
 M	bit
 M	bitOf
@@ -1353,6 +1360,7 @@ M	destroyView
 M	detach
 M	detachChild
 M	detachFragment
+M	detachViewFromParent
 M	deviceHasKey
 M	deviceHasKeys
 M	digit
@@ -1451,6 +1459,7 @@ M	fireProgressChanged
 M	fireReady
 M	fireRefresh
 M	fireRegisteredCallbacks
+M	fireScroll
 M	fireStep
 M	fireSwipe
 M	fireSystem
@@ -1570,6 +1579,7 @@ M	getEventTime
 M	getExtras
 M	getFactory
 M	getFilesDir
+M	getFirstVisiblePosition
 M	getFlags
 M	getFloat
 M	getFragment
@@ -1612,6 +1622,7 @@ M	getKeyRepeatDelay
 M	getKeyRepeatTimeout
 M	getLastError
 M	getLastTag
+M	getLastVisiblePosition
 M	getLaunchIntentForPackage
 M	getLayoutInflater
 M	getLayoutParams
@@ -1670,6 +1681,7 @@ M	getParentFragmentManager
 M	getPath
 M	getPort
 M	getPosition
+M	getPositionForView
 M	getPriority
 M	getProgress
 M	getProgressBackgroundTintList
@@ -1898,6 +1910,7 @@ M	link
 M	linkChanged
 M	list
 M	listFiles
+M	liveRows
 M	load
 M	loadIcon
 M	loadLabel
@@ -2041,6 +2054,7 @@ M	nativeReadTag
 M	nativeReadVarint32
 M	nativeReadVarint64
 M	nativeReconnect
+M	nativeRecycleRow
 M	nativeRegisterActionClickListener
 M	nativeRegisterButtonClickListener
 M	nativeRegisterChangeListener
@@ -2078,6 +2092,8 @@ M	nativeScanGeneration
 M	nativeScanRssi
 M	nativeScanSecurity
 M	nativeScanSsid
+M	nativeScrollTo
+M	nativeScrollY
 M	nativeSerial
 M	nativeSet
 M	nativeSetAction
@@ -2119,6 +2135,7 @@ M	nativeSetProperty
 M	nativeSetRange
 M	nativeSetRelativeRules
 M	nativeSetSize
+M	nativeSetSpacers
 M	nativeSetString
 M	nativeSetText
 M	nativeSetTextColor
@@ -2140,12 +2157,14 @@ M	nativeStatus
 M	nativeStringValue
 M	nativeStyleRow
 M	nativeStyleWord
+M	nativeSyncFocusOrder
 M	nativeToString
 M	nativeTotalBytes
 M	nativeUninstall
 M	nativeVersionCode
 M	nativeVersionName
 M	nativeWatchSize
+M	nativeWatchViewport
 M	nativeWord
 M	nativeWriteDouble
 M	nativeWriteFixed32
@@ -2496,6 +2515,7 @@ M	scheduleDraw
 M	scheduleLayout
 M	scheduleWithFixedDelay
 M	scheduleWrite
+M	scrollToPosition
 M	secondsUntil
 M	send
 M	sendBroadcast
@@ -2635,6 +2655,7 @@ M	setScaleType
 M	setScaleX
 M	setScaleY
 M	setScrollState
+M	setSelection
 M	setShowKeyboardOnTouch
 M	setSingleChoiceItems
 M	setSingleLine
@@ -2680,6 +2701,7 @@ M	setViewLifecycleState
 M	setVisibility
 M	setVisible
 M	setWifiEnabled
+M	settle
 M	settled
 M	show
 M	showFps
@@ -2696,8 +2718,10 @@ M	skipField
 M	skipMessage
 M	sleep
 M	sleep0
+M	slide
 M	slot
 M	slotOf
+M	smoothScrollToPosition
 M	sort
 M	spaceLeft
 M	spec
@@ -2804,6 +2828,7 @@ M	valueOf
 M	values
 M	visibleItems
 M	w
+M	windowFor
 M	with
 M	withAlpha
 M	withDayOfMonth

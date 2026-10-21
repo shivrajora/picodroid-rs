@@ -29,21 +29,12 @@ import picoenvmon.util.TimeFormat;
  */
 public class HistoryActivity extends NavActivity implements ServiceConnection {
 
-  /**
-   * Max focusable rows rendered. Each {@code lv_list} button row consumes the board's small (48 KB)
-   * LVGL render pool, and the full ring (60) leaves too little headroom for the draw tasks needed
-   * to render them — so we show only the most recent window. Comfortably within the safe bound on
-   * this board; raising it risks a render-pool stall.
-   */
-  private static final int MAX_ROWS = 12;
-
   @Inject Formatter formatter;
   private ListView list;
   private TextView statusLine;
   private final float[] samples = new float[SensorLoggerService.RING_CAPACITY];
   private final int[] sampleTs = new int[SensorLoggerService.RING_CAPACITY];
   private int sampleCount;
-  private int firstShown;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -92,22 +83,21 @@ public class HistoryActivity extends NavActivity implements ServiceConnection {
     sampleCount = svc.snapshot(SensorLoggerService.IDX_TEMPERATURE, samples, sampleTs);
     Log.i(EnvApp.TAG, "History bound, samples=" + sampleCount);
 
-    // Render the most-recent window (see MAX_ROWS). Rows are labelled with their real ring index.
-    firstShown = sampleCount > MAX_ROWS ? sampleCount - MAX_ROWS : 0;
+    // Every sample is a row: the list keeps only the rows in view alive and re-binds them as it
+    // scrolls, so the whole ring costs what a screenful did. Rows are labelled with their ring
+    // index.
     if (sampleCount == 0) {
       // The ring fills only while the SensorLoggerService runs, and it survives
       // screen changes only as a started/foreground service, so point the user at
       // the Logger toggle in Live. Kept short to fit the status line width.
       statusLine.setText("No data - enable Logger");
-    } else if (firstShown > 0) {
-      statusLine.setText(sampleCount + " samples (recent " + MAX_ROWS + ")");
     } else {
       statusLine.setText(sampleCount + " samples");
     }
 
     Formatter f = formatter;
     ArrayAdapter<String> adapter = new ArrayAdapter<String>();
-    for (int i = firstShown; i < sampleCount; i++) {
+    for (int i = 0; i < sampleCount; i++) {
       // "HH:MM 21.3C" once the sample carries an NTP-anchored stamp; the
       // pre-sync "[i]" ring-index form otherwise.
       String label =
@@ -117,6 +107,9 @@ public class HistoryActivity extends NavActivity implements ServiceConnection {
       adapter.add(label);
     }
     list.setAdapter(adapter);
+    // Oldest first, as the ring is; open on the newest sample.
+    list.setSelection(sampleCount - 1);
+    Log.i(EnvApp.TAG, "History rows " + list.getChildCount() + " of " + sampleCount);
   }
 
   @Override
@@ -125,8 +118,7 @@ public class HistoryActivity extends NavActivity implements ServiceConnection {
   }
 
   private void showSampleDialog(int position) {
-    // position is the row index within the rendered window; map back to the real sample index.
-    int idx = firstShown + position;
+    int idx = position;
     if (idx < 0 || idx >= sampleCount) {
       return;
     }

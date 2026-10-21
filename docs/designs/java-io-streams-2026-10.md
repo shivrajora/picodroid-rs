@@ -122,6 +122,7 @@ one row view per item — the same as the native text rows cost before, now in J
 widgets. A list long enough to need virtualization (rows created only for the visible window, with
 `lv_obj` padding standing in for the rest) is a follow-up; with keypad navigation, the focus ring
 and the scroll position would have to be re-targeted as rows are re-bound, which is the hard part.
+*Amendment 2026-10-20: built, `designs/listview-recycling-2026-10.md`.*
 
 The `nativeBindAdapter` upcall loop (the T2.5 proof consumer) is gone: the whole loop is Java now,
 with no native→Java upcalls per row. `invoke_java` keeps its other consumers.

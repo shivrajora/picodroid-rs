@@ -200,8 +200,8 @@ This is the Pico Enviro Mon `HomeActivity` hub pattern: a selectable menu of des
 - **Nothing to hold.** The list is a local: `setContentView` makes it the Activity's content view, which keeps it — and its item-click listener — alive for as long as the Activity lives, as on Android.
 - **Let Back exit from the root hub.** The home screen does not override `onBackPressed()`: Y runs the inherited `finish()` on the last Activity, which ends the app and returns to the launcher — the Android home-screen behaviour, and on a button board the only way back to the launcher. The hub's legend says so (`A:Up  B:Down  X:Open  Y:Exit`). Override `onBackPressed()` only on a screen that must confirm before leaving, and call `finish()` yourself from the confirmation.
 
-:::caution[Cap data lists at ~12 rows]
-Each `lv_list` button row consumes the board's small 48 KB LVGL render pool. Past roughly a dozen focusable rows the renderer runs out of memory. The Pico Enviro Mon caps history at `MAX_ROWS = 12` and shows only the most recent window. Keep data-driven lists capped (~12) on 48 KB-render-pool boards.
+:::tip[A long list is a ListView]
+A `ListView` keeps only the rows in view (plus one beyond each edge) alive and re-binds them as the focus walks down, so a data list of any length costs the board's 48 KB render pool a screenful. DOWN on the last visible row scrolls the next one in; the focus highlight follows the row, not the widget. The Pico Enviro Mon's History lists its whole 60-sample ring this way, opened on the newest with `setSelection`. A column of focusable rows built by hand still costs one widget per row.
 :::
 
 For a worked multi-screen example using this hub + `startActivity` pattern, see the [multi-screen app tutorial](/tutorials/multi-screen-app/).
@@ -277,7 +277,7 @@ GitHub CI clippy-checks `board-pico-enviro-mon` and `board-pico-enviro-mon-w` on
 
 ## See also
 
-- [Embedded gotchas](/guides/embedded-gotchas/) — memory budgets and other constraints behind the row cap.
+- [Embedded gotchas](/guides/embedded-gotchas/) — memory budgets and the other constraints a list lives under.
 - [Multi-screen app tutorial](/tutorials/multi-screen-app/) — the hub + `startActivity` pattern end to end.
 - [Limits](/reference/limits/) — focus-group depth, listener counts, and other fixed ceilings.
 - [UI components](/api/ui/) — `View`, `ListView`, `EditText`, and the focus API reference.

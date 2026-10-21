@@ -65,6 +65,32 @@ pub(super) fn dispatch_layout_requests(
     }
 }
 
+/// Drain the lists whose viewport moved since the last frame and invoke
+/// `ListView.fireScroll()` on each, which slides its window of rows. Runs
+/// after the item clicks so a click's row slot is resolved against the
+/// window that was current when LVGL captured it.
+#[cfg(not(test))]
+pub(super) fn dispatch_list_view_scrolls(
+    jvm: &mut Jvm,
+    heap: &mut SharedJvmHeap,
+    handler: &mut crate::native_handler::PicodroidNativeHandler,
+) {
+    use crate::graphics::lvgl::handle_table;
+    use crate::graphics::widgets;
+
+    while let Some(handle) = widgets::drain_scroll_queue() {
+        if let Some(obj_ref) = handle_table::bound_java(handle) {
+            let _ = jvm.invoke_instance(
+                dispatch_class(dispatch_sites::LIST_VIEW_SCROLL),
+                dispatch_method(dispatch_sites::LIST_VIEW_SCROLL),
+                obj_ref,
+                heap,
+                handler,
+            );
+        }
+    }
+}
+
 /// Drain completed animation end-actions (withEndAction Runnables) and run
 /// each through the Executors bytecode bridge — lambda proxies only resolve
 /// via that static dispatch, never a direct Runnable.run invoke.

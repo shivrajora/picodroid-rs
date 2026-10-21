@@ -354,7 +354,7 @@ jobs:
           - shard: lang
             apps: langsuite langsuite_kt langsuite_kt_stdlib injectdemo_kt
           - shard: memory
-            apps: gcstress heapstress clinitdemo tracedemo
+            apps: gcstress heapstress clinitdemo tracedemo qa_list
           - shard: framework
             apps: callbacktest prefs_demo jsondemo resdemo https_get
     env:
