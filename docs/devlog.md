@@ -40,9 +40,13 @@ ranked list to [`gaps.md`](gaps.md).
   `testbench_rp2350` (1,559,804 → 1,564,948), static RAM ±0, ratchet accepted; `test.sh` both
   lanes, `pre-commit`, the helloworld smoke, and the `reclaimdemo`, `qa_life` and `qa_trim`
   rows in both shrink modes green in the sim. Not yet run on the bench.
-- **Still open:** a native-heap phase for `qa_trim` (a Java cache dropped returns nothing to the
-  native heap, so only the pool half is asserted); a bench run of the `qa_trim` row; the
-  `onTrimMemory` levels other than `RUNNING_CRITICAL` stay constants by decision.
+- **Native round, tried and dropped (same day):** growing a chain of small objects reached
+  `OutOfMemoryError` with 52 KB free — the field arena's copying reallocation asked for
+  53 KB — before the native free level ever crossed the 1/16 line, so the native arm cannot
+  precede that OOM. Recorded under G3 in `gaps.md` (chunked arenas); `qa_trim` asserts the
+  pool half only.
+- **Still open:** chunked arenas (G3); the `onTrimMemory` levels other than
+  `RUNNING_CRITICAL` stay constants by decision.
 
 ## 2026-10-20 — the agent harness round
 

@@ -55,6 +55,7 @@ agent cannot finish alone: a decision, a bench action, a key, a push to someone 
 
 - **Missing:** `#![deny(clippy::unwrap_used, ...)]` on `picodroid-core` (40 sites), `platforms/rp` (34), `pdb-protocol` (11), `pd-tls` (5), `class-link` (4), `jvm` (2), `papk-format` (2), `pd-install` (1). Ten crates deny them already.
 - **Evidence:** `scripts/panic-baseline.conf`; eight JVM allocations that reset the board under a full heap were found by the fuzz round (fixed 2026-10-15).
+- **Also missing:** the JVM's arenas (`ObjectHeap::fields_arena`, `ArrayHeap::arena`) grow by a copying reallocation — exact-sized, but the new block is taken while the old one is held — so a growing arena needs twice its size contiguous and an app sees `OutOfMemoryError` with half the heap free (`qa_trim`'s native round, 2026-10-20: a 53,248 B request refused with 52,224 B free). Chunked arenas, as `ChunkedSlots` already does for the slot stores, would remove it; until then the native-heap `onTrimMemory` arm cannot precede that OOM, since the steady free level never crosses its line. About 8–16 h.
 - **Impact:** a panic on a board is a reset with the app's state gone.
 - **Estimate:** 10–20 h; each site is a `?`, an `unwrap_or*` or a comment proving infallibility. Lower the baseline per crate, then add the deny attribute and the crate to `stage_clippy_leaf`.
 

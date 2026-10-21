@@ -22,6 +22,11 @@ long form where one exists.
   no-op static call per rare episode is cheaper than the bookkeeping. A dropped Java cache
   stops the JVM growing but returns nothing to the native heap (the JVM keeps its capacity);
   dropped views do return LVGL pool, which is what saves a covered Activity.
+- **No native-heap round in `qa_trim`.** The JVM's arenas grow by a copying reallocation, so an
+  app growing objects hits `OutOfMemoryError` while the native free level is still above the
+  trim line (G3 in `gaps.md`); a test can only assert the pool half until the arenas are
+  chunked. The native arm stays: it is right for gradual growth and is what the push path
+  reads.
 
 ## 2026-10-20: the agent harness
 
