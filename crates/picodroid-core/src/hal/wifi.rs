@@ -520,8 +520,35 @@ pub const fn available() -> bool {
 mod tests {
     use super::*;
 
+    /// The scan table is one process-wide `static`, and cargo runs tests on
+    /// parallel threads: the two tests that fill it take this lock, or one
+    /// sees the other's entries (CI 2026-10-21, `scan_count()` of 5 for 2).
+    static SCAN_TABLE_IN_USE: core::sync::atomic::AtomicBool =
+        core::sync::atomic::AtomicBool::new(false);
+
+    struct ScanTableGuard;
+
+    impl ScanTableGuard {
+        fn take() -> Self {
+            while SCAN_TABLE_IN_USE
+                .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+                .is_err()
+            {
+                core::hint::spin_loop();
+            }
+            Self
+        }
+    }
+
+    impl Drop for ScanTableGuard {
+        fn drop(&mut self) {
+            SCAN_TABLE_IN_USE.store(false, Ordering::Release);
+        }
+    }
+
     #[test]
     fn scan_table_keeps_strongest_per_ssid_sorted() {
+        let _table = ScanTableGuard::take();
         let e = |s: &str, rssi: i16| {
             ScanEntry::new(s.as_bytes(), [0; 6], rssi, 6, Security::Wpa2).unwrap()
         };
@@ -544,6 +571,7 @@ mod tests {
 
     #[test]
     fn full_scan_table_drops_the_weakest() {
+        let _table = ScanTableGuard::take();
         let e = |i: usize, rssi: i16| {
             ScanEntry::new(
                 alloc::format!("n{i}").as_bytes(),

@@ -45,6 +45,9 @@ ranked list to [`gaps.md`](gaps.md).
   53 KB — before the native free level ever crossed the 1/16 line, so the native arm cannot
   precede that OOM. Recorded under G3 in `gaps.md` (chunked arenas); `qa_trim` asserts the
   pool half only.
+- **CI:** the `Testing` job failed on `4d3cf69f` in two `hal::wifi` scan-table tests that share
+  one `static mut` table across parallel test threads (a pre-existing flake; 21/21 locally,
+  three runs): they now take a test-local lock.
 - **Still open:** chunked arenas (G3); the `onTrimMemory` levels other than
   `RUNNING_CRITICAL` stay constants by decision.
 
