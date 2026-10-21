@@ -36,9 +36,9 @@ Without a key the status line says so and X does nothing.
 - `HttpsURLConnection` from `URL.openConnection()`, a POST with
   `setFixedLengthStreamingMode`, request headers, `getErrorStream()` for the
   API's error JSON.
-- `SntpClient` to anchor `System.currentTimeMillis()` before the handshake
-  (certificate validity is checked against it; the runtime refuses to
-  handshake with the clock unset).
+- The platform's time service (docs/designs/time-service-2026-10.md), by
+  omission: certificate validity is checked against the wall clock and the
+  runtime refuses to handshake with it unset, and the app never sets it.
 - `picodroid.json` to build the request and read `content[0].text` and
   `usage` from the reply.
 - One request in flight, on its own `Thread`; the reply lands on the main

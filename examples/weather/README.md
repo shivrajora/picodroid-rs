@@ -18,8 +18,10 @@ fifteen minutes.
 Everything comes from one [open-meteo](https://open-meteo.com) request over
 HTTPS (docs/designs/tls-2026-09.md): `URL.openConnection()` on an `https` URL,
 the runtime's TLS 1.3 client verifying open-meteo's Let's Encrypt chain against
-the compiled-in roots. The certificate check needs the wall clock, so the first
-fetch anchors it with `SntpClient`.
+the compiled-in roots. The certificate check needs the wall clock; the platform's
+time service anchors it over SNTP once the link is up
+(docs/designs/time-service-2026-10.md), and the runtime refuses to handshake while
+it is unset, so the app never sets the clock itself.
 
 ## The place
 
@@ -40,7 +42,6 @@ The defaults are San Mateo in degrees Celsius and km/h.
 
 - `HttpsURLConnection` from `URL.openConnection()`, a GET against a public
   RSA-rooted host (open-meteo's chain ends at ISRG Root X1).
-- `SntpClient` to anchor `System.currentTimeMillis()` before the handshake.
 - `picodroid.json` over a reply with nested objects and arrays of numbers
   (`timeformat=unixtime`, so every time is a `long`).
 - `View.onDraw(Canvas)`: the condition glyphs are circles, rounded rectangles

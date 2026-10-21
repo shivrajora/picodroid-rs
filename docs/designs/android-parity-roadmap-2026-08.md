@@ -135,7 +135,7 @@ too.
 | T1.5 | Input & sensor fills | N | open |
 | T1.6 | `Gpio` input | N | **partial** (`getValue`/`DIRECTION_IN` shipped 2026-09-02; edge callback open) |
 | T1.8 | Persistence fills | N | **partial** (`File` name/parent/mkdirs/createNewFile, prefs float shipped 2026-09-02; `File.list`/`listFiles` and the `Context` file API shipped 2026-09-08; `Intent` long/float/double extras and `getStringSet` open) |
-| T1.9 | `EditText.setInputType` + password masking | N/S-small | **partial** (see below) |
+| T1.9 | `EditText.setInputType` + password masking | N/S-small | **done** (setter 2026-06-05; masking 2026-09-26, `171070fc`) |
 
 **Shipped 2026-09-02 — the Tier 1 core set.** `TextView.getText()` (and
 `Button.getText()`) returning `CharSequence`; `Gpio.DIRECTION_IN` +
@@ -201,7 +201,9 @@ shipped).** `706e14c` landed `EditText.setInputType(int)` and the full
 `picodroid/text/InputType` constant set on **2026-06-05**, two and a half
 months *before* this roadmap was written — the row was open at authoring, not
 by drift. Only masking remains, and `InputType.java:44` already says so:
-"Accepted; the field is not yet masked in v1."
+"Accepted; the field is not yet masked in v1." *2026-10-20:* masking shipped with the
+Wi-Fi password field on 2026-09-26 (`171070fc`); `InputType.java` now says "The field shows
+bullets". T1.9 is done.
 
 ## Tier 2 — medium milestones (1–2 weeks each)
 
@@ -267,8 +269,9 @@ by drift. Only masking remains, and `InputType.java:44` already says so:
 7. ~~T3.1 Bundle → `onCreate(Bundle)` → save/restore~~ (done 2026-09-19;
    follow-ups D, E, F done; G, H pending)
 8. ~~T2.5 upcall~~ (done) → ~~T3.4 convertView recycling~~ (done 2026-10-09)
-9. ~~T3.2 resource system (A → B → C)~~ (done 2026-09-19; D — styles and
-   `AttributeSet` — remains)
+9. ~~T3.2 resource system (A → B → C)~~ (done 2026-09-19; D's styles, `<include>`,
+   custom views and `getString(int, Object...)` landed 2026-10-03, `723925f1`; plurals and
+   string arrays remain)
 10. ~~T3.3 `java.io`~~ (done 2026-10-09)
 
 ## Not doing, and why
@@ -320,7 +323,7 @@ added here has to earn that budget on the smallest board or arrive E1-gated.
 | `ReentrantLock`, `ReadWriteLock`, `Condition` | `synchronized` + `wait`/`notify` cover every in-tree case and are already kernel-recursive-mutex-backed. Locks add interruptible/timed acquisition and lock ordering — surface without a caller. | A real caller needing `tryLock`/timeout, or fairness work (WP3c) proving `synchronized` too coarse. |
 | `Semaphore`, `CyclicBarrier`, `Exchanger`, `Phaser` | `CountDownLatch` covers the one shipped pattern (fan-in); the rest are pure class-file cost. | A shipped app needing bounded-permit or barrier semantics. |
 | `ConcurrentHashMap`, `BlockingQueue`, `CopyOnWriteArrayList` | `synchronized` wrappers around the existing collections give the same guarantees at zero new `.text`. A genuinely concurrent map wants CAS, which **thumbv6m does not have** — it would be `AtomicSection`-guarded anyway, i.e. a coarse lock wearing a lock-free name. | RP2350-only (E1-gated) scope, plus a profile showing the coarse lock is the bottleneck. |
-| `ScheduledExecutorService`, `Timer`/`TimerTask`, `Handler.postDelayed`, `CountDownTimer` | The same rejection as `Handler`/`Looper` above, re-confirmed 2026-08-30: delayed work stays executor-shaped, a `Thread` that `sleep`s then posts to `Executors.mainExecutor()`, or `view.animate()…withEndAction(…)`. Timers are leak-prone and temporally coupled, and a scheduled pool needs a timer thread per pool. | An internal tick-slot table (the Toast/animation pattern) growing a public face — a design conversation, not a backlog item. |
+| `ScheduledExecutorService`, `Timer`/`TimerTask`, `Handler.postDelayed`, `CountDownTimer` | The same rejection as `Handler`/`Looper` above, re-confirmed 2026-08-30: delayed work stays executor-shaped, a `Thread` that `sleep`s then posts to `Executors.mainExecutor()`, or `view.animate()…withEndAction(…)`. Timers are leak-prone and temporally coupled, and a scheduled pool needs a timer thread per pool. | An internal tick-slot table (the Toast/animation pattern) growing a public face — a design conversation, not a backlog item. *2026-10-20:* that is what happened: `Executors.mainScheduledExecutor()` (2026-09-26, `4fbc1151`) is the tick's deadline table behind a `ScheduledExecutorService` face, no thread per pool; `Timer`, `Handler.postDelayed` and `CountDownTimer` stay out. |
 | Kotlin coroutines / `kotlinx-coroutines` | Contract-rejected in `docs/designs/kotlin-roadmap-2026-08.md`; the dispatcher machinery plus a Java SE library the JVM lacks (`ThreadLocal`, `WeakReference`, `IdentityHashMap`) dwarfs the flash budget. `suspend` over the existing executors is the shape to revisit, not the library. | Nothing on this roadmap. See the Compose entry below for the same arithmetic. |
 - **`Fragment` before the resource system.** Fragments without layouts and
   ids are shape without substance.
@@ -422,7 +425,11 @@ Where the pieces live:
   error); the framework widgets and a fixed attribute set only; unknown
   attributes are a build *warning* and dropped, so pasted Android layouts
   build; custom views, `<include>`/`<merge>`, styles, `AttributeSet`, string
-  arrays, plurals and `getString(int, Object...)` are not there (D).
+  arrays, plurals and `getString(int, Object...)` are not there (D). *(2026-10-20: styles,
+  `<include>`, custom views and `getString(int, Object...)` landed 2026-10-03, `723925f1`, and
+  custom views are constructed by `Class.newInstance` since 2026-10-09; configurations came as
+  the closed qualifier subset of [`app-portability-2026-10.md`](app-portability-2026-10.md) D8;
+  `<merge>`, string arrays and plurals are still not there.)*
   `inflate(id, null)` keeps the root's explicit `layout_width/height` via
   `setSize`, where Android drops them, so `setContentView(R.layout.x)` honours
   a sized root.
@@ -475,3 +482,14 @@ ViewGroups (`ViewGroup(Context)`, `onLayout`, `requestLayout`, `View.layout`, `m
 `java.util.function` SAM set as name-only rows, and `HttpURLConnection`'s streams declared as
 `java.io` types. The rejection of `Handler` / `postDelayed` stands; `View.post` is the main
 executor's queue.
+
+## Amendment 2026-10-20 — status sweep after the gap review
+
+Rows the 2026-10-16 gap review found out of date, corrected in place above: T1.9 is done
+(masking shipped 2026-09-26, `171070fc`); `getString(int, Object...)` exists (2026-10-03,
+`723925f1`) and so do styles, `<include>` and custom views, so T3.2-D's remainder is `<merge>`,
+string arrays and plurals; the concurrency table's `ScheduledExecutorService` row is the one
+"what would change it" that happened (`Executors.mainScheduledExecutor()`, 2026-09-26,
+`4fbc1151`), while `Timer`, `Handler.postDelayed` and `CountDownTimer` stay rejected. The
+2026-09-16 status sweep is a dated snapshot and stands as written; the 2026-10-18 and 2026-10-19
+amendments record what has landed since.

@@ -191,18 +191,15 @@ public final class Clock {
   }
 
   // ── Floor division ─────────────────────────────────────────────────────────
-  // java.lang.Math has no floorDiv/floorMod here, and both have to round toward
-  // negative infinity or every date before 1970 comes out a day off.
+  // Both round toward negative infinity, or every date before 1970 comes out a
+  // day off. The SDK's Math.floorDiv/floorMod do that; these names stay because
+  // AlarmSchedule and SelfTest spell them.
 
   public static long floorDiv(long a, long b) {
-    long q = a / b;
-    if (a % b != 0 && (a < 0) != (b < 0)) {
-      q--;
-    }
-    return q;
+    return Math.floorDiv(a, b);
   }
 
   public static long floorMod(long a, long b) {
-    return a - floorDiv(a, b) * b;
+    return Math.floorMod(a, b);
   }
 }

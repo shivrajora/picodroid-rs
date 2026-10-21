@@ -35,9 +35,9 @@ import picodroid.widget.TextView;
  * The sky behind it all follows the conditions and the time of day.
  *
  * <p>Everything comes from one open-meteo request over HTTPS (docs/designs/tls-2026-09.md) every
- * {@link #REFRESH_MINUTES} minutes, on a thread of its own; the handshake needs the wall clock, so
- * the first fetch anchors it with {@link SntpClient} first. Four buttons: A and B turn the page, X
- * refreshes now, Y leaves.
+ * {@link #REFRESH_MINUTES} minutes, on a thread of its own; the handshake needs the wall clock,
+ * which the platform's time service anchors (docs/designs/time-service-2026-10.md), so the app
+ * never sets it. Four buttons: A and B turn the page, X refreshes now, Y leaves.
  *
  * <p>The place and the units are build-time constants ({@code picodroidBuildConfig} in
  * build.gradle.kts): {@code PICODROID_WEATHER_CITY=Tokyo PICODROID_WEATHER_LATITUDE=35.68

@@ -6,6 +6,16 @@ one picks up. Routine handovers go here; a large one gets its own doc under `doc
 here. Keep entries to a few lines; the reasoning goes to [`decisions.md`](decisions.md), the
 ranked list to [`gaps.md`](gaps.md).
 
+## 2026-10-20 — gap-review housekeeping
+
+- **Docs only, from the 2026-10-16 gap review's drift list:** `android-parity-roadmap-2026-08.md`
+  corrected in place (T1.9 done, `getString(int, Object...)` and styles landed, the
+  `ScheduledExecutorService` row) with a dated amendment; the weather and askclaude READMEs and
+  Javadoc no longer claim an `SntpClient` anchor the F5 time service replaced on 2026-10-09;
+  picoclock's `Clock.floorDiv`/`floorMod` delegate to `Math` instead of claiming it lacks them.
+- **Still open:** nothing from this round; the code-side drift (picoenvmon and the system apps
+  predate `res/`, `NetworkCallback` and `getLaunchIntentForPackage`) stays under gaps G11.
+
 ## 2026-10-20 — the agent harness round
 
 - **Landed (uncommitted at the time of writing):** `CLAUDE.md` rewritten as the orientation
