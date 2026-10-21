@@ -151,6 +151,11 @@ public class QaUiActivity extends Activity {
   private Spinner spinner;
   private final int[] spinnerSelected = new int[] {-1};
 
+  // The recycling list (`listRecycling`): a click on a window slot and a smooth scroll are
+  // delivered on later frames, so phases 2 and 3 read them.
+  private ListView recycling;
+  private final int[] recyclingClick = new int[] {-1};
+
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
@@ -858,6 +863,70 @@ public class QaUiActivity extends Activity {
     check("addItem list has no adapter", plain.getAdapter() == null);
     root.removeView(plain);
     getViewRecycling();
+    listRecycling();
+  }
+
+  /** The row of {@code lv} whose first line reads {@code text}, or null. */
+  private static View rowShowing(ListView lv, String text) {
+    for (int i = 0; i < lv.getChildCount(); i++) {
+      View row = lv.getChildAt(i);
+      if (((TextView) ((LinearLayout) row).getChildAt(0)).getText().toString().equals(text)) {
+        return row;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * A list longer than its window keeps only the rows in view (plus one beyond each edge) and hands
+   * them back to {@code getView} as the window moves; a short one is still built whole.
+   */
+  void listRecycling() {
+    ListView lv = new ListView(this);
+    lv.setSize(200, 120);
+    root.addView(lv);
+    String[] titles = new String[60];
+    for (int i = 0; i < 60; i++) {
+      titles[i] = "r" + i;
+    }
+    RowAdapter rows = new RowAdapter(this, titles);
+    lv.setAdapter(rows);
+    int w = lv.getChildCount();
+    Log.i(TAG, "recycling window=" + w + " built=" + rows.built);
+    check("a long list keeps a window of rows", w >= 8 && w < 60 && rows.built == w);
+    check(
+        "the window starts at the top",
+        lv.getFirstVisiblePosition() == 0 && lv.getPositionForView(lv.getChildAt(0)) == 0);
+    lv.setSelection(30);
+    check(
+        "setSelection moves the window",
+        lv.getFirstVisiblePosition() == 30 && lv.getChildCount() == w);
+    check("the window recycles rather than builds", rows.built == w && rows.rebound > 0);
+    View r30 = rowShowing(lv, "r30");
+    check("the selected row is live", r30 != null && lv.getPositionForView(r30) == 30);
+    titles[30] = "R30";
+    rows.notifyDataSetChanged();
+    check("notify re-binds the window in place", rows.built == w && rowShowing(lv, "R30") != null);
+    rows.visible = 20;
+    rows.notifyDataSetChanged();
+    check(
+        "fewer rows clamps the window to the end",
+        lv.getChildCount() == Math.min(20, w)
+            && lv.getPositionForView(lv.getChildAt(lv.getChildCount() - 1)) == 19);
+    rows.visible = 5;
+    rows.notifyDataSetChanged();
+    check(
+        "a short list is whole again",
+        lv.getChildCount() == 5 && lv.getPositionForView(lv.getChildAt(0)) == 0);
+    rows.visible = 60;
+    rows.notifyDataSetChanged();
+    lv.setSelection(45);
+    lv.setOnItemClickListener((parent, view, position, id) -> recyclingClick[0] = position);
+    // Slot 2 of a window whose first row is one above position 45: position 46. The click is
+    // delivered next frame, before the scroll below moves the window.
+    lv.getChildAt(2).performClick();
+    lv.smoothScrollToPosition(59);
+    recycling = lv;
   }
 
   /** A two-line row adapter in the Android shape: build on null, re-bind the convertView. */
@@ -1222,6 +1291,7 @@ public class QaUiActivity extends Activity {
         "radio tap reaches the group past an app listener",
         tapGroup.getCheckedRadioButtonId() == 12 && tapB.isChecked() && tapAppSaw[0]);
     root.removeView(tapGroup);
+    check("a click on a window slot reports the adapter position", recyclingClick[0] == 46);
   }
 
   void sizes() {
@@ -1666,6 +1736,16 @@ public class QaUiActivity extends Activity {
       return;
     }
     Log.i(TAG, "phase3 (animation polls: " + animationPolls + ")");
+    Log.i(
+        TAG,
+        "recycling after smooth scroll: first="
+            + recycling.getFirstVisiblePosition()
+            + " last="
+            + recycling.getLastVisiblePosition()
+            + " window="
+            + recycling.getChildCount());
+    check("smoothScrollToPosition reaches the end", recycling.getLastVisiblePosition() == 59);
+    root.removeView(recycling);
     check("12 listeners survive GC (tree-rooted)", churnClicks[0] == 12);
     section("customGroupResized", () -> groups.customGroupResized(root));
     churnBox.removeAllViews();

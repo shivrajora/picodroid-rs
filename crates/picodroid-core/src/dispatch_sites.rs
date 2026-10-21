@@ -154,6 +154,10 @@ pub const VIEW_GROUP_LAYOUT: usize = if cfg!(has_multi_app) {
 /// `onLowMemory` out to the Application, every Activity and every Service
 /// (lifecycle::trim_memory). Present on every board.
 pub const TRIM_MEMORY: usize = VIEW_GROUP_LAYOUT + 1;
+/// A `ListView` scrolled or changed size: `ListView.fireScroll()` slides its
+/// window of rows (lifecycle::widget_events::dispatch_list_view_scrolls).
+/// Present on every board.
+pub const LIST_VIEW_SCROLL: usize = TRIM_MEMORY + 1;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -222,6 +226,7 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     (c::picodroid_content_BroadcastReceiver, m::fireManifest),
     (c::picodroid_view_ViewGroup, m::fireLayout),
     (c::picodroid_content_Context, m::fireTrimMemory),
+    (c::picodroid_widget_ListView, m::fireScroll),
 ];
 
 #[cfg(test)]

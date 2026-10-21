@@ -287,16 +287,62 @@ public abstract class ViewGroup extends View implements ViewParent {
 
   /** Adds {@code child} at {@code index} with {@code params}; see {@link #addView(View, int)}. */
   public void addView(View child, int index, LayoutParams params) {
+    // A child of this group moved to the end still needs the widget moved: attach() re-parents
+    // it to the parent it already has, which LVGL treats as a no-op.
+    boolean moved = child != null && child.mParent == this;
     addView(child, params);
-    if (child != null && index >= 0 && index < mChildCount - 1) {
+    if (child != null && index >= 0 && (index < mChildCount - 1 || moved)) {
+      int at = Math.min(index, mChildCount - 1);
       // The child sits last in mChildren (attach appends): slide it down to index.
-      System.arraycopy(mChildren, index, mChildren, index + 1, mChildCount - 1 - index);
-      mChildren[index] = child;
-      nativeMoveChildTo(child, index);
+      System.arraycopy(mChildren, at, mChildren, at + 1, mChildCount - 1 - at);
+      mChildren[at] = child;
+      nativeMoveChildTo(child, at);
     }
   }
 
   private native void nativeMoveChildTo(View child, int index);
+
+  /**
+   * Mirrors {@code android.view.ViewGroup#detachViewFromParent(View)}: takes {@code child} out of
+   * this group's child list without freeing it, for a later {@link #attachViewToParent}. The widget
+   * stays where it is; this is the bookkeeping half of a row moving within a recycling {@code
+   * ListView}. A view that is not a child is left alone.
+   */
+  protected void detachViewFromParent(View child) {
+    if (child != null) {
+      detachChild(child);
+    }
+  }
+
+  /**
+   * Mirrors {@code android.view.ViewGroup#attachViewToParent}: puts a view {@link
+   * #detachViewFromParent} took out back into this group's child list at {@code index} ({@code -1}
+   * or past the end appends) and moves its widget to that index among this group's. The widget must
+   * still be under this group's: unlike Android, picodroid never detaches it. {@code params}, when
+   * given, replace the child's layout params without re-applying them.
+   */
+  protected void attachViewToParent(View child, int index, LayoutParams params) {
+    checkNotReleased(child);
+    if (child.mParent != null) {
+      throw new IllegalStateException("attachViewToParent: the view still has a parent");
+    }
+    if (params != null) {
+      child.layoutParams = params;
+    }
+    if (mChildren == null) {
+      mChildren = new View[4];
+    } else if (mChildCount == mChildren.length) {
+      View[] bigger = new View[mChildren.length * 2];
+      System.arraycopy(mChildren, 0, bigger, 0, mChildCount);
+      mChildren = bigger;
+    }
+    int at = index < 0 || index > mChildCount ? mChildCount : index;
+    System.arraycopy(mChildren, at, mChildren, at + 1, mChildCount - at);
+    mChildren[at] = child;
+    mChildCount++;
+    child.mParent = this;
+    nativeMoveChildTo(child, at);
+  }
 
   /**
    * Drops {@code child} from this group's list without touching its widget, and clears its parent.

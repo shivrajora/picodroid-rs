@@ -105,10 +105,12 @@ pub use linear_layout::{
     linear_layout_native_create, linear_layout_set_gravity, linear_layout_set_orientation,
     linear_layout_set_spacing,
 };
-pub use list_view::drain_item_click_queue;
+pub use list_view::{drain_item_click_queue, drain_scroll_queue};
 pub use list_view::{
-    list_view_add_item, list_view_native_create, list_view_register_item_click_listener,
-    list_view_style_row, reset_list_view_state,
+    list_view_add_item, list_view_native_create, list_view_recycle_row,
+    list_view_register_item_click_listener, list_view_scroll_to, list_view_scroll_y,
+    list_view_set_spacers, list_view_style_row, list_view_sync_focus_order,
+    list_view_watch_viewport, reset_list_view_state,
 };
 pub use number_picker::drain_np_step_queue;
 pub use number_picker::{

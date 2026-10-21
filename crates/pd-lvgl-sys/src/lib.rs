@@ -1187,6 +1187,13 @@ unsafe extern "C" {
     pub safe fn lv_group_remove_obj(obj: Obj);
     /// The group `obj` belongs to, if any.
     pub safe fn lv_obj_get_group(obj: Obj) -> Option<Group>;
+    /// Exchange the positions of two members of one group in its focus
+    /// order; a no-op when they are not in the same group. A recycled
+    /// `ListView` row keeps the group's row run in child order with this.
+    pub safe fn lv_group_swap_obj(obj1: Obj, obj2: Obj);
+    /// The `index`th member of `group` in focus order, or `None` past the
+    /// end.
+    pub safe fn lv_group_get_obj_by_index(group: Group, index: u32) -> Option<Obj>;
     /// Delete a focus group. Used to tear down a per-Activity group on pop.
     ///
     /// # Safety

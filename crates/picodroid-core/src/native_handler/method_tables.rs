@@ -836,8 +836,18 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     (
         "picodroid/widget/ListView",
         "nativeStyleRow",
-        "(Lpicodroid/view/View;)V",
+        "(Lpicodroid/view/View;I)V",
     ),
+    ("picodroid/widget/ListView", "nativeWatchViewport", "()V"),
+    ("picodroid/widget/ListView", "nativeScrollY", "()I"),
+    ("picodroid/widget/ListView", "nativeScrollTo", "(IZ)V"),
+    ("picodroid/widget/ListView", "nativeSetSpacers", "(II)V"),
+    (
+        "picodroid/widget/ListView",
+        "nativeRecycleRow",
+        "(Lpicodroid/view/View;Z)V",
+    ),
+    ("picodroid/widget/ListView", "nativeSyncFocusOrder", "()V"),
     // picodroid/widget/NumberPicker
     ("picodroid/widget/NumberPicker", "nativeCreate", "()I"),
     ("picodroid/widget/NumberPicker", "nativeRegisterPicker", "()V"),
