@@ -1,0 +1,39 @@
+# Control-channel script for qa_list's sim rows (sim-run.sh::run_test). One script serves a
+# touch board and a keys board: a verb the board lacks is a no-op, so the touch half runs on
+# testbench_rp2350 (drag the 200-row list up by about four rows, tap a row) and the keys half on
+# pico_display2_w (DOWN twelve times, paced past the button debouncer, walks the focus past the
+# window, so the list scrolls and recycles; ENTER clicks the focused row). Each board logs one `click ok #1`; the rows' patterns
+# say which position range proves the window moved.
+wait \[layout\] fit ok
+input swipe 160 200 160 60 300
+sleep 1
+input tap 160 120
+sleep 1
+input keyevent 20
+sleep 0.2
+input keyevent 20
+sleep 0.2
+input keyevent 20
+sleep 0.2
+input keyevent 20
+sleep 0.2
+input keyevent 20
+sleep 0.2
+input keyevent 20
+sleep 0.2
+input keyevent 20
+sleep 0.2
+input keyevent 20
+sleep 0.2
+input keyevent 20
+sleep 0.2
+input keyevent 20
+sleep 0.2
+input keyevent 20
+sleep 0.2
+input keyevent 20
+sleep 0.2
+sleep 1
+input keyevent 23
+sleep 1
+input back
