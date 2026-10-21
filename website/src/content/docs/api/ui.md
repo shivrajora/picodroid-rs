@@ -1265,15 +1265,26 @@ class ReadingAdapter extends BaseAdapter {
 }
 ```
 
-`ListView` asks `getView` for every position and keeps the rows as its children in position
-order (`getChildAt(i)` is row *i*). `notifyDataSetChanged()` offers each existing row back as
-`convertView`, so a data change re-binds rows in place instead of rebuilding them; a position
-past the new count frees its row, and `setAdapter` always starts from fresh rows. Whatever view
-`getView` returns is stretched to the list's width, padded, made clickable and keypad-focusable
-and highlighted when focused, and `onItemClick` receives it as `view`. A row returned instead of
-the `convertView` frees the `convertView`; do not add the row to `parent` yourself. A layout
-resource works too: `LayoutInflater.from(ctx).inflate(R.layout.row, parent, false)` on a `null`
-`convertView`, then `findViewById` into it.
+`ListView` recycles rows as Android's does. Only the rows that fit the list plus one beyond each
+edge exist at a time; as the list scrolls, a row that left the screen is handed back to `getView`
+as `convertView` for the position coming in, so a sixty-item list costs the same as a dozen rows
+and the adapter above builds about ten `LinearLayout`s however long `data` is. A list of eight
+items or fewer is built whole. `notifyDataSetChanged()` offers each live row back as
+`convertView` for its own position, so a data change re-binds in place and keeps the scroll
+position and the keypad focus; a position past the new count frees its row, and `setAdapter`
+starts from fresh rows at the top. Whatever view `getView` returns is stretched to the list's
+width, padded, made clickable and keypad-focusable and highlighted when focused, and
+`onItemClick` receives it as `view`. A row returned instead of the `convertView` frees the
+`convertView`; do not add the row to `parent` yourself. A layout resource works too:
+`LayoutInflater.from(ctx).inflate(R.layout.row, parent, false)` on a `null` `convertView`, then
+`findViewById` into it.
+
+The children are the window, not the data: `getChildCount()` is the rows alive and
+`getChildAt(i)` is window slot *i*; `getPositionForView(view)` gives a row's adapter position,
+`getFirstVisiblePosition()` / `getLastVisiblePosition()` the rows on screen. `setSelection(int)`
+scrolls so a position is the first row on screen (as far as the list's end allows) and
+`smoothScrollToPosition(int)` animates there; picoenvmon's History opens on its newest sample
+with `list.setSelection(adapter.getCount() - 1)`.
 
 > **The `Adapter` family.** `ListView` extends `AdapterView<Adapter>`. The pieces:
 > - `Adapter` — interface: `getCount()`, `getItem(int)`, `getItemId(int)`,
@@ -1286,9 +1297,9 @@ resource works too: `LayoutInflater.from(ctx).inflate(R.layout.row, parent, fals
 >   `new ArrayAdapter<>(ctx, R.layout.row, R.id.title, items)` puts the text into that child.
 > - `AdapterView<T>.setOnItemClickListener(OnItemClickListener)` — the 4-arg `onItemClick` above.
 >
-> Every row is a live widget — there is no off-screen recycling — so on memory-constrained boards
-> the LVGL renderer makes very long focusable lists expensive; keep adapter-backed data lists
-> modest in length (a dozen rows is comfortable everywhere).
+> Two divergences from Android: rows share one height, that of the first row the adapter
+> builds (a taller row is clipped to it), and `setSelection` scrolls without moving the keypad
+> focus. There is no `RecyclerView`, and no header or footer views, choice modes or dividers.
 
 ### `picodroid.widget.CheckBox`
 

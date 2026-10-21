@@ -6,6 +6,34 @@ one picks up. Routine handovers go here; a large one gets its own doc under `doc
 here. Keep entries to a few lines; the reasoning goes to [`decisions.md`](decisions.md), the
 ranked list to [`gaps.md`](gaps.md).
 
+## 2026-10-20 — ListView recycles a window of rows
+
+- **Landed:** `ListView` keeps only the rows in view plus one beyond each edge alive and hands a
+  row that scrolls out back to `getView` as `convertView` for the one scrolling in; the list's
+  own padding stands in for the rest, a deferred `fireScroll` (new `dispatch_sites` row) slides
+  the window, and `focus_order.rs` (pure, 8 host tests) keeps the keypad group in child order
+  with `lv_group_swap_obj`. Lists of eight items or fewer are built whole, as before.
+  `setSelection`, `smoothScrollToPosition`, `getFirstVisiblePosition` / `getLastVisiblePosition`
+  / `getPositionForView`, `ViewGroup.detachViewFromParent` / `attachViewToParent`; two fixes:
+  `addView(existingChild, lastIndex)` never moved the widget, and a focused adapter row never
+  scrolled into view (only `lv_button` rows carry `SCROLL_ON_FOCUS`), so DOWN past the last
+  visible row wrapped the focus; rows now scroll themselves in, since LVGL's own scroll-into-view
+  counts the list's padding as an inset. Design:
+  `designs/listview-recycling-2026-10.md`.
+- **Numbers:** qa_list's 200-item list on a 320×240 panel keeps 10 rows alive (12 built, the
+  two over-measured before layout are freed) and re-binds on a drag and on twelve DOWN presses;
+  qa_ui's 60-row fixture holds an 8-row window, `setSelection(30)` and a smooth scroll to 59
+  land where they should, 282 checks green in both shrink modes. picoenvmon History lists its
+  whole 60-sample ring, opened on the newest. Flash: +5,620 B on testbench_rp2040 (+48 B RAM, the scroll ring) and +5,420 B on
+  testbench_rp2350, ratchet accepted.
+- **Rows:** `qa_list` ×2 (testbench by touch, pico_display2_w by keys; the key presses are
+  paced 0.2 s apart because a burst collapses in the button debouncer), `qa_ui`'s
+  `listRecycling`. Rows share the first row's height (documented divergence).
+- **Still open:** a `test.ctrl` for picoenvmon History in the sim (one script must serve a keys
+  board and a touch board; the logger yields a sample a second, so a 20 s wait would do);
+  `OnScrollListener`, header / footer views, choice modes; sim-run writes both rows of one app
+  in one shrink mode to the same log file (pre-existing).
+
 ## 2026-10-20 — gap-review housekeeping
 
 - **Docs only, from the 2026-10-16 gap review's drift list:** `android-parity-roadmap-2026-08.md`

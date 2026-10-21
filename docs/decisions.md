@@ -5,6 +5,29 @@ re-litigated by the next session. Newest first; append, do not rewrite. A decisi
 reversed gets a new entry pointing at the old one. The design docs under `designs/` carry the
 long form where one exists.
 
+## 2026-10-20: ListView recycles behind getView/convertView, no RecyclerView
+
+- **Java owns the window, Rust owns the geometry.** The binding loop (`getView`, `addView`,
+  the child list) has to run in Java anyway, so a Rust-side decider would still upcall once per
+  row and would need a per-list table with a delete hook; instead one deferred `fireScroll`
+  per frame while a long list scrolls, two natives, and nothing at all for a list of eight items
+  or fewer (`MIN_WINDOW`), which keeps every menu-sized list byte-identical to before.
+- **Padding, not spacer children.** The list's `pad_top` / `pad_bottom` stand in for the rows
+  outside the window; the theme's `pad_ver 0` / `pad_gap 0` are pinned in `create()`, so a row
+  for position *p* is at `p × pitch` whatever the window holds and the click trampoline's
+  `lv_obj_get_index(row)` stays the window slot.
+- **Rows share one height.** The first row's height is the pitch and later rows are pinned to
+  it. Android measures each row; here variable heights would make the padding an estimate and
+  the viewport jump on every re-bind. Documented as partial.
+- **Keypad order by adjacent swaps.** LVGL's group has no insert-at; `focus_order::sync` walks
+  each row to its slot with `lv_group_swap_obj`, which preserves the relative order of the
+  widgets around the list. Rejected: driving the rows' selection through `edit_mode.rs` (a
+  keypad redesign for one widget).
+- **`setSelection` scrolls but does not focus.** Android's selection model is keyed to touch
+  mode, which picodroid does not have; scrolling is what every caller wanted.
+- **RecyclerView stays out** (as the 2026-08 roadmap decided): the gap it answered was the
+  memory cost of a long `ListView`, which is now its window.
+
 ## 2026-10-20: a touched class costs nothing; `onTrimMemory`
 
 - **The "count your imports" rule is withdrawn.** Since pack-time class linking (2026-09-28,

@@ -368,7 +368,8 @@ checked against `sdk/java` and the commits named:
 
 Unchanged and still open: T1.3 (none of its list exists — no
 `View.getParent`/`getContext`, `removeViewAt`, `indexOfChild`,
-`ListView.setSelection`, `ArrayAdapter.remove/insert/getPosition`,
+`ListView.setSelection` (built 2026-10-20 with row recycling,
+`designs/listview-recycling-2026-10.md`), `ArrayAdapter.remove/insert/getPosition`,
 `AlertDialog.setCancelable`/`setOnDismissListener`, `Toast.setGravity`);
 T1.4's `TextView.setGravity`, `append` and `EditText.setSelection`
 (`setTextSize` shipped 2026-09-23); T1.5 in full; T1.6's edge callback; T1.9's

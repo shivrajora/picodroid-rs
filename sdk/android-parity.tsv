@@ -110,8 +110,8 @@ android.widget.Spinner	picodroid/widget/Spinner	partial	toString() rows; setItem
 android.widget.NumberPicker	picodroid/widget/NumberPicker	partial	stepped box, not a wheel
 android.widget.DatePicker	picodroid/widget/DatePicker	partial	calendar; no min / max, spinner mode
 android.widget.TimePicker	picodroid/widget/TimePicker	partial	rollers; setTime in place of setHour / setMinute
-android.widget.ListView	picodroid/widget/ListView	partial	every row a live widget; no recycling
-android.widget.AdapterView	picodroid/widget/AdapterView	partial	item listeners get a null view
+android.widget.ListView	picodroid/widget/ListView	partial	recycles a window of rows; rows share one height; no headers, choice modes, dividers
+android.widget.AdapterView	picodroid/widget/AdapterView	partial	ListView rows reach onItemClick as view; Spinner passes null; no OnItemLongClickListener
 android.widget.Adapter	picodroid/widget/Adapter	partial
 android.widget.BaseAdapter	picodroid/widget/BaseAdapter	partial
 android.widget.ArrayAdapter	picodroid/widget/ArrayAdapter	partial
@@ -121,7 +121,7 @@ android.widget.TextClock	-	missing	decision F7 deferred; ACTION_TIME_TICK receiv
 android.widget.Chronometer	-	missing
 android.widget.VideoView	-	out-of-scope	no video
 android.widget.WebView	-	out-of-scope	no browser engine
-androidx.recyclerview.widget.RecyclerView	-	missing	ListView builds every row; no scrap pool
+androidx.recyclerview.widget.RecyclerView	-	missing	ListView recycles rows; the RecyclerView API itself is not provided
 androidx.constraintlayout.widget.ConstraintLayout	-	missing	RelativeLayout is the nearest
 androidx.swiperefreshlayout.widget.SwipeRefreshLayout	picodroid/widget/SwipeRefreshLayout	partial	listener, setRefreshing
 androidx.viewpager2.widget.ViewPager2	picodroid/widget/ViewPager2	partial	one page alive at a time; fade instead of a scroller
