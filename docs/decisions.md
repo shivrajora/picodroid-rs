@@ -5,6 +5,24 @@ re-litigated by the next session. Newest first; append, do not rewrite. A decisi
 reversed gets a new entry pointing at the old one. The design docs under `designs/` carry the
 long form where one exists.
 
+## 2026-10-20: a touched class costs nothing; `onTrimMemory`
+
+- **The "count your imports" rule is withdrawn.** Since pack-time class linking (2026-09-28,
+  `designs/class-link-2026-09.md`) a framework class costs 16 B of RAM registered and nothing on
+  first use; `claudeusage`'s `TimeFormat` is back to `LocalDateTime.ofInstant(..)` with the
+  census showing the class table unchanged. Write the readable `java.time` form; the class
+  store's RAM half is done and only its flash half remains (`quality-roadmap.md`, G4).
+- **`onTrimMemory` levels map to the two pressure tests the framework already has** (LVGL pool
+  below 1/8 free, native heap below 1/16): `TRIM_MEMORY_RUNNING_CRITICAL` is delivered before a
+  covered Activity is destroyed and once per episode from the event loop; `onLowMemory` means
+  the framework is about to destroy a covered Activity anyway. The other levels are constants:
+  one app runs at a time, so nothing is ever "hidden" or "background", and a second native
+  threshold for `RUNNING_LOW` would double the state machine for a level Android 14
+  deprecated. No interest flag: the registry is never empty once an Activity exists and one
+  no-op static call per rare episode is cheaper than the bookkeeping. A dropped Java cache
+  stops the JVM growing but returns nothing to the native heap (the JVM keeps its capacity);
+  dropped views do return LVGL pool, which is what saves a covered Activity.
+
 ## 2026-10-20: the agent harness
 
 - **Direct to `main`, no automated review.** PR-per-task with a review bot (what the storytold

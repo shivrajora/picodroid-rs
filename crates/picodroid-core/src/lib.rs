@@ -55,6 +55,9 @@ pub mod storage;
 pub mod input_inject;
 #[cfg(not(test))]
 pub mod lifecycle;
+// The pressure thresholds and the once-per-episode arms behind onTrimMemory:
+// the pure, host-tested half of `lifecycle::trim_memory`.
+pub mod memory_pressure;
 pub use pd_lvgl_sys as lvgl_ffi;
 #[cfg(all(feature = "mem-diag", not(test)))]
 pub mod mem_diag;

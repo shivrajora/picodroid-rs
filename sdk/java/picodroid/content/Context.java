@@ -3,6 +3,7 @@ package picodroid.content;
 
 import java.io.IOException;
 import picodroid.app.AlarmManager;
+import picodroid.app.Application;
 import picodroid.app.NotificationManager;
 import picodroid.app.usage.StorageStatsManager;
 import picodroid.concurrent.Executor;
@@ -17,6 +18,7 @@ import picodroid.net.ConnectivityManager;
 import picodroid.net.wifi.WifiManager;
 import picodroid.os.IBinder;
 import picodroid.os.PowerManager;
+import picodroid.util.Log;
 
 /**
  * Common base for {@code Application}, {@code Activity} and {@code Service}: provides
@@ -405,6 +407,161 @@ public class Context {
   protected final void unregisterLeakedReceivers() {
     if (sReceiversRegistered) {
       BroadcastReceiver.unregisterOwned(this);
+    }
+  }
+
+  // ── Component callbacks (ComponentCallbacks / ComponentCallbacks2) ─────────────────────────
+
+  private static final String TAG = "Context";
+
+  /** What the framework passes {@link #fireTrimMemory} for {@code onLowMemory}. */
+  protected static final int LOW_MEMORY = -1;
+
+  // The app's components in the order the framework notifies them — Android's
+  // collectComponentCallbacks: the Application (whose own callbacks fan out to what
+  // registerComponentCallbacks added), every live Activity in creation order, every live
+  // Service. Allocated on first use; guarded by Context.class; the heap reset at an app switch
+  // clears all of it. The Application has no other root once its onCreate returned.
+  protected static Application sApplication;
+  private static ComponentCallbacks2[] sActivities;
+  private static int sActivityCount;
+  private static ComponentCallbacks2[] sServices;
+  private static int sServiceCount;
+  private static ComponentCallbacks[] sCallbacks;
+  private static int sCallbackCount;
+
+  /**
+   * Add {@code callback} to the set the framework notifies of memory pressure, mirroring {@code
+   * android.content.Context#registerComponentCallbacks}: app-wide, until {@link
+   * #unregisterComponentCallbacks}. The Application, every Activity and every Service are in the
+   * set already. Delivered through {@code Application.onTrimMemory} / {@code onLowMemory}, so an
+   * Application subclass that overrides those must call {@code super}, as on Android.
+   *
+   * @throws IllegalArgumentException if {@code callback} is null
+   */
+  public void registerComponentCallbacks(ComponentCallbacks callback) {
+    if (callback == null) {
+      throw new IllegalArgumentException("null ComponentCallbacks");
+    }
+    synchronized (Context.class) {
+      if (sCallbacks == null) {
+        sCallbacks = new ComponentCallbacks[4];
+      } else if (sCallbackCount == sCallbacks.length) {
+        ComponentCallbacks[] grown = new ComponentCallbacks[sCallbackCount * 2];
+        System.arraycopy(sCallbacks, 0, grown, 0, sCallbackCount);
+        sCallbacks = grown;
+      }
+      sCallbacks[sCallbackCount++] = callback;
+    }
+  }
+
+  /** Remove {@code callback} from the set; one that was never registered is ignored, as Android. */
+  public void unregisterComponentCallbacks(ComponentCallbacks callback) {
+    synchronized (Context.class) {
+      sCallbackCount = remove(sCallbacks, sCallbackCount, callback);
+    }
+  }
+
+  /** {@code Activity.performCreate}: the Activity joins the set, after the ones before it. */
+  protected static void noteActivity(ComponentCallbacks2 activity) {
+    synchronized (Context.class) {
+      if (sActivities == null) {
+        sActivities = new ComponentCallbacks2[4];
+      }
+      sActivities = add(sActivities, sActivityCount, activity);
+      sActivityCount++;
+    }
+  }
+
+  /** {@code Activity.performDestroy}. */
+  protected static void forgetActivity(ComponentCallbacks2 activity) {
+    synchronized (Context.class) {
+      sActivityCount = remove(sActivities, sActivityCount, activity);
+    }
+  }
+
+  /** {@code Service()}: a Service joins the set when the framework constructs it. */
+  protected static void noteService(ComponentCallbacks2 service) {
+    synchronized (Context.class) {
+      if (sServices == null) {
+        sServices = new ComponentCallbacks2[2];
+      }
+      sServices = add(sServices, sServiceCount, service);
+      sServiceCount++;
+    }
+  }
+
+  /** {@code Service.performDestroy}. */
+  protected static void forgetService(ComponentCallbacks2 service) {
+    synchronized (Context.class) {
+      sServiceCount = remove(sServices, sServiceCount, service);
+    }
+  }
+
+  private static ComponentCallbacks2[] add(
+      ComponentCallbacks2[] list, int count, ComponentCallbacks2 c) {
+    if (count == list.length) {
+      ComponentCallbacks2[] grown = new ComponentCallbacks2[count * 2];
+      System.arraycopy(list, 0, grown, 0, count);
+      list = grown;
+    }
+    list[count] = c;
+    return list;
+  }
+
+  private static int remove(Object[] list, int count, Object item) {
+    for (int i = 0; i < count; i++) {
+      if (list[i] == item) {
+        System.arraycopy(list, i + 1, list, i, count - i - 1);
+        list[count - 1] = null;
+        return count - 1;
+      }
+    }
+    return count;
+  }
+
+  /**
+   * The framework calls this on the main thread when memory is short: {@code level} is a {@code
+   * ComponentCallbacks2.TRIM_MEMORY_*} value for {@code onTrimMemory}, or {@link #LOW_MEMORY} for
+   * {@code onLowMemory}. Delivered in Android's order and under the registry lock, without
+   * allocating: memory is the thing that is short. A callback that throws is logged and the rest
+   * still hear it.
+   */
+  static void fireTrimMemory(int level) {
+    synchronized (Context.class) {
+      if (sApplication != null) {
+        deliver(sApplication, level);
+      } else {
+        fireRegisteredCallbacks(level);
+      }
+      for (int i = 0; i < sActivityCount; i++) {
+        deliver(sActivities[i], level);
+      }
+      for (int i = 0; i < sServiceCount; i++) {
+        deliver(sServices[i], level);
+      }
+    }
+  }
+
+  /** {@code Application}'s default callbacks: what {@link #registerComponentCallbacks} added. */
+  protected static void fireRegisteredCallbacks(int level) {
+    synchronized (Context.class) {
+      for (int i = 0; i < sCallbackCount; i++) {
+        deliver(sCallbacks[i], level);
+      }
+    }
+  }
+
+  private static void deliver(ComponentCallbacks c, int level) {
+    try {
+      if (level == LOW_MEMORY) {
+        c.onLowMemory();
+      } else if (c instanceof ComponentCallbacks2) {
+        ((ComponentCallbacks2) c).onTrimMemory(level);
+      }
+    } catch (RuntimeException e) {
+      // As a posted Runnable or a BroadcastReceiver that throws: say so and carry on.
+      Log.e(TAG, "onTrimMemory threw: " + e);
     }
   }
 }

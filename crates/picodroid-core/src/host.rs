@@ -55,6 +55,12 @@ pub trait PlatformHooks {
     /// Native heap statistics for the memory monitor.
     fn native_heap_stats() -> NativeHeapStats;
 
+    /// The native heap's free bytes alone, from a counter: cheap enough for
+    /// every turn of the event loop, where [`Self::native_heap_stats`]
+    /// walks the free list. `usize::MAX` when there is no bounded heap to
+    /// speak of (an uncapped simulator run).
+    fn native_heap_free_bytes() -> usize;
+
     /// Register any GC root providers this platform owns.
     ///
     /// Called from `boot::run_app` right after this crate registers its own,
@@ -95,6 +101,7 @@ unsafe extern "Rust" {
     safe fn __pd_host_heap_bypass_exit();
     safe fn __pd_host_heap_checkpoint(label: &str);
     safe fn __pd_host_native_heap_stats() -> NativeHeapStats;
+    safe fn __pd_host_native_heap_free_bytes() -> usize;
     safe fn __pd_host_register_gc_roots();
     safe fn __pd_host_uninstall_run(first_sector: u32, sectors: u32) -> bool;
     safe fn __pd_host_device_serial() -> Option<crate::identity::Serial>;
@@ -113,6 +120,11 @@ pub fn heap_checkpoint(label: &str) {
 /// Native heap statistics.
 pub fn native_heap_stats() -> NativeHeapStats {
     __pd_host_native_heap_stats()
+}
+
+/// The native heap's free bytes, from a counter.
+pub fn native_heap_free_bytes() -> usize {
+    __pd_host_native_heap_free_bytes()
 }
 
 /// Register the platform's own GC root providers.
@@ -178,6 +190,10 @@ macro_rules! set_platform_hooks {
             #[no_mangle]
             extern "Rust" fn __pd_host_native_heap_stats() -> $crate::host::NativeHeapStats {
                 <$t as $crate::host::PlatformHooks>::native_heap_stats()
+            }
+            #[no_mangle]
+            extern "Rust" fn __pd_host_native_heap_free_bytes() -> usize {
+                <$t as $crate::host::PlatformHooks>::native_heap_free_bytes()
             }
             #[no_mangle]
             extern "Rust" fn __pd_host_uninstall_run(first_sector: u32, sectors: u32) -> bool {

@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.app;
 
+import picodroid.content.ComponentCallbacks2;
 import picodroid.content.Context;
 import picodroid.content.Intent;
+import picodroid.content.res.Configuration;
 import picodroid.os.IBinder;
 
 /**
@@ -38,7 +40,7 @@ import picodroid.os.IBinder;
  * Activity</em> at the time of the call (bindings are tracked per Activity), so it is released when
  * that Activity finishes, not when the Service is destroyed.
  */
-public abstract class Service extends Context {
+public abstract class Service extends Context implements ComponentCallbacks2 {
   /**
    * Returned from {@link #onStartCommand} to indicate the system should re-create the Service after
    * a kill. On picodroid the OS never kills a running Service, so the constant has no runtime
@@ -67,6 +69,11 @@ public abstract class Service extends Context {
 
   /** {@code flags} bit: the Intent is a retry after a failed earlier delivery. Never set. */
   public static final int START_FLAG_RETRY = 2;
+
+  /** The framework constructs a Service; it joins the memory-callback set from here. */
+  public Service() {
+    Context.noteService(this);
+  }
 
   public void onCreate() {
     // Subclass overrides
@@ -109,6 +116,33 @@ public abstract class Service extends Context {
 
   public void onDestroy() {
     // Subclass overrides
+  }
+
+  /**
+   * The framework's destroy, entered here rather than by name on the app's class so an {@code
+   * onDestroy} a base class declares is found, and so the Service leaves the memory-callback set.
+   */
+  final void performDestroy() {
+    onDestroy();
+    Context.forgetService(this);
+  }
+
+  /** Memory is short; see {@link ComponentCallbacks2#onTrimMemory}. Default no-op. */
+  @Override
+  public void onTrimMemory(int level) {
+    // Subclass overrides
+  }
+
+  /** The framework is about to destroy a covered Activity to make room. Default no-op. */
+  @Override
+  public void onLowMemory() {
+    // Subclass overrides
+  }
+
+  /** Never called on picodroid; see {@link ComponentCallbacks2#onConfigurationChanged}. */
+  @Override
+  public void onConfigurationChanged(Configuration newConfig) {
+    // A board's configuration does not change while an app runs.
   }
 
   /** Stop this Service. Equivalent to {@code Context.stopService(new Intent(thisClass))}. */

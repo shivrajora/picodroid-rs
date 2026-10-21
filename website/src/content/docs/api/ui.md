@@ -28,6 +28,7 @@ public class MyApp extends Application {
 |--------|-------------|
 | `onCreate()` | Called by the runtime after instantiation. Override to initialize your app. |
 | `startActivity(Intent intent)` | Launches the Activity named by the Intent's target class (`new Intent(MyActivity.class)`). The Activity's `onCreate()` is called after the display is ready. |
+| `onTrimMemory(int level)` / `onLowMemory()` | Memory is short (`ComponentCallbacks2`; see the Activity's lifecycle table). The defaults fan out to what `registerComponentCallbacks` added: an override calls `super`. |
 
 ## `picodroid.app.Activity`
 
@@ -65,6 +66,8 @@ The full Android-style lifecycle is dispatched by the runtime. Override only the
 | `onDestroy()` | Just before this Activity is popped off the stack. |
 | `onBackPressed()` | BACK-key default action — pops the [fragment back stack](#picodroidappfragment) if it has an entry, else calls `finish()`. Override and don't `super.onBackPressed()` to suppress (e.g. show a confirm dialog). |
 | `onKeyDown(int keyCode, KeyEvent)` / `onKeyLongPress(int keyCode, KeyEvent)` / `onKeyUp(int keyCode, KeyEvent)` | A hardware key no focused view consumed: its press and auto-repeats, its long-press, its release; return `true` to consume it. The defaults track BACK so its release runs `onBackPressed`. `Activity` implements `KeyEvent.Callback`. See [Key events](#key-events). |
+| `onTrimMemory(int level)` | Memory is short: `level` is `ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL`, delivered when the LVGL pool is below an eighth free or the native heap below a sixteenth — once per episode between frames, and at an Activity launch before the framework destroys a covered Activity to make room. Drop view caches and anything that can be rebuilt; views dropped here go back to the pool, which can save the covered Activity. The other `TRIM_MEMORY_*` levels never arrive (one app runs at a time). |
+| `onLowMemory()` | The framework is about to destroy a covered Activity anyway (its state goes through `onSaveInstanceState`). Reaches the Application, every Activity and every Service, like `onTrimMemory`. |
 
 The content view installed in `onCreate` (or `onResume`) is **preserved across pause** — when this Activity returns to the foreground, the saved widget tree is restored automatically. Rebuilding the tree from `onResume` is still supported; the new root replaces the saved one.
 

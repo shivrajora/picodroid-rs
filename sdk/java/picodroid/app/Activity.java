@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.app;
 
+import picodroid.content.ComponentCallbacks2;
 import picodroid.content.Context;
 import picodroid.content.Intent;
+import picodroid.content.res.Configuration;
 import picodroid.graphics.Display;
 import picodroid.lifecycle.HasDefaultViewModelProviderFactory;
 import picodroid.lifecycle.Lifecycle;
@@ -20,7 +22,8 @@ import picodroid.view.View;
 import picodroid.view.ViewGroup;
 
 public class Activity extends Context
-    implements KeyEvent.Callback,
+    implements ComponentCallbacks2,
+        KeyEvent.Callback,
         LayoutInflater.Factory,
         LifecycleOwner,
         ViewModelStoreOwner,
@@ -200,6 +203,29 @@ public class Activity extends Context
    */
   public native void recreate();
 
+  /**
+   * Memory is short; {@code level} is a {@code ComponentCallbacks2.TRIM_MEMORY_*} value. On
+   * picodroid it is {@link #TRIM_MEMORY_RUNNING_CRITICAL}, sent before the framework destroys a
+   * covered Activity to make room: drop view caches and anything that can be rebuilt. Default
+   * no-op.
+   */
+  @Override
+  public void onTrimMemory(int level) {
+    // Subclass overrides
+  }
+
+  /** The framework is about to destroy a covered Activity to make room. Default no-op. */
+  @Override
+  public void onLowMemory() {
+    // Subclass overrides
+  }
+
+  /** Never called on picodroid; see {@link ComponentCallbacks2#onConfigurationChanged}. */
+  @Override
+  public void onConfigurationChanged(Configuration newConfig) {
+    // A board's configuration does not change while an app runs.
+  }
+
   // The framework enters every lifecycle callback through these, never by name on the app's
   // class: a native-side lookup is flat (it sees only methods the named class itself declares, so
   // it misses an override on an app's base Activity) and blind to descriptors, where an
@@ -214,6 +240,7 @@ public class Activity extends Context
     mUiThread = Thread.currentThread();
     // The manifest's android:theme, before any view exists, as Android applies it.
     getResources().applyManifestTheme();
+    Context.noteActivity(this);
     onCreate(savedInstanceState);
     mFragmentHostState = Fragment.CREATED;
     if (mFragments != null) {
@@ -291,6 +318,7 @@ public class Activity extends Context
     // After onDestroy, where an app's own unregisterReceiver belongs: what is still registered
     // now is a leak, dropped with Android's warning (LoadedApk.removeContextRegistrations).
     unregisterLeakedReceivers();
+    Context.forgetActivity(this);
     if (mViewModelStore != null) {
       mViewModelStore.clear();
     }

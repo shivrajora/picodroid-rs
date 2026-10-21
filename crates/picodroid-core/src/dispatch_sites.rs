@@ -150,6 +150,10 @@ pub const VIEW_GROUP_LAYOUT: usize = if cfg!(has_multi_app) {
 } else {
     WIFI_EVENT + 5
 };
+/// Memory is short: `Context.fireTrimMemory(level)` fans `onTrimMemory` /
+/// `onLowMemory` out to the Application, every Activity and every Service
+/// (lifecycle::trim_memory). Present on every board.
+pub const TRIM_MEMORY: usize = VIEW_GROUP_LAYOUT + 1;
 
 /// `(original_framework_class, fire_method)` pairs. Order must match the
 /// index constants above.
@@ -179,7 +183,10 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     (c::picodroid_app_Service, m::onStartCommand),
     (c::picodroid_app_Service, m::onBind),
     (c::picodroid_app_Service, m::onUnbind),
-    (c::picodroid_app_Service, m::onDestroy),
+    // The destroy enters `Service.performDestroy`, a final trampoline, so an
+    // `onDestroy` a base class declares is found and the Service leaves the
+    // component-callback set; the other Service sites still go by name.
+    (c::picodroid_app_Service, m::performDestroy),
     (c::picodroid_widget_EditText, m::fireEditorAction),
     (c::picodroid_widget_Snackbar, m::fireActionClick),
     (c::picodroid_widget_DatePicker, m::fireDateChanged),
@@ -214,6 +221,7 @@ pub const DISPATCH_SITES: &[(&str, &str)] = &[
     #[cfg(has_multi_app)]
     (c::picodroid_content_BroadcastReceiver, m::fireManifest),
     (c::picodroid_view_ViewGroup, m::fireLayout),
+    (c::picodroid_content_Context, m::fireTrimMemory),
 ];
 
 #[cfg(test)]

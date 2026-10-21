@@ -16,6 +16,34 @@ ranked list to [`gaps.md`](gaps.md).
 - **Still open:** nothing from this round; the code-side drift (picoenvmon and the system apps
   predate `res/`, `NetworkCallback` and `getLaunchIntentForPackage`) stays under gaps G11.
 
+## 2026-10-20 — the per-class RAM rule withdrawn; `onTrimMemory`
+
+- **Finding:** the gap analysis's "each touched class costs 3 KB of RAM" (and the class-store
+  item it pointed at) was stale since class-link (`f5d93245`, 2026-09-28): a registered class
+  costs 16 B, touched or not. `claudeusage`'s `TimeFormat` is back to
+  `LocalDateTime.ofInstant(..)`; the mem-diag census before and after is the same line
+  (350 classes, `tableB~=5612`, `nused` 177,872 B). G11 of the claudeusage roadmap closed; the
+  roadmap entry now carries only the flash half, sized by `framework_class_file_framing`
+  (`class_metadata_tests.rs`): 132 KB of class-file framing in the host corpus, 22–25 % of the
+  section, a G4 lever (row 9b), not built.
+- **Landed:** `ComponentCallbacks` / `ComponentCallbacks2` (`onTrimMemory`, `onLowMemory`, the
+  `TRIM_MEMORY_*` constants), `Context.registerComponentCallbacks` / `unregisterComponentCallbacks`;
+  `Activity`, `Application` and `Service` implement them, with a Java-side registry in `Context`
+  and one dispatch site (`Context.fireTrimMemory`). `TRIM_MEMORY_RUNNING_CRITICAL` is delivered
+  from the event loop once per episode (`memory_pressure.rs` arms: native heap below 1/16 free
+  through the new O(1) `native_heap_free_bytes` hook every turn, the LVGL pool below 1/8 every
+  8th frame) and at an Activity launch before a covered Activity is reclaimed; `onLowMemory` when
+  one still has to go. `Service.performDestroy` trampoline (so a base-class `onDestroy` is found).
+  Sim verb `memtrim <level>`. `qa_trim` row (sim, `rp2350,rp2350b` on the bench). Decisions in
+  `decisions.md`; matrix, `api/ui.md`, `api/services.md`, parity tsv updated.
+- **Numbers:** flash +4,872 B on `testbench_rp2040` (1,084,672 → 1,089,544) and +5,144 B on
+  `testbench_rp2350` (1,559,804 → 1,564,948), static RAM ±0, ratchet accepted; `test.sh` both
+  lanes, `pre-commit`, the helloworld smoke, and the `reclaimdemo`, `qa_life` and `qa_trim`
+  rows in both shrink modes green in the sim. Not yet run on the bench.
+- **Still open:** a native-heap phase for `qa_trim` (a Java cache dropped returns nothing to the
+  native heap, so only the pool half is asserted); a bench run of the `qa_trim` row; the
+  `onTrimMemory` levels other than `RUNNING_CRITICAL` stay constants by decision.
+
 ## 2026-10-20 — the agent harness round
 
 - **Landed (uncommitted at the time of writing):** `CLAUDE.md` rewritten as the orientation

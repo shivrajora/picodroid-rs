@@ -751,6 +751,15 @@ impl PlatformHooks for PlatformHost {
         crate::hal::chip_id::device_serial()
     }
 
+    /// heap_4's free counter: a word read, cheap enough for every turn of
+    /// the event loop (`lifecycle::trim_memory`).
+    fn native_heap_free_bytes() -> usize {
+        unsafe extern "C" {
+            safe fn xPortGetFreeHeapSize() -> u32;
+        }
+        xPortGetFreeHeapSize() as usize
+    }
+
     /// Moved here verbatim from `mem_diag::sample_native_heap`, which used to
     /// carry the sim/device split itself. This half is FreeRTOS FFI; the
     /// simulator's reads its own allocator, and lives in picodroid-core.

@@ -64,6 +64,7 @@ public class CounterService extends Service {
 | `onUnbind(Intent)` | Last bound client unbinds. Default returns `false`; return `true` to receive `onRebind` when a new client binds later. |
 | `onRebind(Intent)` | A client binds again after `onUnbind` returned `true` (and the service was not destroyed in between). `onBind` is **not** called again — the cached `IBinder` is reused, matching Android's contract. |
 | `onDestroy()` | Service is being torn down (last unbind + no `startService` keepalive, or explicit `stopService`). |
+| `onTrimMemory(int level)` / `onLowMemory()` | Memory is short; the same signal an Activity gets (see [`Context`](#memory-pressure-ontrimmemory-registercomponentcallbacks)). |
 
 On picodroid the OS never kills a running service, so `onStartCommand`'s return value has no runtime effect — `START_STICKY`, `START_NOT_STICKY` and `START_REDELIVER_INTENT` exist only for source-level Android compatibility, as do `START_FLAG_REDELIVERY` and `START_FLAG_RETRY`. Return `START_STICKY` by convention.
 
@@ -303,6 +304,35 @@ callbacks are ordinary interface calls, so a connection may inherit them from a 
 without the context argument.
 
 A binding belongs to the Activity that made it and is released when that Activity is destroyed. `onServiceConnected` is delivered only while that Activity is still the one on top: if another Activity covered it before the callback's turn came, the callback is skipped. A binding made from an `Application` has no such owner. One divergence from Android: a binding made from inside a `Service` is owned by the foreground Activity at the time of the call, so it is released when that Activity finishes, not when the Service is destroyed.
+
+### Memory pressure: `onTrimMemory`, `registerComponentCallbacks`
+
+`Activity`, `Application` and `Service` implement `ComponentCallbacks2`; anything else joins
+through `registerComponentCallbacks(ComponentCallbacks)` / `unregisterComponentCallbacks`, which
+are app-wide and delivered through `Application.onTrimMemory` / `onLowMemory` (an Application
+override calls `super`). The framework sends `onTrimMemory(TRIM_MEMORY_RUNNING_CRITICAL)` when
+the LVGL pool is below an eighth free or the native heap below a sixteenth: once per episode
+between frames, and at an Activity launch before it destroys a covered Activity to make room.
+`onLowMemory` follows when that destruction is about to happen anyway. Order is Android's: the
+Application, every live Activity in creation order, every live Service.
+
+```java
+public class Gallery extends Activity {
+  private LinearLayout thumbnails;   // rebuilt from the model when needed
+
+  @Override
+  public void onTrimMemory(int level) {
+    if (level >= TRIM_MEMORY_RUNNING_CRITICAL) {
+      thumbnails.removeAllViews();   // back to the pool; the covered screen below survives
+    }
+  }
+}
+```
+
+What helps is what returns memory: views removed from a tree go back to the LVGL pool at once;
+Java objects dropped stop the JVM growing but the JVM keeps the native memory it has. The other
+levels (`UI_HIDDEN`, `BACKGROUND`, …) are constants that never arrive, since one app runs at a
+time; `onConfigurationChanged` is never called.
 
 ### System services
 

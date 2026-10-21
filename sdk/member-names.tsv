@@ -269,6 +269,7 @@ F	LIST_MODE_ITEMS
 F	LIST_MODE_MULTI
 F	LIST_MODE_SINGLE
 F	LONG_PRESS_TIMEOUT_MS
+F	LOW_MEMORY
 F	MAGENTA
 F	MAGIC
 F	MARCH
@@ -543,6 +544,13 @@ F	TRANSPORT_CELLULAR
 F	TRANSPORT_ETHERNET
 F	TRANSPORT_VPN
 F	TRANSPORT_WIFI
+F	TRIM_MEMORY_BACKGROUND
+F	TRIM_MEMORY_COMPLETE
+F	TRIM_MEMORY_MODERATE
+F	TRIM_MEMORY_RUNNING_CRITICAL
+F	TRIM_MEMORY_RUNNING_LOW
+F	TRIM_MEMORY_RUNNING_MODERATE
+F	TRIM_MEMORY_UI_HIDDEN
 F	TRUE
 F	TUESDAY
 F	TYPE_ACCELEROMETER
@@ -1012,6 +1020,11 @@ F	roundTripTime
 F	rowSpec
 F	rssi
 F	rules
+F	sActivities
+F	sActivityCount
+F	sApplication
+F	sCallbackCount
+F	sCallbacks
 F	sCount
 F	sFilters
 F	sHeight
@@ -1024,6 +1037,8 @@ F	sOwners
 F	sQueuedWork
 F	sReceivers
 F	sReceiversRegistered
+F	sServiceCount
+F	sServices
 F	sShowing
 F	sShowingCount
 F	sUnwritten
@@ -1435,6 +1450,7 @@ M	fireManifest
 M	fireProgressChanged
 M	fireReady
 M	fireRefresh
+M	fireRegisteredCallbacks
 M	fireStep
 M	fireSwipe
 M	fireSystem
@@ -1442,6 +1458,7 @@ M	fireTextChanged
 M	fireTimeChanged
 M	fireTouch
 M	fireTrackingTouch
+M	fireTrimMemory
 M	firstDayOfYear
 M	firstMonthOfQuarter
 M	fits
@@ -1455,6 +1472,8 @@ M	flush
 M	flushPending
 M	forName
 M	forget
+M	forgetActivity
+M	forgetService
 M	format
 M	fr
 M	frequencyOf
@@ -2144,6 +2163,8 @@ M	next
 M	nextPoolId
 M	node
 M	nonNull
+M	noteActivity
+M	noteService
 M	notify
 M	notifyDataSetChanged
 M	notifyProgressChanged
@@ -2186,6 +2207,7 @@ M	onChanged
 M	onCheckedChanged
 M	onCleared
 M	onClick
+M	onConfigurationChanged
 M	onCreate
 M	onCreateOptionsMenu
 M	onCreateView
@@ -2213,6 +2235,7 @@ M	onLongClick
 M	onLongPress
 M	onLosing
 M	onLost
+M	onLowMemory
 M	onMeasure
 M	onMenuItemClick
 M	onNothingSelected
@@ -2249,6 +2272,7 @@ M	onTextChanged
 M	onTimeChanged
 M	onTouch
 M	onTouchEvent
+M	onTrimMemory
 M	onUnavailable
 M	onUnbind
 M	onUnbindPage
@@ -2399,6 +2423,7 @@ M	recreate
 M	recv
 M	refreshFromAdapter
 M	register
+M	registerComponentCallbacks
 M	registerDefaultNetworkCallback
 M	registerListener
 M	registerNativeItemClick
@@ -2755,6 +2780,7 @@ M	uninstall
 M	unplug
 M	unquote
 M	unregister
+M	unregisterComponentCallbacks
 M	unregisterLeakedReceivers
 M	unregisterListener
 M	unregisterNetworkCallback

@@ -44,6 +44,9 @@
 #          sim built with --mem-diag (docs/memory-diagnostics.md)
 #          heapcensus — live-set census: bytes by class / array type / dyn
 #          strings / side tables / per-executor class metadata (same build)
+#          memtrim <level> — one synthetic onTrimMemory(level) (negative:
+#          onLowMemory) from the next turn of the app's event loop, no
+#          pressure behind it; any build. E.g. memtrim 15.
 #
 # The command is forwarded verbatim; the sim validates it and reports unknown
 # tokens on its own log ("[sim] control channel: unknown ...").

@@ -43,6 +43,19 @@ pub unsafe extern "C" fn picodroid_port_entropy_bytes(buf: *mut u8, len: usize) 
 /// runs (`-l 0`) have no arena, so free is derived from the meter and
 /// fragmentation reports as unavailable — the monitor reads a zero largest
 /// block as "unknown" rather than "fully fragmented".
+/// The modelled arena's free bytes from the byte meter alone (no free-list
+/// walk): what the event loop reads every turn. An uncapped run (`-l 0`)
+/// has no arena and reports `usize::MAX`, which the reader takes as "never
+/// under pressure".
+pub fn native_heap_free_bytes() -> usize {
+    let (cur, _peak, limit) = super::allocator::heap_stats();
+    if limit == usize::MAX {
+        usize::MAX
+    } else {
+        limit.saturating_sub(cur)
+    }
+}
+
 pub fn native_heap_stats() -> NativeHeapStats {
     let (cur, _peak, limit) = super::allocator::heap_stats();
     match super::allocator::heap4_stats() {
@@ -235,6 +248,9 @@ macro_rules! register_sim_platform {
                 }
                 fn native_heap_stats() -> $crate::host::NativeHeapStats {
                     $crate::hal::sim::platform::native_heap_stats()
+                }
+                fn native_heap_free_bytes() -> usize {
+                    $crate::hal::sim::platform::native_heap_free_bytes()
                 }
                 fn register_gc_roots() {
                     $gc_roots()

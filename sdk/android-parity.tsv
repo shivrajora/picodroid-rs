@@ -22,9 +22,9 @@
 #
 # Seeded 2026-10-20 from website/src/content/docs/reference/compatibility-matrix.md
 # and the sdk/java/picodroid tree at 1f571977.
-android.app.Activity	picodroid/app/Activity	live	lifecycle, results, options menu, fragments, ViewModel owner; no action bar
-android.app.Application	picodroid/app/Application	live	onCreate entry point
-android.app.Service	picodroid/app/Service	partial	started + bound; no IntentService
+android.app.Activity	picodroid/app/Activity	live	lifecycle, results, options menu, fragments, ViewModel owner, onTrimMemory / onLowMemory; no action bar
+android.app.Application	picodroid/app/Application	live	onCreate entry point, onTrimMemory / onLowMemory fan out to registerComponentCallbacks
+android.app.Service	picodroid/app/Service	partial	started + bound, onTrimMemory / onLowMemory; no IntentService
 android.app.AlertDialog	picodroid/app/AlertDialog	partial	buttons, items, choices; String labels; no setView / setIcon
 android.app.Notification	picodroid/app/Notification	partial	post / cancel; no channels, styles, actions
 android.app.NotificationManager	picodroid/app/NotificationManager	partial	post / cancel
@@ -145,7 +145,9 @@ android.graphics.Rect	-	missing
 android.graphics.RectF	-	missing
 android.graphics.Matrix	-	missing
 android.graphics.Typeface	-	missing	one bitmap face family; setTextSize snaps to compiled sizes
-android.content.Context	picodroid/content/Context	partial	services, resources, files, prefs, components, receivers
+android.content.Context	picodroid/content/Context	partial	services, resources, files, prefs, components, receivers, registerComponentCallbacks / unregisterComponentCallbacks
+android.content.ComponentCallbacks	picodroid/content/ComponentCallbacks	partial	onLowMemory; onConfigurationChanged declared, never called
+android.content.ComponentCallbacks2	picodroid/content/ComponentCallbacks2	partial	onTrimMemory at TRIM_MEMORY_RUNNING_CRITICAL only; the other levels are constants
 android.content.Intent	picodroid/content/Intent	partial	explicit + broadcast; typed extras; no implicit resolution, Parcelable
 android.content.IntentFilter	picodroid/content/IntentFilter	partial	actions only, at most 8
 android.content.BroadcastReceiver	picodroid/content/BroadcastReceiver	partial	system actions, sendBroadcast, alarms; no ordered or sticky

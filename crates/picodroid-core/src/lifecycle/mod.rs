@@ -16,6 +16,7 @@ use crate::dispatch_sites::{self, DISPATCH_SITES};
 
 mod activity_stack;
 mod broadcast_events;
+mod trim_memory;
 // Alarm delivery exists only where several apps can be installed.
 #[cfg(has_multi_app)]
 mod alarm_events;
@@ -483,6 +484,8 @@ pub(crate) fn run_activity(
     const IDLE_GC_MS: u64 = 2_000;
     let mut idle_since_ms: Option<u64> = None;
     let mut idle_alloc_count: u16 = 0;
+    // The memory-pressure signal starts armed for every app of a run.
+    trim_memory::EPISODE.reset();
 
     // The package directory generation the alarm poll last saw; a change
     // forces a poll (see `dispatch_alarms`). Starts unseen so the first
@@ -510,7 +513,9 @@ pub(crate) fn run_activity(
 
         // Block until the tick source posts an LvglTick or a poster
         // submits a Runnable. Sub-ms wake on Runnable post.
-        match main_queue::recv_blocking() {
+        let task = main_queue::recv_blocking();
+        let is_tick = matches!(task, MainTask::LvglTick);
+        match task {
             MainTask::LvglTick => {
                 // Doze (power.rs; docs/designs/app-portability-2026-10.md
                 // K5): with the panel dark LVGL does not tick, so nothing
@@ -674,6 +679,12 @@ pub(crate) fn run_activity(
         // bind's wake makes the very next turn: its span is its own.
         // Each op times what it runs (an Activity's start is the classic
         // startup freeze; `activity start` in activity_stack.rs).
+        // Memory short? Both arenas are looked at every turn (the pool on
+        // every Nth frame) and the app told once per episode, before the
+        // drain so what `onTrimMemory` queued runs now (trim_memory.rs).
+        if trim_memory::poll(jvm, heap, handler, is_tick).is_break() {
+            break;
+        }
         let mut should_exit = false;
         handler.release_held_ops();
         while let Some(op) = handler.take_next_pending_op() {

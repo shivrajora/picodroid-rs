@@ -211,6 +211,8 @@ picodroid/concurrent/ThreadPoolExecutor
 picodroid/concurrent/TimeUnit
 picodroid/content/ActivityNotFoundException
 picodroid/content/BroadcastReceiver
+picodroid/content/ComponentCallbacks
+picodroid/content/ComponentCallbacks2
 picodroid/content/ComponentName
 picodroid/content/ContentResolver
 picodroid/content/Context

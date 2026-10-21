@@ -86,8 +86,10 @@ pub(super) fn handle_push_op(
     handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) -> LifecycleControl {
     // Make room first: the new screen is about to be built out of whatever
-    // the covered ones can give back.
-    if reclaim_covered_activities(jvm, heap, handler).is_break() {
+    // the covered ones can give back. The app is told once per push, before
+    // either pass destroys anything.
+    let mut trimmed = false;
+    if reclaim_covered_activities(jvm, heap, handler, &mut trimmed).is_break() {
         return LifecycleControl::Break;
     }
     // A full stack refuses the launch before anything is built or paused:
@@ -158,7 +160,7 @@ pub(super) fn handle_push_op(
     // The previous top is now stopped, which makes it a reclaim candidate:
     // at once under "don't keep activities", and otherwise if building the
     // new screen left memory short.
-    if reclaim_covered_activities(jvm, heap, handler).is_break() {
+    if reclaim_covered_activities(jvm, heap, handler, &mut trimmed).is_break() {
         return LifecycleControl::Break;
     }
     // Native heap use legitimately steps with the new screen's construction;
@@ -423,12 +425,11 @@ pub(super) fn init_dont_keep_activities() {
     }
 }
 
-/// Reclaim below this much of the LVGL pool free (1/N of its size). A
-/// covered Activity's view tree is parked in that pool, hidden but whole.
-pub(super) const POOL_PRESSURE_DIVISOR: usize = 8;
-/// Reclaim below this much of the native heap free (1/N of its size) — the
-/// heap the JVM's object storage grows in.
-pub(super) const HEAP_PRESSURE_DIVISOR: usize = 16;
+// The two lines — the LVGL pool (a covered Activity's view tree is parked
+// there, hidden but whole) and the native heap the JVM's object storage
+// grows in — are `crate::memory_pressure`'s, shared with the app's
+// `onTrimMemory` signal.
+use crate::memory_pressure::{HEAP_PRESSURE_DIVISOR, POOL_PRESSURE_DIVISOR};
 
 /// Is either arena short enough that a covered Activity should give its
 /// memory back? Deliberately late: a re-created Activity loses whatever its
@@ -451,18 +452,59 @@ pub(super) fn under_memory_pressure() -> bool {
 /// its stack entry stays — token, launch Intent, for-result metadata and the
 /// Bundle — for [`recreate_uncovered`]. The foreground Activity is never
 /// touched.
+///
+/// Memory short (not the developer switch) first tells the app —
+/// `onTrimMemory(TRIM_MEMORY_RUNNING_CRITICAL)` once per push, `trimmed`
+/// remembering it across the two passes of a push — and collects, then
+/// reads the arenas again: a view cache the app dropped went back to the
+/// pool and can make the reclaim unnecessary. If a covered Activity still
+/// has to go, `onLowMemory` says so once before the first one does.
 #[cfg(not(test))]
 pub(super) fn reclaim_covered_activities(
     jvm: &mut Jvm,
     heap: &mut SharedJvmHeap,
     handler: &mut crate::native_handler::PicodroidNativeHandler,
+    trimmed: &mut bool,
 ) -> LifecycleControl {
+    let mut low_memory_sent = false;
     for index in 0..handler.activity_depth().saturating_sub(1) {
         if handler.covered_activity(index).is_none() {
             continue; // already reclaimed
         }
-        if !dont_keep_activities() && !under_memory_pressure() {
-            break;
+        if !dont_keep_activities() {
+            if !under_memory_pressure() {
+                break;
+            }
+            if !*trimmed {
+                *trimmed = true;
+                super::trim_memory::EPISODE.disarm();
+                if super::trim_memory::fire(
+                    jvm,
+                    heap,
+                    handler,
+                    super::trim_memory::RUNNING_CRITICAL,
+                )
+                .is_break()
+                {
+                    return LifecycleControl::Break;
+                }
+                heap.collect_now(handler);
+                if !under_memory_pressure() {
+                    break;
+                }
+            }
+            if !low_memory_sent {
+                low_memory_sent = true;
+                if super::trim_memory::fire(jvm, heap, handler, super::trim_memory::LOW_MEMORY)
+                    .is_break()
+                {
+                    return LifecycleControl::Break;
+                }
+                heap.collect_now(handler);
+                if !under_memory_pressure() {
+                    break;
+                }
+            }
         }
         if reclaim_covered(jvm, index, heap, handler).is_break() {
             return LifecycleControl::Break;

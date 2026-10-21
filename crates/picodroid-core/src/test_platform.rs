@@ -462,6 +462,10 @@ impl PlatformHooks for TestHooks {
     fn native_heap_stats() -> NativeHeapStats {
         NativeHeapStats::default()
     }
+    /// No arena under test: never under pressure.
+    fn native_heap_free_bytes() -> usize {
+        usize::MAX
+    }
     /// Nothing to register: the test binary has no platform modules holding
     /// Java object references, and `gc_root_registration::register_all` is
     /// `cfg(not(test))` anyway.

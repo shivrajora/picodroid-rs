@@ -549,6 +549,19 @@ fn handle_control_line(line: &str) {
         return;
     }
 
+    if cmd.eq_ignore_ascii_case("memtrim") {
+        // `memtrim <level>`: one synthetic onTrimMemory (or onLowMemory for a
+        // negative level) from the next turn of the event loop, no pressure
+        // behind it — drives an app's handler for a capture or a test.
+        match it.next().and_then(|s| s.parse::<i32>().ok()) {
+            Some(level) => crate::memory_pressure::request_synthetic(level),
+            None => println!(
+                "[sim] control channel: memtrim needs a level (e.g. memtrim 15, memtrim -1)"
+            ),
+        }
+        return;
+    }
+
     if cmd.eq_ignore_ascii_case("heapcensus") {
         // Same request-flag discipline as `memstats`: the census walks the
         // heaps, so only the main task may run it.

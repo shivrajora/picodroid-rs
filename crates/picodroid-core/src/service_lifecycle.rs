@@ -262,14 +262,7 @@ pub(crate) fn destroy_all(
         if let Some(id) = v.2 {
             crate::notification::cancel(id);
         }
-        let _ = invoke_lifecycle(
-            jvm,
-            v.1,
-            dispatch_sites::SERVICE_ON_DESTROY,
-            v.0,
-            heap,
-            handler,
-        );
+        let _ = invoke_trampoline(jvm, dispatch_sites::SERVICE_ON_DESTROY, v.0, heap, handler);
     }
     // Wipe the registry — apps that re-enter run_application get a fresh slate.
     for e in registry() {
@@ -568,14 +561,38 @@ fn maybe_destroy(
         crate::notification::cancel(id);
     }
     registry()[slot].set(None);
-    invoke_lifecycle(
+    crate::pd_info!("service: destroy {}", class_name);
+    invoke_trampoline(
         jvm,
-        class_name,
         dispatch_sites::SERVICE_ON_DESTROY,
         obj_ref,
         heap,
         handler,
     )
+}
+
+/// A `final perform*` trampoline the framework base class declares: entered
+/// on the class the site names (its own `invokevirtual` walks the
+/// hierarchy), never by name on the runtime subclass.
+fn invoke_trampoline(
+    jvm: &mut Jvm,
+    site_idx: usize,
+    obj_ref: u16,
+    heap: &mut SharedJvmHeap,
+    handler: &mut PicodroidNativeHandler,
+) -> crate::lifecycle::LifecycleControl {
+    match jvm.invoke_instance(
+        dispatch_class(site_idx),
+        dispatch_method(site_idx),
+        obj_ref,
+        heap,
+        handler,
+    ) {
+        Ok(()) => crate::lifecycle::LifecycleControl::Continue,
+        Err(JvmError::Interrupted) => crate::lifecycle::LifecycleControl::Break,
+        // As the by-name path before it: a failed destroy is not fatal.
+        Err(_) => crate::lifecycle::LifecycleControl::Continue,
+    }
 }
 
 // ── Bytecode invocation helpers ─────────────────────────────────────────
