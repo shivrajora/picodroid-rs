@@ -24,14 +24,6 @@ import picoenvmonkt.util.dateTime
 import picoenvmonkt.util.hm
 
 /**
- * Max focusable rows rendered. Each `lv_list` button row consumes the board's small (48 KB) LVGL
- * render pool, and the full ring (60) leaves too little headroom for the draw tasks needed to
- * render them — so we show only the most recent window. Comfortably within the safe bound on this
- * board; raising it risks a render-pool stall.
- */
-private const val MAX_ROWS = 12
-
-/**
  * Temperature history (reached from the Home hub). Binds [SensorLoggerService], snapshots its
  * temperature ring buffer, and renders one focusable [ListView] row per sample. Under the
  * standardized model A/B move the row highlight, X opens an info dialog for the highlighted sample
@@ -45,7 +37,6 @@ class HistoryActivity : NavActivity(), ServiceConnection {
     private val samples = FloatArray(RING_CAPACITY)
     private val sampleTs = IntArray(RING_CAPACITY)
     private var sampleCount = 0
-    private var firstShown = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
 
@@ -96,24 +87,22 @@ class HistoryActivity : NavActivity(), ServiceConnection {
         sampleCount = svc.snapshot(IDX_TEMPERATURE, samples, sampleTs)
         Log.i(TAG, "History bound, samples=$sampleCount")
 
-        // Render the most-recent window (see MAX_ROWS). Rows are labelled with their real ring
-        // index.
-        firstShown = if (sampleCount > MAX_ROWS) sampleCount - MAX_ROWS else 0
+        // Every sample is a row: the list keeps only the rows in view alive and re-binds them as
+        // it scrolls, so the whole ring costs what a screenful did. Rows are labelled with their
+        // ring index.
         val status = statusLine
         if (sampleCount == 0) {
             // The ring fills only while the SensorLoggerService runs, and it survives
             // screen changes only as a started/foreground service, so point the user at
             // the Logger toggle in Live. Kept short to fit the status line width.
             status?.setText("No data - enable Logger")
-        } else if (firstShown > 0) {
-            status?.setText("$sampleCount samples (recent $MAX_ROWS)")
         } else {
             status?.setText("$sampleCount samples")
         }
 
         val f = formatter
         val adapter = ArrayAdapter<String>()
-        for (i in firstShown until sampleCount) {
+        for (i in 0 until sampleCount) {
             // "HH:MM 21.3C" once the sample carries an NTP-anchored stamp; the
             // pre-sync "[i]" ring-index form otherwise.
             val label =
@@ -122,6 +111,9 @@ class HistoryActivity : NavActivity(), ServiceConnection {
             adapter.add(label)
         }
         list?.setAdapter(adapter)
+        // Oldest first, as the ring is; open on the newest sample.
+        list?.setSelection(sampleCount - 1)
+        Log.i(TAG, "History rows " + (list?.getChildCount() ?: 0) + " of " + sampleCount)
     }
 
     override fun onServiceDisconnected(name: ComponentName) {
@@ -129,8 +121,7 @@ class HistoryActivity : NavActivity(), ServiceConnection {
     }
 
     private fun showSampleDialog(position: Int) {
-        // position is the row index within the rendered window; map back to the real sample index.
-        val idx = firstShown + position
+        val idx = position
         if (idx < 0 || idx >= sampleCount) {
             return
         }

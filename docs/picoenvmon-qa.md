@@ -114,6 +114,8 @@ with Y. Also softened the empty state to point at the Logger toggle
 ([HistoryActivity.java](../examples/picoenvmon/java/picoenvmon/ui/history/HistoryActivity.java)).
 (A live in-place refresh while History is foreground was considered but rejected: rebuilding the
 `ListView` resets the D-pad focus to the top each tick, breaking row navigation.)
+*Amendment 2026-10-20: the 12-row cap is gone; `ListView` recycles rows and History lists the whole
+ring, opened on the newest sample (`designs/listview-recycling-2026-10.md`).*
 
 ## 4. 🟡 Low — Missing-glyph tofu for `—` and `…` — FIXED
 
