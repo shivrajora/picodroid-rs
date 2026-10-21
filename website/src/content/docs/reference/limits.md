@@ -91,7 +91,7 @@ explains the frugality rules the port follows):
 |---|---|---|---|
 | PAPK (no-shrink / shrink) | 75,170 / 68,896 B | 79,095 / 72,908 B | +5 % |
 | Classes in the PAPK | 35 | 45 (3 shim survivors) | +10 |
-| Parsed class metadata after a nav cycle (device-derived) | 64.3 KB | 66.8 KB | +2.5 KB (+3.8 %) |
+| Parsed class metadata after a nav cycle (device-derived, measured before 2026-09-28; since pack-time class linking a class costs 16 B registered and nothing on first use, on both sides) | 64.3 KB | 66.8 KB | +2.5 KB (+3.8 %) |
 | JVM live floor, idle serving (sim, 416 KB arena) | 13.0 KB | 13.6 KB | +0.5 KB |
 | JVM live floor after 7.5 h on device | — | 13.6 KB | stable |
 | Device free heap at boot / after 7.5 h (`pdb sysmon`, `pico_enviro_mon_w`) | — | 164.5 KB / 135.9 KB | — |

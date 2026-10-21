@@ -336,36 +336,36 @@ CONTRIBUTING checklist.
 
 ### A class store of our own: shared string table, packed method records
 
-**What.** Replace the per-class `.class` files the firmware embeds (and the parser keeps
-metadata for) with a store built at firmware-build time from the same stripped, shrunk
-classes: one string table shared by every class, 16-bit indexes in place of the per-class
-constant pools, and a fixed-width method record (flags, name, descriptor, code offset,
-`max_stack`, `max_locals` in about 12 bytes) in place of `method_info` plus a `Code`
-attribute. `ClassFile::parse` reads the store; javac, the API contract, the shrink maps and
-the app PAPKs are untouched (an app's own classes could keep the class-file format, or go
-through the same packer at install).
+**RAM half landed 2026-09-28** — pack-time class linking
+([designs/class-link-2026-09.md](designs/class-link-2026-09.md)): every class carries a link
+table with a fixed-width 12 B `MethodInfo` per method, read in place from flash; one `Utf8` pool
+per class section (2026-10-13) is the shared string table. The parsed record (`Parsed`) is gone
+and a registered class costs 16 B of RAM whether or not an app touches it, so the G11 rule of
+`designs/claudeusage-gaps-roadmap-2026-09.md` ("count the SDK classes you touch") was withdrawn
+on 2026-10-20 with a census showing the class table unchanged when `claudeusage` reaches
+`LocalDateTime` and `Instant` again. What is left is flash.
 
-**Why.** Measured on `java.time.LocalDateTime` after the v0.29.0 cut (2026-09-25): 7,361 B in
-the shrunk image, of which bytecode is 2,186 B. The rest is format: a 480-entry constant pool
-(3,235 B, of which 1,160 B is the fixed framing of `Class` / `NameAndType` / `Methodref`
-entries and 1,899 B is Utf8 that every other class spells again for the same names), and 26 B
-of framing per method (8 B `method_info` header, 18 B `Code` preamble — 1,898 B for its 73
-methods, nearly as much as their code, since the median body is 17 B and 23 of them are
-one-line delegations). The 27 `java.time` classes are 54.5 KB shrunk and 67 KB before the map;
-a shared table and packed records would take roughly half again off that, across all 301 SDK
-classes. The same records are what `Parsed` builds per method at first use, so the store also
-cuts the RAM cost recorded as G11 in `designs/claudeusage-gaps-roadmap-2026-09.md` (5 KB per
-class in the sim, 3 KB on the RP2350; `claudeusage` OOM'd on nine of them).
+**What is left (flash).** The pooled class bytes still carry the class-file framing the link
+table has made redundant: 8 B of `method_info` header plus 18 B of `Code` preamble per method
+(the table already locates the code and reads `max_stack` / `max_locals` and the name and
+descriptor refs out of that framing), and the fixed constant-pool entries — the tag byte of
+every entry (the table packs the tags already) and the 2–4 B payload of each `Class`,
+`NameAndType`, `Methodref`, `Fieldref`, `InterfaceMethodref` and `String` entry. Measured on the
+embedded framework section at `1f571977` (2026-10-20, `framework_class_file_framing` in
+`crates/picodroid-core/src/class_metadata_tests.rs`): on the host test corpus (314 classes, line numbers on) the section is 587,480 B unshrunk and method framing is 72,780 B (3,234 methods, 2,606 with code) plus 59,270 B of constant-pool framing (23,376 tag bytes; `Class`/`String` 4,474; the three `*ref` kinds 16,296; `NameAndType` 15,124), 132,050 B or 22.5 % of the section; shrunk, 132,123 B of 518,236 B (25.5 %), since the shrinker shortens names, not framing. The release `testbench_rp2350` section (460,796 B) carries the same share, roughly 105–115 KB, and the RP2040's about half that. Moving them into the
+table (name/descriptor refs, `max_stack`, `max_locals` and code length into `MethodInfo`, the
+Methodref triples into `MethodrefDesc`) is a layout 4 / PAPK v4 change: `class-link`'s
+`layout.rs`, `build.rs`, `validate.rs` and `build::unpooled_class` (`papk-pack --repack`), the
+JVM's `class_file/accessors.rs` (`method_name`, `method_max_stack`, `method_max_locals`),
+`papk-format`'s version, `pd-install`'s deep check, the shrinker's reader in `build_support`,
+`check-shrunk-image.sh`, the class fuzz targets and the byte-for-byte relink corpus test.
+About 30–50 h.
 
-**Tradeoff.** A second class format to keep in step with `ClassFile` (the parser, the shrink
-pass in `build_support`, `check-shrunk-image.sh`, the census) and a packer step in `build.rs`;
-`--shrink-app` and the PAPK loader must decide whether app classes join the store. Worth it
-once flash or the parsed-metadata RAM is the constraint on a board; today the RP2350 has
-887 KB of flash free and the RP2040 sidesteps `java.time` by excluding it, so this is a
-budget lever to pull deliberately, not a fix something is waiting on. Cheaper first steps if
-only `java.time` matters: drop its one-line delegations (`minusX`, `withNano`, the
-`Month`-typed `of` overloads) — about 2 KB per class — at the price of some Android code no
-longer compiling.
+**Tradeoff.** A second class-bytes format to keep in step with every reader above, for flash
+alone. Worth it once flash is the constraint on a board (G4 in `gaps.md`); not a fix anything
+waits on. Cheaper first steps if only `java.time` matters: drop its one-line delegations
+(`minusX`, `withNano`, the `Month`-typed `of` overloads) — about 2 KB per class — at the price
+of some Android code no longer compiling.
 
 ### Background pool: two 6 KiB workers instead of four on `pico_enviro_mon_w`
 

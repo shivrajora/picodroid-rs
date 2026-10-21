@@ -54,7 +54,7 @@ Items closed out of [claudeusage-android-shape-2026-09.md](../designs/claudeusag
 
 | # | Deviation | Tag | Round 1 |
 |---|---|---|---|
-| 44 | `TimeFormat` does epoch arithmetic by hand with a mutable static UTC offset. | SDK-forced (no `java.time`) | **closed** 2026-09-24: `java.time` landed; `TimeFormat.hm` is a `LocalTime` in the bridge's `ZoneOffset`, formatted with `DateTimeFormatter`. Kept to those four classes rather than `LocalDateTime.ofInstant(…, ZoneId.systemDefault())`: each class an app touches is parsed into RAM, and this app is at the heap's edge (gaps G11). |
+| 44 | `TimeFormat` does epoch arithmetic by hand with a mutable static UTC offset. | SDK-forced (no `java.time`) | **closed** 2026-09-24: `java.time` landed; `TimeFormat.hm` is a `LocalTime` in the bridge's `ZoneOffset`, formatted with `DateTimeFormatter`. Kept to those four classes rather than `LocalDateTime.ofInstant(…, ZoneId.systemDefault())`: each class an app touches is parsed into RAM, and this app is at the heap's edge (gaps G11). Rule withdrawn 2026-10-20: nothing is parsed per class since class-link (2026-09-28); `hm` is `LocalDateTime.ofInstant` again. |
 | 45 | Zero padding by hand instead of `String.format`. | App choice | **closed**: `String.format("%02d")` and friends. |
 
 ## 7. Hardware

@@ -60,7 +60,7 @@ agent cannot finish alone: a decision, a bench action, a key, a push to someone 
 
 ### G4. Flash headroom on the largest images
 
-- **Missing:** the `pico_display2_w` debug image was 2,121,664 of 2,621,440 B on 2026-10-14 with about 190 KB of growth per fortnight; the open levers of `flash-budget-2026-09.md` §8: row 4 (LVGL config), 5 (float formatting; the rewrite cost +3.2 KB and was reverted), 6 (SDK tree-shake and `LV_USE_*`), 7 (`no-pdb`), 9 (a shared string table). A region-percentage gate (quality roadmap, Stage 2) so the wall is a CI failure with a margin, not a link error.
+- **Missing:** the `pico_display2_w` debug image was 2,121,664 of 2,621,440 B on 2026-10-14 with about 190 KB of growth per fortnight; the open levers of `flash-budget-2026-09.md` §8: row 4 (LVGL config), 5 (float formatting; the rewrite cost +3.2 KB and was reverted), 6 (SDK tree-shake and `LV_USE_*`), 7 (`no-pdb`), 9 (a shared string table: done as the Utf8 pool, 2026-10-13) and 9b (the class-file framing the link table has made redundant: measured 2026-10-20 at 22–25 % of the framework section, roughly 105–115 KB on `testbench_rp2350`, a layout 4 / PAPK v4 change of 30–50 h; `quality-roadmap.md` §"A class store of our own"). A region-percentage gate (quality roadmap, Stage 2) so the wall is a CI failure with a margin, not a link error.
 - **Evidence:** `scorecard.md` firmware size; `project/release-notes.md`; the 2026-10-11 cut of `app_region_kb` 1280 → 1024.
 - **Impact:** every SDK class in G1 is embedded on every board; without headroom G1 stalls.
 - **Estimate:** 40–80 h. **Human:** which features may leave a board (`pdb`, LVGL widgets) and whether the RP2040 testbench keeps every SDK class.
@@ -107,7 +107,7 @@ agent cannot finish alone: a decision, a bench action, a key, a push to someone 
 
 ### G11. The showcase apps' open decisions and performance rows
 
-- **Missing:** claudeusage decisions F3 and F7 (deferred), D4's runtime residual, G5 alpha assets, G6 backlight PWM, G11, H3 (drop `java.time`), H10 (the JVM task stack), P1–P5 (page-turn performance beyond SRAM placement); picoclock R3–R15 (R12 partial).
+- **Missing:** claudeusage decisions F3 and F7 (deferred), D4's runtime residual, G5 alpha assets, G6 backlight PWM, H3 (drop `java.time`, a flash lever only since 2026-10-20), H10 (the JVM task stack), P1–P5 (page-turn performance beyond SRAM placement); picoclock R3–R15 (R12 partial).
 - **Evidence:** `designs/claudeusage-decisions-2026-10.md`, `designs/claudeusage-gaps-roadmap-2026-09.md`, `designs/picoclock-roadmap.md`.
 - **Estimate:** 30–60 h. **Human:** F3 and F7.
 

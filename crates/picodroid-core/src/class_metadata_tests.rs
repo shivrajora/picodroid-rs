@@ -176,3 +176,73 @@ fn signature_hashes_are_unique_within_every_framework_class() {
         }
     }
 }
+
+/// How much of the embedded section is class-file framing the link table
+/// has made redundant: the `method_info` header and `Code` preamble of every
+/// method (8 B + 18 B; the table locates the code and reads `max_stack`,
+/// `max_locals` and the name and descriptor refs out of that framing), and
+/// the fixed constant-pool entries (tag bytes — the table packs the tags
+/// already — and the payload of `Class`, `String`, the three `*ref` kinds
+/// and `NameAndType`). The sizing behind the class store's flash half in
+/// docs/quality-roadmap.md; printed with `--nocapture`, never a gate.
+#[test]
+fn framework_class_file_framing() {
+    use class_link::classfile::{
+        fixed_entry_len, walk_cp, Utf8Form, TAG_CLASS, TAG_FIELDREF, TAG_INTERFACE_METHODREF,
+        TAG_METHODREF, TAG_NAME_AND_TYPE, TAG_STRING, TAG_UTF8,
+    };
+    let section = framework_section();
+    let (mut classes, mut class_bytes, mut methods, mut with_code) =
+        (0usize, 0usize, 0usize, 0usize);
+    let (mut tag_bytes, mut class_string, mut refs, mut name_and_type, mut other) =
+        (0usize, 0usize, 0usize, 0usize, 0usize);
+    for l in section.classes() {
+        classes += 1;
+        class_bytes += l.class.len();
+        for m in l.link.methods() {
+            methods += 1;
+            if m.code_offset != 0 {
+                with_code += 1;
+            }
+        }
+        walk_cp(l.class, Utf8Form::Pooled, |_, tag, _| {
+            if tag == 0 {
+                return Ok(());
+            }
+            tag_bytes += 1;
+            if tag == TAG_UTF8 {
+                return Ok(());
+            }
+            let payload = fixed_entry_len(tag).expect("known tag");
+            match tag {
+                TAG_CLASS | TAG_STRING => class_string += payload,
+                TAG_FIELDREF | TAG_METHODREF | TAG_INTERFACE_METHODREF => refs += payload,
+                TAG_NAME_AND_TYPE => name_and_type += payload,
+                _ => other += payload,
+            }
+            Ok(())
+        })
+        .expect("pooled class walks");
+    }
+    let method_framing = methods * 8 + with_code * 18;
+    let cp_framing = tag_bytes + class_string + refs + name_and_type;
+    println!(
+        "framing: {} classes, section {} B, class bytes {} B; methods {} ({} with code) \
+         method framing {} B; cp framing {} B (tags {}, Class/String {}, refs {}, NameAndType {}; \
+         other payload {} B); total removable {} B",
+        classes,
+        section.as_bytes().len(),
+        class_bytes,
+        methods,
+        with_code,
+        method_framing,
+        cp_framing,
+        tag_bytes,
+        class_string,
+        refs,
+        name_and_type,
+        other,
+        method_framing + cp_framing
+    );
+    assert!(method_framing > 0 && cp_framing > 0);
+}

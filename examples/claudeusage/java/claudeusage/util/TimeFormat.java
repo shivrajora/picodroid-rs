@@ -2,19 +2,18 @@
 package claudeusage.util;
 
 import java.time.Duration;
-import java.time.LocalTime;
+import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 
 /**
  * The screens' short forms of a clock time, a duration, a token count and a price.
  *
- * <p>Deliberately touches four {@code java.time} classes and no more ({@code LocalTime}, {@code
- * ZoneOffset}, {@code Duration}, {@code DateTimeFormatter}): every class an app calls is parsed
- * into RAM on first use, about 5 KB each in the simulator's model (3 KB on the RP2350), and this
- * app runs within a few KB of the modelled heap (gaps roadmap G11). {@code
- * LocalDateTime.ofInstant(Instant.ofEpochMilli(ms), ZoneId.systemDefault())} would read better and
- * cost four more.
+ * <p>Written in the plain {@code java.time} idiom. Since 2026-09-28 (pack-time class linking) a
+ * framework class costs 16 bytes of RAM registered and nothing on first use, so the number of
+ * {@code java.time} classes a formatter reaches no longer matters; this file once kept to four
+ * (claudeusage gaps roadmap G11, closed).
  */
 public final class TimeFormat {
   private static final DateTimeFormatter HH_MM = DateTimeFormatter.ofPattern("HH:mm");
@@ -31,8 +30,7 @@ public final class TimeFormat {
 
   /** Local "12:03". */
   public static String hm(long epochMs) {
-    long local = Math.floorDiv(epochMs, 1000L) + zone.getTotalSeconds();
-    return LocalTime.ofSecondOfDay(Math.floorMod(local, 86_400L)).format(HH_MM);
+    return LocalDateTime.ofInstant(Instant.ofEpochMilli(epochMs), zone).format(HH_MM);
   }
 
   /** "3d 4h", "2h 14m", "14m", "<1m": two units at most, so it stays short at any scale. */

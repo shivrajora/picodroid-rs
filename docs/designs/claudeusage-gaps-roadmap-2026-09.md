@@ -100,6 +100,15 @@ import is visible, and a sim model that charges device-sized metadata rather tha
 so an app that fits the RP2350 is not refused by the simulator. Until then, an app on this
 board should count the SDK classes it touches, not only its own objects.
 
+**Closed 2026-10-20.** Pack-time class linking (`class-link-2026-09.md`, main `f5d93245`,
+2026-09-28) removed the parsed record: a registered class costs 16 B of RAM whether or not an
+app touches it (`class_metadata_tests.rs::a_registered_class_costs_two_pointers_and_a_hash`).
+`TimeFormat.hm` is `LocalDateTime.ofInstant(Instant.ofEpochMilli(ms), zone)` again; the
+mem-diag census on the status page before and after the change is the same line, `census
+classmeta main: 350 classes tableB=11224 tableB~=5612 (link tables in flash: 0 B of RAM)`,
+with `nused` 177,872 B both times (main `1f571977` + the edit, sim, no bridge). The "count the
+SDK classes it touches" rule is withdrawn; H3 below is a flash lever only.
+
 **Attributed (2026-09-24):** the census now names every parsed class and every part of the
 parsed record, and the simulator's allocator can keep the call stack behind every live arena
 block (`PICODROID_MEMDIAG_SITES=1`, docs/memory-diagnostics.md). With that, and a mem-diag
@@ -184,7 +193,7 @@ the runtime ones shrink every app and close most of the simulator's gap at the s
 
 *App (about 39 KB):*
 
-- **H3. Format times without `java.time`** — open, only when the budget is wanted. The seven
+- **H3. Format times without `java.time`** — open, only when the flash budget is wanted (the RAM motive went with G11, 2026-10-20). The seven
   classes `TimeFormat` reaches cost 11.9 KB (20.7 KB in the simulator) before M8, and about
   half that since (`LocalTime` 2.1 KB and `Duration` 1.7 in the 2026-09-26 census); integer
   arithmetic on the epoch does what the screens need. Undoes part of the 2026-09-24 showcase.

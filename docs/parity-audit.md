@@ -590,6 +590,11 @@ never wall-clock measurement.
 
 ## 2026-09-24 memory-model divergence, measured and planned
 
+> History: the first row of the table below (parsed class metadata) is gone since 2026-09-28,
+> when pack-time class linking (M8, `designs/class-link-2026-09.md`) replaced the parsed
+> record with tables read from flash; a class costs 16 B registered on both sides. The
+> numbers stay as measured that day.
+
 The simulator refused claudeusage (`OOM: tried 4096 B`) on a screen the RP2350 runs with
 98 KB to spare. The allocation-site ledger (`PICODROID_MEMDIAG_SITES=1`,
 docs/memory-diagnostics.md) put an owner on every live arena block in the simulator, and a
