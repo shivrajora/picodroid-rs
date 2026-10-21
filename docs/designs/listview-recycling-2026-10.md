@@ -135,5 +135,7 @@ PREV/NEXT through `edit_mode.rs` (a keypad redesign for one widget); `RecyclerVi
 - `focus_order.rs`: 8 host tests (moves to either end, a replacement row appended after a
   trailing button, two trailing widgets keeping their order, rows outside the group, no group).
 - The flash delta is in the devlog entry and the ratchet commit.
-- Not yet verified on a board: History on `pico_enviro_mon` with a full ring (A/B through 60
-  rows, X on the highlighted sample); the touch kit's 64 KB pool is not at issue.
+- Bench (2026-10-21, the W slot flashed as `pico_enviro_mon_w`, debug): with a full ring the
+  log reads `History bound, samples=60` and `History rows 8 of 60`; twelve DOWN presses over
+  pdb walked the list past the window, ENTER opened the sample dialog on the highlighted row and
+  BACK dismissed it; no fault, 115 KB of heap free afterwards.

@@ -29,6 +29,8 @@ ranked list to [`gaps.md`](gaps.md).
 - **Rows:** `qa_list` ×2 (testbench by touch, pico_display2_w by keys; the key presses are
   paced 0.2 s apart because a burst collapses in the button debouncer), `qa_ui`'s
   `listRecycling`. Rows share the first row's height (documented divergence).
+- **Merged** to main `ba565e3f` on 2026-10-21; bench-verified the same morning (History rows
+  8 of 60 on the W slot, keys walk, dialog).
 - **Still open:** a `test.ctrl` for picoenvmon History in the sim (one script must serve a keys
   board and a touch board; the logger yields a sample a second, so a 20 s wait would do);
   `OnScrollListener`, header / footer views, choice modes; sim-run writes both rows of one app
