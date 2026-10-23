@@ -69,6 +69,7 @@ Three environment switches change what the simulator boots into, without a rebui
 | `PICODROID_DONT_KEEP_ACTIVITIES=1` | Destroy every Activity the moment it is covered, as Android's developer option does — finds state kept in fields instead of the `Bundle` |
 | `PICODROID_BOOT=launcher` (with `--system-apps`) | Boot the launcher, with the app under test installed beside it; see [Launcher](/guides/launcher/) |
 | `PICODROID_SIM_NET=down` | Boot a network board with its link down; `net up` on the control channel raises it |
+| `PICODROID_SIM_TREE=1` | After the `[layout]` line, print one `[tree]` line per live widget: kind, coordinates, size, the width and height styles (`content`, `100pct`, pixels or `-`), pads, margins, whether it scrolls — what cut a view, or which container kept the 160×160 default |
 
 To drive the UI without a local display (over SSH, in CI, or for scripted QA), see [Driving the simulator headlessly](#driving-the-simulator-headlessly) below.
 

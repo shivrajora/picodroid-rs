@@ -275,6 +275,8 @@ pub fn fit_check_after_tick() {
             cut_y
         );
     }
+    #[cfg(feature = "sim")]
+    dump_tree();
 }
 
 /// What [`reach`] found in a view tree: the farthest right and bottom
@@ -415,4 +417,86 @@ pub fn show_fps() -> Result<Option<Value>, JvmError> {
 pub fn update() -> Result<Option<Value>, JvmError> {
     with_gfx(|g| g.tick(crate::executors::tick_source::TICK_PERIOD_MS));
     Ok(None)
+}
+
+/// `PICODROID_SIM_TREE=1`: after the `[layout]` line, one `[tree]` line per
+/// live object under the window, indented by depth, with the widget kind,
+/// its coordinates and size, its own width and height style
+/// (`content` for `LV_SIZE_CONTENT`, `pct` for a percentage, `-` for none set),
+/// its left pad and margin and whether it scrolls. The numbers the eye
+/// cannot read off a capture: what cut a widget, whether a container took
+/// LVGL's 160×160 default, which object a scroll walk stops at (QA
+/// 2026-10-22 retracted a "cut checkbox" on this evidence). Sim only.
+#[cfg(feature = "sim")]
+fn dump_tree() {
+    if std::env::var("PICODROID_SIM_TREE").is_ok_and(|v| v == "1") {
+        if let Some(scr) = super::lvgl::window::content_root() {
+            dump_node(scr, 0);
+        }
+    }
+}
+
+#[cfg(feature = "sim")]
+fn dump_node(o: crate::lvgl_ffi::Obj, depth: u32) {
+    use crate::lvgl_ffi::*;
+    const MAX_DEPTH: u32 = 16;
+    let mut a = lv_area_t {
+        x1: 0,
+        y1: 0,
+        x2: 0,
+        y2: 0,
+    };
+    lv_obj_get_coords(o, &mut a);
+    let cls = lv_obj_get_class(o);
+    // The class statics, by address only.
+    let kinds: [(*const lv_obj_class_t, &str); 7] = [
+        (&raw const lv_label_class, "label"),
+        (&raw const lv_checkbox_class, "checkbox"),
+        (&raw const lv_slider_class, "slider"),
+        (&raw const lv_roller_class, "roller"),
+        (&raw const lv_dropdown_class, "dropdown"),
+        (&raw const lv_buttonmatrix_class, "btnmatrix"),
+        (&raw const lv_textarea_class, "textarea"),
+    ];
+    let kind = kinds
+        .iter()
+        .find(|(c, _)| core::ptr::eq(*c, cls))
+        .map_or("obj", |(_, n)| n);
+    let style_size = |prop: lv_style_prop_t| match local_style_num(o, prop) {
+        None => alloc::string::String::from("-"),
+        Some(v) if v == LV_SIZE_CONTENT => alloc::string::String::from("content"),
+        // LVGL's coordinate types: bits 29–30, `1` for a special value
+        // (a percentage, or `LV_SIZE_CONTENT` above).
+        Some(v) if (v >> 29) & 3 == 1 => alloc::format!("{}pct", v & ((1 << 29) - 1)),
+        Some(v) => alloc::format!("{v}"),
+    };
+    crate::pd_info!(
+        "[tree] {:w$}{} ({},{})-({},{}) {}x{} w={} h={} pad_l={} margin_l={}{}",
+        "",
+        kind,
+        a.x1,
+        a.y1,
+        a.x2,
+        a.y2,
+        a.x2 - a.x1 + 1,
+        a.y2 - a.y1 + 1,
+        style_size(LV_STYLE_WIDTH),
+        style_size(LV_STYLE_HEIGHT),
+        local_style_num(o, LV_STYLE_PAD_LEFT).unwrap_or(0),
+        local_style_num(o, LV_STYLE_MARGIN_LEFT).unwrap_or(0),
+        if lv_obj_has_flag(o, LV_OBJ_FLAG_SCROLLABLE) {
+            " scrolls"
+        } else {
+            ""
+        },
+        w = (depth * 2) as usize
+    );
+    if depth >= MAX_DEPTH {
+        return;
+    }
+    for i in 0..lv_obj_get_child_count(o) {
+        if let Some(c) = lv_obj_get_child(o, i as i32) {
+            dump_node(c, depth + 1);
+        }
+    }
 }
