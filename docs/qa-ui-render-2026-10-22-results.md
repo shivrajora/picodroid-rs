@@ -150,6 +150,17 @@ the FrameLayout kept LVGL's default object size. Round 2's B1 made an unsized *c
 `generateDefaultLayoutParams`. The `[layout]` line says `fit ok` here: the pager is a scroll
 container, so the walk stops at it (U10).
 
+**Fixed 2026-10-22.** `ViewGroup.addView(child)` gives a `ViewGroup` child that was never sized the
+group's `generateDefaultLayoutParams()`, now mirrored from Android: `match_parent` both ways from a
+`FrameLayout` (so from a `ViewPager2` page), `match_parent` × `wrap_content` from a vertical
+`LinearLayout`, `wrap_content` both ways from a horizontal one and the base class, `match_parent`
+× `wrap_content` from a `ScrollView` (Android measures the child's height unconstrained; a
+viewport-tall child here would not scroll). `LinearLayout.setOrientation` is a Java method now
+(`nativeSetOrientation` behind it) so the orientation is known; `getOrientation()` came with it.
+Leaf views without params keep their size, as before (the matrix says so). fragmentdemo's detail
+reads whole; callbacktest's `RadioGroup`, a 160×160 default before, is 320×66. The pager was not
+the reason the walk missed it (U10).
+
 ### U5 — a three-button dialog's buttons sit under a scrollbar
 
 dialogdemo's `Delete? / Are you sure?` dialog with `Later`, `Cancel` and `OK`

@@ -193,15 +193,31 @@ public abstract class ViewGroup extends View implements ViewParent {
   /**
    * Adds {@code child} to this layout with the {@link LayoutParams} it already carries (an inflated
    * view's, or what {@link View#setLayoutParams} set), as on Android; a child without any keeps the
-   * size and position it was given directly.
+   * size and position it was given directly. A container that was never sized is the one exception:
+   * Android gives a child without params this group's {@link #generateDefaultLayoutParams}, and a
+   * {@code ViewGroup} left at the renderer's default size (160×160) is never what the app meant (QA
+   * 2026-10-22, U4: a fragment's {@code FrameLayout} in a pager).
    */
   public void addView(View child) {
     LayoutParams params = child == null ? null : child.getLayoutParams();
+    if (params == null && child instanceof ViewGroup && !child.isSized()) {
+      params = generateDefaultLayoutParams();
+    }
     if (params != null) {
       addView(child, params);
     } else {
       attach(child);
     }
+  }
+
+  /**
+   * Mirrors {@code android.view.ViewGroup#generateDefaultLayoutParams}: the params a child added
+   * without any gets, {@code wrap_content} on both axes here; {@link picodroid.widget.FrameLayout}
+   * and {@link picodroid.widget.LinearLayout} override it as Android's do. picodroid applies it
+   * only to a {@code ViewGroup} child that was never sized ({@link #addView(View)}).
+   */
+  protected LayoutParams generateDefaultLayoutParams() {
+    return new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
   }
 
   private void attach(View child) {

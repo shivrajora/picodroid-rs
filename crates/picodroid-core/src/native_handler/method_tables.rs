@@ -827,7 +827,7 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     // picodroid/widget/LinearLayout
     ("picodroid/widget/LinearLayout", "nativeCreate", "()I"),
     ("picodroid/widget/LinearLayout", "setGravity", "(I)V"),
-    ("picodroid/widget/LinearLayout", "setOrientation", "(I)V"),
+    ("picodroid/widget/LinearLayout", "nativeSetOrientation", "(I)V"),
     ("picodroid/widget/LinearLayout", "setSpacing", "(I)V"),
     // picodroid/widget/ListView
     ("picodroid/widget/ListView", "addItem", "(Ljava/lang/String;)V"),

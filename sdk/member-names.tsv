@@ -1490,6 +1490,7 @@ M	from
 M	gcCount
 M	gcFreed
 M	gcTimeNanos
+M	generateDefaultLayoutParams
 M	get
 M	getAbsolutePath
 M	getAction
@@ -2130,6 +2131,7 @@ M	nativeSetMode
 M	nativeSetNode
 M	nativeSetNull
 M	nativeSetOptionsMenuAvailable
+M	nativeSetOrientation
 M	nativeSetProgress
 M	nativeSetProperty
 M	nativeSetRange

@@ -28,7 +28,33 @@ public class LinearLayout extends ViewGroup {
 
   private static native int nativeCreate();
 
-  public native void setOrientation(int orientation);
+  /** Mirrors {@code android.widget.LinearLayout#setOrientation}. */
+  public void setOrientation(int orientation) {
+    this.orientation = orientation == HORIZONTAL ? HORIZONTAL : VERTICAL;
+    nativeSetOrientation(orientation);
+  }
+
+  private native void nativeSetOrientation(int orientation);
+
+  /** Mirrors {@code android.widget.LinearLayout#getOrientation}. */
+  public int getOrientation() {
+    return orientation;
+  }
+
+  /**
+   * Mirrors {@code android.widget.LinearLayout#generateDefaultLayoutParams}: a child added without
+   * params spans a vertical layout ({@code match_parent} wide, {@code wrap_content} tall) and wraps
+   * both axes in a horizontal one.
+   */
+  @Override
+  protected ViewGroup.LayoutParams generateDefaultLayoutParams() {
+    if (orientation == HORIZONTAL) {
+      return new LayoutParams(
+          ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+    }
+    return new LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+  }
 
   /** Gap in pixels between adjacent children. Default 0. */
   public native void setSpacing(int px);

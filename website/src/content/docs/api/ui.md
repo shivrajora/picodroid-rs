@@ -626,6 +626,16 @@ panel cannot keep detached trees waiting for a re-add), so a removed view cannot
 `addView` on a view that already has a parent **moves** it (Android throws), because a move is the
 only way to reparent a view when `removeView` frees. The old parent's list lets go of it.
 
+A child added without `LayoutParams` keeps the size and position it was given directly, with one
+exception: a **container** (`ViewGroup` subclass) that was never sized takes the group's
+`generateDefaultLayoutParams()`, as every child does on Android, so a `FrameLayout` built in
+`onCreateView` fills its pager page instead of staying at the renderer's 160×160 default. The
+defaults are Android's: `match_parent` on both axes from a `FrameLayout` (and a `ViewPager2`),
+`match_parent` × `wrap_content` from a vertical `LinearLayout`, `wrap_content` on both from a
+horizontal one and from anything else; a `ScrollView` gives `match_parent` × `wrap_content`,
+since a child as tall as the viewport would have nothing to scroll. Leaf views (a `TextView`, a
+`Button`) added without params are left as they are: a view with no size set is content-sized.
+
 `ViewGroup.LayoutParams` carries a child's requested `width`/`height`, using `MATCH_PARENT` (-1) or
 `WRAP_CONTENT` (-2):
 

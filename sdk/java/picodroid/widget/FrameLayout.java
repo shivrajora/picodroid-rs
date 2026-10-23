@@ -22,6 +22,16 @@ public class FrameLayout extends ViewGroup {
   private static native int nativeCreate();
 
   /**
+   * Mirrors {@code android.widget.FrameLayout#generateDefaultLayoutParams}: a child added without
+   * params fills the frame on both axes.
+   */
+  @Override
+  protected ViewGroup.LayoutParams generateDefaultLayoutParams() {
+    return new LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+  }
+
+  /**
    * Mirrors {@code android.widget.FrameLayout.LayoutParams}: {@code gravity} names the edge or
    * centre the child is placed against on each axis ({@code TOP | LEFT} when it names none), and
    * the margins move it in from there, so {@code leftMargin} and {@code topMargin} alone are the

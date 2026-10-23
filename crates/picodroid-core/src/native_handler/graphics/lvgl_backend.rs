@@ -183,7 +183,7 @@ impl GraphicsBackend for LvglBackend {
     ) -> DispatchResult {
         match method {
             mh::nativeCreate => Some(widgets::linear_layout_native_create()),
-            mh::setOrientation => Some(widgets::linear_layout_set_orientation(
+            mh::nativeSetOrientation => Some(widgets::linear_layout_set_orientation(
                 ctx.args,
                 ctx.objects,
             )),
