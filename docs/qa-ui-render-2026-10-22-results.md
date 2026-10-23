@@ -130,6 +130,15 @@ Fix shape: a translucent track with an opaque thumb, or a right inset on the scr
 equal to the bar's width when the content overflows (what `scrollbarStyle=outsideInset` does on
 Android).
 
+**Fixed 2026-10-22.** LVGL draws no track, only the thumb, and six rows in a 240 px column make a
+thumb nearly the column's height. `scroll_view.rs` no longer overrides the theme's 40 % thumb
+with an opaque one: the pixels under it show through dimmed, as under Android's overlay scrollbar
+(and as under a `ListView`'s, which kept the theme's). The opaque thumb had bought the hardware
+scroll path a two-ends repaint after a step; a translucent one is repainted end to end
+(`hw_scroll.rs::repaint_thumb` already did so), a 5 px column. Verified by a pixel read of the
+same six-app Apps screen: at x = 308..312 the bar is now `393c41` over the background and the
+`0`'s last column (`a4a5a4`) shows through where the round's capture had `626162` over it.
+
 ### U4 — an unsized ViewGroup inside a container is 160×160
 
 fragmentdemo (`p1-tb-fragmentdemo.png`): `DetailFragment.onCreateView` returns a `FrameLayout`

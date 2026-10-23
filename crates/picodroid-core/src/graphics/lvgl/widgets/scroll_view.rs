@@ -86,12 +86,16 @@ pub(in crate::graphics) fn create_under(parent: Obj) -> i32 {
             // state change itself, twice per gesture — invalidates the whole
             // scroller: on the touch board that was five full repaints per
             // drag. With no state-bound style a scroll changes no style at all.
-            // Opaque rather than 40%, so the thumb is one flat colour: what lets
-            // the hardware scroll path repaint only its two ends after a step
-            // (hw_scroll.rs) instead of its whole length.
+            // The thumb stays the theme's 40%: it is drawn over the content,
+            // and an opaque one hid whatever a row put under it — the last
+            // glyph of every right-aligned tail in Settings → Apps, the right
+            // side of a focused row's border (QA 2026-10-22, U3); Android's
+            // overlay scrollbar is translucent too. The hardware scroll path
+            // repaints a translucent thumb end to end after a step instead
+            // of its two ends alone (hw_scroll.rs): a 5 px column, not the
+            // screen.
             remove_styles(o, LV_PART_SCROLLBAR | LV_STATE_SCROLLED);
             remove_transition(o, LV_PART_SCROLLBAR);
-            lv_obj_set_style_bg_opa(o, LV_OPA_COVER, LV_PART_SCROLLBAR);
         });
     }
     // Let the panel scroll it where the panel can (hw_scroll.rs).
