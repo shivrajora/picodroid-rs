@@ -155,7 +155,7 @@ This machine's newest result files under `build/sim/results/`, `build/hil/result
 
 | Run | Started | Commit | Verdicts |
 |---|---|---|---|
-| sim | 2026-10-22 21:36 | `acf04791` | 2 PASS |
+| sim | 2026-10-22 22:01 | `e91aceed` | 2 PASS |
 | hil `pico_display2_w` | 2026-10-22 05:15 | `e91d85cd` | 127 PASS, 101 SKIP |
 | hil `pico_enviro_mon_w` | 2026-10-18 14:19 | `305f0dfd` | 2 PASS |
 | hil `pico_touch_kit` | 2026-10-22 05:15 | `e91d85cd` | 117 PASS, 2 FAIL, 109 SKIP |
@@ -167,4 +167,4 @@ This machine's newest result files under `build/sim/results/`, `build/hil/result
 
 ---
 
-Generated at `e556d132`.
+Generated at `ef8cbdcf`.

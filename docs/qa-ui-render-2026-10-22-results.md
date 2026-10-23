@@ -235,6 +235,14 @@ text per cell).
   273 px text width while the dots mode draws it cut, so the walk counts a cut the eye does not
   see. The app's own checks pass.
 
+**Fixed 2026-10-22, the second; the first retracted.** `reach()` no longer descends into a
+button: its label is its own content (the `[tree]` dump shows the 96 px button holding a 449 px
+label centred under it). ellipsizedemo's line is `fit ok` and its sim row pins that. The
+layoutdemo item was not a missed cut: on the Enviro the `FlowLayout` sits at x = 140..239, inside
+the panel, and what hides `item1`'s first letters is the demo's own 200 px stage card, a later
+sibling drawn over it (the demo lays its stages out for 320); a custom `ViewGroup` is made by
+`frame_layout::create`, which clears `SCROLLABLE`, so the walk goes through it.
+
 ## Scenario results
 
 What was captured, by panel, and what each showed. "clean" means nothing cut, overlapping or
