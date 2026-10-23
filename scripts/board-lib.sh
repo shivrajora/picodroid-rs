@@ -184,12 +184,16 @@ toml_top_int() {
 # Where the settings app's uninstall dialog puts its positive button, as
 # `x y` in display pixels for `input tap`.
 #
-# The dialog is a 200x160 card centred on the display, with two 80 px buttons
-# side by side in a row 78 px down from the card's top edge
-# (`lvgl/widgets/alert_dialog.rs`: card_y = max((screen_h - 160) / 2, 8), the
-# flex column ends in a 50 px button row). So the positive button sits 40 px
-# right of the centre line and 78 px into the card — 160,118 on a 240x240
-# board, 200,118 on the 320x240 testbench, 200,238 on a 320x480 panel.
+# The dialog is a 200 px card centred on the display, as tall as its content
+# (`lvgl/widgets/alert_dialog.rs`, since 2026-10-22; 160 px before): 12 px of
+# padding, a one-line title and a one-line message (16 px each) with the
+# theme's 10 px flex gaps, the 50 px button row, 12 px of padding — 126 px,
+# so card_y = (screen_h - 126) / 2. Two 80 px buttons sit side by side in the
+# row. So the positive button sits 40 px right of the centre line and about
+# 90 px into the card — 160,147 on a 240x240 board, 200,147 on the 320x240
+# testbench, 200,267 on a 320x480 panel. A pixel read of the dialogdemo
+# capture on the testbench puts the buttons at y = 131..166 under a card at
+# y = 57..182.
 #
 # Both coordinates are derived. `y` was a literal 118 until pico_touch_kit
 # arrived: every board with this lane was 240 px tall, so a constant and a
@@ -200,7 +204,7 @@ settings_dialog_ok() {
   board_toml=$(find "$REPO_ROOT/platforms" -path "*/boards/$board/board.toml" | head -1)
   width=$(display_dim "$board_toml" width)
   height=$(display_dim "$board_toml" height)
-  card_y=$(( (${height:-240} - 160) / 2 ))
+  card_y=$(( (${height:-240} - 126) / 2 ))
   (( card_y < 8 )) && card_y=8
   # The button row is the card's third flex child (12 px pad, two labels, the
   # theme's row gaps, 6 px row pad): its 36 px buttons span roughly card_y+72

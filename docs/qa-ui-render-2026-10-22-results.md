@@ -192,6 +192,14 @@ three-button dialog (`p4-tb-dialog-alert.png`) has about 90 px of blank card und
 the same way. Android's dialog wraps its content. Cosmetic, but it is the one dialog every app
 with a menu shows.
 
+**Fixed 2026-10-22.** The card is `LV_SIZE_CONTENT` tall (within 8 px of the window's edges) and
+centred by alignment, so it follows what it holds; a dialog with no buttons gets no button row;
+a title or message wraps at the card's content width instead of running past it. The message
+dialog is 126 px on every panel (12 + 16 + 10 + 16 + 10 + 50 + 12), the list dialogs and the
+options menu end at their rows. `board-lib.sh::settings_dialog_ok`, which aims the settings
+lane's tap at the uninstall dialog's button, derives the card's top from 126 now (the button
+row's offset in the card is unchanged); the sim's settings lane proves the tap.
+
 ### U7 — a GridLayout column is narrower than its cells ask for
 
 picoenvmon's Live screen (`p2-tb-env-live.png`, `z-env-live-row.png`; the same on

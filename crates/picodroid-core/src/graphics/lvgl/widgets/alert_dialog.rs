@@ -385,10 +385,13 @@ fn dialog_content_width() -> i32 {
 /// Build the modal scrim + card and add the title/message labels. Returns
 /// `(card, dialog handle)`, the scrim registered; the caller appends any
 /// list matrix and then the button row (flex-column order = creation
-/// order). `card` height defaults to 160 but is overridden by list dialogs
-/// to fit the matrix. `None`, with nothing left behind, when the handle
-/// table is full: a dialog nothing can name is a dialog nothing can dismiss.
-fn build_dialog_shell(title: &str, message: &str, card_h: i32) -> Option<(Obj, i32)> {
+/// order). The card is as tall as what it holds, as Android's dialog is,
+/// and centred: until 2026-10-22 it was 160 px (a list dialog `90 + 28 ×
+/// rows`), which left a blank quarter under a message dialog's buttons and
+/// a 48 px foot under a menu's rows (QA U6). `None`, with nothing left
+/// behind, when the handle table is full: a dialog nothing can name is a
+/// dialog nothing can dismiss.
+fn build_dialog_shell(title: &str, message: &str) -> Option<(Obj, i32)> {
     // On the overlay layer, above the screen: a dialog must not pan with an
     // oversized content root, and it belongs to the Activity, not to the
     // root a `setContentView` replaces (the shown-dialog stack ties its life
@@ -418,13 +421,13 @@ fn build_dialog_shell(title: &str, message: &str, card_h: i32) -> Option<(Obj, i
     lv_obj_set_style_pad_top(scrim, 0, 0);
     lv_obj_set_style_pad_bottom(scrim, 0, 0);
 
-    // Card: vertical flex with title, message, and a button row.
+    // Card: vertical flex with title, message, and a button row; its
+    // height is its content's, within 8 px of the window's edges, and the
+    // centring is an alignment, which LVGL keeps as the card grows.
     let card = lv_obj_create(scrim)?;
-    lv_obj_set_size(card, card_w, card_h);
-    // Center the card in the window. Vertical offset keeps the card
-    // centered as it grows for list content.
-    let card_y = ((screen_h - card_h) / 2).max(8);
-    lv_obj_set_pos(card, ((screen_w - card_w) / 2).max(0), card_y);
+    lv_obj_set_size(card, card_w, LV_SIZE_CONTENT);
+    lv_obj_set_style_max_height(card, (screen_h - 16).max(1), 0);
+    lv_obj_center(card);
     lv_obj_set_style_bg_color(card, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
     // The card's content is laid out to fit it; without this LVGL still
@@ -468,6 +471,17 @@ fn add_button_row(
     negative_text: &str,
     neutral_text: &str,
 ) {
+    // Up to 80 px a button, Android-ish, and never more than the row holds
+    // with the theme's gaps between them: 52 px each for three on the
+    // narrowest card.
+    let n_buttons = (!positive_text.is_empty()) as i32
+        + (!negative_text.is_empty()) as i32
+        + (!neutral_text.is_empty()) as i32;
+    if n_buttons == 0 {
+        // A list dialog or an options menu with no buttons: no row, so the
+        // card ends at its rows.
+        return;
+    }
     let Some(btn_row) = lv_obj_create(card) else {
         return;
     };
@@ -494,12 +508,6 @@ fn add_button_row(
         LV_FLEX_ALIGN_CENTER,
     );
 
-    // Up to 80 px a button, Android-ish, and never more than the row holds
-    // with the theme's gaps between them: 52 px each for three on the
-    // narrowest card.
-    let n_buttons = (!positive_text.is_empty()) as i32
-        + (!negative_text.is_empty()) as i32
-        + (!neutral_text.is_empty()) as i32;
     let gap = style_num(btn_row, LV_PART_MAIN, LV_STYLE_PAD_COLUMN);
     let btn_w = button_width(row_w, gap, n_buttons);
 
@@ -543,7 +551,7 @@ pub(in crate::graphics) fn create(
     negative_text: &str,
     neutral_text: &str,
 ) -> i32 {
-    let Some((card, dialog)) = build_dialog_shell(title, message, 160) else {
+    let Some((card, dialog)) = build_dialog_shell(title, message) else {
         return 0;
     };
     add_button_row(card, dialog, positive_text, negative_text, neutral_text);
@@ -596,10 +604,7 @@ pub(in crate::graphics) fn create_with_list(
     }
     let n_items = item_strs.len();
 
-    // Taller card so the matrix has room (≈26px per row, plus chrome).
-    let card_h = (90 + (n_items as i32) * 28).min(220);
-
-    let Some((card, dialog)) = build_dialog_shell(title, "", card_h) else {
+    let Some((card, dialog)) = build_dialog_shell(title, "") else {
         return 0;
     };
     {
@@ -960,6 +965,10 @@ pub fn reset_alert_dialog_state() {
 /// A new label under `parent` showing `text`.
 fn add_label(parent: Obj, text: &str) -> Option<Obj> {
     let label = lv_label_create(parent)?;
+    // A title or message wraps at the card's content width instead of
+    // running past the card; a short one stays its own width, centred by
+    // the card's flex.
+    lv_obj_set_style_max_width(label, dialog_content_width(), 0);
     // SAFETY: `label` was just made by `lv_label_create`; the text is
     // NUL-terminated and LVGL copies it.
     super::text_view::with_cstr(text, |p| unsafe { lv_label_set_text(label, p.as_ptr()) });
