@@ -155,8 +155,17 @@ lv_event_cb! {
 /// from LVGL's own key handler, docs/designs/app-portability-2026-10.md K7 —
 /// sends no VALUE_CHANGED; the KEY event, which runs after the class handled
 /// it, is the same notice).
+/// The space between a roller's rows. LVGL's theme gives a roller its
+/// large line space (20 px), which makes three 16 px rows plus the border
+/// 112 px: taller than the 100 px picker, which clipped 6 px off each
+/// roller's top and bottom, the keys board's focus border with them (QA
+/// 2026-10-22, U8). At 14 px the roller is 94 px and sits inside the
+/// picker's 96 px content box.
+const ROW_SPACE: i32 = 14;
+
 fn add_roller(container: Obj, options: &[u8], mode: lv_roller_mode_t) -> Option<Obj> {
     let roller = lv_roller_create(container)?;
+    lv_obj_set_style_text_line_space(roller, ROW_SPACE, 0);
     // SAFETY: `roller` was just made by `lv_roller_create`; `options` is one
     // of this module's NUL-terminated option lists, which LVGL copies.
     unsafe {
@@ -165,6 +174,9 @@ fn add_roller(container: Obj, options: &[u8], mode: lv_roller_mode_t) -> Option<
     }
     add_event_cb(roller, value_changed_cb, LV_EVENT_VALUE_CHANGED);
     add_event_cb(roller, value_changed_cb, LV_EVENT_KEY);
+    // The keys board's focus border, where the theme's outline is clipped
+    // (events/groups.rs::key_focus_border).
+    super::super::events::key_focus_border(roller);
     Some(roller)
 }
 
@@ -172,7 +184,11 @@ pub(in crate::graphics) fn create() -> i32 {
     let Some(container) = lifecycle::screen_ptr().and_then(|o| lv_obj_create(o)) else {
         return 0;
     };
+    // 200×100 is the picker's intrinsic size, which the demos and
+    // picoclock lay out around; the rollers are made to fit it
+    // (`add_roller`). A picker never scrolls as a whole; its rollers do.
     lv_obj_set_size(container, 200, 100);
+    lv_obj_remove_flag(container, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_pad_left(container, 0, 0);
     lv_obj_set_style_pad_right(container, 0, 0);
     lv_obj_set_style_pad_top(container, 0, 0);

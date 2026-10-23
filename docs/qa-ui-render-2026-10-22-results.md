@@ -231,6 +231,18 @@ on the roller is not clipped by the container on its left side; whatever draws t
 sides is not reaching the panel. The F5 border is meant to be the one thing a keys-board user
 has to see where the focus is.
 
+**Fixed 2026-10-22.** Two things, both in `time_picker.rs`. The rollers were 112 px tall (three 16
+px rows at the theme's 20 px line space, plus the border) in a 100 px picker, which clipped 6 px
+off each roller's top and bottom, so a border on a roller lost those sides and the theme's
+outline, drawn outside, showed only in the free space beside the first roller; a roller now has a
+14 px line space and is 94 px, inside the picker's 96 px content box. And a roller never went
+through `ensure_in_group` (LVGL puts it in the group itself), so it had the theme's outline and
+not the F5 border; `events::groups::key_focus_border` gives it the border for `FOCUSED` /
+`FOCUS_KEY` (and the theme's secondary colour for `EDITED`) with the outline off. The picker also
+drops its `SCROLLABLE` flag, and the fit walk stops at a roller as at a button (its options label
+is thousands of pixels tall behind the three rows it shows). keynav after two DOWNs on
+`pico_display2_w` shows the hour roller with a border on all four sides and `fit ok`.
+
 ### U9 — choice dialog rows carry no check mark (note)
 
 `setMultiChoiceItems` / `setSingleChoiceItems` rows are LVGL button-matrix cells: checked is a

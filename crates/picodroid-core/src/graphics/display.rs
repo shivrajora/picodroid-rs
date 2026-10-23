@@ -314,16 +314,18 @@ impl Reach {
 /// stopping at a scroll container, whose content is reached by scrolling
 /// it (a `ScrollView`, a list) — a picodroid layout does not scroll, so
 /// what it holds past its edge is cut, at that edge, whether or not the
-/// window's is further out — and at a button, whose label is its own
-/// content: an ellipsized `Button` keeps a label as wide as its whole
-/// text behind the dots it draws, a cut the eye never sees (QA
+/// window's is further out — and at a button or a roller, whose label is
+/// its own content: an ellipsized `Button` keeps a label as wide as its
+/// whole text behind the dots it draws, a roller one as tall as all its
+/// options behind the three it shows, cuts the eye never sees (QA
 /// 2026-10-22, U10). Bounded in depth; a view tree is a dozen levels at
 /// most.
 #[cfg(any(feature = "sim", debug_assertions))]
 fn reach(obj: crate::lvgl_ffi::Obj, depth: u32) -> Reach {
     use crate::lvgl_ffi::{
         lv_area_t, lv_button_class, lv_obj_get_child, lv_obj_get_child_count, lv_obj_get_coords,
-        lv_obj_has_flag, LV_OBJ_FLAG_FLOATING, LV_OBJ_FLAG_HIDDEN, LV_OBJ_FLAG_SCROLLABLE,
+        lv_obj_has_flag, lv_roller_class, LV_OBJ_FLAG_FLOATING, LV_OBJ_FLAG_HIDDEN,
+        LV_OBJ_FLAG_SCROLLABLE,
     };
     const MAX_DEPTH: u32 = 16;
     let mut a = lv_area_t {
@@ -344,6 +346,7 @@ fn reach(obj: crate::lvgl_ffi::Obj, depth: u32) -> Reach {
         if depth >= MAX_DEPTH
             || lv_obj_has_flag(obj, LV_OBJ_FLAG_SCROLLABLE)
             || super::lvgl::is_class(obj, &raw const lv_button_class)
+            || super::lvgl::is_class(obj, &raw const lv_roller_class)
         {
             return r;
         }

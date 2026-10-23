@@ -266,6 +266,31 @@ pub(super) fn ensure_in_group(group: Group, raw: Obj) {
 pub(super) const FOCUS_BORDER_RGB: u32 = 0x00E8_F0F0;
 pub(super) const FOCUS_BORDER_PX: i32 = 2;
 
+/// The keypad's focus border on a widget LVGL puts in the group itself, so
+/// `ensure_in_group` never sees it, and whose theme outline — drawn outside
+/// its bounds — is clipped to a sliver by the row it sits in: a
+/// `TimePicker`'s rollers showed 2 px of outline down their left edge and
+/// nothing else (QA 2026-10-22, U8). The border is drawn inside the
+/// widget's bounds for `FOCUSED` and `FOCUS_KEY`, the theme's secondary
+/// colour for `EDITED` (a roller a key is turning), and the outline is
+/// dropped for all three. A board without navigation keys draws nothing,
+/// as `ensure_in_group` does not.
+pub fn key_focus_border(raw: Obj) {
+    if !crate::board_cfg::input::HAS_NAV_KEYS {
+        return;
+    }
+    for state in [LV_STATE_FOCUSED, LV_STATE_FOCUS_KEY] {
+        lv_obj_set_style_border_width(raw, FOCUS_BORDER_PX, state);
+        lv_obj_set_style_border_color(raw, lv_color_hex(FOCUS_BORDER_RGB), state);
+        lv_obj_set_style_border_opa(raw, LV_OPA_COVER, state);
+        lv_obj_set_style_outline_width(raw, 0, state);
+    }
+    lv_obj_set_style_border_width(raw, FOCUS_BORDER_PX, LV_STATE_EDITED);
+    lv_obj_set_style_border_color(raw, lv_theme_get_color_secondary(raw), LV_STATE_EDITED);
+    lv_obj_set_style_border_opa(raw, LV_OPA_COVER, LV_STATE_EDITED);
+    lv_obj_set_style_outline_width(raw, 0, LV_STATE_EDITED);
+}
+
 /// `View.setFocusable(boolean)` backing: add this view to — or remove it from —
 /// the active Activity's keypad focus group. A focusable view also scrolls
 /// into view when it takes focus, as a child of Android's ScrollView does.

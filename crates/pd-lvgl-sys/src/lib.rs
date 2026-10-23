@@ -1676,6 +1676,13 @@ unsafe extern "C" {
     pub safe fn lv_obj_set_style_min_width(obj: Obj, value: i32, selector: lv_style_selector_t);
     pub safe fn lv_obj_set_style_min_height(obj: Obj, value: i32, selector: lv_style_selector_t);
     pub safe fn lv_obj_set_style_max_width(obj: Obj, value: i32, selector: lv_style_selector_t);
+    /// The space between a label's or a roller's lines: `TimePicker` fits
+    /// three roller rows into its 100 px with it.
+    pub safe fn lv_obj_set_style_text_line_space(
+        obj: Obj,
+        value: i32,
+        selector: lv_style_selector_t,
+    );
     /// Whether `f` is set on `obj`.
     pub safe fn lv_obj_has_flag(obj: Obj, f: u32) -> bool;
     pub safe fn lv_obj_set_style_pad_bottom(obj: Obj, value: i32, selector: lv_style_selector_t);
