@@ -530,6 +530,8 @@ mod tests {
 
     impl ScanTableGuard {
         fn take() -> Self {
+            // spin-ok: a test-only lock between two cargo test threads on the
+            // host; there is no kernel to wait on in a unit test.
             while SCAN_TABLE_IN_USE
                 .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
                 .is_err()
