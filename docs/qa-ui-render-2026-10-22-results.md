@@ -211,6 +211,15 @@ plus the value's left margin plus the column boundary). The shorter labels show 
 gap by accident. The column's width is being taken from the cell's view without one of the
 margins.
 
+**Fixed 2026-10-22.** LVGL sizes a `LV_GRID_CONTENT` track to its widest cell with neither
+margin (`lv_grid.c::calc_cols`, `lv_obj_get_width` alone) and then offsets the cell by its left
+margin, so a margined cell ran into the next column. `grid_layout.rs` now measures content tracks
+itself: the template LVGL reads carries, per content track, the widest single-span cell plus its
+margins, re-measured when a child is placed and on `LV_EVENT_CHILD_CHANGED` (a child sized or
+moved; a pass that changes no track marks nothing, so the grid comes to rest). On the Live
+screen `Air quality` ends at x = 89 and `211 IAQ` starts at x = 102 (the `[tree]` dump), the
+label's right margin plus the value's left one. Unit-tested on the `Tracks` measure.
+
 ### U8 — a focused TimePicker shows a blue sliver, not a border
 
 keynav on `pico_display2_w` after two DOWNs (`p3-d2w-keynav-down2.png`, `z-timepicker-focus.png`):

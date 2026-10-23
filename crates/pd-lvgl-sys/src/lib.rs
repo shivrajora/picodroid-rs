@@ -222,6 +222,9 @@ pub const LV_EVENT_DELETE: lv_event_code_t = 48;
 /// CHILD_DELETED, SCREEN_UNLOAD_START, SCREEN_LOAD_START, SCREEN_LOADED,
 /// SCREEN_UNLOADED, SIZE_CHANGED. What sizes a small clickable view's
 /// extended touch area once its layout is known.
+/// Sent to a parent when a child is added, removed, resized or moved:
+/// `GridLayout` re-measures its content tracks on it.
+pub const LV_EVENT_CHILD_CHANGED: lv_event_code_t = 49;
 pub const LV_EVENT_SIZE_CHANGED: lv_event_code_t = 56;
 /// Sent by `lv_obj_scroll_by_raw` once the children have moved and just
 /// before the scroller invalidates its whole area. Position 15:
@@ -452,6 +455,12 @@ pub const LV_STYLE_LAYOUT: lv_style_prop_t = 132;
 pub const LV_STYLE_FLEX_MAIN_PLACE: lv_style_prop_t = 161;
 pub const LV_STYLE_FLEX_CROSS_PLACE: lv_style_prop_t = 162;
 pub const LV_STYLE_FLEX_GROW: lv_style_prop_t = 164;
+// A grid child's cell, as `lv_obj_set_grid_cell` stores it: read back by
+// `GridLayout` when it measures a content-sized track.
+pub const LV_STYLE_GRID_CELL_COLUMN_POS: lv_style_prop_t = 170;
+pub const LV_STYLE_GRID_CELL_COLUMN_SPAN: lv_style_prop_t = 171;
+pub const LV_STYLE_GRID_CELL_ROW_POS: lv_style_prop_t = 173;
+pub const LV_STYLE_GRID_CELL_ROW_SPAN: lv_style_prop_t = 174;
 
 /// What [`lv_obj_get_local_style_prop`] answers (`lv_style_res_t`, a short
 /// enum). Guarded by `lv_style_res_constants_match_vendored_header`.
@@ -2211,6 +2220,7 @@ mod tests {
             (LV_EVENT_FOCUSED, "LV_EVENT_FOCUSED"),
             (LV_EVENT_DEFOCUSED, "LV_EVENT_DEFOCUSED"),
             (LV_EVENT_DELETE, "LV_EVENT_DELETE"),
+            (LV_EVENT_CHILD_CHANGED, "LV_EVENT_CHILD_CHANGED"),
             (LV_EVENT_SIZE_CHANGED, "LV_EVENT_SIZE_CHANGED"),
             (LV_EVENT_SCROLL, "LV_EVENT_SCROLL"),
             (LV_EVENT_INVALIDATE_AREA, "LV_EVENT_INVALIDATE_AREA"),
@@ -2462,6 +2472,16 @@ mod tests {
             (LV_STYLE_FLEX_MAIN_PLACE, "LV_STYLE_FLEX_MAIN_PLACE"),
             (LV_STYLE_FLEX_CROSS_PLACE, "LV_STYLE_FLEX_CROSS_PLACE"),
             (LV_STYLE_FLEX_GROW, "LV_STYLE_FLEX_GROW"),
+            (
+                LV_STYLE_GRID_CELL_COLUMN_POS,
+                "LV_STYLE_GRID_CELL_COLUMN_POS",
+            ),
+            (
+                LV_STYLE_GRID_CELL_COLUMN_SPAN,
+                "LV_STYLE_GRID_CELL_COLUMN_SPAN",
+            ),
+            (LV_STYLE_GRID_CELL_ROW_POS, "LV_STYLE_GRID_CELL_ROW_POS"),
+            (LV_STYLE_GRID_CELL_ROW_SPAN, "LV_STYLE_GRID_CELL_ROW_SPAN"),
         ] {
             let header_val = lookup_ordinal(body, "LV_STYLE_", name)
                 .unwrap_or_else(|| panic!("{name} not found in vendored lv_style.h"));

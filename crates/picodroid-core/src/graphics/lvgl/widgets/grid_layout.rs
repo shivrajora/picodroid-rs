@@ -14,6 +14,16 @@
 //! `LV_GRID_FR(weight)`; a weighted span raises every track it covers, and
 //! the largest weight on a track wins, which makes the result independent of
 //! the order the children were added in.
+//!
+//! LVGL sizes a `LV_GRID_CONTENT` track to its widest cell *without* the
+//! cell's margins (`lv_grid.c::calc_cols`), then places the cell at the
+//! track's start plus its left margin, so a margined cell ran into the next
+//! column (picoenvmon's `Air quality` 3 px from its value where the layout
+//! asked for 8; QA 2026-10-22, U7). Android's `GridLayout` counts the
+//! margins in the column. So this side measures content tracks itself: the
+//! template LVGL reads (`live`) carries, for each content track, the widest
+//! single-span cell in it plus that cell's margins, re-measured whenever a
+//! child is placed, sized or moved (`LV_EVENT_CHILD_CHANGED`).
 
 use core::cell::Cell;
 
@@ -39,7 +49,12 @@ const ALIGN_FILL: i32 = 3;
 
 /// One axis's template: the tracks in use and the terminator after them.
 struct Tracks {
+    /// The template as Java asked: content-sized, or a weight.
     dsc: [Cell<i32>; MAX_TRACKS + 1],
+    /// What LVGL reads: `dsc` with every content track replaced by the
+    /// width (height) of its widest cell, margins included; 0 until a
+    /// child is measured.
+    live: [Cell<i32>; MAX_TRACKS + 1],
     count: Cell<usize>,
 }
 
@@ -47,12 +62,13 @@ impl Tracks {
     const fn new() -> Self {
         Self {
             dsc: [const { Cell::new(LV_GRID_TEMPLATE_LAST) }; MAX_TRACKS + 1],
+            live: [const { Cell::new(LV_GRID_TEMPLATE_LAST) }; MAX_TRACKS + 1],
             count: Cell::new(0),
         }
     }
 
     fn reset(&self) {
-        for c in &self.dsc {
+        for c in self.dsc.iter().chain(&self.live) {
             c.set(LV_GRID_TEMPLATE_LAST);
         }
         self.count.set(0);
@@ -69,7 +85,11 @@ impl Tracks {
             for c in &self.dsc[count..n] {
                 c.set(LV_GRID_CONTENT);
             }
+            for c in &self.live[count..n] {
+                c.set(0);
+            }
             self.dsc[n].set(LV_GRID_TEMPLATE_LAST);
+            self.live[n].set(LV_GRID_TEMPLATE_LAST);
             self.count.set(n);
         }
         true
@@ -79,17 +99,94 @@ impl Tracks {
     /// `LV_GRID_FR` value); a larger share already there stays.
     fn raise(&self, from: usize, span: usize, size: i32) {
         let end = (from + span).min(self.count.get());
-        for c in &self.dsc[from..end] {
+        for (c, l) in self.dsc[from..end].iter().zip(&self.live[from..end]) {
             if c.get() == LV_GRID_CONTENT || c.get() < size {
                 c.set(size);
+                l.set(size);
             }
         }
     }
 
+    /// Re-measure the content tracks from the cells: track `i` is the
+    /// widest (tallest) single-span cell at position `i` plus that cell's
+    /// margins on the axis, as `cell_extent` reports them. `true` when a
+    /// track changed.
+    fn measure(&self, cells: &[(usize, usize, i32)]) -> bool {
+        let mut changed = false;
+        for i in 0..self.count.get() {
+            if self.dsc[i].get() != LV_GRID_CONTENT {
+                continue;
+            }
+            let size = cells
+                .iter()
+                .filter(|&&(pos, span, _)| pos == i && span == 1)
+                .map(|&(_, _, extent)| extent)
+                .max()
+                .unwrap_or(0);
+            if self.live[i].get() != size {
+                self.live[i].set(size);
+                changed = true;
+            }
+        }
+        changed
+    }
+
     fn as_ptr(&self) -> *const i32 {
         // `Cell<i32>` is `repr(transparent)` over `i32`.
-        self.dsc.as_ptr().cast()
+        self.live.as_ptr().cast()
     }
+}
+
+/// The most cells one measuring pass reads; a grid with more keeps the
+/// first of them in its tracks' measure.
+const MAX_CELLS: usize = 64;
+
+/// Every laid-out child of `cont` as `(position, span, extent)` on one axis,
+/// the extent its size plus both margins there.
+fn cells_of(cont: Obj, horizontal: bool, out: &mut [(usize, usize, i32); MAX_CELLS]) -> usize {
+    let (pos_prop, span_prop, m_start, m_end) = if horizontal {
+        (
+            LV_STYLE_GRID_CELL_COLUMN_POS,
+            LV_STYLE_GRID_CELL_COLUMN_SPAN,
+            LV_STYLE_MARGIN_LEFT,
+            LV_STYLE_MARGIN_RIGHT,
+        )
+    } else {
+        (
+            LV_STYLE_GRID_CELL_ROW_POS,
+            LV_STYLE_GRID_CELL_ROW_SPAN,
+            LV_STYLE_MARGIN_TOP,
+            LV_STYLE_MARGIN_BOTTOM,
+        )
+    };
+    let mut n = 0;
+    for i in 0..lv_obj_get_child_count(cont) {
+        if n == MAX_CELLS {
+            break;
+        }
+        let Some(item) = lv_obj_get_child(cont, i as i32) else {
+            continue;
+        };
+        if lv_obj_has_flag(item, LV_OBJ_FLAG_HIDDEN)
+            || lv_obj_has_flag(item, LV_OBJ_FLAG_IGNORE_LAYOUT)
+            || lv_obj_has_flag(item, LV_OBJ_FLAG_FLOATING)
+        {
+            continue;
+        }
+        let num = |prop: lv_style_prop_t| style_num(item, LV_PART_MAIN, prop);
+        let size = if horizontal {
+            lv_obj_get_width(item)
+        } else {
+            lv_obj_get_height(item)
+        };
+        out[n] = (
+            num(pos_prop).max(0) as usize,
+            num(span_prop).max(0) as usize,
+            size + num(m_start) + num(m_end),
+        );
+        n += 1;
+    }
+    n
 }
 
 struct Slot {
@@ -97,6 +194,19 @@ struct Slot {
     container: Cell<usize>,
     cols: Tracks,
     rows: Tracks,
+}
+
+impl Slot {
+    /// Re-measure both axes' content tracks from `cont`'s children; `true`
+    /// when a track changed and the grid wants laying out again.
+    fn refresh(&self, cont: Obj) -> bool {
+        let mut cells = [(0usize, 0usize, 0i32); MAX_CELLS];
+        let n = cells_of(cont, true, &mut cells);
+        let cols = self.cols.measure(&cells[..n]);
+        let n = cells_of(cont, false, &mut cells);
+        let rows = self.rows.measure(&cells[..n]);
+        cols || rows
+    }
 }
 
 struct State {
@@ -154,6 +264,7 @@ pub(in crate::graphics) fn create_under(parent: Obj) -> i32 {
     // A grid that found no slot still works as a plain container; `place`
     // then refuses its first child and Java throws.
     add_event_cb(o, slot_delete_cb, LV_EVENT_DELETE);
+    add_event_cb(o, child_changed_cb, LV_EVENT_CHILD_CHANGED);
     handle_table::register(o)
 }
 
@@ -198,11 +309,28 @@ pub(in crate::graphics) fn place(id: i32, child: i32, c: CellSpec) -> bool {
         row as i32,
         row_span as i32,
     );
+    slot.refresh(obj);
     // SAFETY: both arrays live in `STATE`, a static, and `extend` keeps a
     // `LV_GRID_TEMPLATE_LAST` after the tracks in use; LVGL only ever reads
     // them, and re-setting the same pointers re-lays the grid out.
     unsafe { lv_obj_set_grid_dsc_array(obj, slot.cols.as_ptr(), slot.rows.as_ptr()) };
     true
+}
+
+lv_event_cb! {
+    /// A child placed, sized or moved: re-measure the content tracks, and
+    /// lay the grid out again when one changed. The layout pass itself
+    /// moves children, which lands here too; a pass that changes no
+    /// track marks nothing, which is what lets the grid come to rest.
+    fn child_changed_cb(e) {
+        let cont = e.current_target();
+        let Some(slot) = STATE.slots.iter().find(|s| s.container.get() == cont.addr()) else {
+            return;
+        };
+        if slot.refresh(cont) {
+            lv_obj_mark_layout_as_dirty(cont);
+        }
+    }
 }
 
 /// Java's alignment code as LVGL's. Anything unexpected places at the start.
@@ -291,6 +419,33 @@ mod tests {
     }
 
     #[test]
+    fn a_content_track_measures_its_widest_cell_with_margins() {
+        let t = Tracks::new();
+        assert!(t.extend(3));
+        assert_eq!(t.live[0].get(), 0);
+        // picoenvmon's row: a 60 px label with 8 px margins in column 0, a
+        // wider label with none; the value in column 1; a two-column span
+        // counts for neither.
+        let cells = [(0, 1, 76), (0, 1, 70), (1, 1, 40), (0, 2, 300)];
+        assert!(t.measure(&cells));
+        assert_eq!(
+            (t.live[0].get(), t.live[1].get(), t.live[2].get()),
+            (76, 40, 0)
+        );
+        assert_eq!(t.dsc[0].get(), LV_GRID_CONTENT, "the intent is kept");
+        // The same cells again: nothing changed.
+        assert!(!t.measure(&cells));
+        // A weighted track is left to LVGL, however wide its cells.
+        t.raise(1, 1, fr(10));
+        assert!(!t.measure(&[(0, 1, 76), (1, 1, 500)]));
+        assert_eq!(t.live[1].get(), lv_grid_fr(10));
+        // A track whose cells went away measures 0 again.
+        assert!(t.measure(&[(1, 1, 500)]));
+        assert_eq!(t.live[0].get(), 0);
+        assert_eq!(t.live[3].get(), LV_GRID_TEMPLATE_LAST);
+    }
+
+    #[test]
     fn fr_clamps_to_one_through_ninety_nine_and_zero_is_content() {
         assert_eq!(fr(0), LV_GRID_CONTENT);
         assert_eq!(fr(-3), LV_GRID_CONTENT);
@@ -318,5 +473,6 @@ mod tests {
         t.reset();
         assert_eq!(t.count.get(), 0);
         assert!(t.dsc.iter().all(|c| c.get() == LV_GRID_TEMPLATE_LAST));
+        assert!(t.live.iter().all(|c| c.get() == LV_GRID_TEMPLATE_LAST));
     }
 }
