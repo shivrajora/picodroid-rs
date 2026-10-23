@@ -128,12 +128,8 @@ pub(in crate::graphics) fn set_line_mode(id: i32, kind: i32, max_lines: i32, sin
 /// Java side re-applies the mode after a padding change). `LV_COORD_MAX` — no cap — when the font
 /// gives no line height to measure by.
 fn box_height_for(label: Obj, lines: i32) -> i32 {
-    let num = |prop: lv_style_prop_t| {
-        let v = lv_obj_get_style_prop(label, LV_PART_MAIN, prop);
-        // SAFETY: line space, pads and border width are numeric properties,
-        // which LVGL returns in `num`.
-        unsafe { v.num }
-    };
+    // Line space, pads and border width: numeric properties.
+    let num = |prop: lv_style_prop_t| style_num(label, LV_PART_MAIN, prop);
     let line_height = line_height_of(label);
     if line_height <= 0 {
         return LV_COORD_MAX;

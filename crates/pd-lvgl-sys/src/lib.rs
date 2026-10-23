@@ -2042,6 +2042,20 @@ pub fn set_style_num(obj: Obj, prop: lv_style_prop_t, num: i32) {
     unsafe { lv_obj_set_local_style_prop(obj, prop, lv_style_value_t { num }, 0) };
 }
 
+/// The number `prop` resolves to on `part` of `obj` through the cascade:
+/// the object's own value, the theme's, or LVGL's default. For a numeric
+/// property only (sizes, pads, margins, opacities, transforms): LVGL
+/// returns the field it wrote, and reads the union as a number for one it
+/// stores as a colour or a pointer.
+#[cfg(not(test))]
+#[inline(always)]
+pub fn style_num(obj: Obj, part: lv_style_selector_t, prop: lv_style_prop_t) -> i32 {
+    let v = lv_obj_get_style_prop(obj, part, prop);
+    // SAFETY: the caller names a numeric property, which LVGL returns in
+    // `num`, the field it wrote.
+    unsafe { v.num }
+}
+
 /// The number `obj`'s own (local) style holds for `prop` on the main part,
 /// `None` when it holds none.
 #[cfg(not(test))]

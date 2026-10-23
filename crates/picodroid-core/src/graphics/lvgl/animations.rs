@@ -165,10 +165,7 @@ fn is_transform(property: i32) -> bool {
 /// LVGL's defaults: opa 255, scale `LV_SCALE_NONE`, translate / rotation 0.
 /// Callers pass only numeric properties (opa, translate, transform).
 fn style_num(obj: Obj, prop: lv_style_prop_t) -> i32 {
-    let v = lv_obj_get_style_prop(obj, LV_PART_MAIN, prop);
-    // SAFETY: every `prop` this module reads is numeric, and LVGL returns a
-    // numeric property in `num`, the field it wrote.
-    unsafe { v.num }
+    crate::lvgl_ffi::style_num(obj, LV_PART_MAIN, prop)
 }
 
 /// The view's translation (x, y) in pixels. LVGL folds `translate_*` into

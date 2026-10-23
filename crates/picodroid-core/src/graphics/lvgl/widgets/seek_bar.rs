@@ -54,6 +54,42 @@ fn enqueue_track(obj: Obj, started: bool) {
     }
 }
 
+lv_event_cb! {
+    fn size_changed_cb(e) {
+        fit_thumb(e.target());
+    }
+}
+
+/// How far the thumb reaches past the track's end: LVGL centres the knob on
+/// the indicator's end, so it covers half the bar's height to either side,
+/// plus the knob's own pad (the theme's 6 dpx). Android keeps the thumb
+/// inside the view (`thumbOffset`), so a `SeekBar` at x = 0 shows its whole
+/// thumb; here half of it was cut by the parent (QA 2026-10-22, U2).
+pub(crate) fn thumb_inset(height: i32, knob_pad: i32) -> i32 {
+    height / 2 + knob_pad.max(0)
+}
+
+/// Reserve the thumb's overhang inside the slider's bounds as its own left
+/// and right padding, which the indicator (and so the knob's travel) is laid
+/// out within. Re-done when the size changes, since the overhang follows the
+/// height; a slider taller than it is wide is LVGL's vertical one and is
+/// left alone.
+fn fit_thumb(s: Obj) {
+    let (w, h) = (lv_obj_get_width(s), lv_obj_get_height(s));
+    if h <= 0 || w < h {
+        return;
+    }
+    // Pads: numeric properties.
+    let num = |part: lv_style_selector_t, prop: lv_style_prop_t| style_num(s, part, prop);
+    let inset = thumb_inset(h, num(LV_PART_KNOB, LV_STYLE_PAD_LEFT));
+    if num(LV_PART_MAIN, LV_STYLE_PAD_LEFT) != inset
+        || num(LV_PART_MAIN, LV_STYLE_PAD_RIGHT) != inset
+    {
+        lv_obj_set_style_pad_left(s, inset, 0);
+        lv_obj_set_style_pad_right(s, inset, 0);
+    }
+}
+
 fn create_internal(max: i32) -> i32 {
     let Some(s) = lifecycle::screen_ptr().and_then(|o| lv_slider_create(o)) else {
         return 0;
@@ -66,6 +102,8 @@ fn create_internal(max: i32) -> i32 {
     add_event_cb(s, value_changed_cb, LV_EVENT_VALUE_CHANGED);
     add_event_cb(s, pressed_cb, LV_EVENT_PRESSED);
     add_event_cb(s, released_cb, LV_EVENT_RELEASED);
+    add_event_cb(s, size_changed_cb, LV_EVENT_SIZE_CHANGED);
+    fit_thumb(s);
     handle_table::register(s)
 }
 
@@ -150,4 +188,19 @@ pub fn drain_seek_tracking_queue() -> Option<(i32, bool)> {
 pub fn reset_seek_bar_state() {
     STATE.queue.clear();
     STATE.track_queue.clear();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::thumb_inset;
+
+    #[test]
+    fn the_thumb_inset_is_half_the_height_plus_the_knob_pad() {
+        // callbacktest's 200x20 bar with the theme's 5 px knob pad at the
+        // sim's dpi: the knob is 30 px across, 15 of them past the track's
+        // end.
+        assert_eq!(thumb_inset(20, 5), 15);
+        assert_eq!(thumb_inset(21, 0), 10);
+        assert_eq!(thumb_inset(20, -3), 10);
+    }
 }

@@ -192,10 +192,8 @@ pub(in crate::graphics) fn set_relative_rules(
 /// A numeric style property of `o`, through the cascade: the theme's or the
 /// default when `o`'s own style has none.
 fn style_num(o: Obj, prop: lv_style_prop_t) -> i32 {
-    let v = lv_obj_get_style_prop(o, LV_PART_MAIN, prop);
-    // SAFETY: every property read here is numeric (sizes, pads, margins),
-    // which LVGL returns in `num`.
-    unsafe { v.num }
+    // Sizes, pads, margins, the flow: numeric properties.
+    crate::lvgl_ffi::style_num(o, LV_PART_MAIN, prop)
 }
 
 fn kid_of(child: Obj) -> Kid {

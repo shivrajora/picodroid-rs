@@ -99,6 +99,18 @@ puts it left of its siblings; a probe that logs `lv_obj_get_x` for the checkbox 
 above it tells which. The knob wants the slider's `pad_left` / `pad_right` set to the knob's
 radius (what Android's `thumbOffset` does), with the bar's length reduced to match.
 
+**Fixed 2026-10-22, SeekBar only; the CheckBox and RadioButton part retracted.** A pixel read of
+the round's own captures (`p1-tb-callbacktest.png`, `p3-em-callbacktest.png`, rows 90–111 at
+x = 0..21) shows the box with the same 2 px, then 1 px corner inset on both sides, and the radio
+ring symmetric at 22×22; a `[tree]` dump of the live objects puts the checkbox at x = 0 with its
+marker drawn from its own x1 (`lv_checkbox.c:278`, no main-part padding). The enlarged crop
+`z-cbt-left.png` misled: a 3 px corner radius at 2× reads as a flat edge beside the ring's
+curve. The SeekBar was real: LVGL centres the 30 px knob (the 20 px bar plus the theme's 5 px
+knob pad each side) on the indicator's end, 15 px of it past the track; `seek_bar.rs` now
+reserves that overhang as the slider's own left and right padding (`thumb_inset`, re-done on a
+size change), so the knob at 0 starts at the view's x. Verified by a pixel read of the knob rows
+(a full circle from x = 0) and a unit test on the arithmetic.
+
 ### U3 — the scrollbar track paints over the content
 
 Settings → Apps with six apps installed (`p2-tb-settings-apps-many.png`, `z-apps-tail.png`): every
