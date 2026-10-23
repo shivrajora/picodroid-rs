@@ -6,6 +6,20 @@ one picks up. Routine handovers go here; a large one gets its own doc under `doc
 here. Keep entries to a few lines; the reasoning goes to [`decisions.md`](decisions.md), the
 ranked list to [`gaps.md`](gaps.md).
 
+## 2026-10-22 — simulator QA: UI rendering across the apps
+
+- **Ran:** 160 captures over 42 apps on four panel geometries, looking for cut text, clipped
+  widgets and spacing; the nightly cron was paused for the night (restore: drop the `# PAUSED`
+  prefix in `crontab -e`). Results and the fix shapes in
+  [`qa-ui-render-2026-10-22-results.md`](qa-ui-render-2026-10-22-results.md); captures under
+  `build/qa/ui-render-2026-10-22/shots/`.
+- **Found:** five medium (a `wrap_content` TextView cut instead of wrapped, CheckBox / Radio /
+  SeekBar drawn past their left edge, the opaque scrollbar track over a scrolling column's last
+  glyphs, an unsized nested ViewGroup at 160×160, a three-button dialog's row scrolling under its
+  buttons), three low (dialog card height by formula, a GridLayout column short of its margins,
+  the TimePicker's focus sliver), two notes. Nothing committed but the doc.
+- **Still open:** every finding; U1–U5 first.
+
 ## 2026-10-20 — ListView recycles a window of rows
 
 - **Landed:** `ListView` keeps only the rows in view plus one beyond each edge alive and hands a
