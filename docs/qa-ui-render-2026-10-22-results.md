@@ -217,6 +217,11 @@ user who knows Android reads the blue as "selected", not "checked", and the comp
 matrix's `AlertDialog` row does not mention the look. A note for the matrix, or a glyph
 (`LV_SYMBOL_OK`) in the cell text.
 
+**Noted 2026-10-22.** The compatibility matrix's `AlertDialog` row now says the choice rows are
+button-matrix cells with no check mark; the glyph is not drawn (a `LV_SYMBOL_OK` in the cell text
+would sit in the row's label and stay there when the row is unchecked, since the matrix has one
+text per cell).
+
 ### U10 — two cuts the `[layout]` line does not see (note)
 
 - layoutdemo on `pico_enviro_mon` (`p3-em-layoutdemo.png`): the `FlowLayout`'s `item0 … item4`
