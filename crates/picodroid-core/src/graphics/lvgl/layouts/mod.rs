@@ -50,6 +50,11 @@ struct Props {
     view_id: lv_style_prop_t,
     rel_flags: lv_style_prop_t,
     anchors: [lv_style_prop_t; ANCHORS],
+    /// The `max_width` / `max_height` a `LinearLayout` last wrote on a
+    /// content-sized child (`cap_content_kids`), to tell its own cap from
+    /// one the app set (`setMaxWidth`) when the room changes.
+    cap_w: lv_style_prop_t,
+    cap_h: lv_style_prop_t,
 }
 
 const NO_PROPS: Props = Props {
@@ -60,6 +65,8 @@ const NO_PROPS: Props = Props {
     view_id: LV_STYLE_PROP_INV,
     rel_flags: LV_STYLE_PROP_INV,
     anchors: [LV_STYLE_PROP_INV; ANCHORS],
+    cap_w: LV_STYLE_PROP_INV,
+    cap_h: LV_STYLE_PROP_INV,
 };
 
 struct State {
@@ -104,6 +111,9 @@ pub(in crate::graphics) fn register() {
         view_id: lv_style_register_prop(relayout),
         rel_flags: lv_style_register_prop(relayout),
         anchors,
+        // A record only; the `max_*` write beside it re-lays out by itself.
+        cap_w: lv_style_register_prop(0),
+        cap_h: lv_style_register_prop(0),
     });
     STATE.relative.set(layout_create(
         relative_update_cb,
@@ -380,6 +390,80 @@ struct LinearGathered {
     kids: [LinearKid; linear::MAX_KIDS],
 }
 
+/// Android measures a `wrap_content` child with AT_MOST the room its parent
+/// has for it across the layout (`getChildMeasureSpec`), so a label wider
+/// than its column wraps onto a second line. LVGL sizes a content child to
+/// its text and the solver would place it as measured, cut at the column's
+/// edge (QA 2026-10-22, U1). The LVGL form of that constraint is
+/// `max_width` / `max_height` on the child: a content-sized label measures
+/// its text within it (`lv_label`'s `GET_SELF_SIZE` wraps at `max_width`),
+/// and keeps shrinking back when its text does, which a pixel width would
+/// not. The cap is the cross-axis room less the child's margins, set only
+/// on a content-sized child in a container whose cross axis is known, and
+/// re-set as that room changes. An app's own `setMaxWidth` wins when it is
+/// tighter: the cap written last is recorded (`cap_w` / `cap_h`), so a
+/// value that is not ours is the app's, and what is written is the lesser.
+fn cap_content_kids(cont: Obj, l: &Linear, span: Span, n: usize) {
+    let p = STATE.props.get();
+    if p.cap_w == LV_STYLE_PROP_INV {
+        return;
+    }
+    let (cross, size_prop, max_prop, cap_prop, m_start, m_end) = if l.horizontal {
+        (
+            span.h,
+            LV_STYLE_HEIGHT,
+            LV_STYLE_MAX_HEIGHT,
+            p.cap_h,
+            LV_STYLE_MARGIN_TOP,
+            LV_STYLE_MARGIN_BOTTOM,
+        )
+    } else {
+        (
+            span.w,
+            LV_STYLE_WIDTH,
+            LV_STYLE_MAX_WIDTH,
+            p.cap_w,
+            LV_STYLE_MARGIN_LEFT,
+            LV_STYLE_MARGIN_RIGHT,
+        )
+    };
+    for i in 0..n {
+        let Some(child) = lv_obj_get_child(cont, i as i32) else {
+            continue;
+        };
+        let wanted = cross
+            .filter(|_| style_num(child, size_prop) == LV_SIZE_CONTENT)
+            .map(|room| (room - style_num(child, m_start) - style_num(child, m_end)).max(0));
+        let ours = local_style_num(child, cap_prop);
+        let current = local_style_num(child, max_prop);
+        let apps = match (current, ours) {
+            (Some(c), Some(o)) if c == o => None,
+            (c, _) => c,
+        };
+        let next = match (wanted, apps) {
+            (Some(w), Some(a)) => Some(w.min(a)),
+            (Some(w), None) => Some(w),
+            (None, a) => a,
+        };
+        if next != current {
+            match next {
+                Some(v) => set_style_num(child, max_prop, v),
+                None => {
+                    lv_obj_remove_local_style_prop(child, max_prop, LV_PART_MAIN);
+                }
+            }
+        }
+        if wanted != ours {
+            match wanted {
+                Some(v) => set_style_num(child, cap_prop, v),
+                None => {
+                    lv_obj_remove_local_style_prop(child, cap_prop, LV_PART_MAIN);
+                }
+            }
+        }
+    }
+}
+
 fn gather_linear(cont: Obj) -> LinearGathered {
     let p = STATE.props.get();
     let n = (lv_obj_get_child_count(cont) as usize).min(linear::MAX_KIDS);
@@ -428,10 +512,17 @@ lv_layout_cb! {
     /// Lay a `LinearLayout` out: LVGL calls this whenever the container is
     /// dirty.
     fn linear_update_cb(cont) {
-        let g = gather_linear(cont);
         let span = span_of(cont);
+        let l = linear_of(cont);
+        cap_content_kids(
+            cont,
+            &l,
+            span,
+            (lv_obj_get_child_count(cont) as usize).min(linear::MAX_KIDS),
+        );
+        let g = gather_linear(cont);
         let mut out = [Rect::default(); linear::MAX_KIDS];
-        linear::solve(span, linear_of(cont), &g.kids[..g.n], &mut out[..g.n]);
+        linear::solve(span, l, &g.kids[..g.n], &mut out[..g.n]);
         apply_linear(&g, &out);
         if span.w.is_none() || span.h.is_none() {
             lv_obj_refr_size(cont);

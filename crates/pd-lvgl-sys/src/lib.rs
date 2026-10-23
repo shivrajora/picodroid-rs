@@ -419,7 +419,10 @@ pub const LV_STYLE_OPA: lv_style_prop_t = 112;
 pub const LV_STYLE_TRANSFORM_SCALE_X: lv_style_prop_t = 152;
 pub const LV_STYLE_TRANSFORM_SCALE_Y: lv_style_prop_t = 153;
 pub const LV_STYLE_TRANSFORM_ROTATION: lv_style_prop_t = 156;
-// Read back by `TextView`'s line cap (graphics/lvgl/widgets/text_view.rs).
+// Read back by `TextView`'s line cap (graphics/lvgl/widgets/text_view.rs) and
+// by `LinearLayout`'s AT_MOST cap on a content-sized child
+// (graphics/lvgl/layouts/mod.rs).
+pub const LV_STYLE_MAX_WIDTH: lv_style_prop_t = 9;
 pub const LV_STYLE_MAX_HEIGHT: lv_style_prop_t = 11;
 pub const LV_STYLE_PAD_TOP: lv_style_prop_t = 24;
 pub const LV_STYLE_PAD_BOTTOM: lv_style_prop_t = 25;
@@ -2418,6 +2421,7 @@ mod tests {
             (LV_STYLE_TRANSFORM_SCALE_X, "LV_STYLE_TRANSFORM_SCALE_X"),
             (LV_STYLE_TRANSFORM_SCALE_Y, "LV_STYLE_TRANSFORM_SCALE_Y"),
             (LV_STYLE_TRANSFORM_ROTATION, "LV_STYLE_TRANSFORM_ROTATION"),
+            (LV_STYLE_MAX_WIDTH, "LV_STYLE_MAX_WIDTH"),
             (LV_STYLE_MAX_HEIGHT, "LV_STYLE_MAX_HEIGHT"),
             (LV_STYLE_PAD_TOP, "LV_STYLE_PAD_TOP"),
             (LV_STYLE_PAD_BOTTOM, "LV_STYLE_PAD_BOTTOM"),

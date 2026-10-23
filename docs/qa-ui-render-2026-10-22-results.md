@@ -70,6 +70,16 @@ round 2's R5 gave it `MATCH_PARENT` by hand; the default should do the same.
 Fix shape: when a content-sized label's measured width exceeds the space its parent offers, set
 its width to that space (a `LONG_WRAP` label wraps on its own once it has a width).
 
+**Fixed 2026-10-22.** `LinearLayout`'s adapter (`graphics/lvgl/layouts/mod.rs`,
+`cap_content_kids`) gives every content-sized child a `max_width` (a row: `max_height`) of the
+cross-axis room less its margins, Android's AT_MOST: a label measures its text within it and
+wraps, and shrinks back when its text does, where a pixel width would have stuck. An app's own
+`setMaxWidth` wins when tighter. gesturedemo's hint is now 207×32 and the walk says `fit ok`;
+`hil-tests.conf` has a `gesturedemo` sim row on that line, which failed before the fix. The
+claudeusage lines on the Enviro are not this: the app declares a 320×240 design window
+(`<supports-screens>`), and the 240 panel shows 240 of it (`window 320x240 @ (0,0) on the
+240x240 panel`); the card itself is 320 wide.
+
 ### U2 — CheckBox, RadioButton and the SeekBar thumb draw past their left edge
 
 callbacktest (`p1-tb-callbacktest.png`, `z-cbt-left.png`; `p3-em-callbacktest.png`,
