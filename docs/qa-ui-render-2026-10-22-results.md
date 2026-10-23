@@ -176,6 +176,12 @@ buttons out in a bar that never scrolls (it stacks them when they do not fit).
 Fix shape: size the buttons to the row (`(176 - 2 × gap) / 3` = 52) or the gap to the buttons,
 and clear the row's SCROLLABLE flag so a future overflow clips rather than scrolls.
 
+**Fixed 2026-10-22.** `add_button_row` sizes a button to the lesser of 80 px and an equal share
+of the row with the theme's gaps taken out (`button_width`, unit-tested: 52 for three on the 176
+px row, 80 for three on the touch kit's 276), and clears the row's `SCROLLABLE` flag, as Android's
+button bar never scrolls. Captures of the same dialog on the testbench and the Enviro show the
+three buttons with no bar across them.
+
 ### U6 — a dialog card sized by formula, not by its content
 
 dialogdemo's choice dialogs and the options menu (`p1-tb-dialogdemo.png`, `p2-tb-menu-open.png`,

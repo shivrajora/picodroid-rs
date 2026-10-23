@@ -471,7 +471,13 @@ fn add_button_row(
     let Some(btn_row) = lv_obj_create(card) else {
         return;
     };
-    lv_obj_set_size(btn_row, dialog_content_width(), 50);
+    let row_w = dialog_content_width();
+    lv_obj_set_size(btn_row, row_w, 50);
+    // A button bar never scrolls (Android stacks buttons that do not fit):
+    // three 54 px buttons and the theme's two 10 px gaps were 182 px in the
+    // 176 px row of a 200 px card, and the row scrolled, drawing its
+    // scrollbar across the buttons' feet (QA 2026-10-22, U5).
+    lv_obj_remove_flag(btn_row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_opa(btn_row, 0, 0);
     // A transparent row, not a boxed one: the theme gives every plain
     // object a border, which drew a frame around the two buttons.
@@ -488,13 +494,14 @@ fn add_button_row(
         LV_FLEX_ALIGN_CENTER,
     );
 
-    // Three buttons share the 176px row (on the narrowest card) only at a
-    // narrower width; with one or two, keep the roomier 80px Android-ish
-    // buttons.
+    // Up to 80 px a button, Android-ish, and never more than the row holds
+    // with the theme's gaps between them: 52 px each for three on the
+    // narrowest card.
     let n_buttons = (!positive_text.is_empty()) as i32
         + (!negative_text.is_empty()) as i32
         + (!neutral_text.is_empty()) as i32;
-    let btn_w = if n_buttons >= 3 { 54 } else { 80 };
+    let gap = style_num(btn_row, LV_PART_MAIN, LV_STYLE_PAD_COLUMN);
+    let btn_w = button_width(row_w, gap, n_buttons);
 
     let add = |text: &str, which: i32| {
         if text.is_empty() {
@@ -514,6 +521,15 @@ fn add_button_row(
     add(neutral_text, BUTTON_NEUTRAL);
     add(negative_text, BUTTON_NEGATIVE);
     add(positive_text, BUTTON_POSITIVE);
+}
+
+/// A button's width in a `row_w` row with `gap` between buttons: Android's
+/// roomy 80 px when `n` of them fit, else an equal share of the row.
+fn button_width(row_w: i32, gap: i32, n: i32) -> i32 {
+    if n <= 0 {
+        return 80;
+    }
+    ((row_w - gap.max(0) * (n - 1)) / n).clamp(1, 80)
 }
 
 /// Build the dialog tree. `positive_text` / `negative_text` may be empty —
@@ -968,5 +984,21 @@ fn unregister_dialog(dialog: i32) {
         if slot.get().dialog == dialog {
             slot.set(EMPTY_BUTTON);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::button_width;
+
+    #[test]
+    fn three_buttons_share_the_narrowest_row() {
+        // The 200 px card's 176 px row with the theme's 10 px gaps.
+        assert_eq!(button_width(176, 10, 3), 52);
+        assert_eq!(button_width(176, 10, 2), 80);
+        assert_eq!(button_width(176, 10, 1), 80);
+        // The 300 px card's row on the touch kit.
+        assert_eq!(button_width(276, 10, 3), 80);
+        assert_eq!(button_width(176, 10, 0), 80);
     }
 }
