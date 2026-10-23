@@ -39,6 +39,15 @@ worth fixing before the next release:
 | U9 | note | Choice dialogs draw a checked row as a filled blue button and an unchecked one dark, with no check box or radio mark: not what Android's `CheckedTextView` rows look like; the compatibility matrix does not say so |
 | U10 | note | The `[layout]` line misses two cuts: a custom `ViewGroup` keeps LVGL's SCROLLABLE flag so the walk stops at it (layoutdemo's `FlowLayout` is cut on the 240 panel under `fit ok`), and an ellipsized `Button`'s inner label reports its full text width (ellipsizedemo) |
 
+**Outcome (2026-10-22, the same evening):** every item is closed, one commit each on `main`
+(`e556d132..f49c5f90`): U1 wraps (`cap_content_kids`), U2's SeekBar keeps its thumb inside (its
+CheckBox / RadioButton half retracted on a pixel read), U3's thumb is translucent, U4's containers
+take `generateDefaultLayoutParams`, U5's buttons fit their row, U6's card wraps its content, U7's
+grid columns count margins, U8's rollers fit and carry the focus border, U9 is in the matrix,
+U10's walk stops at a button and a roller (its layoutdemo half retracted). Each defect section
+below ends with what landed and how it was verified. `PICODROID_SIM_TREE=1` (added on the way)
+prints the live widget tree, which is what settled the two retractions.
+
 Known and not re-reported: the soft-nav BACK control covers the bottom-left corner of app
 content on the testbench (round 1, F10, by design), and it covers the first word of a
 `Snackbar` too (`Item deleted` behind the circle, `p2-tb-snack-undo.png`); the system's own

@@ -6,6 +6,30 @@ one picks up. Routine handovers go here; a large one gets its own doc under `doc
 here. Keep entries to a few lines; the reasoning goes to [`decisions.md`](decisions.md), the
 ranked list to [`gaps.md`](gaps.md).
 
+## 2026-10-22 — the UI-rendering QA's ten findings, fixed
+
+- **Landed:** one commit per finding on `main`, `e556d132..f49c5f90`. `LinearLayout` caps a
+  content-sized child with Android's AT_MOST (`max_width` / `max_height` of the cross-axis room,
+  so a long label wraps and shrinks back; U1). `SeekBar` reserves its thumb's overhang as padding
+  (U2; the CheckBox / RadioButton part was a misread, retracted on a pixel read). `ScrollView`'s
+  thumb is the theme's 40 % again (U3). A never-sized `ViewGroup` child takes
+  `generateDefaultLayoutParams()`, mirrored from Android per container; `LinearLayout.setOrientation`
+  is Java over `nativeSetOrientation`, `getOrientation()` added (U4). `AlertDialog` buttons fit
+  their row and the row never scrolls (U5); the card is content-sized and centred by alignment, a
+  dialog with no buttons has no row, `board-lib.sh::settings_dialog_ok` derives from the 126 px
+  message card (U6). `GridLayout` measures content tracks itself, margins included, on
+  `LV_EVENT_CHILD_CHANGED` (U7). `TimePicker` rollers fit the 100 px picker (14 px line space) and
+  get `events::groups::key_focus_border` (U8). The matrix says choice rows carry no check mark
+  (U9). The fit walk stops at a button and a roller (U10; the layoutdemo half retracted).
+- **Also:** `PICODROID_SIM_TREE=1` dumps the live widget tree after the `[layout]` line (sim
+  only; it settled both retractions). `pd_lvgl_sys::style_num` reads a numeric style property
+  through the cascade (unsafe: picodroid-core 327 → 324, the FFI crate 21 → 22). The wifi
+  scan-table test lock's spin carries a `spin-ok` marker (test.sh had failed on it since
+  2026-10-20). Rows: `gesturedemo` and `ellipsizedemo` pin `[layout] fit ok`.
+- **Verified:** a capture per finding (before/after against the round's), `test.sh` green, and
+  the sim rows of the apps touched (listed in the results doc's outcome paragraph).
+- **Still open:** nothing from the round. The nightly cron is restored.
+
 ## 2026-10-22 — simulator QA: UI rendering across the apps
 
 - **Ran:** 160 captures over 42 apps on four panel geometries, looking for cut text, clipped
@@ -18,7 +42,7 @@ ranked list to [`gaps.md`](gaps.md).
   glyphs, an unsized nested ViewGroup at 160×160, a three-button dialog's row scrolling under its
   buttons), three low (dialog card height by formula, a GridLayout column short of its margins,
   the TimePicker's focus sliver), two notes. Nothing committed but the doc.
-- **Still open:** every finding; U1–U5 first.
+- **Still open:** nothing: every finding closed the same evening (the entry above).
 
 ## 2026-10-20 — ListView recycles a window of rows
 
