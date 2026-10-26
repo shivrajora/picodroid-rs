@@ -6,6 +6,29 @@ one picks up. Routine handovers go here; a large one gets its own doc under `doc
 here. Keep entries to a few lines; the reasoning goes to [`decisions.md`](decisions.md), the
 ranked list to [`gaps.md`](gaps.md).
 
+## 2026-10-25 — nightly triage: qa_ui on the W board, qa_trim on the touch kit, the size ratchet
+
+- **qa_ui** (pico_display2_w, ERROR since 2026-10-23): a BusFault in `lv_style_set_prop` after
+  the churn section's 241-view screen. U1's AT_MOST cap wrote `max_width` plus its record prop on
+  every content-sized `LinearLayout` child, a local style each; the 48 KB pool ran out, LVGL 9.6's
+  `get_local_style` returned NULL and `lv_style_set_prop` read the style from address 0 (the
+  bootrom; `LV_USE_CHECK_ARG` is 0). `cap_content_kids` now caps only a child that overflows its
+  room or already carries the cap. HIL green both shrink modes; gesturedemo's hint still wraps.
+- **qa_trim** (pico_touch_kit, FAIL since its first night 2026-10-21): the JVM's fields arena
+  could not grow 53 → 55 KB on a fragmented heap (127 KB free, largest block 54.5 KB) before the
+  64 KB pool reached its eighth; the OutOfMemoryError cancelled the periodic task silently and
+  the run hung. Reproduced in the sim with `--board pico_touch_kit`. The cached labels now share
+  one ~290-char String and carry padding and a background (pool bytes with no Java object behind
+  them), four a step: the touch kit trims at 92 views against the 157 its heap held, display2_w
+  at 68; an OOM in a step is a FAIL, not a hang, and the run logs `views at trim`. HIL green on
+  both boards, both shrink modes.
+- **size-ratchet** (sim, FAIL since 2026-10-23): the U1–U10 round's growth was never accepted;
+  accepted with this fix: testbench_rp2040 +4,028 B, testbench_rp2350 +4,008 B (+52 / +16 of it
+  this fix).
+- **Still open:** the native trim arm reads free bytes, so a fragmented heap OOMs the JVM with
+  no `onTrimMemory` (qa_trim on the touch kit); an arm on the JVM's emergency GC or the largest
+  free block would see it. Any pool-full `lv_obj_set_local_style_prop` faults the same way.
+
 ## 2026-10-22 — the UI-rendering QA's ten findings, fixed
 
 - **Landed:** one commit per finding on `main`, `e556d132..f49c5f90`. `LinearLayout` caps a

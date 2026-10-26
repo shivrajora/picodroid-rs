@@ -16,8 +16,22 @@ import picodroid.widget.TextView;
  * is short (an eighth free), then checks the delivery and drops the cache.
  */
 public class ActFill extends Activity {
-  /** Labels added per step: about 1–2 KB of pool, well inside the headroom at the threshold. */
-  private static final int STEP = 8;
+  /**
+   * Labels added per step: about 1.5–2 KB of pool, so the two steps that can land between pool
+   * polls stay inside the headroom at the threshold (6 KB of a 48 KB pool).
+   */
+  private static final int STEP = 4;
+
+  /**
+   * Every cached label's text: one shared String, so the label's copy of it is pool bytes with no
+   * Java object behind them, as are its padding and background. A label per distinct String filled
+   * the touch kit's 240 KB JVM heap before its 64 KB pool reached the line (nightly 2026-10-21 on).
+   */
+  private static final String FILLER =
+      "cached label text, long enough that the LVGL pool fills faster than the JVM heap does: "
+          + "each label copies these bytes into the pool, while every label shares this one "
+          + "String on the Java side, so a label costs the pool some four hundred bytes and the "
+          + "heap only its TextView object";
 
   /** Past this the pool would be at risk of running out, which hangs the UI task: give up. */
   private static final int MAX_VIEWS = 2400;
@@ -97,11 +111,21 @@ public class ActFill extends Activity {
       verify();
       return;
     }
-    for (int i = 0; i < STEP; i++) {
-      TextView t = new TextView(this);
-      t.setText("cache " + views);
-      cache.addView(t);
-      views++;
+    try {
+      for (int i = 0; i < STEP; i++) {
+        TextView t = new TextView(this);
+        t.setText(FILLER);
+        t.setPadding(1, 1, 1, 1);
+        t.setBackgroundColor(0xFF202020);
+        cache.addView(t);
+        views++;
+      }
+    } catch (OutOfMemoryError e) {
+      // Thrown out of a periodic task it would cancel the task silently, and the run would hang.
+      T.check("pool trim arrived before the heap ran out (" + views + " views)", false);
+      phase = DONE;
+      finish();
+      return;
     }
     if (views >= MAX_VIEWS) {
       T.check("pool trim arrived before " + MAX_VIEWS + " views", false);
@@ -111,6 +135,7 @@ public class ActFill extends Activity {
   }
 
   private void verify() {
+    picodroid.util.Log.i(T.TAG, "views at trim: " + viewsAtTrim);
     String trace = T.snapshot();
     T.check(
         "delivery order app, extra, home, fill, svc",
