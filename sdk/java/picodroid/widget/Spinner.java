@@ -4,11 +4,6 @@ package picodroid.widget;
 import picodroid.content.Context;
 
 public class Spinner extends AdapterView<Adapter> {
-  public Spinner() {
-    super(nativeCreate());
-    setFocusable(true); // as on Android (see Button)
-  }
-
   public Spinner(Context ctx) {
     super(ctx, nativeCreate());
     setFocusable(true);

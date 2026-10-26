@@ -16,7 +16,7 @@ import picodroid.util.Log;
  * <p>This Service is both <em>started</em> and <em>bindable</em>:
  *
  * <ul>
- *   <li><b>Started</b> (from {@link TutorialServiceApp#onCreate}) so it keeps sampling on its own
+ *   <li><b>Started</b> (from {@link HomeActivity#onCreate}) so it keeps sampling on its own
  *       background Thread and survives Activity navigation — a bound-only Service would be
  *       destroyed the moment its last Activity finishes, taking the ring buffer with it.
  *   <li><b>Bindable</b> so {@link LogViewerActivity} can grab a typed handle through the {@link
@@ -74,15 +74,14 @@ public class UptimeLogService extends Service {
       running = true;
 
       Notification n =
-          new Notification.Builder()
-              .setContentTitle("Uptime Logger")
-              .setContentText("Recording uptime samples")
+          new Notification.Builder(this, "uptime")
+              .setContentTitle(getString(R.string.notification_title))
+              .setContentText(getString(R.string.notification_text))
               .build();
       startForeground(NOTIFICATION_ID, n);
 
-      // Sampling is blocking work (it sleeps between samples), so it MUST run off the main thread.
-      // a Thread is the supported way to do that; SystemClock.sleep is the only
-      // blocking sleep in the SDK and is safe to call here because we are not on the main thread.
+      // Sampling is blocking work (it sleeps between samples), so it MUST run off the main thread:
+      // a Thread of its own, where SystemClock.sleep blocks nothing else.
       new Thread(this::sampleLoop).start();
       Log.i(TAG, "foreground started, sampler running");
     }

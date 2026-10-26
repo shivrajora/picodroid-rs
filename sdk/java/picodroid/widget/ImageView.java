@@ -30,10 +30,6 @@ public class ImageView extends View {
   /** Native zoom unit: {@code 256} = 1.0×. */
   public static final int SCALE_1X = 256;
 
-  public ImageView() {
-    super(nativeCreate());
-  }
-
   public ImageView(Context ctx) {
     super(ctx, nativeCreate());
   }

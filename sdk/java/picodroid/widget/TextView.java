@@ -60,10 +60,6 @@ public class TextView extends View {
   /** The gravity last set by {@link #setGravity}; Android's default is {@code TOP | START}. */
   private int mGravity = Gravity.TOP | Gravity.START;
 
-  public TextView() {
-    super(nativeCreate());
-  }
-
   public TextView(Context ctx) {
     super(ctx, nativeCreate());
   }
@@ -88,6 +84,11 @@ public class TextView extends View {
    * the view already shows does nothing: nothing is laid out or painted again, so a screen that
    * refreshes every label on every update pays only for the ones that changed.
    */
+  /** Mirrors Android: the string resource {@code resid}, through this view's Context. */
+  public final void setText(int resid) {
+    setText(getContext().getString(resid));
+  }
+
   public void setText(String text) {
     String next = text == null ? "" : text;
     if (next.equals(mText)) {

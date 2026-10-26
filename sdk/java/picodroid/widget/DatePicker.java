@@ -17,10 +17,6 @@ public class DatePicker extends View {
   private int month; // 0-based, as Android's
   private int dayOfMonth = 1;
 
-  public DatePicker() {
-    this(null);
-  }
-
   public DatePicker(Context ctx) {
     super(ctx, nativeCreate());
     nativeSetDate(year, month + 1, dayOfMonth);
@@ -45,16 +41,6 @@ public class DatePicker extends View {
     setOnDateChangedListener(listener);
   }
 
-  /**
-   * Picodroid's original setter, with a 1-based month (January is 1).
-   *
-   * @deprecated use {@link #updateDate}, whose month is 0-based like Android's.
-   */
-  @Deprecated
-  public void setDate(int year, int month, int day) {
-    updateDate(year, month - 1, day);
-  }
-
   public int getYear() {
     return year;
   }
@@ -65,14 +51,6 @@ public class DatePicker extends View {
   }
 
   public int getDayOfMonth() {
-    return dayOfMonth;
-  }
-
-  /**
-   * @deprecated use {@link #getDayOfMonth}.
-   */
-  @Deprecated
-  public int getDay() {
     return dayOfMonth;
   }
 

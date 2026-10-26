@@ -200,8 +200,17 @@ fn resolve_active_map_version(pkg_version: &str, shrink_maps_dir: &Path) -> Stri
 /// (`BUILTIN_CLASS_NAMES` + `BUILTIN_INTERFACE_METHODS` rows in
 /// `jvm/src/native/mod.rs`), so the class file would be pure flash.
 /// `no_bodiless_java_framework_classes` (picodroid-core) is the guard that
-/// sends a name here. Original (unshrunk) JVM internal names.
-const COMPILE_ONLY_CLASSES: &[&str] = &["java/lang/Thread$UncaughtExceptionHandler"];
+/// sends a name here. Two picodroid kinds join it: `picodroid.annotation.Hide`,
+/// an annotation the build reads from the SDK's classes (`verifyApiContract`)
+/// and the firmware's strip drops from every member, and `picodroid.R`, whose
+/// constants javac copies into every class that names one; nothing on a board
+/// names either. Original (unshrunk) JVM internal names.
+const COMPILE_ONLY_CLASSES: &[&str] = &[
+    "java/lang/Thread$UncaughtExceptionHandler",
+    "picodroid/R",
+    "picodroid/R$layout",
+    "picodroid/annotation/Hide",
+];
 
 pub fn embed_framework_classes(out: &Path, root: &Path, excludes: &[String]) {
     // The empty/full cutover is keyed on PICODROID_APK_PATH (only embedded

@@ -2,7 +2,6 @@
 package connectivity;
 
 import picodroid.app.Activity;
-import picodroid.concurrent.Executors;
 import picodroid.content.BroadcastReceiver;
 import picodroid.content.Context;
 import picodroid.content.Intent;
@@ -10,8 +9,8 @@ import picodroid.content.IntentFilter;
 import picodroid.net.ConnectivityManager;
 import picodroid.net.Network;
 import picodroid.net.NetworkCapabilities;
-import picodroid.net.NetworkInfo;
 import picodroid.net.NetworkRequest;
+import picodroid.net.wifi.WifiManager;
 import picodroid.os.Bundle;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
@@ -19,7 +18,7 @@ import picodroid.widget.TextView;
 
 /**
  * Android's way of hearing about the network, on picodroid: {@code ConnectivityManager} with a
- * {@code NetworkCallback}, instead of polling {@code NetworkInfo.isConnected()}.
+ * {@code NetworkCallback}, instead of polling the link.
  *
  * <p>Also the sim test for it (the {@code connectivity} row of {@code hil-tests.conf}): the app
  * registers, expects the link that is up at boot to be announced once its {@code onCreate} has
@@ -40,6 +39,7 @@ public class Connectivity extends Activity {
   private static final int GIVE_UP_MS = 40_000;
 
   private ConnectivityManager cm;
+  private WifiManager wm;
   private TextView status;
   private int available;
   private Network lastNetwork;
@@ -58,7 +58,8 @@ public class Connectivity extends Activity {
           if (ConnectivityManager.CONNECTIVITY_ACTION.equals(intent.getAction())) {
             boolean down = intent.getBooleanExtra(ConnectivityManager.EXTRA_NO_CONNECTIVITY, false);
             check(
-                down != NetworkInfo.isConnected(), "EXTRA_NO_CONNECTIVITY disagrees with the link");
+                down == (cm.getActiveNetwork() == null),
+                "EXTRA_NO_CONNECTIVITY disagrees with getActiveNetwork");
             if (down) {
               broadcastsDown++;
               Log.i(TAG, "broadcast down " + broadcastsDown);
@@ -92,12 +93,12 @@ public class Connectivity extends Activity {
           if (available == 1) {
             Network active = cm.getActiveNetwork();
             check(network.equals(active), "onAvailable network is not getActiveNetwork");
-            check(NetworkInfo.isConnected(), "onAvailable while NetworkInfo says disconnected");
+            check(cm.getNetworkCapabilities(network) != null, "onAvailable without capabilities");
           } else {
             check(!network.equals(lastNetwork), "the returning link reused the lost Network");
             Log.i(TAG, "handle " + network.getNetworkHandle());
             // The broadcasts of the same frame land after the callbacks: judge them a turn later.
-            Executors.mainExecutor().execute(() -> finishRun());
+            getMainExecutor().execute(() -> finishRun());
           }
           lastNetwork = network;
           show("online " + network);
@@ -108,10 +109,9 @@ public class Connectivity extends Activity {
           check(network.equals(lastNetwork), "capabilities for a network never announced");
           check(caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET), "no INTERNET");
           check(caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED), "no VALIDATED");
-          boolean wifi = NetworkInfo.getType() == ConnectivityManager.TYPE_WIFI;
           check(
-              caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == wifi,
-              "transport disagrees with NetworkInfo.getType()");
+              caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == wm.isWifiEnabled(),
+              "transport disagrees with WifiManager.isWifiEnabled()");
           check(!caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR), "cellular transport");
           NetworkCapabilities again = cm.getNetworkCapabilities(network);
           check(
@@ -128,7 +128,6 @@ public class Connectivity extends Activity {
           Log.i(TAG, "onLost net=" + network);
           check(network.equals(lastNetwork), "onLost names a network never announced");
           check(cm.getActiveNetwork() == null, "getActiveNetwork after onLost");
-          check(!NetworkInfo.isConnected(), "onLost while NetworkInfo says connected");
           check(cm.getNetworkCapabilities(network) == null, "capabilities of a lost network");
           show("offline");
           Log.i(TAG, "onLost ok");
@@ -141,10 +140,12 @@ public class Connectivity extends Activity {
     status = new TextView(this);
     setContentView(status);
     show("starting");
-    Log.i(TAG, "type=" + NetworkInfo.getType() + " connected=" + NetworkInfo.isConnected());
 
     cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
     check(cm != null, "getSystemService(CONNECTIVITY_SERVICE) is null");
+    wm = (WifiManager) getSystemService(Context.WIFI_SERVICE);
+    check(wm != null, "getSystemService(WIFI_SERVICE) is null");
+    Log.i(TAG, "wifi=" + wm.isWifiEnabled() + " connected=" + (cm.getActiveNetwork() != null));
 
     NetworkRequest cellular =
         new NetworkRequest.Builder()
@@ -173,7 +174,7 @@ public class Connectivity extends Activity {
     cm.registerDefaultNetworkCallback(callback);
     inRegister = false;
     IntentFilter filter = new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION);
-    filter.addAction(picodroid.net.wifi.WifiManager.NETWORK_STATE_CHANGED_ACTION);
+    filter.addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION);
     registerReceiver(receiver, filter);
     try {
       cm.registerDefaultNetworkCallback(callback);
@@ -192,7 +193,7 @@ public class Connectivity extends Activity {
     new Thread(
             () -> {
               SystemClock.sleep(GIVE_UP_MS);
-              Executors.mainExecutor()
+              getMainExecutor()
                   .execute(
                       () -> {
                         if (!done) {

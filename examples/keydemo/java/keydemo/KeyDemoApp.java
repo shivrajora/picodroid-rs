@@ -7,6 +7,6 @@ import picodroid.content.Intent;
 public class KeyDemoApp extends Application {
   @Override
   public void onCreate() {
-    startActivity(new Intent(KeyDemoActivity.class));
+    startActivity(new Intent(this, KeyDemoActivity.class));
   }
 }

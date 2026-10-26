@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.net;
 
+import picodroid.annotation.Hide;
 import picodroid.concurrent.Executors;
 
 /**
@@ -111,6 +112,7 @@ public class ConnectivityManager {
 
   private ConnectivityManager() {}
 
+  @Hide("context.getSystemService(Context.CONNECTIVITY_SERVICE)")
   public static ConnectivityManager getInstance() {
     return INSTANCE;
   }

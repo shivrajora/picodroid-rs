@@ -204,6 +204,7 @@ class PicodroidPapkPlugin : Plugin<Project> {
             description = "Reject java/… references pico-jvm does not serve, and classes the target board excludes"
             classesDir.set(rawClassesInput)
             contractFile.set(repoRoot.resolve("sdk/api-contract.tsv"))
+            sdkClasspath.from(target.configurations.named(JavaPlugin.COMPILE_CLASSPATH_CONFIGURATION_NAME))
             mode.set(apiContractMode)
             this.boardName.set(boardName)
             boardToml.set(target.layout.file(boardName.map { BoardResolver.boardToml(repoRoot, it) }))

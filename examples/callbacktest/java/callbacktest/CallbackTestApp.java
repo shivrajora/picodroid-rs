@@ -7,6 +7,6 @@ import picodroid.content.Intent;
 public class CallbackTestApp extends Application {
   @Override
   public void onCreate() {
-    startActivity(new Intent(CallbackTestActivity.class));
+    startActivity(new Intent(this, CallbackTestActivity.class));
   }
 }

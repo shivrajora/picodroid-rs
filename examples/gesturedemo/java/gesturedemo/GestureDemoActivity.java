@@ -20,22 +20,21 @@ public class GestureDemoActivity extends Activity {
 
     getDisplay();
 
-    LinearLayout root = new LinearLayout();
+    LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(240, 240);
     root.setPadding(10, 10, 10, 10);
 
-    TextView title = new TextView();
+    TextView title = new TextView(this);
     title.setText("Gesture Demo");
     title.setTextColor(Color.WHITE);
     root.addView(title);
 
-    TextView hint = new TextView();
+    TextView hint = new TextView(this);
     hint.setText("Tap, long-press, or swipe the box.");
     hint.setTextColor(Color.WHITE);
     root.addView(hint);
 
-    status = new TextView();
+    status = new TextView(this);
     status.setText("(no gesture yet)");
     status.setTextColor(Color.CYAN);
     root.addView(status);
@@ -43,14 +42,14 @@ public class GestureDemoActivity extends Activity {
     // The "touch surface" is a sized TextView. setOnTouchListener flips on
     // LVGL's CLICKABLE flag so the underlying object actually receives
     // press/release events.
-    TextView surface = new TextView();
+    TextView surface = new TextView(this);
     surface.setText("touch me");
-    surface.setSize(220, 120);
     surface.setBackgroundColor(Color.argb(255, 60, 60, 80));
     // SimpleOnGestureListener (vs the raw interface) exercises the abstract
     // base class: subclass through a class-typed supertype, not invokeinterface.
     surface.setOnTouchListener(
         new GestureDetector(
+            this,
             new GestureDetector.SimpleOnGestureListener() {
               @Override
               public void onSingleTap(MotionEvent e) {
@@ -79,14 +78,13 @@ public class GestureDemoActivity extends Activity {
     // click must be suppressed when the surface is tapped — Android's
     // contract. If "surface-click-LEAK" ever logs, suppression broke.
     surface.setOnClickListener(v -> app.info("surface-click-LEAK"));
-    root.addView(surface);
+    root.addView(surface, new LinearLayout.LayoutParams(220, 120));
 
     // A second tile wired to View.OnLongClickListener directly (the LVGL
     // long-press path, separate from GestureDetector). performLongClick()
     // exercises the pure-Java synthesis for a deterministic headless check.
-    TextView tile = new TextView();
+    TextView tile = new TextView(this);
     tile.setText("hold me");
-    tile.setSize(220, 40);
     tile.setBackgroundColor(Color.argb(255, 80, 60, 60));
     tile.setOnLongClickListener(
         v -> {
@@ -96,7 +94,7 @@ public class GestureDemoActivity extends Activity {
     // No onTouch consumer on this tile, so a short tap's click fires normally
     // (the suppression baseline — proves the reorder didn't break clicks).
     tile.setOnClickListener(v -> app.info("tile-click-ok"));
-    root.addView(tile);
+    root.addView(tile, new LinearLayout.LayoutParams(220, 40));
     if (tile.performLongClick()) {
       app.info("long-click consumed");
     }

@@ -4,12 +4,12 @@ package settings;
 import java.util.List;
 import picodroid.app.Activity;
 import picodroid.app.AlertDialog;
-import picodroid.concurrent.Executors;
 import picodroid.content.BroadcastReceiver;
 import picodroid.content.Context;
 import picodroid.content.Intent;
 import picodroid.content.IntentFilter;
-import picodroid.net.NetworkInfo;
+import picodroid.net.ConnectivityManager;
+import picodroid.net.Network;
 import picodroid.net.wifi.ScanResult;
 import picodroid.net.wifi.SupplicantState;
 import picodroid.net.wifi.WifiConfiguration;
@@ -24,17 +24,18 @@ import picodroid.widget.TextView;
 /**
  * Wi-Fi (docs/designs/wifi-provisioning-2026-09.md): the connection status, the saved network, a
  * Scan row, then one row per network the last scan found, strongest first, with signal bars and
- * whether it needs a password. A tap on an open network joins it; on a secured one it opens
- * {@link WifiPasswordActivity}. The saved network's row opens a dialog: Connect, Forget, Cancel —
- * Forget is refused for a network compiled into the firmware, which the row marks "Build".
+ * whether it needs a password. A tap on an open network joins it; on a secured one it opens {@link
+ * WifiPasswordActivity}. The saved network's row opens a dialog: Connect, Forget, Cancel — Forget
+ * is refused for a network compiled into the firmware, which the row marks "Build".
  *
- * <p>The join's outcome arrives as Android's broadcasts: while the screen is resumed a {@link
- * BroadcastReceiver} for {@link WifiManager#SUPPLICANT_STATE_CHANGED_ACTION} and {@link
- * WifiManager#NETWORK_STATE_CHANGED_ACTION} re-reads {@link WifiManager#getConnectionInfo} and
- * updates the status row — Connecting, Obtaining IP address, Connected, Wrong password, Not found.
- * Every change is logged as {@code wifi status …}; a completed join as {@code wifi connected
- * <ssid>}, which the bench keys on. Scan completion is pushed through a {@link
- * WifiManager.ScanResultsCallback} and rebuilds the rows.
+ * <p>The join's outcome arrives as Android delivers it: while the screen is resumed a {@link
+ * BroadcastReceiver} for {@link WifiManager#SUPPLICANT_STATE_CHANGED_ACTION} keeps the {@link
+ * WifiManager#EXTRA_SUPPLICANT_ERROR} of a rejected join, and it and a {@link
+ * ConnectivityManager.NetworkCallback} (the link up with an address, or gone) re-read {@link
+ * WifiManager#getConnectionInfo} and update the status row — Connecting, Obtaining IP address,
+ * Connected, Wrong password, Not found. Every change is logged as {@code wifi status …}; a
+ * completed join as {@code wifi connected <ssid>}, which the bench keys on. Scan completion is
+ * pushed through a {@link WifiManager.ScanResultsCallback} and rebuilds the rows.
  *
  * <p>Row 0 is the header, 1 the status, 2 the saved network (or "No saved network"), 3 Scan, and
  * the networks follow from 4, so the bench taps the first network at y = 180.
@@ -43,6 +44,8 @@ public class WifiActivity extends Activity {
   private static final String TAG = SettingsActivity.TAG;
 
   private WifiManager wm;
+  private ConnectivityManager cm;
+
   /** The Scan row: takes the focus once the list is in. */
   private View scanRow;
 
@@ -52,11 +55,32 @@ public class WifiActivity extends Activity {
   private boolean scanning;
   private String lastStatus = "";
 
-  /** The join's progress: the station's state and the link, each a broadcast. */
+  /**
+   * Why the last join failed ({@link WifiManager#ERROR_AUTHENTICATING} and the rest), from the
+   * latest supplicant broadcast; 0 while a join is under way or none failed.
+   */
+  private int lastError;
+
+  /** The join's progress: the station's state, a broadcast with the failure's reason. */
   private final BroadcastReceiver onState =
       new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
+          lastError = intent.getIntExtra(WifiManager.EXTRA_SUPPLICANT_ERROR, 0);
+          refreshStatus();
+        }
+      };
+
+  /** The link: up with an address ("Connected"), or gone. */
+  private final ConnectivityManager.NetworkCallback onLink =
+      new ConnectivityManager.NetworkCallback() {
+        @Override
+        public void onAvailable(Network network) {
+          refreshStatus();
+        }
+
+        @Override
+        public void onLost(Network network) {
           refreshStatus();
         }
       };
@@ -75,7 +99,8 @@ public class WifiActivity extends Activity {
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     wm = (WifiManager) getSystemService(Context.WIFI_SERVICE);
-    wm.registerScanResultsCallback(Executors.mainExecutor(), onScan);
+    cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+    wm.registerScanResultsCallback(getMainExecutor(), onScan);
     render();
   }
 
@@ -99,9 +124,8 @@ public class WifiActivity extends Activity {
       final ScanResult r = results.get(n);
       Screens.row(this, column, r.SSID, signal(r), v -> pick(r));
       // One line per network for the log: the bench finds its row by it.
-      Log.i(TAG, "wifi net " + n + " " + r.SSID + " " + r.level + (r.isSecured() ? " *" : " open"));
+      Log.i(TAG, "wifi net " + n + " " + r.SSID + " " + r.level + (secured(r) ? " *" : " open"));
     }
-    Screens.size(this, column, 4 + results.size());
     done();
   }
 
@@ -118,7 +142,12 @@ public class WifiActivity extends Activity {
     for (int i = 0; i < 4; i++) {
       bars += i < level ? "|" : ".";
     }
-    return bars + (r.isSecured() ? "  *" : "  open");
+    return bars + (secured(r) ? "  *" : "  open");
+  }
+
+  /** Whether joining needs a password: Android's capabilities test (an open network is [ESS]). */
+  private static boolean secured(ScanResult r) {
+    return r.capabilities.contains("WPA") || r.capabilities.contains("WEP");
   }
 
   private void scan() {
@@ -133,8 +162,8 @@ public class WifiActivity extends Activity {
 
   private void pick(ScanResult r) {
     Log.i(TAG, "wifi pick " + r.SSID);
-    if (r.isSecured()) {
-      startActivity(new Intent(WifiPasswordActivity.class).putExtra("ssid", r.SSID));
+    if (secured(r)) {
+      startActivity(new Intent(this, WifiPasswordActivity.class).putExtra("ssid", r.SSID));
     } else {
       connect(wm, r.SSID, "");
     }
@@ -178,7 +207,7 @@ public class WifiActivity extends Activity {
   private void forget(WifiConfiguration c) {
     Log.i(TAG, wm.removeNetwork(c.networkId) ? "wifi forgot" : "wifi forget refused");
     // Rebuild once the dialog has closed, not from inside its click.
-    Executors.mainExecutor().execute(() -> render());
+    getMainExecutor().execute(() -> render());
   }
 
   /** What the status row says now. */
@@ -187,12 +216,12 @@ public class WifiActivity extends Activity {
     String ssid = unquote(info.getSSID());
     SupplicantState state = info.getSupplicantState();
     if (state == SupplicantState.COMPLETED) {
-      return NetworkInfo.isConnected() ? "Connected: " + ssid : "Obtaining IP address...";
+      return cm.getActiveNetwork() != null ? "Connected: " + ssid : "Obtaining IP address...";
     }
     if (state == SupplicantState.ASSOCIATING) {
       return "Connecting: " + ssid;
     }
-    switch (wm.getLastError()) {
+    switch (lastError) {
       case WifiManager.ERROR_AUTHENTICATING:
         return "Wrong password: " + ssid;
       case WifiManager.ERROR_NETWORK_NOT_FOUND:
@@ -231,9 +260,8 @@ public class WifiActivity extends Activity {
   @Override
   public void onResume() {
     super.onResume();
-    IntentFilter filter = new IntentFilter(WifiManager.SUPPLICANT_STATE_CHANGED_ACTION);
-    filter.addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION);
-    registerReceiver(onState, filter);
+    registerReceiver(onState, new IntentFilter(WifiManager.SUPPLICANT_STATE_CHANGED_ACTION));
+    cm.registerDefaultNetworkCallback(onLink);
     lastStatus = "";
     refreshStatus();
   }
@@ -241,6 +269,7 @@ public class WifiActivity extends Activity {
   @Override
   public void onPause() {
     unregisterReceiver(onState);
+    cm.unregisterNetworkCallback(onLink);
     super.onPause();
   }
 

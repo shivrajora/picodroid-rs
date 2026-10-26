@@ -22,24 +22,6 @@ public class ArrayAdapter<T> extends BaseAdapter {
   private final int mResource;
   private final int mFieldId;
 
-  public ArrayAdapter(Context ctx, T[] items) {
-    this(ctx, 0, 0);
-    addAll(items);
-  }
-
-  public ArrayAdapter(T[] items) {
-    this(null, 0, 0);
-    addAll(items);
-  }
-
-  public ArrayAdapter(Context ctx) {
-    this(ctx, 0, 0);
-  }
-
-  public ArrayAdapter() {
-    this(null, 0, 0);
-  }
-
   /**
    * Android's {@code (Context, int resource)}: rows inflate {@code resource}, a {@code TextView}.
    */
@@ -144,7 +126,7 @@ public class ArrayAdapter<T> extends BaseAdapter {
   public View getView(int position, View convertView, ViewGroup parent) {
     View row = convertView;
     if (row == null) {
-      row = mResource == 0 ? newTextView() : inflateRow(parent);
+      row = isFrameworkRow(mResource) ? newTextView() : inflateRow(parent);
     }
     TextView text;
     if (mFieldId == 0) {
@@ -162,7 +144,15 @@ public class ArrayAdapter<T> extends BaseAdapter {
   }
 
   private TextView newTextView() {
-    return mContext == null ? new TextView() : new TextView(mContext);
+    return new TextView(mContext);
+  }
+
+  /**
+   * Whether {@code resource} is one of {@link picodroid.R.layout}'s rows (Android's {@code 0x01}
+   * package), or none: the framework draws those itself.
+   */
+  private static boolean isFrameworkRow(int resource) {
+    return resource == 0 || (resource >>> 24) == 0x01;
   }
 
   private View inflateRow(ViewGroup parent) {

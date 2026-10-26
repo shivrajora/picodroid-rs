@@ -1,6 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest package="tutorial_service" version="1.0">
-    <application application="tutorial_service/TutorialServiceApp">
-        <service android:name="tutorial_service.UptimeLogService" />
+    <!-- Each component the app starts is declared: the two screens (the MAIN / LAUNCHER one is
+         what the launcher opens) and the Service. The build refuses an Intent that names an
+         undeclared Service or Activity. -->
+    <application>
+        <activity android:name=".HomeActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".LogViewerActivity" />
+        <service android:name=".UptimeLogService" />
     </application>
 </manifest>

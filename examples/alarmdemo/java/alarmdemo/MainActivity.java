@@ -2,7 +2,6 @@
 package alarmdemo;
 
 import picodroid.app.Activity;
-import picodroid.concurrent.Executors;
 import picodroid.content.Intent;
 import picodroid.content.pm.PackageManager;
 import picodroid.os.Bundle;
@@ -26,10 +25,10 @@ public class MainActivity extends Activity {
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    LinearLayout page = new LinearLayout();
+    LinearLayout page = new LinearLayout(this);
     page.setOrientation(LinearLayout.VERTICAL);
     page.setGravity(Gravity.CENTER);
-    TextView label = new TextView();
+    TextView label = new TextView(this);
     label.setText("Alarm armed. Leaving...");
     page.addView(label);
     setContentView(page);
@@ -50,7 +49,7 @@ public class MainActivity extends Activity {
   /** Go to the launcher, if this board has one to go to. */
   private void leaveWhenSettled() {
     SystemClock.sleep(LEAVE_AFTER_MS);
-    Executors.mainExecutor().execute(this::leave);
+    getMainExecutor().execute(this::leave);
   }
 
   private void leave() {

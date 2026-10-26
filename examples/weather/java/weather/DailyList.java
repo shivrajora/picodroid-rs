@@ -27,13 +27,20 @@ final class DailyList extends View {
   private static final int HOT = Color.rgb(255, 140, 80);
 
   private final Paint paint = new Paint();
-  private final int width;
+  private final String today;
   private Forecast forecast;
 
-  DailyList(Context ctx, int width) {
+  DailyList(Context ctx) {
     super(ctx);
-    this.width = width;
-    setSize(width, Forecast.DAYS * ROW);
+    today = ctx.getString(R.string.today);
+  }
+
+  /** One {@link #ROW} per day; as wide as the parent makes it. */
+  @Override
+  protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+    setMeasuredDimension(
+        getDefaultSize(getSuggestedMinimumWidth(), widthMeasureSpec),
+        resolveSize(Forecast.DAYS * ROW, heightMeasureSpec));
   }
 
   void set(Forecast f) {
@@ -54,6 +61,8 @@ final class DailyList extends View {
       weekHigh = Math.max(weekHigh, f.dayHigh[i]);
     }
     int span = Math.max(1, weekHigh - weekLow);
+    int width = getWidth();
+    Context ctx = getContext();
     int barLeft = BAR_LEFT;
     int barRight = width - BAR_RIGHT_INSET;
     float barWidth = barRight - barLeft;
@@ -65,12 +74,12 @@ final class DailyList extends View {
       paint.setStyle(Paint.Style.FILL);
       paint.setColor(TEXT);
       paint.setTextAlign(Paint.Align.LEFT);
-      canvas.drawText(f.dayName[i], 0, baseline, paint);
+      canvas.drawText(i == 0 ? today : f.dayName[i], 0, baseline, paint);
       WeatherIcons.draw(canvas, paint, f.dayCode[i], true, ICON_X, cy, ICON);
       paint.setStyle(Paint.Style.FILL);
       paint.setColor(TEXT_DIM);
       paint.setTextAlign(Paint.Align.RIGHT);
-      canvas.drawText(f.dayLow[i] + "°", LOW_RIGHT, baseline, paint);
+      canvas.drawText(ctx.getString(R.string.temperature, f.dayLow[i]), LOW_RIGHT, baseline, paint);
       float x0 = barLeft + (f.dayLow[i] - weekLow) * barWidth / span;
       float x1 = barLeft + (f.dayHigh[i] - weekLow) * barWidth / span;
       if (x1 < x0 + 4) {
@@ -79,7 +88,7 @@ final class DailyList extends View {
       paint.setColor(rangeColor((f.dayLow[i] + f.dayHigh[i]) / 2));
       canvas.drawRoundRect(x0, cy - 2, x1, cy + 2, 2, 2, paint);
       paint.setColor(TEXT);
-      canvas.drawText(f.dayHigh[i] + "°", width, baseline, paint);
+      canvas.drawText(ctx.getString(R.string.temperature, f.dayHigh[i]), width, baseline, paint);
     }
   }
 

@@ -27,32 +27,30 @@ public class CounterActivity extends Activity {
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     Log.i(TAG, "onCreate");
-    getDisplay();
 
-    LinearLayout root = new LinearLayout();
+    LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(240, 240);
     root.setPadding(10, 10, 10, 10);
 
-    TextView title = new TextView();
-    title.setText("Counter");
+    TextView title = new TextView(this);
+    title.setText(getString(R.string.counter_title));
     title.setTextColor(Color.WHITE);
     root.addView(title);
 
-    countLabel = new TextView();
-    countLabel.setText("Count: 0");
+    countLabel = new TextView(this);
+    countLabel.setText(getString(R.string.count, count));
     countLabel.setTextColor(Color.CYAN);
     root.addView(countLabel);
 
-    Button incrementButton = new Button("Increment");
-    incrementButton.setSize(200, 40);
+    Button incrementButton = new Button(this);
+    incrementButton.setText(getString(R.string.button_increment));
     incrementButton.setOnClickListener(
         v -> {
           count++;
           Log.i(TAG, "count=" + count);
-          countLabel.setText("Count: " + count);
+          countLabel.setText(getString(R.string.count, count));
         });
-    root.addView(incrementButton);
+    root.addView(incrementButton, HomeActivity.buttonParams());
 
     setContentView(root);
     // No Back button here: the BACK key's default onBackPressed() calls finish() for us.
@@ -60,16 +58,19 @@ public class CounterActivity extends Activity {
 
   @Override
   public void onResume() {
+    super.onResume();
     Log.i(TAG, "onResume");
   }
 
   @Override
   public void onPause() {
+    super.onPause();
     Log.i(TAG, "onPause");
   }
 
   @Override
   public void onDestroy() {
+    super.onDestroy();
     Log.i(TAG, "onDestroy");
   }
 }

@@ -76,11 +76,10 @@ public final class SharedPreferences {
   }
 
   /**
-   * A new instance over the file {@code name}, read from storage now. Not an Android method: an
-   * Android app gets its preferences from {@link Context#getSharedPreferences}, which shares one
-   * instance per file. Two instances over one file do not see each other's changes.
+   * A new instance over the file {@code name}, read from storage now: {@link #getInstance}'s first
+   * read. Apps get theirs from {@link Context#getSharedPreferences}, one instance per file.
    */
-  public static SharedPreferences open(String name) {
+  private static SharedPreferences open(String name) {
     if (!validName(name)) {
       throw new IllegalArgumentException("invalid preferences name");
     }

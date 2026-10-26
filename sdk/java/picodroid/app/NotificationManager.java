@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.app;
 
+import picodroid.annotation.Hide;
+
 /**
  * Posts and cancels {@link Notification}s. v1 routes every notification to a single persistent
  * on-screen banner managed by the framework.
@@ -14,6 +16,7 @@ public final class NotificationManager {
 
   private NotificationManager() {}
 
+  @Hide("context.getSystemService(Context.NOTIFICATION_SERVICE)")
   public static NotificationManager getInstance() {
     return INSTANCE;
   }

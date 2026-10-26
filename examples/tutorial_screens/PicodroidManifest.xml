@@ -1,4 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest package="tutorial_screens" version="1.0">
-    <application application="tutorial_screens/TutorialScreensApp" />
+    <!-- Every screen is an <activity>. The one with the MAIN / LAUNCHER intent filter is what the
+         launcher opens; the others are reached by startActivity(new Intent(this, ...)). -->
+    <application>
+        <activity android:name=".HomeActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".CounterActivity" />
+        <activity android:name=".AboutActivity" />
+    </application>
 </manifest>

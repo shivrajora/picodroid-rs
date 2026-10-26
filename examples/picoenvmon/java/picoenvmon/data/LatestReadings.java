@@ -4,13 +4,16 @@ package picoenvmon.data;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import picodroid.hardware.Sensor;
+import picodroid.lifecycle.LiveData;
+import picodroid.lifecycle.MutableLiveData;
 
 /**
- * Latest 1 Hz smoothed value per sensor type — written by {@code SensorLoggerService}'s smoothing
- * emit, read by the HTTP dashboard (network thread) and the UI. Plain unsynchronized fields: float
- * slots are written whole, and FreeRTOS scheduling on this single-core target makes the
- * cross-thread reads benign (a reader sees either the previous or the current sample, never a torn
- * one — floats occupy one 32-bit slot).
+ * Latest 1 Hz smoothed value per sensor type: the app's readings repository. Written by {@code
+ * SensorLoggerService}'s smoothing emit; the UI observes {@link #readings()}, and the HTTP
+ * dashboard (network thread) reads the plain fields through {@link #get} without allocating. Those
+ * fields are unsynchronized: float slots are written whole, and FreeRTOS scheduling on this
+ * single-core target makes the cross-thread reads benign (a reader sees either the previous or the
+ * current sample, never a torn one — floats occupy one 32-bit slot).
  */
 @Singleton
 public class LatestReadings {
@@ -23,6 +26,7 @@ public class LatestReadings {
 
   private final float[] values = new float[COUNT];
   private int validMask;
+  private final MutableLiveData<Readings> readings = new MutableLiveData<>();
 
   @Inject
   public LatestReadings() {}
@@ -51,6 +55,21 @@ public class LatestReadings {
       values[idx] = value;
       validMask |= (1 << idx);
     }
+  }
+
+  /**
+   * Publish the values {@link #updateByType} has written since the last call, as one immutable
+   * {@link Readings}. Main thread (sensor callbacks run there).
+   */
+  public void publish() {
+    float[] copy = new float[COUNT];
+    System.arraycopy(values, 0, copy, 0, COUNT);
+    readings.setValue(new Readings(copy, validMask));
+  }
+
+  /** The latest smoothed values, once a second while the logging service runs. */
+  public LiveData<Readings> readings() {
+    return readings;
   }
 
   /** Whether {@code idx} has received at least one sample. */

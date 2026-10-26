@@ -9,6 +9,7 @@ import picodroid.graphics.Color;
 import picodroid.os.Bundle;
 import picodroid.os.IBinder;
 import picodroid.util.Log;
+import picodroid.view.ViewGroup;
 import picodroid.widget.ArrayAdapter;
 import picodroid.widget.Button;
 import picodroid.widget.LinearLayout;
@@ -18,19 +19,19 @@ import picodroid.widget.TextView;
 /**
  * Binds {@link UptimeLogService}, reads a snapshot of its ring buffer, and lists the samples. The
  * Activity itself {@code implements ServiceConnection}: it binds in {@link #onCreate} and unbinds
- * in {@link #onDestroy}. Because the Service is also <em>started</em> from the Application, the
- * same running instance is reused on every visit — so the snapshot grows over time instead of
+ * in {@link #onDestroy}. Because the Service is also <em>started</em> (by {@link HomeActivity}),
+ * the same running instance is reused on every visit — so the snapshot grows over time instead of
  * resetting.
  *
  * <p>BACK (the default {@link #onBackPressed} → {@code finish()}) pops this screen back to Home;
- * finishing auto-unbinds this connection, and the still-started Service keeps sampling.
+ * the still-started Service keeps sampling after this connection is unbound.
  */
 public class LogViewerActivity extends Activity implements ServiceConnection {
   private static final String TAG = "LogViewerActivity";
 
-  // list and statusLine are fields because Refresh rewrites them; the button is a local — the
-  // tree keeps it and its listener alive, as on Android.
-  private ListView list;
+  // The adapter and the status line are fields because Refresh rewrites them; the list and the
+  // button are locals — the tree keeps them and the listener alive, as on Android.
+  private ArrayAdapter<String> adapter;
   private TextView statusLine;
 
   // The bound Service handle, captured in onServiceConnected. null until connected and after
@@ -43,60 +44,56 @@ public class LogViewerActivity extends Activity implements ServiceConnection {
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     Log.i(TAG, "onCreate");
-    getDisplay();
 
-    LinearLayout root = new LinearLayout();
+    LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(240, 240);
     root.setPadding(10, 10, 10, 10);
 
-    TextView title = new TextView();
-    title.setText("Uptime Log");
+    TextView title = new TextView(this);
+    title.setText(getString(R.string.log_title));
     title.setTextColor(Color.WHITE);
     root.addView(title);
 
-    statusLine = new TextView();
-    // ASCII "..." — the bundled font has no ellipsis (U+2026) glyph.
-    statusLine.setText("Connecting...");
+    statusLine = new TextView(this);
+    statusLine.setText(getString(R.string.log_connecting));
     statusLine.setTextColor(Color.CYAN);
     root.addView(statusLine);
 
-    list = new ListView();
-    list.setSize(200, 130);
-    root.addView(list);
+    // The list takes whatever height the title, status and button leave (weight 1).
+    adapter = new ArrayAdapter<>(this, picodroid.R.layout.simple_list_item_1);
+    ListView list = new ListView(this);
+    list.setAdapter(adapter);
+    root.addView(list, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-    Button refreshButton = new Button("Refresh");
-    refreshButton.setSize(200, 36);
+    Button refreshButton = new Button(this);
+    refreshButton.setText(getString(R.string.button_refresh));
     refreshButton.setOnClickListener(v -> refresh());
-    root.addView(refreshButton);
+    root.addView(refreshButton, HomeActivity.buttonParams());
 
     setContentView(root);
 
-    // Bind in onCreate (the proven picoenvmon pattern). onServiceConnected then delivers the
-    // binder between frames, and the framework auto-unbinds this connection when the Activity
-    // finishes — but we still unbind explicitly in onDestroy below.
+    // onServiceConnected delivers the binder between frames; onDestroy unbinds.
     Log.i(TAG, "bindService");
     bindService(new Intent(this, UptimeLogService.class), this, BIND_AUTO_CREATE);
   }
 
   @Override
   public void onResume() {
+    super.onResume();
     Log.i(TAG, "onResume");
   }
 
   @Override
   public void onPause() {
+    super.onPause();
     Log.i(TAG, "onPause");
   }
 
   @Override
   public void onDestroy() {
+    super.onDestroy();
     Log.i(TAG, "onDestroy, unbindService");
-    try {
-      unbindService(this);
-    } catch (Throwable t) {
-      Log.i(TAG, "unbind ignored: " + t);
-    }
+    unbindService(this);
   }
 
   @Override
@@ -112,7 +109,7 @@ public class LogViewerActivity extends Activity implements ServiceConnection {
     service = null;
   }
 
-  /** Re-read the Service's snapshot and rebuild the list. Wired to the Refresh button. */
+  /** Re-read the Service's snapshot and refill the list. Wired to the Refresh button. */
   private void refresh() {
     if (service == null) {
       Log.i(TAG, "refresh skipped (not connected)");
@@ -122,15 +119,15 @@ public class LogViewerActivity extends Activity implements ServiceConnection {
     Log.i(TAG, "refresh, samples=" + n);
 
     if (n == 0) {
-      statusLine.setText("No samples yet");
+      statusLine.setText(getString(R.string.log_empty));
     } else {
-      statusLine.setText(n + " samples (ms)");
+      statusLine.setText(getString(R.string.log_count, n));
     }
 
-    ArrayAdapter<String> adapter = new ArrayAdapter<String>();
+    adapter.clear();
     for (int i = 0; i < n; i++) {
-      adapter.add("[" + i + "] " + samples[i] + " ms");
+      adapter.add(getString(R.string.log_row, i, samples[i]));
     }
-    list.setAdapter(adapter);
+    adapter.notifyDataSetChanged();
   }
 }

@@ -163,7 +163,7 @@ public class PagerDemoActivity extends Activity {
             position == 1 && pager.getCurrentItem() == 1 && lastVisits[1] == 3);
         Log.i(TAG, "restored item=1 via recreate");
         step = 6;
-        later(() -> startActivity(new Intent(CoverActivity.class)));
+        later(() -> startActivity(new Intent(this, CoverActivity.class)));
         break;
       case 6:
         check("reclaim restored the page and its state", position == 1 && lastVisits[1] == 4);

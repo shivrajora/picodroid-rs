@@ -119,9 +119,9 @@ public class QaStore extends Application {
 
   // ---- persistence across runs --------------------------------------------------------------
 
-  static void persist() throws IOException {
+  void persist() throws IOException {
     File marker = new File("/persist/marker.bin");
-    SharedPreferences p = SharedPreferences.open("persist");
+    SharedPreferences p = getSharedPreferences("persist", MODE_PRIVATE);
     if (marker.exists()) {
       byte[] got = readAll("/persist/marker.bin");
       Log.i(TAG, "persist: second run, marker " + got.length + " bytes");
@@ -530,14 +530,18 @@ public class QaStore extends Application {
     check(
         "getSharedPreferences works from Context",
         getSharedPreferences("ctx", MODE_PRIVATE).edit().putInt("v", 3).commit());
-    check("same store via open()", SharedPreferences.open("ctx").getInt("v", 0) == 3);
-    SharedPreferences.open("ctx").edit().clear().commit();
+    SharedPreferences ctx = getSharedPreferences("ctx", MODE_PRIVATE);
+    check(
+        "getSharedPreferences: one instance per file",
+        ctx == getSharedPreferences("ctx", MODE_PRIVATE) && ctx.getInt("v", 0) == 3);
+    check("commit wrote the file", new File("/prefs/ctx").length() > 0);
+    ctx.edit().clear().commit();
   }
 
   // ---- SharedPreferences ----------------------------------------------------------------------
 
-  static void prefs() {
-    SharedPreferences p = SharedPreferences.open("qa");
+  void prefs() {
+    SharedPreferences p = getSharedPreferences("qa", MODE_PRIVATE);
     p.edit().clear().commit();
     check("empty getAll", p.getAll().size() == 0);
     check(
@@ -613,9 +617,11 @@ public class QaStore extends Application {
     check("uncommitted edit invisible", !p.contains("pending"));
     e.apply();
     check("apply commits", p.contains("pending") && p.getInt("pending", 0) == 1);
-    SharedPreferences again = SharedPreferences.open("qa");
-    check("reopen sees data", again.getInt("pending", 0) == 1 && again.getAll().size() == 13);
-    SharedPreferences other = SharedPreferences.open("qa2");
+    SharedPreferences again = getSharedPreferences("qa", MODE_PRIVATE);
+    check(
+        "second getSharedPreferences sees the applied data",
+        again == p && again.getInt("pending", 0) == 1 && again.getAll().size() == 13);
+    SharedPreferences other = getSharedPreferences("qa2", MODE_PRIVATE);
     other.edit().clear().putInt("x", 1).commit();
     check(
         "files independent",
@@ -648,8 +654,8 @@ public class QaStore extends Application {
     }
   }
 
-  static void prefsLimits() {
-    SharedPreferences p = SharedPreferences.open("lim");
+  void prefsLimits() {
+    SharedPreferences p = getSharedPreferences("lim", MODE_PRIVATE);
     p.edit().clear().commit();
     StringBuilder k63 = new StringBuilder();
     for (int i = 0; i < 63; i++) {

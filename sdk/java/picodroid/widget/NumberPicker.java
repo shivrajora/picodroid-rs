@@ -28,12 +28,6 @@ public class NumberPicker extends View {
   private int value;
   private int step = 1;
 
-  public NumberPicker() {
-    super(nativeCreate());
-    nativeRegisterPicker();
-    updateLabel();
-  }
-
   public NumberPicker(Context ctx) {
     super(ctx, nativeCreate());
     nativeRegisterPicker();

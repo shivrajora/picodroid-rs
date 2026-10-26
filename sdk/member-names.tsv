@@ -74,6 +74,7 @@ F	BLACK
 F	BLUE
 F	BOARD
 F	BOTTOM
+F	BOTTOM_TOP
 F	BSSID
 F	BUF_SIZE
 F	BUTT
@@ -419,6 +420,7 @@ F	RESULT_OK
 F	RESUMED
 F	RETRIES
 F	RIGHT
+F	RIGHT_LEFT
 F	RIGHT_OF
 F	ROUND
 F	RTC
@@ -671,6 +673,7 @@ F	colorPrimary
 F	colorSurface
 F	colorText
 F	colorTextSecondary
+F	colors
 F	columnSpec
 F	connectTimeout
 F	count
@@ -686,6 +689,7 @@ F	dayOfMonth
 F	defaultHandler
 F	density
 F	densityDpi
+F	dir
 F	disabledMask
 F	dismissListener
 F	doOutput
@@ -711,15 +715,11 @@ F	fixedLength
 F	flags
 F	focusable
 F	frequency
-F	gradientEnd
-F	gradientOrientation
-F	gradientStart
 F	gravity
 F	group
 F	groupId
 F	handle
 F	handler
-F	hasGradient
 F	headerCount
 F	headerNames
 F	headerValues
@@ -1019,6 +1019,7 @@ F	requestCode
 F	resid
 F	resolution
 F	result
+F	reversed
 F	rightMargin
 F	rotationTo
 F	roundTripTime
@@ -1190,6 +1191,7 @@ M	appendTo
 M	apply
 M	applyDeferred
 M	applyDimension
+M	applyLayoutParams
 M	applyLayoutSize
 M	applyLineMode
 M	applyManifestTheme
@@ -1394,6 +1396,7 @@ M	drawLine
 M	drawRect
 M	drawRoundRect
 M	drawText
+M	drawsItself
 M	dueIn
 M	dueOf
 M	e
@@ -1505,6 +1508,8 @@ M	getAndDecrement
 M	getAndIncrement
 M	getAndSet
 M	getAppBytes
+M	getApplication
+M	getApplicationContext
 M	getApplicationIcon
 M	getApplicationLabel
 M	getArguments
@@ -1536,6 +1541,7 @@ M	getCipherSuite
 M	getClassName
 M	getColor
 M	getColorForState
+M	getColors
 M	getColumnCount
 M	getConfiguration
 M	getConfiguredNetworks
@@ -1553,7 +1559,6 @@ M	getDSTSavings
 M	getData
 M	getDataBytes
 M	getDataDir
-M	getDay
 M	getDayOfMonth
 M	getDayOfWeek
 M	getDayOfYear
@@ -1805,6 +1810,7 @@ M	infoAt
 M	init
 M	initStream
 M	insert
+M	installContent
 M	instantiate
 M	intValue
 M	interestLocked
@@ -1844,6 +1850,7 @@ M	isFile
 M	isFixedOffset
 M	isFocusable
 M	isFocused
+M	isFrameworkRow
 M	isHidden
 M	isInBackStack
 M	isInTouchMode
@@ -1865,11 +1872,9 @@ M	isReleased
 M	isRemoving
 M	isResumed
 M	isSavable
-M	isSecured
 M	isShowing
 M	isShown
 M	isShutdown
-M	isSized
 M	isStateSaved
 M	isStateful
 M	isSupported
@@ -1986,8 +1991,6 @@ M	nativeCreateGroup
 M	nativeCreateIndeterminate
 M	nativeCreateView
 M	nativeCreateWithList
-M	nativeCreateWithMax
-M	nativeCreateWithText
 M	nativeCurrentSsid
 M	nativeDataBytes
 M	nativeDefaultOffsetMinutes
@@ -2540,6 +2543,7 @@ M	setCheckedId
 M	setCheckedSilently
 M	setClassName
 M	setColor
+M	setColors
 M	setColumnCount
 M	setConnectTimeout
 M	setContentText
@@ -2552,7 +2556,6 @@ M	setCurrentTimeMillis
 M	setDaemon
 M	setData
 M	setDataSize
-M	setDate
 M	setDefault
 M	setDefaultUncaughtExceptionHandler
 M	setDirection
@@ -2569,11 +2572,11 @@ M	setFlags
 M	setFocusable
 M	setFragmentFactory
 M	setFrequency
-M	setGradient
 M	setGravity
 M	setHardwareFlowControl
 M	setHint
 M	setHorizontalGravity
+M	setHour
 M	setId
 M	setImageDrawable
 M	setImageResource
@@ -2604,6 +2607,7 @@ M	setMin
 M	setMinValue
 M	setMinimumHeight
 M	setMinimumWidth
+M	setMinute
 M	setMode
 M	setMultiChoiceItems
 M	setName
@@ -2663,7 +2667,6 @@ M	setSingleChoiceItems
 M	setSingleLine
 M	setSize
 M	setSoTimeout
-M	setSpacing
 M	setSpeed
 M	setStartAngle
 M	setStartDelay

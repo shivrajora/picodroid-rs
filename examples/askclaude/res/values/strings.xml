@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Ask Claude</string>
+    <!-- Quoted: the runs of spaces between the hints are kept. -->
+    <string name="hint">"A/B: pick a prompt   X: ask   Y: clear"</string>
+    <!-- The prompt line: its number, how many there are, and the prompt. -->
+    <string name="prompt_line">"%1$d/%2$d  %3$s"</string>
+
+    <!-- The prompts A and B step through. -->
+    <string name="prompt_tls">In one sentence: what is a TLS handshake?</string>
+    <string name="prompt_rp2350">Give me one surprising fact about the RP2350 microcontroller.</string>
+    <string name="prompt_haiku">Write a haiku about a tiny screen on a desk.</string>
+    <string name="prompt_name">Suggest a name for a two-inch desk display that talks to you.</string>
+    <!-- Put before the prompt on a board with sensors. -->
+    <string name="prompt_with_room">My room reads %1$d C, %2$d%% humidity, %3$d hPa. %4$s</string>
+
+    <!-- The status line. -->
+    <string name="status_ready">ready</string>
+    <string name="status_no_key">no API key: see README</string>
+    <string name="status_asking">asking...</string>
+    <string name="status_ok">ok in %1$d ms, %2$d in / %3$d out</string>
+    <string name="status_http">HTTP %d</string>
+    <string name="status_handshake_failed">handshake failed</string>
+    <string name="status_request_failed">request failed</string>
+    <string name="status_bad_reply">bad reply</string>
+
+    <!-- What fills the reply area when the request fails. -->
+    <string name="reply_tls">TLS: %s</string>
+    <string name="reply_network">network: %s</string>
+    <string name="reply_bad">bad reply: %s</string>
+    <string name="reply_api_error">%1$s: %2$s</string>
+</resources>

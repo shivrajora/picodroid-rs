@@ -42,7 +42,9 @@ Without a key the status line says so and X does nothing.
 - `picodroid.json` to build the request and read `content[0].text` and
   `usage` from the reply.
 - One request in flight, on its own `Thread`; the reply lands on the main
-  thread through `Executors.mainExecutor()`.
+  thread through `getMainExecutor()`.
+- `res/values/strings.xml` for the prompts and every status line, formatted
+  with `getString(id, args...)`.
 
 ## The nightly
 

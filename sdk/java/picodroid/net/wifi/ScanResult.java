@@ -30,11 +30,6 @@ public class ScanResult {
 
   public ScanResult() {}
 
-  /** Whether {@link #capabilities} says the network needs a password. */
-  public boolean isSecured() {
-    return capabilities != null && !"[ESS]".equals(capabilities);
-  }
-
   /** The 2.4 GHz channel's frequency; 5 GHz channels by their formula, though the chip has none. */
   static int frequencyOf(int channel) {
     if (channel >= 1 && channel <= 13) {

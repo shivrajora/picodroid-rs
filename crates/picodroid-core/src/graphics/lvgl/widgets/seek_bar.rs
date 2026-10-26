@@ -111,10 +111,6 @@ pub(in crate::graphics) fn create() -> i32 {
     create_internal(100)
 }
 
-pub(in crate::graphics) fn create_with_max(max: i32) -> i32 {
-    create_internal(max)
-}
-
 pub(in crate::graphics) fn set_max(id: i32, max: i32) {
     let Some(obj) = handle_table::get(id) else {
         return;

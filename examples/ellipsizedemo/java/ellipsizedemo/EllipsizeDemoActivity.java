@@ -6,7 +6,6 @@ import picodroid.graphics.Color;
 import picodroid.os.Bundle;
 import picodroid.text.TextUtils;
 import picodroid.util.Log;
-import picodroid.view.View;
 import picodroid.widget.Button;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
@@ -39,29 +38,29 @@ public class EllipsizeDemoActivity extends Activity {
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     getDisplay();
-    root = new LinearLayout();
+    root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(240, 240);
     root.setPadding(4, 4, 4, 4);
 
     // One line, content-sized: the height every other label is measured against.
     reference = label("x");
+    root.addView(reference);
     single = label(LONG);
-    single.setSize(WIDTH, View.WRAP_CONTENT);
     single.setSingleLine();
     single.setEllipsize(TextUtils.TruncateAt.END);
+    root.addView(single, narrow());
     wrapped = label(LONG);
-    wrapped.setSize(WIDTH, View.WRAP_CONTENT);
+    root.addView(wrapped, narrow());
     twoLines = label(LONG);
-    twoLines.setSize(WIDTH, View.WRAP_CONTENT);
     twoLines.setMaxLines(2);
     twoLines.setEllipsize(TextUtils.TruncateAt.END);
+    root.addView(twoLines, narrow());
     // A Button is a TextView over a button with a child label: the setters must reach the label.
-    button = new Button(LONG);
-    button.setSize(WIDTH, View.WRAP_CONTENT);
+    button = new Button(this);
+    button.setText(LONG);
     button.setSingleLine();
     button.setEllipsize(TextUtils.TruncateAt.END);
-    root.addView(button);
+    root.addView(button, narrow());
     setContentView(root);
 
     // A frame later the layout, and with it the dots, have been applied.
@@ -69,11 +68,15 @@ public class EllipsizeDemoActivity extends Activity {
   }
 
   private TextView label(String text) {
-    TextView t = new TextView();
+    TextView t = new TextView(this);
     t.setText(text);
     t.setTextColor(Color.WHITE);
-    root.addView(t);
     return t;
+  }
+
+  /** {@link #WIDTH} wide, as tall as the text: the width the long text wraps or ellipsizes at. */
+  private static LinearLayout.LayoutParams narrow() {
+    return new LinearLayout.LayoutParams(WIDTH, LinearLayout.LayoutParams.WRAP_CONTENT);
   }
 
   private void expect(boolean ok, String what) {

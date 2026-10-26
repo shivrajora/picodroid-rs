@@ -7,6 +7,6 @@ import picodroid.content.Intent;
 public class ResDemoApp extends Application {
   @Override
   public void onCreate() {
-    startActivity(new Intent(ResDemoActivity.class));
+    startActivity(new Intent(this, ResDemoActivity.class));
   }
 }

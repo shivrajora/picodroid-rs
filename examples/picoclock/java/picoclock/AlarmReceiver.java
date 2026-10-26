@@ -22,7 +22,7 @@ public class AlarmReceiver extends BroadcastReceiver {
     int id = intent.getIntExtra(RingActivity.EXTRA_ALARM_ID, -1);
     Log.i(ClockApp.TAG, "alarm " + id + " fired");
     context.startActivity(
-        new Intent(RingActivity.class)
+        new Intent(context, RingActivity.class)
             .putExtra(RingActivity.EXTRA_ALARM_ID, id)
             .putExtra(
                 RingActivity.EXTRA_DUE_MINUTE,

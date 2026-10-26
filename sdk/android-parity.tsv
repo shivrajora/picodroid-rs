@@ -22,6 +22,7 @@
 #
 # Seeded 2026-10-20 from website/src/content/docs/reference/compatibility-matrix.md
 # and the sdk/java/picodroid tree at 1f571977.
+android.R	picodroid/R	partial	R.layout row ids only (Android's values); compile-only
 android.app.Activity	picodroid/app/Activity	live	lifecycle, results, options menu, fragments, ViewModel owner, onTrimMemory / onLowMemory; no action bar
 android.app.Application	picodroid/app/Application	live	onCreate entry point, onTrimMemory / onLowMemory fan out to registerComponentCallbacks
 android.app.Service	picodroid/app/Service	partial	started + bound, onTrimMemory / onLowMemory; no IntentService
@@ -54,12 +55,12 @@ androidx.lifecycle.LifecycleOwner	picodroid/lifecycle/LifecycleOwner	partial	Act
 androidx.lifecycle.LifecycleObserver	picodroid/lifecycle/LifecycleObserver	live
 androidx.lifecycle.DefaultLifecycleObserver	picodroid/lifecycle/DefaultLifecycleObserver	live
 androidx.lifecycle.LifecycleEventObserver	picodroid/lifecycle/LifecycleEventObserver	live
-android.view.View	picodroid/view/View	partial	geometry, listeners, animate, onDraw, onMeasure, post, onTouchEvent; additions setPosition / setSize / close
+android.view.View	picodroid/view/View	partial	geometry, listeners, animate, onDraw, onMeasure, post, onTouchEvent, setLayoutParams applies at once; addition close
 android.view.ViewGroup	picodroid/view/ViewGroup	partial	addView / removeView / getChildAt, onLayout for subclasses; removeView frees the widget; no onInterceptTouchEvent
 android.view.ViewParent	picodroid/view/ViewParent	partial
 android.view.ViewPropertyAnimator	picodroid/view/ViewPropertyAnimator	partial	alpha, translation, rotation, scale, duration, interpolator, withEndAction
 android.view.MotionEvent	picodroid/view/MotionEvent	partial	int coordinates; single touch; ACTION_LONG_PRESS addition
-android.view.GestureDetector	picodroid/view/GestureDetector	partial	onSingleTap / onLongPress / onFling with different signatures; no onScroll
+android.view.GestureDetector	picodroid/view/GestureDetector	partial	(Context, listener); onSingleTap / onLongPress / onFling with different signatures; no onScroll
 android.view.KeyEvent	picodroid/view/KeyEvent	partial	D-pad, BACK, HOME, A/B/X/Y constants, tracking, repeat; no meta state or characters
 android.view.KeyCharacterMap	picodroid/view/KeyCharacterMap	partial	deviceHasKey(s) only
 android.view.Menu	picodroid/view/Menu	partial	options menu as a list; no icons, sub-menus, MenuInflater
@@ -114,7 +115,7 @@ android.widget.ListView	picodroid/widget/ListView	partial	recycles a window of r
 android.widget.AdapterView	picodroid/widget/AdapterView	partial	ListView rows reach onItemClick as view; Spinner passes null; no OnItemLongClickListener
 android.widget.Adapter	picodroid/widget/Adapter	partial
 android.widget.BaseAdapter	picodroid/widget/BaseAdapter	partial
-android.widget.ArrayAdapter	picodroid/widget/ArrayAdapter	partial
+android.widget.ArrayAdapter	picodroid/widget/ArrayAdapter	partial	Android constructors; picodroid.R.layout rows drawn as one label
 android.widget.Space	picodroid/widget/Space	live
 android.widget.TableLayout	-	missing	GridLayout is the nearest
 android.widget.TextClock	-	missing	decision F7 deferred; ACTION_TIME_TICK receivers instead
@@ -138,7 +139,7 @@ android.graphics.Canvas	picodroid/graphics/Canvas	partial	recorded display list;
 android.graphics.Paint	picodroid/graphics/Paint	partial	colour, style, stroke, text size and align; no shaders, typefaces
 android.graphics.drawable.Drawable	picodroid/graphics/drawable/Drawable	partial	what setBackground accepts; no draw(Canvas)
 android.graphics.drawable.BitmapDrawable	picodroid/graphics/drawable/BitmapDrawable	partial	the launcher icon type
-android.graphics.drawable.GradientDrawable	picodroid/graphics/drawable/GradientDrawable	partial	rectangle only; setGradient addition
+android.graphics.drawable.GradientDrawable	picodroid/graphics/drawable/GradientDrawable	partial	rectangle only; two-colour axis-aligned gradients; Orientation not an enum
 android.graphics.Bitmap	-	out-of-scope	no pixel buffers: a full-screen bitmap is 150 KB of RAM
 android.graphics.Path	-	missing
 android.graphics.Rect	-	missing
@@ -172,7 +173,7 @@ android.net.ConnectivityManager.NetworkCallback	-	partial	nested in Connectivity
 android.net.Network	picodroid/net/Network	partial
 android.net.NetworkCapabilities	picodroid/net/NetworkCapabilities	partial
 android.net.NetworkRequest	picodroid/net/NetworkRequest	partial
-android.net.NetworkInfo	picodroid/net/NetworkInfo	partial
+android.net.NetworkInfo	picodroid/net/NetworkInfo	partial	framework-internal (@Hide): apps use ConnectivityManager, as modern Android does
 android.net.SntpClient	picodroid/net/SntpClient	live
 android.net.wifi.WifiManager	picodroid/net/wifi/WifiManager	partial	scan, join, saved network
 android.net.wifi.ScanResult	picodroid/net/wifi/ScanResult	partial
@@ -253,6 +254,7 @@ java.util.concurrent.FutureTask	picodroid/concurrent/FutureTask	partial
 java.util.concurrent.ScheduledFuture	picodroid/concurrent/ScheduledFuture	partial	
 java.util.concurrent.ScheduledThreadPoolExecutor	picodroid/concurrent/ScheduledThreadPoolExecutor	partial	
 java.util.concurrent.ThreadPoolExecutor	picodroid/concurrent/ThreadPoolExecutor	partial	
+picodroid.annotation.Hide	picodroid/annotation/Hide	addition	Android's @hide (a javadoc tag there); verifyApiContract refuses app references; compile-only
 picodroid.app.OptionsMenu	picodroid/app/OptionsMenu	addition	the options-menu presenter; Android keeps this inside Activity
 picodroid.concurrent.BackgroundExecutor	picodroid/concurrent/BackgroundExecutor	addition	Executors.backgroundExecutor()
 picodroid.concurrent.MainExecutor	picodroid/concurrent/MainExecutor	addition	Executors.mainExecutor(); the Looper replacement

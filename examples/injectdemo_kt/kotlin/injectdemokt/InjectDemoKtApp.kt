@@ -68,7 +68,7 @@ class InjectDemoKtApp : Application() {
             "Module iface=${greeting.greet("x")} banner=${banner.text} singleton=${banners.get() === banner}",
         )
 
-        startService(Intent(PingService::class.java))
-        startActivity(Intent(HomeActivity::class.java))
+        startService(Intent(this, PingService::class.java))
+        startActivity(Intent(this, HomeActivity::class.java))
     }
 }

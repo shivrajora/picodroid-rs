@@ -424,10 +424,9 @@ pub(crate) fn run_activity(
     use crate::graphics::lvgl::with_gfx;
     use pico_jvm::NativeMethodHandler;
 
-    // Initialise the unified main-thread FIFO; harmless if the module was
-    // already initialised on a prior activity launch.
-    main_queue::init();
-    crate::executors::scheduled::init();
+    // The main-thread FIFO and the scheduled table were initialised by
+    // `boot` before the app's first callback, so what `Application.onCreate`
+    // posted or scheduled is still queued here.
     // This task owns the widget tree from here on (`lvgl::with_gfx` warns
     // any other task that touches it — see `ui_thread`).
     crate::ui_thread::note_ui_task();

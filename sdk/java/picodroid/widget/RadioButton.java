@@ -9,10 +9,6 @@ import picodroid.content.Context;
  * RadioButton toggles like a CheckBox, exactly as on Android.
  */
 public class RadioButton extends CompoundButton {
-  public RadioButton() {
-    super(nativeCreate());
-  }
-
   public RadioButton(Context ctx) {
     super(ctx, nativeCreate());
   }

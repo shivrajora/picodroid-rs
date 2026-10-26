@@ -8,12 +8,12 @@ import picodroid.app.usage.StorageStatsManager;
 import picodroid.concurrent.Executors;
 import picodroid.content.pm.PackageInfo;
 import picodroid.content.pm.PackageManager;
+import picodroid.os.Bundle;
 import picodroid.os.StatFs;
 import picodroid.util.Log;
 import picodroid.view.View;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
-import picodroid.os.Bundle;
 
 /**
  * Storage: the volume, then every package's app and data bytes. The header row goes back.
@@ -28,8 +28,10 @@ public class StorageActivity extends Activity {
   private StorageStatsManager stats;
   private String[] pkgs;
   private String[] labels;
+
   /** Each package row's numbers, filled in one row at a time as the stats arrive. */
   private TextView[] tails;
+
   private long[] appBytes;
   private long[] dataBytes;
   private boolean alive;
@@ -45,12 +47,13 @@ public class StorageActivity extends Activity {
     long total = fs.getTotalBytes();
     long free = fs.getFreeBytes();
     Screens.info(
-        this, column, "Volume  " + Screens.kb(total - free) + " / " + Screens.kb(total) + " KB used");
+        this,
+        column,
+        "Volume  " + Screens.kb(total - free) + " / " + Screens.kb(total) + " KB used");
     for (int p = 0; p < pkgs.length; p++) {
       View row = Screens.info(this, column, labels[p], PENDING);
       tails[p] = Screens.tailOf(row);
     }
-    Screens.size(this, column, 2 + pkgs.length);
     fetch();
   }
 
@@ -86,7 +89,7 @@ public class StorageActivity extends Activity {
       } catch (PackageManager.NameNotFoundException e) {
         appBytes[i] = -1; // uninstalled between the list and the query
       }
-      Executors.mainExecutor().execute(() -> show(row));
+      getMainExecutor().execute(() -> show(row));
     }
   }
 

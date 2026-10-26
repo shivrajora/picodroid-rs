@@ -22,10 +22,6 @@ public class RadioGroup extends LinearLayout {
   private int checkedId = View.NO_ID;
   private OnCheckedChangeListener onCheckedChangeListener;
 
-  public RadioGroup() {
-    super();
-  }
-
   public RadioGroup(Context ctx) {
     super(ctx);
   }

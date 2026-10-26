@@ -20,44 +20,45 @@ public class AboutActivity extends Activity {
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     Log.i(TAG, "onCreate");
-    getDisplay();
 
-    LinearLayout root = new LinearLayout();
+    LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(240, 240);
     root.setPadding(10, 10, 10, 10);
 
-    TextView title = new TextView();
-    title.setText("About");
+    TextView title = new TextView(this);
+    title.setText(getString(R.string.about_title));
     title.setTextColor(Color.WHITE);
     root.addView(title);
 
-    TextView body = new TextView();
-    body.setText("Back-stack tutorial app.\nEach screen is an Activity.");
+    TextView body = new TextView(this);
+    body.setText(getString(R.string.about_body));
     body.setTextColor(Color.WHITE);
     root.addView(body);
 
     // A local, as on Android: the content view keeps the button and its listener alive.
-    Button backButton = new Button("Back");
-    backButton.setSize(200, 40);
+    Button backButton = new Button(this);
+    backButton.setText(getString(R.string.button_back));
     backButton.setOnClickListener(v -> finish());
-    root.addView(backButton);
+    root.addView(backButton, HomeActivity.buttonParams());
 
     setContentView(root);
   }
 
   @Override
   public void onResume() {
+    super.onResume();
     Log.i(TAG, "onResume");
   }
 
   @Override
   public void onPause() {
+    super.onPause();
     Log.i(TAG, "onPause");
   }
 
   @Override
   public void onDestroy() {
+    super.onDestroy();
     Log.i(TAG, "onDestroy");
   }
 }

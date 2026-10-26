@@ -4,6 +4,7 @@ package bugbash;
 import java.util.ArrayList;
 import java.util.Arrays;
 import picodroid.app.Application;
+import picodroid.content.Context;
 import picodroid.content.SharedPreferences;
 import picodroid.io.FileInputStream;
 import picodroid.os.SystemClock;
@@ -52,7 +53,7 @@ public class BugBash extends Application {
     collections();
     arrays();
     io();
-    prefs();
+    prefs(this);
     Log.i(TAG, "passed=" + passed + " failed=" + failed);
     if (failed == 0) {
       Log.i(TAG, "=== ALL PASSED ===");
@@ -300,8 +301,8 @@ public class BugBash extends Application {
     check("F6 read(off+len>buf) throws", threw);
   }
 
-  static void prefs() {
-    SharedPreferences p = SharedPreferences.open("bugbash");
+  static void prefs(Context ctx) {
+    SharedPreferences p = ctx.getSharedPreferences("bugbash", Context.MODE_PRIVATE);
     p.edit().clear().commit();
     // F9: a reused Editor must not alias the committed state.
     SharedPreferences.Editor e = p.edit();

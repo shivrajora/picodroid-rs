@@ -14,6 +14,6 @@ public class BugBashUiApp extends Application {
   @Override
   public void onCreate() {
     Log.i("BugBashUi", "=== BugBashUi start ===");
-    startActivity(new Intent(MainActivity.class));
+    startActivity(new Intent(this, MainActivity.class));
   }
 }

@@ -26,7 +26,7 @@ public class HomeActivity extends Activity {
     // RESULT_OK + finishes; the result lands in onActivityResult below.
     if (!probeLaunched) {
       probeLaunched = true;
-      startActivityForResult(new Intent(ResultProbeActivity.class), 7);
+      startActivityForResult(new Intent(this, ResultProbeActivity.class), 7);
     }
   }
 
@@ -59,26 +59,23 @@ public class HomeActivity extends Activity {
     buildCount++;
     Log.i("NavDemo", "Home.buildUi count=" + buildCount);
 
-    getDisplay();
-
-    LinearLayout root = new LinearLayout();
+    LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(240, 240);
     root.setPadding(10, 10, 10, 10);
 
-    TextView title = new TextView();
+    TextView title = new TextView(this);
     title.setText("Home Activity");
     title.setTextColor(Color.WHITE);
     root.addView(title);
 
-    Button openBtn = new Button("Open Detail");
-    openBtn.setSize(200, 40);
+    Button openBtn = new Button(this);
+    openBtn.setText("Open Detail");
     openBtn.setOnClickListener(
         v -> {
           Log.i("NavDemo", "Home: launching Detail");
-          startActivity(new Intent(DetailActivity.class).putExtra("origin", "home"));
+          startActivity(new Intent(this, DetailActivity.class).putExtra("origin", "home"));
         });
-    root.addView(openBtn);
+    root.addView(openBtn, new LinearLayout.LayoutParams(200, 40));
 
     setContentView(root);
   }

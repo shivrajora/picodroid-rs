@@ -1,19 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoclock.ui;
 
-import javax.inject.Inject;
-import picoclock.AlarmStore;
 import picoclock.Clock;
-import picoclock.ClockApp;
 import picodroid.os.Bundle;
-import picodroid.os.SystemClock;
-import picodroid.util.Log;
 import picodroid.view.Gravity;
 import picodroid.view.View;
 import picodroid.view.ViewGroup;
 import picodroid.widget.Button;
 import picodroid.widget.DatePicker;
-import picodroid.widget.FrameLayout;
+import picodroid.widget.LinearLayout;
 import picodroid.widget.RelativeLayout;
 import picodroid.widget.ScrollView;
 import picodroid.widget.TextView;
@@ -29,26 +24,10 @@ import picodroid.widget.TimePicker;
  * the steppers are what make a year reachable, and they rewrite the calendar under them as they
  * move.
  *
- * <p>{@link SystemClock#setCurrentTimeMillis} takes UTC, so what the pickers show is shifted by the
- * offset on the way in and on the way out: change the zone and the fields follow it, keeping the
- * same instant.
+ * <p>The fields live in {@link SetTimeViewModel}; every control writes to it and this screen paints
+ * what it publishes.
  */
 public class SetTimeActivity extends BaseActivity {
-  private static final String TAG = ClockApp.TAG;
-
-  /**
-   * Where the fields start when the clock has never been set. Not "now" — there is no now to read —
-   * and not 1970 either, which {@link Clock#isSet} would treat as still unset and which is a long
-   * way from anywhere the user wants to be. A round recent date is the shortest walk to a real one.
-   */
-  private static final int DEFAULT_YEAR = 2026;
-
-  /** The offsets the steppers walk, in minutes: whole hours, plus the fractional ones in use. */
-  private static final int[] OFFSETS = {
-    -720, -660, -600, -540, -480, -420, -360, -300, -240, -210, -180, -120, -60, 0, 60, 120, 180,
-    210, 240, 270, 300, 330, 345, 360, 390, 420, 480, 540, 570, 600, 630, 660, 720, 780, 840
-  };
-
   private static final String[] MONTHS = {
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December"
@@ -59,9 +38,9 @@ public class SetTimeActivity extends BaseActivity {
 
   private static final int STEP_BUTTON = 54;
 
-  private static final int PAGE_HEIGHT = 720;
+  private static final int MATCH = ViewGroup.LayoutParams.MATCH_PARENT;
 
-  @Inject AlarmStore store;
+  private SetTimeViewModel model;
 
   private DatePicker calendar;
   private TimePicker time;
@@ -69,82 +48,56 @@ public class SetTimeActivity extends BaseActivity {
   private TextView monthLabel;
   private TextView offsetLabel;
 
-  private int year;
-  private int month;
-
-  /**
-   * The chosen day of the month. Tracked here rather than read back from the calendar: the SDK's
-   * DatePicker reports the most-recently-*pressed* cell and returns zero until one is, so a user
-   * who accepts the day already showing would otherwise set the clock to the day before the month
-   * began.
-   */
-  private int dayOfMonth;
-
-  private int offsetMinutes;
-
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    offsetMinutes = store.offsetMinutes();
+    model = viewModel(SetTimeViewModel.class);
 
-    long utc = System.currentTimeMillis();
-    boolean known = Clock.isSet(utc);
-    long local = Clock.toLocal(utc, offsetMinutes);
-    int[] ymd = known ? Clock.civilFromDay(Clock.dayOf(local)) : new int[] {DEFAULT_YEAR, 1, 1};
-    year = ymd[0];
-    month = ymd[1];
-    dayOfMonth = ymd[2];
-
-    FrameLayout root = Ui.screen();
-    root.addView(Ui.header(this, "Set time", v -> finish()));
+    LinearLayout root = Ui.screen(this);
+    Ui.header(root, "Set time", v -> finish());
 
     // Three pickers and three steppers do not fit on a 480-pixel panel.
-    FrameLayout page = Ui.group(0, 0, Ui.WIDTH, PAGE_HEIGHT);
+    LinearLayout page = new LinearLayout(this);
+    page.setOrientation(LinearLayout.VERTICAL);
+    page.setPadding(0, 0, 0, 14);
 
-    page.addView(Ui.label("Date", Ui.MARGIN, 6, Ui.MUTED));
-    yearLabel = stepper(page, 30, "" + year, v -> stepYear(-1), v -> stepYear(1));
-    monthLabel =
-        stepper(
-            page,
-            30 + STEP_HEIGHT + Ui.GAP,
-            MONTHS[month - 1],
-            v -> stepMonth(-1),
-            v -> stepMonth(1));
+    Ui.label(page, "Date", 6, Ui.MUTED);
+    yearLabel = stepper(page, 8, v -> model.stepYear(-1), v -> model.stepYear(1));
+    monthLabel = stepper(page, Ui.GAP, v -> model.stepMonth(-1), v -> model.stepMonth(1));
 
-    calendar = new DatePicker();
-    calendar.setSize(Ui.WIDTH - 2 * Ui.MARGIN, 200);
-    calendar.setPosition(Ui.MARGIN, 30 + 2 * (STEP_HEIGHT + Ui.GAP));
-    calendar.setDate(year, month, dayOfMonth);
-    calendar.setOnDateChangedListener((view, y, m, d) -> dayOfMonth = d);
-    page.addView(calendar);
+    calendar = new DatePicker(this);
+    calendar.setOnDateChangedListener((view, y, m, d) -> model.pickDate(y, m + 1, d));
+    page.addView(calendar, inset(200, 8));
 
-    page.addView(Ui.label("Time", Ui.MARGIN, 346, Ui.MUTED));
-    time = new TimePicker();
-    time.setSize(Ui.WIDTH - 2 * Ui.MARGIN, 130);
-    time.setPosition(Ui.MARGIN, 372);
+    Ui.label(page, "Time", 12, Ui.MUTED);
+    time = new TimePicker(this);
     time.setIs24HourView(true);
-    time.setTime(known ? Clock.hourOf(local) : 0, known ? Clock.minuteOf(local) : 0);
-    page.addView(time);
+    time.setOnTimeChangedListener((view, h, m) -> model.pickTime(h, m));
+    page.addView(time, inset(130, 10));
 
-    page.addView(Ui.label("Time zone", Ui.MARGIN, 514, Ui.MUTED));
-    offsetLabel =
-        stepper(page, 538, Clock.offset(offsetMinutes), v -> stepOffset(-1), v -> stepOffset(1));
+    Ui.label(page, "Time zone", 12, Ui.MUTED);
+    offsetLabel = stepper(page, 8, v -> model.stepOffset(-1), v -> model.stepOffset(1));
 
-    View apply = Ui.button("Set clock", Ui.MARGIN, 598, Ui.WIDTH - 2 * Ui.MARGIN, Ui.ACCENT);
-    apply.setOnClickListener(v -> apply());
-    page.addView(apply);
+    Button apply = Ui.button(this, "Set clock", Ui.ACCENT);
+    apply.setOnClickListener(
+        v -> {
+          if (model.apply()) {
+            finish();
+          }
+        });
+    page.addView(apply, inset(Ui.TAP_HEIGHT, 16));
 
-    page.addView(Ui.label("No battery-backed clock on this board:", Ui.MARGIN, 668, Ui.MUTED));
-    page.addView(Ui.label("the time is lost on a power cut.", Ui.MARGIN, 690, Ui.MUTED));
+    Ui.label(page, "No battery-backed clock on this board:", 14, Ui.MUTED);
+    Ui.label(page, "the time is lost on a power cut.", 6, Ui.MUTED);
 
-    ScrollView scroller = new ScrollView();
-    scroller.setSize(Ui.WIDTH, Ui.HEIGHT - Ui.HEADER_HEIGHT);
-    scroller.setPosition(0, Ui.HEADER_HEIGHT);
-    scroller.setPadding(0, 0, 0, 0);
-    scroller.addView(page);
-    root.addView(scroller);
+    ScrollView scroller = new ScrollView(this);
+    // A ScrollView arrives with the theme's surface; this one is part of the page.
+    scroller.setBackgroundColor(Ui.BACKGROUND);
+    scroller.addView(page, new ViewGroup.LayoutParams(MATCH, ViewGroup.LayoutParams.WRAP_CONTENT));
+    root.addView(scroller, new LinearLayout.LayoutParams(MATCH, 0, 1f));
 
     setContentView(root);
+    model.fields().observe(this, this::show);
   }
 
   // See BaseActivity: a lifecycle callback is only reached when the concrete
@@ -164,6 +117,29 @@ public class SetTimeActivity extends BaseActivity {
     super.onDestroy();
   }
 
+  /** Paints the fields; a picker already showing the value is left alone, mid-gesture or not. */
+  private void show(SetTimeViewModel.Fields f) {
+    yearLabel.setText(String.valueOf(f.year()));
+    monthLabel.setText(MONTHS[f.month() - 1]);
+    offsetLabel.setText(Clock.offset(f.offsetMinutes));
+    if (calendar.getYear() != f.year()
+        || calendar.getMonth() != f.month() - 1
+        || calendar.getDayOfMonth() != f.day()) {
+      calendar.updateDate(f.year(), f.month() - 1, f.day());
+    }
+    if (time.getHour() != f.hour() || time.getMinute() != f.minute()) {
+      time.setHour(f.hour());
+      time.setMinute(f.minute());
+    }
+  }
+
+  /** Full-width layout params, inset by the side margin, {@code top} below the view above. */
+  private static LinearLayout.LayoutParams inset(int height, int top) {
+    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(MATCH, height);
+    lp.setMargins(Ui.MARGIN, top, Ui.MARGIN, 0);
+    return lp;
+  }
+
   // ── Steppers ───────────────────────────────────────────────────────────────
 
   /** The ids of a stepper's buttons, which the value's rules name. */
@@ -172,17 +148,15 @@ public class SetTimeActivity extends BaseActivity {
   private static final int ID_PLUS = 2;
 
   /**
-   * A "- value +" row at {@code y}; returns the label between the buttons. A RelativeLayout: the
-   * buttons at the row's edges, the value stretched between them and centred on their height.
+   * Adds a "- value +" row to {@code page}, {@code top} below the view above; returns the label
+   * between the buttons. A RelativeLayout: the buttons at the row's edges, the value stretched
+   * between them and centred on their height.
    */
   private TextView stepper(
-      FrameLayout page, int y, String value, View.OnClickListener down, View.OnClickListener up) {
-    RelativeLayout row = new RelativeLayout();
-    row.setSize(Ui.WIDTH, STEP_HEIGHT);
-    row.setPosition(0, y);
-    row.setBackground(Ui.invisible());
+      LinearLayout page, int top, View.OnClickListener down, View.OnClickListener up) {
+    RelativeLayout row = new RelativeLayout(this);
 
-    Button minus = Ui.button("-", 0, 0, STEP_BUTTON, Ui.SURFACE_HIGH);
+    Button minus = Ui.button(this, "-", Ui.SURFACE_HIGH);
     minus.setId(ID_MINUS);
     minus.setOnClickListener(down);
     RelativeLayout.LayoutParams minusLp = new RelativeLayout.LayoutParams(STEP_BUTTON, STEP_HEIGHT);
@@ -190,7 +164,7 @@ public class SetTimeActivity extends BaseActivity {
     minusLp.setMargins(Ui.MARGIN, 0, 0, 0);
     row.addView(minus, minusLp);
 
-    Button plus = Ui.button("+", 0, 0, STEP_BUTTON, Ui.SURFACE_HIGH);
+    Button plus = Ui.button(this, "+", Ui.SURFACE_HIGH);
     plus.setId(ID_PLUS);
     plus.setOnClickListener(up);
     RelativeLayout.LayoutParams plusLp = new RelativeLayout.LayoutParams(STEP_BUTTON, STEP_HEIGHT);
@@ -198,111 +172,19 @@ public class SetTimeActivity extends BaseActivity {
     plusLp.setMargins(0, 0, Ui.MARGIN, 0);
     row.addView(plus, plusLp);
 
-    TextView label = Ui.label(value, 0, 0, Ui.TEXT);
+    TextView label = Ui.line(this, "", Ui.TEXT);
     label.setGravity(Gravity.CENTER_HORIZONTAL);
     RelativeLayout.LayoutParams labelLp =
-        new RelativeLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        new RelativeLayout.LayoutParams(MATCH, ViewGroup.LayoutParams.WRAP_CONTENT);
     labelLp.addRule(RelativeLayout.RIGHT_OF, ID_MINUS);
     labelLp.addRule(RelativeLayout.LEFT_OF, ID_PLUS);
     labelLp.addRule(RelativeLayout.CENTER_VERTICAL);
     labelLp.setMargins(Ui.GAP, 0, Ui.GAP, 0);
     row.addView(label, labelLp);
 
-    page.addView(row);
+    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(MATCH, STEP_HEIGHT);
+    lp.topMargin = top;
+    page.addView(row, lp);
     return label;
-  }
-
-  private void stepYear(int direction) {
-    year += direction;
-    yearLabel.setText("" + year);
-    reDate();
-  }
-
-  private void stepMonth(int direction) {
-    month += direction;
-    if (month > 12) {
-      month = 1;
-      year++;
-      yearLabel.setText("" + year);
-    } else if (month < 1) {
-      month = 12;
-      year--;
-      yearLabel.setText("" + year);
-    }
-    monthLabel.setText(MONTHS[month - 1]);
-    reDate();
-  }
-
-  /** Re-point the calendar at the chosen year and month, clamping the day into it. */
-  private void reDate() {
-    int last = Clock.daysInMonth(year, month);
-    if (dayOfMonth > last) {
-      dayOfMonth = last;
-    }
-    calendar.setDate(year, month, dayOfMonth);
-  }
-
-  /**
-   * Move one step along {@link #OFFSETS}, carrying the fields with it so the wall time on screen
-   * stays the same instant while its label changes.
-   */
-  private void stepOffset(int direction) {
-    int i = indexOfOffset(offsetMinutes) + direction;
-    if (i < 0 || i >= OFFSETS.length) {
-      return;
-    }
-    int was = offsetMinutes;
-    offsetMinutes = OFFSETS[i];
-    offsetLabel.setText(Clock.offset(offsetMinutes));
-
-    long moved = pickedLocalMs() + (offsetMinutes - was) * Clock.MS_PER_MINUTE;
-    int[] ymd = Clock.civilFromDay(Clock.dayOf(moved));
-    year = ymd[0];
-    month = ymd[1];
-    dayOfMonth = ymd[2];
-    yearLabel.setText("" + year);
-    monthLabel.setText(MONTHS[month - 1]);
-    calendar.setDate(year, month, dayOfMonth);
-    time.setTime(Clock.hourOf(moved), Clock.minuteOf(moved));
-  }
-
-  private int indexOfOffset(int minutes) {
-    for (int i = 0; i < OFFSETS.length; i++) {
-      if (OFFSETS[i] == minutes) {
-        return i;
-      }
-    }
-    return 0;
-  }
-
-  // ── Applying ───────────────────────────────────────────────────────────────
-
-  /** What the fields currently read, as local epoch ms. Seconds start at zero. */
-  private long pickedLocalMs() {
-    long epochDay = Clock.dayFromCivil(year, month, dayOfMonth);
-    return epochDay * Clock.MS_PER_DAY
-        + time.getHour() * Clock.MS_PER_HOUR
-        + time.getMinute() * Clock.MS_PER_MINUTE;
-  }
-
-  private void apply() {
-    long local = pickedLocalMs();
-    store.setOffsetMinutes(offsetMinutes);
-    if (!SystemClock.setCurrentTimeMillis(Clock.toUtc(local, offsetMinutes))) {
-      Log.w(TAG, "the platform refused the clock set");
-      return;
-    }
-    // Every armed alarm was scheduled against the old clock; the service hears
-    // the clock set as ACTION_TIME_CHANGED and re-plans.
-    Log.i(
-        TAG,
-        "clock set to "
-            + Clock.date(local)
-            + " "
-            + Clock.hm(Clock.hourOf(local), Clock.minuteOf(local))
-            + " "
-            + Clock.offset(offsetMinutes));
-    finish();
   }
 }

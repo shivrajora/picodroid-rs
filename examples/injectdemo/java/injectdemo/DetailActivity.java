@@ -14,7 +14,7 @@ public class DetailActivity extends BaseActivity {
     super.onCreate(savedInstanceState);
     Log.i(InjectDemoApp.TAG, "Detail clock#" + clock.id() + " inherited=" + (clock != null));
     getDisplay();
-    TextView text = new TextView();
+    TextView text = new TextView(this);
     text.setText("detail clock#" + clock.id());
     setContentView(text);
   }

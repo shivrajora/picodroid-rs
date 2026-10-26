@@ -16,10 +16,6 @@ import picodroid.view.ViewGroup;
 public class SwipeRefreshLayout extends ViewGroup {
   private OnRefreshListener refreshListener;
 
-  public SwipeRefreshLayout() {
-    super(nativeCreate());
-  }
-
   public SwipeRefreshLayout(Context ctx) {
     super(ctx, nativeCreate());
   }

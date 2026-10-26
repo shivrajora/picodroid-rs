@@ -4,6 +4,8 @@ package picoenvmon.ui.common;
 import picodroid.app.Activity;
 import picodroid.graphics.Theme;
 import picodroid.widget.LinearLayout;
+import picodroid.widget.TextView;
+import picoenvmon.R;
 
 /**
  * Base for every picoenvmon screen under the standardized 4-button navigation model:
@@ -25,22 +27,52 @@ import picodroid.widget.LinearLayout;
  */
 public abstract class NavActivity extends Activity {
 
-  /** Build the standard full-screen vertical root (themed background + padding). */
+  /**
+   * Build the standard vertical root (themed background + padding). As the content view it fills
+   * the panel, whichever board this runs on: the app was first written against the Enviro+'s
+   * 240x240 and must look the same on a wider or taller one.
+   */
   protected LinearLayout makeScreenRoot() {
-    LinearLayout root = new LinearLayout();
+    LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    // The whole panel, whichever board this runs on (match_parent): the app was first
-    // written against the Enviro+'s 240x240 and must look the same on a wider or taller one.
-    root.setSize(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT);
-    root.setPadding(8, 6, 8, 6);
+    int padH = dimen(R.dimen.screen_pad_h);
+    int padV = dimen(R.dimen.screen_pad_v);
+    root.setPadding(padH, padV, padH, padV);
     root.setBackgroundColor(Theme.colorBackground);
     // A live monitor is watched, not touched: hold the panel on while a screen shows.
     root.setKeepScreenOn(true);
     return root;
   }
 
+  /** A title line in the primary colour, appended to {@code root}. */
+  protected void addTitle(LinearLayout root, int textRes) {
+    TextView title = new TextView(this);
+    title.setText(getString(textRes));
+    title.setTextColor(Theme.colorPrimary);
+    root.addView(title);
+  }
+
   /** Append the standardized A/B/X/Y button legend to the bottom of {@code root}. */
-  protected void installHintBar(LinearLayout root, String hints) {
-    root.addView(ButtonHintBar.create(hints));
+  protected void installHintBar(LinearLayout root, int hintsRes) {
+    installHintBar(root, hintsRes, 0);
+  }
+
+  /** As {@link #installHintBar(LinearLayout, int)}, {@code topMargin} below the block above. */
+  protected void installHintBar(LinearLayout root, int hintsRes, int topMargin) {
+    LinearLayout.LayoutParams lp = stacked(dimen(R.dimen.hint_bar_height), topMargin);
+    root.addView(ButtonHintBar.create(this, getString(hintsRes)), lp);
+  }
+
+  /** Layout params for a child of a vertical screen: full width, {@code height}, a top margin. */
+  protected static LinearLayout.LayoutParams stacked(int height, int topMargin) {
+    LinearLayout.LayoutParams lp =
+        new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, height);
+    lp.topMargin = topMargin;
+    return lp;
+  }
+
+  /** A pixel size from {@code res/values/dimens.xml}. */
+  protected int dimen(int dimenRes) {
+    return getResources().getDimensionPixelSize(dimenRes);
   }
 }

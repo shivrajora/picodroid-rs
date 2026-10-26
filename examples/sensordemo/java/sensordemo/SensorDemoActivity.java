@@ -21,19 +21,16 @@ public class SensorDemoActivity extends Activity implements SensorEventListener 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    getDisplay();
-
-    LinearLayout root = new LinearLayout();
+    LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(240, 240);
     root.setPadding(10, 10, 10, 10);
 
-    TextView title = new TextView();
+    TextView title = new TextView(this);
     title.setText("Sensor Demo");
     title.setTextColor(Color.WHITE);
     root.addView(title);
 
-    tempLabel = new TextView();
+    tempLabel = new TextView(this);
     tempLabel.setText("Temp: --");
     tempLabel.setTextColor(Color.CYAN);
     root.addView(tempLabel);

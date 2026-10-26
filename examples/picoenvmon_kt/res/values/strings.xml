@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PicoEnvMonKt</string>
+
+    <!-- The hub's destinations, in menu order. -->
+    <string name="menu_live">Live</string>
+    <string name="menu_history">History</string>
+    <string name="menu_network">Network</string>
+    <string name="menu_settings">Settings</string>
+
+    <!-- The A/B/X/Y legend at the foot of each screen. Quoted: the double spaces are the layout. -->
+    <string name="hint_home">"A:Up  B:Down  X:Open  Y:Exit"</string>
+    <string name="hint_live">"A/B:Move  X:Toggle  Y:Back"</string>
+    <string name="hint_history">"A:Up  B:Down  X:Info  Y:Back"</string>
+    <string name="hint_network">"X:Refresh  Y:Back"</string>
+    <string name="hint_back">Y:Back</string>
+    <!-- As long as the others, so the whole legend fits a 224 px bar: the Save button is
+         self-labelled, and while a picker is being edited A/B read naturally as value up/down. -->
+    <string name="hint_settings">"A:Up  B:Down  X:Edit  Y:Back"</string>
+
+    <!-- Live. ASCII placeholders: the bundled font has no em-dash or ellipsis glyph. -->
+    <string name="tile_temperature">Temp</string>
+    <string name="tile_humidity">Humidity</string>
+    <string name="tile_pressure">Pressure</string>
+    <string name="tile_air_quality">Air quality</string>
+    <string name="tile_light">Light</string>
+    <string name="no_reading">--</string>
+    <string name="logger">Logger</string>
+
+    <!-- History. -->
+    <string name="title_history">Temp history</string>
+    <string name="history_connecting">Connecting...</string>
+    <!-- Kept short to fit the status line. -->
+    <string name="history_empty">No data - enable Logger</string>
+    <string name="history_count">%d samples</string>
+    <!-- A row: "HH:MM 21.30C" once the sample carries a wall-clock stamp, its ring index before. -->
+    <string name="history_row_time">%1$s %2$s</string>
+    <string name="history_row_index">[%1$d] %2$s</string>
+    <string name="sample_title">Sample %d</string>
+    <string name="sample_message">Temperature: %s</string>
+    <string name="sample_message_time">Temperature: %1$s\nTime: %2$s</string>
+    <string name="ok">OK</string>
+
+    <!-- Network. -->
+    <string name="net_not_available">WiFi not available on this board</string>
+    <string name="net_joining">WiFi: joining...</string>
+    <string name="net_connected">WiFi: connected</string>
+    <string name="net_failed">WiFi: not connected (retrying)</string>
+    <string name="net_down">WiFi: unavailable</string>
+    <string name="net_ip">IP: %s</string>
+    <string name="net_ip_none">IP: -</string>
+    <string name="net_time">Time: %s UTC</string>
+    <string name="net_time_unsynced">Time: not synced</string>
+    <string name="net_weather">%1$s: %2$s</string>
+    <string name="weather_unavailable">unavailable</string>
+    <string name="refresh">Refresh</string>
+
+    <!-- Settings. -->
+    <string name="settings_temp_hi">Temp Hi °C</string>
+    <string name="settings_hum_lo">Hum Lo %</string>
+    <string name="settings_lux_lo">Lux Lo</string>
+    <string name="settings_units">Units °F</string>
+    <string name="save">Save</string>
+    <string name="saved">Saved</string>
+    <string name="save_failed">Save failed</string>
+
+    <!-- The logging service's foreground notification. -->
+    <string name="notification_logging">Logging sensors</string>
+</resources>

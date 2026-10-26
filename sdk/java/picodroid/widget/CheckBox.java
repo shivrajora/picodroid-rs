@@ -4,10 +4,6 @@ package picodroid.widget;
 import picodroid.content.Context;
 
 public class CheckBox extends CompoundButton {
-  public CheckBox() {
-    super(nativeCreate());
-  }
-
   public CheckBox(Context ctx) {
     super(ctx, nativeCreate());
   }

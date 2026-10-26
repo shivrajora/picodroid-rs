@@ -5,7 +5,6 @@ import picodroid.app.Activity;
 import picodroid.app.AlertDialog;
 import picodroid.app.Notification;
 import picodroid.app.NotificationManager;
-import picodroid.concurrent.Executors;
 import picodroid.content.Context;
 import picodroid.content.res.ColorStateList;
 import picodroid.content.res.Configuration;
@@ -91,6 +90,9 @@ public class QaUiActivity extends Activity {
 
   /** The custom-ViewGroup, getContext, post and onTouchEvent checks, in their own class. */
   private final CustomGroupChecks groups = new CustomGroupChecks(this);
+
+  /** Layout params on a parented view, GradientDrawable: also in their own class. */
+  private final ParamsChecks params = new ParamsChecks(this);
 
   private final TextView[] rows = new TextView[5];
   private TextView sized;
@@ -187,7 +189,7 @@ public class QaUiActivity extends Activity {
         new Thread(
             () -> {
               SystemClock.sleep(ms);
-              Executors.mainExecutor().execute(r);
+              getMainExecutor().execute(r);
             },
             "qa-ui-timer");
     t.start();
@@ -197,7 +199,7 @@ public class QaUiActivity extends Activity {
 
   void display() {
     Display d = getDisplay();
-    check("display singleton", d == Display.getInstance() && d == getDisplay());
+    check("getDisplay returns one object", d == getDisplay());
     check("display size", d.getWidth() > 0 && d.getHeight() > 0);
     Log.i(TAG, "display " + d.getWidth() + "x" + d.getHeight());
     Configuration c = getResources().getConfiguration();
@@ -224,7 +226,6 @@ public class QaUiActivity extends Activity {
   void tree() {
     root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(getDisplay().getWidth(), getDisplay().getHeight());
     for (int i = 0; i < 5; i++) {
       TextView tv = new TextView(this);
       tv.setText("row " + i);
@@ -341,8 +342,9 @@ public class QaUiActivity extends Activity {
     check("tag cleared", tagged.getTag() == null);
     sized = new TextView(this);
     sized.setText("sized");
-    sized.setSize(100, 30);
     root.addView(sized);
+    // Sized once parented: the params apply at once, not at the next addView.
+    sized.setLayoutParams(new LinearLayout.LayoutParams(100, 30));
     animated = new TextView(this);
     animated.setText("anim");
     root.addView(animated);
@@ -397,7 +399,8 @@ public class QaUiActivity extends Activity {
     tv.setMaxLines(3);
     check("maxLines round trip", tv.getMaxLines() == 3);
     tv.setMaxLines(0);
-    Button b = new Button(this, "btn");
+    Button b = new Button(this);
+    b.setText("btn");
     check("Button getText", b.getText().toString().equals("btn"));
     b.setText("changed");
     check("Button setText", b.getText().toString().equals("changed"));
@@ -470,8 +473,10 @@ public class QaUiActivity extends Activity {
     probe.setTextSize(0);
     check("zero is the smallest face", probe.getLineHeight() == lh14);
 
-    smallBtn = new Button(this, "btn");
-    bigBtn = new Button(this, "btn");
+    smallBtn = new Button(this);
+    smallBtn.setText("btn");
+    bigBtn = new Button(this);
+    bigBtn.setText("btn");
     bigBtn.setTextSize(28);
     check("Button setTextSize", bigBtn.getTextSize() == 28f && bigBtn.getLineHeight() == lh28);
     check("Button default line height", smallBtn.getLineHeight() == lh14);
@@ -508,7 +513,8 @@ public class QaUiActivity extends Activity {
     // A single-line cap is a box height measured from the face when the mode was set; a later
     // size change must re-measure it, or the label stays one 14 px line tall under 28 px glyphs.
     capped = new TextView(this);
-    capped.setSize(200, 90);
+    // Sized before it has a parent: setLayoutParams takes the size now, the rest at addView.
+    capped.setLayoutParams(new LinearLayout.LayoutParams(200, 90));
     capped.setSingleLine();
     capped.setText("a single line that is far longer than the box it sits in, so it is cut");
     capped.setTextSize(28);
@@ -520,7 +526,8 @@ public class QaUiActivity extends Activity {
   }
 
   void clicks() {
-    clickButton = new Button(this, "click");
+    clickButton = new Button(this);
+    clickButton.setText("click");
     root.addView(clickButton);
     clickButton.setOnClickListener(v -> clicksFirst[0]++);
     clickButton.performClick();
@@ -569,7 +576,9 @@ public class QaUiActivity extends Activity {
     sw.setChecked(true);
     check("switch setChecked", sw.isChecked());
     root.removeView(sw);
-    ToggleButton tb = new ToggleButton(this, "ON", "OFF");
+    ToggleButton tb = new ToggleButton(this);
+    tb.setTextOn("ON");
+    tb.setTextOff("OFF");
     root.addView(tb);
     check("toggle default off", !tb.isChecked());
     tb.toggle();
@@ -820,18 +829,22 @@ public class QaUiActivity extends Activity {
     spinner.performItemSelected();
     Log.i(TAG, "performItemSelected delivered synchronously=" + (spinnerSelected[0] >= 0));
     Spinner sp2 = new Spinner(this);
-    sp2.setAdapter(new ArrayAdapter<String>(this, new String[] {"x", "y", "z"}));
+    sp2.setAdapter(
+        new ArrayAdapter<String>(
+            this, picodroid.R.layout.simple_list_item_1, new String[] {"x", "y", "z"}));
     root.addView(sp2);
     check(
         "adapter-backed spinner count",
         sp2.getAdapter().getCount() == 3 && sp2.getSelectedItemPosition() == 0);
     root.removeView(sp2);
     ListView lv = new ListView(this);
-    lv.setSize(200, 100);
     ArrayAdapter<String> ad =
-        new ArrayAdapter<String>(this, new String[] {"one", "two", "three", "four", "five"});
+        new ArrayAdapter<String>(
+            this,
+            picodroid.R.layout.simple_list_item_1,
+            new String[] {"one", "two", "three", "four", "five"});
     lv.setAdapter(ad);
-    root.addView(lv);
+    root.addView(lv, new LinearLayout.LayoutParams(200, 100));
     check(
         "list adapter count",
         lv.getAdapter() == ad && ad.getCount() == 5 && ad.getItem(2).equals("three"));
@@ -846,7 +859,8 @@ public class QaUiActivity extends Activity {
     final int[] clicked = new int[] {-1};
     lv.setOnItemClickListener((parent, view, position, id) -> clicked[0] = position);
     check("item click listener stored", lv.getOnItemClickListener() != null);
-    ArrayAdapter<Integer> ints = new ArrayAdapter<Integer>(this);
+    ArrayAdapter<Integer> ints =
+        new ArrayAdapter<Integer>(this, picodroid.R.layout.simple_list_item_1);
     for (int i = 0; i < 20; i++) {
       ints.add(i * i);
     }
@@ -883,8 +897,7 @@ public class QaUiActivity extends Activity {
    */
   void listRecycling() {
     ListView lv = new ListView(this);
-    lv.setSize(200, 120);
-    root.addView(lv);
+    root.addView(lv, new LinearLayout.LayoutParams(200, 120));
     String[] titles = new String[60];
     for (int i = 0; i < 60; i++) {
       titles[i] = "r" + i;
@@ -976,8 +989,7 @@ public class QaUiActivity extends Activity {
 
   void getViewRecycling() {
     ListView lv = new ListView(this);
-    lv.setSize(200, 120);
-    root.addView(lv);
+    root.addView(lv, new LinearLayout.LayoutParams(200, 120));
     RowAdapter rows = new RowAdapter(this, new String[] {"alpha", "beta", "gamma"});
     lv.setAdapter(rows);
     check("getView built every row", rows.built == 3 && rows.rebound == 0);
@@ -1012,7 +1024,9 @@ public class QaUiActivity extends Activity {
     check(
         "growth re-binds the kept rows and builds the rest",
         lv.getChildCount() == 4 && more.built == 7 && lv.getChildAt(0) == first);
-    ArrayAdapter<String> plainText = new ArrayAdapter<String>(this, new String[] {"one", "two"});
+    ArrayAdapter<String> plainText =
+        new ArrayAdapter<String>(
+            this, picodroid.R.layout.simple_list_item_1, new String[] {"one", "two"});
     lv.setAdapter(plainText);
     check(
         "ArrayAdapter rows are TextViews",
@@ -1113,7 +1127,6 @@ public class QaUiActivity extends Activity {
     }
     check("DatePicker refuses month 12", refused && dp.getMonth() == 11);
     ScrollView sv = new ScrollView(this);
-    sv.setSize(200, 100);
     LinearLayout col = new LinearLayout(this);
     col.setOrientation(LinearLayout.VERTICAL);
     for (int i = 0; i < 40; i++) {
@@ -1122,7 +1135,7 @@ public class QaUiActivity extends Activity {
       col.addView(t);
     }
     sv.addView(col);
-    root.addView(sv);
+    root.addView(sv, new LinearLayout.LayoutParams(200, 100));
     check(
         "scroll has one child",
         sv.getChildCount() == 1 && sv.getChildAt(0) == col && col.getChildCount() == 40);
@@ -1166,18 +1179,8 @@ public class QaUiActivity extends Activity {
     }
     check("10-deep nesting walkable", depth == 11 && walk == leaf);
     root.removeView(deep);
-    LinearLayout h = new LinearLayout(this);
-    h.setOrientation(LinearLayout.HORIZONTAL);
-    h.setSpacing(4);
-    h.setGravity(picodroid.view.Gravity.CENTER);
-    TextView a = new TextView(this);
-    a.setText("A");
-    TextView b = new TextView(this);
-    b.setText("B");
-    h.addView(a, new LinearLayout.LayoutParams(50, 20, 1f));
-    h.addView(b, new LinearLayout.LayoutParams(50, 20, 2f));
-    root.addView(h);
-    check("horizontal children", h.getChildCount() == 2 && h.getChildAt(1) == b);
+    params.weightedRow(root);
+    params.gradients(root);
   }
 
   void paramsTransforms() {
@@ -1296,9 +1299,12 @@ public class QaUiActivity extends Activity {
 
   void sizes() {
     check(
-        "root size",
+        "setContentView fills the window with a root that has no params",
         root.getWidth() == getDisplay().getWidth() && root.getHeight() == getDisplay().getHeight());
-    check("setSize honoured", sized.getWidth() == 100 && sized.getHeight() == 30);
+    check(
+        "setLayoutParams sizes a view already parented",
+        sized.getWidth() == 100 && sized.getHeight() == 30);
+    params.weightedRowLaidOut();
     check("rows laid out with a size", rows[0].getWidth() > 0 && rows[0].getHeight() > 0);
     check(
         "column stacks without overlap",
@@ -1400,13 +1406,17 @@ public class QaUiActivity extends Activity {
     Snackbar.make(root, "short", Snackbar.LENGTH_SHORT).show();
     check("snackbars", true);
     Notification n =
-        new Notification.Builder().setContentTitle("title").setContentText("text").build();
+        new Notification.Builder(this, "qa")
+            .setContentTitle("title")
+            .setContentText("text")
+            .build();
     check(
         "notification fields",
         n.getContentTitle().equals("title") && n.getContentText().equals("text"));
-    NotificationManager.getInstance().notify(7, n);
-    NotificationManager.getInstance().cancel(7);
-    NotificationManager.getInstance().cancel(8);
+    NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+    nm.notify(7, n);
+    nm.cancel(7);
+    nm.cancel(8);
     check("notification post/cancel", true);
   }
 
@@ -1434,7 +1444,8 @@ public class QaUiActivity extends Activity {
     churnBox = new LinearLayout(this);
     root.addView(churnBox);
     for (int i = 0; i < 12; i++) {
-      Button b = new Button(this, "b" + i);
+      Button b = new Button(this);
+      b.setText("b" + i);
       b.setOnClickListener(v -> churnClicks[0]++);
       churnBox.addView(b); // no Java reference kept: the tree is the only path
     }
@@ -1450,7 +1461,8 @@ public class QaUiActivity extends Activity {
     for (int i = 0; i < 12; i++) {
       churnBox.getChildAt(i).performClick();
     }
-    churnTarget = new Button(this, "target");
+    churnTarget = new Button(this);
+    churnTarget.setText("target");
     root.addView(churnTarget);
     churnTarget.setOnClickListener(v -> churnClicks[0] += 1000);
     check(
@@ -1506,9 +1518,11 @@ public class QaUiActivity extends Activity {
     Log.i(TAG, "treeRooted: long clicks done, gcs " + Runtime.gcCount());
     clickBatches();
 
-    loner = new Button(this, "loner");
+    loner = new Button(this);
+    loner.setText("loner");
     loner.setOnClickListener(v -> lonerClicks[0]++);
-    gone = new Button(this, "gone");
+    gone = new Button(this);
+    gone.setText("gone");
     root.addView(gone);
     gone.setOnClickListener(v -> churnClicks[0] += 100000);
     root.removeView(gone); // freed: picodroid's documented divergence from Android
@@ -1560,7 +1574,7 @@ public class QaUiActivity extends Activity {
             () -> {
               for (int from = 0; from < MANY; from += 8) {
                 final int start = from;
-                Executors.mainExecutor().execute(() -> clickBatch(start));
+                getMainExecutor().execute(() -> clickBatch(start));
                 SystemClock.sleep(60);
               }
             },
@@ -1588,7 +1602,7 @@ public class QaUiActivity extends Activity {
                 polls++;
               }
               snackPolls = polls;
-              Executors.mainExecutor().execute(r);
+              getMainExecutor().execute(r);
             },
             "qa-ui-timer");
     t.start();
@@ -1677,8 +1691,7 @@ public class QaUiActivity extends Activity {
     rows[0].invalidate();
 
     drawn = new CountingView(this, 3);
-    drawn.setSize(60, 40);
-    root.addView(drawn);
+    root.addView(drawn, new LinearLayout.LayoutParams(60, 40));
     // The constructor queued the first onDraw; these fold into it.
     drawn.invalidate();
     drawn.invalidate();
@@ -1691,8 +1704,7 @@ public class QaUiActivity extends Activity {
 
     // Far more ops than one view's list holds: the extra ones are dropped, nothing breaks.
     overflowing = new CountingView(this, 400);
-    overflowing.setSize(40, 12);
-    root.addView(overflowing);
+    root.addView(overflowing, new LinearLayout.LayoutParams(40, 12));
   }
 
   void canvasDrawn() {
@@ -1716,7 +1728,7 @@ public class QaUiActivity extends Activity {
     Canvas kept = drawn.seen;
     check("canvas outside onDraw is unbound", kept != null && kept.getWidth() == 0);
     kept.drawRect(0, 0, 10, 10, drawn.paint);
-    drawn.setSize(80, 40);
+    drawn.setLayoutParams(new LinearLayout.LayoutParams(80, 40));
     drawn.invalidate();
     drawn.invalidate();
   }

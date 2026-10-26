@@ -18,30 +18,28 @@ public class SnackbarDemoActivity extends Activity {
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    getDisplay();
     Log.i(TAG, "Display ready");
 
-    LinearLayout root = new LinearLayout();
+    LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(240, 240);
     root.setPadding(10, 10, 10, 10);
 
-    TextView title = new TextView();
+    TextView title = new TextView(this);
     title.setText("Snackbar Demo");
     title.setTextColor(Color.WHITE);
     root.addView(title);
 
-    Button plain = new Button("Plain (auto-dismiss)");
-    plain.setSize(220, 36);
+    Button plain = new Button(this);
+    plain.setText("Plain (auto-dismiss)");
     plain.setOnClickListener(
         v -> {
           Log.i(TAG, "plain snackbar");
           Snackbar.make(root, "Saved", Snackbar.LENGTH_SHORT).show();
         });
-    root.addView(plain);
+    root.addView(plain, new LinearLayout.LayoutParams(220, 36));
 
-    Button withAction = new Button("With UNDO");
-    withAction.setSize(220, 36);
+    Button withAction = new Button(this);
+    withAction.setText("With UNDO");
     withAction.setOnClickListener(
         v -> {
           Log.i(TAG, "snackbar with action");
@@ -54,10 +52,10 @@ public class SnackbarDemoActivity extends Activity {
                   })
               .show();
         });
-    root.addView(withAction);
+    root.addView(withAction, new LinearLayout.LayoutParams(220, 36));
 
-    Button indef = new Button("Indefinite");
-    indef.setSize(220, 36);
+    Button indef = new Button(this);
+    indef.setText("Indefinite");
     indef.setOnClickListener(
         v -> {
           Log.i(TAG, "indefinite snackbar");
@@ -65,7 +63,7 @@ public class SnackbarDemoActivity extends Activity {
               .setAction("RETRY", view -> Log.i(TAG, "user retried"))
               .show();
         });
-    root.addView(indef);
+    root.addView(indef, new LinearLayout.LayoutParams(220, 36));
 
     setContentView(root);
   }

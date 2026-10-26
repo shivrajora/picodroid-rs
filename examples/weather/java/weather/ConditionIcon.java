@@ -16,7 +16,12 @@ final class ConditionIcon extends View {
   ConditionIcon(Context ctx, int size) {
     super(ctx);
     this.size = size;
-    setSize(size, size);
+  }
+
+  /** A square of {@code size}, unless the parent says otherwise. */
+  @Override
+  protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+    setMeasuredDimension(resolveSize(size, widthMeasureSpec), resolveSize(size, heightMeasureSpec));
   }
 
   void set(int code, boolean day) {

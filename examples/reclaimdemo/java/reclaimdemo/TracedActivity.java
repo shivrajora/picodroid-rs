@@ -29,7 +29,7 @@ public abstract class TracedActivity extends Activity {
     mark(savedInstanceState == null ? "create(null)" : "create(saved)");
     count = savedInstanceState == null ? 5 : savedInstanceState.getInt("count");
     // A view tree for the reclaim to free, and for the new instance to build again.
-    TextView label = new TextView();
+    TextView label = new TextView(this);
     label.setText(tag() + id);
     setContentView(label);
   }

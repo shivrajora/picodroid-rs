@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.app.usage;
 
+import picodroid.annotation.Hide;
 import picodroid.content.pm.PackageManager;
 
 /**
@@ -13,6 +14,7 @@ public class StorageStatsManager {
 
   private StorageStatsManager() {}
 
+  @Hide("context.getSystemService(Context.STORAGE_STATS_SERVICE)")
   public static StorageStatsManager getInstance() {
     return INSTANCE;
   }

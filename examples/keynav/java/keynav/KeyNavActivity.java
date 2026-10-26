@@ -55,7 +55,9 @@ public class KeyNavActivity extends Activity {
     root.addView(seek);
 
     Spinner spinner = new Spinner(this);
-    spinner.setAdapter(new ArrayAdapter<>(this, new String[] {"Red", "Green", "Blue"}));
+    spinner.setAdapter(
+        new ArrayAdapter<>(
+            this, picodroid.R.layout.simple_list_item_1, new String[] {"Red", "Green", "Blue"}));
     spinner.setOnItemSelectedListener(
         new AdapterView.OnItemSelectedListener() {
           @Override
@@ -70,7 +72,8 @@ public class KeyNavActivity extends Activity {
 
     TimePicker time = new TimePicker(this);
     time.setIs24HourView(true);
-    time.setTime(12, 30);
+    time.setHour(12);
+    time.setMinute(30);
     time.setOnTimeChangedListener(
         (picker, hour, minute) -> Log.i(TAG, "time " + hour + ":" + minute));
     root.addView(time);
@@ -93,7 +96,7 @@ public class KeyNavActivity extends Activity {
     pick.setText("Pick a colour");
     pick.setOnClickListener(
         v ->
-            new AlertDialog.Builder()
+            new AlertDialog.Builder(this)
                 .setTitle("Colour")
                 .setItems(
                     new String[] {"Red", "Green", "Blue"},

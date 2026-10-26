@@ -6,10 +6,6 @@ import picodroid.view.ViewGroup;
 
 public class FrameLayout extends ViewGroup {
 
-  public FrameLayout() {
-    super(nativeCreate());
-  }
-
   public FrameLayout(Context ctx) {
     super(ctx, nativeCreate());
   }

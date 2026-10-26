@@ -664,28 +664,30 @@ public class Activity extends Context
   public native Intent getIntent();
 
   /**
-   * Mirrors Android: {@code root} becomes this Activity's content and fills the window. A root the
-   * app sized itself ({@link View#setSize}, or the inflater from its {@code layout_width} / {@code
-   * layout_height}) keeps that size; a root given {@link View#setLayoutParams layout params} and no
-   * size takes their width and height. Before 2026-10-09 an unsized root kept the renderer's
-   * default (160x160) and clipped its children at that edge.
+   * Mirrors Android: {@code root} becomes this Activity's content and fills the window, unless it
+   * carries {@link View#setLayoutParams layout params} (its own, or the inflater's from {@code
+   * layout_width} / {@code layout_height}), which size it instead. Before 2026-10-09 an unsized
+   * root kept the renderer's default (160x160) and clipped its children at that edge.
    */
   public void setContentView(View root) {
-    if (!root.isSized()) {
-      ViewGroup.LayoutParams lp = root.getLayoutParams();
-      root.setSize(
-          lp != null ? lp.width : ViewGroup.LayoutParams.MATCH_PARENT,
-          lp != null ? lp.height : ViewGroup.LayoutParams.MATCH_PARENT);
-    }
-    mContentView = root;
-    Display.getInstance().setContentView(root);
+    ViewGroup.LayoutParams lp = root.getLayoutParams();
+    root.setLayoutParams(
+        lp != null
+            ? lp
+            : new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+    installContent(root);
   }
 
   /** Mirrors Android: installs {@code root} as the content view at the size {@code params} give. */
   public void setContentView(View root, ViewGroup.LayoutParams params) {
     root.setLayoutParams(params);
-    root.setSize(params.width, params.height);
-    setContentView(root);
+    installContent(root);
+  }
+
+  private void installContent(View root) {
+    mContentView = root;
+    Display.getInstance().setContentView(root);
   }
 
   /** Mirrors Android: inflates {@code R.layout.*} and makes it this Activity's content. */
@@ -723,7 +725,11 @@ public class Activity extends Context
     return mContentView == null ? null : mContentView.<T>findViewById(id);
   }
 
-  public Display getDisplay() {
-    return Display.getInstance();
+  /**
+   * Mirrors Android: the app's {@link Application}; null when the manifest names no Application
+   * class (Android always has one).
+   */
+  public final Application getApplication() {
+    return sApplication;
   }
 }

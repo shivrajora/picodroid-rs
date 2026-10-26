@@ -1,4 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="picoenvmon" version="1.0">
-    <application application="picoenvmon/EnvApp" />
+<manifest package="picoenvmon" version="1.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:noNamespaceSchemaLocation="../../sdk/PicodroidManifest.xsd">
+    <!-- Android's shape (docs/designs/manifest-components-2026-10.md): the Application, which
+         starts the network side and then the hub; the hub, the entry by its MAIN filter; the
+         four screens it opens; and the logging Service the hub starts and Live and History
+         bind. The build refuses an Intent to a component not declared here. -->
+    <application application="picoenvmon/EnvApp" label="PicoEnvMon">
+        <activity android:name=".ui.home.HomeActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".ui.live.LiveActivity" />
+        <activity android:name=".ui.history.HistoryActivity" />
+        <activity android:name=".ui.network.NetworkActivity" />
+        <activity android:name=".ui.settings.SettingsActivity" />
+        <service android:name=".service.SensorLoggerService" />
+    </application>
 </manifest>

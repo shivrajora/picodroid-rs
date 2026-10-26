@@ -14,15 +14,16 @@ import picodroid.widget.LinearLayout;
 
 /**
  * The password for one network (its SSID in the Intent's {@code ssid} extra): a masked {@link
- * EditText} and a Connect button. On a touch panel a tap on the field opens the system keyboard;
- * on a keypad board NEXT reaches the field, ENTER opens the keyboard, PREV/NEXT walk its keys,
- * ENTER types one, ESC closes it, and the keyboard's OK key connects as the button does. The join
- * itself runs on the link task; this screen finishes at once and the Wi-Fi screen shows the
- * outcome.
+ * EditText} and a Connect button. On a touch panel a tap on the field opens the system keyboard; on
+ * a keypad board NEXT reaches the field, ENTER opens the keyboard, PREV/NEXT walk its keys, ENTER
+ * types one, ESC closes it, and the keyboard's OK key connects as the button does. The join itself
+ * runs on the link task; this screen finishes at once and the Wi-Fi screen shows the outcome.
  *
  * <p>Row 0 is the header, the field sits in row 1 and the button in row 2.
  */
 public class WifiPasswordActivity extends Activity {
+  private static final int MATCH_PARENT = LinearLayout.LayoutParams.MATCH_PARENT;
+
   private static final String TAG = SettingsActivity.TAG;
 
   private String ssid;
@@ -37,22 +38,17 @@ public class WifiPasswordActivity extends Activity {
     if (ssid == null) {
       ssid = "";
     }
-    int width = getDisplay().getWidth();
-
-    LinearLayout root = Screens.column();
+    LinearLayout root = Screens.column(this);
     Screens.header(this, root, "< " + ssid, v -> finish());
 
     // The field's row is not focusable itself: the field is, and takes
     // the keypad's select (ENTER opens the keyboard).
-    LinearLayout fieldRow = new LinearLayout();
+    LinearLayout fieldRow = new LinearLayout(this);
     fieldRow.setOrientation(LinearLayout.HORIZONTAL);
-    fieldRow.setSize(width, Screens.ROW_HEIGHT);
     fieldRow.setPadding(8, 5, 8, 5);
-    fieldRow.setSpacing(0);
-    field = new EditText();
+    field = new EditText(this);
     field.setHint("Password");
     field.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-    field.setSize(width - 16, Screens.ROW_HEIGHT - 10);
     field.setOnEditorActionListener(
         (v, actionId, event) -> {
           if (actionId == EditorInfo.IME_ACTION_DONE) {
@@ -60,21 +56,20 @@ public class WifiPasswordActivity extends Activity {
           }
           return false;
         });
-    fieldRow.addView(field);
-    root.addView(fieldRow);
+    // Each row is a row high; the field and the button fill it inside its padding.
+    fieldRow.addView(field, new LinearLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
+    root.addView(fieldRow, new LinearLayout.LayoutParams(MATCH_PARENT, Screens.ROW_HEIGHT));
 
-    LinearLayout buttonRow = new LinearLayout();
+    LinearLayout buttonRow = new LinearLayout(this);
     buttonRow.setOrientation(LinearLayout.HORIZONTAL);
-    buttonRow.setSize(width, Screens.ROW_HEIGHT);
     buttonRow.setPadding(8, 4, 8, 4);
-    buttonRow.setSpacing(0);
-    connect = new Button("Connect");
-    connect.setSize(width - 16, Screens.ROW_HEIGHT - 8);
+    connect = new Button(this);
+    connect.setText("Connect");
     connect.setOnClickListener(v -> submit());
-    buttonRow.addView(connect);
-    root.addView(buttonRow);
+    buttonRow.addView(connect, new LinearLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
+    root.addView(buttonRow, new LinearLayout.LayoutParams(MATCH_PARENT, Screens.ROW_HEIGHT));
 
-    setContentView(Screens.scrollable(this, root, 3));
+    setContentView(Screens.scrollable(this, root));
     field.requestFocus();
     Log.i(TAG, "wifi password " + ssid);
   }

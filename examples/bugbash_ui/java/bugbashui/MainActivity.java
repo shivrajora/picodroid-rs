@@ -2,7 +2,6 @@
 package bugbashui;
 
 import picodroid.app.Activity;
-import picodroid.concurrent.Executors;
 import picodroid.content.ComponentName;
 import picodroid.content.Intent;
 import picodroid.content.ServiceConnection;
@@ -39,23 +38,22 @@ public class MainActivity extends Activity {
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     Log.i(TAG, "Main.onCreate");
-    LinearLayout root = new LinearLayout();
+    LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT);
-    TextView title = new TextView();
+    TextView title = new TextView(this);
     title.setText("bug bash");
     root.addView(title);
-    launchBtn = new Button("launch");
+    launchBtn = new Button(this);
+    launchBtn.setText("launch");
     check("TextView.getText round-trip", "bug bash".equals(title.getText().toString()));
     check("Button.getText round-trip", "launch".equals(launchBtn.getText().toString()));
-    launchBtn.setSize(200, 40);
     launchBtn.setOnClickListener(
         v -> {
           launchClicks++;
           Log.i(TAG, "launch click #" + launchClicks);
-          startActivity(new Intent(DetailActivity.class));
+          startActivity(new Intent(this, DetailActivity.class));
         });
-    root.addView(launchBtn);
+    root.addView(launchBtn, new LinearLayout.LayoutParams(200, 40));
     setContentView(root);
   }
 
@@ -92,9 +90,9 @@ public class MainActivity extends Activity {
             @Override
             public void onServiceDisconnected(ComponentName name) {}
           };
-      bindService(new Intent(ProbeService.class), conns[i], BIND_AUTO_CREATE);
+      bindService(new Intent(this, ProbeService.class), conns[i], BIND_AUTO_CREATE);
       final int next = i + 1;
-      Executors.mainExecutor().execute(() -> bindStep(next));
+      getMainExecutor().execute(() -> bindStep(next));
     } else {
       unbindStep(0);
     }
@@ -104,9 +102,9 @@ public class MainActivity extends Activity {
     if (i < BINDS) {
       unbindService(conns[i]);
       final int next = i + 1;
-      Executors.mainExecutor().execute(() -> unbindStep(next));
+      getMainExecutor().execute(() -> unbindStep(next));
     } else {
-      Executors.mainExecutor().execute(this::finishUp);
+      getMainExecutor().execute(this::finishUp);
     }
   }
 

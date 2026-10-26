@@ -8,6 +8,6 @@ public class GestureDemoApp extends Application {
   @Override
   public void onCreate() {
     new GestureAppComponent();
-    startActivity(new Intent(GestureDemoActivity.class));
+    startActivity(new Intent(this, GestureDemoActivity.class));
   }
 }

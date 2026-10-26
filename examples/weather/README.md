@@ -12,8 +12,9 @@ A weather app in the shape of the phone ones, for the four-button
   pressure.
 
 The sky behind everything follows the conditions and the time of day. A and B
-turn the page, X refreshes now, Y leaves. The forecast refreshes itself every
-fifteen minutes.
+turn the page, X refreshes now, Y leaves. The forecast is fetched when the
+network comes up (a `ConnectivityManager.NetworkCallback`) and refreshes itself
+every fifteen minutes.
 
 Everything comes from one [open-meteo](https://open-meteo.com) request over
 HTTPS (docs/designs/tls-2026-09.md): `URL.openConnection()` on an `https` URL,
@@ -49,8 +50,10 @@ The defaults are San Mateo in degrees Celsius and km/h.
   view each, well inside a view's two-kilobyte op recording.
 - `TextView.setTextSize` (the 20 and 64 px faces), `GradientDrawable` as a
   full-screen sky, `Activity.onKeyDown` for the four buttons,
-  `ScheduledExecutorService` on the main thread for the refresh, and
-  `SensorManager` for the room readings.
+  `ScheduledExecutorService` on the main thread for the refresh,
+  `ConnectivityManager.registerDefaultNetworkCallback` to fetch when the link is
+  up, `SensorManager` for the room readings, and `res/values/strings.xml` with
+  `getString(id, args...)` for every line of text on screen.
 
 ## The nightly
 

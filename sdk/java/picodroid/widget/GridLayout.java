@@ -20,8 +20,7 @@ import picodroid.view.ViewGroup;
  * not free it and {@code addView(child, index)} does not reflow the rest); {@link #setColumnCount},
  * {@link #setRowCount} and {@link #setOrientation} throw once a child has been added; a weight
  * keeps one decimal and caps at 9.9; at most 16 columns, 16 rows and 6 grids alive at once; {@link
- * #BASELINE} reads as {@link #TOP}. {@link #setSpacing} is a picodroid addition, as {@link
- * LinearLayout#setSpacing} is.
+ * #BASELINE} reads as {@link #TOP}. Space between cells is the children's margins, as on Android.
  */
 public class GridLayout extends ViewGroup {
   public static final int HORIZONTAL = 0;
@@ -64,10 +63,6 @@ public class GridLayout extends ViewGroup {
 
   private int mColumnsUsed;
   private int mRowsUsed;
-
-  public GridLayout() {
-    super(nativeCreate());
-  }
 
   public GridLayout(Context ctx) {
     super(ctx, nativeCreate());
@@ -120,9 +115,6 @@ public class GridLayout extends ViewGroup {
     }
     mRowCount = rowCount;
   }
-
-  /** Gap in pixels between adjacent columns and rows. Default 0. A picodroid addition. */
-  public native void setSpacing(int px);
 
   private void checkNoChildren(String what) {
     if (mMaxSizes != null) {

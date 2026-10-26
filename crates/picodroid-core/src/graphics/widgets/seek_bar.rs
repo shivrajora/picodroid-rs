@@ -15,14 +15,6 @@ pub fn seek_bar_native_create() -> Result<Option<Value>, JvmError> {
     Ok(Some(Value::Int(lvgl_seek_bar::create())))
 }
 
-pub fn seek_bar_native_create_with_max(args: &[Value]) -> Result<Option<Value>, JvmError> {
-    let max = match args.first() {
-        Some(Value::Int(v)) => *v,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    Ok(Some(Value::Int(lvgl_seek_bar::create_with_max(max))))
-}
-
 pub fn seek_bar_set_max(args: &[Value], objects: &ObjectHeap) -> Result<Option<Value>, JvmError> {
     let id = extract_native_handle(args, objects)?;
     let max = match args.get(1) {

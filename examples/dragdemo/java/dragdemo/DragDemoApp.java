@@ -7,6 +7,6 @@ import picodroid.content.Intent;
 public class DragDemoApp extends Application {
   @Override
   public void onCreate() {
-    startActivity(new Intent(DragDemoActivity.class));
+    startActivity(new Intent(this, DragDemoActivity.class));
   }
 }

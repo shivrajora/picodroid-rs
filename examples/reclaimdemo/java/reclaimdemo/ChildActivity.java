@@ -20,7 +20,7 @@ public class ChildActivity extends TracedActivity {
   @Override
   public void onResume() {
     mark("resume");
-    setResult(RESULT_OK, new Intent(HomeActivity.class).putExtra("answer", 42));
+    setResult(RESULT_OK, new Intent().putExtra("answer", 42));
     finish();
   }
 

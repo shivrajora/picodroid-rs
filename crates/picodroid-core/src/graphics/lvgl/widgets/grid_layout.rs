@@ -268,11 +268,6 @@ pub(in crate::graphics) fn create_under(parent: Obj) -> i32 {
     handle_table::register(o)
 }
 
-/// Gap in pixels between adjacent columns and rows.
-pub(in crate::graphics) fn set_spacing(id: i32, px: i32) {
-    super::linear_layout::set_spacing(id, px);
-}
-
 /// Put `child` in its cell and grow the templates to cover it. `false` when
 /// the grid has no slot or the cell lies past `MAX_TRACKS`; nothing is
 /// changed then.

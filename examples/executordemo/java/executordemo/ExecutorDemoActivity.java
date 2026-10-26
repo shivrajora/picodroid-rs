@@ -34,11 +34,10 @@ public class ExecutorDemoActivity extends Activity {
     super.onCreate(savedInstanceState);
     getDisplay();
 
-    LinearLayout root = new LinearLayout();
+    LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT);
 
-    TextView tv = new TextView();
+    TextView tv = new TextView(this);
     tv.setText("ExecutorDemo");
     root.addView(tv);
 

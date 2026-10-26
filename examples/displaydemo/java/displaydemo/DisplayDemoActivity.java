@@ -11,7 +11,9 @@ import picodroid.pio.Gpio;
 import picodroid.pio.PeripheralManager;
 import picodroid.util.Log;
 import picodroid.view.View;
+import picodroid.view.ViewGroup;
 import picodroid.widget.AdapterView;
+import picodroid.widget.ArrayAdapter;
 import picodroid.widget.Button;
 import picodroid.widget.CheckBox;
 import picodroid.widget.CircularProgressIndicator;
@@ -26,6 +28,11 @@ import picodroid.widget.TextView;
 import picodroid.widget.ToggleButton;
 
 public class DisplayDemoActivity extends Activity {
+  private static final int WRAP = LinearLayout.LayoutParams.WRAP_CONTENT;
+
+  /** The space between the column's rows. */
+  private static final int GAP = 4;
+
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
@@ -34,37 +41,35 @@ public class DisplayDemoActivity extends Activity {
     DisplayDebug.showFps();
     Log.i("DisplayDemo", "Display ready");
 
-    ScrollView scroll = new ScrollView();
-    scroll.setSize(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT);
+    ScrollView scroll = new ScrollView(this);
 
-    LinearLayout root = new LinearLayout();
+    LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(320, View.WRAP_CONTENT);
     root.setPadding(10, 5, 10, 5);
-    root.setSpacing(4);
-    scroll.addView(root);
+    scroll.addView(root, new ViewGroup.LayoutParams(320, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-    TextView title = new TextView();
+    TextView title = new TextView(this);
     title.setText("Picodroid UI Demo");
     title.setTextColor(Color.WHITE);
     title.setIncludeFontPadding(false);
-    root.addView(title);
+    add(root, title, WRAP, WRAP);
 
     // -- Button with tap counter --
-    Button btn = new Button("Tap Me!");
-    btn.setSize(200, 50);
+    Button btn = new Button(this);
+    btn.setText("Tap Me!");
     btn.setOnClickListener(new TapHandler(title));
-    root.addView(btn);
+    add(root, btn, 200, 50);
 
     // -- ToggleButton controlling LED --
-    TextView toggleLabel = new TextView();
+    TextView toggleLabel = new TextView(this);
     toggleLabel.setText("LED: OFF");
     toggleLabel.setTextColor(Color.WHITE);
     toggleLabel.setIncludeFontPadding(false);
-    root.addView(toggleLabel);
+    add(root, toggleLabel, WRAP, WRAP);
 
-    ToggleButton toggle = new ToggleButton("ON", "OFF");
-    toggle.setSize(200, 50);
+    ToggleButton toggle = new ToggleButton(this);
+    toggle.setTextOn("ON");
+    toggle.setTextOff("OFF");
     PeripheralManager manager = PeripheralManager.getInstance();
     Gpio led = manager.openGpio("GP25");
     led.setDirection(Gpio.DIRECTION_OUT_INITIALLY_LOW);
@@ -78,60 +83,57 @@ public class DisplayDemoActivity extends Activity {
             led.setValue(false);
           }
         });
-    root.addView(toggle);
+    add(root, toggle, 200, 50);
 
     // -- Switch --
-    TextView switchLabel = new TextView();
+    TextView switchLabel = new TextView(this);
     switchLabel.setText("Switch: OFF");
     switchLabel.setTextColor(Color.WHITE);
     switchLabel.setIncludeFontPadding(false);
-    root.addView(switchLabel);
+    add(root, switchLabel, WRAP, WRAP);
 
-    Switch sw = new Switch();
-    sw.setSize(60, 30);
+    Switch sw = new Switch(this);
     sw.setOnCheckedChangeListener(new SwitchHandler(switchLabel));
-    root.addView(sw);
+    add(root, sw, 60, 30);
 
     // -- SeekBar driving a determinate ProgressBar --
-    TextView seekLabel = new TextView();
+    TextView seekLabel = new TextView(this);
     seekLabel.setText("SeekBar: 0");
     seekLabel.setTextColor(Color.CYAN);
     seekLabel.setIncludeFontPadding(false);
-    root.addView(seekLabel);
+    add(root, seekLabel, WRAP, WRAP);
 
-    ProgressBar progress = new ProgressBar();
-    progress.setSize(200, 12);
-    root.addView(progress);
+    ProgressBar progress = new ProgressBar(this);
+    add(root, progress, 200, 12);
 
     // The same value as a ring gauge: a three-quarter dial, open at the bottom.
-    CircularProgressIndicator ring = new CircularProgressIndicator();
+    CircularProgressIndicator ring = new CircularProgressIndicator(this);
     ring.setIndicatorSize(56);
     ring.setTrackThickness(6);
     ring.setIndicatorColor(Color.CYAN);
     ring.setStartAngle(135f);
     ring.setSweepAngle(270f);
-    root.addView(ring);
+    add(root, ring, 56, 56);
 
-    SeekBar seekBar = new SeekBar(100);
-    seekBar.setSize(200, 20);
+    SeekBar seekBar = new SeekBar(this);
+    seekBar.setMax(100);
     seekBar.setOnSeekBarChangeListener(
         (bar, v, fromUser) -> {
           seekLabel.setText("SeekBar: " + v);
           progress.setProgress(v, true);
           ring.setProgress(v);
         });
-    root.addView(seekBar);
+    add(root, seekBar, 200, 20);
 
     // -- Indeterminate spinner --
-    TextView spinnerProgressLabel = new TextView();
+    TextView spinnerProgressLabel = new TextView(this);
     spinnerProgressLabel.setText("Working...");
     spinnerProgressLabel.setTextColor(Color.WHITE);
     spinnerProgressLabel.setIncludeFontPadding(false);
-    root.addView(spinnerProgressLabel);
+    add(root, spinnerProgressLabel, WRAP, WRAP);
 
     ProgressBar busy = ProgressBar.indeterminate();
-    busy.setSize(40, 40);
-    root.addView(busy);
+    add(root, busy, 40, 40);
 
     progress.setProgress(40);
     ring.setProgress(40);
@@ -146,14 +148,13 @@ public class DisplayDemoActivity extends Activity {
             + busy.isIndeterminate());
 
     // -- ImageView showing a bundled PNG asset --
-    ImageView img = new ImageView();
-    img.setSize(48, 48);
+    ImageView img = new ImageView(this);
     img.setImageSource("logo.png");
     img.setScaleType(ImageView.SCALE_FIT_CENTER);
-    root.addView(img);
+    add(root, img, 48, 48);
 
     // -- CheckBox --
-    CheckBox checkBox = new CheckBox();
+    CheckBox checkBox = new CheckBox(this);
     checkBox.setText("Enable notifications");
     checkBox.setOnCheckedChangeListener(
         (view, checked) -> {
@@ -163,18 +164,21 @@ public class DisplayDemoActivity extends Activity {
             Log.i("DisplayDemo", "Notifications disabled");
           }
         });
-    root.addView(checkBox);
+    add(root, checkBox, WRAP, WRAP);
 
     // -- Spinner --
-    TextView spinnerLabel = new TextView();
+    TextView spinnerLabel = new TextView(this);
     spinnerLabel.setText("Color: Red");
     spinnerLabel.setTextColor(Color.RED);
     spinnerLabel.setIncludeFontPadding(false);
-    root.addView(spinnerLabel);
+    add(root, spinnerLabel, WRAP, WRAP);
 
-    Spinner spinner = new Spinner();
-    spinner.setItems("Red\nGreen\nBlue\nYellow");
-    spinner.setSize(200, 40);
+    Spinner spinner = new Spinner(this);
+    spinner.setAdapter(
+        new ArrayAdapter<>(
+            this,
+            picodroid.R.layout.simple_list_item_1,
+            new String[] {"Red", "Green", "Blue", "Yellow"}));
     spinner.setOnItemSelectedListener(
         new AdapterView.OnItemSelectedListener() {
           @Override
@@ -197,73 +201,70 @@ public class DisplayDemoActivity extends Activity {
           @Override
           public void onNothingSelected(AdapterView<?> parent) {}
         });
-    root.addView(spinner);
+    add(root, spinner, 200, 40);
 
     // -- Themed widgets: GradientDrawable + Theme palette --
-    TextView themedHeader = new TextView();
-    themedHeader.setSize(220, 40);
+    TextView themedHeader = new TextView(this);
     themedHeader.setText("  Themed widgets");
     themedHeader.setTextColor(Theme.colorOnPrimary);
-    themedHeader.setBackground(
-        new GradientDrawable()
-            .setGradient(
-                Theme.colorPrimary,
-                darken(Theme.colorPrimary),
-                GradientDrawable.Orientation.TOP_BOTTOM)
-            .setCornerRadius(8));
-    root.addView(themedHeader);
+    GradientDrawable headerBg =
+        new GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            new int[] {Theme.colorPrimary, darken(Theme.colorPrimary)});
+    headerBg.setCornerRadius(8);
+    themedHeader.setBackground(headerBg);
+    add(root, themedHeader, 220, 40);
 
     // LEFT_RIGHT is a different render path from TOP_BOTTOM: LVGL blends a
     // horizontal gradient as an RGB888 source image, a vertical one as solid
     // lines. This row went fully transparent when the RGB888 source blender
     // was compiled out (lv_conf.h LV_DRAW_SW_SUPPORT_RGB888; D2 in
     // docs/designs/claudeusage-gaps-roadmap-2026-09.md).
-    TextView themedBar = new TextView();
-    themedBar.setSize(220, 40);
+    TextView themedBar = new TextView(this);
     themedBar.setText("  Left-to-right gradient");
     themedBar.setTextColor(Theme.colorOnPrimary);
-    themedBar.setBackground(
-        new GradientDrawable()
-            .setGradient(
-                Theme.colorPrimary, Theme.colorBackground, GradientDrawable.Orientation.LEFT_RIGHT)
-            .setCornerRadius(8));
-    root.addView(themedBar);
+    GradientDrawable barBg =
+        new GradientDrawable(
+            GradientDrawable.Orientation.LEFT_RIGHT,
+            new int[] {Theme.colorPrimary, Theme.colorBackground});
+    barBg.setCornerRadius(8);
+    themedBar.setBackground(barBg);
+    add(root, themedBar, 220, 40);
     Log.i("DisplayDemo", "gradient rows: TOP_BOTTOM + LEFT_RIGHT");
 
-    TextView card = new TextView();
-    card.setSize(220, 50);
+    TextView card = new TextView(this);
     card.setText("  Card surface");
     card.setTextColor(Theme.colorText);
-    card.setBackground(
-        new GradientDrawable()
-            .setColor(Theme.colorSurface)
-            .setCornerRadius(10)
-            .setStroke(1, Theme.colorOutline));
-    root.addView(card);
+    GradientDrawable cardBg = new GradientDrawable();
+    cardBg.setColor(Theme.colorSurface);
+    cardBg.setCornerRadius(10);
+    cardBg.setStroke(1, Theme.colorOutline);
+    card.setBackground(cardBg);
+    add(root, card, 220, 50);
 
-    Button pill = new Button("Pill button");
-    pill.setSize(220, 38);
-    pill.setBackground(
-        new GradientDrawable()
-            .setColor(Theme.colorPrimary)
-            // Pill = corner radius >= half the height. Setting it past
-            // that doesn't visually overshoot — LVGL clamps internally.
-            .setCornerRadius(20));
+    Button pill = new Button(this);
+    pill.setText("Pill button");
+    GradientDrawable pillBg = new GradientDrawable();
+    pillBg.setColor(Theme.colorPrimary);
+    // Pill = corner radius >= half the height. Setting it past
+    // that doesn't visually overshoot — LVGL clamps internally.
+    pillBg.setCornerRadius(20);
+    pill.setBackground(pillBg);
     pill.setOnClickListener(v -> Log.i("DisplayDemo", "pill clicked"));
-    root.addView(pill);
+    add(root, pill, 220, 38);
 
-    Button ghost = new Button("Ghost button");
-    ghost.setSize(220, 38);
-    ghost.setBackground(
-        new GradientDrawable()
-            .setColor(Theme.colorBackground)
-            .setCornerRadius(8)
-            .setStroke(2, Theme.colorPrimary));
+    Button ghost = new Button(this);
+    ghost.setText("Ghost button");
+    GradientDrawable ghostBg = new GradientDrawable();
+    ghostBg.setColor(Theme.colorBackground);
+    ghostBg.setCornerRadius(8);
+    ghostBg.setStroke(2, Theme.colorPrimary);
+    ghost.setBackground(ghostBg);
     ghost.setOnClickListener(v -> Log.i("DisplayDemo", "ghost clicked"));
-    root.addView(ghost);
+    add(root, ghost, 220, 38);
 
     // A custom view: onDraw(Canvas) draws shapes and text instead of stacking widgets.
-    root.addView(new ShapesView(this));
+    add(root, new ShapesView(this), ShapesView.WIDTH, ShapesView.HEIGHT);
 
     setContentView(scroll);
 
@@ -286,6 +287,15 @@ public class DisplayDemoActivity extends Activity {
     title.setAlpha(0.5f);
     Log.i("DisplayDemo", "readback alpha-half=" + (title.getAlpha() == 0.5f));
     title.setAlpha(1.0f);
+  }
+
+  /** Adds {@code child} at {@code w} x {@code h}, {@link #GAP} below the one before it. */
+  private static void add(LinearLayout parent, View child, int w, int h) {
+    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(w, h);
+    if (parent.getChildCount() > 0) {
+      lp.topMargin = GAP;
+    }
+    parent.addView(child, lp);
   }
 
   /** Quick-and-dirty 70%-brightness shade for the gradient end stop. */

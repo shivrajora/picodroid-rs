@@ -30,7 +30,10 @@ public class CounterService extends Service {
     Log.i("CounterService", "onStartCommand id=" + startId + " step=" + step + " count=" + count);
     if (startCount == 1) {
       Notification n =
-          new Notification.Builder().setContentTitle("Counter").setContentText("running").build();
+          new Notification.Builder(this, "counter")
+              .setContentTitle("Counter")
+              .setContentText("running")
+              .build();
       startForeground(1, n);
     }
     return START_STICKY;

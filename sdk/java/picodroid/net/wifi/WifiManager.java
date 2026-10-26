@@ -3,6 +3,7 @@ package picodroid.net.wifi;
 
 import java.util.ArrayList;
 import java.util.List;
+import picodroid.annotation.Hide;
 import picodroid.concurrent.Executor;
 import picodroid.net.NetworkInfo;
 
@@ -127,6 +128,7 @@ public class WifiManager {
     scanGenerationSeen = nativeScanGeneration();
   }
 
+  @Hide("context.getSystemService(Context.WIFI_SERVICE)")
   public static WifiManager getInstance() {
     return INSTANCE;
   }
@@ -226,6 +228,9 @@ public class WifiManager {
    * none was made. Read it when {@link WifiInfo#getSupplicantState()} is {@link
    * SupplicantState#DISCONNECTED} after a join.
    */
+  @Hide(
+      "a BroadcastReceiver for SUPPLICANT_STATE_CHANGED_ACTION reading EXTRA_SUPPLICANT_ERROR, as"
+          + " on Android")
   public int getLastError() {
     switch (nativeStatus()) {
       case STATUS_BAD_AUTH:

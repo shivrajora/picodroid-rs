@@ -26,6 +26,6 @@ public class ReclaimDemoApp extends Application {
 
   @Override
   public void onCreate() {
-    startActivity(new Intent(HomeActivity.class));
+    startActivity(new Intent(this, HomeActivity.class));
   }
 }

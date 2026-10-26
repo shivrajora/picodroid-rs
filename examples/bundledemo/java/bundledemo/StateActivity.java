@@ -26,7 +26,7 @@ public class StateActivity extends BaseStateActivity {
     BundleDemoApp.check("count restored", count == 42);
     BundleDemoApp.check(
         "intent carried over", "home".equals(getIntent().getExtras().getString("who")));
-    setResult(RESULT_OK, new Intent(StateActivity.class).putExtra("count", count));
+    setResult(RESULT_OK, new Intent(this, StateActivity.class).putExtra("count", count));
     finish();
   }
 

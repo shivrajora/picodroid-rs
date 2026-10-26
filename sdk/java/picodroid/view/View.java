@@ -49,8 +49,8 @@ public class View {
   ViewGroup.LayoutParams layoutParams;
 
   /**
-   * Set by {@link #setSize} (and the inflater, for a child its native path sized); read by {@code
-   * Activity.setContentView} to size an unsized root.
+   * Set by {@link #setSize} (and the inflater, for a child its native path sized); read by {@link
+   * ViewGroup#addView(View)} to give an unsized container its default params.
    */
   boolean mSized;
 
@@ -412,6 +412,11 @@ public class View {
     return MeasureSpec.getMode(measureSpec) == MeasureSpec.EXACTLY
         ? MeasureSpec.getSize(measureSpec)
         : WRAP_CONTENT;
+  }
+
+  /** Whether this view draws itself ({@link #View(Context)}): it measures for a wrap_content. */
+  final boolean drawsItself() {
+    return mCanvas != null;
   }
 
   /** Whether this is a {@link ViewGroup} that lays its children out in Java ({@code onLayout}). */
@@ -839,29 +844,21 @@ public class View {
     }
   }
 
-  public native void setPosition(int x, int y);
+  /** Places the widget at {@code (x, y)} in its parent: {@link #layout}'s half of the job. */
+  native void setPosition(int x, int y);
 
   /**
-   * Sets this view's size: pixels, or {@link ViewGroup.LayoutParams#MATCH_PARENT} / {@link
-   * ViewGroup.LayoutParams#WRAP_CONTENT}. A parent layout calls it with the child's layout params;
-   * an app calls it on a view it places itself. A content root that was never sized fills the
-   * window ({@link picodroid.app.Activity#setContentView(View)}).
+   * Sizes the widget: pixels, or {@link ViewGroup.LayoutParams#MATCH_PARENT} / {@link
+   * ViewGroup.LayoutParams#WRAP_CONTENT}. The framework's primitive under {@link #setLayoutParams},
+   * {@link ViewGroup#addView(View, ViewGroup.LayoutParams)} and {@link #layout}; an app sizes a
+   * view through its layout params, as on Android.
    */
-  public void setSize(int width, int height) {
+  void setSize(int width, int height) {
     mSized = true;
     nativeSetSize(width, height);
   }
 
   private native void nativeSetSize(int width, int height);
-
-  /**
-   * Whether {@link #setSize} was ever called on this view, by the app, a parent layout or the
-   * inflater. picodroid-only: {@link picodroid.app.Activity#setContentView(View)} reads it to give
-   * an unsized root the window.
-   */
-  public final boolean isSized() {
-    return mSized;
-  }
 
   /**
    * Mirrors {@code android.view.View#setBackgroundColor(int)}: a plain fill in place of whatever
@@ -1136,15 +1133,23 @@ public class View {
   private native void nativeClose();
 
   /**
-   * Records the {@link ViewGroup.LayoutParams} that the parent layout should apply to this child.
-   * The framework reads {@code width}/{@code height} during {@link ViewGroup#addView(View,
-   * ViewGroup.LayoutParams)} and forwards them to {@link #setSize}; subclass-specific fields like
-   * {@code LinearLayout.LayoutParams.weight} are applied by the parent layout itself. On a view
-   * that becomes an Activity's content root, {@link picodroid.app.Activity#setContentView(View)}
-   * applies the width and height itself.
+   * Mirrors {@code android.view.View#setLayoutParams}: how this view is sized and placed in its
+   * parent. A view already in a layout takes them at once, size, weight, gravity and margins alike;
+   * a view with no parent yet takes the size now and the rest when it is {@link ViewGroup#addView
+   * added}. A view the app places itself is sized this way, never by a call of its own.
+   *
+   * @throws NullPointerException if {@code params} is null, as on Android
    */
   public void setLayoutParams(ViewGroup.LayoutParams params) {
-    this.layoutParams = params;
+    if (params == null) {
+      throw new NullPointerException("Layout parameters cannot be null");
+    }
+    layoutParams = params;
+    if (mParent != null) {
+      mParent.applyLayoutParams(this, params, true);
+    } else {
+      applyLayoutSize(params.width, params.height);
+    }
   }
 
   public ViewGroup.LayoutParams getLayoutParams() {

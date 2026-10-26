@@ -8,6 +8,6 @@ public class DialogDemoApp extends Application {
   @Override
   public void onCreate() {
     new DialogAppComponent();
-    startActivity(new Intent(DialogDemoActivity.class));
+    startActivity(new Intent(this, DialogDemoActivity.class));
   }
 }

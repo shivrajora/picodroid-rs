@@ -75,6 +75,14 @@ public abstract class Service extends Context implements ComponentCallbacks2 {
     Context.noteService(this);
   }
 
+  /**
+   * Mirrors Android: the app's {@link Application}; null when the manifest names no Application
+   * class (Android always has one).
+   */
+  public final Application getApplication() {
+    return sApplication;
+  }
+
   public void onCreate() {
     // Subclass overrides
   }
@@ -145,7 +153,7 @@ public abstract class Service extends Context implements ComponentCallbacks2 {
     // A board's configuration does not change while an app runs.
   }
 
-  /** Stop this Service. Equivalent to {@code Context.stopService(new Intent(thisClass))}. */
+  /** Stop this Service. Equivalent to {@code stopService(new Intent(this, getClass()))}. */
   public final native void stopSelf();
 
   /**

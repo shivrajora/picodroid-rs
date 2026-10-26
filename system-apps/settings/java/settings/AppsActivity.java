@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package settings;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import picodroid.app.Activity;
 import picodroid.app.AlertDialog;
-import picodroid.concurrent.Executors;
 import picodroid.content.pm.ApplicationInfo;
 import picodroid.content.pm.PackageInfo;
 import picodroid.content.pm.PackageManager;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.widget.LinearLayout;
-import picodroid.os.Bundle;
 
 /**
  * Apps: one row per installed app (system apps stay out; they cannot be uninstalled). A tap on a
@@ -22,6 +23,7 @@ import picodroid.os.Bundle;
 public class AppsActivity extends Activity {
   /** The installed apps in label order, and their labels, fetched once. */
   private PackageInfo[] apps;
+
   private String[] labels;
 
   @Override
@@ -42,45 +44,43 @@ public class AppsActivity extends Activity {
       final String label = labels[i];
       Screens.row(this, column, label, "  v" + apps[i].versionName, v -> confirm(pkg, label));
     }
-    Screens.size(this, column, 1 + Math.max(1, apps.length));
     done(column);
   }
 
   /**
    * The installed, non-system packages in label order — case-insensitively, as the launcher lists
-   * them (a dozen at most, so an insertion sort) — with one label fetch per package.
+   * them — with one label fetch per package.
    */
   private void list() {
     PackageManager pm = getPackageManager();
     List<PackageInfo> installed = pm.getInstalledPackages(0);
-    PackageInfo[] sorted = new PackageInfo[installed.size()];
-    String[] sortedLabels = new String[installed.size()];
-    String[] keys = new String[installed.size()];
-    int n = 0;
+    List<Entry> entries = new ArrayList<>();
     for (int i = 0; i < installed.size(); i++) {
       PackageInfo info = installed.get(i);
       if ((info.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0) {
         continue;
       }
-      String label = pm.getApplicationLabel(info.applicationInfo).toString();
-      String key = label.toLowerCase();
-      int j = n;
-      while (j > 0 && keys[j - 1].compareTo(key) > 0) {
-        sorted[j] = sorted[j - 1];
-        sortedLabels[j] = sortedLabels[j - 1];
-        keys[j] = keys[j - 1];
-        j--;
-      }
-      sorted[j] = info;
-      sortedLabels[j] = label;
-      keys[j] = key;
-      n++;
+      entries.add(new Entry(info, pm.getApplicationLabel(info.applicationInfo).toString()));
     }
-    apps = new PackageInfo[n];
-    labels = new String[n];
-    for (int i = 0; i < n; i++) {
-      apps[i] = sorted[i];
-      labels[i] = sortedLabels[i];
+    Collections.sort(entries, (a, b) -> a.key.compareTo(b.key));
+    apps = new PackageInfo[entries.size()];
+    labels = new String[entries.size()];
+    for (int i = 0; i < entries.size(); i++) {
+      apps[i] = entries.get(i).info;
+      labels[i] = entries.get(i).label;
+    }
+  }
+
+  /** A package, its label, and the label's sort key. */
+  private static final class Entry {
+    final PackageInfo info;
+    final String label;
+    final String key;
+
+    Entry(PackageInfo info, String label) {
+      this.info = info;
+      this.label = label;
+      this.key = label.toLowerCase();
     }
   }
 
@@ -109,6 +109,6 @@ public class AppsActivity extends Activity {
       Log.i(SettingsActivity.TAG, "uninstall failed: " + e.getMessage());
     }
     // Rebuild once the dialog has closed, not from inside its click.
-    Executors.mainExecutor().execute(() -> render());
+    getMainExecutor().execute(() -> render());
   }
 }

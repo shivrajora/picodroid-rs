@@ -5,8 +5,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import picodroid.app.Application;
+import picodroid.content.Context;
+import picodroid.net.ConnectivityManager;
 import picodroid.net.HttpURLConnection;
-import picodroid.net.NetworkInfo;
 import picodroid.net.URL;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
@@ -39,14 +40,17 @@ public class HttpGet extends Application {
   public void onCreate() {
     Log.i(TAG, "--- picodroid http demo ---");
 
-    // On hardware the app starts before WiFi association and DHCP finish;
-    // poll until the network is up instead of checking once.
+    // On hardware the app starts before WiFi association and DHCP finish.
+    // An app with an Activity registers a NetworkCallback and fetches in
+    // onAvailable; this one has no Activity, so no event loop delivers
+    // callbacks to it, and it asks ConnectivityManager until a network is up.
+    ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
     int waited = 0;
-    while (!NetworkInfo.isConnected() && waited < NETWORK_WAIT_MS) {
+    while (cm.getActiveNetwork() == null && waited < NETWORK_WAIT_MS) {
       SystemClock.sleep(500);
       waited += 500;
     }
-    if (!NetworkInfo.isConnected()) {
+    if (cm.getActiveNetwork() == null) {
       Log.i(TAG, "No network. Aborting.");
       return;
     }

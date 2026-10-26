@@ -4,25 +4,11 @@ package picodroid.widget;
 import picodroid.content.Context;
 
 public class ToggleButton extends CompoundButton {
-  public ToggleButton() {
-    super(nativeCreate());
-  }
-
-  public ToggleButton(String textOn, String textOff) {
-    super(nativeCreateWithText(textOn, textOff));
-  }
-
   public ToggleButton(Context ctx) {
     super(ctx, nativeCreate());
   }
 
-  public ToggleButton(Context ctx, String textOn, String textOff) {
-    super(ctx, nativeCreateWithText(textOn, textOff));
-  }
-
   private static native int nativeCreate();
-
-  private static native int nativeCreateWithText(String textOn, String textOff);
 
   @Override
   public native boolean isChecked();

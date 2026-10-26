@@ -212,7 +212,7 @@ fn dispatch_with<B: GraphicsBackend>(
 
     // Inherited ViewGroup methods (addView, removeView, removeAllViews,
     // getChildCount). Checked between class-specific dispatch and the
-    // View fallthrough so a layout's own setOrientation/setSpacing wins
+    // View fallthrough so a layout's own setOrientation/setGravity wins
     // first, then ViewGroup's parenting natives, and finally generic
     // View ops resolve.
     if is_view_group(key.class) {

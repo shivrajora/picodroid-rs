@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoclock.ui;
 
-import javax.inject.Inject;
 import picoclock.AlarmStore;
 import picoclock.Clock;
 import picoclock.ClockApp;
 import picodroid.content.Intent;
 import picodroid.os.Bundle;
 import picodroid.util.Log;
-import picodroid.view.View;
-import picodroid.widget.FrameLayout;
+import picodroid.widget.Button;
+import picodroid.widget.LinearLayout;
 
 /**
  * The alarm, going off. Two targets and nothing else on screen: snooze, and stop. Both are half the
@@ -19,7 +18,8 @@ import picodroid.widget.FrameLayout;
  * whatever the user was doing, this app included — if picoclock was not running, it is started for
  * the occasion and this lands on top of the clock face. The ring itself begins in {@link
  * picoclock.AlarmService#ring}, called once the service connection lands, and the service owns the
- * sound from then on; this screen only shows it and sends the two verdicts back.
+ * sound from then on; this screen only shows it and sends the two verdicts back. The face repaints
+ * off {@link ClockViewModel#now}.
  */
 public class RingActivity extends BaseActivity {
   private static final String TAG = ClockApp.TAG;
@@ -40,11 +40,6 @@ public class RingActivity extends BaseActivity {
    */
   private static final int ACTION_HEIGHT = 128;
 
-  /** Top of the clock face. Set so the caption clears the upper target. */
-  private static final int FACE_TOP = 64;
-
-  @Inject AlarmStore store;
-
   private SegmentClock face;
   private int id = -1;
   private int dueMinute;
@@ -60,33 +55,32 @@ public class RingActivity extends BaseActivity {
     id = intent == null ? -1 : intent.getIntExtra(EXTRA_ALARM_ID, -1);
     dueMinute = intent == null ? 0 : intent.getIntExtra(EXTRA_DUE_MINUTE, 0);
 
-    FrameLayout root = Ui.screen();
-    root.addView(Ui.header(this, "Alarm", null));
+    LinearLayout root = Ui.screen(this);
+    Ui.header(root, "Alarm", null);
 
-    face = new SegmentClock(root, SegmentClock.centredX(), FACE_TOP);
+    face = new SegmentClock(root, 20);
 
     String label = store.exists(id) ? store.get(id).label : "";
     // One caption, set here and never changed: a second alarm due in the same
     // minute gets its own screen on top rather than editing this one's.
-    Ui.centred(
-        root, label.isEmpty() ? "Alarm" : label, FACE_TOP + SegmentClock.height() + 10, Ui.TEXT);
+    Ui.centred(root, label.isEmpty() ? "Alarm" : label, 13, Ui.TEXT);
+    Ui.fill(root);
 
-    int stopY = Ui.HEIGHT - ACTION_HEIGHT - Ui.MARGIN;
-    int snoozeY = stopY - ACTION_HEIGHT - Ui.GAP;
-
-    View snooze = action("Snooze " + AlarmStore.SNOOZE_MINUTES + " min", snoozeY, Ui.SURFACE_HIGH);
+    Button snooze =
+        Ui.button(this, "Snooze " + AlarmStore.SNOOZE_MINUTES + " min", Ui.SURFACE_HIGH);
     snooze.setOnClickListener(v -> snooze());
-    root.addView(snooze);
+    Ui.row(root, ACTION_HEIGHT, Ui.GAP, snooze);
 
-    View stop = action("Stop", stopY, Ui.ACCENT);
+    Button stop = Ui.button(this, "Stop", Ui.ACCENT);
     stop.setOnClickListener(v -> dismiss());
-    root.addView(stop);
+    Ui.row(root, ACTION_HEIGHT, Ui.MARGIN, stop);
 
     // An alarm must be seen: wake a dozing panel and hold it while ringing.
     setTurnScreenOn(true);
     root.setKeepScreenOn(true);
     setContentView(root);
-    redraw();
+
+    viewModel(ClockViewModel.class).now().observe(this, this::redraw);
   }
 
   /**
@@ -95,11 +89,6 @@ public class RingActivity extends BaseActivity {
    */
   @Override
   public void onBackPressed() {}
-
-  @Override
-  public void onTick() {
-    redraw();
-  }
 
   /** The service says the ring is over — by this screen's buttons, or from somewhere else. */
   @Override
@@ -146,12 +135,6 @@ public class RingActivity extends BaseActivity {
     super.onDestroy();
   }
 
-  private View action(String text, int y, int fill) {
-    View b = Ui.button(text, Ui.MARGIN, y, Ui.WIDTH - 2 * Ui.MARGIN, fill);
-    b.setSize(Ui.WIDTH - 2 * Ui.MARGIN, ACTION_HEIGHT);
-    return b;
-  }
-
   private void snooze() {
     if (alarms != null) {
       alarms.snooze();
@@ -168,8 +151,8 @@ public class RingActivity extends BaseActivity {
     finish();
   }
 
-  private void redraw() {
-    long local = Clock.toLocal(System.currentTimeMillis(), store.offsetMinutes());
+  private void redraw(long utc) {
+    long local = Clock.toLocal(utc, store.offsetMinutes());
     // The colon blinks every half second; the digits only move once a minute,
     // which is all a ringing clock has to say.
     face.show(

@@ -24,12 +24,12 @@ public class HomeActivity extends BaseActivity {
             + " fresh="
             + (greeter != InjectDemoApp.appGreeter));
     getDisplay();
-    TextView text = new TextView();
+    TextView text = new TextView(this);
     text.setText(greeter.greet("home"));
     setContentView(text);
     if (!pushed) {
       pushed = true;
-      startActivity(new Intent(DetailActivity.class));
+      startActivity(new Intent(this, DetailActivity.class));
     }
   }
 }

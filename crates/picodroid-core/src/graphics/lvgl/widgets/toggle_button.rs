@@ -160,10 +160,6 @@ pub(in crate::graphics) fn create() -> i32 {
     create_internal(b"ON", b"OFF")
 }
 
-pub(in crate::graphics) fn create_with_text(text_on: &str, text_off: &str) -> i32 {
-    create_internal(text_on.as_bytes(), text_off.as_bytes())
-}
-
 pub(in crate::graphics) fn is_checked(id: i32) -> bool {
     super::compound::is_checked(id)
 }

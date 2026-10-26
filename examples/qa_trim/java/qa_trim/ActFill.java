@@ -144,7 +144,7 @@ public class ActFill extends Activity {
     T.check("home not reclaimed before the trim", ActHome.instances == 1 && !ActHome.destroyed);
     T.check("the cache had grown first", viewsAtTrim >= STEP * 4);
     phase = LEAF;
-    startActivity(new Intent(ActLeaf.class));
+    startActivity(new Intent(this, ActLeaf.class));
   }
 
   @Override

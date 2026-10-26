@@ -5,8 +5,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import javax.net.ssl.SSLHandshakeException;
 import picodroid.app.Application;
+import picodroid.content.Context;
+import picodroid.net.ConnectivityManager;
 import picodroid.net.HttpURLConnection;
-import picodroid.net.NetworkInfo;
 import picodroid.net.URL;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
@@ -39,12 +40,15 @@ public class HttpsGet extends Application {
   public void onCreate() {
     Log.i(TAG, "--- picodroid https demo ---");
 
+    // No Activity, so no event loop delivers a NetworkCallback here: ask
+    // ConnectivityManager until the link is up (WiFi join + DHCP).
+    ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
     int waited = 0;
-    while (!NetworkInfo.isConnected() && waited < NETWORK_WAIT_MS) {
+    while (cm.getActiveNetwork() == null && waited < NETWORK_WAIT_MS) {
       SystemClock.sleep(500);
       waited += 500;
     }
-    if (!NetworkInfo.isConnected()) {
+    if (cm.getActiveNetwork() == null) {
       Log.i(TAG, "No network. Aborting.");
       return;
     }

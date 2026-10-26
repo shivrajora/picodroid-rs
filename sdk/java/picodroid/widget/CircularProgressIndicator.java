@@ -4,6 +4,7 @@ package picodroid.widget;
 import picodroid.content.Context;
 import picodroid.content.res.ColorStateList;
 import picodroid.graphics.Theme;
+import picodroid.view.ViewGroup;
 
 /**
  * A determinate ring gauge: the progress is drawn as an arc over a circular track. Mirrors Material
@@ -44,11 +45,6 @@ public class CircularProgressIndicator extends ProgressBar {
   private int trackCornerRadius = DEFAULT_TRACK_THICKNESS / 2;
   private float startAngle = 270f;
   private float sweepAngle = 360f;
-
-  /** A 48 px ring in the theme's primary colour over an outline-coloured track, at 0. */
-  public CircularProgressIndicator() {
-    this(null);
-  }
 
   public CircularProgressIndicator(Context ctx) {
     super(ctx, nativeCreate(Theme.colorPrimary, Theme.colorOutline));
@@ -109,10 +105,17 @@ public class CircularProgressIndicator extends ProgressBar {
     return trackThickness;
   }
 
-  /** The ring's diameter in pixels; sets the view's size. */
+  /** The ring's diameter in pixels; sets the view's size, through its layout params. */
   public void setIndicatorSize(int px) {
     indicatorSize = px;
-    setSize(px, px);
+    ViewGroup.LayoutParams lp = getLayoutParams();
+    if (lp == null) {
+      lp = new ViewGroup.LayoutParams(px, px);
+    } else {
+      lp.width = px;
+      lp.height = px;
+    }
+    setLayoutParams(lp);
   }
 
   public int getIndicatorSize() {

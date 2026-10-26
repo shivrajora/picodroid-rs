@@ -3,7 +3,6 @@ package tonedemo;
 
 import picodroid.app.Activity;
 import picodroid.graphics.Color;
-import picodroid.graphics.Display;
 import picodroid.media.AudioManager;
 import picodroid.media.ToneGenerator;
 import picodroid.os.Bundle;
@@ -37,23 +36,17 @@ public class ToneDemoActivity extends Activity {
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    // Bring LVGL up before constructing widgets, as the other UI examples do.
-    Display display = getDisplay();
-
     // 20, not something nearer the top of the range. The EP-0172's piezo is
     // rated 85 dB and sits a few inches from whoever is holding the board; at
     // high volume it is genuinely unpleasant in a room, which is worth knowing
     // before picking a default for anything that beeps unprompted.
     tones = new ToneGenerator(AudioManager.STREAM_SYSTEM, 20);
 
-    LinearLayout root = new LinearLayout();
+    LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    // Fill the panel rather than shrinking to the buttons: a root sized to its
-    // content clips the last row on a short screen.
-    root.setSize(display.getWidth(), display.getHeight());
     root.setPadding(10, 10, 10, 10);
 
-    TextView title = new TextView();
+    TextView title = new TextView(this);
     title.setText("Tone Demo");
     title.setTextColor(Color.WHITE);
     root.addView(title);
@@ -85,8 +78,9 @@ public class ToneDemoActivity extends Activity {
   }
 
   private Button button(String label, View.OnClickListener onClick) {
-    Button b = new Button(label);
-    b.setSize(200, 44);
+    Button b = new Button(this);
+    b.setText(label);
+    b.setLayoutParams(new LinearLayout.LayoutParams(200, 44));
     b.setOnClickListener(onClick);
     return b;
   }

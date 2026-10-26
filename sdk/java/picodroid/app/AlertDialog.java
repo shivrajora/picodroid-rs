@@ -295,8 +295,6 @@ public class AlertDialog implements DialogInterface {
     private boolean[] checkedItems;
     private DialogInterface.OnDismissListener dismissListener;
 
-    public Builder() {}
-
     public Builder(Context ctx) {}
 
     public Builder setTitle(String title) {

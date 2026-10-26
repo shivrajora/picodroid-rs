@@ -64,7 +64,6 @@ public class QaListActivity extends Activity {
     getDisplay();
     LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT);
 
     TextView header = new TextView(this);
     header.setText(ROWS + " rows");

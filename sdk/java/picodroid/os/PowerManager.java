@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.os;
 
+import picodroid.annotation.Hide;
+
 /**
  * Mirrors the display side of {@code android.os.PowerManager}, from {@link
  * picodroid.content.Context#getSystemService} with {@link picodroid.content.Context#POWER_SERVICE}:
@@ -15,6 +17,7 @@ public class PowerManager {
 
   private PowerManager() {}
 
+  @Hide("context.getSystemService(Context.POWER_SERVICE)")
   public static PowerManager getInstance() {
     return INSTANCE;
   }

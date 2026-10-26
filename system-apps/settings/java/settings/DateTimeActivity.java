@@ -29,6 +29,7 @@ public class DateTimeActivity extends Activity {
 
   /** The three rows, in order: their tails are filled in later and row 0 takes the focus. */
   private final View[] rows = new View[3];
+
   private TextView autoTail;
   private TextView zoneTail;
   private TextView timeTail;
@@ -43,10 +44,9 @@ public class DateTimeActivity extends Activity {
     rows[0].setOnClickListener(v -> toggleAuto());
     rows[1] = Screens.info(this, column, "Time zone", TimeZone.getDefault().getID());
     zoneTail = Screens.tailOf(rows[1]);
-    rows[1].setOnClickListener(v -> startActivity(new Intent(TimeZoneActivity.class)));
+    rows[1].setOnClickListener(v -> startActivity(new Intent(this, TimeZoneActivity.class)));
     rows[2] = Screens.info(this, column, "Time", timeNow());
     timeTail = Screens.tailOf(rows[2]);
-    Screens.size(this, column, 4);
     ready();
   }
 
@@ -77,7 +77,9 @@ public class DateTimeActivity extends Activity {
     autoTail.setText(next != 0 ? "On" : "Off");
   }
 
-  /** "14:03" in the platform zone, or "not set". Integer arithmetic: no java.time on every board. */
+  /**
+   * "14:03" in the platform zone, or "not set". Integer arithmetic: no java.time on every board.
+   */
   private static String timeNow() {
     long utc = System.currentTimeMillis();
     if (utc < SET_THRESHOLD_MS) {

@@ -55,16 +55,6 @@ pub(in crate::graphics) fn set_orientation(id: i32, orientation: i32) {
     }
 }
 
-/// Gap in pixels between adjacent children. Sets both row and column gap so
-/// the value applies whether the layout is later switched to horizontal flow.
-pub(in crate::graphics) fn set_spacing(id: i32, spacing: i32) {
-    let Some(o) = handle_table::get(id) else {
-        return;
-    };
-    lv_obj_set_style_pad_row(o, spacing, 0);
-    lv_obj_set_style_pad_column(o, spacing, 0);
-}
-
 /// Place the children from an Android gravity bitmask: the solver reads the
 /// bits of the main axis for the run and of the cross axis for each child
 /// without a `layout_gravity` of its own, exactly as

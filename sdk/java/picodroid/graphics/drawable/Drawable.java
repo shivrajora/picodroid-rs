@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.graphics.drawable;
 
+import picodroid.annotation.Hide;
 import picodroid.view.View;
 
 /**
@@ -14,8 +15,9 @@ import picodroid.view.View;
  */
 public abstract class Drawable {
   /**
-   * Apply this drawable's visual properties to {@code v}. Called by {@link View#setBackground}.
-   * Subclasses must override.
+   * Apply this drawable's visual properties to {@code v}. Called by {@link View#setBackground}; an
+   * app sets a background there, as on Android. Subclasses must override.
    */
+  @Hide("view.setBackground(drawable)")
   public abstract void applyTo(View v);
 }

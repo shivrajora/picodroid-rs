@@ -93,18 +93,14 @@ public final class Intent {
     this.action = action;
   }
 
-  public Intent(Class<?> targetClass) {
-    // getName() returns the Java-spec dot-form; the native lifecycle ops
-    // resolve classes by internal slash-form, so normalize here.
-    this.targetClassName = targetClass.getName().replace('.', '/');
-  }
-
   /**
    * Mirrors {@code android.content.Intent#Intent(Context, Class)}: an Intent for the component
    * {@code cls} of the app {@code packageContext} belongs to, which is this app.
    */
   public Intent(Context packageContext, Class<?> cls) {
-    this(cls);
+    // getName() returns the Java-spec dot-form; the native lifecycle ops
+    // resolve classes by internal slash-form, so normalize here.
+    this.targetClassName = cls.getName().replace('.', '/');
   }
 
   /** Internal-form class name (slash-separated), e.g. "app/MyService". */

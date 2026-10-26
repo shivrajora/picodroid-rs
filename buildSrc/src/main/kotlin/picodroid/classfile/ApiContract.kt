@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.classfile
 
+import org.objectweb.asm.AnnotationVisitor
 import org.objectweb.asm.ClassReader
 import org.objectweb.asm.ClassVisitor
 import org.objectweb.asm.FieldVisitor
@@ -258,6 +259,77 @@ object ApiContract {
     private fun topLevelValue(line: String, key: String): String =
         line.substringAfter(key).trimStart().removePrefix("=").trim().trim('"', '\'')
 
+    /** The descriptor of `picodroid.annotation.Hide`. */
+    private const val HIDE = "Lpicodroid/annotation/Hide;"
+
+    /**
+     * The SDK's `@Hide` members (Android's `@hide`): public so the framework
+     * can reach them across its own packages (`Context.getSystemService` →
+     * `SensorManager.getInstance`), refused in an app. Read from the SDK's
+     * compiled classes, where the annotation survives with CLASS retention.
+     */
+    class Hidden(
+        /** SDK class → its superclass. */
+        private val supers: Map<String, String>,
+        /** Hidden declaration → the hint the annotation carries (may be empty). */
+        private val members: Map<MemberKey, String>,
+    ) {
+        val size: Int get() = members.size
+
+        /**
+         * The hint when `owner.name desc` is hidden on [owner] or any SDK
+         * superclass: an override of a hidden method is as internal as the
+         * method (`GradientDrawable.applyTo` under `Drawable.applyTo`).
+         */
+        fun lookup(owner: String, name: String, desc: String): String? {
+            var cur: String? = owner
+            val seen = HashSet<String>()
+            while (cur != null && seen.add(cur)) {
+                members[MemberKey(cur, name, desc)]?.let { return it }
+                cur = supers[cur]
+            }
+            return null
+        }
+    }
+
+    /** Scan SDK class files for `@Hide`; [classes] may hold any class, only `picodroid/…` ones count. */
+    fun readHidden(classes: Sequence<ByteArray>): Hidden {
+        val supers = HashMap<String, String>()
+        val members = HashMap<MemberKey, String>()
+        for (bytes in classes) {
+            ClassReader(bytes).accept(object : ClassVisitor(Opcodes.ASM9) {
+                var owner = ""
+
+                override fun visit(version: Int, access: Int, n: String, signature: String?, sup: String?, ifs: Array<String>?) {
+                    owner = n
+                    if (sup != null) supers[n] = sup
+                }
+
+                override fun visitMethod(access: Int, n: String, descriptor: String, signature: String?, exceptions: Array<String>?): MethodVisitor =
+                    object : MethodVisitor(Opcodes.ASM9) {
+                        override fun visitAnnotation(d: String, visible: Boolean): AnnotationVisitor? =
+                            if (d == HIDE) hint(MemberKey(owner, n, descriptor)) else null
+                    }
+
+                override fun visitField(access: Int, n: String, descriptor: String, signature: String?, value: Any?): FieldVisitor =
+                    object : FieldVisitor(Opcodes.ASM9) {
+                        override fun visitAnnotation(d: String, visible: Boolean): AnnotationVisitor? =
+                            if (d == HIDE) hint(MemberKey(owner, n, descriptor)) else null
+                    }
+
+                fun hint(key: MemberKey): AnnotationVisitor {
+                    members[key] = ""
+                    return object : AnnotationVisitor(Opcodes.ASM9) {
+                        override fun visit(name: String?, value: Any?) {
+                            if (name == "value" && value is String) members[key] = value
+                        }
+                    }
+                }
+            }, ClassReader.SKIP_CODE or ClassReader.SKIP_FRAMES)
+        }
+        return Hidden(supers, members)
+    }
+
     private class AppClass(
         val name: String,
         val superName: String?,
@@ -300,8 +372,9 @@ object ApiContract {
         val misses: List<Miss>,
         val excluded: List<Miss>,
         val board: BoardExcludes?,
+        val internal: List<Miss> = emptyList(),
     ) {
-        val ok: Boolean get() = misses.isEmpty() && excluded.isEmpty()
+        val ok: Boolean get() = misses.isEmpty() && excluded.isEmpty() && internal.isEmpty()
 
         private fun where(refs: List<Ref>): String =
             refs.map { "${it.fromClass}.${it.fromMember.substringBefore('(')}" }.distinct().sorted().joinToString()
@@ -336,7 +409,16 @@ object ApiContract {
                     appendLine("  $owner  (from: ${where(ms.map { it.ref })})")
                 }
             }
-            if (!ok) {
+            if (internal.isNotEmpty()) {
+                appendLine()
+                appendLine("FRAMEWORK-INTERNAL — SDK members marked @Hide (Android's @hide): public only so the framework can reach them; an app uses the Android spelling:")
+                internal.groupBy { describe(it.ref) }.toSortedMap().forEach { (what, group) ->
+                    appendLine("  $what")
+                    group.firstNotNullOfOrNull { it.hint }?.let { appendLine("      instead: $it") }
+                    appendLine("      from: ${where(group.map { it.ref })}")
+                }
+            }
+            if (misses.isNotEmpty() || excluded.isNotEmpty()) {
                 appendLine()
                 appendLine("sdk/api-contract.tsv is GENERATED from the runtime's tables — do not paste rows into it.")
                 appendLine("To support a member, add the arm and its BUILTIN_METHODS row (jvm/src/native/mod.rs), then run scripts/gen-api-contract.sh.")
@@ -346,7 +428,7 @@ object ApiContract {
         }
     }
 
-    fun check(app: List<ClassEntry>, contract: Contract, board: BoardExcludes?): Report {
+    fun check(app: List<ClassEntry>, contract: Contract, board: BoardExcludes?, hidden: Hidden? = null): Report {
         val index: Map<String, AppClass> = app.map { readAppClass(it.bytes) }.associateBy { it.name }
 
         /** Transitive supertypes of an app class: through the app index, then the contract's hierarchy. */
@@ -380,6 +462,20 @@ object ApiContract {
 
         val misses = ArrayList<Miss>()
         val excluded = ArrayList<Miss>()
+        val internal = ArrayList<Miss>()
+
+        /** The hint when [r] names an SDK `@Hide` member, through any app classes the owner extends. */
+        fun hiddenHint(r: Ref): String? {
+            if (hidden == null) return null
+            var owner = r.owner
+            val seen = HashSet<String>()
+            while (seen.add(owner)) {
+                val ac = index[owner] ?: break
+                if (declares(ac, r)) return null
+                owner = ac.superName ?: return null
+            }
+            return hidden.lookup(owner, r.name, r.desc)
+        }
         fun miss(r: Ref, reason: String) {
             misses += Miss(r, reason, contract.hintFor(r.owner, if (r.kind in MEMBER_KINDS) r.name else ""))
         }
@@ -397,6 +493,11 @@ object ApiContract {
             }
             val owner = r.owner
             val isJava = owner.startsWith("java/") || owner.startsWith("javax/")
+            val hint = if (!isJava && r.kind in MEMBER_KINDS) hiddenHint(r) else null
+            if (hint != null) {
+                internal += Miss(r, "framework-internal", hint.ifEmpty { null })
+                continue
+            }
             when {
                 isJava && (r.kind in CLASS_KINDS) ->
                     if (!contract.resolvesClass(owner, r.kind)) miss(r, "class not available in pico-jvm")
@@ -453,7 +554,7 @@ object ApiContract {
                 }
             }
         }
-        return Report(app.size, misses, excluded, board)
+        return Report(app.size, misses, excluded, board, internal)
     }
 
     /** A method an app class below [below] must not declare, because nothing calls it any more. */

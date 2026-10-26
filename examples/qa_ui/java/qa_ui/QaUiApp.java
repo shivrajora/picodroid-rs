@@ -7,6 +7,6 @@ import picodroid.content.Intent;
 public class QaUiApp extends Application {
   @Override
   public void onCreate() {
-    startActivity(new Intent(QaUiActivity.class));
+    startActivity(new Intent(this, QaUiActivity.class));
   }
 }

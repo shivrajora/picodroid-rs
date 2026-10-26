@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Drawn first for the Enviro+'s 240x240 panel; every screen fills whatever panel it runs on. -->
+<resources>
+    <dimen name="screen_pad_h">8dp</dimen>
+    <dimen name="screen_pad_v">6dp</dimen>
+    <!-- Between the stacked blocks of the Live and Settings screens, and between the Live tiles. -->
+    <dimen name="gap">4dp</dimen>
+    <dimen name="hint_bar_height">18dp</dimen>
+    <dimen name="tile_height">26dp</dimen>
+    <dimen name="tile_text_inset">8dp</dimen>
+    <!-- A Switch's knob is drawn ~4 px taller than its track: its row gives it the room. -->
+    <dimen name="switch_row_height">34dp</dimen>
+    <dimen name="picker_row_height">30dp</dimen>
+    <dimen name="picker_width">108dp</dimen>
+    <dimen name="picker_height">26dp</dimen>
+</resources>

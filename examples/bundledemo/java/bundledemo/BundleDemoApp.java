@@ -27,7 +27,7 @@ public class BundleDemoApp extends Application {
     bundleBasics();
     intentExtras();
     Log.i(TAG, "bundle checks done, failures=" + failures);
-    startActivity(new Intent(HomeActivity.class));
+    startActivity(new Intent(this, HomeActivity.class));
   }
 
   private static void bundleBasics() {
@@ -109,13 +109,13 @@ public class BundleDemoApp extends Application {
     check("put after clear", big.getInt("again") == 1);
   }
 
-  private static void intentExtras() {
-    Intent plain = new Intent(HomeActivity.class);
+  private void intentExtras() {
+    Intent plain = new Intent(this, HomeActivity.class);
     check("no extras is null", plain.getExtras() == null && !plain.hasExtra("x"));
     check(
         "no extras defaults", plain.getIntExtra("x", 5) == 5 && plain.getStringExtra("x") == null);
 
-    Intent in = new Intent(HomeActivity.class).putExtra("n", 3).putExtra("s", "str");
+    Intent in = new Intent(this, HomeActivity.class).putExtra("n", 3).putExtra("s", "str");
     in.putExtra("z", true).putExtra("l", 99L);
     Bundle more = new Bundle();
     more.putInt("n", 4);

@@ -74,10 +74,6 @@ public class RelativeLayout extends ViewGroup {
 
   private int mGravity = Gravity.START | Gravity.TOP;
 
-  public RelativeLayout() {
-    super(nativeCreate());
-  }
-
   public RelativeLayout(Context ctx) {
     super(ctx, nativeCreate());
   }

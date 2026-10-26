@@ -561,7 +561,9 @@ public class LayoutInflater {
   private static void background(
       View v, boolean filled, int fill, int radius, int strokeWidth, int strokeColor) {
     if (radius != 0 || strokeWidth != 0) {
-      GradientDrawable shape = new GradientDrawable().setColor(fill).setCornerRadius(radius);
+      GradientDrawable shape = new GradientDrawable();
+      shape.setColor(fill);
+      shape.setCornerRadius(radius);
       if (strokeWidth != 0) {
         shape.setStroke(strokeWidth, strokeColor);
       }
@@ -717,7 +719,8 @@ public class LayoutInflater {
       }
     }
 
-    v.setLayoutParams(
+    // The field, not setLayoutParams: the parent's add applies them, once.
+    v.layoutParams =
         params(
             parent,
             width,
@@ -727,7 +730,7 @@ public class LayoutInflater {
             marginLeft,
             marginTop,
             marginRight,
-            marginBottom));
+            marginBottom);
     return v;
   }
 

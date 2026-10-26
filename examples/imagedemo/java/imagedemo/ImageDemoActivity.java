@@ -19,29 +19,27 @@ public class ImageDemoActivity extends Activity {
     // asset name to typo).
     Log.i("ImageDemo", "loading bundled asset '" + AssetConstants.LOGO + "'");
 
-    LinearLayout root = new LinearLayout();
+    LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(320, 240);
     root.setPadding(10, 10, 10, 10);
 
-    TextView title = new TextView();
+    TextView title = new TextView(this);
     title.setText("Image asset demo");
     title.setTextColor(Color.WHITE);
     root.addView(title);
 
-    ImageView image = new ImageView();
-    image.setSize(160, 160);
+    ImageView image = new ImageView(this);
     image.setImageSource(AssetConstants.LOGO);
     image.setScaleType(ImageView.SCALE_FIT_CENTER);
-    root.addView(image);
+    // 150 px: title, this and the 60 px box below fit a 240-tall panel (160 overflowed it by 6).
+    root.addView(image, new LinearLayout.LayoutParams(150, 150));
 
     // Unscaled, centered (Android ScaleType.CENTER): a 60px box around the
     // intrinsic-size logo, clipping if the asset is larger.
-    ImageView centered = new ImageView();
-    centered.setSize(60, 60);
+    ImageView centered = new ImageView(this);
     centered.setImageSource(AssetConstants.LOGO);
     centered.setScaleType(ImageView.SCALE_CENTER);
-    root.addView(centered);
+    root.addView(centered, new LinearLayout.LayoutParams(60, 60));
     Log.i("ImageDemo", "scale-center applied");
 
     setContentView(root);

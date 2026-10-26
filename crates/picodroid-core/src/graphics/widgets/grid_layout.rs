@@ -11,16 +11,6 @@ pub fn grid_layout_native_create() -> Result<Option<Value>, JvmError> {
     Ok(Some(Value::Int(lvgl_grid_layout::create())))
 }
 
-/// `GridLayout.setSpacing(int px)`
-pub fn grid_layout_set_spacing(
-    args: &[Value],
-    objects: &ObjectHeap,
-) -> Result<Option<Value>, JvmError> {
-    let id = extract_native_handle(args, objects)?;
-    lvgl_grid_layout::set_spacing(id, arg_int(args, 1)?);
-    Ok(None)
-}
-
 /// `GridLayout.nativePlace(View child, int colAlign, int col, int colSpan, int colFr,
 /// int rowAlign, int row, int rowSpan, int rowFr)`: `true` when the cell was taken,
 /// `false` when the grid has no slot or the cell lies past the last track.

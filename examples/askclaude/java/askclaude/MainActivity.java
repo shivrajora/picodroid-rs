@@ -6,7 +6,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import javax.net.ssl.SSLHandshakeException;
 import picodroid.app.Activity;
-import picodroid.concurrent.Executors;
+import picodroid.content.Context;
 import picodroid.graphics.Color;
 import picodroid.hardware.Sensor;
 import picodroid.hardware.SensorEvent;
@@ -39,12 +39,14 @@ import picodroid.widget.TextView;
 public class MainActivity extends Activity implements SensorEventListener {
   private static final String TAG = "AskClaude";
 
-  private static final String[] PROMPTS = {
-    "In one sentence: what is a TLS handshake?",
-    "Give me one surprising fact about the RP2350 microcontroller.",
-    "Write a haiku about a tiny screen on a desk.",
-    "Suggest a name for a two-inch desk display that talks to you.",
+  /** The prompts A and B step through, in res/values/strings.xml. */
+  private static final int[] PROMPTS = {
+    R.string.prompt_tls, R.string.prompt_rp2350, R.string.prompt_haiku, R.string.prompt_name,
   };
+
+  /** Space between the lines of the column. */
+  private static final int GAP = 4;
+
   private static final int MAX_TOKENS = 150;
   private static final int TIMEOUT_MS = 20000;
   private static final int MAX_REPLY_BYTES = 4096;
@@ -69,10 +71,9 @@ public class MainActivity extends Activity implements SensorEventListener {
     LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
     root.setPadding(6, 4, 6, 4);
-    root.setSpacing(4);
 
     TextView title = new TextView(this);
-    title.setText("Ask Claude");
+    title.setText(getString(R.string.app_name));
     title.setTextColor(Color.rgb(255, 200, 80));
     root.addView(title);
 
@@ -81,28 +82,39 @@ public class MainActivity extends Activity implements SensorEventListener {
     promptView = new TextView(this);
     promptView.setTextColor(Color.rgb(200, 200, 200));
     promptView.setMaxLines(2);
-    root.addView(
-        promptView,
-        new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+    root.addView(promptView, below(ViewGroup.LayoutParams.WRAP_CONTENT, 0f));
 
     ScrollView scroll = new ScrollView(this);
     replyView = new TextView(this);
-    replyView.setText("A/B: pick a prompt   X: ask   Y: clear");
-    replyView.setSize(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-    scroll.addView(replyView);
-    root.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+    replyView.setText(getString(R.string.hint));
+    scroll.addView(
+        replyView,
+        new ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+    root.addView(scroll, below(0, 1f));
 
     statusView = new TextView(this);
     statusView.setTextColor(Color.rgb(120, 200, 120));
     statusView.setSingleLine();
-    root.addView(statusView);
+    root.addView(statusView, below(ViewGroup.LayoutParams.WRAP_CONTENT, 0f));
 
     setContentView(root);
     showPrompt();
-    setStatus(BuildConfig.ANTHROPIC_API_KEY.isEmpty() ? "no API key: see README" : "ready");
+    setStatus(
+        getString(
+            BuildConfig.ANTHROPIC_API_KEY.isEmpty()
+                ? R.string.status_no_key
+                : R.string.status_ready));
     startSensors();
     Log.i(TAG, "ready");
+  }
+
+  /** A full-width line of the column, {@link #GAP} below the one above it. */
+  private static LinearLayout.LayoutParams below(int height, float weight) {
+    LinearLayout.LayoutParams lp =
+        new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, height, weight);
+    lp.topMargin = GAP;
+    return lp;
   }
 
   /**
@@ -137,7 +149,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         }
         replyView.setText("");
         hasReply = false;
-        setStatus("ready");
+        setStatus(getString(R.string.status_ready));
         return true;
       default:
         return super.onKeyDown(keyCode, event);
@@ -145,7 +157,12 @@ public class MainActivity extends Activity implements SensorEventListener {
   }
 
   private void showPrompt() {
-    promptView.setText((promptIndex + 1) + "/" + PROMPTS.length + "  " + PROMPTS[promptIndex]);
+    promptView.setText(
+        getString(
+            R.string.prompt_line,
+            promptIndex + 1,
+            PROMPTS.length,
+            getString(PROMPTS[promptIndex])));
   }
 
   private void setStatus(String s) {
@@ -159,29 +176,23 @@ public class MainActivity extends Activity implements SensorEventListener {
     }
     if (BuildConfig.ANTHROPIC_API_KEY.isEmpty()) {
       Log.i(TAG, "no API key (PICODROID_ANTHROPIC_API_KEY at build time)");
-      setStatus("no API key: see README");
+      setStatus(getString(R.string.status_no_key));
       return;
     }
     busy = true;
     final String prompt = buildPrompt();
-    setStatus("asking...");
+    setStatus(getString(R.string.status_asking));
     Log.i(TAG, "ask: " + prompt);
     new Thread(() -> request(prompt), "askclaude-http").start();
   }
 
   /** The chosen prompt, with the room readings when the board measures them. */
   private String buildPrompt() {
-    String prompt = PROMPTS[promptIndex];
+    String prompt = getString(PROMPTS[promptIndex]);
     if (haveReadings) {
       prompt =
-          "My room reads "
-              + (int) temperature
-              + " C, "
-              + (int) humidity
-              + "% humidity, "
-              + (int) pressure
-              + " hPa. "
-              + prompt;
+          getString(
+              R.string.prompt_with_room, (int) temperature, (int) humidity, (int) pressure, prompt);
     }
     return prompt;
   }
@@ -223,39 +234,37 @@ public class MainActivity extends Activity implements SensorEventListener {
           reply = msg.getJSONArray("content").getJSONObject(0).getString("text");
           JSONObject usage = msg.getJSONObject("usage");
           status =
-              "ok in "
-                  + took
-                  + " ms, "
-                  + usage.getInt("input_tokens")
-                  + " in / "
-                  + usage.getInt("output_tokens")
-                  + " out";
+              getString(
+                  R.string.status_ok,
+                  took,
+                  usage.getInt("input_tokens"),
+                  usage.getInt("output_tokens"));
           Log.i(TAG, "reply: " + reply);
           Log.i(TAG, "usage: " + status);
         } else {
           reply = errorMessage(json, code);
-          status = "HTTP " + code;
+          status = getString(R.string.status_http, code);
           Log.i(TAG, "http " + code + ": " + reply);
         }
       } finally {
         c.disconnect();
       }
     } catch (SSLHandshakeException e) {
-      reply = "TLS: " + e.getMessage();
-      status = "handshake failed";
+      reply = getString(R.string.reply_tls, e.getMessage());
+      status = getString(R.string.status_handshake_failed);
       Log.i(TAG, "tls: " + e.getMessage());
     } catch (IOException e) {
-      reply = "network: " + e.getMessage();
-      status = "request failed";
+      reply = getString(R.string.reply_network, e.getMessage());
+      status = getString(R.string.status_request_failed);
       Log.i(TAG, "io: " + e.getMessage());
     } catch (JSONException e) {
-      reply = "bad reply: " + e.getMessage();
-      status = "bad reply";
+      reply = getString(R.string.reply_bad, e.getMessage());
+      status = getString(R.string.status_bad_reply);
       Log.i(TAG, "json: " + e.getMessage());
     }
     final String finalReply = reply;
     final String finalStatus = status;
-    Executors.mainExecutor()
+    getMainExecutor()
         .execute(
             () -> {
               replyView.setText(finalReply);
@@ -279,19 +288,19 @@ public class MainActivity extends Activity implements SensorEventListener {
   }
 
   /** The API's `{"error": {"type", "message"}}` body, or the bare status. */
-  private static String errorMessage(String json, int code) {
+  private String errorMessage(String json, int code) {
     try {
       JSONObject err = new JSONObject(json).getJSONObject("error");
-      return err.getString("type") + ": " + err.getString("message");
+      return getString(R.string.reply_api_error, err.getString("type"), err.getString("message"));
     } catch (JSONException e) {
-      return "HTTP " + code;
+      return getString(R.string.status_http, code);
     }
   }
 
   // ── Room readings, on a board that has the sensors ──────────────────────
 
   private void startSensors() {
-    SensorManager sm = SensorManager.getInstance();
+    SensorManager sm = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
     Sensor t = sm.getDefaultSensor(Sensor.TYPE_AMBIENT_TEMPERATURE);
     Sensor h = sm.getDefaultSensor(Sensor.TYPE_RELATIVE_HUMIDITY);
     Sensor p = sm.getDefaultSensor(Sensor.TYPE_PRESSURE);
@@ -326,4 +335,10 @@ public class MainActivity extends Activity implements SensorEventListener {
 
   @Override
   public void onAccuracyChanged(Sensor sensor, int accuracy) {}
+
+  @Override
+  public void onDestroy() {
+    ((SensorManager) getSystemService(Context.SENSOR_SERVICE)).unregisterListener(this);
+    super.onDestroy();
+  }
 }

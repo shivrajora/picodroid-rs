@@ -4,10 +4,6 @@ package picodroid.widget;
 import picodroid.content.Context;
 
 public class Switch extends CompoundButton {
-  public Switch() {
-    super(nativeCreate());
-  }
-
   public Switch(Context ctx) {
     super(ctx, nativeCreate());
   }

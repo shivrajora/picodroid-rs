@@ -23,7 +23,7 @@ public class QaLifeApp extends Application {
       sb.append((char) ('A' + i % 26));
     }
     Intent i =
-        new Intent(ActA.class)
+        new Intent(this, ActA.class)
             .putExtra("n", 42)
             .putExtra("neg", Integer.MIN_VALUE)
             .putExtra("s", "hello")

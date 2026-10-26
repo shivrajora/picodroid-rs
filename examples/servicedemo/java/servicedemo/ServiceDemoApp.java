@@ -18,8 +18,8 @@ public class ServiceDemoApp extends Application {
     Log.i("ServiceDemoApp", "begin");
 
     // 1. startService twice — onCreate fires once, onStartCommand fires twice.
-    startService(new Intent(CounterService.class).putExtra("step", 5));
-    startService(new Intent(CounterService.class).putExtra("step", 7));
+    startService(new Intent(this, CounterService.class).putExtra("step", 5));
+    startService(new Intent(this, CounterService.class).putExtra("step", 7));
 
     // 2. bindService — onBind fires, then onServiceConnected on the connection.
     ServiceConnection conn =
@@ -35,7 +35,7 @@ public class ServiceDemoApp extends Application {
             Log.i("ServiceDemoApp", "disconnected");
           }
         };
-    bindService(new Intent(CounterService.class), conn, BIND_AUTO_CREATE);
+    bindService(new Intent(this, CounterService.class), conn, BIND_AUTO_CREATE);
 
     // 3. unbind — onUnbind returns true, so the next bind triggers onRebind
     // (not onBind). The Service stays alive (still started).
@@ -56,7 +56,7 @@ public class ServiceDemoApp extends Application {
           @Override
           public void onServiceDisconnected(ComponentName name) {}
         };
-    bindService(new Intent(CounterService.class), conn2, BIND_AUTO_CREATE);
+    bindService(new Intent(this, CounterService.class), conn2, BIND_AUTO_CREATE);
     unbindService(conn2);
 
     Log.i("ServiceDemoApp", "end");

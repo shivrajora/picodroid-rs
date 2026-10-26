@@ -14,6 +14,6 @@ public class ExecutorStress extends Application {
   @Override
   public void onCreate() {
     Log.i("ExecutorStress", "=== ExecutorStress start ===");
-    startActivity(new Intent(StressActivity.class));
+    startActivity(new Intent(this, StressActivity.class));
   }
 }

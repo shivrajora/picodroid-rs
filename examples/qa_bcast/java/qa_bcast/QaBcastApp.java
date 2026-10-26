@@ -14,6 +14,6 @@ public class QaBcastApp extends Application {
   @Override
   public void onCreate() {
     T.log("App.onCreate");
-    startActivity(new Intent(ActA.class));
+    startActivity(new Intent(this, ActA.class));
   }
 }

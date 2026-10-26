@@ -3,6 +3,7 @@
 
 package picoenvmonkt.ui.common
 
+import picodroid.content.Context
 import picodroid.graphics.Theme
 import picodroid.widget.LinearLayout
 import picodroid.widget.TextView
@@ -14,16 +15,16 @@ import picodroid.widget.TextView
  * strings.
  *
  * A factory function rather than a `View` subclass, to keep the bar a plain composed [LinearLayout]
- * (a label row), matching how the rest of the app builds UI.
+ * (a label row), matching how the rest of the app builds UI. Its height is the caller's layout
+ * params.
  */
 
 /** Build a single-line legend row, e.g. `"A:Up B:Down X:Open Y:Back"`. */
-fun createHintBar(hints: String): LinearLayout {
-    val bar = LinearLayout()
+fun createHintBar(context: Context, hints: String): LinearLayout {
+    val bar = LinearLayout(context)
     bar.setOrientation(LinearLayout.HORIZONTAL)
-    bar.setSize(LinearLayout.LayoutParams.MATCH_PARENT, 18)
 
-    val label = TextView()
+    val label = TextView(context)
     label.setText(hints)
     label.setTextColor(Theme.colorTextSecondary)
     bar.addView(label)

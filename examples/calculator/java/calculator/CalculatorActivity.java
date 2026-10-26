@@ -2,14 +2,12 @@
 package calculator;
 
 import picodroid.app.Activity;
-import picodroid.graphics.Color;
 import picodroid.graphics.Theme;
 import picodroid.graphics.drawable.GradientDrawable;
 import picodroid.os.Bundle;
 import picodroid.text.TextUtils;
 import picodroid.util.Log;
 import picodroid.view.Gravity;
-import picodroid.view.View;
 import picodroid.view.ViewGroup;
 import picodroid.widget.Button;
 import picodroid.widget.GridLayout;
@@ -39,8 +37,14 @@ public class CalculatorActivity extends Activity {
   /** Gap between keys, and between the keypad and the display panel. */
   private static final int GAP = 4;
 
-  /** Margin around the whole screen. */
-  private static final int PAD = 6;
+  /**
+   * Each key carries half the gap as a margin on every side, so neighbours sit a whole gap apart
+   * and every key keeps the same size, the outer ones included.
+   */
+  private static final int HALF_GAP = GAP / 2;
+
+  /** Margin around the whole screen, outside the outer keys' own half gap. */
+  private static final int PAD = 6 - HALF_GAP;
 
   private static final int COLUMNS = 4;
 
@@ -81,23 +85,21 @@ public class CalculatorActivity extends Activity {
     super.onCreate(savedInstanceState);
     int width = getDisplay().getWidth();
     int height = getDisplay().getHeight();
-    int contentWidth = width - 2 * PAD;
-    int panelHeight = panelHeight(height);
 
-    LinearLayout root = new LinearLayout();
+    LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(width, height);
     root.setPadding(PAD, PAD, PAD, PAD);
-    root.setSpacing(GAP);
-    flatten(root, Theme.colorBackground);
 
-    root.addView(buildPanel(contentWidth, panelHeight));
+    // The panel lines up with the keys' outer edges, one gap above them.
+    LinearLayout.LayoutParams panelParams =
+        new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, panelHeight(height));
+    panelParams.setMargins(HALF_GAP, HALF_GAP, HALF_GAP, HALF_GAP);
+    root.addView(buildPanel(), panelParams);
 
     // The keypad: every column and row weighted alike, so the keys share the room below the
     // panel equally; each key fills its cell.
-    GridLayout keys = new GridLayout();
+    GridLayout keys = new GridLayout(this);
     keys.setColumnCount(COLUMNS);
-    keys.setSpacing(GAP);
     Button sample = null;
     for (String[] row : KEYS) {
       for (String label : row) {
@@ -109,6 +111,7 @@ public class CalculatorActivity extends Activity {
                 GridLayout.spec(GridLayout.UNDEFINED, span, GridLayout.FILL, 1f));
         cell.width = ViewGroup.LayoutParams.MATCH_PARENT;
         cell.height = ViewGroup.LayoutParams.MATCH_PARENT;
+        cell.setMargins(HALF_GAP, HALF_GAP, HALF_GAP, HALF_GAP);
         keys.addView(key, cell);
         if (sample == null && span == 1) {
           sample = key;
@@ -137,57 +140,52 @@ public class CalculatorActivity extends Activity {
   }
 
   /** The display: the running expression above, the current value below, both right-aligned. */
-  private LinearLayout buildPanel(int contentWidth, int panelHeight) {
-    LinearLayout panel = new LinearLayout();
+  private LinearLayout buildPanel() {
+    LinearLayout panel = new LinearLayout(this);
     panel.setOrientation(LinearLayout.VERTICAL);
-    panel.setSize(contentWidth, panelHeight);
     panel.setPadding(GAP, GAP, GAP, GAP);
-    panel.setSpacing(GAP);
-    flatten(panel, Color.TRANSPARENT);
     // BOTTOM keeps both lines against the keypad, so the display grows upwards
     // as a calculator's does rather than drifting away from the keys.
     panel.setGravity(Gravity.BOTTOM);
 
-    expressionView = new TextView();
-    expressionView.setTextColor(Theme.colorTextSecondary);
-    panel.addView(expressionView, rightAligned(expressionView, contentWidth - 2 * GAP));
+    expressionView = displayLine(Theme.colorTextSecondary);
+    panel.addView(expressionView, lineParams(0));
 
-    resultView = new TextView();
-    resultView.setTextColor(Theme.colorText);
-    panel.addView(resultView, rightAligned(resultView, contentWidth - 2 * GAP));
+    resultView = displayLine(Theme.colorText);
+    panel.addView(resultView, lineParams(GAP));
 
     return panel;
   }
 
   /**
-   * One line at the column's right edge: the label's own {@code layout_gravity}, as on Android,
-   * capped at the panel's width so a long expression ellipsizes rather than widening it.
+   * One display line: the panel's width, its text against the right edge, and a long expression
+   * ellipsized rather than wrapped.
    */
-  private static LinearLayout.LayoutParams rightAligned(TextView text, int width) {
+  private TextView displayLine(int color) {
+    TextView text = new TextView(this);
+    text.setTextColor(color);
     text.setSingleLine();
     text.setEllipsize(TextUtils.TruncateAt.END);
-    text.setMaxWidth(width);
+    text.setGravity(Gravity.RIGHT);
+    return text;
+  }
+
+  private static LinearLayout.LayoutParams lineParams(int topMargin) {
     LinearLayout.LayoutParams lp =
         new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-    lp.gravity = Gravity.RIGHT;
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+    lp.topMargin = topMargin;
     return lp;
   }
 
-  /**
-   * Paint a layout as Android paints one: a flat fill, no rounded corners and no outline. An LVGL
-   * object carries the theme's card styling, which on a nested layout draws a box around every row
-   * — a {@link GradientDrawable} is what sets the border width back to zero, and a transparent fill
-   * is what lets the screen behind show through.
-   */
-  private static void flatten(View v, int argb) {
-    new GradientDrawable().setColor(argb).setCornerRadius(0).setStroke(0, argb).applyTo(v);
-  }
-
   private Button buildKey(String label) {
-    Button key = new Button(label);
+    Button key = new Button(this);
+    key.setText(label);
     key.setTextColor(isOperator(label) ? Theme.colorOnPrimary : Theme.colorText);
-    new GradientDrawable().setColor(keyColor(label)).setCornerRadius(8).applyTo(key);
+    GradientDrawable face = new GradientDrawable();
+    face.setColor(keyColor(label));
+    face.setCornerRadius(8);
+    key.setBackground(face);
     key.setOnClickListener(v -> onKey(label));
     if (label.equals("C")) {
       clearKey = key;

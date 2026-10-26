@@ -2,12 +2,9 @@
 package picoenvmon.ui.settings;
 
 import javax.inject.Inject;
-import picodroid.content.SharedPreferences;
 import picodroid.graphics.Theme;
-import picodroid.graphics.drawable.GradientDrawable;
 import picodroid.os.Bundle;
 import picodroid.util.Log;
-import picodroid.view.View;
 import picodroid.widget.Button;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.NumberPicker;
@@ -15,6 +12,7 @@ import picodroid.widget.Switch;
 import picodroid.widget.TextView;
 import picodroid.widget.Toast;
 import picoenvmon.EnvApp;
+import picoenvmon.R;
 import picoenvmon.data.ThresholdConfig;
 import picoenvmon.ui.common.NavActivity;
 import picoenvmon.util.Formatter;
@@ -25,13 +23,12 @@ import picoenvmon.util.Formatter;
  * model A/B move focus between controls and X (ENTER) activates the focused one. Activating a
  * picker enters keypad edit mode (secondary-color outline): A/B then step the value by the row's
  * step size instead of moving focus, X commits, and Y leaves edit mode without leaving the screen.
- * Outside edit mode Y returns to the hub; Save persists and finishes.
+ * Outside edit mode Y returns to the hub; Save persists to the app's preferences and finishes.
  */
 public class SettingsActivity extends NavActivity {
 
   @Inject ThresholdConfig thresholds;
   @Inject Formatter formatter;
-  @Inject SharedPreferences prefs;
   private NumberPicker tempField;
   private NumberPicker humField;
   private NumberPicker luxField;
@@ -42,54 +39,49 @@ public class SettingsActivity extends NavActivity {
     Log.i(EnvApp.TAG, "Settings.onCreate");
     getDisplay();
 
+    int gap = dimen(R.dimen.gap);
     LinearLayout root = makeScreenRoot();
-    root.setSpacing(4);
-
-    TextView title = new TextView();
-    title.setText("Settings");
-    title.setTextColor(Theme.colorPrimary);
-    root.addView(title);
+    addTitle(root, R.string.menu_settings);
 
     ThresholdConfig th = thresholds;
-    tempField = addRow(root, "Temp Hi °C", 0, 60, 1, th.tempHiCentiC / 100);
-    humField = addRow(root, "Hum Lo %", 0, 100, 1, th.humLoMilliPct / 1000);
-    luxField = addRow(root, "Lux Lo", 0, 10000, 10, th.luxLo);
+    tempField = addRow(root, R.string.settings_temp_hi, 0, 60, 1, th.tempHiCentiC / 100, gap);
+    humField = addRow(root, R.string.settings_hum_lo, 0, 100, 1, th.humLoMilliPct / 1000, gap);
+    luxField = addRow(root, R.string.settings_lux_lo, 0, 10000, 10, th.luxLo, gap);
 
-    root.addView(buildUnitsRow());
-    root.addView(buildSaveButton());
+    root.addView(buildUnitsRow(), stacked(dimen(R.dimen.switch_row_height), gap));
 
-    // Keep this the same length as the other screens' hints so the whole
-    // legend fits the 224 px ButtonHintBar (the longer "X:Edit/Save" clipped
-    // "Y:Back" to "Y:B"). The Save button is self-labelled, so "X:Edit" is
-    // enough; while editing, the same A/B keys read naturally as value
-    // up/down and the secondary outline marks the mode.
-    installHintBar(root, "A:Up  B:Down  X:Edit  Y:Back");
+    Button save = new Button(this);
+    save.setText(getString(R.string.save));
+    save.setOnClickListener(v -> commit());
+    LinearLayout.LayoutParams saveLp =
+        new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+    saveLp.topMargin = gap;
+    root.addView(save, saveLp);
+
+    installHintBar(root, R.string.hint_settings, gap);
 
     setContentView(root);
   }
 
   private LinearLayout buildUnitsRow() {
-    LinearLayout row = new LinearLayout();
+    LinearLayout row = new LinearLayout(this);
     row.setOrientation(LinearLayout.HORIZONTAL);
     // The Switch knob is drawn ~4 px larger than its track (LVGL theme), so it needs vertical
-    // headroom or it clips top/bottom. Two things steal that headroom: the row's 2 px theme
-    // border and its padding. A borderless background (stroke 0) zeroes the border, and zero
-    // vertical padding plus a 34 px height give the full circle room to render.
-    row.setSize(LinearLayout.LayoutParams.MATCH_PARENT, 34);
+    // headroom or it clips top/bottom: zero vertical padding plus the row's height give the full
+    // circle room to render.
     row.setPadding(4, 0, 4, 0);
-    row.setBackground(new GradientDrawable().setColor(Theme.colorBackground));
 
-    TextView label = new TextView();
-    label.setText("Units °F");
+    TextView label = new TextView(this);
+    label.setText(getString(R.string.settings_units));
     label.setTextColor(Theme.colorTextSecondary);
     // weight=1 lets the label fill the row and pushes the Switch flush right at its natural
-    // size (mirrors android:layout_weight="1"), so the switch is no longer clipped.
-    // WRAP_CONTENT height lets the row's flex cross-axis centering center the glyphs —
-    // a fixed-height label draws its text top-aligned inside its own box.
+    // size (android:layout_weight="1"). WRAP_CONTENT height lets the row's cross-axis
+    // centering center the glyphs — a fixed-height label draws its text top-aligned.
     row.addView(
         label, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
-    Switch units = new Switch();
+    Switch units = new Switch(this);
     units.setChecked(formatter.isFahrenheit());
     units.setOnCheckedChangeListener((buttonView, isChecked) -> formatter.setFahrenheit(isChecked));
     row.addView(units);
@@ -97,36 +89,29 @@ public class SettingsActivity extends NavActivity {
     return row;
   }
 
-  private Button buildSaveButton() {
-    Button saveButton = new Button("Save");
-    saveButton.setOnClickListener(v -> commit());
-    return saveButton;
-  }
-
   private NumberPicker addRow(
-      LinearLayout root, String label, int min, int max, int step, int initialValue) {
-    LinearLayout row = new LinearLayout();
+      LinearLayout root, int labelRes, int min, int max, int step, int initialValue, int gap) {
+    LinearLayout row = new LinearLayout(this);
     row.setOrientation(LinearLayout.HORIZONTAL);
-    row.setSize(LinearLayout.LayoutParams.MATCH_PARENT, 30);
     row.setPadding(4, 2, 4, 2);
 
-    TextView lbl = new TextView();
-    lbl.setText(label);
+    TextView lbl = new TextView(this);
+    lbl.setText(getString(labelRes));
     lbl.setTextColor(Theme.colorTextSecondary);
-    // Fixed width keeps the value column aligned; WRAP_CONTENT height lets the
-    // row's flex cross-axis centering actually center the glyphs.
-    lbl.setSize(110, View.WRAP_CONTENT);
-    row.addView(lbl);
+    // The label takes what the picker leaves (layout_weight="1"), so the pickers line up on the
+    // right edge on every panel; WRAP_CONTENT height lets the row center the glyphs.
+    row.addView(lbl, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
-    NumberPicker field = new NumberPicker();
-    field.setSize(108, 26);
+    NumberPicker field = new NumberPicker(this);
     field.setMinValue(min);
     field.setMaxValue(max);
     field.setStep(step);
     field.setValue(initialValue);
-    row.addView(field);
+    row.addView(
+        field,
+        new LinearLayout.LayoutParams(dimen(R.dimen.picker_width), dimen(R.dimen.picker_height)));
 
-    root.addView(row);
+    root.addView(row, stacked(dimen(R.dimen.picker_row_height), gap));
     return field;
   }
 
@@ -135,7 +120,7 @@ public class SettingsActivity extends NavActivity {
     th.tempHiCentiC = tempField.getValue() * 100;
     th.humLoMilliPct = humField.getValue() * 1000;
     th.luxLo = luxField.getValue();
-    boolean ok = th.save(prefs);
+    boolean ok = th.save(getSharedPreferences(EnvApp.PREFS_NAME, MODE_PRIVATE));
     Log.i(
         EnvApp.TAG,
         "Settings saved: tempHi="
@@ -146,7 +131,8 @@ public class SettingsActivity extends NavActivity {
             + th.luxLo
             + " ok="
             + ok);
-    Toast.makeText(this, ok ? "Saved" : "Save failed", Toast.LENGTH_SHORT).show();
+    Toast.makeText(this, getString(ok ? R.string.saved : R.string.save_failed), Toast.LENGTH_SHORT)
+        .show();
     finish();
   }
 }

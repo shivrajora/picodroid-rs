@@ -90,7 +90,7 @@ pub use edit_text::{
     edit_text_set_show_keyboard_on_touch, edit_text_set_text, reset_edit_text_state,
 };
 pub use frame_layout::frame_layout_native_create;
-pub use grid_layout::{grid_layout_native_create, grid_layout_place, grid_layout_set_spacing};
+pub use grid_layout::{grid_layout_native_create, grid_layout_place};
 pub use image_view::{
     image_view_native_create, image_view_set_resource, image_view_set_scale,
     image_view_set_scale_type, image_view_set_src, image_view_set_tint,
@@ -103,7 +103,6 @@ pub use keyboard::{
 };
 pub use linear_layout::{
     linear_layout_native_create, linear_layout_set_gravity, linear_layout_set_orientation,
-    linear_layout_set_spacing,
 };
 pub use list_view::{drain_item_click_queue, drain_scroll_queue};
 pub use list_view::{
@@ -132,9 +131,8 @@ pub use scroll_view::scroll_view_native_create;
 pub use seek_bar::{drain_seek_change_queue, drain_seek_tracking_queue};
 pub use seek_bar::{
     reset_seek_bar_state, seek_bar_get_progress, seek_bar_native_create,
-    seek_bar_native_create_with_max, seek_bar_perform_progress_change,
-    seek_bar_perform_tracking_touch, seek_bar_register_change_listener, seek_bar_set_max,
-    seek_bar_set_progress,
+    seek_bar_perform_progress_change, seek_bar_perform_tracking_touch,
+    seek_bar_register_change_listener, seek_bar_set_max, seek_bar_set_progress,
 };
 pub use snackbar::{drain_snackbar_click_queue, drain_snackbar_dismiss_queue};
 pub use snackbar::{
@@ -174,7 +172,7 @@ pub use toast::{
 pub use toggle_button::drain_checked_change_queue;
 pub use toggle_button::{
     reset_toggle_button_state, toggle_button_is_checked, toggle_button_native_create,
-    toggle_button_native_create_with_text, toggle_button_perform_checked_change,
-    toggle_button_register_checked_change_listener, toggle_button_set_checked,
-    toggle_button_set_text_off, toggle_button_set_text_on, toggle_button_toggle,
+    toggle_button_perform_checked_change, toggle_button_register_checked_change_listener,
+    toggle_button_set_checked, toggle_button_set_text_off, toggle_button_set_text_on,
+    toggle_button_toggle,
 };

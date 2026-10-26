@@ -20,6 +20,6 @@ public class DisplayDemoApp extends Application {
     Theme.colorTextSecondary = Color.argb(255, 150, 160, 180);
     Theme.colorOutline = Color.argb(255, 80, 96, 130);
 
-    startActivity(new Intent(DisplayDemoActivity.class));
+    startActivity(new Intent(this, DisplayDemoActivity.class));
   }
 }

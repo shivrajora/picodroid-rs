@@ -5,6 +5,7 @@ import picodroid.app.Activity;
 import picodroid.graphics.Color;
 import picodroid.os.Bundle;
 import picodroid.util.Log;
+import picodroid.view.Gravity;
 import picodroid.view.MotionEvent;
 import picodroid.view.OnTouchListener;
 import picodroid.view.View;
@@ -15,8 +16,12 @@ import picodroid.widget.TextView;
 public class DragDemoActivity extends Activity {
   private static final int TILE_SIZE = 60;
   private static final int TILE_HALF = TILE_SIZE / 2;
+  private static final int HEADER_HEIGHT = 90;
 
+  private FrameLayout root;
   private TextView tile;
+  private final FrameLayout.LayoutParams tileParams =
+      new FrameLayout.LayoutParams(TILE_SIZE, TILE_SIZE, Gravity.TOP | Gravity.LEFT);
   private TextView status;
   private int moveCount;
 
@@ -25,43 +30,41 @@ public class DragDemoActivity extends Activity {
     super.onCreate(savedInstanceState);
     getDisplay();
 
-    // FrameLayout root so the tile can live at an absolute position.
-    // A LinearLayout would re-flow children on every layout pass and
-    // clobber setPosition.
-    FrameLayout root = new FrameLayout();
-    root.setSize(240, 240);
+    // FrameLayout root so the tile can live at an absolute position (its
+    // margins). A LinearLayout would re-flow children on every layout pass.
+    root = new FrameLayout(this);
 
-    LinearLayout header = new LinearLayout();
+    LinearLayout header = new LinearLayout(this);
     header.setOrientation(LinearLayout.VERTICAL);
-    header.setSize(240, 90);
-    header.setPosition(0, 0);
     header.setPadding(10, 10, 10, 0);
 
-    TextView title = new TextView();
+    TextView title = new TextView(this);
     title.setText("Drag Demo");
     title.setTextColor(Color.WHITE);
     header.addView(title);
 
-    TextView hint = new TextView();
+    TextView hint = new TextView(this);
     hint.setText("Touch anywhere to move the tile.");
     hint.setTextColor(Color.WHITE);
-    hint.setSize(220, 40);
-    header.addView(hint);
+    header.addView(hint, new LinearLayout.LayoutParams(220, 40));
 
-    status = new TextView();
+    status = new TextView(this);
     status.setText("(no touch yet)");
     status.setTextColor(Color.CYAN);
     header.addView(status);
 
-    root.addView(header);
+    root.addView(
+        header,
+        new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, HEADER_HEIGHT, Gravity.TOP | Gravity.LEFT));
 
     // The draggable tile — sized 60x60, centered at (120, 150) initially.
-    tile = new TextView();
+    tile = new TextView(this);
     tile.setText("");
-    tile.setSize(TILE_SIZE, TILE_SIZE);
     tile.setBackgroundColor(Color.argb(255, 80, 120, 200));
-    tile.setPosition(120 - TILE_HALF, 150 - TILE_HALF);
-    root.addView(tile);
+    tileParams.leftMargin = 120 - TILE_HALF;
+    tileParams.topMargin = 150 - TILE_HALF;
+    root.addView(tile, tileParams);
 
     // Listener lives on the root, not the tile. With ACTION_MOVE keyed
     // by the registered widget's hit-test, attaching to a small tile
@@ -102,9 +105,9 @@ public class DragDemoActivity extends Activity {
   }
 
   private void moveTileTo(int touchX, int touchY) {
-    int tx = clamp(touchX - TILE_HALF, 0, 240 - TILE_SIZE);
-    int ty = clamp(touchY - TILE_HALF, 90, 240 - TILE_SIZE);
-    tile.setPosition(tx, ty);
+    tileParams.leftMargin = clamp(touchX - TILE_HALF, 0, root.getWidth() - TILE_SIZE);
+    tileParams.topMargin = clamp(touchY - TILE_HALF, HEADER_HEIGHT, root.getHeight() - TILE_SIZE);
+    tile.setLayoutParams(tileParams);
   }
 
   private static int clamp(int v, int lo, int hi) {

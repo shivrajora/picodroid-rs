@@ -1,17 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoclock.ui;
 
-import picodroid.graphics.drawable.GradientDrawable;
-import picodroid.view.ViewGroup;
+import picodroid.view.Gravity;
 import picodroid.widget.FrameLayout;
+import picodroid.widget.LinearLayout;
 
 /**
  * "HH:MM" as four seven-segment digits and a blinking colon, drawn out of plain rectangles.
  *
- * <p>The SDK has no text-size API — a {@code TextView} is whatever the bundled font is — so a clock
- * face big enough to read across a room has to be built rather than set. Thirty small views is also
- * the cheaper way to run one: a redraw is a handful of colour changes on the segments that actually
- * differed, where re-setting a label re-lays-out and re-rasterises the whole string every second.
+ * <p>Built rather than typeset: the digits are 104 pixels tall, where the largest face the board
+ * compiles for {@code setTextSize} is 64, and the seven-segment look is the point of the face.
+ * Thirty small views are also the cheaper way to run one: a redraw is a handful of colour changes
+ * on the segments that actually differed, where re-setting a label re-lays-out and re-rasterises
+ * the whole string every second.
+ *
+ * <p>The segments sit at fixed offsets in a {@link FrameLayout}, each placed by its layout params'
+ * margins.
  *
  * <p>The face is built whole, in the constructor, inside the screen's {@code onCreate}: the main
  * loop allows a screen build a slow first frame (docs/designs/ui-build-budget-2026-10.md).
@@ -60,18 +64,24 @@ final class SegmentClock {
   private final FrameLayout face;
 
   /** Total width of the face, for centring it. */
-  static int width() {
+  private static int width() {
     return DIGITS * DIGIT_WIDTH + 2 * DIGIT_GAP + COLON_WIDTH + 2 * COLON_GAP;
   }
 
-  static int height() {
+  private static int height() {
     return DIGIT_HEIGHT;
   }
 
-  /** Puts an unlit face into {@code parent} at {@code (x, y)}. */
-  SegmentClock(ViewGroup parent, int x, int y) {
-    face = Ui.group(x, y, width(), height());
-    parent.addView(face);
+  /**
+   * Adds an unlit face to {@code column}, centred across it, {@code top} pixels below the view
+   * above.
+   */
+  SegmentClock(LinearLayout column, int top) {
+    face = new FrameLayout(column.getContext());
+    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(width(), height());
+    lp.gravity = Gravity.CENTER_HORIZONTAL;
+    lp.topMargin = top;
+    column.addView(face, lp);
     for (int i = 0; i < segments.length; i++) {
       addSegment(i);
     }
@@ -94,24 +104,28 @@ final class SegmentClock {
   private void addSegment(int i) {
     int digit = i / SEGMENTS_PER_DIGIT;
     int[] box = SEGMENT_BOXES[i % SEGMENTS_PER_DIGIT];
-    FrameLayout seg = new FrameLayout();
-    seg.setSize(box[2], box[3]);
-    seg.setPosition(digitX(digit) + box[0], box[1]);
-    seg.setPadding(0, 0, 0, 0);
-    seg.setBackground(new GradientDrawable().setColor(Ui.SEGMENT_OFF).setCornerRadius(3));
-    face.addView(seg);
+    FrameLayout seg = new FrameLayout(face.getContext());
+    seg.setBackground(Ui.rounded(Ui.SEGMENT_OFF, 3));
+    face.addView(seg, at(digitX(digit) + box[0], box[1], box[2], box[3]));
     segments[i] = seg;
   }
 
   private void addColonDot(int i) {
     int x = 2 * DIGIT_WIDTH + DIGIT_GAP + COLON_GAP + (COLON_WIDTH - DOT) / 2;
-    FrameLayout dot = new FrameLayout();
-    dot.setSize(DOT, DOT);
-    dot.setPosition(x, i == 0 ? DIGIT_HEIGHT / 3 - DOT / 2 : 2 * DIGIT_HEIGHT / 3 - DOT / 2);
-    dot.setPadding(0, 0, 0, 0);
-    dot.setBackground(new GradientDrawable().setColor(Ui.SEGMENT_OFF).setCornerRadius(DOT / 2));
-    face.addView(dot);
+    int y = i == 0 ? DIGIT_HEIGHT / 3 - DOT / 2 : 2 * DIGIT_HEIGHT / 3 - DOT / 2;
+    FrameLayout dot = new FrameLayout(face.getContext());
+    dot.setBackground(Ui.rounded(Ui.SEGMENT_OFF, DOT / 2));
+    face.addView(dot, at(x, y, DOT, DOT));
     colonDots[i] = dot;
+  }
+
+  /** Layout params that put a child's top-left corner at {@code (x, y)} within the face. */
+  private static FrameLayout.LayoutParams at(int x, int y, int width, int height) {
+    FrameLayout.LayoutParams lp =
+        new FrameLayout.LayoutParams(width, height, Gravity.TOP | Gravity.LEFT);
+    lp.leftMargin = x;
+    lp.topMargin = y;
+    return lp;
   }
 
   // ── Painting ───────────────────────────────────────────────────────────────
@@ -129,17 +143,13 @@ final class SegmentClock {
       return;
     }
     lit[i] = on;
-    segments[i].setBackground(
-        new GradientDrawable().setColor(on ? Ui.SEGMENT_ON : Ui.SEGMENT_OFF).setCornerRadius(3));
+    segments[i].setBackground(Ui.rounded(on ? Ui.SEGMENT_ON : Ui.SEGMENT_OFF, 3));
   }
 
   private void paintColon(boolean on) {
     for (int i = 0; i < colonDots.length; i++) {
       if (colonDots[i] != null) {
-        colonDots[i].setBackground(
-            new GradientDrawable()
-                .setColor(on ? Ui.SEGMENT_ON : Ui.SEGMENT_OFF)
-                .setCornerRadius(DOT / 2));
+        colonDots[i].setBackground(Ui.rounded(on ? Ui.SEGMENT_ON : Ui.SEGMENT_OFF, DOT / 2));
       }
     }
   }
@@ -176,10 +186,5 @@ final class SegmentClock {
       {0, STROKE, STROKE, half}, // F
       {STROKE, STROKE + half, span, STROKE}, // G
     };
-  }
-
-  /** Where the face should sit to be centred on the panel. */
-  static int centredX() {
-    return (Ui.WIDTH - width()) / 2;
   }
 }

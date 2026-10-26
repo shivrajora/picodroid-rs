@@ -7,6 +7,6 @@ import picodroid.content.Intent;
 public class SensorDemoApp extends Application {
   @Override
   public void onCreate() {
-    startActivity(new Intent(SensorDemoActivity.class));
+    startActivity(new Intent(this, SensorDemoActivity.class));
   }
 }

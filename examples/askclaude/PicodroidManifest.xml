@@ -1,4 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest package="askclaude" version="1.0">
-    <application activity="askclaude/MainActivity" label="Ask Claude" />
+    <!-- Declared as on Android; nothing on this platform enforces a permission. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application label="Ask Claude">
+        <activity android:name=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
 </manifest>

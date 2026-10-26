@@ -630,7 +630,7 @@ public class MainActivity extends Activity {
     T.check("arguments kept", d.getArguments() == args && d.n == 12);
     switchStartMs = SystemClock.elapsedRealtime();
     Log.i(TAG, "activity switch start");
-    startActivity(new Intent(SecondActivity.class));
+    startActivity(new Intent(this, SecondActivity.class));
   }
 
   private void afterRecreate() {
@@ -690,8 +690,7 @@ public class MainActivity extends Activity {
     pageIds.add(20L);
     pageIds.add(30L);
     pager = new ViewPager2(this);
-    pager.setSize(200, 100);
-    ((ViewGroup) findViewById(R.id.container)).addView(pager);
+    ((ViewGroup) findViewById(R.id.container)).addView(pager, new ViewGroup.LayoutParams(200, 100));
     pager.setCurrentItem(-3, false);
     pager.setAdapter(
         new FragmentStateAdapter(this) {

@@ -10,11 +10,6 @@ public class LinearLayout extends ViewGroup {
 
   private int orientation;
 
-  public LinearLayout() {
-    super(nativeCreate());
-    this.orientation = VERTICAL;
-  }
-
   public LinearLayout(Context ctx) {
     super(ctx, nativeCreate());
     this.orientation = VERTICAL;
@@ -55,9 +50,6 @@ public class LinearLayout extends ViewGroup {
     return new LayoutParams(
         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
   }
-
-  /** Gap in pixels between adjacent children. Default 0. */
-  public native void setSpacing(int px);
 
   /**
    * Set the alignment of the children. Mirrors {@code android.widget.LinearLayout#setGravity(int)}:

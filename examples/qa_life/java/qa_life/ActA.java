@@ -87,11 +87,11 @@ public class ActA extends Activity {
     }
     T.check("A package name", "qa_life".equals(getPackageName()));
     // Service calls are asynchronous: nothing below has run until the next tick.
-    startService(new Intent(Svc.class).putExtra("cmd", 1));
-    startService(new Intent(Svc.class).putExtra("cmd", 2));
-    bindService(new Intent(Svc.class), conn, BIND_AUTO_CREATE);
+    startService(new Intent(this, Svc.class).putExtra("cmd", 1));
+    startService(new Intent(this, Svc.class).putExtra("cmd", 2));
+    bindService(new Intent(this, Svc.class), conn, BIND_AUTO_CREATE);
     T.check("startService is asynchronous", Svc.creates == 0 && binderA == null);
-    startActivityForResult(new Intent(ActB.class).putExtra("q", 9), 5);
+    startActivityForResult(new Intent(this, ActB.class).putExtra("q", 9), 5);
   }
 
   @Override
@@ -189,7 +189,7 @@ public class ActA extends Activity {
         T.before("Svc.onCreate", 1, "Svc.onStartCommand#1", 1));
     T.check("onStartCommand#2 before onBind", T.before("Svc.onStartCommand#2", 1, "Svc.onBind", 1));
     T.check("onBind before A.connected", T.before("Svc.onBind", 1, "A.connected", 1));
-    T.later(150, () -> startActivity(new Intent(ActC.class)));
+    T.later(150, () -> startActivity(new Intent(this, ActC.class)));
   }
 
   private void afterC() {
@@ -236,7 +236,7 @@ public class ActA extends Activity {
         break;
       case 2:
         T.check("second unbind does not re-unbind", Svc.unbinds == 1);
-        bindService(new Intent(Svc.class), conn, BIND_AUTO_CREATE);
+        bindService(new Intent(this, Svc.class), conn, BIND_AUTO_CREATE);
         break;
       case 3:
         T.check(
@@ -247,20 +247,20 @@ public class ActA extends Activity {
         break;
       case 4:
         T.check("unbind again", Svc.unbinds == 2);
-        stopService(new Intent(Svc.class));
+        stopService(new Intent(this, Svc.class));
         break;
       case 5:
         T.check("stopService destroys", Svc.destroys == 1 && Svc.live == null);
-        startService(new Intent(Svc.class).putExtra("cmd", 9));
+        startService(new Intent(this, Svc.class).putExtra("cmd", 9));
         break;
       case 6:
         T.check("service recreated after stop", Svc.creates == 2 && Svc.lastCmd == 9);
         Log.i(T.TAG, "startId after recreate = " + Svc.lastStartId);
-        stopService(new Intent(Svc.class));
+        stopService(new Intent(this, Svc.class));
         break;
       case 7:
         T.check("stopped again", Svc.destroys == 2);
-        stopService(new Intent(Svc.class));
+        stopService(new Intent(this, Svc.class));
         break;
       case 8:
         T.check("stop when not running harmless", Svc.destroys == 2 && Svc.creates == 2);
@@ -271,7 +271,7 @@ public class ActA extends Activity {
         int refused = 0;
         for (int i = 0; i < 24; i++) {
           try {
-            stopService(new Intent(Svc.class));
+            stopService(new Intent(this, Svc.class));
             accepted++;
           } catch (IllegalStateException e) {
             refused++;
@@ -284,7 +284,7 @@ public class ActA extends Activity {
       case 9:
         T.check("service stayed stopped through the burst", Svc.destroys == 2 && Svc.creates == 2);
         // Fill the Activity stack; the report comes once the chain has unwound (afterD).
-        startActivity(new Intent(ActD.class));
+        startActivity(new Intent(this, ActD.class));
         return;
       default:
         return;

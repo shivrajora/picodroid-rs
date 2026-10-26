@@ -6,6 +6,7 @@ import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.view.View;
 import picodroid.widget.AdapterView;
+import picodroid.widget.ArrayAdapter;
 import picodroid.widget.Button;
 import picodroid.widget.CheckBox;
 import picodroid.widget.LinearLayout;
@@ -40,36 +41,35 @@ public class CallbackTestActivity extends Activity {
 
     // Ten widgets stacked are taller than a 240-tall panel, so the column scrolls (its height
     // its content's, or the ScrollView would have nothing to scroll).
-    LinearLayout root = new LinearLayout();
+    LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
 
-    Button btn = new Button("b");
-    btn.setSize(100, 30);
+    Button btn = new Button(this);
+    btn.setText("b");
     btn.setOnClickListener(v -> Log.i("CBT", "BUTTON"));
-    root.addView(btn);
+    root.addView(btn, new LinearLayout.LayoutParams(100, 30));
     btn.performClick();
 
-    ToggleButton tog = new ToggleButton("on", "off");
-    tog.setSize(100, 30);
+    ToggleButton tog = new ToggleButton(this);
+    tog.setTextOn("on");
+    tog.setTextOff("off");
     tog.setOnCheckedChangeListener((view, checked) -> Log.i("CBT", "TOGGLE"));
-    root.addView(tog);
+    root.addView(tog, new LinearLayout.LayoutParams(100, 30));
     tog.performCheckedChange();
 
-    Switch sw = new Switch();
-    sw.setSize(60, 30);
+    Switch sw = new Switch(this);
     sw.setOnCheckedChangeListener((view, checked) -> Log.i("CBT", "SWITCH"));
-    root.addView(sw);
+    root.addView(sw, new LinearLayout.LayoutParams(60, 30));
     sw.performCheckedChange();
 
-    CheckBox cb = new CheckBox();
+    CheckBox cb = new CheckBox(this);
     cb.setText("x");
     cb.setOnCheckedChangeListener((view, checked) -> Log.i("CBT", "CHECKBOX"));
     root.addView(cb);
     cb.performCheckedChange();
 
-    SeekBar sb = new SeekBar(100);
-    sb.setSize(200, 20);
+    SeekBar sb = new SeekBar(this);
+    sb.setMax(100);
     sb.setOnSeekBarChangeListener(
         new SeekBar.OnSeekBarChangeListener() {
           @Override
@@ -87,13 +87,13 @@ public class CallbackTestActivity extends Activity {
             Log.i("CBT", "SEEKBAR_TRACK_STOP");
           }
         });
-    root.addView(sb);
+    root.addView(sb, new LinearLayout.LayoutParams(200, 20));
     sb.performProgressChange();
     sb.performTrackingTouch();
 
-    Spinner sp = new Spinner();
-    sp.setItems("a\nb");
-    sp.setSize(100, 30);
+    Spinner sp = new Spinner(this);
+    sp.setAdapter(
+        new ArrayAdapter<>(this, picodroid.R.layout.simple_list_item_1, new String[] {"a", "b"}));
     sp.setOnItemSelectedListener(
         new AdapterView.OnItemSelectedListener() {
           @Override
@@ -104,17 +104,17 @@ public class CallbackTestActivity extends Activity {
           @Override
           public void onNothingSelected(AdapterView<?> parent) {}
         });
-    root.addView(sp);
+    root.addView(sp, new LinearLayout.LayoutParams(100, 30));
     sp.performItemSelected();
 
     // RadioGroup mutual exclusion: check r1, then r2 — by the time the
     // second event dispatches, exactly one button (r2) must be checked.
-    RadioGroup rg = new RadioGroup();
-    RadioButton r1 = new RadioButton();
+    RadioGroup rg = new RadioGroup(this);
+    RadioButton r1 = new RadioButton(this);
     r1.setText("a");
-    RadioButton r2 = new RadioButton();
+    RadioButton r2 = new RadioButton(this);
     r2.setText("b");
-    RadioButton r3 = new RadioButton();
+    RadioButton r3 = new RadioButton(this);
     r3.setText("c");
     rg.addView(r1);
     rg.addView(r2);
@@ -137,7 +137,7 @@ public class CallbackTestActivity extends Activity {
     }
 
     // The unsized ScrollView is the window once it is the content root (setContentView).
-    ScrollView scroll = new ScrollView();
+    ScrollView scroll = new ScrollView(this);
     scroll.addView(root);
     setContentView(scroll);
     Log.i("CBT", "SETUP_DONE");

@@ -44,7 +44,7 @@ public class HomeActivity extends TracedActivity {
     if (id == 1) {
       stale = this;
       count++;
-      startActivityForResult(new Intent(ChildActivity.class), REQ);
+      startActivityForResult(new Intent(this, ChildActivity.class), REQ);
     } else if (id == 2) {
       ReclaimDemoApp.check("home restored before resume", restored);
       ReclaimDemoApp.check("home count restored", count == 6);
@@ -52,7 +52,7 @@ public class HomeActivity extends TracedActivity {
       // A destroyed instance is off the stack: neither call may touch the entry it used to own.
       stale.finish();
       stale.recreate();
-      startActivity(new Intent(MidActivity.class));
+      startActivity(new Intent(this, MidActivity.class));
     } else {
       ReclaimDemoApp.check("home count restored twice", restored && count == 6);
       // Mid's result was for Mid: nothing may arrive here.

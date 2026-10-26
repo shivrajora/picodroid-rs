@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.hardware;
 
+import picodroid.annotation.Hide;
+
 public final class SensorManager {
   public static final int SENSOR_DELAY_FASTEST = 0;
   public static final int SENSOR_DELAY_GAME = 1;
@@ -21,6 +23,7 @@ public final class SensorManager {
 
   SensorManager() {}
 
+  @Hide("context.getSystemService(Context.SENSOR_SERVICE)")
   public static SensorManager getInstance() {
     if (instance == null) {
       instance = new SensorManager();

@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest package="calculator" version="1.0">
-    <application activity="calculator/CalculatorActivity" label="Calculator" />
+    <application label="Calculator">
+        <activity android:name=".CalculatorActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
 </manifest>

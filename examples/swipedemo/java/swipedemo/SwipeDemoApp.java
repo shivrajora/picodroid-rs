@@ -7,6 +7,6 @@ import picodroid.content.Intent;
 public class SwipeDemoApp extends Application {
   @Override
   public void onCreate() {
-    startActivity(new Intent(SwipeDemoActivity.class));
+    startActivity(new Intent(this, SwipeDemoActivity.class));
   }
 }

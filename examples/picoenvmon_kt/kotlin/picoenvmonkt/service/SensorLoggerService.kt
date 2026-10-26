@@ -4,6 +4,7 @@ package picoenvmonkt.service
 import javax.inject.Inject
 import picodroid.app.Notification
 import picodroid.app.Service
+import picodroid.content.Context
 import picodroid.content.Intent
 import picodroid.hardware.Sensor
 import picodroid.hardware.SensorEvent
@@ -12,6 +13,7 @@ import picodroid.hardware.SensorManager
 import picodroid.os.IBinder
 import picodroid.os.SystemClock
 import picodroid.util.Log
+import picoenvmon_kt.R
 import picoenvmonkt.IDX_GAS
 import picoenvmonkt.IDX_HUMIDITY
 import picoenvmonkt.IDX_LIGHT
@@ -31,10 +33,9 @@ private const val NOTIFICATION_ID = 1
 
 // ── 1 Hz smoothing ───────────────────────────────────────────────────────────
 // Per-type windowed-mean accumulators. Raw callbacks arrive ~5 Hz in a single
-// burst; on the first callback past the 1 s mark we emit averages to every
-// registered SmoothedSensorListener and reset the accumulators.
+// burst; on the first callback past the 1 s mark we publish the averages to
+// LatestReadings (which the Live screen observes) and reset the accumulators.
 private const val EMIT_INTERVAL_MS = 1000L
-private const val MAX_SMOOTHED_LISTENERS = 4
 
 // ── Alert edge detection ─────────────────────────────────────────────────────
 // Raw callbacks re-evaluate thresholds several times per second; logging every
@@ -48,9 +49,9 @@ private const val ALERT_HUMIDITY = 1
 private const val ALERT_LIGHT = 2
 
 /**
- * Foreground Service that streams every sensor reading into a per-type ring buffer, drives the
- * Pack's RGB LED from gas IAQ, and logs threshold breaches. Bind via `bindService` to read the ring
- * buffers from a UI activity.
+ * Foreground Service that streams every sensor reading into a per-type ring buffer, publishes a 1
+ * Hz smoothed reading to [LatestReadings], drives the Pack's RGB LED from gas IAQ, and logs
+ * threshold breaches. Bind via `bindService` to read the ring buffers from a UI activity.
  */
 class SensorLoggerService : Service(), SensorEventListener {
     /**
@@ -96,14 +97,13 @@ class SensorLoggerService : Service(), SensorEventListener {
         )
     private val smoothSum = FloatArray(READING_COUNT)
     private val smoothCount = IntArray(READING_COUNT)
-    private val smoothedListeners = arrayOfNulls<SmoothedSensorListener>(MAX_SMOOTHED_LISTENERS)
     private var lastEmitMs = 0L
 
     private val alertActive = BooleanArray(3)
 
     override fun onCreate() {
         binder.service = this
-        val mgr = SensorManager.getInstance()
+        val mgr = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         sensorManager = mgr
         registerAll(mgr)
         Log.i(TAG, "onCreate")
@@ -124,9 +124,9 @@ class SensorLoggerService : Service(), SensorEventListener {
         if (!isLogging) {
             isLogging = true
             val n =
-                Notification.Builder()
-                    .setContentTitle("PicoEnvMonKt")
-                    .setContentText("Logging sensors")
+                Notification.Builder(this, "envmon")
+                    .setContentTitle(getString(R.string.app_name))
+                    .setContentText(getString(R.string.notification_logging))
                     .build()
             startForeground(NOTIFICATION_ID, n)
             Log.i(TAG, "foreground started")
@@ -210,26 +210,6 @@ class SensorLoggerService : Service(), SensorEventListener {
         return if (now > 100_000_000_000L) " [${hms(now)}]" else ""
     }
 
-    /** Register for 1 Hz windowed-mean callbacks. Returns false if all slots are full. */
-    fun addSmoothedListener(l: SmoothedSensorListener): Boolean {
-        for (i in 0 until MAX_SMOOTHED_LISTENERS) {
-            if (smoothedListeners[i] == null) {
-                smoothedListeners[i] = l
-                return true
-            }
-        }
-        return false
-    }
-
-    /** Idempotent: removing an unregistered listener is a no-op. */
-    fun removeSmoothedListener(l: SmoothedSensorListener) {
-        for (i in 0 until MAX_SMOOTHED_LISTENERS) {
-            if (smoothedListeners[i] === l) {
-                smoothedListeners[i] = null
-            }
-        }
-    }
-
     /** A written-out scan: `IntArray.indexOf` is a `kotlin/collections/ArraysKt` call. */
     private fun smoothedIdxFor(sensorType: Int): Int {
         for (i in 0 until READING_COUNT) {
@@ -249,10 +229,8 @@ class SensorLoggerService : Service(), SensorEventListener {
             smoothSum[i] = 0f
             smoothCount[i] = 0
             latestReadings.updateByType(smoothedTypes[i], avg)
-            for (j in 0 until MAX_SMOOTHED_LISTENERS) {
-                smoothedListeners[j]?.onSmoothedSensor(smoothedTypes[i], avg)
-            }
         }
+        latestReadings.publish()
     }
 
     override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {}

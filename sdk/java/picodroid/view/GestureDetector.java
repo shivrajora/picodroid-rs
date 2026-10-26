@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.view;
 
+import picodroid.content.Context;
+
 /**
  * Minimal gesture recognizer modeled on Android's {@code GestureDetector}.
  *
@@ -73,7 +75,8 @@ public class GestureDetector implements OnTouchListener {
   private MotionEvent lastSampleEvent; // most recent DOWN or MOVE; used for lift-off velocity
   private boolean longPressFired;
 
-  public GestureDetector(OnGestureListener listener) {
+  /** Mirrors Android's {@code GestureDetector(Context, OnGestureListener)}. */
+  public GestureDetector(Context context, OnGestureListener listener) {
     this.listener = listener;
   }
 

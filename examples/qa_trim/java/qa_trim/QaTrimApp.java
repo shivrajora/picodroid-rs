@@ -32,8 +32,8 @@ public class QaTrimApp extends Application {
             T.log("extra:config");
           }
         });
-    startService(new Intent(TrimSvc.class));
-    startActivity(new Intent(ActHome.class));
+    startService(new Intent(this, TrimSvc.class));
+    startActivity(new Intent(this, ActHome.class));
   }
 
   @Override

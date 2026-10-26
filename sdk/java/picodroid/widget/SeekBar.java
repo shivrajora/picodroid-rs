@@ -7,24 +7,12 @@ import picodroid.view.View;
 public class SeekBar extends View {
   private OnSeekBarChangeListener onSeekBarChangeListener;
 
-  public SeekBar() {
-    super(nativeCreate());
-    setFocusable(true); // as on Android (see Button)
-  }
-
-  public SeekBar(int max) {
-    super(nativeCreateWithMax(max));
-    setFocusable(true);
-  }
-
   public SeekBar(Context ctx) {
     super(ctx, nativeCreate());
     setFocusable(true);
   }
 
   private static native int nativeCreate();
-
-  private static native int nativeCreateWithMax(int max);
 
   /**
    * Sets the range's upper bound; a progress above it is pulled down to it, and the listener hears

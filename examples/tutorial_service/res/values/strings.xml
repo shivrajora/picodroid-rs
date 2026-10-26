@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_title">Tutorial: Service</string>
+    <string name="home_body">A background service is\nlogging uptime samples.</string>
+    <string name="button_view_log">View Log</string>
+
+    <string name="log_title">Uptime Log</string>
+    <!-- Three ASCII dots: the bundled font has no ellipsis glyph. -->
+    <string name="log_connecting">Connecting...</string>
+    <string name="log_empty">No samples yet</string>
+    <string name="log_count">%d samples (ms)</string>
+    <!-- One list row: the sample's index and its uptime. -->
+    <string name="log_row">[%1$d] %2$d ms</string>
+    <string name="button_refresh">Refresh</string>
+
+    <string name="notification_title">Uptime Logger</string>
+    <string name="notification_text">Recording uptime samples</string>
+</resources>

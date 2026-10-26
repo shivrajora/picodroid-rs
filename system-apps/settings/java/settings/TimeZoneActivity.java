@@ -39,13 +39,14 @@ public class TimeZoneActivity extends Activity {
     for (int i = 0; i < OFFSETS.length; i++) {
       labels[i] = OFFSETS[i] == current ? id(OFFSETS[i]) + "  (current)" : id(OFFSETS[i]);
     }
-    LinearLayout root = Screens.column();
+    LinearLayout root = Screens.column(this);
     Screens.header(this, root, "Time zone", v -> finish());
     ListView list = new ListView(this);
-    list.setSize(getDisplay().getWidth(), getDisplay().getHeight() - Screens.ROW_HEIGHT);
-    list.setAdapter(new ArrayAdapter<String>(this, labels));
+    list.setAdapter(new ArrayAdapter<String>(this, picodroid.R.layout.simple_list_item_1, labels));
     list.setOnItemClickListener((parent, view, position, id) -> pick(id(OFFSETS[position])));
-    root.addView(list);
+    // The list takes what the header leaves.
+    root.addView(
+        list, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
     setContentView(root);
   }
 

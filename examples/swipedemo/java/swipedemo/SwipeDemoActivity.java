@@ -6,6 +6,7 @@ import picodroid.graphics.Color;
 import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.view.View;
+import picodroid.view.ViewGroup;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.SwipeRefreshLayout;
 import picodroid.widget.TextView;
@@ -18,23 +19,20 @@ public class SwipeDemoActivity extends Activity {
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    getDisplay();
     Log.i(TAG, "Display ready");
 
-    SwipeRefreshLayout refresh = new SwipeRefreshLayout();
-    refresh.setSize(240, 240);
+    SwipeRefreshLayout refresh = new SwipeRefreshLayout(this);
 
-    LinearLayout content = new LinearLayout();
+    LinearLayout content = new LinearLayout(this);
     content.setOrientation(LinearLayout.VERTICAL);
-    content.setSize(240, 240);
     content.setPadding(10, 40, 10, 10);
 
-    TextView label = new TextView();
+    TextView label = new TextView(this);
     label.setText("Pull down or swipe");
     label.setTextColor(Color.WHITE);
     content.addView(label);
 
-    TextView counter = new TextView();
+    TextView counter = new TextView(this);
     counter.setText("Refreshes: 0");
     counter.setTextColor(Color.CYAN);
     content.addView(counter);
@@ -48,7 +46,10 @@ public class SwipeDemoActivity extends Activity {
           // immediately clear the spinner.
           refresh.setRefreshing(false);
         });
-    refresh.addView(content);
+    refresh.addView(
+        content,
+        new ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
     // Also exercise the bare OnSwipeListener (any direction logs).
     content.setOnSwipeListener(

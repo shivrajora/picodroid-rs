@@ -4,9 +4,9 @@ package settings;
 import picodroid.app.Activity;
 import picodroid.content.Intent;
 import picodroid.content.pm.PackageManager;
+import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.widget.LinearLayout;
-import picodroid.os.Bundle;
 
 /**
  * The settings app's root (multi-app M3): About, Apps and Storage, one row each, then Wi-Fi on a
@@ -22,9 +22,12 @@ public class SettingsActivity extends Activity {
   static final String TAG = "Settings";
 
   private LinearLayout column;
+
   /** The screens, in row order: the Wi-Fi row is left out on a board with no link. */
   private String[] labels;
+
   private Class<?>[] screens;
+
   /** Whether the rows are on screen: "ready" is logged once they are, then on every return. */
   private boolean built;
 
@@ -56,9 +59,8 @@ public class SettingsActivity extends Activity {
     column = Screens.screen(this, "Settings", v -> finish());
     for (int i = 0; i < labels.length; i++) {
       final Class<?> screen = screens[i];
-      Screens.row(this, column, labels[i], v -> startActivity(new Intent(screen)));
+      Screens.row(this, column, labels[i], v -> startActivity(new Intent(this, screen)));
     }
-    Screens.size(this, column, 1 + labels.length);
     ready();
   }
 
@@ -70,7 +72,9 @@ public class SettingsActivity extends Activity {
     Log.i(TAG, "ready");
   }
 
-  /** Once per showing of the root: when its rows are first in, then on every return from a screen. */
+  /**
+   * Once per showing of the root: when its rows are first in, then on every return from a screen.
+   */
   @Override
   public void onResume() {
     super.onResume();

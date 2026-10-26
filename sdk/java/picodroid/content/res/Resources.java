@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.content.res;
 
+import picodroid.annotation.Hide;
 import picodroid.graphics.Theme;
 import picodroid.util.DisplayMetrics;
 
@@ -31,6 +32,7 @@ public final class Resources {
    * The running app's resources. Not an Android API — apps call {@code Context.getResources()};
    * this is how {@code Context} reaches the singleton from another package.
    */
+  @Hide("context.getResources()")
   public static Resources getInstance() {
     if (sInstance == null) {
       sInstance = new Resources();

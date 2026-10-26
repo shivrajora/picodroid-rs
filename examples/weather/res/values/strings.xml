@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Quoted where a run of spaces is part of the line: unquoted runs collapse to one. -->
+    <string name="hints">"A/B:Page  X:Refresh  Y:Exit"</string>
+    <string name="page_week">7 days</string>
+    <string name="page_details">Details</string>
+
+    <!-- The header's status, right of the title. -->
+    <string name="status_connecting">Connecting</string>
+    <string name="status_updating">Updating</string>
+    <string name="status_no_network">No network</string>
+    <string name="status_tls_refused">TLS refused</string>
+    <string name="status_offline">Offline</string>
+    <string name="status_bad_reply">Bad reply</string>
+
+    <!-- Today. -->
+    <string name="temperature">%d°</string>
+    <string name="temperature_unknown">--°</string>
+    <string name="waiting">Waiting for the forecast</string>
+    <string name="high_low">"H:%1$d°  L:%2$d°"</string>
+    <string name="now">Now</string>
+    <string name="today">Today</string>
+
+    <!-- Details: a label, two spaces, the value. -->
+    <string name="feels_like">"Feels like  %d°"</string>
+    <string name="humidity">"Humidity  %d%%"</string>
+    <string name="wind_kmh">"Wind  %d km/h"</string>
+    <string name="wind_mph">"Wind  %d mph"</string>
+    <string name="pressure">"Pressure  %d hPa"</string>
+    <string name="sun">"Sunrise %1$s   Sunset %2$s"</string>
+    <string name="indoor">"Indoor  %1$d° • %2$d%% • %3$d hPa"</string>
+    <string name="indoor_none">"Indoor  no sensors on this board"</string>
+</resources>

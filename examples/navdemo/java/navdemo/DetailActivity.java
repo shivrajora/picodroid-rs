@@ -17,26 +17,23 @@ public class DetailActivity extends Activity {
     // The launching Intent (extras included) is available for our lifetime.
     Log.i("NavDemo", "Detail origin=" + getIntent().getStringExtra("origin"));
 
-    getDisplay();
-
-    LinearLayout root = new LinearLayout();
+    LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(240, 240);
     root.setPadding(10, 10, 10, 10);
 
-    TextView title = new TextView();
+    TextView title = new TextView(this);
     title.setText("Detail Activity");
     title.setTextColor(Color.CYAN);
     root.addView(title);
 
-    Button backBtn = new Button("Back to Home");
-    backBtn.setSize(200, 40);
+    Button backBtn = new Button(this);
+    backBtn.setText("Back to Home");
     backBtn.setOnClickListener(
         v -> {
           Log.i("NavDemo", "Detail: finish() pressed");
           finish();
         });
-    root.addView(backBtn);
+    root.addView(backBtn, new LinearLayout.LayoutParams(200, 40));
 
     setContentView(root);
   }

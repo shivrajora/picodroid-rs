@@ -37,7 +37,7 @@ public class ActD extends Activity {
     }
     // Refused or not, the launch is asynchronous; a frame later the next D exists or this one
     // is the top for good.
-    startActivity(new Intent(ActD.class));
+    startActivity(new Intent(this, ActD.class));
     if (created == 1) {
       watchUntilSettled();
     }

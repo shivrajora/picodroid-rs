@@ -7,7 +7,9 @@ import picodroid.graphics.Display;
 import picodroid.os.Runtime;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
+import picodroid.view.Gravity;
 import picodroid.view.View;
+import picodroid.view.ViewGroup;
 import picodroid.widget.FrameLayout;
 import picodroid.widget.TextView;
 
@@ -44,6 +46,7 @@ import picodroid.widget.TextView;
  */
 public class GraphicsBench extends Application {
   private static final String TAG = "GraphicsBench";
+  private static final int WRAP = ViewGroup.LayoutParams.WRAP_CONTENT;
 
   // ── scoring weights (identical to perfbench so SCOREs stay comparable in spirit) ──────────────
   private static final long W_GC = 1L; // each GC cycle adds 1 ms-equivalent
@@ -80,14 +83,13 @@ public class GraphicsBench extends Application {
   @Override
   public void onCreate() {
     // run_application does not pre-init the display, so bring up LVGL first. Idempotent.
-    display = Display.getInstance();
+    display = getDisplay();
 
-    root = new FrameLayout();
-    root.setSize(display.getWidth(), display.getHeight());
+    root = new FrameLayout(this);
+    root.setLayoutParams(new ViewGroup.LayoutParams(display.getWidth(), display.getHeight()));
     root.setBackgroundColor(Color.BLACK);
-    stage = new FrameLayout();
-    stage.setSize(display.getWidth(), display.getHeight());
-    root.addView(stage);
+    stage = new FrameLayout(this);
+    root.addView(stage, new FrameLayout.LayoutParams(display.getWidth(), display.getHeight()));
     display.setContentView(root);
     display.update(); // first paint — clean baseline on screen
 
@@ -214,6 +216,14 @@ public class GraphicsBench extends Application {
     return score;
   }
 
+  /** A {@code w} x {@code h} stage child with its top-left corner at ({@code x}, {@code y}). */
+  private static FrameLayout.LayoutParams at(int w, int h, int x, int y) {
+    FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(w, h, Gravity.TOP | Gravity.LEFT);
+    lp.leftMargin = x;
+    lp.topMargin = y;
+    return lp;
+  }
+
   /** Empty the stage and flush the now-cleared screen, so each test starts from a clean slate. */
   private void clearStage() {
     stage.removeAllViews();
@@ -227,11 +237,11 @@ public class GraphicsBench extends Application {
   private void benchWidgetChurn() {
     for (int round = 0; round < A_ROUNDS; round++) {
       for (int i = 0; i < A_WIDGETS; i++) {
-        TextView tv = new TextView();
+        TextView tv = new TextView(this);
         tv.setText("w" + i);
         tv.setTextColor(Color.WHITE);
-        tv.setPosition((i % 8) * 40, (i / 8) * 24); // spread so each invalidates a distinct region
-        stage.addView(tv);
+        // Spread so each invalidates a distinct region.
+        stage.addView(tv, at(WRAP, WRAP, (i % 8) * 40, (i / 8) * 24));
         sinkObj = tv;
       }
       display.update(); // rasterise the freshly added tree
@@ -247,19 +257,23 @@ public class GraphicsBench extends Application {
 
   private void benchPropThroughput() {
     TextView[] tvs = new TextView[B_WIDGETS];
+    FrameLayout.LayoutParams[] lps = new FrameLayout.LayoutParams[B_WIDGETS];
     for (int i = 0; i < B_WIDGETS; i++) {
-      TextView tv = new TextView();
+      TextView tv = new TextView(this);
       tv.setText("p" + i);
-      tv.setPosition((i % 4) * 70, (i / 4) * 50);
-      stage.addView(tv);
+      lps[i] = at(WRAP, WRAP, (i % 4) * 70, (i / 4) * 50);
+      stage.addView(tv, lps[i]);
       tvs[i] = tv;
     }
     display.update();
     for (int it = 0; it < B_ITERS; it++) {
       TextView tv = tvs[it % B_WIDGETS];
+      FrameLayout.LayoutParams lp = lps[it % B_WIDGETS];
       tv.setText("v" + it);
       tv.setBackgroundColor(Color.argb(255, it & 0xFF, (it * 3) & 0xFF, (it * 7) & 0xFF));
-      tv.setPosition((it % 4) * 70 + (it & 7), (it / 4 % 4) * 50);
+      lp.leftMargin = (it % 4) * 70 + (it & 7);
+      lp.topMargin = (it / 4 % 4) * 50;
+      tv.setLayoutParams(lp);
       tv.setAlpha((float) ((it % 8) + 1) / 8.0f);
       if (it % B_FRAME_EVERY == 0) {
         display.update(); // amortised render: bridge-dispatch-dominated, with real raster mixed in
@@ -277,12 +291,10 @@ public class GraphicsBench extends Application {
     int w = display.getWidth();
     View[] tiles = new View[C_TILES];
     for (int i = 0; i < C_TILES; i++) {
-      FrameLayout tile =
-          new FrameLayout(); // FrameLayout: LinearLayout would re-layout + clobber pos
-      tile.setSize(28, 28);
+      // FrameLayout: LinearLayout would re-layout + clobber pos
+      FrameLayout tile = new FrameLayout(this);
       tile.setBackgroundColor(Color.rgb(40 + i * 24, 120, 200));
-      tile.setPosition(4, i * 26);
-      stage.addView(tile);
+      stage.addView(tile, at(28, 28, 4, i * 26));
       tiles[i] = tile;
     }
     display.update();
@@ -305,11 +317,10 @@ public class GraphicsBench extends Application {
   private void benchTextFill() {
     TextView[] block = new TextView[D_BLOCK];
     for (int i = 0; i < D_BLOCK; i++) {
-      TextView tv = new TextView();
+      TextView tv = new TextView(this);
       tv.setText("row" + i);
       tv.setTextColor(Color.WHITE);
-      tv.setPosition((i % 4) * 78, (i / 4) * 32);
-      stage.addView(tv);
+      stage.addView(tv, at(WRAP, WRAP, (i % 4) * 78, (i / 4) * 32));
       block[i] = tv;
     }
     display.update();

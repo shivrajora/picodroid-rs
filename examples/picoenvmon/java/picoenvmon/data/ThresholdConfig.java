@@ -8,9 +8,9 @@ import picodroid.util.Log;
 import picoenvmon.EnvApp;
 
 /**
- * Alert thresholds — when a sensor reading crosses one of these, HomeActivity flashes the matching
- * tile and SensorLoggerService logs an alert. Persisted to {@link SharedPreferences} so values
- * survive power-cycle.
+ * Alert thresholds — when a sensor reading crosses one of these, LiveActivity flashes the matching
+ * tile and SensorLoggerService logs an alert. Persisted to the app's {@link SharedPreferences} so
+ * values survive power-cycle; {@code EnvApp} loads them once at start, Settings saves them.
  */
 @Singleton
 public class ThresholdConfig {
@@ -27,19 +27,18 @@ public class ThresholdConfig {
   /** Default: 10 lux. */
   public int luxLo = 10;
 
-  /** Loads the persisted values once; app-scoped so every screen and the Service share them. */
+  /** App-scoped so every screen and the Service share one set. */
   @Inject
-  public ThresholdConfig(SharedPreferences prefs) {
-    load(prefs);
-    Log.i(
-        EnvApp.TAG,
-        "thresholds tempHi=" + tempHiCentiC + " humLo=" + humLoMilliPct + " luxLo=" + luxLo);
-  }
+  public ThresholdConfig() {}
 
+  /** Read the persisted values over the defaults. */
   public void load(SharedPreferences p) {
     tempHiCentiC = p.getInt(KEY_TEMP_HI, tempHiCentiC);
     humLoMilliPct = p.getInt(KEY_HUM_LO, humLoMilliPct);
     luxLo = p.getInt(KEY_LUX_LO, luxLo);
+    Log.i(
+        EnvApp.TAG,
+        "thresholds tempHi=" + tempHiCentiC + " humLo=" + humLoMilliPct + " luxLo=" + luxLo);
   }
 
   public boolean save(SharedPreferences p) {

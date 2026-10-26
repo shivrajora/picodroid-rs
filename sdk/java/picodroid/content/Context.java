@@ -10,6 +10,7 @@ import picodroid.concurrent.Executor;
 import picodroid.concurrent.Executors;
 import picodroid.content.pm.PackageManager;
 import picodroid.content.res.Resources;
+import picodroid.graphics.Display;
 import picodroid.hardware.SensorManager;
 import picodroid.io.File;
 import picodroid.io.FileInputStream;
@@ -124,6 +125,23 @@ public class Context {
    */
   public ContentResolver getContentResolver() {
     return ContentResolver.INSTANCE;
+  }
+
+  /**
+   * Mirrors Android's {@code Context.getDisplay()}: the board's one display. Any Context answers,
+   * where Android's throws for one with no window: a picodroid app has the one panel.
+   */
+  public Display getDisplay() {
+    return Display.getInstance();
+  }
+
+  /**
+   * Mirrors Android: the app's {@link Application}, the Context that lives as long as the app does
+   * (what a singleton or an injected module should hold). An app whose manifest names no
+   * Application class has none, and this returns the Context it is called on.
+   */
+  public Context getApplicationContext() {
+    return sApplication != null ? sApplication : this;
   }
 
   /**

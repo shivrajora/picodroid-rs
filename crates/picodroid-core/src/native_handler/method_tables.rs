@@ -808,7 +808,6 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
         "nativePlace",
         "(Lpicodroid/view/View;IIIIIIII)Z",
     ),
-    ("picodroid/widget/GridLayout", "setSpacing", "(I)V"),
     // picodroid/widget/RelativeLayout
     ("picodroid/widget/RelativeLayout", "nativeCreate", "()I"),
     ("picodroid/widget/RelativeLayout", "nativeSetGravity", "(I)V"),
@@ -828,7 +827,6 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/widget/LinearLayout", "nativeCreate", "()I"),
     ("picodroid/widget/LinearLayout", "setGravity", "(I)V"),
     ("picodroid/widget/LinearLayout", "nativeSetOrientation", "(I)V"),
-    ("picodroid/widget/LinearLayout", "setSpacing", "(I)V"),
     // picodroid/widget/ListView
     ("picodroid/widget/ListView", "addItem", "(Ljava/lang/String;)V"),
     ("picodroid/widget/ListView", "nativeCreate", "()I"),
@@ -868,7 +866,6 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     // picodroid/widget/SeekBar
     ("picodroid/widget/SeekBar", "getProgress", "()I"),
     ("picodroid/widget/SeekBar", "nativeCreate", "()I"),
-    ("picodroid/widget/SeekBar", "nativeCreateWithMax", "(I)I"),
     ("picodroid/widget/SeekBar", "nativeRegisterChangeListener", "()V"),
     ("picodroid/widget/SeekBar", "performProgressChange", "()V"),
     ("picodroid/widget/SeekBar", "performTrackingTouch", "()V"),
@@ -920,7 +917,6 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     // picodroid/widget/ToggleButton
     ("picodroid/widget/ToggleButton", "isChecked", "()Z"),
     ("picodroid/widget/ToggleButton", "nativeCreate", "()I"),
-    ("picodroid/widget/ToggleButton", "nativeCreateWithText", "(Ljava/lang/String;Ljava/lang/String;)I"),
     ("picodroid/widget/ToggleButton", "setChecked", "(Z)V"),
     ("picodroid/widget/ToggleButton", "setTextOff", "(Ljava/lang/String;)V"),
     ("picodroid/widget/ToggleButton", "setTextOn", "(Ljava/lang/String;)V"),

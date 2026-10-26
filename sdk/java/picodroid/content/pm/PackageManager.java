@@ -3,6 +3,7 @@ package picodroid.content.pm;
 
 import java.util.ArrayList;
 import java.util.List;
+import picodroid.annotation.Hide;
 import picodroid.content.Intent;
 import picodroid.graphics.drawable.BitmapDrawable;
 import picodroid.graphics.drawable.Drawable;
@@ -42,6 +43,7 @@ public class PackageManager {
 
   private PackageManager() {}
 
+  @Hide("context.getPackageManager()")
   public static PackageManager getInstance() {
     return INSTANCE;
   }

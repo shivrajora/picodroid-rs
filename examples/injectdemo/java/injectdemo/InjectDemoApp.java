@@ -71,7 +71,7 @@ public class InjectDemoApp extends Application {
             + " singleton="
             + (banners.get() == banner));
 
-    startService(new Intent(PingService.class));
-    startActivity(new Intent(HomeActivity.class));
+    startService(new Intent(this, PingService.class));
+    startActivity(new Intent(this, HomeActivity.class));
   }
 }

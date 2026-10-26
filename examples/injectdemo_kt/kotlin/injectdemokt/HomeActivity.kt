@@ -20,12 +20,12 @@ class HomeActivity : BaseActivity() {
             "Home clock#${clock.id} same=${clock === greeter.clock} fresh=${greeter !== appGreeter}",
         )
         getDisplay()
-        val text = TextView()
+        val text = TextView(this)
         text.setText(greeter.greet("home"))
         setContentView(text)
         if (!pushed) {
             pushed = true
-            startActivity(Intent(DetailActivity::class.java))
+            startActivity(Intent(this, DetailActivity::class.java))
         }
     }
 }

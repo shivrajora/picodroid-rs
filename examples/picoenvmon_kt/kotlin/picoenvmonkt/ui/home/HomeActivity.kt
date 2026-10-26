@@ -2,13 +2,12 @@
 package picoenvmonkt.ui.home
 
 import picodroid.content.Intent
-import picodroid.graphics.Theme
 import picodroid.os.Bundle
 import picodroid.util.Log
 import picodroid.widget.ArrayAdapter
 import picodroid.widget.LinearLayout
 import picodroid.widget.ListView
-import picodroid.widget.TextView
+import picoenvmon_kt.R
 import picoenvmonkt.TAG
 import picoenvmonkt.service.SensorLoggerService
 import picoenvmonkt.ui.common.NavActivity
@@ -22,12 +21,18 @@ import picoenvmonkt.ui.settings.SettingsActivity
  * move the highlight, X opens the highlighted screen, Y exits: the inherited `onBackPressed`
  * finishes this last Activity, which ends the app and returns to the launcher, exactly as on an
  * Android home screen. The live 5-tile sensor dashboard lives in [LiveActivity]; History and
- * Settings are siblings. Adding a screen later is one more `labels`/`destinations` entry plus the
- * new Activity. The two tables are instance fields (Home is created once) rather than statics: a
- * `companion object` would be one more parsed class.
+ * Settings are siblings. Adding a screen later is one more `labels`/`destinations` entry, its
+ * string and its manifest `<activity>`, plus the new Activity. The two tables are instance fields
+ * (Home is created once) rather than statics: a `companion object` would be one more parsed class.
  */
 class HomeActivity : NavActivity() {
-    private val labels = arrayOf("Live", "History", "Network", "Settings")
+    private val labels =
+        intArrayOf(
+            R.string.menu_live,
+            R.string.menu_history,
+            R.string.menu_network,
+            R.string.menu_settings,
+        )
     private val destinations =
         arrayOf<Class<*>>(
             LiveActivity::class.java,
@@ -48,21 +53,21 @@ class HomeActivity : NavActivity() {
         // emit — found as "every dashboard row reads --" on a fresh flash). The
         // Live screen's Logger switch restores from isLogging and remains the
         // off-toggle. Idempotent: the service guards re-start internally.
-        startService(Intent(SensorLoggerService::class.java))
+        startService(Intent(this, SensorLoggerService::class.java))
 
         val root = makeScreenRoot()
+        addTitle(root, R.string.app_name)
 
-        val title = TextView()
-        title.setText("PicoEnvMonKt")
-        title.setTextColor(Theme.colorPrimary)
-        root.addView(title)
-
-        val list = ListView()
-        list.setAdapter(ArrayAdapter<String>(labels))
+        val adapter = ArrayAdapter<String>(this, picodroid.R.layout.simple_list_item_1)
+        for (label in labels) {
+            adapter.add(getString(label))
+        }
+        val list = ListView(this)
+        list.setAdapter(adapter)
         // Android-faithful 4-arg item-click: A/B move the row highlight, X (ENTER) activates the
         // focused row -> open its destination.
         list.setOnItemClickListener { _, _, position, _ ->
-            startActivity(Intent(destinations[position]))
+            startActivity(Intent(this, destinations[position]))
         }
         // The list takes the height the title and the hint bar leave (android:layout_weight="1"),
         // so the hint bar sits on the bottom edge of every panel.
@@ -71,7 +76,7 @@ class HomeActivity : NavActivity() {
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f),
         )
 
-        installHintBar(root, "A:Up  B:Down  X:Open  Y:Exit")
+        installHintBar(root, R.string.hint_home)
 
         setContentView(root)
     }

@@ -3,9 +3,11 @@ package picodroid
 
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
+import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Classpath
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.InputFile
@@ -26,6 +28,9 @@ import picodroid.classfile.ClassEntry
  * mode; `warn` prints the report and passes (`-Ppicodroid.apiContract=warn`).
  * Neither the mode nor the board is ever read from the environment: a warm
  * Gradle daemon's environment is frozen (see scripts/build-apk.sh).
+ *
+ * Also rejects references to the SDK's `@Hide` members, read from the
+ * `picodroid/…` classes on [sdkClasspath] (the app's compile classpath).
  */
 abstract class ApiContractTask : DefaultTask() {
     @get:InputDirectory
@@ -35,6 +40,10 @@ abstract class ApiContractTask : DefaultTask() {
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val contractFile: RegularFileProperty
+
+    /** The app's compile classpath: the SDK's classes (a directory or `sdk.jar`), read for `@Hide`. */
+    @get:Classpath
+    abstract val sdkClasspath: ConfigurableFileCollection
 
     @get:InputFile
     @get:Optional
@@ -81,7 +90,8 @@ abstract class ApiContractTask : DefaultTask() {
         } else null
 
         val mode = mode.get()
-        val report = ApiContract.check(classes, contract, board)
+        val hidden = ApiContract.readHidden(sdkClasses())
+        val report = ApiContract.check(classes, contract, board, hidden)
         val text = report.render(mode)
         reportFile.get().asFile.apply { parentFile.mkdirs(); writeText(text) }
         val tagged = "[${project.name}] " + text.trimEnd().replace("\n", "\n[${project.name}] ")
@@ -92,6 +102,24 @@ abstract class ApiContractTask : DefaultTask() {
             throw GradleException("api contract failed for ${project.name} — see ${reportFile.get().asFile}")
         } else {
             logger.warn(tagged)
+        }
+    }
+
+    /** Every `picodroid/…` class file on [sdkClasspath], from directories and jars alike. */
+    private fun sdkClasses(): Sequence<ByteArray> = sequence {
+        for (f in sdkClasspath.files) {
+            when {
+                f.isDirectory -> f.walkTopDown()
+                    .filter { it.isFile && it.name.endsWith(".class") && it.relativeTo(f).invariantSeparatorsPath.startsWith("picodroid/") }
+                    .forEach { yield(it.readBytes()) }
+                f.isFile && f.name.endsWith(".jar") -> java.util.zip.ZipFile(f).use { zip ->
+                    for (e in zip.entries().asSequence()) {
+                        if (!e.isDirectory && e.name.startsWith("picodroid/") && e.name.endsWith(".class")) {
+                            yield(zip.getInputStream(e).use { it.readBytes() })
+                        }
+                    }
+                }
+            }
         }
     }
 }

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package qa_ui;
 
-import picodroid.concurrent.Executors;
 import picodroid.content.Context;
 import picodroid.util.Log;
 import picodroid.view.MotionEvent;
@@ -95,9 +94,8 @@ final class CustomGroupChecks {
   void customGroup(LinearLayout root) {
     Context ctx = activity;
     flow = new Flow(ctx);
-    flow.setSize(120, 60);
     for (int i = 0; i < flowChildren.length; i++) {
-      TextView tv = new TextView();
+      TextView tv = new TextView(ctx);
       tv.setText("item " + i);
       flowChildren[i] = tv;
       flow.addView(
@@ -105,19 +103,18 @@ final class CustomGroupChecks {
           new ViewGroup.LayoutParams(
               ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
     }
-    root.addView(flow);
+    root.addView(flow, new LinearLayout.LayoutParams(120, 60));
     QaUiActivity.check("onLayout is deferred to the main loop", flow.layouts == 0);
     QaUiActivity.check(
         "indexOfChild", flow.indexOfChild(flowChildren[3]) == 3 && flow.indexOfChild(root) == -1);
 
-    // getContext: the constructor's, a parent's for a view made without one, null detached.
+    // getContext: the constructor's, parented or detached.
     QaUiActivity.check("getContext from the constructor", flow.getContext() == ctx);
-    QaUiActivity.check("getContext through the parent", flowChildren[0].getContext() == ctx);
-    QaUiActivity.check(
-        "getContext on a widget made with one", new TextView(ctx).getContext() == ctx);
-    QaUiActivity.check(
-        "getContext on a detached no-arg widget", new TextView().getContext() == null);
-    QaUiActivity.check("getContext on a Button", new Button(ctx, "b").getContext() == ctx);
+    QaUiActivity.check("getContext of a parented child", flowChildren[0].getContext() == ctx);
+    QaUiActivity.check("getContext on a detached widget", new TextView(ctx).getContext() == ctx);
+    Button button = new Button(ctx);
+    button.setText("b");
+    QaUiActivity.check("getContext on a Button", button.getContext() == ctx);
 
     // post: runs on a later frame, never inline.
     boolean accepted = root.post(() -> posted[0]++);
@@ -127,8 +124,7 @@ final class CustomGroupChecks {
     // onTouchEvent through dispatchTouchEvent, listener first. In the tree: a view that draws
     // itself is bound to its widget from construction, so one nothing reaches is reported.
     TouchView touch = new TouchView(ctx);
-    touch.setSize(10, 10);
-    root.addView(touch);
+    root.addView(touch, new LinearLayout.LayoutParams(10, 10));
     boolean consumed =
         touch.dispatchTouchEvent(MotionEvent.obtain(0, 5, MotionEvent.ACTION_DOWN, 3, 4, 0));
     QaUiActivity.check("onTouchEvent reached without a listener", consumed && touch.downs == 1);
@@ -221,7 +217,7 @@ final class CustomGroupChecks {
     QaUiActivity.check("the row wrapped", flow.rows > 1 && flowChildren[4].getTop() > 0);
     QaUiActivity.check("post ran on a later frame, once", posted[0] == 1);
     layoutsAfterPhase2 = flow.layouts;
-    flow.setSize(200, 60);
+    flow.setLayoutParams(new LinearLayout.LayoutParams(200, 60));
   }
 
   void customGroupResized(LinearLayout root) {
@@ -235,7 +231,8 @@ final class CustomGroupChecks {
     flowChildren[2].requestLayout();
     QaUiActivity.check("requestLayout is deferred", flow.layouts == before);
     // The layout task is queued ahead of this one; the group goes once it has run.
-    Executors.mainExecutor()
+    activity
+        .getMainExecutor()
         .execute(
             () -> {
               QaUiActivity.check("requestLayout bubbled to the group", flow.layouts == before + 1);

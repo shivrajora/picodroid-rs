@@ -4,9 +4,15 @@ package picoenvmon.net;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import picodroid.concurrent.Executors;
+import picodroid.concurrent.TimeUnit;
+import picodroid.content.Context;
 import picodroid.content.pm.PackageManager;
+import picodroid.lifecycle.LiveData;
+import picodroid.lifecycle.MutableLiveData;
+import picodroid.net.ConnectivityManager;
 import picodroid.net.InetAddress;
-import picodroid.net.NetworkInfo;
+import picodroid.net.Network;
+import picodroid.net.wifi.WifiManager;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
 import picoenvmon.EnvApp;
@@ -14,22 +20,24 @@ import picoenvmon.data.LatestReadings;
 import picoenvmon.util.Formatter;
 
 /**
- * App-scoped owner of everything networked: waits for the WiFi join, then runs the dashboard HTTP
- * server on ONE background thread (each Java thread costs a 16 KB task stack on device). NTP sync
- * and the weather refresh are posted to the framework's shared background pool ({@code
+ * App-scoped owner of everything networked: hears the link come and go through a {@link
+ * ConnectivityManager.NetworkCallback}, and once it is first up runs the dashboard HTTP server on
+ * ONE background thread (each Java thread costs a 16 KB task stack on device). NTP sync and the
+ * weather refresh are posted to the framework's shared background pool ({@code
  * Executors.backgroundExecutor()}) so a slow fetch never delays a page: the serve loop's 1 s accept
  * timeout doubles as the housekeeping tick, and the tick only schedules.
  *
  * <p>Fidelity note: Android would host this in a Service. An app-scoped manager is deliberate here
  * — the network stack should outlive Activity churn without a second foreground notification, and
- * the heap budget favors zero extra machinery.
+ * the heap budget favors zero extra machinery. The network callback is registered for the life of
+ * the process for the same reason: nothing outlives it to unregister.
  *
- * <p>State fields are written by the network thread or the pool worker and read by the other
- * threads without synchronization — benign on this single-core cooperative target (every Java task
- * runs at one priority and only switches when it blocks): each field is one 32-bit slot or, for the
- * two due-time longs, tolerant of a torn read (at worst one spare job or one extra tick). Listener
- * callbacks are always posted through {@code Executors.mainExecutor()}, so UI code runs on the main
- * thread only.
+ * <p>State fields are written by the main thread (the callback), the network thread or the pool
+ * worker and read by the others without synchronization — benign on this single-core cooperative
+ * target (every Java task runs at one priority and only switches when it blocks): each field is one
+ * 32-bit slot or, for the two due-time longs, tolerant of a torn read (at worst one spare job or
+ * one extra tick). The UI observes {@link #status()}: set by the callbacks on the main thread,
+ * posted to it by the housekeeping worker.
  */
 @Singleton
 public class NetworkManager implements Runnable {
@@ -45,23 +53,16 @@ public class NetworkManager implements Runnable {
   /** IP stack up; server/NTP/weather active. */
   public static final int STATE_UP = 2;
 
-  /** Initial 30 s wait expired — still retrying at a slow cadence. */
+  /** No link 30 s after start — the callback still hears one that comes later. */
   public static final int STATE_FAILED = 3;
-
-  /** Something to repaint on: network state, time sync, or weather changed. */
-  public interface Listener {
-    void onNetworkChanged();
-  }
 
   public static final int HTTP_PORT = 8080;
 
   private static final String TAG = EnvApp.TAG;
-  private static final int JOIN_POLL_MS = 500;
-  private static final int JOIN_WAIT_LIMIT_MS = 30_000;
+  private static final long JOIN_WAIT_LIMIT_MS = 30_000;
   private static final int RETRY_POLL_MS = 5_000;
-  private static final int MAX_LISTENERS = 2;
 
-  private final Listener[] listeners = new Listener[MAX_LISTENERS];
+  private final MutableLiveData<NetworkStatus> status = new MutableLiveData<>();
   private final LatestReadings latestReadings;
   private final Formatter formatter;
 
@@ -98,7 +99,9 @@ public class NetworkManager implements Runnable {
   private String weather;
   private byte[] weatherBytes;
   private boolean started;
+  private boolean serving;
   private boolean timeSynced;
+  private WifiManager wifiManager;
 
   /**
    * Next look at the wall clock, on the monotonic elapsed-ms clock. 0 = as soon as the stack is up.
@@ -127,44 +130,62 @@ public class NetworkManager implements Runnable {
     this.formatter = formatter;
   }
 
-  /** No-op (and stays {@link #STATE_NO_WIFI}) when the board has no WiFi. Idempotent. */
-  public void start() {
+  /** The link as the board's default network: it came up, or it dropped. Main thread. */
+  private final ConnectivityManager.NetworkCallback linkCallback =
+      new ConnectivityManager.NetworkCallback() {
+        @Override
+        public void onAvailable(Network network) {
+          linkUp();
+        }
+
+        @Override
+        public void onLost(Network network) {
+          linkDown();
+        }
+      };
+
+  /**
+   * Listen for the link and, once it is up, serve the dashboard. No-op (and stays {@link
+   * #STATE_NO_WIFI}) when the board has no network link. Idempotent.
+   */
+  public void start(Context context) {
     if (started) {
       return;
     }
-    PackageManager pm = PackageManager.getInstance();
+    PackageManager pm = context.getPackageManager();
     if (!pm.hasSystemFeature(PackageManager.FEATURE_WIFI)
         && !pm.hasSystemFeature(PackageManager.FEATURE_ETHERNET)) {
       Log.i(TAG, "net: no network link on this board");
+      publish();
       return;
     }
     started = true;
     state = STATE_JOINING;
-    new Thread(this).start();
+    publish();
+    wifiManager = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
+    ConnectivityManager cm =
+        (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+    cm.registerDefaultNetworkCallback(linkCallback);
+    // The current state first, then the changes: a link that is up already is served now, not
+    // when the callback's first onAvailable gets to the main thread (which a post from
+    // Application.onCreate never does here, the main queue not being up yet).
+    if (cm.getActiveNetwork() != null) {
+      linkUp();
+    }
+    // Hardware needs ~6 s association + ~4 s DHCP; past 30 s say so, and keep listening — WiFi
+    // may come back (AP reboot, creds fixed at reflash).
+    Executors.mainScheduledExecutor()
+        .schedule(this::joinTimedOut, JOIN_WAIT_LIMIT_MS, TimeUnit.MILLISECONDS);
   }
 
-  public int state() {
-    return state;
-  }
-
-  /** Dotted-quad local address, or null before {@link #STATE_UP}. */
-  public String ipAddress() {
-    return ipDotted;
-  }
-
-  /** Dashboard URL ("http://a.b.c.d:8080/"), or null before {@link #STATE_UP}. */
-  public String url() {
-    return url;
+  /** What the Network screen shows: a new value on every change, on the main thread. */
+  public LiveData<NetworkStatus> status() {
+    return status;
   }
 
   /** Whether the platform's time service has anchored the wall clock this boot. */
-  public boolean isTimeSynced() {
+  boolean isTimeSynced() {
     return timeSynced;
-  }
-
-  /** Latest weather one-liner, or null (unavailable / not fetched yet). */
-  public String weather() {
-    return weather;
   }
 
   /**
@@ -188,78 +209,69 @@ public class NetworkManager implements Runnable {
     refreshRequested = true;
   }
 
-  /** Register for change callbacks (delivered on the main executor). Returns false if full. */
-  public boolean addListener(Listener l) {
-    for (int i = 0; i < MAX_LISTENERS; i++) {
-      if (listeners[i] == null) {
-        listeners[i] = l;
-        return true;
-      }
-    }
-    return false;
+  /** Publish the current state to {@link #status()} observers. Main thread. */
+  private void publish() {
+    status.setValue(snapshot());
   }
 
-  /** Idempotent. */
-  public void removeListener(Listener l) {
-    for (int i = 0; i < MAX_LISTENERS; i++) {
-      if (listeners[i] == l) {
-        listeners[i] = null;
-      }
+  /** As {@link #publish}, from the housekeeping worker: handed to the main thread. */
+  private void notifyChanged() {
+    status.postValue(snapshot());
+  }
+
+  private NetworkStatus snapshot() {
+    return new NetworkStatus(state, ipDotted, url, timeSynced, weather);
+  }
+
+  // ── Link callbacks (main thread) ───────────────────────────────────────
+
+  /** Idempotent: the point check in {@link #start} and the callback may both report one link. */
+  private void linkUp() {
+    if (state == STATE_UP) {
+      return;
+    }
+    // The station's address, packed as Android packs it; 0 while it has none.
+    int raw = wifiManager.getConnectionInfo().getIpAddress();
+    if (raw != 0) {
+      ipDotted = new InetAddress(raw).getHostAddress();
+      ipBytes = ipDotted.getBytes();
+      url = "http://" + ipDotted + ":" + HTTP_PORT + "/";
+    }
+    state = STATE_UP;
+    Log.i(TAG, "net: up, ip=" + ipDotted);
+    publish();
+    if (!serving) {
+      serving = true;
+      new Thread(this).start();
     }
   }
 
-  /** Post one onNetworkChanged round to every listener, on the main thread. */
-  void notifyChanged() {
-    Executors.mainExecutor()
-        .execute(
-            () -> {
-              for (int i = 0; i < MAX_LISTENERS; i++) {
-                Listener l = listeners[i];
-                if (l != null) {
-                  l.onNetworkChanged();
-                }
-              }
-            });
+  private void linkDown() {
+    state = STATE_JOINING;
+    ipDotted = null;
+    ipBytes = null;
+    url = null;
+    Log.i(TAG, "net: link lost");
+    publish();
+  }
+
+  private void joinTimedOut() {
+    if (state == STATE_JOINING) {
+      state = STATE_FAILED;
+      Log.i(TAG, "net: still no network after " + (JOIN_WAIT_LIMIT_MS / 1000) + "s");
+      publish();
+    }
   }
 
   // ── Network thread ─────────────────────────────────────────────────────
 
+  /**
+   * Steady-state loop, from the first time the link is up: serve the dashboard, and let the accept
+   * timeout (1 s) double as the housekeeping tick. Bind failures back off rather than kill the
+   * thread.
+   */
   @Override
   public void run() {
-    waitForNetwork();
-    runOnline();
-  }
-
-  /**
-   * The examples-canonical join wait: hardware needs ~6 s association + ~4 s DHCP, so poll {@code
-   * NetworkInfo.isConnected()} rather than racing the boot. After the 30 s budget, drop to a slow
-   * retry instead of giving up — WiFi may come back (AP reboot, creds fixed at reflash).
-   */
-  private void waitForNetwork() {
-    int waited = 0;
-    while (!NetworkInfo.isConnected()) {
-      if (waited >= JOIN_WAIT_LIMIT_MS && state != STATE_FAILED) {
-        state = STATE_FAILED;
-        Log.i(TAG, "net: still no network after " + (JOIN_WAIT_LIMIT_MS / 1000) + "s");
-        notifyChanged();
-      }
-      int pollMs = state == STATE_FAILED ? RETRY_POLL_MS : JOIN_POLL_MS;
-      SystemClock.sleep(pollMs);
-      waited += pollMs;
-    }
-    ipDotted = new InetAddress(NetworkInfo.getIpAddress()).getHostAddress();
-    ipBytes = ipDotted.getBytes();
-    url = "http://" + ipDotted + ":" + HTTP_PORT + "/";
-    state = STATE_UP;
-    Log.i(TAG, "net: up, ip=" + ipDotted);
-    notifyChanged();
-  }
-
-  /**
-   * Steady-state loop: serve the dashboard, and let the accept timeout (1 s) double as the
-   * housekeeping tick. Bind failures back off rather than kill the thread.
-   */
-  private void runOnline() {
     HttpServer server = new HttpServer(latestReadings, formatter, this);
     while (true) {
       if (!server.ensureOpen()) {
@@ -304,9 +316,8 @@ public class NetworkManager implements Runnable {
    * KB by default; the W board.toml raises it to 6 KB because this job measured 4.7 KB deep), so
    * keep this shallow (no large locals; the fetchers are flat). Blocking here never stalls {@code
    * accept()}. Result fields are single-slot or torn-tolerant (class doc); {@link #notifyChanged}
-   * still hops to the main executor. The {@code finally} guard pushes any due time still in the
-   * past to its retry cadence, so a body that throws before setting one cannot re-post every
-   * second.
+   * posts to the main thread. The {@code finally} guard pushes any due time still in the past to
+   * its retry cadence, so a body that throws before setting one cannot re-post every second.
    */
   private void runHousekeeping() {
     long nowMs = SystemClock.elapsedRealtimeNanos() / 1_000_000;
@@ -349,6 +360,4 @@ public class NetworkManager implements Runnable {
       housekeepingBusy = false;
     }
   }
-
-  /** Dashboard footer: clock + address + uptime. */
 }

@@ -5,6 +5,7 @@ import picodroid.app.Activity;
 import picodroid.graphics.Color;
 import picodroid.os.Bundle;
 import picodroid.util.Log;
+import picodroid.view.ViewGroup;
 import picodroid.widget.Button;
 import picodroid.widget.DatePicker;
 import picodroid.widget.LinearLayout;
@@ -18,41 +19,40 @@ public class PickerDemoActivity extends Activity {
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    getDisplay();
     Log.i(TAG, "Display ready");
 
-    ScrollView scroll = new ScrollView();
-    scroll.setSize(240, 240);
+    ScrollView scroll = new ScrollView(this);
 
-    LinearLayout root = new LinearLayout();
+    LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(240, 460);
     root.setPadding(8, 8, 8, 8);
-    scroll.addView(root);
+    scroll.addView(
+        root,
+        new ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-    TextView dateLabel = new TextView();
+    TextView dateLabel = new TextView(this);
     dateLabel.setText("Date: --");
     dateLabel.setTextColor(Color.WHITE);
     root.addView(dateLabel);
 
-    DatePicker date = new DatePicker();
-    date.setSize(220, 200);
+    DatePicker date = new DatePicker(this);
     date.updateDate(2026, 4, 1); // May: the month is 0-based, as Android's
     date.setOnDateChangedListener(
         (view, year, month, day) -> {
           dateLabel.setText("Date: " + year + "-" + (month + 1) + "-" + day);
           Log.i(TAG, "date " + year + "-" + (month + 1) + "-" + day);
         });
-    root.addView(date);
+    root.addView(date, new LinearLayout.LayoutParams(220, 200));
 
-    TextView timeLabel = new TextView();
+    TextView timeLabel = new TextView(this);
     timeLabel.setText("Time: 12:00");
     timeLabel.setTextColor(Color.WHITE);
     root.addView(timeLabel);
 
-    TimePicker time = new TimePicker();
-    time.setSize(200, 100);
-    time.setTime(12, 0);
+    TimePicker time = new TimePicker(this);
+    time.setHour(12);
+    time.setMinute(0);
     time.setOnTimeChangedListener(
         (view, h, m) -> {
           String mode = time.is24HourView() ? "24h" : "12h";
@@ -68,17 +68,17 @@ public class PickerDemoActivity extends Activity {
                   + ")");
           Log.i(TAG, "time " + h + ":" + m + " " + mode);
         });
-    root.addView(time);
+    root.addView(time, new LinearLayout.LayoutParams(200, 100));
 
-    Button toggle = new Button("Toggle 12/24h");
-    toggle.setSize(200, 36);
+    Button toggle = new Button(this);
+    toggle.setText("Toggle 12/24h");
     toggle.setOnClickListener(
         v -> {
           boolean next = !time.is24HourView();
           time.setIs24HourView(next);
           Log.i(TAG, "mode -> " + (next ? "24h" : "12h"));
         });
-    root.addView(toggle);
+    root.addView(toggle, new LinearLayout.LayoutParams(200, 36));
 
     setContentView(scroll);
   }

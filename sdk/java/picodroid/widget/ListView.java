@@ -41,10 +41,6 @@ public class ListView extends AdapterView<Adapter> {
   /** Whether the widget reports its scroll and size changes to {@link #fireScroll}. */
   private boolean mWatching;
 
-  public ListView() {
-    super(nativeCreate());
-  }
-
   public ListView(Context ctx) {
     super(ctx, nativeCreate());
   }

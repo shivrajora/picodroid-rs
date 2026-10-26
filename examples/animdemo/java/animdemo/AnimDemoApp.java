@@ -7,6 +7,6 @@ import picodroid.content.Intent;
 public class AnimDemoApp extends Application {
   @Override
   public void onCreate() {
-    startActivity(new Intent(AnimDemoActivity.class));
+    startActivity(new Intent(this, AnimDemoActivity.class));
   }
 }

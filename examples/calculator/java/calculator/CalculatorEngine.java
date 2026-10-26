@@ -19,9 +19,6 @@ final class CalculatorEngine {
   /** The value of {@link #pending} and {@link #repeatOp} when no operator is waiting. */
   private static final char NO_OP = 0;
 
-  /** {@code Double.MAX_VALUE}, spelled out: the SDK serves Double's methods, not its fields. */
-  private static final double MAX_FINITE = 1.7976931348623157e308;
-
   /**
    * Digits a typed entry may hold. Twelve fits the display comfortably and stays well inside the 15
    * digits a {@code double} carries exactly.
@@ -263,11 +260,8 @@ final class CalculatorEngine {
         r = b;
         break;
     }
-    // The SDK serves no Double.isNaN / isInfinite, and needs neither: a division
-    // by zero or an overflow leaves NaN or an infinity, and both fail this test
-    // — NaN because every comparison against it is false, an infinity because it
-    // is larger than any finite double.
-    if (!(Math.abs(r) <= MAX_FINITE)) {
+    // A division by zero or an overflow leaves NaN or an infinity.
+    if (!Double.isFinite(r)) {
       error = true;
       return 0;
     }

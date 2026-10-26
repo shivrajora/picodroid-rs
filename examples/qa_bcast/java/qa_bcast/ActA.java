@@ -5,7 +5,6 @@ import java.util.TimeZone;
 import picodroid.app.Activity;
 import picodroid.app.AlarmManager;
 import picodroid.app.PendingIntent;
-import picodroid.concurrent.Executors;
 import picodroid.content.BroadcastReceiver;
 import picodroid.content.Context;
 import picodroid.content.Intent;
@@ -137,14 +136,14 @@ public class ActA extends Activity {
     resumes++;
     T.log("A.onResume" + resumes);
     if (resumes == 1) {
-      Executors.mainExecutor().execute(this::stepSendToRegistered);
+      getMainExecutor().execute(this::stepSendToRegistered);
     } else if (resumes == 2) {
-      Executors.mainExecutor().execute(this::stepAfterLeak);
+      getMainExecutor().execute(this::stepAfterLeak);
     }
   }
 
   private void checkIntentAndFilter() {
-    Intent explicit = new Intent(ActB.class);
+    Intent explicit = new Intent(this, ActB.class);
     T.check("explicit intent has no action", explicit.getAction() == null);
     Intent act = new Intent(ACTION_A);
     T.check("Intent(String) action", ACTION_A.equals(act.getAction()));
@@ -254,7 +253,7 @@ public class ActA extends Activity {
     registerReceiver(receiverB, new IntentFilter(ACTION_B));
     sendBroadcast(new Intent(ACTION_A).putExtra("n", 7));
     T.check("sendBroadcast is asynchronous", aCount == 0);
-    Executors.mainExecutor().execute(this::stepCheckRegistered);
+    getMainExecutor().execute(this::stepCheckRegistered);
   }
 
   private void stepCheckRegistered() {
@@ -270,7 +269,7 @@ public class ActA extends Activity {
     registerReceiver(first, new IntentFilter(ACTION_ORDER));
     registerReceiver(second, new IntentFilter(ACTION_ORDER));
     sendBroadcast(new Intent(ACTION_ORDER));
-    Executors.mainExecutor().execute(this::stepCheckOrder);
+    getMainExecutor().execute(this::stepCheckOrder);
   }
 
   private void stepCheckOrder() {
@@ -282,7 +281,7 @@ public class ActA extends Activity {
     registerReceiver(thrower, new IntentFilter(ACTION_THROW));
     registerReceiver(survivor, new IntentFilter(ACTION_THROW));
     sendBroadcast(new Intent(ACTION_THROW));
-    Executors.mainExecutor().execute(this::stepCheckThrow);
+    getMainExecutor().execute(this::stepCheckThrow);
   }
 
   private void stepCheckThrow() {
@@ -291,7 +290,7 @@ public class ActA extends Activity {
     unregisterReceiver(survivor);
     // Explicit component: a fresh instance each time, the sender's Context.
     sendBroadcast(new Intent(this, ExplicitReceiver.class).putExtra("v", 42));
-    Executors.mainExecutor().execute(this::stepCheckExplicit);
+    getMainExecutor().execute(this::stepCheckExplicit);
   }
 
   private void stepCheckExplicit() {
@@ -302,7 +301,7 @@ public class ActA extends Activity {
     // A receiver unregistered then re-registered hears again.
     unregisterReceiver(receiverA);
     sendBroadcast(new Intent(ACTION_A));
-    Executors.mainExecutor().execute(this::stepCheckUnregistered);
+    getMainExecutor().execute(this::stepCheckUnregistered);
   }
 
   private void stepCheckUnregistered() {
@@ -400,7 +399,8 @@ public class ActA extends Activity {
             new Intent(this, ExplicitReceiver.class).putExtra("v", 77),
             PendingIntent.FLAG_IMMUTABLE);
     PendingIntent asActivity =
-        PendingIntent.getActivity(this, 1, new Intent(ActB.class), PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent.getActivity(
+            this, 1, new Intent(this, ActB.class), PendingIntent.FLAG_IMMUTABLE);
     T.check(
         "kinds keep operations apart", !byAction.equals(byClass) && !byClass.equals(asActivity));
     T.check(
@@ -427,7 +427,7 @@ public class ActA extends Activity {
     T.check("alarm receiver got a plain Context", !ExplicitReceiver.contextWasActivity);
     unregisterReceiver(alarmReceiver);
     // The leak excursion: ActB registers and finishes without unregistering.
-    startActivity(new Intent(ActB.class));
+    startActivity(new Intent(this, ActB.class));
   }
 
   private void stepAfterLeak() {
@@ -444,7 +444,7 @@ public class ActA extends Activity {
     T.check("leaked receiver was reaped at destroy", reRegistered);
     unregisterReceiver(ActB.leaked);
     sendBroadcast(new Intent(ActB.ACTION));
-    Executors.mainExecutor().execute(this::stepFinish);
+    getMainExecutor().execute(this::stepFinish);
   }
 
   private void stepFinish() {

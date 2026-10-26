@@ -187,7 +187,6 @@ impl GraphicsBackend for LvglBackend {
                 ctx.args,
                 ctx.objects,
             )),
-            mh::setSpacing => Some(widgets::linear_layout_set_spacing(ctx.args, ctx.objects)),
             mh::setGravity => Some(widgets::linear_layout_set_gravity(ctx.args, ctx.objects)),
             _ => None,
         }
@@ -280,10 +279,6 @@ impl GraphicsBackend for LvglBackend {
     ) -> DispatchResult {
         match method {
             mh::nativeCreate => Some(widgets::toggle_button_native_create()),
-            mh::nativeCreateWithText => Some(widgets::toggle_button_native_create_with_text(
-                ctx.args,
-                ctx.strings,
-            )),
             mh::isChecked => Some(widgets::toggle_button_is_checked(ctx.args, ctx.objects)),
             mh::setChecked => Some(widgets::toggle_button_set_checked(ctx.args, ctx.objects)),
             mh::toggle => Some(widgets::toggle_button_toggle(ctx.args, ctx.objects)),
@@ -357,7 +352,6 @@ impl GraphicsBackend for LvglBackend {
     fn dispatch_seek_bar(&mut self, method: u32, ctx: &mut NativeContext<'_>) -> DispatchResult {
         match method {
             mh::nativeCreate => Some(widgets::seek_bar_native_create()),
-            mh::nativeCreateWithMax => Some(widgets::seek_bar_native_create_with_max(ctx.args)),
             mh::nativeSetMax => Some(widgets::seek_bar_set_max(ctx.args, ctx.objects)),
             mh::nativeSetProgress => Some(widgets::seek_bar_set_progress(ctx.args, ctx.objects)),
             mh::getProgress => Some(widgets::seek_bar_get_progress(ctx.args, ctx.objects)),
@@ -465,7 +459,6 @@ impl GraphicsBackend for LvglBackend {
         match method {
             mh::nativeCreate => Some(widgets::grid_layout_native_create()),
             mh::nativePlace => Some(widgets::grid_layout_place(ctx.args, ctx.objects)),
-            mh::setSpacing => Some(widgets::grid_layout_set_spacing(ctx.args, ctx.objects)),
             _ => None,
         }
     }

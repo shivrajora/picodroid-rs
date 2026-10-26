@@ -23,6 +23,6 @@ public class BootDemoApp extends Application {
     Log.i(TAG, "application up");
     // In the headless boot run this push is dropped (the framework says so in the log); when
     // the app is opened, or started for its alarm, it is the screen.
-    startActivity(new Intent(MainActivity.class));
+    startActivity(new Intent(this, MainActivity.class));
   }
 }

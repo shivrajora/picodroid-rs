@@ -47,7 +47,7 @@ public class ActC extends Activity {
         "C intent present and empty", in != null && in.getExtras() == null && !in.hasExtra("n"));
     T.check("C getStringExtra missing null", in == null || in.getStringExtra("nothing") == null);
     T.check("C package name", "qa_life".equals(getPackageName()));
-    bindService(new Intent(Svc.class), conn, BIND_AUTO_CREATE);
+    bindService(new Intent(this, Svc.class), conn, BIND_AUTO_CREATE);
     getSharedPreferences("life", Context.MODE_PRIVATE)
         .edit()
         .putInt("from_c", 1)

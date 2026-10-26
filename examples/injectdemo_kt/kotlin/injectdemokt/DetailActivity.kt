@@ -14,7 +14,7 @@ class DetailActivity : BaseActivity() {
         super.onCreate(savedInstanceState)
         Log.i(TAG, "Detail clock#${clock.id} inherited=true")
         getDisplay()
-        val text = TextView()
+        val text = TextView(this)
         text.setText("detail clock#${clock.id}")
         setContentView(text)
     }

@@ -8,6 +8,7 @@ import picodroid.app.Activity;
 import picodroid.concurrent.Executors;
 import picodroid.concurrent.ScheduledExecutorService;
 import picodroid.concurrent.TimeUnit;
+import picodroid.content.Context;
 import picodroid.graphics.Color;
 import picodroid.graphics.drawable.GradientDrawable;
 import picodroid.hardware.Sensor;
@@ -15,8 +16,9 @@ import picodroid.hardware.SensorEvent;
 import picodroid.hardware.SensorEventListener;
 import picodroid.hardware.SensorManager;
 import picodroid.json.JSONException;
+import picodroid.net.ConnectivityManager;
 import picodroid.net.HttpURLConnection;
-import picodroid.net.NetworkInfo;
+import picodroid.net.Network;
 import picodroid.net.URL;
 import picodroid.os.Bundle;
 import picodroid.os.SystemClock;
@@ -24,6 +26,7 @@ import picodroid.util.Log;
 import picodroid.view.Gravity;
 import picodroid.view.KeyEvent;
 import picodroid.view.View;
+import picodroid.view.ViewGroup;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
 
@@ -34,10 +37,11 @@ import picodroid.widget.TextView;
  * pressure, sunrise and sunset, and on a board with the Enviro+ sensors the room's own readings.
  * The sky behind it all follows the conditions and the time of day.
  *
- * <p>Everything comes from one open-meteo request over HTTPS (docs/designs/tls-2026-09.md) every
- * {@link #REFRESH_MINUTES} minutes, on a thread of its own; the handshake needs the wall clock,
- * which the platform's time service anchors (docs/designs/time-service-2026-10.md), so the app
- * never sets it. Four buttons: A and B turn the page, X refreshes now, Y leaves.
+ * <p>Everything comes from one open-meteo request over HTTPS (docs/designs/tls-2026-09.md) when the
+ * network comes up and every {@link #REFRESH_MINUTES} minutes after, on a thread of its own; the
+ * handshake needs the wall clock, which the platform's time service anchors
+ * (docs/designs/time-service-2026-10.md), so the app never sets it. Four buttons: A and B turn the
+ * page, X refreshes now, Y leaves.
  *
  * <p>The place and the units are build-time constants ({@code picodroidBuildConfig} in
  * build.gradle.kts): {@code PICODROID_WEATHER_CITY=Tokyo PICODROID_WEATHER_LATITUDE=35.68
@@ -46,9 +50,6 @@ import picodroid.widget.TextView;
  */
 public class MainActivity extends Activity implements SensorEventListener {
   private static final String TAG = "Weather";
-
-  /** How long to wait for the network before giving up (WiFi join + DHCP). */
-  private static final int NETWORK_WAIT_MS = 30000;
 
   private static final int TIMEOUT_MS = 10000;
   private static final int MAX_REPLY_BYTES = 4096;
@@ -59,10 +60,12 @@ public class MainActivity extends Activity implements SensorEventListener {
   private static final int PAGE_DETAILS = 2;
   private static final int PAD = 8;
   private static final int HEADER = 24;
-  private static final int STATUS_WIDTH = 64;
-  private static final int LINE = 16;
   private static final int HERO_ICON = 64;
-  private static final String DEGREE = "°";
+
+  /** Space between the lines of a page; the details page spaces its lines wider. */
+  private static final int GAP = 2;
+
+  private static final int DETAILS_GAP = 6;
 
   static final boolean FAHRENHEIT = BuildConfig.UNITS.equals("fahrenheit");
 
@@ -102,6 +105,26 @@ public class MainActivity extends Activity implements SensorEventListener {
   private int page;
   private boolean busy;
   private ScheduledExecutorService timer;
+  private ConnectivityManager connectivity;
+  private SensorManager sensors;
+
+  /**
+   * Fetches when the network comes up, at start and after every drop; says so when it goes. The
+   * framework calls it on the main thread.
+   */
+  private final ConnectivityManager.NetworkCallback networkCallback =
+      new ConnectivityManager.NetworkCallback() {
+        @Override
+        public void onAvailable(Network network) {
+          refresh();
+        }
+
+        @Override
+        public void onLost(Network network) {
+          setStatus(getString(R.string.status_no_network));
+        }
+      };
+
   private int skyTop;
   private int skyBottom;
 
@@ -116,39 +139,36 @@ public class MainActivity extends Activity implements SensorEventListener {
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    int width = getDisplay().getWidth();
-    int height = getDisplay().getHeight();
-    int content = width - 2 * PAD;
-    int pageHeight = height - 2 * 6 - LINE - 2;
-
     root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(width, height);
     // A weather display is glanced at, not touched: hold the panel on.
     root.setKeepScreenOn(true);
     root.setPadding(PAD, 6, PAD, 6);
-    root.setSpacing(2);
     sky(NIGHT_CLEAR_TOP, NIGHT_CLEAR_BOTTOM);
 
-    buildToday(content, pageHeight);
-    buildWeek(content, pageHeight);
-    buildDetails(content, pageHeight);
+    buildToday();
+    buildWeek();
+    buildDetails();
+    // One page shows at a time and takes all the height the hints leave.
     for (int i = 0; i < PAGES; i++) {
-      root.addView(pages[i]);
+      root.addView(
+          pages[i], new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
     }
 
     TextView hints = new TextView(this);
-    hints.setText("A/B:Page  X:Refresh  Y:Exit");
+    hints.setText(getString(R.string.hints));
     hints.setTextColor(TEXT_DIM);
     hints.setSingleLine();
-    root.addView(hints);
+    root.addView(hints, below(GAP, ViewGroup.LayoutParams.WRAP_CONTENT));
 
     setContentView(root);
     showPage(PAGE_TODAY);
     startSensors();
     Log.i(TAG, "ready");
 
-    refresh();
+    setStatus(getString(R.string.status_connecting));
+    connectivity = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+    connectivity.registerDefaultNetworkCallback(networkCallback);
     timer = Executors.mainScheduledExecutor();
     timer.scheduleAtFixedRate(() -> refresh(), REFRESH_MINUTES, REFRESH_MINUTES, TimeUnit.MINUTES);
   }
@@ -159,102 +179,107 @@ public class MainActivity extends Activity implements SensorEventListener {
       timer.shutdownNow();
       timer = null;
     }
+    connectivity.unregisterNetworkCallback(networkCallback);
+    sensors.unregisterListener(this);
     super.onDestroy();
   }
 
   // ── The pages ──────────────────────────────────────────────────────────
 
+  /** A view's place in a column: {@code gap} below the one above it. */
+  private static LinearLayout.LayoutParams below(int gap, int width) {
+    LinearLayout.LayoutParams lp =
+        new LinearLayout.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT);
+    lp.topMargin = gap;
+    return lp;
+  }
+
   /** A page: a header row (title left, status right) over its content, hidden until shown. */
-  private LinearLayout newPage(int index, int width, int height, String title) {
+  private LinearLayout newPage(int index, String title) {
     LinearLayout p = new LinearLayout(this);
     p.setOrientation(LinearLayout.VERTICAL);
-    p.setSize(width, height);
-    p.setSpacing(2);
 
     LinearLayout header = new LinearLayout(this);
     header.setOrientation(LinearLayout.HORIZONTAL);
-    header.setSize(width, HEADER);
     header.setGravity(Gravity.CENTER_VERTICAL);
     TextView t = new TextView(this);
     t.setText(title);
     t.setTextSize(20);
     t.setTextColor(TEXT);
     t.setSingleLine();
-    t.setSize(width - STATUS_WIDTH, HEADER);
-    header.addView(t);
+    header.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
     TextView s = new TextView(this);
     s.setTextColor(TEXT_DIM);
     s.setSingleLine();
-    s.setGravity(Gravity.RIGHT);
-    s.setSize(STATUS_WIDTH, LINE);
     header.addView(s);
-    p.addView(header);
+    p.addView(header, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, HEADER));
 
     statusViews[index] = s;
     pages[index] = p;
     return p;
   }
 
-  private void buildToday(int width, int height) {
-    LinearLayout p = newPage(PAGE_TODAY, width, height, BuildConfig.CITY);
+  private void buildToday() {
+    LinearLayout p = newPage(PAGE_TODAY, BuildConfig.CITY);
 
+    // The temperature takes the row beside the icon; the row is as tall as the taller of the two.
     LinearLayout hero = new LinearLayout(this);
     hero.setOrientation(LinearLayout.HORIZONTAL);
     hero.setGravity(Gravity.CENTER_VERTICAL);
     tempView = new TextView(this);
-    tempView.setText("--" + DEGREE);
+    tempView.setText(getString(R.string.temperature_unknown));
     tempView.setTextSize(64);
     tempView.setIncludeFontPadding(false);
     tempView.setTextColor(TEXT);
     tempView.setSingleLine();
-    // The 64 px face is taller than the icon: size the row to it.
-    int heroHeight = Math.max(HERO_ICON, tempView.getLineHeight());
-    tempView.setSize(width - HERO_ICON, heroHeight);
-    hero.setSize(width, heroHeight);
-    hero.addView(tempView);
+    hero.addView(
+        tempView, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
     icon = new ConditionIcon(this, HERO_ICON);
-    hero.addView(icon);
-    p.addView(hero);
+    // wrap_content: the icon says how large it is (ConditionIcon.onMeasure).
+    hero.addView(
+        icon,
+        new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+    p.addView(hero, below(GAP, ViewGroup.LayoutParams.MATCH_PARENT));
 
     conditionView = new TextView(this);
-    conditionView.setText("Waiting for the forecast");
+    conditionView.setText(getString(R.string.waiting));
     conditionView.setTextColor(TEXT);
     conditionView.setSingleLine();
-    p.addView(conditionView);
+    p.addView(conditionView, below(GAP, ViewGroup.LayoutParams.WRAP_CONTENT));
 
     highLowView = new TextView(this);
     highLowView.setTextColor(TEXT_DIM);
     highLowView.setSingleLine();
-    p.addView(highLowView);
+    p.addView(highLowView, below(GAP, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-    hourly = new HourlyStrip(this, width);
-    p.addView(hourly);
+    hourly = new HourlyStrip(this);
+    p.addView(hourly, below(GAP, ViewGroup.LayoutParams.MATCH_PARENT));
   }
 
-  private void buildWeek(int width, int height) {
-    LinearLayout p = newPage(PAGE_WEEK, width, height, "7 days");
-    daily = new DailyList(this, width);
-    p.addView(daily);
+  private void buildWeek() {
+    LinearLayout p = newPage(PAGE_WEEK, getString(R.string.page_week));
+    daily = new DailyList(this);
+    p.addView(daily, below(GAP, ViewGroup.LayoutParams.MATCH_PARENT));
   }
 
-  private void buildDetails(int width, int height) {
-    LinearLayout p = newPage(PAGE_DETAILS, width, height, "Details");
+  private void buildDetails() {
+    LinearLayout p = newPage(PAGE_DETAILS, getString(R.string.page_details));
     p.setGravity(Gravity.LEFT);
-    p.setSpacing(6);
     feelsView = detailLine(p);
     humidityView = detailLine(p);
     windView = detailLine(p);
     pressureView = detailLine(p);
     sunView = detailLine(p);
     indoorView = detailLine(p);
-    indoorView.setText("Indoor  no sensors on this board");
+    indoorView.setText(getString(R.string.indoor_none));
   }
 
   private TextView detailLine(LinearLayout page) {
     TextView v = new TextView(this);
     v.setTextColor(TEXT);
     v.setSingleLine();
-    page.addView(v);
+    page.addView(v, below(DETAILS_GAP, ViewGroup.LayoutParams.WRAP_CONTENT));
     return v;
   }
 
@@ -279,7 +304,7 @@ public class MainActivity extends Activity implements SensorEventListener {
     skyTop = top;
     skyBottom = bottom;
     root.setBackground(
-        new GradientDrawable().setGradient(top, bottom, GradientDrawable.Orientation.TOP_BOTTOM));
+        new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[] {top, bottom}));
   }
 
   private void skyFor(Forecast f) {
@@ -331,13 +356,21 @@ public class MainActivity extends Activity implements SensorEventListener {
 
   // ── The fetch ──────────────────────────────────────────────────────────
 
-  /** One request in flight at a time; the network work runs on its own thread. */
+  /**
+   * One request in flight at a time, and none without a network (the callback fetches when one
+   * comes up); the network work runs on its own thread.
+   */
   private void refresh() {
     if (busy) {
       return;
     }
+    if (connectivity.getActiveNetwork() == null) {
+      Log.i(TAG, "fetch failed: no network");
+      setStatus(getString(R.string.status_no_network));
+      return;
+    }
     busy = true;
-    setStatus("Updating");
+    setStatus(getString(R.string.status_updating));
     new Thread(() -> fetchOnThread(), "weather-http").start();
   }
 
@@ -368,16 +401,6 @@ public class MainActivity extends Activity implements SensorEventListener {
   }
 
   private void fetchOnThread() {
-    int waited = 0;
-    while (!NetworkInfo.isConnected() && waited < NETWORK_WAIT_MS) {
-      SystemClock.sleep(500);
-      waited += 500;
-    }
-    if (!NetworkInfo.isConnected()) {
-      Log.i(TAG, "fetch failed: no network");
-      post(null, "No network");
-      return;
-    }
     long t0 = SystemClock.elapsedRealtime();
     try {
       Forecast f = Forecast.parse(get(url()));
@@ -397,16 +420,16 @@ public class MainActivity extends Activity implements SensorEventListener {
               + " d, in "
               + took
               + " ms");
-      post(f, null);
+      deliver(f, 0);
     } catch (SSLHandshakeException e) {
       Log.i(TAG, "fetch failed: tls: " + e.getMessage());
-      post(null, "TLS refused");
+      deliver(null, R.string.status_tls_refused);
     } catch (IOException e) {
       Log.i(TAG, "fetch failed: " + e.getMessage());
-      post(null, "Offline");
+      deliver(null, R.string.status_offline);
     } catch (JSONException e) {
       Log.i(TAG, "fetch failed: bad reply: " + e.getMessage());
-      post(null, "Bad reply");
+      deliver(null, R.string.status_bad_reply);
     }
   }
 
@@ -434,33 +457,32 @@ public class MainActivity extends Activity implements SensorEventListener {
   }
 
   /** Hands the outcome to the main thread: a forecast, or the status to show without one. */
-  private void post(Forecast f, String failure) {
-    Executors.mainExecutor()
+  private void deliver(Forecast f, int failure) {
+    getMainExecutor()
         .execute(
             () -> {
               busy = false;
               if (f != null) {
                 apply(f);
               } else {
-                setStatus(failure);
+                setStatus(getString(failure));
               }
             });
   }
 
   private void apply(Forecast f) {
     skyFor(f);
-    tempView.setText(f.temperature + DEGREE);
+    tempView.setText(getString(R.string.temperature, f.temperature));
     icon.set(f.weatherCode, f.isDay);
     conditionView.setText(WeatherIcons.text(f.weatherCode));
-    highLowView.setText(
-        f.days > 0 ? "H:" + f.dayHigh[0] + DEGREE + "  L:" + f.dayLow[0] + DEGREE : "");
+    highLowView.setText(f.days > 0 ? getString(R.string.high_low, f.dayHigh[0], f.dayLow[0]) : "");
     hourly.set(f);
     daily.set(f);
-    feelsView.setText("Feels like  " + f.feelsLike + DEGREE);
-    humidityView.setText("Humidity  " + f.humidity + "%");
-    windView.setText("Wind  " + f.windSpeed + (FAHRENHEIT ? " mph" : " km/h"));
-    pressureView.setText("Pressure  " + f.pressure + " hPa");
-    sunView.setText("Sunrise " + f.sunrise + "   Sunset " + f.sunset);
+    feelsView.setText(getString(R.string.feels_like, f.feelsLike));
+    humidityView.setText(getString(R.string.humidity, f.humidity));
+    windView.setText(getString(FAHRENHEIT ? R.string.wind_mph : R.string.wind_kmh, f.windSpeed));
+    pressureView.setText(getString(R.string.pressure, f.pressure));
+    sunView.setText(getString(R.string.sun, f.sunrise, f.sunset));
     updateIndoor();
     setStatus(Forecast.clock(System.currentTimeMillis() / 1000, f.utcOffsetSeconds));
     Log.i(TAG, "updated");
@@ -469,7 +491,8 @@ public class MainActivity extends Activity implements SensorEventListener {
   // ── Room readings, on a board that has the sensors ──────────────────────
 
   private void startSensors() {
-    SensorManager sm = SensorManager.getInstance();
+    sensors = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+    SensorManager sm = sensors;
     Sensor t = sm.getDefaultSensor(Sensor.TYPE_AMBIENT_TEMPERATURE);
     Sensor h = sm.getDefaultSensor(Sensor.TYPE_RELATIVE_HUMIDITY);
     Sensor p = sm.getDefaultSensor(Sensor.TYPE_PRESSURE);
@@ -513,14 +536,11 @@ public class MainActivity extends Activity implements SensorEventListener {
     }
     float t = FAHRENHEIT ? roomTemperature * 9 / 5 + 32 : roomTemperature;
     String text =
-        "Indoor  "
-            + Forecast.round(t)
-            + DEGREE
-            + " • "
-            + Forecast.round(roomHumidity)
-            + "% • "
-            + Forecast.round(roomPressure)
-            + " hPa";
+        getString(
+            R.string.indoor,
+            Forecast.round(t),
+            Forecast.round(roomHumidity),
+            Forecast.round(roomPressure));
     if (!text.equals(indoorText)) {
       indoorText = text;
       indoorView.setText(text);

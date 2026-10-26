@@ -9,7 +9,7 @@ import picodroid.view.View;
 
 /**
  * The next hours as columns: the hour, its glyph, its temperature. One view drawing every column,
- * as many as fit at {@link #COLUMN} pixels each.
+ * as many as fit its width at {@link #COLUMN} pixels each.
  */
 final class HourlyStrip extends View {
   static final int HEIGHT = 58;
@@ -19,13 +19,20 @@ final class HourlyStrip extends View {
   private static final int TEXT_DIM = Color.rgb(214, 222, 236);
 
   private final Paint paint = new Paint();
-  private final int columns;
+  private final String now;
   private Forecast forecast;
 
-  HourlyStrip(Context ctx, int width) {
+  HourlyStrip(Context ctx) {
     super(ctx);
-    columns = Math.max(1, Math.min(Forecast.HOURS, width / COLUMN));
-    setSize(width, HEIGHT);
+    now = ctx.getString(R.string.now);
+  }
+
+  /** {@link #HEIGHT} tall; as wide as the parent makes it. */
+  @Override
+  protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+    setMeasuredDimension(
+        getDefaultSize(getSuggestedMinimumWidth(), widthMeasureSpec),
+        resolveSize(HEIGHT, heightMeasureSpec));
   }
 
   void set(Forecast f) {
@@ -39,6 +46,7 @@ final class HourlyStrip extends View {
     if (f == null) {
       return;
     }
+    int columns = Math.max(1, Math.min(Forecast.HOURS, getWidth() / COLUMN));
     int n = Math.min(columns, f.hours);
     float colW = (float) getWidth() / n;
     paint.setTextSize(14);
@@ -49,12 +57,13 @@ final class HourlyStrip extends View {
       float cx = colW * i + colW / 2;
       paint.setStyle(Paint.Style.FILL);
       paint.setColor(TEXT_DIM);
-      canvas.drawText(i == 0 ? "Now" : String.format("%02d", f.hourOfDay[i]), cx, top, paint);
+      canvas.drawText(i == 0 ? now : String.format("%02d", f.hourOfDay[i]), cx, top, paint);
       WeatherIcons.draw(canvas, paint, f.hourCode[i], f.hourIsDay[i], cx, HEIGHT / 2f, ICON);
       paint.setStyle(Paint.Style.FILL);
       paint.setColor(TEXT);
       paint.setTextAlign(Paint.Align.CENTER);
-      canvas.drawText(f.hourTemp[i] + "°", cx, bottom, paint);
+      canvas.drawText(
+          getContext().getString(R.string.temperature, f.hourTemp[i]), cx, bottom, paint);
     }
   }
 }

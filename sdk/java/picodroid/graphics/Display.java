@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.graphics;
 
+import picodroid.annotation.Hide;
 import picodroid.util.DisplayMetrics;
 import picodroid.view.View;
 
@@ -22,6 +23,7 @@ public class Display {
     this.height = height;
   }
 
+  @Hide("getDisplay() on any Context")
   public static native Display getInstance();
 
   public native void setContentView(View root);

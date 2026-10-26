@@ -3,11 +3,11 @@ package settings;
 
 import picodroid.app.Activity;
 import picodroid.os.Build;
+import picodroid.os.Bundle;
 import picodroid.os.Runtime;
 import picodroid.os.StatFs;
 import picodroid.util.Log;
 import picodroid.widget.LinearLayout;
-import picodroid.os.Bundle;
 
 /**
  * About: the board, its MCU, the release, the serial number, the volume and the heap. The header
@@ -30,7 +30,6 @@ public class AboutActivity extends Activity {
         column,
         "Storage  " + Screens.kb(total - free) + " / " + Screens.kb(total) + " KB used");
     Screens.info(this, column, "Heap  " + Screens.kb(Runtime.usedMemory()) + " KB used");
-    Screens.size(this, column, 7);
     Log.i(SettingsActivity.TAG, "about " + Build.BOARD + " " + Build.VERSION.RELEASE);
   }
 }

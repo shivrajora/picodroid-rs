@@ -28,7 +28,7 @@ public class MidActivity extends TracedActivity {
     mark("resume");
     if (id == 1) {
       count = 77;
-      startActivityForResult(new Intent(LeafActivity.class), REQ);
+      startActivityForResult(new Intent(this, LeafActivity.class), REQ);
     } else {
       ReclaimDemoApp.check("mid restored", restored && count == 77);
       ReclaimDemoApp.check("mid result before resume", gotResult);

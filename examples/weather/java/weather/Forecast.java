@@ -35,7 +35,7 @@ final class Forecast {
   final int[] hourCode = new int[HOURS];
   final boolean[] hourIsDay = new boolean[HOURS];
 
-  // The next days, from today.
+  // The next days, from today; the screens name the first one "Today".
   int days;
   final String[] dayName = new String[DAYS];
   final int[] dayCode = new int[DAYS];
@@ -84,7 +84,7 @@ final class Forecast {
     n = Math.min(n, Math.min(highs.length(), lows.length()));
     f.days = Math.min(DAYS, n);
     for (int i = 0; i < f.days; i++) {
-      f.dayName[i] = i == 0 ? "Today" : DAY_NAMES[dayOfWeek(dayTimes.getLong(i), off)];
+      f.dayName[i] = DAY_NAMES[dayOfWeek(dayTimes.getLong(i), off)];
       f.dayCode[i] = dayCodes.getInt(i);
       f.dayHigh[i] = round(highs.getDouble(i));
       f.dayLow[i] = round(lows.getDouble(i));

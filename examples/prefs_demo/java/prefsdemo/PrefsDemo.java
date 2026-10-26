@@ -47,7 +47,7 @@ public class PrefsDemo extends Application {
     testUpdateExisting();
     testRemoveAndContains();
     testClear();
-    testPersistenceAcrossInstances();
+    testGetAll();
     testContextIdiomAndApply();
     testFloat();
     testFileHelpers();
@@ -60,8 +60,18 @@ public class PrefsDemo extends Application {
     }
   }
 
-  static void testWriteAndReadBack() {
-    SharedPreferences p = SharedPreferences.open("demo1");
+  /**
+   * The app's one instance over {@code name}: {@code getSharedPreferences} hands every caller the
+   * same object, as on Android, so a "second open" is that object again, and what these checks read
+   * back is the instance's memory; the file is the cross-boot half (prefs_demo has none; qa_store's
+   * "persist" section runs the app twice).
+   */
+  SharedPreferences prefs(String name) {
+    return getSharedPreferences(name, MODE_PRIVATE);
+  }
+
+  void testWriteAndReadBack() {
+    SharedPreferences p = prefs("demo1");
     p.edit().clear().commit();
     boolean ok =
         p.edit()
@@ -71,8 +81,10 @@ public class PrefsDemo extends Application {
             .putBoolean("autoconnect", true)
             .commit();
     check("commit success", ok);
+    check("commit wrote the file", new File("/prefs/demo1").length() > 0);
 
-    SharedPreferences q = SharedPreferences.open("demo1");
+    SharedPreferences q = prefs("demo1");
+    check("one instance per file", q == p);
     check("readback string", "home-wifi".equals(q.getString("ssid", "")));
     check("readback int", q.getInt("channel", -1) == 6);
     check("readback long", q.getLong("uptime", -1L) == 123456789012L);
@@ -80,52 +92,46 @@ public class PrefsDemo extends Application {
     check("missing returns default", q.getInt("missing", 42) == 42);
   }
 
-  static void testTypeSafety() {
-    SharedPreferences p = SharedPreferences.open("demo2");
+  void testTypeSafety() {
+    SharedPreferences p = prefs("demo2");
     p.edit().clear().putInt("x", 5).commit();
-    SharedPreferences q = SharedPreferences.open("demo2");
-    check("wrong-type string falls back", "def".equals(q.getString("x", "def")));
-    check("correct-type int still works", q.getInt("x", -1) == 5);
+    check("wrong-type string falls back", "def".equals(p.getString("x", "def")));
+    check("correct-type int still works", p.getInt("x", -1) == 5);
   }
 
-  static void testUpdateExisting() {
-    SharedPreferences p = SharedPreferences.open("demo3");
+  void testUpdateExisting() {
+    SharedPreferences p = prefs("demo3");
     p.edit().clear().putInt("count", 1).commit();
-    SharedPreferences q = SharedPreferences.open("demo3");
-    q.edit().putInt("count", q.getInt("count", 0) + 1).commit();
-    SharedPreferences r = SharedPreferences.open("demo3");
-    check("updated value", r.getInt("count", -1) == 2);
+    boolean ok = p.edit().putInt("count", p.getInt("count", 0) + 1).commit();
+    check("updated value", ok && prefs("demo3").getInt("count", -1) == 2);
   }
 
-  static void testRemoveAndContains() {
-    SharedPreferences p = SharedPreferences.open("demo4");
+  void testRemoveAndContains() {
+    SharedPreferences p = prefs("demo4");
     p.edit().clear().putString("k1", "v1").putString("k2", "v2").commit();
-    SharedPreferences q = SharedPreferences.open("demo4");
-    check("contains before remove", q.contains("k1"));
-    q.edit().remove("k1").commit();
-    SharedPreferences r = SharedPreferences.open("demo4");
-    check("missing after remove", !r.contains("k1"));
-    check("sibling survives remove", r.contains("k2"));
+    check("contains before remove", p.contains("k1"));
+    check("remove commits", p.edit().remove("k1").commit());
+    check("missing after remove", !p.contains("k1"));
+    check("sibling survives remove", p.contains("k2"));
     // Android: putString(key, null) is the same as remove(key).
-    r.edit().putString("k2", null).commit();
-    check("putString(null) removes", !SharedPreferences.open("demo4").contains("k2"));
+    p.edit().putString("k2", null).commit();
+    check("putString(null) removes", !p.contains("k2") && !p.getAll().containsKey("k2"));
   }
 
-  static void testClear() {
-    SharedPreferences p = SharedPreferences.open("demo5");
+  void testClear() {
+    SharedPreferences p = prefs("demo5");
     p.edit().putString("a", "1").putString("b", "2").commit();
-    p.edit().clear().commit();
-    SharedPreferences q = SharedPreferences.open("demo5");
-    check("cleared has no keys", q.getAll().isEmpty());
-    check("cleared missing default", 99 == q.getInt("a", 99));
+    check("clear commits", p.edit().clear().commit());
+    check("cleared has no keys", p.getAll().isEmpty());
+    check("cleared missing default", 99 == p.getInt("a", 99));
   }
 
-  static void testPersistenceAcrossInstances() {
-    SharedPreferences p = SharedPreferences.open("demo6");
+  void testGetAll() {
+    SharedPreferences p = prefs("demo6");
     p.edit().clear().putString("greeting", "hello").putInt("n", 7).commit();
     // getAll() returns java.util.Map — an interface with no class file,
     // served by the HashMap builtin. Consume it through the interface.
-    Map<String, ?> all = SharedPreferences.open("demo6").getAll();
+    Map<String, ?> all = prefs("demo6").getAll();
     check("getAll size", all.size() == 2);
     check("getAll has greeting", all.containsKey("greeting"));
     check("getAll has n", all.containsKey("n"));
@@ -154,18 +160,17 @@ public class PrefsDemo extends Application {
     check("apply persisted int", q.getInt("mode", -1) == 0);
   }
 
-  static void testFloat() {
-    SharedPreferences p = SharedPreferences.open("demo8");
+  void testFloat() {
+    SharedPreferences p = prefs("demo8");
     p.edit().clear().putFloat("ratio", 0.75f).putFloat("neg", -1.5e-3f).putInt("i", 3).commit();
-    SharedPreferences q = SharedPreferences.open("demo8");
-    check("readback float", q.getFloat("ratio", 0f) == 0.75f);
-    check("readback negative float", q.getFloat("neg", 0f) == -1.5e-3f);
-    check("float wrong-type falls back", q.getFloat("i", 9f) == 9f);
-    check("int does not read as float", q.getInt("ratio", -1) == -1);
-    check("float missing default", q.getFloat("nope", 2.5f) == 2.5f);
-    check("getAll boxes Float", Float.valueOf(0.75f).equals(q.getAll().get("ratio")));
-    q.edit().putFloat("ratio", 1.25f).commit();
-    check("float overwrite", SharedPreferences.open("demo8").getFloat("ratio", 0f) == 1.25f);
+    check("readback float", p.getFloat("ratio", 0f) == 0.75f);
+    check("readback negative float", p.getFloat("neg", 0f) == -1.5e-3f);
+    check("float wrong-type falls back", p.getFloat("i", 9f) == 9f);
+    check("int does not read as float", p.getInt("ratio", -1) == -1);
+    check("float missing default", p.getFloat("nope", 2.5f) == 2.5f);
+    check("getAll boxes Float", Float.valueOf(0.75f).equals(p.getAll().get("ratio")));
+    boolean ok = p.edit().putFloat("ratio", 1.25f).commit();
+    check("float overwrite", ok && prefs("demo8").getFloat("ratio", 0f) == 1.25f);
   }
 
   static void testFileHelpers() {

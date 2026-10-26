@@ -16,7 +16,7 @@ public class HomeActivity extends BaseHomeActivity {
     Bundle extras = new Bundle();
     extras.putString("who", "home");
     extras.putInt("seed", 40);
-    startActivityForResult(new Intent(StateActivity.class).putExtras(extras), REQ);
+    startActivityForResult(new Intent(this, StateActivity.class).putExtras(extras), REQ);
   }
 
   @Override

@@ -193,14 +193,15 @@ public abstract class ViewGroup extends View implements ViewParent {
   /**
    * Adds {@code child} to this layout with the {@link LayoutParams} it already carries (an inflated
    * view's, or what {@link View#setLayoutParams} set), as on Android; a child without any keeps the
-   * size and position it was given directly. A container that was never sized is the one exception:
-   * Android gives a child without params this group's {@link #generateDefaultLayoutParams}, and a
-   * {@code ViewGroup} left at the renderer's default size (160×160) is never what the app meant (QA
-   * 2026-10-22, U4: a fragment's {@code FrameLayout} in a pager).
+   * size and position it was given directly. A container or a view that draws itself, never sized,
+   * is the exception: Android gives a child without params this group's {@link
+   * #generateDefaultLayoutParams}, and one left at the renderer's default size (160×160) is never
+   * what the app meant (QA 2026-10-22, U4: a fragment's {@code FrameLayout} in a pager; a custom
+   * view whose {@code onMeasure} never ran, 2026-10-26).
    */
   public void addView(View child) {
     LayoutParams params = child == null ? null : child.getLayoutParams();
-    if (params == null && child instanceof ViewGroup && !child.isSized()) {
+    if (params == null && (child instanceof ViewGroup || child.drawsItself()) && !child.mSized) {
       params = generateDefaultLayoutParams();
     }
     if (params != null) {
@@ -413,18 +414,46 @@ public abstract class ViewGroup extends View implements ViewParent {
    */
   public void addView(View child, LayoutParams params) {
     if (params != null) {
-      child.setLayoutParams(params);
-      child.applyLayoutSize(params.width, params.height);
+      child.layoutParams = params;
     }
     attach(child);
+    if (params != null) {
+      applyLayoutParams(child, params, false);
+    }
+  }
+
+  /**
+   * Lays {@code child} out by {@code params}: its size, then what the params' class carries (weight
+   * and gravity, margins). {@code again} is {@link View#setLayoutParams} on a child already placed:
+   * a field now zero must clear what earlier params set, where a first add skips it.
+   */
+  final void applyLayoutParams(View child, LayoutParams params, boolean again) {
+    child.applyLayoutSize(params.width, params.height);
+    if (again) {
+      // Params of a plainer class carry none of these: Android's parent converts them and the
+      // child is left with no weight, gravity or margin. Clear what earlier params set.
+      if (!(params instanceof picodroid.widget.LinearLayout.LayoutParams)) {
+        child.nativeSetWeight(0);
+        child.nativeSetLayoutGravity(0);
+      }
+      if (!(params instanceof MarginLayoutParams)) {
+        child.nativeSetMargins(0, 0, 0, 0);
+      }
+      if (!(params instanceof picodroid.widget.FrameLayout.LayoutParams)
+          && this instanceof picodroid.widget.FrameLayout) {
+        child.nativeSetFrameGravity(0, 0, 0);
+      }
+    }
     if (params instanceof picodroid.widget.LinearLayout.LayoutParams) {
       picodroid.widget.LinearLayout.LayoutParams lp =
           (picodroid.widget.LinearLayout.LayoutParams) params;
       if (lp.weight > 0) {
         // Thousandths: fractional ratios survive the integer (1.5f : 1f -> 1500 : 1000).
         child.nativeSetWeight(Math.max(1, Math.round(lp.weight * 1000)));
+      } else if (again) {
+        child.nativeSetWeight(0);
       }
-      if (lp.gravity != 0) {
+      if (lp.gravity != 0 || again) {
         child.nativeSetLayoutGravity(lp.gravity);
       }
     }
@@ -434,7 +463,8 @@ public abstract class ViewGroup extends View implements ViewParent {
       picodroid.widget.FrameLayout.LayoutParams lp =
           (picodroid.widget.FrameLayout.LayoutParams) params;
       int gravity = lp.gravity;
-      if ((gravity | lp.leftMargin | lp.topMargin | lp.rightMargin | lp.bottomMargin) != 0) {
+      if (again
+          || (gravity | lp.leftMargin | lp.topMargin | lp.rightMargin | lp.bottomMargin) != 0) {
         int horizontal = gravity & Gravity.HORIZONTAL_GRAVITY_MASK;
         int vertical = gravity & Gravity.VERTICAL_GRAVITY_MASK;
         int dx =
@@ -453,7 +483,7 @@ public abstract class ViewGroup extends View implements ViewParent {
       }
     } else if (params instanceof MarginLayoutParams) {
       MarginLayoutParams lp = (MarginLayoutParams) params;
-      if ((lp.leftMargin | lp.topMargin | lp.rightMargin | lp.bottomMargin) != 0) {
+      if (again || (lp.leftMargin | lp.topMargin | lp.rightMargin | lp.bottomMargin) != 0) {
         child.nativeSetMargins(lp.leftMargin, lp.topMargin, lp.rightMargin, lp.bottomMargin);
       }
     }

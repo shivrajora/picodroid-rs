@@ -30,28 +30,29 @@ public class MenuDemoActivity extends Activity {
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    LinearLayout root = new LinearLayout();
+    LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT);
     root.setPadding(10, 10, 10, 10);
 
-    TextView title = new TextView();
+    TextView title = new TextView(this);
     title.setText("Options Menu Demo");
     title.setTextColor(Color.WHITE);
     root.addView(title);
 
-    status = new TextView();
+    status = new TextView(this);
     status.setText("Hold SELECT, press MENU or tap the menu control");
     status.setTextColor(Color.CYAN);
     // The width of the column, so the hint wraps on a 240-wide panel rather than running off it.
-    status.setSize(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-    root.addView(status);
+    root.addView(
+        status,
+        new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
     // A focusable Button with no long press of its own: holding SELECT on it opens the menu.
-    Button focus = new Button("Focus me");
-    focus.setSize(200, 50);
+    Button focus = new Button(this);
+    focus.setText("Focus me");
     focus.setOnClickListener(v -> show("clicked"));
-    root.addView(focus);
+    root.addView(focus, new LinearLayout.LayoutParams(200, 50));
 
     setContentView(root);
     focus.requestFocus();

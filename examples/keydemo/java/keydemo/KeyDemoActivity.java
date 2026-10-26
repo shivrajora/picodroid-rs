@@ -31,27 +31,23 @@ public class KeyDemoActivity extends Activity implements OnKeyListener {
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    // Force display init before constructing any widgets.
-    getDisplay();
-
-    LinearLayout root = new LinearLayout();
+    LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(240, 240);
     root.setPadding(10, 10, 10, 10);
 
-    TextView title = new TextView();
+    TextView title = new TextView(this);
     title.setText("Hardware Key Demo");
     title.setTextColor(Color.WHITE);
     root.addView(title);
 
-    status = new TextView();
+    status = new TextView(this);
     status.setText("Press any button");
     status.setTextColor(Color.CYAN);
     root.addView(status);
 
     // A focused view sees a key first. Without one every key goes straight to the Activity.
-    Button focus = new Button("Focus me");
-    focus.setSize(200, 50);
+    Button focus = new Button(this);
+    focus.setText("Focus me");
     focus.setOnKeyListener(this);
     // A key stays pressed for LVGL while it is held (app portability, Stage 10): SELECT held
     // past the long-press time long-clicks the focused view, and a held DOWN walks the focus
@@ -61,10 +57,10 @@ public class KeyDemoActivity extends Activity implements OnKeyListener {
           show("view LONGCLICK");
           return true;
         });
-    root.addView(focus);
+    root.addView(focus, new LinearLayout.LayoutParams(200, 50));
     for (int i = 1; i <= 3; i++) {
-      Button row = new Button("Row " + i);
-      row.setSize(200, 30);
+      Button row = new Button(this);
+      row.setText("Row " + i);
       final int n = i;
       row.setOnFocusChangeListener(
           (v, hasFocus) -> {
@@ -72,7 +68,7 @@ public class KeyDemoActivity extends Activity implements OnKeyListener {
               show("focus row " + n);
             }
           });
-      root.addView(row);
+      root.addView(row, new LinearLayout.LayoutParams(200, 30));
     }
 
     setContentView(root);

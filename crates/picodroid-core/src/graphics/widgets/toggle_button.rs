@@ -16,17 +16,6 @@ pub fn toggle_button_native_create() -> Result<Option<Value>, JvmError> {
     Ok(Some(Value::Int(lvgl_toggle_button::create())))
 }
 
-pub fn toggle_button_native_create_with_text(
-    args: &[Value],
-    strings: &StringTable,
-) -> Result<Option<Value>, JvmError> {
-    let text_on = extract_string_at(args, 0, strings)?;
-    let text_off = extract_string_at(args, 1, strings)?;
-    Ok(Some(Value::Int(lvgl_toggle_button::create_with_text(
-        text_on, text_off,
-    ))))
-}
-
 pub fn toggle_button_is_checked(
     args: &[Value],
     objects: &ObjectHeap,

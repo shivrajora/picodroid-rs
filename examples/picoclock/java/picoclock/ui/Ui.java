@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoclock.ui;
 
-import picodroid.app.Activity;
+import picodroid.content.Context;
 import picodroid.graphics.Color;
 import picodroid.graphics.drawable.GradientDrawable;
 import picodroid.text.TextUtils;
@@ -9,9 +9,9 @@ import picodroid.view.Gravity;
 import picodroid.view.View;
 import picodroid.view.ViewGroup;
 import picodroid.widget.Button;
-import picodroid.widget.FrameLayout;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.RelativeLayout;
+import picodroid.widget.Space;
 import picodroid.widget.TextView;
 
 /**
@@ -22,6 +22,9 @@ import picodroid.widget.TextView;
  * HOME), so nothing in this app is reached by focus navigation — {@link #TAP_HEIGHT} is the floor
  * for anything a user has to hit, and it is set from the roughly 9 mm a fingertip covers at this
  * panel's 165 dpi.
+ *
+ * <p>Every screen is a vertical {@link LinearLayout}: the header, the content, a {@link #fill} that
+ * takes the slack, and the controls along the bottom edge.
  */
 public final class Ui {
   // ── Palette ────────────────────────────────────────────────────────────────
@@ -43,12 +46,6 @@ public final class Ui {
 
   // ── Metrics ────────────────────────────────────────────────────────────────
 
-  /** Panel width, from board.toml. Every screen is exactly this wide. */
-  public static final int WIDTH = 320;
-
-  /** Panel height, from board.toml. */
-  public static final int HEIGHT = 480;
-
   /** The header band across the top of every screen. */
   public static final int HEADER_HEIGHT = 44;
 
@@ -61,49 +58,18 @@ public final class Ui {
   /** Side margin. */
   public static final int MARGIN = 12;
 
-  /** The height of one line of body text. */
-  public static final int LINE_HEIGHT = 22;
-
-  /**
-   * One shared drawable for every container meant to disappear into the background. An LVGL object
-   * arrives with a one-pixel border, and only a Drawable clears it — {@code setBackgroundColor}
-   * paints the fill and leaves the outline, which shows up as a box around every centred line. One
-   * instance because a Drawable here is a description that is read at apply time, not state the
-   * view keeps.
-   */
-  private static final GradientDrawable INVISIBLE =
-      new GradientDrawable().setColor(BACKGROUND).setCornerRadius(0).setStroke(0, BACKGROUND);
-
-  /** The drawable behind {@link #group}, for a view this class does not build itself. */
-  public static GradientDrawable invisible() {
-    return INVISIBLE;
-  }
+  private static final int MATCH = ViewGroup.LayoutParams.MATCH_PARENT;
+  private static final int WRAP = ViewGroup.LayoutParams.WRAP_CONTENT;
 
   private Ui() {}
 
   // ── Building blocks ────────────────────────────────────────────────────────
 
-  /**
-   * A container that paints nothing and lays nothing out: children keep the position they are
-   * given. An LVGL object arrives with a surface and a border of its own, which is visible wherever
-   * a group of views is meant to read as one thing rather than as a panel.
-   */
-  public static FrameLayout group(int x, int y, int width, int height) {
-    FrameLayout f = new FrameLayout();
-    f.setSize(width, height);
-    f.setPosition(x, y);
-    f.setPadding(0, 0, 0, 0);
-    f.setBackground(INVISIBLE);
-    return f;
-  }
-
-  /** A full-screen absolutely-positioned root. A LinearLayout would re-lay-out and clobber it. */
-  public static FrameLayout screen() {
-    FrameLayout root = new FrameLayout();
-    root.setSize(WIDTH, HEIGHT);
-    root.setPosition(0, 0);
-    root.setPadding(0, 0, 0, 0);
-    root.setBackground(INVISIBLE);
+  /** A screen's content root: a column on the app's background, filling the window. */
+  public static LinearLayout screen(Context context) {
+    LinearLayout root = new LinearLayout(context);
+    root.setOrientation(LinearLayout.VERTICAL);
+    root.setBackgroundColor(BACKGROUND);
     return root;
   }
 
@@ -111,35 +77,30 @@ public final class Ui {
   private static final int ID_BACK = 1;
 
   /**
-   * The header band: a title, and a back chevron when {@code onBack} is given. The chevron is a
-   * tappable target of its own, since the carrier's BACK button is reachable only by feel. A
-   * RelativeLayout places the title: right of the chevron and centred on the band's height.
+   * Adds the header band to {@code screen}: a title, and a back chevron when {@code onBack} is
+   * given. The chevron is a tappable target of its own, since the carrier's BACK button is
+   * reachable only by feel. A RelativeLayout places the title: right of the chevron and centred on
+   * the band's height.
    */
-  public static View header(Activity a, String title, View.OnClickListener onBack) {
-    RelativeLayout bar = new RelativeLayout();
-    bar.setSize(WIDTH, HEADER_HEIGHT);
-    bar.setPosition(0, 0);
+  public static void header(LinearLayout screen, String title, View.OnClickListener onBack) {
+    Context context = screen.getContext();
+    RelativeLayout bar = new RelativeLayout(context);
     bar.setBackgroundColor(SURFACE);
 
     if (onBack != null) {
-      Button back = new Button("<");
+      Button back = new Button(context);
+      back.setText("<");
       back.setId(ID_BACK);
       back.setTextColor(ACCENT);
-      back.setBackground(new GradientDrawable().setColor(SURFACE).setCornerRadius(0));
+      back.setBackground(rounded(SURFACE, 0));
       back.setOnClickListener(onBack);
       RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(48, HEADER_HEIGHT);
       lp.addRule(RelativeLayout.ALIGN_PARENT_LEFT);
       bar.addView(back, lp);
     }
 
-    TextView caption = new TextView();
-    caption.setText(title);
-    caption.setTextColor(TEXT);
-    caption.setSingleLine();
-    caption.setEllipsize(TextUtils.TruncateAt.END);
-    RelativeLayout.LayoutParams lp =
-        new RelativeLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+    TextView caption = line(context, title, TEXT);
+    RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(WRAP, WRAP);
     lp.addRule(RelativeLayout.CENTER_VERTICAL);
     if (onBack != null) {
       lp.addRule(RelativeLayout.RIGHT_OF, ID_BACK);
@@ -148,49 +109,41 @@ public final class Ui {
       lp.setMargins(MARGIN, 0, 0, 0);
     }
     bar.addView(caption, lp);
-    return bar;
+    screen.addView(bar, new LinearLayout.LayoutParams(MATCH, HEADER_HEIGHT));
   }
 
-  /** A line of body text at {@code (x, y)}, clipped to one line within the panel. */
-  public static TextView label(String text, int x, int y, int color) {
-    TextView t = new TextView();
+  /** A line of body text, cut with an ellipsis when it does not fit. */
+  public static TextView line(Context context, String text, int color) {
+    TextView t = new TextView(context);
     t.setText(text);
     t.setTextColor(color);
     t.setSingleLine();
     t.setEllipsize(TextUtils.TruncateAt.END);
-    t.setPosition(x, y);
     return t;
   }
 
   /**
-   * Adds a line of body text centred across the panel to {@code parent} and returns the label, for
-   * a screen that has to retext it later. A label has no alignment of its own — the SDK's TextView
-   * is the glyphs and nothing more — so the centring is a row with a centring gravity, which is
-   * what Android would end up doing anyway.
+   * Adds a line of body text to {@code column}, inset by the side margin, {@code top} pixels below
+   * the view above it.
    */
-  public static TextView centred(ViewGroup parent, String text, int y, int color) {
-    return centred(parent, text, 0, y, WIDTH, color);
+  public static TextView label(LinearLayout column, String text, int top, int color) {
+    TextView t = line(column.getContext(), text, color);
+    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(MATCH, WRAP);
+    lp.setMargins(MARGIN, top, MARGIN, 0);
+    column.addView(t, lp);
+    return t;
   }
 
-  /**
-   * {@link #centred} within {@code width} pixels from {@code x} rather than across the panel. The
-   * row paints a background, so it must not be made wider than the space it is meant to fill: a
-   * full-width row dropped between two buttons covers them.
-   */
-  public static TextView centred(
-      ViewGroup parent, String text, int x, int y, int width, int color) {
-    LinearLayout row = new LinearLayout();
-    row.setOrientation(LinearLayout.HORIZONTAL);
-    row.setSize(width, LINE_HEIGHT);
-    row.setPosition(x, y);
-    row.setPadding(0, 0, 0, 0);
-    row.setSpacing(0);
-    row.setGravity(Gravity.CENTER);
-    row.setBackground(INVISIBLE);
-    TextView t = label(text, 0, 0, color);
-    row.addView(t);
-    parent.addView(row);
+  /** {@link #label}, centred across the column: for a screen that retexts it later. */
+  public static TextView centred(LinearLayout column, String text, int top, int color) {
+    TextView t = label(column, text, top, color);
+    t.setGravity(Gravity.CENTER_HORIZONTAL);
     return t;
+  }
+
+  /** Adds an empty view to {@code column} that takes whatever height the rest leaves. */
+  public static void fill(LinearLayout column) {
+    column.addView(new Space(column.getContext()), new LinearLayout.LayoutParams(MATCH, 0, 1f));
   }
 
   /**
@@ -198,41 +151,39 @@ public final class Ui {
    * against {@code fill} — {@link #ACCENT} is the only fill here bright enough for black, and
    * getting that backwards leaves a button that looks empty rather than merely low-contrast.
    */
-  public static Button button(String text, int x, int y, int width, int fill) {
-    Button b = new Button(text);
-    b.setSize(width, TAP_HEIGHT);
-    b.setPosition(x, y);
+  public static Button button(Context context, String text, int fill) {
+    Button b = new Button(context);
+    b.setText(text);
     b.setTextColor(fill == ACCENT ? Color.BLACK : TEXT);
-    b.setBackground(new GradientDrawable().setColor(fill).setCornerRadius(10));
+    b.setBackground(rounded(fill, 10));
     return b;
   }
 
-  /** A card: the surface a row or a group of controls sits on. */
-  public static FrameLayout card(int x, int y, int width, int height) {
-    FrameLayout f = new FrameLayout();
-    f.setSize(width, height);
-    f.setPosition(x, y);
-    f.setPadding(0, 0, 0, 0);
-    f.setBackground(new GradientDrawable().setColor(SURFACE).setCornerRadius(10));
-    return f;
+  /**
+   * Adds a full-width row of {@code buttons}, {@code height} tall, to {@code column}: equal widths
+   * with a {@link #GAP} between them, inset by the side margin, {@code bottom} pixels above what
+   * follows.
+   */
+  public static void row(LinearLayout column, int height, int bottom, View... buttons) {
+    LinearLayout row = new LinearLayout(column.getContext());
+    row.setOrientation(LinearLayout.HORIZONTAL);
+    for (int i = 0; i < buttons.length; i++) {
+      LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, MATCH, 1f);
+      if (i > 0) {
+        lp.leftMargin = GAP;
+      }
+      row.addView(buttons[i], lp);
+    }
+    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(MATCH, height);
+    lp.setMargins(MARGIN, 0, MARGIN, bottom);
+    column.addView(row, lp);
   }
 
-  /** A horizontal strip of evenly spaced controls: the widths for {@code n} across the panel. */
-  public static int columnWidth(int n) {
-    return (WIDTH - 2 * MARGIN - (n - 1) * GAP) / n;
-  }
-
-  /** The x of column {@code i} of {@code n}. */
-  public static int columnX(int i, int n) {
-    return MARGIN + i * (columnWidth(n) + GAP);
-  }
-
-  /** A vertical list with no padding, for a ScrollView's content. */
-  public static LinearLayout list() {
-    LinearLayout l = new LinearLayout();
-    l.setOrientation(LinearLayout.VERTICAL);
-    l.setPadding(0, 0, 0, 0);
-    l.setSpacing(0);
-    return l;
+  /** A rounded fill, the surface of a button or a card. */
+  public static GradientDrawable rounded(int color, int radius) {
+    GradientDrawable d = new GradientDrawable();
+    d.setColor(color);
+    d.setCornerRadius(radius);
+    return d;
   }
 }

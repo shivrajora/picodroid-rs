@@ -1,7 +1,8 @@
 # picoenvmon_kt — the Kotlin twin of `examples/picoenvmon`
 
 Same app, same screens, same Service, same dashboard HTTP server, same
-`@Inject`/`@Singleton`/`@Module`/`@Provides` object graph — written in Kotlin
+`@Inject`/`@Singleton` object graph, same `res/` values, ViewModels and
+LiveData — written in Kotlin
 (roadmap Session 7, `docs/designs/kotlin-roadmap-2026-08.md`). It exists so the
 RAM and PAPK cost of Kotlin on pico-jvm can be measured like-for-like against
 the Java app; the numbers live in `docs/designs/kotlin-shim-inventory.md` § 10.
@@ -46,9 +47,10 @@ told not to, so:
 - `?.` over `!!` (a branch instead of an `Intrinsics.checkNotNull` call);
   `when` over `Sensor.TYPE_*` (Java `static final int`s inline to a
   `lookupswitch`, no `$WhenMappings`); `Foo::class.java` for `Intent`.
-- `fun interface` for the two app-defined callbacks; the two-method SDK
-  interfaces (`ServiceConnection`, `SensorEventListener`) are class
-  supertypes, as in Java.
+- No app-defined callback interfaces: the screens observe `LiveData`
+  (single-method `Observer`, a lambda); the two-method SDK interfaces
+  (`ServiceConnection`, `SensorEventListener`) are class supertypes, as in
+  Java.
 
 Every `kotlin/**` and `java/**` reference the app makes is checked at build
 time by `:kotlin-shim:contractCheck` (this app is a `shimFixtures` input);

@@ -1,14 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoclock.ui;
 
+import javax.inject.Inject;
 import picoclock.AlarmService;
+import picoclock.AlarmStore;
 import picodroid.content.Intent;
+import picodroid.lifecycle.ViewModel;
+import picodroid.lifecycle.ViewModelProvider;
 import picodroid.os.Bundle;
 
 /**
- * The binding every screen shares: a connection to {@link AlarmService}, claimed in {@code
- * onResume} and released in {@code onPause}, so exactly one screen hears the service however deep
- * the stack is.
+ * What every screen shares: the {@link AlarmStore} and the factory for the ViewModels over it, and
+ * a connection to {@link AlarmService}, claimed in {@code onResume} and released in {@code
+ * onPause}, so exactly one screen hears the service however deep the stack is.
  *
  * <p>Nothing here routes a ring. The framework's {@code AlarmManager} starts {@link RingActivity}
  * on top of whatever is showing — and starts this app first if the user has gone elsewhere — which
@@ -25,6 +29,9 @@ import picodroid.os.Bundle;
  */
 public abstract class BaseActivity extends picodroid.app.Activity implements AlarmService.Listener {
 
+  /** The alarms and the clock's settings, the repository every screen reads. */
+  @Inject AlarmStore store;
+
   /** The bound service, or null before the connection lands and after a disconnect. */
   protected AlarmService alarms;
 
@@ -34,7 +41,12 @@ public abstract class BaseActivity extends picodroid.app.Activity implements Ala
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    bindService(new Intent(AlarmService.class), link, BIND_AUTO_CREATE);
+    bindService(new Intent(this, AlarmService.class), link, BIND_AUTO_CREATE);
+  }
+
+  /** This screen's {@code modelClass}, made on first use and kept for the screen's life. */
+  protected <T extends ViewModel> T viewModel(Class<T> modelClass) {
+    return new ViewModelProvider(this, new ViewModelFactory(store)).get(modelClass);
   }
 
   /** Called by {@link ServiceLink} when the connection lands, and with null when it drops. */
@@ -57,8 +69,6 @@ public abstract class BaseActivity extends picodroid.app.Activity implements Ala
     super.onResume();
     resumed = true;
     if (alarms != null) {
-      // setListener replays a ring already in progress, so a screen coming
-      // forward mid-alarm shows it rather than a clock over a sounding buzzer.
       alarms.setListener(this);
     }
   }
@@ -84,7 +94,4 @@ public abstract class BaseActivity extends picodroid.app.Activity implements Ala
 
   @Override
   public void onAlarmStopped() {}
-
-  @Override
-  public void onTick() {}
 }

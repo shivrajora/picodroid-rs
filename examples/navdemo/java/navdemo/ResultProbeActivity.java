@@ -16,7 +16,7 @@ public class ResultProbeActivity extends Activity {
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     Log.i("NavDemo", "Probe.onCreate");
-    setResult(RESULT_OK, new Intent(ResultProbeActivity.class).putExtra("answer", 42));
+    setResult(RESULT_OK, new Intent().putExtra("answer", 42));
     finish();
   }
 }

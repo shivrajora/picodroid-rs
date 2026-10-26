@@ -26,7 +26,7 @@ public class ActHome extends Activity {
     super.onResume();
     resumes++;
     if (resumes == 1) {
-      startActivity(new Intent(ActFill.class));
+      startActivity(new Intent(this, ActFill.class));
       return;
     }
     T.check("home instance survived the round", instances == 1 && !destroyed);

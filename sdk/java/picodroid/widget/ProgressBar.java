@@ -30,11 +30,6 @@ public class ProgressBar extends View {
   private ColorStateList progressBackgroundTint;
   private ColorStateList indeterminateTint;
 
-  /** Determinate progress bar; range 0..100 until {@link #setMax(int)} / {@link #setMin(int)}. */
-  public ProgressBar() {
-    super(nativeCreate());
-  }
-
   public ProgressBar(Context ctx) {
     super(ctx, nativeCreate());
   }

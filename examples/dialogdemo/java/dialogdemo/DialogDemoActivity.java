@@ -16,37 +16,36 @@ public class DialogDemoActivity extends Activity {
     super.onCreate(savedInstanceState);
     DialogActivityComponent c = new DialogActivityComponent();
 
-    // Force display init before constructing any widgets — see KeyDemoActivity
-    // for the same idiom. Display.getInstance() is what brings up LVGL; without
-    // this, widget nativeCreate calls would parent into a null screen.
+    // Force display init before constructing any widgets: getDisplay() is what
+    // brings up LVGL; without it, widget nativeCreate calls would parent into a
+    // null screen.
     getDisplay();
     c.appComponent().info("Display ready");
 
-    LinearLayout root = new LinearLayout();
+    LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT);
     root.setPadding(10, 10, 10, 10);
 
-    TextView title = new TextView();
+    TextView title = new TextView(this);
     title.setText("Toast & Dialog Demo");
     title.setTextColor(Color.WHITE);
     root.addView(title);
 
-    Button toastBtn = new Button("Show Toast");
-    toastBtn.setSize(200, 40);
+    Button toastBtn = new Button(this);
+    toastBtn.setText("Show Toast");
     toastBtn.setOnClickListener(
         v -> {
           c.appComponent().info("toast button clicked");
           Toast.makeText(this, "Hello from Picodroid!", Toast.LENGTH_SHORT).show();
         });
-    root.addView(toastBtn);
+    root.addView(toastBtn, new LinearLayout.LayoutParams(200, 40));
 
-    Button dialogBtn = new Button("Show Dialog");
-    dialogBtn.setSize(200, 40);
+    Button dialogBtn = new Button(this);
+    dialogBtn.setText("Show Dialog");
     dialogBtn.setOnClickListener(
         v -> {
           c.appComponent().info("dialog clicked #" + c.incShowCount());
-          new AlertDialog.Builder()
+          new AlertDialog.Builder(this)
               .setTitle("Delete?")
               .setMessage("Are you sure?")
               .setPositiveButton("OK", (dialog, which) -> c.appComponent().info("user confirmed"))
@@ -55,14 +54,14 @@ public class DialogDemoActivity extends Activity {
               .setNeutralButton("Later", (dialog, which) -> c.appComponent().info("user deferred"))
               .show();
         });
-    root.addView(dialogBtn);
+    root.addView(dialogBtn, new LinearLayout.LayoutParams(200, 40));
 
-    Button listBtn = new Button("Pick One");
-    listBtn.setSize(200, 40);
+    Button listBtn = new Button(this);
+    listBtn.setText("Pick One");
     listBtn.setOnClickListener(
         v -> {
           AlertDialog d =
-              new AlertDialog.Builder()
+              new AlertDialog.Builder(this)
                   .setTitle("Pick a color")
                   .setItems(
                       new String[] {"Red", "Green", "Blue"},
@@ -71,12 +70,12 @@ public class DialogDemoActivity extends Activity {
           // Headless verification: synthetically tap "Green" (index 1).
           d.performItemClick(1);
         });
-    root.addView(listBtn);
+    root.addView(listBtn, new LinearLayout.LayoutParams(200, 40));
 
     // Drive the list dialog once at startup so the HIL/sim run exercises the
     // setItems path without needing pixel-accurate touch on the list row.
     AlertDialog startup =
-        new AlertDialog.Builder()
+        new AlertDialog.Builder(this)
             .setTitle("Pick a color")
             .setItems(
                 new String[] {"Red", "Green", "Blue"},
@@ -90,7 +89,7 @@ public class DialogDemoActivity extends Activity {
 
     // Single-choice: select a row, dialog stays open, listener reports index.
     AlertDialog single =
-        new AlertDialog.Builder()
+        new AlertDialog.Builder(this)
             .setTitle("Pick a size")
             .setSingleChoiceItems(
                 new String[] {"S", "M", "L"},
@@ -103,7 +102,7 @@ public class DialogDemoActivity extends Activity {
     // (initially false) checks it and fires the typed listener.
     boolean[] toppings = new boolean[] {true, false, false};
     AlertDialog multi =
-        new AlertDialog.Builder()
+        new AlertDialog.Builder(this)
             .setTitle("Toppings")
             .setMultiChoiceItems(
                 new String[] {"Cheese", "Onion", "Olives"},

@@ -18,7 +18,6 @@ final class ShapesView extends View {
 
   ShapesView(Context ctx) {
     super(ctx);
-    setSize(WIDTH, HEIGHT);
     fill.setColor(Theme.colorPrimary);
     stroke.setColor(Theme.colorPrimary);
     stroke.setStyle(Paint.Style.STROKE);

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.app;
 
+import picodroid.annotation.Hide;
 import picodroid.content.Intent;
 import picodroid.os.SystemClock;
 
@@ -46,6 +47,7 @@ public final class AlarmManager {
 
   private AlarmManager() {}
 
+  @Hide("context.getSystemService(Context.ALARM_SERVICE)")
   public static AlarmManager getInstance() {
     return INSTANCE;
   }

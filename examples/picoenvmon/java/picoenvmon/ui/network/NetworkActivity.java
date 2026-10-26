@@ -9,24 +9,24 @@ import picodroid.widget.Button;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
 import picoenvmon.EnvApp;
+import picoenvmon.R;
 import picoenvmon.net.NetworkManager;
+import picoenvmon.net.NetworkStatus;
 import picoenvmon.net.WeatherFetcher;
 import picoenvmon.ui.common.NavActivity;
 import picoenvmon.util.TimeFormat;
 
 /**
- * Network status screen (reached from the Home hub). On WiFi-less boards it degrades to a single
- * "not available" message — the hub entry is shown everywhere so the feature is discoverable, and
- * this screen is where the {@code FEATURE_WIFI} / {@code FEATURE_ETHERNET} probe's answer becomes
- * visible.
+ * Network status screen (reached from the Home hub). On boards without a network link it degrades
+ * to a single "not available" message — the hub entry is shown everywhere so the feature is
+ * discoverable, and this screen is where the {@code FEATURE_WIFI} / {@code FEATURE_ETHERNET}
+ * probe's answer becomes visible.
  *
- * <p>Callbacks arrive via {@link NetworkManager.Listener} on the main executor, so all widget
- * mutation here happens on the main thread.
- *
- * <p>In the simulator {@code NetworkInfo.getIpAddress()} is the host's own LAN address, so the URL
- * line is the one to open from another machine (the server binds 0.0.0.0).
+ * <p>Observes {@link NetworkManager#status()} with this Activity as the lifecycle owner: every
+ * change arrives on the main thread while the screen is started, and the observer goes with the
+ * screen.
  */
-public class NetworkActivity extends NavActivity implements NetworkManager.Listener {
+public class NetworkActivity extends NavActivity {
 
   @Inject NetworkManager net;
   private TextView statusLine;
@@ -42,92 +42,72 @@ public class NetworkActivity extends NavActivity implements NetworkManager.Liste
     getDisplay();
 
     LinearLayout root = makeScreenRoot();
+    addTitle(root, R.string.menu_network);
 
-    TextView title = new TextView();
-    title.setText("Network");
-    title.setTextColor(Theme.colorPrimary);
-    root.addView(title);
-
-    if (net.state() == NetworkManager.STATE_NO_WIFI) {
-      TextView msg = new TextView();
-      msg.setText("WiFi not available on this board");
+    NetworkStatus now = net.status().getValue();
+    if (now == null || now.state == NetworkManager.STATE_NO_WIFI) {
+      TextView msg = new TextView(this);
+      msg.setText(getString(R.string.net_not_available));
       msg.setTextColor(Theme.colorTextSecondary);
       root.addView(msg);
-      installHintBar(root, "Y:Back");
+      installHintBar(root, R.string.hint_back);
       setContentView(root);
       return;
     }
 
-    statusLine = new TextView();
-    statusLine.setTextColor(Theme.colorText);
-    root.addView(statusLine);
-
-    ipLine = new TextView();
-    ipLine.setTextColor(Theme.colorText);
-    root.addView(ipLine);
-
-    urlLine = new TextView();
-    urlLine.setTextColor(Theme.colorText);
-    root.addView(urlLine);
-
-    timeLine = new TextView();
-    timeLine.setTextColor(Theme.colorText);
-    root.addView(timeLine);
-
-    weatherLine = new TextView();
-    weatherLine.setTextColor(Theme.colorTextSecondary);
-    root.addView(weatherLine);
+    statusLine = addLine(root, Theme.colorText);
+    ipLine = addLine(root, Theme.colorText);
+    urlLine = addLine(root, Theme.colorText);
+    timeLine = addLine(root, Theme.colorText);
+    weatherLine = addLine(root, Theme.colorTextSecondary);
 
     // The screen's one focusable widget — auto-focused, X activates.
-    Button refresh = new Button("Refresh");
+    Button refresh = new Button(this);
+    refresh.setText(getString(R.string.refresh));
     refresh.setOnClickListener(v -> net.requestRefresh());
     root.addView(refresh);
 
-    installHintBar(root, "X:Refresh  Y:Back");
+    installHintBar(root, R.string.hint_network);
     setContentView(root);
 
-    net.addListener(this);
-    repaint();
+    net.status().observe(this, this::show);
   }
 
-  @Override
-  public void onDestroy() {
-    if (net != null) {
-      net.removeListener(this);
-    }
+  private TextView addLine(LinearLayout root, int color) {
+    TextView line = new TextView(this);
+    line.setTextColor(color);
+    root.addView(line);
+    return line;
   }
 
-  @Override
-  public void onNetworkChanged() {
-    if (statusLine != null) {
-      repaint();
-    }
-  }
-
-  private void repaint() {
-    switch (net.state()) {
+  private void show(NetworkStatus s) {
+    switch (s.state) {
       case NetworkManager.STATE_JOINING:
-        statusLine.setText("WiFi: joining...");
+        statusLine.setText(getString(R.string.net_joining));
         break;
       case NetworkManager.STATE_UP:
-        statusLine.setText("WiFi: connected");
+        statusLine.setText(getString(R.string.net_connected));
         break;
       case NetworkManager.STATE_FAILED:
-        statusLine.setText("WiFi: not connected (retrying)");
+        statusLine.setText(getString(R.string.net_failed));
         break;
       default:
-        statusLine.setText("WiFi: unavailable");
+        statusLine.setText(getString(R.string.net_down));
         break;
     }
-    String ip = net.ipAddress();
-    ipLine.setText(ip != null ? "IP: " + ip : "IP: -");
-    String url = net.url();
-    urlLine.setText(url != null ? url : "");
+    ipLine.setText(
+        s.ipAddress != null
+            ? getString(R.string.net_ip, s.ipAddress)
+            : getString(R.string.net_ip_none));
+    urlLine.setText(s.url != null ? s.url : "");
     timeLine.setText(
-        net.isTimeSynced()
-            ? "Time: " + TimeFormat.hms(System.currentTimeMillis()) + " UTC"
-            : "Time: not synced");
-    String w = net.weather();
-    weatherLine.setText(WeatherFetcher.CITY + ": " + (w != null ? w : "unavailable"));
+        s.timeSynced
+            ? getString(R.string.net_time, TimeFormat.hms(System.currentTimeMillis()))
+            : getString(R.string.net_time_unsynced));
+    weatherLine.setText(
+        getString(
+            R.string.net_weather,
+            WeatherFetcher.CITY,
+            s.weather != null ? s.weather : getString(R.string.weather_unavailable)));
   }
 }

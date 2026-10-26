@@ -1,32 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoclock.ui;
 
-import javax.inject.Inject;
 import picoclock.Alarm;
-import picoclock.AlarmStore;
-import picoclock.ClockApp;
 import picodroid.content.Intent;
-import picodroid.graphics.drawable.GradientDrawable;
 import picodroid.os.Bundle;
-import picodroid.util.Log;
-import picodroid.view.View;
+import picodroid.view.ViewGroup;
 import picodroid.widget.Button;
-import picodroid.widget.FrameLayout;
+import picodroid.widget.LinearLayout;
 import picodroid.widget.TimePicker;
 
 /**
  * One alarm: its time on a {@link TimePicker}, the days it repeats on as seven toggles, and Save,
  * Delete and Cancel. Reached both for a new alarm and an existing one — the only difference is
- * whether Delete is offered.
- *
- * <p>Edits land on the {@link Alarm} in the store immediately but are only written through on Save,
- * so Cancel has something to restore: the fields are snapshotted on entry and put back on the way
- * out. The store holds one object per slot for the life of the process, which is what makes that
- * snapshot three ints and a reference rather than a copy of anything.
+ * whether Delete is offered. The draft, and what Cancel restores, live in {@link
+ * AlarmEditViewModel}.
  */
 public class AlarmEditActivity extends BaseActivity {
-  private static final String TAG = ClockApp.TAG;
-
   /** The alarm slot to edit, as put by the list screen. */
   public static final String EXTRA_ID = "id";
 
@@ -36,17 +25,7 @@ public class AlarmEditActivity extends BaseActivity {
   private static final int DAY_BUTTON = 38;
   private static final int DAY_GAP = 4;
 
-  @Inject AlarmStore store;
-
-  private Alarm alarm;
-  private boolean existing;
-
-  /** The alarm as it was on entry, for Cancel and for the BACK button. */
-  private int wasHour;
-
-  private int wasMinute;
-  private int wasDays;
-  private boolean wasEnabled;
+  private AlarmEditViewModel model;
 
   private final Button[] dayButtons = new Button[7];
 
@@ -54,52 +33,39 @@ public class AlarmEditActivity extends BaseActivity {
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     Intent intent = getIntent();
-    int id = intent == null ? 0 : intent.getIntExtra(EXTRA_ID, 0);
-    alarm = store.get(id);
-    existing = store.exists(id);
-    wasHour = alarm.hour;
-    wasMinute = alarm.minute;
-    wasDays = alarm.daysMask;
-    wasEnabled = alarm.enabled;
+    model = viewModel(AlarmEditViewModel.class);
+    Alarm alarm = model.open(intent == null ? 0 : intent.getIntExtra(EXTRA_ID, 0));
 
-    FrameLayout root = Ui.screen();
-    root.addView(Ui.header(this, existing ? "Edit alarm" : "New alarm", v -> cancel()));
+    LinearLayout root = Ui.screen(this);
+    Ui.header(root, model.existing() ? "Edit alarm" : "New alarm", v -> cancel());
 
-    TimePicker picker = new TimePicker();
-    picker.setSize(Ui.WIDTH - 2 * Ui.MARGIN, 150);
-    picker.setPosition(Ui.MARGIN, Ui.HEADER_HEIGHT + 12);
+    TimePicker picker = new TimePicker(this);
     picker.setIs24HourView(true);
-    picker.setTime(alarm.hour, alarm.minute);
-    picker.setOnTimeChangedListener(
-        (view, h, m) -> {
-          alarm.hour = h;
-          alarm.minute = m;
-        });
-    root.addView(picker);
+    picker.setHour(alarm.hour);
+    picker.setMinute(alarm.minute);
+    picker.setOnTimeChangedListener((view, h, m) -> model.setTime(h, m));
+    LinearLayout.LayoutParams pickerLp =
+        new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 150);
+    pickerLp.setMargins(Ui.MARGIN, 12, Ui.MARGIN, 0);
+    root.addView(picker, pickerLp);
 
-    int daysY = Ui.HEADER_HEIGHT + 180;
-    root.addView(Ui.label("Repeat", Ui.MARGIN, daysY, Ui.MUTED));
-    buildDayToggles(root, daysY + 26);
+    Ui.label(root, "Repeat", 18, Ui.MUTED);
+    buildDayToggles(root);
+    model.days().observe(this, this::paintDays);
+    Ui.fill(root);
 
-    int buttonsY = Ui.HEIGHT - Ui.TAP_HEIGHT - Ui.MARGIN;
-    int deleteRowY = buttonsY - Ui.TAP_HEIGHT - Ui.GAP;
-
-    View save = Ui.button("Save", Ui.columnX(0, 2), buttonsY, Ui.columnWidth(2), Ui.ACCENT);
-    save.setOnClickListener(v -> save());
-    root.addView(save);
-
-    View cancel =
-        Ui.button("Cancel", Ui.columnX(1, 2), buttonsY, Ui.columnWidth(2), Ui.SURFACE_HIGH);
-    cancel.setOnClickListener(v -> cancel());
-    root.addView(cancel);
-
-    if (existing) {
-      Button delete =
-          Ui.button("Delete", Ui.MARGIN, deleteRowY, Ui.WIDTH - 2 * Ui.MARGIN, Ui.SURFACE);
+    if (model.existing()) {
+      Button delete = Ui.button(this, "Delete", Ui.SURFACE);
       delete.setTextColor(Ui.DANGER);
       delete.setOnClickListener(v -> delete());
-      root.addView(delete);
+      Ui.row(root, Ui.TAP_HEIGHT, Ui.GAP, delete);
     }
+
+    Button save = Ui.button(this, "Save", Ui.ACCENT);
+    save.setOnClickListener(v -> save());
+    Button cancel = Ui.button(this, "Cancel", Ui.SURFACE_HIGH);
+    cancel.setOnClickListener(v -> cancel());
+    Ui.row(root, Ui.TAP_HEIGHT, Ui.MARGIN, save, cancel);
 
     setContentView(root);
   }
@@ -110,62 +76,52 @@ public class AlarmEditActivity extends BaseActivity {
     cancel();
   }
 
-  private void buildDayToggles(FrameLayout root, int y) {
+  /** Seven equal toggles across the screen, Monday first. */
+  private void buildDayToggles(LinearLayout root) {
+    LinearLayout row = new LinearLayout(this);
+    row.setOrientation(LinearLayout.HORIZONTAL);
     // Monday-first, the way a week is read; the mask itself is Sunday-first
     // because that is what day-of-week arithmetic produces.
-    int width = (Ui.WIDTH - 2 * Ui.MARGIN - 6 * DAY_GAP) / 7;
     for (int i = 0; i < 7; i++) {
       int day = (i + 1) % 7;
-      Button b = new Button(DAY_INITIALS[day]);
-      b.setSize(width, DAY_BUTTON);
-      b.setPosition(Ui.MARGIN + i * (width + DAY_GAP), y);
-      b.setOnClickListener(v -> toggleDay(day));
+      Button b = new Button(this);
+      b.setText(DAY_INITIALS[day]);
+      b.setOnClickListener(v -> model.toggleDay(day));
       dayButtons[day] = b;
-      root.addView(b);
-      paintDay(day);
+      LinearLayout.LayoutParams lp =
+          new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f);
+      if (i > 0) {
+        lp.leftMargin = DAY_GAP;
+      }
+      row.addView(b, lp);
     }
+    LinearLayout.LayoutParams lp =
+        new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, DAY_BUTTON);
+    lp.setMargins(Ui.MARGIN, 10, Ui.MARGIN, 0);
+    root.addView(row, lp);
   }
 
-  private void toggleDay(int day) {
-    alarm.daysMask ^= 1 << day;
-    paintDay(day);
-  }
-
-  private void paintDay(int day) {
-    boolean on = (alarm.daysMask & (1 << day)) != 0;
-    Button b = dayButtons[day];
-    b.setTextColor(on ? 0xFF000000 : Ui.MUTED);
-    b.setBackground(
-        new GradientDrawable().setColor(on ? Ui.ACCENT : Ui.SURFACE).setCornerRadius(8));
+  private void paintDays(int mask) {
+    for (int day = 0; day < 7; day++) {
+      boolean on = (mask & (1 << day)) != 0;
+      Button b = dayButtons[day];
+      b.setTextColor(on ? 0xFF000000 : Ui.MUTED);
+      b.setBackground(Ui.rounded(on ? Ui.ACCENT : Ui.SURFACE, 8));
+    }
   }
 
   private void save() {
-    // Saving an alarm arms it: an alarm set and left off is almost always a
-    // switch the user forgot, not one they meant.
-    alarm.enabled = true;
-    store.save(alarm.id);
-    if (alarms != null) {
-      alarms.reload();
-    }
-    Log.i(TAG, "saved alarm " + alarm.id + " " + alarm.time() + " " + alarm.repeatText());
+    model.save();
     finish();
   }
 
   private void delete() {
-    int id = alarm.id;
-    store.delete(id);
-    if (alarms != null) {
-      alarms.reload();
-    }
-    Log.i(TAG, "deleted alarm " + id);
+    model.delete();
     finish();
   }
 
   private void cancel() {
-    alarm.hour = wasHour;
-    alarm.minute = wasMinute;
-    alarm.daysMask = wasDays;
-    alarm.enabled = wasEnabled;
+    model.cancel();
     finish();
   }
 

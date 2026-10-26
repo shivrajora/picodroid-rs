@@ -1,33 +1,26 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoclock.ui;
 
-import javax.inject.Inject;
 import picoclock.Alarm;
 import picoclock.AlarmSchedule;
-import picoclock.AlarmStore;
 import picoclock.Clock;
 import picoclock.ClockApp;
 import picodroid.content.Intent;
 import picodroid.os.Bundle;
 import picodroid.util.Log;
-import picodroid.view.View;
-import picodroid.widget.FrameLayout;
+import picodroid.widget.Button;
+import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
 
 /**
  * The face: the time in large digits, today's date, what rings next, and the two places to go from
  * here. This is the app's root, so BACK on it leaves for the launcher.
  *
- * <p>Nothing here owns a clock of its own. The platform has no {@code postDelayed}, no timer and no
- * scheduled executor, and the documented ways to get a periodic callback — a thread that sleeps and
- * posts, or an animation's end action — would each cost a thread or an animation slot per screen.
- * {@link picoclock.AlarmService} already ticks four times a second to watch the alarms, so this
- * screen redraws off that heartbeat and adds nothing.
+ * <p>The face repaints off {@link ClockViewModel#now}, which ticks only while this screen is
+ * started.
  */
 public class ClockActivity extends BaseActivity {
   private static final String TAG = ClockApp.TAG;
-
-  @Inject AlarmStore store;
 
   private SegmentClock face;
   private TextView seconds;
@@ -41,58 +34,41 @@ public class ClockActivity extends BaseActivity {
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    FrameLayout root = Ui.screen();
-    root.addView(Ui.header(this, "Clock", null));
+    LinearLayout root = Ui.screen(this);
+    Ui.header(root, "Clock", null);
 
-    int faceTop = 96;
-    face = new SegmentClock(root, SegmentClock.centredX(), faceTop);
+    face = new SegmentClock(root, 52);
+    seconds = Ui.centred(root, "", 17, Ui.MUTED);
+    date = Ui.centred(root, "", 16, Ui.TEXT);
+    next = Ui.centred(root, "", 16, Ui.ACCENT);
+    Ui.fill(root);
 
-    seconds = Ui.centred(root, "", faceTop + SegmentClock.height() + 14, Ui.MUTED);
-    date = Ui.centred(root, "", faceTop + SegmentClock.height() + 46, Ui.TEXT);
-    next = Ui.centred(root, "", faceTop + SegmentClock.height() + 78, Ui.ACCENT);
-
-    int buttonsY = Ui.HEIGHT - Ui.TAP_HEIGHT - Ui.MARGIN;
-    View alarmsButton =
-        Ui.button("Alarms", Ui.columnX(0, 2), buttonsY, Ui.columnWidth(2), Ui.ACCENT);
-    alarmsButton.setOnClickListener(v -> startActivity(new Intent(AlarmListActivity.class)));
-    root.addView(alarmsButton);
-
-    View setButton =
-        Ui.button("Set time", Ui.columnX(1, 2), buttonsY, Ui.columnWidth(2), Ui.SURFACE_HIGH);
-    setButton.setOnClickListener(v -> startActivity(new Intent(SetTimeActivity.class)));
-    root.addView(setButton);
+    Button alarmsButton = Ui.button(this, "Alarms", Ui.ACCENT);
+    alarmsButton.setOnClickListener(v -> startActivity(new Intent(this, AlarmListActivity.class)));
+    Button setButton = Ui.button(this, "Set time", Ui.SURFACE_HIGH);
+    setButton.setOnClickListener(v -> startActivity(new Intent(this, SetTimeActivity.class)));
+    Ui.row(root, Ui.TAP_HEIGHT, Ui.MARGIN, alarmsButton, setButton);
 
     // A clock face is read from across the room: hold the panel on while it shows. The
     // screens behind it (alarms, set time) let the display doze on the board's timeout.
     root.setKeepScreenOn(true);
     setContentView(root);
-    redraw();
+
+    viewModel(ClockViewModel.class).now().observe(this, this::redraw);
   }
 
   @Override
   public void onResume() {
     super.onResume();
-    // Back from an edit: the service still holds the alarms it read before it,
-    // and every cached line below is stale.
-    if (alarms != null) {
-      alarms.reload();
-    }
+    // Back from an edit or a clock set: every cached line below may be stale.
     lastSecond = -1;
     lastMinute = -1;
     lastDay = Long.MIN_VALUE;
-    redraw();
   }
 
   @Override
   protected void onAlarmsReady() {
     lastMinute = -1;
-    redraw();
-  }
-
-  /** The service's heartbeat, four times a second, and the only thing that drives the face. */
-  @Override
-  public void onTick() {
-    redraw();
   }
 
   // See BaseActivity: a lifecycle callback is only reached when the concrete
@@ -112,8 +88,7 @@ public class ClockActivity extends BaseActivity {
    * segments, and each line below is rebuilt only when the quantity behind it moved — the date once
    * a day, the countdown once a minute — so a tick that changes nothing allocates nothing.
    */
-  private void redraw() {
-    long utc = System.currentTimeMillis();
+  private void redraw(long utc) {
     boolean clockSet = Clock.isSet(utc);
     long local = Clock.toLocal(utc, store.offsetMinutes());
 

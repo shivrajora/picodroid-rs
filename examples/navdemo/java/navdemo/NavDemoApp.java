@@ -7,6 +7,6 @@ import picodroid.content.Intent;
 public class NavDemoApp extends Application {
   @Override
   public void onCreate() {
-    startActivity(new Intent(HomeActivity.class));
+    startActivity(new Intent(this, HomeActivity.class));
   }
 }

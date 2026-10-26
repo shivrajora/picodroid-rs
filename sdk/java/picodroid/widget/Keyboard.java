@@ -33,10 +33,6 @@ public class Keyboard extends View {
 
   private OnReadyListener onReadyListener;
 
-  public Keyboard() {
-    super(nativeCreate());
-  }
-
   public Keyboard(Context ctx) {
     super(ctx, nativeCreate());
   }

@@ -43,7 +43,7 @@ public class AlarmDemoApp extends Application {
     alarms.setExact(
         AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + DELAY_MS, operation(this));
     Log.i(TAG, "armed id=" + ALARM_ID);
-    startActivity(new Intent(MainActivity.class));
+    startActivity(new Intent(this, MainActivity.class));
   }
 
   /**
@@ -54,7 +54,7 @@ public class AlarmDemoApp extends Application {
     return PendingIntent.getActivity(
         context,
         REQUEST_CODE,
-        new Intent(WokeActivity.class).putExtra(EXTRA_ID, ALARM_ID),
+        new Intent(context, WokeActivity.class).putExtra(EXTRA_ID, ALARM_ID),
         PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
   }
 }

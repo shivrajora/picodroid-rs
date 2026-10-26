@@ -19,10 +19,10 @@ public class WokeActivity extends Activity {
     AlarmDemoApp.woken = true;
     int id = getIntent().getIntExtra(AlarmDemoApp.EXTRA_ID, -1);
 
-    LinearLayout page = new LinearLayout();
+    LinearLayout page = new LinearLayout(this);
     page.setOrientation(LinearLayout.VERTICAL);
     page.setGravity(Gravity.CENTER);
-    TextView label = new TextView();
+    TextView label = new TextView(this);
     label.setText("Woke for alarm " + id);
     page.addView(label);
     setContentView(page);

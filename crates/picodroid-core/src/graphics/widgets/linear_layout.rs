@@ -24,19 +24,6 @@ pub fn linear_layout_set_orientation(
     Ok(None)
 }
 
-pub fn linear_layout_set_spacing(
-    args: &[Value],
-    objects: &ObjectHeap,
-) -> Result<Option<Value>, JvmError> {
-    let id = extract_native_handle(args, objects)?;
-    let spacing = match args.get(1) {
-        Some(Value::Int(v)) => *v,
-        _ => return Err(JvmError::InvalidReference),
-    };
-    lvgl_linear_layout::set_spacing(id, spacing);
-    Ok(None)
-}
-
 pub fn linear_layout_set_gravity(
     args: &[Value],
     objects: &ObjectHeap,

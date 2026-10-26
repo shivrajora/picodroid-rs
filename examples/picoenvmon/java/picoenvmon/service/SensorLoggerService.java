@@ -12,6 +12,7 @@ import picodroid.hardware.SensorManager;
 import picodroid.os.IBinder;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
+import picoenvmon.R;
 import picoenvmon.data.LatestReadings;
 import picoenvmon.data.SensorRingBuffer;
 import picoenvmon.data.ThresholdConfig;
@@ -20,9 +21,9 @@ import picoenvmon.util.Formatter;
 import picoenvmon.util.TimeFormat;
 
 /**
- * Foreground Service that streams every sensor reading into a per-type ring buffer, drives the
- * Pack's RGB LED from gas IAQ, and logs threshold breaches. Bind via {@code bindService} to read
- * the ring buffers from a UI activity.
+ * Foreground Service that streams every sensor reading into a per-type ring buffer, publishes a 1
+ * Hz smoothed reading to {@link LatestReadings}, drives the Pack's RGB LED from gas IAQ, and logs
+ * threshold breaches. Bind via {@code bindService} to read the ring buffers from a UI activity.
  */
 public class SensorLoggerService extends Service implements SensorEventListener {
   private static final String TAG = "SensorLogger";
@@ -59,11 +60,10 @@ public class SensorLoggerService extends Service implements SensorEventListener 
 
   // ── 1 Hz smoothing ───────────────────────────────────────────────────────────
   // Per-type windowed-mean accumulators. Raw callbacks arrive ~5 Hz in a single
-  // burst; on the first callback past the 1 s mark we emit averages to every
-  // registered SmoothedSensorListener and reset the accumulators.
+  // burst; on the first callback past the 1 s mark we publish the averages to
+  // LatestReadings (which the Live screen observes) and reset the accumulators.
   private static final long EMIT_INTERVAL_MS = 1000;
   private static final int NUM_SMOOTHED_SENSORS = 5;
-  private static final int MAX_SMOOTHED_LISTENERS = 4;
   private static final int[] SMOOTHED_TYPES = {
     Sensor.TYPE_AMBIENT_TEMPERATURE,
     Sensor.TYPE_RELATIVE_HUMIDITY,
@@ -74,8 +74,6 @@ public class SensorLoggerService extends Service implements SensorEventListener 
 
   private final float[] smoothSum = new float[NUM_SMOOTHED_SENSORS];
   private final int[] smoothCount = new int[NUM_SMOOTHED_SENSORS];
-  private final SmoothedSensorListener[] smoothedListeners =
-      new SmoothedSensorListener[MAX_SMOOTHED_LISTENERS];
   private long lastEmitMs;
 
   // ── Alert edge detection ─────────────────────────────────────────────────────
@@ -93,7 +91,7 @@ public class SensorLoggerService extends Service implements SensorEventListener 
   @Override
   public void onCreate() {
     binder.service = this;
-    sensorManager = SensorManager.getInstance();
+    sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
     registerAll(sensorManager);
     Log.i(TAG, "onCreate");
   }
@@ -121,9 +119,9 @@ public class SensorLoggerService extends Service implements SensorEventListener 
     if (!started) {
       started = true;
       Notification n =
-          new Notification.Builder()
-              .setContentTitle("PicoEnvMon")
-              .setContentText("Logging sensors")
+          new Notification.Builder(this, "envmon")
+              .setContentTitle(getString(R.string.app_name))
+              .setContentText(getString(R.string.notification_logging))
               .build();
       startForeground(NOTIFICATION_ID, n);
       Log.i(TAG, "foreground started");
@@ -218,26 +216,6 @@ public class SensorLoggerService extends Service implements SensorEventListener 
     return now > 100_000_000_000L ? " [" + TimeFormat.hms(now) + "]" : "";
   }
 
-  /** Register for 1 Hz windowed-mean callbacks. Returns false if all slots are full. */
-  public boolean addSmoothedListener(SmoothedSensorListener l) {
-    for (int i = 0; i < MAX_SMOOTHED_LISTENERS; i++) {
-      if (smoothedListeners[i] == null) {
-        smoothedListeners[i] = l;
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /** Idempotent: removing an unregistered listener is a no-op. */
-  public void removeSmoothedListener(SmoothedSensorListener l) {
-    for (int i = 0; i < MAX_SMOOTHED_LISTENERS; i++) {
-      if (smoothedListeners[i] == l) {
-        smoothedListeners[i] = null;
-      }
-    }
-  }
-
   private static int smoothedIdxFor(int sensorType) {
     for (int i = 0; i < SMOOTHED_TYPES.length; i++) {
       if (SMOOTHED_TYPES[i] == sensorType) {
@@ -256,13 +234,8 @@ public class SensorLoggerService extends Service implements SensorEventListener 
       smoothSum[i] = 0f;
       smoothCount[i] = 0;
       latestReadings.updateByType(SMOOTHED_TYPES[i], avg);
-      for (int j = 0; j < MAX_SMOOTHED_LISTENERS; j++) {
-        SmoothedSensorListener l = smoothedListeners[j];
-        if (l != null) {
-          l.onSmoothedSensor(SMOOTHED_TYPES[i], avg);
-        }
-      }
     }
+    latestReadings.publish();
   }
 
   @Override

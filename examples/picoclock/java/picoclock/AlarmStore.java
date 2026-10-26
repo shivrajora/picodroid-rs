@@ -5,6 +5,8 @@ import java.util.TimeZone;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import picodroid.content.SharedPreferences;
+import picodroid.lifecycle.LiveData;
+import picodroid.lifecycle.MutableLiveData;
 
 /**
  * The alarms and the clock's own settings, backed by {@link SharedPreferences} so they survive a
@@ -13,6 +15,10 @@ import picodroid.content.SharedPreferences;
  *
  * <p>A fixed array of {@link #MAX_ALARMS}: the store is read once at startup and written through on
  * every edit, so a screen never waits on flash and the service never re-reads.
+ *
+ * <p>The app's repository: {@link #alarms} publishes the user's alarms after every change, so the
+ * list screen and {@link AlarmService} follow an edit by observing it rather than by being told.
+ * Main thread only, as {@link LiveData#setValue} is.
  */
 @Singleton
 public final class AlarmStore {
@@ -33,6 +39,8 @@ public final class AlarmStore {
 
   private int offsetMinutes;
 
+  private final MutableLiveData<Alarm[]> published = new MutableLiveData<>();
+
   @Inject
   public AlarmStore(SharedPreferences prefs) {
     this.prefs = prefs;
@@ -50,6 +58,12 @@ public final class AlarmStore {
       a.label = prefs.getString(key(i, "l"), "");
       alarms[i] = a;
     }
+    published.setValue(live());
+  }
+
+  /** The user's alarms ({@link #live}), republished after every save, delete and switch. */
+  public LiveData<Alarm[]> alarms() {
+    return published;
   }
 
   // ── Alarms ─────────────────────────────────────────────────────────────────
@@ -116,6 +130,7 @@ public final class AlarmStore {
         .putInt(key(id, "d"), a.daysMask)
         .putString(key(id, "l"), a.label)
         .apply();
+    published.setValue(live());
   }
 
   /** Free {@code id}, and reset the slot so the next new alarm starts from the defaults. */
@@ -131,6 +146,7 @@ public final class AlarmStore {
         .remove(key(id, "d"))
         .remove(key(id, "l"))
         .apply();
+    published.setValue(live());
   }
 
   /** Arm or disarm {@code id} without touching its time — what the list screen's switch does. */

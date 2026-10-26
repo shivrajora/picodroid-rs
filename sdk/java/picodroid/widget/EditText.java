@@ -23,10 +23,6 @@ public class EditText extends TextView {
   private picodroid.text.TextWatcher[] watchers;
   private int watcherCount;
 
-  public EditText() {
-    this(null);
-  }
-
   public EditText(Context ctx) {
     super(ctx, nativeCreate());
     // Focusable by default, as on Android: `requestFocus()` works without a

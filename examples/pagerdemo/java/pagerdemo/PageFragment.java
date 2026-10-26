@@ -4,6 +4,7 @@ package pagerdemo;
 import picodroid.app.Fragment;
 import picodroid.os.Bundle;
 import picodroid.util.Log;
+import picodroid.view.Gravity;
 import picodroid.view.LayoutInflater;
 import picodroid.view.View;
 import picodroid.view.ViewGroup;
@@ -51,8 +52,13 @@ public class PageFragment extends Fragment {
     title.setText("Page " + position);
     root.addView(title);
     visitsLabel = new TextView(requireContext());
-    visitsLabel.setPosition(0, 24);
-    root.addView(visitsLabel);
+    FrameLayout.LayoutParams below =
+        new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            Gravity.TOP | Gravity.LEFT);
+    below.topMargin = 24;
+    root.addView(visitsLabel, below);
     return root;
   }
 

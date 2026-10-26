@@ -2,6 +2,7 @@
 package settings;
 
 import picodroid.app.Activity;
+import picodroid.content.Context;
 import picodroid.graphics.drawable.GradientDrawable;
 import picodroid.settings.R;
 import picodroid.view.View;
@@ -18,9 +19,9 @@ import picodroid.widget.TextView;
  * walked — and scrolled — with the buttons.
  *
  * <p>A screen is built inside {@code onCreate}, as on Android: {@link #screen} puts the header up
- * and sets the content view, the rows are inflated from {@code res/layout/row.xml} into the column
- * one call each, and {@link #size} fits the column to them. The main loop allows a screen build a
- * slow first frame (docs/designs/ui-build-budget-2026-10.md).
+ * and sets the content view, and the rows are inflated from {@code res/layout/row.xml} into the
+ * column one call each; the column wraps them. The main loop allows a screen build a slow first
+ * frame (docs/designs/ui-build-budget-2026-10.md).
  */
 final class Screens {
   /** Row height in pixels, header included. */
@@ -32,52 +33,47 @@ final class Screens {
 
   /**
    * A screen: the header row in a fresh column inside a full-screen ScrollView, set as {@code a}'s
-   * content view. The rows follow through {@link #row} and {@link #info}; {@link #size} once they
-   * are in.
+   * content view. The rows follow through {@link #row} and {@link #info}.
    */
   static LinearLayout screen(Activity a, String title, View.OnClickListener onTitle) {
-    LinearLayout column = column();
+    LinearLayout column = column(a);
     header(a, column, title, onTitle);
-    a.setContentView(scrollable(a, column, 1));
+    a.setContentView(scrollable(a, column));
     return column;
   }
 
-  /** The header row, appended to {@code column}: the title on a tinted band; a tap or select runs {@code onClick}. */
+  /**
+   * The header row, appended to {@code column}: the title on a tinted band; a tap or select runs
+   * {@code onClick}.
+   */
   static View header(Activity a, LinearLayout column, String title, View.OnClickListener onClick) {
     View header = build(a, column, title, null, onClick);
-    header.setBackground(new GradientDrawable().setColor(HEADER_COLOR).setCornerRadius(0));
+    GradientDrawable band = new GradientDrawable();
+    band.setColor(HEADER_COLOR);
+    band.setCornerRadius(0);
+    header.setBackground(band);
     return header;
   }
 
-  /** A vertical column with no padding, so rows start at y = 0; sized by {@link #size}. */
-  static LinearLayout column() {
-    LinearLayout root = new LinearLayout();
+  /** A vertical column with no padding, so rows start at y = 0. */
+  static LinearLayout column(Context context) {
+    LinearLayout root = new LinearLayout(context);
     root.setOrientation(LinearLayout.VERTICAL);
     root.setPadding(0, 0, 0, 0);
-    root.setSpacing(0);
     return root;
   }
 
   /**
-   * The column of {@code rows} rows (header included) in a full-screen ScrollView: a LinearLayout
+   * {@code column} in a ScrollView, the content view's root, which fills the window: a LinearLayout
    * does not scroll, as on Android, so this is what makes a long column reachable — by drag on a
-   * touch panel, and by the focus moving on a keypad. {@link #size} grows the column as rows land.
+   * touch panel, and by the focus moving on a keypad. The column takes the ScrollView's width and
+   * wraps its rows.
    */
-  static View scrollable(Activity a, LinearLayout column, int rows) {
-    size(a, column, rows);
-    ScrollView scroller = new ScrollView();
-    scroller.setSize(a.getDisplay().getWidth(), a.getDisplay().getHeight());
+  static View scrollable(Context context, LinearLayout column) {
+    ScrollView scroller = new ScrollView(context);
     scroller.setPadding(0, 0, 0, 0);
     scroller.addView(column);
     return scroller;
-  }
-
-  /** Size {@code column} to {@code rows} rows (header included), never less than the screen. */
-  static void size(Activity a, LinearLayout column, int rows) {
-    int width = a.getDisplay().getWidth();
-    int height = a.getDisplay().getHeight();
-    int content = rows * ROW_HEIGHT;
-    column.setSize(width, content > height ? content : height);
   }
 
   /** A focusable row, appended to {@code column}, that runs {@code onClick} on a tap or select. */

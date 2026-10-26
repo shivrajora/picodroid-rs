@@ -3,9 +3,11 @@ package netdemo;
 
 import java.io.IOException;
 import picodroid.app.Application;
+import picodroid.content.Context;
+import picodroid.net.ConnectivityManager;
 import picodroid.net.InetAddress;
-import picodroid.net.NetworkInfo;
 import picodroid.net.Socket;
+import picodroid.net.wifi.WifiManager;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
 
@@ -30,14 +32,17 @@ public class NetDemo extends Application {
   public void onCreate() {
     Log.i(TAG, "--- picodroid network demo ---");
 
-    // On hardware the app starts before WiFi association and DHCP finish;
-    // poll until the network is up instead of checking once.
+    // On hardware the app starts before WiFi association and DHCP finish.
+    // An app with an Activity registers a NetworkCallback and connects in
+    // onAvailable; this one has no Activity, so no event loop delivers
+    // callbacks to it, and it asks ConnectivityManager until a network is up.
+    ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
     int waited = 0;
-    while (!NetworkInfo.isConnected() && waited < NETWORK_WAIT_MS) {
+    while (cm.getActiveNetwork() == null && waited < NETWORK_WAIT_MS) {
       SystemClock.sleep(500);
       waited += 500;
     }
-    boolean connected = NetworkInfo.isConnected();
+    boolean connected = cm.getActiveNetwork() != null;
     Log.i(TAG, "Network connected: " + connected + " (waited " + waited + " ms)");
 
     if (!connected) {
@@ -45,7 +50,8 @@ public class NetDemo extends Application {
       return;
     }
 
-    int rawIp = NetworkInfo.getIpAddress();
+    WifiManager wm = (WifiManager) getSystemService(Context.WIFI_SERVICE);
+    int rawIp = wm.getConnectionInfo().getIpAddress();
     InetAddress myAddr = new InetAddress(rawIp);
     Log.i(TAG, "My IP: " + myAddr.getHostAddress());
 

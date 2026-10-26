@@ -544,7 +544,9 @@ public class LayoutDemoActivity extends Activity {
     box.setBackgroundTintList(null);
     check("a null tint clears it", box.getBackgroundTintList() == null);
 
-    GradientDrawable pill = new GradientDrawable().setColor(0xFF00FF00).setCornerRadius(5);
+    GradientDrawable pill = new GradientDrawable();
+    pill.setColor(0xFF00FF00);
+    pill.setCornerRadius(5);
     box.setBackground(pill);
     check("getBackground", box.getBackground() == pill);
     box.setBackgroundColor(0xFF0000FF);
@@ -718,7 +720,7 @@ public class LayoutDemoActivity extends Activity {
     FrameLayout stages = findViewById(R.id.stages);
     flow = new FlowLayout(this);
     for (int i = 0; i < flowItems.length; i++) {
-      TextView item = new TextView(); // no Context of its own: getContext() asks the parent
+      TextView item = new TextView(this);
       item.setText("item" + i);
       flowItems[i] = item;
       flow.addView(
@@ -728,7 +730,7 @@ public class LayoutDemoActivity extends Activity {
     }
     stages.addView(flow, new FrameLayout.LayoutParams(100, 48, Gravity.RIGHT | Gravity.TOP));
     check("flow: onLayout waits for the main loop", flow.layouts == 0);
-    check("flow: getContext through the parent", flowItems[0].getContext() == this);
+    check("flow: getContext", flowItems[0].getContext() == this);
   }
 
   /** After a few main-loop turns: the rows are laid out where onLayout put them. */

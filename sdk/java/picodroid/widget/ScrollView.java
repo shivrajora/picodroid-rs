@@ -6,10 +6,6 @@ import picodroid.view.ViewGroup;
 
 public class ScrollView extends ViewGroup {
 
-  public ScrollView() {
-    super(nativeCreate());
-  }
-
   public ScrollView(Context ctx) {
     super(ctx, nativeCreate());
   }

@@ -2,14 +2,13 @@
 package picoenvmon.ui.home;
 
 import picodroid.content.Intent;
-import picodroid.graphics.Theme;
 import picodroid.os.Bundle;
 import picodroid.util.Log;
 import picodroid.widget.ArrayAdapter;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.ListView;
-import picodroid.widget.TextView;
 import picoenvmon.EnvApp;
+import picoenvmon.R;
 import picoenvmon.service.SensorLoggerService;
 import picoenvmon.ui.common.NavActivity;
 import picoenvmon.ui.history.HistoryActivity;
@@ -23,11 +22,13 @@ import picoenvmon.ui.settings.SettingsActivity;
  * finishes this last Activity, which ends the app and returns to the launcher, exactly as on an
  * Android home screen. The live 5-tile sensor dashboard lives in {@link LiveActivity}; History and
  * Settings are siblings. Adding a screen later is one more {@code LABELS}/{@code DESTINATIONS}
- * entry plus the new Activity.
+ * entry, its string and its manifest {@code <activity>}, plus the new Activity.
  */
 public class HomeActivity extends NavActivity {
 
-  private static final String[] LABELS = {"Live", "History", "Network", "Settings"};
+  private static final int[] LABELS = {
+    R.string.menu_live, R.string.menu_history, R.string.menu_network, R.string.menu_settings
+  };
   private static final Class<?>[] DESTINATIONS = {
     LiveActivity.class, HistoryActivity.class, NetworkActivity.class, SettingsActivity.class
   };
@@ -44,28 +45,27 @@ public class HomeActivity extends NavActivity {
     // emit — found as "every dashboard row reads --" on a fresh flash). The
     // Live screen's Logger switch restores from isLogging() and remains the
     // off-toggle. Idempotent: the service guards re-start internally.
-    startService(new Intent(SensorLoggerService.class));
+    startService(new Intent(this, SensorLoggerService.class));
 
     LinearLayout root = makeScreenRoot();
+    addTitle(root, R.string.app_name);
 
-    TextView title = new TextView();
-    title.setText("PicoEnvMon");
-    title.setTextColor(Theme.colorPrimary);
-    root.addView(title);
-
-    ListView menu = new ListView();
-    menu.setAdapter(new ArrayAdapter<String>(LABELS));
+    String[] labels = new String[LABELS.length];
+    for (int i = 0; i < LABELS.length; i++) {
+      labels[i] = getString(LABELS[i]);
+    }
+    ListView menu = new ListView(this);
+    menu.setAdapter(new ArrayAdapter<>(this, picodroid.R.layout.simple_list_item_1, labels));
     // Android-faithful 4-arg item-click: A/B move the row highlight, X (ENTER) activates the
-    // focused
-    // row -> open its destination.
+    // focused row -> open its destination.
     menu.setOnItemClickListener(
-        (parent, view, position, id) -> startActivity(new Intent(DESTINATIONS[position])));
+        (parent, view, position, id) -> startActivity(new Intent(this, DESTINATIONS[position])));
     // The list takes the height the title and the hint bar leave (android:layout_weight="1"),
     // so the hint bar sits on the bottom edge of every panel.
     root.addView(
         menu, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
 
-    installHintBar(root, "A:Up  B:Down  X:Open  Y:Exit");
+    installHintBar(root, R.string.hint_home);
 
     setContentView(root);
   }

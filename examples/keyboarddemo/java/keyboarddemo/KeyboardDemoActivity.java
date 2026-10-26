@@ -5,6 +5,7 @@ import picodroid.app.Activity;
 import picodroid.graphics.Color;
 import picodroid.os.Bundle;
 import picodroid.util.Log;
+import picodroid.view.ViewGroup;
 import picodroid.view.inputmethod.EditorInfo;
 import picodroid.widget.Button;
 import picodroid.widget.EditText;
@@ -14,37 +15,42 @@ import picodroid.widget.TextView;
 
 public class KeyboardDemoActivity extends Activity {
   private TextView echo;
+  private LinearLayout root;
+  private Keyboard keyboard;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    getDisplay();
     Log.i("KeyboardDemo", "ready");
 
-    LinearLayout root = new LinearLayout();
+    // The window is a column: the form takes what the explicit keyboard leaves, so showing the
+    // keyboard below it shrinks the form rather than covering it.
+    root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(240, 100);
-    root.setPadding(8, 8, 8, 8);
 
-    TextView title = new TextView();
+    LinearLayout form = new LinearLayout(this);
+    form.setOrientation(LinearLayout.VERTICAL);
+    form.setPadding(8, 8, 8, 8);
+    root.addView(form, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+    TextView title = new TextView(this);
     title.setText("Keyboard Demo");
     title.setTextColor(Color.WHITE);
-    root.addView(title);
+    form.addView(title);
 
     // Press-outside-to-dismiss target: tapping anywhere on this strip
     // (with no EditText behind it) dismisses the system keyboard.
-    TextView dismissHint = new TextView();
+    TextView dismissHint = new TextView(this);
     dismissHint.setText("Tap me to dismiss");
     dismissHint.setTextColor(Color.YELLOW);
-    root.addView(dismissHint);
+    form.addView(dismissHint);
 
     // EditText #1: default behavior — tapping pops up the system
     // keyboard with a slide-up animation. The OnEditorActionListener
     // logs the entered text when the user taps OK; returning false lets
     // the keyboard's default dismiss run.
-    EditText auto = new EditText();
+    EditText auto = new EditText(this);
     auto.setHint("Tap to type (auto)");
-    auto.setSize(220, 30);
     auto.setOnEditorActionListener(
         (v, actionId, event) -> {
           if (actionId == EditorInfo.IME_ACTION_DONE) {
@@ -54,14 +60,14 @@ public class KeyboardDemoActivity extends Activity {
           }
           return false; // let the keyboard hide as usual
         });
-    root.addView(auto);
+    form.addView(auto, new LinearLayout.LayoutParams(220, 30));
 
     // TextWatcher: live character count, plus a deterministic setText-fires-
     // watcher check (Android semantics — programmatic changes notify too).
-    TextView counter = new TextView();
+    TextView counter = new TextView(this);
     counter.setText("len=0");
     counter.setTextColor(Color.CYAN);
-    root.addView(counter);
+    form.addView(counter);
     auto.addTextChangedListener(
         s -> {
           counter.setText("len=" + s.length());
@@ -70,38 +76,39 @@ public class KeyboardDemoActivity extends Activity {
     auto.setText("seed");
 
     // EditText #2: opted out of the system keyboard. The "Type" button
-    // below constructs an explicit Keyboard, binds it, and shows it.
-    EditText manual = new EditText();
+    // below adds an explicit Keyboard under the form, binds it, and shows it.
+    EditText manual = new EditText(this);
     manual.setHint("Manual mode");
-    manual.setSize(220, 30);
     manual.setShowKeyboardOnTouch(false);
-    root.addView(manual);
+    form.addView(manual, new LinearLayout.LayoutParams(220, 30));
 
-    Button typeBtn = new Button("Type into manual");
-    typeBtn.setSize(220, 28);
+    Button typeBtn = new Button(this);
+    typeBtn.setText("Type into manual");
     typeBtn.setOnClickListener(
         clicked -> {
           Log.i("KeyboardDemo", "manual keyboard show");
-          Keyboard kb = new Keyboard();
-          kb.setSize(240, 140);
-          kb.setPosition(0, 100);
-          kb.setEditText(manual);
-          // Explicit instance fires READY so the app can read the value.
-          kb.setOnReadyListener(
-              keyboard -> {
-                String got = manual.getText();
-                Log.i("KeyboardDemo", "manual got: " + got);
-                echo.setText("Manual: " + got);
-                keyboard.hide();
-              });
-          kb.show();
+          if (keyboard == null) {
+            keyboard = new Keyboard(this);
+            keyboard.setEditText(manual);
+            // Explicit instance fires READY so the app can read the value.
+            keyboard.setOnReadyListener(
+                kb -> {
+                  String got = manual.getText();
+                  Log.i("KeyboardDemo", "manual got: " + got);
+                  echo.setText("Manual: " + got);
+                  kb.hide();
+                });
+            root.addView(
+                keyboard, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 140));
+          }
+          keyboard.show();
         });
-    root.addView(typeBtn);
+    form.addView(typeBtn, new LinearLayout.LayoutParams(220, 28));
 
-    echo = new TextView();
+    echo = new TextView(this);
     echo.setText("(echo)");
     echo.setTextColor(Color.CYAN);
-    root.addView(echo);
+    form.addView(echo);
 
     setContentView(root);
   }

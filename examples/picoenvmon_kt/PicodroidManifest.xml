@@ -2,5 +2,22 @@
 <manifest package="picoenvmon_kt" version="1.0"
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
           xsi:noNamespaceSchemaLocation="../../sdk/PicodroidManifest.xsd">
-    <application application="picoenvmonkt/EnvApp" />
+    <!-- Android's shape (docs/designs/manifest-components-2026-10.md): the Application, which
+         starts the network side and then the hub; the hub, the entry by its MAIN filter; the
+         four screens it opens; and the logging Service the hub starts and Live and History
+         bind. The classes live in `picoenvmonkt`, not the manifest package, so the names are
+         written out in full. -->
+    <application application="picoenvmonkt/EnvApp" label="PicoEnvMonKt">
+        <activity android:name="picoenvmonkt.ui.home.HomeActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity android:name="picoenvmonkt.ui.live.LiveActivity" />
+        <activity android:name="picoenvmonkt.ui.history.HistoryActivity" />
+        <activity android:name="picoenvmonkt.ui.network.NetworkActivity" />
+        <activity android:name="picoenvmonkt.ui.settings.SettingsActivity" />
+        <service android:name="picoenvmonkt.service.SensorLoggerService" />
+    </application>
 </manifest>

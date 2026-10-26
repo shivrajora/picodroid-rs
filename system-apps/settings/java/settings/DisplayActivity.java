@@ -35,7 +35,6 @@ public class DisplayActivity extends Activity {
     timeoutRow = Screens.info(this, column, "Screen timeout", label(currentMs()));
     timeoutTail = Screens.tailOf(timeoutRow);
     timeoutRow.setOnClickListener(v -> pick());
-    Screens.size(this, column, 2);
     timeoutRow.requestFocus();
   }
 
@@ -53,7 +52,7 @@ public class DisplayActivity extends Activity {
   }
 
   private void pick() {
-    new AlertDialog.Builder()
+    new AlertDialog.Builder(this)
         .setTitle("Screen timeout")
         .setItems(
             CHOICE_LABELS,

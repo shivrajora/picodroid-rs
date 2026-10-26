@@ -2,8 +2,9 @@
 //! `LinearLayout`'s solver: Android's `measureHorizontal` / `layoutHorizontal`
 //! (and their vertical twins), pure.
 //!
-//! Children are stacked along the orientation with their margins and the
-//! gap `setSpacing` sets between them. A weight shares the space left over
+//! Children are stacked along the orientation with their margins (and the
+//! container's `pad_row` / `pad_column` gap, which nothing sets since
+//! `setSpacing` went in 2026-10: Android has no gap). A weight shares the space left over
 //! — or the overflow, when the children are too big — in proportion
 //! (`weight / remaining sum × remaining delta`, sequentially, as Android has
 //! done since N). On the cross axis each child is placed by its own

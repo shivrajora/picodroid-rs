@@ -2,18 +2,18 @@
 package picoenvmonkt.ui.settings
 
 import javax.inject.Inject
-import picodroid.content.SharedPreferences
+import picodroid.content.Context
 import picodroid.graphics.Theme
-import picodroid.graphics.drawable.GradientDrawable
 import picodroid.os.Bundle
 import picodroid.util.Log
-import picodroid.view.View
 import picodroid.widget.Button
 import picodroid.widget.LinearLayout
 import picodroid.widget.NumberPicker
 import picodroid.widget.Switch
 import picodroid.widget.TextView
 import picodroid.widget.Toast
+import picoenvmon_kt.R
+import picoenvmonkt.PREFS_NAME
 import picoenvmonkt.TAG
 import picoenvmonkt.data.ThresholdConfig
 import picoenvmonkt.ui.common.NavActivity
@@ -25,12 +25,11 @@ import picoenvmonkt.util.Formatter
  * focus between controls and X (ENTER) activates the focused one. Activating a picker enters keypad
  * edit mode (secondary-color outline): A/B then step the value by the row's step size instead of
  * moving focus, X commits, and Y leaves edit mode without leaving the screen. Outside edit mode Y
- * returns to the hub; Save persists and finishes.
+ * returns to the hub; Save persists to the app's preferences and finishes.
  */
 class SettingsActivity : NavActivity() {
     @Inject lateinit var thresholds: ThresholdConfig
     @Inject lateinit var formatter: Formatter
-    @Inject lateinit var prefs: SharedPreferences
     private var tempField: NumberPicker? = null
     private var humField: NumberPicker? = null
     private var luxField: NumberPicker? = null
@@ -41,53 +40,50 @@ class SettingsActivity : NavActivity() {
         Log.i(TAG, "Settings.onCreate")
         getDisplay()
 
+        val gap = dimen(R.dimen.gap)
         val root = makeScreenRoot()
-        root.setSpacing(4)
-
-        val title = TextView()
-        title.setText("Settings")
-        title.setTextColor(Theme.colorPrimary)
-        root.addView(title)
+        addTitle(root, R.string.menu_settings)
 
         val th = thresholds
-        tempField = addRow(root, "Temp Hi °C", 0, 60, 1, th.tempHiCentiC / 100)
-        humField = addRow(root, "Hum Lo %", 0, 100, 1, th.humLoMilliPct / 1000)
-        luxField = addRow(root, "Lux Lo", 0, 10000, 10, th.luxLo)
+        tempField = addRow(root, R.string.settings_temp_hi, 0, 60, 1, th.tempHiCentiC / 100, gap)
+        humField = addRow(root, R.string.settings_hum_lo, 0, 100, 1, th.humLoMilliPct / 1000, gap)
+        luxField = addRow(root, R.string.settings_lux_lo, 0, 10000, 10, th.luxLo, gap)
 
-        root.addView(buildUnitsRow())
-        root.addView(buildSaveButton())
+        root.addView(buildUnitsRow(), stacked(dimen(R.dimen.switch_row_height), gap))
 
-        // Keep this the same length as the other screens' hints so the whole
-        // legend fits the 224 px ButtonHintBar (the longer "X:Edit/Save" clipped
-        // "Y:Back" to "Y:B"). The Save button is self-labelled, so "X:Edit" is
-        // enough; while editing, the same A/B keys read naturally as value
-        // up/down and the secondary outline marks the mode.
-        installHintBar(root, "A:Up  B:Down  X:Edit  Y:Back")
+        val save = Button(this)
+        save.setText(getString(R.string.save))
+        save.setOnClickListener { commit() }
+        val saveLp =
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
+        saveLp.topMargin = gap
+        root.addView(save, saveLp)
+
+        installHintBar(root, R.string.hint_settings, gap)
 
         setContentView(root)
     }
 
     private fun buildUnitsRow(): LinearLayout {
-        val row = LinearLayout()
+        val row = LinearLayout(this)
         row.setOrientation(LinearLayout.HORIZONTAL)
         // The Switch knob is drawn ~4 px larger than its track (LVGL theme), so it needs vertical
-        // headroom or it clips top/bottom. Two things steal that headroom: the row's 2 px theme
-        // border and its padding. A borderless background (stroke 0) zeroes the border, and zero
-        // vertical padding plus a 34 px height give the full circle room to render.
-        row.setSize(LinearLayout.LayoutParams.MATCH_PARENT, 34)
+        // headroom or it clips top/bottom: zero vertical padding plus the row's height give the
+        // full circle room to render.
         row.setPadding(4, 0, 4, 0)
-        row.setBackground(GradientDrawable().setColor(Theme.colorBackground))
 
-        val label = TextView()
-        label.setText("Units °F")
+        val label = TextView(this)
+        label.setText(getString(R.string.settings_units))
         label.setTextColor(Theme.colorTextSecondary)
         // weight=1 lets the label fill the row and pushes the Switch flush right at its natural
-        // size (mirrors android:layout_weight="1"), so the switch is no longer clipped.
-        // WRAP_CONTENT height lets the row's flex cross-axis centering center the glyphs —
-        // a fixed-height label draws its text top-aligned inside its own box.
+        // size (android:layout_weight="1"). WRAP_CONTENT height lets the row's cross-axis
+        // centering center the glyphs — a fixed-height label draws its text top-aligned.
         row.addView(label, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
-        val units = Switch()
+        val units = Switch(this)
         units.setChecked(formatter.isFahrenheit)
         units.setOnCheckedChangeListener { _, isChecked -> formatter.isFahrenheit = isChecked }
         row.addView(units)
@@ -95,42 +91,37 @@ class SettingsActivity : NavActivity() {
         return row
     }
 
-    private fun buildSaveButton(): Button {
-        val saveButton = Button("Save")
-        saveButton.setOnClickListener { commit() }
-        return saveButton
-    }
-
     private fun addRow(
         root: LinearLayout,
-        label: String,
+        labelRes: Int,
         min: Int,
         max: Int,
         step: Int,
         initialValue: Int,
+        gap: Int,
     ): NumberPicker {
-        val row = LinearLayout()
+        val row = LinearLayout(this)
         row.setOrientation(LinearLayout.HORIZONTAL)
-        row.setSize(LinearLayout.LayoutParams.MATCH_PARENT, 30)
         row.setPadding(4, 2, 4, 2)
 
-        val lbl = TextView()
-        lbl.setText(label)
+        val lbl = TextView(this)
+        lbl.setText(getString(labelRes))
         lbl.setTextColor(Theme.colorTextSecondary)
-        // Fixed width keeps the value column aligned; WRAP_CONTENT height lets the
-        // row's flex cross-axis centering actually center the glyphs.
-        lbl.setSize(110, View.WRAP_CONTENT)
-        row.addView(lbl)
+        // The label takes what the picker leaves (layout_weight="1"), so the pickers line up on
+        // the right edge on every panel; WRAP_CONTENT height lets the row center the glyphs.
+        row.addView(lbl, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
-        val field = NumberPicker()
-        field.setSize(108, 26)
+        val field = NumberPicker(this)
         field.setMinValue(min)
         field.setMaxValue(max)
         field.setStep(step)
         field.setValue(initialValue)
-        row.addView(field)
+        row.addView(
+            field,
+            LinearLayout.LayoutParams(dimen(R.dimen.picker_width), dimen(R.dimen.picker_height)),
+        )
 
-        root.addView(row)
+        root.addView(row, stacked(dimen(R.dimen.picker_row_height), gap))
         return field
     }
 
@@ -142,12 +133,17 @@ class SettingsActivity : NavActivity() {
         th.tempHiCentiC = temp.getValue() * 100
         th.humLoMilliPct = hum.getValue() * 1000
         th.luxLo = lux.getValue()
-        val ok = th.save(prefs)
+        val ok = th.save(getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE))
         Log.i(
             TAG,
             "Settings saved: tempHi=${th.tempHiCentiC} humLo=${th.humLoMilliPct} luxLo=${th.luxLo} ok=$ok",
         )
-        Toast.makeText(this, if (ok) "Saved" else "Save failed", Toast.LENGTH_SHORT).show()
+        Toast.makeText(
+                this,
+                getString(if (ok) R.string.saved else R.string.save_failed),
+                Toast.LENGTH_SHORT,
+            )
+            .show()
         finish()
     }
 }

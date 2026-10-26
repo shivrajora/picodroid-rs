@@ -15,16 +15,22 @@ import picodroid.view.View;
 public class TimePicker extends View {
   private OnTimeChangedListener timeChangedListener;
 
-  public TimePicker() {
-    super(nativeCreate());
-  }
-
   public TimePicker(Context ctx) {
     super(ctx, nativeCreate());
   }
 
-  /** Set the underlying time. {@code hour} is always 0..23 regardless of display mode. */
-  public native void setTime(int hour, int minute);
+  /** Mirrors Android: the hour, 0..23 whatever the display mode. */
+  public void setHour(int hour) {
+    setTime(hour, getMinute());
+  }
+
+  /** Mirrors Android: the minute, 0..59. */
+  public void setMinute(int minute) {
+    setTime(getHour(), minute);
+  }
+
+  /** Both fields at once, for the two setters above. */
+  private native void setTime(int hour, int minute);
 
   /** Returns the underlying hour 0..23, regardless of display mode. */
   public native int getHour();

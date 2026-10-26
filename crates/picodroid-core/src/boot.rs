@@ -392,6 +392,14 @@ pub fn run_app(apk_data: &'static [u8]) {
     #[cfg(feature = "sim")]
     let start = std::time::Instant::now();
 
+    // The main-thread FIFO and the scheduled table, fresh for this run (a
+    // re-init drains what the previous app left) and live before the app's
+    // first callback: until 2026-10 this ran at the top of the activity loop,
+    // and a post or schedule from `Application.onCreate` (a NetworkCallback's
+    // first `onAvailable`, a `LiveData.postValue`) was dropped or wiped.
+    crate::executors::main_queue::init();
+    crate::executors::scheduled::init();
+
     if let Some(application_class) = apk.application() {
         // Parsed from `apk_data`, so the class name is `'static` too and
         // alloc() can store it in the object heap.
