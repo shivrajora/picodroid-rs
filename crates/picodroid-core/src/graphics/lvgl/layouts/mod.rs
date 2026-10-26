@@ -401,6 +401,15 @@ struct LinearGathered {
 /// re-set as that room changes. An app's own `setMaxWidth` wins when it is
 /// tighter: the cap written last is recorded (`cap_w` / `cap_h`), so a
 /// value that is not ours is the app's, and what is written is the lesser.
+///
+/// A child is capped only once it overflows its room (its extent, laid out
+/// before its parent, is past the cap it would get); one that fits is left
+/// alone. The two props are a local style on a child that may have none,
+/// some 50 B of the LVGL pool each: on every content-sized child they ran
+/// qa_ui's 241-view churn screen out of the 48 KB pool, and LVGL 9.6's
+/// `lv_obj_set_local_style_prop` then wrote through the NULL style it got
+/// back (nightly 2026-10-23, a BusFault in `lv_style_set_prop`). A label
+/// that grows past the room re-lays its parent out, which caps it then.
 fn cap_content_kids(cont: Obj, l: &Linear, span: Span, n: usize) {
     let p = STATE.props.get();
     if p.cap_w == LV_STYLE_PROP_INV {
@@ -429,10 +438,16 @@ fn cap_content_kids(cont: Obj, l: &Linear, span: Span, n: usize) {
         let Some(child) = lv_obj_get_child(cont, i as i32) else {
             continue;
         };
+        let ours = local_style_num(child, cap_prop);
+        let extent = if l.horizontal {
+            lv_obj_get_height(child)
+        } else {
+            lv_obj_get_width(child)
+        };
         let wanted = cross
             .filter(|_| style_num(child, size_prop) == LV_SIZE_CONTENT)
-            .map(|room| (room - style_num(child, m_start) - style_num(child, m_end)).max(0));
-        let ours = local_style_num(child, cap_prop);
+            .map(|room| (room - style_num(child, m_start) - style_num(child, m_end)).max(0))
+            .filter(|&cap| ours.is_some() || extent > cap);
         let current = local_style_num(child, max_prop);
         let apps = match (current, ours) {
             (Some(c), Some(o)) if c == o => None,
