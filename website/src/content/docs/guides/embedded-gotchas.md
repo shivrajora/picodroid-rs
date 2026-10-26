@@ -68,9 +68,9 @@ A listener lives with its view, as on Android: a view that Java reaches — thro
 @Override
 protected void onCreate(Bundle savedInstanceState) {
   super.onCreate(savedInstanceState);
-  ListView menu = new ListView();
+  ListView menu = new ListView(this);
   menu.setOnItemClickListener((parent, view, position, id) ->
-      startActivity(new Intent(DESTINATIONS[position])));
+      startActivity(new Intent(this, DESTINATIONS[position])));
   setContentView(menu);
 }
 ```
@@ -97,7 +97,7 @@ new Handler().postDelayed(this::sample, 1000);
 new Thread(() -> {
   while (!Thread.currentThread().isInterrupted()) {
     final Reading r = sample();
-    Executors.mainExecutor().execute(() -> label.setText(r.toString()));
+    label.post(() -> label.setText(r.toString()));
     try {
       Thread.sleep(1000);
     } catch (InterruptedException e) {
@@ -107,7 +107,7 @@ new Thread(() -> {
 }).start();
 ```
 
-`Thread.sleep(long)` is interruptible and throws `InterruptedException` like Android's; `SystemClock.sleep(int)` sleeps through interrupts, also like Android's. To hop threads use `Executors.mainExecutor().execute(Runnable)` or `Executors.backgroundExecutor().execute(Runnable)` — `execute` runs as soon as the queue drains and has no delay overload.
+`Thread.sleep(long)` is interruptible and throws `InterruptedException` like Android's; `SystemClock.sleep(int)` sleeps through interrupts, also like Android's. To hop threads use `View.post(Runnable)` or `Context.getMainExecutor().execute(Runnable)` for the main thread, as on Android, and `Executors.backgroundExecutor().execute(Runnable)` for the pool — each runs as soon as its queue drains and has no delay overload.
 
 For "do X in 500 ms" and "do X every second" use the JDK's `ScheduledExecutorService`, which is the delayed-work API here in place of `Handler.postDelayed` and `Timer`. `Executors.mainScheduledExecutor()` is the one whose tasks run on the main thread and may touch views:
 
@@ -142,13 +142,13 @@ A plain View is non-focusable by default (Android's default), and only a focusab
 
 ```java
 // WRONG: listener attached, but the view can't take focus, so keys never arrive.
-LinearLayout panel = new LinearLayout();
+LinearLayout panel = new LinearLayout(this);
 panel.setOnKeyListener(this::onKey);
 ```
 
 ```java
 // RIGHT: make it focusable and claim focus.
-LinearLayout panel = new LinearLayout();
+LinearLayout panel = new LinearLayout(this);
 panel.setFocusable(true);
 panel.setOnKeyListener(this::onKey);
 panel.requestFocus();

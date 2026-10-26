@@ -70,7 +70,7 @@ error rather than something silently ignored. What may vary is the window and th
 
 | Element | Java | Notes |
 |---|---|---|
-| `<string>` | `getString(id)` and `getString(id, Object... formatArgs)` on `Resources`, `Context` and `Fragment`; `getText(id)` | Android's whitespace and escape rules: `\n`, `\t`, `\'`, `\"`, `\\`, `\uXXXX`, and `"double quotes"` to keep spacing. The format-argument overload is `String.format` over the string. Plain text only — no `<b>`, no plurals, no string arrays. |
+| `<string>` | `getString(id)` and `getString(id, Object... formatArgs)` on `Resources`, `Context` and `Fragment`; `getText(id)`; `TextView.setText(id)` | Android's whitespace and escape rules: `\n`, `\t`, `\'`, `\"`, `\\`, `\uXXXX`, and `"double quotes"` to keep spacing. The format-argument overload is `String.format` over the string. Plain text only — no `<b>`, no plurals, no string arrays. |
 | `<color>` | `getResources().getColor(id)`, `Context.getColor(id)` | `#RGB`, `#ARGB`, `#RRGGBB`, `#AARRGGBB`. |
 | `<dimen>` | `getDimension(id)` (float px), `getDimensionPixelSize(id)`, `getDimensionPixelOffset(id)` | `px`, `dp` and `sp` are accepted and are all **one pixel**: there is one density. `pt`, `mm`, `in` are refused. |
 | `<integer>` | `getInteger(id)` | Decimal or `0x…`. |

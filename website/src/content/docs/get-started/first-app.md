@@ -114,7 +114,7 @@ import picodroid.content.Intent;
 
 public class MyApp extends Application {
     public void onCreate() {
-        startActivity(new Intent(MyActivity.class));
+        startActivity(new Intent(this, MyActivity.class));
     }
 }
 ```
@@ -135,11 +135,10 @@ public class MyActivity extends Activity {
         super.onCreate(savedInstanceState);
         DisplayDebug.calibrate();
 
-        LinearLayout root = new LinearLayout();
+        LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setSize(320, 240);
 
-        TextView label = new TextView();
+        TextView label = new TextView(this);
         label.setText("Hello, Display!");
         label.setTextColor(Color.WHITE);
         root.addView(label);
@@ -149,11 +148,11 @@ public class MyActivity extends Activity {
 }
 ```
 
-The Activity's `onCreate()` is called after the display is initialized. Build a widget tree, then call `setContentView()` to render it. See [Graphics & UI](/api/ui/) for the full graphics and widget API.
+The Activity's `onCreate()` is called after the display is initialized. Build a widget tree, then call `setContentView()` to render it; the root fills the window, as on Android, and children are sized by their layout params. See [Graphics & UI](/api/ui/) for the full graphics and widget API.
 
 ### Activity lifecycle and back stack
 
-Beyond `onCreate()`, `Activity` exposes the full Android lifecycle: `onStart` / `onResume` / `onPause` / `onStop` / `onRestart` / `onDestroy` / `onBackPressed`. The runtime also maintains a back stack — push a new screen with `startActivity(new Intent(DetailActivity.class))` and pop it with `finish()`:
+Beyond `onCreate()`, `Activity` exposes the full Android lifecycle: `onStart` / `onResume` / `onPause` / `onStop` / `onRestart` / `onDestroy` / `onBackPressed`. The runtime also maintains a back stack — push a new screen with `startActivity(new Intent(this, DetailActivity.class))` and pop it with `finish()`:
 
 ```java
 import picodroid.content.Intent;
@@ -164,9 +163,12 @@ import picodroid.widget.Button;
 public class HomeActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        Button btn = new Button("Open detail");
+        Button btn = new Button(this);
+        btn.setText("Open detail");
         btn.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { startActivity(new Intent(DetailActivity.class)); }
+            public void onClick(View v) {
+                startActivity(new Intent(HomeActivity.this, DetailActivity.class));
+            }
         });
         setContentView(btn);
     }
@@ -221,7 +223,7 @@ import picodroid.widget.Toast;
 
 Toast.makeText(this, "Saved.", Toast.LENGTH_SHORT).show();   // first arg is a Context
 
-new AlertDialog.Builder()
+new AlertDialog.Builder(this)
     .setTitle("Erase data?")
     .setMessage("This cannot be undone.")
     .setPositiveButton("Erase", new DialogInterface.OnClickListener() {
@@ -245,10 +247,11 @@ import picodroid.graphics.drawable.GradientDrawable;
 Theme.colorPrimary    = Color.argb(255, 80, 180, 120);
 Theme.colorBackground = Color.argb(255, 24,  24,  28);
 
-view.setBackground(new GradientDrawable()
-    .setColor(Theme.colorSurface)
-    .setCornerRadius(16)
-    .setStroke(1, Theme.colorOutline));
+GradientDrawable card = new GradientDrawable();
+card.setColor(Theme.colorSurface);
+card.setCornerRadius(16);
+card.setStroke(1, Theme.colorOutline);
+view.setBackground(card);
 ```
 
 See [api/ui.md → Theme](/api/ui/#picodroidgraphicstheme), [→ GradientDrawable](/api/ui/#picodroidgraphicsdrawablegradientdrawable), and the themed-widgets section of [`examples/displaydemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/displaydemo).
@@ -261,7 +264,7 @@ Wire a `GestureDetector` to recognize taps, long presses, and flings, and use `v
 import picodroid.view.GestureDetector;
 import picodroid.view.MotionEvent;
 
-view.setOnTouchListener(new GestureDetector(new GestureDetector.OnGestureListener() {
+view.setOnTouchListener(new GestureDetector(this, new GestureDetector.OnGestureListener() {
     public void onSingleTap(MotionEvent e) { view.animate().alpha(0.3f).setDuration(120).start(); }
     public void onLongPress(MotionEvent e) { showContextMenu(); }
     public void onFling(MotionEvent down, MotionEvent up, float vx, float vy) { /* ... */ }
@@ -287,11 +290,11 @@ import picodroid.concurrent.Executors;
 
 Executors.backgroundExecutor().execute(() -> {
     int value = readSensorBlocking();
-    Executors.mainExecutor().execute(() -> label.setText("value=" + value));
+    label.post(() -> label.setText("value=" + value));   // or getMainExecutor().execute(...)
 });
 ```
 
-`backgroundExecutor()` runs on a shared worker pool (configurable in [`board.toml`](/reference/porting-guide/#boardtoml-reference)); `mainExecutor()` hops back to the UI thread. Both are non-blocking and drop on queue saturation.
+`backgroundExecutor()` runs on a shared worker pool (configurable in [`board.toml`](/reference/porting-guide/#boardtoml-reference)); `View.post` and `Context.getMainExecutor()` hop back to the UI thread, as on Android. Both are non-blocking and drop on queue saturation.
 
 For delayed or periodic work on the main thread — what `Handler.postDelayed` does on Android — use `Executors.mainScheduledExecutor()`; see [api/system.md → ScheduledExecutorService](/api/system/#delayed-and-periodic-work-scheduledexecutorservice). It is not on `testbench_rp2040`.
 

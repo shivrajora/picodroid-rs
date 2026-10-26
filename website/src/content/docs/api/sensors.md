@@ -39,7 +39,7 @@ See the full [`sensordemo`](https://github.com/shivrajora/picodroid-rs/tree/main
 
 ## `picodroid.hardware.SensorManager`
 
-Retrieved via `getSystemService(Context.SENSOR_SERVICE)` on any `Context` — an `Activity`, the `Application`, or a `Service` (Android-style) — or `SensorManager.getInstance()`.
+Retrieved via `getSystemService(Context.SENSOR_SERVICE)` on any `Context` — an `Activity`, the `Application`, or a `Service` — as on Android.
 
 | Method | Description |
 |--------|-------------|

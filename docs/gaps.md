@@ -40,7 +40,7 @@ agent cannot finish alone: a decision, a bench action, a key, a push to someone 
 ### G1. Android API parity: the missing and shallow classes
 
 - **Missing:** the scorecard's in-scope `missing` rows: `RecyclerView` (`ListView` recycles rows since 2026-10-20; the API itself is not offered), `ConstraintLayout`, a plain `Dialog`, `ValueAnimator` / `ObjectAnimator` / `Animation`, `TextClock`, `Chronometer`, `TableLayout`, `Window`, `Path` / `Rect` / `RectF` / `Matrix` / `Typeface`, `ClipboardManager`, `Vibrator`, `ConcurrentHashMap`, `ReentrantLock`. And the depth behind the `partial` rows: implicit `Intent` resolution, `Parcelable`-free extras beyond two ints, `Canvas` without `Path` or clipping, `AlertDialog.setView`, `EditText` multi-line, `MotionEvent` with one pointer.
-- **Evidence:** `scorecard.md` (54.5 % on 2026-10-20: 38 live, 152 partial, 19 missing, 20 out of scope); every port in `docs/designs/claudeusage-android-shape-2026-09.md` and the QA rounds found the same classes.
+- **Evidence:** `scorecard.md` (54.5 % on 2026-10-20: 38 live, 152 partial, 19 missing, 20 out of scope); every port in `docs/designs/claudeusage-android-shape-2026-09.md` and the QA rounds found the same classes. The non-Android spellings that kept apps off the Android forms went on 2026-10-26; the ones left, and the gaps the migration hit (a Context in the DI graph, `LinkProperties`, short-form manifests), are in `android-idiom-sweep-2026-10.md` § Follow-ups.
 - **Impact:** this is the project goal. A developer looks for these by name.
 - **Estimate:** 120–200 h; each class 2–12 h with its flash cost measured on `testbench_rp2040`. **Human:** which out-of-scope rows (Bitmap, Handler) stay out, and the flash budget each new SDK class may spend (G4).
 

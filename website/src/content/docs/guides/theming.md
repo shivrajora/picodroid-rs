@@ -69,21 +69,20 @@ bg.setStroke(2, Color.rgb(0x44, 0x44, 0x55));   // 2 px outline
 card.setBackground(bg);
 ```
 
-Two-color gradients — there is no gradient constructor; start from `new GradientDrawable()` and
-call `setGradient(startColor, endColor, orientation)` (the setters return the drawable so they
-chain):
+Two-colour gradients use Android's constructor, or `setColors` and `setOrientation` on an existing
+drawable. The setters return `void`, as on Android, so they do not chain:
 
 ```java
-GradientDrawable g = new GradientDrawable()
-    .setGradient(Color.rgb(0x6b, 0x4e, 0xc5),
-                 Color.rgb(0x2e, 0x1a, 0x4a),
-                 GradientDrawable.Orientation.TOP_BOTTOM)
-    .setCornerRadius(8);
+GradientDrawable g = new GradientDrawable(
+    GradientDrawable.Orientation.TOP_BOTTOM,
+    new int[] {Color.rgb(0x6b, 0x4e, 0xc5), Color.rgb(0x2e, 0x1a, 0x4a)});
+g.setCornerRadius(8);
 header.setBackground(g);
 ```
 
-`Orientation` has just two constants: `TOP_BOTTOM` (1) and `LEFT_RIGHT` (2). Other angles and
-radial gradients are not supported.
+`Orientation` has Android's four axis-aligned directions: `TOP_BOTTOM`, `BOTTOM_TOP`, `LEFT_RIGHT`
+and `RIGHT_LEFT`. A gradient draws the first and last of its colours; diagonal orientations,
+radial and sweep gradients are not supported.
 
 ## Text size
 

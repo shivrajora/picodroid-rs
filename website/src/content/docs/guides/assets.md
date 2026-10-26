@@ -33,7 +33,7 @@ PNG decoding happens **at pack time** on the host. The on-device firmware sees o
 ```java
 import picodroid.widget.ImageView;
 
-ImageView img = new ImageView();
+ImageView img = new ImageView(this);
 img.setImageSource("logo.png");   // matches assets/logo.png in the app directory
 ```
 
@@ -117,7 +117,7 @@ For scaled rendering to be anti-aliased, `LV_DRAW_SW_SUPPORT_RGB565A8` must be e
 5. **Show it.** Reference the file by name:
 
    ```java
-   ImageView img = new ImageView();
+   ImageView img = new ImageView(this);
    img.setImageSource("logo.png");
    ```
 

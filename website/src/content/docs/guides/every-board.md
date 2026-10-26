@@ -27,15 +27,17 @@ soft-nav control), `pico_touch_kit` (320×480 touch, BACK and HOME buttons).
 
 Lay out against the 240×240 floor and let the rest take the room a larger panel adds:
 
-- The root is the window by default: `setContentView` gives an unsized root `match_parent` both
-  ways, as Android does, and a root you size yourself is clipped at that size. `layout_weight` on
+- The root is the window by default: `setContentView` gives a root without layout params
+  `match_parent` both ways, as Android does, and a root given fixed layout params is clipped at
+  that size. `layout_weight` on
   the child that should grow; a weighted `<Space>` to push neighbours to the edges.
 - `android:minWidth` / `minHeight` floor a `wrap_content` view; `android:maxWidth` caps a label so
   a long line wraps or ellipsizes instead of pushing the row off the panel.
 - `android:visibility="invisible"` keeps a view's room while it is hidden (`gone` gives it up).
 - `LinearLayout` places children top/start by default, as on Android; a row that wants its
   children centred says `android:gravity="center_vertical"`. Per-child `layout_gravity` inside a
-  `LinearLayout` is not applied (the compiler warns): wrap the child in a `FrameLayout`.
+  `LinearLayout` places that child across the row or column, as on Android (a row reads the
+  vertical bits, a column the horizontal ones).
 
 A root that is still larger than the panel is not clipped — the screen pans to it, under a drag
 or as the focus moves — which keeps the app usable and is the sign to fix the layout. A

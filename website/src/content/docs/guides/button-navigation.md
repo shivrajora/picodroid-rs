@@ -187,17 +187,17 @@ A screen with nothing focusable — an About page, a `ScrollView` of plain text 
 `ListView` rows are focusable automatically — you don't call `setFocusable` on them. A/B move the row highlight, X (ENTER) activates the highlighted row. The activation path is unified: a row reached by ENTER on a button board and a row tapped in the touch sim both fire the **same** `onItemClick`.
 
 ```java
-ListView menu = new ListView();
-menu.setSize(224, 188);
-menu.setAdapter(new ArrayAdapter<String>(LABELS));  // LABELS = {"Live", "History", "Settings"}
+ListView menu = new ListView(this);
+// LABELS = {"Live", "History", "Settings"}
+menu.setAdapter(new ArrayAdapter<>(this, picodroid.R.layout.simple_list_item_1, LABELS));
 menu.setOnItemClickListener(
-    (parent, view, position, id) -> startActivity(new Intent(DESTINATIONS[position])));
-root.addView(menu);
+    (parent, view, position, id) -> startActivity(new Intent(this, DESTINATIONS[position])));
+root.addView(menu, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 ```
 
 This is the Pico Enviro Mon `HomeActivity` hub pattern: a selectable menu of destinations. A/B move the highlight (with wrap-around — the focus group cycles, so down past the last row returns to the first), X opens the highlighted screen. Two details worth copying:
 
-- **Nothing to hold.** The list is a local: `setContentView` makes it the Activity's content view, which keeps it — and its item-click listener — alive for as long as the Activity lives, as on Android.
+- **Nothing to hold.** The list is a local: it is in the tree `setContentView` installed, which keeps it — and its item-click listener — alive for as long as the Activity lives, as on Android.
 - **Let Back exit from the root hub.** The home screen does not override `onBackPressed()`: Y runs the inherited `finish()` on the last Activity, which ends the app and returns to the launcher — the Android home-screen behaviour, and on a button board the only way back to the launcher. The hub's legend says so (`A:Up  B:Down  X:Open  Y:Exit`). Override `onBackPressed()` only on a screen that must confirm before leaving, and call `finish()` yourself from the confirmation.
 
 :::tip[A long list is a ListView]

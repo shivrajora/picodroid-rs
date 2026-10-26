@@ -54,7 +54,9 @@ To skip the hook in exceptional cases: `git commit --no-verify`.
 App sources are compiled by the Gradle multi-project under the repo root. The `./gradlew` wrapper ships in-tree, so no separate Gradle install is required — only a JDK. App code targets Java 1.8 (configured in `build.gradle.kts`). Install JDK 21: the Java formatter (google-java-format 1.36.1) is a Java 21 jar. CI compiles the apps with Ubuntu's JDK 17 and adds a JDK 21 for the formatter; when `java` on your `PATH` is older, point `JAVA_HOME` at a JDK 21 and `format_java.sh` uses that one.
 
 Compilation is followed by `verifyApiContract`, which fails the build for any
-`java.*` class or member pico-jvm does not implement (see the
+`java.*` class or member pico-jvm does not implement, and for any reference to
+a framework-internal SDK member marked `@Hide` (Android's `@hide`), printing the
+Android spelling to use instead (see the
 [compatibility matrix](/reference/compatibility-matrix/) and
 [troubleshooting](/guides/troubleshooting/)). `scripts/build-apk.sh --board <name>`
 — passed automatically by `build.sh`, `flash.sh` and `sim.sh` — also rejects

@@ -163,7 +163,7 @@ The shape an Android manifest has, with what this platform reads of it
 - **`<service android:name="…">`**, repeatable. Declared components are
   checked twice at build time: `papk-pack` checks that each class is packed and
   extends `picodroid.app.Activity` / `Service`, and the Gradle `verifyManifest`
-  task checks that every `new Intent(X.class)` the code starts names a declared
+  task checks that every `new Intent(context, X.class)` the code starts names a declared
   component (every Service, and every Activity once activities are declared).
   Android refuses an undeclared component at run time; here the build does, with
   the element to add. `Intent.setClassName` is dynamic and is not checked.
@@ -196,7 +196,8 @@ The shape an Android manifest has, with what this platform reads of it
 
 A short-form manifest (`activity=` / `application=` / `main-class=` alone)
 declares nothing and nothing is checked; that is every example but
-`claudeusage`, `layoutdemo`, `servicedemo` and `tutorial_service`.
+`askclaude`, `bootdemo`, `calculator`, `claudeusage`, `layoutdemo`, `picoclock`, `picoenvmon`,
+`picoenvmon_kt`, `servicedemo`, `tutorial_screens`, `tutorial_service` and `weather`.
 
 ### `application=` — full app with lifecycle
 
@@ -248,7 +249,7 @@ public class MainActivity extends Activity {
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    TextView root = new TextView();
+    TextView root = new TextView(this);
     root.setText("Hello");
     setContentView(root);
   }

@@ -151,6 +151,27 @@ surface. An `EXCLUDED ON BOARD` section means the target board drops that
 class from its framework (`framework_class_excludes` in its `board.toml`);
 build for a larger board or probe-and-degrade.
 
+A `FRAMEWORK-INTERNAL` section lists references to SDK members marked
+`@Hide` (`picodroid.annotation.Hide`, Android's `@hide`). Java has no
+visibility between package and public, so these stay `public` for the
+framework's own use across its packages, and the app still compiles; the
+check refuses them, an override of one included (an app class that overrides
+`Drawable.applyTo` is as internal as the method). Each entry's `instead:` line
+is the Android spelling to write:
+
+```text
+FRAMEWORK-INTERNAL — SDK members marked @Hide (Android's @hide): public only so the framework can reach them; an app uses the Android spelling:
+  picodroid/hardware/SensorManager.getInstance()Lpicodroid/hardware/SensorManager;
+      instead: context.getSystemService(Context.SENSOR_SERVICE)
+      from: sensordemo/SensorActivity.onCreate
+```
+
+The hidden members are each system manager's static `getInstance()` (use
+`getSystemService`, `getPackageManager()`, `getResources()`, `getDisplay()` on any Context),
+`NetworkInfo`'s statics (use `ConnectivityManager`), `WifiManager.getLastError()`
+(listen for `SUPPLICANT_STATE_CHANGED_ACTION` and read `EXTRA_SUPPLICANT_ERROR`)
+and `Drawable.applyTo` (use `view.setBackground(drawable)`).
+
 `-Ppicodroid.apiContract=warn` (or `off`) bypasses the check while
 experimenting, e.g. `./gradlew :examples:myapp:assemblePapk -Ppicodroid.apiContract=warn`.
 Do not edit `sdk/api-contract.tsv` — it is generated from the runtime's
@@ -234,7 +255,7 @@ See [WiFi & networking setup](/get-started/networking/).
 
 ### Sockets fail immediately after boot
 
-The WiFi join takes ~6 s and DHCP completes around 10 s after boot, so an app that opens a socket in its first moments races the link and loses. Open sockets from a `ConnectivityManager.NetworkCallback`'s `onAvailable` (Android's shape; see [Network status](/api/networking/#network-status)), or, in an app with no Activity, poll `NetworkInfo.isConnected()` against a deadline (the `netdemo` and `http_get` examples wait up to 30 s) — see [WiFi & networking setup](/get-started/networking/).
+The WiFi join takes ~6 s and DHCP completes around 10 s after boot, so an app that opens a socket in its first moments races the link and loses. Open sockets from a `ConnectivityManager.NetworkCallback`'s `onAvailable` (Android's shape; see [Network status](/api/networking/#network-status)), or, in an app with no Activity, poll `ConnectivityManager.getActiveNetwork()` against a deadline (the `netdemo` and `http_get` examples wait up to 30 s) — see [WiFi & networking setup](/get-started/networking/).
 
 ### `net: down` over RTT with no `net: up` after it
 

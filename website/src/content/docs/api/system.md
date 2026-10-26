@@ -256,14 +256,21 @@ import picodroid.concurrent.Executor;
 import picodroid.concurrent.Executors;
 import picodroid.util.Log;
 
-Executor main = Executors.mainExecutor();
+Executor main = getMainExecutor();             // Context's, as on Android
 Executor bg   = Executors.backgroundExecutor();
 
 bg.execute(() -> {
     String result = fetchSomethingSlow();
-    main.execute(() -> label.setText(result));  // hop back to the UI thread
+    main.execute(() -> label.setText(result));  // hop back to the UI thread; or label.post(...)
 });
 ```
+
+An app reaches the main-thread executor the Android way, `Context.getMainExecutor()` or
+`View.post(Runnable)`; `Executors.mainExecutor()` is the same queue, for code with neither a
+`Context` nor a view at hand. The queue and the scheduled executor's table are live before the
+app's first callback, so a post or a schedule made from `Application.onCreate` (a `LiveData.postValue`,
+a `NetworkCallback` registered there) is kept and runs once the first Activity's main loop is
+going.
 
 The `Executor` interface is a single method:
 
@@ -277,7 +284,7 @@ public interface Executor {
 
 | Factory | Returns |
 |---------|---------|
-| `static Executor mainExecutor()` | The UI thread's executor. |
+| `static Executor mainExecutor()` | The UI thread's executor, the one `Context.getMainExecutor()` returns. |
 | `static Executor backgroundExecutor()` | The framework's shared background pool. |
 | `static ScheduledExecutorService mainScheduledExecutor()` | Delayed and periodic tasks on the main thread — [below](#delayed-and-periodic-work-scheduledexecutorservice). Picodroid's own; no Android or JDK counterpart. |
 | `static ScheduledExecutorService newSingleThreadScheduledExecutor()` | Delayed and periodic tasks on a thread of its own, as in the JDK — [below](#delayed-and-periodic-work-scheduledexecutorservice). |

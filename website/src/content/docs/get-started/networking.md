@@ -83,11 +83,11 @@ net down
 net up
 ```
 
-While the link is down `NetworkInfo.isConnected()` is false, new connects, sends and lookups fail, and registered `NetworkCallback`s hear `onLost`; `net up` brings `onAvailable` with a new `Network`. Sockets that are already connected keep flowing.
+While the link is down `ConnectivityManager.getActiveNetwork()` returns null, new connects, sends and lookups fail, and registered `NetworkCallback`s hear `onLost`; `net up` brings `onAvailable` with a new `Network`. Sockets that are already connected keep flowing.
 
 ## Wait for the network in your app
 
-An app's `onCreate` runs long before the join finishes, so a one-shot `NetworkInfo.isConnected()` check will almost always read `false` on hardware. Do what an Android app does: ask `ConnectivityManager` to tell you when the link is there.
+An app's `onCreate` runs long before the join finishes, so a one-shot `getActiveNetwork()` check will almost always read `null` on hardware. Do what an Android app does: ask `ConnectivityManager` to tell you when the link is there.
 
 ```java
 import picodroid.content.Context;
@@ -107,19 +107,21 @@ cm.registerDefaultNetworkCallback(new ConnectivityManager.NetworkCallback() {
 
 Callbacks arrive on the main thread, delivered by the Activity's event loop; a callback registered while the link is already up hears `onAvailable` right after `onCreate` returns. Unregister in `onDestroy`. The [networking API reference](/api/networking/#network-status) has the whole surface (`Network`, `NetworkCapabilities`, `NetworkRequest`). The `connectivity` example is the pattern end to end, including what the app sees when the link drops and returns.
 
-An app with no Activity has no event loop to deliver callbacks, so it polls `NetworkInfo.isConnected()` against a deadline instead:
+An app with no Activity has no event loop to deliver callbacks, so it polls `getActiveNetwork()` against a deadline instead:
 
 ```java
-import picodroid.net.NetworkInfo;
+import picodroid.content.Context;
+import picodroid.net.ConnectivityManager;
 import picodroid.os.SystemClock;
 
 // Wait up to 30 s for WiFi join + DHCP before the first socket call.
+ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
 int waited = 0;
-while (!NetworkInfo.isConnected() && waited < 30000) {
+while (cm.getActiveNetwork() == null && waited < 30000) {
   SystemClock.sleep(500);
   waited += 500;
 }
-if (!NetworkInfo.isConnected()) {
+if (cm.getActiveNetwork() == null) {
   Log.i(TAG, "Network not available.");
   return;
 }

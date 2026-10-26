@@ -5,6 +5,34 @@ re-litigated by the next session. Newest first; append, do not rewrite. A decisi
 reversed gets a new entry pointing at the old one. The design docs under `designs/` carry the
 long form where one exists.
 
+## 2026-10-26: only Android's spellings are public; `@Hide` for the framework's own reach
+
+- **The shortcuts went, the apps moved in the same sweep.** A survey of the in-repo apps found
+  that most remaining divergences were apps not using an Android form that existed, kept alive by
+  non-Android spellings the SDK still offered: no-Context widget constructors, `Button(String)`,
+  `Intent(Class)`, `View.setSize` / `setPosition` as the sizing primitive, `setSpacing`,
+  `SharedPreferences.open`, static `NetworkInfo`, `*Manager.getInstance()`, `isSecured`,
+  `getLastError`, `setGradient` / `applyTo`, a one-based `DatePicker.setDate`. Deleting them makes
+  the compiler (and the contract check) teach the Android form; a deprecation would have taught
+  nothing in a tree with no outside users.
+- **`@Hide`, not restructuring.** The framework reaches several of these across its own packages
+  (`Context.getSystemService` → `SensorManager.getInstance`, `BroadcastReceiver` →
+  `WifiManager.getLastError`, `View.setBackground` → `Drawable.applyTo`). Java has nothing between
+  package and public, so they stay public with `@picodroid.annotation.Hide("<Android spelling>")`
+  and `verifyApiContract` refuses an app reference to one, or to an override of one, with the
+  hint. Android does the same with `@hide` and a stubbed `android.jar`; a stub jar here would mean
+  a second SDK build for every app. The annotation is compile-only (never embedded) and the
+  firmware strip drops it from every member: zero flash.
+- **`setLayoutParams` is the sizing primitive.** It applies at once (a parented view re-takes
+  size, weight, gravity and margins, a zero field clearing what earlier params set; a parentless
+  one is sized now), as Android's `requestLayout` would; `setContentView` applies the root's
+  params or `MATCH_PARENT`. `View.setSize` stays as the package-private primitive under it.
+- **`picodroid.R`** carries Android's framework row ids (`simple_list_item_1` …, Android's values)
+  so `ArrayAdapter`'s Android constructors read as they do on Android; compile-only, like `Hide`.
+- **Kept on purpose:** `Executors.mainExecutor()` (decision 2026-08-30; apps prefer
+  `getMainExecutor()` / `View.post`), `Executors.mainScheduledExecutor()`,
+  `PeripheralManager.getInstance()` (Android Things' own API), `View.close()`.
+
 ## 2026-10-20: ListView recycles behind getView/convertView, no RecyclerView
 
 - **Java owns the window, Rust owns the geometry.** The binding loop (`getView`, `addView`,

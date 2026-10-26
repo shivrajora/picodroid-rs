@@ -465,7 +465,7 @@ and you write only the link driver for your chip. Design:
 Sockets are handles core never looks inside; addresses are IPv4 packed into
 a `u32` (first octet in the top byte). Java learns the link kind from the
 `network_link_<kind>` cfg: `PackageManager.FEATURE_WIFI` / `FEATURE_ETHERNET`
-and `NetworkInfo.getType()`.
+and the transport `ConnectivityManager.getNetworkCapabilities` reports.
 
 **Reference:** the RP family's cyw43 WiFi driver — `hal/rp/cyw43/`
 (bindings and `Cyw43Link`), `hal/rp/port/net/` (`NetworkInterface_CYW43.c`,

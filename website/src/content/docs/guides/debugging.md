@@ -194,7 +194,7 @@ The first is an Android idiom picodroid does not have, with its replacement (`ru
 
 **What it usually means.** The JVM heap is a non-moving mark-sweep collector with slot reuse; class and method tables are append-only and never collected. So `NoSuchMethod` at runtime almost always means a *still-referenced* object was swept (a missing GC root), its heap slot was reused by a later allocation, and a subsequent method dispatch hit the wrong class's vtable.
 
-The canonical case: the `Display` singleton (returned by `Display.getInstance()`) was swept, its slot reused by a `SensorEvent`, and the next `Activity.setContentView` resolved `setContentView` on a `SensorEvent` — which has no such method. The same failure mode applies to any object held only by Rust-side native state (a cached singleton, a queue of pending callbacks) and never by a Java field.
+The canonical case: the `Display` singleton (what `Context.getDisplay()` returns) was swept, its slot reused by a `SensorEvent`, and the next `Activity.setContentView` resolved `setContentView` on a `SensorEvent` — which has no such method. The same failure mode applies to any object held only by Rust-side native state (a cached singleton, a queue of pending callbacks) and never by a Java field.
 
 **How to recognise it (timeline).**
 

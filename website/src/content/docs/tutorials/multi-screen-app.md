@@ -27,44 +27,70 @@ name whose directory exists):
 
 This creates `examples/myscreens/` with a `PicodroidManifest.xml`, a `build.gradle.kts`, and a
 `java/myscreens/` source root holding a starter `Myscreens` Application class; use your name
-wherever the snippets below say `tutorial_screens`. The manifest names the `Application` class that
-the framework instantiates at boot — this is the committed app's:
+wherever the snippets below say `tutorial_screens`. This app needs no `Application` subclass, so
+delete the starter class and replace the generated one-line manifest with Android's long form, one
+`<activity>` per screen — this is the committed app's:
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
 <manifest package="tutorial_screens" version="1.0">
-    <application application="tutorial_screens/TutorialScreensApp" />
+    <!-- Every screen is an <activity>. The one with the MAIN / LAUNCHER intent filter is what the
+         launcher opens; the others are reached by startActivity(new Intent(this, ...)). -->
+    <application>
+        <activity android:name=".HomeActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".CounterActivity" />
+        <activity android:name=".AboutActivity" />
+    </application>
 </manifest>
 ```
 
-The `application` attribute is the entry point the framework reads, and `package` is the app's
-identity on a device that holds several apps — see the
-[manifest reference](/reference/manifest/) for every supported element, and
+The activity with the `MAIN` / `LAUNCHER` intent filter is the app's entry: the launcher opens it,
+and it is the first entry on the back stack. `package` is the app's identity on a device that holds
+several apps. Declaring every screen also lets the build check each `startActivity`: the Gradle
+`verifyManifest` task refuses an `Intent` that names an undeclared Activity. See the
+[manifest reference](/reference/manifest/#the-android-form) for every supported element, and
 [your first app](/get-started/first-app/) for the basics of the project layout.
 
-## The Application entry point
+## Strings
 
-`Application.onCreate` runs first, once, when the app starts — before any Activity exists. Seed the back stack by
-launching the root screen from it:
+The screens' texts live in `res/values/strings.xml`, as on Android, and the code reads them through
+the generated `R` class with `getString(R.string.…)`; `getString(int, Object...)` formats, so
+`Count: %d` takes the number ([resources](/guides/resources/)):
 
-```java
-public class TutorialScreensApp extends Application {
-  @Override
-  public void onCreate() {
-    startActivity(new Intent(HomeActivity.class));
-  }
-}
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_title">Tutorial: Screens</string>
+    <string name="counter_title">Counter</string>
+    <string name="about_title">About</string>
+    <string name="about_body">Back-stack tutorial app.\nEach screen is an Activity.</string>
+
+    <string name="button_counter">Counter</string>
+    <string name="button_about">About</string>
+    <string name="button_increment">Increment</string>
+    <string name="button_back">Back</string>
+
+    <!-- getString(R.string.count, count) fills in the number. -->
+    <string name="count">Count: %d</string>
+</resources>
 ```
 
-An `Intent` names its target by class: `new Intent(HomeActivity.class)`. There is no
-`(Context, Class)` constructor — pass the target class directly. `startActivity` instantiates the
-target through its public no-arg constructor and pushes it as the first stack entry, which then runs
-`onCreate → onStart → onResume`.
+An `Intent` names its target by class, with Android's `(Context, Class)` constructor:
+`new Intent(this, CounterActivity.class)`. `startActivity` instantiates the target through its
+public no-arg constructor and pushes it on the back stack, where it runs
+`onCreate → onStart → onResume`. The entry Activity gets the same treatment at boot.
 
 ## The Home hub
 
 Home is the root of the back stack. It builds a vertical `LinearLayout` with a title and two buttons;
-each button pushes another Activity:
+each button pushes another Activity. `buttonParams()` is the one `LinearLayout.LayoutParams` every
+button in the app uses — full width, 8 px below the view above — and the other screens call it as
+`HomeActivity.buttonParams()`:
 
 ```java
 public class HomeActivity extends Activity {
@@ -74,31 +100,39 @@ public class HomeActivity extends Activity {
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     Log.i(TAG, "onCreate");
-    getDisplay();
 
-    LinearLayout root = new LinearLayout();
+    // The content view fills the window; no size needed.
+    LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(240, 240);
     root.setPadding(10, 10, 10, 10);
 
-    TextView title = new TextView();
-    title.setText("Tutorial: Screens");
+    TextView title = new TextView(this);
+    title.setText(getString(R.string.home_title));
     title.setTextColor(Color.WHITE);
     root.addView(title);
 
     // Views are locals, as on Android: the content view keeps them, listeners included, for as
     // long as this Activity lives. A view becomes a field only when later code needs it.
-    Button counterButton = new Button("Counter");
-    counterButton.setSize(200, 40);
-    counterButton.setOnClickListener(v -> startActivity(new Intent(CounterActivity.class)));
-    root.addView(counterButton);
+    Button counterButton = new Button(this);
+    counterButton.setText(getString(R.string.button_counter));
+    counterButton.setOnClickListener(v -> startActivity(new Intent(this, CounterActivity.class)));
+    root.addView(counterButton, buttonParams());
 
-    Button aboutButton = new Button("About");
-    aboutButton.setSize(200, 40);
-    aboutButton.setOnClickListener(v -> startActivity(new Intent(AboutActivity.class)));
-    root.addView(aboutButton);
+    Button aboutButton = new Button(this);
+    aboutButton.setText(getString(R.string.button_about));
+    aboutButton.setOnClickListener(v -> startActivity(new Intent(this, AboutActivity.class)));
+    root.addView(aboutButton, buttonParams());
 
     setContentView(root);
+  }
+
+  /** A full-width button, a little below the view above it. */
+  static LinearLayout.LayoutParams buttonParams() {
+    LinearLayout.LayoutParams lp =
+        new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+    lp.topMargin = 8;
+    return lp;
   }
 ```
 
@@ -110,7 +144,8 @@ Two things here matter on embedded:
   for the one case that differs from Android (a view never added to a parent).
 
 - **`setContentView(root)` is mandatory.** Until you call it the Activity has no visible tree. It
-  delegates to the `Display`, replacing whatever the previous screen showed.
+  replaces whatever the previous screen showed, and the root fills the window, as on Android, so
+  it needs no size of its own; each button's size comes from its `LinearLayout.LayoutParams`.
 
 The third thing to notice is what Home does *not* have: a BACK override. BACK's default behaviour
 is to `finish()` the top Activity — and Home *is* the only Activity in the stack when it's showing,
@@ -149,32 +184,30 @@ public class CounterActivity extends Activity {
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     Log.i(TAG, "onCreate");
-    getDisplay();
 
-    LinearLayout root = new LinearLayout();
+    LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(240, 240);
     root.setPadding(10, 10, 10, 10);
 
-    TextView title = new TextView();
-    title.setText("Counter");
+    TextView title = new TextView(this);
+    title.setText(getString(R.string.counter_title));
     title.setTextColor(Color.WHITE);
     root.addView(title);
 
-    countLabel = new TextView();
-    countLabel.setText("Count: 0");
+    countLabel = new TextView(this);
+    countLabel.setText(getString(R.string.count, count));
     countLabel.setTextColor(Color.CYAN);
     root.addView(countLabel);
 
-    Button incrementButton = new Button("Increment");
-    incrementButton.setSize(200, 40);
+    Button incrementButton = new Button(this);
+    incrementButton.setText(getString(R.string.button_increment));
     incrementButton.setOnClickListener(
         v -> {
           count++;
           Log.i(TAG, "count=" + count);
-          countLabel.setText("Count: " + count);
+          countLabel.setText(getString(R.string.count, count));
         });
-    root.addView(incrementButton);
+    root.addView(incrementButton, HomeActivity.buttonParams());
 
     setContentView(root);
     // No Back button here: the BACK key's default onBackPressed() calls finish() for us.
@@ -200,32 +233,29 @@ public class AboutActivity extends Activity {
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     Log.i(TAG, "onCreate");
-    getDisplay();
 
-    LinearLayout root = new LinearLayout();
+    LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
-    root.setSize(240, 240);
     root.setPadding(10, 10, 10, 10);
 
-    TextView title = new TextView();
-    title.setText("About");
+    TextView title = new TextView(this);
+    title.setText(getString(R.string.about_title));
     title.setTextColor(Color.WHITE);
     root.addView(title);
 
-    TextView body = new TextView();
-    body.setText("Back-stack tutorial app.\nEach screen is an Activity.");
+    TextView body = new TextView(this);
+    body.setText(getString(R.string.about_body));
     body.setTextColor(Color.WHITE);
     root.addView(body);
 
     // A local, as on Android: the content view keeps the button and its listener alive.
-    Button backButton = new Button("Back");
-    backButton.setSize(200, 40);
+    Button backButton = new Button(this);
+    backButton.setText(getString(R.string.button_back));
     backButton.setOnClickListener(v -> finish());
-    root.addView(backButton);
+    root.addView(backButton, HomeActivity.buttonParams());
 
     setContentView(root);
   }
-}
 ```
 
 `finish()` is exactly what the BACK key does by default (`Activity.onBackPressed → finish()`), so the
@@ -296,7 +326,7 @@ Activity reads the Intent that launched it with `getIntent()` (null only for a m
 boot with no app-side launch). That covers one-shot arguments — an id, a mode, a title:
 
 ```java
-startActivity(new Intent(CounterActivity.class).putExtra("start", 10));
+startActivity(new Intent(this, CounterActivity.class).putExtra("start", 10));
 // in CounterActivity.onCreate():
 int start = getIntent().getIntExtra("start", 0);
 ```

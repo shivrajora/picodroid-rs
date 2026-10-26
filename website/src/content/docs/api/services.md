@@ -7,7 +7,7 @@ Picodroid mirrors the Android `Service` shape closely enough that an Android dev
 
 ## `picodroid.app.Service`
 
-A long-running background component with a lifecycle independent of any `Activity`. It extends `Context`, as on Android, so `getSystemService`, `getSharedPreferences`, `startService` and `bindService` are available on `this`. Its callbacks run on the main thread, as on Android: hand blocking work to a [`Thread`](/api/system/#javalangthread) or an [executor](/api/system/#picodroidconcurrentexecutors). The framework instantiates it, so it needs a public no-arg constructor. Subclass it in your app:
+A long-running background component with a lifecycle independent of any `Activity`. It extends `Context`, as on Android, so `getSystemService`, `getSharedPreferences`, `startService` and `bindService` are available on `this`; `getApplication()` returns the app's `Application` (`null` when the manifest names none). Its callbacks run on the main thread, as on Android: hand blocking work to a [`Thread`](/api/system/#javalangthread) or an [executor](/api/system/#picodroidconcurrentexecutors). The framework instantiates it, so it needs a public no-arg constructor. Subclass it in your app:
 
 ```java
 package myapp;
@@ -109,7 +109,7 @@ import picodroid.app.Notification;
 
 @Override
 public int onStartCommand(Intent intent, int flags, int startId) {
-    Notification n = new Notification.Builder()
+    Notification n = new Notification.Builder(this, "sensors")
         .setContentTitle("Logging sensors")
         .setContentText("ring buffer 0/256")
         .build();
@@ -118,7 +118,7 @@ public int onStartCommand(Intent intent, int flags, int startId) {
 }
 ```
 
-`stopForeground(true)` removes the notification; `onDestroy` cancels it automatically.
+`stopForeground(true)` removes the notification; `onDestroy` cancels it automatically. `Notification.Builder(Context, String channelId)` is Android's constructor; there is one notification slot and no channels, so the channel id is accepted and not used.
 
 A `Notification` carries a title and a body, read back with `getContentTitle()` and `getContentText()`. There are no channels, icons or tap intents.
 
@@ -129,17 +129,18 @@ The framework tracks one current notification and writes each post and cancel to
 ### `picodroid.app.NotificationManager`
 
 For notifications outside the foreground-service flow, post or cancel by ID through the
-`NotificationManager`, from `getSystemService(Context.NOTIFICATION_SERVICE)` or `NotificationManager.getInstance()`. There is one notification slot, shared with `startForeground`: a post replaces whatever was current, and `cancel` does nothing unless its ID is the current one.
+`NotificationManager`, from `getSystemService(Context.NOTIFICATION_SERVICE)`, as on Android. There is one notification slot, shared with `startForeground`: a post replaces whatever was current, and `cancel` does nothing unless its ID is the current one.
 
 ```java
 import picodroid.app.Notification;
 import picodroid.app.NotificationManager;
+import picodroid.content.Context;
 
-Notification n = new Notification.Builder()
+Notification n = new Notification.Builder(this, "uploads")
     .setContentTitle("Upload complete")
     .build();
 
-NotificationManager nm = NotificationManager.getInstance();
+NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
 nm.notify(1, n);   // post under id 1
 nm.cancel(1);      // dismiss it
 ```
@@ -163,7 +164,7 @@ AlarmManager alarms = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
 
 PendingIntent operation = PendingIntent.getActivity(
     this, 0,
-    new Intent(RingActivity.class).putExtra("alarm", 3),
+    new Intent(this, RingActivity.class).putExtra("alarm", 3),
     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
 alarms.setExact(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + 60_000, operation);
@@ -230,7 +231,7 @@ apart:
 // One operation per alarm, so re-planning one leaves the others alone.
 PendingIntent operation(int alarmId, long dueAtMillis) {
   return PendingIntent.getActivity(this, alarmId,
-      new Intent(RingActivity.class).putExtra("alarm", alarmId),
+      new Intent(this, RingActivity.class).putExtra("alarm", alarmId),
       PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 }
 ```
@@ -300,8 +301,7 @@ a connection an Activity left bound when it finished (the framework unbinds it s
 does), and since every Service runs in the app's own process no path delivers it today. The
 callbacks are ordinary interface calls, so a connection may inherit them from a base class.
 
-`new Intent(Context, Class)` is Android's constructor; `new Intent(Class)` is the same Intent
-without the context argument.
+An explicit Intent is Android's `new Intent(Context, Class)`; there is no one-argument form.
 
 A binding belongs to the Activity that made it and is released when that Activity is destroyed. `onServiceConnected` is delivered only while that Activity is still the one on top: if another Activity covered it before the callback's turn came, the callback is skipped. A binding made from an `Application` has no such owner. One divergence from Android: a binding made from inside a `Service` is owned by the foreground Activity at the time of the call, so it is released when that Activity finishes, not when the Service is destroyed.
 
@@ -449,8 +449,12 @@ What the build does:
   ```java
   @Module
   public final class AppModule {
+    // MyApp keeps the Application it is in a static, set in its constructor, so it is there
+    // before anything is injected.
     @Provides @Singleton
-    static SharedPreferences providePrefs() { return SharedPreferences.open("app"); }
+    static SharedPreferences providePrefs() {
+      return MyApp.get().getSharedPreferences("app", Context.MODE_PRIVATE);
+    }
 
     @Provides
     static Greeter provideGreeter(Clock clock) { return new FriendlyGreeter(clock); }

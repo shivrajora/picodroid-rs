@@ -19,7 +19,7 @@ public class MyApp extends Application {
     public void onCreate() {
         // Console app: do work here
         // Display app: start an Activity
-        startActivity(new Intent(MyActivity.class));
+        startActivity(new Intent(this, MyActivity.class));
     }
 }
 ```
@@ -27,7 +27,7 @@ public class MyApp extends Application {
 | Method | Description |
 |--------|-------------|
 | `onCreate()` | Called by the runtime after instantiation. Override to initialize your app. |
-| `startActivity(Intent intent)` | Launches the Activity named by the Intent's target class (`new Intent(MyActivity.class)`). The Activity's `onCreate()` is called after the display is ready. |
+| `startActivity(Intent intent)` | Launches the Activity named by the Intent's target class (`new Intent(context, MyActivity.class)`). The Activity's `onCreate()` is called after the display is ready. |
 | `onTrimMemory(int level)` / `onLowMemory()` | Memory is short (`ComponentCallbacks2`; see the Activity's lifecycle table). The defaults fan out to what `registerComponentCallbacks` added: an override calls `super`. |
 
 ## `picodroid.app.Activity`
@@ -112,7 +112,7 @@ To test that, turn on the equivalent of Android's *Don't keep activities* develo
 | `setResult(int resultCode)` / `setResult(int resultCode, Intent data)` | In the launched Activity: the result reported to its launcher — `RESULT_OK` (-1), `RESULT_CANCELED` (0, the default when never called) or `RESULT_FIRST_USER` (1) and above. The Intent's extras are readable in the launcher's `onActivityResult`. |
 | `onActivityResult(int requestCode, int resultCode, Intent data)` | Override (it is `protected`) to read the result. `data` is `null` unless the child called `setResult(int, Intent)`. |
 | `getIntent()` | The Intent that launched this Activity, extras included, or `null` for the app's boot Activity. |
-| `setContentView(View root)` | Sets the root of the widget tree and renders it to the display. |
+| `setContentView(View root)` / `setContentView(View, LayoutParams)` | Sets the root of the widget tree and renders it to the display. The root fills the window unless it carries layout params (its own, or the inflater's), which size it instead, as on Android. |
 | `setContentView(int layoutResID)` | Inflates `R.layout.*` and makes it the content. See [resources](/guides/resources/). |
 | `<T extends View> T findViewById(int id)` | The view with that `android:id` / `setId` in the content, depth first, or `null`. Also on every `View`. |
 | `getLayoutInflater()` | A `LayoutInflater` for this Activity: `inflate(R.layout.row, parent, false)`. The Activity is its `LayoutInflater.Factory`. |
@@ -123,7 +123,7 @@ To test that, turn on the equivalent of Android's *Don't keep activities* develo
 | `getSupportFragmentManager()` | The Activity's `FragmentManager`. See [Fragment](#picodroidappfragment). |
 | `getLifecycle()` | The Activity's `Lifecycle`: pass `this` to `LiveData.observe`. See [lifecycle](#picodroidlifecycle). |
 | `getViewModelStore()` / `getDefaultViewModelProviderFactory()` | What `new ViewModelProvider(activity)` uses; the second is `ViewModelProvider.NewInstanceFactory` (the public no-argument constructor) unless overridden for ViewModels that take arguments. See [lifecycle](#picodroidlifecycle). |
-| `getDisplay()` | Returns the `Display` singleton. |
+| `getApplication()` | The app's `Application`, or `null` when the manifest names no Application class (Android always has one). `getApplicationContext()` on `Context` returns it too, or the Context it is called on when there is none. |
 
 See [`examples/navdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/navdemo) for a multi-Activity back-stack demo and [`examples/dialogdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/dialogdemo) for an `onBackPressed` override pattern.
 
@@ -238,7 +238,7 @@ public class ReadingFragment extends Fragment {
 
 **`LiveData<T>`.** `observe(owner, observer)` adds an observer that is active while `owner`'s lifecycle is at least `STARTED`: it gets the current value when it becomes active (if it has not seen it), every `setValue` while it stays active, and is removed by itself when the owner is destroyed. `observeForever(observer)` is always active until `removeObserver`. Also `removeObservers(owner)`, `getValue()` (`null` before the first value), `hasObservers()`, `hasActiveObservers()`, and the `onActive()` / `onInactive()` hooks. `setValue` and `postValue` are `protected` on `LiveData` and public on `MutableLiveData`, as on Android. `setValue` is main-thread only and delivers before it returns; `postValue` is for any thread and hands the value to the main thread, where the last of several posted values wins.
 
-`setValue` runs every active observer inside the call. On a microcontroller that is one main-thread tick doing all of their work, so an observer with a lot to repaint should post the repaint to the next tick (`Executors.mainExecutor().execute(...)`), which is what `claudeusage`'s pages do.
+`setValue` runs every active observer inside the call. On a microcontroller that is one main-thread tick doing all of their work, so an observer with a lot to repaint should post the repaint to the next tick (`view.post(...)` or `getMainExecutor().execute(...)`), which is what `claudeusage`'s pages do.
 
 **Owners.** An `Activity` is a `LifecycleOwner`: its `getLifecycle()` is `CREATED` after `onCreate` returns, `STARTED` after `onStart`, `RESUMED` after `onResume`, and steps back down before `onPause`, `onStop` and `onDestroy` run. A fragment's `getViewLifecycleOwner()` follows its view the same way and is destroyed before `onDestroyView`; each view gets a new one, and the call throws while there is no view. `Lifecycle.getCurrentState()` returns a `Lifecycle.State` (`DESTROYED`, `INITIALIZED`, `CREATED`, `STARTED`, `RESUMED`, with `isAtLeast`). `addObserver` takes a `DefaultLifecycleObserver` (override the callbacks you need) or a `LifecycleEventObserver` (one method, every `Lifecycle.Event`); a new observer is first brought up to the current state, as on Android. An app can be an owner of its own: implement `LifecycleOwner`, hold a `new Lifecycle(this)` and move it with `setCurrentState` or `handleLifecycleEvent`.
 
@@ -264,7 +264,7 @@ int count = b.getInt("count");            // 3
 long missing = b.getLong("nope", -1L);    // -1: absent key gives the default
 String wrong = b.getString("count");      // null: so does a value of another type
 
-startActivity(new Intent(DetailActivity.class).putExtras(b));
+startActivity(new Intent(this, DetailActivity.class).putExtras(b));
 // in DetailActivity:
 Bundle extras = getIntent().getExtras();  // a copy, or null when there are none
 ```
@@ -282,17 +282,17 @@ Bundle extras = getIntent().getExtras();  // a copy, or null when there are none
 
 ## `picodroid.graphics.Display`
 
-Singleton representing the physical display. Typically accessed via `Activity.getDisplay()`.
+The physical display, from `Context.getDisplay()`. Any Context answers, an `Application` or a
+`Service` included, since a board has the one panel (Android's throws for a Context with no
+window). An app shows its widget tree with the Activity's `setContentView`, not through the
+`Display`.
 
 ```java
 import picodroid.graphics.Display;
 
-Display display = Display.getInstance();
+Display display = getDisplay();  // on any Context
 int w = display.getWidth();      // e.g. 320
 int h = display.getHeight();     // e.g. 240
-
-display.setContentView(root);    // set root widget
-display.update();                // refresh the display
 ```
 
 The `Display` surface is intentionally minimal and Android-shaped. Picodroid-only helpers
@@ -383,32 +383,35 @@ A configurable shape drawable: solid fill (or two-color linear gradient), option
 import picodroid.graphics.Color;
 import picodroid.graphics.drawable.GradientDrawable;
 
-GradientDrawable bg = new GradientDrawable()
-    .setColor(Color.argb(255, 32, 32, 40))
-    .setCornerRadius(16)
-    .setStroke(2, Color.WHITE);
+GradientDrawable bg = new GradientDrawable();
+bg.setColor(Color.argb(255, 32, 32, 40));
+bg.setCornerRadius(16);
+bg.setStroke(2, Color.WHITE);
 view.setBackground(bg);
 
 // Or a vertical gradient
-GradientDrawable g = new GradientDrawable()
-    .setGradient(Color.BLUE, Color.MAGENTA, GradientDrawable.Orientation.TOP_BOTTOM)
-    .setCornerRadius(20);
+GradientDrawable g = new GradientDrawable(
+    GradientDrawable.Orientation.TOP_BOTTOM, new int[] {Color.BLUE, Color.MAGENTA});
+g.setCornerRadius(20);
 view.setBackground(g);
 ```
 
+The setters return `void`, as on Android, so they do not chain.
+
 | Method | Description |
 |--------|-------------|
-| `setColor(int argb)` | Solid fill. Replaces any previously set gradient. |
-| `setCornerRadius(int px)` | Corner radius. Half the smaller dimension renders a pill. |
+| `GradientDrawable()` | A white rectangle (Android's starts transparent; set a colour either way). |
+| `GradientDrawable(Orientation, int[] colors)` | A linear gradient through `colors` along the orientation. |
+| `setColor(int argb)` | Solid fill. Replaces any gradient. |
+| `setColors(int[])` / `getColors()` | The gradient's colours, start to end; the first and last are drawn. One colour is a solid fill; `null` drops the gradient for the `setColor` fill. |
+| `setOrientation(Orientation)` / `getOrientation()` | The gradient's direction. |
+| `setCornerRadius(float px)` | Corner radius, rounded to the nearest pixel. Half the smaller dimension renders a pill. |
 | `setStroke(int width, int color)` | Border outline. `width = 0` removes. |
-| `setGradient(int start, int end, int orientation)` | Two-color linear gradient. Replaces any previously set solid color. |
 
-| Constant | Value |
-|----------|-------|
-| `GradientDrawable.Orientation.TOP_BOTTOM` | 1 |
-| `GradientDrawable.Orientation.LEFT_RIGHT` | 2 |
-
-Multi-stop gradients, angle-arbitrary orientations, and radial gradients are deferred.
+`GradientDrawable.Orientation` has Android's four axis-aligned directions: `TOP_BOTTOM`,
+`BOTTOM_TOP`, `LEFT_RIGHT`, `RIGHT_LEFT`. It is a final class of constants rather than an enum (no
+`values()`, no `switch`), because an enum's tables cost flash on every board. The diagonal
+orientations, radial and sweep gradients, other shapes and per-corner radii are not there.
 
 ## `picodroid.graphics.drawable.BitmapDrawable`
 
@@ -429,8 +432,7 @@ with `View(Context)` to draw your own content (see [Custom drawing](#custom-draw
 ```java
 import picodroid.view.View;
 
-view.setPosition(10, 20);           // x=10, y=20
-view.setSize(200, 50);              // width=200, height=50
+view.setLayoutParams(new LinearLayout.LayoutParams(200, 50));  // size (and weight, margins) in its parent
 view.setBackgroundColor(Color.BLUE);
 view.setBackground(drawable);       // or apply a Drawable (see GradientDrawable)
 view.setBackgroundTintList(ColorStateList.valueOf(Color.RED));  // recolour it, keep its shape
@@ -456,7 +458,7 @@ and a second `close()` is a no-op.
 | `View.VISIBLE` | 0 | Widget is visible and takes up layout space |
 | `View.INVISIBLE` | 4 | Widget is invisible but still takes up layout space; touches pass through it, as on Android. `setAlpha` while INVISIBLE is remembered and applied on the return to VISIBLE |
 | `View.GONE` | 8 | Widget is invisible and takes no layout space |
-| `View.WRAP_CONTENT` | -2 | Passed to `setSize`: size to content. `MATCH_PARENT` (-1) is on [`ViewGroup.LayoutParams`](#picodroidviewviewgroup). |
+| `View.WRAP_CONTENT` | -2 | A `LayoutParams` width or height: size to content. `MATCH_PARENT` (-1) is on [`ViewGroup.LayoutParams`](#picodroidviewviewgroup). |
 | `View.NO_ID` | -1 | What `getId()` returns for a view without an id; never matches in `findViewById`. |
 
 The values are Android's. A setter given the value the view already has does nothing, as on
@@ -475,15 +477,15 @@ The rest of the `View` surface, all mirroring `android.view.View`:
 | `setPadding(int left, int top, int right, int bottom)` | Inner padding in pixels. |
 | `setMinimumWidth(int)` / `setMinimumHeight(int)` / `getMinimumWidth()` / `getMinimumHeight()` | A floor under the laid-out size, as on Android: a `wrap_content` or weighted view never comes out smaller. `android:minWidth` / `android:minHeight` in a layout file. |
 | `setKeepScreenOn(boolean)` / `getKeepScreenOn()` | Hold the display on while this view lives ([display idle sleep](/reference/limits/#display-idle-sleep)). `android:keepScreenOn` in a layout file. |
-| `getContext()` | The `Context` the view was made with. A view made with a no-arg constructor (`new TextView()`) answers its parent's once added, so a view in an Activity's tree always has one; detached and made without, it answers `null`. |
-| `post(Runnable)` | Run on the main thread, on a later frame — the same queue as `Executors.mainExecutor()`. There is no `postDelayed`: use `Executors.mainScheduledExecutor()` for a delay. |
+| `getContext()` | The `Context` the view was made with: every widget constructor takes one, as on Android (`new TextView(this)` in an Activity, `requireContext()` in a Fragment). |
+| `post(Runnable)` | Run on the main thread, on a later frame — the same queue as `Context.getMainExecutor()`. There is no `postDelayed`: use `Executors.mainScheduledExecutor()` for a delay. |
 | `getLeft()` / `getTop()` / `getRight()` / `getBottom()` / `getWidth()` / `getHeight()` | Laid-out position relative to the parent (excluding translation) and size, in pixels. |
 | `layout(l, t, r, b)` / `requestLayout()` | Place and size this view in its parent (what a custom `ViewGroup`'s `onLayout` calls on each child), and ask the nearest custom `ViewGroup` ancestor to run `onLayout` again; see [custom layouts](#custom-layouts-viewgroupcontext-and-onlayout). |
 | `onTouchEvent(MotionEvent)` / `dispatchTouchEvent(MotionEvent)` | Override `onTouchEvent` in a subclass to take the finger without a listener: a view made with `View(Context)` hears press, move and release from construction, as on Android (a framework widget needs a `setOnTouchListener` to be routed). `dispatchTouchEvent` runs the `OnTouchListener` first, then `onTouchEvent`; call it with a `MotionEvent.obtain(...)` event for a scripted touch. Returning `true` consumes the gesture and suppresses the click. |
 | `getX()` / `getY()` | `getLeft() + getTranslationX()` and `getTop() + getTranslationY()`, as `float`. |
 | `setId(int)` / `getId()` / `findViewById(int)` | The view's identifier (a layout's `android:id` sets it) and a depth-first search of this view and its descendants; `null` when nothing matches. |
 | `setTag(Object)` / `getTag()` | An arbitrary object kept with the view. |
-| `setLayoutParams(ViewGroup.LayoutParams)` / `getLayoutParams()` | The parameters the parent applies in `addView(child, params)`. |
+| `setLayoutParams(ViewGroup.LayoutParams)` / `getLayoutParams()` | How the view is sized and placed in its parent, applied at once as on Android: on a view already in a layout it re-applies the size, weight, gravity and margins (a field now zero clears what earlier params set, and params of a plainer class, such as a bare `ViewGroup.LayoutParams`, clear all three, as Android's conversion does); on a view with no parent yet it takes the size now and the rest when `addView` adds it. `null` throws `NullPointerException`. This is how an app sizes any view; `addView(child, params)` does the same in one call. |
 | `setOnLongClickListener(View.OnLongClickListener)` | `boolean onLongClick(View v)` fires when a press is held past the long-press threshold (~400 ms); returning `true` consumes it and suppresses the click that would follow. Attaching one makes the view clickable, as `setOnClickListener` does. |
 | `setOnKeyListener(OnKeyListener)` | See [Key events](#key-events). |
 | `setOnSwipeListener(OnSwipeListener)` | See [Swipe gestures](#swipe-gestures). |
@@ -502,6 +504,7 @@ import picodroid.graphics.Canvas;
 import picodroid.graphics.Color;
 import picodroid.graphics.Paint;
 import picodroid.view.View;
+import picodroid.view.ViewGroup;
 
 final class BarChart extends View {
   private final Paint paint = new Paint();
@@ -509,7 +512,7 @@ final class BarChart extends View {
 
   BarChart(Context ctx) {
     super(ctx);
-    setSize(264, 50);
+    setLayoutParams(new ViewGroup.LayoutParams(264, 50));
   }
 
   void setValue(int i, int percent) {
@@ -528,7 +531,7 @@ final class BarChart extends View {
 }
 ```
 
-A drawing view starts transparent, borderless and not clickable, and is 0 by 0 until it is sized.
+A drawing view starts transparent, borderless and not clickable. Its layout params size it; one added with `addView(view)` and none takes the parent's default params, as on Android, so `onMeasure` answers for a `wrap_content` side.
 Coordinates are pixels from the view's top-left corner; a rectangle's right and bottom edges are
 exclusive; angles are degrees clockwise from 3 o'clock; everything is clipped to the view.
 
@@ -626,10 +629,12 @@ panel cannot keep detached trees waiting for a re-add), so a removed view cannot
 `addView` on a view that already has a parent **moves** it (Android throws), because a move is the
 only way to reparent a view when `removeView` frees. The old parent's list lets go of it.
 
-A child added without `LayoutParams` keeps the size and position it was given directly, with one
-exception: a **container** (`ViewGroup` subclass) that was never sized takes the group's
+A child added without `LayoutParams` is content-sized, with two exceptions: a **container**
+(`ViewGroup` subclass) or a **view that draws itself** (a `View(Context)` subclass) with no layout
+params of its own takes the group's
 `generateDefaultLayoutParams()`, as every child does on Android, so a `FrameLayout` built in
-`onCreateView` fills its pager page instead of staying at the renderer's 160×160 default. The
+`onCreateView` fills its pager page, and a custom view's `onMeasure` runs for its `wrap_content`
+size, instead of either staying at the renderer's 160×160 default. The
 defaults are Android's: `match_parent` on both axes from a `FrameLayout` (and a `ViewPager2`),
 `match_parent` × `wrap_content` from a vertical `LinearLayout`, `wrap_content` on both from a
 horizontal one and from anything else; a `ScrollView` gives `match_parent` × `wrap_content`,
@@ -646,8 +651,9 @@ view.setLayoutParams(new ViewGroup.LayoutParams(
 ```
 
 `addView(child)` applies the `LayoutParams` the child already carries (an inflated view's, or what
-`setLayoutParams` set), as on Android; a child with none keeps the size and position it was given
-directly.
+`setLayoutParams` set), as on Android; a leaf child with none is content-sized. `setLayoutParams` on
+a child already in the group applies the new params at once: size, weight, gravity and margins, with
+a field now zero clearing what the earlier params set.
 
 `removeViewAt(int)` and `indexOfChild(View)` complete the child-list API (`-1` for a view that is not
 a child; an index past the end is a no-op), as on Android.
@@ -686,7 +692,7 @@ public class FlowLayout extends ViewGroup {
 [`examples/layoutdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/layoutdemo)
 carries this `FlowLayout`, with an `onMeasure` for a `wrap_content` group, and checks where its rows land.
 
-What differs from Android: the group is 0 by 0 until a size or layout params give it one (like a
+What differs from Android: the group is 0 by 0 until layout params give it one (like a
 `FrameLayout`); a framework widget measured by `measureChild` reports its content size, and keeps
 whatever size `layout()` last gave it until the next `onLayout` (a `TextView` whose text grows does
 not re-lay out the group by itself: call `requestLayout()`); `layout()` on a child of a
@@ -697,7 +703,8 @@ taps over it.
 `ViewGroup.MarginLayoutParams` adds `leftMargin`, `topMargin`, `rightMargin`, `bottomMargin` and
 `setMargins(l, t, r, b)`; `LinearLayout.LayoutParams` and `FrameLayout.LayoutParams` extend it. A
 `LinearLayout` keeps the margins clear around the child; a `FrameLayout` places the child by them
-([below](#picodroidwidgetframelayout)). Margins are read when the child is added. In a layout file
+([below](#picodroidwidgetframelayout)). Margins are applied when the child is added, and again by
+`setLayoutParams` on a child already in the layout. In a layout file
 they are `android:layout_margin` and its per-side forms.
 
 ## `picodroid.view.MotionEvent`
@@ -745,14 +752,14 @@ view.setOnTouchListener(new OnTouchListener() {
 });
 ```
 
-For tap / long-press / fling recognition, wrap an `OnGestureListener` in `GestureDetector` (which itself implements `OnTouchListener`):
+For tap / long-press / fling recognition, wrap an `OnGestureListener` in `GestureDetector(Context, OnGestureListener)` (which itself implements `OnTouchListener`):
 
 ```java
 import picodroid.view.GestureDetector;
 import picodroid.view.MotionEvent;
 import picodroid.view.View;
 
-view.setOnTouchListener(new GestureDetector(new GestureDetector.OnGestureListener() {
+view.setOnTouchListener(new GestureDetector(this, new GestureDetector.OnGestureListener() {
     public void onSingleTap(MotionEvent e) { Log.i("UI", "tap @ " + e.getX()); }
     public void onLongPress(MotionEvent e) { Log.i("UI", "long press"); }
     public void onFling(MotionEvent down, MotionEvent up, float vx, float vy) {
@@ -863,7 +870,8 @@ import picodroid.view.OnKeyListener;
 import picodroid.view.View;
 import picodroid.widget.Button;
 
-Button focus = new Button("Focus me");
+Button focus = new Button(this);
+focus.setText("Focus me");
 focus.setOnKeyListener(new OnKeyListener() {
     public boolean onKey(View v, int keyCode, KeyEvent event) {
         if (event.getAction() == KeyEvent.ACTION_DOWN
@@ -919,7 +927,7 @@ See [`examples/keydemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/e
 
 ## Widgets
 
-All widget classes live in `picodroid.widget.*` and extend `View` (`Button` through `TextView`, as on Android). They inherit `setPosition()`, `setSize()`, `setBackgroundColor()`, `setVisibility()`, and `close()` from `View`. Every widget has Android's `(Context)` constructor beside the no-argument one the examples here use (`new TextView(this)`).
+All widget classes live in `picodroid.widget.*` and extend `View` (`Button` through `TextView`, as on Android). They inherit `setLayoutParams()`, `setBackgroundColor()`, `setVisibility()`, and `close()` from `View`. Every widget takes Android's `(Context)` constructor, and only that one: the examples here run in an Activity, so they pass `this` (in a Fragment, `requireContext()`). A widget is sized by its layout params, as on Android.
 
 ### `picodroid.widget.TextView`
 
@@ -929,8 +937,9 @@ Displays a text label.
 import picodroid.text.TextUtils;
 import picodroid.widget.TextView;
 
-TextView label = new TextView();
+TextView label = new TextView(this);
 label.setText("Hello, World!");                 // null is the empty string
+label.setText(R.string.greeting);               // or a string resource, as on Android
 label.setTextColor(Color.WHITE);
 String current = label.getText().toString();   // CharSequence, as on Android
 
@@ -941,7 +950,7 @@ label.setEllipsize(TextUtils.TruncateAt.END);
 label.setMaxLines(2);
 
 // Where the text sits in a label wider than its text (a fixed width, match_parent or a weight).
-label.setSize(120, 18);
+label.setLayoutParams(new LinearLayout.LayoutParams(120, ViewGroup.LayoutParams.WRAP_CONTENT));
 label.setGravity(Gravity.RIGHT);                  // or CENTER_HORIZONTAL; LEFT/START is the default
 
 // Bigger text: 28 sp, or any TypedValue unit.
@@ -954,7 +963,7 @@ int lineHeight = label.getLineHeight();   // the face actually in use
 
 `setSingleLine()`, `setSingleLine(boolean)`, `setEllipsize(TextUtils.TruncateAt)`, `getEllipsize()`, `setMaxLines(int)` and `getMaxLines()` mirror Android over LVGL's label long modes:
 
-- A single-line or max-lines view is **at most that many lines tall**. Give it a bounded width — a fixed `setSize` width, or a weight in a horizontal `LinearLayout` (`new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)`) — for the cut to happen; a view that sizes to its content never runs out of room. A taller explicit height shrinks to the limit (Android keeps the box and draws at the top).
+- A single-line or max-lines view is **at most that many lines tall**. Give it a bounded width — a fixed width in its layout params, or a weight in a horizontal `LinearLayout` (`new LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)`) — for the cut to happen; a view that sizes to its content never runs out of room. A taller explicit height shrinks to the limit (Android keeps the box and draws at the top).
 - The ellipsis is three ASCII dots, `...` (the bundled font has no `…`). `START` and `MIDDLE` render like `END`; `MARQUEE` scrolls the text circularly whenever it is wider than the view, selected or not.
 - Without an ellipsize, a single-line view clips the text at its edge (a content-sized one grows to the text's width), and a max-lines view clips the lines past the limit.
 - `getText()` returns the full text while the ellipsis shows. A newline in the text still breaks the line.
@@ -969,9 +978,9 @@ A clickable button with a text label. Extends `TextView`, so `setText`, `getText
 import picodroid.view.View;
 import picodroid.widget.Button;
 
-Button btn = new Button("Tap Me!");
-btn.setSize(200, 50);
-btn.setText("New Label");
+Button btn = new Button(this);
+btn.setText("Tap Me!");
+layout.addView(btn, new LinearLayout.LayoutParams(200, 50));
 
 // Event-driven click handling — View.OnClickListener (onClick(View v))
 btn.setOnClickListener(new View.OnClickListener() {
@@ -1003,11 +1012,14 @@ stroke.
 ```java
 import picodroid.widget.LinearLayout;
 
-LinearLayout layout = new LinearLayout();             // default: VERTICAL
+LinearLayout layout = new LinearLayout(this);         // default: VERTICAL
 layout.setOrientation(LinearLayout.HORIZONTAL);       // or VERTICAL
-layout.setSize(320, 240);
 layout.addView(textView);
-layout.addView(button);
+LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+lp.leftMargin = 8;                                    // the gap between the two children
+layout.addView(button, lp);
+setContentView(layout);                               // a content root fills the window
 ```
 
 | Constant | Value |
@@ -1018,7 +1030,6 @@ layout.addView(button);
 | Method | Description |
 |--------|-------------|
 | `setOrientation(int)` | `HORIZONTAL` or `VERTICAL` (the default). |
-| `setSpacing(int px)` | Gap between adjacent children; 0 by default. A picodroid addition. |
 | `setGravity(int)` | Where the children go, in `picodroid.view.Gravity` constants, which may name both axes (`Gravity.BOTTOM` or-ed with `Gravity.RIGHT`). Call it after `setOrientation`. An axis the gravity does not name falls back to the start, as on Android (`START \| TOP`: a column's children sit at the left, a row's at the top). `FILL` places at the start, as Android's `LinearLayout` does: only `match_parent` stretches a child. |
 
 `LinearLayout.LayoutParams(width, height, weight)` gives a child a share of the space left over, as on Android:
@@ -1027,7 +1038,7 @@ layout.addView(button);
 row.addView(label, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 ```
 
-A weight shares what is left of the row (or the column) after the other children and the gaps, as Android does: `0dp` with a weight is a pure share, `wrap_content` with a weight keeps its content and adds its share, and when the children overflow the weighted ones give the overflow back. Weights keep three decimals (`1.5f` against `1f` is 3 : 2). The per-child `LayoutParams.gravity` field (`android:layout_gravity` on a `LinearLayout` child) places that child across the row or column: a horizontal layout reads its vertical bits (`top`, `center_vertical`, `bottom`), a vertical one its horizontal bits, as on Android; a child without one follows the container's gravity. A `Space` with a weight is the Android way to push children apart ([below](#picodroidwidgetspace)).
+A weight shares what is left of the row (or the column) after the other children and their margins, as Android does: `0dp` with a weight is a pure share, `wrap_content` with a weight keeps its content and adds its share, and when the children overflow the weighted ones give the overflow back. Weights keep three decimals (`1.5f` against `1f` is 3 : 2). The per-child `LayoutParams.gravity` field (`android:layout_gravity` on a `LinearLayout` child) places that child across the row or column: a horizontal layout reads its vertical bits (`top`, `center_vertical`, `bottom`), a vertical one its horizontal bits, as on Android; a child without one follows the container's gravity. A `Space` with a weight is the Android way to push children apart ([below](#picodroidwidgetspace)).
 
 The layout is a solver of picodroid's own registered with LVGL (`docs/designs/layouts-2026-10.md`), not LVGL's flex; integer arithmetic follows Android's `measureHorizontal`/`layoutHorizontal` to the pixel.
 
@@ -1066,8 +1077,7 @@ An on/off toggle switch.
 import picodroid.widget.CompoundButton;
 import picodroid.widget.Switch;
 
-Switch sw = new Switch();
-sw.setSize(60, 30);
+Switch sw = new Switch(this);
 
 boolean on = sw.isChecked();
 sw.setChecked(true);
@@ -1092,14 +1102,13 @@ A button that toggles between two states with configurable text labels.
 import picodroid.widget.CompoundButton;
 import picodroid.widget.ToggleButton;
 
-ToggleButton toggle = new ToggleButton("ON", "OFF");  // or new ToggleButton()
-toggle.setSize(200, 50);
+ToggleButton toggle = new ToggleButton(this);
+toggle.setTextOn("Enabled");
+toggle.setTextOff("Disabled");
 
 boolean on = toggle.isChecked();
 toggle.setChecked(true);
 toggle.toggle();
-toggle.setTextOn("Enabled");
-toggle.setTextOff("Disabled");
 
 toggle.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
     public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
@@ -1115,7 +1124,7 @@ Displays an image bundled in the PAPK's `assets/` directory. Asset names are res
 ```java
 import picodroid.widget.ImageView;
 
-ImageView img = new ImageView();
+ImageView img = new ImageView(this);
 img.setImageSource("icon.png");
 img.setImageResource(R.drawable.logo);   // a PNG under res/drawable/, see resources
 img.setImageDrawable(drawable);   // a Drawable, e.g. another app's icon from the PackageManager
@@ -1152,8 +1161,8 @@ A horizontal progress bar with Android's range and tint API.
 import picodroid.content.res.ColorStateList;
 import picodroid.widget.ProgressBar;
 
-ProgressBar bar = new ProgressBar();
-bar.setSize(200, 20);
+ProgressBar bar = new ProgressBar(this);
+layout.addView(bar, new LinearLayout.LayoutParams(200, 20));
 bar.setMax(250);                  // the range is [getMin(), getMax()], 0..100 by default
 bar.setProgress(75);              // instant, clamped to the range
 bar.setProgress(120, true);       // animated over 80 ms, as on Android
@@ -1173,9 +1182,9 @@ For an **indeterminate** spinner (no progress value, just an animation while wor
 
 ```java
 ProgressBar spinner = ProgressBar.indeterminate();
-spinner.setSize(48, 48);
 spinner.setIndeterminateTintList(ColorStateList.valueOf(Color.RED));  // the arc; Theme.colorPrimary by default
-// Add to layout; remove or hide when work completes.
+layout.addView(spinner, new LinearLayout.LayoutParams(48, 48));
+// Remove or hide it when the work completes.
 ```
 
 `indeterminate()` returns a `ProgressBar` backed by `lv_spinner` and ignores `setProgress`; the mode
@@ -1224,23 +1233,26 @@ lists with stable item IDs and D-pad item selection.
 ```java
 import picodroid.widget.ListView;
 
-ListView list = new ListView();
-list.setSize(200, 150);
+ListView list = new ListView(this);
+layout.addView(list, new LinearLayout.LayoutParams(200, 150));
 list.addItem("Item 1");
 list.addItem("Item 2");
 list.addItem("Item 3");
 ```
 
 **Adapter-backed (the `Adapter` pattern).** Bind an `ArrayAdapter` and
-receive typed click callbacks. Each item renders as a `TextView` showing its `toString()`:
+receive typed click callbacks. With one of the framework's row layouts from `picodroid.R` (the
+counterpart of `android.R`, with Android's ids: `R.layout.simple_list_item_1`,
+`simple_spinner_item`, `simple_spinner_dropdown_item`), each item renders as the built-in
+single-line row showing its `toString()`:
 
 ```java
 import picodroid.widget.ArrayAdapter;
 import picodroid.widget.ListView;
 
 String[] rows = { "Live", "History", "Settings" };
-ListView list = new ListView();
-list.setAdapter(new ArrayAdapter<String>(rows));
+ListView list = new ListView(this);
+list.setAdapter(new ArrayAdapter<>(this, picodroid.R.layout.simple_list_item_1, rows));
 
 // onItemClick(AdapterView<?> parent, View view, int position, long id) — usable as a lambda:
 list.setOnItemClickListener((parent, view, position, id) -> open(position));
@@ -1302,8 +1314,11 @@ with `list.setSelection(adapter.getCount() - 1)`.
 > - `BaseAdapter` — abstract base with `notifyDataSetChanged()` (call after mutating data).
 > - `ArrayAdapter<T>` — concrete `BaseAdapter` over a `T[]` or a `List<T>`, or built
 >   incrementally with `add` / `addAll` / `insert` / `remove` / `clear` (`getPosition` finds an
->   item); renders each item's `toString()` in a `TextView`, or in Android's layout-resource form
->   — `new ArrayAdapter<>(ctx, R.layout.row, items)` inflates `row` (a `TextView`) per item, and
+>   item). Its constructors are Android's, each taking a `Context` and a row layout: a
+>   `picodroid.R.layout` row (`simple_list_item_1`, `simple_spinner_item`,
+>   `simple_spinner_dropdown_item`) renders each item's `toString()` in the built-in single-line
+>   row; an app layout — `new ArrayAdapter<>(ctx, R.layout.row, items)` — inflates `row` (a
+>   `TextView`) per item, and
 >   `new ArrayAdapter<>(ctx, R.layout.row, R.id.title, items)` puts the text into that child.
 > - `AdapterView<T>.setOnItemClickListener(OnItemClickListener)` — the 4-arg `onItemClick` above.
 >
@@ -1319,7 +1334,7 @@ A labelled checkable box.
 import picodroid.widget.CheckBox;
 import picodroid.widget.CompoundButton;
 
-CheckBox cb = new CheckBox();
+CheckBox cb = new CheckBox(this);
 cb.setText("Enable WiFi");
 cb.setChecked(true);
 boolean on = cb.isChecked();
@@ -1341,11 +1356,11 @@ A `RadioButton` is a two-state button with a circular indicator; a `RadioGroup` 
 import picodroid.widget.RadioButton;
 import picodroid.widget.RadioGroup;
 
-RadioGroup group = new RadioGroup();
-RadioButton celsius = new RadioButton();
+RadioGroup group = new RadioGroup(this);
+RadioButton celsius = new RadioButton(this);
 celsius.setText("Celsius");
 celsius.setId(1);                     // optional: a button without an id is given one
-RadioButton fahrenheit = new RadioButton();
+RadioButton fahrenheit = new RadioButton(this);
 fahrenheit.setText("Fahrenheit");
 group.addView(celsius);
 group.addView(fahrenheit);
@@ -1377,8 +1392,8 @@ A horizontal slider (0–`max`).
 ```java
 import picodroid.widget.SeekBar;
 
-SeekBar bar = new SeekBar(100);   // or `new SeekBar()` for default max
-bar.setMax(200);
+SeekBar bar = new SeekBar(this);
+bar.setMax(200);                  // 100 by default
 bar.setProgress(25);
 int p = bar.getProgress();
 
@@ -1399,12 +1414,13 @@ already has reports nothing.
 
 A drop-down list. Items are passed as a single newline-separated string, or come from an
 adapter: `Spinner` extends `AdapterView<Adapter>` like `ListView`, so
-`sp.setAdapter(new ArrayAdapter<String>(items))` works and each item renders via its `toString()`.
+`sp.setAdapter(new ArrayAdapter<>(this, picodroid.R.layout.simple_spinner_item, items))` works and
+each item renders via its `toString()`.
 
 ```java
 import picodroid.widget.Spinner;
 
-Spinner sp = new Spinner();
+Spinner sp = new Spinner(this);
 sp.setItems("Red\nGreen\nBlue");
 int sel = sp.getSelectedItemPosition();
 
@@ -1424,7 +1440,7 @@ A single-line text input field. Tapping it pops up the system soft keyboard at t
 ```java
 import picodroid.widget.EditText;
 
-EditText input = new EditText();
+EditText input = new EditText(this);
 input.setHint("device name");
 input.setText("pico-01");
 String value = input.getText();
@@ -1513,9 +1529,8 @@ qualify simply repaints in full, as every other board does.
 import picodroid.widget.ScrollView;
 import picodroid.widget.LinearLayout;
 
-ScrollView scroll = new ScrollView();
-scroll.setSize(320, 240);
-LinearLayout content = new LinearLayout();
+ScrollView scroll = new ScrollView(this);   // as a content root, it fills the window
+LinearLayout content = new LinearLayout(this);
 content.setOrientation(LinearLayout.VERTICAL);
 // ... addView(...) lots of children ...
 scroll.addView(content);
@@ -1529,7 +1544,7 @@ A simple container that stacks children (last `addView` is on top). Useful for o
 import picodroid.view.Gravity;
 import picodroid.widget.FrameLayout;
 
-FrameLayout overlay = new FrameLayout();
+FrameLayout overlay = new FrameLayout(this);
 overlay.addView(background);
 
 // Bottom-right, 4 px in from each edge.
@@ -1541,8 +1556,9 @@ overlay.addView(badge, lp);
 
 `FrameLayout.LayoutParams` places a child as Android's does: against the corner, edge or centre its
 `gravity` names (`TOP | LEFT` when it names none), moved in by the margins on that side. With no
-gravity, `leftMargin` and `topMargin` are the child's position. A child added without params is
-positioned with `setPosition`. In a layout file these are `android:layout_gravity` and
+gravity, `leftMargin` and `topMargin` are the child's position, which is how an app places a view at
+given coordinates, as on Android. A child added without params sits at
+the top-left corner. In a layout file these are `android:layout_gravity` and
 `android:layout_margin*`.
 
 ### `picodroid.widget.GridLayout`
@@ -1556,15 +1572,16 @@ weighted child takes that share of the free space. Flat by default, like `Linear
 import picodroid.widget.GridLayout;
 import static picodroid.widget.GridLayout.spec;
 
-GridLayout keys = new GridLayout();
+GridLayout keys = new GridLayout(this);
 keys.setColumnCount(4);
-keys.setSpacing(4);
 for (String label : LABELS) {
-  Button b = new Button();
+  Button b = new Button(this);
   b.setText(label);
   // Every track weighted 1, the cell stretched: a 4-wide keypad of equal keys.
-  keys.addView(b, new GridLayout.LayoutParams(spec(GridLayout.UNDEFINED, 1f),
-                                              spec(GridLayout.UNDEFINED, 1f)));
+  GridLayout.LayoutParams lp = new GridLayout.LayoutParams(spec(GridLayout.UNDEFINED, 1f),
+                                                           spec(GridLayout.UNDEFINED, 1f));
+  lp.setMargins(2, 2, 2, 2);   // a 4 px gap between keys
+  keys.addView(b, lp);
 }
 // "0" takes two columns.
 keys.addView(zero, new GridLayout.LayoutParams(
@@ -1576,7 +1593,6 @@ keys.addView(zero, new GridLayout.LayoutParams(
 | `setColumnCount(int)` / `getColumnCount()` | Columns before placement wraps. Call it before the first child; afterwards it throws `IllegalStateException`. Without one, children that name no cell all land in cell (0, 0), as on Android. |
 | `setRowCount(int)` / `getRowCount()` | The same for rows under `VERTICAL`. |
 | `setOrientation(int)` | `HORIZONTAL` fills a row first; `VERTICAL` a column. Before the first child. |
-| `setSpacing(int px)` | Gap between adjacent columns and rows; 0 by default. A picodroid addition, as `LinearLayout.setSpacing` is; margins work too. |
 
 `GridLayout.LayoutParams(Spec rowSpec, Spec columnSpec)` carries one `Spec` per axis, made by
 `GridLayout.spec(start, size, alignment, weight)` and its shorter forms (`spec(start)`,
@@ -1586,7 +1602,8 @@ or `GridLayout.UNDEFINED` for the next free one; `size` is the span; `alignment`
 there; `FILL` stretches it); `weight` gives the track a share of the free space. A child whose
 width or height is `match_parent` is stretched on that axis; otherwise it keeps its own size.
 `LayoutParams.setGravity(int)` sets both alignments from a `Gravity` mask, which is what
-`android:layout_gravity` on a grid child does. Margins keep that much of the cell clear.
+`android:layout_gravity` on a grid child does. Margins keep that much of the cell clear: they are
+how a grid spaces its cells, as on Android.
 
 In a layout file: `<GridLayout android:columnCount="4">` with `android:layout_column`,
 `android:layout_row`, `android:layout_columnSpan`, `android:layout_rowSpan`,
@@ -1611,13 +1628,14 @@ dependency order, so a rule may name a sibling added later. Flat by default, lik
 import picodroid.widget.RelativeLayout;
 
 RelativeLayout header = new RelativeLayout(this);
-Button back = new Button("<");
+Button back = new Button(this);
+back.setText("<");
 back.setId(R.id.back);
 RelativeLayout.LayoutParams backLp = new RelativeLayout.LayoutParams(48, 30);
 backLp.addRule(RelativeLayout.ALIGN_PARENT_LEFT);
 header.addView(back, backLp);
 
-TextView caption = new TextView();
+TextView caption = new TextView(this);
 RelativeLayout.LayoutParams captionLp =
     new RelativeLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
                                     ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -1711,13 +1729,13 @@ Toast.makeText(this, "Saved.", Toast.LENGTH_SHORT).show();
 
 ### `picodroid.app.AlertDialog`
 
-Modal dialog with a title, a message or a list, and up to three buttons. Built via the nested `Builder` (`new AlertDialog.Builder()` or `new AlertDialog.Builder(context)`).
+Modal dialog with a title, a message or a list, and up to three buttons. Built via the nested `Builder`, Android's `new AlertDialog.Builder(context)` (there is no no-argument form).
 
 ```java
 import picodroid.content.DialogInterface;
 import picodroid.app.AlertDialog;
 
-new AlertDialog.Builder()
+new AlertDialog.Builder(this)
     .setTitle("Erase data?")
     .setMessage("This cannot be undone.")
     .setPositiveButton("Erase", new DialogInterface.OnClickListener() {
@@ -1744,7 +1762,7 @@ A list holds at most 12 rows (`IllegalArgumentException` past that), and a messa
 
 ```java
 String[] units = {"Celsius", "Fahrenheit", "Kelvin"};
-new AlertDialog.Builder()
+new AlertDialog.Builder(this)
     .setTitle("Units")
     .setSingleChoiceItems(units, 0, (dialog, which) -> selected = which)
     .setPositiveButton("OK", null)
@@ -1765,14 +1783,15 @@ On-screen soft keyboard, wrapping LVGL's `lv_keyboard`. Two ways to use:
 import picodroid.widget.EditText;
 import picodroid.widget.Keyboard;
 
-EditText input = new EditText();
+EditText input = new EditText(this);
 input.setShowKeyboardOnTouch(false);   // disable system keyboard for this field
 
-Keyboard kb = new Keyboard();
+Keyboard kb = new Keyboard(this);
 kb.setEditText(input);
 kb.setMode(Keyboard.MODE_TEXT_LOWER);
-kb.setPosition(0, 120);
-kb.setSize(320, 120);
+// root is a FrameLayout: the keyboard docks to its bottom edge, 120 px tall.
+root.addView(kb, new FrameLayout.LayoutParams(
+    ViewGroup.LayoutParams.MATCH_PARENT, 120, Gravity.BOTTOM));
 kb.setOnReadyListener(new Keyboard.OnReadyListener() {
     public void onReady(Keyboard keyboard) { keyboard.hide(); /* validate input here */ }
 });
@@ -1829,8 +1848,8 @@ Calendar widget for picking a calendar date, backed by `lv_calendar`.
 ```java
 import picodroid.widget.DatePicker;
 
-DatePicker dp = new DatePicker();
-dp.setSize(280, 220);
+DatePicker dp = new DatePicker(this);
+layout.addView(dp, new LinearLayout.LayoutParams(280, 220));
 dp.updateDate(2026, 4, 7);   // year, month (0-based: 4 is May), day-of-month
 
 dp.setOnDateChangedListener(new DatePicker.OnDateChangedListener() {
@@ -1840,7 +1859,7 @@ dp.setOnDateChangedListener(new DatePicker.OnDateChangedListener() {
 });
 ```
 
-`updateDate`, `init(year, month, day, listener)`, `getYear()`, `getMonth()` and `getDayOfMonth()` have Android's signatures, the month 0-based (January is 0) in all of them and in the listener. `OnDateChangedListener` fires only on user interaction; `updateDate` does not re-trigger it. The getters return the date set or last tapped (1 January 2026 until either). The original `setDate(year, month, day)` with a 1-based month and `getDay()` remain as deprecated aliases.
+`updateDate`, `init(year, month, day, listener)`, `getYear()`, `getMonth()` and `getDayOfMonth()` have Android's signatures, the month 0-based (January is 0) in all of them and in the listener. `OnDateChangedListener` fires only on user interaction; `updateDate` does not re-trigger it. The getters return the date set or last tapped (1 January 2026 until either).
 
 ### `picodroid.widget.NumberPicker`
 
@@ -1852,7 +1871,7 @@ ENTER or BACK leaves edit mode.
 ```java
 import picodroid.widget.NumberPicker;
 
-NumberPicker np = new NumberPicker();
+NumberPicker np = new NumberPicker(this);
 np.setMinValue(0);
 np.setMaxValue(10000);
 np.setStep(100);          // picodroid extension: the change per step
@@ -1879,9 +1898,10 @@ Roller widget for picking a wall-clock time, backed by `lv_roller`. Defaults to 
 ```java
 import picodroid.widget.TimePicker;
 
-TimePicker tp = new TimePicker();
-tp.setSize(220, 180);
-tp.setTime(14, 30);   // hour is 0..23, whatever the display mode
+TimePicker tp = new TimePicker(this);
+layout.addView(tp, new LinearLayout.LayoutParams(220, 180));
+tp.setHour(14);       // 0..23, whatever the display mode
+tp.setMinute(30);
 int hour = tp.getHour();      // 14
 int minute = tp.getMinute();  // 30
 
@@ -1899,7 +1919,7 @@ tp.setIs24HourView(false);   // adds an AM/PM column; 14:30 shows as 2:30 PM
 boolean is24 = tp.is24HourView();
 ```
 
-The display mode changes what the rollers show, not the API: `setTime` and `getHour()` always use
+The display mode changes what the rollers show, not the API: `setHour` and `getHour()` always use
 0..23, as Android's `TimePicker` does since API 23, and switching modes keeps the time.
 
 See [`examples/pickerdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/pickerdemo) for both pickers in one screen.
@@ -1942,7 +1962,7 @@ Container that triggers a refresh action when the user pulls down from the top o
 ```java
 import picodroid.widget.SwipeRefreshLayout;
 
-SwipeRefreshLayout pull = new SwipeRefreshLayout();
+SwipeRefreshLayout pull = new SwipeRefreshLayout(this);
 pull.addView(scrollableContent);
 pull.setOnRefreshListener(new SwipeRefreshLayout.OnRefreshListener() {
     public void onRefresh() {
@@ -1971,7 +1991,7 @@ import picodroid.content.Intent;
 
 public class CounterApp extends Application {
     public void onCreate() {
-        startActivity(new Intent(CounterActivity.class));
+        startActivity(new Intent(this, CounterActivity.class));
     }
 }
 ```
@@ -1996,26 +2016,25 @@ public class CounterActivity extends Activity {
         super.onCreate(savedInstanceState);
         DisplayDebug.calibrate();
 
-        LinearLayout root = new LinearLayout();
+        LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setSize(320, 240);
 
-        TextView label = new TextView();
+        TextView label = new TextView(this);
         label.setText("Count: 0");
         label.setTextColor(Color.WHITE);
         root.addView(label);
 
-        Button btn = new Button("Increment");
-        btn.setSize(200, 50);
+        Button btn = new Button(this);
+        btn.setText("Increment");
         btn.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 count = count + 1;
                 label.setText("Count: " + count);
             }
         });
-        root.addView(btn);
+        root.addView(btn, new LinearLayout.LayoutParams(200, 50));
 
-        setContentView(root);
+        setContentView(root);   // the root fills the window
     }
 }
 ```

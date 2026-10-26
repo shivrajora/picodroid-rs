@@ -5,19 +5,19 @@ description: "TCP, UDP, and HTTP/1.1 client APIs over the on-board Wi-Fi or simu
 
 `picodroid.net.*` — TCP (`Socket`, `ServerSocket`), UDP (`DatagramSocket`, `DatagramPacket`), a minimal HTTP/1.1 client (`URL`, `HttpURLConnection`) with HTTPS over TLS 1.3 (`picodroid.net.ssl.HttpsURLConnection`), an SNTP client, and Android's `ConnectivityManager` and `WifiManager`, backed by FreeRTOS+TCP on hardware (the Pico 2 W boards, via the cyw43 WiFi chip) and the host network stack under the simulator. IPv4 only. See [Java API overview](/api/) for the full API index.
 
-Networking is a board capability, not a Cargo feature — a board opts in by setting `has_network = true` and a `network_type` (one of the known link types — `"cyw43"` today) in its [`board.toml`](/reference/porting-guide/#boardtoml-reference). On boards without a network stack the `picodroid.net.*` classes are registered as stubs: `NetworkInfo.isConnected()` returns `false`, and anything that would touch the network throws `UnsupportedOperationException`. Probe with `NetworkInfo.isConnected()` (or `PackageManager.hasSystemFeature(FEATURE_WIFI)`) and degrade, rather than assuming a socket will open.
+Networking is a board capability, not a Cargo feature — a board opts in by setting `has_network = true` and a `network_type` (one of the known link types — `"cyw43"` today) in its [`board.toml`](/reference/porting-guide/#boardtoml-reference). On boards without a network stack the `picodroid.net.*` classes are registered as stubs: `ConnectivityManager.getActiveNetwork()` returns `null`, and anything that would touch the network throws `UnsupportedOperationException`. Probe with `PackageManager.hasSystemFeature(FEATURE_WIFI)` (or `getActiveNetwork()`) and degrade, rather than assuming a socket will open.
 
-A flash-constrained board may go further and leave the unusable classes out of its firmware entirely — `testbench_rp2040` ships only `NetworkInfo`, since networking will never be supported there (see `framework_class_excludes` in [limits](/reference/limits/#runtime-limits)). On such a board the missing classes fail to resolve instead of throwing, so the probe-and-degrade path is the portable one.
+A flash-constrained board may go further and leave the unusable classes out of its firmware entirely — `testbench_rp2040` ships only the framework's internal `NetworkInfo`, not even `ConnectivityManager`, since networking will never be supported there (see `framework_class_excludes` in [limits](/reference/limits/#runtime-limits)). On such a board the missing classes fail to resolve instead of throwing, so the probe-and-degrade path is the portable one.
 
 `InetAddress` represents an address as a packed 32-bit int. Sockets accept the raw int (from `InetAddress.getRawAddress()`) rather than a string, to keep the native API allocation-free. `InetAddress.getByName("host")` resolves a hostname (or parses a dotted-quad literal without touching the network) and throws `java.net.UnknownHostException` on failure.
 
 ## Network status
 
-Which kind of link the board has is a build-time fact. `NetworkInfo.getType()` returns
-`ConnectivityManager.TYPE_WIFI` (1) or `ConnectivityManager.TYPE_ETHERNET` (9), and
-`ConnectivityManager.TYPE_NONE` (-1) on a board without networking. `PackageManager`'s
-`FEATURE_WIFI` and `FEATURE_ETHERNET` answer the same question through
-`hasSystemFeature`; an app that only needs *a* network should accept either.
+Which kind of link the board has is a build-time fact. `PackageManager`'s `FEATURE_WIFI` and
+`FEATURE_ETHERNET` answer it through `hasSystemFeature`, and once the link is up
+`getNetworkCapabilities(network).hasTransport(NetworkCapabilities.TRANSPORT_WIFI)` (or
+`TRANSPORT_ETHERNET`) says the same, as on Android; an app that only needs *a* network should
+accept either.
 
 On hardware the WiFi join takes ~6 s and DHCP completes around 10 s after boot, so an app that opens a socket in `onCreate()` races the link. Android's answer is `ConnectivityManager` with a `NetworkCallback`, and it is picodroid's too:
 
@@ -43,23 +43,24 @@ cm.registerDefaultNetworkCallback(new ConnectivityManager.NetworkCallback() {
 
 The shape is Android's: one `ConnectivityManager` per app (`getSystemService`), a `NetworkCallback` subclass with the methods you need overridden, `registerDefaultNetworkCallback` / `registerNetworkCallback(NetworkRequest, cb)` / `requestNetwork` to start hearing and `unregisterNetworkCallback` to stop (in `onDestroy`; registering the same callback twice, or unregistering one that is not registered, throws `IllegalArgumentException` as on Android). `onAvailable` arrives when the link comes up with an address and `onLost` when it drops; a callback registered while the link is already up hears `onAvailable` shortly after `register` returns, never from inside it, so an Activity that registers in `onCreate` has its views by then. Callbacks run on the main thread between frames, like every other framework callback, and it is the Activity event loop that delivers them: an app with no Activity does not receive them (the same rule as a posted `Runnable`). Register from any thread.
 
-Since a board has one link there is one `Network` at a time — `getActiveNetwork()` returns it, or null while the link is down — and each time the link comes back it is a new `Network`, as on Android, so `onLost` names the one `onAvailable` did. `getNetworkCapabilities(network)` and the `NetworkCapabilities` passed to `onCapabilitiesChanged` carry the link's transport (`TRANSPORT_WIFI` or `TRANSPORT_ETHERNET`, matching `NetworkInfo.getType()`) and the capabilities a home network shows on Android: `NET_CAPABILITY_INTERNET`, `NET_CAPABILITY_VALIDATED`, `NET_CAPABILITY_NOT_METERED` and the `NOT_*` set. `Network.openConnection(URL)` is `url.openConnection()`, since the board has one network, and `getNetworkHandle()` is Android's handle for it. picodroid does not probe the internet — `VALIDATED` means the link is up with an address. A `NetworkRequest` built with `NetworkRequest.Builder` (`addTransportType`, `removeTransportType`, `addCapability`, `removeCapability`, `clearCapabilities`, `build`) is satisfied by a network that has every capability it asks for and, if it names transports, one of them; a request for `TRANSPORT_CELLULAR` on a WiFi board never fires.
+Since a board has one link there is one `Network` at a time — `getActiveNetwork()` returns it, or null while the link is down — and each time the link comes back it is a new `Network`, as on Android, so `onLost` names the one `onAvailable` did. `getNetworkCapabilities(network)` and the `NetworkCapabilities` passed to `onCapabilitiesChanged` carry the link's transport (`TRANSPORT_WIFI` or `TRANSPORT_ETHERNET`, matching the board's `FEATURE_*`) and the capabilities a home network shows on Android: `NET_CAPABILITY_INTERNET`, `NET_CAPABILITY_VALIDATED`, `NET_CAPABILITY_NOT_METERED` and the `NOT_*` set. `Network.openConnection(URL)` is `url.openConnection()`, since the board has one network, and `getNetworkHandle()` is Android's handle for it. picodroid does not probe the internet — `VALIDATED` means the link is up with an address. A `NetworkRequest` built with `NetworkRequest.Builder` (`addTransportType`, `removeTransportType`, `addCapability`, `removeCapability`, `clearCapabilities`, `build`) is satisfied by a network that has every capability it asks for and, if it names transports, one of them; a request for `TRANSPORT_CELLULAR` on a WiFi board never fires.
 
-Not there: `LinkProperties` and `onLinkPropertiesChanged` — read the address with `NetworkInfo.getIpAddress()`; a DHCP renewal that changes it keeps the same `Network` and fires nothing. `onLosing` and `onUnavailable` exist so overrides compile but are never called (nothing loses a network gracefully or times a request out), and the deprecated `getActiveNetworkInfo()` is absent: `NetworkInfo`'s methods are static. A link that drops and returns within one frame (16 ms) is not reported. At most eight callbacks may be registered at once.
+Not there: `LinkProperties` and `onLinkPropertiesChanged` — read the address with `WifiManager.getConnectionInfo().getIpAddress()`; a DHCP renewal that changes it keeps the same `Network` and fires nothing. `onLosing` and `onUnavailable` exist so overrides compile but are never called (nothing loses a network gracefully or times a request out), and the deprecated `getActiveNetworkInfo()` is absent, as is every member of `NetworkInfo` (framework-internal, `@Hide`). A link that drops and returns within one frame (16 ms) is not reported. At most eight callbacks may be registered at once.
 
-The static probes stay for code that has no Activity, or just wants an answer now:
+For code that has no Activity, or just wants an answer now, ask the same objects directly:
 
 ```java
-import picodroid.net.NetworkInfo;
 import picodroid.net.InetAddress;
+import picodroid.net.wifi.WifiManager;
 
-if (NetworkInfo.isConnected()) {
-    InetAddress me = new InetAddress(NetworkInfo.getIpAddress());
+if (cm.getActiveNetwork() != null) {
+    WifiManager wm = (WifiManager) getSystemService(Context.WIFI_SERVICE);
+    InetAddress me = new InetAddress(wm.getConnectionInfo().getIpAddress());
     Log.i("Net", "IP: " + me.getHostAddress());   // "192.168.1.42"
 }
 ```
 
-An Application-only app (no Activity) that needs the link before its first socket call still polls `NetworkInfo.isConnected()` against a deadline, as `netdemo` and `http_get` do; under the simulator the link is up at boot, so the poll returns at once.
+An Application-only app (no Activity) that needs the link before its first socket call polls `getActiveNetwork()` against a deadline, as `netdemo` and `http_get` do; under the simulator the link is up at boot, so the poll returns at once.
 
 ## WiFi
 
@@ -67,13 +68,12 @@ An Application-only app (no Activity) that needs the link before its first socke
 
 ```java
 import picodroid.content.Context;
-import picodroid.concurrent.Executors;
 import picodroid.net.wifi.ScanResult;
 import picodroid.net.wifi.WifiConfiguration;
 import picodroid.net.wifi.WifiManager;
 
 WifiManager wm = (WifiManager) getSystemService(Context.WIFI_SERVICE);
-wm.registerScanResultsCallback(Executors.mainExecutor(), new WifiManager.ScanResultsCallback() {
+wm.registerScanResultsCallback(getMainExecutor(), new WifiManager.ScanResultsCallback() {
   @Override public void onScanResultsAvailable() {
     for (ScanResult r : wm.getScanResults()) {          // strongest first, one per SSID
       Log.i(TAG, r.SSID + " " + r.level + " dBm " + r.capabilities);
@@ -93,7 +93,7 @@ What differs from Android, and why:
 
 - **One saved network.** `addNetwork` replaces the saved network and returns 0; `getConfiguredNetworks()` has at most one entry; `removeNetwork(0)` forgets it and leaves. A network compiled into the firmware (`PICODROID_WIFI_SSID`) shows as `WifiConfiguration.Status.CURRENT` and cannot be removed.
 - **No key-management set.** `WifiConfiguration` has no `allowedKeyManagement`: the join uses the security the last scan reported for that SSID (open, WPA, WPA2, WPA3 or mixed), else WPA2/WPA3 with a password and open without one.
-- **The outcome is broadcast, and can be read.** A registered `BroadcastReceiver` hears `WifiManager.SUPPLICANT_STATE_CHANGED_ACTION` (with `EXTRA_NEW_STATE` and, after a rejected join, `EXTRA_SUPPLICANT_ERROR`), `NETWORK_STATE_CHANGED_ACTION` and `SCAN_RESULTS_AVAILABLE_ACTION`, and `ConnectivityManager.CONNECTIVITY_ACTION`. To read instead: `getConnectionInfo()` gives a `WifiInfo`: `getSSID()` (quoted, or `WifiManager.UNKNOWN_SSID`), `getSupplicantState()` (`DISCONNECTED`, `ASSOCIATING`, `COMPLETED`), `getRssi()` from the last scan. After a join that did not complete, `getLastError()` is `ERROR_AUTHENTICATING` (Android's value), `ERROR_NETWORK_NOT_FOUND` or `ERROR_GENERIC`. The address arriving is `ConnectivityManager`'s `onAvailable`. Scan completion also reaches `registerScanResultsCallback` (Android 11's shape).
+- **The outcome is broadcast.** A registered `BroadcastReceiver` hears `WifiManager.SUPPLICANT_STATE_CHANGED_ACTION` (with `EXTRA_NEW_STATE` and, after a rejected join, `EXTRA_SUPPLICANT_ERROR`), `NETWORK_STATE_CHANGED_ACTION` and `SCAN_RESULTS_AVAILABLE_ACTION`, and `ConnectivityManager.CONNECTIVITY_ACTION`. To read instead: `getConnectionInfo()` gives a `WifiInfo`: `getSSID()` (quoted, or `WifiManager.UNKNOWN_SSID`), `getSupplicantState()` (`DISCONNECTED`, `ASSOCIATING`, `COMPLETED`), `getRssi()` from the last scan. Why a join did not complete is the broadcast's `EXTRA_SUPPLICANT_ERROR`: `ERROR_AUTHENTICATING` (Android's value), `ERROR_NETWORK_NOT_FOUND` or `ERROR_GENERIC`. The address arriving is `ConnectivityManager`'s `onAvailable`. Scan completion also reaches `registerScanResultsCallback` (Android 11's shape).
 - **Always on.** `isWifiEnabled()` says whether the board has a WiFi link, and `getWifiState()` is `WIFI_STATE_ENABLED` or `WIFI_STATE_DISABLED` accordingly; `setWifiEnabled` is accepted and ignored (it returns `false`).
 - **Kept joined.** As Android does with a saved network, the firmware rejoins the current network whenever a join ends without the station associated or the link is lost later — after 3 s, doubling to every 60 s; a `no such network` verdict (the access point missed the probe) is retried after 1 s, doubling the same way — so `getSupplicantState()` cycles `ASSOCIATING` → `DISCONNECTED` → `ASSOCIATING` on its own, and `onLost` is followed by `onAvailable` once the access point is back. A wrong password (`ERROR_AUTHENTICATING`) rides the same ladder and is then tried once every 5 minutes until a new `addNetwork`; `disconnect()` stops the retries.
 
@@ -103,11 +103,11 @@ The rest of the surface:
 |---|---|
 | `startScan()` | `false` when the board has no WiFi or a request is already waiting; the results arrive through the callbacks a few seconds later. |
 | `registerScanResultsCallback(Executor, ScanResultsCallback)` / `unregisterScanResultsCallback` | At most four at once (`IllegalStateException` past that; `IllegalArgumentException` for one already registered). Delivered between frames, so an app with no Activity does not receive them. |
-| `ScanResult` | Public fields, as on Android: `SSID` (unquoted), `BSSID`, `level` (dBm), `frequency` (MHz), `capabilities` (`[ESS]` for an open network, `[WPA2-PSK-CCMP][ESS]`, `[WPA3-SAE-CCMP][ESS]`, both for a mixed-mode access point), `timestamp` (always 0); `isSecured()`. |
+| `ScanResult` | Public fields, as on Android: `SSID` (unquoted), `BSSID`, `level` (dBm), `frequency` (MHz), `capabilities` (`[ESS]` for an open network, `[WPA2-PSK-CCMP][ESS]`, `[WPA3-SAE-CCMP][ESS]`, both for a mixed-mode access point), `timestamp` (always 0). A network needs a password when `capabilities` contains `WPA` or `WEP`, as on Android. |
 | `addNetwork(WifiConfiguration)` / `updateNetwork(WifiConfiguration)` | Save the network; 0, or -1 when the SSID is empty, a field is too long or the board has no WiFi. Neither connects. |
 | `enableNetwork(int netId, boolean attemptConnect)` | With `attemptConnect`, join the saved network now. `false` when nothing is saved, `netId` is not 0, or a request is already waiting. |
 | `disconnect()` / `reconnect()` / `reassociate()` | Leave the current network (the saved one is kept and rejoined at the next boot); join the saved one again; the same as `reconnect()`. |
-| `WifiInfo` | A snapshot: `getSSID()`, `getSupplicantState()`, `getRssi()` (`WifiInfo.UNKNOWN_RSSI`, -127, for a network no scan has seen), `getIpAddress()` (packed as `NetworkInfo.getIpAddress()`; 0 until the link is up), `getNetworkId()` (0 when the current network is the saved one, else -1), `getBSSID()` (always `02:00:00:00:00:00`). |
+| `WifiInfo` | A snapshot: `getSSID()`, `getSupplicantState()`, `getRssi()` (`WifiInfo.UNKNOWN_RSSI`, -127, for a network no scan has seen), `getIpAddress()` (packed into an `int`, as `InetAddress` takes it; 0 until the link is up), `getNetworkId()` (0 when the current network is the saved one, else -1), `getBSSID()` (always `02:00:00:00:00:00`). |
 | `calculateSignalLevel(int rssi, int numLevels)` (static) / `calculateSignalLevel(int rssi)` / `compareSignalLevel(int rssiA, int rssiB)` (static) | Android's helpers: a level in `0..numLevels-1`, linear between -100 and -55 dBm; the one-argument form uses five levels. |
 
 On a board without WiFi the class is a stub: no networks, nothing saved, every request refused — check `hasSystemFeature(FEATURE_WIFI)` first. `testbench_rp2040` leaves the package out of its firmware.
@@ -437,7 +437,7 @@ See [`examples/netexception/`](https://github.com/shivrajora/picodroid-rs/tree/m
 >
 > Network builds require the `third_party/cyw43-driver` submodule to be the patched picodroid fork — existing checkouts must run `git submodule sync && git submodule update --init third_party/cyw43-driver` after the fork switch, or the build fails early. Full setup: [WiFi & networking setup](/get-started/networking/). On the device, the WiFi task runs on core 1 over a PIO+DMA gSPI transport.
 
-> **WiFi credentials:** on hardware, the firmware joins the network saved from Settings → Wi-Fi, or the one named by the `PICODROID_WIFI_SSID` and `PICODROID_WIFI_PASS` environment variables at **build time**, which override a saved network (automatic auth: open without a password, WPA2 with one; set `PICODROID_WIFI_AUTH` to `open`, `wpa2`, `wpa3`, or `wpa2wpa3` to pin a mode — `wpa2wpa3` is WPA3-SAE with WPA2-PSK fallback for mixed-mode APs). Build-time credentials are baked into the image, so rebuild after changing them and never commit images built with real credentials. With neither, the stack still starts but stays offline. Example: `PICODROID_WIFI_SSID='MyAP' PICODROID_WIFI_PASS='secret' ./scripts/flash.sh --board testbench_rp2350w --app netdemo --release`. Expect the `net: up, ip …` RTT log line once DHCP completes (typically 5–15 s after boot); example apps poll `NetworkInfo.isConnected()` for up to 30 s to bridge this window.
+> **WiFi credentials:** on hardware, the firmware joins the network saved from Settings → Wi-Fi, or the one named by the `PICODROID_WIFI_SSID` and `PICODROID_WIFI_PASS` environment variables at **build time**, which override a saved network (automatic auth: open without a password, WPA2 with one; set `PICODROID_WIFI_AUTH` to `open`, `wpa2`, `wpa3`, or `wpa2wpa3` to pin a mode — `wpa2wpa3` is WPA3-SAE with WPA2-PSK fallback for mixed-mode APs). Build-time credentials are baked into the image, so rebuild after changing them and never commit images built with real credentials. With neither, the stack still starts but stays offline. Example: `PICODROID_WIFI_SSID='MyAP' PICODROID_WIFI_PASS='secret' ./scripts/flash.sh --board testbench_rp2350w --app netdemo --release`. Expect the `net: up, ip …` RTT log line once DHCP completes (typically 5–15 s after boot); Application-only example apps poll `ConnectivityManager.getActiveNetwork()` for up to 30 s to bridge this window; the others wait for a `NetworkCallback`'s `onAvailable`.
 
 ## Current limits
 

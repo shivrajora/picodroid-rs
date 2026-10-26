@@ -6,6 +6,29 @@ one picks up. Routine handovers go here; a large one gets its own doc under `doc
 here. Keep entries to a few lines; the reasoning goes to [`decisions.md`](decisions.md), the
 ranked list to [`gaps.md`](gaps.md).
 
+## 2026-10-26 — the Android-idiom sweep: shortcuts deleted, every app migrated
+
+- **Landed (`6d213518`):** the SDK's non-Android spellings are gone (no-Context constructors, `Button(String)`,
+  `Intent(Class)`, public `setSize` / `setPosition`, `setSpacing`, `SharedPreferences.open`,
+  `ScanResult.isSecured`, one-based `DatePicker.setDate`, `setGradient` and chaining,
+  `TimePicker.setTime`, `AlertDialog.Builder()` / `Notification.Builder()`); framework-internal
+  members (`*Manager.getInstance()`, static `NetworkInfo`, `getLastError`, `Drawable.applyTo`,
+  `Display.getInstance`) carry `@Hide` and `verifyApiContract` refuses them with the Android
+  spelling. `setLayoutParams` applies at once. Every example and system app migrated; picoclock,
+  picoenvmon(_kt), weather, askclaude, calculator and the tutorials got `res/`, ViewModel /
+  LiveData, `NetworkCallback` and long-form manifests where they fit. Record and follow-ups:
+  [`android-idiom-sweep-2026-10.md`](android-idiom-sweep-2026-10.md); why: decisions 2026-10-26.
+- **Fixed on the way:** picoclock's alarm never sounded on the touch kit (its `Buzzer` opened the
+  board-reserved GP13; now `ToneGenerator`, sim-verified, not yet heard on the board); a post or
+  schedule from `Application.onCreate` was dropped (the main queue started after it).
+- **Numbers:** sim matrix 248 PASS / 44 SKIP at `9554efcd` (menudemo[shrink] timed out once, a
+  known flake: 6/6 on rerun; the size lane failed on the worktree's doubled `-Tlink.x`, measured
+  by hand). Flash: testbench_rp2040 −1,192 B, testbench_rp2350 +1,076 B (accepted). `test.sh`
+  green. Not run on hardware.
+- **Still open:** short-form manifests in ~100 demo apps; no Context in the DI graph (apps hold
+  the Application statically); no `LinkProperties` (the sim's `WifiInfo` IP is 0); the spellings
+  listed in the record's follow-up 4.
+
 ## 2026-10-25 — nightly triage: qa_ui on the W board, qa_trim on the touch kit, the size ratchet
 
 - **qa_ui** (pico_display2_w, ERROR since 2026-10-23): a BusFault in `lv_style_set_prop` after
