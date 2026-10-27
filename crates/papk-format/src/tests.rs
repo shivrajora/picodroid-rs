@@ -486,6 +486,27 @@ fn manifest_value_is_public_generic_lookup() {
 }
 
 #[test]
+fn activity_label_falls_back_to_the_app_then_the_package() {
+    let papk = build_papk_with_manifest(&[
+        ("main-class", "x/Y"),
+        ("package-name", "clock"),
+        ("label", "Clock"),
+        ("label:clock/ui/AlarmList", "Alarms"),
+    ]);
+    let p = parse_leaked(papk);
+    assert_eq!(p.activity_label("clock/ui/AlarmList"), Some("Alarms"));
+    // getClass().getName() spells it dotted.
+    assert_eq!(p.activity_label("clock.ui.AlarmList"), Some("Alarms"));
+    assert_eq!(p.activity_label("clock/ui/AlarmLis"), Some("Clock"));
+    assert_eq!(p.activity_label("clock/ui/Other"), Some("Clock"));
+    let bare = parse_leaked(build_papk_with_manifest(&[
+        ("main-class", "x/Y"),
+        ("package-name", "clock"),
+    ]));
+    assert_eq!(bare.activity_label("x/Y"), Some("clock"));
+}
+
+#[test]
 fn class_count_reports_declared_count() {
     let bar = minimal_class(b"foo/Bar");
     let util = minimal_class(b"lib/Util");

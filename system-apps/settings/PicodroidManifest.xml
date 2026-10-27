@@ -1,4 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest package="picodroid.settings" version="1.0" version-code="1">
-    <application activity="settings/SettingsActivity" label="Settings" icon="settings.png" />
+    <!-- Every screen is declared with its label: the title its app bar shows
+         (Activity.getTitle). The classes live in the settings package, so their
+         names are written in full. -->
+    <application activity="settings/SettingsActivity" label="Settings" icon="settings.png">
+        <activity android:name="settings.SettingsActivity" android:label="Settings">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity android:name="settings.AboutActivity" android:label="About" />
+        <activity android:name="settings.AppsActivity" android:label="Apps" />
+        <activity android:name="settings.StorageActivity" android:label="Storage" />
+        <activity android:name="settings.WifiActivity" android:label="Wi-Fi" />
+        <activity android:name="settings.WifiPasswordActivity" android:label="Wi-Fi" />
+        <activity android:name="settings.DisplayActivity" android:label="Display" />
+        <activity android:name="settings.DateTimeActivity" android:label="Date &amp; time" />
+        <activity android:name="settings.TimeZoneActivity" android:label="Time zone" />
+    </application>
 </manifest>

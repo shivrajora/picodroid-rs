@@ -13,6 +13,17 @@ package picodroid;
 public final class R {
   private R() {}
 
+  /** Framework view and item ids. */
+  public static final class id {
+    private id() {}
+
+    /**
+     * The up button of an action bar, as the item {@code Activity.onOptionsItemSelected} receives
+     * for it.
+     */
+    public static final int home = 0x0102002c;
+  }
+
   /** Framework row layouts. */
   public static final class layout {
     private layout() {}

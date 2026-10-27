@@ -35,7 +35,7 @@ public class ClockActivity extends BaseActivity {
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     LinearLayout root = Ui.screen(this);
-    Ui.header(root, "Clock", null);
+    Ui.appBar(this, root, false);
 
     face = new SegmentClock(root, 52);
     seconds = Ui.centred(root, "", 17, Ui.MUTED);

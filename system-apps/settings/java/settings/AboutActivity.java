@@ -10,14 +10,14 @@ import picodroid.util.Log;
 import picodroid.widget.LinearLayout;
 
 /**
- * About: the board, its MCU, the release, the serial number, the volume and the heap. The header
- * row goes back.
+ * About: the board, its MCU, the release, the serial number, the volume and the heap. The app
+ * bar's up button goes back.
  */
 public class AboutActivity extends Activity {
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    LinearLayout column = Screens.screen(this, "< About", v -> finish());
+    LinearLayout column = Screens.screen(this, true);
     Screens.info(this, column, "Board  " + Build.BOARD);
     Screens.info(this, column, "MCU  " + Build.HARDWARE);
     Screens.info(this, column, "Release  " + Build.VERSION.RELEASE);

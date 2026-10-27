@@ -38,7 +38,7 @@ public class AlarmListActivity extends BaseActivity {
     model = viewModel(AlarmListViewModel.class);
 
     LinearLayout root = Ui.screen(this);
-    Ui.header(root, "Alarms", v -> finish());
+    Ui.appBar(this, root, true);
 
     rows = new LinearLayout(this);
     rows.setOrientation(LinearLayout.VERTICAL);

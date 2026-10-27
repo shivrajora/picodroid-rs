@@ -34,7 +34,7 @@ public class AppsActivity extends Activity {
 
   /** The screen from scratch: a new column, the rows, and the "apps N" line. */
   private void render() {
-    LinearLayout column = Screens.screen(this, "< Apps", v -> finish());
+    LinearLayout column = Screens.screen(this, true);
     list();
     if (apps.length == 0) {
       Screens.info(this, column, "No apps installed");
@@ -86,7 +86,7 @@ public class AppsActivity extends Activity {
 
   /** The rows are in: focus the first, and say how many — the harness keys on this line. */
   private void done(LinearLayout column) {
-    column.getChildAt(1).requestFocus(); // child 0 is the header; an info row is focusable too
+    column.getChildAt(0).requestFocus(); // an info row is focusable too
     Log.i(SettingsActivity.TAG, "apps " + apps.length);
   }
 

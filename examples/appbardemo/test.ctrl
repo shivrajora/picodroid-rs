@@ -1,0 +1,26 @@
+# Control-channel script for appbardemo's sim row (testbench_rp2350, a 320x240 touch panel):
+# the overflow button at the bar's right end opens the options menu (its two rows sit at
+# y = 105 and 134 on the dialog card), Compose pushes the draft, whose first BACK after an
+# edit is taken by its OnBackPressedCallback and whose second leaves; then the up button at
+# the bar's left end leaves a second draft. Compose is at y = 104 under the inbox's status
+# line, Edit at y = 76 straight under the draft's bar.
+wait AppBarDemo[]:] inbox ready
+input tap 300 20
+sleep 1
+input tap 160 134
+wait AppBarDemo[]:] selected Sort by date
+sleep 1
+input tap 90 104
+wait AppBarDemo[]:] draft ready
+sleep 1
+input tap 90 76
+wait AppBarDemo[]:] draft: edited
+input back
+wait AppBarDemo[]:] draft: unsaved edit kept
+input back
+wait activity: pop appbardemo/DraftActivity
+sleep 1
+input tap 90 104
+wait activity: push appbardemo/DraftActivity
+sleep 1
+input tap 20 20

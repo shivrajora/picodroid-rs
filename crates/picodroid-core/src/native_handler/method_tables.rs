@@ -590,6 +590,11 @@ pub const CORE_HANDLED: &[Row] = &[
         "(Z)V",
     ),
     ("picodroid/app/Activity", "nativeFocusTakesLongPress", "()Z"),
+    (
+        "picodroid/app/Activity",
+        "nativeGetLabel",
+        "(Ljava/lang/String;)Ljava/lang/String;",
+    ),
     ("picodroid/app/Activity", "setResult", "(I)V"),
     (
         "picodroid/app/Activity",

@@ -5,6 +5,33 @@ re-litigated by the next session. Newest first; append, do not rewrite. A decisi
 reversed gets a new entry pointing at the old one. The design docs under `designs/` carry the
 long form where one exists.
 
+## 2026-10-26: the app bar is a Toolbar the Activity adopts; Back goes through a dispatcher
+
+- **No window-decor action bar.** An Activity gets an app bar the way an Android app under a
+  `NoActionBar` theme does: a `Toolbar` in its layout, handed to `setActionBar`. A decor bar
+  would be a framework-owned widget on every screen (LVGL pool, flash, a second layout root)
+  that most board UIs do not want; `getActionBar()` is `null` until an app asks.
+- **Toolbar is Java over `ViewGroup(Context)`, no natives.** It measures and places a chevron
+  button, the title (and subtitle) and the overflow button in `onLayout`; nothing new crosses
+  into Rust. Its buttons are out of the focus ring: the keys already reach Up and the menu
+  through BACK and MENU / a held SELECT, and a focusable chevron at the top of every screen
+  would be the first focus stop on a four-key board, where SELECT on it would leave the screen.
+- **The overflow is the Activity's options menu**, and a Toolbar has no menu of its own
+  (`getMenu`, `inflateMenu`): `OptionsMenu` is package-private in `picodroid.app`, and one menu
+  model reached by every board's input is the K9 design. With a bar, the floating touch control
+  is hidden; the MENU key and a held SELECT still open the same list.
+- **Up finishes by default.** `onNavigateUp` returns to the Activity below: the stack is the
+  hierarchy here, and there is no `parentActivityName`. The tap still reaches
+  `onOptionsItemSelected` as `R.id.home` first, as on Android.
+- **Titles come from `<activity android:label>`,** written to the PAPK as one `label:<class>`
+  manifest entry per activity (shrunk with the class under an app map), so labels need no list
+  format that a comma or a bar in the text could break. Literal text only; `@string/` is a build
+  error rather than a silently unresolved id.
+- **Back is androidx's dispatcher, in `picodroid.activity`.** `onBackPressed` hands every press
+  to it when one exists (created lazily, so an app that never asks never resolves the class);
+  app callbacks run before the fragment pop, which is androidx's order for callbacks added
+  after `super.onCreate`. The in-repo overrides of `onBackPressed` became callbacks.
+
 ## 2026-10-26: only Android's spellings are public; `@Hide` for the framework's own reach
 
 - **The shortcuts went, the apps moved in the same sweep.** A survey of the in-repo apps found

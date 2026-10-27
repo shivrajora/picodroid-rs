@@ -18,6 +18,10 @@ unsafe impl Sync for Cell {}
 
 static TABLE: Cell = Cell(core::cell::Cell::new(None));
 
+/// The running app's MANIFEST section, for the labels an Activity's title
+/// starts as ([`activity_label`]). Same lifetime and discipline as `TABLE`.
+static MANIFEST: Cell = Cell(core::cell::Cell::new(None));
+
 /// How many override blocks a launch keeps, best match first; an app with
 /// more matching variant directories than this loses the worst ones.
 const MAX_SELECTED: usize = 8;
@@ -55,6 +59,9 @@ pub fn init_from_papk(papk: &Papk<'static>) {
         papk.theme().unwrap_or(0),
         core::sync::atomic::Ordering::Relaxed,
     );
+    MANIFEST
+        .0
+        .set(papk.manifest_section().ok().map(|(_, data)| data));
     let section = match papk.resources_section() {
         Ok(Some((_, data))) if ResTable::parse(data).is_ok() => Some(data),
         Ok(None) => None,
@@ -105,6 +112,7 @@ pub fn init_from_papk(papk: &Papk<'static>) {
 /// Forget the table. Called on app reset, before the package can change.
 pub fn clear() {
     TABLE.0.set(None);
+    MANIFEST.0.set(None);
     SELECTED.0.set(([0; MAX_SELECTED], 0));
     MANIFEST_THEME.store(0, core::sync::atomic::Ordering::Relaxed);
 }
@@ -119,6 +127,12 @@ fn resolved<R>(f: impl FnOnce(papk_format::res::Resolved<'static, '_>) -> Option
     let t = table()?;
     let (picked, n) = SELECTED.0.get();
     f(t.with(&picked[..n as usize]))
+}
+
+/// The title Activity `class` starts with: its `<activity android:label>`,
+/// else the app's label, else the package name; `None` before an app runs.
+pub fn activity_label(class: &str) -> Option<&'static str> {
+    papk_format::activity_label_in(MANIFEST.0.get()?, class)
 }
 
 /// The UTF-8 bytes of string resource `id`.

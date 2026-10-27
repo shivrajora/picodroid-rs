@@ -705,6 +705,24 @@ impl PicodroidNativeHandler {
             (_, mh::nativeFocusTakesLongPress) => Some(Ok(Some(Value::Int(i32::from(
                 crate::graphics::lvgl::focused_view_takes_long_press(ctx.objects),
             ))))),
+            (_, mh::nativeGetLabel) => {
+                // Static: args[0] = the Activity's class name. The title it
+                // starts with: its manifest label, else the app's.
+                let label = match ctx.args.first() {
+                    Some(Value::Reference(idx)) => ctx
+                        .strings
+                        .resolve(*idx)
+                        .and_then(crate::resources::activity_label),
+                    _ => None,
+                };
+                Some(match label {
+                    Some(text) => match ctx.strings.intern_dyn(text.as_bytes()) {
+                        Some(idx) => Ok(Some(Value::Reference(idx))),
+                        None => Err(JvmError::StackOverflow),
+                    },
+                    None => Ok(Some(Value::Null)),
+                })
+            }
             (_, mh::nativeSetTurnScreenOn) => {
                 // args[0] = this, args[1] = boolean. An Activity that must
                 // be seen (an alarm ringing) wakes a dozing display at once

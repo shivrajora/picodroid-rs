@@ -64,7 +64,7 @@ The full Android-style lifecycle is dispatched by the runtime. Override only the
 | `onPause()` | When another Activity is being launched on top. |
 | `onStop()` | After `onPause`, once the new top Activity is fully resumed. |
 | `onDestroy()` | Just before this Activity is popped off the stack. |
-| `onBackPressed()` | BACK-key default action — pops the [fragment back stack](#picodroidappfragment) if it has an entry, else calls `finish()`. Override and don't `super.onBackPressed()` to suppress (e.g. show a confirm dialog). |
+| `onBackPressed()` | BACK: hands the press to `getOnBackPressedDispatcher()`, whose enabled callbacks come first; with none, pops the [fragment back stack](#picodroidappfragment) if it has an entry, else calls `finish()`. Prefer an [`OnBackPressedCallback`](#back-onbackpressedcallback) to overriding it (deprecated on Android since API 33). |
 | `onKeyDown(int keyCode, KeyEvent)` / `onKeyLongPress(int keyCode, KeyEvent)` / `onKeyUp(int keyCode, KeyEvent)` | A hardware key no focused view consumed: its press and auto-repeats, its long-press, its release; return `true` to consume it. The defaults track BACK so its release runs `onBackPressed`. `Activity` implements `KeyEvent.Callback`. See [Key events](#key-events). |
 | `onTrimMemory(int level)` | Memory is short: `level` is `ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL`, delivered when the LVGL pool is below an eighth free or the native heap below a sixteenth — once per episode between frames, and at an Activity launch before the framework destroys a covered Activity to make room. Drop view caches and anything that can be rebuilt; views dropped here go back to the pool, which can save the covered Activity. The other `TRIM_MEMORY_*` levels never arrive (one app runs at a time). |
 | `onLowMemory()` | The framework is about to destroy a covered Activity anyway (its state goes through `onSaveInstanceState`). Reaches the Application, every Activity and every Service, like `onTrimMemory`. |
@@ -125,7 +125,75 @@ To test that, turn on the equivalent of Android's *Don't keep activities* develo
 | `getViewModelStore()` / `getDefaultViewModelProviderFactory()` | What `new ViewModelProvider(activity)` uses; the second is `ViewModelProvider.NewInstanceFactory` (the public no-argument constructor) unless overridden for ViewModels that take arguments. See [lifecycle](#picodroidlifecycle). |
 | `getApplication()` | The app's `Application`, or `null` when the manifest names no Application class (Android always has one). `getApplicationContext()` on `Context` returns it too, or the Context it is called on when there is none. |
 
-See [`examples/navdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/navdemo) for a multi-Activity back-stack demo and [`examples/dialogdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/dialogdemo) for an `onBackPressed` override pattern.
+See [`examples/navdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/navdemo) for a multi-Activity back-stack demo.
+
+### App bar: `Toolbar` and `setActionBar`
+
+picodroid draws no window-decor action bar (an Android app under a `NoActionBar` theme is in the same place): put a `picodroid.widget.Toolbar` at the top of the layout and make it the Activity's app bar.
+
+```java
+LinearLayout root = new LinearLayout(this);
+root.setOrientation(LinearLayout.VERTICAL);
+Toolbar bar = new Toolbar(this);
+bar.setBackgroundColor(0xFF3F51B5);
+bar.setTitleTextColor(Color.WHITE);
+root.addView(bar, new LinearLayout.LayoutParams(MATCH_PARENT, Toolbar.DEFAULT_HEIGHT));
+setActionBar(bar);
+getActionBar().setDisplayHomeAsUpEnabled(true);   // the up button, on a screen below the root
+// ... the rest of the screen ...
+setContentView(root);
+```
+
+| Method | Description |
+|--------|-------------|
+| `getTitle()` / `setTitle(CharSequence)` / `setTitle(int)` | The title: what `setTitle` set, else the manifest's `<activity android:label>`, else the application's `label`, else the package name. `onTitleChanged(CharSequence, int)` is called on a change; its default puts the title on the action bar. |
+| `setActionBar(Toolbar)` / `getActionBar()` | Make `toolbar` this Activity's app bar; `getActionBar()` is `null` until then. The bar shows the title, the options menu behind its overflow button (in place of the floating menu control a touch board draws for an Activity without a bar; the MENU key and a held SELECT still open it), and the up button while `DISPLAY_HOME_AS_UP` is set. |
+| `onOptionsItemSelected(MenuItem)` | The up button arrives here first, as an item with id `picodroid.R.id.home` (Android's value); return `true` to handle it. |
+| `onNavigateUp()` | The up button, when `onOptionsItemSelected` did not take it. The default calls `finish()`, back to the Activity that started this one: the Activity stack is the hierarchy here, where Android follows the manifest's `parentActivityName`. Override it to save or ask first. |
+
+`picodroid.app.ActionBar`: `setDisplayHomeAsUpEnabled`, `setDisplayShowTitleEnabled`, `setDisplayOptions` / `getDisplayOptions` (`DISPLAY_HOME_AS_UP`, `DISPLAY_SHOW_TITLE`), `setTitle` / `getTitle` (the bar's own; the Activity's title is left as it is), `setSubtitle` / `getSubtitle`, `show` / `hide` / `isShowing`, `getHeight`. No tabs, custom views, logos or icons.
+
+`picodroid.widget.Toolbar` is a `ViewGroup`, `Toolbar.DEFAULT_HEIGHT` (40) pixels tall unless its layout params say otherwise, with no background of its own: `setTitle`, `setSubtitle` (a second line under the title), `setTitleTextColor` / `setSubtitleTextColor`, `setNavigationOnClickListener` (the navigation button, a back chevron, shows while a listener is set), `showOverflowMenu`. Children an app adds sit at the end, before the overflow button, centred on the bar. Divergences: no `setNavigationIcon` (the chevron is the stock one), no menu of its own (`getMenu`, `inflateMenu`: the overflow is the Activity's options menu), no `AttributeSet` constructor (build it in code), and its buttons are touch targets rather than focus stops, since the keys reach the same actions through BACK and the menu key. `Toolbar` and `ActionBar` are not built into `testbench_rp2040` (flash headroom); the Back API below is.
+
+The labels go in the manifest, one per screen:
+
+```xml
+<application label="Clock">
+    <activity android:name=".ui.AlarmListActivity" android:label="Alarms" />
+</application>
+```
+
+A label is literal text; an `@string/` reference is refused at build time. See [`examples/appbardemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/appbardemo).
+
+### Back: `OnBackPressedCallback`
+
+`androidx.activity`'s Back API, in `picodroid.activity`. `getOnBackPressedDispatcher()` is the Activity's `OnBackPressedDispatcher`; the most recently added enabled `OnBackPressedCallback` handles a BACK, and with none enabled the default runs (pop a fragment, else `finish()`).
+
+```java
+private final OnBackPressedCallback keepEdit =
+    new OnBackPressedCallback(false) {          // enabled only while there is an edit
+      @Override
+      public void handleOnBackPressed() {
+        confirmDiscard();
+      }
+    };
+
+@Override
+protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
+    getOnBackPressedDispatcher().addCallback(this, keepEdit);
+    // ... keepEdit.setEnabled(true) when the user edits ...
+}
+```
+
+| Method | Description |
+|--------|-------------|
+| `OnBackPressedDispatcher.addCallback(OnBackPressedCallback)` | Add a callback above the ones already added; it hears BACK until removed. |
+| `addCallback(LifecycleOwner, OnBackPressedCallback)` | The same, while `owner` is started: added on `ON_START`, taken out on `ON_STOP`, dropped at `ON_DESTROY`. Pass the Activity, or a fragment's `getViewLifecycleOwner()`. |
+| `onBackPressed()` / `hasEnabledCallbacks()` | Dispatch a BACK; whether any callback is enabled. `new OnBackPressedDispatcher(Runnable fallback)` makes one of your own. |
+| `OnBackPressedCallback(boolean enabled)`, `setEnabled` / `isEnabled`, `remove()`, `handleOnBackPressed()` | One handler; disable it rather than removing it when BACK should do the usual thing again. |
+
+Divergences: the fragment back stack is popped after every app callback (androidx orders the fragment manager's own callback by when it was added; the two agree for callbacks added after `super.onCreate`); no predictive-back progress (`handleOnBackStarted` and the rest). A BACK reaches the dispatcher after the soft keyboard, a showing dialog and the focused view's `OnKeyListener` have passed on it.
 
 ## `picodroid.app.Fragment`
 

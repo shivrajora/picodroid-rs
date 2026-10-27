@@ -54,7 +54,7 @@ public class SetTimeActivity extends BaseActivity {
     model = viewModel(SetTimeViewModel.class);
 
     LinearLayout root = Ui.screen(this);
-    Ui.header(root, "Set time", v -> finish());
+    Ui.appBar(this, root, true);
 
     // Three pickers and three steppers do not fit on a 480-pixel panel.
     LinearLayout page = new LinearLayout(this);

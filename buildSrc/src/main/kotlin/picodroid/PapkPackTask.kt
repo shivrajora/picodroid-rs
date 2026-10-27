@@ -70,6 +70,10 @@ abstract class PapkPackTask : DefaultTask() {
     @get:Input
     abstract val manifestActivities: ListProperty<String>
 
+    /** `<activity android:label>`s, `class=label` (`label:<class>` manifest keys). */
+    @get:Input
+    abstract val manifestActivityLabels: ListProperty<String>
+
     /** Declared `<service android:name>` classes, slash form (`services` manifest key). */
     @get:Input
     abstract val manifestServices: ListProperty<String>
@@ -163,6 +167,7 @@ abstract class PapkPackTask : DefaultTask() {
         designWidth.orNull?.let { args += listOf("--design-size", "${it}x${designHeight.get()}") }
         requiresFeatures.get().forEach { args += listOf("--requires-feature", it) }
         manifestActivities.get().forEach { args += listOf("--activity-decl", it) }
+        manifestActivityLabels.get().forEach { args += listOf("--activity-label", it) }
         manifestServices.get().forEach { args += listOf("--service", it) }
         manifestReceivers.get().forEach { args += listOf("--receiver", it) }
         theme.orNull?.let { args += listOf("--theme", it) }

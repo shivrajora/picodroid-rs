@@ -213,6 +213,12 @@ pub mod keys {
     /// decimal text; the framework applies it before the first Activity's
     /// `onCreate`. Absent: no manifest theme (an app may still `setTheme`).
     pub const THEME: &[u8] = b"theme";
+    /// `<activity android:label>`: one entry per labelled activity, the key
+    /// this prefix followed by the class in slash form
+    /// (`label:picoclock/ui/AlarmListActivity`), the value the label. What
+    /// `Activity.getTitle` starts as; an activity without one takes the
+    /// application's [`LABEL`].
+    pub const ACTIVITY_LABEL_PREFIX: &[u8] = b"label:";
 }
 
 // ── Error type ────────────────────────────────────────────────────────────────
@@ -541,6 +547,36 @@ impl<'a> Iterator for ManifestIter<'a> {
     }
 }
 
+/// [`Papk::activity_label`] over a MANIFEST section's data, for a caller
+/// that keeps the section rather than the package. One pass, no allocation.
+pub fn activity_label_in<'a>(manifest: &'a [u8], class: &str) -> Option<&'a str> {
+    let mut app = None;
+    let mut package = None;
+    let entries = ManifestIter {
+        data: manifest,
+        pos: 0,
+        done: false,
+    };
+    for e in entries {
+        if let Some(named) = e.key.strip_prefix(keys::ACTIVITY_LABEL_PREFIX) {
+            if same_class(named, class.as_bytes()) {
+                return str::from_utf8(e.value).ok();
+            }
+        } else if e.key == keys::LABEL {
+            app = str::from_utf8(e.value).ok();
+        } else if e.key == keys::PACKAGE_NAME {
+            package = str::from_utf8(e.value).ok();
+        }
+    }
+    app.or(package)
+}
+
+/// Whether two class names match, `.` and `/` alike.
+fn same_class(a: &[u8], b: &[u8]) -> bool {
+    let norm = |c: u8| if c == b'.' { b'/' } else { c };
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| norm(*x) == norm(*y))
+}
+
 // ── Papk ─────────────────────────────────────────────────────────────────────
 
 /// A zero-copy PAPK file parser.
@@ -739,6 +775,13 @@ impl<'a> Papk<'a> {
     /// `None` on a PAPK packed without one (show the package name instead).
     pub fn label(&self) -> Option<&'a str> {
         self.manifest_value(keys::LABEL)
+    }
+
+    /// The title `class` starts with, as Android gives an Activity: its own
+    /// `<activity android:label>`, else the application's label, else the
+    /// package name. `class` may be dotted or in slash form.
+    pub fn activity_label(&self, class: &str) -> Option<&'a str> {
+        activity_label_in(self.manifest_section_data().ok()?, class)
     }
 
     /// Returns the `icon` value, the name of the ASSETS entry holding the

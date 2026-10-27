@@ -38,7 +38,7 @@ public class DateTimeActivity extends Activity {
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    LinearLayout column = Screens.screen(this, "Date & time", v -> finish());
+    LinearLayout column = Screens.screen(this, true);
     rows[0] = Screens.info(this, column, "Automatic date & time", autoOn() ? "On" : "Off");
     autoTail = Screens.tailOf(rows[0]);
     rows[0].setOnClickListener(v -> toggleAuto());

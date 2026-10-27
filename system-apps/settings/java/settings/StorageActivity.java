@@ -16,7 +16,7 @@ import picodroid.widget.LinearLayout;
 import picodroid.widget.TextView;
 
 /**
- * Storage: the volume, then every package's app and data bytes. The header row goes back.
+ * Storage: the volume, then every package's app and data bytes. The app bar's up button goes back.
  *
  * <p>The rows go up with their numbers pending. The numbers come from a pool worker — a package's
  * data walk blocks that worker, not the tick — and are posted back one row at a time, so every row
@@ -41,7 +41,7 @@ public class StorageActivity extends Activity {
     super.onCreate(savedInstanceState);
     alive = true;
     stats = (StorageStatsManager) getSystemService(STORAGE_STATS_SERVICE);
-    LinearLayout column = Screens.screen(this, "< Storage", v -> finish());
+    LinearLayout column = Screens.screen(this, true);
     listPackages();
     StatFs fs = new StatFs("/");
     long total = fs.getTotalBytes();

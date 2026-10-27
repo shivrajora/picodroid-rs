@@ -168,6 +168,10 @@ javax/inject/Provider
 javax/net/ssl/SSLException
 javax/net/ssl/SSLHandshakeException
 javax/net/ssl/SSLPeerUnverifiedException
+picodroid/activity/OnBackPressedCallback
+picodroid/activity/OnBackPressedDispatcher
+picodroid/activity/OnBackPressedDispatcher$LifecycleBinding
+picodroid/app/ActionBar
 picodroid/app/Activity
 picodroid/app/AlarmManager
 picodroid/app/AlertDialog
@@ -436,5 +440,6 @@ picodroid/widget/TimePicker
 picodroid/widget/TimePicker$OnTimeChangedListener
 picodroid/widget/Toast
 picodroid/widget/ToggleButton
+picodroid/widget/Toolbar
 picodroid/widget/ViewPager2
 picodroid/widget/ViewPager2$OnPageChangeCallback

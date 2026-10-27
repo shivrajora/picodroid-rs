@@ -22,6 +22,7 @@ import picodroid.util.TypedValue;
 import picodroid.view.Gravity;
 import picodroid.view.KeyCharacterMap;
 import picodroid.view.KeyEvent;
+import picodroid.view.MenuItem;
 import picodroid.view.View;
 import picodroid.view.ViewGroup;
 import picodroid.widget.ArrayAdapter;
@@ -93,6 +94,14 @@ public class QaUiActivity extends Activity {
 
   /** Layout params on a parented view, GradientDrawable: also in their own class. */
   private final ParamsChecks params = new ParamsChecks(this);
+
+  /** Toolbar, the action bar and Back. */
+  private final AppBarChecks appBar = new AppBarChecks(this);
+
+  @Override
+  public boolean onOptionsItemSelected(MenuItem item) {
+    return appBar.onItem(item);
+  }
 
   private final TextView[] rows = new TextView[5];
   private TextView sized;
@@ -180,6 +189,7 @@ public class QaUiActivity extends Activity {
     section("focus", () -> focus());
     section("canvas", () -> canvas());
     section("customGroup", () -> groups.customGroup(root));
+    appBar.phase1(root);
     setContentView(root);
     later(300, () -> phase2());
   }
@@ -1259,6 +1269,7 @@ public class QaUiActivity extends Activity {
     // checked and removed here.
     section("canvasDrawn", () -> canvasDrawn());
     section("customGroupLaidOut", () -> groups.customGroupLaidOut());
+    appBar.phase2();
     section("deferredEvents", () -> deferredEvents());
     section("sizes", () -> sizes());
     section("animation", () -> animation());

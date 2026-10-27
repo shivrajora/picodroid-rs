@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.app;
 
+import picodroid.activity.OnBackPressedDispatcher;
 import picodroid.content.ComponentCallbacks2;
 import picodroid.content.Context;
 import picodroid.content.Intent;
@@ -20,6 +21,7 @@ import picodroid.view.Menu;
 import picodroid.view.MenuItem;
 import picodroid.view.View;
 import picodroid.view.ViewGroup;
+import picodroid.widget.Toolbar;
 
 public class Activity extends Context
     implements ComponentCallbacks2,
@@ -564,8 +566,19 @@ public class Activity extends Context
       onCreateOptionsMenu(mOptionsMenu);
       mOptionsMenuCreated = true;
     }
-    nativeSetOptionsMenuAvailable(mOptionsMenu.hasVisibleItems());
+    boolean has = mOptionsMenu.hasVisibleItems();
+    if (mActionBar != null) {
+      // The app bar's overflow button opens the menu; the framework's floating control would
+      // only repeat it.
+      mActionBar.toolbar().setOverflowOnClickListener(has ? mOpenOptionsMenu : null);
+      nativeSetOptionsMenuAvailable(false);
+    } else {
+      nativeSetOptionsMenuAvailable(has);
+    }
   }
+
+  /** The overflow button's action, made with the first action bar. */
+  private View.OnClickListener mOpenOptionsMenu;
 
   private boolean hasOptionsMenuItems() {
     prepareOptionsMenu();
@@ -587,15 +600,147 @@ public class Activity extends Context
   }
 
   /**
-   * Default BACK-key handler: pops the fragment back stack if it has an entry, else finishes this
-   * Activity, as {@code FragmentActivity} does. Override and *don't* call super to suppress (e.g.
-   * show a confirm dialog instead).
+   * The BACK key, and a tap on the soft BACK control. Mirrors {@code
+   * androidx.activity.ComponentActivity#onBackPressed}: hands the press to {@link
+   * #getOnBackPressedDispatcher}, whose callbacks come first; with none enabled, the fragment back
+   * stack is popped if it has an entry, else this Activity finishes. Prefer an {@link
+   * picodroid.activity.OnBackPressedCallback} to overriding this (deprecated on Android since API
+   * 33): a callback can be switched on and off with the screen's state, and a fragment can add one.
    */
   public void onBackPressed() {
+    if (mOnBackPressedDispatcher != null) {
+      mOnBackPressedDispatcher.onBackPressed();
+    } else {
+      backPressedDefault();
+    }
+  }
+
+  /** What BACK does when no callback takes it: pop a fragment, else finish. */
+  private void backPressedDefault() {
     if (mFragments != null && mFragments.popBackStackImmediate()) {
       return;
     }
     finish();
+  }
+
+  /**
+   * Made on the first {@link #getOnBackPressedDispatcher}, so an app that never asks never resolves
+   * the class.
+   */
+  private OnBackPressedDispatcher mOnBackPressedDispatcher;
+
+  /**
+   * Mirrors {@code androidx.activity.ComponentActivity#getOnBackPressedDispatcher()}: where this
+   * Activity's BACK goes. Add an {@link picodroid.activity.OnBackPressedCallback} to it to take
+   * BACK over — to confirm before leaving, to close a panel first, or to keep the home screen from
+   * finishing.
+   */
+  public final OnBackPressedDispatcher getOnBackPressedDispatcher() {
+    if (mOnBackPressedDispatcher == null) {
+      mOnBackPressedDispatcher = new OnBackPressedDispatcher(() -> backPressedDefault());
+    }
+    return mOnBackPressedDispatcher;
+  }
+
+  // ── Title and action bar ─────────────────────────────────────────────────────────────────
+
+  /** The title; read from the manifest on the first {@link #getTitle}. */
+  private CharSequence mTitle;
+
+  private ActionBar mActionBar;
+
+  /** The {@code picodroid.R.id.home} item the up button reports; made on the first tap. */
+  private OptionsMenu.Item mHomeItem;
+
+  /**
+   * Mirrors Android: this Activity's title — what {@link #setTitle} last set, else the manifest's
+   * {@code <activity android:label>}, else the application's label, else the package name.
+   */
+  public final CharSequence getTitle() {
+    if (mTitle == null) {
+      String label = nativeGetLabel(getClass().getName());
+      mTitle = label != null ? label : "";
+    }
+    return mTitle;
+  }
+
+  /** Mirrors Android: change the title; an action bar shows it. */
+  public void setTitle(CharSequence title) {
+    mTitle = title;
+    onTitleChanged(title, 0);
+  }
+
+  /** Mirrors Android: the title from the string resource {@code titleId}. */
+  public void setTitle(int titleId) {
+    setTitle(getString(titleId));
+  }
+
+  /**
+   * Mirrors Android: the title changed. The default shows it on the action bar; an override that
+   * does not call super keeps the bar's title as it is. {@code color} is always 0 here.
+   */
+  protected void onTitleChanged(CharSequence title, int color) {
+    if (mActionBar != null) {
+      mActionBar.setTitle(title);
+    }
+  }
+
+  private static native String nativeGetLabel(String className);
+
+  /**
+   * Mirrors {@code android.app.Activity#setActionBar(Toolbar)}: {@code toolbar} becomes this
+   * Activity's app bar. It shows {@link #getTitle}, the options menu behind its overflow button (in
+   * place of the framework's floating menu control on a touch board), and an up button once {@code
+   * getActionBar().setDisplayHomeAsUpEnabled(true)}. The toolbar stays where the layout put it;
+   * {@code null} detaches it.
+   */
+  public void setActionBar(Toolbar toolbar) {
+    if (mActionBar != null) {
+      Toolbar old = mActionBar.toolbar();
+      old.setNavigationOnClickListener(null);
+      old.setOverflowOnClickListener(null);
+    }
+    if (toolbar == null) {
+      mActionBar = null;
+    } else {
+      if (mOpenOptionsMenu == null) {
+        mOpenOptionsMenu = v -> openOptionsMenu();
+      }
+      mActionBar = new ActionBar(this, toolbar);
+      mActionBar.setTitle(getTitle());
+    }
+    if (mOptionsMenuCreated) {
+      prepareOptionsMenu();
+    }
+  }
+
+  /**
+   * Mirrors Android: the app bar {@link #setActionBar} installed, or {@code null}: picodroid draws
+   * no action bar of its own, as an Android app under a {@code NoActionBar} theme.
+   */
+  public ActionBar getActionBar() {
+    return mActionBar;
+  }
+
+  /**
+   * Mirrors Android: the up button was tapped and {@link #onOptionsItemSelected} did not take its
+   * {@code picodroid.R.id.home} item. Return true when handled. The default finishes this Activity,
+   * back to the one that started it: the Activity stack is the hierarchy here, where Android
+   * follows the manifest's {@code parentActivityName}.
+   */
+  public boolean onNavigateUp() {
+    finish();
+    return true;
+  }
+
+  /** The up button: {@code R.id.home} through the options-item path, then {@link #onNavigateUp}. */
+  final void navigateHome() {
+    if (mHomeItem == null) {
+      mHomeItem = new OptionsMenu.Item(Menu.NONE, picodroid.R.id.home, Menu.NONE, getTitle());
+    }
+    if (!onOptionsItemSelected(mHomeItem)) {
+      onNavigateUp();
+    }
   }
 
   /**

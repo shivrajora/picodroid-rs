@@ -91,6 +91,10 @@
       </xs:element>
     </xs:sequence>
     <xs:attribute name="name" type="xs:string" use="required"/>
+    <!-- An <activity>'s title (android:label at build time): literal text, what
+         Activity.getTitle and an action bar start with; absent, the application's
+         label. -->
+    <xs:attribute name="label" type="xs:string" use="optional"/>
   </xs:complexType>
 
   <xs:complexType name="SupportsScreensType">

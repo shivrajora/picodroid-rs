@@ -2,5 +2,8 @@
 <manifest package="qa_ui" version="1.0"
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
           xsi:noNamespaceSchemaLocation="../../sdk/PicodroidManifest.xsd">
-    <application application="qa_ui/QaUiApp" />
+    <!-- The activity's label is the title AppBarChecks expects. -->
+    <application application="qa_ui/QaUiApp" label="QA UI">
+        <activity android:name=".QaUiActivity" android:label="UI checks" />
+    </application>
 </manifest>

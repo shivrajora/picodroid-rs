@@ -4,6 +4,7 @@ package picoclock.ui;
 import picoclock.AlarmStore;
 import picoclock.Clock;
 import picoclock.ClockApp;
+import picodroid.activity.OnBackPressedCallback;
 import picodroid.content.Intent;
 import picodroid.os.Bundle;
 import picodroid.util.Log;
@@ -56,7 +57,16 @@ public class RingActivity extends BaseActivity {
     dueMinute = intent == null ? 0 : intent.getIntExtra(EXTRA_DUE_MINUTE, 0);
 
     LinearLayout root = Ui.screen(this);
-    Ui.header(root, "Alarm", null);
+    Ui.appBar(this, root, false);
+    // BACK does not dismiss an alarm. A button pressed by a hand groping at a bedside table is not
+    // a decision, and the two on-screen targets are unmissable.
+    getOnBackPressedDispatcher()
+        .addCallback(
+            this,
+            new OnBackPressedCallback(true) {
+              @Override
+              public void handleOnBackPressed() {}
+            });
 
     face = new SegmentClock(root, 20);
 
@@ -82,13 +92,6 @@ public class RingActivity extends BaseActivity {
 
     viewModel(ClockViewModel.class).now().observe(this, this::redraw);
   }
-
-  /**
-   * BACK does not dismiss an alarm. A button pressed by a hand groping at a bedside table is not a
-   * decision, and the two on-screen targets are unmissable.
-   */
-  @Override
-  public void onBackPressed() {}
 
   /** The service says the ring is over — by this screen's buttons, or from somewhere else. */
   @Override

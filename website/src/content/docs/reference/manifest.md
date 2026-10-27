@@ -46,8 +46,9 @@ The `<manifest>` root:
   the entry point (below), its optional `android:theme` and its component
   children (see [The Android form](#the-android-form)) it takes two optional
   identity attributes:
-  - **`label`** — the display name a launcher shows; defaults to the package
-    name.
+  - **`label`** (or `android:label`) — the display name a launcher shows, and
+    the title of every Activity without a label of its own; defaults to the
+    package name.
   - **`icon`** — the file name of a PNG under the app's `assets/` directory
     (see [Bundled image assets](/guides/assets/#app-icon)). It must exist
     there, or the build fails at configuration time, and it should be a small
@@ -80,6 +81,7 @@ The exact error strings, so you can grep this page if you hit one:
 - `<file>: <activity> missing 'android:name' attribute` (and `<service>`)
 - `<file>: <activity> '<class>' is declared twice` (and `<service>`)
 - `<file>: <activity> android:theme is not supported — there is one theme per app; put android:theme on <application>`
+- `<file>: <activity> label '@string/…' is a reference; write the text itself (labels are not resolved from res/)` (and `<application>`)
 - `<file>: two activities carry the MAIN intent filter ('<a>', '<b>'); one app has one entry`
 - `<file>: <application> does not take <<tag>> (supported: <activity>, <service>, <uses-permission>)`
 - `<file>: <application> android:theme must name a <style>, got '<value>'`
@@ -159,7 +161,10 @@ The shape an Android manifest has, with what this platform reads of it
   Android reads them: dotted (`claudeusage.ui.MainActivity`), slash-form, or
   relative to the manifest `package` with a leading dot. The short-form
   `activity=` attribute may stay beside the children and must then name one of
-  them.
+  them. `android:label="…"` is the Activity's title (`getTitle`, the [app
+  bar](/api/ui/#app-bar-toolbar-and-setactionbar)); without one it takes the
+  application's `label`. A label is literal text: an `@string/` reference is a
+  build error.
 - **`<service android:name="…">`**, repeatable. Declared components are
   checked twice at build time: `papk-pack` checks that each class is packed and
   extends `picodroid.app.Activity` / `Service`, and the Gradle `verifyManifest`
@@ -407,8 +412,9 @@ flash.
   point (`application`, `activity` or `main-class`), `package-name`, `version`,
   `framework-map-version`, and `version-code`, `label`, `icon`, `design-width`,
   `design-height` and `requires-features` when set; an Android-form manifest
-  adds `activities` and `services` (comma-joined, slash form) and `theme` (the
-  theme's `R.style` id, decimal).
+  adds `activities` and `services` (comma-joined, slash form), `theme` (the
+  theme's `R.style` id, decimal) and one `label:<class>` entry per activity
+  `android:label`.
 - **CLASSES** holds every `.class` file with a *link table* `papk-pack` built
   for it (the record a class loader would otherwise parse at run time, a hash of
   each superclass and interface name, a signature hash per method and a 4-byte

@@ -31,7 +31,7 @@ public class DisplayActivity extends Activity {
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-    LinearLayout column = Screens.screen(this, "Display", v -> finish());
+    LinearLayout column = Screens.screen(this, true);
     timeoutRow = Screens.info(this, column, "Screen timeout", label(currentMs()));
     timeoutTail = Screens.tailOf(timeoutRow);
     timeoutRow.setOnClickListener(v -> pick());

@@ -37,7 +37,7 @@ import picodroid.widget.TextView;
  * completed join as {@code wifi connected <ssid>}, which the bench keys on. Scan completion is
  * pushed through a {@link WifiManager.ScanResultsCallback} and rebuilds the rows.
  *
- * <p>Row 0 is the header, 1 the status, 2 the saved network (or "No saved network"), 3 Scan, and
+ * <p>Row 0 is the app bar, 1 the status, 2 the saved network (or "No saved network"), 3 Scan, and
  * the networks follow from 4, so the bench taps the first network at y = 180.
  */
 public class WifiActivity extends Activity {
@@ -106,7 +106,7 @@ public class WifiActivity extends Activity {
 
   /** The screen from scratch: a new column and its rows, then the "wifi N networks" line. */
   private void render() {
-    LinearLayout column = Screens.screen(this, "< Wi-Fi", v -> finish());
+    LinearLayout column = Screens.screen(this, true);
     results = wm.getScanResults();
     saved = wm.getConfiguredNetworks();
     statusTail = Screens.tailOf(Screens.info(this, column, "Status", statusText()));

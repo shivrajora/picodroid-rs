@@ -107,6 +107,7 @@ F	DECADES
 F	DECEMBER
 F	DEFAULT_BUFFER_SIZE
 F	DEFAULT_CAPABILITIES
+F	DEFAULT_HEIGHT
 F	DEFAULT_INDICATOR_SIZE
 F	DEFAULT_REQUEST
 F	DEFAULT_TEXT_SIZE
@@ -120,6 +121,8 @@ F	DIRECTION_OUT_INITIALLY_HIGH
 F	DIRECTION_OUT_INITIALLY_LOW
 F	DISABLED
 F	DISCONNECTED
+F	DISPLAY_HOME_AS_UP
+F	DISPLAY_SHOW_TITLE
 F	DONE
 F	E
 F	ELAPSED_REALTIME
@@ -182,6 +185,8 @@ F	F_PARENT_LEFT
 F	F_PARENT_RIGHT
 F	F_PARENT_TOP
 F	F_REMOVING
+F	GLYPH_NAVIGATION
+F	GLYPH_OVERFLOW
 F	GONE
 F	GREEN
 F	HALF_DAYS
@@ -506,6 +511,7 @@ F	TAG_TYPE_MASK
 F	TAP_SLOP_PX
 F	TEXT_COLOR_SET
 F	THURSDAY
+F	TITLE_INSET
 F	TONE_DTMF_0
 F	TONE_DTMF_1
 F	TONE_DTMF_2
@@ -765,8 +771,10 @@ F	listener
 F	longPressFired
 F	longValsHi
 F	longValsLo
+F	mActionBar
 F	mActive
 F	mActiveCount
+F	mActivity
 F	mAdapter
 F	mAddToBackStack
 F	mAdded
@@ -785,9 +793,11 @@ F	mBackStackChangeListeners
 F	mBackStackNesting
 F	mBackground
 F	mBackgroundTint
+F	mBinding
 F	mBoundItem
 F	mBoundView
 F	mBuf
+F	mCallback
 F	mCallbackCount
 F	mCallbacks
 F	mCanvas
@@ -805,6 +815,7 @@ F	mContainerId
 F	mContentLayoutId
 F	mContentView
 F	mContext
+F	mCount
 F	mCurState
 F	mCurrentItem
 F	mCustom
@@ -816,12 +827,15 @@ F	mDepth
 F	mDestroyed
 F	mDiskGeneration
 F	mDispatchInvalidated
+F	mDispatcher
 F	mDispatchingValue
 F	mDrain
 F	mDrawPending
 F	mDrawTask
+F	mEnabled
 F	mExecuting
 F	mFactory
+F	mFallback
 F	mFast
 F	mFieldId
 F	mFirst
@@ -836,6 +850,7 @@ F	mGravity
 F	mGridAttrs
 F	mGroup
 F	mHeight
+F	mHomeItem
 F	mHost
 F	mInts
 F	mIsPop
@@ -870,19 +885,26 @@ F	mMetrics
 F	mMinor
 F	mModels
 F	mName
+F	mNavButton
+F	mNavListener
 F	mNextBackStackIndex
 F	mNextWho
 F	mObserver
 F	mObservers
 F	mOffscreenPageLimit
+F	mOnBackPressedDispatcher
 F	mOpen
 F	mOpenKind
 F	mOpenLeft
+F	mOpenOptionsMenu
 F	mOps
+F	mOptions
 F	mOptionsMenu
 F	mOptionsMenuCreated
 F	mOptionsMenuDialog
 F	mOrientation
+F	mOverflowButton
+F	mOverflowListener
 F	mOwner
 F	mPackage
 F	mPager
@@ -917,13 +939,21 @@ F	mStateIds
 F	mStateSaved
 F	mStates
 F	mStore
+F	mSubtitle
+F	mSubtitleView
 F	mSwapping
 F	mSwipeListener
 F	mTag
 F	mText
 F	mTextColor
 F	mTextSize
+F	mTitle
+F	mTitleColor
+F	mTitleColorSet
+F	mTitleView
+F	mToolbar
 F	mUiThread
+F	mUp
 F	mUserInputEnabled
 F	mVersion
 F	mView
@@ -1158,6 +1188,7 @@ M	add
 M	addAction
 M	addAll
 M	addAndGet
+M	addCallback
 M	addCapability
 M	addExact
 M	addFragment
@@ -1215,6 +1246,7 @@ M	attachViewToParent
 M	available
 M	await
 M	awaitTermination
+M	backPressedDefault
 M	background
 M	backgroundExecutor
 M	beforeTextChanged
@@ -1233,6 +1265,7 @@ M	build
 M	buildId
 M	buildRequestHeaders
 M	bumpNesting
+M	button
 M	bytesToString
 M	calculateSignalLevel
 M	calibrate
@@ -1458,6 +1491,7 @@ M	fireLayout
 M	fireLinkChange
 M	fireLongClick
 M	fireManifest
+M	fireNavigation
 M	fireProgressChanged
 M	fireReady
 M	fireRefresh
@@ -1497,6 +1531,7 @@ M	generateDefaultLayoutParams
 M	get
 M	getAbsolutePath
 M	getAction
+M	getActionBar
 M	getActiveNetwork
 M	getActivity
 M	getAdapter
@@ -1574,6 +1609,7 @@ M	getDimensionPixelOffset
 M	getDimensionPixelSize
 M	getDisplay
 M	getDisplayMetrics
+M	getDisplayOptions
 M	getDouble
 M	getDownTime
 M	getDuration
@@ -1668,6 +1704,7 @@ M	getNtpTime
 M	getNtpTimeReference
 M	getOffscreenPageLimit
 M	getOffset
+M	getOnBackPressedDispatcher
 M	getOnFocusChangeListener
 M	getOnItemClickListener
 M	getOnItemSelectedListener
@@ -1734,6 +1771,7 @@ M	getStringExtra
 M	getStrokeCap
 M	getStrokeWidth
 M	getStyle
+M	getSubtitle
 M	getSuggestedMinimumHeight
 M	getSuggestedMinimumWidth
 M	getSupplicantState
@@ -1780,11 +1818,13 @@ M	getYear
 M	gmtId
 M	grow
 M	handleLifecycleEvent
+M	handleOnBackPressed
 M	handleUpEvent
 M	has
 M	hasAction
 M	hasActiveObservers
 M	hasCapability
+M	hasEnabledCallbacks
 M	hasExtra
 M	hasFocus
 M	hasLineMode
@@ -1865,6 +1905,7 @@ M	isLongPress
 M	isNegative
 M	isNull
 M	isNullSentinel
+M	isOwn
 M	isPeriodic
 M	isPop
 M	isQueued
@@ -1895,12 +1936,16 @@ M	keys
 M	kindOf
 M	lambda$dataSetChanged$4
 M	lambda$fireEvent$0
+M	lambda$getOnBackPressedDispatcher$2
 M	lambda$map$0
 M	lambda$new$0
 M	lambda$openOptionsMenu$0
 M	lambda$openOptionsMenu$1
 M	lambda$registerNetworkCallback$0
 M	lambda$sendBroadcast$0
+M	lambda$setActionBar$3
+M	lambda$setNavigationOnClickListener$0
+M	lambda$setOverflowOnClickListener$1
 M	lambda$startSwap$1
 M	lambda$static$0
 M	lambda$swap$2
@@ -1912,6 +1957,7 @@ M	lazySet
 M	length
 M	lengthOfMonth
 M	lengthOfYear
+M	line
 M	link
 M	linkChanged
 M	list
@@ -2011,6 +2057,7 @@ M	nativeFreeBytes
 M	nativeGetChildCount
 M	nativeGetDay
 M	nativeGetInt
+M	nativeGetLabel
 M	nativeGetLineHeight
 M	nativeGetMonth
 M	nativeGetProperty
@@ -2176,6 +2223,7 @@ M	nativeWriteFixed32
 M	nativeWriteFixed64
 M	nativeWriteVarint32
 M	nativeWriteVarint64
+M	navigateHome
 M	negated
 M	negativeSize
 M	newFixedThreadPool
@@ -2262,6 +2310,7 @@ M	onLost
 M	onLowMemory
 M	onMeasure
 M	onMenuItemClick
+M	onNavigateUp
 M	onNothingSelected
 M	onOptionsItemSelected
 M	onOptionsMenuClosed
@@ -2294,6 +2343,7 @@ M	onStopTrackingTouch
 M	onSwipe
 M	onTextChanged
 M	onTimeChanged
+M	onTitleChanged
 M	onTouch
 M	onTouchEvent
 M	onTrimMemory
@@ -2460,6 +2510,7 @@ M	relativeParams
 M	release
 M	remove
 M	removeAllViews
+M	removeCallback
 M	removeCapability
 M	removeFragment
 M	removeItem
@@ -2528,6 +2579,7 @@ M	serializedSize
 M	set
 M	setARGB
 M	setAction
+M	setActionBar
 M	setAdapter
 M	setAddress
 M	setAlpha
@@ -2560,6 +2612,9 @@ M	setDefault
 M	setDefaultUncaughtExceptionHandler
 M	setDirection
 M	setDisabledItems
+M	setDisplayHomeAsUpEnabled
+M	setDisplayOptions
+M	setDisplayShowTitleEnabled
 M	setDoOutput
 M	setDuration
 M	setEditText
@@ -2611,6 +2666,7 @@ M	setMinute
 M	setMode
 M	setMultiChoiceItems
 M	setName
+M	setNavigationOnClickListener
 M	setNegativeButton
 M	setNeutralButton
 M	setOffscreenPageLimit
@@ -2634,6 +2690,7 @@ M	setOnTimeChangedListener
 M	setOnTouchListener
 M	setOnValueChangedListener
 M	setOrientation
+M	setOverflowOnClickListener
 M	setPackage
 M	setPadding
 M	setParity
@@ -2676,6 +2733,8 @@ M	setStroke
 M	setStrokeCap
 M	setStrokeWidth
 M	setStyle
+M	setSubtitle
+M	setSubtitleTextColor
 M	setSweepAngle
 M	setTag
 M	setText
@@ -2690,6 +2749,7 @@ M	setTimeZone
 M	setTimeout
 M	setTint
 M	setTitle
+M	setTitleTextColor
 M	setTo
 M	setToDefaults
 M	setTrackColor
@@ -2711,6 +2771,8 @@ M	settled
 M	show
 M	showFps
 M	showFragment
+M	showOverflowMenu
+M	shows
 M	shutdown
 M	shutdownNow
 M	sin
@@ -2794,6 +2856,7 @@ M	toSeconds
 M	toString
 M	toZoneId
 M	toggle
+M	toolbar
 M	track
 M	transfer
 M	translationX

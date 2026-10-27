@@ -22,8 +22,11 @@
 #
 # Seeded 2026-10-20 from website/src/content/docs/reference/compatibility-matrix.md
 # and the sdk/java/picodroid tree at 1f571977.
-android.R	picodroid/R	partial	R.layout row ids only (Android's values); compile-only
-android.app.Activity	picodroid/app/Activity	live	lifecycle, results, options menu, fragments, ViewModel owner, onTrimMemory / onLowMemory; no action bar
+android.R	picodroid/R	partial	R.layout row ids and R.id.home only (Android's values); compile-only
+android.app.Activity	picodroid/app/Activity	live	lifecycle, results, options menu, fragments, ViewModel owner, onTrimMemory / onLowMemory, setActionBar(Toolbar), title from android:label, OnBackPressedDispatcher
+android.app.ActionBar	picodroid/app/ActionBar	partial	from setActionBar(Toolbar) only; title, subtitle, home-as-up, show / hide; no tabs, custom views, icons
+androidx.activity.OnBackPressedDispatcher	picodroid/activity/OnBackPressedDispatcher	partial	callbacks, lifecycle-bound callbacks, fallback; no predictive-back progress
+androidx.activity.OnBackPressedCallback	picodroid/activity/OnBackPressedCallback	partial	enabled, remove, handleOnBackPressed; no predictive-back progress
 android.app.Application	picodroid/app/Application	live	onCreate entry point, onTrimMemory / onLowMemory fan out to registerComponentCallbacks
 android.app.Service	picodroid/app/Service	partial	started + bound, onTrimMemory / onLowMemory; no IntentService
 android.app.AlertDialog	picodroid/app/AlertDialog	partial	buttons, items, choices; String labels; no setView / setIcon
@@ -96,6 +99,7 @@ android.widget.FrameLayout	picodroid/widget/FrameLayout	live
 android.widget.RelativeLayout	picodroid/widget/RelativeLayout	partial	the layout_* rules as a registered LVGL layout
 android.widget.GridLayout	picodroid/widget/GridLayout	partial	rows, columns, spans on LVGL's grid
 android.widget.ScrollView	picodroid/widget/ScrollView	live
+android.widget.Toolbar	picodroid/widget/Toolbar	partial	title, subtitle, navigation listener (stock chevron), overflow = the options menu; no setNavigationIcon, getMenu, inflateMenu, XML
 android.widget.ImageView	picodroid/widget/ImageView	partial	int scale types; setImageSource addition
 android.widget.Switch	picodroid/widget/Switch	live
 android.widget.CheckBox	picodroid/widget/CheckBox	partial	no toggle()

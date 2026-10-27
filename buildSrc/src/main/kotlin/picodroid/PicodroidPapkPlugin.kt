@@ -454,6 +454,7 @@ class PicodroidPapkPlugin : Plugin<Project> {
             manifest.activity?.let { activity.set(it) }
             manifest.application?.let { application.set(it) }
             manifestActivities.set(manifest.activities)
+            manifestActivityLabels.set(manifest.activityLabels)
             manifestServices.set(manifest.services)
             manifestReceivers.set(manifest.receivers)
             manifest.theme?.let { theme.set(it) }

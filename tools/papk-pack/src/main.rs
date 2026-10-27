@@ -89,6 +89,10 @@ struct Args {
     activities: Vec<String>,
     /// `--service <class>`, repeatable: as `activities`, for `Service`.
     services: Vec<String>,
+    /// `--activity-label <class>=<label>`, repeatable: an `<activity
+    /// android:label>`, written as `label:<class>` → label, what the
+    /// Activity's title starts as.
+    activity_labels: Vec<(String, String)>,
     /// `--receiver <class|action…>`, repeatable: a declared `<receiver>` with
     /// the actions its intent-filter names, written comma-joined as
     /// `receivers`; the class is checked to be a packed `BroadcastReceiver`.
@@ -131,6 +135,7 @@ struct RepackManifest {
     activities: Vec<String>,
     services: Vec<String>,
     receivers: Vec<String>,
+    activity_labels: Vec<(String, String)>,
     theme_id: Option<u32>,
 }
 
@@ -247,6 +252,12 @@ fn load_repack_source(bytes: &[u8]) -> Result<(RepackSource, RepackManifest), St
                 manifest.theme_id = value.parse().ok();
                 continue;
             }
+            k if k.starts_with(keys::ACTIVITY_LABEL_PREFIX) => {
+                let class = String::from_utf8(k[keys::ACTIVITY_LABEL_PREFIX.len()..].to_vec())
+                    .map_err(|_| "manifest key is not UTF-8".to_string())?;
+                manifest.activity_labels.push((class, value));
+                continue;
+            }
             k => {
                 debug_assert!(!WELL_KNOWN_KEYS.contains(&k));
                 let key = String::from_utf8(k.to_vec())
@@ -298,6 +309,7 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
     let mut activities: Vec<String> = Vec::new();
     let mut services: Vec<String> = Vec::new();
     let mut receivers: Vec<String> = Vec::new();
+    let mut activity_labels: Vec<(String, String)> = Vec::new();
     let mut theme: Option<String> = None;
     let mut repack: Option<PathBuf> = None;
     let mut pad_asset: Option<usize> = None;
@@ -381,6 +393,24 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
                     ));
                 }
                 receivers.push(spec.clone());
+            }
+            "--activity-label" => {
+                i += 1;
+                let spec = args
+                    .get(i)
+                    .ok_or_else(|| "--activity-label requires a value".to_string())?;
+                match spec.split_once('=') {
+                    Some((class, label))
+                        if !class.is_empty() && !class.contains('.') && !label.is_empty() =>
+                    {
+                        activity_labels.push((class.to_string(), label.to_string()));
+                    }
+                    _ => {
+                        return Err(format!(
+                            "--activity-label takes <class in slash form>=<label>, got '{spec}'"
+                        ))
+                    }
+                }
             }
             "--activity-decl" | "--service" => {
                 let flag = args[i].clone();
@@ -510,6 +540,9 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
         if receivers.is_empty() {
             receivers = m.receivers;
         }
+        if activity_labels.is_empty() {
+            activity_labels = m.activity_labels;
+        }
         // A `--theme` names a style the input's resources would have to hold;
         // without it the input's resolved theme id carries over.
         if theme.is_none() {
@@ -556,6 +589,7 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
             activities,
             services,
             receivers,
+            activity_labels,
             theme,
             theme_id: repack_theme_id,
         },
@@ -599,6 +633,9 @@ fn shrink_entry_point(args: &mut Args) -> Result<(), String> {
         for name in list.iter_mut() {
             *name = shrunk_class(name, Some(map))?;
         }
+    }
+    for (class, _) in args.activity_labels.iter_mut() {
+        *class = shrunk_class(class, Some(map))?;
     }
     for spec in args.receivers.iter_mut() {
         let (class, actions) = spec.split_once('|').unwrap_or((spec.as_str(), ""));
@@ -1155,6 +1192,15 @@ fn build_papk(
     let services = args.services.join(",");
     let receivers = args.receivers.join(",");
     let theme_id = args.theme_id.map(|id| id.to_string());
+    let label_keys: Vec<String> = args
+        .activity_labels
+        .iter()
+        .map(|(class, _)| {
+            let prefix = std::str::from_utf8(papk_format::keys::ACTIVITY_LABEL_PREFIX)
+                .expect("manifest keys are ASCII");
+            format!("{prefix}{class}")
+        })
+        .collect();
     let key = |k: &'static [u8]| std::str::from_utf8(k).expect("manifest keys are ASCII");
     let mut builder = PapkBuilder::new(ManifestSpec {
         entry,
@@ -1181,6 +1227,9 @@ fn build_papk(
     }
     if let Some(id) = &theme_id {
         builder.manifest_entry(key(papk_format::keys::THEME), id);
+    }
+    for (k, (_, label)) in label_keys.iter().zip(&args.activity_labels) {
+        builder.manifest_entry(k, label);
     }
     for (name, bytes) in classes {
         builder.class(name, bytes);
@@ -1456,6 +1505,7 @@ mod pack_integration {
             activities: Vec::new(),
             services: Vec::new(),
             receivers: Vec::new(),
+            activity_labels: Vec::new(),
             theme: None,
             theme_id: None,
         };
@@ -1512,6 +1562,7 @@ mod pack_integration {
             activities: Vec::new(),
             services: Vec::new(),
             receivers: Vec::new(),
+            activity_labels: Vec::new(),
             theme: None,
             theme_id: None,
         }
@@ -1821,6 +1872,7 @@ mod pack_integration {
         original.label = Some("Fixture".into());
         original.icon = Some("logo.png".into());
         original.activities = vec!["fixture/Main".into()];
+        original.activity_labels = vec![("fixture/Main".into(), "Main screen".into())];
         original.services = vec!["fixture/Svc".into()];
         original.receivers = vec!["fixture/Boot|android.intent.action.BOOT_COMPLETED".into()];
         original.theme_id = Some(0x7f0a_0000);
@@ -1848,6 +1900,10 @@ mod pack_integration {
             vec!["fixture/Boot|android.intent.action.BOOT_COMPLETED".to_string()]
         );
         assert_eq!(manifest.theme_id, Some(0x7f0a_0000));
+        assert_eq!(
+            manifest.activity_labels,
+            vec![("fixture/Main".to_string(), "Main screen".to_string())]
+        );
 
         // A repack that only renames the package changes nothing else.
         let mut renamed = original;
@@ -1867,6 +1923,7 @@ mod pack_integration {
                 "fixture/Boot|android.intent.action.BOOT_COMPLETED",
             ),
             (keys::THEME, "2131361792"),
+            (b"label:fixture/Main".as_slice(), "Main screen"),
         ] {
             let values: Vec<&[u8]> = parsed
                 .manifest()

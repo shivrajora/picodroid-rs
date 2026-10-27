@@ -63,6 +63,12 @@ data class PicodroidManifest(
     val requiredFeatures: List<String> = emptyList(),
     /** The `<activity android:name>` classes, slash form, document order. */
     val activities: List<String> = emptyList(),
+    /**
+     * The `<activity android:label>`s, `class=label` with the class in slash form: what the
+     * Activity's title (`getTitle`, an action bar's title) starts as. An activity without one
+     * takes the application's label.
+     */
+    val activityLabels: List<String> = emptyList(),
     /** The `<service android:name>` classes, slash form, document order. */
     val services: List<String> = emptyList(),
     /**
@@ -120,7 +126,6 @@ data class PicodroidManifest(
             val mainClass = app.getAttribute("main-class").ifBlank { null }
             var activity = app.getAttribute("activity").ifBlank { null }
             val application = app.getAttribute("application").ifBlank { null }
-            val label = app.getAttribute("label").ifBlank { null }
             val icon = app.getAttribute("icon").ifBlank { null }
 
             // Android's attributes carry the `android:` prefix; the bare spelling is
@@ -128,6 +133,18 @@ data class PicodroidManifest(
             // prefix is part of the attribute's name.
             fun Element.androidAttr(name: String): String? =
                 getAttribute("android:$name").ifBlank { null } ?: getAttribute(name).ifBlank { null }
+
+            // A label is literal text: the packer writes it into the manifest as it stands.
+            fun literalLabel(el: Element, tag: String): String? {
+                val text = el.androidAttr("label") ?: return null
+                if (text.startsWith("@")) {
+                    throw GradleException(
+                        "${file.name}: <$tag> label '$text' is a reference; write the text itself (labels are not resolved from res/)"
+                    )
+                }
+                return text
+            }
+            val label = literalLabel(app, "application")
 
             // A component class as Android spells it, to the slash form the packer and
             // the runtime use: `.Main` is relative to the manifest package.
@@ -139,6 +156,7 @@ data class PicodroidManifest(
             }
 
             val activities = ArrayList<String>()
+            val activityLabels = ArrayList<String>()
             val services = ArrayList<String>()
             val receivers = ArrayList<String>()
             var launcher: String? = null
@@ -157,6 +175,7 @@ data class PicodroidManifest(
                             throw GradleException("${file.name}: <activity> '${cls}' is declared twice")
                         }
                         activities += cls
+                        literalLabel(el, "activity")?.let { activityLabels += "$cls=$it" }
                         val filters = el.getElementsByTagName("intent-filter")
                         for (f in 0 until filters.length) {
                             val actions = (filters.item(f) as Element).getElementsByTagName("action")
@@ -284,6 +303,7 @@ data class PicodroidManifest(
                 designHeight = designHeight,
                 requiredFeatures = requiredFeatures,
                 activities = activities,
+                activityLabels = activityLabels,
                 services = services,
                 receivers = receivers,
                 theme = theme,

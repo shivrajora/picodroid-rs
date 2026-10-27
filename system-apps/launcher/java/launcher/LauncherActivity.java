@@ -4,6 +4,7 @@ package launcher;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import picodroid.activity.OnBackPressedCallback;
 import picodroid.app.Activity;
 import picodroid.content.Intent;
 import picodroid.content.pm.ApplicationInfo;
@@ -53,6 +54,14 @@ public class LauncherActivity extends Activity {
     // Not "onCreate": a --shrink image must not spell a served member name, and
     // check-shrunk-image.sh cannot tell a log literal from a leaked one.
     Log.i(TAG, "creating");
+    // Home: there is nothing to go back to, so BACK stays here.
+    getOnBackPressedDispatcher()
+        .addCallback(
+            this,
+            new OnBackPressedCallback(true) {
+              @Override
+              public void handleOnBackPressed() {}
+            });
 
     // A LinearLayout does not scroll (as on Android): the column sits in a ScrollView, the
     // content view's root, which fills the window; the column takes its width and wraps its rows,
@@ -149,10 +158,5 @@ public class LauncherActivity extends Activity {
           startActivity(new Intent().setPackage(pkg));
         });
     return row;
-  }
-
-  @Override
-  public void onBackPressed() {
-    // Home: there is nothing to go back to.
   }
 }

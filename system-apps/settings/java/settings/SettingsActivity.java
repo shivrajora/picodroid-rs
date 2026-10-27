@@ -10,10 +10,9 @@ import picodroid.widget.LinearLayout;
 
 /**
  * The settings app's root (multi-app M3): About, Apps and Storage, one row each, then Wi-Fi on a
- * board that has it ({@code PackageManager.FEATURE_WIFI}), then Display and Date &amp; time. The
- * header row is Home: a tap on it, or BACK on a keypad board, finishes the app and the launcher
- * comes back. Rows are {@link Screens#ROW_HEIGHT} pixels from the top of the screen, the header
- * first, so the bench taps About at y = 60, Apps at 100, Storage at 140 and Wi-Fi at 180; Display
+ * board that has it ({@code PackageManager.FEATURE_WIFI}), then Display and Date &amp; time. BACK
+ * finishes the app and the launcher comes back. Rows are {@link Screens#ROW_HEIGHT} pixels from
+ * the top of the screen, the app bar first, so the bench taps About at y = 60, Apps at 100, Storage at 140 and Wi-Fi at 180; Display
  * follows Wi-Fi where there is one and takes its place where there is not, and Date &amp; time
  * follows Display (y = 220 without Wi-Fi, 260 with it: past a 240-pixel panel, which the column
  * scrolls to).
@@ -56,7 +55,7 @@ public class SettingsActivity extends Activity {
               DisplayActivity.class,
               DateTimeActivity.class
             };
-    column = Screens.screen(this, "Settings", v -> finish());
+    column = Screens.screen(this, false);
     for (int i = 0; i < labels.length; i++) {
       final Class<?> screen = screens[i];
       Screens.row(this, column, labels[i], v -> startActivity(new Intent(this, screen)));
@@ -66,7 +65,7 @@ public class SettingsActivity extends Activity {
 
   /** The rows are in: focus the first, and say so — the harness keys on this line. */
   private void ready() {
-    column.getChildAt(1).requestFocus(); // child 0 is the header
+    column.getChildAt(0).requestFocus();
 
     built = true;
     Log.i(TAG, "ready");

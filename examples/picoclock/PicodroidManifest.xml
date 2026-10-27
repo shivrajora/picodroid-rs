@@ -4,18 +4,18 @@
          every screen (the clock face's MAIN filter makes it the entry, which ClockApp starts once
          the alarm service is up), the service, and Android's alarm-clock pair of receivers: one
          the alarms deliver to, one the framework runs at boot and on a clock or zone set while
-         the app is not running. -->
+         the app is not running. Each screen's android:label is the title its app bar shows. -->
     <application application="picoclock/ClockApp" label="Clock">
-        <activity android:name=".ui.ClockActivity">
+        <activity android:name=".ui.ClockActivity" android:label="Clock">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity android:name=".ui.AlarmListActivity" />
-        <activity android:name=".ui.AlarmEditActivity" />
-        <activity android:name=".ui.SetTimeActivity" />
-        <activity android:name=".ui.RingActivity" />
+        <activity android:name=".ui.AlarmListActivity" android:label="Alarms" />
+        <activity android:name=".ui.AlarmEditActivity" android:label="Alarm" />
+        <activity android:name=".ui.SetTimeActivity" android:label="Set time" />
+        <activity android:name=".ui.RingActivity" android:label="Alarm" />
         <service android:name=".AlarmService" />
         <receiver android:name=".AlarmReceiver" />
         <receiver android:name=".BootReceiver">

@@ -6,6 +6,26 @@ one picks up. Routine handovers go here; a large one gets its own doc under `doc
 here. Keep entries to a few lines; the reasoning goes to [`decisions.md`](decisions.md), the
 ranked list to [`gaps.md`](gaps.md).
 
+## 2026-10-26 — the app bar and Back: Toolbar, setActionBar, OnBackPressedDispatcher
+
+- **Landed:** `picodroid.widget.Toolbar` (Java over `ViewGroup(Context)`: chevron, title,
+  subtitle, overflow), `picodroid.app.ActionBar` via `Activity.setActionBar` / `getActionBar`,
+  `getTitle` / `setTitle` / `onTitleChanged` from `<activity android:label>` (new `label:<class>`
+  manifest keys through ManifestSchema → papk-pack → `resources::activity_label`, native
+  `Activity.nativeGetLabel`), the up button through `onOptionsItemSelected(R.id.home)` then
+  `onNavigateUp` (default `finish()`), the options menu as the bar's overflow (floating control
+  hidden), and androidx's `OnBackPressedDispatcher` / `OnBackPressedCallback` in
+  `picodroid.activity`, which `onBackPressed` now goes through. Settings (all nine screens,
+  Android-form manifest with labels), picoclock and the launcher migrated; no `onBackPressed`
+  override is left in the repo. New `appbardemo` + sim row; qa_ui `appBar` / `backDispatch`
+  sections (QaUiActivity is 52 B under the 64 KB class limit). Why: decisions 2026-10-26.
+- **Numbers:** sim rows appbardemo, qa_ui (319 checks), picoclock, fragmentdemo, keydemo, qa_life
+  PASS in both shrink modes; `test.sh` green. Flash: testbench_rp2040 +6,764 B (Toolbar and
+  ActionBar excluded there, ~8 KB), testbench_rp2350 +13,304 B (accepted). Not run on hardware.
+- **Still open:** weather's page headers stay hand-built (a per-page caption with a status, not
+  an app bar); no `setNavigationIcon`, Toolbar menu of its own, XML `<Toolbar>`, `@string/`
+  labels; settings-uninstall HIL row unchanged in coordinates but not re-run on a board.
+
 ## 2026-10-26 — the Android-idiom sweep: shortcuts deleted, every app migrated
 
 - **Landed (`6d213518`):** the SDK's non-Android spellings are gone (no-Context constructors, `Button(String)`,

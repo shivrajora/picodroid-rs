@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoclock.ui;
 
+import picodroid.app.Activity;
 import picodroid.content.Context;
 import picodroid.graphics.Color;
 import picodroid.graphics.drawable.GradientDrawable;
@@ -10,9 +11,9 @@ import picodroid.view.View;
 import picodroid.view.ViewGroup;
 import picodroid.widget.Button;
 import picodroid.widget.LinearLayout;
-import picodroid.widget.RelativeLayout;
 import picodroid.widget.Space;
 import picodroid.widget.TextView;
+import picodroid.widget.Toolbar;
 
 /**
  * The one look every screen wears, and the sizes that make it tappable.
@@ -23,8 +24,8 @@ import picodroid.widget.TextView;
  * for anything a user has to hit, and it is set from the roughly 9 mm a fingertip covers at this
  * panel's 165 dpi.
  *
- * <p>Every screen is a vertical {@link LinearLayout}: the header, the content, a {@link #fill} that
- * takes the slack, and the controls along the bottom edge.
+ * <p>Every screen is a vertical {@link LinearLayout}: the app bar, the content, a {@link #fill}
+ * that takes the slack, and the controls along the bottom edge.
  */
 public final class Ui {
   // ── Palette ────────────────────────────────────────────────────────────────
@@ -46,7 +47,7 @@ public final class Ui {
 
   // ── Metrics ────────────────────────────────────────────────────────────────
 
-  /** The header band across the top of every screen. */
+  /** The app bar across the top of every screen. */
   public static final int HEADER_HEIGHT = 44;
 
   /** The smallest a control may be and still be hit reliably with a fingertip. */
@@ -73,43 +74,19 @@ public final class Ui {
     return root;
   }
 
-  /** The id of the header's back chevron, which the caption's rule names. */
-  private static final int ID_BACK = 1;
-
   /**
-   * Adds the header band to {@code screen}: a title, and a back chevron when {@code onBack} is
-   * given. The chevron is a tappable target of its own, since the carrier's BACK button is
-   * reachable only by feel. A RelativeLayout places the title: right of the chevron and centred on
-   * the band's height.
+   * Adds the app bar to {@code screen} and makes it {@code activity}'s action bar: the activity's
+   * title (its {@code android:label}, or {@code setTitle}) and, when {@code up}, the up button,
+   * which finishes the screen ({@code onNavigateUp}). The button is a target of its own, since the
+   * carrier's BACK button is reachable only by feel.
    */
-  public static void header(LinearLayout screen, String title, View.OnClickListener onBack) {
-    Context context = screen.getContext();
-    RelativeLayout bar = new RelativeLayout(context);
+  public static void appBar(Activity activity, LinearLayout screen, boolean up) {
+    Toolbar bar = new Toolbar(activity);
     bar.setBackgroundColor(SURFACE);
-
-    if (onBack != null) {
-      Button back = new Button(context);
-      back.setText("<");
-      back.setId(ID_BACK);
-      back.setTextColor(ACCENT);
-      back.setBackground(rounded(SURFACE, 0));
-      back.setOnClickListener(onBack);
-      RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(48, HEADER_HEIGHT);
-      lp.addRule(RelativeLayout.ALIGN_PARENT_LEFT);
-      bar.addView(back, lp);
-    }
-
-    TextView caption = line(context, title, TEXT);
-    RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(WRAP, WRAP);
-    lp.addRule(RelativeLayout.CENTER_VERTICAL);
-    if (onBack != null) {
-      lp.addRule(RelativeLayout.RIGHT_OF, ID_BACK);
-      lp.setMargins(GAP, 0, 0, 0);
-    } else {
-      lp.setMargins(MARGIN, 0, 0, 0);
-    }
-    bar.addView(caption, lp);
+    bar.setTitleTextColor(TEXT);
     screen.addView(bar, new LinearLayout.LayoutParams(MATCH, HEADER_HEIGHT));
+    activity.setActionBar(bar);
+    activity.getActionBar().setDisplayHomeAsUpEnabled(up);
   }
 
   /** A line of body text, cut with an ellipsis when it does not fit. */

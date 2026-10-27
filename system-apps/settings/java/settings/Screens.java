@@ -3,28 +3,31 @@ package settings;
 
 import picodroid.app.Activity;
 import picodroid.content.Context;
-import picodroid.graphics.drawable.GradientDrawable;
 import picodroid.settings.R;
 import picodroid.view.View;
+import picodroid.view.ViewGroup;
 import picodroid.widget.LinearLayout;
 import picodroid.widget.ScrollView;
 import picodroid.widget.TextView;
+import picodroid.widget.Toolbar;
 
 /**
- * The settings screens' one shape: a column of {@link #ROW_HEIGHT}-pixel rows under a header row of
- * the same height, in a ScrollView. Every row spans the display and holds one line — a long label
- * is cut with an ellipsis, and a suffix (a version, the storage numbers) always shows — so a test
- * can tap row {@code n} at {@code y = 20 + 40 * n} with the header as row 0; a focusable row also
- * takes the keypad's select, and every row is focusable so a column longer than the screen can be
- * walked — and scrolled — with the buttons.
+ * The settings screens' one shape: an app bar ({@link Toolbar}) of {@link #ROW_HEIGHT} pixels, then
+ * a column of rows of the same height in a ScrollView that takes the rest of the screen. The bar is
+ * the Activity's action bar: it shows the screen's title (its {@code android:label} in the
+ * manifest) and, below the root, the up button that finishes the screen. Every row spans the
+ * display and holds one line — a long label is cut with an ellipsis, and a suffix (a version, the
+ * storage numbers) always shows — so a test can tap row {@code n} at {@code y = 20 + 40 * n} with
+ * the bar as row 0; a focusable row also takes the keypad's select, and every row is focusable so a
+ * column longer than the screen can be walked — and scrolled — with the buttons.
  *
- * <p>A screen is built inside {@code onCreate}, as on Android: {@link #screen} puts the header up
- * and sets the content view, and the rows are inflated from {@code res/layout/row.xml} into the
- * column one call each; the column wraps them. The main loop allows a screen build a slow first
- * frame (docs/designs/ui-build-budget-2026-10.md).
+ * <p>A screen is built inside {@code onCreate}, as on Android: {@link #screen} puts the bar up and
+ * sets the content view, and the rows are inflated from {@code res/layout/row.xml} into the column
+ * one call each; the column wraps them. The main loop allows a screen build a slow first frame
+ * (docs/designs/ui-build-budget-2026-10.md).
  */
 final class Screens {
-  /** Row height in pixels, header included. */
+  /** Row height in pixels, the app bar's included. */
   static final int ROW_HEIGHT = 40;
 
   private static final int HEADER_COLOR = 0xFF1F8A8A;
@@ -32,27 +35,34 @@ final class Screens {
   private Screens() {}
 
   /**
-   * A screen: the header row in a fresh column inside a full-screen ScrollView, set as {@code a}'s
-   * content view. The rows follow through {@link #row} and {@link #info}.
+   * A screen: the app bar over a fresh column in a ScrollView, set as {@code a}'s content view. The
+   * rows follow through {@link #row} and {@link #info}. {@code up}: the bar has the up button.
    */
-  static LinearLayout screen(Activity a, String title, View.OnClickListener onTitle) {
+  static LinearLayout screen(Activity a, boolean up) {
     LinearLayout column = column(a);
-    header(a, column, title, onTitle);
-    a.setContentView(scrollable(a, column));
+    page(a, up).addView(scrollable(a, column), rest());
     return column;
   }
 
   /**
-   * The header row, appended to {@code column}: the title on a tinted band; a tap or select runs
-   * {@code onClick}.
+   * The page a screen is built in, set as {@code a}'s content view: a column holding the app bar,
+   * which becomes {@code a}'s action bar. What follows it takes the rest of the screen with {@link
+   * #rest}.
    */
-  static View header(Activity a, LinearLayout column, String title, View.OnClickListener onClick) {
-    View header = build(a, column, title, null, onClick);
-    GradientDrawable band = new GradientDrawable();
-    band.setColor(HEADER_COLOR);
-    band.setCornerRadius(0);
-    header.setBackground(band);
-    return header;
+  static LinearLayout page(Activity a, boolean up) {
+    LinearLayout page = column(a);
+    Toolbar bar = new Toolbar(a);
+    bar.setBackgroundColor(HEADER_COLOR);
+    page.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ROW_HEIGHT));
+    a.setActionBar(bar);
+    a.getActionBar().setDisplayHomeAsUpEnabled(up);
+    a.setContentView(page);
+    return page;
+  }
+
+  /** The layout params of what fills a {@link #page} under its bar. */
+  static LinearLayout.LayoutParams rest() {
+    return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
   }
 
   /** A vertical column with no padding, so rows start at y = 0. */
@@ -64,7 +74,7 @@ final class Screens {
   }
 
   /**
-   * {@code column} in a ScrollView, the content view's root, which fills the window: a LinearLayout
+   * {@code column} in a ScrollView, which fills the page under its bar: a LinearLayout
    * does not scroll, as on Android, so this is what makes a long column reachable — by drag on a
    * touch panel, and by the focus moving on a keypad. The column takes the ScrollView's width and
    * wraps its rows.

@@ -19,7 +19,8 @@ import picodroid.widget.LinearLayout;
  * types one, ESC closes it, and the keyboard's OK key connects as the button does. The join itself
  * runs on the link task; this screen finishes at once and the Wi-Fi screen shows the outcome.
  *
- * <p>Row 0 is the header, the field sits in row 1 and the button in row 2.
+ * <p>Row 0 is the app bar (titled with the network), the field sits in row 1 and the button in
+ * row 2.
  */
 public class WifiPasswordActivity extends Activity {
   private static final int MATCH_PARENT = LinearLayout.LayoutParams.MATCH_PARENT;
@@ -38,8 +39,9 @@ public class WifiPasswordActivity extends Activity {
     if (ssid == null) {
       ssid = "";
     }
+    setTitle(ssid);
+    LinearLayout page = Screens.page(this, true);
     LinearLayout root = Screens.column(this);
-    Screens.header(this, root, "< " + ssid, v -> finish());
 
     // The field's row is not focusable itself: the field is, and takes
     // the keypad's select (ENTER opens the keyboard).
@@ -69,7 +71,7 @@ public class WifiPasswordActivity extends Activity {
     buttonRow.addView(connect, new LinearLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
     root.addView(buttonRow, new LinearLayout.LayoutParams(MATCH_PARENT, Screens.ROW_HEIGHT));
 
-    setContentView(Screens.scrollable(this, root));
+    page.addView(Screens.scrollable(this, root), Screens.rest());
     field.requestFocus();
     Log.i(TAG, "wifi password " + ssid);
   }

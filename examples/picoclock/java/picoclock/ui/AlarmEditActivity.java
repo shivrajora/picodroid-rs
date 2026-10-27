@@ -2,6 +2,7 @@
 package picoclock.ui;
 
 import picoclock.Alarm;
+import picodroid.activity.OnBackPressedCallback;
 import picodroid.content.Intent;
 import picodroid.os.Bundle;
 import picodroid.view.ViewGroup;
@@ -36,8 +37,19 @@ public class AlarmEditActivity extends BaseActivity {
     model = viewModel(AlarmEditViewModel.class);
     Alarm alarm = model.open(intent == null ? 0 : intent.getIntExtra(EXTRA_ID, 0));
 
+    setTitle(model.existing() ? "Edit alarm" : "New alarm");
     LinearLayout root = Ui.screen(this);
-    Ui.header(root, model.existing() ? "Edit alarm" : "New alarm", v -> cancel());
+    Ui.appBar(this, root, true);
+    // BACK on this screen means Cancel, not "leave the half-made edit in place".
+    getOnBackPressedDispatcher()
+        .addCallback(
+            this,
+            new OnBackPressedCallback(true) {
+              @Override
+              public void handleOnBackPressed() {
+                cancel();
+              }
+            });
 
     TimePicker picker = new TimePicker(this);
     picker.setIs24HourView(true);
@@ -70,10 +82,11 @@ public class AlarmEditActivity extends BaseActivity {
     setContentView(root);
   }
 
-  /** BACK on this screen means Cancel, not "leave the half-made edit in place". */
+  /** Up means Cancel too. */
   @Override
-  public void onBackPressed() {
+  public boolean onNavigateUp() {
     cancel();
+    return true;
   }
 
   /** Seven equal toggles across the screen, Monday first. */

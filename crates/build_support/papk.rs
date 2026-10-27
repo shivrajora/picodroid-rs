@@ -208,6 +208,7 @@ fn resolve_active_map_version(pkg_version: &str, shrink_maps_dir: &Path) -> Stri
 const COMPILE_ONLY_CLASSES: &[&str] = &[
     "java/lang/Thread$UncaughtExceptionHandler",
     "picodroid/R",
+    "picodroid/R$id",
     "picodroid/R$layout",
     "picodroid/annotation/Hide",
 ];
