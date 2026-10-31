@@ -6,6 +6,15 @@ one picks up. Routine handovers go here; a large one gets its own doc under `doc
 here. Keep entries to a few lines; the reasoning goes to [`decisions.md`](decisions.md), the
 ranked list to [`gaps.md`](gaps.md).
 
+## 2026-10-31 — FreeRTOS-Kernel V11.3.3
+
+- Kernel V11.3.2 → V11.3.3 (clean tag). Its one code change guards `xQueueSelectFromSet`,
+  which `configUSE_QUEUE_SETS 0` compiles out: A/B flash and RAM byte-identical on both
+  testbenches (rp2040 1,104,764 B, rp2350 1,588,756 B); sim smoke, pre-commit green.
+- LVGL v9.6.0, FreeRTOS+TCP V4.4.2 and cyw43 v2.0.0 are upstream's latest tags. Still open:
+  LVGL `release/v9.6` carries untagged allocation-failure fixes (draw task, mask, transform
+  buffers, fs drive removal); take them with v9.6.1.
+
 ## 2026-10-26 — the app bar and Back: Toolbar, setActionBar, OnBackPressedDispatcher
 
 - **Landed:** `picodroid.widget.Toolbar` (Java over `ViewGroup(Context)`: chevron, title,
