@@ -1,6 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="qa_bcast" version="1.0"
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="qa_bcast" android:versionName="1.0"
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
           xsi:noNamespaceSchemaLocation="../../sdk/PicodroidManifest.xsd">
-    <application application="qa_bcast/QaBcastApp" />
+    <application android:name=".QaBcastApp">
+        <activity android:name=".ActA">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".ActB" />
+        <!-- Reached by an explicit Intent only (no intent filter), as on Android. -->
+        <receiver android:name=".ExplicitReceiver" />
+    </application>
 </manifest>

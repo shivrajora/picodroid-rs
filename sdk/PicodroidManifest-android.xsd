@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The android: attributes PicodroidManifest.xml reads, in Android's namespace;
+  imported by PicodroidManifest.xsd. Editor / IDE validation only.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="http://schemas.android.com/apk/res/android"
+           attributeFormDefault="qualified">
+  <xs:attribute name="name" type="xs:string"/>
+  <xs:attribute name="label" type="xs:string"/>
+  <xs:attribute name="theme" type="xs:string"/>
+  <xs:attribute name="versionName" type="xs:string"/>
+  <xs:attribute name="versionCode" type="xs:positiveInteger"/>
+  <xs:attribute name="required" type="xs:boolean"/>
+</xs:schema>

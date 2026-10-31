@@ -64,6 +64,21 @@ pub fn style_id(compiled: &Compiled, style: &str) -> Option<u32> {
         .map(|(_, _, id)| *id)
 }
 
+/// The default-configuration text of `@string/name` in `compiled`, as the
+/// table holds it (escapes and quoting resolved, as `getString` returns it);
+/// `None` when `res/values` defines no such string. What the manifest's
+/// `android:label="@string/app_name"` becomes at pack time.
+pub fn string_value(compiled: &Compiled, name: &str) -> Option<String> {
+    let r = name.replace('.', "_");
+    let id = compiled
+        .symbols
+        .iter()
+        .find(|(ty, n, _)| *ty == TYPE_STRING && *n == r)
+        .map(|(_, _, id)| *id)?;
+    let table = fmt::ResTable::parse(&compiled.table).ok()?;
+    String::from_utf8(table.string(id)?.to_vec()).ok()
+}
+
 /// How deep an `<include>`, a style's parents or a `?attr` chain may go
 /// before it is taken for a cycle.
 const MAX_NESTING: u32 = 16;
@@ -793,12 +808,17 @@ pub(crate) const INPUT_TYPE: &[(&str, u32)] = &[
     ("numberDecimal", 0x2002),
 ];
 
-/// `picodroid.widget.ImageView.SCALE_*`.
+/// `picodroid.widget.ImageView.ScaleType`'s codes (3, the retired `TILE`,
+/// stays unused). Every Android `android:scaleType` value.
 pub(crate) const SCALE_TYPE: &[(&str, u32)] = &[
     ("fitCenter", 0),
     ("centerCrop", 1),
     ("fitXY", 2),
     ("center", 4),
+    ("centerInside", 5),
+    ("fitStart", 6),
+    ("fitEnd", 7),
+    ("matrix", 8),
 ];
 
 const VISIBILITY: &[(&str, u32)] = &[("visible", 0), ("invisible", 4), ("gone", 8)];
@@ -810,6 +830,46 @@ const ELLIPSIZE: &[(&str, u32)] = &[
     ("end", 3),
     ("marquee", 4),
 ];
+
+/// An element's name without the optional `picodroid.widget.` prefix.
+fn simple_name(el: &Element) -> &str {
+    el.name
+        .strip_prefix("picodroid.widget.")
+        .unwrap_or(&el.name)
+}
+
+/// The element's unprefixed `style` attribute.
+fn style_of(el: &Element) -> Option<&str> {
+    el.attrs
+        .iter()
+        .find(|(prefix, name, _)| prefix.is_none() && name == "style")
+        .map(|(_, _, style)| style.trim())
+}
+
+/// A `ProgressBar`'s framework style: `Some(true)` for the horizontal bar
+/// (`?android:attr/progressBarStyleHorizontal`,
+/// `@android:style/Widget.ProgressBar.Horizontal`), `Some(false)` for the
+/// spinner styles, `None` for anything else.
+fn progress_bar_style(style: &str) -> Option<bool> {
+    let attr = style
+        .strip_prefix("?android:attr/")
+        .or_else(|| style.strip_prefix("?android:"));
+    if let Some(attr) = attr {
+        return match attr {
+            "progressBarStyleHorizontal" => Some(true),
+            "progressBarStyle" | "progressBarStyleSmall" | "progressBarStyleLarge" => Some(false),
+            _ => None,
+        };
+    }
+    match style.strip_prefix("@android:style/")? {
+        "Widget.ProgressBar.Horizontal" | "Widget.Material.ProgressBar.Horizontal" => Some(true),
+        "Widget.ProgressBar"
+        | "Widget.ProgressBar.Small"
+        | "Widget.ProgressBar.Large"
+        | "Widget.Material.ProgressBar" => Some(false),
+        _ => None,
+    }
+}
 
 fn parse_enum(table: &[(&str, u32)], text: &str, from: &str) -> Result<u32, String> {
     table
@@ -1110,17 +1170,24 @@ impl LayoutCompiler<'_> {
     /// item of the same name.
     fn attributes(&self, el: &Element, file: &str) -> Result<Vec<(String, String)>, String> {
         let mut attrs: Vec<(String, String)> = Vec::new();
-        if let Some((_, _, style)) = el
-            .attrs
-            .iter()
-            .find(|(prefix, name, _)| prefix.is_none() && name == "style")
-        {
+        if let Some(style) = style_of(el) {
             let from = format!("{file}: <{}> style=\"{style}\"", el.name);
-            let name = style
-                .trim()
-                .strip_prefix("@style/")
-                .ok_or_else(|| format!("{from}: not a @style reference"))?;
-            attrs = self.values.style_items(name, &from)?;
+            if style.starts_with('?') || style.starts_with("@android:") {
+                // A ProgressBar's framework style picks its class code (the spinner or the
+                // horizontal bar) and has no items; no other framework style is known.
+                if simple_name(el) != "ProgressBar" || progress_bar_style(style).is_none() {
+                    return Err(format!(
+                        "{from}: framework styles are not supported, but for a ProgressBar's \
+                         ?android:attr/progressBarStyle, progressBarStyleHorizontal, \
+                         progressBarStyleSmall or progressBarStyleLarge"
+                    ));
+                }
+            } else {
+                let name = style
+                    .strip_prefix("@style/")
+                    .ok_or_else(|| format!("{from}: not a @style reference"))?;
+                attrs = self.values.style_items(name, &from)?;
+            }
         }
         for (prefix, name, text) in &el.attrs {
             // Design-time attributes never reach the device, as on Android.
@@ -1200,10 +1267,7 @@ impl LayoutCompiler<'_> {
         // picodroid.widget, so a layout may spell any of them either way. Any other dotted
         // name is a view class of the app's own: the layout carries the name, and a
         // LayoutInflater.Factory (the Activity) makes the view, since nothing can reflect on it.
-        let simple = el
-            .name
-            .strip_prefix("picodroid.widget.")
-            .unwrap_or(&el.name);
+        let simple = simple_name(el);
         let known = layout::class::ALL
             .iter()
             .find(|(n, _)| *n == simple)
@@ -1216,6 +1280,12 @@ impl LayoutCompiler<'_> {
                 .split('.')
                 .all(|part| r_name(part, "").is_ok_and(|r| r == part));
         let class = match known {
+            // Android's default ProgressBar is the spinner; the horizontal style is the bar.
+            Some(layout::class::PROGRESS_BAR)
+                if style_of(el).and_then(progress_bar_style) == Some(true) =>
+            {
+                layout::class::PROGRESS_BAR_HORIZONTAL
+            }
             Some(code) => code,
             None if custom => layout::class::CUSTOM,
             None => {
@@ -1834,6 +1904,15 @@ mod tests {
 </resources>"##;
 
     #[test]
+    fn a_manifest_label_reads_a_string_resource() {
+        let dir = tree(&[("values/values.xml", VALUES)]);
+        let c = compile(&dir).unwrap();
+        assert_eq!(string_value(&c, "app_name").as_deref(), Some("Res Demo"));
+        assert_eq!(string_value(&c, "alias").as_deref(), Some("Res Demo"));
+        assert_eq!(string_value(&c, "missing"), None);
+    }
+
+    #[test]
     fn values_compile_and_ids_follow_sorted_names() {
         let dir = tree(&[("values/values.xml", VALUES)]);
         let c = compile(&dir).unwrap();
@@ -2045,6 +2124,7 @@ mod tests {
         use layout::{attr as a, class as k, node_header};
         const BAR: &str = r##"<?xml version="1.0" encoding="utf-8"?>
 <ProgressBar xmlns:android="http://schemas.android.com/apk/res/android"
+    style="?android:attr/progressBarStyleHorizontal"
     android:progress="150"
     android:progressTint="#FF00AA00"
     android:min="10"
@@ -2059,7 +2139,7 @@ mod tests {
         // order, so the compiler moves them first (the rest keep XML order).
         #[rustfmt::skip]
         let expected = vec![
-            node_header(k::PROGRESS_BAR, 4, 0),
+            node_header(k::PROGRESS_BAR_HORIZONTAL, 4, 0),
             a::MIN, 10,
             a::MAX, 200,
             a::PROGRESS, 150,
@@ -2067,6 +2147,46 @@ mod tests {
         ];
         assert_eq!(words, expected);
         assert!(c.warnings.is_empty(), "{:?}", c.warnings);
+    }
+
+    #[test]
+    fn a_progress_bar_is_the_spinner_unless_its_style_is_horizontal() {
+        use layout::class as k;
+        let class_of = |style: &str| {
+            let bar = format!(
+                r#"<ProgressBar xmlns:android="http://schemas.android.com/apk/res/android" {style}/>"#
+            );
+            let dir = tree(&[("values/values.xml", VALUES), ("layout/bar.xml", &bar)]);
+            let c = compile(&dir)?;
+            let t = ResTable::parse(&c.table).unwrap();
+            let l = t.layout(id_of(&c, TYPE_LAYOUT, "bar")).unwrap();
+            Ok::<u32, String>(l.word(0).unwrap() & 0xFF)
+        };
+        let spinner = u32::from(k::PROGRESS_BAR);
+        let bar = u32::from(k::PROGRESS_BAR_HORIZONTAL);
+        assert_eq!(class_of(""), Ok(spinner));
+        assert_eq!(
+            class_of(r#"style="?android:attr/progressBarStyle""#),
+            Ok(spinner)
+        );
+        assert_eq!(
+            class_of(r#"style="?android:attr/progressBarStyleSmall""#),
+            Ok(spinner)
+        );
+        assert_eq!(
+            class_of(r#"style="?android:attr/progressBarStyleHorizontal""#),
+            Ok(bar)
+        );
+        assert_eq!(
+            class_of(r#"style="?android:progressBarStyleHorizontal""#),
+            Ok(bar)
+        );
+        assert_eq!(
+            class_of(r#"style="@android:style/Widget.ProgressBar.Horizontal""#),
+            Ok(bar)
+        );
+        let err = class_of(r#"style="?android:attr/buttonStyle""#).unwrap_err();
+        assert!(err.contains("framework styles are not supported"), "{err}");
     }
 
     #[test]
@@ -2602,10 +2722,16 @@ mod tests {
             Some(&(layout::class::CUSTOM as i64)),
             "LayoutInflater CLASS_CUSTOM"
         );
+        // Nor does the horizontal bar, a ProgressBar's style.
+        assert_eq!(
+            inflater.get("CLASS_PROGRESS_BAR_HORIZONTAL"),
+            Some(&(layout::class::PROGRESS_BAR_HORIZONTAL as i64)),
+            "LayoutInflater CLASS_PROGRESS_BAR_HORIZONTAL"
+        );
         let class_consts = inflater.keys().filter(|k| k.starts_with("CLASS_")).count();
         assert_eq!(
             class_consts,
-            layout::class::ALL.len() + 1,
+            layout::class::ALL.len() + 2,
             "stale CLASS_ label"
         );
 
@@ -2690,16 +2816,40 @@ mod tests {
             ),
         ];
         assert_eq!(INPUT_TYPE, &expect[..]);
-        let image = java_consts("widget/ImageView.java");
-        for (name, java) in [
-            ("fitCenter", "SCALE_FIT_CENTER"),
-            ("centerCrop", "SCALE_CENTER_CROP"),
-            ("fitXY", "SCALE_FIT_XY"),
-            ("center", "SCALE_CENTER"),
-        ] {
-            let ours = SCALE_TYPE.iter().find(|(n, _)| *n == name).unwrap().1;
-            assert_eq!(image[java], ours as i64, "ImageView.{java}");
+        // ImageView.ScaleType's constants are objects: `NAME = new ScaleType(code);`.
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../sdk/java/picodroid/widget/ImageView.java");
+        let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let mut scale = BTreeMap::new();
+        for line in text.lines() {
+            let Some(rest) = line.trim().split("static final ScaleType ").nth(1) else {
+                continue;
+            };
+            let Some((name, value)) = rest.split_once(" = new ScaleType(") else {
+                continue;
+            };
+            let code: u32 = value.trim_end_matches(");").parse().unwrap();
+            scale.insert(name.to_string(), code);
         }
+        let mut constants: Vec<(String, u32)> = SCALE_TYPE
+            .iter()
+            .map(|(xml, code)| {
+                let mut konst = String::new();
+                for c in xml.chars() {
+                    if c.is_ascii_uppercase() && !konst.ends_with('X') {
+                        konst.push('_');
+                    }
+                    konst.push(c.to_ascii_uppercase());
+                }
+                (konst, *code)
+            })
+            .collect();
+        constants.sort();
+        assert_eq!(
+            scale.into_iter().collect::<Vec<_>>(),
+            constants,
+            "ImageView.ScaleType"
+        );
         let view = java_consts("view/View.java");
         assert_eq!(
             (view["VISIBLE"], view["INVISIBLE"], view["GONE"]),

@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="threadparity" version="1.0">
-    <application application="threadparity/ThreadParity" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="threadparity" android:versionName="1.0">
+    <application android:name=".ThreadParity" />
 </manifest>

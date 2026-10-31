@@ -361,8 +361,8 @@ pub fn run_app(apk_data: &'static [u8]) {
     }
 
     // Build the bundled-asset registry from this papk's ASSETS section so
-    // `ImageView.setImageSource("name.png")` resolves at runtime. Empty for
-    // legacy v1.0 papks and any v1.1 papk built without `--assets-dir`.
+    // `ImageView.setImageResource(R.drawable.x)` resolves at runtime. Empty
+    // for a papk with no `res/drawable/` image and no `assets/` icon.
     crate::graphics::assets::init_from_papk(&apk);
     // The compat window (docs/designs/app-portability-2026-10.md D5): an app
     // with a design size runs at that logical size on this panel. Before the
@@ -402,9 +402,11 @@ pub fn run_app(apk_data: &'static [u8]) {
 
     if let Some(application_class) = apk.application() {
         // Parsed from `apk_data`, so the class name is `'static` too and
-        // alloc() can store it in the object heap.
+        // alloc() can store it in the object heap. Beside it, `activity` is
+        // the manifest's entry Activity, launched after `onCreate` unless
+        // that queued one itself.
         let static_name: &'static str = application_class;
-        crate::lifecycle::run_application(jvm, static_name, heap, &mut handler);
+        crate::lifecycle::run_application(jvm, static_name, apk.activity(), heap, &mut handler);
     } else if let Some(activity_class) = apk.activity() {
         let static_name: &'static str = activity_class;
         // Same construction path as every pushed Activity: field defaults,

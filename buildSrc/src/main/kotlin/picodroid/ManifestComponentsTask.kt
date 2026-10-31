@@ -18,9 +18,8 @@ import picodroid.classfile.extract
 /**
  * `verifyManifest` — the declared surface of an Android-shaped manifest
  * (docs/designs/manifest-components-2026-10.md) against the app's bytecode. Runs only
- * when the manifest declares `<activity>` or `<service>` children; the short form
- * (`activity=` / `application=` alone) declares nothing and is not checked, so no
- * existing app changes behaviour.
+ * when the manifest declares a component (`<activity>`, `<service>`, `<receiver>`); an
+ * Application-only manifest declares nothing and is not checked.
  *
  * What is checked: every `new Intent(X.class)` / `new Intent(context, X.class)` whose
  * `X` extends `picodroid.app.Service` must be a declared `<service>`, and, when the

@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="ellipsizedemo" version="1.0">
-    <application application="ellipsizedemo/EllipsizeDemoApp" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="ellipsizedemo" android:versionName="1.0">
+    <application>
+        <activity android:name=".EllipsizeDemoActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
 </manifest>

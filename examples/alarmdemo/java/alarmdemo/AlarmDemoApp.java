@@ -43,7 +43,6 @@ public class AlarmDemoApp extends Application {
     alarms.setExact(
         AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + DELAY_MS, operation(this));
     Log.i(TAG, "armed id=" + ALARM_ID);
-    startActivity(new Intent(this, MainActivity.class));
   }
 
   /**

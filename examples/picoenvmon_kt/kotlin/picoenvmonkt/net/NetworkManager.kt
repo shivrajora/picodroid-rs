@@ -10,9 +10,7 @@ import picodroid.content.pm.PackageManager
 import picodroid.lifecycle.LiveData
 import picodroid.lifecycle.MutableLiveData
 import picodroid.net.ConnectivityManager
-import picodroid.net.InetAddress
 import picodroid.net.Network
-import picodroid.net.wifi.WifiManager
 import picodroid.os.SystemClock
 import picodroid.util.Log
 import picoenvmonkt.HTTP_PORT
@@ -101,7 +99,7 @@ constructor(private val latestReadings: LatestReadings, private val formatter: F
 
     private var started = false
     private var serving = false
-    private var wifiManager: WifiManager? = null
+    private var connectivity: ConnectivityManager? = null
 
     /** Whether an SNTP sync has anchored the wall clock this boot. */
     var isTimeSynced = false
@@ -158,12 +156,11 @@ constructor(private val latestReadings: LatestReadings, private val formatter: F
         started = true
         state = STATE_JOINING
         publish()
-        wifiManager = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        connectivity = cm
         cm.registerDefaultNetworkCallback(linkCallback)
         // The current state first, then the changes: a link that is up already is served now, not
-        // when the callback's first onAvailable gets to the main thread (which a post from
-        // Application.onCreate never does here, the main queue not being up yet).
+        // a main-loop turn later when the callback's first onAvailable arrives.
         if (cm.getActiveNetwork() != null) {
             linkUp()
         }
@@ -204,10 +201,11 @@ constructor(private val latestReadings: LatestReadings, private val formatter: F
         if (state == STATE_UP) {
             return
         }
-        // The station's address, packed as Android packs it; 0 while it has none.
-        val raw = wifiManager?.getConnectionInfo()?.getIpAddress() ?: 0
-        if (raw != 0) {
-            val ip = InetAddress(raw).hostAddress
+        // The link's address, whatever the link is; none while it has none.
+        val cm = connectivity
+        val addresses = cm?.getLinkProperties(cm.getActiveNetwork())?.getLinkAddresses()
+        if (!addresses.isNullOrEmpty()) {
+            val ip = addresses[0].getAddress().hostAddress
             ipAddress = ip
             ipBytes = formatter.ascii(ip)
             url = "http://$ip:$HTTP_PORT/"

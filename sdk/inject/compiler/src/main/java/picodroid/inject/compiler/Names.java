@@ -28,6 +28,17 @@ final class Names {
   static final String LAZY = "picodroid.di.Lazy";
   static final String MODULE = "picodroid.di.Module";
   static final String PROVIDES = "picodroid.di.Provides";
+  static final String QUALIFIER = "javax.inject.Qualifier";
+  static final String APPLICATION_CONTEXT = "picodroid.di.ApplicationContext";
+  static final String CONTEXT = "picodroid.content.Context";
+  static final String APPLICATION = "picodroid.app.Application";
+
+  /**
+   * What a framework binding ({@code Application}, {@code @ApplicationContext Context}) compiles
+   * to: one static call into the SDK, so the generated code carries no holder of its own.
+   */
+  static final String APPLICATION_EXPR =
+      "picodroid.di.ApplicationContextModule.provideApplication()";
 
   private Names() {}
 
@@ -89,6 +100,25 @@ final class Names {
       }
     }
     return null;
+  }
+
+  /**
+   * The qualifier on {@code element}: {@code @ApplicationContext} (matched by name, since its
+   * SOURCE-retained {@code @Qualifier} is invisible from a class file) or any annotation that is
+   * visibly meta-annotated {@code @Qualifier}; null if none.
+   */
+  static AnnotationMirror qualifier(Element element) {
+    for (AnnotationMirror am : element.getAnnotationMirrors()) {
+      if (qualifiedNameOf(am).equals(APPLICATION_CONTEXT)
+          || hasAnnotation(am.getAnnotationType().asElement(), QUALIFIER)) {
+        return am;
+      }
+    }
+    return null;
+  }
+
+  static boolean isApplicationContext(AnnotationMirror am) {
+    return am != null && qualifiedNameOf(am).equals(APPLICATION_CONTEXT);
   }
 
   static String qualifiedNameOf(AnnotationMirror am) {

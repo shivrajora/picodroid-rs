@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="servicedemo" version="1.0">
-    <!-- The short-form entry with a declared Service: the build refuses an Intent to a Service
-         that is not declared here, as Android does at run time. -->
-    <application application="servicedemo/ServiceDemoApp">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="servicedemo" android:versionName="1.0">
+    <!-- An Application with no Activity (the app runs headless) and a declared Service: the
+         build refuses an Intent to a Service that is not declared here, as Android does at run
+         time. -->
+    <application android:name=".ServiceDemoApp">
         <service android:name="servicedemo.CounterService" />
     </application>
 </manifest>

@@ -2,7 +2,6 @@
 package bootdemo;
 
 import picodroid.app.Application;
-import picodroid.content.Intent;
 import picodroid.util.Log;
 
 /**
@@ -21,8 +20,7 @@ public class BootDemoApp extends Application {
   @Override
   public void onCreate() {
     Log.i(TAG, "application up");
-    // In the headless boot run this push is dropped (the framework says so in the log); when
-    // the app is opened, or started for its alarm, it is the screen.
-    startActivity(new Intent(this, MainActivity.class));
+    // The framework then launches MainActivity, the manifest's MAIN entry, when the app is
+    // opened or started for its alarm; the headless boot run shows no Activity.
   }
 }

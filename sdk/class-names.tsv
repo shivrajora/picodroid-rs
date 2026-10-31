@@ -241,6 +241,7 @@ picodroid/content/res/Resources$NotFoundException
 picodroid/debug/DisplayDebug
 picodroid/di/ActivitySingletonComponent
 picodroid/di/ApplicationComponent
+picodroid/di/ApplicationContextModule
 picodroid/di/Lazy
 picodroid/graphics/Canvas
 picodroid/graphics/Color
@@ -297,6 +298,8 @@ picodroid/net/HttpInputStream
 picodroid/net/HttpOutputStream
 picodroid/net/HttpURLConnection
 picodroid/net/InetAddress
+picodroid/net/LinkAddress
+picodroid/net/LinkProperties
 picodroid/net/Network
 picodroid/net/NetworkCapabilities
 picodroid/net/NetworkInfo
@@ -411,6 +414,7 @@ picodroid/widget/GridLayout$Alignment
 picodroid/widget/GridLayout$LayoutParams
 picodroid/widget/GridLayout$Spec
 picodroid/widget/ImageView
+picodroid/widget/ImageView$ScaleType
 picodroid/widget/InflaterSupport
 picodroid/widget/Keyboard
 picodroid/widget/Keyboard$OnReadyListener

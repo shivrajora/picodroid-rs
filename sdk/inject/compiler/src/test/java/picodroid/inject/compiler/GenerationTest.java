@@ -488,6 +488,105 @@ public class GenerationTest {
   }
 
   @Test
+  public void providesTakesTheApplicationContext() throws Exception {
+    Result r =
+        compile(
+            src(
+                "t.AppModule",
+                "package t;",
+                "@picodroid.di.Module",
+                "public final class AppModule {",
+                "  @picodroid.di.Provides @javax.inject.Singleton",
+                "  static picodroid.content.SharedPreferences providePrefs(",
+                "      @picodroid.di.ApplicationContext picodroid.content.Context context) {",
+                "    return context.getSharedPreferences(\"app\", 0);",
+                "  }",
+                "}"));
+    assertClean(r);
+    assertEquals(
+        HEADER
+            + "public final class AppModule_ProvidePrefsFactory {\n"
+            + "  private static picodroid.content.SharedPreferences instance;\n"
+            + "\n"
+            + "  private AppModule_ProvidePrefsFactory() {}\n"
+            + "\n"
+            + "  public static picodroid.content.SharedPreferences get() {\n"
+            + "    picodroid.content.SharedPreferences local = instance;\n"
+            + "    if (local == null) {\n"
+            + "      synchronized (AppModule_ProvidePrefsFactory.class) {\n"
+            + "        local = instance;\n"
+            + "        if (local == null) {\n"
+            + "          local = t.AppModule.providePrefs("
+            + "picodroid.di.ApplicationContextModule.provideApplication());\n"
+            + "          instance = local;\n"
+            + "        }\n"
+            + "      }\n"
+            + "    }\n"
+            + "    return local;\n"
+            + "  }\n"
+            + "}\n",
+        r.generated("t.AppModule_ProvidePrefsFactory"));
+  }
+
+  @Test
+  public void injectConstructorTakesTheApplication() throws Exception {
+    Result r =
+        compile(
+            src(
+                "t.Repo",
+                "package t;",
+                "public class Repo {",
+                "  @javax.inject.Inject @picodroid.di.ApplicationContext"
+                    + " picodroid.content.Context context;",
+                "  @javax.inject.Inject Repo(picodroid.app.Application app) {}",
+                "}"));
+    assertClean(r);
+    assertEquals(
+        HEADER
+            + "public final class Repo_Factory {\n"
+            + "  private Repo_Factory() {}\n"
+            + "\n"
+            + "  public static t.Repo get() {\n"
+            + "    t.Repo instance ="
+            + " new t.Repo(picodroid.di.ApplicationContextModule.provideApplication());\n"
+            + "    t.Repo_MembersInjector.injectMembers(instance);\n"
+            + "    return instance;\n"
+            + "  }\n"
+            + "}\n",
+        r.generated("t.Repo_Factory"));
+    assertTrue(
+        r.generated("t.Repo_MembersInjector")
+            .contains(
+                "instance.context = picodroid.di.ApplicationContextModule.provideApplication();"));
+  }
+
+  @Test
+  public void frameworkBindingsInFrameworkComponentsAndInjectMethods() throws Exception {
+    Result r =
+        compile(
+            src(
+                "t.Home",
+                "package t;",
+                "public class Home extends picodroid.app.Activity {",
+                "  @javax.inject.Inject picodroid.app.Application app;",
+                "  @javax.inject.Inject void attach(",
+                "      @picodroid.di.ApplicationContext picodroid.content.Context c) {}",
+                "}"));
+    assertClean(r);
+    String injector = r.generated("t.Home_MembersInjector");
+    assertTrue(
+        injector,
+        injector.contains(
+            "instance.app = picodroid.di.ApplicationContextModule.provideApplication();"));
+    assertTrue(
+        injector,
+        injector.contains(
+            "instance.attach(picodroid.di.ApplicationContextModule.provideApplication());"));
+    // The framework's bindings need no generated holder of their own.
+    assertEquals(1, r.generated.size());
+  }
+
+  @Test
   public void noAnnotationsGeneratesNothing() throws Exception {
     Result r = compile(src("t.Plain", "package t;", "public class Plain {}"));
     assertClean(r);

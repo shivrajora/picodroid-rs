@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="imagedemo" version="1.0">
-    <application application="imagedemo/ImageDemoApp" label="Image Demo" icon="logo.png" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="imagedemo" android:versionName="1.0">
+    <application android:label="Image Demo" icon="logo.png">
+        <activity android:name=".ImageDemoActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
 </manifest>

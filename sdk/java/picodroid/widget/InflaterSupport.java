@@ -44,4 +44,30 @@ public final class InflaterSupport {
         return null;
     }
   }
+
+  /**
+   * The {@link ImageView.ScaleType} for the code the layout compiler writes for {@code
+   * android:scaleType} (papk-pack's {@code SCALE_TYPE}); {@code FIT_CENTER} for a code this
+   * framework does not know.
+   */
+  public static ImageView.ScaleType scaleType(int code) {
+    switch (code) {
+      case 1:
+        return ImageView.ScaleType.CENTER_CROP;
+      case 2:
+        return ImageView.ScaleType.FIT_XY;
+      case 4:
+        return ImageView.ScaleType.CENTER;
+      case 5:
+        return ImageView.ScaleType.CENTER_INSIDE;
+      case 6:
+        return ImageView.ScaleType.FIT_START;
+      case 7:
+        return ImageView.ScaleType.FIT_END;
+      case 8:
+        return ImageView.ScaleType.MATRIX;
+      default:
+        return ImageView.ScaleType.FIT_CENTER;
+    }
+  }
 }

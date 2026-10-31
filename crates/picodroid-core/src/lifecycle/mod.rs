@@ -162,8 +162,11 @@ use self::budget::{end_span, span_start, SpanKind};
 // ── Application lifecycle ────────────────────────────────────────────────────
 
 /// Run an Application-based app: allocate the Application object, call
-/// `onCreate()`, then enter the activity loop with whichever Activity (if
-/// any) the application's `onCreate` queued via `startActivity`.
+/// `onCreate()`, then enter the activity loop with whichever Activity the
+/// application's `onCreate` queued via `startActivity`, else with
+/// `entry_activity` — the manifest's `MAIN` / `LAUNCHER` Activity, which
+/// Android launches after `Application.onCreate` the same way. With neither
+/// the app runs headless: its Services' ops drain and it returns.
 ///
 /// The Application goes through [`instantiate_component`] like every other
 /// framework-owned component: field defaults, `<init>` (so instance
@@ -173,6 +176,7 @@ use self::budget::{end_span, span_start, SpanKind};
 pub(crate) fn run_application(
     jvm: &mut Jvm,
     application_class: &'static str,
+    entry_activity: Option<&'static str>,
     heap: &mut SharedJvmHeap,
     handler: &mut crate::native_handler::PicodroidNativeHandler,
 ) {
@@ -226,6 +230,9 @@ pub(crate) fn run_application(
     // surviving services and exit cleanly.
     use crate::native_handler::PendingOp;
     let mut activity_push: Option<(&'static str, Option<u16>)> = None;
+    // `onCreate` handed the device to another package (`Launch`): the
+    // manifest's entry Activity is not launched either.
+    let mut leaving = false;
     // No loop yet to come back for a held connect (an Application that
     // binds in its onCreate): release before every take, so it is
     // delivered here and the Activity push behind it is still found.
@@ -257,6 +264,7 @@ pub(crate) fn run_application(
             PendingOp::Activity(PendingActivityOp::Launch) => {
                 // Leaving before any Activity ran: nothing to drive, so the
                 // service-only teardown below runs and the app returns.
+                leaving = true;
                 break;
             }
             PendingOp::Service(s) => {
@@ -265,6 +273,13 @@ pub(crate) fn run_application(
                 end_span("service op", "", SpanKind::Build, span);
             }
         }
+    }
+
+    // No Activity queued: the manifest's entry Activity, as Android launches
+    // the launcher Activity once `Application.onCreate` returns. Not in a
+    // manifest-receiver run, which stays headless, nor after a `Launch`.
+    if activity_push.is_none() && !headless && !leaving {
+        activity_push = entry_activity.map(|class| (class, None));
     }
 
     if let Some((act_class, act_intent)) = activity_push {

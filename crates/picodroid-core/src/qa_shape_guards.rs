@@ -65,6 +65,26 @@ mod tests {
         );
     }
 
+    // 2026-10-26 manifest form: an Application app's manifest entry Activity
+    // is launched after `Application.onCreate` when `onCreate` queued none
+    // (Android launches the MAIN / LAUNCHER Activity the same way), and never
+    // in a manifest-receiver run, which stays headless.
+    #[test]
+    fn run_application_launches_the_entry_activity_unless_headless() {
+        let body = function_body(&src("lifecycle/mod.rs"), "run_application");
+        let on_create = body
+            .find("m::onCreate")
+            .expect("invokes Application.onCreate");
+        let headless = body
+            .find("let headless")
+            .expect("run_application must decide a manifest-receiver run is headless");
+        let launch = body
+            .find("activity_push.is_none() && !headless && !leaving")
+            .expect("run_application must fall back to the manifest's entry Activity");
+        assert!(on_create < headless && headless < launch);
+        assert!(body[launch..].contains("entry_activity.map("));
+    }
+
     // J-fix 6acb47a8: an exception out of a main-queue Runnable is logged.
     // It used to come back as a JvmError the UI loop discarded, so a chain of
     // posted steps stopped with nothing in the log to say why.

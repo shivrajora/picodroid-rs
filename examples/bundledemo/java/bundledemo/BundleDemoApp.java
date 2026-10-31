@@ -27,7 +27,6 @@ public class BundleDemoApp extends Application {
     bundleBasics();
     intentExtras();
     Log.i(TAG, "bundle checks done, failures=" + failures);
-    startActivity(new Intent(this, HomeActivity.class));
   }
 
   private static void bundleBasics() {

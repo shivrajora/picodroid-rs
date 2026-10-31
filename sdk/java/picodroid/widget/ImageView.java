@@ -2,33 +2,67 @@
 package picodroid.widget;
 
 import picodroid.content.Context;
+import picodroid.content.res.ColorStateList;
 import picodroid.graphics.drawable.Drawable;
 import picodroid.view.View;
 
+/**
+ * Mirrors {@code android.widget.ImageView} over LVGL's {@code lv_image}: shows a {@code
+ * res/drawable/} PNG ({@link #setImageResource}) or a {@link Drawable}, placed by a {@link
+ * ScaleType} ({@link ScaleType#FIT_CENTER} by default, as on Android).
+ *
+ * <p>Picodroid divergences: {@link ScaleType#FIT_START} and {@link ScaleType#FIT_END} draw as
+ * {@link ScaleType#FIT_CENTER} (LVGL scales to fit only around the centre), and {@link
+ * ScaleType#MATRIX} draws the image unscaled at the top-left, the identity matrix (there is no
+ * {@code setImageMatrix}); {@link #getScaleType()} returns what was set either way. One colour
+ * effect at a time: {@link #setImageTintList} and {@link #setColorFilter(int)} both recolour the
+ * image, and the last one set shows. No {@code setImageBitmap}, {@code setImageURI}, {@code
+ * setAdjustViewBounds} or tint mode.
+ */
 public class ImageView extends View {
-  // Mirrors the relevant subset of Android's ScaleType ordinals.
-  /** Aspect-preserving fit, centered, no clipping (LVGL CONTAIN). */
-  public static final int SCALE_FIT_CENTER = 0;
-
-  /** Aspect-preserving fill — image may be cropped (LVGL COVER). */
-  public static final int SCALE_CENTER_CROP = 1;
-
-  /** Stretch to fill the view's width and height, ignoring aspect (LVGL STRETCH). */
-  public static final int SCALE_FIT_XY = 2;
-
-  /** Tile the image across the view's area (LVGL TILE). */
-  public static final int SCALE_TILE = 3;
-
   /**
-   * Center the image at its intrinsic size with no scaling — may clip if larger than the view (LVGL
-   * CENTER). Mirrors Android's {@code ScaleType.CENTER}. ({@code FIT_START} is not supported:
-   * LVGL's directional aligns don't auto-scale, so it would need intrinsic-size math — see the
-   * compatibility matrix.)
+   * Mirrors {@code android.widget.ImageView.ScaleType}: how the image fits the view. A final class
+   * of constants rather than an enum (no {@code values()} or {@code switch}): an enum's tables
+   * would cost flash on every board.
    */
-  public static final int SCALE_CENTER = 4;
+  public static final class ScaleType {
+    /** Unscaled at the top-left: the identity image matrix. */
+    public static final ScaleType MATRIX = new ScaleType(8);
 
-  /** Native zoom unit: {@code 256} = 1.0×. */
-  public static final int SCALE_1X = 256;
+    /** Stretched to the view's width and height, aspect not kept. */
+    public static final ScaleType FIT_XY = new ScaleType(2);
+
+    /** As {@link #FIT_CENTER} here; Android aligns the fitted image to the top-left. */
+    public static final ScaleType FIT_START = new ScaleType(6);
+
+    /** Scaled, aspect kept, to fit inside the view, and centred. The default. */
+    public static final ScaleType FIT_CENTER = new ScaleType(0);
+
+    /** As {@link #FIT_CENTER} here; Android aligns the fitted image to the bottom-right. */
+    public static final ScaleType FIT_END = new ScaleType(7);
+
+    /** Unscaled and centred; clipped when larger than the view. */
+    public static final ScaleType CENTER = new ScaleType(4);
+
+    /** Scaled, aspect kept, to cover the view, and centred; the overflow is clipped. */
+    public static final ScaleType CENTER_CROP = new ScaleType(1);
+
+    /** Centred, and scaled down to fit when larger than the view; never scaled up. */
+    public static final ScaleType CENTER_INSIDE = new ScaleType(5);
+
+    /**
+     * The code the layout compiler writes for {@code android:scaleType} and the runtime maps to an
+     * LVGL inner alignment (papk-pack's {@code SCALE_TYPE}, {@code lvgl/widgets/image_view.rs}).
+     */
+    final int code;
+
+    private ScaleType(int code) {
+      this.code = code;
+    }
+  }
+
+  private ScaleType mScaleType = ScaleType.FIT_CENTER;
+  private ColorStateList mImageTint;
 
   public ImageView(Context ctx) {
     super(ctx, nativeCreate());
@@ -40,12 +74,6 @@ public class ImageView extends View {
   }
 
   private static native int nativeCreate();
-
-  /**
-   * Loads an image source. Path-based loading is not yet implemented on embedded targets — see
-   * {@code project_future_milestones.md} (ImageView asset pipeline).
-   */
-  public native void setImageSource(String path);
 
   /**
    * Mirrors Android: shows {@code R.drawable.*} — a PNG under {@code res/drawable/}, decoded to the
@@ -64,15 +92,52 @@ public class ImageView extends View {
     drawable.applyTo(this);
   }
 
-  /** One of {@link #SCALE_FIT_CENTER}, {@link #SCALE_CENTER_CROP}, etc. */
-  public native void setScaleType(int scaleType);
+  /**
+   * How the image fits the view; see {@link ScaleType} for the ones drawn differently here.
+   *
+   * @throws NullPointerException if {@code scaleType} is null, as on Android
+   */
+  public void setScaleType(ScaleType scaleType) {
+    if (scaleType == null) {
+      throw new NullPointerException();
+    }
+    if (scaleType != mScaleType) {
+      mScaleType = scaleType;
+      nativeSetScaleType(scaleType.code);
+    }
+  }
+
+  public ScaleType getScaleType() {
+    return mScaleType;
+  }
 
   /**
-   * Apply a tint to the image. {@code argbColor}'s alpha controls blend strength: alpha 0 = no
-   * tint, 255 = fully recolored. The lower 24 bits give the tint color.
+   * Recolours the image with the tint's colour, as Android's default {@code SRC_IN} tint mode does;
+   * the colour's alpha is the strength of the recolour. {@code null} removes the tint.
    */
-  public native void setTint(int argbColor);
+  public void setImageTintList(ColorStateList tint) {
+    mImageTint = tint;
+    nativeSetTint(tint == null ? 0 : tint.getDefaultColor());
+  }
 
-  /** Uniform scale; use {@link #SCALE_1X} for 1.0×. */
-  public native void setScale(int zoom);
+  public ColorStateList getImageTintList() {
+    return mImageTint;
+  }
+
+  /**
+   * Mirrors {@code ImageView.setColorFilter(int)}, a {@code SRC_ATOP} filter: the colour is laid
+   * over the image's opaque pixels, its alpha the strength. Alpha 0 clears it.
+   */
+  public final void setColorFilter(int color) {
+    nativeSetTint(color);
+  }
+
+  public final void clearColorFilter() {
+    nativeSetTint(0);
+  }
+
+  private native void nativeSetScaleType(int code);
+
+  /** Recolours the image: the low 24 bits the colour, the top byte the strength (0 = none). */
+  private native void nativeSetTint(int argb);
 }

@@ -785,8 +785,8 @@ public class LayoutInflater {
         return new CheckBox(mContext);
       case 9: // CLASS_SWITCH
         return new Switch(mContext);
-      case 10: // CLASS_PROGRESS_BAR
-        return new ProgressBar(mContext);
+      case 10: // CLASS_PROGRESS_BAR_HORIZONTAL
+        return new ProgressBar(mContext, null, picodroid.R.attr.progressBarStyleHorizontal);
       case 11: // CLASS_SEEK_BAR
         return new SeekBar(mContext);
       case 12: // CLASS_RADIO_GROUP
@@ -814,6 +814,8 @@ public class LayoutInflater {
         return new GridLayout(mContext);
       case 23: // CLASS_RELATIVE_LAYOUT
         return new RelativeLayout(mContext);
+      case 24: // CLASS_PROGRESS_BAR
+        return new ProgressBar(mContext);
       default:
         // A layout compiled for a newer framework than this one.
         throw new InflateException("unknown view class code " + cls);
@@ -887,14 +889,12 @@ public class LayoutInflater {
         break;
       case 24: // ATTR_SCALE_TYPE
         if (v instanceof ImageView) {
-          ((ImageView) v).setScaleType(value);
+          ((ImageView) v).setScaleType(InflaterSupport.scaleType(value));
         }
         break;
       case 25: // ATTR_TINT
         if (v instanceof ImageView) {
-          ((ImageView) v).setTint(value);
-        } else if (v instanceof ProgressBar) {
-          ((ProgressBar) v).setTint(value);
+          ((ImageView) v).setImageTintList(ColorStateList.valueOf(value));
         }
         break;
       case 26: // ATTR_CHECKED

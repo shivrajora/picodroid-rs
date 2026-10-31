@@ -80,6 +80,12 @@ pub(in crate::graphics) fn create_under(parent: Obj) -> i32 {
             // one (an app's own GradientDrawable stroke included).
             lv_obj_set_style_border_width(o, 0, 0);
             lv_obj_set_style_radius(o, 0, 0);
+            // And no fill: Android's ScrollView draws nothing of its own, so
+            // what is behind it shows until a background is set. The theme's
+            // surface colour hid a parent's (picoclock painted its scrollers
+            // its own colour to match). `hw_vscroll.c` follows a see-through
+            // scroller to the first opaque ancestor.
+            lv_obj_set_style_bg_opa(o, 0, 0);
             // One scrollbar look, scrolling or not. The theme binds a second
             // style to LV_STATE_SCROLLED (thumb opacity 40% -> 100%) with an
             // 80 ms transition, and every frame of that transition — plus the

@@ -1,20 +1,29 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.widget;
 
+import picodroid.R;
 import picodroid.content.Context;
 import picodroid.content.res.ColorStateList;
 import picodroid.graphics.Theme;
+import picodroid.util.AttributeSet;
 import picodroid.view.View;
 
 /**
- * Mirrors {@code android.widget.ProgressBar}: a determinate bar over LVGL's {@code lv_bar}, or an
- * indeterminate spinner over {@code lv_spinner} (see {@link #indeterminate()}). Progress, range and
- * tint lists are cached Java-side so the getters answer at once, as Android's do; the natives only
- * push state to LVGL.
+ * Mirrors {@code android.widget.ProgressBar}. {@code new ProgressBar(context)} is Android's default
+ * style, the indeterminate spinner (LVGL's {@code lv_spinner}); the determinate horizontal bar
+ * (LVGL's {@code lv_bar}) is {@code new ProgressBar(context, null,
+ * picodroid.R.attr.progressBarStyleHorizontal)}, or {@code
+ * style="?android:attr/progressBarStyleHorizontal"} in a layout. Progress, range and tint lists are
+ * cached Java-side so the getters answer at once, as Android's do; the natives only push state to
+ * LVGL.
  *
- * <p>Picodroid divergences: the mode is fixed at construction (no {@code setIndeterminate}); a
- * {@link ColorStateList} is a single colour; no secondary progress, progress drawable, interpolator
- * or tint mode.
+ * <p>Picodroid divergences: the mode is the style's. The spinner is indeterminate only, as
+ * Android's default style is ({@link #setIndeterminate(boolean) setIndeterminate(false)} leaves it
+ * spinning, as there); a horizontal bar cannot become indeterminate ({@code setIndeterminate(true)}
+ * throws), since LVGL's bar has no indeterminate animation and a widget cannot change its LVGL
+ * class. The small and large spinner styles are the spinner at the size its layout gives. A {@link
+ * ColorStateList} is a single colour; no secondary progress, progress drawable, interpolator or
+ * tint mode.
  */
 public class ProgressBar extends View {
   private int min;
@@ -23,30 +32,39 @@ public class ProgressBar extends View {
   /** Stays 0 while indeterminate, so {@link #getProgress()} is 0 there, as on Android. */
   private int progress;
 
-  /** Fixed at construction: LVGL can't morph an lv_bar into an lv_spinner after creation. */
+  /** The spinner; fixed at construction: LVGL can't morph an lv_bar into an lv_spinner. */
   private boolean indeterminate;
 
   private ColorStateList progressTint;
   private ColorStateList progressBackgroundTint;
   private ColorStateList indeterminateTint;
 
-  public ProgressBar(Context ctx) {
-    super(ctx, nativeCreate());
+  /**
+   * Android's default style: the indeterminate spinner. Its moving arc is {@link
+   * Theme#colorPrimary} (rebrand by assigning {@code Theme} fields before any UI is built);
+   * override it per instance with {@link #setIndeterminateTintList(ColorStateList)}.
+   */
+  public ProgressBar(Context context) {
+    this(context, null, 0);
+  }
+
+  /** As {@link #ProgressBar(Context)}: the attributes of a layout are applied by the inflater. */
+  public ProgressBar(Context context, AttributeSet attrs) {
+    this(context, attrs, 0);
   }
 
   /**
-   * Indeterminate progress indicator — a rotating arc that ignores {@link #setProgress(int)}.
-   * Backed by LVGL's {@code lv_spinner}; the underlying widget type is fixed at construction so the
-   * {@code nativeHandle} stays stable for the lifetime of the View.
-   *
-   * <p>The moving arc defaults to {@link Theme#colorPrimary} (rebrand by assigning {@code Theme}
-   * fields before any UI is built); override per instance with {@link
-   * #setIndeterminateTintList(ColorStateList)}.
+   * {@code picodroid.R.attr.progressBarStyleHorizontal} makes the determinate horizontal bar; any
+   * other style attribute (0, {@code progressBarStyle}, {@code progressBarStyleSmall}, {@code
+   * progressBarStyleLarge}) the spinner.
    */
-  public static ProgressBar indeterminate() {
-    ProgressBar bar = new ProgressBar(nativeCreateIndeterminate(Theme.colorPrimary));
-    bar.indeterminate = true;
-    return bar;
+  public ProgressBar(Context context, AttributeSet attrs, int defStyleAttr) {
+    super(
+        context,
+        defStyleAttr == R.attr.progressBarStyleHorizontal
+            ? nativeCreate()
+            : nativeCreateIndeterminate(Theme.colorPrimary));
+    indeterminate = defStyleAttr != R.attr.progressBarStyleHorizontal;
   }
 
   /**
@@ -165,14 +183,24 @@ public class ProgressBar extends View {
     return min;
   }
 
-  /**
-   * Mirrors {@code android.widget.ProgressBar#isIndeterminate()}. Picodroid divergence: the mode is
-   * fixed at construction ({@link #ProgressBar()} vs {@link #indeterminate()}) — there is no {@code
-   * setIndeterminate(boolean)}, because the backing LVGL widget type (bar vs spinner) cannot change
-   * after creation.
-   */
+  /** Whether this is the spinner. Mirrors {@code android.widget.ProgressBar#isIndeterminate()}. */
   public boolean isIndeterminate() {
     return indeterminate;
+  }
+
+  /**
+   * Mirrors {@code android.widget.ProgressBar#setIndeterminate(boolean)} where the mode can follow:
+   * the spinner is indeterminate only, as Android's default style is, so {@code false} leaves it
+   * spinning, as on Android.
+   *
+   * @throws UnsupportedOperationException for {@code true} on a horizontal bar (a picodroid
+   *     divergence: LVGL's bar has no indeterminate animation); use {@link #ProgressBar(Context)}
+   */
+  public void setIndeterminate(boolean indeterminate) {
+    if (indeterminate && !this.indeterminate) {
+      throw new UnsupportedOperationException(
+          "a horizontal ProgressBar cannot be indeterminate; use new ProgressBar(context)");
+    }
   }
 
   /**
@@ -242,13 +270,5 @@ public class ProgressBar extends View {
     } else {
       nativeSetTint(target, 0, false);
     }
-  }
-
-  /**
-   * @deprecated Use {@link #setIndeterminateTintList(ColorStateList)}; kept so apps and layouts
-   *     built before it existed keep working.
-   */
-  public void setTint(int argbColor) {
-    setIndeterminateTintList(ColorStateList.valueOf(argbColor));
   }
 }

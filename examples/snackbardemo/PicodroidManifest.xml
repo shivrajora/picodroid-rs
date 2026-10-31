@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="snackbardemo" version="1.0">
-    <application application="snackbardemo/SnackbarDemoApp" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="snackbardemo" android:versionName="1.0">
+    <application>
+        <activity android:name=".SnackbarDemoActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
 </manifest>

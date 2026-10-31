@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="picoclock" version="1.0">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="picoclock" android:versionName="1.0">
     <!-- The Android-shaped form (docs/designs/manifest-components-2026-10.md): the Application,
-         every screen (the clock face's MAIN filter makes it the entry, which ClockApp starts once
-         the alarm service is up), the service, and Android's alarm-clock pair of receivers: one
+         every screen (the clock face's MAIN filter makes it the entry, which the framework launches
+         once ClockApp.onCreate has started the alarm service), the service, and Android's alarm-clock pair of receivers: one
          the alarms deliver to, one the framework runs at boot and on a clock or zone set while
          the app is not running. Each screen's android:label is the title its app bar shows. -->
-    <application application="picoclock/ClockApp" label="Clock">
-        <activity android:name=".ui.ClockActivity" android:label="Clock">
+    <application android:name=".ClockApp" android:label="@string/app_name">
+        <activity android:name=".ui.ClockActivity" android:label="@string/app_name">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

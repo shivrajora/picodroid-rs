@@ -30,7 +30,7 @@ final class FactoryWriter {
       if (args.length() > 0) {
         args.append(", ");
       }
-      args.append(SourceWriter.dependencyExpr(graph, param.asType()));
+      args.append(SourceWriter.dependencyExpr(graph, param));
     }
     String construct = "new " + ref + "(" + args + ")";
 

@@ -980,17 +980,19 @@ run_settings_smoke() {
   settings_send() { printf '%s\n' "$1" > "$fifo"; sleep 1; }
 
   # Rows are 40 px: the launcher lists helloworld (row 0) then Settings
-  # (row 1); the settings screens put their header at row 0.
+  # (row 1); the settings screens put their app bar (a Toolbar, 40 px) at
+  # row 0, with the up chevron in its first 40 px on every screen but the
+  # root, which leaves with BACK.
   if settings_wait "\[Launcher\] ready: 2 apps" 1; then
     settings_send "input tap 120 60"                       # Settings
     if settings_wait "\[Settings\] ready" 1; then
       settings_send "input tap 120 60"                     # About
       settings_wait "\[Settings\] about" 1 || true
-      settings_send "input tap 120 20"                     # back
+      settings_send "input tap 20 20"                      # up
       settings_wait "\[Settings\] ready" 2 || true
       settings_send "input tap 120 140"                    # Storage
       settings_wait "\[Settings\] storage helloworld" 1 || true
-      settings_send "input tap 120 20"                     # back
+      settings_send "input tap 20 20"                      # up
       settings_wait "\[Settings\] ready" 3 || true
       # Date & time (docs/designs/time-service-2026-10.md): the row after
       # Display on this no-WiFi board; its zone list's first row is GMT-12:00,
@@ -1005,7 +1007,7 @@ run_settings_smoke() {
         settings_send "input tap 120 60"                   # Automatic on
         settings_wait "\[Settings\] date-time auto 1" 1 || true
       fi
-      settings_send "input tap 120 20"                     # back
+      settings_send "input tap 20 20"                      # up
       settings_wait "\[Settings\] ready" 4 || true
       settings_send "input tap 120 100"                    # Apps
       if settings_wait "\[Settings\] apps 1" 1; then
@@ -1015,9 +1017,9 @@ run_settings_smoke() {
         settings_send "apps list"
         settings_wait "apps: (none installed)" 1 || true
       fi
-      settings_send "input tap 120 20"                     # back to the root
+      settings_send "input tap 20 20"                      # up, to the root
       settings_wait "\[Settings\] ready" 5 || true
-      settings_send "input tap 120 20"                     # Home
+      settings_send "input back"                           # Home
       settings_wait "\[Launcher\] ready: 1 apps" 1 || true
     fi
   fi

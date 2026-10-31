@@ -500,16 +500,16 @@ pub const LV_BUTTONMATRIX_BUTTON_NONE: u32 = 0xFFFF;
 
 /// Inner-alignment mode for `lv_image`. Verified against
 /// `third_party/lvgl/include/lvgl/widgets/lv_image.h:38-55`. The picodroid
-/// `ImageView` exposes a subset that maps to Android's `ScaleType` enum;
-/// `LV_IMAGE_ALIGN_CENTER` (the default after `setScaleType` is unset)
-/// renders unscaled and centered.
+/// `ImageView` maps Android's `ScaleType` onto these
+/// (`graphics/lvgl/widgets/image_view.rs`).
 pub type lv_image_align_t = u32;
+/// Unscaled at the top-left (`ScaleType.MATRIX` with the identity matrix).
+pub const LV_IMAGE_ALIGN_TOP_LEFT: lv_image_align_t = 1;
 pub const LV_IMAGE_ALIGN_CENTER: lv_image_align_t = 9;
 pub const LV_IMAGE_ALIGN_STRETCH: lv_image_align_t = 11;
-pub const LV_IMAGE_ALIGN_TILE: lv_image_align_t = 12;
 pub const LV_IMAGE_ALIGN_CONTAIN: lv_image_align_t = 13;
-/// 15, not 14: v9.6.0 inserted `LV_IMAGE_ALIGN_CONTAIN_DOWNSCALE`
-/// between CONTAIN and COVER.
+/// `CONTAIN` that never scales up: Android's `CENTER_INSIDE` (v9.6.0).
+pub const LV_IMAGE_ALIGN_CONTAIN_DOWNSCALE: lv_image_align_t = 14;
 pub const LV_IMAGE_ALIGN_COVER: lv_image_align_t = 15;
 
 /// LVGL color format (`lv_color_format_t`). Values from
@@ -1803,15 +1803,11 @@ unsafe extern "C" {
     /// the pointer.
     pub fn lv_image_set_src(obj: Obj, src: *const c_void);
     /// Set the inner alignment of the image inside its widget area. Used by
-    /// `ImageView.setScaleType` to map Android's FIT_CENTER / CENTER_CROP /
-    /// FIT_XY / TILE onto LVGL's `lv_image_align_t` enum.
+    /// `ImageView.setScaleType` to map Android's `ScaleType` onto LVGL's
+    /// `lv_image_align_t` enum.
     /// # Safety
     /// `obj` must be an `lv_image` (see "Widget classes" above).
     pub fn lv_image_set_inner_align(obj: Obj, align: lv_image_align_t);
-    /// Uniform image scale; `256` = 1.0×.
-    /// # Safety
-    /// `obj` must be an `lv_image` (see "Widget classes" above).
-    pub fn lv_image_set_scale(obj: Obj, zoom: u32);
 
     /// Image recolor (tint) — applies a tint color to the rendered image.
     /// Recolor is a *style* property on the lv_image widget; pair with
@@ -2832,10 +2828,14 @@ mod tests {
         let body =
             enum_body(LV_IMAGE_HEADER, "} lv_image_align_t").expect("lv_image_align_t not found");
         for (rust_const, name) in [
+            (LV_IMAGE_ALIGN_TOP_LEFT, "LV_IMAGE_ALIGN_TOP_LEFT"),
             (LV_IMAGE_ALIGN_CENTER, "LV_IMAGE_ALIGN_CENTER"),
             (LV_IMAGE_ALIGN_STRETCH, "LV_IMAGE_ALIGN_STRETCH"),
-            (LV_IMAGE_ALIGN_TILE, "LV_IMAGE_ALIGN_TILE"),
             (LV_IMAGE_ALIGN_CONTAIN, "LV_IMAGE_ALIGN_CONTAIN"),
+            (
+                LV_IMAGE_ALIGN_CONTAIN_DOWNSCALE,
+                "LV_IMAGE_ALIGN_CONTAIN_DOWNSCALE",
+            ),
             (LV_IMAGE_ALIGN_COVER, "LV_IMAGE_ALIGN_COVER"),
         ] {
             let header_val = lookup_ordinal(body, "LV_IMAGE_ALIGN_", name)

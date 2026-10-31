@@ -26,8 +26,12 @@ public class Display {
   @Hide("getDisplay() on any Context")
   public static native Display getInstance();
 
+  /** Shows {@code root} as the screen's content: {@code Activity.setContentView}'s last step. */
+  @Hide("Activity.setContentView, or DisplayDebug.setContentView in a bench that drives frames")
   public native void setContentView(View root);
 
+  /** Renders one frame now. */
+  @Hide("nothing: the main loop renders; a bench that drives frames calls DisplayDebug.renderFrame")
   public native void update();
 
   public int getWidth() {

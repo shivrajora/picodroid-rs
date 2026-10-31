@@ -36,8 +36,8 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
    * Callback invoked when an item in this AdapterView is clicked. Mirrors {@code
    * android.widget.AdapterView.OnItemClickListener} exactly, including the full four-argument
    * signature. {@code view} is the row the adapter's {@code getView} built ({@link ListView}), or
-   * {@code null} for a widget that renders rows natively ({@link Spinner}, {@code ListView.addItem}
-   * rows); {@code parent}, {@code position}, and {@code id} are faithful.
+   * {@code null} for a widget that renders rows natively ({@link Spinner}); {@code parent}, {@code
+   * position}, and {@code id} are faithful.
    */
   public interface OnItemClickListener {
     void onItemClick(AdapterView<?> parent, View view, int position, long id);

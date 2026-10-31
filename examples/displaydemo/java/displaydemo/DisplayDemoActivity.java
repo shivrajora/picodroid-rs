@@ -103,7 +103,7 @@ public class DisplayDemoActivity extends Activity {
     seekLabel.setIncludeFontPadding(false);
     add(root, seekLabel, WRAP, WRAP);
 
-    ProgressBar progress = new ProgressBar(this);
+    ProgressBar progress = new ProgressBar(this, null, picodroid.R.attr.progressBarStyleHorizontal);
     add(root, progress, 200, 12);
 
     // The same value as a ring gauge: a three-quarter dial, open at the bottom.
@@ -132,7 +132,7 @@ public class DisplayDemoActivity extends Activity {
     spinnerProgressLabel.setIncludeFontPadding(false);
     add(root, spinnerProgressLabel, WRAP, WRAP);
 
-    ProgressBar busy = ProgressBar.indeterminate();
+    ProgressBar busy = new ProgressBar(this);
     add(root, busy, 40, 40);
 
     progress.setProgress(40);
@@ -147,10 +147,10 @@ public class DisplayDemoActivity extends Activity {
             + " indet="
             + busy.isIndeterminate());
 
-    // -- ImageView showing a bundled PNG asset --
+    // -- ImageView showing res/drawable/logo.png --
     ImageView img = new ImageView(this);
-    img.setImageSource("logo.png");
-    img.setScaleType(ImageView.SCALE_FIT_CENTER);
+    img.setImageResource(R.drawable.logo);
+    img.setScaleType(ImageView.ScaleType.FIT_CENTER);
     add(root, img, 48, 48);
 
     // -- CheckBox --

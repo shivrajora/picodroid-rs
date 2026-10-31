@@ -69,6 +69,5 @@ class InjectDemoKtApp : Application() {
         )
 
         startService(Intent(this, PingService::class.java))
-        startActivity(Intent(this, HomeActivity::class.java))
     }
 }

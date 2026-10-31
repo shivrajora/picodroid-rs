@@ -83,26 +83,34 @@ cargo run --quiet --target "$HOST_TARGET" \
   --manifest-path "$REPO_ROOT/tools/class-shrink/Cargo.toml" -- \
   shrink-dir --in "$APP_CLASSES_DIR" --out "$SHRUNK_DIR" --map "$FUTURE_MAP"
 
-# Read app manifest for entry-point classes.
+# Read app manifest for entry-point classes: <application android:name> and the
+# <activity> with the MAIN intent filter, else the first (ManifestSchema.kt).
 mapfile -t MANIFEST_ATTRS < <(python3 - "$REPO_ROOT/examples/$APP/PicodroidManifest.xml" <<'EOF'
 import sys, xml.etree.ElementTree as ET
+A = "{http://schemas.android.com/apk/res/android}"
 root = ET.parse(sys.argv[1]).getroot()
+pkg = root.get("package")
 app = root.find("application")
-print(app.get("main-class", ""))
-print(app.get("activity", ""))
-print(app.get("application", ""))
-print(root.get("version", "1.0"))
+def cls(name):
+    if not name:
+        return ""
+    return ((pkg + name) if name.startswith(".") else name).replace(".", "/")
+acts = app.findall("activity")
+entry = next((a for a in acts
+              if any(x.get(A + "name") == "android.intent.action.MAIN"
+                     for x in a.iter("action"))), acts[0] if acts else None)
+print(cls(app.get(A + "name")))
+print(cls(entry.get(A + "name")) if entry is not None else "")
+print(root.get(A + "versionName", "1.0"))
 EOF
 )
-MAIN_CLASS="${MANIFEST_ATTRS[0]}"
+APPLICATION="${MANIFEST_ATTRS[0]}"
 ACTIVITY="${MANIFEST_ATTRS[1]}"
-APPLICATION="${MANIFEST_ATTRS[2]}"
-VERSION="${MANIFEST_ATTRS[3]}"
+VERSION="${MANIFEST_ATTRS[2]}"
 
 PAPK_ARGS=()
-[[ -n "$MAIN_CLASS" ]] && PAPK_ARGS+=(--main-class "$MAIN_CLASS")
-[[ -n "$ACTIVITY" ]] && PAPK_ARGS+=(--activity "$ACTIVITY")
 [[ -n "$APPLICATION" ]] && PAPK_ARGS+=(--application "$APPLICATION")
+[[ -n "$ACTIVITY" ]] && PAPK_ARGS+=(--activity "$ACTIVITY")
 
 mkdir -p "$(dirname "$OUTPUT")"
 

@@ -92,8 +92,8 @@ pub use edit_text::{
 pub use frame_layout::frame_layout_native_create;
 pub use grid_layout::{grid_layout_native_create, grid_layout_place};
 pub use image_view::{
-    image_view_native_create, image_view_set_resource, image_view_set_scale,
-    image_view_set_scale_type, image_view_set_src, image_view_set_tint,
+    image_view_native_create, image_view_set_resource, image_view_set_scale_type,
+    image_view_set_tint,
 };
 pub use inflate::layout_inflater_inflate_node;
 pub use keyboard::{drain_editor_action, drain_ready_queue as drain_keyboard_ready_queue};
@@ -106,10 +106,10 @@ pub use linear_layout::{
 };
 pub use list_view::{drain_item_click_queue, drain_scroll_queue};
 pub use list_view::{
-    list_view_add_item, list_view_native_create, list_view_recycle_row,
-    list_view_register_item_click_listener, list_view_scroll_to, list_view_scroll_y,
-    list_view_set_spacers, list_view_style_row, list_view_sync_focus_order,
-    list_view_watch_viewport, reset_list_view_state,
+    list_view_native_create, list_view_recycle_row, list_view_register_item_click_listener,
+    list_view_scroll_to, list_view_scroll_y, list_view_select_row, list_view_set_spacers,
+    list_view_style_row, list_view_sync_focus_order, list_view_watch_viewport,
+    reset_list_view_state,
 };
 pub use number_picker::drain_np_step_queue;
 pub use number_picker::{

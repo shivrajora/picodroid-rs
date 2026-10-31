@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package reclaimdemo;
 
-import picodroid.app.Application;
-import picodroid.content.Intent;
 import picodroid.util.Log;
 
 /**
@@ -10,9 +8,10 @@ import picodroid.util.Log;
  * PICODROID_DONT_KEEP_ACTIVITIES=1}) and every covered Activity is destroyed with its state saved,
  * then re-created from that Bundle when it is uncovered. Runs without input and ends in {@code ===
  * PASSED ===} or a {@code FAIL} line. With the switch off nothing is reclaimed and the trace check
- * fails, by design.
+ * fails, by design. This class holds the shared trace and check; the manifest's MAIN / LAUNCHER
+ * entry is {@link HomeActivity}.
  */
-public class ReclaimDemoApp extends Application {
+final class ReclaimDemoApp {
   static final String TAG = "ReclaimDemo";
   static final StringBuilder trace = new StringBuilder();
   static int failures;
@@ -24,8 +23,5 @@ public class ReclaimDemoApp extends Application {
     }
   }
 
-  @Override
-  public void onCreate() {
-    startActivity(new Intent(this, HomeActivity.class));
-  }
+  private ReclaimDemoApp() {}
 }

@@ -1,0 +1,10 @@
+# Control-channel script for this app's sim row (sim-run.sh::run_test): a tap, a fling
+# and a long press on the touch surface (220x120 at (10, 58) on testbench_rp2350's
+# 320x240 window), each through GestureDetector.onTouchEvent.
+wait \[layout\] fit ok
+sleep 1
+input tap 120 118
+wait GestureDemo[]:] tap
+input swipe 40 118 200 118 150
+wait GestureDemo[]:] fling right
+input swipe 120 118 120 118 1200

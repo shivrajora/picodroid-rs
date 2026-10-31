@@ -2,10 +2,10 @@
 //! LVGL impl of `ProgressBar`.
 //!
 //! Two flavours share one Java surface:
-//! - **Determinate** — backed by `lv_bar`: value, range and the two part
-//!   tints (fill and track) land here.
-//! - **Indeterminate** — backed by `lv_spinner`: only the arc tint applies;
-//!   the spinner animates by itself.
+//! - **Determinate** — backed by `lv_bar` (`progressBarStyleHorizontal`):
+//!   value, range and the two part tints (fill and track) land here.
+//! - **Indeterminate** — backed by `lv_spinner` (Android's default style):
+//!   only the arc tint applies; the spinner animates by itself.
 //!
 //! The flavour is fixed at construction and known to Java (`indeterminate`),
 //! which routes every call, so the bar entry points here should never see a

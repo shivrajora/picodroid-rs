@@ -6,22 +6,30 @@ use crate::lvgl_ffi::*;
 use super::super::handle_table;
 use super::super::lifecycle;
 
-// Java-side `ImageView.SCALE_*` constants — keep in sync with ImageView.java.
-const JAVA_SCALE_FIT_CENTER: i32 = 0;
-const JAVA_SCALE_CENTER_CROP: i32 = 1;
-const JAVA_SCALE_FIT_XY: i32 = 2;
-const JAVA_SCALE_TILE: i32 = 3;
-const JAVA_SCALE_CENTER: i32 = 4;
+// `ImageView.ScaleType.code` — keep in step with ImageView.java and
+// papk-pack's `SCALE_TYPE` (the layout compiler writes the same codes).
+const SCALE_FIT_CENTER: i32 = 0;
+const SCALE_CENTER_CROP: i32 = 1;
+const SCALE_FIT_XY: i32 = 2;
+const SCALE_CENTER: i32 = 4;
+const SCALE_CENTER_INSIDE: i32 = 5;
+const SCALE_MATRIX: i32 = 8;
 
 pub(in crate::graphics) fn create() -> i32 {
     lifecycle::screen_ptr().map_or(0, create_under)
 }
 
 /// [`create`], under `parent` instead of the screen (the inflater's path).
+/// Starts at `FIT_CENTER`, Android's default scale type, which the Java
+/// wrapper's `getScaleType` reports.
 #[inline(never)]
 pub(in crate::graphics) fn create_under(parent: Obj) -> i32 {
     match lv_image_create(parent) {
-        Some(img) => handle_table::register(img),
+        Some(img) => {
+            // SAFETY: `img` was just made by `lv_image_create`.
+            unsafe { lv_image_set_inner_align(img, LV_IMAGE_ALIGN_CONTAIN) };
+            handle_table::register(img)
+        }
         None => 0,
     }
 }
@@ -32,23 +40,28 @@ fn image(id: i32) -> Option<Obj> {
     handle_table::get(id)
 }
 
-pub(in crate::graphics) fn set_scale_type(id: i32, scale_type: i32) {
+/// The LVGL inner alignment for a `ScaleType` code. `FIT_START` (6) and
+/// `FIT_END` (7) fit around the centre, as `FIT_CENTER` does: LVGL scales to
+/// fit only centred. `MATRIX` is the identity matrix, unscaled at the
+/// top-left. An unknown code (a layout from a newer framework) fits too.
+fn inner_align(code: i32) -> lv_image_align_t {
+    match code {
+        SCALE_CENTER_CROP => LV_IMAGE_ALIGN_COVER,
+        SCALE_FIT_XY => LV_IMAGE_ALIGN_STRETCH,
+        SCALE_CENTER => LV_IMAGE_ALIGN_CENTER,
+        SCALE_CENTER_INSIDE => LV_IMAGE_ALIGN_CONTAIN_DOWNSCALE,
+        SCALE_MATRIX => LV_IMAGE_ALIGN_TOP_LEFT,
+        SCALE_FIT_CENTER => LV_IMAGE_ALIGN_CONTAIN,
+        _ => LV_IMAGE_ALIGN_CONTAIN,
+    }
+}
+
+pub(in crate::graphics) fn set_scale_type(id: i32, code: i32) {
     let Some(obj) = image(id) else {
         return;
     };
-    let align = match scale_type {
-        JAVA_SCALE_FIT_CENTER => LV_IMAGE_ALIGN_CONTAIN,
-        JAVA_SCALE_CENTER_CROP => LV_IMAGE_ALIGN_COVER,
-        JAVA_SCALE_FIT_XY => LV_IMAGE_ALIGN_STRETCH,
-        JAVA_SCALE_TILE => LV_IMAGE_ALIGN_TILE,
-        JAVA_SCALE_CENTER => LV_IMAGE_ALIGN_CENTER,
-        // Anything else falls back to plain centering — matches LVGL's
-        // default and is the least-surprising behavior for an out-of-range
-        // ordinal.
-        _ => LV_IMAGE_ALIGN_CENTER,
-    };
     // SAFETY: `image` answers an `ImageView`'s `lv_image`.
-    unsafe { lv_image_set_inner_align(obj, align) };
+    unsafe { lv_image_set_inner_align(obj, inner_align(code)) };
 }
 
 pub(in crate::graphics) fn set_tint(id: i32, argb: i32) {
@@ -63,16 +76,6 @@ pub(in crate::graphics) fn set_tint(id: i32, argb: i32) {
     let rgb = argb_u & 0x00FF_FFFF;
     lv_obj_set_style_image_recolor(obj, lv_color_hex(rgb), 0);
     lv_obj_set_style_image_recolor_opa(obj, alpha, 0);
-}
-
-pub(in crate::graphics) fn set_scale(id: i32, zoom: i32) {
-    let Some(obj) = image(id) else {
-        return;
-    };
-    // LVGL takes uint32_t. Negative zoom values are nonsensical; clamp to 0.
-    let z = if zoom < 0 { 0u32 } else { zoom as u32 };
-    // SAFETY: `image` answers an `ImageView`'s `lv_image`.
-    unsafe { lv_image_set_scale(obj, z) };
 }
 
 /// Hand a bundled-asset descriptor to LVGL for this image widget.

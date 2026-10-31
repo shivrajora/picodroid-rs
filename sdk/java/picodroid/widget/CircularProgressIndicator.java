@@ -22,11 +22,12 @@ import picodroid.view.ViewGroup;
  * o'clock, clockwise. The defaults (270, 360) draw a full ring that fills from 12 o'clock; a
  * dashboard gauge is {@code setStartAngle(135); setSweepAngle(270)}.
  *
- * <p>Divergences: determinate only (for a spinner use {@link ProgressBar#indeterminate()}); one
- * indicator colour, so {@link #getIndicatorColor()} returns an {@code int} where Material returns
- * {@code int[]}; no {@code indicatorInset}; a colour's alpha is honoured, so {@code
- * Color.TRANSPARENT} hides a track; angles are rounded to whole degrees; {@code indicatorSize} is
- * the intrinsic size, and explicit layout dimensions win over it, as on Android.
+ * <p>Divergences: determinate only ({@link #setIndeterminate(boolean) setIndeterminate(true)}
+ * throws; for a spinner use {@link ProgressBar#ProgressBar(Context)}); one indicator colour, so
+ * {@link #getIndicatorColor()} returns an {@code int} where Material returns {@code int[]}; no
+ * {@code indicatorInset}; a colour's alpha is honoured, so {@code Color.TRANSPARENT} hides a track;
+ * angles are rounded to whole degrees; {@code indicatorSize} is the intrinsic size, and explicit
+ * layout dimensions win over it, as on Android.
  */
 public class CircularProgressIndicator extends ProgressBar {
   public static final int INDICATOR_DIRECTION_CLOCKWISE = 0;

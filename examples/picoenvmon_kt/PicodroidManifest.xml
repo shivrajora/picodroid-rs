@@ -1,13 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="picoenvmon_kt" version="1.0"
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="picoenvmon_kt" android:versionName="1.0"
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
           xsi:noNamespaceSchemaLocation="../../sdk/PicodroidManifest.xsd">
     <!-- Android's shape (docs/designs/manifest-components-2026-10.md): the Application, which
-         starts the network side and then the hub; the hub, the entry by its MAIN filter; the
+         starts the network side; the hub, the entry by its MAIN filter, which the framework
+         launches once the Application's onCreate returns; the
          four screens it opens; and the logging Service the hub starts and Live and History
          bind. The classes live in `picoenvmonkt`, not the manifest package, so the names are
          written out in full. -->
-    <application application="picoenvmonkt/EnvApp" label="PicoEnvMonKt">
+    <application android:name="picoenvmonkt.EnvApp" android:label="@string/app_name">
         <activity android:name="picoenvmonkt.ui.home.HomeActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

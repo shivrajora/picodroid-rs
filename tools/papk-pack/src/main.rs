@@ -56,9 +56,9 @@ struct Args {
     /// and an app-shrunk map (`--shrink-app`) renames the entry class
     /// itself, so the manifest entry is spelled through it too.
     shrink_map: Option<PathBuf>,
-    /// The entry class as the manifest named it, when the map renamed it —
-    /// for error messages only.
-    entry_original: Option<String>,
+    /// `(packed spelling, manifest spelling)` of each entry class the map
+    /// renamed — for error messages only.
+    entry_original: Vec<(String, String)>,
     /// `--framework-classes`: the framework's class list
     /// (`sdk/class-names.tsv`). An app class whose name hashes like one of
     /// them is refused, as the device refuses the app.
@@ -551,13 +551,14 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
         source = Some(src);
     }
 
-    let entry_flags =
-        main_class.is_some() as u8 + activity.is_some() as u8 + application.is_some() as u8;
-    if entry_flags == 0 {
-        return Err("either --main-class, --activity, or --application is required".into());
+    // `--application` and `--activity` together: the Application, then the
+    // entry Activity the runtime launches after its onCreate. `--main-class`
+    // stands alone.
+    if main_class.is_none() && activity.is_none() && application.is_none() {
+        return Err("one of --main-class, --activity or --application is required".into());
     }
-    if entry_flags > 1 {
-        return Err("exactly one of --main-class, --activity, or --application may be set".into());
+    if main_class.is_some() && (activity.is_some() || application.is_some()) {
+        return Err("--main-class cannot be combined with --activity or --application".into());
     }
     if repack.is_none() && classes_dir.is_none() {
         return Err("--classes-dir is required (or --repack <in.papk>)".into());
@@ -576,7 +577,7 @@ fn parse_argv(args: &[String]) -> Result<(Args, Option<RepackSource>), String> {
             output: output.ok_or("--output is required")?,
             assets_dir,
             shrink_map,
-            entry_original: None,
+            entry_original: Vec::new(),
             framework_classes,
             version_code,
             label,
@@ -623,7 +624,7 @@ fn shrink_entry_point(args: &mut Args) -> Result<(), String> {
         if let Some(name) = slot.as_deref() {
             let shrunk = shrunk_class(name, Some(map))?;
             if shrunk != name {
-                args.entry_original = Some(name.to_string());
+                args.entry_original.push((shrunk.clone(), name.to_string()));
                 *slot = Some(shrunk);
             }
         }
@@ -813,7 +814,10 @@ fn print_usage() {
          \x20 [--pad-asset <bytes>] \\\n\
          \x20 --output <file.papk>\n\
          \n\
-         At least one of --main-class, --activity, or --application must be provided.\n\
+         One of --main-class, --activity or --application must be provided;\n\
+         --application and --activity together name the Application and the entry\n\
+         Activity the runtime launches after Application.onCreate.\n\
+         --label may be @string/<name>, resolved against --res-dir's res/values.\n\
          --assets-dir is optional; PNG files in the directory are decoded into\n\
          LVGL-native RGB565 and bundled in the ASSETS (ASST) section.\n\
          --res-dir is an Android-style res/ tree (values, layout, drawable), compiled\n\
@@ -840,21 +844,29 @@ fn print_usage() {
 
 // ── Class file discovery ──────────────────────────────────────────────────────
 
-/// Validate the manifest entry point against the packed classes. Errors when
-/// the named class is absent (or — for a main-class — lacks `static main`);
+/// Validate the manifest entry points against the packed classes. Errors when
+/// a named class is absent (or — for a main-class — lacks `static main`);
 /// warns (not errors) when an activity/application lacks `onCreate`, since
 /// inheriting the framework default is legal.
 fn validate_entry_point(args: &Args, classes: &[(String, Vec<u8>)]) -> Result<(), String> {
-    let (entry, kind) = if let Some(c) = &args.main_class {
-        (c, "main-class")
-    } else if let Some(c) = &args.activity {
-        (c, "activity")
-    } else if let Some(c) = &args.application {
-        (c, "application")
-    } else {
-        return Ok(());
-    };
+    for (entry, kind) in [
+        (&args.main_class, "main-class"),
+        (&args.application, "application"),
+        (&args.activity, "activity"),
+    ] {
+        if let Some(entry) = entry {
+            validate_one_entry(args, classes, entry, kind)?;
+        }
+    }
+    Ok(())
+}
 
+fn validate_one_entry(
+    args: &Args,
+    classes: &[(String, Vec<u8>)],
+    entry: &str,
+    kind: &str,
+) -> Result<(), String> {
     let found = classes.iter().find(|(name, _)| name == entry);
     let bytes = match found {
         Some((_, b)) => b,
@@ -863,8 +875,9 @@ fn validate_entry_point(args: &Args, classes: &[(String, Vec<u8>)]) -> Result<()
             names.sort_unstable();
             let original = args
                 .entry_original
-                .as_deref()
-                .map(|o| format!(" (manifest spelling '{o}')"))
+                .iter()
+                .find(|(packed, _)| packed == entry)
+                .map(|(_, o)| format!(" (manifest spelling '{o}')"))
                 .unwrap_or_default();
             return Err(format!(
                 "manifest {kind} '{entry}'{original} is not among the packed classes.\n  \
@@ -1173,14 +1186,19 @@ fn build_papk(
     assets: &[Asset],
     extras: &[(String, String)],
 ) -> Result<Vec<u8>, papk_format::BuildError> {
-    let entry = if let Some(mc) = args.main_class.as_deref() {
-        EntryPoint::MainClass(mc)
-    } else if let Some(act) = args.activity.as_deref() {
-        EntryPoint::Activity(act)
-    } else if let Some(app) = args.application.as_deref() {
-        EntryPoint::Application(app)
-    } else {
-        unreachable!("parse_args enforces exactly one entry-point flag")
+    let entry = match (
+        args.main_class.as_deref(),
+        args.application.as_deref(),
+        args.activity.as_deref(),
+    ) {
+        (Some(mc), _, _) => EntryPoint::MainClass(mc),
+        (None, Some(application), Some(activity)) => EntryPoint::ApplicationActivity {
+            application,
+            activity,
+        },
+        (None, Some(app), None) => EntryPoint::Application(app),
+        (None, None, Some(act)) => EntryPoint::Activity(act),
+        (None, None, None) => unreachable!("parse_args requires an entry-point flag"),
     };
 
     let requires_features =
@@ -1259,7 +1277,7 @@ fn compile_resources(args: &mut Args, assets: &mut Vec<Asset>) -> Result<(), Str
                 "the manifest names android:theme=\"@style/{theme}\", and the app has no res/ tree to define it in"
             ));
         }
-        return Ok(());
+        return check_label_resolved(args);
     };
     if !dir.is_dir() {
         return Err(format!("--res-dir '{}' is not a directory", dir.display()));
@@ -1285,6 +1303,26 @@ fn compile_resources(args: &mut Args, assets: &mut Vec<Asset>) -> Result<(), Str
     for w in &compiled.warnings {
         eprintln!("Warning: {w}");
     }
+    // `android:label="@string/name"`: the launcher and the app bar show text, so
+    // the packer writes the string itself (the default configuration's), as
+    // aapt2 keeps the reference and the framework resolves it on Android.
+    let resolve = |label: &mut String| -> Result<(), String> {
+        if let Some(name) = label.strip_prefix("@string/") {
+            *label = res::string_value(&compiled, name).ok_or_else(|| {
+                format!(
+                    "the manifest names android:label=\"@string/{name}\", and res/values defines no <string name=\"{name}\">"
+                )
+            })?;
+        }
+        Ok(())
+    };
+    if let Some(label) = args.label.as_mut() {
+        resolve(label)?;
+    }
+    for (_, label) in args.activity_labels.iter_mut() {
+        resolve(label)?;
+    }
+    check_label_resolved(args)?;
     if let Some(theme) = &args.theme {
         args.theme_id = Some(res::style_id(&compiled, theme).ok_or_else(|| {
             format!(
@@ -1297,6 +1335,28 @@ fn compile_resources(args: &mut Args, assets: &mut Vec<Asset>) -> Result<(), Str
     }
     assets.sort_by(|a, b| a.name.cmp(&b.name));
     args.resources = compiled.table;
+    Ok(())
+}
+
+/// A label left as a resource reference: `@string/` with no `res/` tree, or
+/// another resource type, which the launcher could not show.
+fn check_label_resolved(args: &Args) -> Result<(), String> {
+    let labels = args
+        .label
+        .iter()
+        .chain(args.activity_labels.iter().map(|(_, l)| l));
+    for l in labels {
+        if l.starts_with("@string/") {
+            return Err(format!(
+                "the manifest names android:label=\"{l}\", and the app has no res/ tree to define it in"
+            ));
+        }
+        if l.starts_with('@') {
+            return Err(format!(
+                "android:label=\"{l}\": a label is text or a @string/ reference"
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -1363,9 +1423,9 @@ fn main() {
                 std::process::exit(1);
             }
 
-            // Validate the manifest entry point against the packed classes —
-            // catches a typo'd `activity=`/`main-class=`/`application=` at
-            // build time instead of a runtime NoSuchMethod on device.
+            // Validate the manifest entry points against the packed classes —
+            // catches a typo'd `android:name` at build time instead of a
+            // runtime NoSuchMethod on device.
             if let Err(msg) = validate_entry_point(&args, &classes) {
                 eprintln!("Error: {msg}");
                 std::process::exit(1);
@@ -1412,6 +1472,11 @@ fn main() {
         std::process::exit(1);
     }
 
+    // A --repack label override never went through compile_resources.
+    if let Err(msg) = check_label_resolved(&args) {
+        eprintln!("Error: {msg}");
+        std::process::exit(1);
+    }
     if let Some(icon) = &args.icon {
         if let Err(msg) = check_icon(icon, &assets) {
             eprintln!("Error: {msg}");
@@ -1492,7 +1557,7 @@ mod pack_integration {
             output: work.join("out.papk"),
             assets_dir: None,
             shrink_map: None,
-            entry_original: None,
+            entry_original: Vec::new(),
             framework_classes: None,
             version_code: None,
             label: None,
@@ -1549,7 +1614,7 @@ mod pack_integration {
             output: work.join("out.papk"),
             assets_dir: None,
             shrink_map: None,
-            entry_original: None,
+            entry_original: Vec::new(),
             framework_classes: None,
             version_code: None,
             label: None,
@@ -1840,6 +1905,119 @@ mod pack_integration {
             args.requires_features,
             vec!["picodroid.hardware.touchscreen", "picodroid.hardware.wifi"]
         );
+    }
+
+    fn argv(extra: &[&str]) -> Vec<String> {
+        let mut v: Vec<String> = [
+            "papk-pack",
+            "--package-name",
+            "a",
+            "--version",
+            "1",
+            "--framework-map-version",
+            "0.0.0",
+            "--classes-dir",
+            "x",
+            "--output",
+            "o.papk",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        v.extend(extra.iter().map(|s| s.to_string()));
+        v
+    }
+
+    /// An Application with a launcher Activity names both; `--main-class`
+    /// stands alone, and some entry is required.
+    #[test]
+    fn application_and_activity_combine_and_main_class_stands_alone() {
+        let (args, _) =
+            parse_argv(&argv(&["--application", "a/App", "--activity", "a/Main"])).unwrap();
+        assert_eq!(args.application.as_deref(), Some("a/App"));
+        assert_eq!(args.activity.as_deref(), Some("a/Main"));
+        let err = parse_argv(&argv(&["--main-class", "a/M", "--activity", "a/Main"]))
+            .err()
+            .unwrap();
+        assert!(err.contains("--main-class cannot be combined"), "{err}");
+        let err = parse_argv(&argv(&[])).err().unwrap();
+        assert!(err.contains("is required"), "{err}");
+    }
+
+    /// Both entry classes are checked against the packed set, and both keys
+    /// are written, the Application first.
+    #[test]
+    fn an_application_with_an_entry_activity_writes_both_keys() {
+        let work = std::env::temp_dir().join(format!("papk-pack-aa-{}", std::process::id()));
+        fs::create_dir_all(&work).unwrap();
+        let mut args = fixture_args(&work);
+        args.main_class = None;
+        args.application = Some("fixture/Main".into());
+        args.activity = Some("demo/Missing".into());
+        let fixtures = Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../crates/papk-format/tests/fixtures"
+        ));
+        let classes = vec![(
+            "fixture/Main".to_string(),
+            fs::read(fixtures.join("Main.class")).unwrap(),
+        )];
+        let err = validate_entry_point(&args, &classes).unwrap_err();
+        assert!(err.contains("activity 'demo/Missing'"), "{err}");
+
+        args.activity = Some("fixture/Main".into());
+        validate_entry_point(&args, &classes).unwrap();
+        let papk = build_papk(&args, &classes, &[], &[]).unwrap();
+        let aligned = papk_format::AlignedBuf::new(&papk);
+        let parsed = papk_format::Papk::parse(&aligned).unwrap();
+        assert_eq!(parsed.application(), Some("fixture/Main"));
+        assert_eq!(parsed.activity(), Some("fixture/Main"));
+        assert_eq!(parsed.main_class(), None);
+        let first: Vec<&[u8]> = parsed.manifest().unwrap().take(2).map(|e| e.key).collect();
+        assert_eq!(first, [&b"application"[..], b"activity"]);
+        fs::remove_dir_all(&work).ok();
+    }
+
+    /// `android:label="@string/app_name"` is written as the string's text;
+    /// a missing string, or no res/ tree, is an error naming it.
+    #[test]
+    fn a_string_resource_label_is_resolved_at_pack_time() {
+        let work = std::env::temp_dir().join(format!("papk-pack-label-{}", std::process::id()));
+        let values = work.join("res/values");
+        fs::create_dir_all(&values).unwrap();
+        fs::write(
+            values.join("strings.xml"),
+            "<resources><string name=\"app_name\">Pico \\'Clock\\'</string></resources>",
+        )
+        .unwrap();
+        let mut args = fixture_args(&work);
+        args.label = Some("@string/app_name".into());
+        let mut assets = Vec::new();
+        args.res_dir = None;
+        let err = compile_resources(&mut args, &mut assets).unwrap_err();
+        assert!(err.contains("no res/ tree"), "{err}");
+
+        args.res_dir = Some(work.join("res"));
+        compile_resources(&mut args, &mut assets).unwrap();
+        assert_eq!(args.label.as_deref(), Some("Pico 'Clock'"));
+
+        args.label = Some("@string/nope".into());
+        let err = compile_resources(&mut args, &mut assets).unwrap_err();
+        assert!(err.contains("<string name=\"nope\">"), "{err}");
+
+        args.label = Some("@drawable/icon".into());
+        let err = compile_resources(&mut args, &mut assets).unwrap_err();
+        assert!(err.contains("text or a @string/"), "{err}");
+
+        // An <activity android:label> resolves the same way.
+        args.label = None;
+        args.activity_labels = vec![("fixture/Main".into(), "@string/app_name".into())];
+        compile_resources(&mut args, &mut assets).unwrap();
+        assert_eq!(args.activity_labels[0].1, "Pico 'Clock'");
+        args.activity_labels[0].1 = "@string/nope".into();
+        let err = compile_resources(&mut args, &mut assets).unwrap_err();
+        assert!(err.contains("<string name=\"nope\">"), "{err}");
+        fs::remove_dir_all(&work).ok();
     }
 
     #[test]

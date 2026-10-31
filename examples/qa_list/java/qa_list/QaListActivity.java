@@ -16,11 +16,15 @@ import picodroid.widget.TextView;
  * QA 2026-10-20: a {@link ListView} of 200 rows, driven by touch and keys from {@code test.ctrl}.
  * The adapter counts the rows it builds, so the log shows the window the list keeps alive; a click
  * checks that the row's text is the item at the position the list reports, after the window moved.
- * {@code input back} ends the app so the heap line prints.
+ * The first click then calls {@code setSelection(150)}; on a keys board the second ENTER must click
+ * row 150. {@code input back} ends the app so the heap line prints.
  */
 public class QaListActivity extends Activity {
   static final String TAG = "QaList";
   static final int ROWS = 200;
+
+  /** Where the first click sends {@code setSelection}; a jump wider than any window. */
+  static final int SELECTED = 150;
 
   /** Rows read "item N"; builds and re-binds are counted. */
   static final class CountingAdapter extends BaseAdapter {
@@ -96,6 +100,14 @@ public class QaListActivity extends Activity {
                   + adapter.rebound
                   + " text="
                   + shown);
+          if (clicks == 1) {
+            // setSelection jumps the window past its width, so every row is re-bound in place.
+            // On a keys board the focus must follow to the selected row (Android selects it in
+            // key navigation): test.ctrl's second ENTER clicks position SELECTED, not whatever
+            // position the previously focused widget's slot now holds.
+            list.setSelection(SELECTED);
+            Log.i(TAG, "selected " + SELECTED + " first=" + list.getFirstVisiblePosition());
+          }
         });
     // Weighted: the list takes what the header leaves, so the window is the panel's.
     root.addView(

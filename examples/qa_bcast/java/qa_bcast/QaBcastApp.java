@@ -2,7 +2,6 @@
 package qa_bcast;
 
 import picodroid.app.Application;
-import picodroid.content.Intent;
 
 /**
  * QA for broadcasts (docs/designs/broadcasts-2026-10.md): the registry's rules, in-app {@code
@@ -14,6 +13,5 @@ public class QaBcastApp extends Application {
   @Override
   public void onCreate() {
     T.log("App.onCreate");
-    startActivity(new Intent(this, ActA.class));
   }
 }

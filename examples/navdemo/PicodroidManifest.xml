@@ -1,4 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="navdemo" version="1.0">
-    <application application="navdemo/NavDemoApp" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="navdemo" android:versionName="1.0">
+    <application>
+        <activity android:name=".HomeActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".DetailActivity" />
+        <activity android:name=".ResultProbeActivity" />
+    </application>
 </manifest>

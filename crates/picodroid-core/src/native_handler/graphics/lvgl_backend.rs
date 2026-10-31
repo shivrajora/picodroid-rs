@@ -326,11 +326,6 @@ impl GraphicsBackend for LvglBackend {
     fn dispatch_list_view(&mut self, method: u32, ctx: &mut NativeContext<'_>) -> DispatchResult {
         match method {
             mh::nativeCreate => Some(widgets::list_view_native_create()),
-            mh::addItem => Some(widgets::list_view_add_item(
-                ctx.args,
-                ctx.strings,
-                ctx.objects,
-            )),
             mh::nativeRegisterItemClickListener => Some(
                 widgets::list_view_register_item_click_listener(ctx.args, ctx.objects),
             ),
@@ -345,6 +340,7 @@ impl GraphicsBackend for LvglBackend {
             mh::nativeSyncFocusOrder => {
                 Some(widgets::list_view_sync_focus_order(ctx.args, ctx.objects))
             }
+            mh::nativeSelectRow => Some(widgets::list_view_select_row(ctx.args, ctx.objects)),
             _ => None,
         }
     }
@@ -420,15 +416,11 @@ impl GraphicsBackend for LvglBackend {
     fn dispatch_image_view(&mut self, method: u32, ctx: &mut NativeContext<'_>) -> DispatchResult {
         match method {
             mh::nativeCreate => Some(widgets::image_view_native_create()),
-            mh::setImageSource => Some(widgets::image_view_set_src(
-                ctx.args,
-                ctx.strings,
-                ctx.objects,
-            )),
             mh::setImageResource => Some(widgets::image_view_set_resource(ctx)),
-            mh::setScaleType => Some(widgets::image_view_set_scale_type(ctx.args, ctx.objects)),
-            mh::setTint => Some(widgets::image_view_set_tint(ctx.args, ctx.objects)),
-            mh::setScale => Some(widgets::image_view_set_scale(ctx.args, ctx.objects)),
+            mh::nativeSetScaleType => {
+                Some(widgets::image_view_set_scale_type(ctx.args, ctx.objects))
+            }
+            mh::nativeSetTint => Some(widgets::image_view_set_tint(ctx.args, ctx.objects)),
             _ => None,
         }
     }

@@ -10,8 +10,9 @@ import org.gradle.api.provider.Property
 import org.gradle.api.tasks.*
 
 /**
- * Wraps `tools/papk-pack`. One of [mainClass], [activity], or [application]
- * is set by the plugin based on the parsed PicodroidManifest.xml.
+ * Wraps `tools/papk-pack`. The plugin sets [application], [activity] or both from the
+ * parsed PicodroidManifest.xml: the Application class and the entry Activity, which the
+ * runtime launches after `Application.onCreate`.
  */
 abstract class PapkPackTask : DefaultTask() {
     @get:InputDirectory
@@ -27,11 +28,11 @@ abstract class PapkPackTask : DefaultTask() {
     @get:Input
     abstract val frameworkMapVersion: Property<String>
 
-    /** `version-code` manifest key; the plugin always sets it (1 by default). */
+    /** `android:versionCode`, the `version-code` manifest key; the plugin always sets it (1 by default). */
     @get:Input
     abstract val versionCode: Property<Int>
 
-    /** `label` manifest key; unset means the launcher shows the package name. */
+    /** `android:label`, the `label` manifest key (`@string/name` resolved by the packer); unset means the package name. */
     @get:Input
     @get:Optional
     abstract val label: Property<String>
@@ -54,17 +55,15 @@ abstract class PapkPackTask : DefaultTask() {
     @get:Input
     abstract val requiresFeatures: ListProperty<String>
 
-    @get:Input
-    @get:Optional
-    abstract val mainClass: Property<String>
-
-    @get:Input
-    @get:Optional
-    abstract val activity: Property<String>
-
+    /** `<application android:name>`: the Application class (`application` manifest key). */
     @get:Input
     @get:Optional
     abstract val application: Property<String>
+
+    /** The entry Activity: the `MAIN` filter's, else the first declared (`activity` manifest key). */
+    @get:Input
+    @get:Optional
+    abstract val activity: Property<String>
 
     /** Declared `<activity android:name>` classes, slash form (`activities` manifest key). */
     @get:Input
@@ -151,9 +150,8 @@ abstract class PapkPackTask : DefaultTask() {
             "--manifest-path", manifest.absolutePath,
             "--",
         )
-        mainClass.orNull?.let { args += listOf("--main-class", it) }
-        activity.orNull?.let { args += listOf("--activity", it) }
         application.orNull?.let { args += listOf("--application", it) }
+        activity.orNull?.let { args += listOf("--activity", it) }
         args += listOf(
             "--package-name", packageName.get(),
             "--version", version.get(),

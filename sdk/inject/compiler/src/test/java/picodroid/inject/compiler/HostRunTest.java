@@ -20,6 +20,40 @@ import picodroid.inject.compiler.CompileHarness.Result;
  * fresh unscoped instances, and superclass-before-subclass, fields-before-methods injection order.
  */
 public class HostRunTest {
+  /**
+   * The framework's bindings resolve to the one Application: a bare {@code
+   * picodroid.app.Application} made on first use when nothing constructed one (an app whose
+   * manifest names none).
+   */
+  @Test
+  public void applicationBindingsResolveToOneApplication() throws Exception {
+    Result r =
+        compile(
+            src(
+                "t.Repo",
+                "package t;",
+                "public class Repo {",
+                "  public final picodroid.app.Application app;",
+                "  @javax.inject.Inject @picodroid.di.ApplicationContext"
+                    + " public picodroid.content.Context context;",
+                "  @javax.inject.Inject public Repo(picodroid.app.Application app) {",
+                "    this.app = app;",
+                "  }",
+                "}"));
+    assertTrue("compile failed: " + r.errors(), r.success);
+    try (URLClassLoader loader =
+        new URLClassLoader(new URL[] {r.classesDir.toUri().toURL()}, getClass().getClassLoader())) {
+      Object repo = loader.loadClass("t.Repo_Factory").getMethod("get").invoke(null);
+      Class<?> repoClass = loader.loadClass("t.Repo");
+      Object app = repoClass.getField("app").get(repo);
+      assertNotNull("never null: a bare Application when the manifest names none", app);
+      assertEquals("picodroid.app.Application", app.getClass().getName());
+      assertSame(app, repoClass.getField("context").get(repo));
+      Object again = loader.loadClass("t.Repo_Factory").getMethod("get").invoke(null);
+      assertSame("one Application per run", app, repoClass.getField("app").get(again));
+    }
+  }
+
   @Test
   public void generatedGraphRunsOnTheHost() throws Exception {
     Result r =

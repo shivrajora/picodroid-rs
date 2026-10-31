@@ -36,8 +36,10 @@ public class QaLifeApp extends Application {
     T.check("hasExtra", i.hasExtra("n") && i.hasExtra("empty") && !i.hasExtra("zz"));
     T.check("getIntExtra before start", i.getIntExtra("n", 0) == 42);
     T.check(
-        "target class name",
-        i.getTargetClassName() != null && i.getTargetClassName().contains("ActA"));
+        "getComponent",
+        i.getComponent() != null
+            && i.getComponent().getClassName().equals("qa_life.ActA")
+            && i.getComponent().getPackageName().equals("qa_life"));
     i.putExtra("n", 43);
     T.check("putExtra replaces", i.getIntExtra("n", 0) == 43 && i.getExtras().size() == 8);
     startActivity(i);

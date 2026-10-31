@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.content;
 
+import picodroid.annotation.Hide;
 import picodroid.os.Bundle;
 
 /**
@@ -104,9 +105,24 @@ public final class Intent {
   }
 
   /** Internal-form class name (slash-separated), e.g. "app/MyService". */
+  @Hide("intent.getComponent().getClassName()")
   public String getTargetClassName() {
     return targetClassName;
   }
+
+  /**
+   * Mirrors Android: the component this Intent names, or null for one that names none (an action,
+   * or a package to launch). The class is dot-separated, as Android spells it; the package is this
+   * app's.
+   */
+  public ComponentName getComponent() {
+    return targetClassName == null
+        ? null
+        : new ComponentName(getPackageName(), targetClassName.replace('/', '.'));
+  }
+
+  /** The running app's package: the native {@code Context.getPackageName} answers for any class. */
+  private static native String getPackageName();
 
   /**
    * Target the named Activity class in this app, the explicit form of {@code

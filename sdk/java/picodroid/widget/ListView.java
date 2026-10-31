@@ -47,12 +47,6 @@ public class ListView extends AdapterView<Adapter> {
 
   private static native int nativeCreate();
 
-  /**
-   * Append a single native text row. Convenience kept for parity with the pre-adapter API; a list
-   * with an adapter replaces these rows at its next refresh.
-   */
-  public native void addItem(String text);
-
   @Override
   protected void registerNativeItemClick() {
     nativeRegisterItemClickListener();
@@ -65,8 +59,7 @@ public class ListView extends AdapterView<Adapter> {
    * touch tap). {@code slot} is the row's index among the list's children; the position is that
    * plus the window's first position. Resolves the row's stable {@code id} from the bound {@link
    * Adapter} and delivers the full Android {@code onItemClick(parent, view, position, id)}
-   * callback; {@code view} is the row the adapter built, or {@code null} for an {@link #addItem}
-   * row.
+   * callback; {@code view} is the row the adapter built.
    */
   void fireItemClick(int slot) {
     if (onItemClickListener != null) {
@@ -95,8 +88,8 @@ public class ListView extends AdapterView<Adapter> {
   }
 
   /**
-   * The rows, as on Android: the live ones, the adapter's and {@link #addItem}'s alike (every row
-   * is a widget). A recycling list counts its window, not the adapter.
+   * The rows, as on Android: the live ones (every row is a widget). A recycling list counts its
+   * window, not the adapter.
    */
   @Override
   public int getChildCount() {
@@ -128,7 +121,7 @@ public class ListView extends AdapterView<Adapter> {
   @Override
   protected void refreshFromAdapter() {
     if (getChildCount() != liveRows()) {
-      // addItem rows, or children added behind the adapter's back: start from an empty list so
+      // Children added behind the adapter's back: start from an empty list so
       // positions and child indices agree again (a click is resolved by child index).
       removeAllViews();
     }
@@ -258,11 +251,20 @@ public class ListView extends AdapterView<Adapter> {
 
   /**
    * Mirrors {@code android.widget.ListView#setSelection}: scrolls so {@code position} is the first
-   * row on screen (or as near as the list's end allows). Android also moves the selection there in
-   * key navigation; picodroid leaves the keypad focus where it is.
+   * row on screen (or as near as the list's end allows) and, as Android does in key navigation,
+   * selects it: when the keypad focus is on one of this list's rows it moves to {@code position}'s
+   * row, so ENTER activates the row the list now shows. A focus elsewhere stays where it is (a list
+   * without focus has no selection to show).
    */
   public void setSelection(int position) {
     scrollToPosition(position, false);
+    int count = adapter == null ? 0 : adapter.getCount();
+    int slot = clamp(position, 0, count - 1) - mFirst;
+    if (count > 0 && slot >= 0 && slot < liveRows()) {
+      // The window was re-bound in place: the row that held the focus may now show a position
+      // off screen.
+      nativeSelectRow(getChildAt(slot));
+    }
   }
 
   /**
@@ -347,4 +349,10 @@ public class ListView extends AdapterView<Adapter> {
 
   /** Puts the keypad group's rows in child order after rows moved or were replaced. */
   private native void nativeSyncFocusOrder();
+
+  /**
+   * Moves the keypad focus to {@code row} when another row of this list holds it, without a scroll:
+   * {@link #setSelection} has put the row in view already.
+   */
+  private native void nativeSelectRow(View row);
 }

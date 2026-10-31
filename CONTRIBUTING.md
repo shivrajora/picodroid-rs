@@ -199,12 +199,16 @@ public class MyApp extends Application {
 }
 ```
 
-3. Create `PicodroidManifest.xml` (note: the attribute is `application`, not `main-class`):
+3. Create `PicodroidManifest.xml`, written as Android writes `AndroidManifest.xml`
+   (`android:name` names the Application class; an app with screens adds an `<activity>` with
+   the `MAIN` / `LAUNCHER` intent filter, which the framework launches after
+   `Application.onCreate`):
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="myapp" version="1.0">
-    <application application="myapp/MyApp" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="myapp" android:versionName="1.0">
+    <application android:name=".MyApp" />
 </manifest>
 ```
 

@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="filesdemo" version="1.0">
-    <application application="filesdemo/FilesDemo" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="filesdemo" android:versionName="1.0">
+    <application android:name=".FilesDemo" />
 </manifest>

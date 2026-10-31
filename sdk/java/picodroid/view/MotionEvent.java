@@ -49,6 +49,18 @@ public class MotionEvent {
     return e;
   }
 
+  /**
+   * Mirrors {@code android.view.MotionEvent#obtain(MotionEvent)}: a copy of {@code other}. The
+   * event a listener receives is reused for the next one, as Android recycles its events, so code
+   * that keeps an event past the callback keeps a copy.
+   */
+  public static MotionEvent obtain(MotionEvent other) {
+    MotionEvent e = new MotionEvent(other.action, other.x, other.y, other.eventTime);
+    e.rawX = other.rawX;
+    e.rawY = other.rawY;
+    return e;
+  }
+
   public int getAction() {
     return action;
   }

@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="uart" version="1.0">
-    <application application="uart/UartEcho" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="uart" android:versionName="1.0">
+    <application android:name=".UartEcho" />
 </manifest>

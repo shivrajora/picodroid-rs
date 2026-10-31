@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="lambdademo" version="1.0">
-    <application application="lambdademo/LambdaDemo" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="lambdademo" android:versionName="1.0">
+    <application android:name=".LambdaDemo" />
 </manifest>

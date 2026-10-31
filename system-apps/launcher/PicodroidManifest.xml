@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="picodroid.launcher" version="1.0" version-code="1">
-    <application activity="launcher/LauncherActivity" label="Launcher" icon="launcher.png" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="picodroid.launcher" android:versionName="1.0" android:versionCode="1">
+    <application android:label="Launcher" icon="launcher.png">
+        <activity android:name="launcher.LauncherActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
 </manifest>

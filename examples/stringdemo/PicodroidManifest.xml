@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="stringdemo" version="1.0">
-    <application application="stringdemo/StringDemo" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="stringdemo" android:versionName="1.0">
+    <application android:name=".StringDemo" />
 </manifest>

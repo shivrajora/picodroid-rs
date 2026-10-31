@@ -1,24 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="bootdemo" version="1.0"
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="bootdemo" android:versionName="1.0"
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
           xsi:noNamespaceSchemaLocation="../../sdk/PicodroidManifest.xsd">
+    <!-- Declared as on Android; nothing on this platform enforces a permission. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <!-- Android's shape: the Application, the entry Activity by its MAIN filter, a
          receiver for BOOT_COMPLETED (and the two time actions a manifest receiver may
          declare), and a receiver reached by an explicit Intent only. -->
-    <application application="bootdemo/BootDemoApp" label="Boot demo">
-        <activity name=".MainActivity">
+    <application android:name=".BootDemoApp" android:label="Boot demo">
+        <activity android:name=".MainActivity">
             <intent-filter>
-                <action name="android.intent.action.MAIN"/>
+                <action android:name="android.intent.action.MAIN"/>
             </intent-filter>
         </activity>
-        <receiver name=".BootReceiver">
+        <receiver android:name=".BootReceiver">
             <intent-filter>
-                <action name="android.intent.action.BOOT_COMPLETED"/>
-                <action name="android.intent.action.TIME_SET"/>
-                <action name="android.intent.action.TIMEZONE_CHANGED"/>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.TIME_SET"/>
+                <action android:name="android.intent.action.TIMEZONE_CHANGED"/>
             </intent-filter>
         </receiver>
-        <receiver name=".PingReceiver"/>
-        <uses-permission name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+        <receiver android:name=".PingReceiver"/>
     </application>
 </manifest>

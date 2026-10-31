@@ -4,8 +4,8 @@ package picodroid.inject.compiler;
 import java.io.IOException;
 import java.io.Writer;
 import javax.annotation.processing.ProcessingEnvironment;
+import javax.lang.model.element.Element;
 import javax.lang.model.element.TypeElement;
-import javax.lang.model.type.TypeMirror;
 import javax.tools.JavaFileObject;
 
 /**
@@ -36,11 +36,16 @@ final class SourceWriter {
   }
 
   /**
-   * The expression that satisfies one (validated) injection site: the factory call for a plain
-   * {@code T}, or a fresh wrapper object for {@code Provider<T>} / {@code Lazy<T>}.
+   * The expression that satisfies one (validated) injection site (a parameter or a field): the
+   * framework's call for {@code Application} / {@code @ApplicationContext Context}, the factory
+   * call for a plain {@code T}, or a fresh wrapper object for {@code Provider<T>} / {@code
+   * Lazy<T>}.
    */
-  static String dependencyExpr(InjectionGraph graph, TypeMirror declared) {
-    Dependency d = Dependency.of(declared);
+  static String dependencyExpr(InjectionGraph graph, Element site) {
+    if (Dependency.frameworkBound(site)) {
+      return Names.APPLICATION_EXPR;
+    }
+    Dependency d = Dependency.of(site.asType());
     TypeElement te = d.providedElement();
     switch (d.kind) {
       case PROVIDER:

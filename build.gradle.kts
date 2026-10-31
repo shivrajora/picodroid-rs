@@ -70,10 +70,11 @@ tasks.register("newApp") {
         dir.resolve("PicodroidManifest.xml").writeText(
             """
             <?xml version="1.0" encoding="utf-8"?>
-            <manifest package="$name" version="1.0"
+            <manifest xmlns:android="http://schemas.android.com/apk/res/android"
                       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                      xsi:noNamespaceSchemaLocation="../../sdk/PicodroidManifest.xsd">
-                <application application="$name/$className" />
+                      xsi:noNamespaceSchemaLocation="../../sdk/PicodroidManifest.xsd"
+                      package="$name" android:versionName="1.0">
+                <application android:name=".$className" />
             </manifest>
             """.trimIndent() + "\n"
         )

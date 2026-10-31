@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="tutorial_screens" version="1.0">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="tutorial_screens" android:versionName="1.0">
     <!-- Every screen is an <activity>. The one with the MAIN / LAUNCHER intent filter is what the
          launcher opens; the others are reached by startActivity(new Intent(this, ...)). -->
     <application>

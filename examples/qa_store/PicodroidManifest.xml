@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="qa_store" version="1.0"
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="qa_store" android:versionName="1.0"
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
           xsi:noNamespaceSchemaLocation="../../sdk/PicodroidManifest.xsd">
-    <application application="qa_store/QaStore" />
+    <application android:name=".QaStore" />
 </manifest>

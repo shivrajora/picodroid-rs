@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.app;
 
+import picodroid.annotation.Hide;
 import picodroid.content.ComponentCallbacks2;
 import picodroid.content.Context;
 import picodroid.content.Intent;
@@ -19,6 +20,21 @@ public class Application extends Context implements ComponentCallbacks2 {
 
   public void onCreate() {
     // Subclass overrides this
+  }
+
+  /**
+   * The app's Application, what the DI graph injects as {@code Application} and
+   * {@code @ApplicationContext Context} (through {@code picodroid.di.ApplicationContextModule}). An
+   * app whose manifest names no Application class gets a bare one, made on first use: Android
+   * always has one, so an injected application Context is never null. Android's hidden {@code
+   * ActivityThread.currentApplication()}.
+   */
+  @Hide("getApplication(), getApplicationContext(), or an injected Application")
+  public static Application currentApplication() {
+    synchronized (Context.class) {
+      Application app = sApplication;
+      return app != null ? app : new Application();
+    }
   }
 
   @Override

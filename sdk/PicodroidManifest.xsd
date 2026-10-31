@@ -1,100 +1,104 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  XSD for PicodroidManifest.xml.
+  XSD for PicodroidManifest.xml, which is written as Android writes AndroidManifest.xml.
 
   Mirrors buildSrc/src/main/kotlin/picodroid/ManifestSchema.kt, which is the
-  authoritative validator at build time — this schema is for editor / IDE
-  validation and autocomplete only and is NOT wired into the build (the
-  "exactly one entry point" rule is already enforced there).
+  authoritative validator at build time; this schema is for editor / IDE
+  validation and autocomplete only and is NOT wired into the build.
 
-  The one-of-three constraint uses an XSD 1.1 xs:assert, so validate with a
-  1.1-aware tool (IntelliJ / Android Studio, or a Xerces/Saxon-based checker).
-  Existing manifests without an xsi:schemaLocation stay valid; the reference is
-  opt-in per file.
+  Android's attributes live in Android's namespace
+  (xmlns:android="http://schemas.android.com/apk/res/android") and are declared in
+  PicodroidManifest-android.xsd, imported below. Picodroid's own attributes, which
+  have no Android counterpart (icon, design-width, design-height), are bare.
+
+  The "an Application or an Activity" rule uses an XSD 1.1 xs:assert, so validate
+  with a 1.1-aware tool (IntelliJ / Android Studio, or a Xerces/Saxon-based
+  checker). The reference is opt-in per file (xsi:noNamespaceSchemaLocation).
 -->
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
            xmlns:vc="http://www.w3.org/2007/XMLSchema-versioning"
+           xmlns:android="http://schemas.android.com/apk/res/android"
            vc:minVersion="1.1"
            elementFormDefault="unqualified">
 
+  <xs:import namespace="http://schemas.android.com/apk/res/android"
+             schemaLocation="PicodroidManifest-android.xsd"/>
+
   <xs:element name="manifest">
     <xs:complexType>
-      <xs:all>
-        <xs:element name="application" type="ApplicationType" minOccurs="1" maxOccurs="1"/>
+      <xs:choice minOccurs="1" maxOccurs="unbounded">
+        <xs:element name="application" type="ApplicationType"/>
+        <!-- Read and ignored: nothing enforces a permission on this platform. -->
+        <xs:element name="uses-permission" type="NamedType"/>
+        <!-- A hardware feature the app uses (PackageManager.FEATURE_* names). With
+             android:required="true" the installer refuses the app on a board that lacks
+             it; the default is not required (Android's is required). -->
+        <xs:element name="uses-feature" type="UsesFeatureType"/>
         <!-- The logical size the app lays out against. The runtime shows the app at exactly
              that size on every panel: centred and letterboxed on a larger one, panned on a
              smaller one. Absent: the app resizes to the panel. -->
-        <xs:element name="supports-screens" type="SupportsScreensType" minOccurs="0" maxOccurs="1"/>
-        <!-- A hardware feature the app uses (PackageManager.FEATURE_* names). With
-             required="true" the installer refuses the app on a board that lacks it;
-             the default is not required. -->
-        <xs:element name="uses-feature" type="UsesFeatureType" minOccurs="0" maxOccurs="unbounded"/>
-      </xs:all>
+        <xs:element name="supports-screens" type="SupportsScreensType"/>
+      </xs:choice>
       <!-- App package id, e.g. "helloworld" or "com.acme.app". Required. -->
       <xs:attribute name="package" type="xs:string" use="required"/>
-      <!-- Optional; a blank/absent version defaults to "1.0" at build time. -->
-      <xs:attribute name="version" type="xs:string" use="optional"/>
-      <!-- Optional monotonic integer version (defaults to 1); a newer build of
-           the same package must carry a greater code. -->
-      <xs:attribute name="version-code" type="xs:positiveInteger" use="optional"/>
+      <!-- The version name; "1.0" when absent. -->
+      <xs:attribute ref="android:versionName" use="optional"/>
+      <!-- Monotonic integer version, 1 when absent; a newer build of the same
+           package must carry a greater code. -->
+      <xs:attribute ref="android:versionCode" use="optional"/>
+      <xs:assert test="count(application) = 1"/>
     </xs:complexType>
   </xs:element>
 
   <!--
-    The entry point: exactly one of main-class / activity / application names
-    the class the runtime launches (the short form), or the Android form
-    declares the components as children and the <activity> with the MAIN
-    intent filter (else the first) is the entry.
+    android:name is the Application class; the entry is the <activity> with the MAIN
+    intent filter, else the first declared. An app has an Application, an Activity or
+    both: with both, the framework launches the entry Activity after
+    Application.onCreate; with an Application only, the app runs headless.
   -->
   <xs:complexType name="ApplicationType">
     <xs:choice minOccurs="0" maxOccurs="unbounded">
-      <xs:element name="activity" type="ActivityType"/>
-      <xs:element name="service" type="ComponentType"/>
+      <xs:element name="activity" type="FilteredType"/>
+      <xs:element name="service" type="NamedType"/>
       <!-- A BroadcastReceiver the framework starts for the boot-time actions its
            intent-filter names (BOOT_COMPLETED, TIME_SET, TIMEZONE_CHANGED), or
            that an explicit broadcast Intent reaches; the other actions are heard
            by receivers registered at run time only. -->
-      <xs:element name="receiver" type="ActivityType"/>
-      <!-- Read and ignored: nothing enforces a permission on this platform. -->
-      <xs:element name="uses-permission" type="ComponentType"/>
+      <xs:element name="receiver" type="FilteredType"/>
     </xs:choice>
-    <xs:attribute name="main-class" type="xs:string" use="optional"/>
-    <xs:attribute name="activity" type="xs:string" use="optional"/>
-    <xs:attribute name="application" type="xs:string" use="optional"/>
-    <!-- Display name a launcher shows; defaults to the package name. -->
-    <xs:attribute name="label" type="xs:string" use="optional"/>
-    <!-- App icon: the name of a PNG under assets/ (48x48 recommended). -->
+    <!-- The Application class: dotted, slash-form or relative to the package (".App"). -->
+    <xs:attribute ref="android:name" use="optional"/>
+    <!-- Display name a launcher shows, text or @string/name; defaults to the package name. -->
+    <xs:attribute ref="android:label" use="optional"/>
+    <!-- The style that is the app's theme (@style/Name), applied before the first
+         Activity's onCreate; absent, the style called AppTheme. -->
+    <xs:attribute ref="android:theme" use="optional"/>
+    <!-- App icon: the name of a PNG under assets/ (48x48 recommended). Picodroid's. -->
     <xs:attribute name="icon" type="xs:string" use="optional"/>
-    <!-- The style that is the app's theme (@style/Name), applied before the
-         first Activity's onCreate; absent, the style called AppTheme. The build
-         reads this as android:theme too; the prefixed spelling is not modelled
-         here (no namespace), so a schema-validated manifest writes "theme". -->
-    <xs:attribute name="theme" type="xs:string" use="optional"/>
-    <xs:assert test="count(@main-class | @activity | @application) = 1 or count(activity) >= 1"/>
+    <xs:assert test="exists(@android:name) or count(activity) >= 1"/>
   </xs:complexType>
 
-  <!-- A declared component: name (android:name at build time) is the class,
-       dotted, slash-form or relative to the manifest package (".Main"). -->
-  <xs:complexType name="ComponentType">
-    <xs:attribute name="name" type="xs:string" use="required"/>
+  <!-- A declared component or permission: android:name is the class (dotted,
+       slash-form or relative to the manifest package, ".Main") or the name. -->
+  <xs:complexType name="NamedType">
+    <xs:attribute ref="android:name" use="required"/>
   </xs:complexType>
 
-  <xs:complexType name="ActivityType">
+  <xs:complexType name="FilteredType">
     <xs:sequence>
       <xs:element name="intent-filter" minOccurs="0" maxOccurs="unbounded">
         <xs:complexType>
           <xs:choice minOccurs="0" maxOccurs="unbounded">
-            <xs:element name="action" type="ComponentType"/>
-            <xs:element name="category" type="ComponentType"/>
+            <xs:element name="action" type="NamedType"/>
+            <xs:element name="category" type="NamedType"/>
           </xs:choice>
         </xs:complexType>
       </xs:element>
     </xs:sequence>
-    <xs:attribute name="name" type="xs:string" use="required"/>
-    <!-- An <activity>'s title (android:label at build time): literal text, what
-         Activity.getTitle and an action bar start with; absent, the application's
-         label. -->
-    <xs:attribute name="label" type="xs:string" use="optional"/>
+    <xs:attribute ref="android:name" use="required"/>
+    <!-- An <activity>'s title: text or @string/name, what Activity.getTitle and an
+         action bar start with; absent, the application's label. -->
+    <xs:attribute ref="android:label" use="optional"/>
   </xs:complexType>
 
   <xs:complexType name="SupportsScreensType">
@@ -104,8 +108,8 @@
 
   <xs:complexType name="UsesFeatureType">
     <!-- e.g. picodroid.hardware.touchscreen, picodroid.hardware.wifi, picodroid.hardware.ethernet -->
-    <xs:attribute name="name" type="xs:string" use="required"/>
-    <xs:attribute name="required" type="xs:boolean" use="optional" default="false"/>
+    <xs:attribute ref="android:name" use="required"/>
+    <xs:attribute ref="android:required" use="optional"/>
   </xs:complexType>
 
 </xs:schema>

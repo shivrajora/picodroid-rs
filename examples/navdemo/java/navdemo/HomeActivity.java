@@ -18,8 +18,8 @@ public class HomeActivity extends Activity {
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     Log.i("NavDemo", "Home.onCreate");
-    // Launched by NavDemoApp via an explicit Intent, so getIntent() is non-null
-    // (it is null only for a manifest `activity=` boot with no app-side launch).
+    // The manifest's MAIN / LAUNCHER entry, launched by the framework: getIntent() is null
+    // here (Android hands it an ACTION_MAIN Intent); an Activity started with an Intent has it.
     Log.i("NavDemo", "Home intent null=" + (getIntent() == null));
     buildUi();
     // One-shot for-result round-trip: launch a probe that immediately reports

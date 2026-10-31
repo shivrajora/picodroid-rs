@@ -34,7 +34,7 @@ final class MembersInjectorWriter {
       sb.append("    instance.")
           .append(field.getSimpleName())
           .append(" = ")
-          .append(SourceWriter.dependencyExpr(graph, field.asType()))
+          .append(SourceWriter.dependencyExpr(graph, field))
           .append(";\n");
     }
     for (ExecutableElement method : b.injectMethods) {
@@ -45,7 +45,7 @@ final class MembersInjectorWriter {
           sb.append(", ");
         }
         first = false;
-        sb.append(SourceWriter.dependencyExpr(graph, param.asType()));
+        sb.append(SourceWriter.dependencyExpr(graph, param));
       }
       sb.append(");\n");
     }

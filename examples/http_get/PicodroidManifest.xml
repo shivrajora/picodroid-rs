@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="http_get" version="1.0">
-    <application application="http_get/HttpGet" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="http_get" android:versionName="1.0">
+    <application android:name=".HttpGet" />
 </manifest>

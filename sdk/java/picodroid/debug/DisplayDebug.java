@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.debug;
 
+import picodroid.graphics.Display;
 import picodroid.view.MotionEvent;
+import picodroid.view.View;
 
 /**
  * Picodroid-specific debug helpers that don't have an Android equivalent. Lives outside {@code
@@ -13,6 +15,8 @@ import picodroid.view.MotionEvent;
  *       only).
  *   <li>{@link #showFps} — toggles the live FPS overlay rendered by LVGL.
  *   <li>{@link #pollTouch} — pull-mode raw touch sample, alongside the listener-driven path.
+ *   <li>{@link #setContentView} / {@link #renderFrame} — content and frames with no Activity, for a
+ *       bench that drives its own frames.
  * </ul>
  */
 public final class DisplayDebug {
@@ -28,4 +32,20 @@ public final class DisplayDebug {
 
   /** Poll one raw touch sample. Returns {@code null} if the touch queue is empty. */
   public static native MotionEvent pollTouch();
+
+  /**
+   * Shows {@code root} on the screen with no Activity: for a bench that runs from {@code
+   * Application.onCreate} and drives its own frames ({@link #renderFrame}).
+   */
+  public static void setContentView(View root) {
+    Display.getInstance().setContentView(root);
+  }
+
+  /**
+   * Renders one frame now, outside the main loop: a bench's frame pump. An app never needs it; the
+   * main loop renders.
+   */
+  public static void renderFrame() {
+    Display.getInstance().update();
+  }
 }

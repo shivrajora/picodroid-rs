@@ -23,7 +23,8 @@ pub fn progress_bar_native_create() -> Result<Option<Value>, JvmError> {
     Ok(Some(Value::Int(lvgl_progress_bar::create())))
 }
 
-/// `ProgressBar.nativeCreateIndeterminate(int argb)` — `argb` is the
+/// `ProgressBar.nativeCreateIndeterminate(int argb)`, the spinner of
+/// Android's default style — `argb` is the
 /// theme-derived tint for the moving arc, supplied from Java
 /// (`Theme.colorPrimary`) so callers can rebrand the spinner without
 /// touching this shim.

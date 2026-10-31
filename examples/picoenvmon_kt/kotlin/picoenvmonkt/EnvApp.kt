@@ -3,13 +3,9 @@ package picoenvmonkt
 
 import javax.inject.Inject
 import picodroid.app.Application
-import picodroid.content.Context
-import picodroid.content.Intent
 import picodroid.graphics.Theme
 import picoenvmon_kt.R
-import picoenvmonkt.data.ThresholdConfig
 import picoenvmonkt.net.NetworkManager
-import picoenvmonkt.ui.home.HomeActivity
 
 /**
  * App entry point. The object graph is wired by `@Inject`/`@Singleton`
@@ -23,8 +19,6 @@ class EnvApp : Application() {
     /** Owns the network callback, dashboard server, clock watch and weather refresh. */
     @Inject lateinit var networkManager: NetworkManager
 
-    @Inject lateinit var thresholds: ThresholdConfig
-
     override fun onCreate() {
         Theme.colorBackground = getColor(R.color.background)
         Theme.colorSurface = getColor(R.color.surface)
@@ -34,12 +28,7 @@ class EnvApp : Application() {
         Theme.colorTextSecondary = getColor(R.color.text_secondary)
         Theme.colorOutline = getColor(R.color.outline)
 
-        // Before any screen or the logging service reads them.
-        thresholds.load(getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE))
-
         // No-op on boards without a network link (FEATURE_WIFI / FEATURE_ETHERNET probe inside).
         networkManager.start(this)
-
-        startActivity(Intent(this, HomeActivity::class.java))
     }
 }

@@ -120,6 +120,47 @@ public class Context {
   }
 
   /**
+   * Mirrors Android: the service of class {@code serviceClass} ({@code
+   * getSystemService(SensorManager.class)}), or null for a class that is not one.
+   */
+  @SuppressWarnings("unchecked")
+  public final <T> T getSystemService(Class<T> serviceClass) {
+    String name = getSystemServiceName(serviceClass);
+    return name == null ? null : (T) getSystemService(name);
+  }
+
+  /**
+   * Mirrors Android: the name {@link #getSystemService(String)} takes for {@code serviceClass}, or
+   * null. The managers every board ships are compared first: resolving the literal of a class a
+   * board drops (the network ones on testbench_rp2040, the multi-app ones on a single-app board)
+   * would throw, and a caller asking for one of those already has it.
+   */
+  public String getSystemServiceName(Class<?> serviceClass) {
+    if (serviceClass == SensorManager.class) {
+      return SENSOR_SERVICE;
+    }
+    if (serviceClass == NotificationManager.class) {
+      return NOTIFICATION_SERVICE;
+    }
+    if (serviceClass == PowerManager.class) {
+      return POWER_SERVICE;
+    }
+    if (serviceClass == ConnectivityManager.class) {
+      return CONNECTIVITY_SERVICE;
+    }
+    if (serviceClass == WifiManager.class) {
+      return WIFI_SERVICE;
+    }
+    if (serviceClass == AlarmManager.class) {
+      return ALARM_SERVICE;
+    }
+    if (serviceClass == StorageStatsManager.class) {
+      return STORAGE_STATS_SERVICE;
+    }
+    return null;
+  }
+
+  /**
    * Mirrors Android: the handle {@link picodroid.provider.Settings.System} takes. There are no
    * content providers here, so it is only that.
    */

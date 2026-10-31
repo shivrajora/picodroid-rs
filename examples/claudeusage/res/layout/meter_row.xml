@@ -10,6 +10,7 @@
         android:layout_marginLeft="@dimen/card_pad" />
 
     <ProgressBar
+        style="?android:attr/progressBarStyleHorizontal"
         android:id="@+id/meter_bar"
         android:layout_width="156dp"
         android:layout_height="8dp"

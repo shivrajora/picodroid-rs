@@ -10,7 +10,7 @@ import picodroid.widget.ImageView;
  * ImageView#setImageDrawable}, or use it as a background with {@link View#setBackground}.
  *
  * <p>Apps do not build these themselves (there is no {@code Bitmap} class); for the app's own
- * assets use {@link ImageView#setImageSource}.
+ * images use {@code res/drawable/} and {@link ImageView#setImageResource}.
  */
 public class BitmapDrawable extends Drawable {
   /** Framework image handle: an entry in the runtime's icon registry, valid while this app runs. */

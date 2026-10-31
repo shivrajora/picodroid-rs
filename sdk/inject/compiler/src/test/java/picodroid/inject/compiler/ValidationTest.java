@@ -553,6 +553,131 @@ public class ValidationTest {
   }
 
   @Test
+  public void unqualifiedContextRejected() throws Exception {
+    assertError(
+        "picodroid.content.Context cannot be provided without a @Provides method; for the"
+            + " application Context inject @ApplicationContext Context",
+        src(
+            "t.Repo",
+            "package t;",
+            "public class Repo {",
+            "  @javax.inject.Inject Repo(picodroid.content.Context context) {}",
+            "}"));
+  }
+
+  @Test
+  public void unqualifiedContextRejectedInProvides() throws Exception {
+    assertError(
+        "picodroid.content.Context cannot be provided without a @Provides method",
+        src(
+            "t.AppModule",
+            "package t;",
+            "@picodroid.di.Module",
+            "public final class AppModule {",
+            "  @picodroid.di.Provides static picodroid.content.SharedPreferences prefs(",
+            "      picodroid.content.Context c) { return null; }",
+            "}"));
+  }
+
+  @Test
+  public void applicationContextOnANonContextRejected() throws Exception {
+    assertError(
+        "@ApplicationContext qualifies picodroid.content.Context only",
+        src(
+            "t.Repo",
+            "package t;",
+            "public class Repo {",
+            "  @javax.inject.Inject Repo(@picodroid.di.ApplicationContext"
+                + " picodroid.app.Application app) {}",
+            "}"));
+  }
+
+  @Test
+  public void applicationContextProviderRejected() throws Exception {
+    assertError(
+        "@ApplicationContext qualifies picodroid.content.Context only",
+        src(
+            "t.Repo",
+            "package t;",
+            "public class Repo {",
+            "  @javax.inject.Inject @picodroid.di.ApplicationContext"
+                + " javax.inject.Provider<picodroid.content.Context> context;",
+            "  @javax.inject.Inject Repo() {}",
+            "}"));
+  }
+
+  @Test
+  public void lazyApplicationRejected() throws Exception {
+    assertError(
+        "picodroid.app.Application is bound by the framework and lives as long as the app",
+        src(
+            "t.Repo",
+            "package t;",
+            "public class Repo {",
+            "  @javax.inject.Inject Repo(picodroid.di.Lazy<picodroid.app.Application> app) {}",
+            "}"));
+  }
+
+  @Test
+  public void appApplicationSubclassRejectedWithHint() throws Exception {
+    assertError(
+        "inject Application and cast",
+        src("t.App", "package t;", "public class App extends picodroid.app.Application {}"),
+        src(
+            "t.Repo",
+            "package t;",
+            "public class Repo {",
+            "  @javax.inject.Inject Repo(App app) {}",
+            "}"));
+  }
+
+  @Test
+  public void providesApplicationIsADuplicateBinding() throws Exception {
+    assertError(
+        "picodroid.app.Application is bound multiple times",
+        src(
+            "t.AppModule",
+            "package t;",
+            "@picodroid.di.Module",
+            "public final class AppModule {",
+            "  @picodroid.di.Provides static picodroid.app.Application app() { return null; }",
+            "}"));
+  }
+
+  @Test
+  public void providesApplicationContextRejected() throws Exception {
+    assertError(
+        "@ApplicationContext Context is bound by the framework",
+        src(
+            "t.AppModule",
+            "package t;",
+            "@picodroid.di.Module",
+            "public final class AppModule {",
+            "  @picodroid.di.Provides @picodroid.di.ApplicationContext",
+            "  static picodroid.content.Context context() { return null; }",
+            "}"));
+  }
+
+  @Test
+  public void customQualifierRejected() throws Exception {
+    assertError(
+        "Custom qualifiers are not supported yet (@Fast)",
+        CLOCK,
+        src(
+            "t.Fast",
+            "package t;",
+            "@javax.inject.Qualifier",
+            "@java.lang.annotation.Target(java.lang.annotation.ElementType.PARAMETER)",
+            "public @interface Fast {}"),
+        src(
+            "t.Repo",
+            "package t;",
+            "public class Repo {",
+            "  @javax.inject.Inject Repo(@Fast Clock clock) {}",
+            "}"));
+  }
+
+  @Test
   public void injectOnInterfaceRejected() throws Exception {
     assertError(
         "can only be used on classes",

@@ -11,12 +11,11 @@
 //! `list_view_style_row` are the window's LVGL half
 //! (docs/designs/listview-recycling-2026-10.md).
 
-use pico_jvm::heap::StringTable;
 use pico_jvm::object_heap::ObjectHeap;
 use pico_jvm::types::{JvmError, Value};
 
 use super::super::lvgl::widgets::list_view as lvgl_list_view;
-use super::super::view::{extract_handle_at, extract_native_handle, extract_string_at};
+use super::super::view::{extract_handle_at, extract_native_handle};
 use super::super::view::{register_listener_with, NO_ATTACH};
 
 pub use lvgl_list_view::reset_list_view_state;
@@ -31,17 +30,6 @@ fn int_at(args: &[Value], idx: usize) -> Result<i32, JvmError> {
 
 pub fn list_view_native_create() -> Result<Option<Value>, JvmError> {
     Ok(Some(Value::Int(lvgl_list_view::create())))
-}
-
-pub fn list_view_add_item(
-    args: &[Value],
-    strings: &StringTable,
-    objects: &ObjectHeap,
-) -> Result<Option<Value>, JvmError> {
-    let id = extract_native_handle(args, objects)?;
-    let text = extract_string_at(args, 1, strings)?;
-    lvgl_list_view::add_item(id, text);
-    Ok(None)
 }
 
 pub fn list_view_register_item_click_listener(
@@ -124,5 +112,16 @@ pub fn list_view_sync_focus_order(
 ) -> Result<Option<Value>, JvmError> {
     let id = extract_native_handle(args, objects)?;
     lvgl_list_view::sync_focus_order(id);
+    Ok(None)
+}
+
+/// `ListView.nativeSelectRow(View row)`: move the keypad focus to `row` when
+/// another row of its list holds it.
+pub fn list_view_select_row(
+    args: &[Value],
+    objects: &ObjectHeap,
+) -> Result<Option<Value>, JvmError> {
+    let row = extract_handle_at(args, 1, objects)?;
+    lvgl_list_view::select_row(row);
     Ok(None)
 }

@@ -592,8 +592,7 @@ public class LayoutDemoActivity extends Activity {
         "layoutdemo/layoutdemo.LayoutDemoActivity".equals(name.flattenToString()));
     check(
         "Intent(Context, Class)",
-        "layoutdemo/LayoutDemoActivity"
-            .equals(new Intent(this, LayoutDemoActivity.class).getTargetClassName()));
+        name.equals(new Intent(this, LayoutDemoActivity.class).getComponent()));
   }
 
   /**

@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="jucdemo" version="1.0">
-    <application application="jucdemo/JucDemo" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="jucdemo" android:versionName="1.0">
+    <application android:name=".JucDemo" />
 </manifest>

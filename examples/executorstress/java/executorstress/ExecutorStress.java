@@ -2,7 +2,6 @@
 package executorstress;
 
 import picodroid.app.Application;
-import picodroid.content.Intent;
 import picodroid.util.Log;
 
 /**
@@ -14,6 +13,5 @@ public class ExecutorStress extends Application {
   @Override
   public void onCreate() {
     Log.i("ExecutorStress", "=== ExecutorStress start ===");
-    startActivity(new Intent(this, StressActivity.class));
   }
 }

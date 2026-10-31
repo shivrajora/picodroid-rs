@@ -10,7 +10,7 @@ import picoenvmon.EnvApp;
 /**
  * Alert thresholds — when a sensor reading crosses one of these, LiveActivity flashes the matching
  * tile and SensorLoggerService logs an alert. Persisted to the app's {@link SharedPreferences} so
- * values survive power-cycle; {@code EnvApp} loads them once at start, Settings saves them.
+ * values survive power-cycle: loaded when the singleton is made, saved by Settings.
  */
 @Singleton
 public class ThresholdConfig {
@@ -27,12 +27,17 @@ public class ThresholdConfig {
   /** Default: 10 lux. */
   public int luxLo = 10;
 
+  private final SharedPreferences prefs;
+
   /** App-scoped so every screen and the Service share one set. */
   @Inject
-  public ThresholdConfig() {}
+  public ThresholdConfig(SharedPreferences prefs) {
+    this.prefs = prefs;
+    load(prefs);
+  }
 
   /** Read the persisted values over the defaults. */
-  public void load(SharedPreferences p) {
+  private void load(SharedPreferences p) {
     tempHiCentiC = p.getInt(KEY_TEMP_HI, tempHiCentiC);
     humLoMilliPct = p.getInt(KEY_HUM_LO, humLoMilliPct);
     luxLo = p.getInt(KEY_LUX_LO, luxLo);
@@ -41,8 +46,10 @@ public class ThresholdConfig {
         "thresholds tempHi=" + tempHiCentiC + " humLo=" + humLoMilliPct + " luxLo=" + luxLo);
   }
 
-  public boolean save(SharedPreferences p) {
-    return p.edit()
+  /** Persist the current values; true when they reached storage. */
+  public boolean save() {
+    return prefs
+        .edit()
         .putInt(KEY_TEMP_HI, tempHiCentiC)
         .putInt(KEY_HUM_LO, humLoMilliPct)
         .putInt(KEY_LUX_LO, luxLo)

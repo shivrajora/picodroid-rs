@@ -120,7 +120,7 @@ public class SettingsActivity extends NavActivity {
     th.tempHiCentiC = tempField.getValue() * 100;
     th.humLoMilliPct = humField.getValue() * 1000;
     th.luxLo = luxField.getValue();
-    boolean ok = th.save(getSharedPreferences(EnvApp.PREFS_NAME, MODE_PRIVATE));
+    boolean ok = th.save();
     Log.i(
         EnvApp.TAG,
         "Settings saved: tempHi="

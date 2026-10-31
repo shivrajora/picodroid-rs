@@ -2,7 +2,6 @@
 package bugbashui;
 
 import picodroid.app.Application;
-import picodroid.content.Intent;
 import picodroid.util.Log;
 
 /**
@@ -14,6 +13,5 @@ public class BugBashUiApp extends Application {
   @Override
   public void onCreate() {
     Log.i("BugBashUi", "=== BugBashUi start ===");
-    startActivity(new Intent(this, MainActivity.class));
   }
 }

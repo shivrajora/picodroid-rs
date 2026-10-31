@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="tutorial_service" version="1.0">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="tutorial_service" android:versionName="1.0">
     <!-- Each component the app starts is declared: the two screens (the MAIN / LAUNCHER one is
          what the launcher opens) and the Service. The build refuses an Intent that names an
          undeclared Service or Activity. -->

@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="protodemo" version="1.0">
-    <application application="protodemo/ProtoDemo" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="protodemo" android:versionName="1.0">
+    <application android:name=".ProtoDemo" />
 </manifest>

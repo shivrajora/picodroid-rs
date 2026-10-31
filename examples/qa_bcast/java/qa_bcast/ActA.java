@@ -147,7 +147,7 @@ public class ActA extends Activity {
     T.check("explicit intent has no action", explicit.getAction() == null);
     Intent act = new Intent(ACTION_A);
     T.check("Intent(String) action", ACTION_A.equals(act.getAction()));
-    T.check("Intent(String) has no class", act.getTargetClassName() == null);
+    T.check("Intent(String) has no class", act.getComponent() == null);
     T.check("setAction chains", ACTION_B.equals(act.setAction(ACTION_B).getAction()));
     T.check(
         "ACTION_TIME_TICK value",

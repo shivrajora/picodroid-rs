@@ -137,6 +137,20 @@ public class ConnectivityManager {
   }
 
   /**
+   * Mirrors Android: the addresses of {@code network}, or null if it is not the network the board
+   * is on now. The way to read the board's address on any link.
+   */
+  public LinkProperties getLinkProperties(Network network) {
+    synchronized (this) {
+      syncActive();
+      if (network == null || !network.equals(active)) {
+        return null;
+      }
+    }
+    return new LinkProperties(NetworkInfo.getIpAddress());
+  }
+
+  /**
    * Hear about the board's network, whatever kind it is: {@code onAvailable} when the link is up
    * with an address (shortly after this call, if it already is), {@code onLost} when it drops.
    *

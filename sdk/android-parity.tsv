@@ -22,7 +22,7 @@
 #
 # Seeded 2026-10-20 from website/src/content/docs/reference/compatibility-matrix.md
 # and the sdk/java/picodroid tree at 1f571977.
-android.R	picodroid/R	partial	R.layout row ids and R.id.home only (Android's values); compile-only
+android.R	picodroid/R	partial	R.layout row ids, the ProgressBar R.attr styles and R.id.home only (Android's values); compile-only
 android.app.Activity	picodroid/app/Activity	live	lifecycle, results, options menu, fragments, ViewModel owner, onTrimMemory / onLowMemory, setActionBar(Toolbar), title from android:label, OnBackPressedDispatcher
 android.app.ActionBar	picodroid/app/ActionBar	partial	from setActionBar(Toolbar) only; title, subtitle, home-as-up, show / hide; no tabs, custom views, icons
 androidx.activity.OnBackPressedDispatcher	picodroid/activity/OnBackPressedDispatcher	partial	callbacks, lifecycle-bound callbacks, fallback; no predictive-back progress
@@ -63,7 +63,7 @@ android.view.ViewGroup	picodroid/view/ViewGroup	partial	addView / removeView / g
 android.view.ViewParent	picodroid/view/ViewParent	partial
 android.view.ViewPropertyAnimator	picodroid/view/ViewPropertyAnimator	partial	alpha, translation, rotation, scale, duration, interpolator, withEndAction
 android.view.MotionEvent	picodroid/view/MotionEvent	partial	int coordinates; single touch; ACTION_LONG_PRESS addition
-android.view.GestureDetector	picodroid/view/GestureDetector	partial	(Context, listener); onSingleTap / onLongPress / onFling with different signatures; no onScroll
+android.view.GestureDetector	picodroid/view/GestureDetector	partial	Android's listener and onTouchEvent; no double tap; timers on mainScheduledExecutor
 android.view.KeyEvent	picodroid/view/KeyEvent	partial	D-pad, BACK, HOME, A/B/X/Y constants, tracking, repeat; no meta state or characters
 android.view.KeyCharacterMap	picodroid/view/KeyCharacterMap	partial	deviceHasKey(s) only
 android.view.Menu	picodroid/view/Menu	partial	options menu as a list; no icons, sub-menus, MenuInflater
@@ -100,7 +100,7 @@ android.widget.RelativeLayout	picodroid/widget/RelativeLayout	partial	the layout
 android.widget.GridLayout	picodroid/widget/GridLayout	partial	rows, columns, spans on LVGL's grid
 android.widget.ScrollView	picodroid/widget/ScrollView	live
 android.widget.Toolbar	picodroid/widget/Toolbar	partial	title, subtitle, navigation listener (stock chevron), overflow = the options menu; no setNavigationIcon, getMenu, inflateMenu, XML
-android.widget.ImageView	picodroid/widget/ImageView	partial	int scale types; setImageSource addition
+android.widget.ImageView	picodroid/widget/ImageView	partial	ScaleType constants class; FIT_START/FIT_END draw as FIT_CENTER; one recolour
 android.widget.Switch	picodroid/widget/Switch	live
 android.widget.CheckBox	picodroid/widget/CheckBox	partial	no toggle()
 android.widget.ToggleButton	picodroid/widget/ToggleButton	partial	no on / off text
@@ -108,7 +108,7 @@ android.widget.RadioButton	picodroid/widget/RadioButton	partial	no toggle()
 android.widget.RadioGroup	picodroid/widget/RadioGroup	partial	check, clearCheck, listener
 android.widget.CompoundButton	picodroid/widget/CompoundButton	partial	setChecked does not fire the listener
 android.widget.TextView.OnEditorActionListener	picodroid/widget/OnEditorActionListener	partial	top-level interface taking the EditText
-android.widget.ProgressBar	picodroid/widget/ProgressBar	partial	indeterminate is creation-time only
+android.widget.ProgressBar	picodroid/widget/ProgressBar	partial	mode is the style's; setIndeterminate(true) on a bar throws
 android.widget.SeekBar	picodroid/widget/SeekBar	partial	not a ProgressBar subclass
 android.widget.Toast	picodroid/widget/Toast	partial	no setGravity, setView
 android.widget.Spinner	picodroid/widget/Spinner	partial	toString() rows; setItems addition
@@ -176,6 +176,8 @@ android.net.ConnectivityManager	picodroid/net/ConnectivityManager	partial
 android.net.ConnectivityManager.NetworkCallback	-	partial	nested in ConnectivityManager
 android.net.Network	picodroid/net/Network	partial
 android.net.NetworkCapabilities	picodroid/net/NetworkCapabilities	partial
+android.net.LinkProperties	picodroid/net/LinkProperties	partial	the link's IPv4 address only; no routes, DNS, MTU
+android.net.LinkAddress	picodroid/net/LinkAddress	partial	address only; no prefix length, flags, scope
 android.net.NetworkRequest	picodroid/net/NetworkRequest	partial
 android.net.NetworkInfo	picodroid/net/NetworkInfo	partial	framework-internal (@Hide): apps use ConnectivityManager, as modern Android does
 android.net.SntpClient	picodroid/net/SntpClient	live
@@ -251,7 +253,7 @@ com.google.protobuf.CodedOutputStream	picodroid/protobuf/CodedOutputStream	parti
 com.google.protobuf.MessageLite	picodroid/protobuf/MessageLite	partial
 com.google.protobuf.WireFormat	picodroid/protobuf/WireFormat	partial
 com.google.protobuf.InvalidProtocolBufferException	picodroid/protobuf/InvalidProtocolBufferException	live
-javax.inject.Inject	-	partial	resolved at build time (picodroid.di)
+javax.inject.Inject	-	partial	resolved at build time (picodroid.di); Hilt's @ApplicationContext Context and Application bound by the framework
 android.view.Display	picodroid/graphics/Display	partial	getMetrics
 java.lang.Runtime	picodroid/os/Runtime	partial	freeMemory / totalMemory / gc
 java.util.concurrent.FutureTask	picodroid/concurrent/FutureTask	partial	
@@ -268,6 +270,7 @@ picodroid.debug.DisplayDebug	picodroid/debug/DisplayDebug	addition	showFps
 picodroid.di.ApplicationComponent	picodroid/di/ApplicationComponent	addition	JSR-330 resolved at build time
 picodroid.di.ActivitySingletonComponent	picodroid/di/ActivitySingletonComponent	addition	
 picodroid.di.Lazy	picodroid/di/Lazy	addition	
+picodroid.di.ApplicationContextModule	picodroid/di/ApplicationContextModule	addition	Hilt's internal ApplicationContextModule: what generated factories call for Application / @ApplicationContext Context
 picodroid.net.HttpInputStream	picodroid/net/HttpInputStream	addition	the stream type HttpURLConnection returns as java.io
 picodroid.net.HttpOutputStream	picodroid/net/HttpOutputStream	addition	
 picodroid.net.SocketInputStream	picodroid/net/SocketInputStream	addition	

@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="bugbash" version="1.0">
-    <application application="bugbash/BugBash" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="bugbash" android:versionName="1.0">
+    <application android:name=".BugBash" />
 </manifest>

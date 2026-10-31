@@ -1,6 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="injectdemo" version="1.0"
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="injectdemo" android:versionName="1.0"
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
           xsi:noNamespaceSchemaLocation="../../sdk/PicodroidManifest.xsd">
-    <application application="injectdemo/InjectDemoApp" />
+    <application android:name=".InjectDemoApp">
+        <activity android:name=".HomeActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".DetailActivity" />
+        <service android:name=".PingService" />
+    </application>
 </manifest>

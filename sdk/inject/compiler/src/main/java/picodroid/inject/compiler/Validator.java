@@ -27,9 +27,10 @@ import javax.tools.Diagnostic;
 /**
  * Compile-time rules. Dagger's JSR-330 rules plus the ones pico-jvm forces: framework components
  * keep a no-arg constructor (the runtime invokes {@code <init>} by name and pads missing arguments
- * with null), instance fields resolve by name only (so shadowing is an error), and there is no
- * {@code Provider}/{@code @Provides} yet (so every dependency must be a concrete class with an
- * {@code @Inject} constructor).
+ * with null), and instance fields resolve by name only (so shadowing is an error). Every dependency
+ * is a concrete class with an {@code @Inject} constructor, a type a {@code @Provides} method binds,
+ * or one of the framework's two bindings: {@code Application} and {@code @ApplicationContext
+ * Context}, the one qualifier.
  */
 final class Validator {
   private static final String DESIGN_DOC = "docs/designs/inject-annotations-2026-08.md";
@@ -157,7 +158,7 @@ final class Validator {
         error(ctor, "@Inject constructors must not be private (" + name + ").");
       }
       for (VariableElement param : ctor.getParameters()) {
-        checkDependency(param.asType(), param);
+        checkDependency(param);
       }
     } else if (b.singleton) {
       error(type, "@Singleton requires an @Inject constructor (" + name + ").");
@@ -176,7 +177,7 @@ final class Validator {
       } else if (field.getModifiers().contains(Modifier.STATIC)) {
         error(field, "@Inject fields must not be static (" + fieldName + ").");
       }
-      checkDependency(field.asType(), field);
+      checkDependency(field);
     }
 
     for (ExecutableElement method : b.injectMethods) {
@@ -191,17 +192,51 @@ final class Validator {
         error(method, "@Inject methods must not be generic (" + methodName + ").");
       }
       for (VariableElement param : method.getParameters()) {
-        checkDependency(param.asType(), param);
+        checkDependency(param);
       }
     }
   }
 
   /**
-   * A dependency is a concrete, non-generic class with an @Inject constructor, optionally wrapped
-   * in a single {@code Provider<T>} / {@code Lazy<T>}.
+   * A dependency is a concrete, non-generic class with an @Inject constructor or a type bound by a
+   * {@code @Provides} method, optionally wrapped in a single {@code Provider<T>} / {@code Lazy<T>};
+   * or one of the framework's bindings, {@code Application} and {@code @ApplicationContext
+   * Context}, unwrapped.
    */
-  private void checkDependency(TypeMirror declared, Element site) {
+  private void checkDependency(Element site) {
+    TypeMirror declared = site.asType();
     Dependency d = Dependency.of(declared);
+    AnnotationMirror qualifier = Names.qualifier(site);
+    if (qualifier != null) {
+      if (!Names.isApplicationContext(qualifier)) {
+        error(site, qualifier, customQualifierMessage(qualifier));
+      } else if (!Dependency.isType(declared, Names.CONTEXT)) {
+        error(
+            site,
+            qualifier,
+            "@ApplicationContext qualifies "
+                + Names.CONTEXT
+                + " only ("
+                + site.getSimpleName()
+                + " is "
+                + declared
+                + "); inject @ApplicationContext Context itself: it lives as long as the app.");
+      }
+      return;
+    }
+    if (!d.rawWrapper && Dependency.isType(d.provided, Names.APPLICATION)) {
+      if (d.isWrapper()) {
+        error(
+            site,
+            Names.APPLICATION
+                + " is bound by the framework and lives as long as the app; inject it directly,"
+                + " not as "
+                + declared
+                + ".");
+      }
+      // A @Provides method rebinding it is reported by checkDuplicateBindings.
+      return;
+    }
     if (d.rawWrapper) {
       error(site, "Raw " + declared + " cannot be injected; use " + declared + "<T>.");
       return;
@@ -252,6 +287,27 @@ final class Validator {
       // Bound by a @Provides method (duplicates are reported separately).
       return true;
     }
+    if (name.equals(Names.CONTEXT)) {
+      // Hilt's [Dagger/MissingBinding] for an unqualified Context, with the way out.
+      error(
+          site,
+          Names.CONTEXT
+              + " cannot be provided without a @Provides method; for the application Context"
+              + " inject @ApplicationContext Context (picodroid.di.ApplicationContext), as with"
+              + " Hilt.");
+      return false;
+    }
+    TypeElement application = graph.elements().getTypeElement(Names.APPLICATION);
+    if (application != null
+        && types.isSubtype(types.erasure(te.asType()), types.erasure(application.asType()))) {
+      error(
+          site,
+          name
+              + " cannot be provided: the graph binds "
+              + Names.APPLICATION
+              + ", not the app's subclass; inject Application and cast, as with Hilt.");
+      return false;
+    }
     if (te.getKind() != ElementKind.CLASS || te.getModifiers().contains(Modifier.ABSTRACT)) {
       error(
           site,
@@ -271,6 +327,14 @@ final class Validator {
       return false;
     }
     return true;
+  }
+
+  private static String customQualifierMessage(AnnotationMirror qualifier) {
+    return "Custom qualifiers are not supported yet (@"
+        + qualifier.getAnnotationType().asElement().getSimpleName()
+        + "); the one qualifier is the framework's @ApplicationContext — see "
+        + DESIGN_DOC
+        + ".";
   }
 
   // ── Modules ────────────────────────────────────────────────────────────────
@@ -316,6 +380,19 @@ final class Validator {
                   + mname
                   + ").");
         }
+        AnnotationMirror qualifier = Names.qualifier(m);
+        if (Names.isApplicationContext(qualifier)) {
+          error(
+              m,
+              qualifier,
+              "@ApplicationContext Context is bound by the framework"
+                  + " (picodroid.di.ApplicationContextModule); a @Provides method cannot rebind it"
+                  + " ("
+                  + mname
+                  + ").");
+        } else if (qualifier != null) {
+          error(m, qualifier, customQualifierMessage(qualifier));
+        }
         if (m.getModifiers().contains(Modifier.PRIVATE)) {
           error(m, "@Provides methods must not be private (" + mname + ").");
         } else if (m.getModifiers().contains(Modifier.ABSTRACT)) {
@@ -347,7 +424,7 @@ final class Validator {
             break;
         }
         for (VariableElement param : m.getParameters()) {
-          checkDependency(param.asType(), param);
+          checkDependency(param);
         }
       }
       if (mod.needsInstance()) {
@@ -396,6 +473,9 @@ final class Validator {
       }
       if (ctorBinding != null && ctorBinding.hasInjectConstructor()) {
         sites.add("@Inject " + Names.ref(provided) + "(...)");
+      }
+      if (Names.ref(provided).equals(Names.APPLICATION)) {
+        sites.add("the framework (picodroid.di.ApplicationContextModule)");
       }
       if (sites.size() < 2) {
         continue;

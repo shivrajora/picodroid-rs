@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="langsuite" version="1.0">
-    <application application="langsuite/LangSuite" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="langsuite" android:versionName="1.0">
+    <application android:name=".LangSuite" />
 </manifest>

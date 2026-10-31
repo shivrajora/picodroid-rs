@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="syncdemo" version="1.0">
-    <application application="syncdemo/SyncDemo" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="syncdemo" android:versionName="1.0">
+    <application android:name=".SyncDemo" />
 </manifest>

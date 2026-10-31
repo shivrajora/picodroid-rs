@@ -2,7 +2,6 @@
 package picoenvmonkt.ui.settings
 
 import javax.inject.Inject
-import picodroid.content.Context
 import picodroid.graphics.Theme
 import picodroid.os.Bundle
 import picodroid.util.Log
@@ -13,7 +12,6 @@ import picodroid.widget.Switch
 import picodroid.widget.TextView
 import picodroid.widget.Toast
 import picoenvmon_kt.R
-import picoenvmonkt.PREFS_NAME
 import picoenvmonkt.TAG
 import picoenvmonkt.data.ThresholdConfig
 import picoenvmonkt.ui.common.NavActivity
@@ -133,7 +131,7 @@ class SettingsActivity : NavActivity() {
         th.tempHiCentiC = temp.getValue() * 100
         th.humLoMilliPct = hum.getValue() * 1000
         th.luxLo = lux.getValue()
-        val ok = th.save(getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE))
+        val ok = th.save()
         Log.i(
             TAG,
             "Settings saved: tempHi=${th.tempHiCentiC} humLo=${th.humLoMilliPct} luxLo=${th.luxLo} ok=$ok",

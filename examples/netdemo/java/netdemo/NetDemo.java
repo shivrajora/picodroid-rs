@@ -6,8 +6,8 @@ import picodroid.app.Application;
 import picodroid.content.Context;
 import picodroid.net.ConnectivityManager;
 import picodroid.net.InetAddress;
+import picodroid.net.LinkProperties;
 import picodroid.net.Socket;
-import picodroid.net.wifi.WifiManager;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
 
@@ -50,10 +50,13 @@ public class NetDemo extends Application {
       return;
     }
 
-    WifiManager wm = (WifiManager) getSystemService(Context.WIFI_SERVICE);
-    int rawIp = wm.getConnectionInfo().getIpAddress();
-    InetAddress myAddr = new InetAddress(rawIp);
-    Log.i(TAG, "My IP: " + myAddr.getHostAddress());
+    // The link's own address, whatever the link: LinkProperties, as on Android.
+    LinkProperties link = cm.getLinkProperties(cm.getActiveNetwork());
+    String myIp =
+        link == null || link.getLinkAddresses().isEmpty()
+            ? "0.0.0.0"
+            : link.getLinkAddresses().get(0).getAddress().getHostAddress();
+    Log.i(TAG, "My IP: " + myIp);
 
     // Connect to a TCP echo server on the build-time test host (see the
     // class javadoc), port 7000.

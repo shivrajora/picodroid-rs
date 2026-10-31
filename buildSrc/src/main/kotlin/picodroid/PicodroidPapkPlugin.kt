@@ -425,7 +425,8 @@ class PicodroidPapkPlugin : Plugin<Project> {
         compileJava.configure { dependsOn(genBuildConfig) }
 
         // The declared surface of an Android-shaped manifest against the code
-        // (docs/designs/manifest-components-2026-10.md): a no-op for the short form.
+        // (docs/designs/manifest-components-2026-10.md): a no-op for a manifest that
+        // declares no component.
         val verifyManifest = target.tasks.register("verifyManifest", ManifestComponentsTask::class.java) {
             group = "verification"
             description = "Check that every Service / Activity the code starts is declared in PicodroidManifest.xml"
@@ -450,9 +451,8 @@ class PicodroidPapkPlugin : Plugin<Project> {
             manifest.designHeight?.let { designHeight.set(it) }
             requiresFeatures.set(manifest.requiredFeatures)
             this.frameworkMapVersion.set(frameworkMapVersion)
-            manifest.mainClass?.let { mainClass.set(it) }
-            manifest.activity?.let { activity.set(it) }
             manifest.application?.let { application.set(it) }
+            manifest.activity?.let { activity.set(it) }
             manifestActivities.set(manifest.activities)
             manifestActivityLabels.set(manifest.activityLabels)
             manifestServices.set(manifest.services)

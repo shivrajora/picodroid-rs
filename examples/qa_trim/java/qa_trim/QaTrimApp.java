@@ -33,7 +33,6 @@ public class QaTrimApp extends Application {
           }
         });
     startService(new Intent(this, TrimSvc.class));
-    startActivity(new Intent(this, ActHome.class));
   }
 
   @Override

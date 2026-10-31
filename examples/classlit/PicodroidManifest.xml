@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="classlit" version="1.0">
-    <application application="classlit/ClassLit" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="classlit" android:versionName="1.0">
+    <application android:name=".ClassLit" />
 </manifest>

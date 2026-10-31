@@ -2,6 +2,7 @@
 package graphicsbench;
 
 import picodroid.app.Application;
+import picodroid.debug.DisplayDebug;
 import picodroid.graphics.Color;
 import picodroid.graphics.Display;
 import picodroid.os.Runtime;
@@ -53,7 +54,7 @@ public class GraphicsBench extends Application {
   private static final long W_PEAK_DIV = 10L; // 10 KB of peak heap ≈ 1 ms-equivalent
 
   // ── frame cadence ─────────────────────────────────────────────────────────────────────────────
-  private static final int FRAME_MS = 16; // matches Display.update()'s fixed tick step
+  private static final int FRAME_MS = 16; // matches DisplayDebug.renderFrame()'s fixed tick step
 
   // ── workload constants (all tunable; chosen for ~a few seconds total in sim) ───────────────────
   private static final int A_WIDGETS = 40; // (A) TextViews created per round
@@ -90,8 +91,8 @@ public class GraphicsBench extends Application {
     root.setBackgroundColor(Color.BLACK);
     stage = new FrameLayout(this);
     root.addView(stage, new FrameLayout.LayoutParams(display.getWidth(), display.getHeight()));
-    display.setContentView(root);
-    display.update(); // first paint — clean baseline on screen
+    DisplayDebug.setContentView(root);
+    DisplayDebug.renderFrame(); // first paint — clean baseline on screen
 
     Log.i(TAG, "=== graphicsbench (LVGL render pipeline composite score) ===");
 
@@ -227,7 +228,7 @@ public class GraphicsBench extends Application {
   /** Empty the stage and flush the now-cleared screen, so each test starts from a clean slate. */
   private void clearStage() {
     stage.removeAllViews();
-    display.update();
+    DisplayDebug.renderFrame();
   }
 
   // ════════════════════════════════════════════════════════════════════════════════════════════
@@ -244,9 +245,9 @@ public class GraphicsBench extends Application {
         stage.addView(tv, at(WRAP, WRAP, (i % 8) * 40, (i / 8) * 24));
         sinkObj = tv;
       }
-      display.update(); // rasterise the freshly added tree
+      DisplayDebug.renderFrame(); // rasterise the freshly added tree
       stage.removeAllViews(); // destroy native widgets + Java wrappers
-      display.update(); // repaint the freed area
+      DisplayDebug.renderFrame(); // repaint the freed area
     }
     clearStage();
   }
@@ -265,7 +266,7 @@ public class GraphicsBench extends Application {
       stage.addView(tv, lps[i]);
       tvs[i] = tv;
     }
-    display.update();
+    DisplayDebug.renderFrame();
     for (int it = 0; it < B_ITERS; it++) {
       TextView tv = tvs[it % B_WIDGETS];
       FrameLayout.LayoutParams lp = lps[it % B_WIDGETS];
@@ -276,10 +277,12 @@ public class GraphicsBench extends Application {
       tv.setLayoutParams(lp);
       tv.setAlpha((float) ((it % 8) + 1) / 8.0f);
       if (it % B_FRAME_EVERY == 0) {
-        display.update(); // amortised render: bridge-dispatch-dominated, with real raster mixed in
+        DisplayDebug
+            .renderFrame(); // amortised render: bridge-dispatch-dominated, with real raster mixed
+        // in
       }
     }
-    display.update();
+    DisplayDebug.renderFrame();
     clearStage();
   }
 
@@ -297,7 +300,7 @@ public class GraphicsBench extends Application {
       stage.addView(tile, at(28, 28, 4, i * 26));
       tiles[i] = tile;
     }
-    display.update();
+    DisplayDebug.renderFrame();
     // 8 tiles × {X, ALPHA} = 16 slots, exactly the animation-slot cap — none dropped.
     // To-only: each tile starts from its laid-out x=4 and default alpha 1.0.
     for (int i = 0; i < C_TILES; i++) {
@@ -305,7 +308,7 @@ public class GraphicsBench extends Application {
     }
     // Pump exactly duration/16 frames; each tick advances every slot 16 ms + renders.
     for (int f = 0; f < C_FRAMES; f++) {
-      display.update();
+      DisplayDebug.renderFrame();
     }
     clearStage();
   }
@@ -323,7 +326,7 @@ public class GraphicsBench extends Application {
       stage.addView(tv, at(WRAP, WRAP, (i % 4) * 78, (i / 4) * 32));
       block[i] = tv;
     }
-    display.update();
+    DisplayDebug.renderFrame();
     for (int f = 0; f < D_FRAMES; f++) {
       // Fill: flip the full-screen background → invalidates the whole screen → full raster + flush.
       int c = ((f & 1) == 0) ? Color.rgb(10, 10, 40) : Color.rgb(40, 10, 10);
@@ -332,7 +335,7 @@ public class GraphicsBench extends Application {
       for (int i = 0; i < D_BLOCK; i++) {
         block[i].setText("f" + f + "_" + i);
       }
-      display.update();
+      DisplayDebug.renderFrame();
     }
     clearStage();
   }

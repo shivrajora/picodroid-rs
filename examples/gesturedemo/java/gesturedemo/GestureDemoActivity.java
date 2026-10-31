@@ -45,17 +45,24 @@ public class GestureDemoActivity extends Activity {
     TextView surface = new TextView(this);
     surface.setText("touch me");
     surface.setBackgroundColor(Color.argb(255, 60, 60, 80));
-    // SimpleOnGestureListener (vs the raw interface) exercises the abstract
-    // base class: subclass through a class-typed supertype, not invokeinterface.
-    surface.setOnTouchListener(
+    // SimpleOnGestureListener (vs the raw interface) exercises the base class: subclass through a
+    // class-typed supertype, not invokeinterface. onDown returns true to claim the gesture, as on
+    // Android.
+    GestureDetector detector =
         new GestureDetector(
             this,
             new GestureDetector.SimpleOnGestureListener() {
               @Override
-              public void onSingleTap(MotionEvent e) {
+              public boolean onDown(MotionEvent e) {
+                return true;
+              }
+
+              @Override
+              public boolean onSingleTapUp(MotionEvent e) {
                 // getX/getY are view-relative to the touch surface.
                 app.info("tap");
                 status.setText("Tap @ rel(" + e.getX() + ", " + e.getY() + ")");
+                return true;
               }
 
               @Override
@@ -65,18 +72,27 @@ public class GestureDemoActivity extends Activity {
               }
 
               @Override
-              public void onFling(MotionEvent down, MotionEvent up, float vx, float vy) {
+              public boolean onScroll(MotionEvent e1, MotionEvent e2, float dx, float dy) {
+                status.setText(
+                    "Scroll (" + (e2.getX() - e1.getX()) + ", " + (e2.getY() - e1.getY()) + ")");
+                return true;
+              }
+
+              @Override
+              public boolean onFling(MotionEvent e1, MotionEvent e2, float vx, float vy) {
                 String dir =
                     Math.abs(vx) > Math.abs(vy)
                         ? (vx > 0 ? "right" : "left")
                         : (vy > 0 ? "down" : "up");
                 app.info("fling " + dir);
                 status.setText("Fling " + dir + " (vx=" + (int) vx + ", vy=" + (int) vy + ")");
+                return true;
               }
-            }));
-    // GestureDetector.onTouch returns true (consumes the stream), so this
-    // click must be suppressed when the surface is tapped — Android's
-    // contract. If "surface-click-LEAK" ever logs, suppression broke.
+            });
+    surface.setOnTouchListener((v, e) -> detector.onTouchEvent(e));
+    // The detector consumes the gesture (onDown returned true), so this click must be suppressed
+    // when the surface is tapped: Android's contract. If "surface-click-LEAK" ever logs,
+    // suppression broke.
     surface.setOnClickListener(v -> app.info("surface-click-LEAK"));
     root.addView(surface, new LinearLayout.LayoutParams(220, 120));
 

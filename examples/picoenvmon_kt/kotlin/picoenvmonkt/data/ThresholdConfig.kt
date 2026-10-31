@@ -14,12 +14,12 @@ private const val KEY_LUX_LO = "lux_lo"
 /**
  * Alert thresholds — when a sensor reading crosses one of these, LiveActivity flashes the matching
  * tile and SensorLoggerService logs an alert. Persisted to the app's [SharedPreferences] so values
- * survive power-cycle; `EnvApp` loads them once at start, Settings saves them. App-scoped so every
+ * survive power-cycle: loaded when the singleton is made, saved by Settings. App-scoped so every
  * screen and the Service share one set. The thresholds are `@JvmField` so Settings writes them with
  * a plain `putfield` instead of through accessor methods.
  */
 @Singleton
-class ThresholdConfig @Inject constructor() {
+class ThresholdConfig @Inject constructor(private val prefs: SharedPreferences) {
     /** Default: 30 °C. */
     @JvmField var tempHiCentiC = 3000
 
@@ -29,16 +29,22 @@ class ThresholdConfig @Inject constructor() {
     /** Default: 10 lux. */
     @JvmField var luxLo = 10
 
+    init {
+        load(prefs)
+    }
+
     /** Read the persisted values over the defaults. */
-    fun load(p: SharedPreferences) {
+    private fun load(p: SharedPreferences) {
         tempHiCentiC = p.getInt(KEY_TEMP_HI, tempHiCentiC)
         humLoMilliPct = p.getInt(KEY_HUM_LO, humLoMilliPct)
         luxLo = p.getInt(KEY_LUX_LO, luxLo)
         Log.i(TAG, "thresholds tempHi=$tempHiCentiC humLo=$humLoMilliPct luxLo=$luxLo")
     }
 
-    fun save(p: SharedPreferences): Boolean =
-        p.edit()
+    /** Persist the current values; true when they reached storage. */
+    fun save(): Boolean =
+        prefs
+            .edit()
             .putInt(KEY_TEMP_HI, tempHiCentiC)
             .putInt(KEY_HUM_LO, humLoMilliPct)
             .putInt(KEY_LUX_LO, luxLo)

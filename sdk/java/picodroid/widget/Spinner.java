@@ -11,12 +11,8 @@ public class Spinner extends AdapterView<Adapter> {
 
   private static native int nativeCreate();
 
-  /**
-   * Direct items setter — accepts a newline-separated string. Convenience for apps that haven't
-   * migrated to {@link #setAdapter}; programmatic callers should prefer constructing an {@link
-   * ArrayAdapter}.
-   */
-  public native void setItems(String items);
+  /** The rows, newline-separated: what {@link #refreshFromAdapter} pushes. */
+  private native void setItems(String items);
 
   public native int getSelectedItemPosition();
 

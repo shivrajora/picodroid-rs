@@ -21,6 +21,7 @@ public class ArrayAdapter<T> extends BaseAdapter {
   private final Context mContext;
   private final int mResource;
   private final int mFieldId;
+  private boolean mNotifyOnChange = true;
 
   /**
    * Android's {@code (Context, int resource)}: rows inflate {@code resource}, a {@code TextView}.
@@ -66,6 +67,7 @@ public class ArrayAdapter<T> extends BaseAdapter {
 
   public void add(T item) {
     items.add(item);
+    changed();
   }
 
   public void addAll(T[] objects) {
@@ -74,6 +76,7 @@ public class ArrayAdapter<T> extends BaseAdapter {
         items.add(item);
       }
     }
+    changed();
   }
 
   public void addAll(java.util.List<T> objects) {
@@ -83,21 +86,46 @@ public class ArrayAdapter<T> extends BaseAdapter {
         items.add(objects.get(i));
       }
     }
+    changed();
   }
 
   public void insert(T item, int index) {
     items.add(index, item);
+    changed();
   }
 
   public void remove(T item) {
     int i = getPosition(item);
     if (i >= 0) {
       items.remove(i);
+      changed();
     }
   }
 
   public void clear() {
     items.clear();
+    changed();
+  }
+
+  /**
+   * Mirrors Android: whether {@link #add}, {@link #addAll}, {@link #insert}, {@link #remove} and
+   * {@link #clear} call {@link #notifyDataSetChanged} themselves (the default). Set false around a
+   * batch of changes, then call {@code notifyDataSetChanged()}, which sets it back to true.
+   */
+  public void setNotifyOnChange(boolean notifyOnChange) {
+    mNotifyOnChange = notifyOnChange;
+  }
+
+  @Override
+  public void notifyDataSetChanged() {
+    super.notifyDataSetChanged();
+    mNotifyOnChange = true;
+  }
+
+  private void changed() {
+    if (mNotifyOnChange) {
+      notifyDataSetChanged();
+    }
   }
 
   /** The index of {@code item} by {@code equals}, or -1. */

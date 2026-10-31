@@ -316,6 +316,12 @@ pub const OS_HANDLED: &[Row] = &[
         "getPackageName",
         "()Ljava/lang/String;",
     ),
+    // picodroid/content/Intent: getComponent's package, the same native
+    (
+        "picodroid/content/Intent",
+        "getPackageName",
+        "()Ljava/lang/String;",
+    ),
     // picodroid/content/pm/PackageInstaller
     (
         "picodroid/content/pm/PackageInstaller",
@@ -818,11 +824,9 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/widget/RelativeLayout", "nativeSetGravity", "(I)V"),
     // picodroid/widget/ImageView
     ("picodroid/widget/ImageView", "nativeCreate", "()I"),
+    ("picodroid/widget/ImageView", "nativeSetScaleType", "(I)V"),
+    ("picodroid/widget/ImageView", "nativeSetTint", "(I)V"),
     ("picodroid/widget/ImageView", "setImageResource", "(I)V"),
-    ("picodroid/widget/ImageView", "setImageSource", "(Ljava/lang/String;)V"),
-    ("picodroid/widget/ImageView", "setScale", "(I)V"),
-    ("picodroid/widget/ImageView", "setScaleType", "(I)V"),
-    ("picodroid/widget/ImageView", "setTint", "(I)V"),
     // picodroid/widget/Keyboard
     ("picodroid/widget/Keyboard", "nativeCreate", "()I"),
     ("picodroid/widget/Keyboard", "nativeRegisterReadyListener", "()V"),
@@ -833,7 +837,6 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
     ("picodroid/widget/LinearLayout", "setGravity", "(I)V"),
     ("picodroid/widget/LinearLayout", "nativeSetOrientation", "(I)V"),
     // picodroid/widget/ListView
-    ("picodroid/widget/ListView", "addItem", "(Ljava/lang/String;)V"),
     ("picodroid/widget/ListView", "nativeCreate", "()I"),
     ("picodroid/widget/ListView", "nativeRegisterItemClickListener", "()V"),
     (
@@ -851,6 +854,11 @@ pub const GRAPHICS_HANDLED: &[Row] = &[
         "(Lpicodroid/view/View;Z)V",
     ),
     ("picodroid/widget/ListView", "nativeSyncFocusOrder", "()V"),
+    (
+        "picodroid/widget/ListView",
+        "nativeSelectRow",
+        "(Lpicodroid/view/View;)V",
+    ),
     // picodroid/widget/NumberPicker
     ("picodroid/widget/NumberPicker", "nativeCreate", "()I"),
     ("picodroid/widget/NumberPicker", "nativeRegisterPicker", "()V"),

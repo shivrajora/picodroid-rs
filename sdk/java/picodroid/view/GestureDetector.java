@@ -1,155 +1,309 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.view;
 
+import java.util.concurrent.RejectedExecutionException;
+import picodroid.concurrent.Executors;
+import picodroid.concurrent.ScheduledFuture;
+import picodroid.concurrent.TimeUnit;
 import picodroid.content.Context;
 
 /**
- * Minimal gesture recognizer modeled on Android's {@code GestureDetector}.
+ * Mirrors {@code android.view.GestureDetector}: turns a view's touch stream into down, show-press,
+ * single-tap, scroll, long-press and fling callbacks. Feed it every event, as on Android:
  *
- * <p>Hook this up via {@link View#setOnTouchListener}; it keeps just enough state to dispatch four
- * gestures off the touch event stream:
+ * <pre>{@code
+ * GestureDetector detector = new GestureDetector(this, listener);
+ * view.setOnTouchListener((v, e) -> detector.onTouchEvent(e));
+ * }</pre>
  *
- * <ul>
- *   <li>{@link OnGestureListener#onSingleTap} — DOWN then UP within {@link #TAP_SLOP_PX} pixels and
- *       under the LVGL long-press threshold (no LONG_PRESS event arrived first).
- *   <li>{@link OnGestureListener#onLongPress} — fired *while the finger is still down* when LVGL
- *       emits its long-press event. Subsequent UP suppresses {@code onSingleTap}.
- *   <li>{@link OnGestureListener#onFling} — UP whose displacement from DOWN exceeds {@link
- *       #FLING_MIN_PX}; velocity is computed from the lift-off slope (last MOVE → UP) so a flick
- *       whose speed comes from the final frames reads as fast even if the gesture was initially
- *       slow. Tap / fling classification still uses the full DOWN→UP displacement.
- * </ul>
+ * <p>or call {@link #onTouchEvent} from a custom view's {@link View#onTouchEvent}. The press timers
+ * run on {@link Executors#mainScheduledExecutor()} (there is no {@code Handler} here): {@link
+ * OnGestureListener#onShowPress} 100 ms after the press and {@link OnGestureListener#onLongPress}
+ * at {@link ViewConfiguration#getLongPressTimeout()}, both only while the finger stays in the tap
+ * region. When the timer table is full, the touch panel's own long-press event ({@link
+ * MotionEvent#ACTION_LONG_PRESS}, at the same timeout) stands in.
  *
- * <p>Apps that want raw drag callbacks (e.g. drag-to-reposition) should attach an {@link
- * OnTouchListener} directly and observe {@link MotionEvent#ACTION_MOVE} — this class only exposes
- * the higher-level tap/long-press/fling vocabulary.
- *
- * <p>v1 caveat: multi-touch is not supported.
+ * <p>Picodroid divergences: the tap region is 12 px and a fling needs 24 px of travel, both on the
+ * dominant axis and in raw (screen) coordinates, so a view that moves under the finger does not
+ * skew them; the fling velocity is the slope of the last sample before the release, in pixels per
+ * second. Single touch; no double tap ({@code OnDoubleTapListener}) and no {@code Handler}
+ * constructor.
  */
-public class GestureDetector implements OnTouchListener {
-  /** Max DOWN→UP displacement (in pixels) for an event to count as a tap rather than a fling. */
-  public static final int TAP_SLOP_PX = 12;
+public class GestureDetector {
+  /** Max travel from the press, in pixels, that still counts as a tap. */
+  private static final int TAP_SLOP_PX = 12;
 
-  /** Min DOWN→UP displacement (in pixels) for an event to count as a fling. */
-  public static final int FLING_MIN_PX = 24;
+  /** Min travel from the press, in pixels, for a release to count as a fling. */
+  private static final int FLING_MIN_PX = 24;
 
+  /** Positions the fling slope spans: about 50 ms of panel samples. */
+  private static final int SAMPLES = 4;
+
+  /** Android's {@code ViewConfiguration.getTapTimeout()}: the time to {@code onShowPress}. */
+  private static final int TAP_TIMEOUT_MS = 100;
+
+  /** Mirrors {@code android.view.GestureDetector.OnGestureListener}. */
   public interface OnGestureListener {
-    /** Brief DOWN→UP within {@link #TAP_SLOP_PX} that wasn't preceded by a long-press. */
-    void onSingleTap(MotionEvent e);
+    /**
+     * Every press starts here. Return true to consume the gesture, which also keeps the view's
+     * click from firing.
+     */
+    boolean onDown(MotionEvent e);
+
+    /** The finger is still down, and has not moved, 100 ms after the press. */
+    void onShowPress(MotionEvent e);
+
+    /** A release inside the tap region, before the long-press timeout. */
+    boolean onSingleTapUp(MotionEvent e);
 
     /**
-     * Called *during* a press when LVGL detects a long press (default ~400 ms hold). The follow-up
-     * ACTION_UP will not call {@code onSingleTap}.
+     * A move once the finger has left the tap region. {@code distanceX} / {@code distanceY} are the
+     * travel since the last call, previous minus current, as on Android.
      */
+    boolean onScroll(MotionEvent e1, MotionEvent e2, float distanceX, float distanceY);
+
+    /** The press, held in the tap region for the long-press timeout; no tap follows it. */
     void onLongPress(MotionEvent e);
 
-    /**
-     * Called on UP when displacement >= {@link #FLING_MIN_PX}. Velocities are in pixels/second.
-     * Sign matches axis direction (positive vx = rightward, positive vy = downward).
-     */
-    void onFling(MotionEvent down, MotionEvent up, float velocityX, float velocityY);
+    /** A release after a swipe; velocities in pixels per second, positive right and down. */
+    boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY);
   }
 
   /**
-   * Convenience base class mirroring {@code GestureDetector.SimpleOnGestureListener} on Android:
-   * every {@link OnGestureListener} method gets an empty default body, so subclasses override only
-   * the gestures they care about. Picodroid's v1 gesture vocabulary is {@code onSingleTap}/{@code
-   * onLongPress}/{@code onFling}; Android's wider set ({@code onDown}, {@code onScroll}, {@code
-   * onShowPress}, ...) is reserved for when those gestures exist.
+   * Mirrors {@code android.view.GestureDetector.SimpleOnGestureListener}: every callback does
+   * nothing and returns false, so a subclass overrides only the gestures it wants.
    */
-  public abstract static class SimpleOnGestureListener implements OnGestureListener {
+  public static class SimpleOnGestureListener implements OnGestureListener {
     @Override
-    public void onSingleTap(MotionEvent e) {}
+    public boolean onDown(MotionEvent e) {
+      return false;
+    }
+
+    @Override
+    public void onShowPress(MotionEvent e) {}
+
+    @Override
+    public boolean onSingleTapUp(MotionEvent e) {
+      return false;
+    }
+
+    @Override
+    public boolean onScroll(MotionEvent e1, MotionEvent e2, float distanceX, float distanceY) {
+      return false;
+    }
 
     @Override
     public void onLongPress(MotionEvent e) {}
 
     @Override
-    public void onFling(MotionEvent down, MotionEvent up, float velocityX, float velocityY) {}
+    public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
+      return false;
+    }
   }
 
-  private final OnGestureListener listener;
+  private final OnGestureListener mListener;
+  private boolean mIsLongpressEnabled = true;
 
-  // State carried between DOWN and UP — single touch only in v1.
-  private MotionEvent downEvent;
-  private MotionEvent lastSampleEvent; // most recent DOWN or MOVE; used for lift-off velocity
-  private boolean longPressFired;
+  // The gesture in progress: single touch.
+  private MotionEvent mCurrentDownEvent; // a copy: the runtime reuses the event it dispatches
+  // The finger's last distinct positions (raw coordinates, event time), a ring: the fling slope.
+  private final int[] mSampleX = new int[SAMPLES];
+  private final int[] mSampleY = new int[SAMPLES];
+  private final long[] mSampleTime = new long[SAMPLES];
+  private int mSampleHead; // the latest
+  private int mSampleCount;
+  private int mLastX; // raw coordinates of the last onScroll, for its distances
+  private int mLastY;
+  private boolean mStillDown;
+  private boolean mAlwaysInTapRegion;
+  private boolean mShowPressSent;
+  private boolean mInLongPress;
 
-  /** Mirrors Android's {@code GestureDetector(Context, OnGestureListener)}. */
+  /** The show-press timer, then the long-press one; null when neither is armed. */
+  private ScheduledFuture<?> mTimer;
+
+  private final Runnable mTimerTask = this::onTimer;
+
+  /**
+   * Mirrors Android's {@code GestureDetector(Context, OnGestureListener)}.
+   *
+   * @throws NullPointerException if {@code listener} is null
+   */
   public GestureDetector(Context context, OnGestureListener listener) {
-    this.listener = listener;
+    if (listener == null) {
+      throw new NullPointerException("OnGestureListener must not be null");
+    }
+    mListener = listener;
   }
 
-  @Override
-  public boolean onTouch(View v, MotionEvent event) {
-    int action = event.getAction();
+  /** Whether a held press becomes {@code onLongPress}; on by default. */
+  public void setIsLongpressEnabled(boolean isLongpressEnabled) {
+    mIsLongpressEnabled = isLongpressEnabled;
+  }
+
+  public boolean isLongpressEnabled() {
+    return mIsLongpressEnabled;
+  }
+
+  /**
+   * Analyzes one event of the stream and calls the listener. Returns what the callback it reached
+   * returned (false when none was reached), for a touch listener or {@code onTouchEvent} to return.
+   */
+  public boolean onTouchEvent(MotionEvent ev) {
+    int action = ev.getAction();
     if (action == MotionEvent.ACTION_DOWN) {
-      downEvent = event;
-      lastSampleEvent = event;
-      longPressFired = false;
-      return true;
+      cancelTimer();
+      mCurrentDownEvent = MotionEvent.obtain(ev);
+      mSampleCount = 0;
+      sample(ev);
+      mLastX = ev.getRawX();
+      mLastY = ev.getRawY();
+      mStillDown = true;
+      mAlwaysInTapRegion = true;
+      mShowPressSent = false;
+      mInLongPress = false;
+      arm(TAP_TIMEOUT_MS);
+      return mListener.onDown(ev);
+    }
+    MotionEvent down = mCurrentDownEvent;
+    if (down == null) {
+      return false; // no press seen: the stream started mid-gesture
     }
     if (action == MotionEvent.ACTION_MOVE) {
-      lastSampleEvent = event;
-      return true;
-    }
-    if (action == MotionEvent.ACTION_LONG_PRESS) {
-      longPressFired = true;
-      if (listener != null) {
-        listener.onLongPress(event);
+      if (mInLongPress) {
+        return false;
       }
-      return true;
+      sample(ev);
+      int x = ev.getRawX();
+      int y = ev.getRawY();
+      if (mAlwaysInTapRegion && travel(down, ev) <= TAP_SLOP_PX) {
+        return false;
+      }
+      if (x == mLastX && y == mLastY) {
+        return false;
+      }
+      if (mAlwaysInTapRegion) {
+        mAlwaysInTapRegion = false;
+        cancelTimer();
+      }
+      float distanceX = mLastX - x;
+      float distanceY = mLastY - y;
+      mLastX = x;
+      mLastY = y;
+      return mListener.onScroll(down, ev, distanceX, distanceY);
     }
     if (action == MotionEvent.ACTION_UP) {
-      MotionEvent down = downEvent;
-      MotionEvent slopeStart = lastSampleEvent != null ? lastSampleEvent : down;
-      downEvent = null;
-      lastSampleEvent = null;
-      if (down == null) {
-        return false; // UP without prior DOWN — touch likely cancelled
+      boolean longPressed = mInLongPress;
+      boolean tap = mAlwaysInTapRegion;
+      cancelTimer();
+      mStillDown = false;
+      mInLongPress = false;
+      mCurrentDownEvent = null;
+      if (longPressed) {
+        return false;
       }
-      // Use screen-absolute (raw) coordinates for all displacement math:
-      // getX/getY are now view-relative, so if the target view moves between
-      // DOWN and UP (e.g. a drag-repositioned tile) the relative deltas would
-      // be wrong; raw coordinates are stable regardless of view position.
-      int dx = event.getRawX() - down.getRawX();
-      int dy = event.getRawY() - down.getRawY();
-      int absDx = dx < 0 ? -dx : dx;
-      int absDy = dy < 0 ? -dy : dy;
-      // Approximate distance with Chebyshev — exact pixel distance would
-      // need a sqrt, and the slop / fling thresholds work fine on the
-      // dominant axis alone for the gesture vocabulary we expose.
-      int chebyshev = absDx > absDy ? absDx : absDy;
-
-      if (longPressFired) {
-        // Long press already fired the gesture; UP is just the cleanup.
-        return true;
+      if (tap) {
+        return mListener.onSingleTapUp(ev);
       }
-      if (chebyshev <= TAP_SLOP_PX) {
-        if (listener != null) {
-          listener.onSingleTap(event);
-        }
-        return true;
+      if (travel(down, ev) < FLING_MIN_PX) {
+        return false;
       }
-      if (chebyshev >= FLING_MIN_PX) {
-        // Velocity uses the lift-off slope (last MOVE sample → UP) so a
-        // flick whose speed comes from the final frames reads as fast.
-        // Tap / fling classification (above) still uses DOWN→UP so a
-        // slow drift can't be reclassified as a fling on a fast lift.
-        int sdx = event.getRawX() - slopeStart.getRawX();
-        int sdy = event.getRawY() - slopeStart.getRawY();
-        long durationMs = event.getEventTime() - slopeStart.getEventTime();
-        if (durationMs <= 0) {
-          durationMs = 1; // avoid div-by-zero on freakishly fast events
-        }
-        float vx = (float) sdx * 1000.0f / (float) durationMs;
-        float vy = (float) sdy * 1000.0f / (float) durationMs;
-        if (listener != null) {
-          listener.onFling(down, event, vx, vy);
-        }
+      // The slope over the finger's last few positions before the release (some 50 ms of
+      // samples), so a flick whose speed comes from its final frames reads as fast without one
+      // jittery step setting the direction; the travel test above used the whole press, so a
+      // slow drift with a quick lift is not a fling.
+      sample(ev);
+      int last = mSampleHead;
+      int first = (last + SAMPLES - (mSampleCount - 1)) % SAMPLES;
+      long durationMs = mSampleTime[last] - mSampleTime[first];
+      if (durationMs <= 0) {
+        durationMs = 1;
       }
-      return true;
+      float vx = (float) (mSampleX[last] - mSampleX[first]) * 1000.0f / (float) durationMs;
+      float vy = (float) (mSampleY[last] - mSampleY[first]) * 1000.0f / (float) durationMs;
+      return mListener.onFling(down, ev, vx, vy);
+    }
+    if (action == MotionEvent.ACTION_LONG_PRESS) {
+      // The panel's own long press, at the same timeout: it stands in for a timer that could not
+      // be armed. Consumed once a long press has fired, so the release does not click.
+      if (mIsLongpressEnabled && mStillDown && mAlwaysInTapRegion && !mInLongPress) {
+        dispatchLongPress();
+      }
+      return mInLongPress;
     }
     return false;
+  }
+
+  /**
+   * Records the finger's position in the ring; one on the spot of the latest only moves its time,
+   * so a pause before the release reads as slow.
+   */
+  private void sample(MotionEvent ev) {
+    int x = ev.getRawX();
+    int y = ev.getRawY();
+    int head = mSampleHead;
+    if (mSampleCount == 0 || x != mSampleX[head] || y != mSampleY[head]) {
+      head = (head + 1) % SAMPLES;
+      mSampleHead = head;
+      mSampleX[head] = x;
+      mSampleY[head] = y;
+      if (mSampleCount < SAMPLES) {
+        mSampleCount++;
+      }
+    }
+    mSampleTime[head] = ev.getEventTime();
+  }
+
+  /** Travel from the press on the dominant axis, in raw pixels. */
+  private static int travel(MotionEvent from, MotionEvent to) {
+    int dx = to.getRawX() - from.getRawX();
+    int dy = to.getRawY() - from.getRawY();
+    int absDx = dx < 0 ? -dx : dx;
+    int absDy = dy < 0 ? -dy : dy;
+    return absDx > absDy ? absDx : absDy;
+  }
+
+  private void arm(long delayMs) {
+    try {
+      mTimer =
+          Executors.mainScheduledExecutor().schedule(mTimerTask, delayMs, TimeUnit.MILLISECONDS);
+    } catch (RejectedExecutionException e) {
+      mTimer = null; // the table is full: the panel's long-press event stands in
+    }
+  }
+
+  private void cancelTimer() {
+    ScheduledFuture<?> timer = mTimer;
+    if (timer != null) {
+      mTimer = null;
+      timer.cancel(false);
+    }
+  }
+
+  private void onTimer() {
+    mTimer = null;
+    if (!mStillDown || !mAlwaysInTapRegion || mInLongPress) {
+      return;
+    }
+    if (!mShowPressSent) {
+      mShowPressSent = true;
+      mListener.onShowPress(mCurrentDownEvent);
+      if (mIsLongpressEnabled) {
+        arm(ViewConfiguration.getLongPressTimeout() - TAP_TIMEOUT_MS);
+      }
+    } else if (mIsLongpressEnabled) {
+      dispatchLongPress();
+    }
+  }
+
+  private void dispatchLongPress() {
+    cancelTimer();
+    MotionEvent down = mCurrentDownEvent;
+    if (!mShowPressSent) {
+      mShowPressSent = true;
+      mListener.onShowPress(down);
+    }
+    mInLongPress = true;
+    mListener.onLongPress(down);
   }
 }

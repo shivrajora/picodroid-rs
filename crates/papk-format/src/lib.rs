@@ -168,9 +168,13 @@ pub const TAG_RESOURCES: u32 = u32::from_le_bytes(*b"RESR");
 pub mod keys {
     /// Entry point: a class with `public static void main(String[])`.
     pub const MAIN_CLASS: &[u8] = b"main-class";
-    /// Entry point: an `Activity` subclass.
+    /// Entry point: an `Activity` subclass — the manifest's `MAIN` /
+    /// `LAUNCHER` Activity. Beside [`APPLICATION`] it is the Activity the
+    /// framework launches after `Application.onCreate` when that queued none.
     pub const ACTIVITY: &[u8] = b"activity";
-    /// Entry point: an `Application` subclass.
+    /// Entry point: an `Application` subclass (`<application android:name>`).
+    /// Alone, the app runs headless after `onCreate`; with [`ACTIVITY`], see
+    /// there.
     pub const APPLICATION: &[u8] = b"application";
     /// The app's package name.
     pub const PACKAGE_NAME: &[u8] = b"package-name";

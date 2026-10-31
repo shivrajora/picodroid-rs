@@ -95,6 +95,8 @@ public class QaUiActivity extends Activity {
   /** Layout params on a parented view, GradientDrawable: also in their own class. */
   private final ParamsChecks params = new ParamsChecks(this);
 
+  private final RecyclingChecks recyclingChecks = new RecyclingChecks(this);
+
   /** Toolbar, the action bar and Back. */
   private final AppBarChecks appBar = new AppBarChecks(this);
 
@@ -161,11 +163,6 @@ public class QaUiActivity extends Activity {
   private final boolean[] tapAppSaw = new boolean[1];
   private Spinner spinner;
   private final int[] spinnerSelected = new int[] {-1};
-
-  // The recycling list (`listRecycling`): a click on a window slot and a smooth scroll are
-  // delivered on later frames, so phases 2 and 3 read them.
-  private ListView recycling;
-  private final int[] recyclingClick = new int[] {-1};
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -727,7 +724,7 @@ public class QaUiActivity extends Activity {
     seekBar.setProgress(10);
     seekBar.performProgressChange();
     Log.i(TAG, "performProgressChange delivered synchronously=" + (seekChanged[0] == 1));
-    ProgressBar pb = new ProgressBar(this);
+    ProgressBar pb = new ProgressBar(this, null, picodroid.R.attr.progressBarStyleHorizontal);
     root.addView(pb);
     check("progress bar range defaults", pb.getMin() == 0 && pb.getMax() == 100);
     pb.setProgress(42);
@@ -767,13 +764,21 @@ public class QaUiActivity extends Activity {
     check(
         "null clears the tints",
         pb.getProgressTintList() == null && pb.getProgressBackgroundTintList() == null);
-    pb.setTint(Color.GREEN);
-    check(
-        "setTint is the indeterminate tint",
-        pb.getIndeterminateTintList().getDefaultColor() == Color.GREEN);
+    pb.setIndeterminateTintList(green);
+    check("a bar keeps the indeterminate tint", pb.getIndeterminateTintList() == green);
+    pb.setIndeterminate(false);
+    boolean refused = false;
+    try {
+      pb.setIndeterminate(true);
+    } catch (UnsupportedOperationException e) {
+      refused = true;
+    }
+    check("a horizontal bar stays determinate", refused && !pb.isIndeterminate());
     root.removeView(pb);
-    ProgressBar ind = ProgressBar.indeterminate();
+    // Android's default style: the spinner, indeterminate only.
+    ProgressBar ind = new ProgressBar(this);
     root.addView(ind);
+    ind.setIndeterminate(false);
     ind.setProgress(30);
     ind.setProgressTintList(green);
     ind.setIndeterminateTintList(ColorStateList.valueOf(Color.RED));
@@ -811,7 +816,7 @@ public class QaUiActivity extends Activity {
             && ring.getIndicatorDirection()
                 == CircularProgressIndicator.INDICATOR_DIRECTION_COUNTERCLOCKWISE
             && ring.getTrackCornerRadius() == 0);
-    ring.setTint(Color.RED); // indeterminate-only on Android: a no-op on a ring
+    ring.setIndeterminateTintList(ColorStateList.valueOf(Color.RED)); // kept, not shown
     ring.setSweepAngle(400f); // LVGL clamps to a full circle; the request is kept
     ring.setProgress(0);
     check("ring zero", ring.getProgress() == 0 && ring.getSweepAngle() == 400f);
@@ -820,7 +825,9 @@ public class QaUiActivity extends Activity {
 
   void adapters() {
     spinner = new Spinner(this);
-    spinner.setItems("a\nb\nc");
+    spinner.setAdapter(
+        new ArrayAdapter<String>(
+            this, picodroid.R.layout.simple_spinner_item, new String[] {"a", "b", "c"}));
     root.addView(spinner);
     check("spinner initial position", spinner.getSelectedItemPosition() == 0);
     spinner.setOnItemSelectedListener(
@@ -881,181 +888,11 @@ public class QaUiActivity extends Activity {
         lv.getAdapter() == ints && ints.getCount() == 20 && ints.getItem(4) == 16);
     root.removeView(lv);
     ListView plain = new ListView(this);
-    plain.addItem("p1");
-    plain.addItem("p2");
     root.addView(plain);
-    check("addItem list has no adapter", plain.getAdapter() == null);
+    check("a new list has no adapter", plain.getAdapter() == null);
     root.removeView(plain);
-    getViewRecycling();
-    listRecycling();
-  }
-
-  /** The row of {@code lv} whose first line reads {@code text}, or null. */
-  private static View rowShowing(ListView lv, String text) {
-    for (int i = 0; i < lv.getChildCount(); i++) {
-      View row = lv.getChildAt(i);
-      if (((TextView) ((LinearLayout) row).getChildAt(0)).getText().toString().equals(text)) {
-        return row;
-      }
-    }
-    return null;
-  }
-
-  /**
-   * A list longer than its window keeps only the rows in view (plus one beyond each edge) and hands
-   * them back to {@code getView} as the window moves; a short one is still built whole.
-   */
-  void listRecycling() {
-    ListView lv = new ListView(this);
-    root.addView(lv, new LinearLayout.LayoutParams(200, 120));
-    String[] titles = new String[60];
-    for (int i = 0; i < 60; i++) {
-      titles[i] = "r" + i;
-    }
-    RowAdapter rows = new RowAdapter(this, titles);
-    lv.setAdapter(rows);
-    int w = lv.getChildCount();
-    Log.i(TAG, "recycling window=" + w + " built=" + rows.built);
-    check("a long list keeps a window of rows", w >= 8 && w < 60 && rows.built == w);
-    check(
-        "the window starts at the top",
-        lv.getFirstVisiblePosition() == 0 && lv.getPositionForView(lv.getChildAt(0)) == 0);
-    lv.setSelection(30);
-    check(
-        "setSelection moves the window",
-        lv.getFirstVisiblePosition() == 30 && lv.getChildCount() == w);
-    check("the window recycles rather than builds", rows.built == w && rows.rebound > 0);
-    View r30 = rowShowing(lv, "r30");
-    check("the selected row is live", r30 != null && lv.getPositionForView(r30) == 30);
-    titles[30] = "R30";
-    rows.notifyDataSetChanged();
-    check("notify re-binds the window in place", rows.built == w && rowShowing(lv, "R30") != null);
-    rows.visible = 20;
-    rows.notifyDataSetChanged();
-    check(
-        "fewer rows clamps the window to the end",
-        lv.getChildCount() == Math.min(20, w)
-            && lv.getPositionForView(lv.getChildAt(lv.getChildCount() - 1)) == 19);
-    rows.visible = 5;
-    rows.notifyDataSetChanged();
-    check(
-        "a short list is whole again",
-        lv.getChildCount() == 5 && lv.getPositionForView(lv.getChildAt(0)) == 0);
-    rows.visible = 60;
-    rows.notifyDataSetChanged();
-    lv.setSelection(45);
-    lv.setOnItemClickListener((parent, view, position, id) -> recyclingClick[0] = position);
-    // Slot 2 of a window whose first row is one above position 45: position 46. The click is
-    // delivered next frame, before the scroll below moves the window.
-    lv.getChildAt(2).performClick();
-    lv.smoothScrollToPosition(59);
-    recycling = lv;
-  }
-
-  /** A two-line row adapter in the Android shape: build on null, re-bind the convertView. */
-  static final class RowAdapter extends picodroid.widget.BaseAdapter {
-    final Context ctx;
-    final String[] titles;
-
-    /** How many of {@link #titles} the adapter currently reports: lowered to shrink the list. */
-    int visible;
-
-    int built = 0;
-    int rebound = 0;
-
-    RowAdapter(Context ctx, String[] titles) {
-      this.ctx = ctx;
-      this.titles = titles;
-      this.visible = titles.length;
-    }
-
-    @Override
-    public int getCount() {
-      return visible;
-    }
-
-    @Override
-    public Object getItem(int position) {
-      return titles[position];
-    }
-
-    @Override
-    public View getView(int position, View convertView, ViewGroup parent) {
-      LinearLayout row = (LinearLayout) convertView;
-      if (row == null) {
-        row = new LinearLayout(ctx);
-        row.setOrientation(LinearLayout.VERTICAL);
-        row.addView(new TextView(ctx));
-        row.addView(new TextView(ctx));
-        built++;
-      } else {
-        rebound++;
-      }
-      ((TextView) row.getChildAt(0)).setText(titles[position]);
-      ((TextView) row.getChildAt(1)).setText("row " + position);
-      return row;
-    }
-  }
-
-  void getViewRecycling() {
-    ListView lv = new ListView(this);
-    root.addView(lv, new LinearLayout.LayoutParams(200, 120));
-    RowAdapter rows = new RowAdapter(this, new String[] {"alpha", "beta", "gamma"});
-    lv.setAdapter(rows);
-    check("getView built every row", rows.built == 3 && rows.rebound == 0);
-    check("rows are the list's children", lv.getChildCount() == 3);
-    View second = lv.getChildAt(1);
-    check(
-        "getChildAt is the row getView returned",
-        second instanceof LinearLayout
-            && ((TextView) ((LinearLayout) second).getChildAt(0))
-                .getText()
-                .toString()
-                .equals("beta"));
-    rows.titles[1] = "BETA";
-    rows.notifyDataSetChanged();
-    check("notify re-binds every row in place", rows.built == 3 && rows.rebound == 3);
-    check("convertView kept its identity", lv.getChildAt(1) == second);
-    check(
-        "re-bound row shows the new item",
-        ((TextView) ((LinearLayout) second).getChildAt(0)).getText().toString().equals("BETA"));
-    RowAdapter more = new RowAdapter(this, new String[] {"a", "b", "c", "d", "e"});
-    lv.setAdapter(more);
-    check("a new adapter starts from fresh rows", more.built == 5 && lv.getChildCount() == 5);
-    check("the old adapter's rows were freed", second.getParent() == null);
-    View first = lv.getChildAt(0);
-    more.visible = 2;
-    more.notifyDataSetChanged();
-    check(
-        "fewer rows frees the surplus",
-        lv.getChildCount() == 2 && lv.getChildAt(0) == first && more.built == 5);
-    more.visible = 4;
-    more.notifyDataSetChanged();
-    check(
-        "growth re-binds the kept rows and builds the rest",
-        lv.getChildCount() == 4 && more.built == 7 && lv.getChildAt(0) == first);
-    ArrayAdapter<String> plainText =
-        new ArrayAdapter<String>(
-            this, picodroid.R.layout.simple_list_item_1, new String[] {"one", "two"});
-    lv.setAdapter(plainText);
-    check(
-        "ArrayAdapter rows are TextViews",
-        lv.getChildCount() == 2
-            && lv.getChildAt(1) instanceof TextView
-            && ((TextView) lv.getChildAt(1)).getText().toString().equals("two"));
-    plainText.add("three");
-    plainText.notifyDataSetChanged();
-    check("ArrayAdapter growth appends a row", lv.getChildCount() == 3);
-    check("ArrayAdapter.getPosition", plainText.getPosition("three") == 2);
-    plainText.remove("two");
-    plainText.insert("zero", 0);
-    plainText.notifyDataSetChanged();
-    check(
-        "ArrayAdapter insert/remove re-bind in place",
-        lv.getChildCount() == 3
-            && ((TextView) lv.getChildAt(0)).getText().toString().equals("zero")
-            && ((TextView) lv.getChildAt(2)).getText().toString().equals("three"));
-    root.removeView(lv);
+    recyclingChecks.getViewRecycling(root);
+    recyclingChecks.listRecycling(root);
   }
 
   void editText() {
@@ -1305,7 +1142,7 @@ public class QaUiActivity extends Activity {
         "radio tap reaches the group past an app listener",
         tapGroup.getCheckedRadioButtonId() == 12 && tapB.isChecked() && tapAppSaw[0]);
     root.removeView(tapGroup);
-    check("a click on a window slot reports the adapter position", recyclingClick[0] == 46);
+    check("a click on a window slot reports the adapter position", recyclingChecks.click[0] == 46);
   }
 
   void sizes() {
@@ -1423,7 +1260,8 @@ public class QaUiActivity extends Activity {
             .build();
     check(
         "notification fields",
-        n.getContentTitle().equals("title") && n.getContentText().equals("text"));
+        "title".equals(n.extras.getString(Notification.EXTRA_TITLE))
+            && "text".equals(n.extras.getString(Notification.EXTRA_TEXT)));
     NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
     nm.notify(7, n);
     nm.cancel(7);
@@ -1762,13 +1600,15 @@ public class QaUiActivity extends Activity {
     Log.i(
         TAG,
         "recycling after smooth scroll: first="
-            + recycling.getFirstVisiblePosition()
+            + recyclingChecks.list.getFirstVisiblePosition()
             + " last="
-            + recycling.getLastVisiblePosition()
+            + recyclingChecks.list.getLastVisiblePosition()
             + " window="
-            + recycling.getChildCount());
-    check("smoothScrollToPosition reaches the end", recycling.getLastVisiblePosition() == 59);
-    root.removeView(recycling);
+            + recyclingChecks.list.getChildCount());
+    check(
+        "smoothScrollToPosition reaches the end",
+        recyclingChecks.list.getLastVisiblePosition() == 59);
+    root.removeView(recyclingChecks.list);
     check("12 listeners survive GC (tree-rooted)", churnClicks[0] == 12);
     section("customGroupResized", () -> groups.customGroupResized(root));
     churnBox.removeAllViews();

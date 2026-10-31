@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoclock;
 
-import picoclock.ui.ClockActivity;
 import picodroid.app.Application;
-import picodroid.content.Context;
 import picodroid.content.Intent;
 import picodroid.util.Log;
 
@@ -22,28 +20,14 @@ public class ClockApp extends Application {
   /** The preferences file behind {@link AlarmStore}. */
   public static final String PREFS_NAME = "picoclock";
 
-  /**
-   * The application context, for {@link ClockModule}: the injection graph has no {@code Context}
-   * binding of its own (Hilt's {@code @ApplicationContext}), and the Application is the one Context
-   * that lives as long as the graph's singletons do.
-   */
-  private static Context appContext;
-
-  /** The application context; set at the top of {@link #onCreate}, before anything is injected. */
-  static Context appContext() {
-    return appContext;
-  }
-
   @Override
   public void onCreate() {
-    appContext = this;
     // The date and schedule arithmetic is the part of this app that no amount
     // of tapping at the panel can exercise: an alarm that does not ring is
     // silent in both senses. Check it where a failure is visible.
     SelfTest.run();
 
     startService(new Intent(this, AlarmService.class));
-    startActivity(new Intent(this, ClockActivity.class));
     Log.i(TAG, "started");
   }
 }

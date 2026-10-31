@@ -61,7 +61,8 @@ pub fn dispatch(
         }
         // `Context.getPackageName()`: invokevirtual dispatches with the
         // receiver's class (an Activity or Application subclass), so match
-        // the method alone; no other served method shares the name.
+        // the method alone; `Intent`'s private static twin (for
+        // `getComponent`) is the only other method of the name.
         (_, mh::getPackageName) => {
             let name = crate::packages::running().unwrap_or("");
             Some(match ctx.strings.intern_dyn(name.as_bytes()) {

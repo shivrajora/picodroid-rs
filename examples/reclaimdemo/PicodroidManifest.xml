@@ -1,4 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="reclaimdemo" version="1.0">
-    <application application="reclaimdemo/ReclaimDemoApp" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="reclaimdemo" android:versionName="1.0">
+    <application>
+        <activity android:name=".HomeActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".ChildActivity" />
+        <activity android:name=".LeafActivity" />
+        <activity android:name=".MidActivity" />
+    </application>
 </manifest>

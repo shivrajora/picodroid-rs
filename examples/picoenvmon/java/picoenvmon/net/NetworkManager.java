@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picoenvmon.net;
 
+import java.util.List;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import picodroid.concurrent.Executors;
@@ -10,9 +11,9 @@ import picodroid.content.pm.PackageManager;
 import picodroid.lifecycle.LiveData;
 import picodroid.lifecycle.MutableLiveData;
 import picodroid.net.ConnectivityManager;
-import picodroid.net.InetAddress;
+import picodroid.net.LinkAddress;
+import picodroid.net.LinkProperties;
 import picodroid.net.Network;
-import picodroid.net.wifi.WifiManager;
 import picodroid.os.SystemClock;
 import picodroid.util.Log;
 import picoenvmon.EnvApp;
@@ -101,7 +102,7 @@ public class NetworkManager implements Runnable {
   private boolean started;
   private boolean serving;
   private boolean timeSynced;
-  private WifiManager wifiManager;
+  private ConnectivityManager connectivity;
 
   /**
    * Next look at the wall clock, on the monotonic elapsed-ms clock. 0 = as soon as the stack is up.
@@ -162,13 +163,12 @@ public class NetworkManager implements Runnable {
     started = true;
     state = STATE_JOINING;
     publish();
-    wifiManager = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
     ConnectivityManager cm =
         (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+    connectivity = cm;
     cm.registerDefaultNetworkCallback(linkCallback);
     // The current state first, then the changes: a link that is up already is served now, not
-    // when the callback's first onAvailable gets to the main thread (which a post from
-    // Application.onCreate never does here, the main queue not being up yet).
+    // a main-loop turn later when the callback's first onAvailable arrives.
     if (cm.getActiveNetwork() != null) {
       linkUp();
     }
@@ -230,10 +230,11 @@ public class NetworkManager implements Runnable {
     if (state == STATE_UP) {
       return;
     }
-    // The station's address, packed as Android packs it; 0 while it has none.
-    int raw = wifiManager.getConnectionInfo().getIpAddress();
-    if (raw != 0) {
-      ipDotted = new InetAddress(raw).getHostAddress();
+    // The link's address, whatever the link is; none while it has none.
+    LinkProperties link = connectivity.getLinkProperties(connectivity.getActiveNetwork());
+    List<LinkAddress> addresses = link == null ? null : link.getLinkAddresses();
+    if (addresses != null && !addresses.isEmpty()) {
+      ipDotted = addresses.get(0).getAddress().getHostAddress();
       ipBytes = ipDotted.getBytes();
       url = "http://" + ipDotted + ":" + HTTP_PORT + "/";
     }

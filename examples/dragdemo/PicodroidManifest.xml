@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="dragdemo" version="1.0">
-    <application application="dragdemo/DragDemoApp" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="dragdemo" android:versionName="1.0">
+    <application>
+        <activity android:name=".DragDemoActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
     <!-- A drag needs a finger: the installer refuses this app on a board without touch. -->
-    <uses-feature name="picodroid.hardware.touchscreen" required="true" />
+    <uses-feature android:name="picodroid.hardware.touchscreen" android:required="true" />
 </manifest>

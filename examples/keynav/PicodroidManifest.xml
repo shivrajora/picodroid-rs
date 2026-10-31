@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="keynav" version="1.0">
-    <application activity="keynav/KeyNavActivity" label="Key nav" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="keynav" android:versionName="1.0">
+    <application android:label="Key nav">
+        <activity android:name=".KeyNavActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
 </manifest>

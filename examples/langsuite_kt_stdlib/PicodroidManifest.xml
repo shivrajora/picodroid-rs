@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="langsuite_kt_stdlib" version="1.0"
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="langsuite_kt_stdlib" android:versionName="1.0"
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
           xsi:noNamespaceSchemaLocation="../../sdk/PicodroidManifest.xsd">
-    <application application="langsuitektstdlib/LangSuiteKtStdlib" />
+    <application android:name="langsuitektstdlib.LangSuiteKtStdlib" />
 </manifest>

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.inject.compiler;
 
+import javax.lang.model.element.Element;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeKind;
@@ -51,6 +52,24 @@ final class Dependency {
       }
     }
     return new Dependency(Kind.DIRECT, declared, false);
+  }
+
+  /**
+   * Whether the framework binds {@code site}: an {@code @ApplicationContext Context} or a plain
+   * {@code picodroid.app.Application}. Only valid after validation, which rejects every other use
+   * of the qualifier, wrappers of either, and a {@code @Provides} rebinding of {@code Application}.
+   */
+  static boolean frameworkBound(Element site) {
+    return Names.isApplicationContext(Names.qualifier(site))
+        || isType(site.asType(), Names.APPLICATION);
+  }
+
+  /** Whether {@code t} is exactly the declared type {@code qualifiedName}. */
+  static boolean isType(TypeMirror t, String qualifiedName) {
+    return t.getKind() == TypeKind.DECLARED
+        && ((TypeElement) ((DeclaredType) t).asElement())
+            .getQualifiedName()
+            .contentEquals(qualifiedName);
   }
 
   boolean isWrapper() {

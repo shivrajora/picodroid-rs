@@ -13,8 +13,8 @@
 //! - every section starts on a 4-byte boundary, zero-padded from the end of
 //!   the previous one ([`section_after`]) — the reader takes each section's
 //!   offset from the file header, so the padding is invisible to it;
-//! - manifest key order: the entry-point key (`main-class` / `activity` /
-//!   `application`), `package-name`, `version`, `framework-map-version`,
+//! - manifest key order: the entry-point key or keys (`main-class`,
+//!   `activity`, `application`, or `application` then `activity`), `package-name`, `version`, `framework-map-version`,
 //!   then `version-code`, `label`, `icon`, `design-width` + `design-height`
 //!   and `requires-features` — each only when the spec sets it, so a spec
 //!   that sets none is byte-identical to the historical output — then any
@@ -35,23 +35,40 @@ use crate::{
     TAG_RESOURCES, VERSION_MAJOR, VERSION_MINOR,
 };
 
-/// The app's entry point — exactly one of the three manifest entry keys.
+/// The app's entry point: the manifest entry keys it writes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EntryPoint<'a> {
     /// `main-class`: a class with `public static void main(String[])`.
     MainClass(&'a str),
-    /// `activity`: an `Activity` subclass.
+    /// `activity`: an `Activity` subclass, launched directly.
     Activity(&'a str),
-    /// `application`: an `Application` subclass.
+    /// `application`: an `Application` subclass and no Activity: the app
+    /// runs headless after `onCreate`.
     Application(&'a str),
+    /// `application`, then `activity`: the framework runs the Application's
+    /// `onCreate` and then launches the Activity unless `onCreate` started
+    /// one itself, as Android launches the `MAIN` / `LAUNCHER` Activity
+    /// (docs/designs/manifest-components-2026-10.md).
+    ApplicationActivity {
+        application: &'a str,
+        activity: &'a str,
+    },
 }
 
 impl<'a> EntryPoint<'a> {
-    fn key_and_value(self) -> (&'static [u8], &'a str) {
+    /// The `(key, value)` pairs, in the order they are written.
+    fn keys_and_values(self) -> [Option<(&'static [u8], &'a str)>; 2] {
         match self {
-            Self::MainClass(v) => (keys::MAIN_CLASS, v),
-            Self::Activity(v) => (keys::ACTIVITY, v),
-            Self::Application(v) => (keys::APPLICATION, v),
+            Self::MainClass(v) => [Some((keys::MAIN_CLASS, v)), None],
+            Self::Activity(v) => [Some((keys::ACTIVITY, v)), None],
+            Self::Application(v) => [Some((keys::APPLICATION, v)), None],
+            Self::ApplicationActivity {
+                application,
+                activity,
+            } => [
+                Some((keys::APPLICATION, application)),
+                Some((keys::ACTIVITY, activity)),
+            ],
         }
     }
 }
@@ -259,9 +276,11 @@ impl<'a> PapkBuilder<'a> {
     /// Build the MANIFEST section data (key/value pairs).
     fn build_manifest_data(&self) -> Result<Vec<u8>, BuildError> {
         let mut data = Vec::new();
-        let (entry_key, entry_value) = self.manifest.entry.key_and_value();
-        push_bytes_u16(&mut data, entry_key, BuildError::NameTooLong)?;
-        push_bytes_u16(&mut data, entry_value.as_bytes(), BuildError::ValueTooLong)?;
+        for (entry_key, entry_value) in self.manifest.entry.keys_and_values().into_iter().flatten()
+        {
+            push_bytes_u16(&mut data, entry_key, BuildError::NameTooLong)?;
+            push_bytes_u16(&mut data, entry_value.as_bytes(), BuildError::ValueTooLong)?;
+        }
         push_bytes_u16(&mut data, keys::PACKAGE_NAME, BuildError::NameTooLong)?;
         push_bytes_u16(
             &mut data,
@@ -629,6 +648,35 @@ mod tests {
         assert_eq!(p.icon(), Some("icon.png"));
         assert_eq!(p.package_name(), Some("t"));
         assert_eq!(p.version(), Some("1.0"));
+    }
+
+    /// An Application with an entry Activity writes both keys, the
+    /// Application first; the reader finds each.
+    #[test]
+    fn application_and_activity_entry_writes_both_keys() {
+        let mut spec = spec();
+        spec.entry = EntryPoint::ApplicationActivity {
+            application: "demo/App",
+            activity: "demo/Main",
+        };
+        let mut b = PapkBuilder::new(spec);
+        b.class(MAIN_NAME, MAIN);
+        let bytes = b.build().unwrap();
+        let p = Papk::parse(&bytes).unwrap();
+        let keys: alloc::vec::Vec<&[u8]> = p.manifest().unwrap().map(|e| e.key).collect();
+        assert_eq!(
+            keys,
+            [
+                &b"application"[..],
+                b"activity",
+                b"package-name",
+                b"version",
+                b"framework-map-version",
+            ]
+        );
+        assert_eq!(p.application(), Some("demo/App"));
+        assert_eq!(p.activity(), Some("demo/Main"));
+        assert_eq!(p.main_class(), None);
     }
 
     #[test]

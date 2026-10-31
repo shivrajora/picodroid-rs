@@ -83,7 +83,9 @@ F	BUTTON_NEUTRAL
 F	BUTTON_POSITIVE
 F	CANCELLED
 F	CENTER
+F	CENTER_CROP
 F	CENTER_HORIZONTAL
+F	CENTER_INSIDE
 F	CENTER_IN_PARENT
 F	CENTER_VERTICAL
 F	CENTURIES
@@ -142,7 +144,9 @@ F	EXTRA_NEW_STATE
 F	EXTRA_NO_CONNECTIVITY
 F	EXTRA_RESULTS_UPDATED
 F	EXTRA_SUPPLICANT_ERROR
+F	EXTRA_TEXT
 F	EXTRA_TIMEZONE
+F	EXTRA_TITLE
 F	FADE_MS
 F	FEATURE_ETHERNET
 F	FEATURE_TOUCHSCREEN
@@ -154,6 +158,10 @@ F	FILL_AND_STROKE
 F	FILL_HORIZONTAL
 F	FILL_VERTICAL
 F	FIRST
+F	FIT_CENTER
+F	FIT_END
+F	FIT_START
+F	FIT_XY
 F	FIXED_DELAY
 F	FIXED_RATE
 F	FLAG_CANCELED
@@ -282,6 +290,7 @@ F	MAGIC
 F	MARCH
 F	MARQUEE
 F	MATCH_PARENT
+F	MATRIX
 F	MAX
 F	MAX_ACTIONS
 F	MAX_BLOB
@@ -431,13 +440,8 @@ F	ROUND
 F	RTC
 F	RTC_WAKEUP
 F	RUNNING
+F	SAMPLES
 F	SATURDAY
-F	SCALE_1X
-F	SCALE_CENTER
-F	SCALE_CENTER_CROP
-F	SCALE_FIT_CENTER
-F	SCALE_FIT_XY
-F	SCALE_TILE
 F	SCAN_RESULTS_AVAILABLE_ACTION
 F	SCREEN_HEIGHT_DP_UNDEFINED
 F	SCREEN_OFF_TIMEOUT
@@ -509,6 +513,7 @@ F	TAG
 F	TAG_TYPE_BITS
 F	TAG_TYPE_MASK
 F	TAP_SLOP_PX
+F	TAP_TIMEOUT_MS
 F	TEXT_COLOR_SET
 F	THURSDAY
 F	TITLE_INSET
@@ -639,6 +644,7 @@ F	activeCapabilities
 F	activeLongPresses
 F	adapter
 F	address
+F	addresses
 F	alignWithParent
 F	alignment
 F	alive
@@ -699,7 +705,6 @@ F	dir
 F	disabledMask
 F	dismissListener
 F	doOutput
-F	downEvent
 F	downKeyCode
 F	downTarget
 F	downTime
@@ -760,7 +765,6 @@ F	keyCode
 F	keyboard
 F	keys
 F	kind
-F	lastSampleEvent
 F	layoutParams
 F	leftMargin
 F	length
@@ -768,7 +772,6 @@ F	level
 F	limit
 F	listMode
 F	listener
-F	longPressFired
 F	longValsHi
 F	longValsLo
 F	mActionBar
@@ -778,6 +781,7 @@ F	mActivity
 F	mAdapter
 F	mAddToBackStack
 F	mAdded
+F	mAlwaysInTapRegion
 F	mAnchor0
 F	mAnchor1
 F	mAnchor2
@@ -817,6 +821,7 @@ F	mContentView
 F	mContext
 F	mCount
 F	mCurState
+F	mCurrentDownEvent
 F	mCurrentItem
 F	mCustom
 F	mCustomGroup
@@ -852,7 +857,10 @@ F	mGroup
 F	mHeight
 F	mHomeItem
 F	mHost
+F	mImageTint
+F	mInLongPress
 F	mInts
+F	mIsLongpressEnabled
 F	mIsPop
 F	mKeyDispatchState
 F	mKeys
@@ -862,6 +870,8 @@ F	mLastTag
 F	mLastTop
 F	mLastVersion
 F	mLastWidth
+F	mLastX
+F	mLastY
 F	mLayout
 F	mLayoutGravity
 F	mLayoutPending
@@ -870,6 +880,7 @@ F	mLifecycle
 F	mLifecycleState
 F	mLimit
 F	mLineMode
+F	mListener
 F	mLiveData
 F	mMajor
 F	mManager
@@ -889,6 +900,7 @@ F	mNavButton
 F	mNavListener
 F	mNextBackStackIndex
 F	mNextWho
+F	mNotifyOnChange
 F	mObserver
 F	mObservers
 F	mOffscreenPageLimit
@@ -926,8 +938,15 @@ F	mRowCount
 F	mRowSpan
 F	mRowWeight
 F	mRowsUsed
+F	mSampleCount
+F	mSampleHead
+F	mSampleTime
+F	mSampleX
+F	mSampleY
 F	mSavedFragmentState
+F	mScaleType
 F	mScrollState
+F	mShowPressSent
 F	mSized
 F	mSmooth
 F	mSource
@@ -938,6 +957,7 @@ F	mStateCount
 F	mStateIds
 F	mStateSaved
 F	mStates
+F	mStillDown
 F	mStore
 F	mSubtitle
 F	mSubtitleView
@@ -947,6 +967,8 @@ F	mTag
 F	mText
 F	mTextColor
 F	mTextSize
+F	mTimer
+F	mTimerTask
 F	mTitle
 F	mTitleColor
 F	mTitleColorSet
@@ -1192,7 +1214,6 @@ M	addCallback
 M	addCapability
 M	addExact
 M	addFragment
-M	addItem
 M	addNetwork
 M	addObserver
 M	addOnBackStackChangedListener
@@ -1274,8 +1295,10 @@ M	cancel
 M	cancel0
 M	cancelArmed
 M	cancelQueued
+M	cancelTimer
 M	capabilitiesOf
 M	ceil
+M	changed
 M	check
 M	checkDouble
 M	checkError
@@ -1300,6 +1323,7 @@ M	clampMs
 M	clear
 M	clearCapabilities
 M	clearCheck
+M	clearColorFilter
 M	clearState
 M	close
 M	closeOptionsMenu
@@ -1369,6 +1393,7 @@ M	createNewFile
 M	createView
 M	current
 M	current0
+M	currentApplication
 M	currentKind0
 M	currentThread
 M	currentTimeMillis
@@ -1405,6 +1430,7 @@ M	dismissed
 M	dispatch
 M	dispatchCreate
 M	dispatchDestroy
+M	dispatchLongPress
 M	dispatchPause
 M	dispatchResume
 M	dispatchRunnable
@@ -1578,14 +1604,13 @@ M	getColor
 M	getColorForState
 M	getColors
 M	getColumnCount
+M	getComponent
 M	getConfiguration
 M	getConfiguredNetworks
 M	getConnectTimeout
 M	getConnectionInfo
 M	getContentLength
 M	getContentResolver
-M	getContentText
-M	getContentTitle
 M	getContext
 M	getCount
 M	getCurrentItem
@@ -1639,6 +1664,7 @@ M	getHostAddress
 M	getHour
 M	getID
 M	getId
+M	getImageTintList
 M	getIndeterminateTintList
 M	getIndicatorColor
 M	getIndicatorDirection
@@ -1672,6 +1698,8 @@ M	getLeft
 M	getLength
 M	getLifecycle
 M	getLineHeight
+M	getLinkAddresses
+M	getLinkProperties
 M	getLong
 M	getLongExtra
 M	getLongPressTimeout
@@ -1750,6 +1778,7 @@ M	getRssi
 M	getRule
 M	getRules
 M	getSSID
+M	getScaleType
 M	getScaleX
 M	getScaleY
 M	getScanResults
@@ -1778,6 +1807,7 @@ M	getSupplicantState
 M	getSupportFragmentManager
 M	getSweepAngle
 M	getSystemService
+M	getSystemServiceName
 M	getTag
 M	getTagFieldNumber
 M	getTagWireType
@@ -1841,7 +1871,6 @@ M	i
 M	iconAt
 M	incrementAndGet
 M	incrementProgressBy
-M	indeterminate
 M	indexOf
 M	indexOfChild
 M	inflate
@@ -1902,6 +1931,7 @@ M	isLeap
 M	isLeapYear
 M	isLetter
 M	isLongPress
+M	isLongpressEnabled
 M	isNegative
 M	isNull
 M	isNullSentinel
@@ -2145,6 +2175,7 @@ M	nativeScanSecurity
 M	nativeScanSsid
 M	nativeScrollTo
 M	nativeScrollY
+M	nativeSelectRow
 M	nativeSerial
 M	nativeSet
 M	nativeSetAction
@@ -2186,6 +2217,7 @@ M	nativeSetProgress
 M	nativeSetProperty
 M	nativeSetRange
 M	nativeSetRelativeRules
+M	nativeSetScaleType
 M	nativeSetSize
 M	nativeSetSpacers
 M	nativeSetString
@@ -2288,6 +2320,7 @@ M	onDestroy
 M	onDestroyView
 M	onDetach
 M	onDismiss
+M	onDown
 M	onDraw
 M	onEditorAction
 M	onFling
@@ -2330,10 +2363,12 @@ M	onRestoreInstanceState
 M	onResume
 M	onSaveInstanceState
 M	onScanResultsAvailable
+M	onScroll
 M	onSensorChanged
 M	onServiceConnected
 M	onServiceDisconnected
-M	onSingleTap
+M	onShowPress
+M	onSingleTapUp
 M	onStart
 M	onStartCommand
 M	onStartTrackingTouch
@@ -2343,6 +2378,7 @@ M	onStopTrackingTouch
 M	onSwipe
 M	onTextChanged
 M	onTimeChanged
+M	onTimer
 M	onTitleChanged
 M	onTouch
 M	onTouchEvent
@@ -2434,6 +2470,7 @@ M	prepareOptionsMenu
 M	print
 M	println
 M	prolepticMonth
+M	provideApplication
 M	publishInterest
 M	pushAngles
 M	pushLimit
@@ -2528,6 +2565,7 @@ M	removeTransportType
 M	removeView
 M	removeViewAt
 M	renameTo
+M	renderFrame
 M	replace
 M	report
 M	reportBackStackChanged
@@ -2559,9 +2597,11 @@ M	runAndReset
 M	runOnUiThread
 M	runWrapper
 M	sameTint
+M	sample
 M	saveAllState
 M	saveFragmentInstanceState
 M	saveState
+M	scaleType
 M	scaleX
 M	scaleY
 M	schedule
@@ -2595,6 +2635,7 @@ M	setCheckedId
 M	setCheckedSilently
 M	setClassName
 M	setColor
+M	setColorFilter
 M	setColors
 M	setColumnCount
 M	setConnectTimeout
@@ -2635,8 +2676,9 @@ M	setHour
 M	setId
 M	setImageDrawable
 M	setImageResource
-M	setImageSource
+M	setImageTintList
 M	setIncludeFontPadding
+M	setIndeterminate
 M	setIndeterminateTintList
 M	setIndicatorColor
 M	setIndicatorDirection
@@ -2645,6 +2687,7 @@ M	setInitialSavedState
 M	setInputType
 M	setInterpolator
 M	setIs24HourView
+M	setIsLongpressEnabled
 M	setItems
 M	setKeepScreenOn
 M	setLayoutParams
@@ -2669,6 +2712,7 @@ M	setName
 M	setNavigationOnClickListener
 M	setNegativeButton
 M	setNeutralButton
+M	setNotifyOnChange
 M	setOffscreenPageLimit
 M	setOnCheckedChangeListener
 M	setOnCheckedChangeWidgetListener
@@ -2713,7 +2757,6 @@ M	setRequestProperty
 M	setResult
 M	setRotation
 M	setRowCount
-M	setScale
 M	setScaleType
 M	setScaleX
 M	setScaleY
@@ -2747,7 +2790,6 @@ M	setTheme
 M	setTime
 M	setTimeZone
 M	setTimeout
-M	setTint
 M	setTitle
 M	setTitleTextColor
 M	setTo
@@ -2861,6 +2903,7 @@ M	track
 M	transfer
 M	translationX
 M	translationY
+M	travel
 M	truncateAt
 M	truncatedMessage
 M	truncatedTo

@@ -226,15 +226,6 @@ pub(in crate::graphics) fn create() -> i32 {
     handle_table::register(list)
 }
 
-pub(in crate::graphics) fn add_item(id: i32, text: &str) {
-    let Some(list) = handle_table::get(id) else {
-        return; // stale handle — mutating a destroyed View is a no-op
-    };
-    if let Some(row) = super::text_view::with_cstr(text, |p| list_add_button(list, p)) {
-        row_make_interactive(row);
-    }
-}
-
 // ── The window: events, padding, moves, focus order ─────────────────────────
 
 /// `ListView.nativeWatchViewport`: queue the list for `fireScroll` whenever
@@ -303,6 +294,31 @@ pub(in crate::graphics) fn recycle_row(row_id: i32, to_end: bool) {
         }
     }
     lv_obj_move_to_index(row, if to_end { -1 } else { 0 });
+}
+
+/// `ListView.nativeSelectRow`: `setSelection`'s keypad half. When the
+/// Activity's focus is on another row of the same list, it moves to `row`,
+/// as Android's selection follows `setSelection` in key navigation. Without
+/// it a jump re-binds the window in place and the focused widget goes on
+/// showing whatever position its slot now holds, often the overscan row
+/// above the viewport, so ENTER opened a row nobody could see. No scroll:
+/// `setSelection` has scrolled `row` into view already, and a scroll from
+/// coordinates the new spacers have not laid out yet would be wrong.
+pub(in crate::graphics) fn select_row(row_id: i32) {
+    let Some(row) = handle_table::get(row_id) else {
+        return;
+    };
+    let (Some(list), Some(group)) = (lv_obj_get_parent(row), lv_obj_get_group(row)) else {
+        return;
+    };
+    let Some(focused) = lv_group_get_focused(group) else {
+        return;
+    };
+    if focused != row && lv_obj_get_parent(focused) == Some(list) {
+        STATE.hold_focus_scroll.set(true);
+        lv_group_focus_obj(row);
+        STATE.hold_focus_scroll.set(false);
+    }
 }
 
 /// The most rows a window is expected to hold: a 480-row panel with 24-pixel

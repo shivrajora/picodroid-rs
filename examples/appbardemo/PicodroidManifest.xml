@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="appbardemo" version="1.0">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="appbardemo" android:versionName="1.0">
     <!-- Each screen's android:label is the title its app bar shows. -->
-    <application label="App bar demo">
+    <application android:label="App bar demo">
         <activity android:name=".MainActivity" android:label="Inbox">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

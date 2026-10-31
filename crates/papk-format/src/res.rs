@@ -465,7 +465,11 @@ pub mod layout {
         pub const EDIT_TEXT: u8 = 7;
         pub const CHECK_BOX: u8 = 8;
         pub const SWITCH: u8 = 9;
-        pub const PROGRESS_BAR: u8 = 10;
+        /// `<ProgressBar style="?android:attr/progressBarStyleHorizontal">`:
+        /// the determinate bar. The element's own code until the spinner
+        /// became the default, so it keeps that meaning; no element name of
+        /// its own, so not in [`ALL`].
+        pub const PROGRESS_BAR_HORIZONTAL: u8 = 10;
         pub const SEEK_BAR: u8 = 11;
         pub const RADIO_GROUP: u8 = 12;
         pub const RADIO_BUTTON: u8 = 13;
@@ -487,6 +491,9 @@ pub mod layout {
         pub const GRID_LAYOUT: u8 = 22;
         /// `android.widget.RelativeLayout`: children placed by rules.
         pub const RELATIVE_LAYOUT: u8 = 23;
+        /// `<ProgressBar>` in Android's default style: the indeterminate
+        /// spinner.
+        pub const PROGRESS_BAR: u8 = 24;
 
         /// `(XML element name, code)`.
         pub const ALL: &[(&str, u8)] = &[

@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="layoutdemo" version="1.0">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="layoutdemo" android:versionName="1.0">
     <!-- android:theme names the style the framework applies before onCreate and that ?attr/
          reads at build time; the Activity's setTheme checks run against it. -->
-    <application android:theme="@style/AppTheme" label="Layout Demo">
+    <application android:theme="@style/AppTheme" android:label="Layout Demo">
         <activity android:name="layoutdemo.LayoutDemoActivity" />
     </application>
 </manifest>
