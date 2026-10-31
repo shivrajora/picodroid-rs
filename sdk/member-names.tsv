@@ -892,11 +892,16 @@ F	mMaxSizes
 F	mMaxState
 F	mMaxWidth
 F	mMemoryGeneration
+F	mMenu
+F	mMenuDialog
+F	mMenuListener
 F	mMetrics
 F	mMinor
 F	mModels
 F	mName
 F	mNavButton
+F	mNavDrawable
+F	mNavIcon
 F	mNavListener
 F	mNextBackStackIndex
 F	mNextWho
@@ -905,6 +910,7 @@ F	mObserver
 F	mObservers
 F	mOffscreenPageLimit
 F	mOnBackPressedDispatcher
+F	mOnChange
 F	mOpen
 F	mOpenKind
 F	mOpenLeft
@@ -992,6 +998,7 @@ F	mark
 F	max
 F	maxRange
 F	maxValue
+F	menu
 F	message
 F	method
 F	min
@@ -1324,6 +1331,7 @@ M	clear
 M	clearCapabilities
 M	clearCheck
 M	clearColorFilter
+M	clearNavigationIcon
 M	clearState
 M	close
 M	closeOptionsMenu
@@ -1712,6 +1720,7 @@ M	getMaxWidth
 M	getMaximumRange
 M	getMeasuredHeight
 M	getMeasuredWidth
+M	getMenu
 M	getMetrics
 M	getMin
 M	getMinDelay
@@ -1724,6 +1733,7 @@ M	getMonth
 M	getMonthValue
 M	getName
 M	getNano
+M	getNavigationIcon
 M	getNetworkCapabilities
 M	getNetworkHandle
 M	getNetworkId
@@ -1867,6 +1877,7 @@ M	hash
 M	hashCode
 M	hide
 M	hideFragment
+M	hideOverflowMenu
 M	i
 M	iconAt
 M	incrementAndGet
@@ -1935,6 +1946,7 @@ M	isLongpressEnabled
 M	isNegative
 M	isNull
 M	isNullSentinel
+M	isOverflowMenuShowing
 M	isOwn
 M	isPeriodic
 M	isPop
@@ -1966,16 +1978,20 @@ M	keys
 M	kindOf
 M	lambda$dataSetChanged$4
 M	lambda$fireEvent$0
+M	lambda$getMenu$1
 M	lambda$getOnBackPressedDispatcher$2
 M	lambda$map$0
 M	lambda$new$0
 M	lambda$openOptionsMenu$0
 M	lambda$openOptionsMenu$1
+M	lambda$refreshOverflow$4
 M	lambda$registerNetworkCallback$0
 M	lambda$sendBroadcast$0
 M	lambda$setActionBar$3
 M	lambda$setNavigationOnClickListener$0
-M	lambda$setOverflowOnClickListener$1
+M	lambda$show$0
+M	lambda$showOverflowMenu$2
+M	lambda$showOverflowMenu$3
 M	lambda$startSwap$1
 M	lambda$static$0
 M	lambda$swap$2
@@ -2255,6 +2271,7 @@ M	nativeWriteFixed32
 M	nativeWriteFixed64
 M	nativeWriteVarint32
 M	nativeWriteVarint64
+M	navIcon
 M	navigateHome
 M	negated
 M	negativeSize
@@ -2533,6 +2550,7 @@ M	reconnect
 M	recreate
 M	recv
 M	refreshFromAdapter
+M	refreshOverflow
 M	register
 M	registerComponentCallbacks
 M	registerDefaultNetworkCallback
@@ -2671,6 +2689,7 @@ M	setFrequency
 M	setGravity
 M	setHardwareFlowControl
 M	setHint
+M	setHomeAsUpIndicator
 M	setHorizontalGravity
 M	setHour
 M	setId
@@ -2709,11 +2728,13 @@ M	setMinute
 M	setMode
 M	setMultiChoiceItems
 M	setName
+M	setNavigationIcon
 M	setNavigationOnClickListener
 M	setNegativeButton
 M	setNeutralButton
 M	setNotifyOnChange
 M	setOffscreenPageLimit
+M	setOnChange
 M	setOnCheckedChangeListener
 M	setOnCheckedChangeWidgetListener
 M	setOnClickListener

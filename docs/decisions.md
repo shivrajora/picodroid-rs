@@ -5,6 +5,20 @@ re-litigated by the next session. Newest first; append, do not rewrite. A decisi
 reversed gets a new entry pointing at the old one. The design docs under `designs/` carry the
 long form where one exists.
 
+## 2026-10-31: a Toolbar has a menu of its own (amends 2026-10-26)
+
+- **`OptionsMenu` became public with an `@Hide` constructor** so `picodroid.widget.Toolbar` can
+  hold one: `getMenu()`, `setOnMenuItemClickListener`, `showOverflowMenu` / `hideOverflowMenu` /
+  `isOverflowMenuShowing`. The list dialog moved into `OptionsMenu.show`, which the Activity's
+  options menu and the Toolbar share; the menu tells its owner when the visible items change, so
+  the overflow button follows `add`, `removeItem`, `clear` and `setVisible`. A Toolbar made the
+  action bar still shows the Activity's options menu rather than merging its own items (Android
+  merges them); no in-repo app needs both.
+- **`setNavigationIcon` draws an `ImageView` over the navigation button**, at its own size and
+  centred, so the button stays the touch target and its image needs no scale type (the ImageView
+  API is changing on a peer branch). `null` / 0 brings the stock chevron back rather than hiding
+  the button: the chevron is the default here, and the listener decides whether the button shows.
+
 ## 2026-10-26: the sweep's second round — manifest, DI context, widget shapes
 
 - **The framework launches the entry Activity** after `Application.onCreate`, as Android does; an

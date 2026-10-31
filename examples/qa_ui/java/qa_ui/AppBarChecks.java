@@ -5,6 +5,7 @@ import picodroid.activity.OnBackPressedCallback;
 import picodroid.activity.OnBackPressedDispatcher;
 import picodroid.app.ActionBar;
 import picodroid.lifecycle.Lifecycle;
+import picodroid.view.Menu;
 import picodroid.view.MenuItem;
 import picodroid.view.View;
 import picodroid.widget.Button;
@@ -56,6 +57,7 @@ final class AppBarChecks {
   void phase1(LinearLayout root) {
     QaUiActivity.section("appBar", () -> appBar(root));
     QaUiActivity.section("backDispatch", () -> backDispatch());
+    QaUiActivity.section("toolbarMenu", () -> toolbarMenu(root));
   }
 
   /** Phase 2's section, a frame later. */
@@ -133,6 +135,39 @@ final class AppBarChecks {
     // pico_display2_w the rest of the run (churn's 241-view screen, treeRooted's 34 buttons) has
     // no room left for them (pool-full spin in lv_obj_class_create_obj, nightly 2026-10-27).
     root.removeView(bar);
+  }
+
+  /** A Toolbar that is not the action bar: its own menu, overflow and navigation icon. */
+  private void toolbarMenu(LinearLayout root) {
+    Toolbar own = new Toolbar(activity);
+    root.addView(own, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 40));
+    Menu menu = own.getMenu();
+    QaUiActivity.check(
+        "one menu per bar, empty, no overflow",
+        menu == own.getMenu() && menu.size() == 0 && own.getChildCount() == 0);
+    MenuItem bold = menu.add(Menu.NONE, 7, Menu.NONE, "Bold");
+    QaUiActivity.check("an item puts the overflow button up", own.getChildCount() == 1);
+    View overflow = own.getChildAt(0);
+    bold.setVisible(false);
+    QaUiActivity.check("no visible item, no overflow", overflow.getVisibility() == View.GONE);
+    bold.setVisible(true);
+    QaUiActivity.check("visible again", overflow.getVisibility() == View.VISIBLE);
+    own.setOnMenuItemClickListener(item -> true); // a pick is appbardemo's sim row's to make
+    QaUiActivity.check(
+        "showOverflowMenu opens the bar's menu",
+        own.showOverflowMenu() && own.isOverflowMenuShowing() && own.showOverflowMenu());
+    QaUiActivity.check(
+        "hideOverflowMenu closes it", own.hideOverflowMenu() && !own.isOverflowMenuShowing());
+    QaUiActivity.check("hiding a closed menu says so", !own.hideOverflowMenu());
+    menu.clear();
+    QaUiActivity.check("cleared, no overflow", overflow.getVisibility() == View.GONE);
+
+    own.setNavigationOnClickListener(v -> {});
+    QaUiActivity.check("chevron by default", own.getNavigationIcon() == null);
+    own.setNavigationIcon(0);
+    own.setNavigationIcon(null);
+    QaUiActivity.check("null keeps the chevron", own.getNavigationIcon() == null);
+    root.removeView(own);
   }
 
   void backDispatch() {

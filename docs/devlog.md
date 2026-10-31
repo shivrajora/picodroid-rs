@@ -6,6 +6,24 @@ one picks up. Routine handovers go here; a large one gets its own doc under `doc
 here. Keep entries to a few lines; the reasoning goes to [`decisions.md`](decisions.md), the
 ranked list to [`gaps.md`](gaps.md).
 
+## 2026-11-08 — the app bar's follow-ups: Toolbar menu, navigation icon, a fragment's Back
+
+- **Landed:** `Toolbar.getMenu()` / `setOnMenuItemClickListener` / `showOverflowMenu` /
+  `hideOverflowMenu` / `isOverflowMenuShowing` (a standalone bar's own menu; `OptionsMenu` is
+  public with an `@Hide` constructor and owns the list dialog the Activity's menu shares),
+  `Toolbar.setNavigationIcon(int | Drawable)` / `getNavigationIcon` and
+  `ActionBar.setHomeAsUpIndicator`. appbardemo's draft screen has a format bar with its own menu
+  and a `res/drawable` close icon; qa_ui's `toolbarMenu` section; fragmentdemo checks a callback
+  added with a fragment's view lifecycle owner (before the pop, gone with the view). Why:
+  decisions 2026-10-31.
+- **Numbers:** sim rows appbardemo, qa_ui, menudemo, fragmentdemo PASS in both shrink modes.
+  Flash: testbench_rp2040 +1,120 B (Activity / OptionsMenu; Toolbar is not on that board),
+  testbench_rp2350 +3,992 B (re-measured on main after round two, accepted). Not run on
+  hardware.
+- **Still open:** XML `<Toolbar>` needs a layout class code (res.rs); no
+  `inflateMenu` without a `MenuInflater`; a Toolbar made the action bar does not merge its own
+  items.
+
 ## 2026-11-08 — nightly triage (2026-10-31): qa_ui on the W board, qa_life on the touch kit
 
 - **qa_ui** (pico_display2_w, FAIL since c66b52d3, 2026-10-27): LVGL's pool ran out after

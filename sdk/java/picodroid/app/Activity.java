@@ -516,40 +516,20 @@ public class Activity extends Context
         || !mOptionsMenu.hasVisibleItems()) {
       return;
     }
-    final OptionsMenu.Item[] shown = mOptionsMenu.visibleItems();
-    String[] titles = new String[shown.length];
-    // A disabled item is listed dimmed and cannot be picked; the list stays open over it, as
-    // Android's menu does.
-    int disabled = 0;
-    for (int i = 0; i < shown.length; i++) {
-      titles[i] = String.valueOf(shown[i].getTitle());
-      if (!shown[i].isEnabled()) {
-        disabled |= 1 << i;
-      }
-    }
+    // However the list goes away — a pick, closeOptionsMenu(), BACK — the menu closes in the
+    // dismiss listener, once. BACK dismisses the list natively, and the Activity used to keep it
+    // as showing: the next MENU "closed" it again and only the one after that opened it (QA
+    // round 2, R1).
     mOptionsMenuDialog =
-        new AlertDialog.Builder(this)
-            .setDisabledItems(disabled)
-            .setItems(
-                titles,
-                (dialog, which) -> {
-                  OptionsMenu.Item item = shown[which];
-                  if (item.isEnabled() && !item.fireClick()) {
-                    onOptionsItemSelected(item);
-                  }
-                })
-            // However the list goes away — the pick above, closeOptionsMenu(), BACK — the menu
-            // closes here, once. BACK dismisses the list natively, and the Activity used to keep
-            // it as showing: the next MENU "closed" it again and only the one after that opened
-            // it (QA round 2, R1).
-            .setOnDismissListener(
-                dialog -> {
-                  if (mOptionsMenuDialog == dialog) {
-                    mOptionsMenuDialog = null;
-                    onOptionsMenuClosed(mOptionsMenu);
-                  }
-                })
-            .show();
+        mOptionsMenu.show(
+            this,
+            item -> onOptionsItemSelected(item),
+            dialog -> {
+              if (mOptionsMenuDialog == dialog) {
+                mOptionsMenuDialog = null;
+                onOptionsMenuClosed(mOptionsMenu);
+              }
+            });
   }
 
   /** Mirrors Android: dismiss the options menu if it is showing. */
@@ -736,7 +716,7 @@ public class Activity extends Context
   /** The up button: {@code R.id.home} through the options-item path, then {@link #onNavigateUp}. */
   final void navigateHome() {
     if (mHomeItem == null) {
-      mHomeItem = new OptionsMenu.Item(Menu.NONE, picodroid.R.id.home, Menu.NONE, getTitle());
+      mHomeItem = new OptionsMenu.Item(null, Menu.NONE, picodroid.R.id.home, Menu.NONE, getTitle());
     }
     if (!onOptionsItemSelected(mHomeItem)) {
       onNavigateUp();

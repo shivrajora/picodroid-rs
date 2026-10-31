@@ -3,7 +3,9 @@
 # y = 105 and 134 on the dialog card), Compose pushes the draft, whose first BACK after an
 # edit is taken by its OnBackPressedCallback and whose second leaves; then the up button at
 # the bar's left end leaves a second draft. Compose is at y = 104 under the inbox's status
-# line, Edit at y = 76 straight under the draft's bar.
+# line, Edit at y = 76 straight under the draft's bar, and the draft's format bar (a Toolbar
+# with its own menu and a close icon) spans y = 112..152: its overflow at x = 300, the icon
+# at x = 20, its menu's first row at y = 105 on the dialog card.
 wait AppBarDemo[]:] inbox ready
 input tap 300 20
 sleep 1
@@ -15,6 +17,13 @@ wait AppBarDemo[]:] draft ready
 sleep 1
 input tap 90 76
 wait AppBarDemo[]:] draft: edited
+input tap 300 132
+sleep 1
+input tap 160 105
+wait AppBarDemo[]:] draft: format Bold
+sleep 1
+input tap 20 132
+wait AppBarDemo[]:] draft: format bar closed
 input back
 wait AppBarDemo[]:] draft: unsaved edit kept
 input back

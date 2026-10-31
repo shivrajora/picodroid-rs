@@ -445,5 +445,6 @@ picodroid/widget/TimePicker$OnTimeChangedListener
 picodroid/widget/Toast
 picodroid/widget/ToggleButton
 picodroid/widget/Toolbar
+picodroid/widget/Toolbar$OnMenuItemClickListener
 picodroid/widget/ViewPager2
 picodroid/widget/ViewPager2$OnPageChangeCallback

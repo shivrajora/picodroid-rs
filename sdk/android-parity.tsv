@@ -24,7 +24,7 @@
 # and the sdk/java/picodroid tree at 1f571977.
 android.R	picodroid/R	partial	R.layout row ids, the ProgressBar R.attr styles and R.id.home only (Android's values); compile-only
 android.app.Activity	picodroid/app/Activity	live	lifecycle, results, options menu, fragments, ViewModel owner, onTrimMemory / onLowMemory, setActionBar(Toolbar), title from android:label, OnBackPressedDispatcher
-android.app.ActionBar	picodroid/app/ActionBar	partial	from setActionBar(Toolbar) only; title, subtitle, home-as-up, show / hide; no tabs, custom views, icons
+android.app.ActionBar	picodroid/app/ActionBar	partial	from setActionBar(Toolbar) only; title, subtitle, home-as-up and its indicator, show / hide; no tabs, custom views, logos
 androidx.activity.OnBackPressedDispatcher	picodroid/activity/OnBackPressedDispatcher	partial	callbacks, lifecycle-bound callbacks, fallback; no predictive-back progress
 androidx.activity.OnBackPressedCallback	picodroid/activity/OnBackPressedCallback	partial	enabled, remove, handleOnBackPressed; no predictive-back progress
 android.app.Application	picodroid/app/Application	live	onCreate entry point, onTrimMemory / onLowMemory fan out to registerComponentCallbacks
@@ -99,7 +99,7 @@ android.widget.FrameLayout	picodroid/widget/FrameLayout	live
 android.widget.RelativeLayout	picodroid/widget/RelativeLayout	partial	the layout_* rules as a registered LVGL layout
 android.widget.GridLayout	picodroid/widget/GridLayout	partial	rows, columns, spans on LVGL's grid
 android.widget.ScrollView	picodroid/widget/ScrollView	live
-android.widget.Toolbar	picodroid/widget/Toolbar	partial	title, subtitle, navigation listener (stock chevron), overflow = the options menu; no setNavigationIcon, getMenu, inflateMenu, XML
+android.widget.Toolbar	picodroid/widget/Toolbar	partial	title, subtitle, navigation listener and icon, own menu (getMenu, OnMenuItemClickListener) or the options menu as action bar; no inflateMenu, action icons, XML
 android.widget.ImageView	picodroid/widget/ImageView	partial	ScaleType constants class; FIT_START/FIT_END draw as FIT_CENTER; one recolour
 android.widget.Switch	picodroid/widget/Switch	live
 android.widget.CheckBox	picodroid/widget/CheckBox	partial	no toggle()
@@ -261,7 +261,7 @@ java.util.concurrent.ScheduledFuture	picodroid/concurrent/ScheduledFuture	partia
 java.util.concurrent.ScheduledThreadPoolExecutor	picodroid/concurrent/ScheduledThreadPoolExecutor	partial	
 java.util.concurrent.ThreadPoolExecutor	picodroid/concurrent/ThreadPoolExecutor	partial	
 picodroid.annotation.Hide	picodroid/annotation/Hide	addition	Android's @hide (a javadoc tag there); verifyApiContract refuses app references; compile-only
-picodroid.app.OptionsMenu	picodroid/app/OptionsMenu	addition	the options-menu presenter; Android keeps this inside Activity
+picodroid.app.OptionsMenu	picodroid/app/OptionsMenu	addition	the menu model and its list (the options menu, Toolbar.getMenu); Android's MenuBuilder is hidden; constructor @Hide
 picodroid.concurrent.BackgroundExecutor	picodroid/concurrent/BackgroundExecutor	addition	Executors.backgroundExecutor()
 picodroid.concurrent.MainExecutor	picodroid/concurrent/MainExecutor	addition	Executors.mainExecutor(); the Looper replacement
 picodroid.concurrent.MainScheduledExecutor	picodroid/concurrent/MainScheduledExecutor	addition	Executors.mainScheduledExecutor(); the postDelayed replacement

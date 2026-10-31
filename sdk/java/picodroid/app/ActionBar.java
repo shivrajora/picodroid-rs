@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package picodroid.app;
 
+import picodroid.graphics.drawable.Drawable;
 import picodroid.view.View;
 import picodroid.widget.Toolbar;
 
@@ -13,8 +14,8 @@ import picodroid.widget.Toolbar;
  *
  * <p>Divergences: there is no window-decor action bar, so {@code getActionBar()} is {@code null}
  * until {@code setActionBar} (Android's {@code NoActionBar} themes behave the same); no tabs,
- * custom views, logos or icons. The class is concrete with no public constructor, where Android's
- * is abstract.
+ * custom views, logos or icons beyond the up indicator ({@link #setHomeAsUpIndicator}). The class
+ * is concrete with no public constructor, where Android's is abstract.
  */
 public class ActionBar {
   /** Mirrors Android: show the up affordance at the start of the bar. */
@@ -40,6 +41,21 @@ public class ActionBar {
   /** Mirrors Android: show (or hide) the up button. */
   public void setDisplayHomeAsUpEnabled(boolean showHomeAsUp) {
     setDisplayOptions(showHomeAsUp ? DISPLAY_HOME_AS_UP : 0, DISPLAY_HOME_AS_UP);
+  }
+
+  /**
+   * Mirrors Android: the up button's image, in place of the stock chevron; {@code null} brings the
+   * chevron back.
+   */
+  public void setHomeAsUpIndicator(Drawable indicator) {
+    mToolbar.setNavigationIcon(indicator);
+  }
+
+  /**
+   * Mirrors Android: the up button's image, the drawable resource {@code resId}; 0 for the chevron.
+   */
+  public void setHomeAsUpIndicator(int resId) {
+    mToolbar.setNavigationIcon(resId);
   }
 
   /** Mirrors Android: show (or hide) the title and subtitle. */

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package fragmentdemo;
 
+import picodroid.activity.OnBackPressedCallback;
 import picodroid.app.Activity;
 import picodroid.app.Fragment;
 import picodroid.app.FragmentFactory;
@@ -191,6 +192,7 @@ public class MainActivity extends Activity {
       stepHideShow();
       stepDetachAttach();
       stepLifecycle();
+      stepBackCallback();
       stepHeadless();
       stepRefusals();
       stepChurn();
@@ -493,6 +495,34 @@ public class MainActivity extends Activity {
                     .get("second", DemoViewModel.class)
                 != model
             && modelsMade == 2);
+  }
+
+  /**
+   * A fragment's Back, as androidx has it: a callback added with the view's lifecycle owner takes
+   * BACK ahead of the back-stack pop while the view lives, and goes with the view.
+   */
+  private void stepBackCallback() {
+    final int[] taken = new int[1];
+    OnBackPressedCallback callback =
+        new OnBackPressedCallback(true) {
+          @Override
+          public void handleOnBackPressed() {
+            taken[0]++;
+          }
+        };
+    getOnBackPressedDispatcher().addCallback(detail.getViewLifecycleOwner(), callback);
+    onBackPressed();
+    T.check(
+        "a fragment's callback takes BACK before the pop",
+        taken[0] == 1 && fm.getBackStackEntryCount() == 1 && detail.isResumed());
+    fm.beginTransaction().detach(detail).commitNow();
+    T.check(
+        "the callback goes with the fragment's view",
+        !getOnBackPressedDispatcher().hasEnabledCallbacks());
+    fm.beginTransaction().attach(detail).commitNow();
+    T.check(
+        "a new view does not bring it back",
+        !getOnBackPressedDispatcher().hasEnabledCallbacks() && callback.isEnabled());
   }
 
   private void stepHeadless() {
