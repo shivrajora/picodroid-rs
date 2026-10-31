@@ -6,6 +6,30 @@ one picks up. Routine handovers go here; a large one gets its own doc under `doc
 here. Keep entries to a few lines; the reasoning goes to [`decisions.md`](decisions.md), the
 ranked list to [`gaps.md`](gaps.md).
 
+## 2026-10-31 — the Android-idiom sweep, round two: manifest, DI context, the last spellings
+
+- **Landed:** the short manifest form is gone (`android:` attributes only, 113 manifests
+  converted) and the framework launches the entry Activity after `Application.onCreate` (30 apps
+  lost their `startActivity`, 17 Application classes deleted); Hilt's `@ApplicationContext Context`
+  and `Application` in the DI graph (picoclock, picoenvmon(_kt) modules take it); `LinkProperties`
+  / `LinkAddress`; `Intent.getComponent`, `Context.getSystemService(Class)`, `Notification.extras`,
+  `DisplayDebug.setContentView` / `renderFrame`, `ArrayAdapter.setNotifyOnChange`; `GestureDetector`
+  in Android's shape (fling fixed), `ProgressBar(ctx)` the spinner, `ImageView.ScaleType`;
+  `ListView.addItem` / public `Spinner.setItems` deleted; `ScrollView` transparent;
+  `ListView.setSelection` moves the keypad focus. Merged with main's app bar: `<activity
+  android:label>` may now be `@string/`, resolved at pack time like the application's. The settings
+  sim lane taps the Toolbar's up chevron (main's app bar left it tapping the title). Record:
+  [`android-idiom-sweep-2026-10.md`](android-idiom-sweep-2026-10.md); why: decisions 2026-10-26.
+- **Numbers:** sim matrix 247 PASS / 44 SKIP on the pre-merge tree (menudemo timed out in both
+  modes, a flake main's nightly shows too; size lane = the worktree's doubled `-Tlink.x`); after
+  the merge appbardemo, qa_ui, picoclock, launcher (6), settings, settings-wifi (4), pdb PASS in
+  both modes; `test.sh` green; every app builds, verifies its contract and manifest. Flash:
+  testbench_rp2040 +6,492 B (94 %, 68 KB free; GestureDetector is ~4.7 KB of the class growth),
+  testbench_rp2350 +7,612 B, accepted. Not run on hardware.
+- **Still open:** the list at the end of the record (headless apps hear no `NetworkCallback`, the
+  entry Activity's `getIntent()` is null, `icon` names an `assets/` file, `setIndeterminate(true)`
+  throws on a bar, `FIT_START` / `FIT_END` draw centred, the menudemo key race).
+
 ## 2026-10-31 — FreeRTOS-Kernel V11.3.3
 
 - Kernel V11.3.2 → V11.3.3 (clean tag). Its one code change guards `xQueueSelectFromSet`,

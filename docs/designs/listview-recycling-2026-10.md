@@ -106,6 +106,13 @@ pushes the focused row itself out, `recycle_row` hands the focus to its neighbou
 `SCROLL_ON_FOCUS` cleared around the call, so nothing fights the scroll in progress. On a board
 without a group all of this is a no-op.
 
+Amended 2026-10-26: a `setSelection` jump wider than the window re-binds every row in place, so
+the focused widget went on showing whatever position its slot now held, usually the overscan row
+above the viewport (picoenvmon History opened on sample 59 and X named sample 52). `setSelection`
+now ends in `nativeSelectRow`: when a row of the list holds the focus it moves to the selected
+position's row, as Android's selection follows `setSelection` in key navigation. `qa_list`'s
+`pico_display2_w` row pins it (`click ok #2 position=150`).
+
 Rejected: a Rust-owned per-list window (a keyed table with no delete hook and an upcall per
 row); spacer children (every child index shifts); taking rows out of the group and routing
 PREV/NEXT through `edit_mode.rs` (a keypad redesign for one widget); `RecyclerView`

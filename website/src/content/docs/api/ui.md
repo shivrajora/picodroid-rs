@@ -379,6 +379,8 @@ import picodroid.view.MotionEvent;
 DisplayDebug.calibrate();    // interactive 4-point touch calibration (embedded targets; blocks)
 DisplayDebug.showFps();      // toggle the live LVGL FPS overlay (call once in onCreate)
 MotionEvent touch = DisplayDebug.pollTouch();  // pull one raw touch sample (null if the queue is empty)
+DisplayDebug.setContentView(root);  // show a tree with no Activity (a bench run from Application.onCreate)
+DisplayDebug.renderFrame();         // render one frame now: a bench's own frame pump
 ```
 
 | Method | Description |
@@ -483,7 +485,7 @@ orientations, radial and sweep gradients, other shapes and per-corner radii are 
 
 ## `picodroid.graphics.drawable.BitmapDrawable`
 
-An image from another package's bundled assets, as `PackageManager.getApplicationIcon` returns it (multi-app boards). Show it with `ImageView.setImageDrawable`, or use it as a background with `View.setBackground`. Apps do not build these themselves; for the app's own assets use `ImageView.setImageSource`.
+An image from another package's bundled assets, as `PackageManager.getApplicationIcon` returns it (multi-app boards). Show it with `ImageView.setImageDrawable`, or use it as a background with `View.setBackground`. Apps do not build these themselves; for the app's own images use `res/drawable/` and `ImageView.setImageResource`.
 
 ```java
 Drawable icon = getPackageManager().getApplicationIcon(info.applicationInfo);
@@ -687,7 +689,7 @@ group.removeAllViews();
 ```
 
 `getChildCount()`/`getChildAt()` track the children added through this API (a `ListView` counts
-its rows, the adapter's and `addItem`'s alike). A subclass hears every addition through
+its live rows). A subclass hears every addition through
 `onViewAdded(View child)`, called after `child` joins through any `addView` overload, the
 inflater's included, as `android.view.ViewGroup#onViewAdded` is. One divergence from
 Android: `removeView` and `removeAllViews` also **free the removed view's widget** (an embedded
@@ -799,7 +801,7 @@ if (event != null) {
 | `MotionEvent.ACTION_MOVE` | 2 |
 | `MotionEvent.ACTION_LONG_PRESS` | 3 (picodroid extension; LVGL long-press) |
 
-In an `OnTouchListener`, `getX()` / `getY()` are relative to the receiving view's top-left corner and `getRawX()` / `getRawY()` are screen-absolute, as on Android. All four return `int`, not `float`. `MotionEvent.obtain(downTime, eventTime, action, x, y, metaState)` makes one by hand, for `dispatchTouchEvent` in a test.
+In an `OnTouchListener`, `getX()` / `getY()` are relative to the receiving view's top-left corner and `getRawX()` / `getRawY()` are screen-absolute, as on Android. All four return `int`, not `float`. `MotionEvent.obtain(downTime, eventTime, action, x, y, metaState)` makes one by hand, for `dispatchTouchEvent` in a test. The event a listener receives is reused for the next one, as Android recycles its events: keep a copy, `MotionEvent.obtain(event)`, past the callback.
 
 ## `picodroid.view.OnTouchListener` and `GestureDetector`
 
@@ -820,30 +822,28 @@ view.setOnTouchListener(new OnTouchListener() {
 });
 ```
 
-For tap / long-press / fling recognition, wrap an `OnGestureListener` in `GestureDetector(Context, OnGestureListener)` (which itself implements `OnTouchListener`):
+For gesture recognition, feed every event to a `GestureDetector(Context, OnGestureListener)` and return what it returns, as on Android (or call `detector.onTouchEvent(e)` from a custom view's `onTouchEvent`):
 
 ```java
 import picodroid.view.GestureDetector;
 import picodroid.view.MotionEvent;
-import picodroid.view.View;
 
-view.setOnTouchListener(new GestureDetector(this, new GestureDetector.OnGestureListener() {
-    public void onSingleTap(MotionEvent e) { Log.i("UI", "tap @ " + e.getX()); }
-    public void onLongPress(MotionEvent e) { Log.i("UI", "long press"); }
-    public void onFling(MotionEvent down, MotionEvent up, float vx, float vy) {
+GestureDetector detector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+    @Override public boolean onDown(MotionEvent e) { return true; }   // claim the gesture
+    @Override public boolean onSingleTapUp(MotionEvent e) { Log.i("UI", "tap @ " + e.getX()); return true; }
+    @Override public void onLongPress(MotionEvent e) { Log.i("UI", "long press"); }
+    @Override public boolean onScroll(MotionEvent e1, MotionEvent e2, float dx, float dy) { return true; }
+    @Override public boolean onFling(MotionEvent e1, MotionEvent e2, float vx, float vy) {
         Log.i("UI", "fling vx=" + vx + " vy=" + vy);
+        return true;
     }
-}));
+});
+view.setOnTouchListener((v, e) -> detector.onTouchEvent(e));
 ```
 
-| Constant | Value | Meaning |
-|----------|-------|---------|
-| `GestureDetector.TAP_SLOP_PX` | 12 | Max DOWN→UP displacement to count as a tap. |
-| `GestureDetector.FLING_MIN_PX` | 24 | Min DOWN→UP displacement to count as a fling. |
+`OnGestureListener` is Android's: `onDown`, `onShowPress`, `onSingleTapUp`, `onScroll(e1, e2, distanceX, distanceY)` (the travel since the last call, previous minus current), `onLongPress` and `onFling(e1, e2, velocityX, velocityY)`; `SimpleOnGestureListener` implements each as a no-op returning false. A `true` from any callback consumes the gesture, which keeps the view's click from firing. `setIsLongpressEnabled(false)` turns long presses off.
 
-`GestureDetector.SimpleOnGestureListener` is an abstract base with an empty body for each of the three callbacks, so a subclass overrides only the gestures it wants. `onLongPress` fires while the finger is still down, and the release that follows does not call `onSingleTap`.
-
-Velocities are pixels/second; positive `vx` is rightward, positive `vy` is downward. v1 caveats: no `ACTION_MOVE` / scroll callbacks; multi-touch is not supported. See [`examples/gesturedemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/gesturedemo).
+The press timers run on `Executors.mainScheduledExecutor()` (there is no `Handler`): `onShowPress` 100 ms after the press, `onLongPress` at `ViewConfiguration.getLongPressTimeout()` (400 ms) with the press event, both only while the finger stays in the tap region; the release that follows a long press calls nothing. The tap region is 12 px and a fling needs 24 px of travel, both on the dominant axis in raw (screen) coordinates; velocities are pixels/second from the last sample before the release, positive `vx` rightward, positive `vy` downward. No double tap; multi-touch is not supported. See [`examples/gesturedemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/gesturedemo).
 
 ## `picodroid.view.ViewPropertyAnimator`
 
@@ -1187,49 +1187,53 @@ toggle.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
 
 ### `picodroid.widget.ImageView`
 
-Displays an image bundled in the PAPK's `assets/` directory. Asset names are resolved against the PAPK ASSETS section at boot — see [Bundled image assets](/guides/assets/) for the manifest format and pipeline.
+Displays a PNG from the app's `res/drawable/`, decoded at build time into the PAPK's ASSETS section — see [Bundled image assets](/guides/assets/) for the pipeline.
 
 ```java
 import picodroid.widget.ImageView;
 
 ImageView img = new ImageView(this);
-img.setImageSource("icon.png");
 img.setImageResource(R.drawable.logo);   // a PNG under res/drawable/, see resources
 img.setImageDrawable(drawable);   // a Drawable, e.g. another app's icon from the PackageManager
 ```
 
 `setImageResource` throws `Resources.NotFoundException` for an id that is not one of the app's drawables; see [resources](/guides/resources/).
 
-Scale, tint, and aspect controls (Tier C):
+Scale type and colour, with Android's names:
 
 ```java
-img.setScaleType(ImageView.SCALE_FIT_CENTER);
-img.setScale(ImageView.SCALE_1X * 3 / 2);   // 256 = 1.0×, so this is 1.5× — uses LVGL transforms
-img.setTint(Color.RED);     // recolours the image; the colour's alpha is the blend strength
+img.setScaleType(ImageView.ScaleType.CENTER_CROP);   // FIT_CENTER by default, as on Android
+img.setImageTintList(ColorStateList.valueOf(Color.RED));   // recolours the image; null removes it
+img.setColorFilter(Color.argb(128, 0, 0, 255));      // the colour's alpha is the blend strength
+img.clearColorFilter();
 ```
 
-| Constant | Value | Meaning |
-|----------|-------|---------|
-| `ImageView.SCALE_FIT_CENTER` | 0 | Fit inside the view, aspect kept, centred. |
-| `ImageView.SCALE_CENTER_CROP` | 1 | Fill the view, aspect kept; the image may be cropped. |
-| `ImageView.SCALE_FIT_XY` | 2 | Stretch to the view's width and height. |
-| `ImageView.SCALE_TILE` | 3 | Tile the image across the view. No Android counterpart. |
-| `ImageView.SCALE_CENTER` | 4 | Centre at the image's own size; clipped if larger than the view. |
-| `ImageView.SCALE_1X` | 256 | The `setScale` unit for 1.0×. |
+| `ImageView.ScaleType` | Drawn |
+|----------|---------|
+| `FIT_CENTER` | Fit inside the view, aspect kept, centred (the default). |
+| `CENTER_CROP` | Cover the view, aspect kept; the overflow is clipped. |
+| `CENTER_INSIDE` | Centred; scaled down to fit when larger than the view, never up. |
+| `FIT_XY` | Stretched to the view's width and height. |
+| `CENTER` | Centred at the image's own size; clipped if larger than the view. |
+| `MATRIX` | Unscaled at the top-left: the identity matrix (there is no `setImageMatrix`). |
+| `FIT_START`, `FIT_END` | Drawn as `FIT_CENTER`: LVGL fits an image only around the centre. |
 
-`setTint(int argb)`: alpha 0 leaves the image alone, 255 recolours it fully. There is no `FIT_START`.
+`ScaleType` is a final class of constants rather than an enum (no `values()` or `switch`), like `GradientDrawable.Orientation`; `getScaleType()` returns what was set. `setImageTintList` and `setColorFilter` drive the same LVGL recolour, so the last one set shows; a tint's alpha is the recolour strength (Android's `SRC_IN` would make the image translucent instead).
 
 Anti-aliased scale and rotation rendering depends on LVGL 9.6.0's `LV_DRAW_SW_SUPPORT_RGB565A8` (enabled in `lv_conf.h`). Without it scaled images render aliased — see [Advanced configuration → lv_conf.h](/reference/advanced-config/#lv_confh).
 
 ### `picodroid.widget.ProgressBar`
 
-A horizontal progress bar with Android's range and tint API.
+Android's two styles: `new ProgressBar(context)` is the default, an **indeterminate spinner** (LVGL's
+`lv_spinner`); the **determinate horizontal bar** (LVGL's `lv_bar`) is the
+`progressBarStyleHorizontal` style, `picodroid.R.attr.progressBarStyleHorizontal` in code and
+`style="?android:attr/progressBarStyleHorizontal"` in a layout.
 
 ```java
 import picodroid.content.res.ColorStateList;
 import picodroid.widget.ProgressBar;
 
-ProgressBar bar = new ProgressBar(this);
+ProgressBar bar = new ProgressBar(this, null, picodroid.R.attr.progressBarStyleHorizontal);
 layout.addView(bar, new LinearLayout.LayoutParams(200, 20));
 bar.setMax(250);                  // the range is [getMin(), getMax()], 0..100 by default
 bar.setProgress(75);              // instant, clamped to the range
@@ -1246,18 +1250,22 @@ single colour — `valueOf(int)`, `getDefaultColor()`, `withAlpha(int)` — with
 (`isStateful()` is `false` and `getColorForState` returns the one colour). Each tint setter has its
 getter, and `getMax()`, `getMin()` and `isIndeterminate()` read the rest.
 
-For an **indeterminate** spinner (no progress value, just an animation while work is happening), use the static factory:
+The spinner, for work with no progress value:
 
 ```java
-ProgressBar spinner = ProgressBar.indeterminate();
+ProgressBar spinner = new ProgressBar(this);
 spinner.setIndeterminateTintList(ColorStateList.valueOf(Color.RED));  // the arc; Theme.colorPrimary by default
 layout.addView(spinner, new LinearLayout.LayoutParams(48, 48));
 // Remove or hide it when the work completes.
 ```
 
-`indeterminate()` returns a `ProgressBar` backed by `lv_spinner` and ignores `setProgress`; the mode
-is fixed at construction (there is no `setIndeterminate(boolean)`). A tint set on the flavour that is not showing is kept for its getter but
-not drawn.
+The spinner ignores `setProgress` (`getProgress()` stays 0). The mode is the style's: the spinner is
+indeterminate only, as Android's default style is, so `setIndeterminate(false)` leaves it spinning,
+as on Android; a horizontal bar cannot become indeterminate, so `setIndeterminate(true)` throws
+`UnsupportedOperationException` (LVGL's bar has no indeterminate animation, and a widget cannot
+change its LVGL class). `progressBarStyleSmall` and `progressBarStyleLarge` are the spinner at the
+size its layout gives. A tint set on the flavour that is not showing is kept for its getter but not
+drawn.
 
 ### `picodroid.widget.CircularProgressIndicator`
 
@@ -1287,7 +1295,7 @@ Two picodroid extensions, for gauges that are not a full circle, in `Canvas.draw
 The defaults, 270 and 360, draw a full ring filling from 12 o'clock; a dashboard dial open at the
 bottom is `setStartAngle(135); setSweepAngle(270)`. Angles are rounded to whole degrees.
 
-Divergences from Material: determinate only (for a spinner use `ProgressBar.indeterminate()`);
+Divergences from Material: determinate only (`setIndeterminate(true)` throws; for a spinner use `new ProgressBar(context)`);
 one indicator colour, so `getIndicatorColor()` returns an `int`; no `indicatorInset`;
 `indicatorSize` is the intrinsic size and explicit layout dimensions win over it. Inflatable from
 XML as `<CircularProgressIndicator>` with `indicatorColor`, `trackColor`, `trackThickness`,
@@ -1295,21 +1303,9 @@ XML as `<CircularProgressIndicator>` with `indicatorColor`, `trackColor`, `track
 
 ### `picodroid.widget.ListView`
 
-A scrollable list. Add plain text items directly, or back it with an `Adapter` for data-driven
-lists with stable item IDs and D-pad item selection.
-
-```java
-import picodroid.widget.ListView;
-
-ListView list = new ListView(this);
-layout.addView(list, new LinearLayout.LayoutParams(200, 150));
-list.addItem("Item 1");
-list.addItem("Item 2");
-list.addItem("Item 3");
-```
-
-**Adapter-backed (the `Adapter` pattern).** Bind an `ArrayAdapter` and
-receive typed click callbacks. With one of the framework's row layouts from `picodroid.R` (the
+A scrollable list backed by an `Adapter`, as on Android: stable item IDs, D-pad item
+selection, and rows recycled as the list scrolls. Bind an `ArrayAdapter` and receive typed
+click callbacks. With one of the framework's row layouts from `picodroid.R` (the
 counterpart of `android.R`, with Android's ids: `R.layout.simple_list_item_1`,
 `simple_spinner_item`, `simple_spinner_dropdown_item`), each item renders as the built-in
 single-line row showing its `toString()`:
@@ -1372,9 +1368,11 @@ width, padded, made clickable and keypad-focusable and highlighted when focused,
 The children are the window, not the data: `getChildCount()` is the rows alive and
 `getChildAt(i)` is window slot *i*; `getPositionForView(view)` gives a row's adapter position,
 `getFirstVisiblePosition()` / `getLastVisiblePosition()` the rows on screen. `setSelection(int)`
-scrolls so a position is the first row on screen (as far as the list's end allows) and
-`smoothScrollToPosition(int)` animates there; picoenvmon's History opens on its newest sample
-with `list.setSelection(adapter.getCount() - 1)`.
+scrolls so a position is the first row on screen (as far as the list's end allows) and, as
+Android does in key navigation, selects it: when the keypad focus is on one of the list's rows it
+moves to that position's row, so ENTER activates the row the list now shows.
+`smoothScrollToPosition(int)` animates there and leaves the focus alone, as Android's does;
+picoenvmon's History opens on its newest sample with `list.setSelection(adapter.getCount() - 1)`.
 
 > **The `Adapter` family.** `ListView` extends `AdapterView<Adapter>`. The pieces:
 > - `Adapter` — interface: `getCount()`, `getItem(int)`, `getItemId(int)`,
@@ -1390,9 +1388,9 @@ with `list.setSelection(adapter.getCount() - 1)`.
 >   `new ArrayAdapter<>(ctx, R.layout.row, R.id.title, items)` puts the text into that child.
 > - `AdapterView<T>.setOnItemClickListener(OnItemClickListener)` — the 4-arg `onItemClick` above.
 >
-> Two divergences from Android: rows share one height, that of the first row the adapter
-> builds (a taller row is clipped to it), and `setSelection` scrolls without moving the keypad
-> focus. There is no `RecyclerView`, and no header or footer views, choice modes or dividers.
+> One divergence from Android: rows share one height, that of the first row the adapter
+> builds (a taller row is clipped to it). There is no `RecyclerView`, and no header or footer
+> views, choice modes or dividers.
 
 ### `picodroid.widget.CheckBox`
 
@@ -1480,16 +1478,17 @@ already has reports nothing.
 
 ### `picodroid.widget.Spinner`
 
-A drop-down list. Items are passed as a single newline-separated string, or come from an
-adapter: `Spinner` extends `AdapterView<Adapter>` like `ListView`, so
-`sp.setAdapter(new ArrayAdapter<>(this, picodroid.R.layout.simple_spinner_item, items))` works and
-each item renders via its `toString()`.
+A drop-down list fed by an adapter: `Spinner` extends `AdapterView<Adapter>` like `ListView`,
+and each item renders via its `toString()`.
 
 ```java
+import picodroid.widget.ArrayAdapter;
 import picodroid.widget.Spinner;
 
 Spinner sp = new Spinner(this);
-sp.setItems("Red\nGreen\nBlue");
+sp.setAdapter(
+    new ArrayAdapter<>(this, picodroid.R.layout.simple_spinner_item,
+        new String[] {"Red", "Green", "Blue"}));
 int sel = sp.getSelectedItemPosition();
 
 sp.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
@@ -1583,8 +1582,9 @@ See [`picodroid.widget.Keyboard`](#picodroidwidgetkeyboard) for the soft keyboar
 ### `picodroid.widget.ScrollView`
 
 A vertically scrollable container with a single child (typically a `LinearLayout`). As on
-Android it draws no border and has square corners; give it a `GradientDrawable` background if
-you want an outline.
+Android it draws no background, no border and has square corners: what is behind it shows
+through until you call `setBackgroundColor`, or give it a `GradientDrawable` background for an
+outline.
 
 On a board whose panel can scroll its own frame memory (the ST7796 touch board), a
 full-width `ScrollView` scrolls in hardware: a step renders only the rows that scrolled in
@@ -2048,20 +2048,21 @@ descendant with an `OnSwipeListener` of its own goes to the layout first, which 
 
 ## Complete display app example
 
-A minimal app that creates a button and updates a label when tapped:
+A minimal app that creates a button and updates a label when tapped. The manifest declares the
+Activity with the `MAIN` / `LAUNCHER` filter, and the framework launches it:
 
-```java
-// CounterApp.java
-package counter;
-
-import picodroid.app.Application;
-import picodroid.content.Intent;
-
-public class CounterApp extends Application {
-    public void onCreate() {
-        startActivity(new Intent(this, CounterActivity.class));
-    }
-}
+```xml
+<!-- PicodroidManifest.xml -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="counter">
+    <application>
+        <activity android:name=".CounterActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
 ```
 
 ```java

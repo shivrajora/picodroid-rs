@@ -1,6 +1,7 @@
 # The Android-shaped manifest: `<activity>`, `<service>`, `android:theme`
 
-**Status: built 2026-10-09** (decision F4 of
+**Status: built 2026-10-09; the only form since 2026-10-26** (amendment of that date: the short
+form is gone, the framework launches the entry Activity after `Application.onCreate`) (decision F4 of
 [claudeusage-decisions-2026-10.md](claudeusage-decisions-2026-10.md), "the small half": components
 and the theme, not intent filters or permissions). Amendments at the bottom record where execution
 diverged from the plan.
@@ -145,3 +146,42 @@ are unchanged.
   component check requires a `<receiver>` for every class an explicit broadcast Intent names,
   once the manifest declares any component. The runtime delivers to a package that is not
   running by a headless run of it. "Not read: `<receiver>`" in §1 is retired.
+- 2026-10-26: **the Android form is the only form** (follow-up 1 of
+  [android-idiom-sweep-2026-10.md](../android-idiom-sweep-2026-10.md)). Every manifest under
+  `examples/` and `system-apps/` was converted; the parser refuses the old spellings with the
+  Android one to write:
+  - `<application android:name>` names the Application class; `application=`, `activity=` and
+    `main-class=` on `<application>` are build errors. The entry Activity is always an `<activity>`
+    (the `MAIN` filter's, else the first). An app has an Application, an entry Activity or both.
+    `main-class` survives only as `papk-pack --main-class` (fixtures); no manifest names one.
+  - **The framework launches the entry Activity.** With both, `papk-pack` writes the
+    `application` and the `activity` key (`EntryPoint::ApplicationActivity`), and
+    `lifecycle::run_application` pushes the `activity` class after `Application.onCreate` when
+    `onCreate` queued no Activity push (and no `Launch`), as Android launches the launcher
+    Activity once the Application exists. A manifest-receiver run stays headless (the entry is not
+    launched). An explicit `startActivity` from `onCreate` still wins (qa_life keeps one, to pass
+    extras). Thirty apps' `startActivity`-from-`Application.onCreate` calls went; seventeen
+    Application classes whose only job that was were deleted (those apps are Activity-only now),
+    and `reclaimdemo`'s became a plain holder class. Pinned by
+    `qa_shape_guards::run_application_launches_the_entry_activity_unless_headless`. The entry
+    Activity is launched with no Intent (`getIntent()` is null), as an `activity=` boot always
+    was; Android hands it an `ACTION_MAIN` one.
+  - `android:` only: `android:name` / `android:label` / `android:theme` / `android:required`;
+    bare `name=` / `label=` / `theme=` / `required=` are errors, and `<manifest>` must declare
+    `xmlns:android` (so the files are well-formed namespaced XML; Python's ElementTree reads them in
+    `test-future-version-rejection.sh`). Picodroid's own attributes stay bare: `icon` (an
+    `assets/` file name, where Android's `android:icon` is a drawable reference),
+    `<supports-screens design-width design-height>`.
+  - `android:versionName` / `android:versionCode` replace `version` / `version-code`.
+  - `android:label="@string/name"` is resolved by `papk-pack` against the compiled `res/values`
+    (default configuration) and written as text; eight apps use it.
+  - `<uses-permission>` belongs under `<manifest>` (still read and ignored); under `<application>`
+    it is an error. `<uses-feature>` takes `android:name` / `android:required` (the default stays
+    not-required, Android's is required). An unknown child of `<manifest>` is an error, as one of
+    `<application>` was.
+  - `verifyManifest` now runs for most apps (they declare components), which found undeclared
+    Activities in `settings`, `fragmentdemo` and `pagerdemo` and an explicit-broadcast receiver in
+    `qa_bcast`; all declared.
+  - The XSD declares the `android:` attributes in their namespace
+    (`sdk/PicodroidManifest-android.xsd`, imported); amendment 2026-10-09 on the XSD is retired.
+  The §1 short-form paragraphs and §4 describe the 2026-10-09 state.

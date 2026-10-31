@@ -45,18 +45,20 @@ The shape is Android's: one `ConnectivityManager` per app (`getSystemService`), 
 
 Since a board has one link there is one `Network` at a time — `getActiveNetwork()` returns it, or null while the link is down — and each time the link comes back it is a new `Network`, as on Android, so `onLost` names the one `onAvailable` did. `getNetworkCapabilities(network)` and the `NetworkCapabilities` passed to `onCapabilitiesChanged` carry the link's transport (`TRANSPORT_WIFI` or `TRANSPORT_ETHERNET`, matching the board's `FEATURE_*`) and the capabilities a home network shows on Android: `NET_CAPABILITY_INTERNET`, `NET_CAPABILITY_VALIDATED`, `NET_CAPABILITY_NOT_METERED` and the `NOT_*` set. `Network.openConnection(URL)` is `url.openConnection()`, since the board has one network, and `getNetworkHandle()` is Android's handle for it. picodroid does not probe the internet — `VALIDATED` means the link is up with an address. A `NetworkRequest` built with `NetworkRequest.Builder` (`addTransportType`, `removeTransportType`, `addCapability`, `removeCapability`, `clearCapabilities`, `build`) is satisfied by a network that has every capability it asks for and, if it names transports, one of them; a request for `TRANSPORT_CELLULAR` on a WiFi board never fires.
 
-Not there: `LinkProperties` and `onLinkPropertiesChanged` — read the address with `WifiManager.getConnectionInfo().getIpAddress()`; a DHCP renewal that changes it keeps the same `Network` and fires nothing. `onLosing` and `onUnavailable` exist so overrides compile but are never called (nothing loses a network gracefully or times a request out), and the deprecated `getActiveNetworkInfo()` is absent, as is every member of `NetworkInfo` (framework-internal, `@Hide`). A link that drops and returns within one frame (16 ms) is not reported. At most eight callbacks may be registered at once.
+`getLinkProperties(network)` gives the link's address on any link (WiFi, Ethernet, the simulator's host link): `getLinkAddresses()` holds the one IPv4 address, with no routes, DNS servers, MTU or prefix length. Not there: `onLinkPropertiesChanged` — a DHCP renewal that changes the address keeps the same `Network` and fires nothing. `onLosing` and `onUnavailable` exist so overrides compile but are never called (nothing loses a network gracefully or times a request out), and the deprecated `getActiveNetworkInfo()` is absent, as is every member of `NetworkInfo` (framework-internal, `@Hide`). A link that drops and returns within one frame (16 ms) is not reported. At most eight callbacks may be registered at once.
 
 For code that has no Activity, or just wants an answer now, ask the same objects directly:
 
 ```java
-import picodroid.net.InetAddress;
-import picodroid.net.wifi.WifiManager;
+import picodroid.net.LinkAddress;
+import picodroid.net.LinkProperties;
 
-if (cm.getActiveNetwork() != null) {
-    WifiManager wm = (WifiManager) getSystemService(Context.WIFI_SERVICE);
-    InetAddress me = new InetAddress(wm.getConnectionInfo().getIpAddress());
-    Log.i("Net", "IP: " + me.getHostAddress());   // "192.168.1.42"
+Network net = cm.getActiveNetwork();
+if (net != null) {
+    LinkProperties link = cm.getLinkProperties(net);
+    for (LinkAddress a : link.getLinkAddresses()) {
+        Log.i("Net", "IP: " + a.getAddress().getHostAddress());   // "192.168.1.42"
+    }
 }
 ```
 

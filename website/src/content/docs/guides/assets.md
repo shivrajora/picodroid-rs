@@ -1,50 +1,51 @@
 ---
 title: "Bundled image assets"
-description: "Ship pre-decoded PNG images inside the PAPK and load them with ImageView.setImageSource at zero runtime cost."
+description: "Ship pre-decoded PNG images inside the PAPK and show them with ImageView.setImageResource(R.drawable.x) at zero runtime cost."
 ---
 
-A PAPK can carry an `ASST` ("asset") section of pre-decoded PNG images as LVGL-native RGB565 structures (the section arrived with format v1.1 and is unchanged in today's v2). The framework builds the asset at PAPK-pack time, embeds it directly in the file, and the firmware maps it from XIP flash at runtime — `ImageView.setImageSource("foo.png")` becomes a name-keyed lookup with no PNG decoder on the device.
+A PAPK can carry an `ASST` ("asset") section of pre-decoded PNG images as LVGL-native RGB565 structures (the section arrived with format v1.1 and is unchanged in today's v2). The framework builds the asset at PAPK-pack time, embeds it directly in the file, and the firmware maps it from XIP flash at runtime: `ImageView.setImageResource(R.drawable.logo)` becomes a lookup with no PNG decoder on the device.
 
-This guide covers the manifest format, the build pipeline, and the runtime API.
+This guide covers where the images go, the build pipeline, and the runtime API.
 
-For images referenced by id — `R.drawable.logo`, `android:src="@drawable/logo"` — put them under
-`res/drawable/` instead; see [resources](/guides/resources/). They are stored in the same ASSETS
-section, under the name `res/drawable/<file>`.
+## Where images go
 
-## Manifest format
-
-In your app's directory (e.g. `examples/imagedemo/`), declare the assets next to the Java sources:
+An app's own images go under `res/drawable/`, as on Android, and are referenced by id:
+`R.drawable.logo` in Java, `android:src="@drawable/logo"` in a layout (see
+[resources](/guides/resources/#drawables)). They are stored in the ASSETS section under the name
+`res/drawable/<file>`.
 
 ```
 examples/imagedemo/
   PicodroidManifest.xml
   build.gradle.kts
-  assets/
+  res/drawable/
     logo.png
+  assets/
+    logo.png          (the launcher icon the manifest names)
   java/imagedemo/ImageDemoApp.java
 ```
 
-`papk-pack` discovers anything under `assets/` and emits one entry per file into the PAPK ASST section.
+The `assets/` directory holds the file the manifest's `icon` names (below); `papk-pack` emits one
+entry per file under it too.
 
-PNG decoding happens **at pack time** on the host. The on-device firmware sees only RGB565 framebuffers + dimensions. Today `papk-pack` bundles **PNG only** — the file scan is case-insensitive on the `.png` extension and any other file in `assets/` is silently skipped (the host packer is built with the PNG codec alone). Alpha is discarded during the RGB565 conversion, so transparency is not preserved.
+PNG decoding happens **at pack time** on the host. The on-device firmware sees only RGB565 framebuffers + dimensions. Today `papk-pack` bundles **PNG only** — the file scan is case-insensitive on the `.png` extension and any other file is silently skipped (the host packer is built with the PNG codec alone). Alpha is discarded during the RGB565 conversion, so transparency is not preserved.
 
-## API: `ImageView.setImageSource(String)`
+## API: `ImageView.setImageResource(int)`
 
 ```java
 import picodroid.widget.ImageView;
 
 ImageView img = new ImageView(this);
-img.setImageSource("logo.png");   // matches assets/logo.png in the app directory
+img.setImageResource(R.drawable.logo);   // res/drawable/logo.png
 ```
 
-The string is the asset's file name — `setImageSource("logo.png")` matches `assets/logo.png`. The packer scans `assets/` flat (non-recursive), so the key is just the base file name including its extension. Each `setImageSource` is a small linear scan of the registry.
-
-If the asset name doesn't match anything, the call does nothing — **no warning, no exception, no change** to the widget. The lookup is silently best-effort, so double-check the spelling against `papk-info` (below) if an image doesn't appear.
+A missing resource throws `Resources.NotFoundException`, as on Android; since the id comes from
+the generated `R`, that means a package built wrong, not a typo.
 
 ## App icon
 
 The manifest's `<application icon="…">` names one of the files under `assets/`
-as the app's icon — what a launcher shows beside the app's `label`. The file
+as the app's icon — what a launcher shows beside the app's `android:label`. (`icon` is Picodroid's attribute, bare: Android's `android:icon` names a drawable resource.) The file
 must exist (the Gradle build fails at configuration time when it does not) and
 should be a small square: 48×48 is the convention, 64×64 the point past which
 `papk-pack` warns, because every icon costs `width × height × 2` bytes of flash
@@ -52,17 +53,16 @@ and a launcher scales anything larger. See the
 [manifest reference](/reference/manifest/#app-identity).
 
 ```xml
-<application application="myapp/MyApp" label="My App" icon="icon.png" />
+<application android:name=".MyApp" android:label="My App" icon="icon.png" />
 ```
 
-### Scale, tint, and aspect
+### Scale type and tint
 
-The full Tier C ImageView surface lives in [Graphics & UI → ImageView](/api/ui/#picodroidwidgetimageview):
+The full ImageView surface lives in [Graphics & UI → ImageView](/api/ui/#picodroidwidgetimageview):
 
 ```java
-img.setScaleType(ImageView.SCALE_FIT_CENTER);
-img.setScale(384);                // ImageView.SCALE_1X (256) = 1.0×, so 384 = 1.5×
-img.setTint(Color.RED);           // the colour's alpha is the blend strength
+img.setScaleType(ImageView.ScaleType.CENTER_CROP);
+img.setColorFilter(Color.argb(128, 255, 0, 0));   // the colour's alpha is the blend strength
 ```
 
 For scaled rendering to be anti-aliased, `LV_DRAW_SW_SUPPORT_RGB565A8` must be enabled in `lv_conf.h` (it is, by default). Without it scaled images render aliased.
@@ -78,15 +78,15 @@ For scaled rendering to be anti-aliased, `LV_DRAW_SW_SUPPORT_RGB565A8` must be e
    | 128×128 | 128 × 128 × 2 | 32 KiB |
    | 240×240 (full screen) | 240 × 240 × 2 | 112.5 KiB |
 
-   Keep a full-screen background to one image — two of them already eat a quarter of a megabyte. As a rule of thumb keep the `assets/` total well under ~256 KiB so code and bytecode still fit; the only hard error the packer raises is for a single image larger than 65535 px on a side.
+   Keep a full-screen background to one image — two of them already eat a quarter of a megabyte. As a rule of thumb keep the images well under ~256 KiB in total so code and bytecode still fit; the only hard error the packer raises is for a single image larger than 65535 px on a side.
 
-2. **Drop it in `assets/`.** Create the directory next to your Java sources and add the `.png` (no manifest entry needed — the build auto-detects `assets/`):
+2. **Drop it in `res/drawable/`.** Create the directory next to your Java sources and add the `.png` (no manifest entry needed); the build generates `R.drawable.logo` for `logo.png`:
 
    ```text
    examples/myapp/
      PicodroidManifest.xml
      build.gradle.kts
-     assets/
+     res/drawable/
        logo.png
      java/myapp/MyApp.java
    ```
@@ -105,25 +105,25 @@ For scaled rendering to be anti-aliased, `LV_DRAW_SW_SUPPORT_RGB565A8` must be e
 
    ```text
    Assets  (8220 bytes @ 0x608)  tag "ASST"
-     ┌──────────┬───────┬───────────────┬─────────┐
-     │ Asset    │ Dim   │ Format        │    Size │
-     ├──────────┼───────┼───────────────┼─────────┤
-     │ logo.png │ 64x64 │ RGB565 (0x12) │ 8.0 KiB │
-     └──────────┴───────┴───────────────┴─────────┘
+     ┌───────────────────────┬───────┬───────────────┬─────────┐
+     │ Asset                 │ Dim   │ Format        │    Size │
+     ├───────────────────────┼───────┼───────────────┼─────────┤
+     │ res/drawable/logo.png │ 64x64 │ RGB565 (0x12) │ 8.0 KiB │
+     └───────────────────────┴───────┴───────────────┴─────────┘
    ```
 
-   If your image isn't in the table, the file name didn't end in `.png` or wasn't directly under `assets/`.
+   If your image isn't in the table, the file name didn't end in `.png` or wasn't directly under `res/drawable/`.
 
-5. **Show it.** Reference the file by name:
+5. **Show it.** Reference it by id:
 
    ```java
    ImageView img = new ImageView(this);
-   img.setImageSource("logo.png");
+   img.setImageResource(R.drawable.logo);
    ```
 
 ## PAPK compatibility
 
-Bundled assets land outside the framework class set, so they don't change the **shrink map**, and `--shrink` / `--shrink-app` never rename an asset: the name passed to `setImageSource` is a string literal, which the shrinker leaves alone.
+Bundled assets land outside the framework class set, so they don't change the **shrink map**, and `--shrink` / `--shrink-app` never rename an asset: a drawable is reached by its resource id, and the icon by the manifest's file name.
 
 The container itself is at format **v3**: classes are linked when the app is packed, and `pdb install` and the firmware read only that version (`PAPK file is not a valid PAPK: PAPK format version is not the one this build reads`). Sections are 2-byte aligned, so an image's pixels never land at an odd address; the firmware skips, rather than draws, an image whose pixels do and logs `[assets] <name> skipped: pixel data is not 2-byte aligned`.
 
@@ -137,7 +137,7 @@ The `papk-info` tool prints both the manifest and the asset table:
 
 - The ASST section is a `[u32 count]` followed by one record per asset: `[u16 name_len][name bytes][u16 width][u16 height][u8 cf][u8 reserved0][u16 stride (0 = derive from width + cf)][u32 data_len]`, each record padded to a 4-byte boundary before and after its pixel data. Every PAPK section also starts on a 4-byte boundary in the file, so pixel data sits at an aligned flash address — LVGL reads it in place as 16-bit words, and a Cortex-M0+ (RP2040) hard-faults on an unaligned halfword read.
 - The firmware-side resolver lives in `crates/picodroid-core/src/graphics/assets.rs` and registers each entry with LVGL's image cache as `lv_img_dsc_t` pointers into XIP flash.
-- There is no asset-section byte cap in the packer — the only enforced image limit is a per-axis maximum of 65535 px. The real ceiling is the app region the PAPK is installed into, shared with its classes and manifest and with every other installed app, so keep `assets/` modest (a few hundred KiB at most) to leave room for code.
+- There is no asset-section byte cap in the packer — the only enforced image limit is a per-axis maximum of 65535 px. The real ceiling is the app region the PAPK is installed into, shared with its classes and manifest and with every other installed app, so keep the images modest (a few hundred KiB at most) to leave room for code.
 - Another app's icon reaches your app as a `BitmapDrawable` from `PackageManager.getApplicationIcon`, read out of that app's installed image; show it with `ImageView.setImageDrawable`. That is how the launcher draws its rows.
 
 See [`examples/imagedemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/imagedemo) for a worked example.

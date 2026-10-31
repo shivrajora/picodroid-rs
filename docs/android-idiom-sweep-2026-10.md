@@ -1,7 +1,7 @@
 # The Android-idiom sweep, 2026-10-26
 
-> **Status:** landed 2026-10-26 (`6d213518`, docs in the commit after it). The follow-ups
-> below are open.
+> **Status:** landed 2026-10-26 (`6d213518`, docs in the commit after it); the second round
+> closed follow-ups 1–4 and 6 the same day. What is still open is listed at the end.
 
 ## Why
 
@@ -71,28 +71,49 @@ executor demos, `Collections.sort`). Beyond that:
   constructor. `qa_store` / `prefs_demo` disk-roundtrip checks now go through the one shared
   instance (cross-boot persistence remains the disk proof).
 
-## Follow-ups (open)
+## Follow-ups
 
-1. **Short-form manifests** remain accepted and are used by about a hundred demo and QA apps;
-   only the showcase apps moved to the long form. Dropping the short form is the same kind of
-   sweep.
-2. **No Context in the DI graph** (Hilt's `@ApplicationContext`): picoclock and picoenvmon hold
-   the Application statically for their modules. A provider of the application `Context` in the
-   generated component would remove that.
-3. **No `LinkProperties`:** an app has no unhidden way to read the address on a non-WiFi board,
-   and in the sim `WifiInfo.getIpAddress()` is 0 because the simulated station never reports
-   itself joined while the host link is up (a sim divergence: picoenvmon's Network screen shows
-   "IP: -" in the sim).
-4. **Remaining non-Android spellings:** `ProgressBar.indeterminate()`,
-   `ImageView.setImageSource(String)`, `Intent.getTargetClassName()` (Android:
-   `getComponent()`), `Notification.getContentTitle/Text`, `Display.update` /
-   `setContentView`, `GestureDetector`'s listener shape, no `getSystemService(Class)`.
-5. **Smaller divergences found:** `ArrayAdapter.add` / `clear` do not notify the list (Android's
-   `notifyOnChange`); `ScrollView` paints the surface colour (Android's is transparent); manifest
-   `label` takes no `@string/`; `<uses-permission>` is read only under `<application>`; an app with
-   no Activity hears no `NetworkCallback` (netdemo, http_get, https_get keep a short wait on
-   `getActiveNetwork()`).
-6. **Seen, not caused by the sweep:** picoenvmon History's info dialog names sample 52 while the
-   list shows 59; askclaude's DPAD_DOWN may be taken by its ScrollView; Settings shows "Not
-   connected" rather than "Wrong password" when a join fails while the Wi-Fi screen is not
-   resumed (the error now comes only from the broadcast, as on Android).
+The first round's six follow-ups, and what the second round (2026-10-26) did with each:
+
+1. **Short-form manifests: closed.** The Android form is the only one: `<application
+   android:name>`, the entry Activity declared with the MAIN filter, `android:versionName` /
+   `versionCode`, the `android:` prefix required, `<uses-permission>` under `<manifest>`; the old
+   attributes fail the build with the spelling to write. All 113 manifests migrated. The framework
+   launches the entry Activity after `Application.onCreate` (an explicit `startActivity` there still
+   wins; receiver runs stay headless), so 30 apps lost their launch call and 17 Application
+   classes were deleted. Design amendment in `designs/manifest-components-2026-10.md`.
+2. **Context in the DI graph: closed.** `@picodroid.di.ApplicationContext Context` and
+   `Application` are injectable anywhere, as with Hilt; an unqualified `Context` is a compile error
+   naming the fix. picoclock and picoenvmon(_kt) dropped their static application context.
+3. **`LinkProperties`: closed.** `ConnectivityManager.getLinkProperties(network)` with
+   `LinkProperties.getLinkAddresses()` / `LinkAddress.getAddress()` (the link's IPv4 address on
+   any link, the simulator's host link included); picoenvmon and netdemo read the address there.
+4. **Remaining spellings: closed.** `Intent.getComponent()` (`getTargetClassName` is `@Hide`),
+   `getSystemService(Class)` / `getSystemServiceName`, `Notification.extras` with `EXTRA_TITLE` /
+   `EXTRA_TEXT` (the getters went), `DisplayDebug.setContentView` / `renderFrame` for a bench
+   (`Display.setContentView` / `update` are `@Hide`), `ListView.addItem` deleted and
+   `Spinner.setItems` private, `GestureDetector` in Android's shape (`onTouchEvent`, the six
+   callbacks, `SimpleOnGestureListener`; the old one never saw a fling since the runtime reuses one
+   `MotionEvent`, hence `MotionEvent.obtain(MotionEvent)`), `ProgressBar(ctx)` the spinner and
+   `R.attr.progressBarStyleHorizontal` the bar, `ImageView.ScaleType` / `setImageTintList` /
+   `setColorFilter` (`setImageSource`, `setScale`, the `SCALE_*` ints went).
+5. **Smaller divergences: closed** except the last. `ArrayAdapter` notifies on change
+   (`setNotifyOnChange`); `ScrollView` draws no background; manifest labels take `@string/`;
+   `<uses-permission>` is read under `<manifest>`. Still open: an app with no Activity runs no event
+   loop, so it hears no `NetworkCallback` (its `Application.onCreate` returns and the run ends).
+6. **Seen bugs: closed.** picoenvmon History's 52-vs-59 was `ListView.setSelection` leaving the
+   keypad focus on a re-bound row; it now moves the focus with the selection when a row holds it
+   (qa_list row pins it). askclaude's DPAD_DOWN was not a bug: the panel had dozed and the waking
+   key is swallowed by design. The Settings wrong-password status is Android's behaviour and stays.
+
+Still open after round 2:
+
+- An app with no Activity hears no `NetworkCallback` (follow-up 5).
+- The entry Activity's `getIntent()` is null; Android hands it an `ACTION_MAIN` Intent.
+- A manifest `icon` names a file under `assets/`, not `@drawable/` (imagedemo keeps a copy of its
+  logo under `assets/` for it).
+- `ProgressBar.setIndeterminate(true)` throws on a horizontal bar (LVGL cannot switch a bar into
+  a spinner); `ImageView.ScaleType.FIT_START` / `FIT_END` draw as `FIT_CENTER`.
+- menudemo's sim row times out now and then (a key sent right after `menu shown` is lost: a DOWN
+  or the held SELECT lands before the list takes the focus); main's nightly shows it too
+  (2026-10-26, 2026-10-29).

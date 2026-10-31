@@ -2,7 +2,8 @@
 
 **Status: landed.** Released in v0.14.0; the processor and the generated wiring live
 under `sdk/` (moved there by `9be6b754`), and Kotlin apps go through kapt. Follow-ups 1, 2
-and 6 have landed since; 3, 4, 5 and 7 are open.
+and 6 have landed since, and 8 (the application Context, 2026-10-26); 3 (beyond
+`@ApplicationContext`), 4, 5 and 7 are open.
 
 **Goal:** Dagger/Hilt-shaped DI for picodroid apps. Developers write JSR-330
 `@javax.inject.Inject` constructors / fields / methods and
@@ -120,6 +121,17 @@ fully-qualified names, no imports, no lambdas, header
   the `@Provides` factory; a type bound by both a method and an `@Inject`
   constructor (or by two methods) is a duplicate-binding error. Cycle
   detection runs over binding keys, so `@Provides` parameters are edges too.
+- **Framework bindings** (follow-up 8): `@ApplicationContext Context`
+  (`picodroid.di.ApplicationContext`, in `inject/annotations`, `@Qualifier`-annotated) and an
+  unqualified `picodroid.app.Application` compile to
+  `picodroid.di.ApplicationContextModule.provideApplication()` at the site: no generated class.
+  That SDK class (one static method) calls the `@Hide` `Application.currentApplication()`, which
+  returns `Context.sApplication`, or constructs a bare `Application` when the manifest named none
+  (its constructor publishes it), so the value is never null. An unqualified `Context` is an error
+  that names the qualifier; so are the qualifier on any other type, a `Provider`/`Lazy` of either,
+  a `@Provides` rebinding of either, the app's own `Application` subclass as a dependency, and a
+  custom `@Qualifier` (matched when visibly meta-annotated; `@ApplicationContext` is matched by
+  name, since its SOURCE-retained meta-annotation is invisible from a class file).
 
 **Validation rules** (each a `Messager` error at the element; the golden and
 diagnostic tests in `inject/compiler/src/test/java` pin them):
@@ -207,3 +219,9 @@ Items 1, 2 and 6 have since landed and are struck through below; 3, 4, 5 and 7 a
    left at KGP 2.1.21's default. No KSP.
 7. **`sdk/keep.toml`'s `picodroid/annotation/KeepName`** is a stale,
    never-implemented hook; unrelated to this work, left alone.
+8. ~~**The application `Context`**~~ — **DONE 2026-10-26 (branch `fu-di`)**: Hilt's
+   `@ApplicationContext Context` and `Application`, as in the contract above. picoclock's
+   `ClockApp.appContext()` static and picoenvmon's in-`onCreate` prefs load are gone; both
+   modules take `@ApplicationContext Context`, and `ThresholdConfig` takes the injected
+   `SharedPreferences`. Compiler tests: `GenerationTest` (three), `ValidationTest` (nine),
+   `HostRunTest.applicationBindingsResolveToOneApplication`.

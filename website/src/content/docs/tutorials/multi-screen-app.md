@@ -28,12 +28,13 @@ name whose directory exists):
 This creates `examples/myscreens/` with a `PicodroidManifest.xml`, a `build.gradle.kts`, and a
 `java/myscreens/` source root holding a starter `Myscreens` Application class; use your name
 wherever the snippets below say `tutorial_screens`. This app needs no `Application` subclass, so
-delete the starter class and replace the generated one-line manifest with Android's long form, one
-`<activity>` per screen — this is the committed app's:
+delete the starter class, drop its `android:name` from the generated manifest's `<application>`,
+and declare one `<activity>` per screen — this is the committed app's:
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="tutorial_screens" version="1.0">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="tutorial_screens" android:versionName="1.0">
     <!-- Every screen is an <activity>. The one with the MAIN / LAUNCHER intent filter is what the
          launcher opens; the others are reached by startActivity(new Intent(this, ...)). -->
     <application>
@@ -53,7 +54,7 @@ The activity with the `MAIN` / `LAUNCHER` intent filter is the app's entry: the 
 and it is the first entry on the back stack. `package` is the app's identity on a device that holds
 several apps. Declaring every screen also lets the build check each `startActivity`: the Gradle
 `verifyManifest` task refuses an `Intent` that names an undeclared Activity. See the
-[manifest reference](/reference/manifest/#the-android-form) for every supported element, and
+[manifest reference](/reference/manifest/#components-and-the-theme) for every supported element, and
 [your first app](/get-started/first-app/) for the basics of the project layout.
 
 ## Strings
@@ -322,8 +323,8 @@ The tutorial app shares no data between screens, but you'll want to eventually �
 correctness note worth internalising first.
 
 `Intent` has extras (`putExtra` / `getIntExtra` / `getStringExtra` / `getBooleanExtra`), and an
-Activity reads the Intent that launched it with `getIntent()` (null only for a manifest `activity=`
-boot with no app-side launch). That covers one-shot arguments — an id, a mode, a title:
+Activity reads the Intent that launched it with `getIntent()` (null only for the manifest's
+entry Activity, which the framework launches). That covers one-shot arguments — an id, a mode, a title:
 
 ```java
 startActivity(new Intent(this, CounterActivity.class).putExtra("start", 10));

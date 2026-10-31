@@ -5,6 +5,32 @@ re-litigated by the next session. Newest first; append, do not rewrite. A decisi
 reversed gets a new entry pointing at the old one. The design docs under `designs/` carry the
 long form where one exists.
 
+## 2026-10-26: the sweep's second round — manifest, DI context, widget shapes
+
+- **The framework launches the entry Activity** after `Application.onCreate`, as Android does; an
+  explicit `startActivity` from `onCreate` still wins (qa_life passes extras that way) and a
+  manifest-receiver run stays headless. The short manifest form is gone, not deprecated:
+  `android:` prefixed attributes only, `xmlns:android` required, picodroid's own `icon` and
+  `design-width` / `design-height` stay bare. `<uses-permission>` belongs under `<manifest>`.
+- **DI resolves the application through one SDK class,** `picodroid.di.ApplicationContextModule`
+  (Hilt's internal name), because generated code may not call an `@Hide` member. An app whose
+  manifest names no Application gets a plain one on first injection: never null, as on Android.
+  Custom `@Qualifier`s are a compile error until keyed bindings exist, rather than ignored.
+- **`ListView.setSelection` moves the keypad focus** to the selected row when a row of the list
+  holds it (Android's key-navigation selection), replacing the documented "focus stays put";
+  `smoothScrollToPosition` never moves it.
+- **Widget shapes:** `ProgressBar(ctx)` is the spinner (Android's default style) and the bar is
+  `R.attr.progressBarStyleHorizontal`; layout class code 10 keeps meaning the bar so built PAPKs
+  keep their meaning (codes are append-only); `setIndeterminate(true)` on a bar throws rather
+  than being ignored. `ImageView.FIT_START` / `FIT_END` fall back to `FIT_CENTER` (LVGL fits
+  about the centre). `MotionEvent.obtain(MotionEvent)` is how a listener keeps an event past its
+  callback: the runtime reuses one object per dispatch.
+- **`Intent.getComponent()`** reads the package through a private static twin of the
+  `getPackageName` native (the arm matches the method name on any class) rather than a new
+  instance field: `Intent` is slot-addressed.
+- **`ScrollView` draws nothing of its own**, as Android's; `hw_vscroll.c` already follows a
+  see-through scroller to its first opaque ancestor.
+
 ## 2026-10-26: the app bar is a Toolbar the Activity adopts; Back goes through a dispatcher
 
 - **No window-decor action bar.** An Activity gets an app bar the way an Android app under a
@@ -25,8 +51,8 @@ long form where one exists.
   `onOptionsItemSelected` as `R.id.home` first, as on Android.
 - **Titles come from `<activity android:label>`,** written to the PAPK as one `label:<class>`
   manifest entry per activity (shrunk with the class under an app map), so labels need no list
-  format that a comma or a bar in the text could break. Literal text only; `@string/` is a build
-  error rather than a silently unresolved id.
+  format that a comma or a bar in the text could break. Text or `@string/`, resolved at pack time
+  as the application's label is (amended by the round-two merge, same day).
 - **Back is androidx's dispatcher, in `picodroid.activity`.** `onBackPressed` hands every press
   to it when one exists (created lazily, so an app that never asks never resolves the class);
   app callbacks run before the fragment pop, which is androidx's order for callbacks added

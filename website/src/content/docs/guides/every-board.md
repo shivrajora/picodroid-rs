@@ -71,8 +71,10 @@ board: centred on a larger panel, panned on a smaller one. `Display.getWidth()`,
 and every coordinate are the design's.
 
 ```xml
-<manifest package="picoclock" version="1.0">
-    <application application="picoclock/ClockApp" label="Clock" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="picoclock">
+    <application android:name=".ClockApp" android:label="Clock">
+        <!-- the activities, services and receivers -->
+    </application>
     <supports-screens design-width="320" design-height="480" />
 </manifest>
 ```
@@ -134,7 +136,7 @@ An app that reads raw touch (a drawing pad) says so, and the installer refuses i
 without a panel:
 
 ```xml
-<uses-feature name="picodroid.hardware.touchscreen" required="true" />
+<uses-feature android:name="picodroid.hardware.touchscreen" android:required="true" />
 ```
 
 The default is not required: the stock widgets work with a finger and with four keys alike.

@@ -1,94 +1,150 @@
 ---
 title: "PicodroidManifest.xml reference"
-description: "Schema, entry-point styles, and build/runtime wiring for an app's PicodroidManifest.xml."
+description: "Schema, entry points, and build/runtime wiring for an app's PicodroidManifest.xml."
 ---
 
 Every Picodroid app ships exactly one `PicodroidManifest.xml` at the root of its
-directory. It declares the app's package and names the single class the runtime
-hands control to at launch.
+directory. It is written as Android writes `AndroidManifest.xml`: the package,
+the Application class, the Activities, Services and receivers the app has, and
+the Activity the launcher opens.
 
-A minimal manifest:
+A minimal manifest, for an app with an `Application` and no screen:
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="helloworld" version="1.0">
-    <application application="helloworld/HelloWorld" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="helloworld" android:versionName="1.0">
+    <application android:name=".HelloWorld" />
+</manifest>
+```
+
+An app with screens declares them, and the one with the `MAIN` / `LAUNCHER`
+intent filter is what the framework launches:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="myapp" android:versionName="1.2" android:versionCode="3">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application android:name=".MyApp" android:label="@string/app_name"
+                 android:theme="@style/AppTheme">
+        <activity android:name=".ui.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <service android:name=".data.SyncService" />
+    </application>
 </manifest>
 ```
 
 The build discovers the app, compiles its Java, and packs everything into a
 `.papk` bundle (see [Build](/get-started/build/)). At runtime the firmware reads
-the entry point out of the manifest and dispatches to it.
+the entry point out of the packed manifest and dispatches to it.
 
 ## Schema
 
-The manifest shape is validated at build time by the Gradle `buildSrc` parser
-(`ManifestSchema.kt`). It fails the Gradle build immediately — at configuration
-time — with a clear error rather than letting a malformed manifest reach the
+The manifest is validated at build time by the Gradle `buildSrc` parser
+(`ManifestSchema.kt`). It fails the Gradle build immediately, at configuration
+time, with a clear error rather than letting a malformed manifest reach the
 packer.
+
+**Spelling.** Android's attributes carry the `android:` prefix and only that
+spelling is read: `android:name`, `android:label`, `android:theme`,
+`android:versionName`, `android:versionCode`, `android:required`. The root must
+declare `xmlns:android="http://schemas.android.com/apk/res/android"`, as an
+Android manifest does; the parser is not namespace-aware, so the prefix must be
+`android`. Picodroid's own attributes, which Android has no counterpart for
+(`icon`, `design-width`, `design-height`), are bare. A bare `name=`, `label=` or
+`theme=`, and the pre-October-2026 short form (`<application application=…>`,
+`activity=`, `main-class=`, `version=`, `version-code=`), fail the build with the
+spelling to write instead.
 
 The `<manifest>` root:
 
+- **`xmlns:android` (required).** Android's namespace, as above.
 - **`package` (required, non-blank).** The app's identity: it becomes the
   `package-name` key of the PAPK, which the device's package directory keys
   on (one install per package; reinstalling a package replaces its previous
-  copy). Missing or blank both fail. Reverse-DNS (`com.acme.weather`) and
-  plain (`helloworld`) names are both accepted; the example apps use the plain
-  form.
-- **`version` (optional, default `"1.0"`).** The human-readable version name.
-  Missing or blank falls back to `"1.0"`. Any non-blank string is accepted
-  verbatim; there is no format check.
-- **`version-code` (optional, default `1`).** A positive integer that must
-  grow with every release of the package — the package directory orders
+  copy). Reverse-DNS (`com.acme.weather`) and plain (`helloworld`) names are
+  both accepted; the example apps use the plain form. A component name with a
+  leading dot is relative to it.
+- **`android:versionName` (optional, default `"1.0"`).** The human-readable
+  version name, taken verbatim.
+- **`android:versionCode` (optional, default `1`).** A positive integer that
+  must grow with every release of the package: the package directory orders
   installs by it. Anything else fails the build.
-- **`<application>` (required).** At least one must exist. Only the first
-  `<application>` element is read; any extras are silently ignored. Besides
-  the entry point (below), its optional `android:theme` and its component
-  children (see [The Android form](#the-android-form)) it takes two optional
-  identity attributes:
-  - **`label`** (or `android:label`) — the display name a launcher shows, and
-    the title of every Activity without a label of its own; defaults to the
-    package name.
-  - **`icon`** — the file name of a PNG under the app's `assets/` directory
-    (see [Bundled image assets](/guides/assets/#app-icon)). It must exist
-    there, or the build fails at configuration time, and it should be a small
-    square: 48×48 is the convention; `papk-pack` warns past 64×64 or when the
-    sides differ.
+- **`<application>` (exactly one).** See below.
+- **`<uses-permission android:name="…"/>` (optional, repeatable).** Read and
+  ignored. Nothing on this platform enforces a permission (WiFi, the network and
+  the LEDs are open to every app); the element is accepted so an Android
+  manifest's lines carry over, and it grants nothing. It belongs under
+  `<manifest>`, as on Android; under `<application>` it is a build error.
 - **`<supports-screens design-width=".." design-height=".."/>` (optional).**
   The logical size the app lays out against; both attributes are positive
-  integers and both are required when the element is present. The runtime
-  shows the app at exactly that size on every panel. Absent: the app resizes
-  to the panel. See [Screens and features](#screens-and-features).
-- **`<uses-feature name=".." required="true|false"/>` (optional, repeatable).**
-  A hardware feature the app uses, by its `PackageManager.FEATURE_*` name;
-  `required` defaults to `false`. The installer refuses an app that requires
-  a feature the board lacks.
+  integers and both are required when the element is present. See
+  [Screens and features](#screens-and-features).
+- **`<uses-feature android:name=".." android:required="true|false"/>`
+  (optional, repeatable).** A hardware feature the app uses, by its
+  `PackageManager.FEATURE_*` name. Unlike Android, `android:required` defaults
+  to `false`. The installer refuses an app that requires a feature the board
+  lacks.
+
+Any other child of `<manifest>` fails the build naming the supported ones.
+
+The `<application>` element:
+
+- **`android:name`**: the `Application` subclass, if the app has one. Names
+  are read as Android reads them: dotted (`myapp.MyApp`), slash-form, or
+  relative to the manifest `package` with a leading dot (`.MyApp`). A
+  Kotlin or Java class outside the manifest package is written in full.
+- **`android:label`**: the display name a launcher shows; defaults to the
+  package name. Either text or `@string/name`, which the packer resolves
+  against `res/values` (the default configuration) and writes as text; a
+  missing string, or a label reference with no `res/` tree, fails the pack.
+- **`android:theme="@style/Name"`**: see [Components and the
+  theme](#components-and-the-theme).
+- **`icon`**: the file name of a PNG under the app's `assets/` directory (see
+  [Bundled image assets](/guides/assets/#app-icon)). It must exist there, or the
+  build fails at configuration time, and it should be a small square: 48×48 is
+  the convention; `papk-pack` warns past 64×64 or when the sides differ. This is
+  Picodroid's attribute: Android's `android:icon` names a drawable resource.
+- **Children:** `<activity>`, `<service>` and `<receiver>`; anything else fails
+  the build naming what is supported.
 
 The exact error strings, so you can grep this page if you hit one:
 
 - `PicodroidManifest.xml not found: <absolute path>`
 - `<file>: expected <manifest> root, got <other-tag>`
+- `<file>: <manifest> must declare xmlns:android="http://schemas.android.com/apk/res/android", as an Android manifest does`
 - `<file>: <manifest> missing 'package' attribute`
-- `<file>: missing <application> element`
-- `<file>: <application> must set exactly one of 'main-class', 'activity', or 'application'`
-- `<file>: <application> sets multiple of 'main-class'/'activity'/'application' — pick one`
-- `<file>: <manifest> version-code must be a positive integer, got '<value>'`
+- `<file>: <manifest version="…">: write android:versionName, Android's spelling` (and `version-code` / `android:versionCode`)
+- `<file>: <manifest> android:versionCode must be a positive integer, got '<value>'`
+- `<file>: <tag> name="…">: write android:name, Android's spelling` (and `label`, `theme`, `required`)
+- `<file>: <manifest> does not take <<tag>> (supported: <application>, <uses-permission>, <uses-feature>, <supports-screens>)`
+- `<file>: missing <application> element` and `<file>: more than one <application> element`
+- `<file>: <application application="<class>"> is the old short form: write <application android:name="…">`
+- `<file>: <application activity="<class>"> is the old short form: declare the Activity under <application> as <activity android:name="…"> with the MAIN / LAUNCHER <intent-filter>`
+- `<file>: <application main-class="<class>"> is not supported: an app's entry is an Application (android:name) or an <activity>`
+- `<file>: the app has no entry: name the Application class (<application android:name=".App">), declare an <activity>, or both`
+- `<file>: <uses-permission> belongs under <manifest>, not <application>, as on Android`
 - `<app>: PicodroidManifest.xml icon="<name>" is not a file under assets/`
 - `<file>: <supports-screens> design-width must be a positive integer, got '<value>'` (and
   `design-height`)
-- `<file>: <uses-feature> missing 'name' attribute`
-- `<file>: <uses-feature> required must be 'true' or 'false', got '<value>'`
-- `<file>: <activity> missing 'android:name' attribute` (and `<service>`)
-- `<file>: <activity> '<class>' is declared twice` (and `<service>`)
+- `<file>: <uses-feature> missing 'android:name' attribute`
+- `<file>: <uses-feature> android:required must be 'true' or 'false', got '<value>'`
+- `<file>: <activity> missing 'android:name' attribute` (and `<service>`, `<receiver>`, `<uses-permission>`)
+- `<file>: <activity> '<class>' is declared twice` (and `<service>`, `<receiver>`)
 - `<file>: <activity> android:theme is not supported — there is one theme per app; put android:theme on <application>`
 - `<file>: <activity> label '@string/…' is a reference; write the text itself (labels are not resolved from res/)` (and `<application>`)
 - `<file>: two activities carry the MAIN intent filter ('<a>', '<b>'); one app has one entry`
-- `<file>: <application> does not take <<tag>> (supported: <activity>, <service>, <uses-permission>)`
+- `<file>: <application> does not take <<tag>> (supported: <activity>, <service>, <receiver>)`
 - `<file>: <application> android:theme must name a <style>, got '<value>'`
-- `<file>: <application activity="<class>"> is not among the declared <activity> elements — declare it, or drop the attribute (…)`
 - `PicodroidManifest.xml declares components, and the code starts some it does not declare (Android refuses these at run time; declare them under <application>):` followed by the `<service android:name=…/>` / `<activity …/>` lines to add (the `verifyManifest` task)
 - `manifest <service android:name="<class>"> is not among the packed classes` and `… does not extend picodroid.app.Service` (and `<activity>` / `Activity`; `papk-pack`)
 - `the manifest names android:theme="@style/<Name>", and res/values defines no <style name="<Name>">` (and `… the app has no res/ tree to define it in`)
+- `the manifest names android:label="@string/<name>", and res/values defines no <string name="<name>">` (and `… the app has no res/ tree to define it in`)
 
 ### DOCTYPE is rejected
 
@@ -100,71 +156,89 @@ DOCTYPE in your manifest.
 
 ### Editor validation (XSD)
 
-`sdk/PicodroidManifest.xsd` mirrors the `ManifestSchema.kt` rules above —
-required `package`, optional `version` and `version-code`, the exactly-one-of
-`main-class` / `activity` / `application` entry point, and the optional `label`
-and `icon` — for editor validation and autocomplete. It is **not** wired into the build; the Gradle parser remains the
-authoritative check (the one-of rule is already enforced there), so the schema
-can't drift the build.
+`sdk/PicodroidManifest.xsd` mirrors the `ManifestSchema.kt` rules above for
+editor validation and autocomplete; it imports
+`sdk/PicodroidManifest-android.xsd`, which declares the `android:` attributes in
+Android's namespace. It is **not** wired into the build: the Gradle parser
+remains the authoritative check.
 
 Referencing it is opt-in per file via `xsi:noNamespaceSchemaLocation`. The
 `helloworld` example and the `newApp` template do so:
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="myapp" version="1.0"
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-          xsi:noNamespaceSchemaLocation="../../sdk/PicodroidManifest.xsd">
-    <application application="myapp/MyApp" />
+          xsi:noNamespaceSchemaLocation="../../sdk/PicodroidManifest.xsd"
+          package="myapp" android:versionName="1.0">
+    <application android:name=".Myapp" />
 </manifest>
 ```
 
-Manifests without the reference stay valid — the build never reads it. The
-one-of constraint uses an XSD 1.1 assertion, so the live red-squiggle for "two
-entry points set" needs a 1.1-aware validator (IntelliJ / Android Studio); other
-editors still get structure and attribute autocomplete.
+The "an Application or an Activity" rule uses an XSD 1.1 assertion, so its live
+check needs a 1.1-aware validator (IntelliJ / Android Studio); other editors
+still get structure and attribute autocomplete.
 
-## Entry-point styles
+## Entry points
 
-The `<application>` element must set **exactly one** of three attributes, and
-its value must be non-blank, or declare the entry as an `<activity>` child
-([The Android form](#the-android-form)). Setting none, or more than one, is a
-build error (see the strings above).
+An app has an `Application` class (`<application android:name>`), an entry
+Activity, or both; with neither the build fails. The entry Activity is the
+`<activity>` whose `<intent-filter>` carries the `MAIN` action, else the first
+declared.
 
-Every value is a **JVM internal name** in slash form: `pkg/Class`, never the
-dotted `pkg.Class`. The leading segment is the package, separated from the class
-name by `/`. (Nested packages use more slashes: `com/example/foo/MyApp`.) The
-dotted form would not match the compiled class's internal name and would fail at
-runtime.
+- **Both:** the framework runs `Application.onCreate()` and then launches the
+  entry Activity, as Android launches the launcher Activity once the
+  Application is created. The Application does not call `startActivity` for
+  it. It still may: an Activity that `onCreate` starts itself (with extras, or
+  a different one) is launched instead, and one that hands the device to another
+  package launches nothing.
+- **An Activity only:** the runtime instantiates the entry Activity and drives
+  its lifecycle directly.
+- **An Application only:** `onCreate()` runs, the Services it started run their
+  course, and the app ends: a headless app, as an Android app with no launcher
+  Activity. `helloworld`, `servicedemo` and the console-style test apps are of
+  this kind.
 
-### The Android form
-
-The shape an Android manifest has, with what this platform reads of it
-([manifest-components-2026-10.md](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/manifest-components-2026-10.md)):
+The entry Activity's `getIntent()` returns `null` (Android hands it an
+`ACTION_MAIN` Intent); an Activity started with an Intent has it.
 
 ```xml
-<manifest package="claudeusage" version="1.0">
-    <application android:theme="@style/AppTheme" label="Claude Usage">
-        <activity android:name=".ui.MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-        <service android:name=".data.UsageService" />
-    </application>
-</manifest>
+<application android:name=".MyApp">
+    <activity android:name=".MainActivity">
+        <intent-filter>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
+    </activity>
+</application>
 ```
 
-- **`<activity android:name="…">`**, repeatable. The one with the `MAIN` intent
-  filter is the entry; without one, the first declared. Names are read as
-  Android reads them: dotted (`claudeusage.ui.MainActivity`), slash-form, or
-  relative to the manifest `package` with a leading dot. The short-form
-  `activity=` attribute may stay beside the children and must then name one of
-  them. `android:label="…"` is the Activity's title (`getTitle`, the [app
-  bar](/api/ui/#app-bar-toolbar-and-setactionbar)); without one it takes the
-  application's `label`. A label is literal text: an `@string/` reference is a
-  build error.
+```java
+package myapp;
+
+import picodroid.app.Application;
+
+public class MyApp extends Application {
+  @Override
+  public void onCreate() {
+    // App-wide setup; the framework launches MainActivity afterwards.
+  }
+}
+```
+
+See [Multi-screen apps](/tutorials/multi-screen-app/) and
+[Background services](/tutorials/background-service/).
+
+## Components and the theme
+
+What this platform reads of an Android manifest's components
+([manifest-components-2026-10.md](https://github.com/shivrajora/picodroid-rs/blob/main/docs/designs/manifest-components-2026-10.md)):
+
+- **`<activity android:name="…">`**, repeatable. One may carry the `MAIN`
+  intent filter (two is an error). `android:label="…"` is the Activity's title
+  (`getTitle`, the [app bar](/api/ui/#app-bar-toolbar-and-setactionbar)), text or
+  `@string/name` like the application's; without one it takes the application's
+  label.
 - **`<service android:name="…">`**, repeatable. Declared components are
   checked twice at build time: `papk-pack` checks that each class is packed and
   extends `picodroid.app.Activity` / `Service`, and the Gradle `verifyManifest`
@@ -179,10 +253,6 @@ The shape an Android manifest has, with what this platform reads of it
   serves `?attr/` and nothing is applied ([styles and the
   theme](/guides/resources/#styles-and-the-theme)). One theme per app: an
   `android:theme` on an `<activity>` is a build error.
-- **`<uses-permission>`** is read and ignored. Nothing on this platform enforces
-  a permission (WiFi, the network and the LEDs are open to every app); the
-  element is accepted so an Android manifest's lines do not break the build, and
-  it grants nothing.
 - **`<receiver>`** declares a `BroadcastReceiver` the framework starts: for
   the actions its `<intent-filter>` names — `BOOT_COMPLETED`, `TIME_SET` and
   `TIMEZONE_CHANGED` are the ones a manifest receiver may declare; the other
@@ -190,100 +260,13 @@ The shape an Android manifest has, with what this platform reads of it
   for an explicit broadcast Intent or `PendingIntent.getBroadcast` that names
   the class. One app runs at a time, so a delivery to an app that is not
   running is a headless run of it: `Application.onCreate`, then `onReceive`
-  with a plain Context, no Activity (one it starts is dropped with a log
-  line); it happens at boot before the boot app, when an app hands over to the
-  launcher, or by interrupting the launcher. The class must extend
-  `picodroid.content.BroadcastReceiver`.
+  with a plain Context, no Activity (the entry Activity is not launched, and
+  one the app starts is dropped with a log line); it happens at boot before the
+  boot app, when an app hands over to the launcher, or by interrupting the
+  launcher. The class must extend `picodroid.content.BroadcastReceiver`.
 - Not read: `<meta-data>`, `<provider>`, anything in an `<intent-filter>` but
-  the `MAIN` action and a receiver's actions. An unknown child of
-  `<application>` fails the build naming what is supported. The bare spellings `name=` and
-  `theme=` are accepted beside the `android:` ones.
-
-A short-form manifest (`activity=` / `application=` / `main-class=` alone)
-declares nothing and nothing is checked; that is every example but
-`askclaude`, `bootdemo`, `calculator`, `claudeusage`, `layoutdemo`, `picoclock`, `picoenvmon`,
-`picoenvmon_kt`, `servicedemo`, `tutorial_screens`, `tutorial_service` and `weather`.
-
-### `application=` — full app with lifecycle
-
-Use this for anything beyond a single screen: an app that starts Activities,
-binds services, or needs the `onCreate()` setup hook. This is the form every
-example app uses, and what `newApp` scaffolds.
-
-```xml
-<application application="myapp/MyApp" />
-```
-
-```java
-package myapp;
-
-import picodroid.app.Application;
-import picodroid.content.Intent;
-
-public class MyApp extends Application {
-  @Override
-  public void onCreate() {
-    startActivity(new Intent(this, MainActivity.class));
-  }
-}
-```
-
-`Application.onCreate()` runs once at launch. From there you drive the UI by
-launching Activities with `startActivity(...)`. See
-[Multi-screen apps](/tutorials/multi-screen-app/) and
-[Background services](/tutorials/background-service/).
-
-### `activity=` — single-screen UI
-
-Use this when the whole app is one screen and you don't need an `Application`
-subclass. The runtime instantiates the named `Activity` and drives its lifecycle
-directly.
-
-```xml
-<application activity="myapp/MainActivity" />
-```
-
-```java
-package myapp;
-
-import picodroid.app.Activity;
-import picodroid.os.Bundle;
-import picodroid.widget.TextView;
-
-public class MainActivity extends Activity {
-  @Override
-  protected void onCreate(Bundle savedInstanceState) {
-    super.onCreate(savedInstanceState);
-    TextView root = new TextView(this);
-    root.setText("Hello");
-    setContentView(root);
-  }
-}
-```
-
-See the [UI API](/api/ui/) for building view trees.
-
-### `main-class=` — console / static main
-
-Use this for a non-UI program — a console or benchmark-style app whose logic
-lives in a `static void main`. The runtime invokes the static `main` method and
-nothing else.
-
-```xml
-<application main-class="myapp/Main" />
-```
-
-```java
-package myapp;
-
-import picodroid.util.Log;
-
-public class Main {
-  public static void main(String[] args) {
-    Log.i("Main", "Hello from main!");
-  }
-}
-```
+  the `MAIN` action and a receiver's actions (a `<category>` is accepted and
+  ignored).
 
 ## App identity
 
@@ -291,17 +274,23 @@ A launcher lists installed apps by three values, all optional:
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="com.acme.weather" version="1.4" version-code="5">
-    <application application="weather/WeatherApp"
-                 label="Weather"
-                 icon="icon.png" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="com.acme.weather" android:versionName="1.4" android:versionCode="5">
+    <application android:label="@string/app_name" icon="icon.png">
+        <activity android:name="weather.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
 </manifest>
 ```
 
-They reach the PAPK as the `version-code`, `label` and `icon` manifest keys
-(`papk-info` prints them). A PAPK whose manifest lacks them still installs: a
-missing code reads as 1, a missing label as the package name, a missing icon as
-none.
+They reach the PAPK as the `version-code`, `label` (as text, a `@string/`
+resolved) and `icon` manifest keys (`papk-info` prints them). A PAPK whose
+manifest lacks them still installs: a missing code reads as 1, a missing label
+as the package name, a missing icon as none.
 
 ## Screens and features
 
@@ -310,10 +299,17 @@ Two more elements, both optional, from
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="picoclock" version="1.0">
-    <application application="picoclock/ClockApp" label="Clock" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="dragdemo">
+    <application>
+        <activity android:name=".DragDemoActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
     <supports-screens design-width="320" design-height="480" />
-    <uses-feature name="picodroid.hardware.touchscreen" required="true" />
+    <uses-feature android:name="picodroid.hardware.touchscreen" android:required="true" />
 </manifest>
 ```
 
@@ -334,11 +330,11 @@ at the panel's own size (see
 **`<uses-feature>`** declares a hardware feature by the name
 `PackageManager.hasSystemFeature` answers to: `picodroid.hardware.touchscreen`,
 `picodroid.hardware.wifi`, `picodroid.hardware.ethernet`. With
-`required="true"` the installer — `pdb install`, the launcher's installer and
+`android:required="true"` the installer — `pdb install`, the launcher's installer and
 the simulator's `apps install` — refuses the app on a board that lacks the
 feature, before anything is erased:
 `device rejected install: ERR — requires a feature this board lacks (uses-feature)`.
-The default is `required="false"`, which is informational: the stock widgets
+The default is `android:required="false"` (Android's is `true`), which is informational: the stock widgets
 work with a finger and with four keys alike, so only an app that reads raw
 touch (a drawing pad, a drag demo) has to insist. A board whose firmware was
 flashed with such an app directly, bypassing the installer, runs it and logs
@@ -391,8 +387,8 @@ rootDir.resolve("examples").listFiles()
     ?.forEach { include(":examples:${it.name}") }
 ```
 
-By convention the slash-form entry point's leading segment, the `package=`
-value, and the directory name all match (e.g. `helloworld`). Nothing enforces
+By convention the classes' Java package, the `package=` value, and the
+directory name all match (e.g. `helloworld`). Nothing enforces
 that match — a reverse-DNS `package=` over a short directory name is fine —
 but keeping them identical avoids confusion.
 
@@ -409,7 +405,8 @@ starts on a 4-byte boundary, because the device reads all of them in place from
 flash.
 
 - **MANIFEST** holds the values of this page as key/value strings: the entry
-  point (`application`, `activity` or `main-class`), `package-name`, `version`,
+  point (`application`, `activity`, or `application` then `activity` for an
+  app with both; `main-class` only from `papk-pack --main-class`), `package-name`, `version`,
   `framework-map-version`, and `version-code`, `label`, `icon`, `design-width`,
   `design-height` and `requires-features` when set; an Android-form manifest
   adds `activities` and `services` (comma-joined, slash form), `theme` (the
@@ -453,8 +450,8 @@ fails with `already exists: <dir>`.
 It generates three files under `examples/myapp/`:
 
 - `java/myapp/Myapp.java` — an `Application` subclass with an `onCreate()` stub.
-- `PicodroidManifest.xml` — `package="myapp"`, `version="1.0"`, and
-  `application="myapp/Myapp"`.
+- `PicodroidManifest.xml` — `package="myapp"`, `android:versionName="1.0"`,
+  and `<application android:name=".Myapp">`.
 - `build.gradle.kts` — applies `id("picodroid-papk")`.
 
 The class name is the app name with its first letter uppercased. From there,
@@ -465,8 +462,8 @@ follow [Your first app](/get-started/first-app/).
 Under `--shrink` the [shrinker](/reference/shrinker/) rewrites only framework
 references — the `picodroid.*` and `java.*` classes and the member names the
 release map covers. The release map is cut from the framework source tree
-alone, so your app's own class names pass through unchanged, and your
-`application=` / `activity=` / `main-class=` value (e.g. `myapp/MyApp`) is
+alone, so your app's own class names pass through unchanged, and the
+`application` / `activity` values the packer writes (e.g. `myapp/MyApp`) are
 identical in the shrunk and unshrunk PAPK. Only the references baked into your
 `.class` bytes (the `picodroid/app/Application` superclass, an `onCreate`
 override) are rewritten, and the firmware's copies are rewritten the same way.
@@ -474,7 +471,7 @@ override) are rewritten, and the firmware's copies are rewritten the same way.
 Under `--shrink --shrink-app` your own classes are renamed too (`myapp/MyApp`
 → `c/A`) and `papk-pack` spells the manifest entry, the declared `activities`
 and `services`, and a layout's custom view class names through the per-app map,
-so the manifest you write keeps saying `myapp/MyApp` while the packed manifest
+so the manifest you write keeps saying `.MyApp` while the packed manifest
 names the class that is actually in the PAPK. The entry points Rust invokes by
 name — `main` and the generated `injectMembers` — are kept by `sdk/keep.toml`.
 You never need a keep entry for your own classes in either mode. See
@@ -483,31 +480,29 @@ You never need a keep entry for your own classes in either mode. See
 ## Runtime dispatch and errors
 
 At load time the firmware first runs a compatibility check (below), loads the
-framework and app classes, then dispatches on the manifest entry point. Unlike
-the build-time "exactly one of" rule, the runtime uses a fixed **precedence** —
-it does not re-check that only one key is set:
+framework and app classes, then dispatches on the manifest entry point:
 
-1. `application` (highest precedence)
-2. `activity`
-3. `main-class`
+1. `application`: `Application.onCreate()`, then the `activity` value when the
+   PAPK carries one and `onCreate` queued no Activity itself (see
+   [Entry points](#entry-points)).
+2. `activity` alone: that Activity.
+3. `main-class`: its `static void main` (a PAPK packed by hand with
+   `papk-pack --main-class`; a manifest cannot name one).
 
-A normally-built PAPK only ever carries one of these, so precedence is moot. A
-hand-built PAPK with several keys would simply use the highest one.
+If a named class is missing, the JVM's name-based lookup fails. The firmware
+**logs the error and returns cleanly** rather than panicking — a bad APK should
+not brick the boot path. The log line depends on the entry point:
 
-If the named class is missing or its name is mistyped (for example, a dotted
-`myapp.MyApp` that can't match the slash-form internal name), the JVM's
-name-based lookup fails with `MethodNotFound`. The firmware **logs the error and
-returns cleanly** rather than panicking — a bad APK should not brick the boot
-path. The log prefix depends on the entry-point type:
-
-- `application` → `Application.onCreate error: <err>`
-- `activity` → `failed to instantiate initial Activity <class>`, and lifecycle
+- `application` → `failed to instantiate Application <class>` or
+  `Application.onCreate error: <err>`
+- `activity` → `failed to instantiate initial Activity <class>` (after an
+  Application) or `failed to instantiate boot Activity <class>`, and lifecycle
   invocation errors as `Activity lifecycle error: <err>`
 - `main-class` → on hardware `JVM error: <err>`; in the simulator
   `[jvm] error: <err>`
 
-If you see one of these in the [simulator](/get-started/simulator/) or device
-log, the usual cause is a typo'd entry-point string or a dotted name. See
+`papk-pack` refuses a manifest whose classes are not packed, so these mean a
+PAPK built by hand or a class the build could not see. See
 [Debugging](/guides/debugging/) and [Troubleshooting](/guides/troubleshooting/).
 
 ### Install compatibility check

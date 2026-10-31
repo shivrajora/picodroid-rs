@@ -194,11 +194,12 @@ public void onDestroy() {
 
 ## Starting it from the entry screen
 
-The manifest declares every component the app starts, in Android's long form: the two screens and the Service. `HomeActivity` carries the `MAIN` / `LAUNCHER` intent filter, so it is what the launcher opens (and what boots first); there is no `Application` subclass. The Gradle `verifyManifest` task refuses an `Intent` that names an undeclared Service or Activity, which is why the `<service>` line is there ([manifest reference](/reference/manifest/#the-android-form)):
+The manifest declares every component the app starts, as Android does: the two screens and the Service. `HomeActivity` carries the `MAIN` / `LAUNCHER` intent filter, so it is what the launcher opens (and what boots first); there is no `Application` subclass. The Gradle `verifyManifest` task refuses an `Intent` that names an undeclared Service or Activity, which is why the `<service>` line is there ([manifest reference](/reference/manifest/#components-and-the-theme)):
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="tutorial_service" version="1.0">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="tutorial_service" android:versionName="1.0">
     <!-- Each component the app starts is declared: the two screens (the MAIN / LAUNCHER one is
          what the launcher opens) and the Service. The build refuses an Intent that names an
          undeclared Service or Activity. -->

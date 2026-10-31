@@ -288,8 +288,8 @@ RP2350 boards.
 | `EditText` | `text`, `hint`, `inputType` (`text`, `number`, `phone`, `datetime`, `textUri`, `textEmailAddress`, `textPassword`, `numberSigned`, `numberDecimal`) |
 | `CheckBox`, `RadioButton` | `text`, `checked` |
 | `Switch`, `ToggleButton` | `checked`; `textOn`, `textOff` on `ToggleButton` |
-| `ImageView` | `src` (`@drawable/…`), `scaleType` (`fitCenter`, `centerCrop`, `fitXY`, `center`), `tint` |
-| `ProgressBar`, `SeekBar` | `progress`, `max`; `min`, `progressTint`, `progressBackgroundTint`, `indeterminateTint` on `ProgressBar` (`tint` is the older spelling of `indeterminateTint`). `min` and `max` are applied before `progress` whatever the XML order, as on Android. |
+| `ImageView` | `src` (`@drawable/…`), `scaleType` (every Android value: `fitCenter`, `centerCrop`, `centerInside`, `fitXY`, `center`, `matrix`, and `fitStart` / `fitEnd`, drawn as `fitCenter`), `tint` (`setImageTintList`) |
+| `ProgressBar`, `SeekBar` | `progress`, `max`; `min`, `progressTint`, `progressBackgroundTint`, `indeterminateTint` on `ProgressBar`. `min` and `max` are applied before `progress` whatever the XML order, as on Android. A `<ProgressBar>` is Android's default, the spinner; `style="?android:attr/progressBarStyleHorizontal"` (or `@android:style/Widget.ProgressBar.Horizontal`) makes the determinate bar. That and the spinner styles (`progressBarStyle`, `…Small`, `…Large`) are the only framework styles a layout may name. |
 | `CircularProgressIndicator` | `ProgressBar`'s `progress`, `min`, `max`, `progressTint` (the indicator) and `progressBackgroundTint` (the track), plus Material's `indicatorColor`, `trackColor`, `trackThickness`, `indicatorSize` (Android Studio writes them with the `app:` prefix) and picodroid's `startAngle`, `sweepAngle` (degrees) |
 
 An attribute the framework has no setter for — `textStyle`, `fontFamily`, `elevation`,
@@ -353,7 +353,7 @@ are build errors. To change such a background's colour at run time, tint it:
   costs nothing on the device.
 - `?attr/name` (also `?android:attr/name` and `?name`) in a layout, a shape or a value is the item
   `name` of the app's theme: the style the manifest names with `<application
-  android:theme="@style/AppTheme">` ([the Android form](/reference/manifest/#the-android-form)),
+  android:theme="@style/AppTheme">` ([components and the theme](/reference/manifest/#components-and-the-theme)),
   else the style called **`AppTheme`**. It too is resolved at build time. A theme item may be
   anything a reference can be, including one of your own (`<item name="captionSize">20sp</item>`).
 - The theme's colours reach the framework's own widgets, which is what the device keeps of a

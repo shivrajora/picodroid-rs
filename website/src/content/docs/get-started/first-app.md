@@ -46,12 +46,13 @@ public class MyApp extends Application {
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
-<manifest package="myapp" version="1.0">
-    <application application="myapp/MyApp" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="myapp" android:versionName="1.0">
+    <application android:name=".MyApp" />
 </manifest>
 ```
 
-`package` is the app's identity on a device: a board that holds several apps keeps one install per package, and `pdb uninstall` names it. `<application>` also takes a `label` and an `icon` for the launcher to show — see the [manifest reference](/reference/manifest/#app-identity).
+`package` is the app's identity on a device: a board that holds several apps keeps one install per package, and `pdb uninstall` names it. The manifest is written as Android writes `AndroidManifest.xml`: `android:name` names the `Application` class, relative to `package` with a leading dot. `<application>` also takes an `android:label` and an `icon` for the launcher to show — see the [manifest reference](/reference/manifest/#app-identity).
 
 3. Create a one-line `build.gradle.kts` in the app directory:
 
@@ -78,11 +79,11 @@ The build pipeline is a Gradle multi-project with a custom `picodroid-papk` plug
 
 The build files in `settings.gradle.kts` and `examples/*/build.gradle.kts` are standard Gradle projects. Opening the repo in IntelliJ IDEA ("Open as Gradle project") or VS Code (with the Red Hat Java + Gradle extensions) gives autocomplete, jump-to-def, and inline error reporting for all framework and app sources.
 
-Pass `--shrink` (off by default) to apply the active release shrink map — `build-apk.sh` will rewrite framework class and member references inside your `.class` files (e.g. `Lpicodroid/app/Application;` → `La/B;`). Your own names stay as they are, so the `application=` value in the manifest remains valid; the one exception is a name of yours that spells one of the map's short names (a field `p`, a class in the default package), which is renamed so it cannot alias the framework's. Add `--shrink-app` to rename your own classes and private members as well; the manifest still names `myapp/MyApp` and `papk-pack` maps the entry class for you. See [Shrinker](/reference/shrinker/) for details.
+Pass `--shrink` (off by default) to apply the active release shrink map — `build-apk.sh` will rewrite framework class and member references inside your `.class` files (e.g. `Lpicodroid/app/Application;` → `La/B;`). Your own names stay as they are, so the class names in the manifest remain valid; the one exception is a name of yours that spells one of the map's short names (a field `p`, a class in the default package), which is renamed so it cannot alias the framework's. Add `--shrink-app` to rename your own classes and private members as well; the manifest still names `.MyApp` and `papk-pack` maps the entry class for you. See [Shrinker](/reference/shrinker/) for details.
 
 ## Application Lifecycle
 
-The apps on this page extend `picodroid.app.Application` and override `onCreate()`. The runtime instantiates the class the manifest's `application=` names and calls `onCreate()` as the entry point. (The manifest can name an Activity or a `main` class instead — see [entry-point styles](/reference/manifest/#entry-point-styles).)
+The apps on this page extend `picodroid.app.Application` and override `onCreate()`. The runtime instantiates the class the manifest's `<application android:name>` names and calls `onCreate()` as the entry point. An app with screens also declares its Activities, and the framework launches the one with the `MAIN` / `LAUNCHER` intent filter after `onCreate` — see [entry points](/reference/manifest/#entry-points).
 
 ### Console app
 
@@ -103,20 +104,22 @@ public class MyApp extends Application {
 
 ### Display app
 
-For graphical apps, create an `Activity` subclass and launch it with `startActivity()`:
+For graphical apps, create an `Activity` subclass and declare it in the manifest with the `MAIN` /
+`LAUNCHER` intent filter; the framework launches it (after `Application.onCreate`, when the app also
+names an `Application`), as on Android:
 
-```java
-// MyApp.java — Application entry point
-package myapp;
-
-import picodroid.app.Application;
-import picodroid.content.Intent;
-
-public class MyApp extends Application {
-    public void onCreate() {
-        startActivity(new Intent(this, MyActivity.class));
-    }
-}
+```xml
+<!-- PicodroidManifest.xml -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="myapp">
+    <application>
+        <activity android:name=".MyActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
 ```
 
 ```java
@@ -264,11 +267,16 @@ Wire a `GestureDetector` to recognize taps, long presses, and flings, and use `v
 import picodroid.view.GestureDetector;
 import picodroid.view.MotionEvent;
 
-view.setOnTouchListener(new GestureDetector(this, new GestureDetector.OnGestureListener() {
-    public void onSingleTap(MotionEvent e) { view.animate().alpha(0.3f).setDuration(120).start(); }
-    public void onLongPress(MotionEvent e) { showContextMenu(); }
-    public void onFling(MotionEvent down, MotionEvent up, float vx, float vy) { /* ... */ }
-}));
+GestureDetector detector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+    @Override public boolean onDown(MotionEvent e) { return true; }
+    @Override public boolean onSingleTapUp(MotionEvent e) {
+        view.animate().alpha(0.3f).setDuration(120).start();
+        return true;
+    }
+    @Override public void onLongPress(MotionEvent e) { showContextMenu(); }
+    @Override public boolean onFling(MotionEvent e1, MotionEvent e2, float vx, float vy) { return true; }
+});
+view.setOnTouchListener((v, e) -> detector.onTouchEvent(e));
 ```
 
 See [api/ui.md → GestureDetector](/api/ui/#picodroidviewontouchlistener-and-gesturedetector), [→ ViewPropertyAnimator](/api/ui/#picodroidviewviewpropertyanimator), and [`examples/gesturedemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/gesturedemo) / [`examples/animdemo/`](https://github.com/shivrajora/picodroid-rs/tree/main/examples/animdemo).

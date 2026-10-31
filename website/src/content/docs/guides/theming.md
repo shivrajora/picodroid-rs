@@ -35,8 +35,8 @@ The palette is process-global — static fields, not per-Activity; one app runs 
 is read when a view is built, so a later assignment does not repaint what is already on screen.
 Views don't cascade automatically — a view applies a theme color explicitly, e.g.
 `view.setBackgroundColor(Theme.colorBackground)` or `label.setTextColor(Theme.colorPrimary)`.
-The widgets that read the palette themselves are the progress indicators: an indeterminate
-`ProgressBar` spins in `colorPrimary`, and a `CircularProgressIndicator` draws its indicator in
+The widgets that read the palette themselves are the progress indicators: a
+`ProgressBar` spinner (the default style) spins in `colorPrimary`, and a `CircularProgressIndicator` draws its indicator in
 `colorPrimary` over a `colorOutline` track, until a tint says otherwise.
 
 ### Theme color fields

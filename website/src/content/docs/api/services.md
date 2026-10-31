@@ -1,6 +1,6 @@
 ---
 title: "Services & DI"
-description: "Service / ServiceConnection / Notification / IBinder, AlarmManager / PendingIntent, plus dependency injection: compile-time @Inject / @Singleton, @Module / @Provides, Provider / Lazy, and the manual DI components."
+description: "Service / ServiceConnection / Notification / IBinder, AlarmManager / PendingIntent, plus dependency injection: compile-time @Inject / @Singleton, @Module / @Provides, @ApplicationContext, Provider / Lazy, and the manual DI components."
 ---
 
 Picodroid mirrors the Android `Service` shape closely enough that an Android developer can pick it up without re-learning the pattern, but pares the lifecycle down to what fits on a Pico: no Binder IPC, no remote services, no system-process dispatch.
@@ -120,7 +120,7 @@ public int onStartCommand(Intent intent, int flags, int startId) {
 
 `stopForeground(true)` removes the notification; `onDestroy` cancels it automatically. `Notification.Builder(Context, String channelId)` is Android's constructor; there is one notification slot and no channels, so the channel id is accepted and not used.
 
-A `Notification` carries a title and a body, read back with `getContentTitle()` and `getContentText()`. There are no channels, icons or tap intents.
+A `Notification` carries a title and a body, read back as on Android through `extras` (`notification.extras.getString(Notification.EXTRA_TITLE)`, `EXTRA_TEXT`). There are no channels, icons or tap intents.
 
 :::note[Nothing is drawn yet]
 The framework tracks one current notification and writes each post and cancel to the log — `[notification 1] Logging sensors: ring buffer 0/256` in the simulator, `[notif 1] …` over RTT. The on-screen banner is not implemented, so use a [`Toast`](/api/ui/#picodroidwidgettoast) or a view of your own for anything the user must see.
@@ -449,11 +449,9 @@ What the build does:
   ```java
   @Module
   public final class AppModule {
-    // MyApp keeps the Application it is in a static, set in its constructor, so it is there
-    // before anything is injected.
     @Provides @Singleton
-    static SharedPreferences providePrefs() {
-      return MyApp.get().getSharedPreferences("app", Context.MODE_PRIVATE);
+    static SharedPreferences providePrefs(@ApplicationContext Context context) {
+      return context.getSharedPreferences("app", Context.MODE_PRIVATE);
     }
 
     @Provides
@@ -461,13 +459,14 @@ What the build does:
   }
   ```
 
+- **The application `Context` and the `Application` are bound by the framework**, as in Hilt: inject `@ApplicationContext Context` (`picodroid.di.ApplicationContext`, the counterpart of `dagger.hilt.android.qualifiers.ApplicationContext`) or `picodroid.app.Application` as a `@Provides` parameter, an `@Inject` constructor or method parameter, or an `@Inject` field. Both are the app's `Application`, which lives as long as the graph's singletons, so a `@Singleton` may hold it. An unqualified `Context` is not bound (a compile error that names `@ApplicationContext`, as Hilt's missing-binding error does): an `Activity` Context would leak into the singletons. Neither may be wrapped in `Provider` / `Lazy`, rebound by a `@Provides` method, or replaced by the app's own subclass (inject `Application` and cast). An app whose manifest names no `Application` class gets a bare `picodroid.app.Application`, made on first use, so the injected value is never `null`; Android always has one.
 - `javax.inject.Provider<T>` and `picodroid.di.Lazy<T>` (the `dagger.Lazy` counterpart) can be injected anywhere a `T` can. A `Provider` hands out a fresh instance per `get()` for unscoped types (the one instance for a `@Singleton`) and constructs nothing until called; a `Lazy` calls the factory once and memoizes. Both break dependency cycles, since neither constructs anything at injection time. They are generated on demand as `T_Provider` / `T_Lazy`.
 
 Rules the compiler enforces — each violation is a compile error that says why:
 
 - One `@Inject` constructor per class, never on an abstract class or on an `Application` / `Activity` / `Service` subclass (the framework constructs those with the no-arg constructor).
 - `@Inject` fields must be non-private, non-final and non-static; the injector lives in the same package, so package-private is the idiom. `@Inject` methods must be non-private, non-static, non-abstract and non-generic.
-- Every dependency must have exactly one binding in the app — an `@Inject` constructor on a concrete, non-generic class, or one `@Provides` method — optionally wrapped in one `Provider<T>` / `Lazy<T>`. A type bound twice is an error. Parameterized types (other than the two wrappers), qualifiers and `@Binds` are not supported yet.
+- Every dependency must have exactly one binding in the app — an `@Inject` constructor on a concrete, non-generic class, or one `@Provides` method — optionally wrapped in one `Provider<T>` / `Lazy<T>`. A type bound twice is an error. Parameterized types (other than the two wrappers), qualifiers other than `@ApplicationContext` (`javax.inject.Qualifier` exists, and a custom one is a compile error) and `@Binds` are not supported yet.
 - No dependency cycles through direct constructor or member edges; break one with `Provider<T>` or `Lazy<T>`.
 - An `@Inject` field's name must not be reused anywhere in its superclass or subclass chain: pico-jvm resolves instance fields by name only.
 - `@Singleton` is the only scope; it goes on a class with an `@Inject` constructor or on a `@Provides` method. `@Provides` methods must live in a `@Module`, be non-private and non-abstract, return a class or interface type, and have unique names within the module; a module cannot itself have an `@Inject` constructor or members.
