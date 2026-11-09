@@ -24,7 +24,7 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - ubuntu-latest
+          - ubuntu-24.04
           - macOS-latest
     runs-on: ${{ matrix.os }}
     steps:
@@ -70,7 +70,7 @@ jobs:
   fuzzing:
     name: Fuzz targets (nightly Rust)
     timeout-minutes: 45
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:

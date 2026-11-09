@@ -34,6 +34,15 @@ env:
   # rust_nightly.yml is where the next toolchain is previewed.
   RUST_TOOLCHAIN: 1.98.1
 
+# Every Linux job (here, ci_light.yml, docs.yml, rust_nightly.yml) runs on
+# ubuntu-24.04, not ubuntu-latest: the image is pinned for the same reason the
+# toolchain is. ubuntu-latest became 26.04 in late October 2026 and turned main
+# red three ways at once: apt's default-jdk-headless became JDK 25, which
+# Gradle 8.10 cannot run on; arm-none-eabi-gcc 15 defaults to C23, where
+# cyw43.h's implicit MIN() is an error; and coreutils became a multicall
+# binary, so test-device-lock.sh's copied-`sleep` probe-rs stand-in no longer
+# runs. Move to a newer image in one commit that fixes all three.
+
 jobs:
   building:
     name: Building
@@ -43,7 +52,7 @@ jobs:
         # On the pinned RUST_TOOLCHAIN. The reference build on nightly Rust
         # runs weekly, in rust_nightly.yml.
         os:
-          - ubuntu-latest
+          - ubuntu-24.04
           - macOS-latest
     runs-on: ${{ matrix.os }}
     steps:
@@ -102,7 +111,7 @@ jobs:
   testing:
     name: Testing
     timeout-minutes: 30
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -137,7 +146,7 @@ jobs:
   coverage:
     name: Coverage
     timeout-minutes: 30
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -183,7 +192,7 @@ jobs:
   linting:
     name: Linting
     timeout-minutes: 40
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -249,7 +258,7 @@ jobs:
   # before a release cut.
   # size-ratchet:
   #   name: Binary-size ratchet
-  #   runs-on: ubuntu-latest
+  #   runs-on: ubuntu-24.04
   #   steps:
   #     - uses: actions/checkout@v4
   #       with:
@@ -284,7 +293,7 @@ jobs:
   examples:
     name: Compile All Example APKs
     timeout-minutes: 30
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -340,7 +349,7 @@ jobs:
   sim-smoke:
     name: Sim Smoke Tests (${{ matrix.shard }})
     timeout-minutes: 45
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -393,7 +402,7 @@ jobs:
   formatting:
     name: Formatting
     timeout-minutes: 10
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -407,7 +416,7 @@ jobs:
   java-formatting:
     name: Java + Kotlin Formatting
     timeout-minutes: 10
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4

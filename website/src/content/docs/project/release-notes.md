@@ -423,7 +423,7 @@ starts names a declared component, with the element to add in the error (Android
 run time). `<uses-permission>` is read and ignored; nothing is enforced. The short form declares
 nothing and is unchanged; `claudeusage`, `layoutdemo`, `servicedemo` and `tutorial_service` move.
 Three manifest keys: `activities`, `services`, `theme`. See [the manifest
-reference](/reference/manifest/#the-android-form).
+reference](/reference/manifest/#components-and-the-theme).
 
 **Reflection-lite: `Class.forName` and `Class.newInstance` (2026-10-09)**
 
