@@ -6,6 +6,26 @@ one picks up. Routine handovers go here; a large one gets its own doc under `doc
 here. Keep entries to a few lines; the reasoning goes to [`decisions.md`](decisions.md), the
 ranked list to [`gaps.md`](gaps.md).
 
+## 2026-11-08 — nightly triage (2026-10-31): qa_ui on the W board, qa_life on the touch kit
+
+- **qa_ui** (pico_display2_w, FAIL since c66b52d3, 2026-10-27): LVGL's pool ran out after
+  churn's 241-view screen and the UI task spun in `LV_ASSERT_MALLOC` (gdb in the sim with
+  `--board pico_display2_w`: `lv_obj_class_create_obj`); the app bar section's Toolbar stayed in
+  the tree for the rest of the run. `appBarLaidOut` now removes it.
+- **qa_life** (pico_touch_kit, FAIL since c66b52d3): `Thread.start` refused a 16 KB stack (heap
+  free 36 KB, largest block 14 KB); `T.later` spawned a thread per service step. One timer thread
+  now serves every `later` (no `mainScheduledExecutor` on testbench_rp2040), leaving after the
+  report. Nothing in c66b52d3 leaks native heap; the margin was already 14.4 KB on 10-12.
+- **Numbers:** HIL both shrink modes (the 10-31 nightly's shrink pass ran the working tree; the
+  no-shrink side re-run by hand): qa_ui 325/0 on pico_display2_w, qa_life 80/0 on pico_touch_kit;
+  the rest of the nightly green on all three boards. Sim: qa_life 80/0 on testbench_rp2350,
+  pico_touch_kit, testbench_rp2040; qa_ui 319/0 on testbench_rp2350. The nightlies of 11-01..11-08
+  ran these edits from the main checkout before they were committed: both rows PASS every night,
+  both modes.
+- **Still open:** the sim with `--board pico_display2_w` still fills the pool at treeRooted's
+  Snackbar, with or without the app bar sections, while the board passes: a pool divergence to
+  chase. A full pool is still a silent spin (`LV_ASSERT_HANDLER while(1)`), not a log line.
+
 ## 2026-10-31 — the Android-idiom sweep, round two: manifest, DI context, the last spellings
 
 - **Landed:** the short manifest form is gone (`android:` attributes only, 113 manifests

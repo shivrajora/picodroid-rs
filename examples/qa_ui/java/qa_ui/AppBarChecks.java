@@ -33,6 +33,7 @@ final class AppBarChecks {
   }
 
   private final QaUiActivity activity;
+  private LinearLayout root;
   private Toolbar bar;
 
   /** The ids the up button reported to {@code onOptionsItemSelected}. */
@@ -63,6 +64,7 @@ final class AppBarChecks {
   }
 
   private void appBar(LinearLayout root) {
+    this.root = root;
     QaUiActivity.check(
         "title from the activity's android:label",
         "UI checks".equals(activity.getTitle().toString()));
@@ -127,6 +129,10 @@ final class AppBarChecks {
     activity.getActionBar().setDisplayHomeAsUpEnabled(false);
     activity.setActionBar(null);
     QaUiActivity.check("setActionBar(null) detaches", activity.getActionBar() == null);
+    // Out of the tree once checked: the bar's views and styles live in LVGL's 48 KB pool, and on
+    // pico_display2_w the rest of the run (churn's 241-view screen, treeRooted's 34 buttons) has
+    // no room left for them (pool-full spin in lv_obj_class_create_obj, nightly 2026-10-27).
+    root.removeView(bar);
   }
 
   void backDispatch() {
